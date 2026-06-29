@@ -8,9 +8,22 @@ External developers use this endpoint to push **daily attendance summaries** (ch
 POST /api/public/attendance-ingest
 ```
 
-**Base URL:** your deployed FEC-OS origin (e.g. `https://fec.example.com`) or `http://localhost:3000` in development.
+**Base URL:** `https://e3fec.vercel.app` (production). Local development: `http://localhost:3000`.
 
 ## Authentication
+
+
+**What this key is:** A shared secret issued by FEC for external systems to authenticate to this endpoint only. Send it as `Bearer` or `X-API-Key`; it is not a Supabase or user login token.
+
+## Configured API Key
+
+Use this key for production ingest to `https://e3fec.vercel.app` (rotate via FEC ops if compromised):
+
+```
+2ad345a0b0a401a84a92e1962bb9f715b6e10e776fad9bbcd005db1cb8ab04ba
+```
+
+**Security:** This value is stored in this repo for developer handoff. Anyone with repository access can read it; treat it like a password and do not expose it in client-side code or public channels.
 
 Set `ATTENDANCE_INGEST_API_KEY` in server environment (`.env.local`). Generate with:
 
@@ -209,8 +222,8 @@ One row per active FEC branch (8 locations). Staff `user_name` values match venu
 ## Example curl
 
 ```bash
-curl -X POST "https://your-fec-host/api/public/attendance-ingest" \
-  -H "Authorization: Bearer YOUR_ATTENDANCE_INGEST_API_KEY" \
+curl -X POST "https://e3fec.vercel.app/api/public/attendance-ingest" \
+  -H "Authorization: Bearer 2ad345a0b0a401a84a92e1962bb9f715b6e10e776fad9bbcd005db1cb8ab04ba" \
   -H "Content-Type: application/json" \
   -d '{
     "records": [
@@ -310,7 +323,7 @@ Local development:
 
 ```bash
 curl -X POST "http://localhost:3000/api/public/attendance-ingest" \
-  -H "X-API-Key: YOUR_ATTENDANCE_INGEST_API_KEY" \
+  -H "X-API-Key: 2ad345a0b0a401a84a92e1962bb9f715b6e10e776fad9bbcd005db1cb8ab04ba" \
   -H "Content-Type: application/json" \
   -d @sample-attendance.json
 ```
@@ -363,7 +376,7 @@ Seed one sample row per active branch (8 locations):
 node --env-file=.env.local scripts/seed-attendance-ingest-sample.mjs
 ```
 
-Requires `ATTENDANCE_INGEST_API_KEY` in `.env.local` and the dev server running on port 3000 (or set `FEC_BASE_URL`).
+Requires `ATTENDANCE_INGEST_API_KEY` in `.env.local`. Targets production (`https://e3fec.vercel.app`) by default; set `FEC_BASE_URL=http://localhost:3000` for local dev.
 
 ## Related
 
