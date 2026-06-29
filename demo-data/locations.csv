@@ -1,0 +1,7 @@
+﻿id,code,name,city,region,country,timezone,gla_sqm,status,launched_on,surge_mode
+7e560ae2-c3e8-485d-8658-ce093fe3d37d,KDS-CC,Kids Driving School,Doha,City Center Doha,QA,Asia/Qatar,1414,active,2022-03-15,false
+21dd8a00-8494-4bd8-8987-e0b0d7ef9e6d,INF-CC,Inflatapark,Doha,City Center Doha,QA,Asia/Qatar,1414,active,2022-06-01,false
+b449289d-3957-4040-8ff7-96d89d5114bb,UA-DM,Urban Arena,Doha,Doha Mall,QA,Asia/Qatar,1309,active,2023-01-10,false
+379a7811-cd2a-4035-8ef1-9af38746b7a3,CB-VM,Crayons & Bricks,Doha,Vendome Mall,QA,Asia/Qatar,1309,active,2023-04-20,false
+3109233a-c57f-458b-87fe-1c5af08853d9,CB-DSM,Crayons & Bricks,Doha,Dar Al Salam Mall,QA,Asia/Qatar,1414,active,2023-09-01,false
+524c6d69-9c0c-410a-8fbf-c0c338ffe287,CAR-AP,Carousel,Doha,Aspire Park,QA,Asia/Qatar,1414,active,2024-02-14,false

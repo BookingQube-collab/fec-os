@@ -1,0 +1,9 @@
+location_code,employee_code,date,start_time,end_time,role_label,status
+KDS-CC,KDS-CC-BM,2026-06-01,09:00,17:00,Branch Manager,scheduled
+KDS-CC,KDS-CC-SUP,2026-06-01,09:00,17:00,Shift Supervisor,scheduled
+KDS-CC,KDS-CC-CSH,2026-06-01,14:00,22:00,Cashier / Host,scheduled
+KDS-CC,KDS-CC-STF01,2026-06-01,09:00,17:00,Attraction Operator,scheduled
+KDS-CC,KDS-CC-STF02,2026-06-01,14:00,22:00,Party Host,scheduled
+INF-CC,INF-CC-BM,2026-06-01,09:00,17:00,Branch Manager,scheduled
+INF-CC,INF-CC-SUP,2026-06-01,09:00,17:00,Shift Supervisor,scheduled
+INF-CC,INF-CC-STF01,2026-06-01,09:00,17:00,Attraction Operator,scheduled

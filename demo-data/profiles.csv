@@ -1,0 +1,25 @@
+﻿id,display_name,employee_code,phone,preferred_language,email,qid,job_title,has_auth
+4c07808b-359f-4f63-8f4a-6bbc9b8203c3,Nasser Al-Thani,FEC-HQ-GM,+97430000000,en,gm@fec.qa,28560000000,General Manager,true
+7c774840-8c4f-4252-8ea4-3d0966318120,Salem Al-Kuwari,FEC-HQ-OPS,+97430000001,en,ops@fec.qa,28560000001,Operations Manager,true
+7d1a470e-27fb-4b56-8a0b-0df2b504fc90,Hind Al-Marri,FEC-HQ-FINANCE,+97430000002,en,finance@fec.qa,28560000002,Finance Manager,true
+bf7e0f59-7752-486f-8d3a-83f7bc159372,Amina Al-Mansouri,FEC-HQ-HR,+97430000003,en,hr@fec.qa,28560000003,HR & Admin Manager,true
+0a3ff088-b643-4ab5-81fa-8c3f261f24aa,Rajesh Nair,FEC-HQ-MAINT1,+97430000004,en,maint1@fec.qa,28560000004,Maintenance Technician,true
+8254c9ea-18ca-4972-8152-61bbe6da3144,Pradeep Sharma,FEC-HQ-MAINT2,+97430000005,en,maint2@fec.qa,28560000005,Maintenance Technician,true
+ba9adcce-05be-49e0-8ba9-432c658cb9bb,Hassan Al-Kaabi,KDS-CC-BM,+97430000006,en,kds.cc.bm@fec.qa,28560000006,Branch Manager,true
+2bd39912-7f4b-4a80-870a-7379c50d6816,Aisha Al-Attiyah,KDS-CC-SUP,+97430000007,en,kds.cc.sup@fec.qa,28560000007,Shift Supervisor,true
+59491f32-bb71-494c-8639-a00c44188176,Saeed Al-Buainain,KDS-CC-CSH,+97430000008,ar,kds.cc.csh@fec.qa,28560000008,Cashier / Host,true
+6b4443f8-6907-4cfd-82f6-55fcdeec6465,Amna Al-Naimi,INF-CC-BM,+97430000013,en,inf.cc.bm@fec.qa,28560000013,Branch Manager,true
+43ba8eee-0ac6-45f2-870f-7259e3b469bf,Rashid Al-Sulaiti,INF-CC-SUP,+97430000014,en,inf.cc.sup@fec.qa,28560000014,Shift Supervisor,true
+25d84ee1-0db3-4daa-8050-87769294dd53,Sara Al-Hajri,INF-CC-CSH,+97430000015,en,inf.cc.csh@fec.qa,28560000015,Cashier / Host,true
+950d6ec4-727d-4e29-80cf-be71e9ad9917,Latifa Al-Thani,UA-DM-BM,+97430000021,en,ua.dm.bm@fec.qa,28560000021,Branch Manager,true
+f5802c98-9a1f-4279-820a-fbabb592da5c,Ali Al-Kuwari,UA-DM-SUP,+97430000022,en,ua.dm.sup@fec.qa,28560000022,Shift Supervisor,true
+6c3a7246-e2b7-40f6-8f20-c385bf6b4773,Dana Al-Marri,UA-DM-CSH,+97430000023,en,ua.dm.csh@fec.qa,28560000023,Cashier / Host,true
+837b6414-70e9-463d-8d87-0006ecc9f80c,Abdullah Al-Malki,CB-VM-BM,+97430000028,ar,cb.vm.bm@fec.qa,28560000028,Branch Manager,true
+d109908c-6f4e-4f7e-8d80-3505c2f98cd2,Fatima Al-Dosari,CB-VM-SUP,+97430000029,en,cb.vm.sup@fec.qa,28560000029,Shift Supervisor,true
+e84e4569-0ff9-4302-8e79-6cbd1ed0b504,Mohammed Al-Kaabi,CB-VM-CSH,+97430000030,en,cb.vm.csh@fec.qa,28560000030,Cashier / Host,true
+b99cd686-4019-4487-826c-510179b87ef3,Saeed Al-Mansouri,CB-DSM-BM,+97430000036,ar,cb.dsm.bm@fec.qa,28560000036,Branch Manager,true
+145a090f-5356-4d47-8748-dca2fa24fd76,Layla Al-Naimi,CB-DSM-SUP,+97430000037,en,cb.dsm.sup@fec.qa,28560000037,Shift Supervisor,true
+466d3e12-8f4c-4971-8877-13e4aa5f27ad,Omar Al-Sulaiti,CB-DSM-CSH,+97430000038,en,cb.dsm.csh@fec.qa,28560000038,Cashier / Host,true
+6b5b3b1c-ff69-4a41-81e9-6e982727639a,Sara Al-Attiyah,CAR-AP-BM,+97430000043,en,car.ap.bm@fec.qa,28560000043,Branch Manager,true
+1f97bf4b-7e0f-48e7-836b-033462e454c6,Hamad Al-Buainain,CAR-AP-SUP,+97430000044,ar,car.ap.sup@fec.qa,28560000044,Shift Supervisor,true
+ba8271f6-af1b-48eb-8f54-c38af8d74307,Reem Al-Thani,CAR-AP-CSH,+97430000045,en,car.ap.csh@fec.qa,28560000045,Cashier / Host,true

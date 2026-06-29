@@ -1,0 +1,8 @@
+SKU,Item name,Size,Branch/Location,Quantity on hand,Reorder level
+SOCK-S,Grip socks — Small,S,INF-CC,45,30
+SOCK-M,Grip socks — Medium,M,INF-CC,52,40
+SOCK-L,Grip socks — Large,L,INF-CC,38,35
+SOCK-XL,Grip socks — XL,XL,INF-CC,22,25
+SOCK-S,Grip socks — Small,S,KDS-CC,38,30
+SOCK-M,Grip socks — Medium,M,KDS-CC,44,40
+CON-WIPE,Sanitizing wipes,,KDS-CC,15,10

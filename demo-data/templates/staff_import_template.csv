@@ -1,0 +1,17 @@
+location_code,employee_code,full_name,job_title,department,hire_date,status,phone,email,qid,app_role,create_login
+KDS-CC,KDS-CC-BM,Hassan Al-Kaabi,Branch Manager,Operations,2022-03-15,active,+97430000006,kds.cc.bm@fec.qa,28560000006,branch_gm,true
+KDS-CC,KDS-CC-SUP,Aisha Al-Attiyah,Shift Supervisor,Operations,2022-03-15,active,+97430000007,kds.cc.sup@fec.qa,28560000007,duty_manager,true
+KDS-CC,KDS-CC-CSH,Saeed Al-Buainain,Cashier / Host,Front of House,2022-03-15,active,+97430000008,kds.cc.csh@fec.qa,28560000008,cashier_host,true
+KDS-CC,KDS-CC-STF01,Layla Al-Marri,Attraction Operator,Operations,2024-01-15,active,+97430000009,kds.cc.stf01@fec.qa,28560000009,,false
+KDS-CC,KDS-CC-STF02,Omar Al-Mansouri,Party Host,Operations,2024-01-15,active,+97430000010,kds.cc.stf02@fec.qa,28560000010,,false
+INF-CC,INF-CC-BM,Amna Al-Naimi,Branch Manager,Operations,2022-06-01,active,+97430000013,inf.cc.bm@fec.qa,28560000013,branch_gm,true
+INF-CC,INF-CC-SUP,Rashid Al-Sulaiti,Shift Supervisor,Operations,2022-06-01,active,+97430000014,inf.cc.sup@fec.qa,28560000014,duty_manager,true
+INF-CC,INF-CC-STF01,Hamad Al-Kaabi,Attraction Operator,Operations,2024-01-15,active,+97430000016,inf.cc.stf01@fec.qa,28560000016,,false
+UA-DM,UA-DM-BM,Latifa Al-Thani,Branch Manager,Operations,2023-01-10,active,+97430000021,ua.dm.bm@fec.qa,28560000021,branch_gm,true
+UA-DM,UA-DM-STF01,Sultan Al-Sulaiti,Attraction Operator,Operations,2024-01-15,active,+97430000024,ua.dm.stf01@fec.qa,28560000024,,false
+CB-VM,CB-VM-BM,Abdullah Al-Malki,Branch Manager,Operations,2023-04-20,active,+97430000028,cb.vm.bm@fec.qa,28560000028,branch_gm,true
+CB-VM,CB-VM-STF01,Mariam Al-Thani,Attraction Operator,Operations,2024-01-15,active,+97430000031,cb.vm.stf01@fec.qa,28560000031,,false
+CB-DSM,CB-DSM-BM,Saeed Al-Mansouri,Branch Manager,Operations,2023-09-01,active,+97430000036,cb.dsm.bm@fec.qa,28560000036,branch_gm,true
+CB-DSM,CB-DSM-STF01,Hessa Al-Dosari,Attraction Operator,Operations,2024-01-15,active,+97430000039,cb.dsm.stf01@fec.qa,28560000039,,false
+CAR-AP,CAR-AP-BM,Sara Al-Attiyah,Branch Manager,Operations,2024-02-14,active,+97430000043,car.ap.bm@fec.qa,28560000043,branch_gm,true
+CAR-AP,CAR-AP-STF01,Fahad Al-Mansouri,Attraction Operator,Operations,2024-01-15,active,+97430000046,car.ap.stf01@fec.qa,28560000046,,false

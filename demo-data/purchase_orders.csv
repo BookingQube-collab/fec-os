@@ -1,0 +1,19 @@
+﻿id,location_id,location_code,po_number,vendor_name,category,description,amount,currency,status,requested_by
+54fa6782-9c78-4a33-897b-ae82d7ad89d6,7e560ae2-c3e8-485d-8658-ce093fe3d37d,KDS-CC,PO-202606-KDS-CC-001,Al Meera Supplies,consumables,Restock Disposable Gloves (M),50,QAR,approved,ba9adcce-05be-49e0-8ba9-432c658cb9bb
+246163bf-1011-4426-8fe9-2ac7b285b2df,7e560ae2-c3e8-485d-8658-ce093fe3d37d,KDS-CC,PO-202606-KDS-CC-002,Qatar Safety Co.,cleaning,Restock Surface Sanitizer 5L,192,QAR,received,ba9adcce-05be-49e0-8ba9-432c658cb9bb
+0c4c8c95-212b-4583-8525-659531acd872,7e560ae2-c3e8-485d-8658-ce093fe3d37d,KDS-CC,PO-202606-KDS-CC-003,Gulf F&B Trading,consumables,Restock Facial Tissue Box,244.9,QAR,closed,ba9adcce-05be-49e0-8ba9-432c658cb9bb
+464b6ec5-2431-441e-8a3f-001c6c62704c,21dd8a00-8494-4bd8-8987-e0b0d7ef9e6d,INF-CC,PO-202606-INF-CC-001,Doha Retail Wholesale,retail,Restock Thermal POS Paper Roll,90,QAR,pending_approval,6b4443f8-6907-4cfd-82f6-55fcdeec6465
+959f9fd2-49c2-473a-8670-5e0a7e649e4c,21dd8a00-8494-4bd8-8987-e0b0d7ef9e6d,INF-CC,PO-202606-INF-CC-002,Al Meera Supplies,party,Restock Helium Balloon Pack,245,QAR,draft,6b4443f8-6907-4cfd-82f6-55fcdeec6465
+74e729e6-967c-4d11-81ed-eb597748ca12,21dd8a00-8494-4bd8-8987-e0b0d7ef9e6d,INF-CC,PO-202606-INF-CC-003,Qatar Safety Co.,attraction,Restock Creative Brick Refill Kit,201.5,QAR,approved,6b4443f8-6907-4cfd-82f6-55fcdeec6465
+30445f2b-2952-43f9-8c01-140973f43205,b449289d-3957-4040-8ff7-96d89d5114bb,UA-DM,PO-202606-UA-DM-001,Gulf F&B Trading,fnb,Restock Snack Chips Assorted,219,QAR,received,950d6ec4-727d-4e29-80cf-be71e9ad9917
+fa24efbb-4023-407d-858d-2bfa320d2e2d,b449289d-3957-4040-8ff7-96d89d5114bb,UA-DM,PO-202606-UA-DM-002,Doha Retail Wholesale,fnb,Restock Kids Juice Box,223.2,QAR,closed,950d6ec4-727d-4e29-80cf-be71e9ad9917
+ba61e9c0-9164-4aa7-8e00-9431354fb389,b449289d-3957-4040-8ff7-96d89d5114bb,UA-DM,PO-202606-UA-DM-003,Al Meera Supplies,safety,Restock First Aid Refill Pack,166.5,QAR,pending_approval,950d6ec4-727d-4e29-80cf-be71e9ad9917
+9ab2201f-3b7e-4872-88f1-6fb64be5b3c9,379a7811-cd2a-4035-8ef1-9af38746b7a3,CB-VM,PO-202606-CB-VM-001,Qatar Safety Co.,admin,Restock Guest Waiver Forms,87,QAR,draft,837b6414-70e9-463d-8d87-0006ecc9f80c
+a33ca2da-384f-489c-88f9-dd77e13a209a,379a7811-cd2a-4035-8ef1-9af38746b7a3,CB-VM,PO-202606-CB-VM-002,Gulf F&B Trading,hr,Restock Staff Lanyards,207.8,QAR,approved,837b6414-70e9-463d-8d87-0006ecc9f80c
+9f4cffa9-b02b-404e-8b22-888ef8eb35af,379a7811-cd2a-4035-8ef1-9af38746b7a3,CB-VM,PO-202606-CB-VM-003,Doha Retail Wholesale,cleaning,Restock Hand Soap Refill 5L,69.6,QAR,received,837b6414-70e9-463d-8d87-0006ecc9f80c
+48af93de-a43b-4c95-8a6e-fe819399020b,3109233a-c57f-458b-87fe-1c5af08853d9,CB-DSM,PO-202606-CB-DSM-001,Al Meera Supplies,consumables,Restock Disposable Gloves (M),104.2,QAR,closed,b99cd686-4019-4487-826c-510179b87ef3
+bc5ae6d1-82d0-4dca-869f-8d22820ee258,3109233a-c57f-458b-87fe-1c5af08853d9,CB-DSM,PO-202606-CB-DSM-002,Qatar Safety Co.,cleaning,Restock Surface Sanitizer 5L,184.1,QAR,pending_approval,b99cd686-4019-4487-826c-510179b87ef3
+d327148a-b532-4f44-8d32-a71d3d2a6e26,3109233a-c57f-458b-87fe-1c5af08853d9,CB-DSM,PO-202606-CB-DSM-003,Gulf F&B Trading,consumables,Restock Facial Tissue Box,64.7,QAR,draft,b99cd686-4019-4487-826c-510179b87ef3
+3bc6c66d-ad28-46c5-81cb-b272c1b78967,524c6d69-9c0c-410a-8fbf-c0c338ffe287,CAR-AP,PO-202606-CAR-AP-001,Doha Retail Wholesale,retail,Restock Thermal POS Paper Roll,225.7,QAR,approved,6b5b3b1c-ff69-4a41-81e9-6e982727639a
+e1e972cb-5ef6-43d0-8f7a-84f19a6a0ca0,524c6d69-9c0c-410a-8fbf-c0c338ffe287,CAR-AP,PO-202606-CAR-AP-002,Al Meera Supplies,party,Restock Helium Balloon Pack,243.4,QAR,received,6b5b3b1c-ff69-4a41-81e9-6e982727639a
+686dd2f6-c9d8-4471-8245-ac4df3088808,524c6d69-9c0c-410a-8fbf-c0c338ffe287,CAR-AP,PO-202606-CAR-AP-003,Qatar Safety Co.,attraction,Restock Creative Brick Refill Kit,55,QAR,closed,6b5b3b1c-ff69-4a41-81e9-6e982727639a

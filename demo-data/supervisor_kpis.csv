@@ -1,0 +1,7 @@
+﻿id,location_id,location_code,supervisor_employee_code,supervisor_name,period_month,checklist_completion_pct,staff_attendance_pct,complaint_resolution_hours_avg,maintenance_sla_pct,revenue_vs_target_pct,incidents_reported,tasks_assigned,tasks_completed,status
+a1a2010b-427c-4846-87f7-273b665045de,7e560ae2-c3e8-485d-8658-ce093fe3d37d,KDS-CC,KDS-CC-SUP,Aisha Al-Attiyah,2026-06,98,97,10.8,92,96,2,28,26,reviewed
+9d213e57-927f-4b36-837d-87798472bed2,21dd8a00-8494-4bd8-8987-e0b0d7ef9e6d,INF-CC,INF-CC-SUP,Rashid Al-Sulaiti,2026-06,98,97,10.8,92,96,2,28,26,reviewed
+66e378f1-ab0d-4944-8e67-c197887d7b8f,b449289d-3957-4040-8ff7-96d89d5114bb,UA-DM,UA-DM-SUP,Ali Al-Kuwari,2026-06,97,96,10.1,95,101,4,28,28,reviewed
+5b4542b1-ee66-4fd6-8159-26eefe134c49,379a7811-cd2a-4035-8ef1-9af38746b7a3,CB-VM,CB-VM-SUP,Fatima Al-Dosari,2026-06,97,96,10.1,95,101,4,28,28,reviewed
+66300216-5fd9-48b1-8e81-5919bef6268b,3109233a-c57f-458b-87fe-1c5af08853d9,CB-DSM,CB-DSM-SUP,Layla Al-Naimi,2026-06,98,97,10.8,92,96,2,28,26,reviewed
+69b79210-a04f-4a61-81f1-5004299bf20b,524c6d69-9c0c-410a-8fbf-c0c338ffe287,CAR-AP,CAR-AP-SUP,Hamad Al-Buainain,2026-06,98,97,10.8,92,96,2,28,26,reviewed

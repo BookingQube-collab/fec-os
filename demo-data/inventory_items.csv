@@ -1,0 +1,73 @@
+﻿id,location_id,location_code,sku,item_name,category,unit,quantity_on_hand,reorder_level,reorder_quantity,last_counted_on,status,unit_cost_qar
+87029615-f7a9-427c-8a8a-f1744485fa1d,7e560ae2-c3e8-485d-8658-ce093fe3d37d,KDS-CC,PPE-GLOVE-M,Disposable Gloves (M),consumables,box,38,20,40,2026-06-28,in_stock,15
+7864388c-bda0-42ce-8615-2828a1c3142c,7e560ae2-c3e8-485d-8658-ce093fe3d37d,KDS-CC,CLEAN-SPRAY,Surface Sanitizer 5L,cleaning,bottle,20,10,20,2026-06-27,in_stock,100
+de458156-8c50-42cb-8ca1-31b066928687,7e560ae2-c3e8-485d-8658-ce093fe3d37d,KDS-CC,TISSUE-BOX,Facial Tissue Box,consumables,pack,43,30,60,2026-06-26,in_stock,132
+f476e042-0ec3-4157-81eb-6515261f02ec,7e560ae2-c3e8-485d-8658-ce093fe3d37d,KDS-CC,POS-ROLL,Thermal POS Paper Roll,retail,roll,37,50,100,2026-06-25,low_stock,39
+0fe7e8bb-0747-499a-844e-4c16e6dd4288,7e560ae2-c3e8-485d-8658-ce093fe3d37d,KDS-CC,PARTY-BALLOON,Helium Balloon Pack,party,pack,27,15,30,2026-06-24,in_stock,132
+7ee2fcd8-cd92-4222-81bd-ae975f700d6d,7e560ae2-c3e8-485d-8658-ce093fe3d37d,KDS-CC,BRICK-REFILL,Creative Brick Refill Kit,attraction,kit,5,8,16,2026-06-28,low_stock,106
+b9cc08d7-12bc-4f6b-8a7f-82ba7bda3a79,7e560ae2-c3e8-485d-8658-ce093fe3d37d,KDS-CC,SNACK-CHIPS,Snack Chips Assorted,fnb,case,11,12,24,2026-06-27,low_stock,116
+cc3b21f0-af1e-4b6c-84dd-0306de07acc1,7e560ae2-c3e8-485d-8658-ce093fe3d37d,KDS-CC,JUICE-BOX,Kids Juice Box,fnb,case,19,12,24,2026-06-26,in_stock,119
+18a10871-8ffc-4176-8c5f-37a6a9d52aad,7e560ae2-c3e8-485d-8658-ce093fe3d37d,KDS-CC,FIRST-AID-REF,First Aid Refill Pack,safety,kit,3,5,10,2026-06-25,low_stock,85
+a05fa260-098b-4c32-8b8e-eef5949aa6e3,7e560ae2-c3e8-485d-8658-ce093fe3d37d,KDS-CC,WAIVER-FORMS,Guest Waiver Forms,admin,pad,20,10,20,2026-06-24,in_stock,37
+a55c0436-cd3d-43a8-83ba-4c5c43b1a928,7e560ae2-c3e8-485d-8658-ce093fe3d37d,KDS-CC,BADGE-LANYARD,Staff Lanyards,hr,pack,11,5,10,2026-06-28,in_stock,110
+c8754757-9fc9-4cc5-8fa5-4243e89879eb,7e560ae2-c3e8-485d-8658-ce093fe3d37d,KDS-CC,SOAP-REFILL,Hand Soap Refill 5L,cleaning,bottle,4,8,16,2026-06-27,low_stock,27
+9ac201a1-0df7-44b0-86ae-dd5703917ab0,21dd8a00-8494-4bd8-8987-e0b0d7ef9e6d,INF-CC,PPE-GLOVE-M,Disposable Gloves (M),consumables,box,38,20,40,2026-06-28,in_stock,15
+fd590299-55a5-4c1c-81c6-8afb0011cd08,21dd8a00-8494-4bd8-8987-e0b0d7ef9e6d,INF-CC,CLEAN-SPRAY,Surface Sanitizer 5L,cleaning,bottle,20,10,20,2026-06-27,in_stock,100
+47f5e929-85b6-425b-8d02-008c8de510f7,21dd8a00-8494-4bd8-8987-e0b0d7ef9e6d,INF-CC,TISSUE-BOX,Facial Tissue Box,consumables,pack,43,30,60,2026-06-26,in_stock,132
+83d7bf4f-76dd-47e5-8f26-5ea6d3f8964b,21dd8a00-8494-4bd8-8987-e0b0d7ef9e6d,INF-CC,POS-ROLL,Thermal POS Paper Roll,retail,roll,37,50,100,2026-06-25,low_stock,39
+ade29334-79f2-4e7c-800d-7ff89f1b0312,21dd8a00-8494-4bd8-8987-e0b0d7ef9e6d,INF-CC,PARTY-BALLOON,Helium Balloon Pack,party,pack,27,15,30,2026-06-24,in_stock,132
+ba44fc54-7305-4589-82f1-01bc782063ec,21dd8a00-8494-4bd8-8987-e0b0d7ef9e6d,INF-CC,BRICK-REFILL,Creative Brick Refill Kit,attraction,kit,5,8,16,2026-06-28,low_stock,106
+58a0691d-c5ca-478d-810d-b24613e2a147,21dd8a00-8494-4bd8-8987-e0b0d7ef9e6d,INF-CC,SNACK-CHIPS,Snack Chips Assorted,fnb,case,11,12,24,2026-06-27,low_stock,116
+7618cca2-dd98-4345-8f46-b48797af4ff5,21dd8a00-8494-4bd8-8987-e0b0d7ef9e6d,INF-CC,JUICE-BOX,Kids Juice Box,fnb,case,19,12,24,2026-06-26,in_stock,119
+35b0f9a8-927f-473d-89d6-4b6e8c35f1fd,21dd8a00-8494-4bd8-8987-e0b0d7ef9e6d,INF-CC,FIRST-AID-REF,First Aid Refill Pack,safety,kit,3,5,10,2026-06-25,low_stock,85
+2d85c4e9-252d-4984-8499-fbc6ded81278,21dd8a00-8494-4bd8-8987-e0b0d7ef9e6d,INF-CC,WAIVER-FORMS,Guest Waiver Forms,admin,pad,20,10,20,2026-06-24,in_stock,37
+4609e700-00c8-44c5-8e2b-51bf8b57225e,21dd8a00-8494-4bd8-8987-e0b0d7ef9e6d,INF-CC,BADGE-LANYARD,Staff Lanyards,hr,pack,11,5,10,2026-06-28,in_stock,110
+58c96e56-418c-4085-88b9-c17bbe0376f0,21dd8a00-8494-4bd8-8987-e0b0d7ef9e6d,INF-CC,SOAP-REFILL,Hand Soap Refill 5L,cleaning,bottle,4,8,16,2026-06-27,low_stock,27
+dbb3bd05-9b5d-4e31-879f-bf691e8875e5,b449289d-3957-4040-8ff7-96d89d5114bb,UA-DM,PPE-GLOVE-M,Disposable Gloves (M),consumables,box,35,20,40,2026-06-28,in_stock,15
+4a4e8fa9-f6f9-436b-8e3f-c94dcf3d2d7e,b449289d-3957-4040-8ff7-96d89d5114bb,UA-DM,CLEAN-SPRAY,Surface Sanitizer 5L,cleaning,bottle,19,10,20,2026-06-27,in_stock,100
+28116ad2-574d-4822-8120-14b762965605,b449289d-3957-4040-8ff7-96d89d5114bb,UA-DM,TISSUE-BOX,Facial Tissue Box,consumables,pack,59,30,60,2026-06-26,in_stock,132
+498779f3-1782-418c-83f5-35775202015a,b449289d-3957-4040-8ff7-96d89d5114bb,UA-DM,POS-ROLL,Thermal POS Paper Roll,retail,roll,72,50,100,2026-06-25,in_stock,39
+60029651-0a95-4075-8fe1-4e192c9d0aa6,b449289d-3957-4040-8ff7-96d89d5114bb,UA-DM,PARTY-BALLOON,Helium Balloon Pack,party,pack,11,15,30,2026-06-24,low_stock,132
+4e88024f-3631-4969-86c0-34dbda369152,b449289d-3957-4040-8ff7-96d89d5114bb,UA-DM,BRICK-REFILL,Creative Brick Refill Kit,attraction,kit,15,8,16,2026-06-28,in_stock,106
+93bc7a2d-22ca-4421-842c-32d7d20f712b,b449289d-3957-4040-8ff7-96d89d5114bb,UA-DM,SNACK-CHIPS,Snack Chips Assorted,fnb,case,7,12,24,2026-06-27,low_stock,116
+effa2d10-a6a8-465c-8e1a-1710758d4948,b449289d-3957-4040-8ff7-96d89d5114bb,UA-DM,JUICE-BOX,Kids Juice Box,fnb,case,11,12,24,2026-06-26,low_stock,119
+2adcc8bb-7bb0-41fc-888f-b2b9c9077a00,b449289d-3957-4040-8ff7-96d89d5114bb,UA-DM,FIRST-AID-REF,First Aid Refill Pack,safety,kit,8,5,10,2026-06-25,in_stock,85
+61c23a2d-3aa6-44c6-8378-60a4d502cc9b,b449289d-3957-4040-8ff7-96d89d5114bb,UA-DM,WAIVER-FORMS,Guest Waiver Forms,admin,pad,5,10,20,2026-06-24,low_stock,37
+27dc761c-6bcd-41bd-8610-462b5d5d6cec,b449289d-3957-4040-8ff7-96d89d5114bb,UA-DM,BADGE-LANYARD,Staff Lanyards,hr,pack,10,5,10,2026-06-28,in_stock,110
+96c2783d-669e-44ad-81e9-3abf76847534,b449289d-3957-4040-8ff7-96d89d5114bb,UA-DM,SOAP-REFILL,Hand Soap Refill 5L,cleaning,bottle,17,8,16,2026-06-27,in_stock,27
+f3314ee7-0814-40c3-862c-455376b196d9,379a7811-cd2a-4035-8ef1-9af38746b7a3,CB-VM,PPE-GLOVE-M,Disposable Gloves (M),consumables,box,35,20,40,2026-06-28,in_stock,15
+443692ec-6675-41bc-837c-f5ba15d64865,379a7811-cd2a-4035-8ef1-9af38746b7a3,CB-VM,CLEAN-SPRAY,Surface Sanitizer 5L,cleaning,bottle,19,10,20,2026-06-27,in_stock,100
+25e195e4-255f-41c6-8694-72c6aed14c6c,379a7811-cd2a-4035-8ef1-9af38746b7a3,CB-VM,TISSUE-BOX,Facial Tissue Box,consumables,pack,59,30,60,2026-06-26,in_stock,132
+edbd2f0b-5a73-45f5-8291-9d460497a2fe,379a7811-cd2a-4035-8ef1-9af38746b7a3,CB-VM,POS-ROLL,Thermal POS Paper Roll,retail,roll,72,50,100,2026-06-25,in_stock,39
+d390dce7-52a6-41c4-86fb-6cdd9dd7e097,379a7811-cd2a-4035-8ef1-9af38746b7a3,CB-VM,PARTY-BALLOON,Helium Balloon Pack,party,pack,11,15,30,2026-06-24,low_stock,132
+5a263ead-bba4-490e-895d-720ed51bb3c4,379a7811-cd2a-4035-8ef1-9af38746b7a3,CB-VM,BRICK-REFILL,Creative Brick Refill Kit,attraction,kit,15,8,16,2026-06-28,in_stock,106
+2e89597e-bf4b-4b60-805b-9c7aad00b8e2,379a7811-cd2a-4035-8ef1-9af38746b7a3,CB-VM,SNACK-CHIPS,Snack Chips Assorted,fnb,case,7,12,24,2026-06-27,low_stock,116
+35c31a56-cd24-440e-8cdf-d084ae4b7cea,379a7811-cd2a-4035-8ef1-9af38746b7a3,CB-VM,JUICE-BOX,Kids Juice Box,fnb,case,11,12,24,2026-06-26,low_stock,119
+069c10bf-8694-4f15-8b4a-60cb0e16ad8b,379a7811-cd2a-4035-8ef1-9af38746b7a3,CB-VM,FIRST-AID-REF,First Aid Refill Pack,safety,kit,8,5,10,2026-06-25,in_stock,85
+50490cae-a26e-434a-8cdd-2add1459eca7,379a7811-cd2a-4035-8ef1-9af38746b7a3,CB-VM,WAIVER-FORMS,Guest Waiver Forms,admin,pad,5,10,20,2026-06-24,low_stock,37
+bdc3a0e0-1eff-4bb8-8439-13d739fe4373,379a7811-cd2a-4035-8ef1-9af38746b7a3,CB-VM,BADGE-LANYARD,Staff Lanyards,hr,pack,10,5,10,2026-06-28,in_stock,110
+2e88b1e0-2579-4d20-88fc-fd2bfbe07d41,379a7811-cd2a-4035-8ef1-9af38746b7a3,CB-VM,SOAP-REFILL,Hand Soap Refill 5L,cleaning,bottle,17,8,16,2026-06-27,in_stock,27
+07367c03-473d-4125-8848-5af4e28de694,3109233a-c57f-458b-87fe-1c5af08853d9,CB-DSM,PPE-GLOVE-M,Disposable Gloves (M),consumables,box,38,20,40,2026-06-28,in_stock,15
+e269198f-b0de-43ab-88eb-dc1c7b249412,3109233a-c57f-458b-87fe-1c5af08853d9,CB-DSM,CLEAN-SPRAY,Surface Sanitizer 5L,cleaning,bottle,20,10,20,2026-06-27,in_stock,100
+c34cc78e-f633-4047-896b-a2a7bbf36809,3109233a-c57f-458b-87fe-1c5af08853d9,CB-DSM,TISSUE-BOX,Facial Tissue Box,consumables,pack,43,30,60,2026-06-26,in_stock,132
+ce8a9ec3-c3fc-4c5e-8c43-5b350e04cbbb,3109233a-c57f-458b-87fe-1c5af08853d9,CB-DSM,POS-ROLL,Thermal POS Paper Roll,retail,roll,37,50,100,2026-06-25,low_stock,39
+4878824a-4e2b-46b2-83e8-d4afa30a7ed2,3109233a-c57f-458b-87fe-1c5af08853d9,CB-DSM,PARTY-BALLOON,Helium Balloon Pack,party,pack,27,15,30,2026-06-24,in_stock,132
+24676091-d635-4528-8700-8fdbcc43b925,3109233a-c57f-458b-87fe-1c5af08853d9,CB-DSM,BRICK-REFILL,Creative Brick Refill Kit,attraction,kit,5,8,16,2026-06-28,low_stock,106
+0e00298e-8bde-4d98-8621-92c6145c5f1c,3109233a-c57f-458b-87fe-1c5af08853d9,CB-DSM,SNACK-CHIPS,Snack Chips Assorted,fnb,case,11,12,24,2026-06-27,low_stock,116
+8d94623b-cf84-4f01-8d2b-5670ecd1bd31,3109233a-c57f-458b-87fe-1c5af08853d9,CB-DSM,JUICE-BOX,Kids Juice Box,fnb,case,19,12,24,2026-06-26,in_stock,119
+20291076-189d-41b4-8318-087578b71402,3109233a-c57f-458b-87fe-1c5af08853d9,CB-DSM,FIRST-AID-REF,First Aid Refill Pack,safety,kit,3,5,10,2026-06-25,low_stock,85
+be783166-cd42-4263-8f71-77dd6ea1bb3d,3109233a-c57f-458b-87fe-1c5af08853d9,CB-DSM,WAIVER-FORMS,Guest Waiver Forms,admin,pad,20,10,20,2026-06-24,in_stock,37
+e3909511-7e1e-451a-8006-7d7447aef02d,3109233a-c57f-458b-87fe-1c5af08853d9,CB-DSM,BADGE-LANYARD,Staff Lanyards,hr,pack,11,5,10,2026-06-28,in_stock,110
+f60729b4-7907-4e69-81db-741193d9cf5b,3109233a-c57f-458b-87fe-1c5af08853d9,CB-DSM,SOAP-REFILL,Hand Soap Refill 5L,cleaning,bottle,4,8,16,2026-06-27,low_stock,27
+f8a0d90a-a03a-440e-8bbf-f8ca3635ff74,524c6d69-9c0c-410a-8fbf-c0c338ffe287,CAR-AP,PPE-GLOVE-M,Disposable Gloves (M),consumables,box,38,20,40,2026-06-28,in_stock,15
+d9a23715-1bc1-408b-8ba1-1fd49aeb7fee,524c6d69-9c0c-410a-8fbf-c0c338ffe287,CAR-AP,CLEAN-SPRAY,Surface Sanitizer 5L,cleaning,bottle,20,10,20,2026-06-27,in_stock,100
+592c9a4a-27d3-4af5-8100-323b106b7ee2,524c6d69-9c0c-410a-8fbf-c0c338ffe287,CAR-AP,TISSUE-BOX,Facial Tissue Box,consumables,pack,43,30,60,2026-06-26,in_stock,132
+f8e57557-ef54-4e3f-83e5-77b8b0445aa8,524c6d69-9c0c-410a-8fbf-c0c338ffe287,CAR-AP,POS-ROLL,Thermal POS Paper Roll,retail,roll,37,50,100,2026-06-25,low_stock,39
+4bce6fdd-0fc0-4bfc-8dcd-b3b509093d30,524c6d69-9c0c-410a-8fbf-c0c338ffe287,CAR-AP,PARTY-BALLOON,Helium Balloon Pack,party,pack,27,15,30,2026-06-24,in_stock,132
+11d7d218-848d-481c-8652-29d7af81f522,524c6d69-9c0c-410a-8fbf-c0c338ffe287,CAR-AP,BRICK-REFILL,Creative Brick Refill Kit,attraction,kit,5,8,16,2026-06-28,low_stock,106
+c37fa8d9-adc0-476f-812e-883a61c30300,524c6d69-9c0c-410a-8fbf-c0c338ffe287,CAR-AP,SNACK-CHIPS,Snack Chips Assorted,fnb,case,11,12,24,2026-06-27,low_stock,116
+a208254c-9c12-47b2-86e1-76516c19e792,524c6d69-9c0c-410a-8fbf-c0c338ffe287,CAR-AP,JUICE-BOX,Kids Juice Box,fnb,case,19,12,24,2026-06-26,in_stock,119
+d456abf1-4d51-42d3-805b-df5d9ba2e141,524c6d69-9c0c-410a-8fbf-c0c338ffe287,CAR-AP,FIRST-AID-REF,First Aid Refill Pack,safety,kit,3,5,10,2026-06-25,low_stock,85
+049d60a0-ccb7-4ff7-8f91-69ea9c0189a0,524c6d69-9c0c-410a-8fbf-c0c338ffe287,CAR-AP,WAIVER-FORMS,Guest Waiver Forms,admin,pad,20,10,20,2026-06-24,in_stock,37
+f23fe7d7-06cb-483a-8474-78131cce28e7,524c6d69-9c0c-410a-8fbf-c0c338ffe287,CAR-AP,BADGE-LANYARD,Staff Lanyards,hr,pack,11,5,10,2026-06-28,in_stock,110
+d3185788-902b-40a0-869c-a54a21d0c944,524c6d69-9c0c-410a-8fbf-c0c338ffe287,CAR-AP,SOAP-REFILL,Hand Soap Refill 5L,cleaning,bottle,4,8,16,2026-06-27,low_stock,27

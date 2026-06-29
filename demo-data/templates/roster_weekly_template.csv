@@ -1,0 +1,32 @@
+location_code,employee_code,weekday,start_time,end_time,role_label
+KDS-CC,KDS-CC-BM,sun,09:00,17:00,Branch Manager
+KDS-CC,KDS-CC-SUP,sun,09:00,17:00,Shift Supervisor
+KDS-CC,KDS-CC-CSH,sun,14:00,22:00,Cashier / Host
+KDS-CC,KDS-CC-STF01,sun,09:00,17:00,Attraction Operator
+KDS-CC,KDS-CC-STF02,sun,14:00,22:00,Party Host
+KDS-CC,KDS-CC-BM,mon,09:00,17:00,Branch Manager
+KDS-CC,KDS-CC-SUP,mon,09:00,17:00,Shift Supervisor
+KDS-CC,KDS-CC-CSH,mon,14:00,22:00,Cashier / Host
+KDS-CC,KDS-CC-STF01,mon,09:00,17:00,Attraction Operator
+KDS-CC,KDS-CC-BM,tue,09:00,17:00,Branch Manager
+KDS-CC,KDS-CC-SUP,tue,09:00,17:00,Shift Supervisor
+KDS-CC,KDS-CC-CSH,tue,14:00,22:00,Cashier / Host
+KDS-CC,KDS-CC-STF01,tue,09:00,17:00,Attraction Operator
+KDS-CC,KDS-CC-BM,wed,09:00,17:00,Branch Manager
+KDS-CC,KDS-CC-SUP,wed,09:00,17:00,Shift Supervisor
+KDS-CC,KDS-CC-CSH,wed,14:00,22:00,Cashier / Host
+KDS-CC,KDS-CC-STF01,wed,09:00,17:00,Attraction Operator
+KDS-CC,KDS-CC-BM,thu,09:00,17:00,Branch Manager
+KDS-CC,KDS-CC-SUP,thu,09:00,17:00,Shift Supervisor
+KDS-CC,KDS-CC-CSH,thu,14:00,22:00,Cashier / Host
+KDS-CC,KDS-CC-STF01,thu,09:00,17:00,Attraction Operator
+KDS-CC,KDS-CC-BM,fri,09:00,17:00,Branch Manager
+KDS-CC,KDS-CC-SUP,fri,09:00,17:00,Shift Supervisor
+KDS-CC,KDS-CC-CSH,fri,14:00,22:00,Cashier / Host
+KDS-CC,KDS-CC-STF01,fri,09:00,17:00,Attraction Operator
+KDS-CC,KDS-CC-STF02,fri,14:00,22:00,Party Host
+KDS-CC,KDS-CC-BM,sat,09:00,17:00,Branch Manager
+KDS-CC,KDS-CC-SUP,sat,09:00,17:00,Shift Supervisor
+KDS-CC,KDS-CC-CSH,sat,14:00,22:00,Cashier / Host
+KDS-CC,KDS-CC-STF01,sat,09:00,17:00,Attraction Operator
+KDS-CC,KDS-CC-STF02,sat,14:00,22:00,Party Host

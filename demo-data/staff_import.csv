@@ -1,0 +1,62 @@
+location_code,employee_code,full_name,job_title,department,hire_date,status,phone,qid,staff_role
+UA-DM,29658611062,Waqar Asghar,Venue Supervisor,OverAll,2026-03-19,active,+97451234705,29658611062,venue_supervisor
+UA-DM,30173602895,Abdallah Osman,Cashier,Ticketing Counter,2026-03-19,active,+97431203338,30173602895,cashier
+UA-DM,28940402764,Margaret Njeri,Cashier,Ticketing Counter,2026-03-19,active,+97470180508,28940402764,cashier
+UA-DM,30258606237,Ali Husnain,Shift Lead,Main Hub,2026-03-19,active,+97472116976,30258606237,shift_lead
+UA-DM,28935629722,Sachin Shetty,Shift Lead,Battle Arena,2026-03-19,active,+97433495903,28935629722,shift_lead
+UA-DM,29573604200,Khalid Sami,Crew / Attendant,Battle Arena,2026-03-19,active,+97466208780,29573604200,crew
+UA-DM,29758600074,Olubummo Tope,Crew / Attendant,Floor is Lava,2026-03-19,active,+97471032078,29758600074,crew
+UA-DM,28740403764,Lillian Kerubo,Crew / Attendant,Mini Golf,2026-03-19,active,+97431562882,28740403764,crew
+UA-DM,28140401069,Goretty Mania,Crew / Attendant,Mini Golf,2026-03-19,active,+97433044002,28140401069,crew
+UA-DM,28528801171,Yebach Ruth,Crew / Attendant,Trampoline,2026-03-19,active,+97477969403,28528801171,crew
+UA-DM,28360812913,Rosie Bartocillo,Crew / Attendant,Kids Tribe,2026-03-19,active,+97431166270,28360812913,crew
+UA-DM,28460829086,Katrina Piscoco,Crew / Attendant,Kids Tribe,2026-03-19,active,+97455188491,28460829086,crew
+UA-DM,29052451113,Saraswati Chhetri,Crew / Attendant,Kids Tribe,2026-03-19,active,+97471431918,29052451113,crew
+UA-DM,29858612703,Wahaj Asghar,Crew / Attendant,Go kart+Acade Games,2026-03-19,active,+97477599149,29858612703,crew
+UA-DM,29358613060,Waseem Qayyum,Crew / Attendant,Go kart+Acade Games,2026-03-19,active,+97452041997,29358613060,crew
+UA-DM,30052418835,Rajan Khadka,Crew / Attendant,Go kart+Acade Games,2026-03-19,active,+97474763754,30052418835,crew
+UA-DM,30035005493,MD Juber Hussain,Crew / Attendant,Archery,2026-03-19,active,+97477800738,30035005493,crew
+UA-DM,29852419561,Mokarm khursaid,Crew / Attendant,Hoopshots+Billiards,2026-03-19,active,+97477057028,29852419561,crew
+UA-DM,30460800753,Abdi Shakur Omar,Crew / Attendant,Ar Racing+SpinCity+Ping Pong,2026-03-19,active,+97430467113,30460800753,crew
+UA-DM,30260800711,Hussain omar,Crew / Attendant,Dartxxx+Ax+Herox+PSS,2026-03-19,active,+97451060223,30260800711,crew
+UA-DM,28405028554,Hannan Abid,Technician,Maintenance,2026-03-19,active,+97450857821,28405028554,technician
+CB-DSM,28360804725,Romel Chavez Pusung,Venue Supervisor,,2022-09-03,active,+97455683711,28360804725,venue_supervisor
+CB-DSM,27460807049,Mary rose Bustamante,Artist,,2024-12-01,active,+97433900174,27460807049,other
+CB-DSM,29058615118,Abdul Qadir Sayed Khan,Crew / Attendant,,2026-06-28,active,+97466003460,29058615118,crew
+CAR-AP,28858608039,Zaryab Javaid,Venue Supervisor,,2024-03-01,active,+97470603084,28858608039,venue_supervisor
+CAR-AP,28460807725,Flora Mae,Crew / Attendant,,2024-07-01,active,+97430613987,28460807725,crew
+KDS-DM,30173602675,Mazin Abdelazeem,Cashier,,2026-06-18,active,+97471858412,30173602675,cashier
+KDS-DM,29558611657,Rizwan Hassan,Crew / Attendant,,2026-06-18,active,+97470212910,29558611657,crew
+KDS-DM,29640401505,Hannah Wakio,Crew / Attendant,,2026-06-18,active,+97466166052,29640401505,crew
+KDS-CC,28656600858,Abiola Moses Ogunniyi,Crew / Attendant,Driving Lane/ Yalla Toys,2025-06-06,active,+97471047512,28656600858,crew
+KDS-CC,29040406440,Mary Nyambura,Crew / Attendant,Soft Play,2025-06-06,active,+97455381246,29040406440,crew
+KDS-CC,27260808749,Nemeta Sablo Cabrera,Crew / Attendant,Ballpit,2025-06-06,active,+97431531672,27260808749,crew
+KDS-CC,30052413225,Pabitra Acharya,Crew / Attendant,Ticket Checking,2025-06-06,active,+97471273620,30052413225,crew
+KDS-CC,29656600197,Noah Cini,Crew / Attendant,Driving Lane,2025-06-06,active,+97433998621,29656600197,crew
+KDS-CC,29328801301,Abigail Danso kumi,Crew / Attendant,Ticket Checking,2025-06-06,active,+97471844636,29328801301,crew
+KDS-CC,29405011077,Uzzal Mia Alkas mia,Cleaner,Driving lane,2025-06-06,active,+97430295614,29405011077,cleaner
+KDS-CC,29628801124,Sahadatu Bawa,Crew / Attendant,Ballpit,2025-10-05,active,+97431349462,29628801124,crew
+KDS-CC,29852424131,Sujata Sigdel,Crew / Attendant,Soft Play,2025-06-06,active,+97431338038,29852424131,crew
+KDS-CC,29973602805,Mohammed Abdelazeem M,Cashier,Cashier,2025-06-06,active,+97430425191,29973602805,cashier
+KDS-CC,28460812356,Rodelyn Loria Marbida,Cashier,Vacation,2025-06-06,on_leave,+97450909843,28460812356,cashier
+KDS-CC,30358609483,Atif Ali Munir Ahmed,Cashier,Cashier,2025-06-06,active,+97474461584,30358609483,cashier
+KDS-CC,29735603636,Ashfaq Noori,Venue Supervisor,,2025-06-06,active,+97430214432,29735603636,venue_supervisor
+CB-VM,29660800835,Rosebelt Fatal,Venue Supervisor,,2023-11-22,active,+97466720880,29660800835,venue_supervisor
+CB-VM,28460818555,Irene Pabello,Artist,,2023-11-22,active,+97477837120,28460818555,other
+CB-VM,29560801403,Charlene Jeanne Agapito,Artist,,2023-11-22,active,+97431824899,29560801403,other
+CB-VM,29852425598,Avishek Pandit,Artist,,2024-03-10,active,+97430399891,29852425598,other
+WM-VM,29701201238,Rabah Aberrraouf Belhadj,Technician,,2026-04-22,active,+97451247628,29701201238,technician
+WM-VM,29501201428,Mohamed Islem Bettin,Technician,,,active,+97430224214,29501201428,technician
+INF-CC,29440401419,Mary Muiruri,Venue Supervisor,,2022-05-15,active,+97466269506,29440401419,venue_supervisor
+INF-CC,28760810436,Mercy Galang Garcia,Cashier,Cashier,2022-05-15,active,+97433927495,28760810436,cashier
+INF-CC,28460819794,Jorene Tesoro Quixote,Cashier,Cashier,2022-02-25,active,+97450541839,28460819794,cashier
+INF-CC,29160813855,Angie Urania santos,Crew / Attendant,INFLATA park,2022-05-25,active,+97450217980,29160813855,crew
+INF-CC,29360802506,Marissa Domingo Reyes,Cashier,Cashier,2022-05-25,active,+97431559302,29360802506,cashier
+INF-CC,28214407767,Wasanthi Hemamali,Crew / Attendant,INFLATA park,2024-02-12,active,+97455395068,28214407767,crew
+INF-CC,28860814283,Maanaliza Quijote,Crew / Attendant,Grab and win,2022-05-20,active,+97452061452,28860814283,crew
+INF-CC,28760825747,Ma luz Jesus Romeo,Crew / Attendant,Space tribe,2022-05-20,active,+97430151347,28760825747,crew
+INF-CC,28352414399,Mani raj pariyar,Crew / Attendant,Battle arena,2023-02-11,active,+97470847131,28352414399,crew
+INF-CC,28940403887,Philis Mumbi kamau,Crew / Attendant,Inflate kids,2022-05-15,active,+97472086076,28940403887,crew
+INF-CC,28328800915,Judith appiah,Crew / Attendant,Space tribe,2025-06-04,active,+97431066825,28328800915,crew
+INF-CC,29240405361,Flora chepchumba,Crew / Attendant,Battle arena,2022-05-20,active,+97472055373,29240405361,crew
+INF-CC,29060817662,Florjana kamentodang,Crew / Attendant,Inflata park,2022-05-20,active,+97439912136,29060817662,crew

@@ -1,0 +1,97 @@
+﻿id,template_id,location_code,template_kind,position,label,requires_photo,required
+24bc3e90-66df-4c5b-8470-6c091ea3b2ec,bd8a94a5-ca90-4d85-8a2f-408135c86383,KDS-CC,opening,0,Unlock main entrance and disable alarm,false,true
+e87e8712-78b5-4180-8804-da19a1291d83,bd8a94a5-ca90-4d85-8a2f-408135c86383,KDS-CC,opening,1,Power on POS terminals and verify network,false,true
+a0bb9919-70a2-49bb-88b6-1d31027e3c55,bd8a94a5-ca90-4d85-8a2f-408135c86383,KDS-CC,opening,2,Safety walk-through — attractions and egress,true,true
+8a8ef79d-12ec-40c7-82d5-85a7584287e0,bd8a94a5-ca90-4d85-8a2f-408135c86383,KDS-CC,opening,3,Verify first-aid kit stocked and AED charged,false,true
+4e657d46-fd2a-42ec-8875-35da82ebf1b6,bd8a94a5-ca90-4d85-8a2f-408135c86383,KDS-CC,opening,4,Check restroom supplies and cleanliness,false,true
+5ccdca99-b856-4230-83da-cb4b3b55c014,bd8a94a5-ca90-4d85-8a2f-408135c86383,KDS-CC,opening,5,Confirm staff briefing completed,false,true
+cbdce4b5-b07d-4561-845c-d2909319ad4b,bd8a94a5-ca90-4d85-8a2f-408135c86383,KDS-CC,opening,6,Review daily bookings and party schedule,false,true
+00251a4b-7856-4308-8c2b-5f12e149f704,bd8a94a5-ca90-4d85-8a2f-408135c86383,KDS-CC,opening,7,Sign off opening checklist,false,true
+86c7122b-8600-4c93-8ca8-9c726fc9619d,c451fa27-7034-45a4-8733-74a1cc26e0a7,KDS-CC,closing,0,Cash reconciliation and Z-report printed,false,true
+a890b1bb-506b-4e4f-8c68-bec1c4536790,c451fa27-7034-45a4-8733-74a1cc26e0a7,KDS-CC,closing,1,Secure cash drawer and deposit prepared,false,true
+15c32c85-1d6a-4050-85c0-7faa4d1eed6c,c451fa27-7034-45a4-8733-74a1cc26e0a7,KDS-CC,closing,2,Attractions powered down and barriers secured,true,true
+987c0f5f-8b8c-40e4-82b2-4e2603b51b29,c451fa27-7034-45a4-8733-74a1cc26e0a7,KDS-CC,closing,3,Inventory spot-check — retail and F&B,false,true
+6ff4643a-5324-4a5c-8c55-9a9a8e62e86d,c451fa27-7034-45a4-8733-74a1cc26e0a7,KDS-CC,closing,4,Cleaning crew sign-off,false,true
+fd6ad414-bf45-459b-87fd-a2a125f2d802,c451fa27-7034-45a4-8733-74a1cc26e0a7,KDS-CC,closing,5,Incident and complaint log reviewed,false,true
+c56702d1-76f1-4042-83a1-d7efbee539cb,c451fa27-7034-45a4-8733-74a1cc26e0a7,KDS-CC,closing,6,Set building alarm and lock all exits,true,true
+8a86ce0b-f4e3-475e-884e-b17cac774bf9,c451fa27-7034-45a4-8733-74a1cc26e0a7,KDS-CC,closing,7,Supervisor closing sign-off,false,true
+dca5a578-5684-4cb6-8c0c-82008de63957,b6c3154f-1d4e-4cda-8fb0-a84f40a1678f,INF-CC,opening,0,Unlock main entrance and disable alarm,false,true
+ff948cd8-a164-45ae-8ee9-b8f845727880,b6c3154f-1d4e-4cda-8fb0-a84f40a1678f,INF-CC,opening,1,Power on POS terminals and verify network,false,true
+21aa8377-7791-413b-89f0-382885c6079d,b6c3154f-1d4e-4cda-8fb0-a84f40a1678f,INF-CC,opening,2,Safety walk-through — attractions and egress,true,true
+a21c83a4-b26b-449e-8112-99afad88c5d3,b6c3154f-1d4e-4cda-8fb0-a84f40a1678f,INF-CC,opening,3,Verify first-aid kit stocked and AED charged,false,true
+a8d11852-b38c-47c6-8a8b-e3ba3bc399e8,b6c3154f-1d4e-4cda-8fb0-a84f40a1678f,INF-CC,opening,4,Check restroom supplies and cleanliness,false,true
+1654894f-4a15-4c24-8794-a6bb03e944c5,b6c3154f-1d4e-4cda-8fb0-a84f40a1678f,INF-CC,opening,5,Confirm staff briefing completed,false,true
+06279fc2-6f28-40ec-8084-b4ce8a3d7117,b6c3154f-1d4e-4cda-8fb0-a84f40a1678f,INF-CC,opening,6,Review daily bookings and party schedule,false,true
+cbd145f5-19b7-42f0-8076-59fbf0fe9029,b6c3154f-1d4e-4cda-8fb0-a84f40a1678f,INF-CC,opening,7,Sign off opening checklist,false,true
+036960e8-9a81-44e8-86df-e037ef321b93,0a3cc55d-4953-430e-86b0-4601d5357918,INF-CC,closing,0,Cash reconciliation and Z-report printed,false,true
+51807ef7-ff31-4338-8603-bf568f3f832f,0a3cc55d-4953-430e-86b0-4601d5357918,INF-CC,closing,1,Secure cash drawer and deposit prepared,false,true
+a08a9ee3-7de0-4b4d-8977-88f5a4068d10,0a3cc55d-4953-430e-86b0-4601d5357918,INF-CC,closing,2,Attractions powered down and barriers secured,true,true
+09e24401-69d9-44b2-87b0-75c3279b44d3,0a3cc55d-4953-430e-86b0-4601d5357918,INF-CC,closing,3,Inventory spot-check — retail and F&B,false,true
+03771ddd-6418-423d-872c-69282796cc3f,0a3cc55d-4953-430e-86b0-4601d5357918,INF-CC,closing,4,Cleaning crew sign-off,false,true
+98b21052-46b3-41d3-8451-c2f28c5c4baa,0a3cc55d-4953-430e-86b0-4601d5357918,INF-CC,closing,5,Incident and complaint log reviewed,false,true
+9b0dc115-83d1-4f84-8f76-b864c49c4cac,0a3cc55d-4953-430e-86b0-4601d5357918,INF-CC,closing,6,Set building alarm and lock all exits,true,true
+acd597f7-4b22-48ab-8e91-6137b26b85a5,0a3cc55d-4953-430e-86b0-4601d5357918,INF-CC,closing,7,Supervisor closing sign-off,false,true
+e2ce1eb4-181c-4130-8284-48f51ae3e23f,5e857edb-9c70-4a3d-85b6-f39697a14697,UA-DM,opening,0,Unlock main entrance and disable alarm,false,true
+b16f99ff-7cec-404f-88ba-789eda0f350f,5e857edb-9c70-4a3d-85b6-f39697a14697,UA-DM,opening,1,Power on POS terminals and verify network,false,true
+a94fa939-a529-4b87-8831-523af05a6d94,5e857edb-9c70-4a3d-85b6-f39697a14697,UA-DM,opening,2,Safety walk-through — attractions and egress,true,true
+ff5bc647-32a9-4353-888e-05afec6e436e,5e857edb-9c70-4a3d-85b6-f39697a14697,UA-DM,opening,3,Verify first-aid kit stocked and AED charged,false,true
+1a4e9118-f18c-4b69-8bd4-24db8a07ea70,5e857edb-9c70-4a3d-85b6-f39697a14697,UA-DM,opening,4,Check restroom supplies and cleanliness,false,true
+2922ecd7-492b-40a6-87ae-2617264b12d7,5e857edb-9c70-4a3d-85b6-f39697a14697,UA-DM,opening,5,Confirm staff briefing completed,false,true
+f55d3633-e115-45c6-8ebc-7f3ac580e78b,5e857edb-9c70-4a3d-85b6-f39697a14697,UA-DM,opening,6,Review daily bookings and party schedule,false,true
+186488b9-92c8-4e64-8182-c908db4e0a6b,5e857edb-9c70-4a3d-85b6-f39697a14697,UA-DM,opening,7,Sign off opening checklist,false,true
+7dd560b8-fc4e-4dc1-8000-3f1ebf383ea6,464b17f3-cd7a-4045-885b-4bd948d6ca72,UA-DM,closing,0,Cash reconciliation and Z-report printed,false,true
+9ea6612a-637a-4ab0-81d4-6359b6e51107,464b17f3-cd7a-4045-885b-4bd948d6ca72,UA-DM,closing,1,Secure cash drawer and deposit prepared,false,true
+885ae99b-f081-44a0-86fa-f72cabe42811,464b17f3-cd7a-4045-885b-4bd948d6ca72,UA-DM,closing,2,Attractions powered down and barriers secured,true,true
+4e0f0860-3975-464d-85cb-8995c2de4f3a,464b17f3-cd7a-4045-885b-4bd948d6ca72,UA-DM,closing,3,Inventory spot-check — retail and F&B,false,true
+4eaf0e7b-f10b-44c9-85ab-3b4ab785bee6,464b17f3-cd7a-4045-885b-4bd948d6ca72,UA-DM,closing,4,Cleaning crew sign-off,false,true
+09f70ef7-8c07-498e-87e0-4f097c17913a,464b17f3-cd7a-4045-885b-4bd948d6ca72,UA-DM,closing,5,Incident and complaint log reviewed,false,true
+375738be-1ee6-4fb3-8036-bb175f974e67,464b17f3-cd7a-4045-885b-4bd948d6ca72,UA-DM,closing,6,Set building alarm and lock all exits,true,true
+8b6fe49f-ae33-4bd5-81a4-ed681b3f17f9,464b17f3-cd7a-4045-885b-4bd948d6ca72,UA-DM,closing,7,Supervisor closing sign-off,false,true
+350bb4c4-4432-492e-85b5-8e9d9e9c6050,3f40dc2d-4af6-404c-8a2d-4c8e43ff5f68,CB-VM,opening,0,Unlock main entrance and disable alarm,false,true
+8cf5c79b-a81a-464a-8961-182035e55c25,3f40dc2d-4af6-404c-8a2d-4c8e43ff5f68,CB-VM,opening,1,Power on POS terminals and verify network,false,true
+97d82d35-a6f2-4539-8308-855956e6f196,3f40dc2d-4af6-404c-8a2d-4c8e43ff5f68,CB-VM,opening,2,Safety walk-through — attractions and egress,true,true
+66f5c233-c8ba-47d5-86fe-82ce0c1bd032,3f40dc2d-4af6-404c-8a2d-4c8e43ff5f68,CB-VM,opening,3,Verify first-aid kit stocked and AED charged,false,true
+72463118-9eb3-44b4-8423-d352032ac1ec,3f40dc2d-4af6-404c-8a2d-4c8e43ff5f68,CB-VM,opening,4,Check restroom supplies and cleanliness,false,true
+e9738e96-3ef7-4081-82dd-db81d1ae5c77,3f40dc2d-4af6-404c-8a2d-4c8e43ff5f68,CB-VM,opening,5,Confirm staff briefing completed,false,true
+b26ab76a-9b14-40bb-8177-4ed78b1dc77d,3f40dc2d-4af6-404c-8a2d-4c8e43ff5f68,CB-VM,opening,6,Review daily bookings and party schedule,false,true
+1e00c9bc-5c04-4f6e-873d-09dc7a49e8d4,3f40dc2d-4af6-404c-8a2d-4c8e43ff5f68,CB-VM,opening,7,Sign off opening checklist,false,true
+11958035-5b3f-4069-8dc5-b16f1d4bd9c3,b12408c1-1459-4551-8914-c3e3c4555492,CB-VM,closing,0,Cash reconciliation and Z-report printed,false,true
+ff578e15-781c-4617-8de0-afc5c6b63451,b12408c1-1459-4551-8914-c3e3c4555492,CB-VM,closing,1,Secure cash drawer and deposit prepared,false,true
+92ee08a0-6090-4fca-85a2-bdc372e5f377,b12408c1-1459-4551-8914-c3e3c4555492,CB-VM,closing,2,Attractions powered down and barriers secured,true,true
+e9913217-7abc-4d50-8a8b-a78e9d14b3cd,b12408c1-1459-4551-8914-c3e3c4555492,CB-VM,closing,3,Inventory spot-check — retail and F&B,false,true
+fdedb502-69fc-4e8c-85fe-4ba97afe4df6,b12408c1-1459-4551-8914-c3e3c4555492,CB-VM,closing,4,Cleaning crew sign-off,false,true
+37015a4e-232f-468c-816d-f7035fdd19c6,b12408c1-1459-4551-8914-c3e3c4555492,CB-VM,closing,5,Incident and complaint log reviewed,false,true
+cbb6c280-61f3-4ab9-8f51-65a869556fee,b12408c1-1459-4551-8914-c3e3c4555492,CB-VM,closing,6,Set building alarm and lock all exits,true,true
+fdff3bf4-4f6a-4f5c-894c-65e771186eab,b12408c1-1459-4551-8914-c3e3c4555492,CB-VM,closing,7,Supervisor closing sign-off,false,true
+48b7215f-0e54-4c67-84c3-65b06e02abc7,019f2b88-d06c-4905-81ba-feec903219b5,CB-DSM,opening,0,Unlock main entrance and disable alarm,false,true
+59ca2e04-d614-4329-88b1-3a27e2105dc6,019f2b88-d06c-4905-81ba-feec903219b5,CB-DSM,opening,1,Power on POS terminals and verify network,false,true
+15e26c4d-7c3c-481c-8135-2575e1c04853,019f2b88-d06c-4905-81ba-feec903219b5,CB-DSM,opening,2,Safety walk-through — attractions and egress,true,true
+428c1b00-bdb8-415e-8ef1-7b5064973546,019f2b88-d06c-4905-81ba-feec903219b5,CB-DSM,opening,3,Verify first-aid kit stocked and AED charged,false,true
+75a33d90-5f75-41ef-8508-04688e44ad0e,019f2b88-d06c-4905-81ba-feec903219b5,CB-DSM,opening,4,Check restroom supplies and cleanliness,false,true
+cec70086-99ae-4178-831b-9b8a22ac6e53,019f2b88-d06c-4905-81ba-feec903219b5,CB-DSM,opening,5,Confirm staff briefing completed,false,true
+15d7c155-1ced-427b-80f5-7855f5d2d644,019f2b88-d06c-4905-81ba-feec903219b5,CB-DSM,opening,6,Review daily bookings and party schedule,false,true
+08dc62c9-81d5-4c8b-8633-6b88cfce354d,019f2b88-d06c-4905-81ba-feec903219b5,CB-DSM,opening,7,Sign off opening checklist,false,true
+be05f67d-f495-4103-82e4-7a9a7021e44d,6c10994d-3728-44db-8f84-878e1158404f,CB-DSM,closing,0,Cash reconciliation and Z-report printed,false,true
+bf53926b-4277-48e2-824d-9734060e7355,6c10994d-3728-44db-8f84-878e1158404f,CB-DSM,closing,1,Secure cash drawer and deposit prepared,false,true
+fce1299e-f9c4-44e3-8454-bed1ac77d8b7,6c10994d-3728-44db-8f84-878e1158404f,CB-DSM,closing,2,Attractions powered down and barriers secured,true,true
+8cda35c5-60d3-4721-82a5-5ee1158b88ae,6c10994d-3728-44db-8f84-878e1158404f,CB-DSM,closing,3,Inventory spot-check — retail and F&B,false,true
+53bf56e4-ce7d-47bc-8b68-0717259ec341,6c10994d-3728-44db-8f84-878e1158404f,CB-DSM,closing,4,Cleaning crew sign-off,false,true
+388b3d14-1d95-4346-8afd-1b2d8a113020,6c10994d-3728-44db-8f84-878e1158404f,CB-DSM,closing,5,Incident and complaint log reviewed,false,true
+d37b39f2-47fb-4708-8f3f-91fd3c4972b1,6c10994d-3728-44db-8f84-878e1158404f,CB-DSM,closing,6,Set building alarm and lock all exits,true,true
+259999cf-dbc8-44b7-83f5-21a8bfdad359,6c10994d-3728-44db-8f84-878e1158404f,CB-DSM,closing,7,Supervisor closing sign-off,false,true
+61e505c8-3329-46c4-8193-30a3fda087da,13b82fd0-c73a-4d51-8f3a-0c374a2ac6e8,CAR-AP,opening,0,Unlock main entrance and disable alarm,false,true
+7d0cf90d-ec70-4852-80f9-ad70930afe7c,13b82fd0-c73a-4d51-8f3a-0c374a2ac6e8,CAR-AP,opening,1,Power on POS terminals and verify network,false,true
+e309f1ce-aa21-464d-8025-1d50f9d7315f,13b82fd0-c73a-4d51-8f3a-0c374a2ac6e8,CAR-AP,opening,2,Safety walk-through — attractions and egress,true,true
+b6fb6e0d-081d-4541-84e6-91607e16c037,13b82fd0-c73a-4d51-8f3a-0c374a2ac6e8,CAR-AP,opening,3,Verify first-aid kit stocked and AED charged,false,true
+44f002f2-96d3-4116-8e92-4fac65bc3100,13b82fd0-c73a-4d51-8f3a-0c374a2ac6e8,CAR-AP,opening,4,Check restroom supplies and cleanliness,false,true
+3d2ff7ff-f838-4e7e-8890-67fdb9af7603,13b82fd0-c73a-4d51-8f3a-0c374a2ac6e8,CAR-AP,opening,5,Confirm staff briefing completed,false,true
+236c0fec-d455-4dbf-8a67-2712c2aec9a2,13b82fd0-c73a-4d51-8f3a-0c374a2ac6e8,CAR-AP,opening,6,Review daily bookings and party schedule,false,true
+76559579-5a68-4784-8df9-3a97db34f2e2,13b82fd0-c73a-4d51-8f3a-0c374a2ac6e8,CAR-AP,opening,7,Sign off opening checklist,false,true
+3267e3b8-e5f6-4df0-8fff-ec1f0597f042,a775fb76-5be7-4f11-84f7-31153687b92a,CAR-AP,closing,0,Cash reconciliation and Z-report printed,false,true
+c23e2019-8811-4bbe-8961-3df9d6cda4c0,a775fb76-5be7-4f11-84f7-31153687b92a,CAR-AP,closing,1,Secure cash drawer and deposit prepared,false,true
+c8724ea5-0f04-4b0f-87c9-7fb8660d0f4d,a775fb76-5be7-4f11-84f7-31153687b92a,CAR-AP,closing,2,Attractions powered down and barriers secured,true,true
+323a6d47-d4e1-4c31-87e9-1d91fe71213a,a775fb76-5be7-4f11-84f7-31153687b92a,CAR-AP,closing,3,Inventory spot-check — retail and F&B,false,true
+f4e8cb85-f6a6-4ac8-8ae2-620473742cdc,a775fb76-5be7-4f11-84f7-31153687b92a,CAR-AP,closing,4,Cleaning crew sign-off,false,true
+e3462728-a86a-4c93-87a6-c2d39889ba66,a775fb76-5be7-4f11-84f7-31153687b92a,CAR-AP,closing,5,Incident and complaint log reviewed,false,true
+dbc64d5d-dd07-4d12-8a68-c25a75a453c1,a775fb76-5be7-4f11-84f7-31153687b92a,CAR-AP,closing,6,Set building alarm and lock all exits,true,true
+cd0f840f-8735-4698-8274-af0a129459f7,a775fb76-5be7-4f11-84f7-31153687b92a,CAR-AP,closing,7,Supervisor closing sign-off,false,true

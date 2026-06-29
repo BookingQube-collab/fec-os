@@ -1,0 +1,17 @@
+﻿id,location_id,location_code,code,name,category,capacity,throughput_per_hour,status
+77c32dd5-40af-461b-80a1-9d4c2734a7ac,7e560ae2-c3e8-485d-8658-ce093fe3d37d,KDS-CC,MINI-CIRCUIT,Mini Circuit Track,driving,12,14,degraded
+6971c48e-cee4-4546-8130-07aac4f541d5,7e560ae2-c3e8-485d-8658-ce093fe3d37d,KDS-CC,SIM-PODS,Driving Simulators,simulation,8,14,operational
+028a2f10-6198-4e0c-839e-49c779e58587,7e560ae2-c3e8-485d-8658-ce093fe3d37d,KDS-CC,TRAFFIC-LAB,Traffic Safety Lab,education,20,40,operational
+23dd6fa3-db40-4f85-80fa-09882ffc6c15,21dd8a00-8494-4bd8-8987-e0b0d7ef9e6d,INF-CC,MEGA-SLIDE,Mega Inflatable Slide,inflatable,30,41,operational
+a4f3bf93-5d13-4dec-8821-059ac91ec900,21dd8a00-8494-4bd8-8987-e0b0d7ef9e6d,INF-CC,TODDLER-ZONE,Toddler Soft Play,soft_play,25,50,operational
+d44a0829-e186-46f7-86e1-ddcf0cd25efe,21dd8a00-8494-4bd8-8987-e0b0d7ef9e6d,INF-CC,OBSTACLE-RUN,Obstacle Run,inflatable,20,36,operational
+b8a432cc-9aed-4ddc-894d-525f78c41ab8,b449289d-3957-4040-8ff7-96d89d5114bb,UA-DM,TRAMP-PARK,Trampoline Park,sports,40,75,operational
+23c3fdd6-44b4-4059-803b-4260733e992f,b449289d-3957-4040-8ff7-96d89d5114bb,UA-DM,NINJA-COURSE,Ninja Warrior Course,sports,15,28,operational
+a056f7da-705e-414e-8b7d-193b4cf189a3,b449289d-3957-4040-8ff7-96d89d5114bb,UA-DM,CLIMB-WALL,Climbing Wall,sports,10,17,operational
+a9acf5de-eb09-411b-8732-18a0ea1c868a,379a7811-cd2a-4035-8ef1-9af38746b7a3,CB-VM,BRICK-LAB,Brick Building Lab,creative,30,40,operational
+3c212f98-b00c-490b-8e29-4224809b4491,379a7811-cd2a-4035-8ef1-9af38746b7a3,CB-VM,ART-STUDIO,Art & Craft Studio,creative,24,44,operational
+5a8baab6-54c7-4dfd-8a54-686571d2e88c,3109233a-c57f-458b-87fe-1c5af08853d9,CB-DSM,BRICK-LAB,Brick Building Lab,creative,28,36,operational
+74ee4867-9a13-4767-8f31-f805b76d975e,3109233a-c57f-458b-87fe-1c5af08853d9,CB-DSM,ART-STUDIO,Art & Craft Studio,creative,22,31,operational
+caf31990-f31d-4ed7-82ca-f6ee22cef056,3109233a-c57f-458b-87fe-1c5af08853d9,CB-DSM,PARTY-ROOM,Birthday Party Room,events,35,61,operational
+5462b772-af2e-451f-8930-c86d50863ca9,524c6d69-9c0c-410a-8fbf-c0c338ffe287,CAR-AP,CLASSIC-CAROUSEL,Classic Carousel,ride,48,60,operational
+e2981ab3-626f-4464-85e6-d1c80b8b792d,524c6d69-9c0c-410a-8fbf-c0c338ffe287,CAR-AP,MINI-TRAIN,Aspire Mini Train,ride,24,46,operational

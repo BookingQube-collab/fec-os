@@ -1,0 +1,13 @@
+﻿id,location_id,location_code,title,kind,description,active
+bd8a94a5-ca90-4d85-8a2f-408135c86383,7e560ae2-c3e8-485d-8658-ce093fe3d37d,KDS-CC,Daily Opening — Kids Driving School,opening,Pre-open checklist for City Center,true
+c451fa27-7034-45a4-8733-74a1cc26e0a7,7e560ae2-c3e8-485d-8658-ce093fe3d37d,KDS-CC,Daily Closing — Kids Driving School,closing,End-of-day checklist for City Center,true
+b6c3154f-1d4e-4cda-8fb0-a84f40a1678f,21dd8a00-8494-4bd8-8987-e0b0d7ef9e6d,INF-CC,Daily Opening — Inflatapark,opening,Pre-open checklist for City Center,true
+0a3cc55d-4953-430e-86b0-4601d5357918,21dd8a00-8494-4bd8-8987-e0b0d7ef9e6d,INF-CC,Daily Closing — Inflatapark,closing,End-of-day checklist for City Center,true
+5e857edb-9c70-4a3d-85b6-f39697a14697,b449289d-3957-4040-8ff7-96d89d5114bb,UA-DM,Daily Opening — Urban Arena,opening,Pre-open checklist for Doha Mall,true
+464b17f3-cd7a-4045-885b-4bd948d6ca72,b449289d-3957-4040-8ff7-96d89d5114bb,UA-DM,Daily Closing — Urban Arena,closing,End-of-day checklist for Doha Mall,true
+3f40dc2d-4af6-404c-8a2d-4c8e43ff5f68,379a7811-cd2a-4035-8ef1-9af38746b7a3,CB-VM,Daily Opening — Crayons & Bricks,opening,Pre-open checklist for Vendome Mall,true
+b12408c1-1459-4551-8914-c3e3c4555492,379a7811-cd2a-4035-8ef1-9af38746b7a3,CB-VM,Daily Closing — Crayons & Bricks,closing,End-of-day checklist for Vendome Mall,true
+019f2b88-d06c-4905-81ba-feec903219b5,3109233a-c57f-458b-87fe-1c5af08853d9,CB-DSM,Daily Opening — Crayons & Bricks,opening,Pre-open checklist for Dar Al Salam Mall,true
+6c10994d-3728-44db-8f84-878e1158404f,3109233a-c57f-458b-87fe-1c5af08853d9,CB-DSM,Daily Closing — Crayons & Bricks,closing,End-of-day checklist for Dar Al Salam Mall,true
+13b82fd0-c73a-4d51-8f3a-0c374a2ac6e8,524c6d69-9c0c-410a-8fbf-c0c338ffe287,CAR-AP,Daily Opening — Carousel,opening,Pre-open checklist for Aspire Park,true
+a775fb76-5be7-4f11-84f7-31153687b92a,524c6d69-9c0c-410a-8fbf-c0c338ffe287,CAR-AP,Daily Closing — Carousel,closing,End-of-day checklist for Aspire Park,true

@@ -1,0 +1,157 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@source "../app";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * FEC-OS design system — soft neumorphic light theme
+ */
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ring-offset-background: var(--background);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --font-display: ui-sans-serif, system-ui, sans-serif;
+  --font-sans: ui-sans-serif, system-ui, sans-serif;
+}
+
+:root {
+  --radius: 0.75rem;
+
+  --background: #EEF0FF;
+  --foreground: #111827;
+  --surface: #F8FAFF;
+  --surface-2: #FFFFFF;
+
+  --card: #F8FAFF;
+  --card-foreground: #111827;
+  --popover: #FFFFFF;
+  --popover-foreground: #111827;
+
+  --primary: #6366F1;
+  --primary-foreground: #FFFFFF;
+
+  --secondary: #EEF0FF;
+  --secondary-foreground: #111827;
+
+  --muted: #E5E7EB;
+  --muted-foreground: #6B7280;
+
+  --accent: #8B5CF6;
+  --accent-foreground: #FFFFFF;
+
+  --destructive: #EF4444;
+  --destructive-foreground: #FFFFFF;
+
+  --success: #22C55E;
+  --warning: #F59E0B;
+  --danger: #EF4444;
+
+  --border: rgba(99, 102, 241, 0.12);
+  --input: rgba(99, 102, 241, 0.15);
+  --ring: rgba(139, 92, 246, 0.4);
+
+  --chart-1: #8B5CF6;
+  --chart-2: #3B82F6;
+  --chart-3: #22C55E;
+  --chart-4: #F59E0B;
+  --chart-5: #EF4444;
+
+  --sidebar: #FFFFFF;
+  --sidebar-foreground: #6B7280;
+  --sidebar-primary: #6366F1;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #EEF0FF;
+  --sidebar-accent-foreground: #111827;
+  --sidebar-border: rgba(99, 102, 241, 0.1);
+  --sidebar-ring: rgba(139, 92, 246, 0.4);
+}
+
+.dark { color-scheme: light; }
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+    font-feature-settings: "cv11", "ss01";
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display), ui-sans-serif, system-ui, sans-serif;
+    letter-spacing: -0.01em;
+  }
+
+  html { color-scheme: light; }
+  html[dir="rtl"] body { font-feature-settings: normal; }
+}
+
+@layer utilities {
+  .rag-green { color: var(--color-success); }
+  .rag-amber { color: var(--color-warning); }
+  .rag-red { color: var(--color-danger); }
+  .bg-rag-green { background-color: color-mix(in oklab, var(--color-success) 18%, transparent); }
+  .bg-rag-amber { background-color: color-mix(in oklab, var(--color-warning) 18%, transparent); }
+  .bg-rag-red { background-color: color-mix(in oklab, var(--color-danger) 18%, transparent); }
+}
+
+@media print {
+  aside,
+  nav,
+  .print\\:hidden {
+    display: none !important;
+  }
+  .executive-report-print,
+  .executive-report-section {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}
