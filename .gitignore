@@ -37,3 +37,5 @@ dist-ssr
 
 .next
 tsconfig.tsbuildinfo
+.vercel
+
