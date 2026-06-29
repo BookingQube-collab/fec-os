@@ -23,6 +23,7 @@ import {
   type ApiEndpoint,
   type HttpMethod,
 } from "@/lib/api-catalog";
+import { usesApiExplorerProxy } from "@/lib/api-explorer-utils";
 import { useUserRoles } from "@/hooks/use-auth";
 import { canAccessApiExplorer } from "@/lib/rbac";
 
@@ -144,7 +145,7 @@ function ApiExplorerPage() {
   }, []);
 
   const sendRequest = async () => {
-    if (!activeTry) return;
+    if (!activeTry || !selected) return;
     setSending(true);
     setResponse(null);
     const started = performance.now();
@@ -153,6 +154,58 @@ function ApiExplorerPage() {
       let headers: Record<string, string> = {};
       if (activeTry.headers.trim()) {
         headers = JSON.parse(activeTry.headers) as Record<string, string>;
+      }
+
+      const useProxy = usesApiExplorerProxy(selected.authType);
+
+      if (useProxy) {
+        const res = await fetch("/api/admin/api-explorer/try", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            endpointId: selected.id,
+            method: activeTry.method,
+            path: activeTry.path,
+            query: activeTry.query,
+            headers,
+            body: activeTry.body,
+          }),
+        });
+
+        const payload = (await res.json()) as {
+          ok?: boolean;
+          error?: string;
+          response?: {
+            status: number;
+            statusText: string;
+            headers: Record<string, string>;
+            body: string;
+            durationMs?: number;
+          };
+        };
+
+        if (!res.ok || !payload.ok || !payload.response) {
+          setResponse({
+            status: res.status,
+            statusText: res.statusText,
+            headers: {},
+            body: payload.error ? JSON.stringify({ error: payload.error }, null, 2) : "",
+            durationMs: Math.round(performance.now() - started),
+            error: payload.error ?? "Proxy request failed",
+          });
+          return;
+        }
+
+        const proxied = payload.response;
+        setResponse({
+          status: proxied.status,
+          statusText: proxied.statusText,
+          headers: proxied.headers,
+          body: proxied.body ? formatJson(proxied.body) : "",
+          durationMs: proxied.durationMs ?? Math.round(performance.now() - started),
+        });
+        return;
       }
 
       const url = new URL(activeTry.path, window.location.origin);
@@ -219,8 +272,8 @@ function ApiExplorerPage() {
           <h1 className="text-xl font-semibold tracking-tight">API Explorer</h1>
           <p className="text-xs text-muted-foreground">
             Browse and test all {API_ENDPOINT_COUNT} FEC-OS API endpoints. Session auth uses your
-            current login; paste API keys and CRON_SECRET from your environment — never commit
-            secrets.
+            current login. API key and cron endpoints are proxied server-side — placeholders in
+            headers are replaced automatically; secrets never leave the server.
           </p>
         </div>
       </header>
@@ -302,6 +355,12 @@ function ApiExplorerPage() {
                 <p className="mt-2 text-sm text-muted-foreground">{selected.description}</p>
                 <p className="mt-1 text-xs">
                   <span className="font-medium">Auth:</span> {selected.authDetail}
+                  {usesApiExplorerProxy(selected.authType) ? (
+                    <span className="text-muted-foreground">
+                      {" "}
+                      — injected server-side when you send from Try it
+                    </span>
+                  ) : null}
                 </p>
               </div>
 
