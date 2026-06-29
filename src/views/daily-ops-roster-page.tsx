@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Download, Loader2, MapPin, Plus, Share2, Sparkles, Trash2, Upload, ChevronDown } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Download, MapPin, Share2, Upload, ChevronDown } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
+import { RosterGeneratePanel } from "@/components/daily-ops/roster-generate-panel";
 import { RosterMonthCalendar } from "@/components/daily-ops/roster-month-calendar";
 import { RosterExportView } from "@/components/daily-ops/roster-export-view";
 import { DailyOpsPageShell } from "@/components/daily-ops/DailyOpsLayout";
@@ -17,12 +18,10 @@ import {
 } from "@/hooks/queries/useDailyOps";
 import { useSites } from "@/hooks/queries/useSites";
 import {
-  aiGenerateLocationRoster,
-  generateDailyOpsRoster,
   updateStaffRoster,
   uploadDailyOpsRosterCsv,
 } from "@/lib/daily-ops.functions";
-import { monthDateRange, rosterWeekStartsOn, weekRangeContaining } from "@/lib/daily-ops/roster-calendar-utils";
+import { monthDateRange } from "@/lib/daily-ops/roster-calendar-utils";
 import { shiftsToCsv } from "@/lib/daily-ops/roster-csv";
 import {
   buildRosterDatedSampleCsv,
@@ -69,14 +68,6 @@ type ShiftRow = Record<string, unknown> & {
   location: { code: string } | null;
 };
 
-type GenerateEntry = {
-  staff_id: string;
-  date: string;
-  start_time: string;
-  end_time: string;
-  role_label: string;
-};
-
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -104,19 +95,10 @@ function DailyOpsRosterPage() {
   const [isSharing, setIsSharing] = useState(false);
 
   const today = new Date().toISOString().slice(0, 10);
-  const weekStartsOn = rosterWeekStartsOn(language);
-  const defaultWeek = useMemo(() => weekRangeContaining(today, weekStartsOn), [today, weekStartsOn]);
   const [yearMonth, setYearMonth] = useState(today.slice(0, 7));
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [genWeekStart, setGenWeekStart] = useState(defaultWeek.from);
-  const [genWeekEnd, setGenWeekEnd] = useState(defaultWeek.to);
-  const [aiGeneratedPreview, setAiGeneratedPreview] = useState(false);
+  const [activeTab, setActiveTab] = useState("calendar");
   const monthRange = useMemo(() => monthDateRange(yearMonth), [yearMonth]);
-
-  useEffect(() => {
-    setGenWeekStart(defaultWeek.from);
-    setGenWeekEnd(defaultWeek.to);
-  }, [defaultWeek.from, defaultWeek.to]);
 
   const { data: sites } = useSites();
   const activeSites = useMemo(
@@ -136,16 +118,6 @@ function DailyOpsRosterPage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [role, setRole] = useState("");
   const [phone, setPhone] = useState("");
-
-  const [genEntries, setGenEntries] = useState<GenerateEntry[]>([
-    {
-      staff_id: "",
-      date: today,
-      start_time: "09:00",
-      end_time: "17:00",
-      role_label: "",
-    },
-  ]);
 
   const staffOptions = useMemo(
     () =>
@@ -190,68 +162,6 @@ function DailyOpsRosterPage() {
     onSuccess: (res) => {
       toast.success(t("dailyOps.roster.uploadSuccess", { count: res.imported }));
       invalidateRoster();
-    },
-    onError: (e) => toast.error((e as Error).message),
-  });
-
-  const generateMutation = useMutation({
-    mutationFn: () => {
-      if (!locationId) throw new Error(t("dailyOps.roster.selectLocation"));
-      const entries = genEntries.filter((e) => e.staff_id);
-      if (!entries.length) throw new Error(t("dailyOps.roster.generateEmpty"));
-      return generateDailyOpsRoster({
-        location_id: locationId,
-        entries: entries.map((e) => ({
-          staff_id: e.staff_id,
-          date: e.date,
-          start_time: e.start_time,
-          end_time: e.end_time,
-          role_label: e.role_label || null,
-        })),
-      });
-    },
-    onSuccess: (res) => {
-      toast.success(t("dailyOps.roster.generateSuccess", { count: res.generated }));
-      setAiGeneratedPreview(false);
-      invalidateRoster();
-    },
-    onError: (e) => toast.error((e as Error).message),
-  });
-
-  const aiGenerateMutation = useMutation({
-    mutationFn: () => {
-      if (!locationId) throw new Error(t("dailyOps.roster.selectLocation"));
-      if (!genWeekStart || !genWeekEnd) throw new Error(t("dailyOps.roster.aiWeekRequired"));
-      if (genWeekStart > genWeekEnd) throw new Error(t("dailyOps.roster.aiWeekInvalid"));
-      return aiGenerateLocationRoster({
-        location_id: locationId,
-        week_start: genWeekStart,
-        week_end: genWeekEnd,
-      });
-    },
-    onSuccess: (res) => {
-      if (!res.entries.length) {
-        toast.error(t("dailyOps.roster.aiEmpty"));
-        return;
-      }
-      setGenEntries(
-        res.entries.map((e) => ({
-          staff_id: e.staff_id,
-          date: e.date,
-          start_time: e.start_time,
-          end_time: e.end_time,
-          role_label: e.role_label,
-        })),
-      );
-      setAiGeneratedPreview(true);
-      toast.success(
-        res.ai_generated
-          ? t("dailyOps.roster.aiSuccess", { count: res.entries.length, location: res.location_code })
-          : t("dailyOps.roster.aiFallbackSuccess", {
-              count: res.entries.length,
-              location: res.location_code,
-            }),
-      );
     },
     onError: (e) => toast.error((e as Error).message),
   });
@@ -436,7 +346,7 @@ function DailyOpsRosterPage() {
         </p>
       )}
 
-      <Tabs defaultValue="calendar">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="calendar">{t("dailyOps.roster.tabCalendar")}</TabsTrigger>
           <TabsTrigger value="staff">{t("dailyOps.roster.tabStaff")}</TabsTrigger>
@@ -591,211 +501,22 @@ function DailyOpsRosterPage() {
         </TabsContent>
 
         {canGenerate && (
-          <TabsContent value="generate" className="mt-4 space-y-4">
-            <p className="text-sm text-muted-foreground">{t("dailyOps.roster.generateHint")}</p>
-
-            <div className="rounded-lg border border-[#E2E8F0] bg-gradient-to-br from-violet-50/80 to-white p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="space-y-1">
-                  <h3 className="text-sm font-medium">{t("dailyOps.roster.aiTitle")}</h3>
-                  <p className="text-xs text-muted-foreground">{t("dailyOps.roster.aiHint")}</p>
-                  {selectedSite && (
-                    <p className="text-xs font-medium text-violet-800">
-                      {t("dailyOps.roster.aiForLocation", {
-                        code: selectedSite.code,
-                        name: selectedSite.name,
-                      })}
-                    </p>
-                  )}
-                </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={() => aiGenerateMutation.mutate()}
-                  disabled={!locationId || aiGenerateMutation.isPending || !staffOptions.length}
-                >
-                  {aiGenerateMutation.isPending ? (
-                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Sparkles className="mr-1.5 h-3.5 w-3.5" />
-                  )}
-                  {aiGenerateMutation.isPending
-                    ? t("dailyOps.roster.aiGenerating")
-                    : t("dailyOps.roster.aiGenerate")}
-                </Button>
-              </div>
-
-              <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <div className="space-y-1">
-                  <Label>{t("dailyOps.roster.from")}</Label>
-                  <Input
-                    type="date"
-                    value={genWeekStart}
-                    onChange={(e) => setGenWeekStart(e.target.value)}
-                    disabled={!locationId || aiGenerateMutation.isPending}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label>{t("dailyOps.roster.to")}</Label>
-                  <Input
-                    type="date"
-                    value={genWeekEnd}
-                    onChange={(e) => setGenWeekEnd(e.target.value)}
-                    disabled={!locationId || aiGenerateMutation.isPending}
-                  />
-                </div>
-                <div className="flex items-end sm:col-span-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={!locationId}
-                    onClick={() => {
-                      const range = weekRangeContaining(today, weekStartsOn);
-                      setGenWeekStart(range.from);
-                      setGenWeekEnd(range.to);
-                    }}
-                  >
-                    {t("dailyOps.roster.aiThisWeek")}
-                  </Button>
-                </div>
-              </div>
-
-              {!locationId && (
-                <p className="mt-2 text-xs text-amber-700">{t("dailyOps.roster.selectLocation")}</p>
-              )}
-              {locationId && !staffOptions.length && !staffLoading && (
-                <p className="mt-2 text-xs text-amber-700">{t("dailyOps.roster.aiNoStaff")}</p>
-              )}
-            </div>
-
-            {aiGeneratedPreview && (
-              <p className="rounded-md border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900">
-                {t("dailyOps.roster.aiPreviewHint")}
-              </p>
-            )}
-
-            {genEntries.map((entry, idx) => (
-              <div
-                key={idx}
-                className="grid gap-3 rounded-lg border border-border bg-card p-4 sm:grid-cols-2 lg:grid-cols-6"
-              >
-                <div className="space-y-1 lg:col-span-2">
-                  <Label>{t("dailyOps.roster.name")}</Label>
-                  <Select
-                    value={entry.staff_id}
-                    onValueChange={(v) =>
-                      setGenEntries((prev) =>
-                        prev.map((e, i) => (i === idx ? { ...e, staff_id: v } : e)),
-                      )
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder={t("dailyOps.roster.pickStaff")} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {staffOptions.map((s) => (
-                        <SelectItem key={s.id} value={s.id}>
-                          {s.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1">
-                  <Label>{t("dailyOps.roster.date")}</Label>
-                  <Input
-                    type="date"
-                    value={entry.date}
-                    onChange={(e) =>
-                      setGenEntries((prev) =>
-                        prev.map((en, i) => (i === idx ? { ...en, date: e.target.value } : en)),
-                      )
-                    }
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label>{t("dailyOps.roster.startTime")}</Label>
-                  <Input
-                    type="time"
-                    value={entry.start_time}
-                    onChange={(e) =>
-                      setGenEntries((prev) =>
-                        prev.map((en, i) => (i === idx ? { ...en, start_time: e.target.value } : en)),
-                      )
-                    }
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label>{t("dailyOps.roster.endTime")}</Label>
-                  <Input
-                    type="time"
-                    value={entry.end_time}
-                    onChange={(e) =>
-                      setGenEntries((prev) =>
-                        prev.map((en, i) => (i === idx ? { ...en, end_time: e.target.value } : en)),
-                      )
-                    }
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label>{t("dailyOps.roster.role")}</Label>
-                  <Input
-                    value={entry.role_label}
-                    placeholder={t("dailyOps.roster.roleOptional")}
-                    onChange={(e) =>
-                      setGenEntries((prev) =>
-                        prev.map((en, i) => (i === idx ? { ...en, role_label: e.target.value } : en)),
-                      )
-                    }
-                  />
-                </div>
-                {genEntries.length > 1 && (
-                  <div className="flex items-end">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setGenEntries((prev) => prev.filter((_, i) => i !== idx))}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                )}
-              </div>
-            ))}
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() =>
-                  setGenEntries((prev) => [
-                    ...prev,
-                    {
-                      staff_id: "",
-                      date: today,
-                      start_time: "09:00",
-                      end_time: "17:00",
-                      role_label: "",
-                    },
-                  ])
-                }
-              >
-                <Plus className="mr-1.5 h-3.5 w-3.5" />
-                {t("dailyOps.roster.addRow")}
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => generateMutation.mutate()}
-                disabled={!locationId || generateMutation.isPending}
-              >
-                {generateMutation.isPending ? (
-                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                ) : null}
-                {t("dailyOps.roster.generate")}
-              </Button>
-            </div>
+          <TabsContent value="generate" className="mt-4">
+            <RosterGeneratePanel
+              locationId={locationId}
+              selectedSite={selectedSite}
+              staffOptions={staffOptions}
+              staffLoading={staffLoading}
+              onSaved={(count) => {
+                invalidateRoster();
+                toast.success(t("dailyOps.roster.generateSuccess", { count }), {
+                  action: {
+                    label: t("dailyOps.roster.viewCalendar"),
+                    onClick: () => setActiveTab("calendar"),
+                  },
+                });
+              }}
+            />
           </TabsContent>
         )}
       </Tabs>

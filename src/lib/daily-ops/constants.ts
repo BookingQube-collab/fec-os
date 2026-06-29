@@ -1,3 +1,21 @@
+import type { LucideIcon } from "lucide-react";
+import {
+  AlertTriangle,
+  Baby,
+  CloudLightning,
+  Cog,
+  Flame,
+  Footprints,
+  Hammer,
+  HeartPulse,
+  MoreHorizontal,
+  ShieldAlert,
+  CircleStop,
+  Users,
+  UtensilsCrossed,
+  HardHat,
+} from "lucide-react";
+
 export const DAILY_OPS_NAV_ITEMS = [
   { href: "/daily-ops", labelKey: "dailyOps.nav.dashboard" },
   { href: "/daily-ops/roster", labelKey: "dailyOps.nav.roster" },
@@ -42,26 +60,93 @@ export const SHIFT_PERIOD_LABELS: Record<ShiftPeriod, string> = {
   full_day: "Full Day",
 };
 
+/** Common FEC family entertainment centre incident categories */
 export const INCIDENT_TYPES = [
-  "guest_injury",
+  "guest_injury_first_aid",
+  "slip_trip_fall",
+  "equipment_malfunction",
+  "attraction_stoppage_evacuation",
+  "crowd_control_queue",
+  "food_beverage",
+  "child_lost_found_welfare",
+  "security_theft_altercation",
+  "fire_smoke_emergency_alarm",
+  "weather_power_outage",
   "staff_injury",
-  "equipment_failure",
-  "safety_near_miss",
-  "security_issue",
-  "fire_evacuation",
+  "property_damage",
+  "near_miss",
   "other",
 ] as const;
 
 export type IncidentType = (typeof INCIDENT_TYPES)[number];
 
 export const INCIDENT_TYPE_LABELS: Record<IncidentType, string> = {
-  guest_injury: "Guest Injury",
-  staff_injury: "Staff Injury",
-  equipment_failure: "Equipment Failure",
-  safety_near_miss: "Safety Near-Miss",
-  security_issue: "Security Issue",
-  fire_evacuation: "Fire / Evacuation",
+  guest_injury_first_aid: "Guest injury / first aid",
+  slip_trip_fall: "Slip, trip, or fall",
+  equipment_malfunction: "Equipment / ride malfunction",
+  attraction_stoppage_evacuation: "Attraction stoppage / evacuation",
+  crowd_control_queue: "Crowd control / queue issue",
+  food_beverage: "Food & beverage incident",
+  child_lost_found_welfare: "Child lost / found / welfare",
+  security_theft_altercation: "Security / theft / altercation",
+  fire_smoke_emergency_alarm: "Fire / smoke / emergency alarm",
+  weather_power_outage: "Weather / power outage",
+  staff_injury: "Staff injury",
+  property_damage: "Property damage",
+  near_miss: "Near miss",
   other: "Other",
+};
+
+/** Labels for legacy category values stored before FEC type expansion */
+export const LEGACY_INCIDENT_TYPE_LABELS: Record<string, string> = {
+  guest_injury: "Guest injury / first aid",
+  equipment_failure: "Equipment / ride malfunction",
+  safety_near_miss: "Near miss",
+  security_issue: "Security / theft / altercation",
+  fire_evacuation: "Fire / smoke / emergency alarm",
+};
+
+export function incidentTypeLabel(category: string): string {
+  return (
+    INCIDENT_TYPE_LABELS[category as IncidentType] ??
+    LEGACY_INCIDENT_TYPE_LABELS[category] ??
+    category.replace(/_/g, " ")
+  );
+}
+
+export const INCIDENT_TYPE_ICONS: Record<IncidentType, LucideIcon> = {
+  guest_injury_first_aid: HeartPulse,
+  slip_trip_fall: Footprints,
+  equipment_malfunction: Cog,
+  attraction_stoppage_evacuation: CircleStop,
+  crowd_control_queue: Users,
+  food_beverage: UtensilsCrossed,
+  child_lost_found_welfare: Baby,
+  security_theft_altercation: ShieldAlert,
+  fire_smoke_emergency_alarm: Flame,
+  weather_power_outage: CloudLightning,
+  staff_injury: HardHat,
+  property_damage: Hammer,
+  near_miss: AlertTriangle,
+  other: MoreHorizontal,
+};
+
+/** Suggested default severity when a type is selected */
+export const INCIDENT_TYPE_SUGGESTED_SEVERITY: Record<IncidentType, string> = {
+  guest_injury_first_aid: "medium",
+  slip_trip_fall: "medium",
+  equipment_malfunction: "high",
+  attraction_stoppage_evacuation: "high",
+  crowd_control_queue: "medium",
+  food_beverage: "low",
+  child_lost_found_welfare: "high",
+  security_theft_altercation: "high",
+  fire_smoke_emergency_alarm: "critical",
+  weather_power_outage: "medium",
+  staff_injury: "medium",
+  property_damage: "low",
+  near_miss: "low",
+  other: "medium",
 };
 
 export const INCIDENT_STATUS_LABELS: Record<string, string> = {
@@ -78,6 +163,10 @@ export const COMPLAINT_STATUS_LABELS: Record<string, string> = {
   escalated: "Escalated",
   dismissed: "Dismissed",
 };
+
+export function incidentReference(id: string): string {
+  return `INC-${id.replace(/-/g, "").slice(0, 8).toUpperCase()}`;
+}
 
 export function attendanceTone(pct: number): string {
   if (pct >= 100) return "text-emerald-600";

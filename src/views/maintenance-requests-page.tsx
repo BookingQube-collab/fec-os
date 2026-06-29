@@ -3,23 +3,21 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState } from "react";
-import { Loader2, Plus } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { MaintenanceAttachmentsGallery } from "@/components/maintenance/maintenance-attachments-gallery";
+import { MaintenanceRequestForm } from "@/components/maintenance/maintenance-request-form";
 import { fileToBase64, PhotoCaptureUpload } from "@/components/maintenance/photo-capture-upload";
 import { useMaintenanceRequests } from "@/hooks/queries/useMaintenanceRequests";
 import { useSites } from "@/hooks/queries/useSites";
 import { usePermission } from "@/hooks/use-permission";
 import {
   acceptMaintenanceRequest,
-  createMaintenanceRequest,
   getMaintenanceRequest,
-  listMaintenanceTechnicians,
   updateMaintenanceRequestProgress,
   uploadMaintenanceAttachment,
 } from "@/lib/maintenance-requests.functions";
-import { MAINTENANCE_PRIORITIES } from "@/lib/maintenance/sla";
 import { queryKeys } from "@/lib/query-keys";
 import { useAppStore } from "@/stores/app-store";
 import { Badge } from "@/components/ui/badge";
@@ -29,9 +27,6 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-
-const CATEGORIES = ["Electrical", "Plumbing", "HVAC", "Structural", "Equipment", "General"] as const;
-const ISSUE_TYPES = ["Breakdown", "Leak", "Noise", "Safety", "Cleaning", "Other"] as const;
 
 function MaintenanceRequestsPage() {
   const locationId = useAppStore((s) => s.currentLocationId);
@@ -75,7 +70,7 @@ function MaintenanceRequestsPage() {
 
         {canSubmit && (
           <TabsContent value="new" className="mt-4">
-            <NewRequestForm sites={sites ?? []} defaultLocationId={locationId ?? ""} />
+            <MaintenanceRequestForm sites={sites ?? []} defaultLocationId={locationId ?? ""} />
           </TabsContent>
         )}
 
@@ -198,165 +193,6 @@ function RequestsList({
         </tbody>
       </table>
     </div>
-  );
-}
-
-function NewRequestForm({
-  sites,
-  defaultLocationId,
-}: {
-  sites: Array<{ id: string; code: string; name: string }>;
-  defaultLocationId: string;
-}) {
-  const qc = useQueryClient();
-  const [form, setForm] = useState({
-    location_id: defaultLocationId,
-    area: "",
-    category: "General",
-    issue_type: "Breakdown",
-    priority: "normal",
-    description: "",
-    assigned_technician_id: "",
-    reporter_name: "",
-    reported_at: "",
-  });
-  const [files, setFiles] = useState<File[]>([]);
-
-  const techQ = useQuery({
-    queryKey: ["maint-techs", form.location_id],
-    queryFn: () => listMaintenanceTechnicians({ locationId: form.location_id }),
-    enabled: !!form.location_id,
-  });
-
-  const createMut = useMutation({
-    mutationFn: async () => {
-      const result = await createMaintenanceRequest({
-        location_id: form.location_id,
-        area: form.area || null,
-        category: form.category,
-        issue_type: form.issue_type,
-        priority: form.priority as "normal" | "medium" | "urgent",
-        description: form.description,
-        assigned_technician_id: form.assigned_technician_id || null,
-        reporter_name: form.reporter_name || null,
-        reported_at: form.reported_at ? new Date(form.reported_at).toISOString() : undefined,
-      });
-      for (const file of files) {
-        const base64 = await fileToBase64(file);
-        await uploadMaintenanceAttachment({
-          request_id: result.id,
-          file_name: file.name,
-          file_base64: base64,
-          mime_type: file.type,
-          kind: "submission",
-        });
-      }
-      return result;
-    },
-    onSuccess: (r) => {
-      toast.success(`Request ${r.request_number} submitted`);
-      setForm((f) => ({ ...f, description: "", area: "" }));
-      setFiles([]);
-      void qc.invalidateQueries({ queryKey: queryKeys.maintenance.requests() });
-    },
-    onError: (e) => toast.error((e as Error).message),
-  });
-
-  return (
-    <form
-      className="max-w-2xl space-y-4 rounded-lg border border-border bg-surface/30 p-5"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (!form.location_id || form.description.length < 3) {
-          toast.error("Branch and description are required");
-          return;
-        }
-        createMut.mutate();
-      }}
-    >
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Branch" required>
-          <Select value={form.location_id} onValueChange={(v) => setForm((f) => ({ ...f, location_id: v }))}>
-            <SelectTrigger><SelectValue placeholder="Select branch" /></SelectTrigger>
-            <SelectContent>
-              {(sites ?? []).map((l) => <SelectItem key={l.id} value={l.id}>{l.code} — {l.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </Field>
-        <Field label="Area">
-          <Input value={form.area} onChange={(e) => setForm((f) => ({ ...f, area: e.target.value }))} />
-        </Field>
-      </div>
-      <div className="grid grid-cols-3 gap-3">
-        <Field label="Category" required>
-          <Select value={form.category} onValueChange={(v) => setForm((f) => ({ ...f, category: v }))}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </Field>
-        <Field label="Issue type">
-          <Select value={form.issue_type} onValueChange={(v) => setForm((f) => ({ ...f, issue_type: v }))}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {ISSUE_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </Field>
-        <Field label="Priority" required>
-          <Select value={form.priority} onValueChange={(v) => setForm((f) => ({ ...f, priority: v }))}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {MAINTENANCE_PRIORITIES.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </Field>
-      </div>
-      <Field label="Description" required>
-        <Textarea rows={4} value={form.description}
-          onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
-      </Field>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Reporter name">
-          <Input value={form.reporter_name}
-            onChange={(e) => setForm((f) => ({ ...f, reporter_name: e.target.value }))} />
-        </Field>
-        <Field label="Date & time">
-          <Input type="datetime-local" value={form.reported_at}
-            onChange={(e) => setForm((f) => ({ ...f, reported_at: e.target.value }))} />
-        </Field>
-      </div>
-      <Field label="Assign technician">
-        <Select
-          value={form.assigned_technician_id || "none"}
-          onValueChange={(v) => setForm((f) => ({ ...f, assigned_technician_id: v === "none" ? "" : v }))}
-          disabled={!form.location_id}
-        >
-          <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="none">— none —</SelectItem>
-            {(techQ.data ?? []).map((t) => (
-              <SelectItem key={t.id} value={t.id}>{t.display_name ?? t.id.slice(0, 8)}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </Field>
-      <PhotoCaptureUpload
-        label="Photos / videos"
-        files={files}
-        onChange={setFiles}
-        acceptVideos
-        disabled={createMut.isPending}
-        uploading={createMut.isPending}
-      />
-      <div className="flex justify-end">
-        <Button type="submit" disabled={createMut.isPending}>
-          {createMut.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-          Submit request
-        </Button>
-      </div>
-    </form>
   );
 }
 

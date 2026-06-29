@@ -109,11 +109,32 @@ async function main() {
   const closed = await closeLegacyLocations(allowedCodes);
   if (closed) console.log(`Closed ${closed} legacy location(s).`);
 
-  await upsertBatch(
-    "locations",
-    data.locations.map(({ surge_mode, ...l }) => l),
+  const { data: dbLocs, error: locFetchError } = await admin
+    .from("locations")
+    .select("id, code")
+    .in(
+      "code",
+      data.locations.map((l) => l.code),
+    );
+  if (locFetchError) throw locFetchError;
+  const codeToDbId = new Map((dbLocs ?? []).map((r) => [r.code, r.id]));
+  const locationIdMap = new Map(
+    data.locations.map((l) => {
+      const dbId = codeToDbId.get(l.code);
+      if (!dbId) {
+        throw new Error(`Location not found for code ${l.code} � run npm run seed:locations first`);
+      }
+      return [l.id, dbId];
+    }),
   );
-  console.log(`Upserted ${data.locations.length} locations.`);
+  const remapLoc = (id) => (id && locationIdMap.has(id) ? locationIdMap.get(id) : id);
+
+  for (const loc of data.locations) {
+    const { id: _id, surge_mode, code, ...fields } = loc;
+    const { error } = await admin.from("locations").update(fields).eq("code", code);
+    if (error) throw new Error(`locations ${code}: ${error.message}`);
+  }
+  console.log(`Updated ${data.locations.length} locations (matched by code).`);
 
   const profileIdMap = new Map();
 
@@ -156,15 +177,16 @@ async function main() {
 
   await upsertBatch(
     "attractions",
-    data.attractions.map(({ location_code, ...r }) => r),
+    data.attractions.map(({ location_code, ...r }) => ({ ...r, location_id: remapLoc(r.location_id) })),
   );
   await upsertBatch(
     "assets",
-    data.assets.map(({ location_code, ...r }) => r),
+    data.assets.map(({ location_code, ...r }) => ({ ...r, location_id: remapLoc(r.location_id) })),
   );
 
   const staff = data.staff.map(({ location_code, qid: _qid, app_role: _role, email, ...r }) => ({
     ...r,
+    location_id: remapLoc(r.location_id),
     user_id: remap(r.user_id),
     email,
   }));
@@ -173,7 +195,7 @@ async function main() {
 
   await upsertBatch(
     "task_templates",
-    data.taskTemplates.map(({ location_code, ...r }) => r),
+    data.taskTemplates.map(({ location_code, ...r }) => ({ ...r, location_id: remapLoc(r.location_id) })),
   );
   await upsertBatch(
     "task_template_items",
@@ -183,6 +205,7 @@ async function main() {
   const taskInstances = data.taskInstances.map(
     ({ location_code, checklist_date, checklist_kind, ...r }) => ({
       ...r,
+      location_id: remapLoc(r.location_id),
       assigned_to: remap(r.assigned_to),
       submitted_by: remap(r.submitted_by),
     }),
@@ -198,6 +221,7 @@ async function main() {
 
   const shifts = data.shifts.map(({ location_code, employee_code, staff_name, ...r }) => ({
     ...r,
+    location_id: remapLoc(r.location_id),
     user_id: remap(r.user_id),
   }));
   await upsertBatch("shifts", shifts);
@@ -205,22 +229,24 @@ async function main() {
 
   await upsertBatch(
     "financial_snapshots",
-    data.financialSnapshots.map(({ location_code, ebitda: _ebitda, ...r }) => r),
+    data.financialSnapshots.map(({ location_code, ebitda: _ebitda, ...r }) => ({ ...r, location_id: remapLoc(r.location_id) })),
   );
   console.log(`Upserted ${data.financialSnapshots.length} financial_snapshots.`);
 
   const transactions = data.transactions.map(({ location_code, ...r }) => ({
     ...r,
+    location_id: remapLoc(r.location_id),
     cashier_id: remap(r.cashier_id),
   }));
   await upsertBatch("transactions", transactions);
   console.log(`Upserted ${transactions.length} transactions.`);
 
-  const complaints = data.complaints.map(({ location_code, ...r }) => r);
+  const complaints = data.complaints.map(({ location_code, ...r }) => ({ ...r, location_id: remapLoc(r.location_id) }));
   await upsertBatch("complaints", complaints);
 
   const tickets = data.tickets.map(({ location_code, ...r }) => ({
     ...r,
+    location_id: remapLoc(r.location_id),
     reported_by: remap(r.reported_by),
     assigned_to: remap(r.assigned_to),
   }));
@@ -228,18 +254,21 @@ async function main() {
 
   const workOrders = data.workOrders.map(({ location_code, ...r }) => ({
     ...r,
+    location_id: remapLoc(r.location_id),
     assigned_to: remap(r.assigned_to),
   }));
   await upsertBatch("work_orders", workOrders);
 
   const incidents = data.incidents.map(({ location_code, ...r }) => ({
     ...r,
+    location_id: remapLoc(r.location_id),
     reported_by: remap(r.reported_by),
   }));
   await upsertBatch("incidents", incidents);
 
   const purchaseOrders = data.purchaseOrders.map(({ location_code, ...r }) => ({
     ...r,
+    location_id: remapLoc(r.location_id),
     requested_by: remap(r.requested_by),
   }));
   await upsertBatch("purchase_orders", purchaseOrders);
@@ -247,6 +276,7 @@ async function main() {
   const leaderboard = data.staffLeaderboard.map(
     ({ location_code, employee_code, staff_name, ...r }) => ({
       ...r,
+      location_id: remapLoc(r.location_id),
       profile_id: remap(r.profile_id),
     }),
   );

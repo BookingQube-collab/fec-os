@@ -6,9 +6,11 @@
  *
  * Env:
  *   ATTENDANCE_INGEST_API_KEY — required
- *   FEC_BASE_URL — optional (default http://localhost:3000)
+ *   FEC_BASE_URL or BASE_URL — optional (default https://e3fec.vercel.app)
  */
-const baseUrl = (process.env.FEC_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+const baseUrl = (
+  process.env.FEC_BASE_URL ?? process.env.BASE_URL ?? "https://e3fec.vercel.app"
+).replace(/\/$/, "");
 const apiKey = process.env.ATTENDANCE_INGEST_API_KEY;
 
 if (!apiKey) {

@@ -124,7 +124,7 @@ export const CAPABILITIES = {
   "leaderboard.view": ["ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager"],
 
   // Admin
-  "admin.view": ["ceo", "coo"],
+  "admin.view": ["ceo", "coo", "regional_ops"],
   "admin.manage_users": ["ceo", "coo"],
   "admin.manage_roles": ["ceo"],
   "admin.provision_users": ["ceo", "coo"],
@@ -233,6 +233,11 @@ export type Capability = keyof typeof CAPABILITIES;
 export function canUserDo(roles: AppRole[], capability: Capability): boolean {
   const allowed = CAPABILITIES[capability];
   return roles.some((r) => (allowed as readonly AppRole[]).includes(r));
+}
+
+/** API Explorer — CEO, COO, Regional Ops, or admin.view capability. */
+export function canAccessApiExplorer(roles: AppRole[]): boolean {
+  return canUserDo(roles, "admin.view");
 }
 
 /** Roles that unlock full (non-floor) forms and revenue/finance UI. */

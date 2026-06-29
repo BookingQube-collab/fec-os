@@ -52,9 +52,21 @@ export async function fetchTraining(context: AuthContext, locationId?: string | 
   return rows ?? [];
 }
 
-export async function fetchAttendanceDailySummary(context: AuthContext, locationId?: string | null) {
-  const from = new Date(Date.now() - 7 * 86400_000).toISOString().slice(0, 10);
-  const to = new Date().toISOString().slice(0, 10);
+export type AttendanceSummaryFilters = {
+  dateFrom?: string | null;
+  dateTo?: string | null;
+};
+
+export async function fetchAttendanceDailySummary(
+  context: AuthContext,
+  locationId?: string | null,
+  filters?: AttendanceSummaryFilters,
+) {
+  const defaultFrom = new Date(Date.now() - 30 * 86400_000).toISOString().slice(0, 10);
+  const defaultTo = new Date().toISOString().slice(0, 10);
+  const from = filters?.dateFrom?.trim() || defaultFrom;
+  const to = filters?.dateTo?.trim() || defaultTo;
+
   let q = context.supabase
     .from("attendance_daily_summary")
     .select(
@@ -62,21 +74,32 @@ export async function fetchAttendanceDailySummary(context: AuthContext, location
     )
     .gte("work_date", from)
     .lte("work_date", to)
-    .order("work_date", { ascending: false });
+    .order("work_date", { ascending: false })
+    .order("actual_in", { ascending: true, nullsFirst: false });
   if (locationId) q = q.eq("location_id", locationId);
   const { data: rows, error } = await q;
   if (error) throw error;
   if (!rows?.length) return [];
 
   const staffIds = [...new Set(rows.map((r) => r.staff_id).filter(Boolean))] as string[];
-  const { data: staff } = staffIds.length
-    ? await context.supabase.from("staff").select("id, full_name, employee_code").in("id", staffIds)
-    : { data: [] };
+  const locationIds = [...new Set(rows.map((r) => r.location_id).filter(Boolean))] as string[];
+
+  const [{ data: staff }, { data: locations }] = await Promise.all([
+    staffIds.length
+      ? context.supabase.from("staff").select("id, full_name, employee_code").in("id", staffIds)
+      : Promise.resolve({ data: [] }),
+    locationIds.length
+      ? context.supabase.from("locations").select("id, code, name, region").in("id", locationIds)
+      : Promise.resolve({ data: [] }),
+  ]);
+
   const staffMap = new Map((staff ?? []).map((s) => [s.id, s]));
+  const locationMap = new Map((locations ?? []).map((l) => [l.id, l]));
 
   return rows.map((r) => ({
     ...r,
     staff: r.staff_id ? staffMap.get(r.staff_id) ?? null : null,
+    location: locationMap.get(r.location_id) ?? null,
   }));
 }
 

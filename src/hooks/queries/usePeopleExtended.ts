@@ -29,16 +29,22 @@ export function useTraining(locationId?: string | null, options?: { enabled?: bo
   });
 }
 
-export function useAttendanceDailySummary(locationId?: string | null, options?: { enabled?: boolean }) {
+export function useAttendanceDailySummary(
+  locationId?: string | null,
+  options?: { enabled?: boolean; dateFrom?: string; dateTo?: string },
+) {
+  const { dateFrom, dateTo, enabled = true } = options ?? {};
   return useQuery({
-    queryKey: queryKeys.people.attendanceSummary(locationId),
+    queryKey: queryKeys.people.attendanceSummary({ locationId, dateFrom, dateTo }),
     queryFn: () =>
       apiGet<Awaited<ReturnType<typeof fetchAttendanceDailySummary>>>("/api/people/shifts", {
         view: "attendance-summary",
         locationId,
+        dateFrom,
+        dateTo,
       }),
     staleTime: STALE.people,
-    enabled: options?.enabled ?? true,
+    enabled,
   });
 }
 

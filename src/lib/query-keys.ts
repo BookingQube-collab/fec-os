@@ -157,8 +157,14 @@ export const queryKeys = {
     departments: () => [...queryKeys.people.all, "departments"] as const,
     shifts: (locationId?: string | null) => [...queryKeys.people.all, "shifts", locationId ?? null] as const,
     training: (locationId?: string | null) => [...queryKeys.people.all, "training", locationId ?? null] as const,
-    attendanceSummary: (locationId?: string | null) =>
-      [...queryKeys.people.all, "attendance-summary", locationId ?? null] as const,
+    attendanceSummary: (filters?: { locationId?: string | null; dateFrom?: string; dateTo?: string }) =>
+      [
+        ...queryKeys.people.all,
+        "attendance-summary",
+        filters?.locationId ?? null,
+        filters?.dateFrom ?? null,
+        filters?.dateTo ?? null,
+      ] as const,
     attendanceExceptions: (locationId?: string | null) =>
       [...queryKeys.people.all, "attendance-exceptions", locationId ?? null] as const,
   },

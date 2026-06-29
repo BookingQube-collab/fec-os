@@ -13,11 +13,13 @@
     "seed:locations": "node --env-file=.env.local scripts/seed-locations.mjs",
     "seed:demo": "node --env-file=.env.local scripts/seed-demo-data.mjs",
     "seed:e3-compliance": "node --env-file=.env.local scripts/seed-e3-compliance-items.mjs",
+    "seed:all": "node --env-file=.env.local scripts/seed-all.mjs",
     "import:staff": "node --env-file=.env.local scripts/import-staff-roster.mjs",
     "generate:demo": "node scripts/generate-demo-data.mjs",
     "db:push": "node --env-file=.env.local scripts/push-migrations.mjs",
     "db:baseline": "node --env-file=.env.local scripts/seed-migration-baseline.mjs",
-    "db:bundle": "node scripts/bundle-pending-migrations.mjs"
+    "db:bundle": "node scripts/bundle-pending-migrations.mjs",
+    "generate:api-catalog": "node scripts/generate-api-catalog.mjs"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.15",

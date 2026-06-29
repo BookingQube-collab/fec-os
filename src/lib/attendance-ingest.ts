@@ -52,6 +52,7 @@ const LOCATION_ALIASES: Record<string, string> = {
         [normalizeKey(loc.code), loc.code],
       ];
       if (loc.code === "INF-CC") {
+        entries.push([normalizeKey("Inflatapark"), loc.code]);
         entries.push([normalizeKey("Inflatapark - City Center"), loc.code]);
         entries.push([normalizeKey("Inflatapark City Center"), loc.code]);
       }
@@ -408,6 +409,7 @@ export async function ingestAttendanceRecords(
 export function getAttendanceLocationAliasTable(): Array<{ friendly_name: string; location_code: string }> {
   return [
     { friendly_name: "Urban Arena - Doha Mall", location_code: "UA-DM" },
+    { friendly_name: "Inflatapark", location_code: "INF-CC" },
     { friendly_name: "Inflatapark - City Center", location_code: "INF-CC" },
     { friendly_name: "Kids Driving School - City Center", location_code: "KDS-CC" },
     { friendly_name: "Kids Driving School Mini - Doha Mall", location_code: "KDS-DM" },

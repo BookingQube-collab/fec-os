@@ -13,6 +13,7 @@ import {
   CalendarDays,
   ClipboardCheck,
   ClipboardList,
+  Code2,
   Crown,
   FileBarChart,
   FileText,
@@ -205,6 +206,7 @@ export const NAV_DEPARTMENTS: NavDepartment[] = [
     audience: ["executive", "all"],
     items: [
       { href: "/admin", labelKey: "nav.settings", icon: Settings, capability: "admin.view" },
+      { href: "/admin/api-explorer", labelKey: "nav.apiExplorer", icon: Code2, capability: "admin.view" },
       { href: "/notifications/planned", labelKey: "nav.plannedNotifications", icon: BellRing, capability: "notifications.planned.view" },
     ],
     groups: [WEEKLY_REPORTS_NAV_GROUP],

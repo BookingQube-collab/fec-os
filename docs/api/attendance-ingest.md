@@ -335,6 +335,7 @@ Friendly names from external systems are resolved to FEC `locations.code`:
 | Friendly name (examples) | FEC code |
 |--------------------------|----------|
 | Urban Arena - Doha Mall | `UA-DM` |
+| Inflatapark | `INF-CC` |
 | Inflatapark - City Center | `INF-CC` |
 | Kids Driving School - City Center | `KDS-CC` |
 | Kids Driving School Mini - Doha Mall | `KDS-DM` |

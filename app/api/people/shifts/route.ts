@@ -8,7 +8,12 @@ export async function GET(request: Request) {
       const locationId = params.get("locationId") || null;
       const view = params.get("view") ?? "shifts";
       if (view === "training") return fetchTraining(context, locationId);
-      if (view === "attendance-summary") return fetchAttendanceDailySummary(context, locationId);
+      if (view === "attendance-summary") {
+        return fetchAttendanceDailySummary(context, locationId, {
+          dateFrom: params.get("dateFrom"),
+          dateTo: params.get("dateTo"),
+        });
+      }
       if (view === "attendance-exceptions") return fetchAttendanceExceptions(context, locationId);
       return fetchShifts(context, locationId);
     },

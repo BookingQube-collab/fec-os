@@ -128,11 +128,12 @@ export async function fetchDailyOpsIncidents(context: AuthContext, locationId?: 
 
 export async function fetchDailyOpsMaintenance(context: AuthContext, locationId?: string | null) {
   let q = context.supabase
-    .from("supervisor_issues_enriched")
+    .from("maintenance_requests")
     .select(
-      "id, entry_ref, date_reported, location_id, area_equipment, description, priority, assigned_to, status, date_resolved, days_open, log_date, category, zone",
+      "id, request_number, location_id, area, category, issue_type, priority, description, assigned_technician_id, reporter_name, reported_at, status, completed_at, work_order_id",
     )
-    .order("log_date", { ascending: false })
+    .is("deleted_at", null)
+    .order("reported_at", { ascending: false })
     .limit(200);
   if (locationId) {
     await assertLocationAccess(context, locationId);
@@ -140,7 +141,36 @@ export async function fetchDailyOpsMaintenance(context: AuthContext, locationId?
   }
   const { data, error } = await q;
   if (error) throw error;
-  return data ?? [];
+  if (!data?.length) return [];
+
+  const techIds = [...new Set(data.map((r) => r.assigned_technician_id).filter(Boolean))] as string[];
+  const { data: profiles } = techIds.length
+    ? await context.supabase.from("profiles").select("id, display_name").in("id", techIds)
+    : { data: [] as { id: string; display_name: string | null }[] };
+  const nameMap = new Map((profiles ?? []).map((p) => [p.id, p.display_name]));
+
+  const now = Date.now();
+  return data.map((row) => {
+    const reportedAt = new Date(row.reported_at).getTime();
+    const endAt = row.completed_at ? new Date(row.completed_at).getTime() : now;
+    const daysOpen = Math.max(0, Math.floor((endAt - reportedAt) / 86_400_000));
+    return {
+      id: row.id,
+      request_number: row.request_number,
+      location_id: row.location_id,
+      area: row.area,
+      category: row.category,
+      issue_type: row.issue_type,
+      description: row.description,
+      priority: row.priority,
+      assigned_to: row.assigned_technician_id ? nameMap.get(row.assigned_technician_id) ?? null : null,
+      reporter_name: row.reporter_name,
+      reported_at: row.reported_at,
+      status: row.status,
+      work_order_id: row.work_order_id,
+      days_open: daysOpen,
+    };
+  });
 }
 
 export async function fetchDailyOpsRoster(context: AuthContext, locationId?: string | null) {

@@ -43,17 +43,16 @@ import {
 import { useMasterDepartments } from "@/hooks/queries/useDepartments";
 import { DepartmentMultiSelect } from "@/components/people/department-multi-select";
 import { ManageDepartmentsDialog } from "@/components/people/manage-departments-dialog";
+import { AttendanceTablePanel } from "@/components/people/attendance-table-panel";
 import {
   useShifts,
   useTraining,
-  useAttendanceDailySummary,
   useAttendanceExceptions,
 } from "@/hooks/queries/usePeopleExtended";
 import {
   generateAttendanceSummary,
   createAttendanceSummary,
   updateAttendanceSummary,
-  deleteAttendanceSummary,
 } from "@/lib/attendance.functions";
 import {
   buildRosterDatedSampleCsv,
@@ -172,6 +171,7 @@ type AttendanceRow = {
   staff_id: string | null;
   actual_in?: string | null;
   actual_out?: string | null;
+  overtime_minutes?: number;
   staff: { full_name?: string } | null;
 };
 
@@ -1101,17 +1101,13 @@ function AttendanceTab() {
   const qc = useQueryClient();
   const today = new Date().toISOString().slice(0, 10);
 
-  const { data, isLoading } = useAttendanceDailySummary(locationId ?? null);
   const { data: exceptions } = useAttendanceExceptions(locationId ?? null);
   const { data: staffList } = useStaff(locationId ?? null);
 
   const [createOpen, setCreateOpen] = useState(false);
-  const [editRow, setEditRow] = useState<AttendanceRow | null>(null);
-  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const invalidate = () => {
-    void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceSummary(locationId ?? null) });
-    void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceExceptions(locationId ?? null) });
+    void qc.invalidateQueries({ queryKey: queryKeys.people.all });
   };
 
   const genMut = useMutation({
@@ -1126,18 +1122,7 @@ function AttendanceTab() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const deleteMut = useMutation({
-    mutationFn: (id: string) => deleteAttendanceSummary({ id }),
-    onSuccess: () => {
-      toast.success(t("people.attendance.deleteSuccess"));
-      setDeleteId(null);
-      invalidate();
-    },
-    onError: (e) => toast.error((e as Error).message),
-  });
-
   if (!locationId) return <Empty>{t("people.attendance.selectBranch")}</Empty>;
-  if (isLoading) return <Empty>{t("people.attendance.loading")}</Empty>;
 
   return (
     <div className="space-y-4">
@@ -1162,73 +1147,8 @@ function AttendanceTab() {
           )}
         </div>
       </div>
-      {!data?.length ? (
-        <Empty>{t("people.attendance.empty")}</Empty>
-      ) : (
-        <div className="overflow-hidden rounded-lg border border-border">
-          <table className="w-full text-sm">
-            <thead className="bg-surface/60 text-xs uppercase tracking-wider text-muted-foreground">
-              <tr>
-                <th className="px-3 py-2 text-left">{t("people.attendance.staff")}</th>
-                <th className="px-3 py-2 text-left">{t("people.attendance.date")}</th>
-                <th className="px-3 py-2 text-left">{t("people.attendance.status")}</th>
-                <th className="px-3 py-2 text-left">{t("people.attendance.lateMin")}</th>
-                <th className="px-3 py-2 text-left">{t("people.attendance.missedPunch")}</th>
-                {canCorrect && <th className="px-3 py-2 text-right">{t("people.actions")}</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {(data as AttendanceRow[]).map((row) => (
-                <tr key={row.id} className="border-t border-border/50">
-                  <td className="px-3 py-2">{row.staff?.full_name ?? "—"}</td>
-                  <td className="px-3 py-2">{row.work_date}</td>
-                  <td className="px-3 py-2"><Badge variant="outline">{row.status}</Badge></td>
-                  <td className="px-3 py-2">{row.late_minutes}</td>
-                  <td className="px-3 py-2">{row.missed_punch ? t("people.training.yes") : t("people.training.no")}</td>
-                  {canCorrect && (
-                    <td className="px-3 py-2 text-right">
-                      <div className="inline-flex gap-1">
-                        <Button size="sm" variant="ghost" onClick={() => setEditRow(row)}>
-                          <Pencil className="h-3 w-3" />
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => setDeleteId(row.id)}>
-                          <Trash2 className="h-3 w-3 text-rose-400" />
-                        </Button>
-                      </div>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
 
-      {editRow && (
-        <AttendanceFormDialog
-          open
-          onOpenChange={(o) => !o && setEditRow(null)}
-          locationId={locationId}
-          staffList={staffList ?? []}
-          record={editRow}
-          onSaved={() => { setEditRow(null); invalidate(); }}
-        />
-      )}
-
-      <AlertDialog open={!!deleteId} onOpenChange={(o) => !o && setDeleteId(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("people.attendance.deleteTitle")}</AlertDialogTitle>
-            <AlertDialogDescription>{t("people.attendance.deleteDescription")}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction onClick={() => deleteId && deleteMut.mutate(deleteId)} disabled={deleteMut.isPending}>
-              {t("common.delete")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <AttendanceTablePanel locationId={locationId} />
     </div>
   );
 }

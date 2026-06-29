@@ -2,7 +2,8 @@
 
 import { z } from "zod";
 
-import { INCIDENT_TYPES, SHIFT_PERIODS, STAFF_ROLES } from "@/lib/daily-ops/constants";
+import { INCIDENT_TYPES, SHIFT_PERIODS, STAFF_ROLES, incidentReference } from "@/lib/daily-ops/constants";
+import { callIncidentReportAiDraft } from "@/lib/daily-ops/ai-incident-draft";
 import { generateLocationRosterWithAi } from "@/lib/daily-ops/ai-roster-generate";
 import { importRosterRows, parseRosterCsvRows } from "@/lib/daily-ops/roster-import";
 import { toQatarIso } from "@/lib/staff-import";
@@ -66,6 +67,7 @@ export const createDailyOpsIncident = createAuthenticatedAction(
     action_taken: z.string().max(4000).nullable().optional(),
   }),
   async (data, context) => {
+    await assertLocationAccess(context, data.location_id);
     const { data: id, error } = await context.supabase.rpc("create_incident", {
       _location_id: data.location_id,
       _occurred_at: data.occurred_at,
@@ -76,7 +78,54 @@ export const createDailyOpsIncident = createAuthenticatedAction(
       _action_taken: data.action_taken ?? undefined,
     });
     if (error) throw error;
-    return { id: String(id) };
+
+    const incidentId = String(id);
+    const [{ data: location }, { data: profile }] = await Promise.all([
+      context.supabase.from("locations").select("code, name").eq("id", data.location_id).single(),
+      context.supabase.from("profiles").select("display_name").eq("id", context.userId).single(),
+    ]);
+
+    return {
+      id: incidentId,
+      reference: incidentReference(incidentId),
+      location_code: (location?.code as string) ?? "",
+      location_name: (location?.name as string) ?? "",
+      reported_by_name: (profile?.display_name as string) ?? "Staff",
+      occurred_at: data.occurred_at,
+      category: data.category,
+      severity: data.severity,
+      summary: data.summary,
+      action_taken: data.action_taken ?? null,
+    };
+  },
+  { auth: { capability: "daily_ops.manage" } },
+);
+
+export const aiDraftIncidentReport = createAuthenticatedAction(
+  z.object({
+    category: z.enum(INCIDENT_TYPES),
+    severity: z.string().min(1).max(20),
+    location_id: z.string().uuid(),
+    occurred_at: z.string().datetime(),
+    partial_notes: z.string().max(2000).optional(),
+  }),
+  async (data, context) => {
+    await assertLocationAccess(context, data.location_id);
+    const { data: location, error: locErr } = await context.supabase
+      .from("locations")
+      .select("code, name")
+      .eq("id", data.location_id)
+      .single();
+    if (locErr) throw locErr;
+
+    return callIncidentReportAiDraft({
+      category: data.category,
+      severity: data.severity,
+      location_code: location.code as string,
+      location_name: location.name as string,
+      occurred_at: data.occurred_at,
+      partial_notes: data.partial_notes,
+    });
   },
   { auth: { capability: "daily_ops.manage" } },
 );
