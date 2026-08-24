@@ -74,11 +74,21 @@ export const getAttendanceHrBootstrap = createAuthenticatedActionNoInput(
           .from("locations")
           .select("id, code, name, region, status")
           .in("code", [...CANONICAL_LOCATION_CODES]),
-        context.supabase
-          .from("attendance_devices")
-          .select("id, location_id, company_id, device_code, device_name, vendor, active, last_sync_at, last_user_sync_at, last_adms_at, timezone, serial_number, connection_mode")
-          .eq("active", true)
-          .order("device_name"),
+        (async () => {
+          const full =
+            "id, location_id, company_id, device_code, device_name, vendor, active, last_sync_at, last_user_sync_at, last_adms_at, last_adms_error, timezone, serial_number, connection_mode, adms_pending_cmd, adms_cmd_queued_at, adms_attlog_stamp";
+          const lite =
+            "id, location_id, company_id, device_code, device_name, vendor, active, last_sync_at, last_user_sync_at, last_adms_at, timezone, serial_number, connection_mode";
+          const first = await context.supabase
+            .from("attendance_devices")
+            .select(full)
+            .eq("active", true)
+            .order("device_name");
+          if (first.error && /adms_pending_cmd|adms_cmd_queued_at|last_adms_error|adms_attlog_stamp/i.test(first.error.message)) {
+            return context.supabase.from("attendance_devices").select(lite).eq("active", true).order("device_name");
+          }
+          return first;
+        })(),
         context.supabase
           .from("attendance_shift_templates")
           .select("id, company_id, location_id, name, start_time, end_time, overnight, grace_minutes, break_minutes, overtime_after_minutes, day_cutoff_time, active")

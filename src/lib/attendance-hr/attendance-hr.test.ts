@@ -483,6 +483,11 @@ describe("ZKTeco ADMS / iClock parse", () => {
     expect(body).toContain("ATTLOGStamp=26");
     expect(body).toContain("TransFlag=TransData AttLog OpLog EnrollUser ChgUser");
     expect(admsOk(3)).toBe("OK: 3");
+    const firstSync = buildAdmsHandshake({ sn: "JJA1251600498" });
+    expect(firstSync).toContain("ATTLOGStamp=0");
+    expect(firstSync).toContain("OPERLOGStamp=0");
+    expect(firstSync).toContain("ATTPHOTOStamp=None");
+    expect(buildAdmsHandshake({ sn: "X", attlogStamp: "None" })).toContain("ATTLOGStamp=0");
   });
 
   it("builds a DATA QUERY ATTLOG getrequest command and parses device ACK", () => {

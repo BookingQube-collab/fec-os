@@ -25,8 +25,24 @@ type DeviceRow = {
   serial_number?: string | null;
   last_sync_at?: string | null;
   last_adms_at?: string | null;
+  last_adms_error?: string | null;
   connection_mode?: string | null;
+  adms_pending_cmd?: string | null;
+  adms_cmd_queued_at?: string | null;
+  adms_attlog_stamp?: string | null;
 };
+
+function isLocalDevHost(host: string): boolean {
+  const h = host.toLowerCase();
+  return h === "localhost" || h === "127.0.0.1" || h.endsWith(".local") || h.startsWith("localhost:");
+}
+
+function formatAdmsWhen(iso?: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString("en-GB", { timeZone: "Asia/Qatar", dateStyle: "medium", timeStyle: "short" });
+}
 
 function hostFromOrigin(origin: string): string {
   try {
@@ -47,6 +63,11 @@ export default function AttendanceHrSettingsPage() {
     queryKey: queryKeys.people.attendanceHr({ view: "bootstrap" }),
     queryFn: () => getAttendanceHrBootstrap(),
     staleTime: STALE.people,
+    refetchInterval: (query) => {
+      const devices = (query.state.data as { devices?: DeviceRow[] } | undefined)?.devices ?? [];
+      const waiting = devices.some((d) => d.adms_pending_cmd || d.adms_cmd_queued_at);
+      return waiting ? 15_000 : false;
+    },
   });
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const host = hostFromOrigin(origin);
@@ -185,22 +206,37 @@ export default function AttendanceHrSettingsPage() {
           <li>{t("attendanceHr.settings.stepSn")}</li>
         </ol>
         <p className="text-xs text-muted-foreground">{t("attendanceHr.settings.securityHint")}</p>
+        {isLocalDevHost(host) ? (
+          <p className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-950 dark:text-amber-100">
+            {t("attendanceHr.settings.localhostWarning")}
+          </p>
+        ) : null}
         <p className="text-xs text-muted-foreground">{t("attendanceHr.settings.hourlyHelp")}</p>
       </NeumorphicCard>
       <div className="grid gap-4 lg:grid-cols-2">
         <NeumorphicCard className="space-y-3 p-5">
           <h2 className="text-sm font-semibold">{t("attendanceHr.settings.devices")}</h2>
           {(q.data?.devices ?? []).map((raw) => {
+            const src = raw as DeviceRow;
             const d: DeviceRow = {
-              id: raw.id,
-              location_id: raw.location_id,
-              device_code: raw.device_code,
-              device_name: raw.device_name,
-              serial_number: raw.serial_number == null ? null : String(raw.serial_number),
-              last_sync_at: raw.last_sync_at,
-              last_adms_at: raw.last_adms_at == null ? null : String(raw.last_adms_at),
-              connection_mode: raw.connection_mode == null ? null : String(raw.connection_mode),
+              id: src.id,
+              location_id: src.location_id,
+              device_code: src.device_code,
+              device_name: src.device_name,
+              serial_number: src.serial_number == null ? null : String(src.serial_number),
+              last_sync_at: src.last_sync_at,
+              last_adms_at: src.last_adms_at == null ? null : String(src.last_adms_at),
+              last_adms_error: src.last_adms_error == null ? null : String(src.last_adms_error),
+              connection_mode: src.connection_mode == null ? null : String(src.connection_mode),
+              adms_pending_cmd: src.adms_pending_cmd == null ? null : String(src.adms_pending_cmd),
+              adms_cmd_queued_at: src.adms_cmd_queued_at == null ? null : String(src.adms_cmd_queued_at),
+              adms_attlog_stamp: src.adms_attlog_stamp == null ? null : String(src.adms_attlog_stamp),
             };
+            const serial = (snDrafts[d.id] ?? d.serial_number ?? "").trim();
+            const lastContact = formatAdmsWhen(d.last_adms_at);
+            const lastPunch = d.adms_attlog_stamp ? formatAdmsWhen(d.last_sync_at) : null;
+            const fetchPending = Boolean(d.adms_pending_cmd?.trim());
+            const fetchDelivered = Boolean(d.adms_cmd_queued_at) && !fetchPending;
             return (
               <div key={d.id} className="space-y-2 rounded-2xl border px-3 py-3">
                 <p className="text-sm font-medium">
@@ -208,9 +244,32 @@ export default function AttendanceHrSettingsPage() {
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {siteNameById.get(d.location_id) ?? d.location_id}
-                  {" · "}
-                  {t("attendanceHr.settings.lastSync")}: {d.last_adms_at ?? d.last_sync_at ?? t("attendanceHr.settings.never")}
                 </p>
+                <p className="text-xs text-muted-foreground">
+                  {t("attendanceHr.settings.lastAdmsContact")}:{" "}
+                  {lastContact ?? t("attendanceHr.settings.neverContacted")}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {t("attendanceHr.settings.lastPunchUpload")}: {lastPunch ?? t("attendanceHr.settings.never")}
+                </p>
+                {fetchPending ? (
+                  <p className="text-xs font-medium text-amber-800 dark:text-amber-200">
+                    {t("attendanceHr.settings.fetchPendingPoll", { when: formatAdmsWhen(d.adms_cmd_queued_at) ?? "" })}
+                  </p>
+                ) : null}
+                {fetchDelivered ? (
+                  <p className="text-xs font-medium text-sky-800 dark:text-sky-200">
+                    {t("attendanceHr.settings.fetchDeliveredWaitingUpload")}
+                  </p>
+                ) : null}
+                {d.last_adms_error ? (
+                  <p className="text-xs text-destructive">
+                    {t("attendanceHr.settings.lastAdmsError")}: {d.last_adms_error}
+                  </p>
+                ) : null}
+                {!serial ? (
+                  <p className="text-xs text-muted-foreground">{t("attendanceHr.settings.noSerialHint")}</p>
+                ) : null}
                 <Label>{t("attendanceHr.settings.serialNumber")}</Label>
                 <div className="flex gap-2">
                   <Input

@@ -34,6 +34,14 @@ function validationMessage(error: z.ZodError): string {
   return error.errors.map((e) => e.message).join("; ") || "Validation failed";
 }
 
+function asError(e: unknown): Error {
+  if (e instanceof Error) return e;
+  if (e && typeof e === "object" && "message" in e && typeof (e as { message: unknown }).message === "string") {
+    return new Error((e as { message: string }).message);
+  }
+  return new Error("Something went wrong");
+}
+
 function toSafeActionError(e: unknown): SafeActionResult<never> {
   if (e instanceof ForbiddenError) {
     return { ok: false, error: e.message, code: "forbidden" };
@@ -44,8 +52,7 @@ function toSafeActionError(e: unknown): SafeActionResult<never> {
   if (e instanceof z.ZodError) {
     return { ok: false, error: validationMessage(e), code: "validation" };
   }
-  const msg = e instanceof Error ? e.message : "Something went wrong";
-  return { ok: false, error: msg, code: "error" };
+  return { ok: false, error: asError(e).message, code: "error" };
 }
 
 async function runAuthenticatedAction<TSchema extends ZodTypeAny, TResult>(
@@ -88,9 +95,9 @@ export function createAuthenticatedAction<TSchema extends ZodTypeAny, TResult>(
       actionTimer.end({ rowCount: Array.isArray(result) ? result.length : undefined });
       return result;
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      actionTimer.end({ error: msg });
-      throw e;
+      const err = asError(e);
+      actionTimer.end({ error: err.message });
+      throw err;
     }
   };
 }
@@ -128,9 +135,9 @@ export function createAuthenticatedActionNoInput<TResult>(
       actionTimer.end({ rowCount: Array.isArray(result) ? result.length : undefined });
       return result;
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      actionTimer.end({ error: msg });
-      throw e;
+      const err = asError(e);
+      actionTimer.end({ error: err.message });
+      throw err;
     }
   };
 }

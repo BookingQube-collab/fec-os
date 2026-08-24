@@ -113,6 +113,7 @@ export async function findAdmsDeviceBySerial(sb: AdminClient, sn: string): Promi
     .select(columnsWithCmd)
     .eq("active", true)
     .ilike("serial_number", pattern)
+    .limit(1)
     .maybeSingle();
   if (error && /adms_pending_cmd|adms_cmd_id/i.test(error.message)) {
     const retry = await sb
@@ -120,6 +121,7 @@ export async function findAdmsDeviceBySerial(sb: AdminClient, sn: string): Promi
       .select(columns)
       .eq("active", true)
       .ilike("serial_number", pattern)
+      .limit(1)
       .maybeSingle();
     data = retry.data as typeof data;
     error = retry.error;
@@ -130,6 +132,7 @@ export async function findAdmsDeviceBySerial(sb: AdminClient, sn: string): Promi
       .select("id, location_id, company_id, serial_number, device_code, device_name, active, timezone")
       .eq("active", true)
       .ilike("serial_number", pattern)
+      .limit(1)
       .maybeSingle();
     data = fallback.data as typeof data;
     error = fallback.error;
@@ -170,7 +173,18 @@ export async function queueAdmsAttlogQuery(
   const to = new Date();
   const from = new Date(to.getTime() - Math.max(1, hours) * 3600_000);
   const command = buildAdmsAttlogQueryCommand(from, to, timeZone);
-  const { data: row } = await sb.from("attendance_devices").select("adms_cmd_id").eq("id", deviceId).maybeSingle();
+  const { data: row, error: readError } = await sb
+    .from("attendance_devices")
+    .select("adms_cmd_id")
+    .eq("id", deviceId)
+    .maybeSingle();
+  if (readError) {
+    throw new Error(
+      readError.code === "PGRST204"
+        ? "Fetch is not ready on the database yet. Apply the ADMS command migration, then try again."
+        : readError.message,
+    );
+  }
   const cmdId = (Number(row?.adms_cmd_id) || 0) + 1;
   const { error } = await sb
     .from("attendance_devices")
@@ -180,7 +194,13 @@ export async function queueAdmsAttlogQuery(
       adms_cmd_queued_at: new Date().toISOString(),
     })
     .eq("id", deviceId);
-  if (error) throw error;
+  if (error) {
+    throw new Error(
+      error.code === "PGRST204"
+        ? "Fetch is not ready on the database yet. Apply the ADMS command migration, then try again."
+        : error.message,
+    );
+  }
   return { cmdId, command, from, to };
 }
 
@@ -221,6 +241,17 @@ export async function ackAdmsCommand(sb: AdminClient, deviceId: string, cmdId: n
     .eq("id", deviceId);
 }
 
+/** Clear the getrequest body after one delivery so the device can POST ATTLOG instead of looping on the same C:id. */
+export async function markAdmsCommandDelivered(sb: AdminClient, deviceId: string, cmdId: number): Promise<void> {
+  const { error } = await sb
+    .from("attendance_devices")
+    .update({ adms_pending_cmd: null })
+    .eq("id", deviceId)
+    .eq("adms_cmd_id", cmdId);
+  if (error && /adms_pending_cmd|adms_cmd_id/i.test(error.message)) return;
+  if (error) console.error("adms mark delivered failed:", error);
+}
+
 async function resolveCompanyId(sb: AdminClient, device: AdmsDeviceRow): Promise<string | null> {
   if (device.company_id) return device.company_id;
   const { data } = await sb
@@ -239,6 +270,8 @@ export async function touchAdmsDevice(
     operlogStamp?: string | null;
     users?: boolean;
     error?: string | null;
+    /** True only after ATTLOG/USER ingest — handshake/getrequest must not look like a punch sync. */
+    sync?: boolean;
   },
 ) {
   const update: Record<string, unknown> = {
@@ -249,7 +282,7 @@ export async function touchAdmsDevice(
   if (patch.attlogStamp) update.adms_attlog_stamp = patch.attlogStamp;
   if (patch.operlogStamp) update.adms_operlog_stamp = patch.operlogStamp;
   if (patch.users) update.last_user_sync_at = new Date().toISOString();
-  if (!patch.error) update.last_sync_at = new Date().toISOString();
+  if (patch.sync) update.last_sync_at = new Date().toISOString();
   const { error } = await sb.from("attendance_devices").update(update).eq("id", deviceId);
   if (error && /adms_|connection_mode/i.test(error.message)) {
     await sb.from("attendance_devices").update({ last_sync_at: new Date().toISOString() }).eq("id", deviceId);
@@ -337,6 +370,7 @@ export async function ingestAdmsPayload(
       input.table === "OPERLOG" || input.table === "USERINFO" || input.table === "USER" ? input.stamp : null,
     users: users.length > 0,
     error: null,
+    sync: input.table === "ATTLOG" || users.length > 0,
   });
 
   const accepted = users.length + punchCount;

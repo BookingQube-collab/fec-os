@@ -148,14 +148,21 @@ export function parseAdmsAttlog(text: string): ParsedPunch[] {
   return parseAttlog(text).punches;
 }
 
+/** iClock: "None" means skip this table; "0" means send from the beginning. */
+export function admsStampOrStart(stamp?: string | null): string {
+  const value = stamp?.trim();
+  if (!value || value.toLowerCase() === "none") return "0";
+  return value;
+}
+
 export function buildAdmsHandshake(input: {
   sn: string;
   attlogStamp?: string | null;
   operlogStamp?: string | null;
   timezoneOffsetHours?: number;
 }): string {
-  const att = input.attlogStamp?.trim() || "None";
-  const oper = input.operlogStamp?.trim() || "None";
+  const att = admsStampOrStart(input.attlogStamp);
+  const oper = admsStampOrStart(input.operlogStamp);
   const tz = input.timezoneOffsetHours ?? 3;
   return [
     `GET OPTION FROM: ${input.sn}`,

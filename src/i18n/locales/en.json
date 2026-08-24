@@ -5276,6 +5276,14 @@
       "securityHint": "Unknown serials are rejected. Set ADMS_COMM_KEY (and optionally ADMS_IP_ALLOWLIST) on the server so this is not a public punch injector. Enter the same comm key on the device if Cloud Server has Server Auth.",
       "devices": "Devices",
       "lastSync": "Last sync",
+      "lastAdmsContact": "Last ADMS contact",
+      "neverContacted": "device has not contacted the server",
+      "lastPunchUpload": "Last punch upload",
+      "fetchPendingPoll": "Fetch queued at {{when}} — waiting for the device to poll /iclock/getrequest",
+      "fetchDeliveredWaitingUpload": "Device received the fetch command — waiting for punch upload",
+      "lastAdmsError": "Last ADMS error",
+      "noSerialHint": "No serial on this row — the BioPro will not match it. Use the row whose SN is the terminal serial.",
+      "localhostWarning": "You are on localhost. Fetch still queues in the shared database, but the BioPro must use the production Cloud Server hostname (e3fec.vercel.app), not localhost. After a code fix, deploy to production before the device can pick it up.",
       "never": "never",
       "serialNumber": "Device serial (SN)",
       "serialPlaceholder": "e.g. JJA1251600498",
@@ -5294,8 +5302,8 @@
       "shiftSaved": "Shift template saved",
       "noCompany": "No company",
       "fetchNow": "Fetch punches",
-      "fetchQueued": "Fetch queued. The device will upload on its next poll (usually 1–2 minutes).",
-      "fetchHelp": "Queues a command for this terminal. FEC-OS cannot reach TCP 4370 from Vercel — the device must poll /iclock/getrequest.",
+      "fetchQueued": "Fetch queued. Watch this device row: “waiting for poll” vs “waiting for punch upload”. Reports stay empty until punches arrive.",
+      "fetchHelp": "Queues a command for this terminal. FEC-OS cannot reach TCP 4370 from Vercel — the device must poll /iclock/getrequest, then POST ATTLOG. Open Reports (All locations, last 7 days) and search Unmapped if names are not mapped yet.",
       "hourlyHelp": "Daily schedule: Vercel Cron calls /api/public/attendance-adms-poll around 06:00 Qatar time (needs CRON_SECRET). Hobby cannot run hourly crons. Click Fetch punches anytime, or use an external scheduler for hourly."
     }
   }

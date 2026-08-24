@@ -5,6 +5,7 @@ import {
   ackAdmsCommand,
   findAdmsDeviceBySerial,
   ingestAdmsPayload,
+  markAdmsCommandDelivered,
   pendingAdmsCommandLine,
   touchAdmsDevice,
 } from "@/lib/attendance-hr/adms-ingest";
@@ -53,8 +54,19 @@ async function authorize(request: Request, sn: string, queryKey: string | null) 
 async function handleGetRequest(request: Request, sn: string, queryKey: string | null) {
   const auth = await authorize(request, sn, queryKey);
   if (auth.error) return auth.error;
+  try {
+    await touchAdmsDevice(supabaseAdmin, auth.device.id, { error: null });
+  } catch (e) {
+    console.error("adms getrequest touch failed:", e);
+  }
   const command = pendingAdmsCommandLine(auth.device);
-  return admsText(command ?? "OK");
+  if (!command) return admsText("OK");
+  try {
+    await markAdmsCommandDelivered(supabaseAdmin, auth.device.id, auth.device.adms_cmd_id || 1);
+  } catch (e) {
+    console.error("adms getrequest consume failed:", e);
+  }
+  return admsText(`${command}\r\n`);
 }
 
 export async function handleAdmsGet(request: Request, slug?: string[]) {
