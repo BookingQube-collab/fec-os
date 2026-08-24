@@ -37,7 +37,12 @@ import {
   mergeBiometricUsersById,
   staffByBiometricFromMappings,
 } from "./mapping-merge";
-import { attendanceHrStaffMatches, formatAttendanceHrLocation } from "./report";
+import {
+  attendanceHrStaffMatches,
+  computeAttendanceHrReportKpis,
+  formatAttendanceHrLocation,
+  type AttendanceHrReportRow,
+} from "./report";
 
 const fixtureDir = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
 
@@ -339,6 +344,72 @@ describe("HR report row helpers", () => {
   it("formats location as venue code plus name", () => {
     expect(formatAttendanceHrLocation("INF-CC", "InflataPark")).toMatch(/INF-CC/);
     expect(formatAttendanceHrLocation("INF-CC", "InflataPark")).toMatch(/City Center|InflataPark/i);
+  });
+
+  it("counts report KPI tiles from the filtered rows", () => {
+    const row = (partial: Partial<AttendanceHrReportRow> & Pick<AttendanceHrReportRow, "id" | "status">): AttendanceHrReportRow => ({
+      location_id: "loc-1",
+      staff_id: "staff-1",
+      biometric_user_id: "9",
+      work_date: "2024-05-01",
+      actual_in: "2024-05-01T05:00:00.000Z",
+      actual_out: "2024-05-01T14:00:00.000Z",
+      late_minutes: 0,
+      early_leave_minutes: 0,
+      overtime_minutes: 0,
+      missed_punch: false,
+      punch_count: 2,
+      staff_name: "Ahmed",
+      employee_code: "E3-012",
+      qid: null,
+      location_code: "OFF-CC",
+      location_name: "Office",
+      ...partial,
+    });
+    const kpis = computeAttendanceHrReportKpis([
+      row({ id: "1", status: "present", staff_id: "a" }),
+      row({ id: "2", status: "present", staff_id: "a", work_date: "2024-05-02" }),
+      row({ id: "3", status: "absent", staff_id: "b", actual_in: null, actual_out: null, punch_count: 0 }),
+      row({ id: "4", status: "late", staff_id: "c", late_minutes: 12 }),
+      row({ id: "5", status: "missed_punch", staff_id: "d", missed_punch: true, actual_out: null }),
+      row({ id: "6", status: "unscheduled", staff_id: null, biometric_user_id: "21" }),
+    ]);
+    expect(kpis).toEqual({
+      total: 6,
+      uniqueStaff: 5,
+      present: 2,
+      absent: 1,
+      late: 1,
+      missedPunch: 1,
+      unscheduled: 1,
+    });
+  });
+
+  it("counts late from late minutes even when status is present", () => {
+    const kpis = computeAttendanceHrReportKpis([
+      {
+        id: "1",
+        location_id: "loc-1",
+        staff_id: "a",
+        biometric_user_id: "9",
+        work_date: "2024-05-01",
+        status: "present",
+        actual_in: "2024-05-01T05:10:00.000Z",
+        actual_out: "2024-05-01T14:00:00.000Z",
+        late_minutes: 10,
+        early_leave_minutes: 0,
+        overtime_minutes: 0,
+        missed_punch: false,
+        punch_count: 2,
+        staff_name: "Ahmed",
+        employee_code: "E3-012",
+        qid: null,
+        location_code: "OFF-CC",
+        location_name: "Office",
+      },
+    ]);
+    expect(kpis.present).toBe(1);
+    expect(kpis.late).toBe(1);
   });
 });
 

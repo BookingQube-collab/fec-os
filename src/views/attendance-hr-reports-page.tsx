@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { AttendanceHrNav } from "@/components/attendance-hr/attendance-hr-nav";
+import { AttendanceHrReportsKpiStrip } from "@/components/attendance-hr/attendance-hr-reports-kpi-strip";
 import { CapabilityGate } from "@/components/auth/capability-gate";
 import { PageHeader } from "@/components/layout/page-header";
 import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
@@ -34,6 +35,7 @@ import {
 } from "@/lib/attendance-hr.functions";
 import { ATTENDANCE_STATUSES } from "@/lib/attendance-hr/constants";
 import {
+  computeAttendanceHrReportKpis,
   formatAttendanceHrLocation,
   type AttendanceHrReportRow,
 } from "@/lib/attendance-hr/report";
@@ -122,6 +124,7 @@ export default function AttendanceHrReportsPage() {
   }, [sites, bootstrap.data?.sites, locationId]);
 
   const rows = (q.data ?? []) as AttendanceHrReportRow[];
+  const kpis = useMemo(() => computeAttendanceHrReportKpis(rows), [rows]);
 
   const selectedLocation = locationOptions.find((loc) => loc.id === locationId);
   const locationLabel = selectedLocation
@@ -254,6 +257,8 @@ export default function AttendanceHrReportsPage() {
           </CapabilityGate>
         </div>
       </NeumorphicCard>
+
+      <AttendanceHrReportsKpiStrip kpis={kpis} isLoading={q.isLoading} />
 
       <NeumorphicCard className="overflow-x-auto p-0">
         <Table>

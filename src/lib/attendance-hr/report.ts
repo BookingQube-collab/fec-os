@@ -56,3 +56,48 @@ export function formatAttendanceHrLocation(code?: string | null, name?: string |
 export function attendanceHrExportStaffName(row: Pick<AttendanceHrReportRow, "staff_name">, unmapped = "Unmapped"): string {
   return row.staff_name?.trim() || unmapped;
 }
+
+export type AttendanceHrReportKpis = {
+  total: number;
+  uniqueStaff: number;
+  present: number;
+  absent: number;
+  late: number;
+  missedPunch: number;
+  unscheduled: number;
+};
+
+function reportIdentityKey(row: AttendanceHrReportRow): string {
+  if (row.staff_id) return `staff:${row.staff_id}`;
+  if (row.biometric_user_id) return `bio:${row.location_id}:${row.biometric_user_id}`;
+  return `row:${row.id}`;
+}
+
+/** Counts for the HR reports KPI strip. Uses the same filtered rows as the table. */
+export function computeAttendanceHrReportKpis(rows: AttendanceHrReportRow[]): AttendanceHrReportKpis {
+  const identities = new Set<string>();
+  let present = 0;
+  let absent = 0;
+  let late = 0;
+  let missedPunch = 0;
+  let unscheduled = 0;
+
+  for (const row of rows) {
+    identities.add(reportIdentityKey(row));
+    if (row.status === "present") present += 1;
+    if (row.status === "absent") absent += 1;
+    if (row.status === "late" || Number(row.late_minutes) > 0) late += 1;
+    if (row.status === "missed_punch" || row.missed_punch) missedPunch += 1;
+    if (row.status === "unscheduled") unscheduled += 1;
+  }
+
+  return {
+    total: rows.length,
+    uniqueStaff: identities.size,
+    present,
+    absent,
+    late,
+    missedPunch,
+    unscheduled,
+  };
+}

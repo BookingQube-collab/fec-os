@@ -40,6 +40,7 @@ export {
   attendanceHrStaffMatches,
   formatAttendanceHrLocation,
   attendanceHrExportStaffName,
+  computeAttendanceHrReportKpis,
 } from "./report";
 export {
   persistOriginalFile,
