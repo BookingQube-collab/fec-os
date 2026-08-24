@@ -48,10 +48,14 @@ async function cleanupStaleAbsents(
       .eq("work_date", workDate)
       .eq("punch_count", 0)
       .not("staff_id", "is", null);
-    if (keep.size) {
-      q = q.not("staff_id", "in", `(${[...keep].join(",")})`);
-    }
-    const { error } = await q;
+    const filtered = keep.size
+      ? (q as unknown as { not: (column: string, op: string, value: string) => typeof q }).not(
+          "staff_id",
+          "in",
+          `(${[...keep].join(",")})`,
+        )
+      : q;
+    const { error } = await filtered;
     if (error) throw error;
   }
 }

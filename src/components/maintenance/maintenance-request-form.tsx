@@ -65,7 +65,7 @@ export type MaintenanceRequestFormLabels = {
   aiAssigneeAmbiguous: string;
   aiAssigneeNotFound?: string;
   aiAssigneeRequested?: string;
-  requestedTechnician?: string;
+  requestedTechnician: string;
   aiVenueMatched?: string;
   reviewDetails: string;
   reviewHint: string;

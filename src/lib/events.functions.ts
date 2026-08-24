@@ -139,7 +139,7 @@ import {
 } from "@/lib/events/documents";
 import { isMissingEventColumn, textMatchesEvent } from "@/lib/events/ops-link";
 import { validateBase64Size, validateUploadMimeList } from "@/lib/server/upload-validation";
-import { uniqueEventProjectNames } from "@/lib/procurement/event-link";
+import { eventDisplayName, uniqueEventProjectNames } from "@/lib/procurement/event-link";
 import { canUserDo, type AppRole } from "@/lib/rbac";
 import { ForbiddenError, assertLocationAccess } from "@/lib/server/authorize";
 import {
@@ -1343,6 +1343,24 @@ export const getEventOptions = createAuthenticatedActionNoInput(
       staff: staff ?? [],
       departments: departments ?? [],
     };
+  },
+  { auth: { capability: "events.view" } },
+);
+
+export const lookupLinkedEvent = createAuthenticatedAction(
+  EventIdSchema,
+  async (data, context) => {
+    const { data: event, error } = await context.supabase
+      .from("events")
+      .select("id, event_number, name, event_name, location_id")
+      .eq("id", data.eventId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (error) throw error;
+    if (!event) return null;
+    await assertLocationAccess(context, event.location_id as string);
+    const label = eventDisplayName(event);
+    return label ? { label } : null;
   },
   { auth: { capability: "events.view" } },
 );

@@ -68,7 +68,7 @@ export function VendorDetailDialog({
   const { t } = useTranslation();
   const detail = useQuery({
     queryKey: queryKeys.vendors.detail(vendorId ?? ""),
-    queryFn: () => getVendor({ id: vendorId! }) as Promise<VendorDetail>,
+    queryFn: () => getVendor({ id: vendorId! }) as unknown as Promise<VendorDetail>,
     enabled: Boolean(vendorId),
   });
   const vendor = detail.data;

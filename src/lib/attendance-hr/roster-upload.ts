@@ -482,11 +482,12 @@ export function matchAttendanceRosterStaff(
     return { staffId: null, matchRule: "code_unmatched", message: "No staff with this employee code.", label: code };
   }
   const name = normalizeName(input.name);
-  if (name && input.locationId) {
+  const locationId = input.locationId;
+  if (name && locationId) {
     const hits = active.filter((s) => {
       if (normalizeName(s.full_name) !== name) return false;
-      if (s.location_id === input.locationId) return true;
-      return (s.work_location_ids ?? []).includes(input.locationId);
+      if (s.location_id === locationId) return true;
+      return (s.work_location_ids ?? []).includes(locationId);
     });
     if (hits.length === 1) {
       return { staffId: hits[0].id, matchRule: "name_location", message: null, label: hits[0].full_name || input.name };

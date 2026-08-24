@@ -66,8 +66,8 @@ export const chartLegendStyle = {
   color: CHART.muted,
 } as const;
 
-export const chartBarRadius = [4, 4, 0, 0] as const;
-export const chartBarRadiusH = [0, 6, 6, 0] as const;
+export const chartBarRadius: [number, number, number, number] = [4, 4, 0, 0];
+export const chartBarRadiusH: [number, number, number, number] = [0, 6, 6, 0];
 
 export function seriesColor(index: number): string {
   return CHART_SERIES[index % CHART_SERIES.length];

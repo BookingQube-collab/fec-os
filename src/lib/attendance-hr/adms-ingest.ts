@@ -81,7 +81,7 @@ export async function findAdmsDeviceBySerial(sb: AdminClient, sn: string): Promi
       .from("attendance_devices")
       .select("id, location_id, company_id, serial_number, device_code, device_name, active, timezone")
       .eq("active", true);
-    data = fallback.data;
+    data = fallback.data as typeof data;
     error = fallback.error;
   }
   if (error) throw error;

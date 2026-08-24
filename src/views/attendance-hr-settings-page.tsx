@@ -181,33 +181,45 @@ export default function AttendanceHrSettingsPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <NeumorphicCard className="space-y-3 p-5">
           <h2 className="text-sm font-semibold">{t("attendanceHr.settings.devices")}</h2>
-          {(q.data?.devices ?? []).map((d: DeviceRow) => (
-            <div key={d.id} className="space-y-2 rounded-2xl border px-3 py-3">
-              <p className="text-sm font-medium">
-                {d.device_name} · {d.device_code}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {siteNameById.get(d.location_id) ?? d.location_id}
-                {" · "}
-                {t("attendanceHr.settings.lastSync")}: {d.last_adms_at ?? d.last_sync_at ?? t("attendanceHr.settings.never")}
-              </p>
-              <Label>{t("attendanceHr.settings.serialNumber")}</Label>
-              <div className="flex gap-2">
-                <Input
-                  value={snDrafts[d.id] ?? d.serial_number ?? ""}
-                  onChange={(e) => setSnDrafts((prev) => ({ ...prev, [d.id]: e.target.value }))}
-                  placeholder={t("attendanceHr.settings.serialPlaceholder")}
-                />
-                <Button
-                  variant="secondary"
-                  disabled={saveSn.isPending}
-                  onClick={() => saveSn.mutate(d)}
-                >
-                  {t("attendanceHr.settings.saveSn")}
-                </Button>
+          {(q.data?.devices ?? []).map((raw) => {
+            const d: DeviceRow = {
+              id: raw.id,
+              location_id: raw.location_id,
+              device_code: raw.device_code,
+              device_name: raw.device_name,
+              serial_number: raw.serial_number == null ? null : String(raw.serial_number),
+              last_sync_at: raw.last_sync_at,
+              last_adms_at: raw.last_adms_at == null ? null : String(raw.last_adms_at),
+              connection_mode: raw.connection_mode == null ? null : String(raw.connection_mode),
+            };
+            return (
+              <div key={d.id} className="space-y-2 rounded-2xl border px-3 py-3">
+                <p className="text-sm font-medium">
+                  {d.device_name} · {d.device_code}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {siteNameById.get(d.location_id) ?? d.location_id}
+                  {" · "}
+                  {t("attendanceHr.settings.lastSync")}: {d.last_adms_at ?? d.last_sync_at ?? t("attendanceHr.settings.never")}
+                </p>
+                <Label>{t("attendanceHr.settings.serialNumber")}</Label>
+                <div className="flex gap-2">
+                  <Input
+                    value={snDrafts[d.id] ?? d.serial_number ?? ""}
+                    onChange={(e) => setSnDrafts((prev) => ({ ...prev, [d.id]: e.target.value }))}
+                    placeholder={t("attendanceHr.settings.serialPlaceholder")}
+                  />
+                  <Button
+                    variant="secondary"
+                    disabled={saveSn.isPending}
+                    onClick={() => saveSn.mutate(d)}
+                  >
+                    {t("attendanceHr.settings.saveSn")}
+                  </Button>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
           <Label>{t("attendanceHr.settings.site")}</Label>
           <SearchableSelect
             value={locationId}

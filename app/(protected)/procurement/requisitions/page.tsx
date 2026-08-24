@@ -1,3 +1,10 @@
 import { lazyView } from "@/lib/lazy-view";
 
-export default lazyView(() => import("@/views/procurement-requisitions-page"), "table");
+const ProcurementRequisitionsPage = lazyView(
+  () => import("@/views/procurement-requisitions-page"),
+  "table",
+);
+
+export default function ProcurementRequisitionsRoutePage() {
+  return <ProcurementRequisitionsPage />;
+}

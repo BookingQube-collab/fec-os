@@ -241,7 +241,9 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
     ]);
     if (punchRes.error) throw punchRes.error;
 
-    const fromSummaries = (summaryRes.data ?? []).map((row) => summaryToDayRow(row));
+    const fromSummaries = (summaryRes.data ?? []).map((row) =>
+      summaryToDayRow(row as Parameters<typeof summaryToDayRow>[0]),
+    );
     const fromPunches = dayRowsFromPunchesInRange((punchRes.data ?? []) as AttendanceDashboardPunch[], dateFrom, dateTo);
     let dayRows = fromSummaries.length > 0 ? fromSummaries : fromPunches;
     if (fromSummaries.length === 0) {
@@ -651,14 +653,15 @@ async function clearMappedLogs(
   context: AuthContext,
   mapping: { location_id: unknown; device_id: unknown; biometric_user_id: unknown; staff_id: unknown },
 ) {
-  if (!mapping.staff_id) return;
+  const staffId = mapping.staff_id == null ? "" : String(mapping.staff_id);
+  if (!staffId) return;
   const { error } = await context.supabase
     .from("attendance_logs")
     .update({ staff_id: null })
-    .eq("location_id", mapping.location_id)
-    .eq("device_id", mapping.device_id)
-    .eq("biometric_user_id", mapping.biometric_user_id)
-    .eq("staff_id", mapping.staff_id);
+    .eq("location_id", String(mapping.location_id))
+    .eq("device_id", String(mapping.device_id))
+    .eq("biometric_user_id", String(mapping.biometric_user_id))
+    .eq("staff_id", staffId);
   if (error) throw error;
 }
 

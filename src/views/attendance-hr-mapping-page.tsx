@@ -168,7 +168,7 @@ export default function AttendanceHrMappingPage() {
     }
     return map;
   }, [sites, locationOptions]);
-  const rows = useMemo(() => (q.data ?? []) as MappingRow[], [q.data]);
+  const rows = useMemo(() => (q.data ?? []) as unknown as MappingRow[], [q.data]);
   const mappedCount = rows.filter((row) => Boolean(row.staff_id)).length;
   const unmappedCount = rows.length - mappedCount;
   const visibleRows = useMemo(() => {
