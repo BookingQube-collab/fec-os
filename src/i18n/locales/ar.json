@@ -5334,7 +5334,11 @@
       "deviceSaved": "تم حفظ الجهاز",
       "snSaved": "تم ربط الرقم التسلسلي. يمكن للجهاز الدفع بعد ضبط Cloud Server.",
       "shiftSaved": "تم حفظ قالب الوردية",
-      "noCompany": "لا توجد شركة"
+      "noCompany": "لا توجد شركة",
+      "fetchNow": "جلب البصمات",
+      "fetchQueued": "تم جدولة الجلب. سرفع الجهاز البيانات في الاستعلام التالي (عادة خلال دقيقة أو دقيقتين).",
+      "fetchHelp": "يضع أمراً لهذا الجهاز. لا يستطيع FEC-OS فتح المنفذ 4370 من Vercel — يجب أن يستعلم الجهاز من /iclock/getrequest.",
+      "hourlyHelp": "الجدول الساعي: Vercel Cron يستدعي /api/public/attendance-adms-poll كل ساعة (يتطلب CRON_SECRET وخطة Pro للساعة؛ Hobby يومي). يمكن أيضاً الضغط على جلب البصمات في أي وقت."
     }
   }
 }

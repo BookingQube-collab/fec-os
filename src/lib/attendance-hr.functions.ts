@@ -6,7 +6,9 @@ import { createAuthenticatedAction, createAuthenticatedActionNoInput, type AuthC
 import { ForbiddenError, assertLocationAccess } from "@/lib/server/authorize";
 import { canUserDo } from "@/lib/rbac";
 
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { ATTENDANCE_FILE_BUCKET, DEFAULT_RULES, DEFAULT_SHIFT } from "@/lib/attendance-hr/constants";
+import { queueAdmsAttlogQuery } from "@/lib/attendance-hr/adms-ingest";
 import {
   aggregateDashboardPeriod,
   buildAbsentRowsForPeriod,
@@ -768,6 +770,43 @@ export const saveAttendanceDevice = createAuthenticatedAction(
     const { data: row, error } = await context.supabase.from("attendance_devices").insert(payload).select("id").single();
     if (error) throw error;
     return { id: row.id };
+  },
+  { auth: { capability: "attendance.manage_devices" } },
+);
+
+export const requestAttendanceDeviceFetch = createAuthenticatedAction(
+  z.object({
+    deviceId: z.string().uuid(),
+    hours: z.number().int().min(1).max(168).optional(),
+  }),
+  async (data, context) => {
+    const { data: device, error } = await context.supabase
+      .from("attendance_devices")
+      .select("id, location_id, serial_number, timezone")
+      .eq("id", data.deviceId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!device) throw new Error("Device not found");
+    await assertLocationAccess(context, device.location_id as string);
+    if (!String(device.serial_number ?? "").trim()) {
+      throw new Error("Save the device serial number first.");
+    }
+    const result = await queueAdmsAttlogQuery(
+      supabaseAdmin,
+      device.id as string,
+      data.hours ?? 48,
+      device.timezone ? String(device.timezone) : "Asia/Qatar",
+    );
+    await audit(context, "adms_fetch_queued", "attendance_device", device.id as string, device.location_id as string, {
+      hours: data.hours ?? 48,
+      cmdId: result.cmdId,
+    });
+    return {
+      ok: true as const,
+      cmdId: result.cmdId,
+      from: result.from.toISOString(),
+      to: result.to.toISOString(),
+    };
   },
   { auth: { capability: "attendance.manage_devices" } },
 );

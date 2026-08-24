@@ -110,12 +110,32 @@ function TranslationEditProviderInner({ children }: { children: ReactNode }) {
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [hoverEl, setHoverEl] = useState<Element | null>(null);
 
-  const overlays = useI18nOverrides("ar", { enabled: !!user });
+  const [overlaysReady, setOverlaysReady] = useState(false);
+  const overlays = useI18nOverrides("ar", { enabled: !!user && overlaysReady });
   const save = useSaveI18nOverride();
 
   useEffect(() => {
     setEditModeState(readEditMode());
   }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setOverlaysReady(false);
+      return;
+    }
+    let idleId = 0;
+    let timeoutId = 0;
+    const enable = () => setOverlaysReady(true);
+    if (typeof requestIdleCallback !== "undefined") {
+      idleId = requestIdleCallback(enable, { timeout: 2500 });
+    } else {
+      timeoutId = window.setTimeout(enable, 1200);
+    }
+    return () => {
+      if (idleId) cancelIdleCallback(idleId);
+      if (timeoutId) window.clearTimeout(timeoutId);
+    };
+  }, [user]);
 
   useEffect(() => {
     const items = overlays.data?.items;

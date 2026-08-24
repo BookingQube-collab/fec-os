@@ -10,7 +10,13 @@ import {
   staffByBiometricFromMappings,
   type ExistingBiometricUser,
 } from "./process";
-import { parseAdmsAttlog, parseAdmsUsers, type AdmsTable } from "./parse-adms";
+import {
+  buildAdmsAttlogQueryCommand,
+  formatAdmsGetRequestCommand,
+  parseAdmsAttlog,
+  parseAdmsUsers,
+  type AdmsTable,
+} from "./parse-adms";
 
 type AdminClient = SupabaseClient<Database>;
 
@@ -25,6 +31,8 @@ export type AdmsDeviceRow = {
   timezone: string | null;
   adms_attlog_stamp: string | null;
   adms_operlog_stamp: string | null;
+  adms_pending_cmd: string | null;
+  adms_cmd_id: number;
 };
 
 export type AdmsIngestResult = {
@@ -70,37 +78,147 @@ async function loadExistingBiometricUsers(
   }));
 }
 
+function escapeIlike(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+}
+
+function mapAdmsDevice(row: Record<string, unknown>): AdmsDeviceRow {
+  return {
+    id: String(row.id),
+    location_id: String(row.location_id),
+    company_id: row.company_id ? String(row.company_id) : null,
+    serial_number: row.serial_number ? String(row.serial_number) : null,
+    device_code: String(row.device_code),
+    device_name: String(row.device_name),
+    active: Boolean(row.active),
+    timezone: row.timezone ? String(row.timezone) : null,
+    adms_attlog_stamp: row.adms_attlog_stamp ? String(row.adms_attlog_stamp) : null,
+    adms_operlog_stamp: row.adms_operlog_stamp ? String(row.adms_operlog_stamp) : null,
+    adms_pending_cmd: typeof row.adms_pending_cmd === "string" ? row.adms_pending_cmd : null,
+    adms_cmd_id: Number(row.adms_cmd_id) > 0 ? Number(row.adms_cmd_id) : 1,
+  };
+}
+
 export async function findAdmsDeviceBySerial(sb: AdminClient, sn: string): Promise<AdmsDeviceRow | null> {
   const serial = sn.trim();
   if (!serial) return null;
+  const columnsWithCmd =
+    "id, location_id, company_id, serial_number, device_code, device_name, active, timezone, adms_attlog_stamp, adms_operlog_stamp, adms_pending_cmd, adms_cmd_id";
   const columns =
     "id, location_id, company_id, serial_number, device_code, device_name, active, timezone, adms_attlog_stamp, adms_operlog_stamp";
-  let { data, error } = await sb.from("attendance_devices").select(columns).eq("active", true);
+  const pattern = escapeIlike(serial);
+
+  let { data, error } = await sb
+    .from("attendance_devices")
+    .select(columnsWithCmd)
+    .eq("active", true)
+    .ilike("serial_number", pattern)
+    .maybeSingle();
+  if (error && /adms_pending_cmd|adms_cmd_id/i.test(error.message)) {
+    const retry = await sb
+      .from("attendance_devices")
+      .select(columns)
+      .eq("active", true)
+      .ilike("serial_number", pattern)
+      .maybeSingle();
+    data = retry.data as typeof data;
+    error = retry.error;
+  }
   if (error && /adms_/i.test(error.message)) {
     const fallback = await sb
       .from("attendance_devices")
       .select("id, location_id, company_id, serial_number, device_code, device_name, active, timezone")
-      .eq("active", true);
+      .eq("active", true)
+      .ilike("serial_number", pattern)
+      .maybeSingle();
     data = fallback.data as typeof data;
     error = fallback.error;
   }
   if (error) throw error;
-  const match = (data ?? []).find(
+  if (data) return mapAdmsDevice(data as Record<string, unknown>);
+
+  const scan = await sb.from("attendance_devices").select(columns).eq("active", true);
+  if (scan.error && /adms_/i.test(scan.error.message)) {
+    const fallback = await sb
+      .from("attendance_devices")
+      .select("id, location_id, company_id, serial_number, device_code, device_name, active, timezone")
+      .eq("active", true);
+    const match = (fallback.data ?? []).find(
+      (row) => String(row.serial_number ?? "").trim().toLowerCase() === serial.toLowerCase(),
+    );
+    return match ? mapAdmsDevice(match as Record<string, unknown>) : null;
+  }
+  if (scan.error) throw scan.error;
+  const match = (scan.data ?? []).find(
     (row) => String(row.serial_number ?? "").trim().toLowerCase() === serial.toLowerCase(),
   );
-  if (!match) return null;
-  return {
-    id: String(match.id),
-    location_id: String(match.location_id),
-    company_id: match.company_id ? String(match.company_id) : null,
-    serial_number: match.serial_number ? String(match.serial_number) : null,
-    device_code: String(match.device_code),
-    device_name: String(match.device_name),
-    active: Boolean(match.active),
-    timezone: match.timezone ? String(match.timezone) : null,
-    adms_attlog_stamp: "adms_attlog_stamp" in match && match.adms_attlog_stamp ? String(match.adms_attlog_stamp) : null,
-    adms_operlog_stamp: "adms_operlog_stamp" in match && match.adms_operlog_stamp ? String(match.adms_operlog_stamp) : null,
-  };
+  return match ? mapAdmsDevice(match as Record<string, unknown>) : null;
+}
+
+export function pendingAdmsCommandLine(device: AdmsDeviceRow): string | null {
+  const command = device.adms_pending_cmd?.trim();
+  if (!command) return null;
+  return formatAdmsGetRequestCommand(device.adms_cmd_id || 1, command);
+}
+
+export async function queueAdmsAttlogQuery(
+  sb: AdminClient,
+  deviceId: string,
+  hours = 48,
+  timeZone = "Asia/Qatar",
+): Promise<{ cmdId: number; command: string; from: Date; to: Date }> {
+  const to = new Date();
+  const from = new Date(to.getTime() - Math.max(1, hours) * 3600_000);
+  const command = buildAdmsAttlogQueryCommand(from, to, timeZone);
+  const { data: row } = await sb.from("attendance_devices").select("adms_cmd_id").eq("id", deviceId).maybeSingle();
+  const cmdId = (Number(row?.adms_cmd_id) || 0) + 1;
+  const { error } = await sb
+    .from("attendance_devices")
+    .update({
+      adms_pending_cmd: command,
+      adms_cmd_id: cmdId,
+      adms_cmd_queued_at: new Date().toISOString(),
+    })
+    .eq("id", deviceId);
+  if (error) throw error;
+  return { cmdId, command, from, to };
+}
+
+export async function queueAdmsAttlogQueryForAll(
+  sb: AdminClient,
+  hours = 3,
+): Promise<{ queued: number; skipped: number; deviceIds: string[] }> {
+  const { data, error } = await sb
+    .from("attendance_devices")
+    .select("id, serial_number, timezone")
+    .eq("active", true);
+  if (error) throw error;
+  const devices = (data ?? []).filter((row) => String(row.serial_number ?? "").trim());
+  const deviceIds: string[] = [];
+  let skipped = 0;
+  for (const device of devices) {
+    try {
+      await queueAdmsAttlogQuery(
+        sb,
+        String(device.id),
+        hours,
+        device.timezone ? String(device.timezone) : "Asia/Qatar",
+      );
+      deviceIds.push(String(device.id));
+    } catch {
+      skipped += 1;
+    }
+  }
+  return { queued: deviceIds.length, skipped, deviceIds };
+}
+
+export async function ackAdmsCommand(sb: AdminClient, deviceId: string, cmdId: number): Promise<void> {
+  const { data } = await sb.from("attendance_devices").select("adms_cmd_id").eq("id", deviceId).maybeSingle();
+  if (Number(data?.adms_cmd_id) !== cmdId) return;
+  await sb
+    .from("attendance_devices")
+    .update({ adms_pending_cmd: null, adms_cmd_queued_at: null })
+    .eq("id", deviceId);
 }
 
 async function resolveCompanyId(sb: AdminClient, device: AdmsDeviceRow): Promise<string | null> {

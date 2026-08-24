@@ -14,6 +14,7 @@ export async function GET(request: Request) {
       return { items: await fetchI18nOverrides(context, locale) };
     },
     request,
+    { requireRole: false },
   );
 }
 

@@ -14,7 +14,7 @@ export function useEscalations(options?: { enabled?: boolean }) {
     queryFn: () => apiGet<EscalationRow[]>("/api/notifications", { kind: "escalations" }),
     staleTime: STALE.notifications,
     enabled: options?.enabled ?? true,
-    refetchOnMount: "always",
+    refetchOnMount: false,
     refetchInterval: options?.enabled === false ? false : INBOX_POLL_MS,
   });
 }
@@ -43,7 +43,7 @@ export function useActionInbox(userId?: string | null, options?: { enabled?: boo
     queryFn: () => apiGet<ActionInboxPayload>("/api/notifications", { kind: "inbox" }),
     staleTime: 15_000,
     enabled,
-    refetchOnMount: "always",
+    refetchOnMount: false,
     refetchOnWindowFocus: true,
     refetchInterval: enabled ? INBOX_POLL_MS : false,
     retry: 2,

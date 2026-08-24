@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { findAdmsDeviceBySerial, ingestAdmsPayload, touchAdmsDevice } from "@/lib/attendance-hr/adms-ingest";
-import { admsOk, buildAdmsHandshake, parseAdmsQuery } from "@/lib/attendance-hr/parse-adms";
+import {
+  ackAdmsCommand,
+  findAdmsDeviceBySerial,
+  ingestAdmsPayload,
+  pendingAdmsCommandLine,
+  touchAdmsDevice,
+} from "@/lib/attendance-hr/adms-ingest";
+import { admsOk, buildAdmsHandshake, parseAdmsDeviceCmdAck, parseAdmsQuery } from "@/lib/attendance-hr/parse-adms";
 import { decodeAttendanceText } from "@/lib/attendance-hr/parse-attlog";
 import { validateAdmsCommKey, validateAdmsIp } from "@/lib/server/adms-auth";
 
@@ -44,15 +50,20 @@ async function authorize(request: Request, sn: string, queryKey: string | null) 
   return { error: null, device };
 }
 
+async function handleGetRequest(request: Request, sn: string, queryKey: string | null) {
+  const auth = await authorize(request, sn, queryKey);
+  if (auth.error) return auth.error;
+  const command = pendingAdmsCommandLine(auth.device);
+  return admsText(command ?? "OK");
+}
+
 export async function handleAdmsGet(request: Request, slug?: string[]) {
   const url = new URL(request.url);
   const q = parseAdmsQuery(url);
   const endpoint = endpointFromSlug(slug);
 
   if (endpoint === "getrequest" || endpoint === "root") {
-    const auth = await authorize(request, q.sn, q.pushcommkey);
-    if (auth.error) return auth.error;
-    return admsText("OK");
+    return handleGetRequest(request, q.sn, q.pushcommkey);
   }
 
   if (endpoint === "cdata" || endpoint === "registry") {
@@ -82,10 +93,23 @@ export async function handleAdmsPost(request: Request, slug?: string[]) {
   const q = parseAdmsQuery(url);
   const endpoint = endpointFromSlug(slug);
 
+  if (endpoint === "getrequest") {
+    return handleGetRequest(request, q.sn, q.pushcommkey);
+  }
+
   const auth = await authorize(request, q.sn, q.pushcommkey);
   if (auth.error) return auth.error;
 
-  if (endpoint === "devicecmd" || endpoint === "getrequest") {
+  if (endpoint === "devicecmd") {
+    const body = await readBodyText(request);
+    const ack = parseAdmsDeviceCmdAck(body);
+    if (ack) {
+      try {
+        await ackAdmsCommand(supabaseAdmin, auth.device.id, ack.id);
+      } catch (e) {
+        console.error("adms command ack failed:", e);
+      }
+    }
     return admsText("OK");
   }
 
@@ -112,3 +136,5 @@ export async function handleAdmsPost(request: Request, slug?: string[]) {
     return admsText("ERROR", 500);
   }
 }
+
+export { handleAdmsGet as handleAdmsGet, handleAdmsPost as handleAdmsPost };

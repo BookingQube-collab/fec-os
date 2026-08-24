@@ -2,10 +2,14 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { cookies } from "next/headers";
+
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { canUserDo, type AppRole, type Capability } from "@/lib/rbac";
 import { createTimer } from "@/lib/performance/timer";
 import { updateAuthRolesCache } from "./auth";
 import type { AuthContext } from "./auth";
+import { writeRolesCookie } from "./roles-cookie";
 
 export class ForbiddenError extends Error {
   constructor(message = "Forbidden") {
@@ -31,6 +35,19 @@ export async function getUserRoles(
 
   const task = (async () => {
     const timer = createTimer("getUserRoles", "user_roles.select");
+    try {
+      const { data, error } = await supabaseAdmin
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", userId);
+      if (!error) {
+        const roles = (data ?? []).map((r) => r.role as AppRole);
+        timer.end({ rowCount: roles.length });
+        return roles;
+      }
+    } catch {
+      /* service role missing — fall back to the user-scoped client */
+    }
     const { data, error } = await supabase
       .from("user_roles")
       .select("role")
@@ -58,6 +75,11 @@ async function ensureUserRoles(context: AuthContext): Promise<AppRole[]> {
   if (context.roles) return context.roles;
   context.roles = await getUserRoles(context.supabase, context.userId);
   updateAuthRolesCache(context.userId, context.roles);
+  try {
+    writeRolesCookie(await cookies(), context.userId, context.roles);
+  } catch {
+    /* cookie writes from Server Components are ignored */
+  }
   return context.roles;
 }
 

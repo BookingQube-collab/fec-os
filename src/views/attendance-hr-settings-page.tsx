@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Settings, Wifi } from "lucide-react";
+import { Copy, Download, Settings, Wifi } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import { getAttendanceHrBootstrap, saveAttendanceDevice, saveAttendanceShiftTemplate } from "@/lib/attendance-hr.functions";
+import { getAttendanceHrBootstrap, requestAttendanceDeviceFetch, saveAttendanceDevice, saveAttendanceShiftTemplate } from "@/lib/attendance-hr.functions";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 
@@ -99,6 +99,14 @@ export default function AttendanceHrSettingsPage() {
     },
     onError: (e: Error) => toast.error(e.message),
   });
+  const fetchDev = useMutation({
+    mutationFn: (device: DeviceRow) => requestAttendanceDeviceFetch({ deviceId: device.id, hours: 48 }),
+    onSuccess: () => {
+      toast.success(t("attendanceHr.settings.fetchQueued"));
+      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
   const saveShift = useMutation({
     mutationFn: () => {
       const companyId = q.data?.companies[0]?.id;
@@ -177,6 +185,7 @@ export default function AttendanceHrSettingsPage() {
           <li>{t("attendanceHr.settings.stepSn")}</li>
         </ol>
         <p className="text-xs text-muted-foreground">{t("attendanceHr.settings.securityHint")}</p>
+        <p className="text-xs text-muted-foreground">{t("attendanceHr.settings.hourlyHelp")}</p>
       </NeumorphicCard>
       <div className="grid gap-4 lg:grid-cols-2">
         <NeumorphicCard className="space-y-3 p-5">
@@ -216,7 +225,17 @@ export default function AttendanceHrSettingsPage() {
                   >
                     {t("attendanceHr.settings.saveSn")}
                   </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={fetchDev.isPending || !(snDrafts[d.id] ?? d.serial_number)}
+                    onClick={() => fetchDev.mutate(d)}
+                  >
+                    <Download className="mr-1 h-4 w-4" />
+                    {t("attendanceHr.settings.fetchNow")}
+                  </Button>
                 </div>
+                <p className="text-xs text-muted-foreground">{t("attendanceHr.settings.fetchHelp")}</p>
               </div>
             );
           })}

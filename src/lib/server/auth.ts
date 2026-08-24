@@ -7,6 +7,7 @@ import { cache } from "react";
 import type { Database } from "@/integrations/supabase/types";
 import type { AppRole } from "@/lib/rbac";
 import { createTimer } from "@/lib/performance/timer";
+import { readRolesCookie } from "./roles-cookie";
 
 export type AuthContext = {
   supabase: ReturnType<typeof createServerClient<Database>>;
@@ -101,8 +102,44 @@ function createSupabaseClient(cookieStore: Awaited<ReturnType<typeof cookies>>) 
   });
 }
 
+async function resolveUserFromJwt(
+  supabase: ReturnType<typeof createSupabaseClient>,
+): Promise<{ userId: string; claims: Record<string, unknown> }> {
+  const auth = supabase.auth as typeof supabase.auth & {
+    getClaims?: () => Promise<{
+      data: { claims?: Record<string, unknown> } | null;
+      error: { message: string } | null;
+    }>;
+  };
+  if (typeof auth.getClaims === "function") {
+    const { data, error } = await auth.getClaims();
+    const sub = typeof data?.claims?.sub === "string" ? data.claims.sub : null;
+    if (!error && sub) {
+      return {
+        userId: sub,
+        claims: {
+          sub,
+          email: typeof data.claims?.email === "string" ? data.claims.email : null,
+        },
+      };
+    }
+  }
+
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+  if (error || !user) {
+    throw new Error(error?.message ? `Unauthorized: ${error.message}` : "Unauthorized");
+  }
+  return {
+    userId: user.id,
+    claims: { sub: user.id, email: user.email ?? null },
+  };
+}
+
 async function resolveAuthenticatedContext(): Promise<AuthContext> {
-  const timer = createTimer("getAuthenticatedContext", "auth.getUser");
+  const timer = createTimer("getAuthenticatedContext", "auth.jwt");
   const cookieStore = await cookies();
   const fingerprint = authTokenFingerprint(cookieStore);
   const supabase = createSupabaseClient(cookieStore);
@@ -120,27 +157,21 @@ async function resolveAuthenticatedContext(): Promise<AuthContext> {
     }
   }
 
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
-
-  if (error || !user) {
-    timer.end({ error: error?.message ?? "Unauthorized" });
+  let userId: string;
+  let claims: Record<string, unknown>;
+  try {
+    ({ userId, claims } = await resolveUserFromJwt(supabase));
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Unauthorized";
+    timer.end({ error: msg });
     throw new Error("Unauthorized");
   }
 
-  const context: AuthContext = {
-    supabase,
-    userId: user.id,
-    claims: { sub: user.id, email: user.email },
-  };
+  const roles = readRolesCookie(cookieStore, userId) ?? undefined;
+  const context: AuthContext = { supabase, userId, claims, roles };
 
   if (fingerprint) {
-    setCachedSession(fingerprint, {
-      userId: user.id,
-      claims: context.claims,
-    });
+    setCachedSession(fingerprint, { userId, claims, roles });
   }
 
   timer.end({ rowCount: 1 });

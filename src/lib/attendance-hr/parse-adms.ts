@@ -177,3 +177,37 @@ export function admsOk(count?: number): string {
   if (count == null) return "OK";
   return `OK: ${count}`;
 }
+
+/** Format a local wall-clock timestamp the way ZKTeco DATA QUERY commands expect. */
+export function formatAdmsDateTime(date: Date, timeZone = "Asia/Qatar"): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? "00";
+  return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}:${get("second")}`;
+}
+
+export function buildAdmsAttlogQueryCommand(from: Date, to: Date, timeZone = "Asia/Qatar"): string {
+  return `DATA QUERY ATTLOG StartTime=${formatAdmsDateTime(from, timeZone)}\tEndTime=${formatAdmsDateTime(to, timeZone)}`;
+}
+
+export function formatAdmsGetRequestCommand(cmdId: number, command: string): string {
+  return `C:${cmdId}:${command}`;
+}
+
+export function parseAdmsDeviceCmdAck(body: string): { id: number; returnCode: number } | null {
+  const idMatch = /(?:^|[?&\n,;\s])ID=(\d+)/i.exec(body);
+  if (!idMatch) return null;
+  const retMatch = /(?:^|[?&\n,;\s])Return=(-?\d+)/i.exec(body);
+  const id = Number(idMatch[1]);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  const returnCode = retMatch ? Number(retMatch[1]) : 0;
+  return { id, returnCode: Number.isFinite(returnCode) ? returnCode : 0 };
+}

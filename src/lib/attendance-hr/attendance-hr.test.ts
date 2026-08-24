@@ -17,7 +17,17 @@ import {
 } from "./select-import-files";
 import { punchHash } from "./hash";
 import { encodeZkPackedTime, parseAttlog, parseAttlogBuffer } from "./parse-attlog";
-import { admsOk, buildAdmsHandshake, parseAdmsAttlog, parseAdmsQuery, parseAdmsUsers } from "./parse-adms";
+import {
+  admsOk,
+  buildAdmsAttlogQueryCommand,
+  buildAdmsHandshake,
+  formatAdmsDateTime,
+  formatAdmsGetRequestCommand,
+  parseAdmsAttlog,
+  parseAdmsDeviceCmdAck,
+  parseAdmsQuery,
+  parseAdmsUsers,
+} from "./parse-adms";
 import { parseDelimitedAttendance } from "./parse-spreadsheet";
 import { buildUserDat, parseUserDat } from "./parse-user-dat";
 import { previewAttendanceFile } from "./preview";
@@ -462,12 +472,30 @@ describe("ZKTeco ADMS / iClock parse", () => {
 
   it("builds an iClock handshake and OK count", () => {
     const url = new URL("https://example.test/iclock/cdata?SN=JJA1251800498&table=ATTLOG&Stamp=26&pushcommkey=secret");
-    expect(parseAdmsQuery(url)).toMatchObject({ sn: "JJA1251800498", table: "ATTLOG", stamp: "26", pushcommkey: "secret" });
+    expect(parseAdmsQuery(url)).toMatchObject({
+      sn: "JJA1251800498",
+      table: "ATTLOG",
+      stamp: "26",
+      pushcommkey: "secret",
+    });
     const body = buildAdmsHandshake({ sn: "JJA1251800498", attlogStamp: "26" });
     expect(body).toContain("GET OPTION FROM: JJA1251800498");
     expect(body).toContain("ATTLOGStamp=26");
     expect(body).toContain("TransFlag=TransData AttLog OpLog EnrollUser ChgUser");
     expect(admsOk(3)).toBe("OK: 3");
+  });
+
+  it("builds a DATA QUERY ATTLOG getrequest command and parses device ACK", () => {
+    const from = new Date("2026-08-24T00:00:00+03:00");
+    const to = new Date("2026-08-24T12:00:00+03:00");
+    const command = buildAdmsAttlogQueryCommand(from, to);
+    expect(command).toContain("DATA QUERY ATTLOG");
+    expect(command).toContain("StartTime=2026-08-24 00:00:00");
+    expect(command).toContain("EndTime=2026-08-24 12:00:00");
+    expect(formatAdmsGetRequestCommand(7, command)).toBe(`C:7:${command}`);
+    expect(formatAdmsDateTime(from)).toBe("2026-08-24 00:00:00");
+    expect(parseAdmsDeviceCmdAck("ID=7&Return=0")).toEqual({ id: 7, returnCode: 0 });
+    expect(parseAdmsDeviceCmdAck("OK")).toBeNull();
   });
 });
 
