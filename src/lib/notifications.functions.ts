@@ -44,6 +44,10 @@ const CATEGORIES = [
   "compliance",
   "snag",
   "inventory",
+  "procurement",
+  "maintenance",
+  "events",
+  "people",
 ] as const;
 
 /** Legacy escalation bell — unchanged API for top bar. */

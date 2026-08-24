@@ -1,5 +1,6 @@
 "use server";
 
+import { AI_UNAVAILABLE_MESSAGE, completeTextViaGateway } from "@/lib/ai/complete-json";
 import { createAuthenticatedActionNoInput } from "@/lib/server/create-action";
 import { getBranchLeague } from "@/lib/branches.functions";
 
@@ -11,8 +12,8 @@ export interface CeoOverview {
   incidents_24h: number;
   active_branches: number;
   total_branches: number;
-  top_branch: { name: string; revenue: number } | null;
-  bottom_branch: { name: string; revenue: number } | null;
+  top_branch: { location_id: string; name: string; revenue: number } | null;
+  bottom_branch: { location_id: string; name: string; revenue: number } | null;
   latest_brief: { id: string; title: string | null; narrative: string; created_at: string } | null;
 }
 
@@ -43,10 +44,14 @@ export const getCeoOverview = createAuthenticatedActionNoInput(async (context) =
 
   const byRev = [...league].sort((a, b) => b.revenue_30d - a.revenue_30d);
   const top_branch = byRev[0]
-    ? { name: byRev[0].name, revenue: byRev[0].revenue_30d }
+    ? { location_id: byRev[0].location_id, name: byRev[0].name, revenue: byRev[0].revenue_30d }
     : null;
   const bottom_branch = byRev.length
-    ? { name: byRev[byRev.length - 1].name, revenue: byRev[byRev.length - 1].revenue_30d }
+    ? {
+        location_id: byRev[byRev.length - 1].location_id,
+        name: byRev[byRev.length - 1].name,
+        revenue: byRev[byRev.length - 1].revenue_30d,
+      }
     : null;
 
   const { data: briefRow } = await context.supabase
@@ -86,29 +91,10 @@ export const generateDailyBrief = createAuthenticatedActionNoInput(async (contex
   const overview = await getCeoOverview();
   const league = await getBranchLeague();
 
-  const apiKey = process.env.LOVABLE_API_KEY;
-  let narrative = "AI daily brief unavailable (no LOVABLE_API_KEY).";
-  if (apiKey) {
-    const prompt = `You are the COO of a Qatar family entertainment centre group. Write a concise daily executive brief (max 250 words) covering: (1) Estate headline numbers, (2) Branches needing attention today, (3) Top 3 operational priorities, (4) One positive signal. Use QAR and branch names.\n\nOverview:\n${JSON.stringify(overview, null, 2)}\n\nBranch league:\n${JSON.stringify(league.slice(0, 8), null, 2)}`;
-    try {
-      const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey },
-        body: JSON.stringify({
-          model: "google/gemini-3-flash-preview",
-          messages: [{ role: "user", content: prompt }],
-        }),
-      });
-      if (resp.ok) {
-        const json = (await resp.json()) as { choices?: Array<{ message?: { content?: string } }> };
-        narrative = json.choices?.[0]?.message?.content?.trim() ?? narrative;
-      } else {
-        narrative = `AI gateway error ${resp.status}.`;
-      }
-    } catch (e) {
-      narrative = `AI call failed: ${(e as Error).message}`;
-    }
-  }
+  const prompt = `You are the COO of a Qatar family entertainment centre group. Write a concise daily executive brief (max 250 words) covering: (1) Estate headline numbers, (2) Branches needing attention today, (3) Top 3 operational priorities, (4) One positive signal. Use QAR and branch names.\n\nOverview:\n${JSON.stringify(overview, null, 2)}\n\nBranch league:\n${JSON.stringify(league.slice(0, 8), null, 2)}`;
+  const narrative =
+    (await completeTextViaGateway([{ role: "user", content: prompt }], { moduleSource: "ceo.daily_brief" })) ??
+    AI_UNAVAILABLE_MESSAGE;
 
   const { data: row, error } = await context.supabase
     .from("ai_artifacts")
@@ -116,7 +102,7 @@ export const generateDailyBrief = createAuthenticatedActionNoInput(async (contex
       kind: "daily_brief",
       title: `Daily brief ${new Date().toISOString().slice(0, 10)}`,
       content: { overview, narrative },
-      model: "google/gemini-3-flash-preview",
+      model: "fec-os-gateway",
       created_by: context.userId,
     })
     .select()
@@ -136,29 +122,10 @@ export const generatePnLCommentary = createAuthenticatedActionNoInput(async (con
     score: b.score,
   }));
 
-  const apiKey = process.env.LOVABLE_API_KEY;
-  let narrative = "AI commentary unavailable (no LOVABLE_API_KEY).";
-  if (apiKey) {
-    const prompt = `You are the group CFO commentary writer for a Qatar family entertainment centre group. Write a concise P&L commentary (max 200 words) in 4 sections: (1) Group headline, (2) Winners and why, (3) Underperformers and likely drivers, (4) Three specific actions for the leadership team this week. Be specific with branch names and numbers. Data:\n${JSON.stringify(rows, null, 2)}`;
-    try {
-      const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey },
-        body: JSON.stringify({
-          model: "google/gemini-3-flash-preview",
-          messages: [{ role: "user", content: prompt }],
-        }),
-      });
-      if (resp.ok) {
-        const json = (await resp.json()) as { choices?: Array<{ message?: { content?: string } }> };
-        narrative = json.choices?.[0]?.message?.content?.trim() ?? narrative;
-      } else {
-        narrative = `AI gateway error ${resp.status}.`;
-      }
-    } catch (e) {
-      narrative = `AI call failed: ${(e as Error).message}`;
-    }
-  }
+  const prompt = `You are the group CFO commentary writer for a Qatar family entertainment centre group. Write a concise P&L commentary (max 200 words) in 4 sections: (1) Group headline, (2) Winners and why, (3) Underperformers and likely drivers, (4) Three specific actions for the leadership team this week. Be specific with branch names and numbers. Data:\n${JSON.stringify(rows, null, 2)}`;
+  const narrative =
+    (await completeTextViaGateway([{ role: "user", content: prompt }], { moduleSource: "ceo.pnl_commentary" })) ??
+    AI_UNAVAILABLE_MESSAGE;
 
   const { data: row, error } = await context.supabase
     .from("ai_artifacts")
@@ -166,7 +133,7 @@ export const generatePnLCommentary = createAuthenticatedActionNoInput(async (con
       kind: "pnl_commentary",
       title: `P&L commentary ${new Date().toISOString().slice(0, 10)}`,
       content: { rows, narrative },
-      model: "google/gemini-3-flash-preview",
+      model: "fec-os-gateway",
       created_by: context.userId,
     })
     .select()

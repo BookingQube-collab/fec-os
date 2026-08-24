@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 
+import { TintedKpiCard, type KpiTint } from "@/components/dashboard/tinted-kpi-card";
 import { KpiSkeletonStrip } from "@/components/loading/page-skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -25,19 +26,14 @@ const MaintenanceDashboardCharts = dynamic(
   },
 );
 
-function KpiCard({ label, value, tone }: { label: string; value: string | number; tone?: string }) {
-  return (
-    <div className="rounded-lg border border-border bg-card p-3">
-      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className={`mt-1 text-lg font-semibold ${tone ?? ""}`}>{value}</div>
-    </div>
-  );
+function KpiCard({ label, value, tint }: { label: string; value: string | number; tint: KpiTint }) {
+  return <TintedKpiCard title={label} value={value} tint={tint} compact />;
 }
 
-function toneForCount(value: number, warnAbove = 0): string {
-  if (value === 0) return "text-emerald-600";
-  if (value <= warnAbove) return "text-amber-600";
-  return "text-red-600";
+function tintForCount(value: number, warnAbove = 0): KpiTint {
+  if (value === 0) return "green";
+  if (value <= warnAbove) return "amber";
+  return "red";
 }
 
 export function MaintenanceDashboardPanel() {
@@ -70,31 +66,31 @@ export function MaintenanceDashboardPanel() {
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-10">
-        <KpiCard label="Open (planned)" value={k?.work_orders_open ?? 0} tone={toneForCount(k?.work_orders_open ?? 0, 5)} />
-        <KpiCard label="In progress" value={k?.work_orders_in_progress ?? 0} />
-        <KpiCard label="Urgent" value={k?.work_orders_urgent ?? 0} tone={toneForCount(k?.work_orders_urgent ?? 0)} />
-        <KpiCard label="Overdue" value={k?.work_orders_overdue ?? 0} tone={toneForCount(k?.work_orders_overdue ?? 0)} />
-        <KpiCard label="Near SLA breach" value={k?.work_orders_near_sla_breach ?? 0} tone={toneForCount(k?.work_orders_near_sla_breach ?? 0)} />
-        <KpiCard label="SLA compliance" value={`${k?.sla_compliance_pct ?? 100}%`} tone={(k?.sla_compliance_pct ?? 100) < 90 ? "text-red-600" : "text-emerald-600"} />
-        <KpiCard label="Weekly completion" value={`${k?.weekly_completion_rate_pct ?? 0}%`} />
-        <KpiCard label="Pending deliveries" value={k?.pending_deliveries ?? 0} tone={toneForCount(k?.pending_deliveries ?? 0)} />
-        <KpiCard label="Material requests (mo)" value={k?.material_requests_month ?? 0} />
-        <KpiCard label="Completed (month)" value={k?.work_orders_completed_month ?? 0} tone="text-emerald-600" />
+        <KpiCard label="Open (planned)" value={k?.work_orders_open ?? 0} tint={tintForCount(k?.work_orders_open ?? 0, 5)} />
+        <KpiCard label="In progress" value={k?.work_orders_in_progress ?? 0} tint="sky" />
+        <KpiCard label="Urgent" value={k?.work_orders_urgent ?? 0} tint={tintForCount(k?.work_orders_urgent ?? 0)} />
+        <KpiCard label="Overdue" value={k?.work_orders_overdue ?? 0} tint={tintForCount(k?.work_orders_overdue ?? 0)} />
+        <KpiCard label="Near SLA breach" value={k?.work_orders_near_sla_breach ?? 0} tint={tintForCount(k?.work_orders_near_sla_breach ?? 0)} />
+        <KpiCard label="SLA compliance" value={`${k?.sla_compliance_pct ?? 100}%`} tint={(k?.sla_compliance_pct ?? 100) < 90 ? "red" : "green"} />
+        <KpiCard label="Weekly completion" value={`${k?.weekly_completion_rate_pct ?? 0}%`} tint="sky" />
+        <KpiCard label="Pending deliveries" value={k?.pending_deliveries ?? 0} tint={tintForCount(k?.pending_deliveries ?? 0)} />
+        <KpiCard label="Material requests (mo)" value={k?.material_requests_month ?? 0} tint="orange" />
+        <KpiCard label="Completed (month)" value={k?.work_orders_completed_month ?? 0} tint="green" />
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-6">
-        <KpiCard label="On hold" value={k?.work_orders_on_hold ?? 0} tone={toneForCount(k?.work_orders_on_hold ?? 0)} />
-        <KpiCard label="Assets" value={k?.assets_total ?? 0} />
-        <KpiCard label="PM overdue" value={k?.pm_overdue ?? 0} tone={toneForCount(k?.pm_overdue ?? 0)} />
-        <KpiCard label="Active downtime" value={k?.downtime_active ?? 0} tone={toneForCount(k?.downtime_active ?? 0)} />
+        <KpiCard label="On hold" value={k?.work_orders_on_hold ?? 0} tint={tintForCount(k?.work_orders_on_hold ?? 0)} />
+        <KpiCard label="Assets" value={k?.assets_total ?? 0} tint="slate" />
+        <KpiCard label="PM overdue" value={k?.pm_overdue ?? 0} tint={tintForCount(k?.pm_overdue ?? 0)} />
+        <KpiCard label="Active downtime" value={k?.downtime_active ?? 0} tint={tintForCount(k?.downtime_active ?? 0)} />
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-6">
-        <KpiCard label="PM due this week" value={k?.pm_due_this_week ?? 0} />
-        <KpiCard label="PM schedules active" value={k?.pm_active ?? 0} />
-        <KpiCard label="Heartbeat missed" value={k?.assets_heartbeat_missed ?? 0} tone={toneForCount(k?.assets_heartbeat_missed ?? 0)} />
-        <KpiCard label="Warranty expiring (30d)" value={k?.assets_warranty_expiring ?? 0} tone={toneForCount(k?.assets_warranty_expiring ?? 0)} />
-        <KpiCard label="Downtime hours (month)" value={k?.downtime_hours_month ?? 0} tone={toneForCount(k?.downtime_hours_month ?? 0, 10)} />
+        <KpiCard label="PM due this week" value={k?.pm_due_this_week ?? 0} tint="amber" />
+        <KpiCard label="PM schedules active" value={k?.pm_active ?? 0} tint="sky" />
+        <KpiCard label="Heartbeat missed" value={k?.assets_heartbeat_missed ?? 0} tint={tintForCount(k?.assets_heartbeat_missed ?? 0)} />
+        <KpiCard label="Warranty expiring (30d)" value={k?.assets_warranty_expiring ?? 0} tint={tintForCount(k?.assets_warranty_expiring ?? 0)} />
+        <KpiCard label="Downtime hours (month)" value={k?.downtime_hours_month ?? 0} tint={tintForCount(k?.downtime_hours_month ?? 0, 10)} />
       </div>
 
       <MaintenanceDashboardCharts

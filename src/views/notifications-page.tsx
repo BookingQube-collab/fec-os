@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, CheckCheck } from "lucide-react";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import {
@@ -11,17 +12,32 @@ import {
   markNotificationRead,
   upsertNotificationPreference,
 } from "@/lib/notifications.functions";
-import { useNotifications } from "@/hooks/queries/useNotifications";
+import { useActionInbox } from "@/hooks/queries/useNotifications";
+import { useAuth } from "@/hooks/use-auth";
 import { queryKeys } from "@/lib/query-keys";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-const CATEGORIES = ["general", "escalation", "kpi", "sop", "compliance", "snag", "inventory"] as const;
+const CATEGORIES = [
+  "general",
+  "escalation",
+  "kpi",
+  "sop",
+  "compliance",
+  "snag",
+  "inventory",
+  "procurement",
+  "maintenance",
+  "events",
+  "people",
+] as const;
 
 function NotificationsPage() {
+  const { t } = useTranslation();
   const qc = useQueryClient();
-  const { data: notifications, isLoading } = useNotifications({ unreadOnly: false });
+  const { user } = useAuth();
+  const { data: inbox, isLoading } = useActionInbox(user?.id, { enabled: !!user });
   const { data: prefs } = useQuery({
     queryKey: ["notifications", "prefs"],
     queryFn: () => getNotificationPreferences(),
@@ -34,7 +50,7 @@ function NotificationsPage() {
   const markAll = useMutation({
     mutationFn: () => markAllNotificationsRead(),
     onSuccess: () => {
-      toast.success("All marked read");
+      toast.success(t("inbox.markedAllRead"));
       void qc.invalidateQueries({ queryKey: queryKeys.notifications.all });
     },
   });
@@ -44,6 +60,8 @@ function NotificationsPage() {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["notifications", "prefs"] }),
   });
 
+  const items = inbox?.items ?? [];
+
   return (
     <div className="space-y-6">
       <header className="flex items-center gap-3">
@@ -51,43 +69,46 @@ function NotificationsPage() {
           <Bell className="h-5 w-5" />
         </div>
         <div className="flex-1">
-          <h1 className="text-xl font-semibold">Notifications</h1>
-          <p className="text-xs text-muted-foreground">In-app inbox and delivery preferences.</p>
+          <h1 className="text-xl font-semibold">{t("inbox.pageTitle")}</h1>
+          <p className="text-xs text-muted-foreground">{t("inbox.pageSubtitle")}</p>
         </div>
         <Button variant="outline" size="sm" onClick={() => markAll.mutate()} disabled={markAll.isPending}>
-          <CheckCheck className="mr-1 h-4 w-4" />Mark all read
+          <CheckCheck className="mr-1 h-4 w-4" />
+          {t("inbox.markAllRead")}
         </Button>
       </header>
 
       <Tabs defaultValue="inbox">
         <TabsList>
-          <TabsTrigger value="inbox">Inbox</TabsTrigger>
-          <TabsTrigger value="preferences">Preferences</TabsTrigger>
+          <TabsTrigger value="inbox">{t("inbox.tabInbox")}</TabsTrigger>
+          <TabsTrigger value="preferences">{t("inbox.tabPreferences")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="inbox" className="rounded-lg border border-border bg-card divide-y divide-border">
           {isLoading ? (
-            <p className="p-4 text-sm text-muted-foreground">Loading…</p>
-          ) : !notifications?.length ? (
-            <p className="p-4 text-sm text-muted-foreground">No notifications.</p>
+            <p className="p-4 text-sm text-muted-foreground">{t("inbox.loading")}</p>
+          ) : !items.length ? (
+            <p className="p-4 text-sm text-muted-foreground">{t("inbox.empty")}</p>
           ) : (
-            notifications.map((n) => (
+            items.map((n) => (
               <div key={n.id} className="flex items-start gap-3 p-4">
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium">{n.title}</span>
-                    {!n.read_at && <span className="h-2 w-2 rounded-full bg-primary" />}
+                    <span className="text-sm font-medium">
+                      {n.titleKey ? t(n.titleKey, n.titleParams) : n.title}
+                    </span>
+                    {!n.readAt && <span className="h-2 w-2 rounded-full bg-primary" />}
                   </div>
                   {n.body && <p className="mt-1 text-xs text-muted-foreground">{n.body}</p>}
-                  {n.action_url && (
-                    <Link href={n.action_url} className="mt-1 inline-block text-xs text-primary hover:underline">
-                      Open
+                  {n.actionUrl && (
+                    <Link href={n.actionUrl} className="mt-1 inline-block text-xs text-primary hover:underline">
+                      {t("inbox.open")}
                     </Link>
                   )}
                 </div>
-                {!n.read_at && (
-                  <Button variant="ghost" size="sm" onClick={() => markRead.mutate(n.id)}>
-                    Mark read
+                {n.persisted && !n.readAt && n.id.startsWith("notif:") && (
+                  <Button variant="ghost" size="sm" onClick={() => markRead.mutate(n.id.slice(6))}>
+                    {t("inbox.markRead")}
                   </Button>
                 )}
               </div>
@@ -101,12 +122,12 @@ function NotificationsPage() {
             return (
               <div key={cat} className="flex items-center justify-between rounded-lg border border-border bg-card p-4">
                 <div>
-                  <div className="text-sm font-medium capitalize">{cat}</div>
-                  <div className="text-xs text-muted-foreground">In-app · Email (placeholder providers)</div>
+                  <div className="text-sm font-medium capitalize">{t(`inbox.kinds.${cat}`, { defaultValue: cat })}</div>
+                  <div className="text-xs text-muted-foreground">{t("inbox.prefHint")}</div>
                 </div>
                 <div className="flex items-center gap-4">
                   <label className="flex items-center gap-2 text-xs">
-                    In-app
+                    {t("inbox.channelInApp")}
                     <Switch
                       checked={pref?.channel_in_app ?? true}
                       onCheckedChange={(v) =>
@@ -115,7 +136,7 @@ function NotificationsPage() {
                     />
                   </label>
                   <label className="flex items-center gap-2 text-xs">
-                    Email
+                    {t("inbox.channelEmail")}
                     <Switch
                       checked={pref?.channel_email ?? false}
                       onCheckedChange={(v) =>

@@ -7,6 +7,8 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
+import { generateEmployeeCode } from "./lib/employee-code.mjs";
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, "..");
 
@@ -157,6 +159,7 @@ const ROWS = [
   ["Inflatapark - City Center", "Florjana kamentodang", "29060817662", "Inflata park", "Crew / Attendant", "39912136", "20-May-22"],
 ];
 
+const usedCodes = new Set();
 const staff = ROWS.map(([location, name, qid, activity, position, phone, joinDate], i) => {
   const location_code = LOCATION_MAP[location];
   if (!location_code) throw new Error(`Row ${i + 1}: unmapped location "${location}"`);
@@ -164,7 +167,10 @@ const staff = ROWS.map(([location, name, qid, activity, position, phone, joinDat
   const staff_role = POSITION_ROLE[position];
   if (!staff_role) throw new Error(`Row ${i + 1}: unmapped position "${position}"`);
 
-  const employee_code = qid;
+  const employee_code = generateEmployeeCode(location_code, usedCodes, {
+    staffRole: staff_role,
+    jobTitle: position,
+  });
   const activityTrim = activity.trim();
   let status = "active";
   let department = activityTrim || null;
@@ -210,6 +216,7 @@ const csvLines = staff.map((s) =>
 const csvPath = path.join(root, "demo-data", "staff_import.csv");
 fs.writeFileSync(csvPath, `${csvHeader}\n${csvLines.join("\n")}\n`, "utf8");
 
+// Historical 20260629180000_staff_directory_replace.sql must not be rewritten.
 const valueRows = staff
   .map(
     (s) =>
@@ -277,7 +284,11 @@ JOIN public.locations l ON l.code = v.loc_code;
 `;
 
 const migrationPath = path.join(root, "supabase", "migrations", "20260629180000_staff_directory_replace.sql");
-fs.writeFileSync(migrationPath, migration, "utf8");
+if (process.env.REWRITE_STAFF_REPLACE_SQL === "1") {
+  fs.writeFileSync(migrationPath, migration, "utf8");
+  console.log(`Wrote ${migrationPath}`);
+} else {
+  console.log(`Skipped rewrite of ${migrationPath} (set REWRITE_STAFF_REPLACE_SQL=1 to overwrite)`);
+}
 
 console.log(`Wrote ${csvPath} (${staff.length} rows)`);
-console.log(`Wrote ${migrationPath}`);

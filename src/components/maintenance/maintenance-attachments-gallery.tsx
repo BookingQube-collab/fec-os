@@ -1,11 +1,14 @@
 "use client";
 
+import { useTranslation } from "react-i18next";
+
 import { MediaThumbnail, useMediaPreview } from "@/components/maintenance/media-preview-lightbox";
 
-const KIND_LABELS: Record<string, string> = {
-  submission: "Submission",
-  before: "Before",
-  after: "After",
+const KIND_KEYS: Record<string, string> = {
+  submission: "maintenanceMedia.submission",
+  before: "maintenanceMedia.before",
+  after: "maintenanceMedia.after",
+  completion: "maintenanceMedia.completion",
 };
 
 type MaintenanceAttachment = {
@@ -19,10 +22,11 @@ type MaintenanceAttachment = {
 };
 
 export function MaintenanceAttachmentsGallery({ attachments }: { attachments: MaintenanceAttachment[] }) {
+  const { t } = useTranslation();
   const { openPreview, previewDialog } = useMediaPreview();
 
   if (!attachments.length) {
-    return <p className="text-xs text-muted-foreground">No photos or videos uploaded yet.</p>;
+    return <p className="text-xs text-muted-foreground">{t("maintenanceMedia.noMedia")}</p>;
   }
 
   const grouped = attachments.reduce<Record<string, MaintenanceAttachment[]>>((acc, att) => {
@@ -37,20 +41,20 @@ export function MaintenanceAttachmentsGallery({ attachments }: { attachments: Ma
       {Object.entries(grouped).map(([kind, kindAttachments]) => (
         <div key={kind}>
           <p className="mb-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-            {KIND_LABELS[kind] ?? kind}
+            {KIND_KEYS[kind] ? t(KIND_KEYS[kind]) : kind}
           </p>
           <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
             {kindAttachments.map((att) => (
               <MediaThumbnail
                 key={att.id}
                 src={att.url ?? ""}
-                alt={att.file_name ?? "Attachment"}
+                alt={att.file_name ?? t("maintenanceMedia.attachment")}
                 mimeType={att.mime_type}
                 unavailable={!att.url}
                 onPreview={() =>
                   openPreview({
                     src: att.url ?? "",
-                    alt: att.file_name ?? "Attachment",
+                    alt: att.file_name ?? t("maintenanceMedia.attachment"),
                     mimeType: att.mime_type,
                   })
                 }

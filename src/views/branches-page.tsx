@@ -16,6 +16,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { fmtNumber, fmtQar } from "@/lib/currency";
+import { PageHeader } from "@/components/layout/page-header";
 
 function Page() {
     const { data, isLoading } = useBranchLeague();
@@ -23,11 +24,11 @@ function Page() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold text-foreground">Location Performance</h1>
-          <p className="text-sm text-muted-foreground">League table and heat map ranked by composite operating score (last 30 days).</p>
-        </div>
+      <PageHeader
+        kicker="Locations"
+        title="Location performance"
+        subtitle="League table and heat map ranked by composite operating score (last 30 days)."
+        actions={
         <div className="flex gap-2">
           <Button variant={view === "heatmap" ? "default" : "outline"} size="sm" onClick={() => setView("heatmap")}>
             <Grid3X3 className="mr-2 h-4 w-4" />Heat map
@@ -36,7 +37,8 @@ function Page() {
             <LayoutList className="mr-2 h-4 w-4" />List
           </Button>
         </div>
-      </div>
+        }
+      />
 
       {isLoading ? (
         view === "list" ? (

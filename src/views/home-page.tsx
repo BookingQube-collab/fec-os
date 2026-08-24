@@ -1,37 +1,28 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import {
   AlertTriangle,
+  BarChart3,
   CheckCircle2,
   Clock,
   Gauge,
-  HelpCircle,
+  MapPin,
   ShieldCheck,
+  Users,
+  Wallet,
   Wrench,
-  XCircle,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { CircularProgressBadge } from "@/components/dashboard/circular-progress-badge";
-import { CollapsibleSection } from "@/components/dashboard/collapsible-section";
-import { KPIWidget } from "@/components/dashboard/kpi-widget";
-import { MiniMetricCard } from "@/components/dashboard/mini-metric-card";
-import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
+import { TintedKpiCard, type KpiTint } from "@/components/dashboard/tinted-kpi-card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useAuth } from "@/hooks/use-auth";
-import { useDashboardKpis } from "@/hooks/queries/useDashboardKpis";
-import { useDashboardSecondary } from "@/hooks/queries/useDashboardSecondary";
-import { useComplianceRenewals } from "@/hooks/queries/useInspections";
-import { useAfterLoad, useScrollGatedVisible } from "@/hooks/use-deferred-visible";
-import { useAppStore } from "@/stores/app-store";
-import { useBranchesSummary } from "@/hooks/queries/useOperationsDashboard";
-import type { DashboardPeriod } from "@/lib/dashboard.functions";
-import { dashboardViewForRoles, canViewRevenue, type AppRole } from "@/lib/rbac";
-import { fmtQar } from "@/lib/currency";
-import { retryImport } from "@/lib/retry-import";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -40,62 +31,106 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-const HomeWoTrendChart = dynamic(
+import { useAuth } from "@/hooks/use-auth";
+import { useDashboardKpis, useDashboardCharts } from "@/hooks/queries/useDashboardKpis";
+import { useDashboardSecondary } from "@/hooks/queries/useDashboardSecondary";
+import { useComplianceRenewals } from "@/hooks/queries/useInspections";
+import { useAfterLoad, useScrollGatedVisible } from "@/hooks/use-deferred-visible";
+import { useAppStore } from "@/stores/app-store";
+import { useBranchesSummary } from "@/hooks/queries/useOperationsDashboard";
+import { useSites } from "@/hooks/queries/useSites";
+import type { DashboardPeriod } from "@/lib/dashboard.functions";
+import { dashboardViewForRoles, canViewRevenue, type AppRole } from "@/lib/rbac";
+import { fmtQar } from "@/lib/currency";
+import { retryImport } from "@/lib/retry-import";
+import { cn } from "@/lib/utils";
+import type { ComplianceRenewalRow } from "@/lib/queries/amc-queries.core";
+
+const HomeCommandCharts = dynamic(
   () =>
     retryImport(() =>
-      import("@/components/dashboard/home-dashboard-charts").then((m) => m.HomeWoTrendChart),
+      import("@/components/dashboard/home-dashboard-charts").then((m) => m.HomeCommandCharts),
     ),
-  { ssr: false, loading: () => <Skeleton className="h-56 rounded-2xl" /> },
+  {
+    ssr: false,
+    loading: () => (
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Skeleton className="h-64 rounded-2xl" />
+        <Skeleton className="h-64 rounded-2xl" />
+        <Skeleton className="h-64 rounded-2xl" />
+      </div>
+    ),
+  },
 );
 
-const HomeBottomCharts = dynamic(
-  () =>
-    retryImport(() =>
-      import("@/components/dashboard/home-dashboard-charts").then((m) => m.HomeBottomCharts),
-    ),
-  { ssr: false, loading: () => (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <Skeleton className="h-52 rounded-2xl" />
-      <Skeleton className="h-52 rounded-2xl" />
-    </div>
-  ) },
-);
+const PERIODS: DashboardPeriod[] = ["today", "yesterday", "week", "month"];
 
-const ActivityHistory = dynamic(
-  () =>
-    retryImport(() =>
-      import("@/components/dashboard/activity-history").then((m) => m.ActivityHistory),
-    ),
-  { ssr: false, loading: () => <Skeleton className="h-48 rounded-2xl" /> },
-);
+const TIER_RANK: Record<string, number> = {
+  "Due ≤30": 0,
+  "Due ≤60": 1,
+  Expired: 2,
+};
 
-const PERIODS: { value: DashboardPeriod; label: string }[] = [
-  { value: "today", label: "Today" },
-  { value: "yesterday", label: "Yesterday" },
-  { value: "week", label: "This week" },
-  { value: "month", label: "This month" },
-];
-
-function KpiSkeletonGrid() {
+function CommandKpi({
+  href,
+  ...props
+}: {
+  title: string;
+  value: string | number;
+  hint?: string;
+  icon?: LucideIcon;
+  tint: KpiTint;
+  empty?: boolean;
+  href?: string;
+}) {
+  const card = <TintedKpiCard compact {...props} />;
+  if (!href) return card;
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      {Array.from({ length: 4 }).map((_, i) => (
-        <Skeleton key={i} className="h-28 rounded-2xl" />
-      ))}
-    </div>
+    <Link
+      href={href}
+      className="block rounded-2xl transition-shadow hover:shadow-elevated-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+    >
+      {card}
+    </Link>
   );
 }
 
+function HealthPill({ pct }: { pct: number }) {
+  const { t } = useTranslation();
+  const variant = pct >= 80 ? "success" : pct >= 60 ? "warning" : "destructive";
+  const label =
+    pct >= 80 ? t("home.healthHealthy") : pct >= 60 ? t("home.healthWatch") : t("home.healthAtRisk");
+  return (
+    <Badge variant={variant} className="tabular-nums">
+      {label}
+      <span className="font-semibold">{pct}%</span>
+    </Badge>
+  );
+}
+
+function pickAttentionItems(rows: ComplianceRenewalRow[] | undefined, limit = 5) {
+  const ranked = (rows ?? [])
+    .filter((item) => ["Due ≤30", "Due ≤60", "Expired"].includes(String(item.alert_tier)))
+    .slice()
+    .sort((a, b) => {
+      const rank = (TIER_RANK[String(a.alert_tier)] ?? 9) - (TIER_RANK[String(b.alert_tier)] ?? 9);
+      if (rank !== 0) return rank;
+      return String(a.expiry_date ?? "").localeCompare(String(b.expiry_date ?? ""));
+    });
+  return {
+    top: ranked.slice(0, limit),
+    hiddenExpired: ranked.slice(limit).filter((item) => String(item.alert_tier) === "Expired").length,
+  };
+}
+
 function HomePage() {
+  const { t } = useTranslation();
   const { roles } = useAuth();
   const roleList = roles.map((r) => r.role as AppRole);
   const view = dashboardViewForRoles(roleList);
   const showRevenue = canViewRevenue(roleList);
   const storeLocationId = useAppStore((s) => s.currentLocationId);
   const [period, setPeriod] = useState<DashboardPeriod>("today");
-  const [branchesOpen, setBranchesOpen] = useState(false);
-  const [complianceOpen, setComplianceOpen] = useState(false);
-  const [deferSecondary, setDeferSecondary] = useState(false);
   const afterLoad = useAfterLoad(100);
   const { ref: chartsRef, visible: chartsVisible } = useScrollGatedVisible(100);
   const locationId = storeLocationId ?? null;
@@ -110,109 +145,56 @@ function HomePage() {
     enabled: rolesReady,
   });
 
-  useEffect(() => {
-    if (!kpisQ.isSuccess) return;
-    let cancelled = false;
-    let timer: number | undefined;
-
-    const arm = () => {
-      timer = window.setTimeout(() => {
-        if (!cancelled) setDeferSecondary(true);
-      }, 1500);
-    };
-
-    if (document.readyState === "complete") {
-      arm();
-    } else {
-      const onLoad = () => arm();
-      window.addEventListener("load", onLoad, { once: true });
-      return () => {
-        cancelled = true;
-        window.removeEventListener("load", onLoad);
-        if (timer !== undefined) window.clearTimeout(timer);
-      };
-    }
-
-    return () => {
-      cancelled = true;
-      if (timer !== undefined) window.clearTimeout(timer);
-    };
-  }, [kpisQ.isSuccess]);
-
+  const sitesQ = useSites({ enabled: rolesReady });
+  const attentionEnabled = rolesReady && showCompliance && !!kpisQ.data;
   const chartsEnabled = rolesReady && afterLoad && chartsVisible && !!kpisQ.data;
-  const complianceKpisEnabled =
-    rolesReady && showCompliance && deferSecondary && !complianceOpen;
-  const complianceKpisOnExpand = rolesReady && showCompliance && complianceOpen;
-
-  const secondaryIncludes = useMemo(() => {
-    const inc: Array<"charts" | "complianceKpis"> = [];
-    if (chartsEnabled) inc.push("charts");
-    if (complianceKpisEnabled || complianceKpisOnExpand) inc.push("complianceKpis");
-    return inc;
-  }, [chartsEnabled, complianceKpisEnabled, complianceKpisOnExpand]);
 
   const secondaryQ = useDashboardSecondary({
-    include: secondaryIncludes,
+    include: attentionEnabled ? ["complianceKpis"] : [],
     locationId,
     year,
     utilityBase: kpisQ.data?.smartmaintain.utility_cost_this_month,
-    enabled: secondaryIncludes.length > 0,
+    enabled: attentionEnabled,
   });
 
-  const chartsQ = {
-    data: secondaryQ.data?.charts,
-    isLoading: secondaryQ.isLoading && secondaryIncludes.includes("charts"),
-  };
+  const renewalsQ = useComplianceRenewals({ limit: 8 }, { enabled: attentionEnabled });
 
-  const complianceKpisQ = {
-    data: secondaryQ.data?.complianceKpis,
-    isLoading: secondaryQ.isLoading && secondaryIncludes.includes("complianceKpis"),
-  };
-
-  const { data: dueItems, isLoading: renewalsLoading } = useComplianceRenewals(
-    { limit: 20 },
-    { enabled: rolesReady && showCompliance && complianceOpen },
-  );
+  const chartsQ = useDashboardCharts({
+    period,
+    locationId,
+    year,
+    utilityBase: kpisQ.data?.smartmaintain.utility_cost_this_month,
+    enabled: chartsEnabled,
+  });
 
   const branchesQ = useBranchesSummary(
     { period, locationId },
-    { enabled: rolesReady && branchesOpen && showCompliance },
+    { enabled: attentionEnabled },
   );
 
   const e = kpisQ.data?.estate;
   const sm = kpisQ.data?.smartmaintain;
   const charts = chartsQ.data;
-  const complianceKpis = complianceKpisQ.data;
+  const complianceKpis = secondaryQ.data?.complianceKpis;
 
-  const activityRows = useMemo(() => {
-    return (charts?.siteIssues ?? []).slice(0, 5).map((b) => {
-      const statusTone: "success" | "warning" | "danger" =
-        b.critical === 0 ? "success" : b.critical < 3 ? "warning" : "danger";
-      return {
-        id: b.site,
-        title: b.site,
-        subtitle: `${b.issues} open issues`,
-        time: "Today",
-        category: "Site",
-        status: b.critical === 0 ? "Healthy" : "Watch",
-        statusTone,
-      };
-    });
-  }, [charts?.siteIssues]);
+  const siteLabel = useMemo(() => {
+    if (!locationId) return t("common.allBranches");
+    return sitesQ.data?.find((s) => s.id === locationId)?.code ?? t("common.allBranches");
+  }, [locationId, sitesQ.data, t]);
 
-  const dueSoon = useMemo(
-    () =>
-      (dueItems ?? [])
-        .filter((i) => ["Due ≤30", "Due ≤60", "Expired"].includes(String(i.alert_tier)))
-        .slice(0, 8),
-    [dueItems],
-  );
+  const attention = useMemo(() => pickAttentionItems(renewalsQ.data, 5), [renewalsQ.data]);
+
+  const openingPct = useMemo(() => {
+    const rows = branchesQ.data ?? [];
+    if (rows.length === 0) return null;
+    return Math.round(rows.reduce((sum, row) => sum + row.opening_checklist_pct, 0) / rows.length);
+  }, [branchesQ.data]);
 
   if (!rolesReady) {
     return (
-      <div className="mx-auto max-w-lg rounded-[28px] border border-dashed border-[#C7D2FE] bg-white p-8 text-center">
-        <h2 className="text-lg font-semibold text-[#111827]">Account pending setup</h2>
-        <p className="mt-2 text-sm text-[#6B7280]">Contact your administrator to get access.</p>
+      <div className="mx-auto max-w-lg rounded-[var(--radius-xl)] border border-dashed border-border bg-card p-8 text-center">
+        <h2 className="text-lg font-semibold text-foreground">{t("home.pendingTitle")}</h2>
+        <p className="mt-2 text-sm text-muted-foreground">{t("home.pendingBody")}</p>
       </div>
     );
   }
@@ -220,281 +202,416 @@ function HomePage() {
   const openWo = sm?.open_work_orders ?? e?.open_issues ?? 0;
   const overdueWo = sm?.overdue_work_orders ?? 0;
   const pendingVerify = sm?.pending_inspections ?? 0;
-  const declined = e?.critical_issues ?? 0;
+  const critical = e?.critical_issues ?? 0;
+  const openIssues = e?.open_issues ?? 0;
   const readiness = sm?.site_readiness_score ?? e?.health_score ?? 0;
+  const hasRoster = !!e && e.staff_scheduled > 0;
+  const hasRevenue = showRevenue && !!e && (e.revenue_today > 0 || e.revenue_target_pct > 0);
+  const hasUtility = !!sm && sm.utility_cost_this_month > 0;
+  const expiringDocs = complianceKpis?.doc_due_30;
+  const expiringAmc = sm?.amc_expiring_soon;
+  const expiringValue =
+    expiringDocs != null || expiringAmc != null ? (expiringAmc ?? 0) + (expiringDocs ?? 0) : "—";
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <Select value={period} onValueChange={(v) => setPeriod(v as DashboardPeriod)}>
-          <SelectTrigger className="h-9 w-[130px] rounded-full border-white/80 bg-white/80 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {PERIODS.map((p) => (
-              <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {e && (
-          <Badge className="rounded-full bg-[#EEF0FF] text-[#6366F1] hover:bg-[#EEF0FF]">
-            Health {e.health_score}%
-          </Badge>
-        )}
-      </div>
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-muted-foreground">
+          {t("home.asOf", { period: t(`home.period.${period}`), site: siteLabel })}
+        </p>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Select value={period} onValueChange={(v) => setPeriod(v as DashboardPeriod)}>
+            <SelectTrigger className="w-auto min-w-[10.5rem]" aria-label={t("home.periodLabel")}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PERIODS.map((p) => (
+                <SelectItem key={p} value={p}>
+                  {t(`home.period.${p}`)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {e ? (
+            <span
+              tabIndex={0}
+              title={t("home.healthTooltip")}
+              aria-label={`${t("home.health", { pct: e.health_score })}. ${t("home.healthTooltip")}`}
+              className="group relative inline-flex cursor-help items-center rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground"
+            >
+              {t("home.health", { pct: e.health_score })}
+              <span
+                role="tooltip"
+                className="pointer-events-none absolute end-0 top-full z-20 mt-2 w-72 rounded-xl border border-border/70 bg-card p-3 text-start text-xs font-normal leading-relaxed text-foreground opacity-0 shadow-elevated-sm transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+              >
+                {t("home.healthTooltip")}
+              </span>
+            </span>
+          ) : null}
+        </div>
+      </header>
 
-      <CollapsibleSection title="Operations overview">
-        {kpisQ.isLoading ? (
-          <KpiSkeletonGrid />
-        ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <KPIWidget
-              title="Open work orders"
-              value={openWo}
-              secondary={`/ ${e?.branches_total ?? "—"} sites`}
-              icon={Wrench}
-              progress={openWo > 0 ? Math.min(100, openWo * 8) : 0}
-              accent="blue"
-              href="/maintenance"
+      {kpisQ.isLoading ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-[7.25rem] rounded-2xl" />
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <CommandKpi
+            title={t("home.openWorkOrders")}
+            value={openWo}
+            hint={t("home.sites", { n: e?.branches_total ?? "—" })}
+            icon={Wrench}
+            tint="sky"
+            href="/maintenance"
+          />
+          <CommandKpi
+            title={t("home.overduePms")}
+            value={overdueWo}
+            hint={t("home.orders")}
+            icon={Clock}
+            tint={overdueWo > 0 ? "red" : "green"}
+            href="/maintenance"
+          />
+          <CommandKpi
+            title={t("home.criticalIssues")}
+            value={critical}
+            hint={t("home.openIssuesHint", { n: openIssues })}
+            icon={AlertTriangle}
+            tint={critical > 0 ? "red" : openIssues > 0 ? "orange" : "green"}
+            href="/issues"
+          />
+          <CommandKpi
+            title={t("home.staffOnFloor")}
+            value={hasRoster ? `${e.staff_present}/${e.staff_scheduled}` : t("home.noRoster")}
+            hint={hasRoster ? t("home.acrossEstate") : t("home.noRosterHint")}
+            icon={Users}
+            tint="sky"
+            empty={!hasRoster}
+            href="/daily-ops/roster"
+          />
+          {hasRevenue ? (
+            <CommandKpi
+              title={t("home.revenueToday")}
+              value={fmtQar(e.revenue_today)}
+              hint={t("home.targetPct", { pct: e.revenue_target_pct })}
+              icon={Wallet}
+              tint="green"
+              href="/revenue"
             />
-            <KPIWidget
-              title="Pending verification"
-              value={pendingVerify}
-              secondary="inspections"
-              icon={CheckCircle2}
-              progress={pendingVerify > 0 ? 65 : 100}
-              progressPositive={pendingVerify === 0}
-              accent="cyan"
-              href="/compliance/amc-schedule"
-            />
-            <KPIWidget
-              title="Critical / declined"
-              value={declined}
-              secondary="issues"
-              icon={XCircle}
-              progress={declined > 0 ? 40 : 100}
-              progressPositive={declined === 0}
-              accent="red"
-              href="/issues"
-            />
-            <KPIWidget
-              title="RFI / open issues"
-              value={e?.open_issues ?? "—"}
-              secondary={`${e?.critical_issues ?? 0} critical`}
-              icon={HelpCircle}
-              progress={e ? Math.min(100, e.open_issues * 5) : 0}
-              accent="purple"
-              href="/issues"
-            />
-          </div>
-        )}
-      </CollapsibleSection>
-
-      <CollapsibleSection title="Maintenance & compliance">
-        {kpisQ.isLoading ? (
-          <KpiSkeletonGrid />
-        ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <KPIWidget
-              title="AMC expiring soon"
-              value={sm?.amc_expiring_soon ?? "—"}
-              icon={ShieldCheck}
-              accent="amber"
-              href="/compliance/amc-dashboard"
-            />
-            <KPIWidget
-              title="Overdue services"
-              value={overdueWo}
-              icon={Clock}
-              accent="red"
-              href="/maintenance"
-            />
-            <KPIWidget
-              title="Utility cost (month)"
-              value={sm ? fmtQar(sm.utility_cost_this_month) : "—"}
-              icon={Gauge}
-              accent="green"
+          ) : null}
+          {hasUtility ? (
+            <CommandKpi
+              title={t("home.utilityCost")}
+              value={fmtQar(sm.utility_cost_this_month)}
+              hint={t("home.thisMonth")}
+              icon={BarChart3}
+              tint="green"
               href="/operations/utilities"
             />
-            <KPIWidget
-              title="Downtime hours"
-              value={sm?.downtime_hours ?? "—"}
-              subtitle="MTD"
-              icon={AlertTriangle}
-              accent="purple"
-              href="/maintenance"
-            />
-          </div>
-        )}
-      </CollapsibleSection>
-
-      <div ref={chartsRef} className="grid gap-4 lg:grid-cols-12">
-        <NeumorphicCard className="relative overflow-hidden p-6 lg:col-span-4">
-          <div className="absolute inset-0 bg-gradient-to-br from-[#8B5CF6] to-[#3B82F6] opacity-[0.92]" />
-          <div className="relative text-white">
-            <p className="text-sm font-medium opacity-90">Site readiness</p>
-            <div className="mt-6 flex justify-center">
-              {kpisQ.isLoading ? (
-                <Skeleton className="h-[120px] w-[120px] rounded-full bg-white/20" />
-              ) : (
-                <CircularProgressBadge value={readiness} size={120} positive={readiness >= 70} />
-              )}
-            </div>
-            <p className="mt-4 text-center text-3xl font-bold">{readiness}%</p>
-            <p className="mt-1 text-center text-sm opacity-80">
-              {sm?.high_risk_items ?? 0} high-risk · {complianceKpis?.doc_expired ?? complianceKpis?.expired ?? "—"} docs expired · {complianceKpis?.doc_due_7 ?? "—"} due ≤7d
-            </p>
-            <Link href="/compliance/expiry-alerts" className="mt-2 block text-center text-xs underline opacity-90">
-              View expiry alerts
-            </Link>
-            <Link href="/facility" className="mt-4 block text-center text-xs underline opacity-90">
-              View facility readiness
-            </Link>
-          </div>
-        </NeumorphicCard>
-
-        <div className="flex flex-col gap-4 lg:col-span-3">
-          <MiniMetricCard label="Staff present" value={e ? `${e.staff_present}/${e.staff_scheduled}` : "—"} hint="Across estate" accent="blue" />
-          {showRevenue && (
-            <MiniMetricCard label="Revenue today" value={e ? fmtQar(e.revenue_today) : "—"} hint={`Target ${e?.revenue_target_pct ?? "—"}%`} accent="purple" />
-          )}
-          <MiniMetricCard label="Compliance health" value={complianceKpis ? `${complianceKpis.compliance_health_pct}%` : "—"} hint="Register items" accent="green" />
-          <MiniMetricCard label="Docs expiring ≤30d" value={complianceKpis?.doc_due_30 != null ? String(complianceKpis.doc_due_30) : "—"} hint="Legal certificates" accent="purple" />
+          ) : null}
+          {showCompliance ? (
+            <>
+              <CommandKpi
+                title={t("home.expiringSoon")}
+                value={expiringValue}
+                hint={t("home.expiringHint", {
+                  amc: expiringAmc ?? "—",
+                  docs: expiringDocs ?? "—",
+                })}
+                icon={ShieldCheck}
+                tint={(expiringAmc ?? 0) + (expiringDocs ?? 0) > 0 ? "orange" : "amber"}
+                href="/compliance/expiry-alerts"
+              />
+              <CommandKpi
+                title={t("home.complianceHealth")}
+                value={complianceKpis ? `${complianceKpis.compliance_health_pct}%` : "—"}
+                hint={t("home.complianceHealthHint")}
+                icon={ShieldCheck}
+                tint={
+                  complianceKpis
+                    ? complianceKpis.compliance_health_pct >= 80
+                      ? "green"
+                      : complianceKpis.compliance_health_pct >= 60
+                        ? "amber"
+                        : "red"
+                    : "slate"
+                }
+                href="/compliance"
+              />
+            </>
+          ) : null}
         </div>
-
-        <div className="lg:col-span-5">
-          <Suspense fallback={<Skeleton className="h-56 rounded-2xl" />}>
-            {!chartsVisible || chartsQ.isLoading ? (
-              <Skeleton className="h-56 rounded-2xl" />
-            ) : (
-              <HomeWoTrendChart data={charts?.woTrend ?? []} />
-            )}
-          </Suspense>
-        </div>
-      </div>
-
-      <Suspense fallback={<Skeleton className="h-52 rounded-2xl" />}>
-        {!chartsVisible || chartsQ.isLoading ? (
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Skeleton className="h-52 rounded-2xl" />
-            <Skeleton className="h-52 rounded-2xl" />
-          </div>
-        ) : (
-          <HomeBottomCharts
-            siteIssueChart={charts?.siteIssues ?? []}
-            utilityTrend={charts?.utilityTrend ?? []}
-          />
-        )}
-      </Suspense>
-
-      {showCompliance && (
-        <CollapsibleSection
-          title="AMC & compliance due"
-          defaultOpen={false}
-          onOpenChange={setComplianceOpen}
-        >
-          <NeumorphicCard className="overflow-hidden p-0">
-            <div className="divide-y divide-[#EEF0FF]">
-              {!complianceOpen ? (
-                <p className="p-6 text-center text-sm text-[#9CA3AF]">Expand to load due items.</p>
-              ) : renewalsLoading ? (
-                <Skeleton className="m-4 h-24 rounded-2xl" />
-              ) : dueSoon.length === 0 ? (
-                <p className="p-6 text-center text-sm text-[#9CA3AF]">No items due soon.</p>
-              ) : (
-                dueSoon.map((item) => (
-                  <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 px-5 py-3 text-sm">
-                    <div>
-                      <p className="font-medium text-[#111827]">{item.item_name}</p>
-                      <p className="text-xs text-[#9CA3AF]">{item.domain} · {item.venue_scope}</p>
-                    </div>
-                    <Badge variant="outline" className={String(item.alert_tier) === "Expired" ? "border-red-200 bg-red-50 text-red-700" : "border-amber-200 bg-amber-50 text-amber-700"}>
-                      {String(item.alert_tier)}
-                    </Badge>
-                  </div>
-                ))
-              )}
-            </div>
-            <div className="border-t border-[#EEF0FF] px-5 py-3 text-end">
-              <Link href="/compliance/register" className="text-xs font-medium text-[#6366F1] hover:underline">
-                View full register →
-              </Link>
-              {" · "}
-              <Link href="/compliance/expiry-alerts" className="text-xs font-medium text-[#6366F1] hover:underline">
-                Document expiry alerts →
-              </Link>
-            </div>
-          </NeumorphicCard>
-        </CollapsibleSection>
       )}
 
-      <CollapsibleSection title="Recent activity" defaultOpen={false}>
-        <ActivityHistory rows={activityRows} />
-      </CollapsibleSection>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <section className="surface-card">
+          <div className="flex items-center justify-between border-b border-border/40 px-4 py-3">
+            <h2 className="section-kicker">
+              <AlertTriangle strokeWidth={1.5} />
+              <span>{t("home.needsAttention")}</span>
+            </h2>
+            <Button variant="ghost" size="sm" asChild>
+              <Link href="/compliance/expiry-alerts">{t("home.viewAll")}</Link>
+            </Button>
+          </div>
+          <div className="divide-y divide-border/40">
+            <AttentionRow
+              href="/maintenance"
+              label={t("home.overdueWoItem", { n: overdueWo })}
+              tone={overdueWo > 0 ? "danger" : "ok"}
+            />
+            <AttentionRow
+              href="/compliance/amc-schedule"
+              label={t("home.pendingInspectItem", { n: pendingVerify })}
+              tone={pendingVerify > 0 ? "warn" : "ok"}
+            />
+            {renewalsQ.isLoading ? (
+              <Skeleton className="m-4 h-24 rounded-xl" />
+            ) : attention.top.length === 0 ? (
+              <p className="px-4 py-6 text-sm text-muted-foreground">{t("home.noItemsDue")}</p>
+            ) : (
+              attention.top.map((item) => (
+                <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm">
+                  <div className="min-w-0">
+                    <p className="font-medium text-foreground">{item.item_name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {item.domain} · {item.venue_scope}
+                    </p>
+                  </div>
+                  <Badge variant={String(item.alert_tier) === "Expired" ? "destructive" : "warning"}>
+                    {tierLabel(t, String(item.alert_tier))}
+                  </Badge>
+                </div>
+              ))
+            )}
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/40 px-4 py-3">
+            <p className="text-xs text-muted-foreground">
+              {attention.hiddenExpired > 0
+                ? t("home.moreExpired", { n: attention.hiddenExpired })
+                : t("home.attentionHint")}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button asChild variant="ghost" size="sm">
+                <Link href="/compliance/register">{t("home.viewFullRegister")}</Link>
+              </Button>
+              <Button asChild variant="ghost" size="sm">
+                <Link href="/compliance/expiry-alerts">{t("home.documentExpiryAlerts")}</Link>
+              </Button>
+            </div>
+          </div>
+        </section>
 
-      {(view === "tasks" || view === "branch") && kpisQ.data?.assigned_tasks && kpisQ.data.assigned_tasks.length > 0 && (
-        <CollapsibleSection title="My assigned tasks">
-          <NeumorphicCard className="p-4">
+        <section className="surface-card p-5">
+          <h2 className="section-kicker">
+            <Gauge strokeWidth={1.5} />
+            <span>{t("home.siteReadiness")}</span>
+          </h2>
+          <div className="mt-5 flex justify-center">
+            {kpisQ.isLoading ? (
+              <Skeleton className="h-[120px] w-[120px] rounded-full" />
+            ) : (
+              <CircularProgressBadge value={readiness} size={120} positive={readiness >= 70} />
+            )}
+          </div>
+          <p className="mt-3 text-center text-xs text-muted-foreground">{t("home.readinessGaugeHint")}</p>
+          <ul className="mt-4 space-y-2 text-sm">
+            <li className="flex items-start gap-2">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+              <span>{t("home.highRiskBullet", { n: sm?.high_risk_items ?? 0 })}</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+              <span>
+                {openingPct == null
+                  ? t("home.openingBulletEmpty")
+                  : t("home.openingBullet", { pct: openingPct })}
+              </span>
+            </li>
+            <li className="flex items-start gap-2">
+              <Users className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+              <span>
+                {hasRoster
+                  ? t("home.staffBullet", {
+                      present: e.staff_present,
+                      scheduled: e.staff_scheduled,
+                    })
+                  : t("home.staffBulletEmpty")}
+              </span>
+            </li>
+          </ul>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button asChild variant="secondary" size="sm">
+              <Link href="/compliance/expiry-alerts">{t("home.viewExpiryAlerts")}</Link>
+            </Button>
+            <Button asChild variant="secondary" size="sm">
+              <Link href="/facility">{t("home.viewFacilityReadiness")}</Link>
+            </Button>
+          </div>
+        </section>
+      </div>
+
+      <div ref={chartsRef}>
+        <h2 className="section-kicker mb-3">
+          <BarChart3 strokeWidth={1.5} />
+          <span>{t("home.chartsTitle")}</span>
+        </h2>
+        <Suspense
+          fallback={
+            <div className="grid gap-4 lg:grid-cols-3">
+              <Skeleton className="h-64 rounded-2xl" />
+              <Skeleton className="h-64 rounded-2xl" />
+              <Skeleton className="h-64 rounded-2xl" />
+            </div>
+          }
+        >
+          {!chartsVisible || chartsQ.isLoading ? (
+            <div className="grid gap-4 lg:grid-cols-3">
+              <Skeleton className="h-64 rounded-2xl" />
+              <Skeleton className="h-64 rounded-2xl" />
+              <Skeleton className="h-64 rounded-2xl" />
+            </div>
+          ) : (
+            <HomeCommandCharts
+              woTrend={charts?.woTrend ?? []}
+              siteIssueChart={charts?.siteIssues ?? []}
+              utilityTrend={charts?.utilityTrend ?? []}
+            />
+          )}
+        </Suspense>
+      </div>
+
+      {(view === "tasks" || view === "branch") &&
+        kpisQ.data?.assigned_tasks &&
+        kpisQ.data.assigned_tasks.length > 0 && (
+          <section className="surface-card p-4">
+            <h2 className="section-kicker mb-3">
+              <CheckCircle2 strokeWidth={1.5} />
+              <span>{t("home.myAssignedTasks")}</span>
+            </h2>
             <ul className="space-y-2">
               {kpisQ.data.assigned_tasks.map((task) => (
                 <li key={task.id} className="flex items-center justify-between text-sm">
-                  <Link href={`/tasks/${task.id}`} className="font-medium text-[#6366F1] hover:underline">
+                  <Link
+                    href={`/tasks/${task.id}`}
+                    className="font-medium text-foreground underline-offset-2 hover:underline"
+                  >
                     {task.title}
                   </Link>
                   <Badge variant="outline">{task.status}</Badge>
                 </li>
               ))}
             </ul>
-          </NeumorphicCard>
-        </CollapsibleSection>
-      )}
+          </section>
+        )}
 
-      {showCompliance && (
-        <CollapsibleSection
-          title="Site readiness summary"
-          defaultOpen={false}
-          onOpenChange={(open) => setBranchesOpen(open)}
-        >
+      {showCompliance ? (
+        <section className="surface-card overflow-hidden">
+          <div className="flex items-center justify-between border-b border-border/40 px-4 py-3">
+            <h2 className="section-kicker">
+              <MapPin strokeWidth={1.5} />
+              <span>{t("home.siteReadinessSummary")}</span>
+            </h2>
+          </div>
           {branchesQ.isLoading ? (
-            <Skeleton className="h-48 w-full rounded-2xl" />
+            <Skeleton className="m-4 h-32 rounded-xl" />
           ) : branchesQ.data && branchesQ.data.length > 0 ? (
-            <div className="overflow-x-auto rounded-[28px] border border-white/80 bg-[#F8FAFF] shadow-sm">
+            <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-[#EEF0FF] text-left text-xs text-[#9CA3AF]">
-                    <th className="px-4 py-3">Site</th>
-                    <th className="px-4 py-3">Health</th>
-                    <th className="px-4 py-3">Opening</th>
-                    <th className="px-4 py-3">Staff</th>
-                    <th className="px-4 py-3">Issues</th>
-                    {showRevenue && <th className="px-4 py-3">Revenue</th>}
+                  <tr className="border-b border-border/40 text-start text-xs uppercase tracking-wide text-muted-foreground">
+                    <th className="px-4 py-2.5 font-semibold">{t("home.tableSite")}</th>
+                    <th className="px-4 py-2.5 font-semibold">{t("home.tableHealth")}</th>
+                    <th className="px-4 py-2.5 font-semibold">{t("home.tableOpening")}</th>
+                    <th className="px-4 py-2.5 font-semibold">{t("home.tableStaff")}</th>
+                    <th className="px-4 py-2.5 font-semibold">{t("home.tableIssues")}</th>
+                    {showRevenue ? (
+                      <th className="px-4 py-2.5 font-semibold">{t("home.tableRevenue")}</th>
+                    ) : null}
                   </tr>
                 </thead>
                 <tbody>
                   {branchesQ.data.map((b) => (
-                    <tr key={b.location_id} className="border-b border-[#EEF0FF]/80">
-                      <td className="px-4 py-3 font-medium">
-                        <Link href={`/occ/branch/${b.location_id}`} className="text-[#6366F1] hover:underline">
+                    <tr key={b.location_id} className="border-b border-border/30 last:border-0 hover:bg-muted/40">
+                      <td className="px-4 py-2.5 font-medium">
+                        <Link
+                          href={`/occ/branch/${b.location_id}`}
+                          className="text-foreground underline-offset-2 hover:underline"
+                        >
                           {b.code}
                         </Link>
                       </td>
-                      <td className="px-4 py-3">{b.health_score}%</td>
-                      <td className="px-4 py-3">{b.opening_checklist_pct}%</td>
-                      <td className="px-4 py-3">{b.staff_present}/{b.staff_scheduled}</td>
-                      <td className="px-4 py-3">{b.open_issues}</td>
-                      {showRevenue && <td className="px-4 py-3">{fmtQar(b.revenue_today)}</td>}
+                      <td className="px-4 py-2.5">
+                        <HealthPill pct={b.health_score} />
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <Badge variant={b.opening_checklist_pct >= 80 ? "success" : b.opening_checklist_pct > 0 ? "warning" : "muted"}>
+                          {b.opening_checklist_pct}%
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-2.5 tabular-nums text-muted-foreground">
+                        {b.staff_scheduled > 0
+                          ? `${b.staff_present}/${b.staff_scheduled}`
+                          : t("home.noStaffShort")}
+                      </td>
+                      <td className="px-4 py-2.5 tabular-nums">{b.open_issues}</td>
+                      {showRevenue ? (
+                        <td className="px-4 py-2.5 tabular-nums">
+                          {b.revenue_today > 0 ? fmtQar(b.revenue_today) : "—"}
+                        </td>
+                      ) : null}
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          ) : branchesOpen ? (
-            <p className="text-sm text-[#9CA3AF]">No branch data available.</p>
-          ) : null}
-        </CollapsibleSection>
-      )}
+          ) : (
+            <p className="px-4 py-6 text-sm text-muted-foreground">{t("home.noBranchData")}</p>
+          )}
+        </section>
+      ) : null}
     </div>
   );
+}
+
+function AttentionRow({
+  href,
+  label,
+  tone,
+}: {
+  href: string;
+  label: string;
+  tone: "danger" | "warn" | "ok";
+}) {
+  const { t } = useTranslation();
+  return (
+    <Link
+      href={href}
+      className="flex items-center justify-between gap-3 px-4 py-3 text-sm hover:bg-muted/40"
+    >
+      <span
+        className={cn(
+          "font-medium",
+          tone === "danger" && "text-rag-red",
+          tone === "warn" && "text-foreground",
+          tone === "ok" && "text-muted-foreground",
+        )}
+      >
+        {label}
+      </span>
+      <span className="text-xs text-muted-foreground">{t("home.viewAll")}</span>
+    </Link>
+  );
+}
+
+function tierLabel(t: (key: string) => string, tier: string) {
+  if (tier === "Expired") return t("home.tierExpired");
+  if (tier === "Due ≤30") return t("home.tierDue30");
+  if (tier === "Due ≤60") return t("home.tierDue60");
+  return tier;
 }
 
 export default HomePage;

@@ -23,6 +23,18 @@ export const AMC_CATEGORIES = [
 
 export type AmcCategory = (typeof AMC_CATEGORIES)[number];
 
+export function translateAmcCategory(t: (key: string) => string, category: string) {
+  const key = `amc.categories.${category}`;
+  const label = t(key);
+  return label === key ? (AMC_CATEGORY_LABELS[category as AmcCategory] ?? category) : label;
+}
+
+export function translateAmcStatus(t: (key: string) => string, status: string) {
+  const key = `amc.status.${status}`;
+  const label = t(key);
+  return label === key ? status.replace(/_/g, " ") : label;
+}
+
 export const AMC_CATEGORY_LABELS: Record<AmcCategory, string> = {
   fire_alarm_amc: "Fire Alarm AMC",
   fire_fighting_amc: "Fire Fighting AMC",

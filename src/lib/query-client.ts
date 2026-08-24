@@ -2,8 +2,8 @@ import { QueryClient } from "@tanstack/react-query";
 
 /** Default stale/gc times used when hooks do not override. */
 export const QUERY_DEFAULTS = {
-  staleTime: 60_000,
-  gcTime: 5 * 60_000,
+  staleTime: 90_000,
+  gcTime: 10 * 60_000,
 } as const;
 
 /** Per-domain cache windows (ms). */
@@ -11,9 +11,9 @@ export const STALE = {
   auth: 10 * 60_000,
   sites: 10 * 60_000,
   roles: 15 * 60_000,
-  dashboardKpis: 30_000,
-  dashboardCharts: 60_000,
-  workOrders: 30_000,
+  dashboardKpis: 120_000,
+  dashboardCharts: 120_000,
+  workOrders: 60_000,
   amcContracts: 60_000,
   amcSchedules: 60_000,
   assets: 5 * 60_000,
@@ -23,12 +23,12 @@ export const STALE = {
   complianceRegister: 60_000,
   vendors: 5 * 60_000,
   branches: 60_000,
-  issues: 30_000,
-  bookings: 30_000,
-  tasks: 30_000,
-  notifications: 30_000,
+  issues: 60_000,
+  bookings: 60_000,
+  tasks: 60_000,
+  notifications: 60_000,
   people: 60_000,
-  peopleDashboard: 60_000,
+  peopleDashboard: 120_000,
   facility: 60_000,
   utilities: 60_000,
   amcDashboard: 60_000,
@@ -36,10 +36,11 @@ export const STALE = {
   pmSchedules: 60_000,
   maintenanceDashboard: 60_000,
   inventoryDashboard: 60_000,
-  downtime: 30_000,
+  downtime: 60_000,
   occRollup: 60_000,
   e3Compliance: 60_000,
-  lists: 30_000,
+  lists: 60_000,
+  events: 60_000,
 } as const;
 
 export function createQueryClient() {
@@ -53,4 +54,15 @@ export function createQueryClient() {
       },
     },
   });
+}
+
+let browserQueryClient: QueryClient | undefined;
+
+/** Browser singleton so navigations and HMR keep the same cache. */
+export function getQueryClient() {
+  if (typeof window === "undefined") {
+    return createQueryClient();
+  }
+  browserQueryClient ??= createQueryClient();
+  return browserQueryClient;
 }

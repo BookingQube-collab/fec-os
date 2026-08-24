@@ -33,12 +33,13 @@ type ComplianceTableProps = {
 export function ComplianceTable({
   rows,
   searchKeys = ["id", "location", "area", "category", "item", "vendor", "owner"],
-  emptyMessage = "No compliance items match your filters.",
+  emptyMessage,
   editable = false,
   onEdit,
   onDelete,
 }: ComplianceTableProps) {
   const { t } = useTranslation();
+  const resolvedEmpty = emptyMessage ?? t("e3Tracker.table.empty");
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("expiry_date");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -117,7 +118,7 @@ export function ComplianceTable({
         <Input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search table..."
+          placeholder={t("e3Tracker.table.search")}
           className="pl-9"
         />
       </div>
@@ -144,7 +145,7 @@ export function ComplianceTable({
             {sorted.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={colSpan} className="py-10 text-center text-muted-foreground">
-                  {emptyMessage}
+                  {resolvedEmpty}
                 </TableCell>
               </TableRow>
             ) : (

@@ -2,44 +2,41 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { AlertTriangle, ClipboardCheck, LayoutGrid, ShieldAlert } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { AlertTriangle, LayoutGrid, ShieldAlert } from "lucide-react";
+
+import { PageHeader } from "@/components/layout/page-header";
+import { Button } from "@/components/ui/button";
 
 const TABS = [
-  { href: "/occ", label: "Estate", icon: LayoutGrid, exact: true },
-  { href: "/occ/exceptions", label: "Exceptions", icon: AlertTriangle, exact: false },
-  { href: "/occ/protocols", label: "Protocols", icon: ShieldAlert, exact: false },
+  { href: "/occ", labelKey: "command.tabs.estate", icon: LayoutGrid, exact: true },
+  { href: "/occ/exceptions", labelKey: "command.tabs.exceptions", icon: AlertTriangle, exact: false },
+  { href: "/occ/protocols", labelKey: "command.tabs.protocols", icon: ShieldAlert, exact: false },
 ] as const;
 
 function OccLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const { t } = useTranslation();
+
   return (
     <div className="w-full">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-4 border-b border-border pb-4">
-        <div>
-          <div className="flex items-center gap-2 text-xs uppercase tracking-widest text-muted-foreground">
-            <ClipboardCheck className="h-3.5 w-3.5" />
-            Command Center
-          </div>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight">Operations</h1>
-        </div>
-        <nav className="flex items-center gap-1 rounded-lg border border-border bg-surface p-1">
-          {TABS.map((t) => {
-            const Icon = t.icon;
-            const active = t.exact ? pathname === t.href : pathname.startsWith(t.href);
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <PageHeader
+          kicker={t("command.kicker")}
+          title={t("command.title")}
+          subtitle={t("command.subtitle")}
+        />
+        <nav className="flex items-center gap-1" aria-label={t("command.tabsAria")}>
+          {TABS.map((tab) => {
+            const Icon = tab.icon;
+            const active = tab.exact ? pathname === tab.href : pathname.startsWith(tab.href);
             return (
-              <Link
-                key={t.href}
-                href={t.href}
-                className={
-                  "flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-medium transition-colors " +
-                  (active
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground")
-                }
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {t.label}
-              </Link>
+              <Button key={tab.href} asChild variant={active ? "default" : "ghost"} size="sm">
+                <Link href={tab.href}>
+                  <Icon className="h-3.5 w-3.5 stroke-[1.5]" />
+                  {t(tab.labelKey)}
+                </Link>
+              </Button>
             );
           })}
         </nav>

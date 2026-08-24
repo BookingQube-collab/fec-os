@@ -1,8 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import Link from "next/link";
-import { BarChart3, Download, Sparkles } from "lucide-react";
+import { Download, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -13,8 +12,10 @@ import {
   runKpiAutoScoring,
 } from "@/lib/kpi.functions";
 import { CapabilityGate } from "@/components/auth/capability-gate";
+import { TintedKpiCard } from "@/components/dashboard/tinted-kpi-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/layout/page-header";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 function ratingTone(rating: string | null) {
@@ -57,14 +58,12 @@ function KpiPage() {
 
   return (
     <div className="space-y-6">
-      <header className="flex items-center gap-3">
-        <div className="grid h-9 w-9 place-items-center rounded-md bg-primary/10 text-primary">
-          <BarChart3 className="h-5 w-5" />
-        </div>
-        <div className="flex-1">
-          <h1 className="text-xl font-semibold tracking-tight">KPI Engine</h1>
-          <p className="text-xs text-muted-foreground">Role-based scorecards, monthly periods, and drill-down scores.</p>
-        </div>
+      <PageHeader
+        kicker="Performance"
+        title="Performance scorecards"
+        subtitle="Role-based scorecards, monthly periods, and drill-down scores."
+        actions={
+          <>
         <CapabilityGate capability="kpi.view">
           <Button variant="outline" size="sm" onClick={() => exportCsv.mutate()} disabled={exportCsv.isPending}>
             <Download className="mr-1 h-4 w-4" />Export CSV
@@ -75,24 +74,17 @@ function KpiPage() {
             <Sparkles className="mr-1 h-4 w-4" />Run auto-scoring
           </Button>
         </CapabilityGate>
-      </header>
+          </>
+        }
+      />
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <div className="rounded-lg border border-border bg-card p-4">
-          <div className="text-xs text-muted-foreground">Active templates</div>
-          <div className="mt-1 text-2xl font-semibold">{templatesQ.data?.length ?? "—"}</div>
-        </div>
-        <div className="rounded-lg border border-border bg-card p-4">
-          <div className="text-xs text-muted-foreground">Scores recorded</div>
-          <div className="mt-1 text-2xl font-semibold">{scoresQ.data?.length ?? "—"}</div>
-        </div>
-        <div className="rounded-lg border border-border bg-card p-4">
-          <div className="text-xs text-muted-foreground">Current period</div>
-          <div className="mt-1 text-lg font-semibold">{periodsQ.data?.[0]?.label ?? "—"}</div>
-        </div>
+        <TintedKpiCard title="Active templates" value={templatesQ.data?.length ?? "—"} tint="sky" compact />
+        <TintedKpiCard title="Scores recorded" value={scoresQ.data?.length ?? "—"} tint="green" compact />
+        <TintedKpiCard title="Current period" value={periodsQ.data?.[0]?.label ?? "—"} tint="amber" compact />
       </div>
 
-      <div className="rounded-lg border border-border bg-card">
+      <div className="surface-card">
         <div className="border-b border-border px-4 py-3">
           <h2 className="text-sm font-medium">KPI Templates</h2>
         </div>
@@ -106,7 +98,7 @@ function KpiPage() {
         </div>
       </div>
 
-      <div className="rounded-lg border border-border bg-card">
+      <div className="surface-card">
         <div className="border-b border-border px-4 py-3">
           <h2 className="text-sm font-medium">Recent Scores</h2>
         </div>
@@ -147,7 +139,7 @@ function KpiPage() {
       </div>
 
       <p className="text-xs text-muted-foreground">
-        Sprint 2 will add automatic score calculation from attendance, checklists, complaints, and maintenance data.
+        Auto-scoring is live from attendance, checklists, complaints, and maintenance. Use Refresh from operations on an evaluation to pull actuals for that cycle.
       </p>
     </div>
   );

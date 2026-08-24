@@ -1,16 +1,19 @@
 "use client";
 
+import { useTranslation } from "react-i18next";
+
 import { CompliancePageShell } from "@/components/compliance/compliance-page-shell";
 import { useComplianceCoverage } from "@/hooks/queries/useComplianceSubpages";
 import { useReportExport } from "@/hooks/use-report-export";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 function ComplianceCoveragePage() {
+  const { t } = useTranslation();
   const { data, isLoading } = useComplianceCoverage({});
 
   const { exportPdf, exportExcel } = useReportExport({
     pageKey: "ComplianceCoverage",
-    title: "Ownership & Coverage Matrix",
+    title: t("complianceHub.coverage.title"),
     venueLabel: "All",
     kpis: [],
     columns: [
@@ -25,7 +28,7 @@ function ComplianceCoveragePage() {
   const locs = data?.locations ?? [];
 
   return (
-    <CompliancePageShell title="Ownership & Coverage Matrix" subtitle="Domain × venue coverage heat map" onExportPdf={exportPdf} onExportExcel={exportExcel}>
+    <CompliancePageShell title={t("complianceHub.coverage.title")} subtitle={t("complianceHub.coverage.subtitle")} onExportPdf={exportPdf} onExportExcel={exportExcel}>
       {isLoading ? <p className="text-sm text-muted-foreground">Loading…</p> : (
         <>
           <div className="overflow-x-auto rounded-lg border border-border bg-card">
@@ -56,11 +59,11 @@ function ComplianceCoveragePage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Domain</TableHead>
-                  <TableHead>Accountable owner</TableHead>
-                  <TableHead>Lead vendor</TableHead>
-                  <TableHead>Frequency</TableHead>
-                  <TableHead>Risk</TableHead>
+                  <TableHead>{t("complianceHub.register.domain")}</TableHead>
+                  <TableHead>{t("complianceHub.coverage.accountableOwner")}</TableHead>
+                  <TableHead>{t("complianceHub.coverage.leadVendor")}</TableHead>
+                  <TableHead>{t("complianceHub.coverage.frequency")}</TableHead>
+                  <TableHead>{t("complianceHub.tracker.risk")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

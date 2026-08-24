@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useEffect } from "react";
 import dynamic from "next/dynamic";
+import { useTranslation } from "react-i18next";
 
 import { CompliancePageShell, KpiStrip } from "@/components/compliance/compliance-page-shell";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -10,6 +11,7 @@ import { useReportExport } from "@/hooks/use-report-export";
 import { retryImport } from "@/lib/retry-import";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { fmtQar } from "@/lib/currency";
 
 const ComplianceCommandCharts = dynamic(
   () =>
@@ -27,6 +29,7 @@ const ComplianceCommandCharts = dynamic(
   },
 );
 function ComplianceCommandPage() {
+  const { t } = useTranslation();
   const filters = useMemo(() => ({}), []);
   const [deferLoad, setDeferLoad] = useState(false);
 
@@ -45,51 +48,56 @@ function ComplianceCommandPage() {
 
   const { exportPdf, exportExcel } = useReportExport({
     pageKey: "ComplianceDashboard",
-    title: "Compliance Command Center",
-    venueLabel: "All",
+    title: t("complianceHub.command.title"),
+    venueLabel: t("common.all"),
     kpis: k
-      ? Object.entries(k).map(([label, value]) => ({ label: label.replace(/_/g, " "), value: String(value) }))
+      ? [
+          { label: t("complianceHub.command.totalItems"), value: k.total },
+          { label: t("complianceHub.command.active"), value: k.active },
+          { label: t("complianceHub.command.expired"), value: k.expired },
+          { label: t("complianceHub.command.due30"), value: k.due_30 },
+        ]
       : [],
     columns: [
-      { key: "domain", header: "Domain" },
-      { key: "total", header: "Total" },
-      { key: "expired", header: "Expired" },
-      { key: "due_30", header: "Due ≤30" },
-      { key: "health", header: "Health" },
+      { key: "domain", header: t("complianceHub.command.domain") },
+      { key: "total", header: t("complianceHub.command.total") },
+      { key: "expired", header: t("complianceHub.command.expired") },
+      { key: "due_30", header: t("complianceHub.command.due30") },
+      { key: "health", header: t("complianceHub.command.health") },
     ],
     rows: (data?.by_domain ?? []) as Record<string, unknown>[],
   });
 
   const statusData = data
     ? [
-        { name: "Expired", value: data.status_buckets.expired },
-        { name: "Due ≤30", value: data.status_buckets.due30 },
-        { name: "Due ≤60", value: data.status_buckets.due60 },
-        { name: "OK", value: data.status_buckets.ok },
+        { name: t("complianceHub.command.expired"), value: data.status_buckets.expired },
+        { name: t("complianceHub.command.due30"), value: data.status_buckets.due30 },
+        { name: t("complianceHub.command.due60"), value: data.status_buckets.due60 },
+        { name: t("complianceHub.command.ok"), value: data.status_buckets.ok },
       ]
     : [];
 
   return (
     <CompliancePageShell
-      title="Compliance Command Center"
-      subtitle="Portfolio compliance health, domain breakdown & renewal exposure"
+      title={t("complianceHub.command.title")}
+      subtitle={t("complianceHub.command.subtitle")}
       onExportPdf={exportPdf}
       onExportExcel={exportExcel}
     >
       {isLoading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
       ) : (
         <>
           <KpiStrip
             items={[
-              { label: "Total items", value: k?.total ?? "—" },
-              { label: "Active", value: k?.active ?? "—" },
-              { label: "Pending renewal", value: k?.pending_renewal ?? "—" },
-              { label: "Expired", value: k?.expired ?? "—", tone: "rag-red" },
-              { label: "Health %", value: `${k?.health_pct ?? "—"}%` },
-              { label: "Critical risk", value: k?.critical_risk ?? "—" },
-              { label: "Due ≤30", value: k?.due_30 ?? "—", tone: "rag-red" },
-              { label: "Annual renewal", value: `QAR ${(k?.annual_renewal_cost ?? 0).toLocaleString()}` },
+              { label: t("complianceHub.command.totalItems"), value: k?.total ?? "—" },
+              { label: t("complianceHub.command.active"), value: k?.active ?? "—" },
+              { label: t("complianceHub.command.pendingRenewal"), value: k?.pending_renewal ?? "—" },
+              { label: t("complianceHub.command.expired"), value: k?.expired ?? "—", tone: "rag-red" },
+              { label: t("complianceHub.command.healthPct"), value: `${k?.health_pct ?? "—"}%` },
+              { label: t("complianceHub.command.criticalRisk"), value: k?.critical_risk ?? "—" },
+              { label: t("complianceHub.command.due30"), value: k?.due_30 ?? "—", tone: "rag-red" },
+              { label: t("complianceHub.command.annualRenewal"), value: fmtQar(k?.annual_renewal_cost ?? 0) },
             ]}
           />
 
@@ -101,13 +109,13 @@ function ComplianceCommandPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Domain</TableHead>
-                  <TableHead>Total</TableHead>
-                  <TableHead>Expired</TableHead>
-                  <TableHead>Due ≤30</TableHead>
-                  <TableHead>OK</TableHead>
-                  <TableHead>Renewal cost</TableHead>
-                  <TableHead>Health</TableHead>
+                  <TableHead>{t("complianceHub.command.domain")}</TableHead>
+                  <TableHead>{t("complianceHub.command.total")}</TableHead>
+                  <TableHead>{t("complianceHub.command.expired")}</TableHead>
+                  <TableHead>{t("complianceHub.command.due30")}</TableHead>
+                  <TableHead>{t("complianceHub.command.ok")}</TableHead>
+                  <TableHead>{t("complianceHub.command.renewalCost")}</TableHead>
+                  <TableHead>{t("complianceHub.command.health")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -118,8 +126,8 @@ function ComplianceCommandPage() {
                     <TableCell>{d.expired}</TableCell>
                     <TableCell>{d.due_30}</TableCell>
                     <TableCell>{d.ok}</TableCell>
-                    <TableCell>QAR {d.renewal_cost.toLocaleString()}</TableCell>
-                    <TableCell><Badge variant="outline" className={d.health === "At Risk" ? "rag-red" : d.health === "Watch" ? "rag-amber" : "rag-green"}>{d.health}</Badge></TableCell>
+                    <TableCell>{fmtQar(d.renewal_cost)}</TableCell>
+                    <TableCell><Badge variant="outline" className={d.health === "At Risk" ? "rag-red" : d.health === "Watch" ? "rag-amber" : "rag-green"}>{d.health === "At Risk" ? t("complianceHub.command.atRisk") : d.health === "Watch" ? t("complianceHub.command.watch") : t("complianceHub.command.ok")}</Badge></TableCell>
                   </TableRow>
                 ))}
               </TableBody>

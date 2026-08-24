@@ -2,6 +2,7 @@
 
 import { useMutation } from "@tanstack/react-query";
 import { Download, Gauge } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { exportUtilitiesCsv } from "@/lib/utilities.functions";
 import { useUtilityDashboard } from "@/hooks/queries/useUtilities";
@@ -10,8 +11,10 @@ import { useAppStore } from "@/stores/app-store";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { fmtQar } from "@/lib/currency";
 
 function UtilitiesPage() {
+  const { t } = useTranslation();
   const locationId = useAppStore((s) => s.currentLocationId);
   const deferTable = useDeferredQuery(true, 1500);
   const { data: summary, isLoading } = useUtilityDashboard(locationId ?? null);
@@ -38,35 +41,35 @@ function UtilitiesPage() {
             <Gauge className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold">Utilities & Energy</h1>
-            <p className="text-xs text-muted-foreground">Electricity, water, internet, gas & generator fuel tracking.</p>
+            <h1 className="text-xl font-semibold">{t("utilities.title")}</h1>
+            <p className="text-xs text-muted-foreground">{t("utilities.subtitle")}</p>
           </div>
         </div>
-        <Button variant="outline" size="sm" onClick={() => exportMut.mutate()}><Download className="mr-1 h-4 w-4" />Export</Button>
+        <Button variant="outline" size="sm" onClick={() => exportMut.mutate()}><Download className="mr-1 h-4 w-4" />{t("common.export")}</Button>
       </header>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-lg border border-border bg-card p-4">
-          <div className="text-xs text-muted-foreground">Cost this month</div>
-          <div className="mt-1 text-2xl font-semibold">QAR {summary?.total_cost_this_month?.toLocaleString() ?? "—"}</div>
+          <div className="text-xs text-muted-foreground">{t("utilities.costThisMonth")}</div>
+          <div className="mt-1 text-2xl font-semibold">{summary?.total_cost_this_month != null ? fmtQar(summary.total_cost_this_month) : "—"}</div>
         </div>
         <div className="rounded-lg border border-border bg-card p-4">
-          <div className="text-xs text-muted-foreground">Records</div>
+          <div className="text-xs text-muted-foreground">{t("utilities.records")}</div>
           <div className="mt-1 text-2xl font-semibold">{summary?.record_count ?? "—"}</div>
         </div>
         <div className="rounded-lg border border-border bg-card p-4">
-          <div className="text-xs text-muted-foreground">High consumption alerts</div>
+          <div className="text-xs text-muted-foreground">{t("utilities.highAlerts")}</div>
           <div className="mt-1 text-2xl font-semibold rag-amber">{summary?.high_consumption_alerts?.length ?? 0}</div>
         </div>
         <div className="rounded-lg border border-border bg-card p-4">
-          <div className="text-xs text-muted-foreground">Top site cost</div>
+          <div className="text-xs text-muted-foreground">{t("utilities.topSite")}</div>
           <div className="mt-1 text-lg font-semibold">{summary?.site_comparison?.[0]?.code ?? "—"}</div>
         </div>
       </div>
 
       {(summary?.high_consumption_alerts?.length ?? 0) > 0 && (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-sm">
-          High electricity usage: {summary!.high_consumption_alerts.map((a) => `${a.code} (${Math.round(a.kwh)} kWh)`).join(", ")}
+          {t("utilities.highUsage", { list: summary!.high_consumption_alerts.map((a) => `${a.code} (${Math.round(a.kwh)} kWh)`).join(", ") })}
         </div>
       )}
 
@@ -74,18 +77,18 @@ function UtilitiesPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Site</TableHead>
-              <TableHead>Utility</TableHead>
-              <TableHead>Month</TableHead>
-              <TableHead>Consumption</TableHead>
-              <TableHead>Bill (QAR)</TableHead>
+              <TableHead>{t("common.site")}</TableHead>
+              <TableHead>{t("utilities.utility")}</TableHead>
+              <TableHead>{t("utilities.month")}</TableHead>
+              <TableHead>{t("utilities.consumption")}</TableHead>
+              <TableHead>{t("utilities.bill", { qar: t("common.qar") })}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">Loading…</TableCell></TableRow>
+              <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">{t("common.loading")}</TableCell></TableRow>
             ) : !rows?.length ? (
-              <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">No utility readings.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">{t("utilities.empty")}</TableCell></TableRow>
             ) : (
               rows.map((r) => (
                 <TableRow key={r.id}>

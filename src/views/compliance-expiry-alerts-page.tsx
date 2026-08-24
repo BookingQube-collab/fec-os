@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 
 import { CompliancePageShell, KpiStrip } from "@/components/compliance/compliance-page-shell";
 import {
@@ -62,6 +63,7 @@ function AlertSection({
 }
 
 function ComplianceExpiryAlertsPage() {
+  const { t } = useTranslation();
   const locationId = useAppStore((s) => s.currentLocationId);
   const { data, isLoading } = useExpiryAlerts({ locationId: locationId ?? null });
   const k = data?.kpis;
@@ -79,14 +81,14 @@ function ComplianceExpiryAlertsPage() {
 
   const { exportPdf, exportExcel } = useReportExport({
     pageKey: "ComplianceExpiryAlerts",
-    title: "Document Expiry Alerts",
-    venueLabel: locationId ? "Branch" : "Portfolio",
+    title: t("complianceHub.expiry.title"),
+    venueLabel: locationId ? t("common.branch") : t("common.all"),
     kpis: k
       ? [
-          { label: "Expired", value: k.expired },
-          { label: "≤7 days", value: k.due_7 },
-          { label: "≤30 days", value: k.due_30 },
-          { label: "Outstanding", value: fmtQar(k.total_outstanding) },
+          { label: t("complianceHub.expiry.expired"), value: k.expired },
+          { label: t("complianceHub.expiry.due7Short"), value: k.due_7 },
+          { label: t("complianceHub.expiry.due30Short"), value: k.due_30 },
+          { label: t("complianceHub.documents.outstanding"), value: fmtQar(k.total_outstanding) },
         ]
       : [],
     columns: [
@@ -101,8 +103,8 @@ function ComplianceExpiryAlertsPage() {
 
   return (
     <CompliancePageShell
-      title="Document Expiry Alerts"
-      subtitle="Expired and expiring certificates — 7 / 15 / 30 / 60 day windows"
+      title={t("complianceHub.expiry.title")}
+      subtitle={t("complianceHub.expiry.subtitle")}
       onExportPdf={exportPdf}
       onExportExcel={exportExcel}
       actions={
@@ -111,38 +113,38 @@ function ComplianceExpiryAlertsPage() {
     >
       <KpiStrip
         items={[
-          { label: "Expired", value: k?.expired ?? "—", tone: "text-rose-400" },
-          { label: "≤7 days", value: k?.due_7 ?? "—", tone: "text-orange-400" },
-          { label: "≤15 days", value: k?.due_15 ?? "—", tone: "text-amber-400" },
-          { label: "≤30 days", value: k?.due_30 ?? "—", tone: "text-amber-300" },
-          { label: "≤60 days", value: k?.due_60 ?? "—", tone: "text-sky-400" },
+          { label: t("complianceHub.expiry.expired"), value: k?.expired ?? "—", tone: "text-rose-400" },
+          { label: t("complianceHub.expiry.due7Short"), value: k?.due_7 ?? "—", tone: "text-orange-400" },
+          { label: t("complianceHub.expiry.due15Short"), value: k?.due_15 ?? "—", tone: "text-amber-400" },
+          { label: t("complianceHub.expiry.due30Short"), value: k?.due_30 ?? "—", tone: "text-amber-300" },
+          { label: t("complianceHub.expiry.due60Short"), value: k?.due_60 ?? "—", tone: "text-sky-400" },
         ]}
       />
 
       <div className="grid gap-3 md:grid-cols-3">
         <div className="rounded-lg border border-border bg-card p-3 text-sm">
-          <div className="text-muted-foreground">Total quotation</div>
+          <div className="text-muted-foreground">{t("complianceHub.expiry.totalQuotation")}</div>
           <div className="font-semibold">{k ? fmtQar(k.total_quotation) : "—"}</div>
         </div>
         <div className="rounded-lg border border-border bg-card p-3 text-sm">
-          <div className="text-muted-foreground">Total paid</div>
+          <div className="text-muted-foreground">{t("complianceHub.expiry.totalPaid")}</div>
           <div className="font-semibold text-emerald-400">{k ? fmtQar(k.total_paid) : "—"}</div>
         </div>
         <div className="rounded-lg border border-border bg-card p-3 text-sm">
-          <div className="text-muted-foreground">Outstanding / pending renewals</div>
-          <div className="font-semibold text-amber-400">{k ? `${fmtQar(k.total_outstanding)} · ${k.pending_renewals} renewals` : "—"}</div>
+          <div className="text-muted-foreground">{t("complianceHub.expiry.outstandingRenewals")}</div>
+          <div className="font-semibold text-amber-400">{k ? `${fmtQar(k.total_outstanding)} · ${t("complianceHub.expiry.renewalsCount", { count: k.pending_renewals })}` : "—"}</div>
         </div>
       </div>
 
       {data?.site_status?.length ? (
         <div className="overflow-x-auto rounded-lg border border-border bg-card p-4">
-          <h3 className="mb-3 text-sm font-medium">Key documents by site (QCDD, Trade Licence, CR, Civil Defence, Building Completion)</h3>
+          <h3 className="mb-3 text-sm font-medium">{t("complianceHub.expiry.keyDocumentsBySite")}</h3>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Site</TableHead>
-                {["qcdd", "trade_licence", "cr", "civil_defence", "building_completion"].map((t) => (
-                  <TableHead key={t}>{COMPLIANCE_DOCUMENT_TYPE_LABELS[t as keyof typeof COMPLIANCE_DOCUMENT_TYPE_LABELS]}</TableHead>
+                <TableHead>{t("common.site")}</TableHead>
+                {["qcdd", "trade_licence", "cr", "civil_defence", "building_completion"].map((typeKey) => (
+                  <TableHead key={typeKey}>{t(`complianceHub.documents.types.${typeKey}`, { defaultValue: COMPLIANCE_DOCUMENT_TYPE_LABELS[typeKey as keyof typeof COMPLIANCE_DOCUMENT_TYPE_LABELS] })}</TableHead>
                 ))}
               </TableRow>
             </TableHeader>
@@ -163,14 +165,14 @@ function ComplianceExpiryAlertsPage() {
       ) : null}
 
       {isLoading ? (
-        <p className="text-sm text-muted-foreground">Loading alerts…</p>
+        <p className="text-sm text-muted-foreground">{t("complianceHub.expiry.loading")}</p>
       ) : (
         <div className="space-y-6">
-          <AlertSection title="Expired" tone="text-rose-400" rows={data?.sections.expired ?? []} />
-          <AlertSection title="Expiring within 7 days" tone="text-orange-400" rows={data?.sections.due_7 ?? []} />
-          <AlertSection title="Expiring within 15 days" tone="text-amber-400" rows={data?.sections.due_15 ?? []} />
-          <AlertSection title="Expiring within 30 days" tone="text-amber-300" rows={data?.sections.due_30 ?? []} />
-          <AlertSection title="Expiring within 60 days" tone="text-sky-400" rows={data?.sections.due_60 ?? []} />
+          <AlertSection title={t("complianceHub.expiry.expired")} tone="text-rose-400" rows={data?.sections.expired ?? []} />
+          <AlertSection title={t("complianceHub.expiry.due7")} tone="text-orange-400" rows={data?.sections.due_7 ?? []} />
+          <AlertSection title={t("complianceHub.expiry.due15")} tone="text-amber-400" rows={data?.sections.due_15 ?? []} />
+          <AlertSection title={t("complianceHub.expiry.due30")} tone="text-amber-300" rows={data?.sections.due_30 ?? []} />
+          <AlertSection title={t("complianceHub.expiry.due60")} tone="text-sky-400" rows={data?.sections.due_60 ?? []} />
         </div>
       )}
     </CompliancePageShell>

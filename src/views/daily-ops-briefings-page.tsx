@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ClipboardList, Plus } from "lucide-react";
+import { ClipboardList, Loader2, Plus, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -9,7 +9,7 @@ import { useTranslation } from "react-i18next";
 import { DailyOpsPageShell } from "@/components/daily-ops/DailyOpsLayout";
 import { useShiftBriefings } from "@/hooks/queries/useDailyOps";
 import { useAuth } from "@/hooks/use-auth";
-import { upsertShiftBriefing } from "@/lib/daily-ops.functions";
+import { aiDraftShiftBriefing, upsertShiftBriefing } from "@/lib/daily-ops.functions";
 import {
   attendanceTone,
   SHIFT_PERIOD_LABELS,
@@ -89,10 +89,37 @@ function DailyOpsBriefingsPage() {
     onError: (e) => toast.error((e as Error).message),
   });
 
+  const aiDraftMut = useMutation({
+    mutationFn: () =>
+      aiDraftShiftBriefing({
+        location_id: effectiveLocationId,
+        briefing_date: form.briefing_date,
+        shift: form.shift,
+        supervisor_name: form.supervisor_name.trim(),
+        staff_scheduled: form.staff_scheduled,
+        staff_present: form.staff_present,
+        partial_notes: [form.key_notes, form.handover_items].filter(Boolean).join("\n") || undefined,
+      }),
+    onSuccess: (result) => {
+      setForm((f) => ({
+        ...f,
+        key_notes: result.fields.key_notes,
+        handover_items: result.fields.handover_items,
+      }));
+      toast.success(
+        result.ai_generated
+          ? t("dailyOps.briefings.aiDrafted")
+          : t("dailyOps.briefings.aiDraftedFallback"),
+      );
+    },
+    onError: (e) => toast.error((e as Error).message),
+  });
+
   const canSubmit =
     Boolean(effectiveLocationId) &&
     form.supervisor_name.trim().length > 0 &&
-    !mutation.isPending;
+    !mutation.isPending &&
+    !aiDraftMut.isPending;
 
   const openNewBriefing = () => setTab("new");
 
@@ -263,7 +290,24 @@ function DailyOpsBriefingsPage() {
                 </div>
               </div>
               <div className="space-y-1">
-                <Label>{t("dailyOps.briefings.keyNotes")}</Label>
+                <div className="flex items-center justify-between gap-2">
+                  <Label>{t("dailyOps.briefings.keyNotes")}</Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={aiDraftMut.isPending || !effectiveLocationId}
+                    onClick={() => aiDraftMut.mutate()}
+                  >
+                    {aiDraftMut.isPending ? (
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="mr-1.5 h-3.5 w-3.5 text-amber-600" />
+                    )}
+                    {t("dailyOps.briefings.aiAssist")}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">{t("dailyOps.briefings.aiHint")}</p>
                 <Textarea
                   value={form.key_notes}
                   onChange={(e) => setForm((f) => ({ ...f, key_notes: e.target.value }))}

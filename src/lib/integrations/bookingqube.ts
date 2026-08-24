@@ -39,6 +39,7 @@ const STORE_ENV_KEYS: Record<FecBranchCode, string> = {
   "CB-VM": "BOOKINGQUBE_STORE_CB_VM",
   "CB-DSM": "BOOKINGQUBE_STORE_CB_DSM",
   "CAR-AP": "BOOKINGQUBE_STORE_CAR_AP",
+  "WM-VM": "BOOKINGQUBE_STORE_WM_VM",
 };
 
 const DEFAULT_STORE_IDS: Record<FecBranchCode, string> = {
@@ -49,6 +50,7 @@ const DEFAULT_STORE_IDS: Record<FecBranchCode, string> = {
   "CB-VM": "cb-vm",
   "CB-DSM": "cb-dsm",
   "CAR-AP": "car-ap",
+  "WM-VM": "wm-vm",
 };
 
 const STORE_NAMES: Record<FecBranchCode, string> = {
@@ -59,6 +61,7 @@ const STORE_NAMES: Record<FecBranchCode, string> = {
   "CB-VM": "Crayons & Bricks — Vendome",
   "CB-DSM": "Crayons & Bricks — Dar Al Salam",
   "CAR-AP": "Carousel — Aspire Park",
+  "WM-VM": "Winter Mirage — Vendome",
 };
 
 /** Approximate daily base revenue (QAR) for mock mode — mirrors demo seed ratios. */
@@ -70,6 +73,7 @@ const MOCK_BASE_REVENUE: Record<FecBranchCode, number> = {
   "CB-VM": 9800,
   "CB-DSM": 8600,
   "CAR-AP": 12400,
+  "WM-VM": 0,
 };
 
 export function todayInQatar(): string {

@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { CompliancePageShell } from "@/components/compliance/compliance-page-shell";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -19,12 +20,13 @@ const ComplianceTrendCharts = dynamic(
 );
 
 function ComplianceTrendPage() {
+  const { t } = useTranslation();
   const [year, setYear] = useState(new Date().getFullYear());
   const { data, isLoading } = useComplianceTrend({ year });
 
   const { exportPdf, exportExcel } = useReportExport({
     pageKey: "ComplianceTrend",
-    title: "Compliance Trend",
+    title: t("complianceHub.trend.title"),
     venueLabel: "All",
     filters: { year: String(year) },
     kpis: [],
@@ -38,7 +40,7 @@ function ComplianceTrendPage() {
   });
 
   return (
-    <CompliancePageShell title="Compliance Trend" subtitle="Renewals due vs services completed by month" onExportPdf={exportPdf} onExportExcel={exportExcel}
+    <CompliancePageShell title={t("complianceHub.trend.title")} subtitle={t("complianceHub.trend.subtitle")} onExportPdf={exportPdf} onExportExcel={exportExcel}
       filters={
         <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
           <SelectTrigger className="w-[100px] bg-zinc-800 text-zinc-50"><SelectValue /></SelectTrigger>
@@ -46,7 +48,7 @@ function ComplianceTrendPage() {
         </Select>
       }
     >
-      {isLoading ? <p className="text-sm text-muted-foreground">Loading…</p> : (
+      {isLoading ? <p className="text-sm text-muted-foreground">{t("common.loading")}</p> : (
         <ComplianceTrendCharts months={data?.months ?? []} />
       )}
     </CompliancePageShell>

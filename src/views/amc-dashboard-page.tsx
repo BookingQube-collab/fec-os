@@ -4,16 +4,18 @@ import { useMutation } from "@tanstack/react-query";
 import Link from "next/link";
 import { Download, FileSpreadsheet, Plus, Search, ShieldCheck } from "lucide-react";
 import { useMemo, useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { AmcContractCard } from "@/components/amc/amc-contract-card";
+import { TintedKpiCard, type KpiTint } from "@/components/dashboard/tinted-kpi-card";
 import { KpiSkeletonStrip } from "@/components/loading/page-skeleton";
 import { DownloadReportButton } from "@/components/reports/download-report-button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { exportAmcDashboardCsv } from "@/lib/amc.functions";
 import { useAmcDashboardSummary, useAmcDashboardContracts } from "@/hooks/queries/useAmcDashboardSummary";
 import { useDocumentExpiryKpis } from "@/hooks/queries/useExpiryAlerts";
-import { AMC_CATEGORIES, AMC_CATEGORY_LABELS, FEC_BRANCH_CODES } from "@/lib/amc/constants";
+import { AMC_CATEGORIES, FEC_BRANCH_CODES, translateAmcCategory } from "@/lib/amc/constants";
 import { useReportExport } from "@/hooks/use-report-export";
 import { useSites } from "@/hooks/queries/useSites";
 import { useStoreHydrated } from "@/hooks/use-store-hydrated";
@@ -27,16 +29,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-function KpiCard({ label, value, tone }: { label: string; value: string | number; tone?: string }) {
-  return (
-    <div className="rounded-lg border border-border bg-card p-3">
-      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className={`mt-1 text-lg font-semibold ${tone ?? ""}`}>{value}</div>
-    </div>
-  );
+function KpiCard({ label, value, tint }: { label: string; value: string | number; tint: KpiTint }) {
+  return <TintedKpiCard title={label} value={value} tint={tint} compact />;
 }
 
 export function AmcDashboardPage({ embedded = false }: { embedded?: boolean }) {
+  const { t } = useTranslation();
   const hydrated = useStoreHydrated();
   const { data: sites } = useSites();
   const [locationFilter, setLocationFilter] = useState("all");
@@ -105,31 +103,31 @@ export function AmcDashboardPage({ embedded = false }: { embedded?: boolean }) {
       a.download = r.filename;
       a.click();
       URL.revokeObjectURL(url);
-      toast.success("Exported CSV");
+      toast.success(t("amc.exported"));
     },
   });
 
   const { exportPdf, exportExcel } = useReportExport({
     pageKey: "AMC_Dashboard",
-    title: "Events & Entertainment Enterprises — AMC Dashboard",
-    venueLabel: selectedSite ? selectedSite.code : "Portfolio",
+    title: t("amc.brandTitle"),
+    venueLabel: selectedSite ? selectedSite.code : t("amc.portfolio"),
     filters: { location: locationFilter, category, status, filter },
     kpis: k
       ? [
-          { label: "Active", value: k.total_active },
-          { label: "Total value", value: `QAR ${k.total_value.toLocaleString()}` },
-          { label: "Paid", value: `QAR ${k.total_paid.toLocaleString()}` },
-          { label: "Outstanding", value: `QAR ${k.total_outstanding.toLocaleString()}` },
-          { label: "Overdue", value: k.overdue_contracts ?? 0 },
+          { label: t("amc.kpis.active"), value: k.total_active },
+          { label: t("amc.kpis.totalValue"), value: t("common.currencyAmount", { amount: k.total_value.toLocaleString() }) },
+          { label: t("amc.kpis.paid"), value: t("common.currencyAmount", { amount: k.total_paid.toLocaleString() }) },
+          { label: t("amc.kpis.outstanding"), value: t("common.currencyAmount", { amount: k.total_outstanding.toLocaleString() }) },
+          { label: t("amc.kpis.overdue"), value: k.overdue_contracts ?? 0 },
         ]
       : [],
     columns: [
-      { key: "location_code", header: "Site" },
-      { key: "category", header: "Service" },
-      { key: "vendor_name", header: "Vendor" },
-      { key: "contract_value", header: "Value", format: "qar" },
-      { key: "paid_amount", header: "Paid", format: "qar" },
-      { key: "status", header: "Status" },
+      { key: "location_code", header: t("amc.columns.site") },
+      { key: "category", header: t("amc.columns.service") },
+      { key: "vendor_name", header: t("common.vendor") },
+      { key: "contract_value", header: t("amc.columns.value"), format: "qar" },
+      { key: "paid_amount", header: t("amc.columns.paid"), format: "qar" },
+      { key: "status", header: t("common.status") },
     ],
     rows: (contractsData?.contracts ?? []) as Record<string, unknown>[],
   });
@@ -137,15 +135,15 @@ export function AmcDashboardPage({ embedded = false }: { embedded?: boolean }) {
   return (
     <div className="space-y-5">
       {!embedded ? (
-      <div className="rounded-[28px] border border-white/80 bg-white/90 px-5 py-4 shadow-[0_8px_32px_rgba(99,102,241,0.08)]">
+      <div className="rounded-[var(--radius-xl)] border border-border/80 bg-card px-5 py-4 shadow-elevated-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-2xl bg-gradient-to-br from-[#8B5CF6] to-[#3B82F6] text-white shadow-lg">
+            <div className="grid h-10 w-10 place-items-center rounded-[var(--radius)] bg-primary text-primary-foreground">
               <ShieldCheck className="h-5 w-5" />
             </div>
             <div>
-              <h1 className="text-lg font-semibold text-[#111827]">Events & Entertainment Enterprises — AMC Dashboard</h1>
-              <p className="text-xs text-[#9CA3AF]">Site-wise contracts, payment tracker, service visits & renewals</p>
+              <h1 className="text-lg font-semibold text-foreground">{t("amc.brandTitle")}</h1>
+              <p className="text-xs text-muted-foreground">{t("amc.subtitle")}</p>
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -154,7 +152,7 @@ export function AmcDashboardPage({ embedded = false }: { embedded?: boolean }) {
               <Download className="mr-1 h-4 w-4" />CSV
             </Button>
             <Button size="sm" asChild>
-              <Link href="/compliance/amc-contracts/new"><Plus className="mr-1 h-4 w-4" />Add contract</Link>
+              <Link href="/compliance/amc-contracts/new"><Plus className="mr-1 h-4 w-4" />{t("amc.addContract")}</Link>
             </Button>
           </div>
         </div>
@@ -166,7 +164,7 @@ export function AmcDashboardPage({ embedded = false }: { embedded?: boolean }) {
             <Download className="mr-1 h-4 w-4" />CSV
           </Button>
           <Button size="sm" asChild>
-            <Link href="/compliance/amc-contracts/new"><Plus className="mr-1 h-4 w-4" />Add contract</Link>
+            <Link href="/compliance/amc-contracts/new"><Plus className="mr-1 h-4 w-4" />{t("amc.addContract")}</Link>
           </Button>
         </div>
       )}
@@ -175,72 +173,72 @@ export function AmcDashboardPage({ embedded = false }: { embedded?: boolean }) {
         <KpiSkeletonStrip count={8} />
       ) : (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-8">
-          <KpiCard label="Active" value={k?.total_active ?? "—"} />
-          <KpiCard label="Total value (QAR)" value={k ? k.total_value.toLocaleString() : "—"} />
-          <KpiCard label="Paid (QAR)" value={k ? k.total_paid.toLocaleString() : "—"} tone="text-emerald-400" />
-          <KpiCard label="Outstanding (QAR)" value={k ? k.total_outstanding.toLocaleString() : "—"} tone="text-amber-400" />
-          <KpiCard label="Next service" value={k?.next_service_date ?? "—"} />
-          <KpiCard label="Overdue" value={k?.overdue_contracts ?? k?.overdue_services ?? "—"} tone="rag-red" />
-          <KpiCard label="Certs expired" value={docExpiry?.expired ?? "—"} tone="text-rose-400" />
-          <KpiCard label="Certs ≤7d" value={docExpiry?.due_7 ?? "—"} tone="text-orange-400" />
+          <KpiCard label={t("amc.kpis.active")} value={k?.total_active ?? "—"} tint="green" />
+          <KpiCard label={t("amc.kpis.totalValueQar", { qar: t("common.qar") })} value={k ? k.total_value.toLocaleString() : "—"} tint="sky" />
+          <KpiCard label={t("amc.kpis.paidQar", { qar: t("common.qar") })} value={k ? k.total_paid.toLocaleString() : "—"} tint="green" />
+          <KpiCard label={t("amc.kpis.outstandingQar", { qar: t("common.qar") })} value={k ? k.total_outstanding.toLocaleString() : "—"} tint="amber" />
+          <KpiCard label={t("amc.kpis.nextService")} value={k?.next_service_date ?? "—"} tint="sky" />
+          <KpiCard label={t("amc.kpis.overdue")} value={k?.overdue_contracts ?? k?.overdue_services ?? "—"} tint="red" />
+          <KpiCard label={t("amc.kpis.certsExpired")} value={docExpiry?.expired ?? "—"} tint="red" />
+          <KpiCard label={t("amc.kpis.certs7d")} value={docExpiry?.due_7 ?? "—"} tint="orange" />
         </div>
       )}
 
       <div className="flex flex-wrap gap-2 text-xs">
-        <Link href="/compliance/documents" className="text-primary hover:underline">Document register</Link>
+        <Link href="/compliance/documents" className="text-primary hover:underline">{t("amc.documentRegister")}</Link>
         <span className="text-muted-foreground">·</span>
-        <Link href="/compliance/expiry-alerts" className="text-primary hover:underline">Expiry alerts</Link>
+        <Link href="/compliance/expiry-alerts" className="text-primary hover:underline">{t("amc.expiryAlerts")}</Link>
       </div>
 
       <div className="flex flex-wrap gap-2">
         <div className="relative min-w-[200px] flex-1">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input className="pl-8" placeholder="Search vendor, category…" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <Input className="pl-8" placeholder={t("amc.searchPlaceholder")} value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
         <Select value={locationFilter} onValueChange={setLocationFilter}>
-          <SelectTrigger className="w-52"><SelectValue placeholder="Location" /></SelectTrigger>
+          <SelectTrigger className="w-52"><SelectValue placeholder={t("amc.location")} /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All locations</SelectItem>
+            <SelectItem value="all">{t("common.allLocations")}</SelectItem>
             {branchSites.map((s) => (
               <SelectItem key={s.id} value={s.id}>{s.code} — {s.name}</SelectItem>
             ))}
           </SelectContent>
         </Select>
         <Select value={category} onValueChange={setCategory}>
-          <SelectTrigger className="w-44"><SelectValue placeholder="Category" /></SelectTrigger>
+          <SelectTrigger className="w-44"><SelectValue placeholder={t("common.category")} /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All categories</SelectItem>
+            <SelectItem value="all">{t("common.allCategories")}</SelectItem>
             {AMC_CATEGORIES.map((c) => (
-              <SelectItem key={c} value={c}>{AMC_CATEGORY_LABELS[c]}</SelectItem>
+              <SelectItem key={c} value={c}>{translateAmcCategory(t, c)}</SelectItem>
             ))}
           </SelectContent>
         </Select>
         <Select value={status} onValueChange={setStatus}>
-          <SelectTrigger className="w-36"><SelectValue placeholder="Status" /></SelectTrigger>
+          <SelectTrigger className="w-36"><SelectValue placeholder={t("common.status")} /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All status</SelectItem>
-            <SelectItem value="active">Active</SelectItem>
-            <SelectItem value="expired">Expired</SelectItem>
-            <SelectItem value="pending">Pending</SelectItem>
-            <SelectItem value="draft">Draft</SelectItem>
+            <SelectItem value="all">{t("amc.allStatus")}</SelectItem>
+            <SelectItem value="active">{t("amc.status.active")}</SelectItem>
+            <SelectItem value="expired">{t("amc.status.expired")}</SelectItem>
+            <SelectItem value="pending">{t("amc.status.pending")}</SelectItem>
+            <SelectItem value="draft">{t("amc.status.draft")}</SelectItem>
           </SelectContent>
         </Select>
         <Select value={filter} onValueChange={setFilter}>
-          <SelectTrigger className="w-40"><SelectValue placeholder="Quick filter" /></SelectTrigger>
+          <SelectTrigger className="w-40"><SelectValue placeholder={t("amc.quickFilter")} /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All</SelectItem>
-            <SelectItem value="active">Active only</SelectItem>
-            <SelectItem value="overdue">Overdue services</SelectItem>
-            <SelectItem value="week">Due this week</SelectItem>
-            <SelectItem value="month">Due this month</SelectItem>
-            <SelectItem value="expiring">Expiring 30d</SelectItem>
+            <SelectItem value="all">{t("common.all")}</SelectItem>
+            <SelectItem value="active">{t("amc.activeOnly")}</SelectItem>
+            <SelectItem value="overdue">{t("amc.overdueServices")}</SelectItem>
+            <SelectItem value="week">{t("amc.dueThisWeek")}</SelectItem>
+            <SelectItem value="month">{t("amc.dueThisMonth")}</SelectItem>
+            <SelectItem value="expiring">{t("amc.expiring30")}</SelectItem>
           </SelectContent>
         </Select>
         <Button variant="outline" size="sm" asChild>
-          <Link href="/compliance/amc-schedule"><FileSpreadsheet className="mr-1 h-4 w-4" />Schedule</Link>
+          <Link href="/compliance/amc-schedule"><FileSpreadsheet className="mr-1 h-4 w-4" />{t("amc.schedule")}</Link>
         </Button>
         <Button variant="outline" size="sm" asChild>
-          <Link href="/compliance/amc-renewals">Renewals</Link>
+          <Link href="/compliance/amc-renewals">{t("amc.renewals")}</Link>
         </Button>
       </div>
 
@@ -251,7 +249,7 @@ export function AmcDashboardPage({ embedded = false }: { embedded?: boolean }) {
           ))}
         </div>
       ) : !contracts?.length ? (
-        <p className="text-sm text-muted-foreground">No AMC contracts in scope. Add a contract to get started.</p>
+        <p className="text-sm text-muted-foreground">{t("amc.empty")}</p>
       ) : (
         contracts.map((group) => (
           <section key={group.region} className="space-y-4">
@@ -263,7 +261,7 @@ export function AmcDashboardPage({ embedded = false }: { embedded?: boolean }) {
                   <span className="mx-1.5 text-muted-foreground">·</span>
                   {site.location_name}
                   <span className="ml-2 font-normal text-muted-foreground">
-                    ({site.contracts.length} contract{site.contracts.length === 1 ? "" : "s"})
+                    ({t("amc.contractCount", { count: site.contracts.length })})
                   </span>
                 </h3>
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">

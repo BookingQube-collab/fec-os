@@ -192,7 +192,7 @@ export default function WeeklyReportsFormPage() {
     <WeeklyReportsLayout>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="font-display text-xl font-semibold text-[#0B1F3A]">
+          <h2 className="text-xl font-semibold text-foreground">
             {isNew ? t("weeklyReports.form.newTitle") : t("weeklyReports.form.editTitle")}
           </h2>
           {readOnly && (

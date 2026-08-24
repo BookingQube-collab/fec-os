@@ -3,6 +3,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Download, Loader2, Upload } from "lucide-react";
 import { useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -22,7 +23,7 @@ import {
 import { importInventoryRows } from "@/lib/inventory.functions";
 import { queryKeys } from "@/lib/query-keys";
 
-async function readImportFile(file: File): Promise<string> {
+async function readImportFile(file: File, unsupported: string, noWorksheets: string): Promise<string> {
   const ext = file.name.split(".").pop()?.toLowerCase();
   if (ext === "csv" || file.type === "text/csv") {
     return file.text();
@@ -32,10 +33,10 @@ async function readImportFile(file: File): Promise<string> {
     const buffer = await file.arrayBuffer();
     const workbook = XLSX.read(buffer, { type: "array" });
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    if (!sheet) throw new Error("Excel file has no worksheets");
+    if (!sheet) throw new Error(noWorksheets);
     return XLSX.utils.sheet_to_csv(sheet);
   }
-  throw new Error("Unsupported file type. Upload a .csv or .xlsx file.");
+  throw new Error(unsupported);
 }
 
 function downloadSampleCsv() {
@@ -54,6 +55,7 @@ interface InventoryImportDialogProps {
 }
 
 export function InventoryImportDialog({ open, onOpenChange }: InventoryImportDialogProps) {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<InventoryImportRow[]>([]);
@@ -66,10 +68,10 @@ export function InventoryImportDialog({ open, onOpenChange }: InventoryImportDia
       setImportResult(res);
       void qc.invalidateQueries({ queryKey: queryKeys.inventory.all });
       if (res.errors.length) {
-        toast.error(`${res.imported} imported, ${res.errors.length} row error(s)`);
+        toast.error(t("inventory.import.importedPartial", { imported: res.imported, errors: res.errors.length }));
         return;
       }
-      toast.success(`Imported ${res.imported} stock record(s)`);
+      toast.success(t("inventory.import.imported", { count: res.imported }));
       setPreview([]);
       setParseErrors([]);
       setImportResult(null);
@@ -82,16 +84,16 @@ export function InventoryImportDialog({ open, onOpenChange }: InventoryImportDia
     if (!file) return;
     setImportResult(null);
     try {
-      const csv = await readImportFile(file);
+      const csv = await readImportFile(file, t("inventory.import.unsupported"), t("inventory.import.noWorksheets"));
       const { rows, errors } = parseInventoryImportRows(parseCsv(csv));
       setPreview(rows);
       setParseErrors(errors);
       if (!rows.length && errors.length) {
-        toast.error(`Found ${errors.length} validation error(s)`);
+        toast.error(t("inventory.import.foundErrors", { count: errors.length }));
       } else if (rows.length) {
-        toast.success(`Parsed ${rows.length} row(s) — review and confirm import`);
+        toast.success(t("inventory.import.parsed", { count: rows.length }));
       } else {
-        toast.error("No data rows found in file");
+        toast.error(t("inventory.import.noRows"));
       }
     } catch (e) {
       toast.error((e as Error).message);
@@ -113,21 +115,21 @@ export function InventoryImportDialog({ open, onOpenChange }: InventoryImportDia
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Import inventory sheet</DialogTitle>
+          <DialogTitle>{t("inventory.import.title")}</DialogTitle>
         </DialogHeader>
 
         <p className="text-sm text-muted-foreground">
-          Upload CSV or Excel with columns: SKU, Item name, Size (optional), Branch/Location, Quantity on hand, Reorder level (optional).
+          {t("inventory.import.help")}
         </p>
 
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" size="sm" onClick={downloadSampleCsv}>
             <Download className="mr-2 h-4 w-4" />
-            Sample CSV
+            {t("inventory.import.sample")}
           </Button>
           <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm hover:bg-muted">
             <Upload className="h-4 w-4" />
-            Choose file
+            {t("inventory.import.chooseFile")}
             <input
               ref={fileInputRef}
               type="file"
@@ -140,11 +142,11 @@ export function InventoryImportDialog({ open, onOpenChange }: InventoryImportDia
 
         {parseErrors.length > 0 && (
           <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm">
-            <p className="font-medium text-amber-200">Validation errors ({parseErrors.length})</p>
+            <p className="font-medium text-amber-200">{t("inventory.import.validation", { count: parseErrors.length })}</p>
             <ul className="mt-2 max-h-32 space-y-1 overflow-y-auto text-xs text-muted-foreground">
               {parseErrors.map((e) => (
                 <li key={`${e.row}-${e.message}`}>
-                  Row {e.row}: {e.message}
+                  {t("inventory.import.rowError", { row: e.row, message: e.message })}
                 </li>
               ))}
             </ul>
@@ -154,18 +156,18 @@ export function InventoryImportDialog({ open, onOpenChange }: InventoryImportDia
         {preview.length > 0 && (
           <div className="overflow-hidden rounded-lg border border-border">
             <div className="border-b border-border bg-surface/60 px-3 py-2 text-xs font-medium">
-              Preview ({preview.length} rows)
+              {t("inventory.import.preview", { count: preview.length })}
             </div>
             <div className="max-h-64 overflow-auto">
               <table className="w-full text-xs">
                 <thead className="sticky top-0 bg-card text-muted-foreground">
                   <tr>
-                    <th className="px-2 py-1.5 text-left">SKU</th>
-                    <th className="px-2 py-1.5 text-left">Item</th>
-                    <th className="px-2 py-1.5 text-left">Size</th>
-                    <th className="px-2 py-1.5 text-left">Branch</th>
-                    <th className="px-2 py-1.5 text-right">Qty</th>
-                    <th className="px-2 py-1.5 text-right">Reorder</th>
+                    <th className="px-2 py-1.5 text-left">{t("inventory.stock.sku")}</th>
+                    <th className="px-2 py-1.5 text-left">{t("inventory.stock.item")}</th>
+                    <th className="px-2 py-1.5 text-left">{t("inventory.stock.size")}</th>
+                    <th className="px-2 py-1.5 text-left">{t("inventory.stock.branch")}</th>
+                    <th className="px-2 py-1.5 text-right">{t("inventory.dashboard.qty")}</th>
+                    <th className="px-2 py-1.5 text-right">{t("inventory.catalog.reorder")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -187,11 +189,11 @@ export function InventoryImportDialog({ open, onOpenChange }: InventoryImportDia
 
         {importResult && importResult.errors.length > 0 && (
           <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm">
-            <p className="font-medium text-destructive">Import errors</p>
+            <p className="font-medium text-destructive">{t("inventory.import.importErrors")}</p>
             <ul className="mt-2 max-h-32 space-y-1 overflow-y-auto text-xs">
               {importResult.errors.map((e) => (
                 <li key={`${e.row}-${e.message}`}>
-                  Row {e.row}: {e.message}
+                  {t("inventory.import.rowError", { row: e.row, message: e.message })}
                 </li>
               ))}
             </ul>
@@ -200,7 +202,7 @@ export function InventoryImportDialog({ open, onOpenChange }: InventoryImportDia
 
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => handleClose(false)}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button
             type="button"
@@ -208,7 +210,7 @@ export function InventoryImportDialog({ open, onOpenChange }: InventoryImportDia
             onClick={() => importMut.mutate(preview)}
           >
             {importMut.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            Import {preview.length ? `${preview.length} row(s)` : ""}
+            {preview.length ? t("inventory.import.importRows", { count: preview.length }) : t("inventory.import.import")}
           </Button>
         </DialogFooter>
       </DialogContent>

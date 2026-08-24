@@ -14,12 +14,23 @@ import {
   YAxis,
 } from "recharts";
 
+import { useTranslation } from "react-i18next";
+
 import { ChartWidget } from "@/components/dashboard/chart-widget";
+import {
+  CHART,
+  CHART_MARGIN,
+  chartGridProps,
+  chartLegendStyle,
+  chartTick,
+  chartTooltipLabelStyle,
+  chartTooltipStyle,
+} from "@/lib/chart-theme";
 
 const STATUS_COLORS: Record<string, string> = {
-  ok: "#10B981",
-  low: "#F59E0B",
-  out: "#EF4444",
+  ok: CHART.teal,
+  low: CHART.amber,
+  out: CHART.red,
 };
 
 interface InventoryDashboardChartsProps {
@@ -33,61 +44,65 @@ export function InventoryDashboardCharts({
   stockBySize,
   stockByStatus,
 }: InventoryDashboardChartsProps) {
+  const { t } = useTranslation();
   return (
     <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-      <ChartWidget title="Units on hand by branch">
+      <ChartWidget title={t("inventory.charts.byBranch")}>
         <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={stockByLocation} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" />
-              <XAxis dataKey="code" tick={{ fontSize: 10 }} />
-              <YAxis tick={{ fontSize: 10 }} />
-              <Tooltip />
-              <Bar dataKey="units" fill="#6366F1" name="Units" radius={[4, 4, 0, 0]} />
+            <BarChart data={stockByLocation} margin={CHART_MARGIN}>
+              <CartesianGrid {...chartGridProps} />
+              <XAxis dataKey="code" tick={chartTick} stroke={CHART.grid} />
+              <YAxis tick={chartTick} stroke={CHART.grid} />
+              <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} />
+              <Bar dataKey="units" fill={CHART.ink} name={t("inventory.charts.units")} radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
       </ChartWidget>
 
-      <ChartWidget title="Grip socks by size">
+      <ChartWidget title={t("inventory.charts.bySize")}>
         <div className="h-56">
           {stockBySize.length === 0 ? (
-            <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-              No sized sock stock in scope.
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              {t("inventory.charts.noSized")}
             </div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={stockBySize} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" />
-                <XAxis dataKey="size" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 10 }} />
-                <Tooltip />
-                <Bar dataKey="units" fill="#3B82F6" name="Pairs" radius={[4, 4, 0, 0]} />
+              <BarChart data={stockBySize} margin={CHART_MARGIN}>
+                <CartesianGrid {...chartGridProps} />
+                <XAxis dataKey="size" tick={chartTick} stroke={CHART.grid} />
+                <YAxis tick={chartTick} stroke={CHART.grid} />
+                <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} />
+                <Bar dataKey="units" fill={CHART.gold} name={t("inventory.charts.pairs")} radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
         </div>
       </ChartWidget>
 
-      <ChartWidget title="Stock health">
+      <ChartWidget title={t("inventory.charts.health")}>
         <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie
-                data={stockByStatus.filter((s) => s.count > 0)}
+                data={stockByStatus.filter((s) => s.count > 0).map((s) => ({
+                  ...s,
+                  label: t(`inventory.status.${s.status}`, { defaultValue: s.status }),
+                }))}
                 dataKey="count"
-                nameKey="status"
+                nameKey="label"
                 cx="50%"
                 cy="50%"
                 outerRadius={80}
-                label={({ status, count }) => `${status} (${count})`}
+                label={({ label, count }) => `${label} (${count})`}
               >
                 {stockByStatus.map((entry) => (
-                  <Cell key={entry.status} fill={STATUS_COLORS[entry.status] ?? "#94A3B8"} />
+                  <Cell key={entry.status} fill={STATUS_COLORS[entry.status] ?? CHART.muted} />
                 ))}
               </Pie>
-              <Tooltip />
-              <Legend />
+              <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} />
+              <Legend wrapperStyle={chartLegendStyle} />
             </PieChart>
           </ResponsiveContainer>
         </div>

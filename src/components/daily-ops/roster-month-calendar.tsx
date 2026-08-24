@@ -90,7 +90,7 @@ export function RosterMonthCalendar({
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <h3 className="min-w-[10rem] text-center font-display text-lg font-semibold text-[#0B1F3A]">
+            <h3 className="min-w-[10rem] text-center text-lg font-semibold text-foreground">
               {monthTitle}
             </h3>
             <Button
@@ -157,9 +157,9 @@ export function RosterMonthCalendar({
                         onClick={() => onSelectDate(cell.date)}
                         className={cn(
                           "flex min-h-[5.5rem] flex-col rounded-lg border border-transparent p-1.5 text-start transition-colors sm:min-h-[6.5rem] sm:p-2",
-                          "hover:border-[#CBD5E1] hover:bg-white/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6366F1]",
+                          "hover:border-border hover:bg-card/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                           !cell.inMonth && "opacity-45",
-                          cell.isToday && "border-[#6366F1] bg-white shadow-sm",
+                          cell.isToday && "border-ring bg-card shadow-sm",
                           inUploadPeriod && cell.inMonth && !cell.isToday && "bg-white/70",
                         )}
                       >
@@ -168,8 +168,8 @@ export function RosterMonthCalendar({
                             className={cn(
                               "inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold",
                               cell.isToday
-                                ? "bg-[#6366F1] text-white"
-                                : "text-[#0B1F3A]",
+                                ? "bg-primary text-primary-foreground"
+                                : "text-foreground",
                             )}
                           >
                             {cell.dayOfMonth}
@@ -187,19 +187,19 @@ export function RosterMonthCalendar({
                           {preview.map((shift) => (
                             <div
                               key={String(shift.id ?? shift.starts_at)}
-                              className="truncate text-[10px] leading-tight text-[#475569] sm:text-[11px]"
+                              className="truncate text-[10px] leading-tight text-muted-foreground sm:text-[11px]"
                             >
-                              <span className="font-medium text-[#0B1F3A]">
+                              <span className="font-medium text-foreground">
                                 {shift.staff?.full_name ?? "—"}
                               </span>
-                              <span className="text-[#94A3B8]">
+                              <span className="text-muted-foreground">
                                 {" "}
                                 {formatShiftTime(shift.starts_at)}–{formatShiftTime(shift.ends_at)}
                               </span>
                             </div>
                           ))}
                           {extra > 0 && (
-                            <span className="text-[10px] text-[#6366F1]">
+                            <span className="text-[10px] text-muted-foreground">
                               {t("dailyOps.roster.moreShifts", { count: extra })}
                             </span>
                           )}

@@ -95,7 +95,7 @@ export default function MaintenanceWeeklyReportsListPage() {
     <MaintenanceWeeklyReportsLayout>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="font-display text-xl font-semibold text-[#0B1F3A]">
+          <h2 className="text-xl font-semibold text-foreground">
             {t("maintenanceWeeklyReports.list.title")}
           </h2>
           <p className="mt-1 text-sm text-[#64748B]">{t("maintenanceWeeklyReports.list.subtitle")}</p>

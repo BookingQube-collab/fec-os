@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 
+import { AI_UNAVAILABLE_MESSAGE, completeTextViaGateway } from "@/lib/ai/complete-json";
 import {
   createAuthenticatedAction,
   createAuthenticatedActionNoInput,
@@ -112,36 +113,17 @@ export const generateForecastCommentary = createAuthenticatedAction(
       .select("location_id, projected_revenue, projected_ebitda, projected_footfall")
       .eq("forecast_id", data.id);
 
-    const apiKey = process.env.LOVABLE_API_KEY;
-    let commentary = "AI commentary unavailable (no LOVABLE_API_KEY).";
-    if (apiKey) {
-      const prompt = `You are a CFO analyst. Write a 150-word scenario commentary for this forecast assumptions and per-branch projections. Use QAR.\n\nForecast:\n${JSON.stringify(forecast, null, 2)}\n\nResults sample:\n${JSON.stringify((results ?? []).slice(0, 8), null, 2)}`;
-      try {
-        const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey },
-          body: JSON.stringify({
-            model: "google/gemini-2.5-flash",
-            messages: [{ role: "user", content: prompt }],
-          }),
-        });
-        if (resp.ok) {
-          const json = (await resp.json()) as { choices?: Array<{ message?: { content?: string } }> };
-          commentary = json.choices?.[0]?.message?.content?.trim() ?? commentary;
-        } else {
-          commentary = `AI gateway error ${resp.status}.`;
-        }
-      } catch (e) {
-        commentary = `AI call failed: ${(e as Error).message}`;
-      }
-    }
+    const prompt = `You are a CFO analyst. Write a 150-word scenario commentary for this forecast assumptions and per-branch projections. Use QAR.\n\nForecast:\n${JSON.stringify(forecast, null, 2)}\n\nResults sample:\n${JSON.stringify((results ?? []).slice(0, 8), null, 2)}`;
+    const commentary =
+      (await completeTextViaGateway([{ role: "user", content: prompt }], { moduleSource: "forecast.commentary" })) ??
+      AI_UNAVAILABLE_MESSAGE;
 
     await context.supabase.from("forecasts").update({ ai_commentary: commentary }).eq("id", data.id);
     await context.supabase.from("ai_artifacts").insert({
       kind: "forecast",
       title: `Forecast commentary: ${forecast.title}`,
       content: { forecast_id: data.id, commentary },
-      model: "google/gemini-2.5-flash",
+      model: "fec-os-gateway",
       created_by: context.userId,
     });
     return { commentary };

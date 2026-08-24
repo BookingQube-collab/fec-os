@@ -3,6 +3,7 @@
 
 
 import { Suspense, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import dynamic from "next/dynamic";
 
@@ -65,6 +66,7 @@ const STATUS_ORDER = ["Compliant", "Upcoming", "Warning", "Critical", "Overdue",
 
 
 export default function E3TrackerDashboardPage() {
+  const { t } = useTranslation();
 
   const [filter, setFilter] = useState({ location: "All", field: "All" });
 
@@ -110,9 +112,9 @@ export default function E3TrackerDashboardPage() {
 
     <E3TrackerPageShell
 
-      title="Compliance Dashboard"
+      title={t("e3Tracker.pages.dashboard.title")}
 
-      subtitle="Portfolio-wide KPIs, charts, and soonest expiring items."
+      subtitle={t("e3Tracker.pages.dashboard.subtitle")}
 
     >
 
@@ -170,9 +172,9 @@ export default function E3TrackerDashboardPage() {
 
 
 
-      <div className="rounded-lg border border-[#E2E8F0] bg-white p-4">
+      <div className="surface-card p-4">
 
-        <h3 className="font-display mb-3 text-lg font-semibold text-[#0B1F3A]">
+        <h3 className="mb-3 text-lg font-semibold text-foreground">
 
           Top 10 Soonest Expiring
 

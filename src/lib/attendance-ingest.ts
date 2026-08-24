@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "@/integrations/supabase/types";
-import { E3_WEEKLY_LOCATIONS } from "@/lib/weekly-reports/constants";
+import { resolveLocationCode as resolveCanonicalLocationCode } from "@/lib/locations/normalize";
 import { toQatarIso } from "@/lib/staff-import";
 
 export type AttendanceIngestRecord = {
@@ -41,45 +41,6 @@ const INTERNAL_STATUSES = new Set([
   "missed_punch",
   "overtime",
 ]);
-
-/** Friendly location labels from external HR / biometric exports. */
-const LOCATION_ALIASES: Record<string, string> = {
-  ...Object.fromEntries(
-    E3_WEEKLY_LOCATIONS.flatMap((loc) => {
-      const entries: [string, string][] = [
-        [normalizeKey(`${loc.name} - ${loc.venue}`), loc.code],
-        [normalizeKey(`${loc.name} ${loc.venue}`), loc.code],
-        [normalizeKey(loc.code), loc.code],
-      ];
-      if (loc.code === "INF-CC") {
-        entries.push([normalizeKey("Inflatapark"), loc.code]);
-        entries.push([normalizeKey("Inflatapark - City Center"), loc.code]);
-        entries.push([normalizeKey("Inflatapark City Center"), loc.code]);
-      }
-      if (loc.code === "KDS-CC") {
-        entries.push([normalizeKey("Kids Driving School - City Center"), loc.code]);
-      }
-      if (loc.code === "UA-DM") {
-        entries.push([normalizeKey("Urban Arena - Doha Mall"), loc.code]);
-      }
-      if (loc.code === "CAR-AP") {
-        entries.push([normalizeKey("Carousel - Aspire Park"), loc.code]);
-      }
-      if (loc.code === "KDS-DM") {
-        entries.push([normalizeKey("Kids Driving School Mini - Doha Mall"), loc.code]);
-        entries.push([normalizeKey("Kids Mini Driving School - Doha Mall"), loc.code]);
-      }
-      return entries;
-    }),
-  ),
-  [normalizeKey("Winter Mirage - Vendome Mall")]: "WM-VM",
-  [normalizeKey("Winter Mirage Vendome Mall")]: "WM-VM",
-  [normalizeKey("WM-VM")]: "WM-VM",
-};
-
-function normalizeKey(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-}
 
 export function normalizeIngestRecords(body: unknown): AttendanceIngestRecord[] {
   if (!body || typeof body !== "object") {
@@ -184,19 +145,7 @@ function resolveLocationCode(
   }
   if (!record.location?.trim()) return null;
 
-  const key = normalizeKey(record.location);
-  const alias = LOCATION_ALIASES[key];
-  if (alias) return alias;
-
-  for (const loc of locations) {
-    const combined = normalizeKey(`${loc.name} - ${loc.region ?? ""}`);
-    const combinedNoDash = normalizeKey(`${loc.name} ${loc.region ?? ""}`);
-    if (key === combined || key === combinedNoDash) return loc.code;
-    if (key.includes(normalizeKey(loc.name)) && loc.region && key.includes(normalizeKey(loc.region))) {
-      return loc.code;
-    }
-  }
-  return null;
+  return resolveCanonicalLocationCode(record.location, locations);
 }
 
 function matchStaff(

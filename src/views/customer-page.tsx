@@ -123,17 +123,17 @@ function ComplaintsList() {
                   <td className="px-3 py-2"><Badge variant="outline" className="uppercase text-[10px]">{c.status}</Badge></td>
                   <td className="px-3 py-2 text-right space-x-1 whitespace-nowrap">
                     {!c.ai_triage ? (
-                      <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]" disabled={triageMutation.isPending} onClick={() => triageMutation.mutate({ id: c.id, summary: c.summary, channel: c.channel })}>
-                        <Sparkles className="mr-1 h-3 w-3" /> AI triage
+                      <Button size="sm" variant="outline" disabled={triageMutation.isPending} onClick={() => triageMutation.mutate({ id: c.id, summary: c.summary, channel: c.channel })}>
+                        <Sparkles className="h-4 w-4" /> AI triage
                       </Button>
                     ) : null}
                     {c.status === "new" ? (
-                      <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]" onClick={() => statusMutation.mutate({ id: c.id, status: "investigating" })}>Investigate</Button>
+                      <Button size="sm" variant="outline" onClick={() => statusMutation.mutate({ id: c.id, status: "investigating" })}>Investigate</Button>
                     ) : null}
                     {c.status !== "resolved" && c.status !== "dismissed" ? (
                       <>
-                        <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]" onClick={() => setOpenId(c.id)}>Resolve</Button>
-                        <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px]" onClick={() => statusMutation.mutate({ id: c.id, status: "dismissed" })}>Dismiss</Button>
+                        <Button size="sm" variant="outline" onClick={() => setOpenId(c.id)}>Resolve</Button>
+                        <Button size="sm" variant="ghost" onClick={() => statusMutation.mutate({ id: c.id, status: "dismissed" })}>Dismiss</Button>
                       </>
                     ) : null}
                   </td>

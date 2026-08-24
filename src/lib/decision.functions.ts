@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 
+import { AI_UNAVAILABLE_MESSAGE, completeTextViaGateway } from "@/lib/ai/complete-json";
 import {
   createAuthenticatedAction,
   createAuthenticatedActionNoInput,
@@ -140,27 +141,10 @@ export const generateDecisionSummary = createAuthenticatedAction(
       _decision_id: data.id,
     });
 
-    const apiKey = process.env.LOVABLE_API_KEY;
-    let aiSummary = "AI summary unavailable (no LOVABLE_API_KEY).";
-    if (apiKey) {
-      const prompt = `Summarise this executive decision for the board pack in 120 words. Include vote tally and recommendation.\n\nDecision: ${JSON.stringify(d, null, 2)}\nVotes: ${JSON.stringify(votes ?? [], null, 2)}\nTally: ${JSON.stringify(summary)}`;
-      try {
-        const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey },
-          body: JSON.stringify({
-            model: "google/gemini-3-flash-preview",
-            messages: [{ role: "user", content: prompt }],
-          }),
-        });
-        if (resp.ok) {
-          const json = (await resp.json()) as { choices?: Array<{ message?: { content?: string } }> };
-          aiSummary = json.choices?.[0]?.message?.content?.trim() ?? aiSummary;
-        }
-      } catch (e) {
-        aiSummary = `AI call failed: ${(e as Error).message}`;
-      }
-    }
+    const prompt = `Summarise this executive decision for the board pack in 120 words. Include vote tally and recommendation.\n\nDecision: ${JSON.stringify(d, null, 2)}\nVotes: ${JSON.stringify(votes ?? [], null, 2)}\nTally: ${JSON.stringify(summary)}`;
+    const aiSummary =
+      (await completeTextViaGateway([{ role: "user", content: prompt }], { moduleSource: "decisions.summary" })) ??
+      AI_UNAVAILABLE_MESSAGE;
 
     await context.supabase.from("decisions").update({ ai_summary: aiSummary }).eq("id", data.id);
     return { aiSummary };

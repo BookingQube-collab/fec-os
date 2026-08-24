@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { useTranslation } from "react-i18next";
 
 import { KpiSkeletonStrip } from "@/components/loading/page-skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +39,7 @@ function toneForCount(value: number): string {
 }
 
 export function InventoryDashboardPanel() {
+  const { t } = useTranslation();
   const locationId = useAppStore((s) => s.currentLocationId);
   const { data, isLoading } = useInventoryDashboard({ locationId: locationId ?? null });
 
@@ -59,7 +61,7 @@ export function InventoryDashboardPanel() {
   if (!data) {
     return (
       <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-        Unable to load inventory dashboard.
+        {t("inventory.dashboard.unable")}
       </div>
     );
   }
@@ -67,10 +69,10 @@ export function InventoryDashboardPanel() {
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <KpiCard label="Total SKUs" value={k?.total_skus ?? 0} />
-        <KpiCard label="Low stock" value={k?.low_stock ?? 0} tone={toneForCount(k?.low_stock ?? 0)} />
-        <KpiCard label="Out of stock" value={k?.out_of_stock ?? 0} tone={toneForCount(k?.out_of_stock ?? 0)} />
-        <KpiCard label="Units on hand" value={k?.total_units ?? 0} />
+        <KpiCard label={t("inventory.kpis.totalSkus")} value={k?.total_skus ?? 0} />
+        <KpiCard label={t("inventory.kpis.lowStock")} value={k?.low_stock ?? 0} tone={toneForCount(k?.low_stock ?? 0)} />
+        <KpiCard label={t("inventory.kpis.outOfStock")} value={k?.out_of_stock ?? 0} tone={toneForCount(k?.out_of_stock ?? 0)} />
+        <KpiCard label={t("inventory.kpis.unitsOnHand")} value={k?.total_units ?? 0} />
       </div>
 
       <InventoryDashboardCharts
@@ -81,20 +83,20 @@ export function InventoryDashboardPanel() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <section className="space-y-2">
-          <h3 className="text-sm font-medium">Reorder alerts</h3>
+          <h3 className="text-sm font-medium">{t("inventory.dashboard.reorderAlerts")}</h3>
           {data.reorder_alerts.length === 0 ? (
             <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
-              All stock levels are above reorder thresholds.
+              {t("inventory.dashboard.allAbove")}
             </p>
           ) : (
             <div className="overflow-hidden rounded-lg border border-border">
               <table className="w-full text-sm">
                 <thead className="bg-surface/60 text-xs uppercase tracking-wider text-muted-foreground">
                   <tr>
-                    <th className="px-3 py-2 text-left">SKU</th>
-                    <th className="px-3 py-2 text-left">Item</th>
-                    <th className="px-3 py-2 text-left">Branch</th>
-                    <th className="px-3 py-2 text-right">On hand</th>
+                    <th className="px-3 py-2 text-left">{t("inventory.stock.sku")}</th>
+                    <th className="px-3 py-2 text-left">{t("inventory.stock.item")}</th>
+                    <th className="px-3 py-2 text-left">{t("inventory.stock.branch")}</th>
+                    <th className="px-3 py-2 text-right">{t("inventory.stock.onHand")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -122,20 +124,20 @@ export function InventoryDashboardPanel() {
         </section>
 
         <section className="space-y-2">
-          <h3 className="text-sm font-medium">Recent movements</h3>
+          <h3 className="text-sm font-medium">{t("inventory.dashboard.recent")}</h3>
           {data.recent_movements.length === 0 ? (
             <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
-              No stock movements recorded yet. Receive stock or import a sheet to get started.
+              {t("inventory.dashboard.noMovements")}
             </p>
           ) : (
             <div className="overflow-hidden rounded-lg border border-border">
               <table className="w-full text-sm">
                 <thead className="bg-surface/60 text-xs uppercase tracking-wider text-muted-foreground">
                   <tr>
-                    <th className="px-3 py-2 text-left">When</th>
-                    <th className="px-3 py-2 text-left">Item</th>
-                    <th className="px-3 py-2 text-left">Type</th>
-                    <th className="px-3 py-2 text-right">Qty</th>
+                    <th className="px-3 py-2 text-left">{t("inventory.dashboard.when")}</th>
+                    <th className="px-3 py-2 text-left">{t("inventory.stock.item")}</th>
+                    <th className="px-3 py-2 text-left">{t("inventory.dashboard.type")}</th>
+                    <th className="px-3 py-2 text-right">{t("inventory.dashboard.qty")}</th>
                   </tr>
                 </thead>
                 <tbody>

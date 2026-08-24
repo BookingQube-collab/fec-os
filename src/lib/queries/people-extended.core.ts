@@ -1,5 +1,6 @@
 import { assertLocationAccess } from "@/lib/server/authorize";
 import type { AuthContext } from "@/lib/server/auth";
+import { fetchHomeStaffIdsAtLocation, punchOrHomeStaffOrFilter } from "@/lib/staff-work-locations";
 
 export async function fetchShifts(context: AuthContext, locationId?: string | null) {
   if (!locationId) return [];
@@ -76,7 +77,10 @@ export async function fetchAttendanceDailySummary(
     .lte("work_date", to)
     .order("work_date", { ascending: false })
     .order("actual_in", { ascending: true, nullsFirst: false });
-  if (locationId) q = q.eq("location_id", locationId);
+  if (locationId) {
+    const homeIds = await fetchHomeStaffIdsAtLocation(context.supabase, locationId);
+    q = q.or(punchOrHomeStaffOrFilter(locationId, homeIds));
+  }
   const { data: rows, error } = await q;
   if (error) throw error;
   if (!rows?.length) return [];

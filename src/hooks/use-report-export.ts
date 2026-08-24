@@ -21,6 +21,7 @@ export interface UseReportExportOptions<T extends Record<string, unknown>> {
   kpis: ReportKpi[];
   columns: ReportColumn<T>[];
   rows: T[];
+  narrative?: string | null;
 }
 
 function formatCell(value: unknown, format?: ReportColumn<unknown>["format"]): string {
@@ -66,6 +67,13 @@ export function useReportExport<T extends Record<string, unknown>>(opts: UseRepo
     const kpiText = opts.kpis.map((k) => `${k.label}: ${k.value}`).join("  |  ");
     doc.text(kpiText.slice(0, 200), 14, y);
     y += 8;
+    if (opts.narrative?.trim()) {
+      const lines = doc.splitTextToSize(opts.narrative.trim(), 270) as string[];
+      doc.setFontSize(8);
+      doc.text(lines.slice(0, 10), 14, y);
+      y += Math.min(lines.length, 10) * 4 + 4;
+      doc.setFontSize(9);
+    }
 
     autoTable(doc, {
       startY: y,
@@ -89,6 +97,7 @@ export function useReportExport<T extends Record<string, unknown>>(opts: UseRepo
       ...(filterLine ? [[`Filters: ${filterLine}`] as (string | number)[]] : []),
       [],
       ...opts.kpis.map((k) => [k.label, k.value]),
+      ...(opts.narrative?.trim() ? [[], [opts.narrative.trim()]] : []),
       [],
       opts.columns.map((c) => c.header),
       ...opts.rows.map((row) =>

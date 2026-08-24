@@ -105,7 +105,7 @@ export default function MaintenanceExecutiveReportDetailPage() {
     <MaintenanceWeeklyReportsLayout>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="font-display text-xl font-semibold text-[#0B1F3A]">
+          <h2 className="text-xl font-semibold text-foreground">
             {t("maintenanceWeeklyReports.executive.reportTitle")}
           </h2>
           <p className="text-sm text-muted-foreground">{weekLabel}</p>

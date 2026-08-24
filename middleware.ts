@@ -14,8 +14,8 @@ export const config = {
   matcher: [
     /*
      * Page navigations only — API routes authenticate via withAuthRouteRequest;
-     * static assets and fonts skip middleware getUser (~200ms saved per API call).
+     * skip _next, PWA worker, and static assets so prefetch/HMR stay cheap.
      */
-    "/((?!_next/static|_next/image|favicon.ico|api/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|webmanifest|ico|woff|woff2|ttf|eot)$).*)",
+    "/((?!_next/|favicon.ico|api/|iclock/|sw\\.js|.*\\.(?:svg|png|jpg|jpeg|gif|webp|webmanifest|ico|woff|woff2|ttf|eot)$).*)",
   ],
 };

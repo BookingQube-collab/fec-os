@@ -1,23 +1,45 @@
 "use client";
 
-import { Bell, ChevronDown, Globe, HelpCircle, LogOut, Search, ShieldAlert, User, Zap } from "lucide-react";
+import {
+  AlertTriangle,
+  Bell,
+  Calendar,
+  CheckCheck,
+  ClipboardList,
+  FileText,
+  Globe,
+  HelpCircle,
+  Keyboard,
+  LogOut,
+  Search,
+  ShieldAlert,
+  User,
+  UserCheck,
+  Wrench,
+  Zap,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
+import { ar as arDateLocale } from "date-fns/locale";
 
 import { useAppStore } from "@/stores/app-store";
-import { applyLanguageToDocument, type SupportedLanguage } from "@/i18n";
+import { applyLanguageToDocument, translateRole, type SupportedLanguage } from "@/i18n";
 import { useAuth } from "@/hooks/use-auth";
 import { useSites } from "@/hooks/queries/useSites";
-import { useEscalations } from "@/hooks/queries/useNotifications";
+import { useActionInbox, useEscalations } from "@/hooks/queries/useNotifications";
 import { useComplianceExpiryNotifications } from "@/hooks/queries/useComplianceExpiryNotifications";
 import { canViewComplianceExpiryAlerts } from "@/lib/compliance/compliance-expiry-access";
+import type { InboxItemKind } from "@/lib/notifications/inbox";
 import { queryKeys } from "@/lib/query-keys";
-import { ackEscalation } from "@/lib/notifications.functions";
+import { ackEscalation, markAllNotificationsRead, markNotificationRead } from "@/lib/notifications.functions";
 import type { AppRole } from "@/lib/rbac";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   DropdownMenu,
@@ -27,12 +49,33 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { HeaderSearch } from "@/components/layout/header-search";
 
-function greeting() {
+function greetingKey() {
   const h = new Date().getHours();
-  if (h < 12) return "Good Morning";
-  if (h < 17) return "Good Afternoon";
-  return "Good Evening";
+  if (h < 12) return "layout.greeting.morning";
+  if (h < 17) return "layout.greeting.afternoon";
+  return "layout.greeting.evening";
+}
+
+const INBOX_ICONS: Record<InboxItemKind, typeof Bell> = {
+  notification: Bell,
+  procurement: ClipboardList,
+  maintenance: Wrench,
+  work_order: Wrench,
+  event_task: Calendar,
+  snag: AlertTriangle,
+  weekly_report: FileText,
+  evaluation: UserCheck,
+};
+
+function relativeTime(iso: string, language: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return formatDistanceToNow(d, {
+    addSuffix: true,
+    locale: language === "ar" ? arDateLocale : undefined,
+  });
 }
 
 export function AppTopbar() {
@@ -47,7 +90,9 @@ export function AppTopbar() {
   const router = useRouter();
   const qc = useQueryClient();
   const [bellOpen, setBellOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [sitesRequested, setSitesRequested] = useState(false);
+  const headerRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (!user) {
@@ -71,8 +116,9 @@ export function AppTopbar() {
   const roleList = roles.map((r) => r.role as AppRole);
   const showComplianceAlerts = canViewComplianceExpiryAlerts(roleList);
 
+  const inbox = useActionInbox(user?.id, { enabled: !!user });
   const escalations = useEscalations({
-    enabled: !!user && bellOpen,
+    enabled: !!user,
   });
   const complianceAlerts = useComplianceExpiryNotifications(
     { locationId: currentLocationId, limit: 12 },
@@ -87,10 +133,20 @@ export function AppTopbar() {
     mutationFn: (id: string) => ackEscalation({ id }),
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.notifications.escalations() }),
   });
+  const markRead = useMutation({
+    mutationFn: (id: string) => markNotificationRead({ id }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.notifications.all }),
+  });
+  const markAll = useMutation({
+    mutationFn: () => markAllNotificationsRead(),
+    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.notifications.all }),
+  });
 
+  const inboxItems = inbox.data?.items ?? [];
+  const inboxUnread = inbox.data?.unreadCount ?? 0;
   const escalationCount = escalations.data?.length ?? 0;
   const complianceCount = complianceSummary.data?.summary.total ?? 0;
-  const unread = escalationCount + complianceCount;
+  const unread = inboxUnread + escalationCount + complianceCount;
 
   const severityLabel = useMemo(
     () =>
@@ -108,6 +164,24 @@ export function AppTopbar() {
     applyLanguageToDocument(language);
   }, [language, i18n]);
 
+  useEffect(() => {
+    if (!bellOpen) return;
+    const onPointer = (e: PointerEvent) => {
+      if (headerRef.current && !headerRef.current.contains(e.target as Node)) {
+        setBellOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setBellOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [bellOpen]);
+
   const toggleLanguage = () => {
     const next: SupportedLanguage = language === "en" ? "ar" : "en";
     setLanguage(next);
@@ -120,213 +194,356 @@ export function AppTopbar() {
 
   const requestSites = () => setSitesRequested(true);
 
-  const displayName = profile?.display_name ?? user?.email?.split("@")[0] ?? "User";
+  const displayName = profile?.display_name ?? user?.email?.split("@")[0] ?? t("common.user");
   const initials = (profile?.display_name ?? user?.email ?? "?")
     .split(/[\s@]/)
     .filter(Boolean)
     .slice(0, 2)
     .map((s) => s[0]?.toUpperCase())
     .join("");
-  const primaryRole = roles[0]?.role.replace(/_/g, " ");
+  const primaryRole = translateRole(t, roles[0]?.role);
+
+  const closeBell = () => setBellOpen(false);
+
+  const inboxList = (
+    <div className="max-h-96 overflow-y-auto">
+      {inboxItems.length > 0 && (
+        <div className="section-kicker border-b border-border bg-secondary/60 px-4 py-2 uppercase tracking-wide text-primary">
+          {t("inbox.actionSection")}
+        </div>
+      )}
+      {inboxItems.map((item) => {
+        const Icon = INBOX_ICONS[item.kind] ?? Bell;
+        const when = relativeTime(item.createdAt, language);
+        return (
+          <Link
+            key={item.id}
+            href={item.actionUrl || "/notifications"}
+            onClick={() => {
+              if (item.persisted && item.id.startsWith("notif:")) {
+                markRead.mutate(item.id.slice(6));
+              }
+              closeBell();
+            }}
+            className="block border-b border-border p-3 last:border-b-0 hover:bg-secondary/50"
+          >
+            <div className="flex items-start gap-2">
+              <Icon
+                className={
+                  "mt-0.5 h-3.5 w-3.5 shrink-0 " +
+                  (item.severity === "critical" ? "text-destructive" : "text-amber-600")
+                }
+              />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <div className="truncate text-sm font-medium text-foreground">
+                    {item.titleKey ? t(item.titleKey, item.titleParams) : item.title}
+                  </div>
+                  {!item.readAt && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />}
+                </div>
+                {item.body && (
+                  <div className="mt-0.5 truncate text-xs text-muted-foreground">{item.body}</div>
+                )}
+                {when ? <div className="mt-1 text-xs text-muted-foreground">{when}</div> : null}
+              </div>
+            </div>
+          </Link>
+        );
+      })}
+      {showComplianceAlerts && complianceCount > 0 && (
+        <>
+          <div className="flex items-center justify-between border-b border-border bg-rag-amber px-4 py-2">
+            <span className="section-kicker uppercase tracking-wide text-amber-800">
+              {t("complianceExpiry.bell.complianceSection")}
+            </span>
+            <Link
+              href="/compliance/expiry-alerts"
+              className="text-xs font-medium text-foreground hover:underline"
+              onClick={closeBell}
+            >
+              {t("complianceExpiry.banner.viewAll")}
+            </Link>
+          </div>
+          {(complianceAlerts.data?.items ?? []).map((item) => (
+            <Link
+              key={item.id}
+              href={item.actionUrl}
+              onClick={closeBell}
+              className="block border-b border-border p-3 last:border-b-0 hover:bg-secondary/50"
+            >
+              <div className="flex items-start gap-2">
+                <ShieldAlert
+                  className={
+                    "mt-0.5 h-3.5 w-3.5 shrink-0 " +
+                    (item.severity === "expired" || item.severity === "critical"
+                      ? "text-destructive"
+                      : "text-amber-600")
+                  }
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium text-foreground">{item.title}</div>
+                  <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                    {item.locationLabel}
+                    {item.subtitle ? ` · ${item.subtitle}` : ""}
+                  </div>
+                  <div className="mt-1 text-xs font-medium text-[var(--warning)]">
+                    {severityLabel[item.severity]} ·{" "}
+                    {item.daysRemaining < 0
+                      ? t("complianceExpiry.daysOverdue", { count: Math.abs(item.daysRemaining) })
+                      : t("complianceExpiry.daysRemaining", { count: item.daysRemaining })}
+                  </div>
+                </div>
+              </div>
+            </Link>
+          ))}
+          {complianceAlerts.isLoading && (
+            <div className="border-b border-border p-4 text-center text-xs text-muted-foreground">
+              {t("complianceExpiry.bell.loading")}
+            </div>
+          )}
+        </>
+      )}
+
+      {escalationCount > 0 && (
+        <div className="section-kicker border-b border-border bg-secondary/60 px-4 py-2 uppercase tracking-wide text-primary">
+          {t("complianceExpiry.bell.escalationsSection")}
+        </div>
+      )}
+      {(escalations.data ?? []).map((e) => {
+        const when = relativeTime(e.created_at, language);
+        return (
+          <div key={e.id} className="border-b border-border p-3 last:border-b-0">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium text-foreground">{e.title}</div>
+                {when ? <div className="mt-1 text-xs text-muted-foreground">{when}</div> : null}
+              </div>
+              <button
+                type="button"
+                onClick={() => ack.mutate(e.id)}
+                className="shrink-0 text-xs font-medium text-foreground hover:underline"
+              >
+                {t("common.resolve")}
+              </button>
+            </div>
+          </div>
+        );
+      })}
+      {(inbox.isLoading || escalations.isLoading) &&
+        inboxItems.length === 0 &&
+        escalationCount === 0 &&
+        complianceCount === 0 && (
+          <div className="p-6 text-center text-xs text-muted-foreground">{t("inbox.loading")}</div>
+        )}
+      {!inbox.isLoading &&
+        !escalations.isLoading &&
+        inboxItems.length === 0 &&
+        escalationCount === 0 &&
+        complianceCount === 0 && (
+          <div className="p-6 text-center text-xs text-muted-foreground">{t("inbox.empty")}</div>
+        )}
+    </div>
+  );
 
   return (
-    <header className="flex flex-wrap items-center gap-4 px-1 pb-4 pt-1 md:px-2">
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1">
-          <h1 className="text-xl font-bold text-[#111827] md:text-2xl">
-            {greeting()}, {displayName}
-          </h1>
-          <ChevronDown className="h-4 w-4 text-[#9CA3AF]" />
+    <header
+      ref={headerRef}
+      className={cn("flex flex-col gap-3 px-0.5 pt-0.5", surgeMode ? "pb-2" : "pb-4")}
+    >
+      <div className="flex flex-wrap items-center gap-3 md:gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className={cn("page-title truncate", surgeMode && "text-[1.35rem]")}>
+              {language === "ar" ? `${t(greetingKey())}، ${displayName}` : `${t(greetingKey())}, ${displayName}`}
+            </h1>
+            {surgeMode ? (
+              <span className="rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                {t("layout.surgeOn")}
+              </span>
+            ) : null}
+          </div>
+          <p className="page-subtitle mt-0.5">
+            {surgeMode
+              ? t("layout.surgeHint")
+              : t("layout.commandCenterWithRole", { role: primaryRole })}
+          </p>
         </div>
-        <p className="text-sm text-[#9CA3AF]">FEC Operations Command · {primaryRole ?? "Dashboard"}</p>
-      </div>
 
-      <div className="relative hidden min-w-[200px] flex-1 lg:block lg:max-w-md">
-        <Search className="pointer-events-none absolute start-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9CA3AF]" />
-        <input
-          className="h-11 w-full rounded-full border border-white/80 bg-white/80 ps-11 pe-4 text-sm text-[#111827] shadow-[inset_0_1px_4px_rgba(0,0,0,0.04)] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-[#8B5CF6]/30"
-          placeholder="Search here"
-        />
-      </div>
+        <HeaderSearch />
 
-      <div className="flex items-center gap-2">
-        <select
-          value={currentLocationId ?? ""}
-          onChange={(e) => setCurrentLocationId(e.target.value || null)}
-          onFocus={requestSites}
-          onMouseDown={requestSites}
-          className="hidden h-10 max-w-[160px] truncate rounded-full border border-white/80 bg-white/80 px-3 text-xs text-[#111827] shadow-sm sm:block"
-        >
-          <option value="">{t("common.allBranches")}</option>
-          {(locations.data ?? [])
-            .filter((l) => l.status === "active")
-            .map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.code}
-              </option>
-            ))}
-        </select>
+        <div className="flex items-center gap-1.5">
+          <SearchableSelect
+            value={currentLocationId ?? "__all__"}
+            onValueChange={(v) => setCurrentLocationId(v === "__all__" ? null : v)}
+            onOpenChange={(open) => {
+              if (open) requestSites();
+            }}
+            aria-label={t("common.allBranches")}
+            className="hidden sm:block"
+            triggerClassName="w-auto min-w-[12rem]"
+            options={[
+              { value: "__all__", label: t("common.allBranches") },
+              ...(locations.data ?? [])
+                .filter((l) => l.status === "active")
+                .map((l) => ({
+                  value: l.id,
+                  label: l.code,
+                  keywords: `${l.code} ${l.name ?? ""}`,
+                })),
+            ]}
+          />
 
-        <button
-          type="button"
-          onClick={() => setSurgeMode(!surgeMode)}
-          className={
-            "hidden h-10 w-10 items-center justify-center rounded-full border bg-white/80 shadow-sm sm:inline-flex " +
-            (surgeMode ? "border-amber-300 text-amber-600" : "border-white/80 text-[#9CA3AF]")
-          }
-          title={t("common.surgeMode")}
-        >
-          <Zap className="h-4 w-4" />
-        </button>
+          <Button
+            type="button"
+            variant={surgeMode ? "default" : "outline"}
+            size="icon"
+            className={cn(
+              "hidden sm:inline-flex",
+              surgeMode && "border-rose-600 bg-rose-600 text-white hover:bg-rose-500 hover:text-white",
+            )}
+            onClick={() => setSurgeMode(!surgeMode)}
+            title={t("common.surgeMode")}
+            aria-label={t("common.surgeMode")}
+            aria-pressed={surgeMode}
+          >
+            <Zap className="h-4 w-4" />
+          </Button>
 
-        <button
-          type="button"
-          onClick={toggleLanguage}
-          className="hidden h-10 w-10 items-center justify-center rounded-full border border-white/80 bg-white/80 text-[#9CA3AF] shadow-sm sm:inline-flex"
-        >
-          <Globe className="h-4 w-4" />
-        </button>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="hidden sm:inline-flex"
+            onClick={toggleLanguage}
+            title={t("common.language")}
+            aria-label={t("common.language")}
+          >
+            <Globe className="h-4 w-4" />
+          </Button>
 
-        <button
-          type="button"
-          className="flex h-10 w-10 items-center justify-center rounded-full border border-white/80 bg-white/80 text-[#9CA3AF] shadow-sm hover:text-[#6366F1]"
-          title="Help"
-        >
-          <HelpCircle className="h-4 w-4" />
-        </button>
+          <Popover
+            open={helpOpen}
+            onOpenChange={(open) => {
+              setHelpOpen(open);
+              if (open) setBellOpen(false);
+            }}
+          >
+            <PopoverTrigger asChild>
+              <Button type="button" variant="outline" size="icon" title={t("common.help")} aria-label={t("common.help")}>
+                <HelpCircle className="h-4 w-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-80 rounded-[1.5rem] p-4">
+              <div className="section-kicker uppercase tracking-wide">{t("layout.helpTitle")}</div>
+              <ul className="mt-3 space-y-3 text-sm text-foreground">
+                <li className="flex items-start gap-2.5">
+                  <Search className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span>{t("layout.helpSearch")}</span>
+                </li>
+                <li className="flex items-start gap-2.5">
+                  <Keyboard className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span>{t("layout.helpSearchShortcut")}</span>
+                </li>
+                <li className="flex items-start gap-2.5">
+                  <Bell className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span>{t("layout.helpNotifications")}</span>
+                </li>
+                <li className="flex items-start gap-2.5">
+                  <Zap className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span>{t("layout.helpSurge")}</span>
+                </li>
+              </ul>
+              <Link
+                href="/notifications"
+                className="mt-3 inline-flex text-sm font-medium text-foreground hover:underline"
+                onClick={() => setHelpOpen(false)}
+              >
+                {t("inbox.viewAll")}
+              </Link>
+            </PopoverContent>
+          </Popover>
 
-        <Popover open={bellOpen} onOpenChange={setBellOpen}>
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              className="relative flex h-10 w-10 items-center justify-center rounded-full border border-white/80 bg-white/80 text-[#9CA3AF] shadow-sm hover:text-[#6366F1]"
-            >
-              <Bell className="h-4 w-4" />
-              {unread > 0 && (
-                <span className="absolute -top-0.5 -end-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-[#EF4444] px-1 text-[9px] font-bold text-white">
-                  {unread > 9 ? "9+" : unread}
-                </span>
-              )}
-            </button>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-96 rounded-2xl border-white/60 bg-white p-0">
-            <div className="border-b border-[#EEF0FF] px-4 py-3 text-xs font-semibold uppercase tracking-wide text-[#9CA3AF]">
-              {t("complianceExpiry.bell.header", { count: unread })}
-            </div>
-            <div className="max-h-96 overflow-y-auto">
-              {showComplianceAlerts && complianceCount > 0 && (
-                <>
-                  <div className="flex items-center justify-between border-b border-[#EEF0FF] bg-[#FFF7ED] px-4 py-2">
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-700">
-                      {t("complianceExpiry.bell.complianceSection")}
-                    </span>
-                    <Link
-                      href="/compliance/expiry-alerts"
-                      className="text-[10px] font-medium text-[#6366F1] hover:underline"
-                      onClick={() => setBellOpen(false)}
-                    >
-                      {t("complianceExpiry.banner.viewAll")}
-                    </Link>
-                  </div>
-                  {(complianceAlerts.data?.items ?? []).map((item) => (
-                    <Link
-                      key={item.id}
-                      href={item.actionUrl}
-                      onClick={() => setBellOpen(false)}
-                      className="block border-b border-[#EEF0FF] p-3 last:border-b-0 hover:bg-[#FAFAFF]"
-                    >
-                      <div className="flex items-start gap-2">
-                        <ShieldAlert
-                          className={
-                            "mt-0.5 h-3.5 w-3.5 shrink-0 " +
-                            (item.severity === "expired" || item.severity === "critical"
-                              ? "text-red-500"
-                              : "text-amber-500")
-                          }
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-medium text-[#111827]">{item.title}</div>
-                          <div className="mt-0.5 truncate text-[10px] text-[#9CA3AF]">
-                            {item.locationLabel}
-                            {item.subtitle ? ` · ${item.subtitle}` : ""}
-                          </div>
-                          <div className="mt-1 text-[10px] font-medium text-[#6366F1]">
-                            {severityLabel[item.severity]} ·{" "}
-                            {item.daysRemaining < 0
-                              ? t("complianceExpiry.daysOverdue", { count: Math.abs(item.daysRemaining) })
-                              : t("complianceExpiry.daysRemaining", { count: item.daysRemaining })}
-                          </div>
-                        </div>
-                      </div>
-                    </Link>
-                  ))}
-                  {complianceAlerts.isLoading && (
-                    <div className="border-b border-[#EEF0FF] p-4 text-center text-xs text-[#9CA3AF]">
-                      {t("complianceExpiry.bell.loading")}
-                    </div>
-                  )}
-                </>
-              )}
+          <Button
+            type="button"
+            variant={bellOpen ? "secondary" : "outline"}
+            size="icon"
+            className="relative"
+            aria-label={t("common.notifications")}
+            aria-expanded={bellOpen}
+            aria-pressed={bellOpen}
+            onClick={() => {
+              setHelpOpen(false);
+              setBellOpen((open) => !open);
+            }}
+          >
+            <Bell className="h-4 w-4" />
+            {unread > 0 && (
+              <span className="absolute -end-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-destructive px-1 text-xs font-bold text-destructive-foreground">
+                {unread > 9 ? "9+" : unread}
+              </span>
+            )}
+          </Button>
 
-              {escalationCount > 0 && (
-                <div className="border-b border-[#EEF0FF] bg-[#F8FAFF] px-4 py-2 text-[10px] font-semibold uppercase tracking-wide text-[#6366F1]">
-                  {t("complianceExpiry.bell.escalationsSection")}
-                </div>
-              )}
-              {(escalations.data ?? []).map((e) => (
-                <div key={e.id} className="border-b border-[#EEF0FF] p-3 last:border-b-0">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-[#111827]">{e.title}</div>
-                      <div className="mt-1 text-[10px] text-[#9CA3AF]">
-                        {formatDistanceToNow(new Date(e.created_at), { addSuffix: true })}
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => ack.mutate(e.id)}
-                      className="shrink-0 text-[11px] text-[#6366F1] hover:underline"
-                    >
-                      Resolve
-                    </button>
-                  </div>
-                </div>
-              ))}
-              {escalations.isLoading && complianceAlerts.isLoading && (
-                <div className="p-6 text-center text-xs text-[#9CA3AF]">{t("complianceExpiry.bell.loading")}</div>
-              )}
-              {!escalations.isLoading &&
-                !complianceAlerts.isLoading &&
-                escalationCount === 0 &&
-                complianceCount === 0 && (
-                  <div className="p-6 text-center text-xs text-[#9CA3AF]">{t("complianceExpiry.bell.empty")}</div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="default"
+                size="icon"
+                className="overflow-hidden text-xs font-bold"
+              >
+                {initials || <User className="h-4 w-4" />}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-[14rem]">
+              <DropdownMenuLabel>
+                <div className="font-medium">{profile?.display_name ?? user?.email}</div>
+                {primaryRole && (
+                  <div className="section-kicker mt-0.5 uppercase tracking-wide">{primaryRole}</div>
                 )}
-            </div>
-          </PopoverContent>
-        </Popover>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full border-2 border-white bg-gradient-to-br from-[#8B5CF6] to-[#3B82F6] text-xs font-bold text-white shadow-md"
-            >
-              {initials || <User className="h-4 w-4" />}
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="rounded-2xl border-white/60 bg-white">
-            <DropdownMenuLabel>
-              <div className="font-medium">{profile?.display_name ?? user?.email}</div>
-              {primaryRole && <div className="text-[10px] uppercase text-[#9CA3AF]">{primaryRole}</div>}
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={handleSignOut} className="text-red-600">
-              <LogOut className="me-2 h-4 w-4" />
-              Sign out
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleSignOut} className="text-destructive">
+                <LogOut className="h-4 w-4" />
+                {t("common.signOut")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
+
+      {bellOpen ? (
+        <div className="flex justify-end">
+          <div className="w-full max-w-md overflow-hidden rounded-[1.5rem] border border-border bg-card shadow-elevated-md">
+            <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
+              <div className="section-kicker uppercase tracking-wide">
+                {t("inbox.header", { count: unread })}
+              </div>
+              <div className="flex items-center gap-3">
+                {inboxUnread > 0 ? (
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 text-xs font-medium text-foreground hover:underline"
+                    onClick={() => markAll.mutate()}
+                    disabled={markAll.isPending}
+                  >
+                    <CheckCheck className="h-3.5 w-3.5" />
+                    {t("inbox.markAllRead")}
+                  </button>
+                ) : null}
+                <Link
+                  href="/notifications"
+                  className="text-xs font-medium text-foreground hover:underline"
+                  onClick={closeBell}
+                >
+                  {t("inbox.viewAll")}
+                </Link>
+              </div>
+            </div>
+            {inboxList}
+          </div>
+        </div>
+      ) : null}
     </header>
   );
 }

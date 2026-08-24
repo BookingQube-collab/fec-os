@@ -24,8 +24,20 @@ These are **not** created by the Supabase integration. Add them in the Vercel UI
 |----------|--------------|-------|
 | `CRON_SECRET` | Production (and Preview if testing crons) | Protects `/api/public/*` cron routes. Generate with `openssl rand -hex 32`. Without it, scheduled cron routes will not authenticate. |
 | `ATTENDANCE_INGEST_API_KEY` | Production (and Preview if testing) | `POST /api/public/attendance-ingest` — see [attendance-ingest.md](./api/attendance-ingest.md). |
+| `ADMS_COMM_KEY` | Production (if BioPro SA40 / ZKTeco ADMS push is used) | Shared secret for `/iclock/*`. Pair with a mapped device SN in Time & Attendance → Settings. Optional `ADMS_IP_ALLOWLIST`. |
 
-Other optional keys (`BOOKINGQUBE_*`, `LOVABLE_API_KEY`, `OPENAI_API_KEY`, etc.) — see `.env.example`.
+Other optional keys (`BOOKINGQUBE_*`, etc.) — see `.env.example` if present.
+
+### AI drafts (PR, event plan, reports, checklists)
+
+These features call a hosted LLM. Without a key they fall back to templates / “AI unavailable”.
+
+| Variable | Notes |
+|----------|--------|
+| `OPENAI_API_KEY` | **Recommended self-serve key.** Buy at [platform.openai.com/api-keys](https://platform.openai.com/api-keys). Default model is `gpt-4o-mini` (override with `OPENAI_MODEL`). Set a monthly spend cap under organization billing limits. |
+| `LOVABLE_API_KEY` | Optional. Tried first if set. Uses Lovable’s gateway (`ai.gateway.lovable.dev`) with `google/gemini-3-flash-preview` — this is a Lovable credit key, **not** a Google Gemini key. Required for CEO brief, KB embeddings, and a few other Lovable-only paths. |
+
+A Google `GEMINI_API_KEY` or Anthropic key is **not** read by the app. Do not put a real key in git — use `.env.local` only.
 
 ## Local development
 

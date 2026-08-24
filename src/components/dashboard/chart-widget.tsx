@@ -1,36 +1,43 @@
 "use client";
 
 import { MoreHorizontal } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { NeumorphicCard } from "./neumorphic-card";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 
 interface ChartWidgetProps {
   title: string;
+  icon?: LucideIcon;
   children: ReactNode;
   menuItems?: { label: string; onClick?: () => void }[];
   className?: string;
 }
 
-export function ChartWidget({ title, children, menuItems, className }: ChartWidgetProps) {
+export function ChartWidget({ title, icon: Icon, children, menuItems, className }: ChartWidgetProps) {
   return (
-    <NeumorphicCard className={className}>
-      <div className="flex items-center justify-between border-b border-[#EEF0FF] px-5 py-4">
-        <h3 className="text-sm font-semibold text-[#111827]">{title}</h3>
+    <NeumorphicCard className={cn("flex h-full flex-col", className)}>
+      <div className="flex min-h-11 items-center justify-between gap-3 px-5 pb-2 pt-5">
+        <h3 className="section-kicker min-w-0">
+          {Icon ? <Icon strokeWidth={1.5} /> : null}
+          <span className="truncate">{title}</span>
+        </h3>
         {menuItems && menuItems.length > 0 && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button type="button" className="rounded-full p-1.5 text-[#9CA3AF] hover:bg-[#EEF0FF]">
-                <MoreHorizontal className="h-4 w-4" />
-              </button>
+              <Button type="button" variant="outline" size="icon" className="h-9 w-9 shrink-0" aria-label="Chart menu">
+                <MoreHorizontal className="stroke-[1.5]" />
+              </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="border-white/60 bg-white">
+            <DropdownMenuContent align="end">
               {menuItems.map((item) => (
                 <DropdownMenuItem key={item.label} onClick={item.onClick}>
                   {item.label}
@@ -40,7 +47,7 @@ export function ChartWidget({ title, children, menuItems, className }: ChartWidg
           </DropdownMenu>
         )}
       </div>
-      <div className="p-4">{children}</div>
+      <div className="flex min-h-0 flex-1 flex-col px-5 pb-5 pt-2">{children}</div>
     </NeumorphicCard>
   );
 }

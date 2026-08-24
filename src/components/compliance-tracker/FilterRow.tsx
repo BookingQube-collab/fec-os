@@ -100,7 +100,7 @@ export function FilterRow({ value, onChange }: FilterRowProps) {
 
       <div className="flex items-center gap-2">
 
-        <span className="font-display text-sm font-semibold text-[#0B1F3A]">
+        <span className="text-sm font-semibold text-foreground">
 
           {t(FILTER_I18N.location.key, { defaultValue: FILTER_I18N.location.fallback })}
 
@@ -152,7 +152,7 @@ export function FilterRow({ value, onChange }: FilterRowProps) {
 
       <div className="flex items-center gap-2">
 
-        <span className="font-display text-sm font-semibold text-[#0B1F3A]">
+        <span className="text-sm font-semibold text-foreground">
 
           {t(FILTER_I18N.field.key, { defaultValue: FILTER_I18N.field.fallback })}
 

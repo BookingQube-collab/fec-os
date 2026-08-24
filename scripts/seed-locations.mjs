@@ -67,6 +67,26 @@ const LOCATIONS = [
     status: "active",
     launched_on: "2024-02-14",
   },
+  {
+    code: "KDS-DM",
+    name: "Kids Mini Driving School",
+    city: "Doha",
+    region: "Doha Mall",
+    country: "QA",
+    timezone: "Asia/Qatar",
+    status: "active",
+    launched_on: "2022-04-01",
+  },
+  {
+    code: "WM-VM",
+    name: "Winter Mirage",
+    city: "Doha",
+    region: "Vendome Mall",
+    country: "QA",
+    timezone: "Asia/Qatar",
+    status: "active",
+    launched_on: "2026-04-22",
+  },
 ];
 
 const ALLOWED_CODES = LOCATIONS.map((loc) => loc.code);

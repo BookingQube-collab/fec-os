@@ -292,8 +292,8 @@ async function resolveAutoQueryScore(
         .select("status, late_minutes")
         .gte("work_date", ctx.periodStart)
         .lte("work_date", ctx.periodEnd);
-      if (loc) q = q.eq("location_id", loc);
       if (ctx.staffId) q = q.eq("staff_id", ctx.staffId);
+      else if (loc) q = q.eq("location_id", loc);
       const { data } = await q;
       const rows = data ?? [];
       if (!rows.length) return null;

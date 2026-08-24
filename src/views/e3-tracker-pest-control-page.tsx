@@ -5,8 +5,8 @@ import { CategoryTrackerPage } from "./e3-tracker-category-page";
 export default function E3TrackerPestControlPage() {
   return (
     <CategoryTrackerPage
-      title="Pest Control Tracker"
-      subtitle="Monthly pest control AMC across cafe, playground, and whole-area scopes."
+      titleKey="e3Tracker.pages.pestControl.title"
+      subtitleKey="e3Tracker.pages.pestControl.subtitle"
       categories={["Pest Control"]}
     />
   );

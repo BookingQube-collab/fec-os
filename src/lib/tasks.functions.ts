@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 
+import { completeJsonViaGateway } from "@/lib/ai/complete-json";
 import {
   createAuthenticatedAction,
   createAuthenticatedActionNoInput,
@@ -94,56 +95,19 @@ function defaultChecklistItems(kind: ChecklistKind, branchCode: string): Checkli
 }
 
 async function callChecklistAi(prompt: string): Promise<ChecklistItemDraft[] | null> {
-  const lovableKey = process.env.LOVABLE_API_KEY;
-  const openaiKey = process.env.OPENAI_API_KEY;
-
-  if (lovableKey) {
-    try {
-      const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Lovable-API-Key": lovableKey },
-        body: JSON.stringify({
-          model: "google/gemini-3-flash-preview",
-          messages: [{ role: "user", content: prompt }],
-        }),
-      });
-      if (resp.ok) {
-        const json = (await resp.json()) as { choices?: Array<{ message?: { content?: string } }> };
-        const text = json.choices?.[0]?.message?.content ?? "";
-        const items = parseChecklistJson(text);
-        if (items.length > 0) return items;
-      }
-    } catch {
-      /* fall through to OpenAI or defaults */
-    }
-  }
-
-  if (openaiKey) {
-    try {
-      const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${openaiKey}`,
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          messages: [{ role: "user", content: prompt }],
-          temperature: 0.4,
-        }),
-      });
-      if (resp.ok) {
-        const json = (await resp.json()) as { choices?: Array<{ message?: { content?: string } }> };
-        const text = json.choices?.[0]?.message?.content ?? "";
-        const items = parseChecklistJson(text);
-        if (items.length > 0) return items;
-      }
-    } catch {
-      /* fall through */
-    }
-  }
-
-  return null;
+  const parsed = await completeJsonViaGateway(
+    [
+      {
+        role: "system",
+        content: "You generate supervisor checklists for FEC venues in Qatar. Output only valid JSON.",
+      },
+      { role: "user", content: prompt },
+    ],
+    { temperature: 0.4, moduleSource: "tasks.checklist" },
+  );
+  if (!parsed) return null;
+  const items = parseChecklistJson(JSON.stringify(parsed));
+  return items.length > 0 ? items : null;
 }
 
 function parseChecklistJson(text: string): ChecklistItemDraft[] {
@@ -485,7 +449,7 @@ Rules:
       items = defaultChecklistItems(data.kind, loc.code);
       used_ai = false;
       ai_note =
-        "AI unavailable — using branch default checklist. Set LOVABLE_API_KEY or OPENAI_API_KEY in .env.local.";
+        "AI unavailable — using branch default checklist. Configure a provider in Admin → AI Integrations.";
     }
 
     const title = `${data.kind.replace("_", " ")} checklist — ${loc.code} — ${date}`;

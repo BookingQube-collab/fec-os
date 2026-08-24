@@ -252,6 +252,7 @@ export async function fetchDailyOpsRosterUploads(context: AuthContext, locationI
     await assertLocationAccess(context, locationId);
     q = q.eq("location_id", locationId);
   }
+  q = q.or("notes.is.null,notes.neq.attendance_tally");
   const { data, error } = await q;
   if (error) throw error;
   return data ?? [];

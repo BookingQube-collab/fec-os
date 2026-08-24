@@ -5,6 +5,7 @@
 import { ArrowDown, ArrowUp, ArrowUpDown, Search } from "lucide-react";
 
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 
 
@@ -67,6 +68,7 @@ type SortKey =
 
 
 export default function E3VendorRegisterPage() {
+  const { t } = useTranslation();
 
   const [filter, setFilter] = useState({ location: "All", field: "All" });
 
@@ -152,9 +154,9 @@ export default function E3VendorRegisterPage() {
 
     <E3TrackerPageShell
 
-      title="Vendor Register"
+      title={t("e3Tracker.pages.vendorRegister.title")}
 
-      subtitle="Aggregated vendor compliance scores scoped to location and area filters."
+      subtitle={t("e3Tracker.pages.vendorRegister.subtitle")}
 
     >
 

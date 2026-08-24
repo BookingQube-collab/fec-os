@@ -100,6 +100,9 @@ export const CAPABILITIES = {
   // People / HR
   "people.view_roster": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "hr"],
   "people.edit_roster": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "hr"],
+  "people.import_roster": ["ceo", "coo", "regional_ops", "hr", "branch_gm", "duty_manager"],
+  "people.view_salary": ["ceo", "coo", "cfo", "hr"],
+  "people.edit_salary": ["ceo", "coo", "cfo", "hr"],
 
   // Compliance
   "compliance.view": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "auditor"],
@@ -128,6 +131,7 @@ export const CAPABILITIES = {
   "admin.manage_users": ["ceo", "coo"],
   "admin.manage_roles": ["ceo"],
   "admin.provision_users": ["ceo", "coo"],
+  "admin.diagnostics": ["ceo", "coo", "regional_ops"],
 
   // Operations dashboard
   "dashboard.view": ["ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "technician", "cashier_host", "auditor", "hr", "customer_service"],
@@ -144,17 +148,29 @@ export const CAPABILITIES = {
   "kpi.score_entry": ["branch_gm", "duty_manager", "hr"],
   "kpi.view_own": ["cashier_host", "technician", "customer_service", "tech_supervisor"],
 
+  // Employee Performance & Recognition (extends KPI engine; People department)
+  "performance.view": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "hr", "auditor", "tech_supervisor"],
+  "performance.manage_templates": ["ceo", "coo", "hr", "regional_ops"],
+  "performance.assign": ["ceo", "coo", "hr", "regional_ops", "branch_gm", "duty_manager"],
+  "performance.evaluate": ["ceo", "coo", "hr", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor"],
+  "performance.approve_eom": ["ceo", "coo", "hr", "regional_ops", "branch_gm"],
+  "performance.export": ["ceo", "coo", "hr", "regional_ops", "branch_gm", "auditor"],
+
   // SOP management
   "sop.view": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "technician", "cashier_host", "hr", "customer_service", "auditor"],
   "sop.manage": ["ceo", "coo", "regional_ops", "branch_gm"],
   "sop.acknowledge": ["branch_gm", "duty_manager", "tech_supervisor", "technician", "cashier_host", "hr", "customer_service"],
 
   // Attendance
-  "attendance.view": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "hr", "auditor"],
-  "attendance.import": ["branch_gm", "duty_manager", "hr"],
-  "attendance.manage_devices": ["branch_gm", "hr", "regional_ops"],
-  "attendance.correct": ["branch_gm", "duty_manager", "hr", "cashier_host", "technician"],
-  "attendance.approve": ["branch_gm", "duty_manager", "hr"],
+  "attendance.view": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "hr", "auditor"],
+  "attendance.import": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "hr"],
+  "attendance.manage_devices": ["ceo", "coo", "regional_ops", "branch_gm", "hr"],
+  "attendance.correct": ["branch_gm", "duty_manager", "tech_supervisor", "hr"],
+  "attendance.approve": ["branch_gm", "hr", "ceo", "coo"],
+  "attendance.configure": ["ceo", "coo", "regional_ops", "hr"],
+  "attendance.export": ["ceo", "coo", "cfo", "regional_ops", "hr", "auditor", "branch_gm"],
+  "attendance.map_users": ["hr", "ceo", "coo"],
+  "attendance.view_all": ["hr", "ceo", "coo", "cfo", "regional_ops", "auditor"],
 
   // Snags
   "snags.view": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "technician", "auditor"],
@@ -226,6 +242,29 @@ export const CAPABILITIES = {
   "weekly_reports.view_executive": ["ceo", "coo", "cfo", "regional_ops", "auditor"],
   /** @deprecated alias — use weekly_reports.executive */
   "weekly_reports.generate": ["ceo", "coo", "regional_ops"],
+
+  // PR & Procurement Control
+  "procurement.view": [
+    "ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager",
+    "tech_supervisor", "technician", "cashier_host", "auditor", "hr", "customer_service",
+  ],
+  "procurement.create": [
+    "ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager",
+    "tech_supervisor", "technician", "cashier_host", "hr", "customer_service",
+  ],
+  "procurement.approve_dept": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager"],
+  "procurement.approve_gm": ["ceo", "coo", "regional_ops", "branch_gm"],
+  "procurement.approve_ceo": ["ceo", "coo"],
+  "procurement.finance": ["ceo", "coo", "cfo", "regional_ops"],
+  "procurement.configure": ["ceo", "coo", "cfo"],
+
+  // Event project management
+  "events.view": ["ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager", "auditor", "tech_supervisor"],
+  "events.create": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager"],
+  "events.edit": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager"],
+  "events.manage": ["ceo", "coo", "regional_ops", "branch_gm"],
+  "events.approve": ["ceo", "coo", "regional_ops", "branch_gm"],
+  "events.finance": ["ceo", "coo", "cfo", "regional_ops"],
 } as const satisfies Record<string, readonly AppRole[]>;
 
 export type Capability = keyof typeof CAPABILITIES;

@@ -2,24 +2,26 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { ShieldCheck } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
+import { PageHeader } from "@/components/layout/page-header";
 import { E3_NAV_ITEMS } from "@/lib/compliance-tracker/constants";
 import { cn } from "@/lib/utils";
 
 export function E3TrackerLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const { t } = useTranslation();
 
   return (
-    <div className="space-y-5 font-sans">
-      <div>
-        <h1 className="font-display text-2xl font-semibold text-[#0B1F3A]">
-          E3 AMC & Compliance Tracker
-        </h1>
-        <p className="mt-1 text-sm text-[#475569]">
-          Annual maintenance contracts, licenses, and compliance across all FEC locations.
-        </p>
-      </div>
-      <nav className="flex flex-wrap gap-2 border-b border-[#E2E8F0] pb-3">
+    <div className="space-y-5">
+      <PageHeader
+        icon={ShieldCheck}
+        kicker={t("e3Tracker.layout.kicker")}
+        title={t("e3Tracker.layout.title")}
+        subtitle={t("e3Tracker.layout.subtitle")}
+      />
+      <nav className="flex flex-wrap gap-2 border-b border-border pb-3">
         {E3_NAV_ITEMS.map((item) => {
           const active =
             item.href === "/compliance/e3-tracker"
@@ -30,13 +32,13 @@ export function E3TrackerLayout({ children }: { children: React.ReactNode }) {
               key={item.href}
               href={item.href}
               className={cn(
-                "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                "rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
                 active
-                  ? "bg-[#0B1F3A] text-white"
-                  : "text-[#0B1F3A] hover:bg-[#F2F4F7] hover:text-[#E8821E]",
+                  ? "bg-primary text-primary-foreground shadow-elevated-xs"
+                  : "text-muted-foreground hover:bg-secondary hover:text-foreground",
               )}
             >
-              {item.label}
+              {t(item.labelKey)}
             </Link>
           );
         })}
@@ -58,8 +60,8 @@ export function E3TrackerPageShell({
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="font-display text-xl font-semibold text-[#0B1F3A]">{title}</h2>
-        {subtitle ? <p className="mt-1 text-sm text-[#64748B]">{subtitle}</p> : null}
+        <h2 className="page-title text-[1.35rem]">{title}</h2>
+        {subtitle ? <p className="page-subtitle">{subtitle}</p> : null}
       </div>
       {children}
     </div>

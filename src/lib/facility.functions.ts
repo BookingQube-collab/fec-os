@@ -5,7 +5,7 @@ import { z } from "zod";
 import { assertLocationAccess } from "@/lib/server/authorize";
 import { createAuthenticatedAction } from "@/lib/server/create-action";
 
-export const FACILITY_CATEGORIES = [
+const FACILITY_CATEGORIES = [
   "cleaning", "pest_control", "hvac", "fire_systems", "cctv",
   "mall_approvals", "maintenance_issues", "safety_observations", "site_readiness",
 ] as const;

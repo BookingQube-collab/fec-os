@@ -1,12 +1,16 @@
 "use client";
 
+import { useTranslation } from "react-i18next";
+
 import type { ComplianceKpis } from "@/lib/compliance-tracker/aggregations";
+import { TintedKpiCard, type KpiTint } from "@/components/dashboard/tinted-kpi-card";
 
 type KpiCard = {
   label: string;
   value: number | string;
-  bg: string;
-  text: string;
+  tint?: KpiTint;
+  bg?: string;
+  text?: string;
 };
 
 type KpiStripProps = {
@@ -15,30 +19,27 @@ type KpiStripProps = {
 };
 
 export function KpiStrip({ kpis, extra }: KpiStripProps) {
+  const { t } = useTranslation();
   const cards: KpiCard[] = extra ?? [
-    { label: "Total Items", value: kpis.total, bg: "#0B1F3A", text: "#FFFFFF" },
-    { label: "Compliant", value: kpis.compliant, bg: "#1E7B45", text: "#FFFFFF" },
-    {
-      label: "Expiring ≤30 Days",
-      value: kpis.expiring30,
-      bg: "#E8A33D",
-      text: "#0A1228",
-    },
-    { label: "Overdue", value: kpis.overdue, bg: "#C0392B", text: "#FFFFFF" },
-    { label: "Missing", value: kpis.missing, bg: "#C0392B", text: "#FFFFFF" },
+    { label: t("e3Tracker.kpis.total"), value: kpis.total, tint: "sky" },
+    { label: t("e3Tracker.kpis.compliant"), value: kpis.compliant, tint: "green" },
+    { label: t("e3Tracker.kpis.expiring30"), value: kpis.expiring30, tint: "amber" },
+    { label: t("e3Tracker.kpis.overdue"), value: kpis.overdue, tint: "red" },
+    { label: t("e3Tracker.kpis.missing"), value: kpis.missing, tint: "red" },
   ];
 
   return (
-    <div className={`grid grid-cols-2 gap-3 ${cards.length === 4 ? "md:grid-cols-4" : "md:grid-cols-5"}`}>
+    <div
+      className={`grid grid-cols-2 gap-2.5 ${cards.length === 4 ? "md:grid-cols-4" : "md:grid-cols-5"}`}
+    >
       {cards.map((card) => (
-        <div
+        <TintedKpiCard
           key={card.label}
-          className="rounded-lg px-4 py-3 shadow-sm"
-          style={{ backgroundColor: card.bg, color: card.text }}
-        >
-          <div className="text-xs font-medium uppercase tracking-wide opacity-90">{card.label}</div>
-          <div className="font-display mt-1 text-2xl font-semibold">{card.value}</div>
-        </div>
+          title={card.label}
+          value={card.value}
+          tint={card.tint ?? "sky"}
+          compact
+        />
       ))}
     </div>
   );

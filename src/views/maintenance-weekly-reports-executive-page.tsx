@@ -63,7 +63,7 @@ export default function MaintenanceWeeklyReportsExecutivePage() {
     <MaintenanceWeeklyReportsLayout>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h2 className="font-display text-xl font-semibold text-[#0B1F3A]">
+          <h2 className="text-xl font-semibold text-foreground">
             {t("maintenanceWeeklyReports.nav.executive")}
           </h2>
           <p className="mt-1 text-sm text-[#64748B]">{t("maintenanceWeeklyReports.executive.subtitle")}</p>

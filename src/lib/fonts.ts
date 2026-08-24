@@ -1,17 +1,14 @@
-import { Manrope, Sora } from "next/font/google";
+import { Poppins } from "next/font/google";
 
-export const fontSans = Manrope({
+/** FEC-OS UI typeface — Crextio-style geometric sans. */
+export const fontSans = Poppins({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
   variable: "--font-sans",
   display: "swap",
 });
 
-export const fontDisplay = Sora({
-  subsets: ["latin"],
-  weight: ["500", "600", "700"],
-  variable: "--font-display",
-  display: "swap",
-});
+/** @deprecated Alias kept so any legacy imports of fontDisplay keep resolving. */
+export const fontDisplay = fontSans;
 
-export const fontClassNames = `${fontSans.variable} ${fontDisplay.variable}`;
+export const fontClassNames = fontSans.variable;

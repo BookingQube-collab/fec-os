@@ -11,8 +11,8 @@ export function DashboardPanel({ children, className, noPadding }: DashboardPane
   return (
     <div
       className={cn(
-        "rounded-[32px] border border-white/60 bg-white shadow-sm",
-        !noPadding && "p-5 md:p-6",
+        "rounded-[1.75rem] border border-border/50 bg-card shadow-elevated-sm",
+        !noPadding && "p-5 md:p-7",
         className,
       )}
     >

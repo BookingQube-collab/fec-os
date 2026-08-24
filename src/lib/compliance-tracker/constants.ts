@@ -89,20 +89,20 @@ export const E3_VENDOR_STATUS_COLORS = {
 } as const;
 
 export const E3_NAV_ITEMS = [
-  { href: "/compliance/e3-tracker", label: "Dashboard" },
-  { href: "/compliance/e3-tracker/master-register", label: "Master Register" },
-  { href: "/compliance/e3-tracker/amc-dashboard", label: "AMC Contracts" },
-  { href: "/compliance/e3-tracker/amc-tracker", label: "AMC Tracker" },
-  { href: "/compliance/e3-tracker/vendor-register", label: "Vendor Register" },
-  { href: "/compliance/e3-tracker/monthly-scheduler", label: "Monthly Scheduler" },
-  { href: "/compliance/e3-tracker/missing-documents", label: "Missing Documents" },
-  { href: "/compliance/e3-tracker/license-documents", label: "License Documents" },
-  { href: "/compliance/e3-tracker/qcdd", label: "QCDD" },
-  { href: "/compliance/e3-tracker/fire-alarm", label: "Fire Alarm" },
-  { href: "/compliance/e3-tracker/pest-control", label: "Pest Control" },
-  { href: "/compliance/e3-tracker/cctv", label: "CCTV" },
-  { href: "/compliance/e3-tracker/kitchen-compliance", label: "Kitchen Compliance" },
-  { href: "/compliance/e3-tracker/third-party-certification", label: "Third Party Certification" },
+  { href: "/compliance/e3-tracker", label: "Dashboard", labelKey: "e3Tracker.nav.dashboard" },
+  { href: "/compliance/e3-tracker/master-register", label: "Master Register", labelKey: "e3Tracker.nav.masterRegister" },
+  { href: "/compliance/e3-tracker/amc-dashboard", label: "Maintenance contracts", labelKey: "e3Tracker.nav.amcDashboard" },
+  { href: "/compliance/e3-tracker/amc-tracker", label: "Contract tracker", labelKey: "e3Tracker.nav.amcTracker" },
+  { href: "/compliance/e3-tracker/vendor-register", label: "Vendor Register", labelKey: "e3Tracker.nav.vendorRegister" },
+  { href: "/compliance/e3-tracker/monthly-scheduler", label: "Monthly Scheduler", labelKey: "e3Tracker.nav.monthlyScheduler" },
+  { href: "/compliance/e3-tracker/missing-documents", label: "Missing Documents", labelKey: "e3Tracker.nav.missingDocuments" },
+  { href: "/compliance/e3-tracker/license-documents", label: "License Documents", labelKey: "e3Tracker.nav.licenseDocuments" },
+  { href: "/compliance/e3-tracker/qcdd", label: "QCDD", labelKey: "e3Tracker.nav.qcdd" },
+  { href: "/compliance/e3-tracker/fire-alarm", label: "Fire Alarm", labelKey: "e3Tracker.nav.fireAlarm" },
+  { href: "/compliance/e3-tracker/pest-control", label: "Pest Control", labelKey: "e3Tracker.nav.pestControl" },
+  { href: "/compliance/e3-tracker/cctv", label: "CCTV", labelKey: "e3Tracker.nav.cctv" },
+  { href: "/compliance/e3-tracker/kitchen-compliance", label: "Kitchen Compliance", labelKey: "e3Tracker.nav.kitchen" },
+  { href: "/compliance/e3-tracker/third-party-certification", label: "Third Party Certification", labelKey: "e3Tracker.nav.thirdParty" },
 ] as const;
 
 export const E3_TABLE = "e3_compliance_items" as const;

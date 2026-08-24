@@ -1,7 +1,9 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { useMemo, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -77,10 +79,24 @@ function DailyOpsIncidentsPage() {
   const { t } = useTranslation();
   const { profile, user } = useAuth();
   const locationId = useAppStore((s) => s.currentLocationId);
+  const searchParams = useSearchParams();
+  const hoursFilter = Number(searchParams.get("hours"));
+  const severityFilter = searchParams.get("severity");
   const canManage = usePermission("daily_ops.manage");
   const { data, isLoading } = useDailyOpsIncidents(locationId);
   const { data: sites } = useSites();
   const qc = useQueryClient();
+  const rows = useMemo(() => {
+    let list = data ?? [];
+    if (hoursFilter && !Number.isNaN(hoursFilter) && hoursFilter > 0) {
+      const since = Date.now() - hoursFilter * 3600_000;
+      list = list.filter((row) => new Date(String(row.occurred_at)).getTime() >= since);
+    }
+    if (severityFilter) {
+      list = list.filter((row) => String(row.severity) === severityFilter);
+    }
+    return list;
+  }, [data, hoursFilter, severityFilter]);
 
   const reporterName = profile?.display_name ?? user?.email?.split("@")[0] ?? "Staff";
 
@@ -203,9 +219,25 @@ function DailyOpsIncidentsPage() {
         </TabsList>
 
         <TabsContent value="list" className="mt-4">
+          {severityFilter === "critical" || (hoursFilter > 0 && !Number.isNaN(hoursFilter)) ? (
+            <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+              {severityFilter === "critical" ? (
+                <Badge variant="destructive">{t("dailyOps.incidents.filterCritical")}</Badge>
+              ) : null}
+              {hoursFilter > 0 && !Number.isNaN(hoursFilter) ? (
+                <Badge variant="secondary">{t("dailyOps.incidents.filterHours", { hours: hoursFilter })}</Badge>
+              ) : null}
+              <Link
+                href="/daily-ops/incidents"
+                className="text-xs font-medium text-muted-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              >
+                {t("dailyOps.incidents.clearFilter")}
+              </Link>
+            </div>
+          ) : null}
           {isLoading ? (
             <p className="text-sm text-muted-foreground">{t("dailyOps.loading")}</p>
-          ) : !data?.length ? (
+          ) : !rows.length ? (
             <p className="text-sm text-muted-foreground">{t("dailyOps.incidents.empty")}</p>
           ) : (
             <div className="overflow-x-auto rounded-lg border border-border bg-card">
@@ -221,7 +253,7 @@ function DailyOpsIncidentsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {data.map((row) => (
+                  {rows.map((row) => (
                     <TableRow key={String(row.id)}>
                       <TableCell className="text-xs whitespace-nowrap">
                         {new Date(String(row.occurred_at)).toLocaleString()}
@@ -250,9 +282,9 @@ function DailyOpsIncidentsPage() {
         {canManage && (
           <TabsContent value="new" className="mt-4">
             <div className="mx-auto max-w-2xl rounded-xl border border-border bg-card shadow-sm">
-              <div className="border-b border-border bg-gradient-to-r from-violet-500/10 via-primary/5 to-transparent px-5 py-4">
+              <div className="border-b border-border/40 bg-secondary/40 px-5 py-4">
                 <div className="flex items-start gap-3">
-                  <div className="grid h-10 w-10 place-items-center rounded-lg bg-violet-500/15 text-violet-600 dark:text-violet-400">
+                  <div className="grid h-10 w-10 place-items-center rounded-full kpi-icon-orange">
                     <AlertTriangle className="h-5 w-5" />
                   </div>
                   <div>
@@ -346,7 +378,7 @@ function DailyOpsIncidentsPage() {
                   )}
                 </div>
 
-                <div className="rounded-lg border border-dashed border-violet-500/30 bg-violet-500/5 p-4 space-y-3">
+                <div className="rounded-2xl border border-dashed border-border bg-muted/30 p-4 space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <p className="text-sm font-medium">{t("dailyOps.incidents.narrativeSection")}</p>
@@ -356,14 +388,14 @@ function DailyOpsIncidentsPage() {
                       type="button"
                       variant="outline"
                       size="sm"
-                      className="border-violet-500/40 bg-background"
+                      className="border-border/60 bg-card"
                       onClick={() => aiDraftMut.mutate()}
                       disabled={aiDraftMut.isPending || !(form.location_id || locationId)}
                     >
                       {aiDraftMut.isPending ? (
                         <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
                       ) : (
-                        <Sparkles className="mr-1.5 h-3.5 w-3.5 text-violet-500" />
+                        <Sparkles className="mr-1.5 h-3.5 w-3.5 text-foreground" />
                       )}
                       {t("dailyOps.incidents.aiAssist")}
                     </Button>

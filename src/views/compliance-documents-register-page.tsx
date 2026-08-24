@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ChevronRight, FileText, Plus } from "lucide-react";
 
 import { CompliancePageShell } from "@/components/compliance/compliance-page-shell";
@@ -28,6 +29,7 @@ import { cn } from "@/lib/utils";
 import { ComplianceStatusBadge } from "@/views/compliance-documents-page";
 
 function ComplianceDocumentsRegisterPage() {
+  const { t } = useTranslation();
   const locationId = useAppStore((s) => s.currentLocationId);
   const [statusFilter, setStatusFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
@@ -71,14 +73,14 @@ function ComplianceDocumentsRegisterPage() {
 
   return (
     <CompliancePageShell
-      title="Legal & Compliance Documents"
-      subtitle="Certificates, licences, quotations, payments and renewal tracking"
+      title={t("complianceHub.documents.registerTitle")}
+      subtitle={t("complianceHub.documents.registerSubtitle")}
       onExportPdf={exportPdf}
       onExportExcel={exportExcel}
       actions={
         <Button size="sm" asChild>
           <Link href="/compliance/documents/new">
-            <Plus className="mr-1 h-4 w-4" /> New document
+            <Plus className="mr-1 h-4 w-4" /> {t("complianceHub.documents.newDocument")}
           </Link>
         </Button>
       }
@@ -86,59 +88,59 @@ function ComplianceDocumentsRegisterPage() {
       <div className="mb-4 flex flex-wrap gap-3">
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="h-8 w-40 text-xs">
-            <SelectValue placeholder="Status" />
+            <SelectValue placeholder={t("common.status")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All statuses</SelectItem>
+            <SelectItem value="all">{t("complianceHub.documents.allStatuses")}</SelectItem>
             {["pending", "submitted", "expired", "under_renewal", "approved", "rejected"].map((s) => (
-              <SelectItem key={s} value={s}>{s.replace(/_/g, " ")}</SelectItem>
+              <SelectItem key={s} value={s}>{t(`complianceHub.documents.docStatuses.${s}`)}</SelectItem>
             ))}
           </SelectContent>
         </Select>
         <Select value={typeFilter} onValueChange={setTypeFilter}>
           <SelectTrigger className="h-8 w-48 text-xs">
-            <SelectValue placeholder="Document type" />
+            <SelectValue placeholder={t("complianceHub.documents.documentType")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All types</SelectItem>
-            {COMPLIANCE_DOCUMENT_TYPES.map((t) => (
-              <SelectItem key={t} value={t}>{COMPLIANCE_DOCUMENT_TYPE_LABELS[t]}</SelectItem>
+            <SelectItem value="all">{t("complianceHub.documents.allTypes")}</SelectItem>
+            {COMPLIANCE_DOCUMENT_TYPES.map((typeKey) => (
+              <SelectItem key={typeKey} value={typeKey}>{t(`complianceHub.documents.types.${typeKey}`, { defaultValue: COMPLIANCE_DOCUMENT_TYPE_LABELS[typeKey] })}</SelectItem>
             ))}
           </SelectContent>
         </Select>
         <Input
           className="h-8 w-56 text-xs"
-          placeholder="Search name, certificate #…"
+          placeholder={t("complianceHub.documents.searchPlaceholder")}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <Button variant="outline" size="sm" className="h-8 text-xs" asChild>
+        <Button variant="outline" size="sm" asChild>
           <Link href="/compliance/expiry-alerts">
-            <FileText className="mr-1 h-3 w-3" /> Expiry alerts
+            <FileText className="mr-1 h-3 w-3" /> {t("amc.expiryAlerts")}
           </Link>
         </Button>
       </div>
 
       {isLoading ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-          Loading documents…
+          {t("complianceHub.documents.loading")}
         </div>
       ) : !items.length ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-          No compliance documents on file.
+          {t("complianceHub.documents.empty")}
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border">
           <table className="w-full text-sm">
             <thead className="bg-surface/60 text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
-                <th className="px-3 py-2 text-left">Site</th>
-                <th className="px-3 py-2 text-left">Document</th>
-                <th className="px-3 py-2 text-left">Certificate #</th>
-                <th className="px-3 py-2 text-left">Expiry</th>
-                <th className="px-3 py-2 text-left">Payment</th>
-                <th className="px-3 py-2 text-left">Outstanding</th>
-                <th className="px-3 py-2 text-left">Status</th>
+                <th className="px-3 py-2 text-left">{t("common.site")}</th>
+                <th className="px-3 py-2 text-left">{t("complianceHub.documents.document")}</th>
+                <th className="px-3 py-2 text-left">{t("complianceHub.documents.certificateNo")}</th>
+                <th className="px-3 py-2 text-left">{t("complianceHub.documents.expiry")}</th>
+                <th className="px-3 py-2 text-left">{t("complianceHub.documents.payment")}</th>
+                <th className="px-3 py-2 text-left">{t("complianceHub.documents.outstanding")}</th>
+                <th className="px-3 py-2 text-left">{t("common.status")}</th>
                 <th />
               </tr>
             </thead>
@@ -148,7 +150,7 @@ function ComplianceDocumentsRegisterPage() {
                   <td className="px-3 py-2 font-mono text-xs">{d.location_code ?? "—"}</td>
                   <td className="px-3 py-2">
                     <div className="font-medium">
-                      {d.document_name ?? COMPLIANCE_DOCUMENT_TYPE_LABELS[d.document_type as keyof typeof COMPLIANCE_DOCUMENT_TYPE_LABELS] ?? d.document_type}
+                      {d.document_name ?? t(`complianceHub.documents.types.${d.document_type}`, { defaultValue: COMPLIANCE_DOCUMENT_TYPE_LABELS[d.document_type as keyof typeof COMPLIANCE_DOCUMENT_TYPE_LABELS] ?? d.document_type })}
                     </div>
                     <div className="text-[10px] text-muted-foreground">{d.issuing_authority ?? "—"}</div>
                   </td>
@@ -161,14 +163,14 @@ function ComplianceDocumentsRegisterPage() {
                   </td>
                   <td className="px-3 py-2">
                     <span className={cn("inline-flex rounded-md border px-1.5 py-0.5 text-[10px] uppercase", paymentStatusBadge(d.payment_status))}>
-                      {d.payment_status.replace(/_/g, " ")}
+                      {t(`complianceHub.documents.paymentStatuses.${d.payment_status}`, { defaultValue: d.payment_status.replace(/_/g, " ") })}
                     </span>
                   </td>
                   <td className="px-3 py-2 text-xs">{fmtQar(d.outstanding_amount)}</td>
                   <td className="px-3 py-2"><ComplianceStatusBadge status={d.status} /></td>
                   <td className="px-3 py-2 text-right">
                     <Link href={`/compliance/documents/${d.id}`} className="inline-flex items-center text-xs text-primary hover:underline">
-                      View <ChevronRight className="h-3 w-3" />
+                      {t("common.view")} <ChevronRight className="h-3 w-3" />
                     </Link>
                   </td>
                 </tr>

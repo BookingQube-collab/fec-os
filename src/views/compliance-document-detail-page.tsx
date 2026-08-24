@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Download, Loader2, Trash2, Upload } from "lucide-react";
 import { useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import {
@@ -41,6 +42,7 @@ import { ComplianceStatusBadge } from "@/views/compliance-documents-page";
 const STATUSES = ["pending", "submitted", "expired", "under_renewal", "approved", "rejected"] as const;
 
 function ComplianceDocumentDetailPage() {
+  const { t } = useTranslation();
   const { id } = useParams() as { id: string };
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -61,7 +63,7 @@ function ComplianceDocumentDetailPage() {
   const statusMut = useMutation({
     mutationFn: (status: (typeof STATUSES)[number]) => updateComplianceDocumentStatus({ id, status }),
     onSuccess: () => {
-      toast.success("Status updated");
+      toast.success(t("complianceHub.documents.statusUpdated"));
       void qc.invalidateQueries({ queryKey: ["compliance-document", id] });
       void qc.invalidateQueries({ queryKey: ["compliance-documents"] });
     },
@@ -71,7 +73,7 @@ function ComplianceDocumentDetailPage() {
   const deleteMut = useMutation({
     mutationFn: () => deleteComplianceDocument({ id }),
     onSuccess: () => {
-      toast.success("Document deleted");
+      toast.success(t("complianceHub.documents.documentDeleted"));
       window.location.href = "/compliance/documents";
     },
     onError: (e) => toast.error((e as Error).message),
@@ -89,7 +91,7 @@ function ComplianceDocumentDetailPage() {
       });
     },
     onSuccess: () => {
-      toast.success("File uploaded");
+      toast.success(t("complianceHub.documents.fileUploaded"));
       void qc.invalidateQueries({ queryKey: ["compliance-document", id] });
       void qc.invalidateQueries({ queryKey: ["compliance-document-file", id] });
     },
@@ -109,13 +111,13 @@ function ComplianceDocumentDetailPage() {
       });
     },
     onSuccess: () => {
-      toast.success("Attachment uploaded");
+      toast.success(t("complianceHub.documents.attachmentUploaded"));
       void qc.invalidateQueries({ queryKey: ["compliance-document", id] });
     },
     onError: (e) => toast.error((e as Error).message),
   });
 
-  if (isLoading) return <div className="text-sm text-muted-foreground">Loading…</div>;
+  if (isLoading) return <div className="text-sm text-muted-foreground">{t("common.loading")}</div>;
   if (error) return <div className="text-sm text-rose-300">{(error as Error).message}</div>;
   if (!data) return null;
 
@@ -126,7 +128,7 @@ function ComplianceDocumentDetailPage() {
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="sm" asChild>
           <Link href="/compliance/documents">
-            <ArrowLeft className="mr-1 h-4 w-4" /> Back
+            <ArrowLeft className="mr-1 h-4 w-4" /> {t("common.back")}
           </Link>
         </Button>
       </div>
@@ -158,7 +160,7 @@ function ComplianceDocumentDetailPage() {
             onClick={() => statusMut.mutate(s)}
             disabled={statusMut.isPending || doc.status === s}
           >
-            {s.replace(/_/g, " ")}
+            {t(`complianceHub.documents.docStatuses.${s}`)}
           </Button>
         ))}
       </div>
@@ -178,51 +180,51 @@ function ComplianceDocumentDetailPage() {
         <div className="space-y-4 rounded-lg border border-border bg-surface/30 p-5">
           <div className="flex justify-end">
             <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
-              Edit details
+              {t("complianceHub.documents.editDetails")}
             </Button>
           </div>
           <dl className="grid gap-3 text-sm sm:grid-cols-2">
-            <Field label="Certificate number" value={doc.certificate_number ?? doc.reference_number} mono />
-            <Field label="Renewal status" value={doc.renewal_status} />
-            <Field label="Reference number" value={doc.reference_number} mono />
-            <Field label="Notification date" value={formatDate(doc.notification_date)} />
-            <Field label="Submission deadline" value={formatDate(doc.submission_deadline)} />
-            <Field label="Issue date" value={formatDate(doc.issue_date)} />
-            <Field label="Expiry date" value={formatDate(doc.expiry_date)} />
-            <Field label="Renewal due" value={formatDate(doc.renewal_due_date)} />
-            <Field label="Responsible person" value={doc.responsible_person} />
-            <Field label="Vendor" value={data.vendor?.name ?? null} />
-            <Field label="AMC contract" value={data.contract ? `${data.contract.vendor_name} (${data.contract.category})` : null} />
-            <Field label="Contact" value={[doc.contact_name, doc.contact_email, doc.contact_phone].filter(Boolean).join(" · ") || null} />
+            <Field label={t("complianceHub.documents.certificateNumber")} value={doc.certificate_number ?? doc.reference_number} mono />
+            <Field label={t("complianceHub.documents.renewalStatus")} value={doc.renewal_status ? t(`complianceHub.documents.renewalStatuses.${doc.renewal_status}`, { defaultValue: doc.renewal_status }) : null} />
+            <Field label={t("complianceHub.documents.referenceNumber")} value={doc.reference_number} mono />
+            <Field label={t("complianceHub.documents.notificationDateShort")} value={formatDate(doc.notification_date)} />
+            <Field label={t("complianceHub.documents.submissionDeadline")} value={formatDate(doc.submission_deadline)} />
+            <Field label={t("complianceHub.documents.issueDateShort")} value={formatDate(doc.issue_date)} />
+            <Field label={t("complianceHub.documents.expiryDateShort")} value={formatDate(doc.expiry_date)} />
+            <Field label={t("complianceHub.documents.renewalDue")} value={formatDate(doc.renewal_due_date)} />
+            <Field label={t("complianceHub.documents.responsiblePerson")} value={doc.responsible_person} />
+            <Field label={t("common.vendor")} value={data.vendor?.name ?? null} />
+            <Field label={t("complianceHub.documents.amcContract")} value={data.contract ? `${data.contract.vendor_name} (${data.contract.category})` : null} />
+            <Field label={t("complianceHub.documents.contact")} value={[doc.contact_name, doc.contact_email, doc.contact_phone].filter(Boolean).join(" · ") || null} />
             <div className="sm:col-span-2">
-              <Field label="Notes" value={doc.notes} />
+              <Field label={t("complianceHub.documents.notes")} value={doc.notes} />
             </div>
           </dl>
         </div>
       )}
 
       <div className="rounded-lg border border-border bg-surface/30 p-5">
-        <h2 className="text-sm font-medium">Payments</h2>
+        <h2 className="text-sm font-medium">{t("complianceHub.documents.payments")}</h2>
         <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-3">
-          <Field label="Quotation" value={fmtQar(Number(doc.quotation_amount ?? 0))} />
-          <Field label="Paid" value={fmtQar(Number(doc.paid_amount ?? 0))} />
-          <Field label="Outstanding" value={fmtQar(Number(doc.outstanding_amount ?? 0))} />
+          <Field label={t("complianceHub.documents.quotation", { qar: t("common.qar") })} value={fmtQar(Number(doc.quotation_amount ?? 0))} />
+          <Field label={t("complianceHub.documents.paid", { qar: t("common.qar") })} value={fmtQar(Number(doc.paid_amount ?? 0))} />
+          <Field label={t("complianceHub.documents.outstanding")} value={fmtQar(Number(doc.outstanding_amount ?? 0))} />
         </dl>
         <div className="mt-2">
           <span className={`inline-flex rounded-md border px-1.5 py-0.5 text-[10px] uppercase ${paymentStatusBadge(doc.payment_status)}`}>
-            {doc.payment_status?.replace(/_/g, " ")}
+            {t(`complianceHub.documents.paymentStatuses.${doc.payment_status}`, { defaultValue: doc.payment_status?.replace(/_/g, " ") })}
           </span>
         </div>
         {data.contract ? (
           <Link href={`/compliance/amc-contracts/${data.contract.id}`} className="mt-3 inline-block text-xs text-primary hover:underline">
-            View linked AMC contract →
+            {t("complianceHub.documents.viewLinkedAmc")}
           </Link>
         ) : null}
       </div>
 
       {data.notifications?.length ? (
         <div className="rounded-lg border border-border bg-surface/30 p-5">
-          <h2 className="text-sm font-medium">Expiry notifications</h2>
+          <h2 className="text-sm font-medium">{t("complianceHub.documents.expiryNotifications")}</h2>
           <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
             {data.notifications.map((n) => (
               <li key={n.id}>{n.notification_type.replace(/_/g, " ")} · {n.notification_date} · {n.status}</li>
@@ -233,13 +235,13 @@ function ComplianceDocumentDetailPage() {
 
       <div className="rounded-lg border border-border bg-surface/30 p-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-medium">Attachments</h2>
+          <h2 className="text-sm font-medium">{t("complianceHub.documents.attachments")}</h2>
           <div className="flex flex-wrap items-center gap-2">
             <Select value={attachType} onValueChange={(v) => setAttachType(v as typeof attachType)}>
               <SelectTrigger className="h-8 w-36 text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
-                {DOCUMENT_ATTACHMENT_TYPES.map((t) => (
-                  <SelectItem key={t} value={t}>{DOCUMENT_ATTACHMENT_LABELS[t]}</SelectItem>
+                {DOCUMENT_ATTACHMENT_TYPES.map((kind) => (
+                  <SelectItem key={kind} value={kind}>{t(`complianceHub.documents.attachmentKinds.${kind}`, { defaultValue: DOCUMENT_ATTACHMENT_LABELS[kind] })}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -255,7 +257,7 @@ function ComplianceDocumentDetailPage() {
             />
             <Button size="sm" variant="secondary" onClick={() => fileRef.current?.click()} disabled={attachMut.isPending}>
               <Upload className="mr-1 h-3.5 w-3.5" />
-              {attachMut.isPending ? "Uploading…" : "Add attachment"}
+              {attachMut.isPending ? t("complianceHub.documents.uploading") : t("complianceHub.documents.addAttachment")}
             </Button>
           </div>
         </div>
@@ -263,19 +265,19 @@ function ComplianceDocumentDetailPage() {
           <ul className="mt-3 space-y-2 text-sm">
             {data.attachments.map((a) => (
               <li key={a.id} className="flex items-center justify-between gap-2">
-                <span>{DOCUMENT_ATTACHMENT_LABELS[a.attachment_type as keyof typeof DOCUMENT_ATTACHMENT_LABELS] ?? a.attachment_type} — {a.file_name}</span>
+                <span>{t(`complianceHub.documents.attachmentKinds.${a.attachment_type}`, { defaultValue: DOCUMENT_ATTACHMENT_LABELS[a.attachment_type as keyof typeof DOCUMENT_ATTACHMENT_LABELS] ?? a.attachment_type })} — {a.file_name}</span>
                 <AttachmentDownloadButton attachmentId={a.id} />
               </li>
             ))}
           </ul>
         ) : (
-          <p className="mt-2 text-xs text-muted-foreground">No attachments yet. Upload certificate, quotation, invoice or payment proof.</p>
+          <p className="mt-2 text-xs text-muted-foreground">{t("complianceHub.documents.noAttachments")}</p>
         )}
       </div>
 
       <div className="rounded-lg border border-border bg-surface/30 p-5">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-medium">Primary certificate file</h2>
+          <h2 className="text-sm font-medium">{t("complianceHub.documents.primaryFile")}</h2>
           <div className="flex gap-2">
             <input
               ref={fileRef}
@@ -289,19 +291,19 @@ function ComplianceDocumentDetailPage() {
             />
             <Button size="sm" variant="secondary" onClick={() => fileRef.current?.click()} disabled={uploadMut.isPending}>
               <Upload className="mr-1 h-3.5 w-3.5" />
-              {uploadMut.isPending ? "Uploading…" : doc.file_name ? "Replace file" : "Upload file"}
+              {uploadMut.isPending ? t("complianceHub.documents.uploading") : doc.file_name ? t("complianceHub.documents.replaceFile") : t("complianceHub.documents.uploadFile")}
             </Button>
             {fileUrlQ.data?.url ? (
               <Button size="sm" variant="outline" asChild>
                 <a href={fileUrlQ.data.url} target="_blank" rel="noopener noreferrer">
-                  <Download className="mr-1 h-3.5 w-3.5" /> {doc.file_name ?? "Download"}
+                  <Download className="mr-1 h-3.5 w-3.5" /> {doc.file_name ?? t("complianceHub.documents.download")}
                 </a>
               </Button>
             ) : null}
           </div>
         </div>
         {!doc.file_name ? (
-          <p className="mt-2 text-xs text-muted-foreground">No file attached yet. Upload the mall letter or certificate (PDF/image).</p>
+          <p className="mt-2 text-xs text-muted-foreground">{t("complianceHub.documents.noFile")}</p>
         ) : (
           <p className="mt-2 text-xs text-muted-foreground">{doc.file_name} · {doc.file_mime}</p>
         )}
@@ -309,7 +311,7 @@ function ComplianceDocumentDetailPage() {
 
       <div className="flex justify-end">
         <Button variant="destructive" size="sm" onClick={() => deleteMut.mutate()} disabled={deleteMut.isPending}>
-          <Trash2 className="mr-1 h-3.5 w-3.5" /> Delete
+          <Trash2 className="mr-1 h-3.5 w-3.5" /> {t("common.delete")}
         </Button>
       </div>
     </div>
@@ -317,6 +319,7 @@ function ComplianceDocumentDetailPage() {
 }
 
 function AttachmentDownloadButton({ attachmentId }: { attachmentId: string }) {
+  const { t } = useTranslation();
   const dl = useMutation({
     mutationFn: () => getDocumentAttachmentUrl({ attachmentId }),
     onSuccess: (r) => {
@@ -324,13 +327,14 @@ function AttachmentDownloadButton({ attachmentId }: { attachmentId: string }) {
     },
   });
   return (
-    <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => dl.mutate()} disabled={dl.isPending}>
-      <Download className="mr-1 h-3 w-3" /> Open
+    <Button size="sm" variant="ghost" onClick={() => dl.mutate()} disabled={dl.isPending}>
+      <Download className="h-4 w-4" /> {t("complianceHub.documents.open")}
     </Button>
   );
 }
 
 function DeadlineBanner({ deadline }: { deadline: string }) {
+  const { t } = useTranslation();
   const days = Math.ceil((new Date(deadline).getTime() - Date.now()) / 86_400_000);
   const overdue = days < 0;
   return (
@@ -342,10 +346,10 @@ function DeadlineBanner({ deadline }: { deadline: string }) {
       }
     >
       {overdue
-        ? `Submission deadline passed ${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"} ago (${formatDate(deadline)}).`
+        ? t("complianceHub.documents.deadlinePassed", { days: Math.abs(days), date: formatDate(deadline) })
         : days === 0
-          ? `Submission deadline is today (${formatDate(deadline)}).`
-          : `Submission due in ${days} day${days === 1 ? "" : "s"} (${formatDate(deadline)}).`}
+          ? t("complianceHub.documents.deadlineToday", { date: formatDate(deadline) })
+          : t("complianceHub.documents.deadlineDue", { days, date: formatDate(deadline) })}
     </div>
   );
 }
@@ -377,6 +381,7 @@ function EditForm({
   onCancel: () => void;
   onSaved: () => void;
 }) {
+  const { t } = useTranslation();
   const [form, setForm] = useState({
     location_id: doc.location_id,
     document_type: doc.document_type,
@@ -416,7 +421,7 @@ function EditForm({
         priority: "medium",
       }),
     onSuccess: () => {
-      toast.success("Document updated");
+      toast.success(t("complianceHub.documents.documentUpdated"));
       onSaved();
     },
     onError: (e) => toast.error((e as Error).message),
@@ -429,7 +434,7 @@ function EditForm({
     <div className="space-y-4 rounded-lg border border-border bg-surface/30 p-5">
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-1.5 sm:col-span-2">
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Location</Label>
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.location")}</Label>
           <Select value={form.location_id} onValueChange={(v) => setForm((f) => ({ ...f, location_id: v }))}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -440,51 +445,51 @@ function EditForm({
           </Select>
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Document type</Label>
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.documentType")}</Label>
           <Input value={form.document_type} onChange={set("document_type")} />
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Issuing authority</Label>
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.issuingAuthorityShort")}</Label>
           <Input value={form.issuing_authority} onChange={set("issuing_authority")} />
         </div>
         <div className="space-y-1.5 sm:col-span-2">
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Reference number</Label>
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.referenceNumber")}</Label>
           <Input value={form.reference_number} onChange={set("reference_number")} />
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Notification date</Label>
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.notificationDateShort")}</Label>
           <Input type="date" value={form.notification_date} onChange={set("notification_date")} />
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Submission deadline</Label>
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.submissionDeadline")}</Label>
           <Input type="date" value={form.submission_deadline} onChange={set("submission_deadline")} />
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Issue date</Label>
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.issueDateShort")}</Label>
           <Input type="date" value={form.issue_date} onChange={set("issue_date")} />
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Expiry date</Label>
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.expiryDateShort")}</Label>
           <Input type="date" value={form.expiry_date} onChange={set("expiry_date")} />
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Quotation (QAR)</Label>
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.quotation", { qar: t("common.qar") })}</Label>
           <Input type="number" min={0} value={form.quotation_amount} onChange={(e) => setForm((f) => ({ ...f, quotation_amount: Number(e.target.value) }))} />
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Paid (QAR)</Label>
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.paid", { qar: t("common.qar") })}</Label>
           <Input type="number" min={0} value={form.paid_amount} onChange={(e) => setForm((f) => ({ ...f, paid_amount: Number(e.target.value) }))} />
         </div>
         <div className="space-y-1.5 sm:col-span-2">
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Notes</Label>
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.notes")}</Label>
           <Textarea rows={3} value={form.notes} onChange={set("notes")} />
         </div>
       </div>
       <div className="flex justify-end gap-2">
-        <Button variant="ghost" onClick={onCancel}>Cancel</Button>
+        <Button variant="ghost" onClick={onCancel}>{t("common.cancel")}</Button>
         <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
           {mutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-          Save changes
+          {t("common.save")}
         </Button>
       </div>
     </div>

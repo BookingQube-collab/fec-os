@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Calendar, ChevronRight, FileUp, Loader2, Plus, Settings2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { CompliancePageShell, KpiStrip } from "@/components/compliance/compliance-page-shell";
@@ -22,6 +23,7 @@ import { useSites } from "@/hooks/queries/useSites";
 import { usePermission } from "@/hooks/use-permission";
 import { useFloorSupervisorView } from "@/hooks/use-floor-supervisor-view";
 import { formatDisplayDate } from "@/lib/compliance/compliance-derive";
+import { fmtQar } from "@/lib/currency";
 import {
   attachmentSummary,
   LOCATION_COMPLIANCE_CATEGORIES,
@@ -43,6 +45,7 @@ type TrackerRow = Record<string, unknown>;
 const STATUSES = ["Expired", "Due Soon", "Valid", "Missing", "Pending Renewal", "Pending Payment", "Service Overdue", "No Date"];
 
 function LocationComplianceTrackerPage() {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const currentLocationId = useAppStore((s) => s.currentLocationId);
   const { data: sites } = useSites();
@@ -107,7 +110,7 @@ function LocationComplianceTrackerPage() {
   const saveMutation = useMutation({
     mutationFn: (payload: Parameters<typeof upsertLocationComplianceItem>[0]) => upsertLocationComplianceItem(payload),
     onSuccess: () => {
-      toast.success("Tracker item saved");
+      toast.success(t("complianceHub.tracker.saved"));
       setEditOpen(false);
       invalidate();
     },
@@ -117,11 +120,11 @@ function LocationComplianceTrackerPage() {
   const templateMutation = useMutation({
     mutationFn: () => {
       const site = sites?.find((s) => s.id === locationFilter);
-      if (!site) throw new Error("Select a location first");
+      if (!site) throw new Error(t("complianceHub.tracker.selectLocation"));
       return applyComplianceTemplate({ locationId: site.id, locationCode: site.code });
     },
     onSuccess: (r) => {
-      toast.success(`Applied template — ${r.inserted} items added`);
+      toast.success(t("complianceHub.tracker.templateApplied", { count: r.inserted }));
       setTemplateOpen(false);
       invalidate();
     },
@@ -131,7 +134,7 @@ function LocationComplianceTrackerPage() {
   const notifyMutation = useMutation({
     mutationFn: () => syncLocationComplianceNotifications(filters),
     onSuccess: (r) => {
-      toast.success(`Notifications synced (${r.created} new)`);
+      toast.success(t("complianceHub.tracker.notifySynced", { count: r.created }));
     },
     onError: (e) => toast.error((e as Error).message),
   });
@@ -140,7 +143,7 @@ function LocationComplianceTrackerPage() {
     mutationFn: (payload: Parameters<typeof uploadLocationComplianceAttachment>[0]) =>
       uploadLocationComplianceAttachment(payload),
     onSuccess: () => {
-      toast.success("File uploaded");
+      toast.success(t("complianceHub.tracker.fileUploaded"));
       invalidate();
     },
     onError: (e) => toast.error((e as Error).message),
@@ -169,7 +172,7 @@ function LocationComplianceTrackerPage() {
 
   const { exportPdf, exportExcel } = useReportExport({
     pageKey: "LocationComplianceTracker",
-    title: "Location Compliance & AMC Master Tracker",
+    title: t("complianceHub.tracker.title"),
     venueLabel: locationFilter !== "all" ? sites?.find((s) => s.id === locationFilter)?.code ?? "Site" : "All",
     filters: { location: locationFilter, category, status } as Record<string, string | null | undefined>,
     kpis: kpis
@@ -196,7 +199,7 @@ function LocationComplianceTrackerPage() {
   const openNew = () => {
     const loc = locationFilter !== "all" ? locationFilter : sites?.[0]?.id;
     if (!loc) {
-      toast.error("Select a location first");
+      toast.error(t("complianceHub.tracker.selectLocation"));
       return;
     }
     setForm({
@@ -263,106 +266,106 @@ function LocationComplianceTrackerPage() {
 
   return (
     <CompliancePageShell
-      title="Location Compliance & AMC Master Tracker"
-      subtitle="Per-location licenses, certificates, AMCs, contracts & renewals — linked to compliance documents & AMC scheduler"
+      title={t("complianceHub.tracker.title")}
+      subtitle={t("complianceHub.tracker.subtitle")}
       onExportPdf={exportPdf}
       onExportExcel={exportExcel}
       filters={
         <>
           <Select value={locationFilter} onValueChange={setLocationFilter}>
-            <SelectTrigger className="w-[200px] bg-zinc-800 text-zinc-50"><SelectValue placeholder="Location" /></SelectTrigger>
+            <SelectTrigger className="w-[200px] bg-zinc-800 text-zinc-50"><SelectValue placeholder={t("amc.location")} /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All locations</SelectItem>
+              <SelectItem value="all">{t("common.allLocations")}</SelectItem>
               {(sites ?? []).map((s) => <SelectItem key={s.id} value={s.id}>{s.code} — {s.name}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={category} onValueChange={setCategory}>
-            <SelectTrigger className="w-[180px] bg-zinc-800 text-zinc-50"><SelectValue placeholder="Category" /></SelectTrigger>
+            <SelectTrigger className="w-[180px] bg-zinc-800 text-zinc-50"><SelectValue placeholder={t("common.category")} /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All categories</SelectItem>
+              <SelectItem value="all">{t("common.allCategories")}</SelectItem>
               {LOCATION_COMPLIANCE_CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={status} onValueChange={setStatus}>
-            <SelectTrigger className="w-[160px] bg-zinc-800 text-zinc-50"><SelectValue placeholder="Status" /></SelectTrigger>
+            <SelectTrigger className="w-[160px] bg-zinc-800 text-zinc-50"><SelectValue placeholder={t("common.status")} /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All status</SelectItem>
-              {STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              <SelectItem value="all">{t("amc.allStatus")}</SelectItem>
+              {STATUSES.map((s) => <SelectItem key={s} value={s}>{t(`complianceHub.tracker.statuses.${s}`, { defaultValue: s })}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Input placeholder="Vendor" value={vendor} onChange={(e) => setVendor(e.target.value)} className="w-[140px] bg-zinc-800 text-zinc-50" />
+          <Input placeholder={t("common.vendor")} value={vendor} onChange={(e) => setVendor(e.target.value)} className="w-[140px] bg-zinc-800 text-zinc-50" />
           <Select value={expiryBucket} onValueChange={setExpiryBucket}>
-            <SelectTrigger className="w-[130px] bg-zinc-800 text-zinc-50"><SelectValue placeholder="Expiry" /></SelectTrigger>
+            <SelectTrigger className="w-[130px] bg-zinc-800 text-zinc-50"><SelectValue placeholder={t("complianceHub.tracker.expiry")} /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Any expiry</SelectItem>
-              <SelectItem value="expired">Expired</SelectItem>
-              <SelectItem value="7d">≤7 days</SelectItem>
-              <SelectItem value="15d">≤15 days</SelectItem>
-              <SelectItem value="30d">≤30 days</SelectItem>
-              <SelectItem value="60d">≤60 days</SelectItem>
+              <SelectItem value="all">{t("complianceHub.tracker.anyExpiry")}</SelectItem>
+              <SelectItem value="expired">{t("complianceHub.tracker.statuses.Expired")}</SelectItem>
+              <SelectItem value="7d">{t("complianceHub.tracker.due7")}</SelectItem>
+              <SelectItem value="15d">{t("complianceHub.tracker.due15")}</SelectItem>
+              <SelectItem value="30d">{t("complianceHub.tracker.due30")}</SelectItem>
+              <SelectItem value="60d">{t("complianceHub.tracker.due60")}</SelectItem>
             </SelectContent>
           </Select>
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Checkbox checked={missingDocs} onCheckedChange={(v) => setMissingDocs(!!v)} /> Missing docs
+            <Checkbox checked={missingDocs} onCheckedChange={(v) => setMissingDocs(!!v)} /> {t("complianceHub.tracker.missingDocs")}
           </label>
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Checkbox checked={outstandingPayment} onCheckedChange={(v) => setOutstandingPayment(!!v)} /> Outstanding
+            <Checkbox checked={outstandingPayment} onCheckedChange={(v) => setOutstandingPayment(!!v)} /> {t("complianceHub.tracker.outstanding")}
           </label>
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Checkbox checked={highRisk} onCheckedChange={(v) => setHighRisk(!!v)} /> High risk
+            <Checkbox checked={highRisk} onCheckedChange={(v) => setHighRisk(!!v)} /> {t("complianceHub.tracker.highRisk")}
           </label>
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Checkbox checked={requiredOnly} onCheckedChange={(v) => setRequiredOnly(!!v)} /> Required only
+            <Checkbox checked={requiredOnly} onCheckedChange={(v) => setRequiredOnly(!!v)} /> {t("complianceHub.tracker.requiredOnly")}
           </label>
           {canManage && (
             <Button size="sm" variant="outline" onClick={() => setTemplateOpen(true)}>
-              <Settings2 className="mr-1 h-4 w-4" /> Templates
+              <Settings2 className="mr-1 h-4 w-4" /> {t("complianceHub.tracker.templates")}
             </Button>
           )}
           {canEdit && (
-            <Button size="sm" onClick={openNew}><Plus className="mr-1 h-4 w-4" /> Add item</Button>
+            <Button size="sm" onClick={openNew}><Plus className="mr-1 h-4 w-4" /> {t("complianceHub.tracker.addItem")}</Button>
           )}
           <Button size="sm" variant="secondary" onClick={() => notifyMutation.mutate()} disabled={notifyMutation.isPending}>
-            Sync alerts
+            {t("complianceHub.tracker.syncAlerts")}
           </Button>
         </>
       }
     >
       <KpiStrip
         items={[
-          { label: "Total items", value: kpis?.total ?? "—" },
-          { label: "Expired", value: kpis?.expired ?? "—", tone: "rag-red" },
-          { label: "≤7d", value: kpis?.due_7 ?? "—", tone: "rag-red" },
-          { label: "≤15d", value: kpis?.due_15 ?? "—", tone: "rag-amber" },
-          { label: "≤30d", value: kpis?.due_30 ?? "—", tone: "rag-amber" },
-          { label: "≤60d", value: kpis?.due_60 ?? "—" },
-          { label: "Missing docs", value: kpis?.missing_docs ?? "—" },
-          { label: "Outstanding", value: kpis?.outstanding_payments ?? "—" },
-          { label: "High-risk sites", value: kpis?.high_risk_locations ?? "—" },
-          { label: "Compliance score", value: kpis ? `${kpis.compliance_score}%` : "—" },
+          { label: t("complianceHub.tracker.totalItems"), value: kpis?.total ?? "—" },
+          { label: t("complianceHub.tracker.statuses.Expired"), value: kpis?.expired ?? "—", tone: "rag-red" },
+          { label: t("complianceHub.tracker.due7"), value: kpis?.due_7 ?? "—", tone: "rag-red" },
+          { label: t("complianceHub.tracker.due15"), value: kpis?.due_15 ?? "—", tone: "rag-amber" },
+          { label: t("complianceHub.tracker.due30"), value: kpis?.due_30 ?? "—", tone: "rag-amber" },
+          { label: t("complianceHub.tracker.due60"), value: kpis?.due_60 ?? "—" },
+          { label: t("complianceHub.tracker.missingDocs"), value: kpis?.missing_docs ?? "—" },
+          { label: t("complianceHub.tracker.outstanding"), value: kpis?.outstanding_payments ?? "—" },
+          { label: t("complianceHub.tracker.highRiskSites"), value: kpis?.high_risk_locations ?? "—" },
+          { label: t("complianceHub.tracker.score"), value: kpis ? `${kpis.compliance_score}%` : "—" },
         ]}
       />
 
       <div className="overflow-x-auto rounded-lg border border-border bg-card">
         {isLoading ? (
           <div className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading tracker…
+            <Loader2 className="h-4 w-4 animate-spin" /> {t("complianceHub.tracker.loading")}
           </div>
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Location</TableHead>
-                <TableHead>Area</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>Requirement</TableHead>
-                <TableHead>Vendor</TableHead>
-                <TableHead>Expiry</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Days</TableHead>
-                <TableHead>Risk</TableHead>
-                <TableHead>Outstanding</TableHead>
-                <TableHead>Files</TableHead>
+                <TableHead>{t("amc.location")}</TableHead>
+                <TableHead>{t("complianceHub.tracker.area")}</TableHead>
+                <TableHead>{t("common.category")}</TableHead>
+                <TableHead>{t("complianceHub.tracker.requirement")}</TableHead>
+                <TableHead>{t("common.vendor")}</TableHead>
+                <TableHead>{t("complianceHub.tracker.expiry")}</TableHead>
+                <TableHead>{t("common.status")}</TableHead>
+                <TableHead>{t("complianceHub.tracker.days")}</TableHead>
+                <TableHead>{t("complianceHub.tracker.risk")}</TableHead>
+                <TableHead>{t("complianceHub.tracker.outstanding")}</TableHead>
+                <TableHead>{t("complianceHub.tracker.files")}</TableHead>
                 <TableHead />
               </TableRow>
             </TableHeader>
@@ -377,13 +380,13 @@ function LocationComplianceTrackerPage() {
                   <TableCell className="text-xs">{formatDisplayDate(row.expiry_date as string | null)}</TableCell>
                   <TableCell>
                     <Badge variant="outline" className={statusTone(String(row.computed_status))}>
-                      {String(row.computed_status)}
+                      {t(`complianceHub.tracker.statuses.${String(row.computed_status)}`, { defaultValue: String(row.computed_status) })}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-xs">{row.days_remaining != null ? String(row.days_remaining) : "—"}</TableCell>
-                  <TableCell className={`text-xs ${riskTone(row.risk_level as string)}`}>{String(row.risk_level)}</TableCell>
+                  <TableCell className={`text-xs ${riskTone(row.risk_level as string)}`}>{t(`complianceHub.tracker.riskLevels.${String(row.risk_level)}`, { defaultValue: String(row.risk_level) })}</TableCell>
                   <TableCell className="text-xs">
-                    {Number(row.outstanding_amount) > 0 ? `QAR ${Number(row.outstanding_amount).toLocaleString()}` : "—"}
+                    {Number(row.outstanding_amount) > 0 ? fmtQar(Number(row.outstanding_amount)) : "—"}
                   </TableCell>
                   <TableCell className="text-xs">{attachmentSummary(row as Parameters<typeof attachmentSummary>[0])}</TableCell>
                   <TableCell>
@@ -394,7 +397,7 @@ function LocationComplianceTrackerPage() {
               {!rows?.length && (
                 <TableRow>
                   <TableCell colSpan={12} className="py-8 text-center text-sm text-muted-foreground">
-                    No tracker items — apply a location template or add items manually.
+                    {t("complianceHub.tracker.empty")}
                   </TableCell>
                 </TableRow>
               )}
@@ -406,11 +409,11 @@ function LocationComplianceTrackerPage() {
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>{form.id ? "Edit tracker item" : "Add tracker item"}</DialogTitle>
+            <DialogTitle>{form.id ? t("complianceHub.tracker.editItem") : t("complianceHub.tracker.addItemTitle")}</DialogTitle>
           </DialogHeader>
           <div className="grid gap-3 py-2">
             <div>
-              <Label>Category</Label>
+              <Label>{t("common.category")}</Label>
               <Select value={String(form.category)} onValueChange={(v) => setForm((f) => ({ ...f, category: v }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -419,53 +422,53 @@ function LocationComplianceTrackerPage() {
               </Select>
             </div>
             <div>
-              <Label>Requirement name</Label>
+              <Label>{t("complianceHub.tracker.requirementName")}</Label>
               <Input value={String(form.requirement_name ?? "")} onChange={(e) => setForm((f) => ({ ...f, requirement_name: e.target.value }))} />
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <Label>Vendor</Label>
+                <Label>{t("common.vendor")}</Label>
                 <Input value={String(form.vendor_name ?? "")} onChange={(e) => setForm((f) => ({ ...f, vendor_name: e.target.value }))} />
               </div>
               <div>
-                <Label>Risk</Label>
+                <Label>{t("complianceHub.tracker.risk")}</Label>
                 <Select value={String(form.risk_level ?? "Medium")} onValueChange={(v) => setForm((f) => ({ ...f, risk_level: v }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {["Critical", "High", "Medium", "Low"].map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                    {["Critical", "High", "Medium", "Low"].map((r) => <SelectItem key={r} value={r}>{t(`complianceHub.tracker.riskLevels.${r}`)}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <Label>Expiry</Label>
+                <Label>{t("complianceHub.tracker.expiry")}</Label>
                 <Input type="date" value={String(form.expiry_date ?? "")} onChange={(e) => setForm((f) => ({ ...f, expiry_date: e.target.value }))} />
               </div>
               <div>
-                <Label>Renewal due</Label>
+                <Label>{t("complianceHub.tracker.renewalDue")}</Label>
                 <Input type="date" value={String(form.renewal_due_date ?? "")} onChange={(e) => setForm((f) => ({ ...f, renewal_due_date: e.target.value }))} />
               </div>
             </div>
             {!floorView && (
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <Label>Quotation (QAR)</Label>
+                  <Label>{t("complianceHub.tracker.quotation", { qar: t("common.qar") })}</Label>
                   <Input type="number" value={Number(form.quotation_amount ?? 0)} onChange={(e) => setForm((f) => ({ ...f, quotation_amount: Number(e.target.value) }))} />
                 </div>
                 <div>
-                  <Label>Paid (QAR)</Label>
+                  <Label>{t("complianceHub.tracker.paid", { qar: t("common.qar") })}</Label>
                   <Input type="number" value={Number(form.paid_amount ?? 0)} onChange={(e) => setForm((f) => ({ ...f, paid_amount: Number(e.target.value) }))} />
                 </div>
               </div>
             )}
             <div>
-              <Label>Remarks</Label>
+              <Label>{t("complianceHub.tracker.remarks")}</Label>
               <Textarea value={String(form.remarks ?? "")} onChange={(e) => setForm((f) => ({ ...f, remarks: e.target.value }))} rows={2} />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>{t("common.cancel")}</Button>
             <Button
               disabled={!canEdit || saveMutation.isPending}
               onClick={() =>
@@ -495,7 +498,7 @@ function LocationComplianceTrackerPage() {
                 })
               }
             >
-              Save
+              {t("common.save")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -504,24 +507,24 @@ function LocationComplianceTrackerPage() {
       <Dialog open={templateOpen} onOpenChange={setTemplateOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Apply location template</DialogTitle>
+            <DialogTitle>{t("complianceHub.tracker.applyTemplate")}</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Seeds tracker rows from predefined requirements for the selected location type. Existing items are kept.
+            {t("complianceHub.tracker.applyTemplateHint")}
           </p>
           {templates?.length ? (
             <ul className="max-h-48 overflow-y-auto text-xs text-muted-foreground">
-              {templates.map((t) => (
-                <li key={t.id}>• {t.category} — {t.requirement_name}</li>
+              {templates.map((tpl) => (
+                <li key={tpl.id}>• {tpl.category} — {tpl.requirement_name}</li>
               ))}
             </ul>
           ) : (
-            <p className="text-sm text-muted-foreground">Select a single location to preview template items.</p>
+            <p className="text-sm text-muted-foreground">{t("complianceHub.tracker.applyTemplateEmpty")}</p>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setTemplateOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setTemplateOpen(false)}>{t("common.cancel")}</Button>
             <Button onClick={() => templateMutation.mutate()} disabled={locationFilter === "all" || templateMutation.isPending}>
-              Apply template
+              {t("complianceHub.tracker.applyTemplateAction")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -530,44 +533,44 @@ function LocationComplianceTrackerPage() {
       <Sheet open={!!detailId} onOpenChange={(o) => !o && setDetailId(null)}>
         <SheetContent className="w-full overflow-y-auto sm:max-w-xl">
           <SheetHeader>
-            <SheetTitle>{detail?.item ? String(detail.item.requirement_name) : "Item detail"}</SheetTitle>
+            <SheetTitle>{detail?.item ? String(detail.item.requirement_name) : t("complianceHub.tracker.itemDetail")}</SheetTitle>
           </SheetHeader>
           {detail?.item && (
             <div className="mt-4 space-y-5 text-sm">
               <div className="grid grid-cols-2 gap-2 text-xs">
-                <div><span className="text-muted-foreground">Location</span><br />{String(detail.item.location_code)}</div>
-                <div><span className="text-muted-foreground">Status</span><br />{String(detail.item.computed_status)}</div>
-                <div><span className="text-muted-foreground">Expiry</span><br />{formatDisplayDate(detail.item.expiry_date as string)}</div>
+                <div><span className="text-muted-foreground">{t("common.site")}</span><br />{String(detail.item.location_code)}</div>
+                <div><span className="text-muted-foreground">{t("common.status")}</span><br />{t(`complianceHub.tracker.statuses.${String(detail.item.computed_status)}`, { defaultValue: String(detail.item.computed_status) })}</div>
+                <div><span className="text-muted-foreground">{t("complianceHub.tracker.expiry")}</span><br />{formatDisplayDate(detail.item.expiry_date as string)}</div>
                 {!floorView && (
-                  <div><span className="text-muted-foreground">Outstanding</span><br />QAR {Number(detail.item.outstanding_amount).toLocaleString()}</div>
+                  <div><span className="text-muted-foreground">{t("complianceHub.tracker.outstanding")}</span><br />{fmtQar(Number(detail.item.outstanding_amount))}</div>
                 )}
               </div>
 
               {detail.linkedAmc && (
                 <section className="rounded-lg border p-3">
-                  <h4 className="mb-2 font-medium">Linked AMC contract</h4>
+                  <h4 className="mb-2 font-medium">{t("complianceHub.tracker.linkedAmc")}</h4>
                   <p className="text-xs text-muted-foreground">
                     {String((detail.linkedAmc as { contract_ref?: string }).contract_ref ?? "—")} — {String((detail.linkedAmc as { vendor_name?: string }).vendor_name ?? "—")}<br />
-                    Ends {formatDisplayDate((detail.linkedAmc as { contract_end_date?: string }).contract_end_date ?? null)} · Next service {formatDisplayDate((detail.linkedAmc as { next_service_date?: string }).next_service_date ?? null)}
+                    {t("complianceHub.tracker.ends", { date: formatDisplayDate((detail.linkedAmc as { contract_end_date?: string }).contract_end_date ?? null) })} · {t("complianceHub.tracker.nextService", { date: formatDisplayDate((detail.linkedAmc as { next_service_date?: string }).next_service_date ?? null) })}
                   </p>
                 </section>
               )}
 
               {detail.linkedDoc && (
                 <section className="rounded-lg border p-3">
-                  <h4 className="mb-2 font-medium">Linked compliance document</h4>
+                  <h4 className="mb-2 font-medium">{t("complianceHub.tracker.linkedDoc")}</h4>
                   <p className="text-xs text-muted-foreground">
-                    {detail.linkedDoc.document_type} · {detail.linkedDoc.status} · Exp {formatDisplayDate(detail.linkedDoc.expiry_date)}
+                    {detail.linkedDoc.document_type} · {t(`complianceHub.documents.docStatuses.${detail.linkedDoc.status}`, { defaultValue: detail.linkedDoc.status })} · {t("complianceHub.tracker.expShort", { date: formatDisplayDate(detail.linkedDoc.expiry_date) })}
                   </p>
                 </section>
               )}
 
               <section className="rounded-lg border p-3">
                 <div className="mb-2 flex items-center justify-between">
-                  <h4 className="font-medium">Document uploads</h4>
+                  <h4 className="font-medium">{t("complianceHub.tracker.uploads")}</h4>
                   {canUpload && (
                     <Button size="sm" variant="outline" onClick={() => handleFileUpload("certificate")}>
-                      <FileUp className="mr-1 h-3 w-3" /> Certificate
+                      <FileUp className="mr-1 h-3 w-3" /> {t("complianceHub.tracker.certificate")}
                     </Button>
                   )}
                 </div>
@@ -575,19 +578,19 @@ function LocationComplianceTrackerPage() {
                   {(detail.attachments ?? []).map((a) => (
                     <li key={a.id}>{a.attachment_type}: {a.file_name}</li>
                   ))}
-                  {!detail.attachments?.length && <li className="text-muted-foreground">No files uploaded</li>}
+                  {!detail.attachments?.length && <li className="text-muted-foreground">{t("complianceHub.tracker.noFiles")}</li>}
                 </ul>
               </section>
 
               {!!detail.schedules?.length && (
                 <section className="rounded-lg border p-3">
-                  <h4 className="mb-2 flex items-center gap-2 font-medium"><Calendar className="h-4 w-4" /> Service schedule</h4>
+                  <h4 className="mb-2 flex items-center gap-2 font-medium"><Calendar className="h-4 w-4" /> {t("complianceHub.tracker.serviceSchedule")}</h4>
                   <ul className="space-y-1 text-xs">
                     {detail.schedules.map((s) => {
                       const row = s as { id: string; visit_label?: string; service_number?: number; planned_date?: string; status?: string };
                       return (
                       <li key={row.id}>
-                        {row.visit_label ?? `Visit ${row.service_number}`} — {formatDisplayDate(row.planned_date ?? null)} · {row.status}
+                        {row.visit_label ?? t("complianceHub.tracker.visit", { n: row.service_number })} — {formatDisplayDate(row.planned_date ?? null)} · {row.status}
                       </li>
                     );})}
                   </ul>
@@ -595,15 +598,15 @@ function LocationComplianceTrackerPage() {
               )}
 
               <section className="rounded-lg border p-3">
-                <h4 className="mb-2 font-medium">Expiry timeline</h4>
+                <h4 className="mb-2 font-medium">{t("complianceHub.tracker.expiryTimeline")}</h4>
                 <p className="text-xs text-muted-foreground">
-                  Issue {formatDisplayDate(detail.item.issue_date as string)} → Expiry {formatDisplayDate(detail.item.expiry_date as string)} → Renewal {formatDisplayDate(detail.item.renewal_due_date as string)}
+                  {t("complianceHub.tracker.issueOn", { date: formatDisplayDate(detail.item.issue_date as string) })} → {t("complianceHub.tracker.expiryOn", { date: formatDisplayDate(detail.item.expiry_date as string) })} → {t("complianceHub.tracker.renewalOn", { date: formatDisplayDate(detail.item.renewal_due_date as string) })}
                 </p>
               </section>
 
               {canEdit && (
                 <Button variant="outline" size="sm" onClick={() => { openEdit(detail.item as TrackerRow); setDetailId(null); }}>
-                  Edit item
+                  {t("complianceHub.tracker.editItemAction")}
                 </Button>
               )}
             </div>

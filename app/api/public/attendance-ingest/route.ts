@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 
 import { ingestAttendanceRecords, normalizeIngestRecords } from "@/lib/attendance-ingest";
+import {
+  extractIngestLocationCodes,
+  getRequestSourceIp,
+  logAttendanceIngestHit,
+} from "@/lib/attendance-ingest-log";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { validateAttendanceIngestRequest } from "@/lib/server/attendance-ingest-auth";
 
@@ -46,8 +51,21 @@ export async function POST(request: Request) {
     );
   }
 
+  const sourceIp = getRequestSourceIp(request);
+
   try {
     const result = await ingestAttendanceRecords(supabaseAdmin, records);
+    try {
+      await logAttendanceIngestHit(supabaseAdmin, {
+        payload: body,
+        recordCount: records.length,
+        result,
+        sourceIp,
+        locationCodes: extractIngestLocationCodes(records),
+      });
+    } catch (logErr) {
+      console.error("attendance-ingest hit log failed:", logErr);
+    }
     return NextResponse.json(result, { status: result.imported > 0 ? 200 : 422 });
   } catch (e) {
     return NextResponse.json(

@@ -1,0 +1,17 @@
+export const DIAGNOSTICS_TABLES = [
+  "locations",
+  "profiles",
+  "user_roles",
+  "notifications",
+  "audit_log",
+  "tickets",
+  "work_orders",
+  "assets",
+  "staff",
+  "bookings",
+  "maintenance_requests",
+  "purchase_requisitions",
+  "attendance_logs",
+  "i18n_overrides",
+  "sys_crash_incidents",
+] as const;

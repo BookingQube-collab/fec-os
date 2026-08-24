@@ -15,6 +15,8 @@ import {
   normalizeDepartmentName,
   splitDepartmentTokens,
 } from "@/lib/staff-departments";
+import { assertInternalEmployeeCode } from "@/lib/staff-employee-code";
+import { fetchStaffIdsWorkingAtLocation } from "@/lib/staff-work-locations";
 import { shiftUuid, staffUuid } from "@/lib/staff-import-ids";
 import { createAuthenticatedAction } from "@/lib/server/create-action";
 import type { AuthContext } from "@/lib/server/create-action";
@@ -173,11 +175,16 @@ export const listStaff = createAuthenticatedAction(
     let q = context.supabase
       .from("staff")
       .select(
-        "id, employee_code, full_name, job_title, department, status, location_id, staff_departments(department_id)",
+        "id, employee_code, full_name, job_title, department, status, location_id, is_roaming, staff_departments(department_id)",
       )
       .is("deleted_at", null)
       .order("full_name");
-    if (data.locationId) q = q.eq("location_id", data.locationId);
+    if (data.locationId) {
+      const extraIds = await fetchStaffIdsWorkingAtLocation(context.supabase, data.locationId);
+      q = extraIds.length
+        ? q.or(`location_id.eq.${data.locationId},id.in.(${extraIds.join(",")})`)
+        : q.eq("location_id", data.locationId);
+    }
     const { data: rows, error } = await q;
     if (error) throw error;
     return (rows ?? []).map((row) => ({
@@ -356,6 +363,7 @@ export const importStaffCsv = createAuthenticatedAction(
         status: s.status,
         phone: s.phone,
         email: s.email,
+        qid: s.qid,
       });
     }
 
@@ -390,10 +398,13 @@ export const createStaff = createAuthenticatedAction(
     status: z.enum(STAFF_STATUSES).default("active"),
     phone: z.string().max(40).optional(),
     email: z.string().email().optional().or(z.literal("")),
+    qid: z.string().max(32).optional(),
+    e3Enrolled: z.boolean().nullable().optional(),
+    employmentType: z.enum(["permanent", "temporary"]).nullable().optional(),
   }),
   async (data, context) => {
     await assertLocationAccess(context, data.locationId);
-    const employee_code = data.employeeCode.toUpperCase();
+    const employee_code = assertInternalEmployeeCode(data.employeeCode, data.qid);
     const { data: dup, error: dupErr } = await context.supabase
       .from("staff")
       .select("id")
@@ -418,12 +429,23 @@ export const createStaff = createAuthenticatedAction(
         status: data.status,
         phone: data.phone ?? null,
         email: data.email || null,
+        qid: data.qid ?? null,
+        e3_enrolled: data.e3Enrolled ?? null,
+        employment_type: data.employmentType ?? null,
       })
       .select("id")
       .single();
     if (error) throw error;
 
     await syncStaffDepartments(context, row.id as string, data.departmentIds, department);
+    await context.supabase.rpc("log_audit", {
+      _action: "staff.created",
+      _table_name: "staff",
+      _row_id: row.id as string,
+      _after: { employee_code, full_name: data.fullName },
+      _location_id: data.locationId,
+      _metadata: {},
+    });
     return { id: row.id as string };
   },
   { auth: { capability: "people.edit_roster" } },
@@ -439,6 +461,9 @@ export const updateStaff = createAuthenticatedAction(
     status: z.enum(STAFF_STATUSES).optional(),
     phone: z.string().max(40).nullable().optional(),
     email: z.string().email().nullable().optional().or(z.literal("")),
+    qid: z.string().max(32).nullable().optional(),
+    e3Enrolled: z.boolean().nullable().optional(),
+    employmentType: z.enum(["permanent", "temporary"]).nullable().optional(),
   }),
   async (data, context) => {
     const { data: existing, error: fetchErr } = await context.supabase
@@ -457,6 +482,9 @@ export const updateStaff = createAuthenticatedAction(
       status?: (typeof STAFF_STATUSES)[number];
       phone?: string | null;
       email?: string | null;
+      qid?: string | null;
+      e3_enrolled?: boolean | null;
+      employment_type?: "permanent" | "temporary" | null;
     } = {};
     if (data.fullName !== undefined) patch.full_name = data.fullName;
     if (data.jobTitle !== undefined) patch.job_title = data.jobTitle;
@@ -464,6 +492,9 @@ export const updateStaff = createAuthenticatedAction(
     if (data.status !== undefined) patch.status = data.status;
     if (data.phone !== undefined) patch.phone = data.phone;
     if (data.email !== undefined) patch.email = data.email || null;
+    if (data.qid !== undefined) patch.qid = data.qid;
+    if (data.e3Enrolled !== undefined) patch.e3_enrolled = data.e3Enrolled;
+    if (data.employmentType !== undefined) patch.employment_type = data.employmentType;
 
     if (Object.keys(patch).length) {
       const { error } = await context.supabase.from("staff").update(patch).eq("id", data.id);
@@ -476,6 +507,14 @@ export const updateStaff = createAuthenticatedAction(
       await syncStaffDepartments(context, data.id, data.departmentIds, department);
     }
 
+    await context.supabase.rpc("log_audit", {
+      _action: "staff.updated",
+      _table_name: "staff",
+      _row_id: data.id,
+      _after: patch,
+      _location_id: existing.location_id,
+      _metadata: {},
+    });
     return { ok: true };
   },
   { auth: { capability: "people.edit_roster" } },
@@ -498,6 +537,14 @@ export const deactivateStaff = createAuthenticatedAction(
       .update({ status: "terminated", deleted_at: new Date().toISOString() })
       .eq("id", data.id);
     if (error) throw error;
+    await context.supabase.rpc("log_audit", {
+      _action: "staff.archived",
+      _table_name: "staff",
+      _row_id: data.id,
+      _after: { status: "terminated" },
+      _location_id: existing.location_id,
+      _metadata: {},
+    });
     return { ok: true };
   },
   { auth: { capability: "people.edit_roster" } },
@@ -508,28 +555,56 @@ export const listMasterDepartments = createAuthenticatedAction(
   async (_data, context) => {
     const { data, error } = await context.supabase
       .from("master_departments")
-      .select("id, name, code, active, sort_order")
+      .select("id, name, code, active, sort_order, parent_id")
       .order("sort_order")
       .order("name");
     if (error) throw error;
-    return data ?? [];
+    return (data ?? []).map((row) => ({
+      ...row,
+      parent_id: (row.parent_id as string | null) ?? null,
+    }));
   },
   { defaultInput: {}, auth: { capability: "people.view_roster" } },
 );
+
+async function assertDepartmentParent(context: AuthContext, parentId: string | null, selfId?: string) {
+  if (!parentId) return;
+  if (selfId && parentId === selfId) throw new Error("A department cannot be its own parent");
+  const { data: parent, error } = await context.supabase
+    .from("master_departments")
+    .select("id, parent_id")
+    .eq("id", parentId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!parent) throw new Error("Parent department not found");
+  if (parent.parent_id) throw new Error("Sub-departments cannot have children — pick a top-level parent");
+  if (selfId) {
+    const { data: kids } = await context.supabase
+      .from("master_departments")
+      .select("id")
+      .eq("parent_id", selfId)
+      .limit(1);
+    if (kids?.length) throw new Error("Move or remove sub-departments before nesting this department");
+  }
+}
 
 export const createMasterDepartment = createAuthenticatedAction(
   z.object({
     name: z.string().min(1).max(120),
     code: z.string().max(40).optional(),
     sortOrder: z.number().int().min(0).max(9999).optional(),
+    parentId: z.string().uuid().nullable().optional(),
   }),
   async (data, context) => {
+    const parentId = data.parentId ?? null;
+    await assertDepartmentParent(context, parentId);
     const { data: row, error } = await context.supabase
       .from("master_departments")
       .insert({
         name: data.name.trim(),
         code: data.code?.trim().toUpperCase() || null,
         sort_order: data.sortOrder ?? 500,
+        parent_id: parentId,
       })
       .select("id")
       .single();
@@ -546,6 +621,7 @@ export const updateMasterDepartment = createAuthenticatedAction(
     code: z.string().max(40).nullable().optional(),
     active: z.boolean().optional(),
     sortOrder: z.number().int().min(0).max(9999).optional(),
+    parentId: z.string().uuid().nullable().optional(),
   }),
   async (data, context) => {
     const patch: {
@@ -553,11 +629,16 @@ export const updateMasterDepartment = createAuthenticatedAction(
       code?: string | null;
       active?: boolean;
       sort_order?: number;
+      parent_id?: string | null;
     } = {};
     if (data.name !== undefined) patch.name = data.name.trim();
     if (data.code !== undefined) patch.code = data.code?.trim().toUpperCase() || null;
     if (data.active !== undefined) patch.active = data.active;
     if (data.sortOrder !== undefined) patch.sort_order = data.sortOrder;
+    if (data.parentId !== undefined) {
+      await assertDepartmentParent(context, data.parentId, data.id);
+      patch.parent_id = data.parentId;
+    }
 
     const { error } = await context.supabase
       .from("master_departments")
@@ -567,6 +648,62 @@ export const updateMasterDepartment = createAuthenticatedAction(
     return { ok: true };
   },
   { auth: { capability: "people.edit_roster" } },
+);
+
+export const listDepartmentBudgets = createAuthenticatedAction(
+  z.object({ year: z.number().int().min(2000).max(2100).optional() }).default({}),
+  async (data, context) => {
+    const year = data.year ?? new Date().getFullYear();
+    const { data: rows, error } = await context.supabase
+      .from("department_budgets")
+      .select("department_id, year, amount")
+      .eq("year", year);
+    if (error) throw error;
+    return (rows ?? []).map((row) => ({
+      department_id: row.department_id as string,
+      year: Number(row.year),
+      amount: Number(row.amount),
+    }));
+  },
+  { defaultInput: {}, auth: { capability: "people.view_roster" } },
+);
+
+export const upsertDepartmentBudget = createAuthenticatedAction(
+  z.object({
+    departmentId: z.string().uuid(),
+    year: z.number().int().min(2000).max(2100),
+    amount: z.number().min(0),
+  }),
+  async (data, context) => {
+    const { data: existing, error: findErr } = await context.supabase
+      .from("department_budgets")
+      .select("id")
+      .eq("department_id", data.departmentId)
+      .eq("year", data.year)
+      .maybeSingle();
+    if (findErr) throw findErr;
+    if (existing) {
+      const { error } = await context.supabase
+        .from("department_budgets")
+        .update({ amount: data.amount, updated_by: context.userId })
+        .eq("id", existing.id);
+      if (error) throw error;
+      return { id: existing.id as string };
+    }
+    const { data: created, error } = await context.supabase
+      .from("department_budgets")
+      .insert({
+        department_id: data.departmentId,
+        year: data.year,
+        amount: data.amount,
+        updated_by: context.userId,
+      })
+      .select("id")
+      .single();
+    if (error) throw error;
+    return { id: created.id as string };
+  },
+  { auth: { anyCapability: ["people.edit_roster", "procurement.configure"] } },
 );
 
 export const updateShift = createAuthenticatedAction(

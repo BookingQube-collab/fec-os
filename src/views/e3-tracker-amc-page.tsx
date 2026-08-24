@@ -3,6 +3,7 @@
 
 
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 
 
@@ -25,6 +26,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 
 export default function E3AmcTrackerPage() {
+  const { t } = useTranslation();
 
   const [filter, setFilter] = useState({ location: "All", field: "All" });
 
@@ -54,9 +56,9 @@ export default function E3AmcTrackerPage() {
 
     <E3TrackerPageShell
 
-      title="AMC Tracker"
+      title={t("e3Tracker.pages.amcTracker.title")}
 
-      subtitle="Annual maintenance contracts only. QCDD and E3 Compliance licenses are excluded."
+      subtitle={t("e3Tracker.pages.amcTracker.subtitle")}
 
     >
 

@@ -200,8 +200,8 @@ export function RosterGeneratePanel({
   return (
     <div className="space-y-4">
       {/* Hero — 3-step guide */}
-      <div className="rounded-xl border border-violet-200/80 bg-gradient-to-br from-violet-50 via-white to-white p-4 sm:p-6">
-        <h2 className="text-base font-semibold text-[#1E1B4B] sm:text-lg">
+      <div className="rounded-2xl border border-border/40 bg-card p-4 shadow-[0_4px_20px_rgba(0,0,0,0.05)] sm:p-6">
+        <h2 className="text-base font-semibold text-foreground sm:text-lg">
           {t("dailyOps.roster.heroTitle")}
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">{t("dailyOps.roster.heroSubtitle")}</p>
@@ -211,37 +211,37 @@ export function RosterGeneratePanel({
             <li
               key={step.num}
               className={cn(
-                "flex items-start gap-3 rounded-lg border px-3 py-2.5",
+                "flex items-start gap-3 rounded-xl border px-3 py-2.5",
                 step.done
-                  ? "border-violet-200 bg-violet-50/60"
-                  : "border-[#E2E8F0] bg-white/80",
+                  ? "kpi-tint-green"
+                  : "border-border/70 bg-card",
               )}
             >
               <span
                 className={cn(
                   "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold",
                   step.done
-                    ? "bg-violet-600 text-white"
-                    : "bg-[#E2E8F0] text-[#64748B]",
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground",
                 )}
               >
                 {step.num}
               </span>
-              <span className="text-sm font-medium leading-snug text-[#334155]">{step.label}</span>
+              <span className="text-sm font-medium leading-snug text-foreground">{step.label}</span>
             </li>
           ))}
         </ol>
       </div>
 
       {/* Controls — venue + week only */}
-      <div className="rounded-xl border border-[#E2E8F0] bg-white p-4 sm:p-5">
+      <div className="rounded-2xl border border-border/40 bg-card p-4 shadow-[0_4px_20px_rgba(0,0,0,0.05)] sm:p-5">
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <MapPin className="h-3.5 w-3.5" />
               {t("dailyOps.roster.locationFilter")}
             </Label>
-            <p className="text-sm font-medium text-[#1E293B]">
+            <p className="text-sm font-medium text-foreground">
               {selectedSite
                 ? `${selectedSite.code} — ${selectedSite.name}`
                 : t("dailyOps.roster.generateEmptyVenue")}
@@ -305,7 +305,7 @@ export function RosterGeneratePanel({
         <Button
           type="button"
           size="lg"
-          className="mt-4 w-full bg-violet-600 text-white hover:bg-violet-700 sm:w-auto sm:min-w-[240px]"
+          className="mt-4 w-full sm:w-auto sm:min-w-[240px]"
           onClick={() => aiGenerateMutation.mutate()}
           disabled={!locationId || aiGenerateMutation.isPending || !staffOptions.length}
         >
@@ -322,9 +322,9 @@ export function RosterGeneratePanel({
 
       {/* Preview or empty state */}
       {showEmptyState && locationId && staffOptions.length > 0 && (
-        <div className="rounded-xl border border-dashed border-[#CBD5E1] bg-[#F8FAFC] px-4 py-10 text-center">
-          <Sparkles className="mx-auto h-8 w-8 text-violet-400" />
-          <p className="mt-3 text-sm font-medium text-[#334155]">
+        <div className="rounded-2xl border border-dashed border-border bg-muted/40 px-4 py-10 text-center">
+          <Sparkles className="mx-auto h-8 w-8 text-muted-foreground" />
+          <p className="mt-3 text-sm font-medium text-foreground">
             {t("dailyOps.roster.generateReady", { code: selectedSite?.code ?? "—" })}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">{t("dailyOps.roster.generateReadyHint")}</p>
@@ -332,10 +332,10 @@ export function RosterGeneratePanel({
       )}
 
       {hasPreview && (
-        <div className="space-y-3 rounded-xl border border-violet-200 bg-white p-4 sm:p-5">
+        <div className="space-y-3 rounded-2xl border border-border/40 bg-card p-4 shadow-[0_4px_20px_rgba(0,0,0,0.05)] sm:p-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h3 className="text-sm font-semibold text-[#1E1B4B]">
+              <h3 className="text-sm font-semibold text-foreground">
                 {t("dailyOps.roster.previewTitle")}
               </h3>
               <p className="text-xs text-muted-foreground">
@@ -344,7 +344,7 @@ export function RosterGeneratePanel({
                   : t("dailyOps.roster.previewEditHint")}
               </p>
             </div>
-            <span className="rounded-full bg-violet-100 px-2.5 py-0.5 text-xs font-medium text-violet-800">
+            <span className="rounded-full kpi-icon-sky px-2.5 py-0.5 text-xs font-medium">
               {t("dailyOps.roster.previewCount", { count: genEntries.filter((e) => e.staff_id).length })}
             </span>
           </div>
@@ -443,7 +443,7 @@ export function RosterGeneratePanel({
             </Button>
             <Button
               size="lg"
-              className="bg-violet-600 hover:bg-violet-700 sm:min-w-[200px]"
+              className="sm:min-w-[200px]"
               onClick={() => generateMutation.mutate()}
               disabled={!locationId || generateMutation.isPending || !hasPreview}
             >
@@ -459,15 +459,15 @@ export function RosterGeneratePanel({
       {/* Manual entry — collapsed by default */}
       {!hasPreview && (
         <Collapsible open={manualOpen} onOpenChange={setManualOpen}>
-          <CollapsibleTrigger className="group flex w-full items-center justify-between rounded-xl border border-[#E2E8F0] bg-white px-4 py-3 text-left hover:bg-[#F8FAFC]">
+          <CollapsibleTrigger className="group flex w-full items-center justify-between rounded-2xl border border-border/40 bg-card px-4 py-3 text-left hover:bg-secondary/50">
             <div>
-              <p className="text-sm font-medium text-[#334155]">{t("dailyOps.roster.manualTitle")}</p>
+              <p className="text-sm font-medium text-foreground">{t("dailyOps.roster.manualTitle")}</p>
               <p className="text-xs text-muted-foreground">{t("dailyOps.roster.manualHint")}</p>
             </div>
-            <ChevronDown className="h-5 w-5 shrink-0 text-[#9CA3AF] transition-transform group-data-[state=open]:rotate-180" />
+            <ChevronDown className="h-5 w-5 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
           </CollapsibleTrigger>
           <CollapsibleContent className="pt-3">
-            <div className="space-y-3 rounded-xl border border-[#E2E8F0] bg-white p-4">
+            <div className="space-y-3 rounded-2xl border border-border/40 bg-card p-4">
               {genEntries.length === 0 && (
                 <p className="text-sm text-muted-foreground">{t("dailyOps.roster.manualEmpty")}</p>
               )}
@@ -530,11 +530,12 @@ export function RosterGeneratePanel({
                     <div className="flex items-end">
                       <Button
                         type="button"
-                        size="sm"
+                        size="icon"
                         variant="ghost"
+                        aria-label={t("common.delete")}
                         onClick={() => removeEntry(idx)}
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 />
                       </Button>
                     </div>
                   )}

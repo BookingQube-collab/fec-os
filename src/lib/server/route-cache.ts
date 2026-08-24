@@ -25,3 +25,15 @@ export const ROUTE_CACHE_TTL = {
 export function routeCacheKey(parts: (string | null | undefined)[]): string {
   return parts.filter((p) => p != null && p !== "").join(":");
 }
+
+/** Drop every in-memory API route cache entry (this Node isolate only). */
+export function clearRouteCache(): { cleared: number; expired: number } {
+  const now = Date.now();
+  let expired = 0;
+  for (const entry of store.values()) {
+    if (now > entry.expires) expired += 1;
+  }
+  const cleared = store.size;
+  store.clear();
+  return { cleared, expired };
+}

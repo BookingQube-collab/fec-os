@@ -118,6 +118,76 @@ export function attendanceDateRange(preset: "week" | "month"): { from: string; t
   };
 }
 
+export function todayIsoDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+export type AttendanceDatePreset = "week" | "month" | "custom";
+
+export function resolveAttendanceDateRange(
+  preset: AttendanceDatePreset,
+  customFrom: string,
+  customTo: string,
+): { from: string; to: string } {
+  if (preset === "custom") {
+    const from = customFrom.trim() || attendanceDateRange("month").from;
+    const to = customTo.trim() || todayIsoDate();
+    return from <= to ? { from, to } : { from: to, to: from };
+  }
+  return attendanceDateRange(preset);
+}
+
+export type AttendanceKpiSummary = {
+  totalRecords: number;
+  uniqueStaff: number;
+  complete: number;
+  missingPunch: number;
+  incomplete: number;
+  overtime: number;
+  totalHours: number;
+  late: number;
+  absent: number;
+};
+
+export function computeAttendanceKpis(rows: AttendanceSummaryRow[]): AttendanceKpiSummary {
+  const staffIds = new Set<string>();
+  let complete = 0;
+  let missingPunch = 0;
+  let incomplete = 0;
+  let overtime = 0;
+  let totalHours = 0;
+  let late = 0;
+  let absent = 0;
+
+  for (const row of rows) {
+    if (row.staff_id) staffIds.add(row.staff_id);
+
+    const display = getAttendanceStatusDisplay(row);
+    if (display.label === "Complete") complete++;
+    else if (display.label === "Incomplete") incomplete++;
+    else if (display.label === "Missing Punch") missingPunch++;
+    else if (display.label === "Late" || display.label === "Early Leave") late++;
+
+    if (row.status === "absent") absent++;
+    if (hasOvertime(row)) overtime++;
+
+    const hours = computeHoursWorked(row.actual_in, row.actual_out);
+    if (hours != null) totalHours += hours;
+  }
+
+  return {
+    totalRecords: rows.length,
+    uniqueStaff: staffIds.size,
+    complete,
+    missingPunch,
+    incomplete,
+    overtime,
+    totalHours: Math.round(totalHours * 100) / 100,
+    late,
+    absent,
+  };
+}
+
 export function buildAttendanceCsv(rows: AttendanceSummaryRow[]): string {
   const header = [
     "Location",

@@ -13,6 +13,7 @@ import {
   Upload,
 } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
@@ -54,24 +55,30 @@ const InventoryDashboardPanel = dynamic(
     import("@/components/inventory/inventory-dashboard-panel").then((m) => m.InventoryDashboardPanel),
   {
     ssr: false,
-    loading: () => (
-      <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-        Loading dashboard…
-      </div>
-    ),
+    loading: () => <InventoryDashboardLoading />,
   },
 );
 
 const SOCK_SIZES = ["S", "M", "L", "XL"] as const;
 const STOCK_STATUSES = ["all", "ok", "low", "out"] as const;
 
-function statusBadge(status: string, belowReorder: boolean) {
-  if (status === "out") return <Badge variant="outline" className="rag-red">Out</Badge>;
-  if (status === "low" || belowReorder) return <Badge variant="outline" className="rag-amber">Low</Badge>;
-  return <Badge variant="outline">OK</Badge>;
+function InventoryDashboardLoading() {
+  const { t } = useTranslation();
+  return (
+    <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+      {t("inventory.loadingDashboard")}
+    </div>
+  );
+}
+
+function statusBadge(status: string, belowReorder: boolean, t: (key: string) => string) {
+  if (status === "out") return <Badge variant="outline" className="rag-red">{t("inventory.status.out")}</Badge>;
+  if (status === "low" || belowReorder) return <Badge variant="outline" className="rag-amber">{t("inventory.status.low")}</Badge>;
+  return <Badge variant="outline">{t("inventory.status.ok")}</Badge>;
 }
 
 function InventoryPage() {
+  const { t } = useTranslation();
   const canManage = usePermission("inventory.manage");
   const canMove = usePermission("inventory.move");
   const canImport = usePermission("inventory.import");
@@ -85,17 +92,15 @@ function InventoryPage() {
             <Package className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold">Inventory & Consumables</h1>
-            <p className="text-xs text-muted-foreground">
-              Branch stock levels, grip socks by size, movements, and reorder alerts.
-            </p>
+            <h1 className="text-xl font-semibold">{t("inventory.title")}</h1>
+            <p className="text-xs text-muted-foreground">{t("inventory.subtitle")}</p>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
           {canImport && (
             <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
               <Upload className="mr-2 h-4 w-4" />
-              Import sheet
+              {t("inventory.importSheet")}
             </Button>
           )}
         </div>
@@ -105,10 +110,10 @@ function InventoryPage() {
         <TabsList>
           <TabsTrigger value="dashboard" className="gap-1.5">
             <LayoutDashboard className="h-3.5 w-3.5" />
-            Dashboard
+            {t("inventory.tabs.dashboard")}
           </TabsTrigger>
-          <TabsTrigger value="stock">Branch stock</TabsTrigger>
-          <TabsTrigger value="catalog">Catalog</TabsTrigger>
+          <TabsTrigger value="stock">{t("inventory.tabs.stock")}</TabsTrigger>
+          <TabsTrigger value="catalog">{t("inventory.tabs.catalog")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="dashboard" className="mt-4">
@@ -136,6 +141,7 @@ function StockPanel({
   canMove: boolean;
   canImport: boolean;
 }) {
+  const { t } = useTranslation();
   const locationId = useAppStore((s) => s.currentLocationId);
   const qc = useQueryClient();
   const [sizeFilter, setSizeFilter] = useState<string>("all");
@@ -161,7 +167,7 @@ function StockPanel({
 
   const receiveMut = useMutation({
     mutationFn: (itemId: string) => {
-      if (!locationId) throw new Error("Select a branch");
+      if (!locationId) throw new Error(t("inventory.stock.selectBranch"));
       return recordInventoryMovement({
         itemId,
         locationId,
@@ -171,7 +177,7 @@ function StockPanel({
       });
     },
     onSuccess: () => {
-      toast.success("Stock updated");
+      toast.success(t("inventory.stock.updated"));
       invalidate();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -179,7 +185,7 @@ function StockPanel({
 
   const stockMut = useMutation({
     mutationFn: () => {
-      if (!locationId || !stockDialog) throw new Error("Select a branch");
+      if (!locationId || !stockDialog) throw new Error(t("inventory.stock.selectBranch"));
       return upsertInventoryStock({
         id: stockDialog.id,
         itemId: stockDialog.itemId,
@@ -188,7 +194,7 @@ function StockPanel({
       });
     },
     onSuccess: () => {
-      toast.success("Stock saved");
+      toast.success(t("inventory.stock.saved"));
       setStockDialog(null);
       invalidate();
     },
@@ -197,7 +203,7 @@ function StockPanel({
 
   const addStockMut = useMutation({
     mutationFn: () => {
-      if (!locationId) throw new Error("Select a branch");
+      if (!locationId) throw new Error(t("inventory.stock.selectBranch"));
       return upsertInventoryStock({
         itemId: addForm.itemId,
         locationId,
@@ -205,7 +211,7 @@ function StockPanel({
       });
     },
     onSuccess: () => {
-      toast.success("Stock record created");
+      toast.success(t("inventory.stock.created"));
       setAddStockOpen(false);
       setAddForm({ itemId: "", quantity: "0" });
       invalidate();
@@ -216,7 +222,7 @@ function StockPanel({
   const deleteStockMut = useMutation({
     mutationFn: (id: string) => deleteInventoryStock({ id }),
     onSuccess: () => {
-      toast.success("Stock record removed");
+      toast.success(t("inventory.stock.removed"));
       invalidate();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -228,7 +234,7 @@ function StockPanel({
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
           <div className="flex items-center gap-2 text-sm font-medium text-amber-200">
             <AlertTriangle className="h-4 w-4" />
-            {alerts!.length} item(s) at or below reorder level
+            {t("inventory.stock.alert", { count: alerts!.length })}
           </div>
         </div>
       )}
@@ -236,10 +242,10 @@ function StockPanel({
       <div className="flex flex-wrap items-center gap-2">
         <Select value={sizeFilter} onValueChange={setSizeFilter}>
           <SelectTrigger className="w-[120px]">
-            <SelectValue placeholder="Size" />
+            <SelectValue placeholder={t("inventory.stock.size")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All sizes</SelectItem>
+            <SelectItem value="all">{t("inventory.stock.allSizes")}</SelectItem>
             {SOCK_SIZES.map((s) => (
               <SelectItem key={s} value={s}>
                 {s}
@@ -249,12 +255,12 @@ function StockPanel({
         </Select>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-[130px]">
-            <SelectValue placeholder="Status" />
+            <SelectValue placeholder={t("common.status")} />
           </SelectTrigger>
           <SelectContent>
             {STOCK_STATUSES.map((s) => (
               <SelectItem key={s} value={s}>
-                {s === "all" ? "All statuses" : s.charAt(0).toUpperCase() + s.slice(1)}
+                {s === "all" ? t("common.allStatuses") : t(`inventory.status.${s}`)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -262,7 +268,7 @@ function StockPanel({
         {canManage && (
           <Button size="sm" variant="outline" onClick={() => setAddStockOpen(true)} disabled={!locationId}>
             <Plus className="mr-1 h-4 w-4" />
-            Add stock
+            {t("inventory.stock.addStock")}
           </Button>
         )}
       </div>
@@ -271,12 +277,12 @@ function StockPanel({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>SKU</TableHead>
-              <TableHead>Item</TableHead>
-              <TableHead>Size</TableHead>
-              <TableHead>Branch</TableHead>
-              <TableHead>On hand</TableHead>
-              <TableHead>Status</TableHead>
+              <TableHead>{t("inventory.stock.sku")}</TableHead>
+              <TableHead>{t("inventory.stock.item")}</TableHead>
+              <TableHead>{t("inventory.stock.size")}</TableHead>
+              <TableHead>{t("inventory.stock.branch")}</TableHead>
+              <TableHead>{t("inventory.stock.onHand")}</TableHead>
+              <TableHead>{t("common.status")}</TableHead>
               <TableHead />
             </TableRow>
           </TableHeader>
@@ -284,16 +290,16 @@ function StockPanel({
             {isLoading ? (
               <TableRow>
                 <TableCell colSpan={7} className="text-center text-muted-foreground">
-                  Loading…
+                  {t("common.loading")}
                 </TableCell>
               </TableRow>
             ) : !stock?.length ? (
               <TableRow>
                 <TableCell colSpan={7} className="py-10 text-center">
-                  <p className="text-muted-foreground">No stock records for this branch.</p>
+                  <p className="text-muted-foreground">{t("inventory.stock.empty")}</p>
                   {canImport && (
                     <p className="mt-2 text-xs text-muted-foreground">
-                      Use <strong>Import sheet</strong> or <strong>Add stock</strong> to populate inventory.
+                      {t("inventory.stock.emptyHint")}
                     </p>
                   )}
                 </TableCell>
@@ -308,7 +314,7 @@ function StockPanel({
                   <TableCell>
                     {s.quantity_on_hand} {s.unit}
                   </TableCell>
-                  <TableCell>{statusBadge(s.stock_status, s.below_reorder)}</TableCell>
+                  <TableCell>{statusBadge(s.stock_status, s.below_reorder, t)}</TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
                       {(canMove || canManage) && (
@@ -358,11 +364,11 @@ function StockPanel({
       <Dialog open={!!stockDialog} onOpenChange={(o) => !o && setStockDialog(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Adjust stock level</DialogTitle>
+            <DialogTitle>{t("inventory.stock.adjustTitle")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <Label htmlFor="qty">Quantity on hand</Label>
+              <Label htmlFor="qty">{t("inventory.stock.qtyOnHand")}</Label>
               <Input
                 id="qty"
                 type="number"
@@ -374,11 +380,11 @@ function StockPanel({
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setStockDialog(null)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button onClick={() => stockMut.mutate()} disabled={stockMut.isPending}>
               {stockMut.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Save
+              {t("common.save")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -387,14 +393,14 @@ function StockPanel({
       <Dialog open={addStockOpen} onOpenChange={setAddStockOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add stock record</DialogTitle>
+            <DialogTitle>{t("inventory.stock.addTitle")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <Label>Catalog item</Label>
+              <Label>{t("inventory.stock.catalogItem")}</Label>
               <Select value={addForm.itemId} onValueChange={(v) => setAddForm((f) => ({ ...f, itemId: v }))}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select item" />
+                  <SelectValue placeholder={t("inventory.stock.selectItem")} />
                 </SelectTrigger>
                 <SelectContent>
                   {(items ?? []).map((i) => (
@@ -407,7 +413,7 @@ function StockPanel({
               </Select>
             </div>
             <div>
-              <Label htmlFor="add-qty">Quantity on hand</Label>
+              <Label htmlFor="add-qty">{t("inventory.stock.qtyOnHand")}</Label>
               <Input
                 id="add-qty"
                 type="number"
@@ -419,14 +425,14 @@ function StockPanel({
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddStockOpen(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               onClick={() => addStockMut.mutate()}
               disabled={!addForm.itemId || addStockMut.isPending}
             >
               {addStockMut.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Create
+              {t("common.create")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -436,6 +442,7 @@ function StockPanel({
 }
 
 function CatalogPanel({ canManage }: { canManage: boolean }) {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const { data: items, isLoading } = useInventoryItems({ enabled: true });
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -469,7 +476,7 @@ function CatalogPanel({ canManage }: { canManage: boolean }) {
         active: form.active,
       }),
     onSuccess: () => {
-      toast.success(form.id ? "Item updated" : "Item created");
+      toast.success(form.id ? t("inventory.catalog.updated") : t("inventory.catalog.created"));
       setDialogOpen(false);
       invalidate();
     },
@@ -479,7 +486,7 @@ function CatalogPanel({ canManage }: { canManage: boolean }) {
   const deleteMut = useMutation({
     mutationFn: (id: string) => deleteInventoryItem({ id }),
     onSuccess: () => {
-      toast.success("Item archived");
+      toast.success(t("inventory.catalog.archived"));
       invalidate();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -521,12 +528,12 @@ function CatalogPanel({ canManage }: { canManage: boolean }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          Master catalog ({items?.length ?? 0} items) — grip socks and consumables.
+          {t("inventory.catalog.master", { count: items?.length ?? 0 })}
         </p>
         {canManage && (
           <Button size="sm" onClick={openCreate}>
             <Plus className="mr-1 h-4 w-4" />
-            Add item
+            {t("inventory.catalog.addItem")}
           </Button>
         )}
       </div>
@@ -535,12 +542,12 @@ function CatalogPanel({ canManage }: { canManage: boolean }) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>SKU</TableHead>
-              <TableHead>Name</TableHead>
-              <TableHead>Size</TableHead>
-              <TableHead>Category</TableHead>
-              <TableHead>Unit</TableHead>
-              <TableHead>Reorder</TableHead>
+              <TableHead>{t("inventory.stock.sku")}</TableHead>
+              <TableHead>{t("inventory.catalog.name")}</TableHead>
+              <TableHead>{t("inventory.stock.size")}</TableHead>
+              <TableHead>{t("common.category")}</TableHead>
+              <TableHead>{t("inventory.catalog.unit")}</TableHead>
+              <TableHead>{t("inventory.catalog.reorder")}</TableHead>
               <TableHead />
             </TableRow>
           </TableHeader>
@@ -548,13 +555,13 @@ function CatalogPanel({ canManage }: { canManage: boolean }) {
             {isLoading ? (
               <TableRow>
                 <TableCell colSpan={7} className="text-center text-muted-foreground">
-                  Loading…
+                  {t("common.loading")}
                 </TableCell>
               </TableRow>
             ) : !items?.length ? (
               <TableRow>
                 <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
-                  No catalog items. Add items or import a sheet.
+                  {t("inventory.catalog.empty")}
                 </TableCell>
               </TableRow>
             ) : (
@@ -593,11 +600,11 @@ function CatalogPanel({ canManage }: { canManage: boolean }) {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{form.id ? "Edit catalog item" : "New catalog item"}</DialogTitle>
+            <DialogTitle>{form.id ? t("inventory.catalog.editTitle") : t("inventory.catalog.newTitle")}</DialogTitle>
           </DialogHeader>
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <Label htmlFor="sku">SKU</Label>
+              <Label htmlFor="sku">{t("inventory.stock.sku")}</Label>
               <Input
                 id="sku"
                 value={form.sku}
@@ -607,10 +614,10 @@ function CatalogPanel({ canManage }: { canManage: boolean }) {
               />
             </div>
             <div>
-              <Label htmlFor="size">Size</Label>
+              <Label htmlFor="size">{t("inventory.stock.size")}</Label>
               <Select value={form.size || "_none"} onValueChange={(v) => setForm((f) => ({ ...f, size: v === "_none" ? "" : v }))}>
                 <SelectTrigger id="size">
-                  <SelectValue placeholder="Optional" />
+                  <SelectValue placeholder={t("common.optional")} />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="_none">—</SelectItem>
@@ -623,7 +630,7 @@ function CatalogPanel({ canManage }: { canManage: boolean }) {
               </Select>
             </div>
             <div className="sm:col-span-2">
-              <Label htmlFor="name">Name</Label>
+              <Label htmlFor="name">{t("inventory.catalog.name")}</Label>
               <Input
                 id="name"
                 value={form.name}
@@ -631,7 +638,7 @@ function CatalogPanel({ canManage }: { canManage: boolean }) {
               />
             </div>
             <div>
-              <Label htmlFor="category">Category</Label>
+              <Label htmlFor="category">{t("common.category")}</Label>
               <Input
                 id="category"
                 value={form.category}
@@ -639,11 +646,11 @@ function CatalogPanel({ canManage }: { canManage: boolean }) {
               />
             </div>
             <div>
-              <Label htmlFor="unit">Unit</Label>
+              <Label htmlFor="unit">{t("inventory.catalog.unit")}</Label>
               <Input id="unit" value={form.unit} onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value }))} />
             </div>
             <div>
-              <Label htmlFor="reorder">Reorder level</Label>
+              <Label htmlFor="reorder">{t("inventory.catalog.reorder")}</Label>
               <Input
                 id="reorder"
                 type="number"
@@ -653,7 +660,7 @@ function CatalogPanel({ canManage }: { canManage: boolean }) {
               />
             </div>
             <div>
-              <Label htmlFor="par">Par level</Label>
+              <Label htmlFor="par">{t("inventory.catalog.par")}</Label>
               <Input
                 id="par"
                 type="number"
@@ -665,12 +672,12 @@ function CatalogPanel({ canManage }: { canManage: boolean }) {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <CapabilityGate capability="inventory.manage">
               <Button onClick={() => saveMut.mutate()} disabled={!form.sku || !form.name || saveMut.isPending}>
                 {saveMut.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                Save
+                {t("common.save")}
               </Button>
             </CapabilityGate>
           </DialogFooter>

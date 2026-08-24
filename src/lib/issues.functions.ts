@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 
+import { completeJsonViaGateway } from "@/lib/ai/complete-json";
 import {
   createAuthenticatedAction,
   createAuthenticatedActionNoInput,
@@ -253,36 +254,22 @@ export const triageIssueWithAI = createAuthenticatedAction(
   }),
   async (data) => {
     const fallback = { priority: "normal" as const, category: "general", reasoning: "" };
-    const apiKey = process.env.LOVABLE_API_KEY;
-    if (!apiKey) return { ...fallback, reasoning: "AI unavailable (no LOVABLE_API_KEY)" };
-
     const prompt = `You are a front-line ops triage assistant for a Qatar family entertainment centre. Classify this ticket. Reply ONLY with JSON: {"priority":"low|normal|high|urgent","category":"short category","reasoning":"one sentence"}\n\nTitle: ${data.title}\nDescription: ${data.description ?? "(none)"}`;
 
-    try {
-      const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey },
-        body: JSON.stringify({
-          model: "google/gemini-3-flash-preview",
-          messages: [{ role: "user", content: prompt }],
-        }),
-      });
-      if (!resp.ok) return { ...fallback, reasoning: `AI gateway error ${resp.status}` };
-      const json = (await resp.json()) as { choices?: Array<{ message?: { content?: string } }> };
-      const text = json.choices?.[0]?.message?.content ?? "{}";
-      const match = text.match(/\{[\s\S]*\}/);
-      const parsed = match ? JSON.parse(match[0]) : {};
-      const priority = ["low", "normal", "high", "urgent"].includes(parsed.priority)
-        ? parsed.priority
-        : "normal";
-      return {
-        priority: priority as "low" | "normal" | "high" | "urgent",
-        category: typeof parsed.category === "string" ? parsed.category : "general",
-        reasoning: typeof parsed.reasoning === "string" ? parsed.reasoning : "",
-      };
-    } catch (e) {
-      return { ...fallback, reasoning: `AI triage failed: ${(e as Error).message}` };
-    }
+    const parsed = (await completeJsonViaGateway(
+      [{ role: "user", content: prompt }],
+      { moduleSource: "issues.triage" },
+    )) as { priority?: string; category?: string; reasoning?: string } | null;
+    if (!parsed) return { ...fallback, reasoning: "AI unavailable — configure a provider in Admin → AI Integrations." };
+
+    const priority = ["low", "normal", "high", "urgent"].includes(parsed.priority ?? "")
+      ? parsed.priority
+      : "normal";
+    return {
+      priority: priority as "low" | "normal" | "high" | "urgent",
+      category: typeof parsed.category === "string" ? parsed.category : "general",
+      reasoning: typeof parsed.reasoning === "string" ? parsed.reasoning : "",
+    };
   },
   { auth: { capability: "issues.create" } },
 );

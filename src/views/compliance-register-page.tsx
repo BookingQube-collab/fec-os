@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { CompliancePageShell, KpiStrip } from "@/components/compliance/compliance-page-shell";
 import { useComplianceRegister } from "@/hooks/queries/useComplianceRegister";
@@ -12,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 function ComplianceRegisterPage() {
+  const { t } = useTranslation();
   const locationId = useAppStore((s) => s.currentLocationId);
   const [domain, setDomain] = useState("all");
   const [status, setStatus] = useState("all");
@@ -43,7 +45,7 @@ function ComplianceRegisterPage() {
 
   const { exportPdf, exportExcel } = useReportExport({
     pageKey: "ComplianceRegister",
-    title: "License & AMC Tracker",
+    title: t("complianceHub.register.title"),
     venueLabel: locationId ? "Filtered" : "All",
     filters: { domain, status, risk },
     kpis: [{ label: "Items", value: rows?.length ?? 0 }],
@@ -63,8 +65,8 @@ function ComplianceRegisterPage() {
 
   return (
     <CompliancePageShell
-      title="License & AMC Tracker"
-      subtitle="Master compliance register — corporate, QCDD, security, HVAC, kitchen, pest, insurance & AMC"
+      title={t("complianceHub.register.title")}
+      subtitle={t("complianceHub.register.subtitle")}
       onExportPdf={exportPdf}
       onExportExcel={exportExcel}
       filters={
@@ -72,49 +74,49 @@ function ComplianceRegisterPage() {
           <Select value={domain} onValueChange={setDomain}>
             <SelectTrigger className="w-[180px] bg-zinc-800 text-zinc-50"><SelectValue placeholder="Domain" /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All domains</SelectItem>
+              <SelectItem value="all">{t("complianceHub.register.allDomains")}</SelectItem>
               {COMPLIANCE_DOMAINS.map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={status} onValueChange={setStatus}>
             <SelectTrigger className="w-[140px] bg-zinc-800 text-zinc-50"><SelectValue placeholder="Status" /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All status</SelectItem>
-              <SelectItem value="Active">Active</SelectItem>
-              <SelectItem value="Pending Renewal">Pending Renewal</SelectItem>
+              <SelectItem value="all">{t("complianceHub.register.allStatus")}</SelectItem>
+              <SelectItem value="Active">{t("complianceHub.register.active")}</SelectItem>
+              <SelectItem value="Pending Renewal">{t("complianceHub.tracker.statuses.Pending Renewal")}</SelectItem>
             </SelectContent>
           </Select>
           <Select value={risk} onValueChange={setRisk}>
             <SelectTrigger className="w-[120px] bg-zinc-800 text-zinc-50"><SelectValue placeholder="Risk" /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All risk</SelectItem>
-              {["Critical", "High", "Medium", "Low"].map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+              <SelectItem value="all">{t("complianceHub.register.allRisk")}</SelectItem>
+              {["Critical", "High", "Medium", "Low"].map((r) => <SelectItem key={r} value={r}>{t(`complianceHub.tracker.riskLevels.${r}`)}</SelectItem>)}
             </SelectContent>
           </Select>
         </>
       }
     >
-      <KpiStrip items={[{ label: "Total items", value: rows?.length ?? "—" }]} />
+      <KpiStrip items={[{ label: t("complianceHub.tracker.totalItems"), value: rows?.length ?? "—" }]} />
       <div className="overflow-x-auto rounded-lg border border-border bg-card">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Domain</TableHead>
-              <TableHead>Item</TableHead>
-              <TableHead>Venue</TableHead>
-              <TableHead>Vendor</TableHead>
-              <TableHead>Expiry</TableHead>
-              <TableHead>Days</TableHead>
-              <TableHead>Alert</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Cost</TableHead>
+              <TableHead>{t("complianceHub.register.domain")}</TableHead>
+              <TableHead>{t("amc.columns.item")}</TableHead>
+              <TableHead>{t("amc.columns.venue")}</TableHead>
+              <TableHead>{t("common.vendor")}</TableHead>
+              <TableHead>{t("complianceHub.tracker.expiry")}</TableHead>
+              <TableHead>{t("complianceHub.tracker.days")}</TableHead>
+              <TableHead>{t("complianceHub.register.alert")}</TableHead>
+              <TableHead>{t("common.status")}</TableHead>
+              <TableHead>{t("amc.columns.cost")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground">Loading…</TableCell></TableRow>
+              <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground">{t("common.loading")}</TableCell></TableRow>
             ) : !rows?.length ? (
-              <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground">No items.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground">{t("complianceHub.register.noItems")}</TableCell></TableRow>
             ) : (
               rows.map((r) => (
                 <TableRow key={r.id}>

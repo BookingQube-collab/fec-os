@@ -51,29 +51,26 @@ export function ComplianceExpiryBanner({ className }: ComplianceExpiryBannerProp
     <div
       role="alert"
       className={cn(
-        "mb-4 flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3 text-sm shadow-sm",
+        "mb-3 flex flex-wrap items-center gap-2 rounded-full border px-3 py-1.5 text-sm",
         isCritical
-          ? "border-red-200/80 bg-gradient-to-r from-red-50 to-white text-red-900"
-          : "border-amber-200/80 bg-gradient-to-r from-amber-50 to-white text-amber-950",
+          ? "border-red-200/80 bg-red-50 text-red-900"
+          : "border-amber-200/80 bg-amber-50 text-amber-950",
         className,
       )}
     >
-      <div
-        className={cn(
-          "grid h-9 w-9 shrink-0 place-items-center rounded-xl",
-          isCritical ? "bg-red-100 text-red-600" : "bg-amber-100 text-amber-700",
-        )}
-      >
-        {isCritical ? <ShieldAlert className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="font-semibold">{t("complianceExpiry.banner.title")}</p>
-        <p className="text-xs opacity-90">{message}</p>
-      </div>
+      {isCritical ? (
+        <ShieldAlert className="h-4 w-4 shrink-0 text-red-600" />
+      ) : (
+        <AlertTriangle className="h-4 w-4 shrink-0 text-amber-700" />
+      )}
+      <p className="min-w-0 flex-1 truncate">
+        <span className="font-semibold">{t("complianceExpiry.banner.title")}: </span>
+        <span className="opacity-90">{message}</span>
+      </p>
       <Link
         href="/compliance/expiry-alerts"
         className={cn(
-          "inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
+          "inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
           isCritical
             ? "bg-red-600 text-white hover:bg-red-700"
             : "bg-amber-500 text-white hover:bg-amber-600",

@@ -1529,6 +1529,107 @@ export type Database = {
           },
         ]
       }
+      location_areas: {
+        Row: {
+          code: string | null
+          created_at: string
+          id: string
+          is_active: boolean
+          location_id: string
+          name: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          code?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          location_id: string
+          name: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          code?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          location_id?: string
+          name?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "location_areas_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      maintenance_categories: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean
+          is_system: boolean
+          name: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          is_system?: boolean
+          name: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          is_system?: boolean
+          name?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      maintenance_issue_types: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean
+          is_system: boolean
+          name: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          is_system?: boolean
+          name: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          is_system?: boolean
+          name?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       locations: {
         Row: {
           city: string
@@ -1803,6 +1904,7 @@ export type Database = {
           status: Database["public"]["Enums"]["po_status"]
           updated_at: string
           vendor_name: string
+          event_id: string | null
         }
         Insert: {
           amount: number
@@ -1821,6 +1923,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["po_status"]
           updated_at?: string
           vendor_name: string
+          event_id?: string | null
         }
         Update: {
           amount?: number
@@ -1839,6 +1942,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["po_status"]
           updated_at?: string
           vendor_name?: string
+          event_id?: string | null
         }
         Relationships: [
           {
@@ -1920,14 +2024,19 @@ export type Database = {
           created_at: string
           deleted_at: string | null
           department: string | null
+          e3_enrolled: boolean | null
           email: string | null
           employee_code: string
+          employment_type: string | null
           full_name: string
           hire_date: string | null
           id: string
+          is_roaming: boolean
           job_title: string | null
           location_id: string
           phone: string | null
+          qid: string | null
+          source_row_no: number | null
           staff_role: Database["public"]["Enums"]["staff_role"] | null
           status: string
           updated_at: string
@@ -1937,14 +2046,19 @@ export type Database = {
           created_at?: string
           deleted_at?: string | null
           department?: string | null
+          e3_enrolled?: boolean | null
           email?: string | null
           employee_code: string
+          employment_type?: string | null
           full_name: string
           hire_date?: string | null
           id?: string
+          is_roaming?: boolean
           job_title?: string | null
           location_id: string
           phone?: string | null
+          qid?: string | null
+          source_row_no?: number | null
           staff_role?: Database["public"]["Enums"]["staff_role"] | null
           status?: string
           updated_at?: string
@@ -1954,14 +2068,19 @@ export type Database = {
           created_at?: string
           deleted_at?: string | null
           department?: string | null
+          e3_enrolled?: boolean | null
           email?: string | null
           employee_code?: string
+          employment_type?: string | null
           full_name?: string
           hire_date?: string | null
           id?: string
+          is_roaming?: boolean
           job_title?: string | null
           location_id?: string
           phone?: string | null
+          qid?: string | null
+          source_row_no?: number | null
           staff_role?: Database["public"]["Enums"]["staff_role"] | null
           status?: string
           updated_at?: string
@@ -1984,6 +2103,7 @@ export type Database = {
           created_at: string
           id: string
           name: string
+          parent_id: string | null
           sort_order: number
           updated_at: string
         }
@@ -1993,6 +2113,7 @@ export type Database = {
           created_at?: string
           id?: string
           name: string
+          parent_id?: string | null
           sort_order?: number
           updated_at?: string
         }
@@ -2002,10 +2123,19 @@ export type Database = {
           created_at?: string
           id?: string
           name?: string
+          parent_id?: string | null
           sort_order?: number
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "master_departments_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "master_departments"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       staff_departments: {
         Row: {
@@ -2039,6 +2169,281 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      staff_compensation: {
+        Row: {
+          currency: string
+          daily_rate_qar: number | null
+          monthly_salary_qar: number | null
+          staff_id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          currency?: string
+          daily_rate_qar?: number | null
+          monthly_salary_qar?: number | null
+          staff_id: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          currency?: string
+          daily_rate_qar?: number | null
+          monthly_salary_qar?: number | null
+          staff_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_compensation_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: true
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      staff_import_batches: {
+        Row: {
+          archive_count: number
+          completed_at: string | null
+          confirm_hard_delete: boolean
+          create_count: number
+          created_at: string
+          delete_count: number
+          error_message: string | null
+          file_count: number
+          id: string
+          mode: string
+          review_count: number
+          rolled_back_at: string | null
+          row_count: number
+          started_at: string | null
+          status: string
+          summary: Json
+          unchanged_count: number
+          update_count: number
+          uploaded_by: string | null
+        }
+        Insert: {
+          archive_count?: number
+          completed_at?: string | null
+          confirm_hard_delete?: boolean
+          create_count?: number
+          created_at?: string
+          delete_count?: number
+          error_message?: string | null
+          file_count?: number
+          id?: string
+          mode?: string
+          review_count?: number
+          rolled_back_at?: string | null
+          row_count?: number
+          started_at?: string | null
+          status?: string
+          summary?: Json
+          unchanged_count?: number
+          update_count?: number
+          uploaded_by?: string | null
+        }
+        Update: {
+          archive_count?: number
+          completed_at?: string | null
+          confirm_hard_delete?: boolean
+          create_count?: number
+          created_at?: string
+          delete_count?: number
+          error_message?: string | null
+          file_count?: number
+          id?: string
+          mode?: string
+          review_count?: number
+          rolled_back_at?: string | null
+          row_count?: number
+          started_at?: string | null
+          status?: string
+          summary?: Json
+          unchanged_count?: number
+          update_count?: number
+          uploaded_by?: string | null
+        }
+        Relationships: []
+      }
+      staff_import_files: {
+        Row: {
+          batch_id: string
+          byte_size: number
+          created_at: string
+          encrypted: boolean
+          file_hash: string
+          file_type: string
+          filename: string
+          id: string
+          storage_path: string | null
+          worksheet_name: string | null
+        }
+        Insert: {
+          batch_id: string
+          byte_size?: number
+          created_at?: string
+          encrypted?: boolean
+          file_hash: string
+          file_type: string
+          filename: string
+          id?: string
+          storage_path?: string | null
+          worksheet_name?: string | null
+        }
+        Update: {
+          batch_id?: string
+          byte_size?: number
+          created_at?: string
+          encrypted?: boolean
+          file_hash?: string
+          file_type?: string
+          filename?: string
+          id?: string
+          storage_path?: string | null
+          worksheet_name?: string | null
+        }
+        Relationships: []
+      }
+      staff_import_rows: {
+        Row: {
+          action: string
+          batch_id: string
+          field_diffs: Json
+          id: string
+          match_rule: string | null
+          match_staff_id: string | null
+          new_values: Json
+          old_values: Json
+          raw: Json
+          row_number: number
+          warnings: string[]
+        }
+        Insert: {
+          action: string
+          batch_id: string
+          field_diffs?: Json
+          id?: string
+          match_rule?: string | null
+          match_staff_id?: string | null
+          new_values?: Json
+          old_values?: Json
+          raw?: Json
+          row_number: number
+          warnings?: string[]
+        }
+        Update: {
+          action?: string
+          batch_id?: string
+          field_diffs?: Json
+          id?: string
+          match_rule?: string | null
+          match_staff_id?: string | null
+          new_values?: Json
+          old_values?: Json
+          raw?: Json
+          row_number?: number
+          warnings?: string[]
+        }
+        Relationships: []
+      }
+      staff_import_snapshots: {
+        Row: {
+          batch_id: string
+          before: Json
+          created_at: string
+          id: string
+          staff_id: string
+        }
+        Insert: {
+          batch_id: string
+          before?: Json
+          created_at?: string
+          id?: string
+          staff_id: string
+        }
+        Update: {
+          batch_id?: string
+          before?: Json
+          created_at?: string
+          id?: string
+          staff_id?: string
+        }
+        Relationships: []
+      }
+      staff_work_locations: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          location_id: string
+          staff_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          location_id: string
+          staff_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          location_id?: string
+          staff_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_work_locations_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staff_work_locations_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      staff_transfers: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          effective_on: string
+          from_location_id: string | null
+          id: string
+          reason: string | null
+          staff_id: string
+          to_location_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          effective_on: string
+          from_location_id?: string | null
+          id?: string
+          reason?: string | null
+          staff_id: string
+          to_location_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          effective_on?: string
+          from_location_id?: string | null
+          id?: string
+          reason?: string | null
+          staff_id?: string
+          to_location_id?: string
+        }
+        Relationships: []
       }
       staff_leaderboard: {
         Row: {
@@ -2669,6 +3074,8 @@ export type Database = {
           description: string | null
           target_role: Database["public"]["Enums"]["app_role"] | null
           department: string | null
+          job_role_key: string | null
+          weight_total_pct: number
           active: boolean
           created_by: string | null
           created_at: string
@@ -2681,6 +3088,8 @@ export type Database = {
           description?: string | null
           target_role?: Database["public"]["Enums"]["app_role"] | null
           department?: string | null
+          job_role_key?: string | null
+          weight_total_pct?: number
           active?: boolean
           created_by?: string | null
           created_at?: string
@@ -2693,6 +3102,8 @@ export type Database = {
           description?: string | null
           target_role?: Database["public"]["Enums"]["app_role"] | null
           department?: string | null
+          job_role_key?: string | null
+          weight_total_pct?: number
           active?: boolean
           created_by?: string | null
           created_at?: string
@@ -2708,6 +3119,10 @@ export type Database = {
           label: string
           description: string | null
           weight: number
+          higher_is_better: boolean
+          target_value: number | null
+          unit: string | null
+          max_cap_pct: number
           data_source: string
           auto_query_key: string | null
           sort_order: number
@@ -2720,6 +3135,10 @@ export type Database = {
           label: string
           description?: string | null
           weight?: number
+          higher_is_better?: boolean
+          target_value?: number | null
+          unit?: string | null
+          max_cap_pct?: number
           data_source?: string
           auto_query_key?: string | null
           sort_order?: number
@@ -2732,11 +3151,105 @@ export type Database = {
           label?: string
           description?: string | null
           weight?: number
+          higher_is_better?: boolean
+          target_value?: number | null
+          unit?: string | null
+          max_cap_pct?: number
           data_source?: string
           auto_query_key?: string | null
           sort_order?: number
           created_at?: string
         }
+        Relationships: []
+      }
+      performance_settings: {
+        Row: { id: string; key: string; value: Json; description: string | null; updated_by: string | null; created_at: string; updated_at: string }
+        Insert: { id?: string; key: string; value?: Json; description?: string | null; updated_by?: string | null; created_at?: string; updated_at?: string }
+        Update: { id?: string; key?: string; value?: Json; description?: string | null; updated_by?: string | null; created_at?: string; updated_at?: string }
+        Relationships: []
+      }
+      performance_cycles: {
+        Row: { id: string; code: string; name: string; period_kind: string; period_start: string; period_end: string; status: string; kpi_period_id: string | null; notes: string | null; created_by: string | null; created_at: string; updated_at: string }
+        Insert: { id?: string; code: string; name: string; period_kind?: string; period_start: string; period_end: string; status?: string; kpi_period_id?: string | null; notes?: string | null; created_by?: string | null; created_at?: string; updated_at?: string }
+        Update: { id?: string; code?: string; name?: string; period_kind?: string; period_start?: string; period_end?: string; status?: string; kpi_period_id?: string | null; notes?: string | null; created_by?: string | null; created_at?: string; updated_at?: string }
+        Relationships: []
+      }
+      kra_templates: {
+        Row: { id: string; code: string; name: string; description: string | null; job_role_key: string | null; department: string | null; active: boolean; created_by: string | null; created_at: string; updated_at: string }
+        Insert: { id?: string; code: string; name: string; description?: string | null; job_role_key?: string | null; department?: string | null; active?: boolean; created_by?: string | null; created_at?: string; updated_at?: string }
+        Update: { id?: string; code?: string; name?: string; description?: string | null; job_role_key?: string | null; department?: string | null; active?: boolean; created_by?: string | null; created_at?: string; updated_at?: string }
+        Relationships: []
+      }
+      kra_template_items: {
+        Row: { id: string; template_id: string; code: string; title: string; description: string | null; weight_pct: number; sort_order: number; created_at: string }
+        Insert: { id?: string; template_id: string; code: string; title: string; description?: string | null; weight_pct?: number; sort_order?: number; created_at?: string }
+        Update: { id?: string; template_id?: string; code?: string; title?: string; description?: string | null; weight_pct?: number; sort_order?: number; created_at?: string }
+        Relationships: []
+      }
+      employee_kras: {
+        Row: { id: string; staff_id: string; cycle_id: string; kra_template_item_id: string | null; title: string; description: string | null; weight_pct: number; target_text: string | null; status: string; assigned_by: string | null; created_at: string; updated_at: string }
+        Insert: { id?: string; staff_id: string; cycle_id: string; kra_template_item_id?: string | null; title: string; description?: string | null; weight_pct?: number; target_text?: string | null; status?: string; assigned_by?: string | null; created_at?: string; updated_at?: string }
+        Update: { id?: string; staff_id?: string; cycle_id?: string; kra_template_item_id?: string | null; title?: string; description?: string | null; weight_pct?: number; target_text?: string | null; status?: string; assigned_by?: string | null; created_at?: string; updated_at?: string }
+        Relationships: []
+      }
+      employee_kpis: {
+        Row: { id: string; staff_id: string; cycle_id: string; kpi_template_item_id: string | null; kpi_assignment_id: string | null; code: string; label: string; weight_pct: number; target_value: number | null; unit: string | null; higher_is_better: boolean; max_cap_pct: number; data_source: string; auto_query_key: string | null; status: string; assigned_by: string | null; created_at: string; updated_at: string }
+        Insert: { id?: string; staff_id: string; cycle_id: string; kpi_template_item_id?: string | null; kpi_assignment_id?: string | null; code: string; label: string; weight_pct?: number; target_value?: number | null; unit?: string | null; higher_is_better?: boolean; max_cap_pct?: number; data_source?: string; auto_query_key?: string | null; status?: string; assigned_by?: string | null; created_at?: string; updated_at?: string }
+        Update: { id?: string; staff_id?: string; cycle_id?: string; kpi_template_item_id?: string | null; kpi_assignment_id?: string | null; code?: string; label?: string; weight_pct?: number; target_value?: number | null; unit?: string | null; higher_is_better?: boolean; max_cap_pct?: number; data_source?: string; auto_query_key?: string | null; status?: string; assigned_by?: string | null; created_at?: string; updated_at?: string }
+        Relationships: []
+      }
+      kpi_actuals: {
+        Row: { id: string; employee_kpi_id: string; period_start: string; period_end: string; actual_value: number | null; normalized_score: number | null; weighted_score: number | null; source: string; notes: string | null; entered_by: string | null; created_at: string; updated_at: string }
+        Insert: { id?: string; employee_kpi_id: string; period_start: string; period_end: string; actual_value?: number | null; normalized_score?: number | null; weighted_score?: number | null; source?: string; notes?: string | null; entered_by?: string | null; created_at?: string; updated_at?: string }
+        Update: { id?: string; employee_kpi_id?: string; period_start?: string; period_end?: string; actual_value?: number | null; normalized_score?: number | null; weighted_score?: number | null; source?: string; notes?: string | null; entered_by?: string | null; created_at?: string; updated_at?: string }
+        Relationships: []
+      }
+      employee_evaluations: {
+        Row: { id: string; staff_id: string; cycle_id: string; location_id: string | null; status: string; kra_score: number | null; kpi_score: number | null; total_score: number | null; rating_band: string | null; supervisor_comments: string | null; manager_comments: string | null; employee_comments: string | null; finalized_at: string | null; created_by: string | null; created_at: string; updated_at: string }
+        Insert: { id?: string; staff_id: string; cycle_id: string; location_id?: string | null; status?: string; kra_score?: number | null; kpi_score?: number | null; total_score?: number | null; rating_band?: string | null; supervisor_comments?: string | null; manager_comments?: string | null; employee_comments?: string | null; finalized_at?: string | null; created_by?: string | null; created_at?: string; updated_at?: string }
+        Update: { id?: string; staff_id?: string; cycle_id?: string; location_id?: string | null; status?: string; kra_score?: number | null; kpi_score?: number | null; total_score?: number | null; rating_band?: string | null; supervisor_comments?: string | null; manager_comments?: string | null; employee_comments?: string | null; finalized_at?: string | null; created_by?: string | null; created_at?: string; updated_at?: string }
+        Relationships: []
+      }
+      evaluation_reviews: {
+        Row: { id: string; evaluation_id: string; from_status: string; to_status: string; reviewer_id: string | null; comments: string | null; created_at: string }
+        Insert: { id?: string; evaluation_id: string; from_status: string; to_status: string; reviewer_id?: string | null; comments?: string | null; created_at?: string }
+        Update: { id?: string; evaluation_id?: string; from_status?: string; to_status?: string; reviewer_id?: string | null; comments?: string | null; created_at?: string }
+        Relationships: []
+      }
+      employee_achievements: {
+        Row: { id: string; staff_id: string; location_id: string | null; title: string; description: string | null; achieved_on: string; category: string; points: number; created_by: string | null; created_at: string; updated_at: string }
+        Insert: { id?: string; staff_id: string; location_id?: string | null; title: string; description?: string | null; achieved_on?: string; category?: string; points?: number; created_by?: string | null; created_at?: string; updated_at?: string }
+        Update: { id?: string; staff_id?: string; location_id?: string | null; title?: string; description?: string | null; achieved_on?: string; category?: string; points?: number; created_by?: string | null; created_at?: string; updated_at?: string }
+        Relationships: []
+      }
+      employee_nominations: {
+        Row: { id: string; staff_id: string; cycle_id: string | null; location_id: string | null; award_type: string; nomination_month: string; rationale: string | null; status: string; nominated_by: string | null; reviewed_by: string | null; reviewed_at: string | null; created_at: string; updated_at: string }
+        Insert: { id?: string; staff_id: string; cycle_id?: string | null; location_id?: string | null; award_type?: string; nomination_month: string; rationale?: string | null; status?: string; nominated_by?: string | null; reviewed_by?: string | null; reviewed_at?: string | null; created_at?: string; updated_at?: string }
+        Update: { id?: string; staff_id?: string; cycle_id?: string | null; location_id?: string | null; award_type?: string; nomination_month?: string; rationale?: string | null; status?: string; nominated_by?: string | null; reviewed_by?: string | null; reviewed_at?: string | null; created_at?: string; updated_at?: string }
+        Relationships: []
+      }
+      employee_awards: {
+        Row: { id: string; nomination_id: string | null; staff_id: string; location_id: string | null; award_type: string; award_month: string; title: string; citation: string | null; approved_by: string | null; created_at: string; updated_at: string }
+        Insert: { id?: string; nomination_id?: string | null; staff_id: string; location_id?: string | null; award_type?: string; award_month: string; title?: string; citation?: string | null; approved_by?: string | null; created_at?: string; updated_at?: string }
+        Update: { id?: string; nomination_id?: string | null; staff_id?: string; location_id?: string | null; award_type?: string; award_month?: string; title?: string; citation?: string | null; approved_by?: string | null; created_at?: string; updated_at?: string }
+        Relationships: []
+      }
+      performance_evidence: {
+        Row: { id: string; staff_id: string; evaluation_id: string | null; employee_kpi_id: string | null; title: string; notes: string | null; file_path: string | null; mime_type: string | null; uploaded_by: string | null; created_at: string }
+        Insert: { id?: string; staff_id: string; evaluation_id?: string | null; employee_kpi_id?: string | null; title: string; notes?: string | null; file_path?: string | null; mime_type?: string | null; uploaded_by?: string | null; created_at?: string }
+        Update: { id?: string; staff_id?: string; evaluation_id?: string | null; employee_kpi_id?: string | null; title?: string; notes?: string | null; file_path?: string | null; mime_type?: string | null; uploaded_by?: string | null; created_at?: string }
+        Relationships: []
+      }
+      performance_audit_logs: {
+        Row: { id: string; actor_id: string | null; action: string; entity_type: string; entity_id: string | null; staff_id: string | null; location_id: string | null; before: Json | null; after: Json | null; metadata: Json; created_at: string }
+        Insert: { id?: string; actor_id?: string | null; action: string; entity_type: string; entity_id?: string | null; staff_id?: string | null; location_id?: string | null; before?: Json | null; after?: Json | null; metadata?: Json; created_at?: string }
+        Update: { id?: string; actor_id?: string | null; action?: string; entity_type?: string; entity_id?: string | null; staff_id?: string | null; location_id?: string | null; before?: Json | null; after?: Json | null; metadata?: Json; created_at?: string }
+        Relationships: []
+      }
+      performance_improvement_plans: {
+        Row: { id: string; staff_id: string; evaluation_id: string | null; title: string; status: string; start_date: string | null; end_date: string | null; goals: string | null; notes: string | null; created_by: string | null; created_at: string; updated_at: string }
+        Insert: { id?: string; staff_id: string; evaluation_id?: string | null; title: string; status?: string; start_date?: string | null; end_date?: string | null; goals?: string | null; notes?: string | null; created_by?: string | null; created_at?: string; updated_at?: string }
+        Update: { id?: string; staff_id?: string; evaluation_id?: string | null; title?: string; status?: string; start_date?: string | null; end_date?: string | null; goals?: string | null; notes?: string | null; created_by?: string | null; created_at?: string; updated_at?: string }
         Relationships: []
       }
       kpi_assignments: {
@@ -3176,6 +3689,21 @@ export type Database = {
       attendance_daily_summary: { Row: Record<string, unknown> & { id: string; location_id: string; staff_id: string | null; work_date: string; status: string; late_minutes: number; missed_punch: boolean }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       attendance_exceptions: { Row: Record<string, unknown> & { id: string; summary_id: string; location_id: string; staff_id: string | null; exception_type: string; status: string; correction_in: string | null; correction_out: string | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       attendance_sync_jobs: { Row: Record<string, unknown> & { id: string; device_id: string | null; location_id: string | null; status: string; records_received: number; records_processed: number; error_message: string | null; completed_at: string | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      attendance_ingest_settings: { Row: Record<string, unknown> & { id: boolean; log_api_hits: boolean; updated_at: string; updated_by: string | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      attendance_ingest_hits: { Row: Record<string, unknown> & { id: string; called_at: string; payload: unknown; record_count: number; imported_count: number; failed_count: number; response_summary: unknown; source_ip: string | null; location_codes: string[]; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      hr_companies: { Row: Record<string, unknown> & { id: string; code: string; name: string; active: boolean }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      attendance_site_settings: { Row: Record<string, unknown> & { location_id: string; company_id: string; attendance_enabled: boolean; timezone: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      attendance_shift_templates: { Row: Record<string, unknown> & { id: string; company_id: string; location_id: string | null; name: string; start_time: string; end_time: string; overnight: boolean; active: boolean }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      attendance_rule_sets: { Row: Record<string, unknown> & { id: string; scope: string; duplicate_window_seconds: number }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      attendance_biometric_users: { Row: Record<string, unknown> & { id: string; company_id: string; location_id: string; device_id: string; biometric_user_id: string; staff_id: string | null; device_name: string | null; previous_device_name: string | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      attendance_roster_assignments: { Row: Record<string, unknown> & { id: string; location_id: string; staff_id: string; work_date: string; shift_template_id: string | null; is_week_off: boolean }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      attendance_holidays: { Row: Record<string, unknown> & { id: string; holiday_date: string; name: string; location_id: string | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      attendance_leave_records: { Row: Record<string, unknown> & { id: string; staff_id: string; leave_date: string; leave_type: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      attendance_imports: { Row: Record<string, unknown> & { id: string; company_id: string; status: string; uploaded_by: string | null; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      attendance_import_files: { Row: Record<string, unknown> & { id: string; import_id: string; location_id: string; device_id: string; original_filename: string; file_type: string; file_hash: string; storage_path: string | null; status: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      attendance_import_errors: { Row: Record<string, unknown> & { id: string; import_id: string; code: string; message: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      attendance_corrections: { Row: Record<string, unknown> & { id: string; location_id: string; kind: string; reason: string; status: string; requested_by: string; requested_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      attendance_audit_events: { Row: Record<string, unknown> & { id: string; action: string; entity_type: string; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       snag_lists: { Row: Record<string, unknown> & { id: string; location_id: string; name: string; status: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       snag_items: { Row: Record<string, unknown> & { id: string; snag_number: string; location_id: string; raised_at: string; area: string | null; category: string; description: string; severity: string; priority: string; status: string; target_date: string | null; risk_score: number; vendor_id: string | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       snag_photos: { Row: Record<string, unknown> & { id: string; snag_id: string; photo_type: string; file_path: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
@@ -3284,9 +3812,13 @@ export type Database = {
           accepted_by: string | null
           accepted_at: string | null
           completed_at: string | null
+          completed_by: string | null
+          completed_by_name: string | null
+          completion_signature_path: string | null
           created_at: string
           updated_at: string
           deleted_at: string | null
+          event_id: string | null
         }
         Insert: {
           id?: string
@@ -3308,9 +3840,13 @@ export type Database = {
           accepted_by?: string | null
           accepted_at?: string | null
           completed_at?: string | null
+          completed_by?: string | null
+          completed_by_name?: string | null
+          completion_signature_path?: string | null
           created_at?: string
           updated_at?: string
           deleted_at?: string | null
+          event_id?: string | null
         }
         Update: {
           id?: string
@@ -3332,9 +3868,13 @@ export type Database = {
           accepted_by?: string | null
           accepted_at?: string | null
           completed_at?: string | null
+          completed_by?: string | null
+          completed_by_name?: string | null
+          completion_signature_path?: string | null
           created_at?: string
           updated_at?: string
           deleted_at?: string | null
+          event_id?: string | null
         }
         Relationships: []
       }
@@ -3383,6 +3923,58 @@ export type Database = {
       maintenance_report_review_comments: { Row: Record<string, unknown> & { id: string; maintenance_weekly_report_id: string; comment_text: string; is_internal: boolean; priority: string | null; created_by: string | null; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       maintenance_executive_reports: { Row: Record<string, unknown> & { id: string; reporting_week_start: string; reporting_week_end: string; title: string; status: string; content: Record<string, unknown>; narrative: string | null; ai_generated: boolean; generated_by: string | null; published_at: string | null; created_at: string; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       maintenance_report_kpi_snapshots: { Row: Record<string, unknown> & { id: string; maintenance_executive_report_id: string; kpis: Record<string, unknown>; charts: Record<string, unknown>; snapshot_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      proc_items: { Row: Record<string, unknown> & { id: string; sku: string | null; name: string; description: string | null; category: string; unit: string; active: boolean }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      proc_price_history: { Row: Record<string, unknown> & { id: string; item_id: string | null; item_name: string | null; category: string | null; vendor_id: string | null; unit_price: number; currency: string; source: string; source_id: string | null; recorded_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      proc_quotations: { Row: Record<string, unknown> & { id: string; pr_id: string | null; vendor_id: string | null; quote_ref: string | null; total_amount: number; status: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      proc_quotation_lines: { Row: Record<string, unknown> & { id: string; quotation_id: string; name: string; qty: number; unit_price: number }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      proc_budgets: { Row: Record<string, unknown> & { id: string; location_id: string | null; department_id: string | null; fiscal_year: number; cost_center: string | null; amount: number; currency: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      proc_budget_commitments: { Row: Record<string, unknown> & { id: string; budget_id: string; pr_id: string | null; amount: number; status: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      department_budgets: { Row: Record<string, unknown> & { id: string; department_id: string; year: number; amount: number; updated_at: string; updated_by: string | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      department_budget_increases: { Row: Record<string, unknown> & { id: string; department_id: string; budget_id: string | null; year: number; amount: number; pr_id: string | null; acted_by: string | null; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      pr_doa_matrix: { Row: Record<string, unknown> & { id: string; band_code: string; label: string; min_amount: number; max_amount: number | null; require_dept_head: boolean; require_gm: boolean; require_ceo: boolean; require_finance: boolean; sort_order: number; active: boolean }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      pr_doa_settings: { Row: Record<string, unknown> & { id: number; price_variance_pct_threshold: number; force_ceo_on_price_variance: boolean; force_ceo_on_budget_exception: boolean; finance_always_required: boolean }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      purchase_requisitions: { Row: Record<string, unknown> & { id: string; pr_number: string | null; requested_at: string; requested_by: string; requester_staff_id: string | null; department_id: string | null; cost_center: string | null; location_id: string; project_name: string | null; event_id: string | null; cost_category_id: string | null; request_type: string; spend_type: string; priority: string; emergency: boolean; required_by: string | null; justification: string; status: string; total_amount: number; currency: string; current_step_role: string | null; budget_exception: boolean; over_budget: boolean; excess_amount: number; budget_increase_pending: boolean; price_variance_flag: boolean; hold_reason: string | null; po_id: string | null; submitted_at: string | null; created_at: string; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      pr_lines: { Row: Record<string, unknown> & { id: string; pr_id: string; line_no: number; item_id: string | null; name: string; description: string | null; category: string | null; qty: number; unit: string; unit_price: number; line_total: number; preferred_vendor_id: string | null; remarks: string | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      pr_approval_steps: { Row: Record<string, unknown> & { id: string; pr_id: string; step_order: number; step_role: string; status: string; acted_by: string | null; acted_at: string | null; comments: string | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      pr_approval_history: { Row: Record<string, unknown> & { id: string; pr_id: string; step_id: string | null; action: string; from_status: string | null; to_status: string | null; actor_id: string | null; comments: string | null; metadata: Record<string, unknown>; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      pr_audit_logs: { Row: Record<string, unknown> & { id: string; actor_id: string | null; action: string; entity_type: string; entity_id: string | null; pr_id: string | null; location_id: string | null; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      pr_attachments: { Row: Record<string, unknown> & { id: string; pr_id: string; file_name: string; file_path: string; file_mime: string | null; uploaded_by: string | null; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      i18n_overrides: { Row: Record<string, unknown> & { locale: string; key: string; value: string; updated_by: string | null; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      webauthn_credentials: { Row: Record<string, unknown> & { id: string; user_id: string; credential_id: string; public_key: string; counter: number; transports: string[] | null; device_name: string | null; aaguid: string | null; created_at: string; last_used_at: string | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      webauthn_challenges: { Row: Record<string, unknown> & { id: string; challenge: string; type: string; user_id: string | null; expires_at: string; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      ai_provider_configs: { Row: Record<string, unknown> & { id: string; provider_code: string; display_name: string; encrypted_api_key: string | null; key_last_four: string | null; selected_model: string | null; base_url: string | null; enabled: boolean; connection_status: string; last_tested_at: string | null; last_test_result: string | null; config_json: Record<string, unknown>; created_by: string | null; updated_by: string | null; created_at: string; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      ai_routing_settings: { Row: Record<string, unknown> & { id: string; primary_provider: string | null; secondary_provider: string | null; tertiary_provider: string | null; timeout_ms: number; max_retries: number; auto_fallback: boolean; monthly_limit_usd: number | null; provider_monthly_limits: Record<string, number>; updated_by: string | null; created_at: string; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      ai_usage_daily: { Row: Record<string, unknown> & { id: string; usage_date: string; provider_code: string; model: string; module_source: string; success_count: number; fail_count: number; input_tokens: number; output_tokens: number; estimated_cost_usd: number; latency_ms_total: number; created_at: string; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      evt_settings: { Row: Record<string, unknown> & { id: number; number_prefix: string; number_pad: number; tsk_prefix: string; tsk_pad: number }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      evt_event_types: { Row: Record<string, unknown> & { id: string; code: string; label_en: string; label_ar: string; sort_order: number; active: boolean }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      evt_classifications: { Row: Record<string, unknown> & { id: string; code: string; label_en: string; label_ar: string; sort_order: number; active: boolean }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      evt_stages: { Row: Record<string, unknown> & { id: string; code: string; label_en: string; label_ar: string; sort_order: number; is_critical: boolean; is_terminal: boolean; is_linear: boolean; active: boolean }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      evt_stage_gate_requirements: { Row: Record<string, unknown> & { id: string; stage_id: string; code: string; label_en: string; label_ar: string; requirement_kind: string; is_blocking: boolean; threshold: number | null; sort_order: number; readiness_code: string | null; active: boolean }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      evt_cost_categories: { Row: Record<string, unknown> & { id: string; code: string; label_en: string; label_ar: string; sort_order: number; active: boolean }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      evt_cost_subcategories: { Row: Record<string, unknown> & { id: string; category_id: string; code: string; label_en: string; label_ar: string; sort_order: number; active: boolean }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      events: { Row: Record<string, unknown> & { id: string; event_number: string | null; name: string; event_name: string | null; client_name: string | null; client_contact: string | null; business_unit: string | null; venue_name: string | null; location_id: string; event_type_id: string | null; classification_id: string | null; stage_id: string | null; prior_stage_id: string | null; status: string; priority: string; inquiry_date: string | null; contract_date: string | null; planning_start: string | null; venue_access: string | null; setup_start: string | null; setup_end: string | null; rehearsal_date: string | null; client_inspection_date: string | null; event_start: string | null; event_end: string | null; dismantle_start: string | null; dismantle_end: string | null; dismantle_date: string | null; handover_date: string | null; financial_close_target: string | null; final_closure_date: string | null; pm_staff_id: string | null; director_staff_id: string | null; department_id: string | null; country: string | null; city: string | null; currency: string; contracted_value: number | null; health_rag: string; health_score: number; readiness_pct: number; health_override_rag: string | null; health_override_justification: string | null; health_override_by: string | null; health_override_at: string | null; go_live_approved: boolean; go_live_approved_at: string | null; go_live_approved_by: string | null; description: string | null; notes: string | null; deleted_at: string | null; created_at: string; created_by: string | null; updated_by: string | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      event_team_members: { Row: Record<string, unknown> & { id: string; event_id: string; staff_id: string; role_label: string; is_pm: boolean }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      event_audit_logs: { Row: Record<string, unknown> & { id: string; event_id: string | null; actor_id: string | null; action: string; entity_type: string; entity_id: string | null; location_id: string | null; created_at: string; metadata: Record<string, unknown> }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      event_scope_versions: { Row: Record<string, unknown> & { id: string; event_id: string; version_no: number; title: string; sections: unknown; is_baseline: boolean; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      event_deliverables: { Row: Record<string, unknown> & { id: string; event_id: string; title: string; description: string | null; status: string; due_date: string | null; owner_staff_id: string | null; sort_order: number }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      event_wbs_nodes: { Row: Record<string, unknown> & { id: string; event_id: string; parent_id: string | null; node_type: string; code: string | null; title: string; description: string | null; sort_order: number; owner_staff_id: string | null; budget_amount: number; actual_cost: number; start_date: string | null; due_date: string | null; percent_complete: number; documents: unknown }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      event_tasks: { Row: Record<string, unknown> & { id: string; event_id: string; task_number: string | null; wbs_id: string | null; parent_task_id: string | null; title: string; description: string | null; status: string; priority: string; start_date: string | null; due_date: string | null; completed_at: string | null; duration_days: number | null; owner_staff_id: string | null; assignee_staff_id: string | null; department_id: string | null; percent_complete: number; is_critical: boolean; is_milestone: boolean; estimated_hours: number | null; actual_hours: number | null; estimated_cost: number | null; actual_cost: number | null; cost_impact: number | null; approval_status: string; delay_reason: string | null; escalation_level: string; evidence_url: string | null; is_snag: boolean; checklist: unknown; comments: unknown; documents: unknown }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      event_task_supporters: { Row: Record<string, unknown> & { id: string; task_id: string; staff_id: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      event_issues: { Row: Record<string, unknown> & { id: string; event_id: string; title: string; description: string | null; severity: string; status: string; owner_staff_id: string | null; due_date: string | null; is_snag: boolean; is_safety: boolean }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      event_documents: { Row: Record<string, unknown> & { id: string; event_id: string; title: string; doc_type: string; url: string | null; file_path: string | null; file_name: string | null; file_mime: string | null; notes: string | null; required: boolean; status: string; owner_staff_id: string | null; wbs_id: string | null; workstream_code: string | null; department_id: string | null; is_addendum: boolean; uploaded_by: string | null; uploaded_at: string | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      event_boq_lines: { Row: Record<string, unknown> & { id: string; event_id: string; document_id: string; workstream_code: string | null; department_id: string | null; line_no: number; description: string; qty: number; unit: string | null; rate: number | null; amount: number; cost_category: string | null; created_by: string | null; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      event_payables: { Row: Record<string, unknown> & { id: string; event_id: string; kind: string; title: string; reference: string | null; vendor_name: string | null; amount: number; currency: string; status: string; due_date: string | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      event_asset_movements: { Row: Record<string, unknown> & { id: string; event_id: string; item_name: string; qty: number; status: string; due_date: string | null; notes: string | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      event_task_dependencies: { Row: Record<string, unknown> & { id: string; event_id: string; predecessor_id: string; successor_id: string; dep_type: string; lag_days: number }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      event_milestones: { Row: Record<string, unknown> & { id: string; event_id: string; title: string; description: string | null; due_date: string; status: string; achieved_at: string | null; is_critical: boolean; owner_staff_id: string | null; wbs_id: string | null; task_id: string | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      event_baselines: { Row: Record<string, unknown> & { id: string; event_id: string; baseline_type: string; snapshot: unknown; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      event_budgets: { Row: Record<string, unknown> & { id: string; event_id: string; currency: string; status: string; notes: string | null; contract_value: number; additional_revenue: number; approved_change_orders: number; discounts: number; taxes: number; line_alert_threshold_pct: number; contingency_usage_threshold_pct: number }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      event_budget_lines: { Row: Record<string, unknown> & { id: string; budget_id: string; event_id: string; category_id: string; subcategory_id: string | null; title: string; original_amount: number; approved_changes: number; revised_amount: number; committed_amount: number; actual_amount: number; forecast_amount: number; notes: string | null; sort_order: number }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      event_client_invoices: { Row: Record<string, unknown> & { id: string; event_id: string; invoice_number: string; title: string | null; status: string; amount: number; currency: string; fx_rate: number; base_amount: number; paid_amount: number; issue_date: string | null; due_date: string | null; notes: string | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      event_risks: { Row: Record<string, unknown> & { id: string; event_id: string; title: string; severity: string; status: string; due_date: string | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      event_readiness_items: { Row: Record<string, unknown> & { id: string; event_id: string; code: string; title: string; category: string; is_required: boolean; is_complete: boolean; weight: number }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      event_gate_completions: { Row: Record<string, unknown> & { id: string; event_id: string; requirement_id: string; is_satisfied: boolean }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      sys_crash_incidents: { Row: { id: string; created_at: string; updated_at: string; message: string; stack: string | null; route: string | null; user_id: string | null; severity: string; status: string; source: string; resolved_at: string | null; resolved_by: string | null; metadata: Json }; Insert: { id?: string; created_at?: string; updated_at?: string; message: string; stack?: string | null; route?: string | null; user_id?: string | null; severity?: string; status?: string; source?: string; resolved_at?: string | null; resolved_by?: string | null; metadata?: Json }; Update: { id?: string; created_at?: string; updated_at?: string; message?: string; stack?: string | null; route?: string | null; user_id?: string | null; severity?: string; status?: string; source?: string; resolved_at?: string | null; resolved_by?: string | null; metadata?: Json }; Relationships: [] }
     }
     Views: {
       [_ in never]: never
@@ -3434,6 +4026,18 @@ export type Database = {
       }
       generate_maintenance_request_number: {
         Args: never
+        Returns: string
+      }
+      ensure_maintenance_category: {
+        Args: { p_name: string }
+        Returns: string
+      }
+      ensure_maintenance_issue_type: {
+        Args: { p_name: string }
+        Returns: string
+      }
+      ensure_location_area: {
+        Args: { p_location_id: string; p_name: string }
         Returns: string
       }
       create_booking: {
@@ -3507,6 +4111,20 @@ export type Database = {
         Returns: string
       }
       current_user_role_level: { Args: never; Returns: number }
+      next_pr_number: { Args: never; Returns: string }
+      next_evt_number: { Args: never; Returns: string }
+      next_tsk_number: { Args: never; Returns: string }
+      pr_insert_notification: {
+        Args: {
+          _user_id: string
+          _location_id: string
+          _title: string
+          _body: string
+          _source_id: string
+          _action_url: string
+        }
+        Returns: string
+      }
       get_compliance_renewals: {
         Args: { p_limit?: number; p_location_code?: string | null }
         Returns: {
@@ -3547,6 +4165,8 @@ export type Database = {
         }
         Returns: boolean
       }
+      user_can_view_staff_salary: { Args: never; Returns: boolean }
+      user_can_import_staff_roster: { Args: never; Returns: boolean }
       log_audit: {
         Args: {
           _action: string
@@ -3559,6 +4179,14 @@ export type Database = {
           _table_name: string
         }
         Returns: string
+      }
+      sys_health_ping: {
+        Args: Record<PropertyKey, never>
+        Returns: string
+      }
+      sys_schema_inspect: {
+        Args: { _tables: string[] }
+        Returns: { table_name: string; exists: boolean }[]
       }
       match_kb_chunks: {
         Args: { match_count?: number; query_embedding: string }
@@ -3699,6 +4327,10 @@ export type Database = {
       }
       user_can_access_location: {
         Args: { _location_id: string }
+        Returns: boolean
+      }
+      user_can_access_staff: {
+        Args: { _staff_id: string }
         Returns: boolean
       }
     }

@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { Film, Play, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -50,6 +51,7 @@ export function MediaPreviewLightbox({
   onOpenChange: (open: boolean) => void;
   item: MediaPreviewItem | null;
 }) {
+  const { t } = useTranslation();
   if (!item) return null;
 
   const video = isVideoMime(item.mimeType);
@@ -57,7 +59,7 @@ export function MediaPreviewLightbox({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] max-w-[min(92vw,56rem)] gap-0 overflow-hidden border-0 p-0 sm:rounded-lg">
-        <DialogTitle className="sr-only">{item.alt ?? "Media preview"}</DialogTitle>
+        <DialogTitle className="sr-only">{item.alt ?? t("maintenanceMedia.preview")}</DialogTitle>
         <div className="flex max-h-[85vh] items-center justify-center bg-black">
           {video ? (
             <video
@@ -71,7 +73,7 @@ export function MediaPreviewLightbox({
           ) : (
             <img
               src={item.src}
-              alt={item.alt ?? "Preview"}
+              alt={item.alt ?? t("maintenanceMedia.previewAlt")}
               className="max-h-[85vh] w-full object-contain"
             />
           )}
@@ -104,6 +106,7 @@ export function MediaThumbnail({
 }: MediaThumbnailProps) {
   const video = isVideoMime(mimeType);
 
+  const { t } = useTranslation();
   if (unavailable || !src) {
     return (
       <div
@@ -112,7 +115,7 @@ export function MediaThumbnail({
           className,
         )}
       >
-        Unavailable
+        {t("maintenanceMedia.unavailable")}
       </div>
     );
   }
@@ -123,7 +126,7 @@ export function MediaThumbnail({
         type="button"
         className="block w-full cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         onClick={onPreview}
-        aria-label={alt ? `View ${alt}` : "View media"}
+        aria-label={alt ? t("common.view") + ` ${alt}` : t("maintenanceMedia.viewMedia")}
       >
         {video ? (
           <div className="relative aspect-square w-full bg-muted">
@@ -135,10 +138,10 @@ export function MediaThumbnail({
         ) : mimeType && !mimeType.startsWith("image/") ? (
           <div className="flex aspect-square flex-col items-center justify-center gap-1 bg-muted p-2 text-muted-foreground">
             <Film className="h-6 w-6" />
-            <span className="line-clamp-2 text-center text-[10px]">{alt ?? "File"}</span>
+            <span className="line-clamp-2 text-center text-[10px]">{alt ?? t("maintenanceMedia.file")}</span>
           </div>
         ) : (
-          <img src={src} alt={alt ?? "Preview"} className="aspect-square w-full object-cover" />
+          <img src={src} alt={alt ?? t("maintenanceMedia.previewAlt")} className="aspect-square w-full object-cover" />
         )}
       </button>
       {onRemove && (
@@ -153,7 +156,7 @@ export function MediaThumbnail({
             onRemove();
           }}
         >
-          <span className="sr-only">Remove</span>
+          <span className="sr-only">{t("maintenanceMedia.remove")}</span>
           <X className="h-3 w-3" />
         </Button>
       )}

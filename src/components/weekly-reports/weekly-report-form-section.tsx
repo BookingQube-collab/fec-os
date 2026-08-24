@@ -33,7 +33,7 @@ export function WeeklyReportFormSection({
       <Collapsible open={open} onOpenChange={onOpenChange}>
         <CollapsibleTrigger className="group flex w-full items-start justify-between gap-3 text-left">
           <div className="min-w-0 flex-1">
-            <h3 className="font-display text-base font-semibold text-[#0B1F3A]">{title}</h3>
+            <h3 className="text-base font-semibold text-foreground">{title}</h3>
             {subtitle && <p className="mt-0.5 text-xs text-[#64748B]">{subtitle}</p>}
           </div>
           <div className="flex shrink-0 items-center gap-2 pt-0.5">

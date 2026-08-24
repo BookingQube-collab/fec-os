@@ -1,5 +1,7 @@
 "use client";
 
+import { useTranslation } from "react-i18next";
+
 import { CompliancePageShell, KpiStrip } from "@/components/compliance/compliance-page-shell";
 import { useComplianceAlerts } from "@/hooks/queries/useComplianceSubpages";
 import { alertTierClass } from "@/lib/compliance/compliance-derive";
@@ -8,12 +10,13 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 function ComplianceAlertsPage() {
+  const { t } = useTranslation();
   const { data, isLoading } = useComplianceAlerts({});
   const k = data?.kpis;
 
   const { exportPdf, exportExcel } = useReportExport({
     pageKey: "ComplianceAlerts",
-    title: "Alert Center",
+    title: t("complianceHub.alerts.title"),
     venueLabel: "All",
     kpis: k ? Object.entries(k).map(([label, value]) => ({ label, value: String(value) })) : [],
     columns: [
@@ -27,31 +30,31 @@ function ComplianceAlertsPage() {
   });
 
   return (
-    <CompliancePageShell title="Alert Center" subtitle="Expired, renewal-soon and data-quality flags" onExportPdf={exportPdf} onExportExcel={exportExcel}>
+    <CompliancePageShell title={t("complianceHub.alerts.title")} subtitle={t("complianceHub.alerts.subtitle")} onExportPdf={exportPdf} onExportExcel={exportExcel}>
       <KpiStrip
         items={[
-          { label: "Expired", value: k?.expired ?? "—", tone: "rag-red" },
-          { label: "Due ≤30", value: k?.due_30 ?? "—", tone: "rag-red" },
-          { label: "Due ≤60", value: k?.due_60 ?? "—", tone: "rag-amber" },
-          { label: "Missing date", value: k?.missing_date ?? "—" },
-          { label: "Missing vendor", value: k?.missing_vendor ?? "—" },
+          { label: t("complianceHub.alerts.expired"), value: k?.expired ?? "—", tone: "rag-red" },
+          { label: t("complianceHub.alerts.due30"), value: k?.due_30 ?? "—", tone: "rag-red" },
+          { label: t("complianceHub.alerts.due60"), value: k?.due_60 ?? "—", tone: "rag-amber" },
+          { label: t("complianceHub.alerts.missingDate"), value: k?.missing_date ?? "—" },
+          { label: t("complianceHub.alerts.missingVendor"), value: k?.missing_vendor ?? "—" },
         ]}
       />
       <div className="overflow-x-auto rounded-lg border border-border bg-card">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Flag</TableHead>
-              <TableHead>Item</TableHead>
-              <TableHead>Domain</TableHead>
-              <TableHead>Venue</TableHead>
-              <TableHead>Days</TableHead>
-              <TableHead>Tier</TableHead>
+              <TableHead>{t("complianceHub.alerts.flag")}</TableHead>
+              <TableHead>{t("complianceHub.alerts.item")}</TableHead>
+              <TableHead>{t("complianceHub.alerts.domain")}</TableHead>
+              <TableHead>{t("complianceHub.alerts.venue")}</TableHead>
+              <TableHead>{t("complianceHub.alerts.days")}</TableHead>
+              <TableHead>{t("complianceHub.alerts.tier")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow><TableCell colSpan={6}>Loading…</TableCell></TableRow>
+              <TableRow><TableCell colSpan={6}>{t("common.loading")}</TableCell></TableRow>
             ) : (
               (data?.items ?? []).map((i) => (
                 <TableRow key={i.id} className={i.flag === "✔ OK" ? "opacity-50" : ""}>

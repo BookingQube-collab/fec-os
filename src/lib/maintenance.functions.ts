@@ -3,12 +3,25 @@
 import { z } from "zod";
 
 import {
+  callMaintenanceWorkOrderAiDraft,
+  matchAssetFromNotes,
+} from "@/lib/maintenance/ai-work-order-draft";
+import {
+  isRequestedTechnicianValue,
+  loadAssignableTechnicians,
+} from "@/lib/maintenance/assignable-technicians";
+import {
+  inferAssigneeFromNotes,
+  matchLocationFromNotes,
+} from "@/lib/maintenance/ai-request-draft";
+import {
   getMaintenanceTeamEmails,
   notifyMaintenanceTeamInApp,
   resolveUserEmails,
   sendWorkOrderAcknowledgment,
   sendWorkOrderCompletedEmail,
 } from "@/lib/maintenance/email";
+import { assertLocationAccess } from "@/lib/server/authorize";
 import {
   createAuthenticatedAction,
   createAuthenticatedActionNoInput,
@@ -135,9 +148,12 @@ export const createWorkOrder = createAuthenticatedAction(
     planned_end: z.string().datetime().nullable().optional(),
     priority: PriorityEnum.default("normal"),
     reporter_name: z.string().max(200).nullable().optional(),
+    /** Optional assignee (defaults to creator). Must be a real profile UUID. */
+    assigned_to: z.string().uuid().nullable().optional(),
   }),
   async (data, context) => {
     const jobOrderNumber = await generateJobOrderNumber(context.supabase);
+    const assignedTo = data.assigned_to ?? context.userId;
     const { data: row, error } = await context.supabase
       .from("work_orders")
       .insert({
@@ -148,7 +164,7 @@ export const createWorkOrder = createAuthenticatedAction(
         asset_id: data.asset_id ?? null,
         planned_end: data.planned_end ?? null,
         status: "planned",
-        assigned_to: context.userId,
+        assigned_to: assignedTo,
         priority: data.priority,
         job_order_number: jobOrderNumber,
         reporter_name: data.reporter_name ?? null,
@@ -219,9 +235,49 @@ export const updateWorkOrder = createAuthenticatedAction(
     description: z.string().max(4000).nullable().optional(),
     asset_id: z.string().uuid().nullable().optional(),
     planned_end: z.string().datetime().nullable().optional(),
+    priority: PriorityEnum.optional(),
+    location_id: z.string().uuid().optional(),
+    assigned_to: z.string().uuid().nullable().optional(),
     status: WoStatusEnum.optional(),
   }),
   async (data, context) => {
+    const { data: existing, error: fetchErr } = await context.supabase
+      .from("work_orders")
+      .select("id, location_id, status, deleted_at")
+      .eq("id", data.id)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (fetchErr) throw fetchErr;
+    if (!existing) throw new Error("Work order not found");
+    if (existing.status === "completed" || existing.status === "cancelled") {
+      throw new Error("Cannot edit a completed or cancelled work order");
+    }
+
+    await assertLocationAccess(context, existing.location_id);
+    const nextLocationId = data.location_id ?? existing.location_id;
+    if (data.location_id && data.location_id !== existing.location_id) {
+      await assertLocationAccess(context, data.location_id);
+    }
+
+    if (data.assigned_to) {
+      const { assignable } = await loadAssignableTechnicians(context.supabase, nextLocationId);
+      const ok = assignable.some((t) => t.id === data.assigned_to && !t.requested_only);
+      if (!ok) throw new Error("Invalid technician for this branch");
+    }
+
+    if (data.asset_id) {
+      const { data: asset, error: assetErr } = await context.supabase
+        .from("assets")
+        .select("id, location_id")
+        .eq("id", data.asset_id)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (assetErr) throw assetErr;
+      if (!asset || asset.location_id !== nextLocationId) {
+        throw new Error("Asset does not belong to the selected branch");
+      }
+    }
+
     const now = new Date().toISOString();
     const patch = {
       ...(data.title !== undefined ? { title: data.title } : {}),
@@ -229,12 +285,25 @@ export const updateWorkOrder = createAuthenticatedAction(
       ...(data.description !== undefined ? { description: data.description } : {}),
       ...(data.asset_id !== undefined ? { asset_id: data.asset_id } : {}),
       ...(data.planned_end !== undefined ? { planned_end: data.planned_end } : {}),
+      ...(data.priority !== undefined ? { priority: data.priority } : {}),
+      ...(data.location_id !== undefined ? { location_id: data.location_id } : {}),
+      ...(data.assigned_to !== undefined ? { assigned_to: data.assigned_to } : {}),
       ...(data.status !== undefined ? { status: data.status } : {}),
       ...(data.status === "in_progress" ? { actual_start: now } : {}),
       ...(data.status === "completed" ? { actual_end: now } : {}),
     };
     const { error } = await context.supabase.from("work_orders").update(patch).eq("id", data.id);
     if (error) throw error;
+
+    await context.supabase.rpc("log_audit", {
+      _action: "work_order.updated",
+      _table_name: "work_orders",
+      _row_id: data.id,
+      _location_id: nextLocationId,
+      _after: patch,
+      _metadata: {},
+    });
+
     return { ok: true };
   },
   { auth: { capability: "maintenance.schedule_pm" } },
@@ -477,4 +546,142 @@ export const recordHeartbeat = createAuthenticatedAction(
     return { ok: true };
   },
   { auth: { capability: "maintenance.execute_wo" } },
+);
+
+export const aiDraftWorkOrder = createAuthenticatedAction(
+  z.object({
+    location_id: z.string().uuid().optional().nullable(),
+    notes: z.string().min(3).max(4000),
+  }),
+  async (data, context) => {
+    const { data: roles, error: roleErr } = await context.supabase
+      .from("user_roles")
+      .select("role_level, location_ids")
+      .eq("user_id", context.userId);
+    if (roleErr) throw roleErr;
+
+    const isPortfolio = (roles ?? []).some((r) => Number(r.role_level) >= 80);
+    let accessibleIds: string[] | null = null;
+    if (!isPortfolio) {
+      const ids = new Set<string>();
+      for (const r of roles ?? []) {
+        for (const id of (r.location_ids as string[]) ?? []) ids.add(id);
+      }
+      accessibleIds = [...ids];
+    }
+
+    let locQuery = context.supabase
+      .from("locations")
+      .select("id, code, name, region")
+      .eq("status", "active")
+      .order("code");
+    if (accessibleIds) {
+      if (!accessibleIds.length) throw new Error("No accessible branches for AI Assist");
+      locQuery = locQuery.in("id", accessibleIds);
+    }
+    const { data: locationRows, error: locsErr } = await locQuery;
+    if (locsErr) throw locsErr;
+
+    const available_locations = (locationRows ?? []).map((l) => ({
+      id: l.id as string,
+      code: l.code as string,
+      name: l.name as string,
+      region: (l.region as string | null) ?? null,
+    }));
+
+    const fromNotes = matchLocationFromNotes(data.notes, available_locations);
+    let resolvedLocationId = fromNotes?.id ?? data.location_id ?? null;
+    if (!resolvedLocationId) {
+      throw new Error("Select a venue or mention one in the description (e.g. Urban Arena)");
+    }
+    await assertLocationAccess(context, resolvedLocationId);
+
+    const loadVenueBundle = async (locationId: string) => {
+      const [
+        { data: location, error: locErr },
+        { data: assetRows, error: assetsErr },
+        techBundle,
+      ] = await Promise.all([
+        context.supabase
+          .from("locations")
+          .select("id, code, name, region")
+          .eq("id", locationId)
+          .single(),
+        context.supabase
+          .from("assets")
+          .select("id, tag, name")
+          .eq("location_id", locationId)
+          .is("deleted_at", null)
+          .order("tag"),
+        loadAssignableTechnicians(context.supabase, locationId),
+      ]);
+      if (locErr) throw locErr;
+      if (assetsErr) throw assetsErr;
+
+      const realTechs = techBundle.matchPool.filter((t) => !isRequestedTechnicianValue(t.id));
+
+      return {
+        location: {
+          id: location.id as string,
+          code: location.code as string,
+          name: location.name as string,
+          region: (location.region as string | null) ?? null,
+        },
+        available_assets: (assetRows ?? []).map((a) => ({
+          id: a.id as string,
+          tag: a.tag as string,
+          name: a.name as string,
+        })),
+        available_technicians: realTechs,
+        match_pool: techBundle.matchPool,
+      };
+    };
+
+    let bundle = await loadVenueBundle(resolvedLocationId);
+
+    const draft = await callMaintenanceWorkOrderAiDraft({
+      notes: data.notes,
+      location_id: bundle.location.id,
+      location_code: bundle.location.code,
+      location_name: bundle.location.name,
+      available_locations,
+      available_technicians: bundle.available_technicians,
+      available_assets: bundle.available_assets,
+    });
+
+    // If AI resolved a different accessible venue, reload assets/techs and rematch locally
+    const resultLocId = draft.fields.location_id;
+    if (resultLocId && resultLocId !== resolvedLocationId) {
+      await assertLocationAccess(context, resultLocId);
+      bundle = await loadVenueBundle(resultLocId);
+      const assignee = inferAssigneeFromNotes(data.notes, bundle.available_technicians);
+      const asset = matchAssetFromNotes(data.notes, bundle.available_assets);
+      draft.fields = {
+        ...draft.fields,
+        location_id: bundle.location.id,
+        location_code: bundle.location.code,
+        location_name: bundle.location.name,
+        asset_id: asset?.id ?? null,
+        asset_tag: asset?.tag ?? null,
+        asset_name: asset?.name ?? null,
+        assignee_name: assignee.assignee_name,
+        assigned_to:
+          assignee.assigned_technician_id &&
+          !isRequestedTechnicianValue(assignee.assigned_technician_id)
+            ? assignee.assigned_technician_id
+            : null,
+        assignee_ambiguous: assignee.assignee_ambiguous,
+      };
+    } else {
+      draft.fields = {
+        ...draft.fields,
+        location_id: bundle.location.id,
+        location_code: bundle.location.code,
+        location_name: bundle.location.name,
+      };
+    }
+
+    return draft;
+  },
+  { auth: { capability: "maintenance.schedule_pm" } },
 );

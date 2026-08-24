@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
 
 import { CircularProgressBadge } from "./circular-progress-badge";
-import { NeumorphicCard } from "./neumorphic-card";
+import { KPI_ICON_CLASS, KPI_TINT_CLASS, widgetAccentToTint } from "@/lib/ui/command-surface";
 import { cn } from "@/lib/utils";
 
 export interface KPIWidgetProps {
@@ -28,24 +28,38 @@ export function KPIWidget({
   href,
   subtitle,
 }: KPIWidgetProps) {
+  const tint = widgetAccentToTint(accent);
   const inner = (
-    <NeumorphicCard accent={accent} className="h-full p-5 transition-transform hover:scale-[1.01]">
-      <div className="flex items-start justify-between gap-2">
-        <div className="grid h-10 w-10 place-items-center rounded-2xl bg-white shadow-[inset_0_1px_3px_rgba(0,0,0,0.06)]">
-          <Icon className="h-5 w-5 text-[#6B7280]" />
+    <div
+      className={cn(
+        "h-full rounded-2xl border px-5 py-4 shadow-[0_4px_20px_rgba(0,0,0,0.05)] transition-shadow hover:shadow-elevated-sm",
+        KPI_TINT_CLASS[tint],
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-label min-w-0 pt-0.5">{title}</p>
+        <span className={cn("grid h-10 w-10 shrink-0 place-items-center rounded-full", KPI_ICON_CLASS[tint])}>
+          <Icon className="h-5 w-5" strokeWidth={1.75} />
+        </span>
+      </div>
+      <div className="mt-3 flex items-end justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-baseline gap-2">
+            <span className="text-kpi text-foreground">{value}</span>
+            {secondary && <span className="text-xs text-muted-foreground">{secondary}</span>}
+          </div>
+          {subtitle && <p className="mt-1 text-xs text-muted-foreground">{subtitle}</p>}
         </div>
         {progress != null && <CircularProgressBadge value={progress} positive={progressPositive} />}
       </div>
-      <div className="mt-4">
-        <p className="text-xs font-medium text-[#6B7280]">{title}</p>
-        <div className="mt-1 flex items-baseline gap-2">
-          <span className="text-2xl font-bold tracking-tight text-[#111827]">{value}</span>
-          {secondary && <span className="text-sm text-[#9CA3AF]">{secondary}</span>}
-        </div>
-        {subtitle && <p className="mt-1 text-[11px] text-[#9CA3AF]">{subtitle}</p>}
-      </div>
-    </NeumorphicCard>
+    </div>
   );
 
-  return href ? <Link href={href} className="block h-full">{inner}</Link> : inner;
+  return href ? (
+    <Link href={href} className={cn("block h-full")}>
+      {inner}
+    </Link>
+  ) : (
+    inner
+  );
 }

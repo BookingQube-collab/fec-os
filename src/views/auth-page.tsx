@@ -3,21 +3,47 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ClipboardList } from "lucide-react";
+import { ClipboardList, Fingerprint } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
+import { PasswordField } from "@/components/auth/password-field";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { defaultHomeForRoles, type AppRole } from "@/lib/rbac";
+import {
+  authenticateWithPasskey,
+  isSecureWebAuthnContext,
+  isWebAuthnAvailable,
+  isWebAuthnUserCancel,
+} from "@/lib/webauthn/browser";
+import {
+  markPasskeyJustUsed,
+  readPasskeyHint,
+  rememberPasskeyCredential,
+  rememberSignedInEmail,
+} from "@/lib/webauthn/hint";
 
 type Mode = "signin" | "forgot";
 
 function AuthPage() {
+  const { t } = useTranslation();
   const router = useRouter();
   const { user, loading, roles } = useAuth();
   const [mode, setMode] = useState<Mode>("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [webauthnReady, setWebauthnReady] = useState<boolean | null>(null);
+  const [secureContext, setSecureContext] = useState(true);
+
+  useEffect(() => {
+    const hint = readPasskeyHint();
+    if (hint?.email) setEmail(hint.email);
+    setWebauthnReady(isWebAuthnAvailable());
+    setSecureContext(isSecureWebAuthnContext());
+  }, []);
 
   useEffect(() => {
     if (!loading && user) {
@@ -34,16 +60,17 @@ function AuthPage() {
       if (mode === "signin") {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        toast.success("Signed in");
+        rememberSignedInEmail(email);
+        toast.success(t("auth.signedIn"));
       } else {
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
           redirectTo: `${window.location.origin}/reset-password`,
         });
         if (error) throw error;
-        toast.success("Password reset email sent");
+        toast.success(t("auth.resetSent"));
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Authentication failed");
+      toast.error(err instanceof Error ? err.message : t("auth.failed"));
     } finally {
       setSubmitting(false);
     }
@@ -52,90 +79,137 @@ function AuthPage() {
   const handleGoogle = async () => {
     setSubmitting(true);
     try {
+      if (email) rememberSignedInEmail(email);
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: { redirectTo: `${window.location.origin}/` },
       });
       if (error) throw error;
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Google sign-in failed");
+      toast.error(err instanceof Error ? err.message : t("auth.googleFailed"));
+      setSubmitting(false);
+    }
+  };
+
+  const handlePasskey = async () => {
+    setSubmitting(true);
+    try {
+      const hint = readPasskeyHint();
+      const result = await authenticateWithPasskey(hint?.credentialIds);
+      const { error } = await supabase.auth.setSession({
+        access_token: result.access_token,
+        refresh_token: result.refresh_token,
+      });
+      if (error) throw error;
+      markPasskeyJustUsed();
+      rememberPasskeyCredential(result.email, result.user_id, result.credential_id);
+      toast.success(t("auth.signedIn"));
+    } catch (err) {
+      if (!isWebAuthnUserCancel(err)) {
+        toast.error(err instanceof Error ? err.message : t("auth.passkeyFailed"));
+      }
+    } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-sm">
-        <div className="mb-8 flex items-center gap-3">
-          <div className="grid h-10 w-10 place-items-center rounded-md bg-primary text-primary-foreground">
+    <div className="auth-stage flex min-h-dvh items-center justify-center px-4 py-10">
+      <div className="relative z-[1] w-full max-w-[26rem]">
+        <div className="mb-8 flex items-center gap-3.5">
+          <div className="grid h-12 w-12 place-items-center rounded-2xl bg-primary text-primary-foreground shadow-elevated-xs">
             <ClipboardList className="h-5 w-5" />
           </div>
           <div>
-            <div className="font-semibold text-foreground" style={{ fontFamily: "var(--font-display)" }}>
-              FEC-OS
-            </div>
-            <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-              ops command center
+            <div className="text-xl font-semibold tracking-tight text-foreground">FEC-OS</div>
+            <div className="auth-kicker text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              {t("auth.kicker")}
             </div>
           </div>
         </div>
 
-        <div className="rounded-lg border border-border bg-card p-6 shadow-sm">
-          <h1 className="text-lg font-semibold text-foreground">
-            {mode === "signin" ? "Sign in" : "Reset password"}
+        <div className="auth-card rounded-[1.75rem] border border-border bg-card p-7 shadow-elevated-md sm:p-8">
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+            {mode === "signin" ? t("auth.signIn") : t("auth.resetPassword")}
           </h1>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {mode === "signin"
-              ? "Access is provisioned by your administrator. Contact HR or IT if you need an account."
-              : "We'll send you a reset link."}
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            {mode === "signin" ? t("auth.signInHint") : t("auth.resetHint")}
           </p>
 
-          <form onSubmit={handleSubmit} className="mt-5 space-y-3">
-            <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Email</label>
-              <input
+          <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+            <div className="space-y-1.5">
+              <label htmlFor="email" className="text-label">
+                {t("auth.email")}
+              </label>
+              <Input
+                id="email"
+                name="email"
                 type="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                autoComplete={mode === "signin" ? "username webauthn" : "email"}
+                autoCapitalize="none"
+                spellCheck={false}
+                className="bg-background"
               />
             </div>
             {mode === "signin" && (
-              <div className="space-y-1">
-                <label className="text-xs text-muted-foreground">Password</label>
-                <input
-                  type="password"
+              <div className="space-y-1.5">
+                <label htmlFor="password" className="text-label">
+                  {t("auth.password")}
+                </label>
+                <PasswordField
+                  value={password}
+                  onChange={setPassword}
                   required
                   minLength={6}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                  disabled={submitting}
                 />
               </div>
             )}
 
-            <button
-              type="submit"
-              disabled={submitting}
-              className="inline-flex h-9 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
-            >
-              {submitting ? "Please wait…" : mode === "signin" ? "Sign in" : "Send reset link"}
-            </button>
+            <Button type="submit" disabled={submitting} className="auth-submit h-11 w-full">
+              {submitting ? t("common.pleaseWait") : mode === "signin" ? t("auth.submit") : t("auth.sendReset")}
+            </Button>
           </form>
 
           {mode === "signin" && (
             <>
-              <div className="my-4 flex items-center gap-3 text-[11px] uppercase tracking-wider text-muted-foreground">
+              <div className="my-5 flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                 <div className="h-px flex-1 bg-border" />
-                or
+                {t("common.or")}
                 <div className="h-px flex-1 bg-border" />
               </div>
 
-              <button
-                onClick={handleGoogle}
+              {webauthnReady ? (
+                <div className="mb-2.5 space-y-1.5">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={submitting}
+                    onClick={() => void handlePasskey()}
+                    className="h-11 w-full bg-background"
+                  >
+                    <Fingerprint className="h-4 w-4" />
+                    {t("auth.passkeySignIn")}
+                  </Button>
+                  <p className="text-center text-[11px] leading-4 text-muted-foreground">
+                    {t("auth.passkeySignInHint")}
+                  </p>
+                </div>
+              ) : webauthnReady === false ? (
+                <p className="mb-3 text-center text-xs leading-5 text-muted-foreground">
+                  {secureContext ? t("auth.passkeyUnavailable") : t("auth.passkeyNotSecure")}
+                </p>
+              ) : null}
+
+              <Button
+                type="button"
+                variant="outline"
                 disabled={submitting}
-                className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-input bg-background px-4 text-sm font-medium text-foreground transition-colors hover:bg-surface-2 disabled:opacity-50"
+                onClick={() => void handleGoogle()}
+                className="h-11 w-full bg-background"
               >
                 <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden>
                   <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.76h3.56c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -143,20 +217,20 @@ function AuthPage() {
                   <path fill="#FBBC05" d="M5.84 14.11A6.59 6.59 0 0 1 5.5 12c0-.73.13-1.45.34-2.11V7.05H2.18A11 11 0 0 0 1 12c0 1.77.42 3.44 1.18 4.95l3.66-2.84z" />
                   <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.46 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.05l3.66 2.84C6.71 7.31 9.14 5.38 12 5.38z" />
                 </svg>
-                Continue with Google
-              </button>
+                {t("auth.google")}
+              </Button>
             </>
           )}
 
-          <div className="mt-5 flex flex-col gap-1 text-center text-xs">
+          <div className="mt-6 flex flex-col gap-1 text-center text-xs">
             {mode === "signin" && (
-              <button type="button" onClick={() => setMode("forgot")} className="text-muted-foreground hover:text-foreground">
-                Forgot password?
+              <button type="button" onClick={() => setMode("forgot")} className="text-muted-foreground transition-colors hover:text-foreground">
+                {t("auth.forgot")}
               </button>
             )}
             {mode !== "signin" && (
-              <button type="button" onClick={() => setMode("signin")} className="text-muted-foreground hover:text-foreground">
-                ← Back to sign in
+              <button type="button" onClick={() => setMode("signin")} className="text-muted-foreground transition-colors hover:text-foreground">
+                {t("auth.backToSignIn")}
               </button>
             )}
           </div>

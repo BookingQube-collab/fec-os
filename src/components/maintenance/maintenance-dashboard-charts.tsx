@@ -17,20 +17,29 @@ import {
 } from "recharts";
 
 import { ChartWidget } from "@/components/dashboard/chart-widget";
+import {
+  CHART,
+  CHART_MARGIN,
+  chartGridProps,
+  chartLegendStyle,
+  chartTick,
+  chartTooltipLabelStyle,
+  chartTooltipStyle,
+} from "@/lib/chart-theme";
 
 const STATUS_COLORS: Record<string, string> = {
-  planned: "#6366F1",
-  in_progress: "#3B82F6",
-  on_hold: "#F59E0B",
-  completed: "#10B981",
-  cancelled: "#94A3B8",
+  planned: CHART.info,
+  in_progress: CHART.gold,
+  on_hold: CHART.amber,
+  completed: CHART.teal,
+  cancelled: CHART.muted,
 };
 
 const CRIT_COLORS: Record<string, string> = {
-  low: "#94A3B8",
-  medium: "#3B82F6",
-  high: "#F59E0B",
-  critical: "#EF4444",
+  low: CHART.muted,
+  medium: CHART.info,
+  high: CHART.amber,
+  critical: CHART.red,
 };
 
 interface MaintenanceDashboardChartsProps {
@@ -66,10 +75,10 @@ export function MaintenanceDashboardCharts({
                 label={({ status, count }) => `${status} (${count})`}
               >
                 {workOrdersByStatus.map((entry) => (
-                  <Cell key={entry.status} fill={STATUS_COLORS[entry.status] ?? "#94A3B8"} />
+                  <Cell key={entry.status} fill={STATUS_COLORS[entry.status] ?? CHART.muted} />
                 ))}
               </Pie>
-              <Tooltip />
+              <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} />
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -78,12 +87,12 @@ export function MaintenanceDashboardCharts({
       <ChartWidget title="Work orders by kind">
         <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={workOrdersByKind}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#EEF0FF" />
-              <XAxis dataKey="kind" tick={{ fontSize: 11, fill: "#9CA3AF" }} />
-              <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#9CA3AF" }} />
-              <Tooltip />
-              <Bar dataKey="count" fill="#6366F1" radius={[8, 8, 0, 0]} />
+            <BarChart data={workOrdersByKind} margin={CHART_MARGIN}>
+              <CartesianGrid {...chartGridProps} />
+              <XAxis dataKey="kind" tick={chartTick} stroke={CHART.grid} />
+              <YAxis allowDecimals={false} tick={chartTick} stroke={CHART.grid} />
+              <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} />
+              <Bar dataKey="count" fill={CHART.ink} radius={[8, 8, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -92,19 +101,20 @@ export function MaintenanceDashboardCharts({
       <ChartWidget title="Assets by criticality">
         <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={assetsByCriticality} layout="vertical">
-              <CartesianGrid strokeDasharray="3 3" stroke="#EEF0FF" />
-              <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "#9CA3AF" }} />
+            <BarChart data={assetsByCriticality} layout="vertical" margin={CHART_MARGIN}>
+              <CartesianGrid {...chartGridProps} />
+              <XAxis type="number" allowDecimals={false} tick={chartTick} stroke={CHART.grid} />
               <YAxis
                 type="category"
                 dataKey="criticality"
                 width={72}
-                tick={{ fontSize: 11, fill: "#6B7280" }}
+                tick={chartTick}
+                stroke={CHART.grid}
               />
-              <Tooltip />
+              <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} />
               <Bar dataKey="count" radius={[0, 8, 8, 0]}>
                 {assetsByCriticality.map((entry) => (
-                  <Cell key={entry.criticality} fill={CRIT_COLORS[entry.criticality] ?? "#94A3B8"} />
+                  <Cell key={entry.criticality} fill={CRIT_COLORS[entry.criticality] ?? CHART.muted} />
                 ))}
               </Bar>
             </BarChart>
@@ -115,17 +125,18 @@ export function MaintenanceDashboardCharts({
       <ChartWidget title="Top asset categories">
         <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={assetsByCategory} layout="vertical">
-              <CartesianGrid strokeDasharray="3 3" stroke="#EEF0FF" />
-              <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "#9CA3AF" }} />
+            <BarChart data={assetsByCategory} layout="vertical" margin={CHART_MARGIN}>
+              <CartesianGrid {...chartGridProps} />
+              <XAxis type="number" allowDecimals={false} tick={chartTick} stroke={CHART.grid} />
               <YAxis
                 type="category"
                 dataKey="category"
                 width={100}
-                tick={{ fontSize: 10, fill: "#6B7280" }}
+                tick={chartTick}
+                stroke={CHART.grid}
               />
-              <Tooltip />
-              <Bar dataKey="count" fill="#8B5CF6" radius={[0, 8, 8, 0]} />
+              <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} />
+              <Bar dataKey="count" fill={CHART.gold} radius={[0, 8, 8, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -134,16 +145,16 @@ export function MaintenanceDashboardCharts({
       <ChartWidget title="Work order trend (8 weeks)" className="lg:col-span-2">
         <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={workOrdersTrend}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#EEF0FF" />
-              <XAxis dataKey="week" tick={{ fontSize: 11, fill: "#9CA3AF" }} />
-              <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#9CA3AF" }} />
-              <Tooltip />
-              <Legend />
+            <LineChart data={workOrdersTrend} margin={CHART_MARGIN}>
+              <CartesianGrid {...chartGridProps} />
+              <XAxis dataKey="week" tick={chartTick} stroke={CHART.grid} />
+              <YAxis allowDecimals={false} tick={chartTick} stroke={CHART.grid} />
+              <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} />
+              <Legend wrapperStyle={chartLegendStyle} />
               <Line
                 type="monotone"
                 dataKey="created"
-                stroke="#6366F1"
+                stroke={CHART.ink}
                 strokeWidth={2}
                 dot={{ r: 3 }}
                 name="Created"
@@ -151,7 +162,7 @@ export function MaintenanceDashboardCharts({
               <Line
                 type="monotone"
                 dataKey="completed"
-                stroke="#10B981"
+                stroke={CHART.teal}
                 strokeWidth={2}
                 dot={{ r: 3 }}
                 name="Completed"
@@ -165,14 +176,18 @@ export function MaintenanceDashboardCharts({
         <ChartWidget title="Downtime by location (this month)">
           <div className="h-56">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={downtimeByLocation}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#EEF0FF" />
-                <XAxis dataKey="code" tick={{ fontSize: 11, fill: "#9CA3AF" }} />
-                <YAxis tick={{ fontSize: 11, fill: "#9CA3AF" }} />
-                <Tooltip formatter={(v: number, name: string) => [v, name === "hours" ? "Hours" : "Events"]} />
-                <Legend />
-                <Bar dataKey="hours" fill="#EF4444" radius={[8, 8, 0, 0]} name="Hours" />
-                <Bar dataKey="events" fill="#F59E0B" radius={[8, 8, 0, 0]} name="Events" />
+              <BarChart data={downtimeByLocation} margin={CHART_MARGIN}>
+                <CartesianGrid {...chartGridProps} />
+                <XAxis dataKey="code" tick={chartTick} stroke={CHART.grid} />
+                <YAxis tick={chartTick} stroke={CHART.grid} />
+                <Tooltip
+                  contentStyle={chartTooltipStyle}
+                  labelStyle={chartTooltipLabelStyle}
+                  formatter={(v: number, name: string) => [v, name === "hours" ? "Hours" : "Events"]}
+                />
+                <Legend wrapperStyle={chartLegendStyle} />
+                <Bar dataKey="hours" fill={CHART.red} radius={[8, 8, 0, 0]} name="Hours" />
+                <Bar dataKey="events" fill={CHART.amber} radius={[8, 8, 0, 0]} name="Events" />
               </BarChart>
             </ResponsiveContainer>
           </div>

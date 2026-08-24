@@ -3,6 +3,7 @@
 import {
   Bar,
   BarChart,
+  CartesianGrid,
   Cell,
   Legend,
   Pie,
@@ -13,6 +14,16 @@ import {
   YAxis,
 } from "recharts";
 
+import { ChartCard } from "@/components/charts/chart-card";
+import {
+  CHART,
+  CHART_MARGIN,
+  chartGridProps,
+  chartLegendStyle,
+  chartTick,
+  chartTooltipLabelStyle,
+  chartTooltipStyle,
+} from "@/lib/chart-theme";
 import { E3_STATUS_COLORS } from "@/lib/compliance-tracker/constants";
 
 const STATUS_ORDER = ["Compliant", "Upcoming", "Warning", "Critical", "Overdue", "Missing"] as const;
@@ -40,52 +51,51 @@ export function E3TrackerDashboardCharts({
   return (
     <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
       <ChartCard title="Status by Location">
-        <ResponsiveContainer width="100%" height={260}>
-          <BarChart data={statusByLocation}>
-            <XAxis dataKey="location" tick={{ fontSize: 11 }} />
-            <YAxis allowDecimals={false} />
-            <Tooltip />
-            <Legend />
-            {STATUS_ORDER.map((status) => (
-              <Bar key={status} dataKey={status} stackId="a" fill={PIE_COLORS[status]} />
-            ))}
-          </BarChart>
-        </ResponsiveContainer>
+        <div className="h-64">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={statusByLocation} margin={CHART_MARGIN}>
+              <CartesianGrid {...chartGridProps} />
+              <XAxis dataKey="location" tick={chartTick} stroke={CHART.grid} />
+              <YAxis allowDecimals={false} tick={chartTick} stroke={CHART.grid} />
+              <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} />
+              <Legend wrapperStyle={chartLegendStyle} />
+              {STATUS_ORDER.map((status) => (
+                <Bar key={status} dataKey={status} stackId="a" fill={PIE_COLORS[status]} />
+              ))}
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
       </ChartCard>
 
       <ChartCard title="Status Distribution">
-        <ResponsiveContainer width="100%" height={260}>
-          <PieChart>
-            <Pie data={statusPie} dataKey="count" nameKey="status" cx="50%" cy="50%" outerRadius={90} label>
-              {statusPie.map((entry) => (
-                <Cell key={entry.status} fill={PIE_COLORS[entry.status] ?? "#94A3B8"} />
-              ))}
-            </Pie>
-            <Tooltip />
-            <Legend />
-          </PieChart>
-        </ResponsiveContainer>
+        <div className="h-64">
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie data={statusPie} dataKey="count" nameKey="status" cx="50%" cy="50%" outerRadius={90} label>
+                {statusPie.map((entry) => (
+                  <Cell key={entry.status} fill={PIE_COLORS[entry.status] ?? CHART.muted} />
+                ))}
+              </Pie>
+              <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} />
+              <Legend wrapperStyle={chartLegendStyle} />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
       </ChartCard>
 
       <ChartCard title="Items by Category">
-        <ResponsiveContainer width="100%" height={260}>
-          <BarChart data={categoryChart} layout="vertical">
-            <XAxis type="number" allowDecimals={false} />
-            <YAxis type="category" dataKey="category" width={120} tick={{ fontSize: 10 }} />
-            <Tooltip />
-            <Bar dataKey="count" fill="#0B1F3A" />
-          </BarChart>
-        </ResponsiveContainer>
+        <div className="h-64">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={categoryChart} layout="vertical" margin={CHART_MARGIN}>
+              <CartesianGrid {...chartGridProps} />
+              <XAxis type="number" allowDecimals={false} tick={chartTick} stroke={CHART.grid} />
+              <YAxis type="category" dataKey="category" width={120} tick={chartTick} stroke={CHART.grid} />
+              <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} />
+              <Bar dataKey="count" fill={CHART.ink} radius={[0, 6, 6, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
       </ChartCard>
-    </div>
-  );
-}
-
-function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="rounded-lg border border-[#E2E8F0] bg-white p-4">
-      <h3 className="font-display mb-2 text-base font-semibold text-[#0B1F3A]">{title}</h3>
-      {children}
     </div>
   );
 }

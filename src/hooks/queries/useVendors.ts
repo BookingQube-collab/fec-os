@@ -9,6 +9,7 @@ export interface VendorApiFilters {
   locationId?: string | null;
   category?: string | null;
   search?: string | null;
+  includeInactive?: boolean;
   page?: number;
   pageSize?: number;
 }
@@ -21,6 +22,7 @@ export function useVendors(filters: VendorApiFilters = {}, options?: { enabled?:
         locationId: filters.locationId,
         category: filters.category,
         search: filters.search,
+        includeInactive: filters.includeInactive ? true : undefined,
         page: filters.page ?? 1,
         pageSize: filters.pageSize ?? 50,
       }),

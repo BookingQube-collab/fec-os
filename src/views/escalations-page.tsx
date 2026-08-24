@@ -202,7 +202,7 @@ function EscalationsPage() {
             </div>
             <div className="md:col-span-4 flex justify-end">
               <Button type="submit" disabled={createMut.isPending}>
-                {createMut.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+                {createMut.isPending ? <Loader2 className="animate-spin" /> : <Plus />}
                 Add rule
               </Button>
             </div>

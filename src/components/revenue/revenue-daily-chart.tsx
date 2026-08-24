@@ -1,15 +1,16 @@
 "use client";
 
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
+import { ChartCard } from "@/components/charts/chart-card";
+import {
+  CHART,
+  CHART_MARGIN,
+  chartGridProps,
+  chartTick,
+  chartTooltipLabelStyle,
+  chartTooltipStyle,
+} from "@/lib/chart-theme";
 import { fmtNumber, fmtQar } from "@/lib/currency";
 
 type RevenueDailyChartProps = {
@@ -18,36 +19,32 @@ type RevenueDailyChartProps = {
 
 export function RevenueDailyChart({ series }: RevenueDailyChartProps) {
   return (
-    <div className="rounded-lg border border-border bg-card p-4">
-      <div className="mb-3 text-sm font-medium text-foreground">Daily revenue — last 30 days</div>
+    <ChartCard title="Daily revenue — last 30 days">
       <div className="h-64">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={series}>
+          <AreaChart data={series} margin={CHART_MARGIN}>
             <defs>
               <linearGradient id="rev" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.4} />
-                <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
+                <stop offset="0%" stopColor={CHART.gold} stopOpacity={0.45} />
+                <stop offset="100%" stopColor={CHART.gold} stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-            <XAxis dataKey="date" stroke="hsl(var(--muted-foreground))" fontSize={11} />
+            <CartesianGrid {...chartGridProps} />
+            <XAxis dataKey="date" tick={chartTick} stroke={CHART.grid} />
             <YAxis
-              stroke="hsl(var(--muted-foreground))"
-              fontSize={11}
+              tick={chartTick}
+              stroke={CHART.grid}
               tickFormatter={(v) => fmtNumber(Number(v))}
             />
             <Tooltip
-              contentStyle={{
-                background: "hsl(var(--card))",
-                border: "1px solid hsl(var(--border))",
-                borderRadius: 8,
-              }}
+              contentStyle={chartTooltipStyle}
+              labelStyle={chartTooltipLabelStyle}
               formatter={(v: number) => fmtQar(Number(v))}
             />
-            <Area type="monotone" dataKey="revenue" stroke="hsl(var(--primary))" fill="url(#rev)" />
+            <Area type="monotone" dataKey="revenue" stroke={CHART.ink} strokeWidth={2} fill="url(#rev)" />
           </AreaChart>
         </ResponsiveContainer>
       </div>
-    </div>
+    </ChartCard>
   );
 }

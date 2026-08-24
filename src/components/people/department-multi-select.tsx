@@ -2,13 +2,16 @@
 
 import { Check, ChevronsUpDown, X } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
+import { formatDepartmentTreeLabel, sortDepartmentsTree } from "@/lib/departments";
 import type { MasterDepartmentRow } from "@/lib/staff-departments";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
+import { SearchableSelectSearchInput } from "@/components/ui/searchable-select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { matchesSearchQuery } from "@/lib/searchable-select";
 import { cn } from "@/lib/utils";
 
 export function DepartmentMultiSelect({
@@ -24,11 +27,12 @@ export function DepartmentMultiSelect({
   disabled?: boolean;
   placeholder?: string;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
 
   const activeDepartments = useMemo(
-    () => departments.filter((d) => d.active).sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)),
+    () => sortDepartmentsTree(departments.filter((d) => d.active)),
     [departments],
   );
 
@@ -38,11 +42,7 @@ export function DepartmentMultiSelect({
   );
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return activeDepartments;
-    return activeDepartments.filter(
-      (d) => d.name.toLowerCase().includes(q) || (d.code?.toLowerCase().includes(q) ?? false),
-    );
+    return activeDepartments.filter((d) => matchesSearchQuery(query, d.name, d.code));
   }, [activeDepartments, query]);
 
   const toggle = (id: string) => {
@@ -75,14 +75,14 @@ export function DepartmentMultiSelect({
             <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-2" align="start">
-          <Input
+        <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-1.5" align="start">
+          <SearchableSelectSearchInput
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search…"
-            className="mb-2 h-8"
+            onChange={setQuery}
+            placeholder={t("common.searchHere")}
+            role="searchbox"
           />
-          <div className="max-h-52 space-y-1 overflow-y-auto">
+          <div className="mt-1.5 max-h-52 space-y-0.5 overflow-y-auto">
             {filtered.length ? (
               filtered.map((d) => {
                 const checked = value.includes(d.id);
@@ -90,18 +90,18 @@ export function DepartmentMultiSelect({
                   <label
                     key={d.id}
                     className={cn(
-                      "flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/60",
-                      checked && "bg-muted/40",
+                      "flex cursor-pointer items-center gap-2 rounded-full px-3 py-2 text-sm hover:bg-secondary/70",
+                      checked && "bg-secondary font-medium",
                     )}
                   >
                     <Checkbox checked={checked} onCheckedChange={() => toggle(d.id)} />
-                    <span className="flex-1">{d.name}</span>
+                    <span className="flex-1">{formatDepartmentTreeLabel(d.name, d.depth)}</span>
                     {checked ? <Check className="h-3.5 w-3.5 text-primary" /> : null}
                   </label>
                 );
               })
             ) : (
-              <p className="px-2 py-3 text-center text-xs text-muted-foreground">No departments match.</p>
+              <p className="px-3 py-3 text-sm text-muted-foreground">{t("common.searchNoMatches")}</p>
             )}
           </div>
         </PopoverContent>

@@ -10,6 +10,7 @@ import { useRef, useState } from "react";
 
 import { Camera, Hammer, LayoutGrid, List, Loader2, Plus } from "lucide-react";
 
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 
@@ -93,6 +94,7 @@ async function fileToBase64(file: File): Promise<string> {
 
 
 function SnagsPage() {
+  const { t } = useTranslation();
 
   const locationId = useAppStore((s) => s.currentLocationId);
 
@@ -140,7 +142,7 @@ function SnagsPage() {
 
       const loc = form.locationId || locationId || locations.data?.[0]?.id;
 
-      if (!loc) throw new Error("Select a branch first");
+      if (!loc) throw new Error(t("snags.selectBranch"));
 
       const row = await createSnag({
 
@@ -182,7 +184,7 @@ function SnagsPage() {
 
     onSuccess: (row) => {
 
-      toast.success(pendingPhoto ? "Snag created with photo" : "Snag created");
+      toast.success(pendingPhoto ? t("snags.createdWithPhoto") : t("snags.created"));
 
       setOpenCreate(false);
 
@@ -234,9 +236,9 @@ function SnagsPage() {
 
         <div className="flex-1">
 
-          <h1 className="text-xl font-semibold tracking-tight">Snag Register</h1>
+          <h1 className="text-xl font-semibold tracking-tight">{t("snags.title")}</h1>
 
-          <p className="text-xs text-muted-foreground">Opening defects, renovations, handover items, and contractor follow-up.</p>
+          <p className="text-xs text-muted-foreground">{t("snags.subtitle")}</p>
 
         </div>
 
@@ -272,19 +274,19 @@ function SnagsPage() {
 
             <DialogTrigger asChild>
 
-              <Button size="sm"><Plus className="mr-1 h-4 w-4" />New snag</Button>
+              <Button size="sm"><Plus className="mr-1 h-4 w-4" />{t("snags.new")}</Button>
 
             </DialogTrigger>
 
             <DialogContent className="max-w-md">
 
-              <DialogHeader><DialogTitle>Raise snag</DialogTitle></DialogHeader>
+              <DialogHeader><DialogTitle>{t("snags.raise")}</DialogTitle></DialogHeader>
 
               <div className="space-y-3">
 
                 <div>
 
-                  <Label>Branch <span className="text-rose-400">*</span></Label>
+                  <Label>{t("common.branch")} <span className="text-rose-400">*</span></Label>
 
                   <Select
 
@@ -294,7 +296,7 @@ function SnagsPage() {
 
                   >
 
-                    <SelectTrigger><SelectValue placeholder="Select branch" /></SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder={t("common.selectBranch")} /></SelectTrigger>
 
                     <SelectContent>
 
@@ -312,7 +314,7 @@ function SnagsPage() {
 
                 <div>
 
-                  <Label>Area / location on floor</Label>
+                  <Label>{t("snags.area")}</Label>
 
                   <Input
 
@@ -320,7 +322,7 @@ function SnagsPage() {
 
                     onChange={(e) => setForm((f) => ({ ...f, area: e.target.value }))}
 
-                    placeholder="e.g. Zone A, main entrance"
+                    placeholder={t("snags.areaPlaceholder")}
 
                   />
 
@@ -328,7 +330,7 @@ function SnagsPage() {
 
                 <div>
 
-                  <Label>Category <span className="text-rose-400">*</span></Label>
+                  <Label>{t("common.category")} <span className="text-rose-400">*</span></Label>
 
                   <Select value={form.category} onValueChange={(v) => setForm((f) => ({ ...f, category: v }))}>
 
@@ -336,7 +338,7 @@ function SnagsPage() {
 
                     <SelectContent>
 
-                      {CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c.replace(/_/g, " ")}</SelectItem>)}
+                      {CATEGORIES.map((c) => <SelectItem key={c} value={c}>{t(`snags.categories.${c}`, { defaultValue: c.replace(/_/g, " ") })}</SelectItem>)}
 
                     </SelectContent>
 
@@ -346,7 +348,7 @@ function SnagsPage() {
 
                 <div>
 
-                  <Label>Description <span className="text-rose-400">*</span></Label>
+                  <Label>{t("common.description")} <span className="text-rose-400">*</span></Label>
 
                   <Textarea
 
@@ -356,7 +358,7 @@ function SnagsPage() {
 
                     rows={4}
 
-                    placeholder="What needs fixing?"
+                    placeholder={t("snags.descPlaceholder")}
 
                   />
 
@@ -368,7 +370,7 @@ function SnagsPage() {
 
                     <div>
 
-                      <Label>Severity</Label>
+                      <Label>{t("common.severity")}</Label>
 
                       <Select value={form.severity} onValueChange={(v) => setForm((f) => ({ ...f, severity: v }))}>
 
@@ -378,7 +380,7 @@ function SnagsPage() {
 
                           {["low", "medium", "high", "critical"].map((s) => (
 
-                            <SelectItem key={s} value={s}>{s}</SelectItem>
+                            <SelectItem key={s} value={s}>{t(`snags.severity.${s}`)}</SelectItem>
 
                           ))}
 
@@ -390,7 +392,7 @@ function SnagsPage() {
 
                     <div>
 
-                      <Label>Priority</Label>
+                      <Label>{t("common.priority")}</Label>
 
                       <Select value={form.priority} onValueChange={(v) => setForm((f) => ({ ...f, priority: v }))}>
 
@@ -400,7 +402,7 @@ function SnagsPage() {
 
                           {["low", "normal", "high", "urgent"].map((p) => (
 
-                            <SelectItem key={p} value={p}>{p}</SelectItem>
+                            <SelectItem key={p} value={p}>{t(`snags.priority.${p}`)}</SelectItem>
 
                           ))}
 
@@ -416,7 +418,7 @@ function SnagsPage() {
 
                 <div>
 
-                  <Label>Photo (optional)</Label>
+                  <Label>{t("snags.photo")}</Label>
 
                   <div className="mt-1 flex items-center gap-2">
 
@@ -424,7 +426,7 @@ function SnagsPage() {
 
                       <Camera className="mr-1 h-4 w-4" />
 
-                      {pendingPhoto ? pendingPhoto.name : "Upload photo"}
+                      {pendingPhoto ? pendingPhoto.name : t("snags.uploadPhoto")}
 
                     </Button>
 
@@ -432,7 +434,7 @@ function SnagsPage() {
 
                       <Button type="button" variant="ghost" size="sm" onClick={() => setPendingPhoto(null)}>
 
-                        Clear
+                        {t("common.clear")}
 
                       </Button>
 
@@ -476,7 +478,7 @@ function SnagsPage() {
 
                   {createMut.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
 
-                  Create snag
+                  {t("snags.create")}
 
                 </Button>
 
@@ -496,7 +498,7 @@ function SnagsPage() {
 
         <div className="rounded-lg border border-border bg-card p-4">
 
-          <div className="text-xs text-muted-foreground">Open snags</div>
+          <div className="text-xs text-muted-foreground">{t("snags.open")}</div>
 
           <div className="mt-1 text-2xl font-semibold">{summary?.total_open ?? "—"}</div>
 
@@ -504,7 +506,7 @@ function SnagsPage() {
 
         <div className="rounded-lg border border-border bg-card p-4">
 
-          <div className="text-xs text-muted-foreground">Overdue</div>
+          <div className="text-xs text-muted-foreground">{t("snags.overdue")}</div>
 
           <div className="mt-1 text-2xl font-semibold rag-red">{summary?.total_overdue ?? "—"}</div>
 
@@ -512,7 +514,7 @@ function SnagsPage() {
 
         <div className="rounded-lg border border-border bg-card p-4">
 
-          <div className="text-xs text-muted-foreground">In progress</div>
+          <div className="text-xs text-muted-foreground">{t("snags.inProgress")}</div>
 
           <div className="mt-1 text-2xl font-semibold">{summary?.by_status?.in_progress ?? "—"}</div>
 
@@ -526,15 +528,15 @@ function SnagsPage() {
 
         <TabsList>
 
-          <TabsTrigger value="list"><List className="mr-1 h-4 w-4" />List</TabsTrigger>
+          <TabsTrigger value="list"><List className="mr-1 h-4 w-4" />{t("snags.list")}</TabsTrigger>
 
-          <TabsTrigger value="board"><LayoutGrid className="mr-1 h-4 w-4" />Kanban</TabsTrigger>
+          <TabsTrigger value="board"><LayoutGrid className="mr-1 h-4 w-4" />{t("snags.kanban")}</TabsTrigger>
 
           {canCreate && (
 
             <TabsTrigger value="new" onClick={() => setOpenCreate(true)}>
 
-              <Plus className="mr-1 h-4 w-4" />New snag
+              <Plus className="mr-1 h-4 w-4" />{t("snags.new")}
 
             </TabsTrigger>
 
@@ -552,17 +554,17 @@ function SnagsPage() {
 
               <TableRow>
 
-                <TableHead>ID</TableHead>
+                <TableHead>{t("snags.id")}</TableHead>
 
-                <TableHead>Category</TableHead>
+                <TableHead>{t("common.category")}</TableHead>
 
-                <TableHead>Description</TableHead>
+                <TableHead>{t("common.description")}</TableHead>
 
-                <TableHead>Severity</TableHead>
+                <TableHead>{t("common.severity")}</TableHead>
 
-                <TableHead>Status</TableHead>
+                <TableHead>{t("common.status")}</TableHead>
 
-                <TableHead>Days open</TableHead>
+                <TableHead>{t("snags.daysOpen")}</TableHead>
 
               </TableRow>
 
@@ -572,7 +574,7 @@ function SnagsPage() {
 
               {isLoading ? (
 
-                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">Loading…</TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">{t("common.loading")}</TableCell></TableRow>
 
               ) : !snags?.length ? (
 
@@ -580,13 +582,13 @@ function SnagsPage() {
 
                   <TableCell colSpan={6} className="text-center text-muted-foreground">
 
-                    No snags in scope.
+                    {t("snags.empty")}
 
                     {canCreate && (
 
                       <Button variant="link" size="sm" className="ml-1" onClick={() => setOpenCreate(true)}>
 
-                        Raise one
+                        {t("snags.raiseOne")}
 
                       </Button>
 
@@ -608,15 +610,15 @@ function SnagsPage() {
 
                     </TableCell>
 
-                    <TableCell>{s.category}</TableCell>
+                    <TableCell>{t(`snags.categories.${s.category}`, { defaultValue: s.category })}</TableCell>
 
                     <TableCell className="max-w-xs truncate">{s.description}</TableCell>
 
-                    <TableCell><Badge variant="outline">{s.severity}</Badge></TableCell>
+                    <TableCell><Badge variant="outline">{t(`snags.severity.${s.severity}`, { defaultValue: s.severity })}</Badge></TableCell>
 
                     <TableCell>
 
-                      <Badge variant="outline" className={s.overdue ? "rag-red" : ""}>{s.status}</Badge>
+                      <Badge variant="outline" className={s.overdue ? "rag-red" : ""}>{t(`snags.status.${s.status}`, { defaultValue: s.status })}</Badge>
 
                     </TableCell>
 
@@ -648,7 +650,7 @@ function SnagsPage() {
 
                 <div key={col} className="rounded-lg border border-border bg-card/50 p-2">
 
-                  <div className="mb-2 text-xs font-medium uppercase text-muted-foreground">{col.replace(/_/g, " ")}</div>
+                  <div className="mb-2 text-xs font-medium uppercase text-muted-foreground">{t(`snags.status.${col}`)}</div>
 
                   <div className="space-y-2">
 
@@ -664,7 +666,7 @@ function SnagsPage() {
 
                     ))}
 
-                    {!cards.length && <p className="text-xs text-muted-foreground">Empty</p>}
+                    {!cards.length && <p className="text-xs text-muted-foreground">{t("snags.emptyColumn")}</p>}
 
                   </div>
 
@@ -686,7 +688,7 @@ function SnagsPage() {
 
             <p className="text-sm text-muted-foreground">
 
-              Use the <Button variant="link" className="h-auto p-0" onClick={() => setOpenCreate(true)}>New snag</Button> dialog to raise a defect with optional photo.
+              {t("snags.newHint")} <Button variant="link" className="h-auto p-0" onClick={() => setOpenCreate(true)}>{t("snags.new")}</Button>
 
             </p>
 

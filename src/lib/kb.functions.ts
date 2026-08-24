@@ -1,5 +1,7 @@
 "use server";
 
+import { completeTextViaGateway } from "@/lib/ai/complete-json";
+import { embedTexts } from "@/lib/ai/embeddings";
 import { z } from "zod";
 
 import {
@@ -7,26 +9,7 @@ import {
   createAuthenticatedActionNoInput,
 } from "@/lib/server/create-action";
 
-const EMBED_MODEL = "openai/text-embedding-3-small";
-const CHAT_MODEL = "google/gemini-3-flash-preview";
-const EMBED_DIMS = 1536;
-
-async function embed(texts: string[]): Promise<number[][]> {
-  const apiKey = process.env.LOVABLE_API_KEY;
-  if (!apiKey) throw new Error("LOVABLE_API_KEY missing.");
-  const resp = await fetch("https://ai.gateway.lovable.dev/v1/embeddings", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey },
-    body: JSON.stringify({ model: EMBED_MODEL, input: texts, dimensions: EMBED_DIMS }),
-  });
-  if (!resp.ok) {
-    if (resp.status === 402) throw new Error("AI credits exhausted — add credits in workspace billing.");
-    if (resp.status === 429) throw new Error("Rate limit hit, please wait and try again.");
-    throw new Error(`Embedding error ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
-  }
-  const j = (await resp.json()) as { data: Array<{ embedding: number[] }> };
-  return j.data.map((d) => d.embedding);
-}
+const CHAT_MODEL = "fec-os-gateway";
 
 function chunkText(text: string, size = 900, overlap = 150): string[] {
   const clean = text.replace(/\r\n/g, "\n").replace(/\s+\n/g, "\n").trim();
@@ -98,7 +81,7 @@ export const ingestKbDocument = createAuthenticatedAction(
       .single();
     if (docErr) throw docErr;
 
-    const vectors = await embed(chunks);
+    const vectors = await embedTexts(chunks, "kb.ingest");
     const rows = chunks.map((content, idx) => ({
       document_id: doc.id,
       chunk_index: idx,
@@ -127,10 +110,7 @@ export const deleteKbDocument = createAuthenticatedAction(
 export const askKnowledgeRag = createAuthenticatedAction(
   z.object({ question: z.string().min(3).max(2000) }),
   async (data, context) => {
-    const apiKey = process.env.LOVABLE_API_KEY;
-    if (!apiKey) throw new Error("LOVABLE_API_KEY missing.");
-
-    const [queryVec] = await embed([data.question]);
+    const [queryVec] = await embedTexts([data.question], "kb.rag");
     const { data: matches, error } = await context.supabase.rpc("match_kb_chunks", {
       query_embedding: queryVec as unknown as string,
       match_count: 6,
@@ -166,18 +146,9 @@ export const askKnowledgeRag = createAuthenticatedAction(
 
     const prompt = `You are the FEC-OS knowledge assistant. Answer the user's question using ONLY the retrieved knowledge-base excerpts below. Cite sources inline as [#1], [#2], etc. matching the excerpts. If the excerpts do not contain the answer, say so explicitly. Keep responses under 280 words.\n\nQUESTION:\n${data.question}\n\nRETRIEVED EXCERPTS:\n${context_blocks}`;
 
-    const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey },
-      body: JSON.stringify({ model: CHAT_MODEL, messages: [{ role: "user", content: prompt }] }),
-    });
-    if (!resp.ok) {
-      if (resp.status === 402) throw new Error("AI credits exhausted — add credits in workspace billing.");
-      if (resp.status === 429) throw new Error("Rate limit hit, please wait and try again.");
-      throw new Error(`AI gateway error ${resp.status}`);
-    }
-    const j = (await resp.json()) as { choices?: Array<{ message?: { content?: string } }> };
-    const answer = j.choices?.[0]?.message?.content?.trim() ?? "";
+    const answer =
+      (await completeTextViaGateway([{ role: "user", content: prompt }], { moduleSource: "kb.rag" })) ??
+      "AI is unavailable. Configure a provider in Admin → AI Integrations and try again.";
 
     const sources: RagSource[] = rows.map((r) => ({
       document_id: r.document_id,

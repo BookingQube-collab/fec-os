@@ -114,7 +114,7 @@ export function WeeklyReportForm({
       <NeumorphicCard className="p-4 md:p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-sm font-medium text-[#0B1F3A]">
+            <p className="text-sm font-medium text-foreground">
               {t("weeklyReports.form.progress", { completed, total })}
             </p>
             <p className="text-xs text-[#64748B]">

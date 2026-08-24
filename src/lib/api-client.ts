@@ -19,3 +19,29 @@ export async function apiGet<T>(
   }
   return res.json() as Promise<T>;
 }
+
+async function apiMutate<T>(path: string, method: string, body?: unknown): Promise<T> {
+  const res = await fetch(path, {
+    method,
+    credentials: "include",
+    headers: body != null ? { "Content-Type": "application/json" } : undefined,
+    body: body != null ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    const errBody = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(errBody.error ?? `Request failed (${res.status})`);
+  }
+  return res.json() as Promise<T>;
+}
+
+export function apiPost<T>(path: string, body?: unknown): Promise<T> {
+  return apiMutate<T>(path, "POST", body);
+}
+
+export function apiPatch<T>(path: string, body: unknown): Promise<T> {
+  return apiMutate<T>(path, "PATCH", body);
+}
+
+export function apiDelete<T>(path: string, body?: unknown): Promise<T> {
+  return apiMutate<T>(path, "DELETE", body);
+}

@@ -3,6 +3,12 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import type { Database } from "./types";
 
+/**
+ * Page-gate only: read/refresh the cookie session locally.
+ * `getSession()` is cookie + JWT expiry (and refresh when expired).
+ * Do not call `getUser()` here — that hits the Auth API on every navigation
+ * (~300–2000ms). API routes still validate with `getUser()` via withAuth.
+ */
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
@@ -30,22 +36,23 @@ export async function updateSession(request: NextRequest) {
   });
 
   const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    data: { session },
+  } = await supabase.auth.getSession();
+  const authenticated = Boolean(session?.access_token);
 
   const { pathname } = request.nextUrl;
   const isAuthRoute = pathname.startsWith("/auth") || pathname.startsWith("/reset-password");
-  const isPublicApi = pathname.startsWith("/api/public");
+  const isPublicApi = pathname.startsWith("/api/public") || pathname.startsWith("/iclock");
   const isProtected = !isAuthRoute && !isPublicApi && pathname !== "/favicon.ico";
 
-  if (isProtected && !user) {
+  if (isProtected && !authenticated) {
     const url = request.nextUrl.clone();
     url.pathname = "/auth";
     url.searchParams.set("next", pathname);
     return NextResponse.redirect(url);
   }
 
-  if (isAuthRoute && user) {
+  if (isAuthRoute && authenticated) {
     const url = request.nextUrl.clone();
     url.pathname = "/";
     return NextResponse.redirect(url);

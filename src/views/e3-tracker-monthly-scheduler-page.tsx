@@ -5,6 +5,7 @@
 import { Search } from "lucide-react";
 
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 
 
@@ -47,6 +48,7 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 
 
 export default function E3MonthlySchedulerPage() {
+  const { t } = useTranslation();
 
   const [filter, setFilter] = useState({ location: "All", field: "All" });
 
@@ -92,9 +94,9 @@ export default function E3MonthlySchedulerPage() {
 
     <E3TrackerPageShell
 
-      title="Monthly Scheduler"
+      title={t("e3Tracker.pages.monthlyScheduler.title")}
 
-      subtitle="AMC service schedule by month. Dots indicate due months based on frequency and anchor date."
+      subtitle={t("e3Tracker.pages.monthlyScheduler.subtitle")}
 
     >
 
@@ -111,55 +113,10 @@ export default function E3MonthlySchedulerPage() {
           kpis={{ total: 0, compliant: 0, expiring30: 0, overdue: 0, missing: 0 }}
 
           extra={[
-
-            {
-
-              label: "Total AMC Items",
-
-              value: schedulerKpis.total,
-
-              bg: "#0B1F3A",
-
-              text: "#FFFFFF",
-
-            },
-
-            {
-
-              label: "Scheduled",
-
-              value: schedulerKpis.scheduled,
-
-              bg: "#1E7B45",
-
-              text: "#FFFFFF",
-
-            },
-
-            {
-
-              label: "Pending Setup",
-
-              value: schedulerKpis.pendingSetup,
-
-              bg: "#E8A33D",
-
-              text: "#0A1228",
-
-            },
-
-            {
-
-              label: "Due This Month",
-
-              value: schedulerKpis.dueThisMonth,
-
-              bg: "#C0392B",
-
-              text: "#FFFFFF",
-
-            },
-
+            { label: "Total AMC Items", value: schedulerKpis.total, tint: "sky" },
+            { label: "Scheduled", value: schedulerKpis.scheduled, tint: "green" },
+            { label: "Pending Setup", value: schedulerKpis.pendingSetup, tint: "amber" },
+            { label: "Due This Month", value: schedulerKpis.dueThisMonth, tint: "red" },
           ]}
 
         />
@@ -214,19 +171,19 @@ export default function E3MonthlySchedulerPage() {
 
                 <TableHead className="text-white">ID</TableHead>
 
-                <TableHead className="text-white">Location</TableHead>
+                <TableHead className="text-white">{t("e3Tracker.table.location")}</TableHead>
 
-                <TableHead className="text-white">Area</TableHead>
+                <TableHead className="text-white">{t("e3Tracker.table.area")}</TableHead>
 
-                <TableHead className="text-white">Category</TableHead>
+                <TableHead className="text-white">{t("e3Tracker.table.category")}</TableHead>
 
-                <TableHead className="min-w-[160px] text-white">Item</TableHead>
+                <TableHead className="min-w-[160px] text-white">{t("e3Tracker.table.item")}</TableHead>
 
-                <TableHead className="text-white">Vendor</TableHead>
+                <TableHead className="text-white">{t("e3Tracker.table.vendor")}</TableHead>
 
-                <TableHead className="text-white">Frequency</TableHead>
+                <TableHead className="text-white">{t("e3Tracker.table.frequency")}</TableHead>
 
-                <TableHead className="text-white">Status</TableHead>
+                <TableHead className="text-white">{t("e3Tracker.table.status")}</TableHead>
 
                 {MONTHS.map((m) => (
 

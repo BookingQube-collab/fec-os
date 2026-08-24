@@ -45,7 +45,7 @@ function StatsStrip({
           className="rounded-lg border border-[#E2E8F0] bg-white px-4 py-3"
         >
           <p className="text-xs font-medium uppercase tracking-wide text-[#64748B]">{item.label}</p>
-          <p className="mt-1 font-display text-2xl font-semibold" style={{ color: item.color }}>
+          <p className="mt-1 text-2xl font-semibold" style={{ color: item.color }}>
             {item.value}
           </p>
         </div>

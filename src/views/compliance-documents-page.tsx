@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { ChevronRight, FileText, Loader2, Plus } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import {
@@ -37,22 +38,23 @@ function deadlineClass(deadline: string | null, status: string): string {
   return "text-muted-foreground";
 }
 
-function deadlineLabel(deadline: string | null): string {
+function deadlineLabel(deadline: string | null, t: (key: string, opts?: Record<string, unknown>) => string): string {
   if (!deadline) return "—";
   const days = Math.ceil((new Date(deadline).getTime() - Date.now()) / 86_400_000);
   const date = new Date(deadline).toLocaleDateString();
-  if (days < 0) return `${date} (${Math.abs(days)}d overdue)`;
-  if (days === 0) return `${date} (today)`;
-  if (days <= 7) return `${date} (${days}d left)`;
+  if (days < 0) return `${date} (${t("complianceHub.documents.daysOverdue", { days: Math.abs(days) })})`;
+  if (days === 0) return `${date} (${t("complianceHub.documents.today")})`;
+  if (days <= 7) return `${date} (${t("complianceHub.documents.daysLeft", { days })})`;
   return date;
 }
 
 export function ComplianceStatusBadge({ status }: { status: string }) {
+  const { t } = useTranslation();
   const styles: Record<string, string> = {
     pending: "bg-amber-500/15 text-amber-300 border-amber-500/40",
     submitted: "bg-sky-500/10 text-sky-300 border-sky-500/30",
     expired: "bg-rose-500/15 text-rose-300 border-rose-500/40",
-    under_renewal: "bg-violet-500/15 text-violet-300 border-violet-500/40",
+    under_renewal: "bg-amber-500/15 text-amber-800 border-amber-500/40",
     approved: "bg-emerald-500/15 text-emerald-300 border-emerald-500/40",
     rejected: "bg-rose-500/15 text-rose-300 border-rose-500/40",
   };
@@ -63,12 +65,13 @@ export function ComplianceStatusBadge({ status }: { status: string }) {
         styles[status] ?? "bg-muted text-muted-foreground border-border",
       )}
     >
-      {status.replace(/_/g, " ")}
+      {t(`complianceHub.documents.docStatuses.${status}`, { defaultValue: status.replace(/_/g, " ") })}
     </span>
   );
 }
 
 function ComplianceDocumentsPage() {
+  const { t } = useTranslation();
   const [tab, setTab] = useState<"list" | "new">("list");
   return (
     <div className="space-y-5">
@@ -78,20 +81,20 @@ function ComplianceDocumentsPage() {
             <FileText className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold tracking-tight">Compliance Documents</h1>
+            <h1 className="text-xl font-semibold tracking-tight">{t("complianceHub.documents.title")}</h1>
             <p className="text-xs text-muted-foreground">
-              Mall certificates, QCDD submissions, and regulatory document tracking.
+              {t("complianceHub.documents.listSubtitle")}
             </p>
           </div>
         </div>
         <Button size="sm" onClick={() => setTab("new")}>
-          <Plus className="mr-1 h-4 w-4" /> New document
+          <Plus className="mr-1 h-4 w-4" /> {t("complianceHub.documents.newDocument")}
         </Button>
       </header>
       <Tabs value={tab} onValueChange={(v) => setTab(v as "list" | "new")}>
         <TabsList>
-          <TabsTrigger value="list">All documents</TabsTrigger>
-          <TabsTrigger value="new">Register new</TabsTrigger>
+          <TabsTrigger value="list">{t("complianceHub.documents.all")}</TabsTrigger>
+          <TabsTrigger value="new">{t("complianceHub.documents.registerNew")}</TabsTrigger>
         </TabsList>
         <TabsContent value="list" className="mt-4">
           <DocumentsList />
@@ -105,6 +108,7 @@ function ComplianceDocumentsPage() {
 }
 
 function DocumentsList() {
+  const { t } = useTranslation();
   const locationId = useAppStore((s) => s.currentLocationId);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState("");
@@ -129,14 +133,14 @@ function DocumentsList() {
   }, [data]);
 
   if (isLoading) {
-    return <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">Loading documents…</div>;
+    return <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">{t("complianceHub.documents.loading")}</div>;
   }
 
   return (
     <div className="space-y-4">
       {urgentCount > 0 ? (
         <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-          {urgentCount} document{urgentCount === 1 ? "" : "s"} with submission deadline within 7 days or overdue.
+          {t("complianceHub.documents.urgentDeadline", { count: urgentCount })}
         </div>
       ) : null}
       <div className="flex flex-wrap gap-3">
@@ -145,36 +149,36 @@ function DocumentsList() {
             <SelectValue placeholder="Status" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All statuses</SelectItem>
+            <SelectItem value="all">{t("complianceHub.documents.allStatuses")}</SelectItem>
             {STATUSES.map((s) => (
               <SelectItem key={s} value={s}>
-                {s.replace(/_/g, " ")}
+                {t(`complianceHub.documents.docStatuses.${s}`)}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
         <Input
           className="h-8 w-56 text-xs"
-          placeholder="Filter by document type…"
+          placeholder={t("complianceHub.documents.typeFilter")}
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value)}
         />
       </div>
       {!data?.length ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-          No compliance documents on file. Register a mall letter or certificate requirement to get started.
+          {t("complianceHub.documents.empty")} {t("complianceHub.documents.emptyHint")}
         </div>
       ) : (
         <div className="overflow-hidden rounded-lg border border-border">
           <table className="w-full text-sm">
             <thead className="bg-surface/60 text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
-                <th className="px-3 py-2 text-left">Document</th>
-                <th className="px-3 py-2 text-left">Mall / Authority</th>
-                <th className="px-3 py-2 text-left">Reference</th>
-                <th className="px-3 py-2 text-left">Submit by</th>
-                <th className="px-3 py-2 text-left">Expires</th>
-                <th className="px-3 py-2 text-left">Status</th>
+                <th className="px-3 py-2 text-left">{t("complianceHub.documents.document")}</th>
+                <th className="px-3 py-2 text-left">{t("complianceHub.documents.mallAuthority")}</th>
+                <th className="px-3 py-2 text-left">{t("complianceHub.documents.reference")}</th>
+                <th className="px-3 py-2 text-left">{t("complianceHub.documents.submitBy")}</th>
+                <th className="px-3 py-2 text-left">{t("complianceHub.documents.expires")}</th>
+                <th className="px-3 py-2 text-left">{t("common.status")}</th>
                 <th />
               </tr>
             </thead>
@@ -185,7 +189,7 @@ function DocumentsList() {
                   <td className="px-3 py-2 text-xs">{d.issuing_authority ?? "—"}</td>
                   <td className="px-3 py-2 font-mono text-[11px] text-muted-foreground">{d.reference_number ?? "—"}</td>
                   <td className={cn("px-3 py-2 text-xs", deadlineClass(d.submission_deadline, d.status))}>
-                    {deadlineLabel(d.submission_deadline)}
+                    {deadlineLabel(d.submission_deadline, t)}
                   </td>
                   <td className="px-3 py-2 text-xs text-muted-foreground">
                     {d.expiry_date ? new Date(d.expiry_date).toLocaleDateString() : "—"}
@@ -195,7 +199,7 @@ function DocumentsList() {
                   </td>
                   <td className="px-3 py-2 text-right">
                     <Link href={`/compliance-documents/${d.id}`} className="inline-flex items-center text-xs text-primary hover:underline">
-                      View <ChevronRight className="h-3 w-3" />
+                      {t("common.view")} <ChevronRight className="h-3 w-3" />
                     </Link>
                   </td>
                 </tr>
@@ -209,6 +213,7 @@ function DocumentsList() {
 }
 
 function NewDocumentForm({ onSuccess }: { onSuccess: () => void }) {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const locationId = useAppStore((s) => s.currentLocationId);
   const locsQ = useSites();
@@ -258,7 +263,7 @@ function NewDocumentForm({ onSuccess }: { onSuccess: () => void }) {
       return id;
     },
     onSuccess: () => {
-      toast.success("Compliance document registered");
+      toast.success(t("complianceHub.documents.registered"));
       void qc.invalidateQueries({ queryKey: ["compliance-documents"] });
       onSuccess();
     },
@@ -271,14 +276,14 @@ function NewDocumentForm({ onSuccess }: { onSuccess: () => void }) {
   return (
     <div className="max-w-2xl space-y-4 rounded-lg border border-border bg-surface/30 p-5">
       <p className="text-xs text-muted-foreground">
-        Register a mall notification or certificate requirement — e.g. QCDD Certificate from City Center Doha with a 7-day submission window.
+        {t("complianceHub.documents.formHint")}
       </p>
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-1.5 sm:col-span-2">
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Location</Label>
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.location")}</Label>
           <Select value={form.location_id} onValueChange={(v) => setForm((f) => ({ ...f, location_id: v }))}>
             <SelectTrigger>
-              <SelectValue placeholder="Select branch" />
+              <SelectValue placeholder={t("common.selectBranch")} />
             </SelectTrigger>
             <SelectContent>
               {(locsQ.data ?? []).map((l) => (
@@ -290,51 +295,51 @@ function NewDocumentForm({ onSuccess }: { onSuccess: () => void }) {
           </Select>
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Document type</Label>
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.documentType")}</Label>
           <Input value={form.document_type} onChange={set("document_type")} placeholder="QCDD Certificate" />
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Issuing authority / Mall</Label>
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.issuingAuthority")}</Label>
           <Input value={form.issuing_authority} onChange={set("issuing_authority")} placeholder="City Center Doha" />
         </div>
         <div className="space-y-1.5 sm:col-span-2">
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Reference number</Label>
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.referenceNumber")}</Label>
           <Input value={form.reference_number} onChange={set("reference_number")} placeholder="FC/CU/KB/DG/SY/QCDD/06-2026" />
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Notification / letter date</Label>
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.notificationDate")}</Label>
           <Input type="date" value={form.notification_date} onChange={set("notification_date")} />
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Submission deadline</Label>
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.submissionDeadline")}</Label>
           <Input type="date" value={form.submission_deadline} onChange={set("submission_deadline")} />
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Certificate issue date</Label>
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.issueDate")}</Label>
           <Input type="date" value={form.issue_date} onChange={set("issue_date")} />
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Certificate expiry date</Label>
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.expiryDate")}</Label>
           <Input type="date" value={form.expiry_date} onChange={set("expiry_date")} />
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Contact name</Label>
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.contactName")}</Label>
           <Input value={form.contact_name} onChange={set("contact_name")} />
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Contact email</Label>
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.contactEmail")}</Label>
           <Input type="email" value={form.contact_email} onChange={set("contact_email")} />
         </div>
         <div className="space-y-1.5 sm:col-span-2">
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Contact phone</Label>
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.contactPhone")}</Label>
           <Input value={form.contact_phone} onChange={set("contact_phone")} />
         </div>
         <div className="space-y-1.5 sm:col-span-2">
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Notes</Label>
-          <Textarea rows={3} value={form.notes} onChange={set("notes")} placeholder="Letter requirements, submission instructions…" />
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.notes")}</Label>
+          <Textarea rows={3} value={form.notes} onChange={set("notes")} placeholder={t("complianceHub.documents.notesPlaceholder")} />
         </div>
         <div className="space-y-1.5 sm:col-span-2">
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Attach document (PDF / image)</Label>
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.attachFile")}</Label>
           <Input type="file" accept=".pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
         </div>
       </div>
@@ -344,7 +349,7 @@ function NewDocumentForm({ onSuccess }: { onSuccess: () => void }) {
           disabled={mutation.isPending || !form.location_id || form.document_type.length < 2}
         >
           {mutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-          Register document
+          {t("complianceHub.documents.registerNew")}
         </Button>
       </div>
     </div>

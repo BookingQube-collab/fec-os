@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { CompliancePageShell } from "@/components/compliance/compliance-page-shell";
@@ -34,6 +35,7 @@ import {
 } from "@/components/ui/select";
 
 function ComplianceDocumentNewPage() {
+  const { t } = useTranslation();
   const router = useRouter();
   const qc = useQueryClient();
   const locationId = useAppStore((s) => s.currentLocationId);
@@ -107,7 +109,7 @@ function ComplianceDocumentNewPage() {
       return id;
     },
     onSuccess: (id) => {
-      toast.success("Document registered");
+      toast.success(t("complianceHub.documents.registeredShort"));
       void qc.invalidateQueries({ queryKey: ["compliance"] });
       router.push(`/compliance/documents/${id}`);
     },
@@ -121,22 +123,22 @@ function ComplianceDocumentNewPage() {
 
   return (
     <CompliancePageShell
-      title="Register compliance document"
-      subtitle="Certificate, quotation, vendor link and payment tracking"
+      title={t("complianceHub.documents.newTitle")}
+      subtitle={t("complianceHub.documents.newSubtitle")}
       onExportPdf={() => {}}
       onExportExcel={() => {}}
       actions={
         <Button variant="ghost" size="sm" asChild>
-          <Link href="/compliance/documents"><ArrowLeft className="mr-1 h-4 w-4" /> Back</Link>
+          <Link href="/compliance/documents"><ArrowLeft className="mr-1 h-4 w-4" /> {t("common.back")}</Link>
         </Button>
       }
     >
       <div className="max-w-3xl space-y-4 rounded-lg border border-border bg-card p-5">
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5 sm:col-span-2">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground">Site</Label>
+            <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("common.site")}</Label>
             <Select value={form.location_id} onValueChange={(v) => setForm((f) => ({ ...f, location_id: v, contract_id: "" }))}>
-              <SelectTrigger><SelectValue placeholder="Select site" /></SelectTrigger>
+              <SelectTrigger><SelectValue placeholder={t("complianceHub.documents.selectSite")} /></SelectTrigger>
               <SelectContent>
                 {(locsQ.data ?? []).map((l) => (
                   <SelectItem key={l.id} value={l.id}>{l.code} — {l.name}</SelectItem>
@@ -145,50 +147,50 @@ function ComplianceDocumentNewPage() {
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground">Document type</Label>
+            <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.documentType")}</Label>
             <Select value={form.document_type} onValueChange={(v) => setForm((f) => ({ ...f, document_type: v as typeof form.document_type }))}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                {COMPLIANCE_DOCUMENT_TYPES.map((t) => (
-                  <SelectItem key={t} value={t}>{COMPLIANCE_DOCUMENT_TYPE_LABELS[t]}</SelectItem>
+                {COMPLIANCE_DOCUMENT_TYPES.map((typeKey) => (
+                  <SelectItem key={typeKey} value={typeKey}>{t(`complianceHub.documents.types.${typeKey}`, { defaultValue: COMPLIANCE_DOCUMENT_TYPE_LABELS[typeKey] })}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground">Document name</Label>
-            <Input value={form.document_name} onChange={set("document_name")} placeholder="Optional display name" />
+            <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.documentName")}</Label>
+            <Input value={form.document_name} onChange={set("document_name")} placeholder={t("complianceHub.documents.optionalName")} />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground">Certificate number</Label>
+            <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.certificateNumber")}</Label>
             <Input value={form.certificate_number} onChange={set("certificate_number")} />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground">Issuing authority</Label>
+            <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.issuingAuthorityShort")}</Label>
             <Input value={form.issuing_authority} onChange={set("issuing_authority")} />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground">Issue date</Label>
+            <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.issueDateShort")}</Label>
             <Input type="date" value={form.issue_date} onChange={set("issue_date")} />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground">Expiry date</Label>
+            <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.expiryDateShort")}</Label>
             <Input type="date" value={form.expiry_date} onChange={set("expiry_date")} />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground">Renewal due date</Label>
+            <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.renewalDue")}</Label>
             <Input type="date" value={form.renewal_due_date} onChange={set("renewal_due_date")} />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground">Responsible person</Label>
+            <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.responsiblePerson")}</Label>
             <Input value={form.responsible_person} onChange={set("responsible_person")} />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground">Vendor</Label>
+            <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("common.vendor")}</Label>
             <Select value={form.vendor_id || "none"} onValueChange={(v) => setForm((f) => ({ ...f, vendor_id: v === "none" ? "" : v }))}>
-              <SelectTrigger><SelectValue placeholder="Link vendor" /></SelectTrigger>
+              <SelectTrigger><SelectValue placeholder={t("complianceHub.documents.linkVendor")} /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">— None —</SelectItem>
+                <SelectItem value="none">{t("complianceHub.documents.noneDash")}</SelectItem>
                 {(vendors?.items ?? []).map((v) => (
                   <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>
                 ))}
@@ -196,11 +198,11 @@ function ComplianceDocumentNewPage() {
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground">AMC contract</Label>
+            <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.amcContract")}</Label>
             <Select value={form.contract_id || "none"} onValueChange={(v) => setForm((f) => ({ ...f, contract_id: v === "none" ? "" : v }))}>
-              <SelectTrigger><SelectValue placeholder="Link AMC" /></SelectTrigger>
+              <SelectTrigger><SelectValue placeholder={t("complianceHub.documents.linkAmc")} /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">— None —</SelectItem>
+                <SelectItem value="none">{t("complianceHub.documents.noneDash")}</SelectItem>
                 {(amcContracts?.items ?? []).map((c) => (
                   <SelectItem key={c.id} value={c.id}>{c.vendor_name} — {c.category}</SelectItem>
                 ))}
@@ -208,23 +210,23 @@ function ComplianceDocumentNewPage() {
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground">Quotation (QAR)</Label>
+            <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.quotation", { qar: t("common.qar") })}</Label>
             <Input type="number" min={0} value={form.quotation_amount} onChange={set("quotation_amount")} />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground">Paid (QAR)</Label>
+            <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.paid", { qar: t("common.qar") })}</Label>
             <Input type="number" min={0} value={form.paid_amount} onChange={set("paid_amount")} />
           </div>
           <div className="space-y-1.5 sm:col-span-2 rounded-md border border-border bg-muted/20 p-3 text-sm">
-            <div>Outstanding: <strong>{fmtQar(outstanding)}</strong></div>
-            <div className="text-xs text-muted-foreground">Payment status: {paymentStatus.replace(/_/g, " ")}</div>
+            <div>{t("complianceHub.documents.outstanding")}: <strong>{fmtQar(outstanding)}</strong></div>
+            <div className="text-xs text-muted-foreground">{t("complianceHub.documents.payment")}: {t(`complianceHub.documents.paymentStatuses.${paymentStatus}`, { defaultValue: paymentStatus.replace(/_/g, " ") })}</div>
           </div>
           <div className="space-y-1.5 sm:col-span-2">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground">Notes</Label>
+            <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.notes")}</Label>
             <Textarea rows={3} value={form.notes} onChange={set("notes")} />
           </div>
           <div className="space-y-1.5 sm:col-span-2">
-            <Label className="text-xs uppercase tracking-wider text-muted-foreground">Certificate file (PDF / image)</Label>
+            <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t("complianceHub.documents.certificateFile")}</Label>
             <Input type="file" accept=".pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
           </div>
         </div>
@@ -234,7 +236,7 @@ function ComplianceDocumentNewPage() {
             disabled={mutation.isPending || !form.location_id}
           >
             {mutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            Register document
+            {t("complianceHub.documents.registerNew")}
           </Button>
         </div>
       </div>

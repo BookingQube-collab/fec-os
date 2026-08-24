@@ -2,9 +2,8 @@ import "server-only";
 
 import { z } from "zod";
 
+import { completeJsonViaGateway } from "@/lib/ai/complete-json";
 import { STAFF_ROLE_LABELS, type StaffRole } from "@/lib/daily-ops/constants";
-
-const ROSTER_AI_MODEL = "google/gemini-3-flash-preview";
 
 const RosterAssignmentSchema = z.object({
   staff_id: z.string().uuid(),
@@ -205,68 +204,24 @@ function buildUserPrompt(ctx: RosterAiContext): string {
 }
 
 async function callRosterAi(prompt: string): Promise<RosterAiAssignment[] | null> {
-  const lovableKey = process.env.LOVABLE_API_KEY;
-  const openaiKey = process.env.OPENAI_API_KEY;
-
-  const attempts: Array<{
-    url: string;
-    headers: Record<string, string>;
-    model: string;
-    jsonMode?: boolean;
-  }> = [];
-
-  if (lovableKey) {
-    attempts.push({
-      url: "https://ai.gateway.lovable.dev/v1/chat/completions",
-      headers: { "Content-Type": "application/json", "Lovable-API-Key": lovableKey },
-      model: ROSTER_AI_MODEL,
-    });
+  const parsed = await completeJsonViaGateway(
+    [
+      {
+        role: "system",
+        content:
+          "You are an FEC workforce scheduling assistant. Output only valid JSON with an assignments array.",
+      },
+      { role: "user", content: prompt },
+    ],
+    { temperature: 0.35, moduleSource: "daily_ops.roster" },
+  );
+  if (!parsed) return null;
+  try {
+    const result = RosterAiResponseSchema.parse(parsed);
+    return result.assignments.length ? result.assignments : null;
+  } catch {
+    return null;
   }
-  if (openaiKey) {
-    attempts.push({
-      url: "https://api.openai.com/v1/chat/completions",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
-      model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
-      jsonMode: true,
-    });
-  }
-
-  if (!attempts.length) return null;
-
-  const messages = [
-    {
-      role: "system" as const,
-      content:
-        "You are an FEC workforce scheduling assistant. Output only valid JSON with an assignments array.",
-    },
-    { role: "user" as const, content: prompt },
-  ];
-
-  for (const attempt of attempts) {
-    try {
-      const res = await fetch(attempt.url, {
-        method: "POST",
-        headers: attempt.headers,
-        body: JSON.stringify({
-          model: attempt.model,
-          ...(attempt.jsonMode ? { response_format: { type: "json_object" } } : {}),
-          messages,
-          temperature: 0.35,
-        }),
-      });
-      if (!res.ok) continue;
-      const json = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-      const text = json.choices?.[0]?.message?.content;
-      if (!text) continue;
-      const parsed = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] ?? text) as unknown;
-      const result = RosterAiResponseSchema.parse(parsed);
-      if (result.assignments.length) return result.assignments;
-    } catch {
-      /* try next provider */
-    }
-  }
-
-  return null;
 }
 
 export async function generateLocationRosterWithAi(ctx: RosterAiContext): Promise<RosterAiResult> {

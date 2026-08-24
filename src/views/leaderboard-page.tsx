@@ -92,7 +92,7 @@ function Page() {
   const [sortMode, setSortMode] = useState<SortMode>("rank");
 
   const { data: locs } = useSites();
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ["leaderboard", { locationId }],
     queryFn: () => listLeaderboard({ locationId }),
   });
@@ -202,7 +202,14 @@ function Page() {
         </div>
       </header>
 
-      {isLoading ? (
+      {isError ? (
+        <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-6 py-12 text-center">
+          <p className="text-sm font-medium text-destructive">{t("leaderboard.loadError")}</p>
+          {error instanceof Error && error.message ? (
+            <p className="mt-2 text-xs text-muted-foreground">{error.message}</p>
+          ) : null}
+        </div>
+      ) : isLoading ? (
         <div className="rounded-xl border border-border bg-card px-6 py-16 text-center text-sm text-muted-foreground">
           {t("leaderboard.loading")}
         </div>
@@ -218,24 +225,26 @@ function Page() {
         </div>
       )}
 
-      {runnersUp.length > 0 && <RunnersUpRow rows={runnersUp} />}
+      {!isError && runnersUp.length > 0 && <RunnersUpRow rows={runnersUp} />}
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-        <div className="xl:col-span-2">
-          <RankingsTable
-            rows={sortedRows}
-            isLoading={isLoading}
+      {!isError && (
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+          <div className="xl:col-span-2">
+            <RankingsTable
+              rows={sortedRows}
+              isLoading={isLoading}
+              showBranch={!locationId}
+              lastActiveByProfile={lastActiveByProfile}
+              highlightId={employeeOfMonth?.id}
+            />
+          </div>
+          <RecentActivityPanel
+            items={activity ?? []}
+            loading={activityLoading}
             showBranch={!locationId}
-            lastActiveByProfile={lastActiveByProfile}
-            highlightId={employeeOfMonth?.id}
           />
         </div>
-        <RecentActivityPanel
-          items={activity ?? []}
-          loading={activityLoading}
-          showBranch={!locationId}
-        />
-      </div>
+      )}
     </div>
   );
 }

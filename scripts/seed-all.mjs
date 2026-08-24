@@ -20,6 +20,7 @@ const steps = [
   { cmd: "npm", args: ["run", "seed:admin"], label: "seed:admin" },
   { cmd: "npm", args: ["run", "seed:supervisors"], label: "seed:supervisors" },
   { cmd: "npm", args: ["run", "seed:maintenance-logistics"], label: "seed:maintenance-logistics" },
+  { cmd: "npm", args: ["run", "seed:test-logins"], label: "seed:test-logins" },
   { cmd: "npm", args: ["run", "seed:e3-compliance"], label: "seed:e3-compliance" },
   ...(skipDemo ? [] : [{ cmd: "npm", args: ["run", "seed:demo"], label: "seed:demo" }]),
 ];
@@ -35,3 +36,5 @@ for (const { cmd, args, label } of steps) {
 
 console.log("\nAll seed steps completed.");
 console.log("Optional: node --env-file=.env.local scripts/seed-attendance-ingest-sample.mjs (requires running app + API key on server)");
+console.log("Optional: npm run seed:performance (Inflatapark employee performance demo rows)");
+console.log("Optional: npm run seed:events (Doha Mall Back to School Festival)");

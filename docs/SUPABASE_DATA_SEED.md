@@ -13,6 +13,7 @@ Use **`SESSION_POOLER_DATABASE_URL`** for `npm run db:push` and direct SQL (Sess
 | **seed:admin** | Auth user **admin@fec.com** / **123456**, `ceo` role (level 100). |
 | **seed:supervisors** | Six `branch_gm` test accounts `@fec.test`, password **FecTest2026!**, linked to real staff employee codes. |
 | **seed:maintenance-logistics** | Maintenance/logistics test accounts `@fec.test`, password **FecTest2026!**. |
+| **seed:test-logins** | UAT PR requester, IT department head, HR, and finance approver (`@fec.test`, **FecTest2026!**). Idempotent; does not reset admin or existing supervisor/maintenance passwords. |
 | **seed:e3-compliance** | ~144 rows in `e3_compliance_items` (idempotent upsert). |
 | **seed:demo** | Synthetic **June 2026** ops data: attractions, assets, shifts, transactions, work orders, tickets, etc. Matches existing location **codes** (not demo UUIDs). Adds 45 fictional staff rows alongside the 61 imported staff. Demo auth password: **Demo@FEC2026!** (`gm@fec.qa`, `ops@fec.qa`, branch managers, etc.). |
 | **import:staff** | Re-import staff/roster from CSV templates (use if migration staff missing after a partial deploy). |
@@ -31,11 +32,12 @@ npm run seed:locations
 npm run seed:admin
 npm run seed:supervisors
 npm run seed:maintenance-logistics
+npm run seed:test-logins
 npm run seed:e3-compliance
 npm run seed:demo            # optional for dashboards; skip with seed:all --skip-demo
 ```
 
-Production (**fec-os.vercel.app**) uses the same Supabase project when Vercel env vars point at `lexpbagpnenvgawjljwa`. Seeding the database updates production immediately; no separate “prod DB” if env matches.
+Production (**fec-os.vercel.app**) uses the same Supabase project when Vercel env vars point at `lexpbagpnenvgawjljwa`. Seeding the database updates production immediately; no separate ï¿½prod DBï¿½ if env matches.
 
 ## Re-seed anytime (idempotent scripts)
 
@@ -78,9 +80,16 @@ Expected after full seed (approx.): **61+ demo staff (106 if demo ran)**, **6 ac
 
 | Account | Password | Role |
 |---------|----------|------|
-| admin@fec.com | 123456 | ceo |
-| *@fec.test (supervisors/maintenance) | FecTest2026! | branch_gm / tech_supervisor / technician |
-| Demo corporate/branch users | Demo@FEC2026! | various (`seed:demo`) |
+| admin@fec.com | 123456 | ceo (CEO / any PR step) |
+| pr.requester@fec.test | FecTest2026! | cashier_host - create PRs (IT / UA-DM) |
+| dept.head@fec.test | FecTest2026! | duty_manager - PR dept-head step (IT) |
+| hr@fec.test | FecTest2026! | hr - people / attendance / performance |
+| finance.approver@fec.test | FecTest2026! | cfo - PR finance sign-off |
+| waqar.supervisor@fec.test | FecTest2026! | branch_gm - GM PR step + daily ops (UA-DM) |
+| mary.supervisor@fec.test | FecTest2026! | branch_gm - site supervisor (INF-CC) |
+| lead.maintenance@fec.test | FecTest2026! | tech_supervisor - maintenance lead |
+| hannan.maintenance@fec.test | FecTest2026! | technician - UA-DM maintenance |
+| Demo corporate/branch users | Demo@FEC2026! | various (seed:demo) |
 
 Change passwords in Supabase Auth after first login in production.
 

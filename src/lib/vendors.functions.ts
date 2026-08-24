@@ -4,11 +4,7 @@ import { z } from "zod";
 
 import { assertLocationAccess } from "@/lib/server/authorize";
 import { createAuthenticatedAction } from "@/lib/server/create-action";
-
-const VENDOR_CATEGORIES = [
-  "maintenance", "cleaning", "pest_control", "fire_safety", "it", "pos",
-  "mall_contractor", "branding", "games_supplier", "insurance", "legal_compliance", "other",
-] as const;
+import { VENDOR_CATEGORIES } from "@/lib/vendors/constants";
 
 const LocFilter = z
   .object({ locationId: z.string().uuid().nullable().optional(), category: z.string().nullable().optional() })

@@ -1,5 +1,10 @@
+import {
+  generateEmployeeCode,
+  isPreservableEmployeeCode,
+  isQidShapedCode,
+} from "@/lib/staff-employee-code";
 
-export const BRANCH_CODES = ["KDS-CC", "KDS-DM", "INF-CC", "UA-DM", "CB-VM", "CB-DSM", "CAR-AP"] as const;
+export const BRANCH_CODES = ["KDS-CC", "KDS-DM", "INF-CC", "UA-DM", "CB-VM", "CB-DSM", "CAR-AP", "WM-VM"] as const;
 
 const WEEKDAYS: Record<string, number> = {
   sun: 0,
@@ -34,18 +39,35 @@ export interface StaffImportRow {
   status: string;
   phone: string | null;
   email: string | null;
+  qid: string | null;
+  staff_role: string | null;
 }
 
 export function parseStaffImportRows(rows: Record<string, string>[]): StaffImportRow[] {
+  const usedCodes = new Set<string>();
   return rows.map((r, i) => {
     const location_code = r.location_code?.toUpperCase();
-    const employee_code = r.employee_code?.toUpperCase();
+    const rawCode = r.employee_code?.toUpperCase()?.trim() || "";
     const full_name = r.full_name;
-    if (!location_code || !employee_code || !full_name) {
-      throw new Error(`Row ${i + 2}: location_code, employee_code, and full_name are required`);
+    const qid = r.qid ? String(r.qid).replace(/\s+/g, "").trim() || null : null;
+    if (!location_code || !full_name) {
+      throw new Error(`Row ${i + 2}: location_code and full_name are required`);
     }
     if (!BRANCH_CODES.includes(location_code as (typeof BRANCH_CODES)[number])) {
       throw new Error(`Row ${i + 2}: unknown location_code "${location_code}"`);
+    }
+    const qidKept = qid ?? (isQidShapedCode(rawCode) ? rawCode : null);
+    let employee_code = rawCode;
+    if (!isPreservableEmployeeCode(employee_code, qidKept)) {
+      employee_code = generateEmployeeCode(location_code, usedCodes, {
+        staffRole: r.staff_role || null,
+        jobTitle: r.job_title || null,
+      });
+    } else {
+      if (usedCodes.has(employee_code)) {
+        throw new Error(`Row ${i + 2}: duplicate employee_code "${employee_code}"`);
+      }
+      usedCodes.add(employee_code);
     }
     return {
       location_code,
@@ -57,6 +79,8 @@ export function parseStaffImportRows(rows: Record<string, string>[]): StaffImpor
       status: r.status || "active",
       phone: r.phone || null,
       email: r.email || null,
+      qid: qidKept,
+      staff_role: r.staff_role || null,
     };
   });
 }
@@ -78,6 +102,11 @@ export function parseDatedRosterRows(rows: Record<string, string>[]): RosterImpo
     const date = r.date || r.shift_date;
     if (!location_code || !employee_code || !date) {
       throw new Error(`Row ${i + 2}: location_code, employee_code, and date are required`);
+    }
+    if (isQidShapedCode(employee_code)) {
+      throw new Error(
+        `Row ${i + 2}: employee_code looks like a QID. Use the internal staff code (e.g. INF-CC-STF01).`,
+      );
     }
     if (!BRANCH_CODES.includes(location_code as (typeof BRANCH_CODES)[number])) {
       throw new Error(`Row ${i + 2}: unknown location_code "${location_code}"`);
@@ -104,6 +133,7 @@ export const STAFF_IMPORT_HEADERS = [
   "status",
   "phone",
   "email",
+  "qid",
 ] as const;
 
 export const ROSTER_DATED_IMPORT_HEADERS = [
@@ -135,6 +165,7 @@ const STAFF_SAMPLE_ROW: Record<(typeof STAFF_IMPORT_HEADERS)[number], string> = 
   status: "active",
   phone: "+97430000006",
   email: "kds.cc.bm@fec.qa",
+  qid: "",
 };
 
 const ROSTER_DATED_SAMPLE_ROW: Record<(typeof ROSTER_DATED_IMPORT_HEADERS)[number], string> = {
@@ -189,6 +220,15 @@ export function downloadCsvContent(content: string, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
+export async function downloadCsvFromApi(url: string): Promise<void> {
+  const res = await fetch(url, { credentials: "include" });
+  const body = (await res.json().catch(() => ({}))) as { csv?: string; filename?: string; error?: string };
+  if (!res.ok || !body.csv || !body.filename) {
+    throw new Error(body.error ?? "Download failed");
+  }
+  downloadCsvContent(body.csv, body.filename);
+}
+
 export function expandWeeklyRoster(
   rows: Record<string, string>[],
   year: number,
@@ -202,6 +242,9 @@ export function expandWeeklyRoster(
     const weekday = WEEKDAYS[(r.weekday || "").toLowerCase()];
     if (!location_code || !employee_code || weekday === undefined) {
       throw new Error("Weekly roster rows need location_code, employee_code, and weekday");
+    }
+    if (isQidShapedCode(employee_code)) {
+      throw new Error("Weekly roster employee_code must be an internal staff code, not a QID");
     }
     const start_time = r.start_time || "09:00";
     const end_time = r.end_time || "17:00";

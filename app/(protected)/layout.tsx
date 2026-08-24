@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+
+import { useTranslation } from "react-i18next";
 
 import { AppShell } from "@/components/layout/app-shell";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -20,14 +22,27 @@ function AuthShellSkeleton() {
 }
 
 export default function ProtectedLayout({ children }: { children: React.ReactNode }) {
+  const { t } = useTranslation();
   const { user, loading, roles } = useAuth();
   const router = useRouter();
+  const shellReady = useRef(false);
+
+  if (user && roles.length > 0) {
+    shellReady.current = true;
+  }
+  if (!user && !loading) {
+    shellReady.current = false;
+  }
 
   useEffect(() => {
     if (!loading && !user) {
       router.replace("/auth");
     }
   }, [loading, user, router]);
+
+  if (shellReady.current && user) {
+    return <AppShell>{children}</AppShell>;
+  }
 
   if (loading || !user) {
     return <AuthShellSkeleton />;
@@ -37,10 +52,8 @@ export default function ProtectedLayout({ children }: { children: React.ReactNod
     return (
       <div className="flex min-h-screen items-center justify-center bg-background px-4">
         <div className="max-w-md rounded-lg border border-border bg-card p-8 text-center">
-          <h2 className="text-lg font-semibold">Access pending</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Your account is authenticated but has no assigned role. Contact your administrator.
-          </p>
+          <h2 className="text-lg font-semibold">{t("auth.accessPending")}</h2>
+          <p className="mt-2 text-sm text-muted-foreground">{t("auth.accessPendingBody")}</p>
         </div>
       </div>
     );

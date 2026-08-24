@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Camera, ImagePlus, Loader2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { MediaThumbnail, useMediaPreview } from "@/components/maintenance/media-preview-lightbox";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -49,23 +50,23 @@ async function requestCameraStream(): Promise<MediaStream> {
   }
 }
 
-function cameraErrorMessage(err: unknown): string {
+function cameraErrorMessage(err: unknown, t: (key: string) => string): string {
   if (err instanceof DOMException) {
     if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
-      return "Camera access was denied. Allow camera permission in your browser settings, or use Upload files instead.";
+      return t("maintenanceMedia.cameraDenied");
     }
     if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
-      return "No camera was found on this device. Use Upload files instead.";
+      return t("maintenanceMedia.cameraMissing");
     }
     if (err.name === "NotReadableError") {
-      return "The camera is in use by another app. Close it and try again, or use Upload files instead.";
+      return t("maintenanceMedia.cameraBusy");
     }
   }
-  return "Unable to access the camera. Use Upload files instead.";
+  return t("maintenanceMedia.cameraFailed");
 }
 
 export function PhotoCaptureUpload({
-  label = "Photos",
+  label,
   disabled,
   uploading,
   acceptVideos = false,
@@ -73,6 +74,8 @@ export function PhotoCaptureUpload({
   onChange,
   onUpload,
 }: PhotoCaptureUploadProps) {
+  const { t } = useTranslation();
+  const resolvedLabel = label ?? t("maintenanceMedia.photos");
   const cameraRef = useRef<HTMLInputElement>(null);
   const galleryRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -127,7 +130,7 @@ export function PhotoCaptureUpload({
           if (!cancelled) setCameraReady(true);
         }
       } catch (err) {
-        if (!cancelled) setCameraError(cameraErrorMessage(err));
+        if (!cancelled) setCameraError(cameraErrorMessage(err, t));
       }
     };
 
@@ -137,7 +140,7 @@ export function PhotoCaptureUpload({
       cancelled = true;
       stopCameraStream();
     };
-  }, [cameraOpen, stopCameraStream]);
+  }, [cameraOpen, stopCameraStream, t]);
 
   const addCapturedFile = async (file: File) => {
     if (onUpload) {
@@ -202,7 +205,7 @@ export function PhotoCaptureUpload({
 
   return (
     <div className="space-y-2">
-      <Label className="text-xs uppercase tracking-wider text-muted-foreground">{label}</Label>
+      <Label className="text-xs uppercase tracking-wider text-muted-foreground">{resolvedLabel}</Label>
       <div className="flex flex-wrap gap-2">
         <input
           ref={cameraRef}
@@ -240,7 +243,7 @@ export function PhotoCaptureUpload({
           ) : (
             <Camera className="mr-1.5 h-3.5 w-3.5" />
           )}
-          Take photo
+          {t("maintenanceMedia.takePhoto")}
         </Button>
         <Button
           type="button"
@@ -250,7 +253,7 @@ export function PhotoCaptureUpload({
           onClick={() => galleryRef.current?.click()}
         >
           <ImagePlus className="mr-1.5 h-3.5 w-3.5" />
-          Upload files
+          {t("maintenanceMedia.uploadFiles")}
         </Button>
       </div>
 
@@ -262,8 +265,8 @@ export function PhotoCaptureUpload({
       >
         <DialogContent className="max-w-md gap-3 p-4 sm:p-6">
           <DialogHeader>
-            <DialogTitle>Take photo</DialogTitle>
-            <DialogDescription>Position the subject in the frame, then capture.</DialogDescription>
+            <DialogTitle>{t("maintenanceMedia.takePhoto")}</DialogTitle>
+            <DialogDescription>{t("maintenanceMedia.cameraHint")}</DialogDescription>
           </DialogHeader>
 
           {cameraError ? (
@@ -289,11 +292,11 @@ export function PhotoCaptureUpload({
 
           <DialogFooter className="gap-2 sm:gap-0">
             <Button type="button" variant="outline" onClick={closeCamera}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button type="button" disabled={!cameraReady || !!cameraError} onClick={() => void capturePhoto()}>
               <Camera className="mr-1.5 h-4 w-4" />
-              Capture
+              {t("maintenanceMedia.capture")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -324,7 +327,7 @@ export function PhotoCaptureUpload({
       )}
       {pendingMode && files.length > 0 && (
         <p className="text-xs text-muted-foreground">
-          {files.length} file{files.length === 1 ? "" : "s"} selected
+          {t("maintenanceMedia.filesSelected", { count: files.length })}
         </p>
       )}
     </div>

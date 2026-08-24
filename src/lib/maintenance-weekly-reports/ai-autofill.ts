@@ -2,9 +2,8 @@ import "server-only";
 
 import { z } from "zod";
 
+import { completeJsonViaGateway } from "@/lib/ai/complete-json";
 import { MAINTENANCE_TEAM_LABELS, type MaintenanceReportTeam } from "@/lib/maintenance-weekly-reports/constants";
-
-const MAINTENANCE_REPORT_AI_MODEL = "google/gemini-3-flash-preview";
 
 const MaintenanceReportNarrativeSchema = z.object({
   top_achievements: z.string(),
@@ -100,53 +99,14 @@ export async function callMaintenanceReportAiAutofill(
     { role: "user" as const, content: buildUserPrompt(ctx) },
   ];
 
-  const lovableKey = process.env.LOVABLE_API_KEY;
-  const openaiKey = process.env.OPENAI_API_KEY;
-
-  const attempts: Array<{ url: string; headers: Record<string, string>; model: string; jsonMode?: boolean }> = [];
-  if (lovableKey) {
-    attempts.push({
-      url: "https://ai.gateway.lovable.dev/v1/chat/completions",
-      headers: { "Content-Type": "application/json", "Lovable-API-Key": lovableKey },
-      model: MAINTENANCE_REPORT_AI_MODEL,
-    });
-  }
-  if (openaiKey) {
-    attempts.push({
-      url: "https://api.openai.com/v1/chat/completions",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
-      model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
-      jsonMode: true,
-    });
-  }
-
-  if (!attempts.length) {
+  const parsed = await completeJsonViaGateway(messages, {
+    temperature: 0.35,
+    moduleSource: "maintenance.weekly_report",
+  });
+  if (!parsed) return { fields: fallback, ai_generated: false };
+  try {
+    return { fields: MaintenanceReportNarrativeSchema.parse(parsed), ai_generated: true };
+  } catch {
     return { fields: fallback, ai_generated: false };
   }
-
-  for (const attempt of attempts) {
-    try {
-      const res = await fetch(attempt.url, {
-        method: "POST",
-        headers: attempt.headers,
-        body: JSON.stringify({
-          model: attempt.model,
-          ...(attempt.jsonMode ? { response_format: { type: "json_object" } } : {}),
-          messages,
-          temperature: 0.35,
-        }),
-      });
-      if (!res.ok) continue;
-      const json = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-      const text = json.choices?.[0]?.message?.content;
-      if (!text) continue;
-      const parsed = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] ?? text) as unknown;
-      const fields = MaintenanceReportNarrativeSchema.parse(parsed);
-      return { fields, ai_generated: true };
-    } catch {
-      /* try next provider */
-    }
-  }
-
-  return { fields: fallback, ai_generated: false };
 }

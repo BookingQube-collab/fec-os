@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ArrowLeft, Check, Upload } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import {
@@ -19,9 +20,10 @@ import {
 } from "@/lib/amc.functions";
 import {
   AMC_CATEGORIES,
-  AMC_CATEGORY_LABELS,
   AMC_CONTRACT_STATUSES,
   AMC_FREQUENCIES,
+  translateAmcCategory,
+  translateAmcStatus,
 } from "@/lib/amc/constants";
 import { useComplianceDocuments } from "@/hooks/queries/useComplianceDocuments";
 import { COMPLIANCE_DOCUMENT_TYPE_LABELS, expiryTierColor } from "@/lib/compliance/constants";
@@ -39,6 +41,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { fmtQar } from "@/lib/currency";
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -53,6 +56,7 @@ function fileToBase64(file: File): Promise<string> {
 }
 
 export function AmcContractFormPage({ contractId }: { contractId?: string }) {
+  const { t } = useTranslation();
   const router = useRouter();
   const qc = useQueryClient();
   const isEdit = !!contractId;
@@ -112,7 +116,7 @@ export function AmcContractFormPage({ contractId }: { contractId?: string }) {
       return createAmcContract(form);
     },
     onSuccess: (r) => {
-      toast.success(isEdit ? "Contract updated" : "Contract created");
+      toast.success(isEdit ? t("amc.contractUpdated") : t("amc.contractCreated"));
       void qc.invalidateQueries({ queryKey: ["amc"] });
       router.push(`/compliance/amc-contracts/${r.id}`);
     },
@@ -125,14 +129,14 @@ export function AmcContractFormPage({ contractId }: { contractId?: string }) {
         <Button variant="ghost" size="icon" asChild>
           <Link href="/compliance/amc-contracts"><ArrowLeft className="h-4 w-4" /></Link>
         </Button>
-        <h1 className="text-xl font-semibold">{isEdit ? "Edit AMC contract" : "New AMC contract"}</h1>
+        <h1 className="text-xl font-semibold">{isEdit ? t("amc.editContract") : t("amc.newContractTitle")}</h1>
       </div>
 
       <div className="space-y-4 rounded-lg border border-border bg-card p-4">
         <div>
-          <Label>Site</Label>
+          <Label>{t("amc.form.site")}</Label>
           <Select value={form.locationId} onValueChange={(v) => setForm((f) => ({ ...f, locationId: v }))}>
-            <SelectTrigger><SelectValue placeholder="Select site" /></SelectTrigger>
+            <SelectTrigger><SelectValue placeholder={t("common.site")} /></SelectTrigger>
             <SelectContent>
               {(sites ?? []).map((s) => (
                 <SelectItem key={s.id} value={s.id}>{s.code} — {s.name} ({s.region})</SelectItem>
@@ -141,63 +145,63 @@ export function AmcContractFormPage({ contractId }: { contractId?: string }) {
           </Select>
         </div>
         <div>
-          <Label>Category</Label>
+          <Label>{t("amc.form.category")}</Label>
           <Select value={form.category} onValueChange={(v) => setForm((f) => ({ ...f, category: v as typeof f.category }))}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
               {AMC_CATEGORIES.map((c) => (
-                <SelectItem key={c} value={c}>{AMC_CATEGORY_LABELS[c]}</SelectItem>
+                <SelectItem key={c} value={c}>{translateAmcCategory(t, c)}</SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
         <div>
-          <Label>Vendor name</Label>
+          <Label>{t("amc.form.vendorName")}</Label>
           <Input value={form.vendorName} onChange={(e) => setForm((f) => ({ ...f, vendorName: e.target.value }))} />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <Label>Contact person</Label>
+            <Label>{t("amc.form.contactPerson")}</Label>
             <Input value={form.vendorContactPerson} onChange={(e) => setForm((f) => ({ ...f, vendorContactPerson: e.target.value }))} />
           </div>
           <div>
-            <Label>Phone</Label>
+            <Label>{t("amc.form.phone")}</Label>
             <Input value={form.vendorPhone} onChange={(e) => setForm((f) => ({ ...f, vendorPhone: e.target.value }))} />
           </div>
         </div>
         <div>
-          <Label>Email</Label>
+          <Label>{t("amc.form.email")}</Label>
           <Input type="email" value={form.vendorEmail} onChange={(e) => setForm((f) => ({ ...f, vendorEmail: e.target.value }))} />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <Label>Start date</Label>
+            <Label>{t("amc.form.startDate")}</Label>
             <Input type="date" value={form.contractStartDate} onChange={(e) => setForm((f) => ({ ...f, contractStartDate: e.target.value }))} />
           </div>
           <div>
-            <Label>End date</Label>
+            <Label>{t("amc.form.endDate")}</Label>
             <Input type="date" value={form.contractEndDate} onChange={(e) => setForm((f) => ({ ...f, contractEndDate: e.target.value }))} />
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <Label>Frequency</Label>
+            <Label>{t("amc.form.frequency")}</Label>
             <Select value={form.serviceFrequency} onValueChange={(v) => setForm((f) => ({ ...f, serviceFrequency: v as typeof f.serviceFrequency }))}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                {AMC_FREQUENCIES.map((f) => (
-                  <SelectItem key={f} value={f}>{f.replace(/_/g, " ")}</SelectItem>
+                {AMC_FREQUENCIES.map((freq) => (
+                  <SelectItem key={freq} value={freq}>{t(`amc.freq.${freq}`)}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
           <div>
-            <Label>Status</Label>
+            <Label>{t("amc.form.status")}</Label>
             <Select value={form.status} onValueChange={(v) => setForm((f) => ({ ...f, status: v as typeof f.status }))}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 {AMC_CONTRACT_STATUSES.map((s) => (
-                  <SelectItem key={s} value={s}>{s}</SelectItem>
+                  <SelectItem key={s} value={s}>{translateAmcStatus(t, s)}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -205,24 +209,24 @@ export function AmcContractFormPage({ contractId }: { contractId?: string }) {
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <Label>Contract value (QAR)</Label>
+            <Label>{t("amc.form.contractValue", { qar: t("common.qar") })}</Label>
             <Input type="number" value={form.contractValue} onChange={(e) => setForm((f) => ({ ...f, contractValue: Number(e.target.value) }))} />
           </div>
           <div>
-            <Label>Paid amount (QAR)</Label>
+            <Label>{t("amc.form.paidAmount", { qar: t("common.qar") })}</Label>
             <Input type="number" value={form.paidAmount} onChange={(e) => setForm((f) => ({ ...f, paidAmount: Number(e.target.value) }))} />
           </div>
         </div>
         <div>
-          <Label>Scope of work</Label>
+          <Label>{t("amc.form.scope")}</Label>
           <Textarea value={form.scopeOfWork} onChange={(e) => setForm((f) => ({ ...f, scopeOfWork: e.target.value }))} />
         </div>
         <div>
-          <Label>Remarks</Label>
+          <Label>{t("amc.form.remarks")}</Label>
           <Textarea value={form.remarks} onChange={(e) => setForm((f) => ({ ...f, remarks: e.target.value }))} />
         </div>
         <Button onClick={() => saveMut.mutate()} disabled={!form.locationId || !form.vendorName || saveMut.isPending}>
-          {isEdit ? "Save changes" : "Create contract"}
+          {isEdit ? t("maintenanceRequests.actions.save") : t("amc.createContract")}
         </Button>
       </div>
     </div>
@@ -230,6 +234,7 @@ export function AmcContractFormPage({ contractId }: { contractId?: string }) {
 }
 
 export function AmcContractDetailPage({ id }: { id: string }) {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const searchParams = useSearchParams();
   const [paymentAmount, setPaymentAmount] = useState(0);
@@ -244,7 +249,7 @@ export function AmcContractDetailPage({ id }: { id: string }) {
   const markDone = useMutation({
     mutationFn: (scheduleId: string) => markAmcServiceDone({ scheduleId }),
     onSuccess: () => {
-      toast.success("Service marked done");
+      toast.success(t("amc.serviceMarkedDone"));
       void qc.invalidateQueries({ queryKey: ["amc", "contract", id] });
     },
   });
@@ -252,7 +257,7 @@ export function AmcContractDetailPage({ id }: { id: string }) {
   const payMut = useMutation({
     mutationFn: () => recordAmcPayment({ contractId: id, amount: paymentAmount }),
     onSuccess: () => {
-      toast.success("Payment recorded");
+      toast.success(t("amc.paymentRecorded"));
       void qc.invalidateQueries({ queryKey: ["amc", "contract", id] });
     },
   });
@@ -279,8 +284,8 @@ export function AmcContractDetailPage({ id }: { id: string }) {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["amc", "contract", id] }),
   });
 
-  if (isLoading) return <p className="text-muted-foreground">Loading…</p>;
-  if (!contract) return <p className="text-muted-foreground">Contract not found.</p>;
+  if (isLoading) return <p className="text-muted-foreground">{t("common.loading")}</p>;
+  if (!contract) return <p className="text-muted-foreground">{t("amc.notFound")}</p>;
 
   return (
     <div className="space-y-6">
@@ -289,29 +294,29 @@ export function AmcContractDetailPage({ id }: { id: string }) {
           <Link href="/compliance/amc-dashboard"><ArrowLeft className="h-4 w-4" /></Link>
         </Button>
         <div className="flex-1">
-          <h1 className="text-xl font-semibold">{AMC_CATEGORY_LABELS[contract.category as keyof typeof AMC_CATEGORY_LABELS] ?? contract.category}</h1>
+          <h1 className="text-xl font-semibold">{translateAmcCategory(t, contract.category)}</h1>
           <p className="text-sm text-muted-foreground">{contract.vendor_name} · {contract.location?.code}</p>
         </div>
-        <Badge variant="outline">{contract.status}</Badge>
+        <Badge variant="outline">{translateAmcStatus(t, contract.status)}</Badge>
         <Button variant="outline" size="sm" asChild>
-          <Link href={`/compliance/amc-contracts/${id}/edit`}>Edit</Link>
+          <Link href={`/compliance/amc-contracts/${id}/edit`}>{t("common.edit")}</Link>
         </Button>
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
         <div className="rounded-lg border border-border bg-card p-4 text-sm">
-          <div className="text-muted-foreground">Contract period</div>
+          <div className="text-muted-foreground">{t("amc.form.contractPeriod")}</div>
           <div>{contract.contract_start_date} → {contract.contract_end_date}</div>
-          <div className="mt-1 text-xs">{contract.days_left} days left</div>
+          <div className="mt-1 text-xs">{t("amc.card.daysLeft")}: {contract.days_left}</div>
         </div>
         <div className="rounded-lg border border-border bg-card p-4 text-sm">
-          <div className="text-muted-foreground">Financials</div>
-          <div>Value: QAR {contract.contract_value.toLocaleString()}</div>
-          <div>Paid: QAR {contract.paid_amount.toLocaleString()}</div>
-          <div className="text-amber-400">Outstanding: QAR {contract.outstanding_amount.toLocaleString()}</div>
+          <div className="text-muted-foreground">{t("amc.form.financials")}</div>
+          <div>{t("amc.card.value")}: {fmtQar(contract.contract_value)}</div>
+          <div>{t("amc.card.paid")}: {fmtQar(contract.paid_amount)}</div>
+          <div className="text-amber-400">{t("amc.card.outstanding")}: {fmtQar(contract.outstanding_amount)}</div>
         </div>
         <div className="rounded-lg border border-border bg-card p-4 text-sm">
-          <div className="text-muted-foreground">Vendor contact</div>
+          <div className="text-muted-foreground">{t("amc.form.vendorContact")}</div>
           <div>{contract.vendor_contact_person ?? "—"}</div>
           <div>{contract.vendor_phone ?? "—"}</div>
           <div>{contract.vendor_email ?? "—"}</div>
@@ -321,10 +326,10 @@ export function AmcContractDetailPage({ id }: { id: string }) {
       <CapabilityGate capability="amc.manage">
         <div className="flex flex-wrap items-end gap-2 rounded-lg border border-border bg-card p-4">
           <div>
-            <Label>Record payment (QAR)</Label>
+            <Label>{t("amc.form.recordPayment", { qar: t("common.qar") })}</Label>
             <Input type="number" value={paymentAmount} onChange={(e) => setPaymentAmount(Number(e.target.value))} className="w-40" />
           </div>
-          <Button size="sm" onClick={() => payMut.mutate()} disabled={paymentAmount <= 0}>Mark payment</Button>
+          <Button size="sm" onClick={() => payMut.mutate()} disabled={paymentAmount <= 0}>{t("amc.form.markPayment")}</Button>
           <Label className="cursor-pointer">
             <span className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-2 text-sm hover:bg-muted">
               <Upload className="h-4 w-4" />Upload attachment
@@ -339,13 +344,13 @@ export function AmcContractDetailPage({ id }: { id: string }) {
 
       {(linkedDocs?.items?.length ?? 0) > 0 ? (
         <div className="rounded-lg border border-border bg-card">
-          <div className="border-b border-border px-4 py-3 font-medium text-sm">Linked compliance certificates</div>
+          <div className="border-b border-border px-4 py-3 font-medium text-sm">{t("amc.form.linkedCerts")}</div>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Document</TableHead>
-                <TableHead>Expiry</TableHead>
-                <TableHead>Tier</TableHead>
+                <TableHead>{t("amc.form.document")}</TableHead>
+                <TableHead>{t("amc.form.expiry")}</TableHead>
+                <TableHead>{t("amc.form.tier")}</TableHead>
                 <TableHead />
               </TableRow>
             </TableHeader>
@@ -360,7 +365,7 @@ export function AmcContractDetailPage({ id }: { id: string }) {
                     <Badge variant="outline" className={expiryTierColor(d.expiry_tier ?? "No Date")}>{d.expiry_tier}</Badge>
                   </TableCell>
                   <TableCell>
-                    <Link href={`/compliance/documents/${d.id}`} className="text-xs text-primary hover:underline">View</Link>
+                    <Link href={`/compliance/documents/${d.id}`} className="text-xs text-primary hover:underline">{t("common.view")}</Link>
                   </TableCell>
                 </TableRow>
               ))}
@@ -370,15 +375,15 @@ export function AmcContractDetailPage({ id }: { id: string }) {
       ) : null}
 
       <div className="rounded-lg border border-border bg-card">
-        <div className="border-b border-border px-4 py-3 font-medium text-sm">Service schedule</div>
+        <div className="border-b border-border px-4 py-3 font-medium text-sm">{t("amc.form.serviceSchedule")}</div>
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>#</TableHead>
-              <TableHead>Planned</TableHead>
-              <TableHead>Actual</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Verified</TableHead>
+              <TableHead>{t("amc.form.planned")}</TableHead>
+              <TableHead>{t("amc.form.actual")}</TableHead>
+              <TableHead>{t("common.status")}</TableHead>
+              <TableHead>{t("amc.form.verified")}</TableHead>
               <TableHead />
             </TableRow>
           </TableHeader>
@@ -388,7 +393,7 @@ export function AmcContractDetailPage({ id }: { id: string }) {
                 <TableCell>{s.service_number}</TableCell>
                 <TableCell>{s.planned_date}</TableCell>
                 <TableCell>{s.actual_service_date ?? "—"}</TableCell>
-                <TableCell><Badge variant="outline">{s.status}</Badge></TableCell>
+                <TableCell><Badge variant="outline">{translateAmcStatus(t, s.status)}</Badge></TableCell>
                 <TableCell>{s.verification_status}</TableCell>
                 <TableCell className="space-x-1">
                   {s.status !== "done" && (
@@ -397,7 +402,7 @@ export function AmcContractDetailPage({ id }: { id: string }) {
                     </Button>
                   )}
                   <CapabilityGate capability="amc.verify">
-                    <Button size="sm" variant="ghost" onClick={() => verifyMut.mutate(s.id)}>Verify</Button>
+                    <Button size="sm" variant="ghost" onClick={() => verifyMut.mutate(s.id)}>{t("amc.form.verify")}</Button>
                   </CapabilityGate>
                 </TableCell>
               </TableRow>
@@ -408,7 +413,7 @@ export function AmcContractDetailPage({ id }: { id: string }) {
 
       {contract.attachments.length > 0 && (
         <div className="rounded-lg border border-border bg-card p-4">
-          <h2 className="text-sm font-medium mb-2">Attachments</h2>
+          <h2 className="text-sm font-medium mb-2">{t("amc.form.attachments")}</h2>
           <ul className="text-xs space-y-1">
             {contract.attachments.map((a) => (
               <li key={a.id}>{a.attachment_type}: {a.file_name}</li>
@@ -418,7 +423,7 @@ export function AmcContractDetailPage({ id }: { id: string }) {
       )}
 
       {searchParams.get("upload") === "1" && (
-        <p className="text-xs text-muted-foreground">Use the upload button above to attach reports or invoices.</p>
+        <p className="text-xs text-muted-foreground">{t("amc.form.uploadHint")}</p>
       )}
     </div>
   );

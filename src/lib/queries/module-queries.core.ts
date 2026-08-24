@@ -1,5 +1,11 @@
 import type { AuthContext } from "@/lib/server/auth";
+import { canUserDo } from "@/lib/rbac";
 import type { MasterDepartmentRow } from "@/lib/staff-departments";
+import {
+  fetchStaffIdsWorkingAtLocation,
+  fetchWorkLocationsByStaffId,
+  type WorkLocationRef,
+} from "@/lib/staff-work-locations";
 
 export interface SiteRow {
   id: string;
@@ -26,6 +32,9 @@ export interface WorkOrderListRow {
   title: string;
   kind: string;
   status: string;
+  priority: string;
+  description: string | null;
+  asset_id: string | null;
   planned_end: string | null;
   assigned_to: string | null;
   created_at: string;
@@ -50,7 +59,10 @@ export async function fetchWorkOrders(
 
   let q = context.supabase
     .from("work_orders")
-    .select("id, location_id, title, kind, status, planned_end, assigned_to, created_at", { count: "exact" })
+    .select(
+      "id, location_id, title, kind, status, priority, description, asset_id, planned_end, assigned_to, created_at",
+      { count: "exact" },
+    )
     .is("deleted_at", null)
     .order("planned_end", { ascending: true, nullsFirst: false })
     .range(from, to);
@@ -326,9 +338,17 @@ export interface StaffRow {
   location_id: string;
   location_code: string | null;
   location_name: string | null;
+  is_roaming: boolean;
+  work_locations: WorkLocationRef[];
+  work_location_ids: string[];
   phone: string | null;
   email: string | null;
   hire_date: string | null;
+  qid: string | null;
+  e3_enrolled: boolean | null;
+  employment_type: string | null;
+  staff_role: string | null;
+  monthly_salary_qar?: number | null;
 }
 
 type StaffDeptJoin = {
@@ -368,35 +388,70 @@ function mapStaffRow(
     department_names,
     location_code: loc?.code ?? null,
     location_name: loc?.name ?? null,
+    qid: (rest.qid as string | null | undefined) ?? null,
+    e3_enrolled: (rest.e3_enrolled as boolean | null | undefined) ?? null,
+    employment_type: (rest.employment_type as string | null | undefined) ?? null,
+    staff_role: (rest.staff_role as string | null | undefined) ?? null,
+    is_roaming: Boolean(rest.is_roaming),
+    work_locations: [],
+    work_location_ids: [],
   };
 }
 
 export async function fetchMasterDepartments(context: AuthContext): Promise<MasterDepartmentRow[]> {
   const { data: rows, error } = await context.supabase
     .from("master_departments")
-    .select("id, name, code, active, sort_order")
+    .select("id, name, code, active, sort_order, parent_id")
     .order("sort_order")
     .order("name");
   if (error) throw error;
-  return (rows ?? []) as MasterDepartmentRow[];
+  return (rows ?? []).map((row) => ({
+    ...row,
+    parent_id: (row.parent_id as string | null) ?? null,
+  })) as MasterDepartmentRow[];
 }
 
 export async function fetchStaff(
   context: AuthContext,
   locationId?: string | null,
+  options?: { includeArchived?: boolean },
 ): Promise<StaffRow[]> {
   let q = context.supabase
     .from("staff")
     .select(
-      "id, employee_code, full_name, job_title, department, status, location_id, phone, email, hire_date, locations(code, name), staff_departments(department_id, master_departments(id, name, sort_order))",
+      "id, employee_code, full_name, job_title, department, status, location_id, is_roaming, phone, email, hire_date, qid, e3_enrolled, employment_type, staff_role, locations!staff_location_id_fkey(code, name), staff_departments(department_id, master_departments(id, name, sort_order))",
     )
-    .is("deleted_at", null)
     .order("full_name")
     .limit(500);
-  if (locationId) q = q.eq("location_id", locationId);
+  if (!options?.includeArchived) q = q.is("deleted_at", null);
+  if (locationId) {
+    const extraIds = await fetchStaffIdsWorkingAtLocation(context.supabase, locationId);
+    q = extraIds.length
+      ? q.or(`location_id.eq.${locationId},id.in.(${extraIds.join(",")})`)
+      : q.eq("location_id", locationId);
+  }
   const { data: rows, error } = await q;
   if (error) throw error;
-  return (rows ?? []).map((row) => mapStaffRow(row));
+  const mapped = (rows ?? []).map((row) => mapStaffRow(row));
+  const workByStaff = await fetchWorkLocationsByStaffId(
+    context.supabase,
+    mapped.map((s) => s.id),
+  );
+  for (const row of mapped) {
+    row.work_locations = workByStaff.get(row.id) ?? [];
+    row.work_location_ids = row.work_locations.map((loc) => loc.id);
+  }
+  if (!canUserDo(context.roles ?? [], "people.view_salary") || !mapped.length) return mapped;
+
+  const { data: comps } = await context.supabase
+    .from("staff_compensation")
+    .select("staff_id, monthly_salary_qar")
+    .in(
+      "staff_id",
+      mapped.map((s) => s.id),
+    );
+  const byId = new Map((comps ?? []).map((c) => [c.staff_id, c.monthly_salary_qar == null ? null : Number(c.monthly_salary_qar)]));
+  return mapped.map((s) => ({ ...s, monthly_salary_qar: byId.get(s.id) ?? null }));
 }
 
 // ——— Facility ———

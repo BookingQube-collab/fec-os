@@ -20,6 +20,7 @@ export const DAILY_OPS_NAV_ITEMS = [
   { href: "/daily-ops", labelKey: "dailyOps.nav.dashboard" },
   { href: "/daily-ops/roster", labelKey: "dailyOps.nav.roster" },
   { href: "/daily-ops/briefings", labelKey: "dailyOps.nav.briefings" },
+  { href: "/daily-ops/checklists", labelKey: "dailyOps.nav.checklists" },
   { href: "/daily-ops/incidents", labelKey: "dailyOps.nav.incidents" },
   { href: "/daily-ops/inventory", labelKey: "dailyOps.nav.inventory" },
   { href: "/daily-ops/maintenance", labelKey: "dailyOps.nav.maintenance" },
@@ -180,3 +181,23 @@ export function kpiTone(key: string, value: number): string | undefined {
   if (key.includes("open") || key.includes("reorder")) return "text-amber-600";
   return undefined;
 }
+
+export type DailyOpsKpiLevel = "critical" | "watch" | "healthy" | "missing";
+
+export function dailyOpsKpiLevel(key: string, value: number, invert?: boolean): DailyOpsKpiLevel {
+  if (invert) return value > 0 ? "healthy" : "missing";
+  if (value === 0) return "healthy";
+  if (key.includes("critical") || key.includes("urgent")) return "critical";
+  return "watch";
+}
+
+export const DAILY_OPS_KPI_HREFS = {
+  active_employees: "/daily-ops/roster",
+  open_incidents: "/daily-ops/incidents",
+  critical_open_incidents: "/daily-ops/incidents?severity=critical",
+  items_needing_reorder: "/daily-ops/inventory",
+  open_maintenance_issues: "/daily-ops/maintenance",
+  urgent_maintenance_open: "/daily-ops/maintenance?priority=urgent",
+  open_complaints: "/daily-ops/complaints",
+  briefings_filed_today: "/daily-ops/briefings",
+} as const;

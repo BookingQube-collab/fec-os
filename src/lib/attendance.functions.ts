@@ -5,6 +5,7 @@ import { z } from "zod";
 import { parseCsv } from "@/lib/csv-parse";
 import { assertLocationAccess } from "@/lib/server/authorize";
 import { createAuthenticatedAction } from "@/lib/server/create-action";
+import { fetchHomeStaffIdsAtLocation, punchOrHomeStaffOrFilter } from "@/lib/staff-work-locations";
 
 const LocFilter = z
   .object({
@@ -71,7 +72,10 @@ export const listAttendanceDailySummary = createAuthenticatedAction(
       .gte("work_date", from)
       .lte("work_date", to)
       .order("work_date", { ascending: false });
-    if (data.locationId) q = q.eq("location_id", data.locationId);
+    if (data.locationId) {
+      const homeIds = await fetchHomeStaffIdsAtLocation(context.supabase, data.locationId);
+      q = q.or(punchOrHomeStaffOrFilter(data.locationId, homeIds));
+    }
     const { data: rows, error } = await q;
     if (error) throw error;
     if (!rows?.length) return [];
@@ -133,8 +137,8 @@ export const importAttendanceCsv = createAuthenticatedAction(
       const { data: staff } = await context.supabase
         .from("staff")
         .select("id")
-        .eq("location_id", data.locationId)
         .eq("employee_code", biometricId)
+        .is("deleted_at", null)
         .maybeSingle();
       staffId = staff?.id ?? null;
 

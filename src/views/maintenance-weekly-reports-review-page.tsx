@@ -165,7 +165,7 @@ export default function MaintenanceWeeklyReportsReviewPage() {
   return (
     <MaintenanceWeeklyReportsLayout>
       <div>
-        <h2 className="font-display text-xl font-semibold text-[#0B1F3A]">
+        <h2 className="text-xl font-semibold text-foreground">
           {t("maintenanceWeeklyReports.nav.review")}
         </h2>
         <p className="mt-1 text-sm text-[#64748B]">{t("maintenanceWeeklyReports.review.subtitle")}</p>

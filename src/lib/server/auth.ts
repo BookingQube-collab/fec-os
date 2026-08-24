@@ -63,6 +63,13 @@ export function updateAuthRolesCache(userId: string, roles: AppRole[]): void {
   }
 }
 
+/** Drop short-lived auth session cache entries (this Node isolate only). */
+export function clearServerSessionCache(): { cleared: number } {
+  const cleared = sessionCache.size;
+  sessionCache.clear();
+  return { cleared };
+}
+
 function createSupabaseClient(cookieStore: Awaited<ReturnType<typeof cookies>>) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
   const supabaseKey =

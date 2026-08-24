@@ -290,8 +290,8 @@ function GenerateChecklistForm() {
       </div>
 
       <div className="rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-        Requires LOVABLE_API_KEY or OPENAI_API_KEY in server env.
-        Without a key, branch-specific defaults are used.
+        Uses the AI providers configured in Admin → AI Integrations.
+        Without a connected provider, branch-specific defaults are used.
       </div>
 
       <Button type="submit" className="h-11 w-full" disabled={mutation.isPending}>

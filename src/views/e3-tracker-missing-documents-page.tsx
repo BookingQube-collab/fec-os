@@ -3,6 +3,7 @@
 
 
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 
 
@@ -25,6 +26,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 
 export default function E3MissingDocumentsPage() {
+  const { t } = useTranslation();
 
   const [filter, setFilter] = useState({ location: "All", field: "All" });
 
@@ -54,9 +56,9 @@ export default function E3MissingDocumentsPage() {
 
     <E3TrackerPageShell
 
-      title="Missing Documents"
+      title={t("e3Tracker.pages.missingDocuments.title")}
 
-      subtitle="Items with no expiry date on file. Status is always computed as Missing."
+      subtitle={t("e3Tracker.pages.missingDocuments.subtitle")}
 
     >
 

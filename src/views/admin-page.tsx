@@ -2,13 +2,15 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { Settings, Trash2, Loader2 } from "lucide-react";
+import { HeartPulse, Loader2, Settings, Sparkles, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { grantRole, revokeRole } from "@/lib/admin.functions";
 import { useAdminUsers } from "@/hooks/queries/useAdmin";
 import { useSites } from "@/hooks/queries/useSites";
-import { ROLE_LEVELS, type AppRole } from "@/lib/rbac";
+import { canUserDo, ROLE_LEVELS, type AppRole } from "@/lib/rbac";
 import { useAuth } from "@/hooks/use-auth";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,24 +18,64 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { PageHeader } from "@/components/layout/page-header";
+import { InstallAppAdminCard } from "@/components/pwa/install-app-control";
 
 const ROLES = Object.keys(ROLE_LEVELS) as AppRole[];
 
 function AdminPage() {
+  const { t } = useTranslation();
   const { roles } = useAuth();
   const maxLevel = roles.reduce((acc, r) => Math.max(acc, r.role_level), 0);
   const canManage = maxLevel >= 95;
+  const canDiagnostics = canUserDo(roles.map((r) => r.role), "admin.diagnostics") && maxLevel >= 80;
   return (
     <div className="space-y-5">
-      <header className="flex items-center gap-3">
-        <div className="grid h-9 w-9 place-items-center rounded-md bg-primary/10 text-primary">
-          <Settings className="h-5 w-5" />
-        </div>
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">Admin</h1>
-          <p className="text-xs text-muted-foreground">RBAC editor and platform configuration.</p>
-        </div>
-      </header>
+      <PageHeader
+        icon={Settings}
+        kicker="Administration"
+        title="Administration"
+        subtitle="Roles, access, and platform configuration."
+      />
+      {canManage ? (
+        <Link
+          href="/admin/ai-integrations"
+          className="flex items-center justify-between gap-3 rounded-2xl border border-border/50 bg-card p-4 shadow-elevated-xs transition-shadow hover:shadow-elevated-sm"
+        >
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="icon-well">
+              <Sparkles className="h-4 w-4 stroke-[1.5]" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-foreground">{t("aiIntegrations.adminCard.title")}</p>
+              <p className="text-xs text-muted-foreground">{t("aiIntegrations.adminCard.body")}</p>
+            </div>
+          </div>
+          <span className="shrink-0 rounded-full border border-input bg-card px-3 py-1.5 text-xs font-semibold shadow-elevated-xs">
+            {t("aiIntegrations.adminCard.open")}
+          </span>
+        </Link>
+      ) : null}
+      {canDiagnostics ? (
+        <Link
+          href="/admin/diagnostics"
+          className="flex items-center justify-between gap-3 rounded-2xl border border-border/50 bg-card p-4 shadow-elevated-xs transition-shadow hover:shadow-elevated-sm"
+        >
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="icon-well">
+              <HeartPulse className="h-4 w-4 stroke-[1.5]" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-foreground">{t("diagnostics.adminCard.title")}</p>
+              <p className="text-xs text-muted-foreground">{t("diagnostics.adminCard.body")}</p>
+            </div>
+          </div>
+          <span className="shrink-0 rounded-full border border-input bg-card px-3 py-1.5 text-xs font-semibold shadow-elevated-xs">
+            {t("diagnostics.adminCard.open")}
+          </span>
+        </Link>
+      ) : null}
+      <InstallAppAdminCard />
       {maxLevel < 80 ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
           You need executive or regional access to view the admin module.
@@ -135,34 +177,32 @@ function UserRow({
         </div>
       </div>
       {canManage ? (
-        <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-[1fr_1fr_auto]">
-          <div>
+        <div className="mt-3 grid grid-cols-1 items-end gap-2 md:grid-cols-[1fr_1fr_auto]">
+          <div className="space-y-2">
             <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Role</Label>
             <Select value={role} onValueChange={(v) => setRole(v as AppRole)}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>{ROLES.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
             </Select>
           </div>
-          <div>
+          <div className="space-y-2">
             <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">Scope</Label>
             <Select value={locId} onValueChange={setLocId}>
-              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="__all__">All branches</SelectItem>
                 {locations.map((l) => <SelectItem key={l.id} value={l.id}>{l.code} — {l.name}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
-          <div className="flex items-end">
-            <Button
-              size="sm"
-              disabled={pending}
-              onClick={() => onGrant(role, locId === "__all__" ? [] : [locId])}
-            >
-              {pending ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : null}
-              Grant
-            </Button>
-          </div>
+          <Button
+            className="w-full md:w-auto"
+            disabled={pending}
+            onClick={() => onGrant(role, locId === "__all__" ? [] : [locId])}
+          >
+            {pending ? <Loader2 className="animate-spin" /> : null}
+            Grant
+          </Button>
         </div>
       ) : null}
     </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, FileSpreadsheet } from "lucide-react";
+import { ChevronDown, Download, FileSpreadsheet, FileText } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -13,26 +13,47 @@ import {
 interface DownloadReportButtonProps {
   onPdf: () => void;
   onExcel: () => void;
+  onCsv?: () => void;
   disabled?: boolean;
+  label?: string;
+  csvLabel?: string;
+  pdfLabel?: string;
+  excelLabel?: string;
 }
 
-export function DownloadReportButton({ onPdf, onExcel, disabled }: DownloadReportButtonProps) {
+export function DownloadReportButton({
+  onPdf,
+  onExcel,
+  onCsv,
+  disabled,
+  label = "Download Report",
+  csvLabel = "CSV",
+  pdfLabel = "PDF",
+  excelLabel = "Excel",
+}: DownloadReportButtonProps) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="outline" size="sm" disabled={disabled}>
-          <Download className="mr-1 h-4 w-4" />
-          Download Report
+          <Download />
+          {label}
+          <ChevronDown className="opacity-70" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
+        {onCsv ? (
+          <DropdownMenuItem onClick={onCsv}>
+            <FileText />
+            {csvLabel}
+          </DropdownMenuItem>
+        ) : null}
         <DropdownMenuItem onClick={onPdf}>
-          <Download className="mr-2 h-4 w-4" />
-          PDF
+          <Download />
+          {pdfLabel}
         </DropdownMenuItem>
         <DropdownMenuItem onClick={onExcel}>
-          <FileSpreadsheet className="mr-2 h-4 w-4" />
-          Excel
+          <FileSpreadsheet />
+          {excelLabel}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

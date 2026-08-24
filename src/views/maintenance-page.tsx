@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { ClipboardList, FileBarChart, LayoutDashboard, Loader2, Pencil, Trash2, Truck, Wrench } from "lucide-react";
+import { ChevronDown, ClipboardList, FileBarChart, LayoutDashboard, Loader2, Pencil, Sparkles, Trash2, Truck, Wrench } from "lucide-react";
 import dynamic from "next/dynamic";
+import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { useWorkOrders } from "@/hooks/queries/useWorkOrders";
@@ -15,6 +16,7 @@ import { useDowntimeEvents } from "@/hooks/queries/useDowntimeEvents";
 import { usePermission } from "@/hooks/use-permission";
 import { queryKeys } from "@/lib/query-keys";
 import {
+  aiDraftWorkOrder,
   createAsset,
   createWorkOrder,
   deleteAsset,
@@ -30,9 +32,12 @@ import {
   endDowntime,
   recordHeartbeat,
 } from "@/lib/maintenance.functions";
+import { listMaintenanceTechnicians } from "@/lib/maintenance-requests.functions";
 import type { WorkOrderListRow } from "@/lib/queries/module-queries.core";
 import { useAppStore } from "@/stores/app-store";
 import { useFloorSupervisorView } from "@/hooks/use-floor-supervisor-view";
+import { cn } from "@/lib/utils";
+import { PageHeader } from "@/components/layout/page-header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
@@ -42,6 +47,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -70,9 +76,24 @@ const MaintenanceDashboardPanel = dynamic(
 
 const WO_STATUSES = ["planned", "in_progress", "on_hold", "completed", "cancelled"] as const;
 const WO_KINDS = ["corrective", "preventive", "inspection", "installation"] as const;
+const WO_PRIORITIES = ["normal", "medium", "urgent"] as const;
+const WO_EDITABLE_STATUSES = new Set(["planned", "in_progress", "on_hold"]);
 const ASSET_CRITICALITIES = ["low", "medium", "high", "critical"] as const;
 
+function isWorkOrderEditable(status: string) {
+  return WO_EDITABLE_STATUSES.has(status);
+}
+
+function toDatetimeLocalValue(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function MaintenancePage() {
+  const { t } = useTranslation();
   const canSchedule = usePermission("maintenance.schedule_pm");
   const canExecute = usePermission("maintenance.execute_wo");
   const canManage = usePermission("maintenance.manage");
@@ -82,48 +103,42 @@ function MaintenancePage() {
 
   return (
     <div className="space-y-5">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="grid h-9 w-9 place-items-center rounded-md bg-primary/10 text-primary">
-            <Wrench className="h-5 w-5" />
+      <PageHeader
+        icon={Wrench}
+        title={t("maintenancePage.title")}
+        subtitle={t("maintenancePage.subtitle")}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            {canRequest && (
+              <Button size="sm" variant="outline" asChild>
+                <Link href="/maintenance/requests"><ClipboardList className="mr-1.5 h-3.5 w-3.5" />{t("maintenancePage.requests")}</Link>
+              </Button>
+            )}
+            {canLogistics && (
+              <Button size="sm" variant="outline" asChild>
+                <Link href="/maintenance/logistics"><Truck className="mr-1.5 h-3.5 w-3.5" />{t("maintenancePage.logistics")}</Link>
+              </Button>
+            )}
+            {canWeeklyReport && (
+              <Button size="sm" variant="outline" asChild>
+                <Link href="/maintenance/weekly-report"><FileBarChart className="mr-1.5 h-3.5 w-3.5" />{t("maintenancePage.weeklyReport")}</Link>
+              </Button>
+            )}
           </div>
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight">Maintenance</h1>
-            <p className="text-xs text-muted-foreground">
-              Operational overview, technician queue, asset registry, and work orders.
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {canRequest && (
-            <Button size="sm" variant="outline" asChild>
-              <Link href="/maintenance/requests"><ClipboardList className="mr-1.5 h-3.5 w-3.5" />Requests</Link>
-            </Button>
-          )}
-          {canLogistics && (
-            <Button size="sm" variant="outline" asChild>
-              <Link href="/maintenance/logistics"><Truck className="mr-1.5 h-3.5 w-3.5" />Logistics</Link>
-            </Button>
-          )}
-          {canWeeklyReport && (
-            <Button size="sm" variant="outline" asChild>
-              <Link href="/maintenance/weekly-report"><FileBarChart className="mr-1.5 h-3.5 w-3.5" />Weekly report</Link>
-            </Button>
-          )}
-        </div>
-      </header>
+        }
+      />
       <Tabs defaultValue="dashboard">
         <TabsList>
           <TabsTrigger value="dashboard" className="gap-1.5">
             <LayoutDashboard className="h-3.5 w-3.5" />
-            Dashboard
+            {t("maintenancePage.dashboard")}
           </TabsTrigger>
-          <TabsTrigger value="queue">My queue</TabsTrigger>
-          <TabsTrigger value="orders">All work orders</TabsTrigger>
-          <TabsTrigger value="assets">Assets</TabsTrigger>
-          <TabsTrigger value="pm">PM schedules</TabsTrigger>
-          <TabsTrigger value="downtime">Downtime</TabsTrigger>
-          {canSchedule && <TabsTrigger value="new">New work order</TabsTrigger>}
+          <TabsTrigger value="queue">{t("maintenancePage.myQueue")}</TabsTrigger>
+          <TabsTrigger value="orders">{t("maintenancePage.allWorkOrders")}</TabsTrigger>
+          <TabsTrigger value="assets">{t("maintenancePage.assets")}</TabsTrigger>
+          <TabsTrigger value="pm">{t("maintenancePage.pmSchedules")}</TabsTrigger>
+          <TabsTrigger value="downtime">{t("maintenancePage.downtime")}</TabsTrigger>
+          {canSchedule && <TabsTrigger value="new">{t("maintenancePage.newWorkOrder")}</TabsTrigger>}
         </TabsList>
         <TabsContent value="dashboard" className="mt-4">
           <MaintenanceDashboardPanel />
@@ -164,22 +179,47 @@ function WorkOrdersList({
   canManage: boolean;
   canSchedule: boolean;
 }) {
+  const { t } = useTranslation();
   const locationId = useAppStore((s) => s.currentLocationId);
   const [status, setStatus] = useState<string>("all");
   const [editing, setEditing] = useState<WorkOrderListRow | null>(null);
-  const [editForm, setEditForm] = useState({ title: "", kind: "corrective", description: "", planned_end: "" });
+  const [editForm, setEditForm] = useState({
+    location_id: "",
+    title: "",
+    kind: "corrective",
+    priority: "normal",
+    description: "",
+    planned_end: "",
+    asset_id: "",
+    assigned_to: "",
+  });
   const qc = useQueryClient();
+  const locsQ = useSites();
   const { data, isLoading } = useWorkOrders({
     locationId: locationId ?? null,
     status: status === "all" ? null : status,
     mine: scope === "mine",
   });
   const rows = data?.items;
+
+  const editLocationId = editForm.location_id || editing?.location_id || "";
+  const editAssetsQ = useQuery({
+    queryKey: ["assets", { locationId: editLocationId }],
+    queryFn: () => (editLocationId ? listAssets({ locationId: editLocationId }) : Promise.resolve([])),
+    enabled: !!editing && !!editLocationId,
+  });
+  const editTechsQ = useQuery({
+    queryKey: ["maint-techs", editLocationId],
+    queryFn: () => listMaintenanceTechnicians({ locationId: editLocationId }),
+    enabled: !!editing && !!editLocationId,
+  });
+  const editTechOptions = (editTechsQ.data ?? []).filter((tech) => !tech.id.startsWith("requested:"));
+
   const statusMut = useMutation({
     mutationFn: (input: { id: string; status: (typeof WO_STATUSES)[number] }) =>
       updateWorkOrderStatus(input),
     onSuccess: () => {
-      toast.success("Work order updated");
+      toast.success(t("maintenanceWorkOrder.statusUpdated"));
       void qc.invalidateQueries({ queryKey: queryKeys.workOrders.all });
     },
     onError: (e) => toast.error((e as Error).message),
@@ -188,13 +228,17 @@ function WorkOrdersList({
     mutationFn: () =>
       updateWorkOrder({
         id: editing!.id,
+        location_id: editForm.location_id,
         title: editForm.title,
         kind: editForm.kind as (typeof WO_KINDS)[number],
+        priority: editForm.priority as (typeof WO_PRIORITIES)[number],
         description: editForm.description || null,
+        asset_id: editForm.asset_id || null,
+        assigned_to: editForm.assigned_to || null,
         planned_end: editForm.planned_end ? new Date(editForm.planned_end).toISOString() : null,
       }),
     onSuccess: () => {
-      toast.success("Work order saved");
+      toast.success(t("maintenanceWorkOrder.saved"));
       setEditing(null);
       void qc.invalidateQueries({ queryKey: queryKeys.workOrders.all });
     },
@@ -203,19 +247,27 @@ function WorkOrdersList({
   const deleteMut = useMutation({
     mutationFn: (id: string) => deleteWorkOrder({ id }),
     onSuccess: () => {
-      toast.success("Work order deleted");
+      toast.success(t("maintenanceWorkOrder.deleted"));
       void qc.invalidateQueries({ queryKey: queryKeys.workOrders.all });
     },
     onError: (e) => toast.error((e as Error).message),
   });
 
   function openEdit(w: WorkOrderListRow) {
+    if (!isWorkOrderEditable(w.status)) {
+      toast.error(t("maintenanceWorkOrder.editClosed"));
+      return;
+    }
     setEditing(w);
     setEditForm({
+      location_id: w.location_id,
       title: w.title,
       kind: w.kind,
-      description: "",
-      planned_end: w.planned_end ? w.planned_end.slice(0, 16) : "",
+      priority: w.priority || "normal",
+      description: w.description ?? "",
+      planned_end: toDatetimeLocalValue(w.planned_end),
+      asset_id: w.asset_id ?? "",
+      assigned_to: w.assigned_to ?? "",
     });
   }
 
@@ -260,8 +312,15 @@ function WorkOrdersList({
                   </td>
                   <td className="px-3 py-2 text-right">
                     <div className="flex items-center justify-end gap-1">
-                      {canSchedule && (
-                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEdit(w)}>
+                      {canSchedule && isWorkOrderEditable(w.status) && (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7"
+                          title={t("maintenanceWorkOrder.edit")}
+                          aria-label={t("maintenanceWorkOrder.edit")}
+                          onClick={() => openEdit(w)}
+                        >
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
                       )}
@@ -299,43 +358,120 @@ function WorkOrdersList({
       )}
 
       <Dialog open={!!editing} onOpenChange={(open) => !open && setEditing(null)}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Edit work order</DialogTitle>
+            <DialogTitle>{t("maintenanceWorkOrder.editTitle")}</DialogTitle>
           </DialogHeader>
           <form
             className="space-y-3"
             onSubmit={(e) => {
               e.preventDefault();
-              if (editForm.title.length < 3) {
-                toast.error("Title must be at least 3 characters");
+              if (!editForm.location_id || editForm.title.length < 3) {
+                toast.error(t("maintenanceWorkOrder.branchTitleRequired"));
                 return;
               }
               editMut.mutate();
             }}
           >
-            <FormField label="Title" required>
-              <Input value={editForm.title} maxLength={200} onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))} />
-            </FormField>
-            <FormField label="Kind">
-              <Select value={editForm.kind} onValueChange={(v) => setEditForm((f) => ({ ...f, kind: v }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+            <FormField label={t("maintenanceWorkOrder.branch")} required>
+              <Select
+                value={editForm.location_id}
+                onValueChange={(v) =>
+                  setEditForm((f) => ({ ...f, location_id: v, asset_id: "", assigned_to: "" }))
+                }
+              >
+                <SelectTrigger><SelectValue placeholder={t("maintenanceWorkOrder.selectBranch")} /></SelectTrigger>
                 <SelectContent>
-                  {WO_KINDS.map((k) => <SelectItem key={k} value={k}>{k}</SelectItem>)}
+                  {(locsQ.data ?? []).map((l) => (
+                    <SelectItem key={l.id} value={l.id}>{l.code} — {l.name}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </FormField>
-            <FormField label="Planned end">
-              <Input type="datetime-local" value={editForm.planned_end} onChange={(e) => setEditForm((f) => ({ ...f, planned_end: e.target.value }))} />
+            <FormField label={t("maintenanceWorkOrder.title")} required>
+              <Input
+                value={editForm.title}
+                maxLength={200}
+                onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))}
+              />
             </FormField>
-            <FormField label="Description">
-              <Textarea rows={3} value={editForm.description} onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))} />
+            <div className="grid grid-cols-2 gap-3">
+              <FormField label={t("maintenanceWorkOrder.priority")}>
+                <Select
+                  value={editForm.priority}
+                  onValueChange={(v) => setEditForm((f) => ({ ...f, priority: v }))}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {WO_PRIORITIES.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </FormField>
+              <FormField label={t("maintenanceWorkOrder.kind")}>
+                <Select
+                  value={editForm.kind}
+                  onValueChange={(v) => setEditForm((f) => ({ ...f, kind: v }))}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {WO_KINDS.map((k) => <SelectItem key={k} value={k}>{k}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </FormField>
+            </div>
+            <FormField label={t("maintenanceWorkOrder.plannedEnd")}>
+              <Input
+                type="datetime-local"
+                value={editForm.planned_end}
+                onChange={(e) => setEditForm((f) => ({ ...f, planned_end: e.target.value }))}
+              />
+            </FormField>
+            <FormField label={t("maintenanceWorkOrder.asset")}>
+              <Select
+                value={editForm.asset_id || "none"}
+                onValueChange={(v) => setEditForm((f) => ({ ...f, asset_id: v === "none" ? "" : v }))}
+                disabled={!editForm.location_id || editAssetsQ.isLoading}
+              >
+                <SelectTrigger><SelectValue placeholder={t("maintenanceWorkOrder.selectAsset")} /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">{t("maintenanceWorkOrder.none")}</SelectItem>
+                  {(editAssetsQ.data ?? []).map((a) => (
+                    <SelectItem key={a.id} value={a.id}>{a.tag} · {a.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FormField>
+            <FormField label={t("maintenanceWorkOrder.assignTechnician")}>
+              <Select
+                value={editForm.assigned_to || "none"}
+                onValueChange={(v) => setEditForm((f) => ({ ...f, assigned_to: v === "none" ? "" : v }))}
+                disabled={!editForm.location_id || editTechsQ.isLoading}
+              >
+                <SelectTrigger><SelectValue placeholder={t("maintenanceWorkOrder.selectTechnician")} /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">{t("maintenanceWorkOrder.none")}</SelectItem>
+                  {editTechOptions.map((tech) => (
+                    <SelectItem key={tech.id} value={tech.id}>
+                      {tech.display_name ?? tech.id}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FormField>
+            <FormField label={t("maintenanceWorkOrder.description")}>
+              <Textarea
+                rows={3}
+                value={editForm.description}
+                onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
+              />
             </FormField>
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
+              <Button type="button" variant="outline" onClick={() => setEditing(null)}>
+                {t("maintenanceWorkOrder.cancel")}
+              </Button>
               <Button type="submit" disabled={editMut.isPending}>
                 {editMut.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                Save
+                {t("maintenanceWorkOrder.save")}
               </Button>
             </div>
           </form>
@@ -936,10 +1072,18 @@ function DowntimePanel({ canExecute }: { canExecute: boolean }) {
 }
 
 function NewWorkOrderForm() {
+  const { t } = useTranslation();
   const floorView = useFloorSupervisorView();
   const currentLoc = useAppStore((s) => s.currentLocationId);
-        const qc = useQueryClient();
+  const qc = useQueryClient();
   const locsQ = useSites();
+  const [aiGenerated, setAiGenerated] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [pendingAiAssignee, setPendingAiAssignee] = useState<{
+    id: string | null;
+    name: string | null;
+    ambiguous: boolean;
+  } | null>(null);
   const [form, setForm] = useState({
     location_id: currentLoc ?? "",
     title: "",
@@ -948,30 +1092,173 @@ function NewWorkOrderForm() {
     asset_id: "",
     planned_end: "",
     priority: "normal",
+    assigned_to: "",
   });
   const assetsQ = useQuery({
     queryKey: ["assets", { locationId: form.location_id }],
-    queryFn: () => form.location_id ? listAssets({ locationId: form.location_id }) : Promise.resolve([]),
+    queryFn: () => (form.location_id ? listAssets({ locationId: form.location_id }) : Promise.resolve([])),
     enabled: !!form.location_id,
   });
+  const techsQ = useQuery({
+    queryKey: ["maint-techs", form.location_id],
+    queryFn: () => listMaintenanceTechnicians({ locationId: form.location_id }),
+    enabled: !!form.location_id && !floorView,
+  });
+  const techOptions = (techsQ.data ?? []).filter((tech) => !tech.id.startsWith("requested:"));
+  const selectedAsset = (assetsQ.data ?? []).find((a) => a.id === form.asset_id);
+  const selectedSite = (locsQ.data ?? []).find((s) => s.id === form.location_id);
+
+  useEffect(() => {
+    if (!pendingAiAssignee || techsQ.isLoading || !form.location_id) return;
+    const options = (techsQ.data ?? []).filter((tech) => !tech.id.startsWith("requested:"));
+    if (pendingAiAssignee.ambiguous) {
+      setPendingAiAssignee(null);
+      return;
+    }
+    if (pendingAiAssignee.id && options.some((t) => t.id === pendingAiAssignee.id)) {
+      setForm((f) => ({ ...f, assigned_to: pendingAiAssignee.id! }));
+      setPendingAiAssignee(null);
+      return;
+    }
+    if (pendingAiAssignee.name) {
+      const needle = pendingAiAssignee.name.trim().toLowerCase();
+      const hit = options.find(
+        (t) =>
+          (t.display_name ?? "").trim().toLowerCase() === needle ||
+          (t.display_name ?? "").trim().toLowerCase().startsWith(needle),
+      );
+      if (hit) {
+        setForm((f) => ({ ...f, assigned_to: hit.id }));
+      }
+    }
+    setPendingAiAssignee(null);
+  }, [pendingAiAssignee, techsQ.isLoading, techsQ.data, form.location_id]);
+
   const mutation = useMutation({
     mutationFn: () =>
       createWorkOrder({
-          location_id: form.location_id,
-          title: form.title,
-          kind: form.kind,
-          description: form.description || undefined,
-          asset_id: form.asset_id || null,
-          planned_end: form.planned_end ? new Date(form.planned_end).toISOString() : null,
-          priority: form.priority as "normal" | "medium" | "urgent",
-        }),
+        location_id: form.location_id,
+        title: form.title,
+        kind: form.kind,
+        description: form.description || undefined,
+        asset_id: form.asset_id || null,
+        planned_end: form.planned_end ? new Date(form.planned_end).toISOString() : null,
+        priority: form.priority as "normal" | "medium" | "urgent",
+        assigned_to: form.assigned_to || null,
+      }),
     onSuccess: () => {
-      toast.success("Work order created");
+      toast.success(t("maintenanceWorkOrder.created"));
       void qc.invalidateQueries({ queryKey: queryKeys.workOrders.all });
-      setForm((f) => ({ ...f, title: "", description: "", planned_end: "" }));
+      setForm((f) => ({
+        ...f,
+        title: "",
+        description: "",
+        planned_end: "",
+        asset_id: "",
+        assigned_to: "",
+        priority: "normal",
+        kind: "corrective",
+      }));
+      setAiGenerated(false);
+      setDetailsOpen(false);
     },
     onError: (e) => toast.error((e as Error).message),
   });
+
+  const aiDraftMut = useMutation({
+    mutationFn: () =>
+      aiDraftWorkOrder({
+        location_id: form.location_id || null,
+        notes: form.description.trim(),
+      }),
+    onSuccess: (result) => {
+      const sites = locsQ.data ?? [];
+      const nextLocationId =
+        result.fields.location_id && sites.some((s) => s.id === result.fields.location_id)
+          ? result.fields.location_id
+          : null;
+      const locationChanged = !!nextLocationId && nextLocationId !== form.location_id;
+      const polished =
+        result.fields.polished_description?.trim() ||
+        result.fields.description?.trim() ||
+        form.description;
+
+      setForm((f) => ({
+        ...f,
+        location_id: nextLocationId || f.location_id,
+        title: result.fields.title?.trim() || f.title,
+        kind: result.fields.kind || f.kind,
+        priority: result.fields.priority || f.priority,
+        description: polished,
+        planned_end: result.fields.planned_end?.trim() || f.planned_end,
+        asset_id: result.fields.asset_id || (locationChanged ? "" : f.asset_id),
+        assigned_to: "",
+      }));
+      setPendingAiAssignee({
+        id: result.fields.assigned_to,
+        name: result.fields.assignee_name,
+        ambiguous: result.fields.assignee_ambiguous,
+      });
+      setAiGenerated(result.ai_generated);
+      setDetailsOpen(true);
+      toast.success(
+        result.ai_generated
+          ? t("maintenanceWorkOrder.aiDrafted")
+          : t("maintenanceWorkOrder.aiDraftedFallback"),
+      );
+      if (locationChanged) {
+        const site = sites.find((s) => s.id === nextLocationId);
+        toast.message(
+          site
+            ? `${t("maintenanceWorkOrder.aiVenueMatched")}: ${site.code} — ${site.name}`
+            : t("maintenanceWorkOrder.aiVenueMatched"),
+        );
+      }
+      if (result.fields.assignee_ambiguous) {
+        toast.message(t("maintenanceWorkOrder.aiAssigneeAmbiguous"));
+      } else if (result.fields.assignee_name && !result.fields.assigned_to) {
+        toast.message(
+          `${t("maintenanceWorkOrder.aiAssigneeNotFound")}: ${result.fields.assignee_name}`,
+        );
+      }
+    },
+    onError: (e) => toast.error((e as Error).message),
+  });
+
+  const runAiAssist = () => {
+    if (form.description.trim().length < 3) {
+      toast.error(t("maintenanceWorkOrder.aiNeedsNotes"));
+      return;
+    }
+    if (!form.location_id && (locsQ.data ?? []).length === 0) {
+      toast.error(t("maintenanceWorkOrder.branchRequired"));
+      return;
+    }
+    aiDraftMut.mutate();
+  };
+
+  const useSample = () => {
+    setAiGenerated(false);
+    setForm((f) => ({
+      ...f,
+      description: t("maintenanceWorkOrder.sampleParagraph"),
+    }));
+  };
+
+  const checklistItems = [
+    t("maintenanceWorkOrder.checkVenue"),
+    t("maintenanceWorkOrder.checkIssue"),
+    t("maintenanceWorkOrder.checkTechnician"),
+    t("maintenanceWorkOrder.checkWhen"),
+    t("maintenanceWorkOrder.checkUrgency"),
+  ];
+
+  const showSummaryBadges =
+    !!form.title ||
+    form.priority !== "normal" ||
+    form.kind !== "corrective" ||
+    !!selectedAsset ||
+    aiGenerated;
 
   return (
     <form
@@ -979,70 +1266,215 @@ function NewWorkOrderForm() {
       onSubmit={(e) => {
         e.preventDefault();
         if (!form.location_id || form.title.length < 3) {
-          toast.error("Branch and a title are required");
+          toast.error(t("maintenanceWorkOrder.branchTitleRequired"));
+          setDetailsOpen(true);
           return;
         }
         mutation.mutate();
       }}
     >
-      <FormField label="Branch" required>
-        <Select value={form.location_id} onValueChange={(v) => setForm((f) => ({ ...f, location_id: v }))}>
-          <SelectTrigger><SelectValue placeholder="Select branch" /></SelectTrigger>
-          <SelectContent>
-            {(locsQ.data ?? []).map((l) => <SelectItem key={l.id} value={l.id}>{l.code} — {l.name}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      </FormField>
-      <FormField label="Title" required>
-        <Input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} maxLength={200} />
-      </FormField>
-      <div className="grid grid-cols-2 gap-4">
-        <FormField label="Priority">
-          <Select value={form.priority} onValueChange={(v) => setForm((f) => ({ ...f, priority: v }))}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {["normal", "medium", "urgent"].map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </FormField>
+      <div className="rounded-lg border border-dashed border-border bg-background/60 p-4 space-y-3">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0 flex-1 space-y-1">
+            <Label className="flex items-center gap-2 text-sm font-medium normal-case tracking-normal text-foreground">
+              {t("maintenanceWorkOrder.description")}
+              {aiGenerated && form.description ? (
+                <Badge variant="secondary" className="text-[10px] font-normal">
+                  {t("maintenanceWorkOrder.aiBadge")}
+                </Badge>
+              ) : null}
+              <span className="text-rose-400">*</span>
+            </Label>
+            <p className="text-xs text-muted-foreground">{t("maintenanceWorkOrder.promptHint")}</p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            onClick={runAiAssist}
+            disabled={aiDraftMut.isPending || mutation.isPending}
+          >
+            {aiDraftMut.isPending ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="mr-1.5 h-3.5 w-3.5 text-amber-600" />
+            )}
+            {t("maintenanceWorkOrder.aiAssist")}
+          </Button>
+        </div>
+
+        <div className="rounded-md border border-border/70 bg-surface/40 px-3 py-2.5 space-y-2">
+          <p className="text-xs font-medium text-foreground">{t("maintenanceWorkOrder.sampleIntro")}</p>
+          <ul className="space-y-1 text-xs text-muted-foreground">
+            {checklistItems.map((item) => (
+              <li key={item} className="flex items-start gap-1.5">
+                <span className="font-bold text-emerald-600 dark:text-emerald-400" aria-hidden>
+                  ✓
+                </span>
+                <span>{item}</span>
+              </li>
+            ))}
+          </ul>
+          <Button type="button" variant="ghost" size="sm" onClick={useSample}>
+            {t("maintenanceWorkOrder.useSample")}
+          </Button>
+        </div>
+
+        <Textarea
+          rows={5}
+          placeholder={t("maintenanceWorkOrder.descriptionPlaceholder")}
+          value={form.description}
+          onChange={(e) => {
+            setAiGenerated(false);
+            setForm((f) => ({ ...f, description: e.target.value }));
+          }}
+        />
+
+        {showSummaryBadges ? (
+          <div className="flex flex-wrap gap-1.5">
+            {form.title ? (
+              <Badge variant="outline" className="max-w-full truncate text-[10px] font-normal">
+                {form.title}
+              </Badge>
+            ) : null}
+            {selectedSite ? (
+              <Badge variant="secondary" className="text-[10px] font-normal">
+                {selectedSite.code}
+              </Badge>
+            ) : null}
+            {!floorView ? (
+              <Badge variant="outline" className="text-[10px] font-normal uppercase tracking-wide">
+                {form.kind}
+              </Badge>
+            ) : null}
+            <Badge
+              variant={form.priority === "urgent" ? "destructive" : "outline"}
+              className="text-[10px] font-normal uppercase tracking-wide"
+            >
+              {form.priority}
+            </Badge>
+            {selectedAsset ? (
+              <Badge variant="secondary" className="text-[10px] font-normal">
+                {selectedAsset.tag}
+              </Badge>
+            ) : null}
+          </div>
+        ) : null}
       </div>
-      {!floorView && (
-        <div className="grid grid-cols-2 gap-4">
-          <FormField label="Kind">
-            <Select value={form.kind} onValueChange={(v) => setForm((f) => ({ ...f, kind: v }))}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+
+      <Collapsible open={detailsOpen} onOpenChange={setDetailsOpen}>
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className="flex w-full items-center justify-between rounded-md border border-border bg-surface/40 px-3 py-2.5 text-left text-sm hover:bg-surface/60"
+          >
+            <span>
+              <span className="font-medium">{t("maintenanceWorkOrder.reviewDetails")}</span>
+              <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+                {t("maintenanceWorkOrder.reviewHint")}
+              </span>
+            </span>
+            <ChevronDown
+              className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", detailsOpen && "rotate-180")}
+            />
+          </button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="space-y-4 pt-4">
+          <FormField label={t("maintenanceWorkOrder.branch")} required>
+            <Select
+              value={form.location_id}
+              onValueChange={(v) => setForm((f) => ({ ...f, location_id: v, asset_id: "", assigned_to: "" }))}
+            >
+              <SelectTrigger><SelectValue placeholder={t("maintenanceWorkOrder.selectBranch")} /></SelectTrigger>
               <SelectContent>
-                {["corrective", "preventive", "inspection", "installation"].map((k) => <SelectItem key={k} value={k}>{k}</SelectItem>)}
+                {(locsQ.data ?? []).map((l) => (
+                  <SelectItem key={l.id} value={l.id}>{l.code} — {l.name}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </FormField>
-          <FormField label="Planned end">
-            <Input type="datetime-local" value={form.planned_end} onChange={(e) => setForm((f) => ({ ...f, planned_end: e.target.value }))} />
+          <FormField label={t("maintenanceWorkOrder.title")} required>
+            <Input
+              value={form.title}
+              onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+              maxLength={200}
+            />
           </FormField>
-        </div>
-      )}
-      {!floorView && (
-        <FormField label="Asset (optional)">
-          <Select
-            value={form.asset_id || "none"}
-            onValueChange={(v) => setForm((f) => ({ ...f, asset_id: v === "none" ? "" : v }))}
-            disabled={!form.location_id}
-          >
-            <SelectTrigger><SelectValue placeholder="Select asset" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">— none —</SelectItem>
-              {(assetsQ.data ?? []).map((a) => <SelectItem key={a.id} value={a.id}>{a.tag} · {a.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </FormField>
-      )}
-      <FormField label="Description">
-        <Textarea rows={4} value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
-      </FormField>
-      <div className="flex justify-end">
-        <Button type="submit" disabled={mutation.isPending}>
+          <FormField label={t("maintenanceWorkOrder.priority")}>
+            <Select value={form.priority} onValueChange={(v) => setForm((f) => ({ ...f, priority: v }))}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {["normal", "medium", "urgent"].map((p) => (
+                  <SelectItem key={p} value={p}>{p}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FormField>
+          {!floorView && (
+            <div className="grid grid-cols-2 gap-4">
+              <FormField label={t("maintenanceWorkOrder.kind")}>
+                <Select value={form.kind} onValueChange={(v) => setForm((f) => ({ ...f, kind: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {["corrective", "preventive", "inspection", "installation"].map((k) => (
+                      <SelectItem key={k} value={k}>{k}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </FormField>
+              <FormField label={t("maintenanceWorkOrder.plannedEnd")}>
+                <Input
+                  type="datetime-local"
+                  value={form.planned_end}
+                  onChange={(e) => setForm((f) => ({ ...f, planned_end: e.target.value }))}
+                />
+              </FormField>
+            </div>
+          )}
+          {!floorView && (
+            <FormField label={t("maintenanceWorkOrder.asset")}>
+              <Select
+                value={form.asset_id || "none"}
+                onValueChange={(v) => setForm((f) => ({ ...f, asset_id: v === "none" ? "" : v }))}
+                disabled={!form.location_id}
+              >
+                <SelectTrigger><SelectValue placeholder={t("maintenanceWorkOrder.selectAsset")} /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">{t("maintenanceWorkOrder.none")}</SelectItem>
+                  {(assetsQ.data ?? []).map((a) => (
+                    <SelectItem key={a.id} value={a.id}>{a.tag} · {a.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FormField>
+          )}
+          {!floorView && (
+            <FormField label={t("maintenanceWorkOrder.assignTechnician")}>
+              <Select
+                value={form.assigned_to || "none"}
+                onValueChange={(v) => setForm((f) => ({ ...f, assigned_to: v === "none" ? "" : v }))}
+                disabled={!form.location_id || techsQ.isLoading}
+              >
+                <SelectTrigger><SelectValue placeholder={t("maintenanceWorkOrder.selectTechnician")} /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">{t("maintenanceWorkOrder.none")}</SelectItem>
+                  {techOptions.map((tech) => (
+                    <SelectItem key={tech.id} value={tech.id}>
+                      {tech.display_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FormField>
+          )}
+        </CollapsibleContent>
+      </Collapsible>
+
+      <div className="flex flex-wrap items-center justify-end gap-3 pt-4">
+        <Button type="submit" disabled={mutation.isPending || aiDraftMut.isPending}>
           {mutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-          Create work order
+          {t("maintenanceWorkOrder.submit")}
         </Button>
       </div>
     </form>

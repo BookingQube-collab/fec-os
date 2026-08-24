@@ -50,14 +50,12 @@ export function MaintenanceWeeklyReportsLayout({ children }: { children: React.R
   }
 
   return (
-      <div className="space-y-5 font-sans">
+      <div className="space-y-5">
         <div>
-          <h1 className="font-display text-2xl font-semibold text-[#0B1F3A]">
-            {t("maintenanceWeeklyReports.title")}
-          </h1>
-          <p className="mt-1 text-sm text-[#475569]">{t("maintenanceWeeklyReports.subtitle")}</p>
+          <h1 className="page-title">{t("maintenanceWeeklyReports.title")}</h1>
+          <p className="page-subtitle">{t("maintenanceWeeklyReports.subtitle")}</p>
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E2E8F0] pb-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
           <nav className="flex flex-wrap gap-2">
             {navItems.map((item) => {
               const staticRoutes = ["/review", "/executive", "/new", "/kpis"];
@@ -71,10 +69,7 @@ export function MaintenanceWeeklyReportsLayout({ children }: { children: React.R
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={cn(
-                    "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                    active ? "bg-[#0B1F3A] text-white" : "text-[#0B1F3A] hover:bg-[#F2F4F7] hover:text-[#E8821E]",
-                  )}
+                  className={cn("filter-chip", active && "filter-chip-active")}
                 >
                   {t(item.labelKey)}
                 </Link>

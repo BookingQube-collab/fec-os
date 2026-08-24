@@ -4,6 +4,8 @@ import type { AuthContext } from "@/lib/server/auth";
 import { assertLocationAccess, ForbiddenError } from "@/lib/server/authorize";
 import { canUserDo } from "@/lib/rbac";
 import {
+  E3_COMPANY_NAME,
+  FEC_WEEKLY_REPORT_LOCATION_CODES,
   type ReportPriority,
   type WeeklyReportStatus,
   weekEndSunday,
@@ -21,7 +23,7 @@ import {
   ExecutiveWeeklyReportSchema,
   type ExecutiveWeeklyReport,
 } from "@/lib/weekly-reports/executive-report-types";
-import { E3_COMPANY_NAME, FEC_WEEKLY_REPORT_LOCATION_CODES } from "@/lib/weekly-reports/constants";
+import { completeJsonViaGateway } from "@/lib/ai/complete-json";
 
 export interface WeeklyReportRow {
   id: string;
@@ -493,60 +495,27 @@ async function callAiExecutiveReport(
     { role: "user" as const, content: userPrompt },
   ];
 
-  const lovableKey = process.env.LOVABLE_API_KEY;
-  const openaiKey = process.env.OPENAI_API_KEY;
-
-  const attempts: Array<{ url: string; headers: Record<string, string>; model: string; jsonMode?: boolean }> = [];
-  if (lovableKey) {
-    attempts.push({
-      url: "https://ai.gateway.lovable.dev/v1/chat/completions",
-      headers: { "Content-Type": "application/json", "Lovable-API-Key": lovableKey },
-      model: "google/gemini-3-flash-preview",
-    });
+  const parsed = await completeJsonViaGateway(messages, {
+    temperature: 0.35,
+    moduleSource: "weekly_reports.executive",
+  });
+  if (!parsed) return null;
+  try {
+    const report = ExecutiveWeeklyReportSchema.parse(parsed);
+    return {
+      ...report,
+      meta: {
+        ...report.meta,
+        company: E3_COMPANY_NAME,
+        week_start: weekStart,
+        week_end: weekEnd,
+        generation_mode: "ai",
+        generated_at: new Date().toISOString(),
+      },
+    };
+  } catch {
+    return null;
   }
-  if (openaiKey) {
-    attempts.push({
-      url: "https://api.openai.com/v1/chat/completions",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${openaiKey}` },
-      model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
-      jsonMode: true,
-    });
-  }
-
-  for (const attempt of attempts) {
-    try {
-      const res = await fetch(attempt.url, {
-        method: "POST",
-        headers: attempt.headers,
-        body: JSON.stringify({
-          model: attempt.model,
-          ...(attempt.jsonMode ? { response_format: { type: "json_object" } } : {}),
-          messages,
-          temperature: 0.35,
-        }),
-      });
-      if (!res.ok) continue;
-      const json = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-      const text = json.choices?.[0]?.message?.content;
-      if (!text) continue;
-      const parsed = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] ?? text) as unknown;
-      const report = ExecutiveWeeklyReportSchema.parse(parsed);
-      return {
-        ...report,
-        meta: {
-          ...report.meta,
-          company: E3_COMPANY_NAME,
-          week_start: weekStart,
-          week_end: weekEnd,
-          generation_mode: "ai",
-          generated_at: new Date().toISOString(),
-        },
-      };
-    } catch {
-      /* try next provider */
-    }
-  }
-  return null;
 }
 
 export { normalizeExecutiveContent };

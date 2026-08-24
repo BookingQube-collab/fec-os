@@ -10,16 +10,22 @@
     "seed:admin": "node --env-file=.env.local scripts/seed-admin.mjs",
     "seed:supervisors": "node --env-file=.env.local scripts/seed-supervisors.mjs",
     "seed:maintenance-logistics": "node --env-file=.env.local scripts/seed-maintenance-logistics.mjs",
+    "seed:test-logins": "node --env-file=.env.local scripts/seed-test-logins.mjs",
     "seed:locations": "node --env-file=.env.local scripts/seed-locations.mjs",
     "seed:demo": "node --env-file=.env.local scripts/seed-demo-data.mjs",
     "seed:e3-compliance": "node --env-file=.env.local scripts/seed-e3-compliance-items.mjs",
+    "seed:performance": "node --env-file=.env.local scripts/seed-performance-inflatapark.mjs",
+    "seed:events": "node --env-file=.env.local scripts/seed-event-projects.mjs",
+    "seed:event-dummy": "node --env-file=.env.local scripts/seed-event-dummy.mjs",
     "seed:all": "node --env-file=.env.local scripts/seed-all.mjs",
     "import:staff": "node --env-file=.env.local scripts/import-staff-roster.mjs",
     "generate:demo": "node scripts/generate-demo-data.mjs",
     "db:push": "node --env-file=.env.local scripts/push-migrations.mjs",
     "db:baseline": "node --env-file=.env.local scripts/seed-migration-baseline.mjs",
     "db:bundle": "node scripts/bundle-pending-migrations.mjs",
-    "generate:api-catalog": "node scripts/generate-api-catalog.mjs"
+    "generate:api-catalog": "node scripts/generate-api-catalog.mjs",
+    "test": "vitest run",
+    "seed:ai-keys": "node --env-file=.env.local scripts/seed-ai-provider-keys.mjs"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.15",
@@ -36,6 +42,8 @@
     "@radix-ui/react-slot": "^1.2.4",
     "@radix-ui/react-switch": "^1.2.6",
     "@radix-ui/react-tabs": "^1.1.13",
+    "@simplewebauthn/browser": "^13.3.0",
+    "@simplewebauthn/server": "^13.3.2",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.108.1",
     "@tanstack/react-query": "^5.83.0",
@@ -77,6 +85,7 @@
     "prettier": "^3.7.3",
     "tailwindcss": "^4.2.1",
     "typescript": "^5.8.3",
-    "typescript-eslint": "^8.56.1"
+    "typescript-eslint": "^8.56.1",
+    "vitest": "^4.1.11"
   }
 }

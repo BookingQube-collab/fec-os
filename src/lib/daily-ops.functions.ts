@@ -3,6 +3,7 @@
 import { z } from "zod";
 
 import { INCIDENT_TYPES, SHIFT_PERIODS, STAFF_ROLES, incidentReference } from "@/lib/daily-ops/constants";
+import { callBriefingAiDraft } from "@/lib/daily-ops/ai-briefing-draft";
 import { callIncidentReportAiDraft } from "@/lib/daily-ops/ai-incident-draft";
 import { generateLocationRosterWithAi } from "@/lib/daily-ops/ai-roster-generate";
 import { importRosterRows, parseRosterCsvRows } from "@/lib/daily-ops/roster-import";
@@ -52,6 +53,39 @@ export const upsertShiftBriefing = createAuthenticatedAction(
       .single();
     if (error) throw error;
     return { id: inserted.id as string };
+  },
+  { auth: { capability: "daily_ops.manage" } },
+);
+
+export const aiDraftShiftBriefing = createAuthenticatedAction(
+  z.object({
+    location_id: z.string().uuid(),
+    briefing_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    shift: z.enum(SHIFT_PERIODS),
+    supervisor_name: z.string().max(200).optional(),
+    staff_scheduled: z.number().int().min(0),
+    staff_present: z.number().int().min(0),
+    partial_notes: z.string().max(2000).optional(),
+  }),
+  async (data, context) => {
+    await assertLocationAccess(context, data.location_id);
+    const { data: location, error: locErr } = await context.supabase
+      .from("locations")
+      .select("code, name")
+      .eq("id", data.location_id)
+      .single();
+    if (locErr) throw locErr;
+
+    return callBriefingAiDraft({
+      location_code: location.code as string,
+      location_name: location.name as string,
+      briefing_date: data.briefing_date,
+      shift: data.shift,
+      supervisor_name: data.supervisor_name ?? "",
+      staff_scheduled: data.staff_scheduled,
+      staff_present: data.staff_present,
+      partial_notes: data.partial_notes,
+    });
   },
   { auth: { capability: "daily_ops.manage" } },
 );

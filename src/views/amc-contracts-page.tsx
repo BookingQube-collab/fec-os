@@ -4,13 +4,17 @@ import Link from "next/link";
 import { Plus, ShieldCheck } from "lucide-react";
 
 import { useAmcContracts } from "@/hooks/queries/useAmcContracts";
-import { AMC_CATEGORY_LABELS, type AmcCategory } from "@/lib/amc/constants";
+import { useTranslation } from "react-i18next";
+
+import { translateAmcCategory, translateAmcStatus } from "@/lib/amc/constants";
+import { fmtQar } from "@/lib/currency";
 import { useAppStore } from "@/stores/app-store";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 function AmcContractsPage() {
+  const { t } = useTranslation();
   const locationId = useAppStore((s) => s.currentLocationId);
   const { data, isLoading } = useAmcContracts({ locationId: locationId ?? null });
   const contracts = data?.items;
@@ -23,12 +27,12 @@ function AmcContractsPage() {
             <ShieldCheck className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold">AMC Contracts</h1>
-            <p className="text-xs text-muted-foreground">All maintenance, license & compliance contracts.</p>
+            <h1 className="text-xl font-semibold">{t("amc.contractsTitle")}</h1>
+            <p className="text-xs text-muted-foreground">{t("amc.contractsSubtitle")}</p>
           </div>
         </div>
         <Button size="sm" asChild>
-          <Link href="/compliance/amc-contracts/new"><Plus className="mr-1 h-4 w-4" />New contract</Link>
+          <Link href="/compliance/amc-contracts/new"><Plus className="mr-1 h-4 w-4" />{t("amc.newContract")}</Link>
         </Button>
       </header>
 
@@ -36,30 +40,30 @@ function AmcContractsPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Site</TableHead>
-              <TableHead>Category</TableHead>
-              <TableHead>Vendor</TableHead>
-              <TableHead>End date</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Outstanding</TableHead>
+              <TableHead>{t("common.site")}</TableHead>
+              <TableHead>{t("common.category")}</TableHead>
+              <TableHead>{t("common.vendor")}</TableHead>
+              <TableHead>{t("amc.columns.endDate")}</TableHead>
+              <TableHead>{t("common.status")}</TableHead>
+              <TableHead className="text-right">{t("amc.columns.outstanding")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">Loading…</TableCell></TableRow>
+              <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">{t("common.loading")}</TableCell></TableRow>
             ) : !contracts?.length ? (
-              <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">No contracts.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">{t("amc.noContracts")}</TableCell></TableRow>
             ) : (
               contracts.map((c) => (
                 <TableRow key={c.id}>
                   <TableCell className="font-mono text-xs">{c.location_code}</TableCell>
-                  <TableCell>{AMC_CATEGORY_LABELS[c.category as AmcCategory] ?? c.category}</TableCell>
+                  <TableCell>{translateAmcCategory(t, c.category)}</TableCell>
                   <TableCell>
                     <Link href={`/compliance/amc-contracts/${c.id}`} className="text-primary hover:underline">{c.vendor_name}</Link>
                   </TableCell>
                   <TableCell>{c.contract_end_date}</TableCell>
-                  <TableCell><Badge variant="outline">{c.status}</Badge></TableCell>
-                  <TableCell className="text-right">QAR {c.outstanding_amount.toLocaleString()}</TableCell>
+                  <TableCell><Badge variant="outline">{translateAmcStatus(t, c.status)}</Badge></TableCell>
+                  <TableCell className="text-right">{fmtQar(c.outstanding_amount)}</TableCell>
                 </TableRow>
               ))
             )}

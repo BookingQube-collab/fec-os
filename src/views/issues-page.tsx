@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { AlertCircle, ChevronRight, Loader2, Plus, Sparkles, TicketCheck } from "lucide-react";
+import { AlertCircle, ChevronRight, Loader2, Plus, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -32,6 +33,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/layout/page-header";
 import { cn } from "@/lib/utils";
 
 const STATUSES = ["open", "assigned", "in_progress", "blocked", "resolved", "closed"] as const;
@@ -76,19 +78,11 @@ function IssuesPage() {
   const canCreate = usePermission("issues.create");
   return (
     <div className="space-y-5">
-      <header className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="grid h-9 w-9 place-items-center rounded-md bg-primary/10 text-primary">
-            <TicketCheck className="h-5 w-5" />
-          </div>
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight">Issue Tracker</h1>
-            <p className="text-xs text-muted-foreground">
-              Front-line and back-office tickets across the estate.
-            </p>
-          </div>
-        </div>
-      </header>
+      <PageHeader
+        kicker="Operations"
+        title="Issue tracker"
+        subtitle="Front-line and back-office tickets across the estate."
+      />
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
         <TabsList>
@@ -96,7 +90,7 @@ function IssuesPage() {
           <TabsTrigger value="board">Board</TabsTrigger>
           {canCreate && (
             <TabsTrigger value="new">
-              <Plus className="mr-1 h-3.5 w-3.5" /> New ticket
+              <Plus /> New ticket
             </TabsTrigger>
           )}
         </TabsList>
@@ -135,8 +129,12 @@ function useIssuesRealtime() {
 
 function IssuesList() {
   const locationId = useAppStore((s) => s.currentLocationId);
+  const searchParams = useSearchParams();
+  const priorityParam = searchParams.get("priority");
   const [status, setStatus] = useState<string>("all");
-  const [priority, setPriority] = useState<string>("all");
+  const [priority, setPriority] = useState<string>(() =>
+    priorityParam && (PRIORITIES as readonly string[]).includes(priorityParam) ? priorityParam : "all",
+  );
   useIssuesRealtime();
     const locsQ = useLocations();
   const issuesQ = useIssues({

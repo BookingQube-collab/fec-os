@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 
+import { generateEmployeeCode, isPreservableEmployeeCode, isQidShapedCode } from "./employee-code.mjs";
+
 export const BRANCH_CODES = ["KDS-CC", "INF-CC", "UA-DM", "CB-VM", "CB-DSM", "CAR-AP"];
 
 export const APP_ROLES = new Set([
@@ -57,16 +59,31 @@ export function shiftUuid(employeeCode, startsAt) {
 
 export function parseStaffRows(rows) {
   const out = [];
+  const usedCodes = new Set();
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
     const location_code = r.location_code?.toUpperCase();
-    const employee_code = r.employee_code?.toUpperCase();
+    const rawCode = r.employee_code?.toUpperCase()?.trim() || "";
     const full_name = r.full_name;
-    if (!location_code || !employee_code || !full_name) {
-      throw new Error(`Staff row ${i + 2}: location_code, employee_code, and full_name are required`);
+    const qid = r.qid ? String(r.qid).replace(/\s+/g, "").trim() || null : null;
+    if (!location_code || !full_name) {
+      throw new Error(`Staff row ${i + 2}: location_code and full_name are required`);
     }
     if (!BRANCH_CODES.includes(location_code)) {
       throw new Error(`Staff row ${i + 2}: unknown location_code "${location_code}"`);
+    }
+    const qidKept = qid ?? (isQidShapedCode(rawCode) ? rawCode : null);
+    let employee_code = rawCode;
+    if (!isPreservableEmployeeCode(employee_code, qidKept)) {
+      employee_code = generateEmployeeCode(location_code, usedCodes, {
+        staffRole: r.staff_role || null,
+        jobTitle: r.job_title || null,
+      });
+    } else {
+      if (usedCodes.has(employee_code)) {
+        throw new Error(`Staff row ${i + 2}: duplicate employee_code "${employee_code}"`);
+      }
+      usedCodes.add(employee_code);
     }
     const app_role = (r.app_role || "").toLowerCase() || null;
     if (app_role && !APP_ROLES.has(app_role)) {
@@ -83,6 +100,8 @@ export function parseStaffRows(rows) {
       status: r.status || "active",
       phone: r.phone || null,
       email: r.email || null,
+      qid: qidKept,
+      staff_role: r.staff_role || null,
       app_role,
       create_login: create_login && !!app_role && !!r.email,
     });

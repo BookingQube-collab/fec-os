@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { ArrowLeft, Loader2, Plus, Sparkles, Trash2 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import {
@@ -38,11 +39,12 @@ function Page() {
 }
 
 function ForecastList({ onNew, onOpen }: { onNew: () => void; onOpen: (id: string) => void }) {
+  const { t } = useTranslation();
     const qc = useQueryClient();
   const { data, isLoading } = useQuery({ queryKey: ["forecasts"], queryFn: () => listForecasts() });
   const del = useMutation({
     mutationFn: (id: string) => deleteForecast({ id }),
-    onSuccess: () => { toast.success("Deleted"); void qc.invalidateQueries({ queryKey: ["forecasts"] }); },
+    onSuccess: () => { toast.success(t("forecasts.deleted")); void qc.invalidateQueries({ queryKey: ["forecasts"] }); },
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -50,29 +52,29 @@ function ForecastList({ onNew, onOpen }: { onNew: () => void; onOpen: (id: strin
     <div className="space-y-5">
       <div className="flex items-end justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-foreground">Forecast Scenarios</h1>
-          <p className="text-sm text-muted-foreground">What-if builder with adjustable assumptions and AI commentary.</p>
+          <h1 className="text-2xl font-semibold text-foreground">{t("forecasts.title")}</h1>
+          <p className="text-sm text-muted-foreground">{t("forecasts.subtitle")}</p>
         </div>
-        <Button onClick={onNew}><Plus className="mr-2 h-4 w-4" />New scenario</Button>
+        <Button onClick={onNew}><Plus className="mr-2 h-4 w-4" />{t("forecasts.new")}</Button>
       </div>
-      {isLoading ? <Skeleton text="Loading…" /> : (data ?? []).length === 0 ? <Skeleton text="No forecasts yet. Create your first scenario." /> : (
+      {isLoading ? <Skeleton text={t("common.loading")} /> : (data ?? []).length === 0 ? <Skeleton text={t("forecasts.empty")} /> : (
         <div className="space-y-2">
           {(data ?? []).map((f) => (
             <div key={f.id} className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3">
               <div className="min-w-0 cursor-pointer" onClick={() => onOpen(f.id)}>
                 <div className="flex items-center gap-2">
                   <span className="font-medium text-sm">{f.title}</span>
-                  <Badge variant={f.status === "published" ? "default" : f.status === "archived" ? "secondary" : "outline"}>{f.status}</Badge>
+                  <Badge variant={f.status === "published" ? "default" : f.status === "archived" ? "secondary" : "outline"}>{t(`forecasts.status.${f.status}`, { defaultValue: f.status })}</Badge>
                 </div>
                 <div className="mt-1 text-xs text-muted-foreground">
-                  Revenue +{f.base_revenue_growth_pct}% · Margin {f.base_margin_pct}% · Footfall +{f.footfall_uplift_pct}% · {f.horizon_months}mo horizon
+                  {t("forecasts.summary", { rev: f.base_revenue_growth_pct, margin: f.base_margin_pct, footfall: f.footfall_uplift_pct, months: f.horizon_months })}
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 <Button variant="ghost" size="sm" onClick={() => del.mutate(f.id)} disabled={del.isPending}>
                   <Trash2 className="h-4 w-4 text-destructive" />
                 </Button>
-                <Button size="sm" onClick={() => onOpen(f.id)}>Open</Button>
+                <Button size="sm" onClick={() => onOpen(f.id)}>{t("forecasts.open")}</Button>
               </div>
             </div>
           ))}
@@ -83,6 +85,7 @@ function ForecastList({ onNew, onOpen }: { onNew: () => void; onOpen: (id: strin
 }
 
 function NewForecast({ onBack, onCreated }: { onBack: () => void; onCreated: (id: string) => void }) {
+  const { t } = useTranslation();
   const qc = useQueryClient();
     const [form, setForm] = useState({
     title: "",
@@ -96,7 +99,7 @@ function NewForecast({ onBack, onCreated }: { onBack: () => void; onCreated: (id
   });
   const mut = useMutation({
     mutationFn: () => createForecast(form),
-    onSuccess: (r) => { toast.success("Scenario created"); void qc.invalidateQueries({ queryKey: ["forecasts"] }); onCreated(r.id); },
+    onSuccess: (r) => { toast.success(t("forecasts.created")); void qc.invalidateQueries({ queryKey: ["forecasts"] }); onCreated(r.id); },
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -104,30 +107,30 @@ function NewForecast({ onBack, onCreated }: { onBack: () => void; onCreated: (id
     <div className="space-y-5">
       <div className="flex items-center gap-2">
         <Button variant="ghost" size="sm" onClick={onBack}><ArrowLeft className="h-4 w-4" /></Button>
-        <h1 className="text-2xl font-semibold text-foreground">New Forecast Scenario</h1>
+        <h1 className="text-2xl font-semibold text-foreground">{t("forecasts.newTitle")}</h1>
       </div>
       <form className="max-w-2xl space-y-5 rounded-lg border border-border bg-card p-5" onSubmit={(e) => { e.preventDefault(); mut.mutate(); }}>
         <div className="space-y-2">
-          <Label>Title</Label>
-          <Input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="e.g. Ramadan 2026 optimistic" maxLength={200} />
+          <Label>{t("forecasts.titleLabel")}</Label>
+          <Input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder={t("forecasts.titlePlaceholder")} maxLength={200} />
         </div>
         <div className="space-y-2">
-          <Label>Description</Label>
-          <Textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="Context for this scenario…" />
+          <Label>{t("common.description")}</Label>
+          <Textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder={t("forecasts.descPlaceholder")} />
         </div>
-        <AssumptionSlider label="Revenue growth %" value={form.base_revenue_growth_pct} min={-50} max={100} step={1} onChange={(v) => setForm((f) => ({ ...f, base_revenue_growth_pct: v }))} />
-        <AssumptionSlider label="Target margin %" value={form.base_margin_pct} min={0} max={60} step={1} onChange={(v) => setForm((f) => ({ ...f, base_margin_pct: v }))} />
-        <AssumptionSlider label="Footfall uplift %" value={form.footfall_uplift_pct} min={-30} max={100} step={1} onChange={(v) => setForm((f) => ({ ...f, footfall_uplift_pct: v }))} />
-        <AssumptionSlider label="OpEx change %" value={form.opex_change_pct} min={-20} max={50} step={1} onChange={(v) => setForm((f) => ({ ...f, opex_change_pct: v }))} />
+        <AssumptionSlider label={t("forecasts.revenueGrowth")} value={form.base_revenue_growth_pct} min={-50} max={100} step={1} onChange={(v) => setForm((f) => ({ ...f, base_revenue_growth_pct: v }))} />
+        <AssumptionSlider label={t("forecasts.targetMargin")} value={form.base_margin_pct} min={0} max={60} step={1} onChange={(v) => setForm((f) => ({ ...f, base_margin_pct: v }))} />
+        <AssumptionSlider label={t("forecasts.footfall")} value={form.footfall_uplift_pct} min={-30} max={100} step={1} onChange={(v) => setForm((f) => ({ ...f, footfall_uplift_pct: v }))} />
+        <AssumptionSlider label={t("forecasts.opex")} value={form.opex_change_pct} min={-20} max={50} step={1} onChange={(v) => setForm((f) => ({ ...f, opex_change_pct: v }))} />
         <div className="space-y-2">
-          <Label>CapEx plan (QAR)</Label>
+          <Label>{t("forecasts.capex", { qar: t("common.qar") })}</Label>
           <Input type="number" value={form.capex_plan_aed} onChange={(e) => setForm((f) => ({ ...f, capex_plan_aed: Number(e.target.value) }))} />
         </div>
         <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={onBack} type="button">Cancel</Button>
+          <Button variant="outline" onClick={onBack} type="button">{t("common.cancel")}</Button>
           <Button type="submit" disabled={mut.isPending || !form.title.trim()}>
             {mut.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            Create scenario
+            {t("forecasts.create")}
           </Button>
         </div>
       </form>
@@ -148,6 +151,7 @@ function AssumptionSlider({ label, value, min, max, step, onChange }: { label: s
 }
 
 function ForecastDetail({ id, onBack }: { id: string; onBack: () => void }) {
+  const { t } = useTranslation();
         const qc = useQueryClient();
   const { data, isLoading } = useQuery({ queryKey: ["forecast", id], queryFn: () => getForecast({ id }) });
   const [editing, setEditing] = useState(false);
@@ -155,13 +159,13 @@ function ForecastDetail({ id, onBack }: { id: string; onBack: () => void }) {
 
   const updateMut = useMutation({
     mutationFn: (patch: typeof form) => updateForecast({ id, ...patch }),
-    onSuccess: () => { toast.success("Updated"); setEditing(false); void qc.invalidateQueries({ queryKey: ["forecast", id] }); void qc.invalidateQueries({ queryKey: ["forecasts"] }); },
+    onSuccess: () => { toast.success(t("forecasts.updated")); setEditing(false); void qc.invalidateQueries({ queryKey: ["forecast", id] }); void qc.invalidateQueries({ queryKey: ["forecasts"] }); },
     onError: (e: Error) => toast.error(e.message),
   });
 
   const genMut = useMutation({
     mutationFn: () => generateForecastCommentary({ id }),
-    onSuccess: () => { toast.success("Commentary generated"); void qc.invalidateQueries({ queryKey: ["forecast", id] }); },
+    onSuccess: () => { toast.success(t("forecasts.commentaryGenerated")); void qc.invalidateQueries({ queryKey: ["forecast", id] }); },
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -176,28 +180,28 @@ function ForecastDetail({ id, onBack }: { id: string; onBack: () => void }) {
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={onBack}><ArrowLeft className="h-4 w-4" /></Button>
           <div>
-            <h1 className="text-2xl font-semibold text-foreground">{f?.title ?? "Forecast"}</h1>
-            <p className="text-sm text-muted-foreground">{f?.description || "No description."}</p>
+            <h1 className="text-2xl font-semibold text-foreground">{f?.title ?? t("nav.forecasts")}</h1>
+            <p className="text-sm text-muted-foreground">{f?.description || t("forecasts.noDescription")}</p>
           </div>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => genMut.mutate()} disabled={genMut.isPending}>
             {genMut.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
-            AI commentary
+            {t("forecasts.aiCommentary")}
           </Button>
-          <Button variant="outline" onClick={() => { setForm({ base_revenue_growth_pct: f?.base_revenue_growth_pct ?? 0, base_margin_pct: f?.base_margin_pct ?? 20, footfall_uplift_pct: f?.footfall_uplift_pct ?? 0, opex_change_pct: f?.opex_change_pct ?? 0, capex_plan_aed: f?.capex_plan_aed ?? 0 }); setEditing(true); }}>Edit assumptions</Button>
+          <Button variant="outline" onClick={() => { setForm({ base_revenue_growth_pct: f?.base_revenue_growth_pct ?? 0, base_margin_pct: f?.base_margin_pct ?? 20, footfall_uplift_pct: f?.footfall_uplift_pct ?? 0, opex_change_pct: f?.opex_change_pct ?? 0, capex_plan_aed: f?.capex_plan_aed ?? 0 }); setEditing(true); }}>{t("forecasts.editAssumptions")}</Button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <Kpi label="Projected revenue" value={fmtQar(totalRev)} />
-        <Kpi label="Projected EBITDA" value={fmtQar(totalEbitda)} />
-        <Kpi label="Branches" value={`${results.length}`} />
+        <Kpi label={t("forecasts.projectedRevenue")} value={fmtQar(totalRev)} />
+        <Kpi label={t("forecasts.projectedEbitda")} value={fmtQar(totalEbitda)} />
+        <Kpi label={t("forecasts.branches")} value={`${results.length}`} />
       </div>
 
       {f?.ai_commentary && (
         <div className="rounded-lg border border-border bg-card p-4">
-          <h3 className="text-sm font-medium text-foreground">AI Commentary</h3>
+          <h3 className="text-sm font-medium text-foreground">{t("forecasts.aiTitle")}</h3>
           <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">{f.ai_commentary}</p>
         </div>
       )}
@@ -206,15 +210,15 @@ function ForecastDetail({ id, onBack }: { id: string; onBack: () => void }) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Branch</TableHead>
-              <TableHead className="text-right">Projected revenue</TableHead>
-              <TableHead className="text-right">Projected EBITDA</TableHead>
-              <TableHead className="text-right">Margin %</TableHead>
-              <TableHead className="text-right">Footfall</TableHead>
+              <TableHead>{t("common.branch")}</TableHead>
+              <TableHead className="text-right">{t("forecasts.projectedRevenue")}</TableHead>
+              <TableHead className="text-right">{t("forecasts.projectedEbitda")}</TableHead>
+              <TableHead className="text-right">{t("forecasts.marginPct")}</TableHead>
+              <TableHead className="text-right">{t("forecasts.footfall")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {isLoading && <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">Loading…</TableCell></TableRow>}
+            {isLoading && <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">{t("common.loading")}</TableCell></TableRow>}
             {results.map((r) => (
               <TableRow key={r.id}>
                 <TableCell className="font-medium">{r.locations?.name ?? "—"}</TableCell>
@@ -230,16 +234,16 @@ function ForecastDetail({ id, onBack }: { id: string; onBack: () => void }) {
 
       {editing && (
         <div className="rounded-lg border border-border bg-card p-5 space-y-4">
-          <h3 className="text-sm font-medium">Edit assumptions</h3>
-          <AssumptionSlider label="Revenue growth %" value={form.base_revenue_growth_pct} min={-50} max={100} step={1} onChange={(v) => setForm((f) => ({ ...f, base_revenue_growth_pct: v }))} />
-          <AssumptionSlider label="Target margin %" value={form.base_margin_pct} min={0} max={60} step={1} onChange={(v) => setForm((f) => ({ ...f, base_margin_pct: v }))} />
-          <AssumptionSlider label="Footfall uplift %" value={form.footfall_uplift_pct} min={-30} max={100} step={1} onChange={(v) => setForm((f) => ({ ...f, footfall_uplift_pct: v }))} />
-          <AssumptionSlider label="OpEx change %" value={form.opex_change_pct} min={-20} max={50} step={1} onChange={(v) => setForm((f) => ({ ...f, opex_change_pct: v }))} />
+          <h3 className="text-sm font-medium">{t("forecasts.editAssumptions")}</h3>
+          <AssumptionSlider label={t("forecasts.revenueGrowth")} value={form.base_revenue_growth_pct} min={-50} max={100} step={1} onChange={(v) => setForm((f) => ({ ...f, base_revenue_growth_pct: v }))} />
+          <AssumptionSlider label={t("forecasts.targetMargin")} value={form.base_margin_pct} min={0} max={60} step={1} onChange={(v) => setForm((f) => ({ ...f, base_margin_pct: v }))} />
+          <AssumptionSlider label={t("forecasts.footfall")} value={form.footfall_uplift_pct} min={-30} max={100} step={1} onChange={(v) => setForm((f) => ({ ...f, footfall_uplift_pct: v }))} />
+          <AssumptionSlider label={t("forecasts.opex")} value={form.opex_change_pct} min={-20} max={50} step={1} onChange={(v) => setForm((f) => ({ ...f, opex_change_pct: v }))} />
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setEditing(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setEditing(false)}>{t("common.cancel")}</Button>
             <Button onClick={() => updateMut.mutate(form)} disabled={updateMut.isPending}>
               {updateMut.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              Recalculate
+              {t("forecasts.recalculate")}
             </Button>
           </div>
         </div>

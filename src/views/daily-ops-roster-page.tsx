@@ -235,12 +235,18 @@ function DailyOpsRosterPage() {
     <div className="flex flex-wrap gap-2">
       {canUpload && (
         <>
+          <Button variant="outline" size="sm" asChild>
+            <Link href="/people/attendance/roster">
+              <Upload className="mr-1.5 h-3.5 w-3.5" />
+              {t("dailyOps.roster.attendanceTallyCta")}
+            </Link>
+          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button type="button" variant="outline" size="sm">
-                <Download className="mr-1.5 h-3.5 w-3.5" />
+                <Download />
                 {t("dailyOps.roster.downloadSample")}
-                <ChevronDown className="ml-1 h-3.5 w-3.5 opacity-60" />
+                <ChevronDown className="opacity-70" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -459,6 +465,7 @@ function DailyOpsRosterPage() {
 
         <TabsContent value="uploads" className="mt-4 space-y-3">
           <p className="text-xs text-muted-foreground">{t("dailyOps.roster.uploadHint")}</p>
+          <p className="text-xs text-muted-foreground">{t("dailyOps.roster.attendanceTallyHint")}</p>
           {canUpload && (
             <p className="text-xs text-muted-foreground">
               {t("dailyOps.roster.uploadMonthHint", { month: yearMonth })}

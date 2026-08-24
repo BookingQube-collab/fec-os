@@ -135,7 +135,7 @@ export function E3ComplianceItemFormDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="font-display text-[#0B1F3A]">
+          <DialogTitle>
             {isEdit ? t("e3Tracker.editItem") : t("e3Tracker.addItem")}
           </DialogTitle>
         </DialogHeader>

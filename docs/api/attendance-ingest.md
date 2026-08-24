@@ -325,13 +325,13 @@ Local development:
 curl -X POST "http://localhost:3000/api/public/attendance-ingest" \
   -H "X-API-Key: 2ad345a0b0a401a84a92e1962bb9f715b6e10e776fad9bbcd005db1cb8ab04ba" \
   -H "Content-Type: application/json" \
-  -d @sample-attendance.json
+r\gh'•\gh'\gh'\gh'•\gh'•\gh## Location name mapping
 ```
+  -d @sample-attendance.json
 
-## Location name mapping
-
-Friendly names from external systems are resolved to FEC `locations.code`:
-
+Friendly names from external systems are r\gh'•f \gfh'•\gh'esolved to FEC `locations.code`:
+\sgh'
+\gh
 | Friendly name (examples) | FEC code |
 |--------------------------|----------|
 | Urban Arena - Doha Mall | `UA-DM` |
@@ -381,5 +381,6 @@ Requires `ATTENDANCE_INGEST_API_KEY` in `.env.local`. Targets production (`https
 
 ## Related
 
-- Biometric device sync (raw punches): `POST /api/public/attendance-sync` (uses `CRON_SECRET`)
+- Biometric device sync (raw punches from a LAN agent): `POST /api/public/attendance-sync` (uses `CRON_SECRET`)
+- ZKTeco ADMS / iClock push (BioPro SA40 Cloud Server): `GET/POST /iclock/cdata` — map device SN in People → Time & Attendance → Settings; see [attendance-hr.md](../attendance-hr.md)
 - CSV punch import (UI): People → Attendance (authenticated, `attendance.import` capability)

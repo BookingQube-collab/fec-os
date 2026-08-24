@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { Code2, Loader2, Play, Search } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -37,11 +38,11 @@ const METHOD_VARIANT: Record<HttpMethod, "default" | "secondary" | "destructive"
   DELETE: "destructive",
 };
 
-const AUTH_LABELS = {
-  session: "Session",
-  api_key: "API Key",
-  cron_secret: "CRON_SECRET",
-  none: "None",
+const AUTH_LABEL_KEYS = {
+  session: "apiExplorer.authLabels.session",
+  api_key: "apiExplorer.authLabels.api_key",
+  cron_secret: "apiExplorer.authLabels.cron_secret",
+  none: "apiExplorer.authLabels.none",
 } as const;
 
 interface TryState {
@@ -93,6 +94,7 @@ function formatJson(text: string): string {
 }
 
 function ApiExplorerPage() {
+  const { t } = useTranslation();
   const roles = useUserRoles();
   const allowed = canAccessApiExplorer(roles);
 
@@ -192,7 +194,7 @@ function ApiExplorerPage() {
             headers: {},
             body: payload.error ? JSON.stringify({ error: payload.error }, null, 2) : "",
             durationMs: Math.round(performance.now() - started),
-            error: payload.error ?? "Proxy request failed",
+            error: payload.error ?? t("apiExplorer.proxyFailed"),
           });
           return;
         }
@@ -247,7 +249,7 @@ function ApiExplorerPage() {
         headers: {},
         body: "",
         durationMs: Math.round(performance.now() - started),
-        error: e instanceof Error ? e.message : "Request failed",
+        error: e instanceof Error ? e.message : t("apiExplorer.requestFailed"),
       });
     } finally {
       setSending(false);
@@ -257,7 +259,7 @@ function ApiExplorerPage() {
   if (!allowed) {
     return (
       <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-        API Explorer requires CEO, COO, Regional Ops, or admin access.
+        {t("apiExplorer.forbidden")}
       </div>
     );
   }
@@ -269,11 +271,9 @@ function ApiExplorerPage() {
           <Code2 className="h-5 w-5" />
         </div>
         <div className="min-w-0 flex-1">
-          <h1 className="text-xl font-semibold tracking-tight">API Explorer</h1>
+          <h1 className="text-xl font-semibold tracking-tight">{t("apiExplorer.title")}</h1>
           <p className="text-xs text-muted-foreground">
-            Browse and test all {API_ENDPOINT_COUNT} FEC-OS API endpoints. Session auth uses your
-            current login. API key and cron endpoints are proxied server-side — placeholders in
-            headers are replaced automatically; secrets never leave the server.
+            {t("apiExplorer.subtitle", { count: API_ENDPOINT_COUNT })}
           </p>
         </div>
       </header>
@@ -284,17 +284,17 @@ function ApiExplorerPage() {
             <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
               className="pl-8"
-              placeholder="Search path, method, description…"
+              placeholder={t("apiExplorer.searchPlaceholder")}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
           <Select value={categoryFilter} onValueChange={setCategoryFilter}>
             <SelectTrigger>
-              <SelectValue placeholder="All categories" />
+              <SelectValue placeholder={t("common.allCategories")} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All categories</SelectItem>
+              <SelectItem value="all">{t("common.allCategories")}</SelectItem>
               {API_CATEGORIES.map((c) => (
                 <SelectItem key={c.id} value={c.id}>
                   {c.label}
@@ -305,7 +305,7 @@ function ApiExplorerPage() {
 
           <div className="max-h-[calc(100vh-14rem)] overflow-y-auto rounded-lg border border-border bg-card">
             {grouped.length === 0 ? (
-              <p className="p-4 text-sm text-muted-foreground">No endpoints match your filters.</p>
+              <p className="p-4 text-sm text-muted-foreground">{t("apiExplorer.empty")}</p>
             ) : (
               grouped.map((group) => (
                 <div key={group.id} className="border-b border-border last:border-b-0">
@@ -327,7 +327,7 @@ function ApiExplorerPage() {
                               {ep.method}
                             </Badge>
                             <Badge variant="outline" className="text-[10px]">
-                              {AUTH_LABELS[ep.authType]}
+                              {t(AUTH_LABEL_KEYS[ep.authType])}
                             </Badge>
                           </div>
                           <p className="mt-1 truncate font-mono text-xs">{ep.path}</p>
@@ -354,11 +354,10 @@ function ApiExplorerPage() {
                 </div>
                 <p className="mt-2 text-sm text-muted-foreground">{selected.description}</p>
                 <p className="mt-1 text-xs">
-                  <span className="font-medium">Auth:</span> {selected.authDetail}
+                  <span className="font-medium">{t("apiExplorer.auth")}:</span> {selected.authDetail}
                   {usesApiExplorerProxy(selected.authType) ? (
                     <span className="text-muted-foreground">
-                      {" "}
-                      — injected server-side when you send from Try it
+                      {t("apiExplorer.proxyHint")}
                     </span>
                   ) : null}
                 </p>
@@ -366,14 +365,14 @@ function ApiExplorerPage() {
 
               <Tabs defaultValue="try">
                 <TabsList>
-                  <TabsTrigger value="try">Try it</TabsTrigger>
-                  <TabsTrigger value="response">Response</TabsTrigger>
+                  <TabsTrigger value="try">{t("apiExplorer.tryIt")}</TabsTrigger>
+                  <TabsTrigger value="response">{t("apiExplorer.response")}</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="try" className="space-y-3 rounded-lg border border-border bg-card p-4">
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="space-y-1.5">
-                      <Label htmlFor="api-method">Method</Label>
+                      <Label htmlFor="api-method">{t("apiExplorer.method")}</Label>
                       <Select
                         value={activeTry.method}
                         onValueChange={(v) =>
@@ -393,7 +392,7 @@ function ApiExplorerPage() {
                       </Select>
                     </div>
                     <div className="space-y-1.5">
-                      <Label htmlFor="api-path">Path</Label>
+                      <Label htmlFor="api-path">{t("apiExplorer.path")}</Label>
                       <Input
                         id="api-path"
                         className="font-mono text-sm"
@@ -406,7 +405,7 @@ function ApiExplorerPage() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="api-query">Query string</Label>
+                    <Label htmlFor="api-query">{t("apiExplorer.query")}</Label>
                     <Input
                       id="api-query"
                       className="font-mono text-sm"
@@ -419,7 +418,7 @@ function ApiExplorerPage() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="api-headers">Headers (JSON)</Label>
+                    <Label htmlFor="api-headers">{t("apiExplorer.headersJson")}</Label>
                     <Textarea
                       id="api-headers"
                       className="min-h-[100px] font-mono text-xs"
@@ -432,7 +431,7 @@ function ApiExplorerPage() {
 
                   {activeTry.method !== "GET" && activeTry.method !== "DELETE" && (
                     <div className="space-y-1.5">
-                      <Label htmlFor="api-body">Request body (JSON)</Label>
+                      <Label htmlFor="api-body">{t("apiExplorer.bodyJson")}</Label>
                       <Textarea
                         id="api-body"
                         className="min-h-[180px] font-mono text-xs"
@@ -450,14 +449,14 @@ function ApiExplorerPage() {
                     ) : (
                       <Play className="mr-2 h-4 w-4" />
                     )}
-                    Send request
+                    {t("apiExplorer.send")}
                   </Button>
                 </TabsContent>
 
                 <TabsContent value="response" className="rounded-lg border border-border bg-card p-4">
                   {!response ? (
                     <p className="text-sm text-muted-foreground">
-                      Send a request to see status, headers, and body here.
+                      {t("apiExplorer.noResponse")}
                     </p>
                   ) : (
                     <div className="space-y-3">
@@ -472,15 +471,15 @@ function ApiExplorerPage() {
                         </div>
                       )}
                       <div>
-                        <p className="mb-1 text-xs font-medium text-muted-foreground">Headers</p>
+                        <p className="mb-1 text-xs font-medium text-muted-foreground">{t("apiExplorer.headers")}</p>
                         <pre className="max-h-40 overflow-auto rounded-md bg-muted p-3 text-xs">
                           {JSON.stringify(response.headers, null, 2)}
                         </pre>
                       </div>
                       <div>
-                        <p className="mb-1 text-xs font-medium text-muted-foreground">Body</p>
+                        <p className="mb-1 text-xs font-medium text-muted-foreground">{t("apiExplorer.body")}</p>
                         <pre className="max-h-[28rem] overflow-auto rounded-md bg-muted p-3 text-xs">
-                          {response.body || "(empty)"}
+                          {response.body || t("apiExplorer.emptyBody")}
                         </pre>
                       </div>
                     </div>
@@ -489,7 +488,7 @@ function ApiExplorerPage() {
               </Tabs>
             </>
           ) : (
-            <p className="text-sm text-muted-foreground">Select an endpoint from the catalog.</p>
+            <p className="text-sm text-muted-foreground">{t("apiExplorer.selectEndpoint")}</p>
           )}
         </div>
       </div>

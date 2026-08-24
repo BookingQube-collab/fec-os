@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { CompliancePageShell, KpiStrip } from "@/components/compliance/compliance-page-shell";
 import { useComplianceCalendarMonth } from "@/hooks/queries/useComplianceSubpages";
@@ -9,6 +10,7 @@ import { useReportExport } from "@/hooks/use-report-export";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 function ComplianceCalendarItemsPage() {
+  const { t, i18n } = useTranslation();
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -17,18 +19,18 @@ function ComplianceCalendarItemsPage() {
 
   const { exportPdf, exportExcel } = useReportExport({
     pageKey: "ComplianceCalendar",
-    title: "Expiry Calendar",
-    venueLabel: "All",
+    title: t("complianceHub.calendar.itemsTitle"),
+    venueLabel: t("common.all"),
     filters: { year: String(year), month: String(month) },
     kpis: [
-      { label: "Renewals this month", value: data?.count ?? 0 },
-      { label: "Renewal cost", value: `QAR ${(data?.renewal_cost ?? 0).toLocaleString()}` },
+      { label: t("complianceHub.calendar.renewalsThisMonth"), value: data?.count ?? 0 },
+      { label: t("complianceHub.calendar.renewalCost"), value: `QAR ${(data?.renewal_cost ?? 0).toLocaleString()}` },
     ],
     columns: [
-      { key: "item_name", header: "Item" },
-      { key: "domain", header: "Domain" },
-      { key: "governing_date", header: "Date", format: "date" },
-      { key: "renewal_cost", header: "Cost", format: "qar" },
+      { key: "item_name", header: t("amc.columns.item") },
+      { key: "domain", header: t("amc.columns.domain") },
+      { key: "governing_date", header: t("amc.columns.date"), format: "date" },
+      { key: "renewal_cost", header: t("amc.columns.cost"), format: "qar" },
     ],
     rows: (data?.items ?? []) as Record<string, unknown>[],
   });
@@ -38,8 +40,8 @@ function ComplianceCalendarItemsPage() {
 
   return (
     <CompliancePageShell
-      title="Expiry Calendar"
-      subtitle="Renewal dates from the compliance register"
+      title={t("complianceHub.calendar.itemsTitle")}
+      subtitle={t("complianceHub.calendar.itemsSubtitle")}
       onExportPdf={exportPdf}
       onExportExcel={exportExcel}
       filters={
@@ -50,16 +52,16 @@ function ComplianceCalendarItemsPage() {
           </Select>
           <Select value={String(month)} onValueChange={(v) => setMonth(Number(v))}>
             <SelectTrigger className="w-[120px] bg-zinc-800 text-zinc-50"><SelectValue /></SelectTrigger>
-            <SelectContent>{Array.from({ length: 12 }, (_, i) => i + 1).map((m) => <SelectItem key={m} value={String(m)}>{new Date(2000, m - 1).toLocaleString("en", { month: "long" })}</SelectItem>)}</SelectContent>
+            <SelectContent>{Array.from({ length: 12 }, (_, i) => i + 1).map((m) => <SelectItem key={m} value={String(m)}>{new Date(2000, m - 1).toLocaleString(i18n.language === "ar" ? "ar-QA" : "en", { month: "long" })}</SelectItem>)}</SelectContent>
           </Select>
         </>
       }
     >
       <KpiStrip items={[
-        { label: "This month", value: data?.count ?? "—" },
-        { label: "Renewal cost", value: `QAR ${(data?.renewal_cost ?? 0).toLocaleString()}` },
+        { label: t("complianceHub.calendar.thisMonth"), value: data?.count ?? "—" },
+        { label: t("complianceHub.calendar.renewalCost"), value: `QAR ${(data?.renewal_cost ?? 0).toLocaleString()}` },
       ]} />
-      {isLoading ? <p className="text-sm text-muted-foreground">Loading…</p> : (
+      {isLoading ? <p className="text-sm text-muted-foreground">{t("common.loading")}</p> : (
         <div className="grid grid-cols-7 gap-1 text-center text-xs">
           {Array.from({ length: daysInMonth }, (_, i) => {
             const d = `${year}-${String(month).padStart(2, "0")}-${String(i + 1).padStart(2, "0")}`;

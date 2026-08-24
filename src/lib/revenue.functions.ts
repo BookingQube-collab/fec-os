@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 
+import { AI_UNAVAILABLE_MESSAGE, completeTextViaGateway } from "@/lib/ai/complete-json";
 import { syncBookingQubeRevenueToDb } from "@/lib/bookingqube-sync";
 import { monthStartInQatar, shouldUseMockApi, todayInQatar } from "@/lib/integrations/bookingqube";
 import { canUserDo, type AppRole } from "@/lib/rbac";
@@ -275,27 +276,10 @@ export const analyzeLeakageCase = createAuthenticatedAction(
       .single();
     if (error) throw error;
 
-    const apiKey = process.env.LOVABLE_API_KEY;
-    let analysis = "AI RCA unavailable (no LOVABLE_API_KEY).";
-    if (apiKey) {
-      const prompt = `You are a revenue assurance analyst. Write a concise root-cause analysis (max 150 words) for this leakage case with 3 recommended actions.\n\n${JSON.stringify(leakCase, null, 2)}`;
-      try {
-        const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey },
-          body: JSON.stringify({
-            model: "google/gemini-3-flash-preview",
-            messages: [{ role: "user", content: prompt }],
-          }),
-        });
-        if (resp.ok) {
-          const json = (await resp.json()) as { choices?: Array<{ message?: { content?: string } }> };
-          analysis = json.choices?.[0]?.message?.content?.trim() ?? analysis;
-        }
-      } catch (e) {
-        analysis = `AI call failed: ${(e as Error).message}`;
-      }
-    }
+    const prompt = `You are a revenue assurance analyst. Write a concise root-cause analysis (max 150 words) for this leakage case with 3 recommended actions.\n\n${JSON.stringify(leakCase, null, 2)}`;
+    const analysis =
+      (await completeTextViaGateway([{ role: "user", content: prompt }], { moduleSource: "revenue.leakage_rca" })) ??
+      AI_UNAVAILABLE_MESSAGE;
 
     await context.supabase
       .from("leakage_cases")
@@ -306,7 +290,7 @@ export const analyzeLeakageCase = createAuthenticatedAction(
       kind: "leakage_rca",
       title: `Leakage RCA: ${leakCase.category}`,
       content: { case_id: data.caseId, analysis },
-      model: "google/gemini-3-flash-preview",
+      model: "fec-os-gateway",
       location_id: leakCase.location_id,
       created_by: context.userId,
     });
@@ -333,29 +317,10 @@ export const generateForecastNarrative = createAuthenticatedAction(
     const total14 = forecast14.reduce((a, b) => a + b, 0);
     const total90 = forecast90.reduce((a, b) => a + b, 0);
 
-    const apiKey = process.env.LOVABLE_API_KEY;
-    let narrative = "AI forecast narrative unavailable (no LOVABLE_API_KEY).";
-    if (apiKey) {
-      const prompt = `You are a revenue forecasting analyst for a Qatar family entertainment centre. Given the time series and naive baseline forecasts below, write a 150-word narrative covering: (1) Whether the trajectory is healthy, (2) Key risks to the 14d and 90d numbers (seasonality, surge, capacity), (3) Two specific revenue-protection actions. Be concrete and use QAR.\n\nLast ${n} days:\n${JSON.stringify(series.slice(-30), null, 2)}\n\nBaseline forecast totals: 14d = QAR ${Math.round(total14)}, 90d = QAR ${Math.round(total90)}.`;
-      try {
-        const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey },
-          body: JSON.stringify({
-            model: "google/gemini-3-flash-preview",
-            messages: [{ role: "user", content: prompt }],
-          }),
-        });
-        if (resp.ok) {
-          const json = (await resp.json()) as { choices?: Array<{ message?: { content?: string } }> };
-          narrative = json.choices?.[0]?.message?.content?.trim() ?? narrative;
-        } else {
-          narrative = `AI gateway error ${resp.status}.`;
-        }
-      } catch (e) {
-        narrative = `AI call failed: ${(e as Error).message}`;
-      }
-    }
+    const prompt = `You are a revenue forecasting analyst for a Qatar family entertainment centre. Given the time series and naive baseline forecasts below, write a 150-word narrative covering: (1) Whether the trajectory is healthy, (2) Key risks to the 14d and 90d numbers (seasonality, surge, capacity), (3) Two specific revenue-protection actions. Be concrete and use QAR.\n\nLast ${n} days:\n${JSON.stringify(series.slice(-30), null, 2)}\n\nBaseline forecast totals: 14d = QAR ${Math.round(total14)}, 90d = QAR ${Math.round(total90)}.`;
+    const narrative =
+      (await completeTextViaGateway([{ role: "user", content: prompt }], { moduleSource: "revenue.forecast_narrative" })) ??
+      AI_UNAVAILABLE_MESSAGE;
 
     const { data: row, error: insErr } = await context.supabase
       .from("ai_artifacts")
@@ -363,7 +328,7 @@ export const generateForecastNarrative = createAuthenticatedAction(
         kind: "forecast",
         title: `Revenue forecast ${new Date().toISOString().slice(0, 10)}`,
         content: { total_14d: total14, total_90d: total90, narrative },
-        model: "google/gemini-3-flash-preview",
+        model: "fec-os-gateway",
         location_id: data.locationId ?? null,
         created_by: context.userId,
       })

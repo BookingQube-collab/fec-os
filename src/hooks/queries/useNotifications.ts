@@ -1,9 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { apiGet } from "@/lib/api-client";
+import type { ActionInboxPayload } from "@/lib/notifications/inbox";
 import type { EscalationRow, NotificationRow } from "@/lib/queries/module-queries.core";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
+
+const INBOX_POLL_MS = 45_000;
 
 export function useEscalations(options?: { enabled?: boolean }) {
   return useQuery({
@@ -11,6 +14,8 @@ export function useEscalations(options?: { enabled?: boolean }) {
     queryFn: () => apiGet<EscalationRow[]>("/api/notifications", { kind: "escalations" }),
     staleTime: STALE.notifications,
     enabled: options?.enabled ?? true,
+    refetchOnMount: "always",
+    refetchInterval: options?.enabled === false ? false : INBOX_POLL_MS,
   });
 }
 
@@ -28,5 +33,19 @@ export function useNotifications(
       }),
     staleTime: STALE.notifications,
     enabled: options?.enabled ?? true,
+  });
+}
+
+export function useActionInbox(userId?: string | null, options?: { enabled?: boolean }) {
+  const enabled = (options?.enabled ?? true) && Boolean(userId);
+  return useQuery({
+    queryKey: queryKeys.notifications.inbox(userId),
+    queryFn: () => apiGet<ActionInboxPayload>("/api/notifications", { kind: "inbox" }),
+    staleTime: 15_000,
+    enabled,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
+    refetchInterval: enabled ? INBOX_POLL_MS : false,
+    retry: 2,
   });
 }

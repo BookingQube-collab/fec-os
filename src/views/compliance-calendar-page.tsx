@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { CalendarDays } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import {
   listComplianceCalendarEvents,
@@ -13,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 function ComplianceCalendarPage() {
+  const { t } = useTranslation();
   const locationId = useAppStore((s) => s.currentLocationId);
   const month = new Date().toISOString().slice(0, 7);
 
@@ -36,44 +38,44 @@ function ComplianceCalendarPage() {
           <CalendarDays className="h-5 w-5" />
         </div>
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">Compliance Calendar</h1>
-          <p className="text-xs text-muted-foreground">Legal renewals, recurring inspections, and branch compliance risk.</p>
+          <h1 className="text-xl font-semibold tracking-tight">{t("complianceHub.calendar.title")}</h1>
+          <p className="text-xs text-muted-foreground">{t("complianceHub.calendar.subtitle")}</p>
         </div>
       </header>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <div className="rounded-lg border border-border bg-card p-4">
-          <div className="text-xs text-muted-foreground">Overdue items</div>
+          <div className="text-xs text-muted-foreground">{t("complianceHub.calendar.overdue")}</div>
           <div className="mt-1 text-2xl font-semibold rag-red">{risk?.total_overdue ?? "—"}</div>
         </div>
         <div className="rounded-lg border border-border bg-card p-4">
-          <div className="text-xs text-muted-foreground">Due soon (30d)</div>
+          <div className="text-xs text-muted-foreground">{t("complianceHub.calendar.dueSoon")}</div>
           <div className="mt-1 text-2xl font-semibold rag-amber">{risk?.total_due_soon ?? "—"}</div>
         </div>
         <div className="rounded-lg border border-border bg-card p-4">
-          <div className="text-xs text-muted-foreground">Recurring tasks</div>
+          <div className="text-xs text-muted-foreground">{t("complianceHub.calendar.recurring")}</div>
           <div className="mt-1 text-2xl font-semibold">{recurring?.length ?? "—"}</div>
         </div>
       </div>
 
       <div className="rounded-lg border border-border bg-card">
         <div className="border-b border-border px-4 py-3">
-          <h2 className="text-sm font-medium">This month</h2>
+          <h2 className="text-sm font-medium">{t("complianceHub.calendar.thisMonth")}</h2>
         </div>
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Title</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>Due date</TableHead>
-              <TableHead>Status</TableHead>
+              <TableHead>{t("complianceHub.calendar.eventTitle")}</TableHead>
+              <TableHead>{t("complianceHub.calendar.eventType")}</TableHead>
+              <TableHead>{t("complianceHub.calendar.dueDate")}</TableHead>
+              <TableHead>{t("common.status")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground">Loading…</TableCell></TableRow>
+              <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground">{t("common.loading")}</TableCell></TableRow>
             ) : !events?.length ? (
-              <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground">No calendar events this month. Recurring tasks are seeded per branch.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground">{t("complianceHub.calendar.empty")}</TableCell></TableRow>
             ) : (
               events.map((e) => (
                 <TableRow key={e.id}>
@@ -84,7 +86,7 @@ function ComplianceCalendarPage() {
                     <Badge variant="outline" className={
                       e.computed_status === "overdue" ? "rag-red" :
                       e.computed_status === "due_soon" ? "rag-amber" : "rag-green"
-                    }>{e.computed_status}</Badge>
+                    }>{t(`complianceHub.calendar.status.${e.computed_status}`, { defaultValue: e.computed_status })}</Badge>
                   </TableCell>
                 </TableRow>
               ))

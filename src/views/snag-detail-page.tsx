@@ -9,6 +9,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 
 import { useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { ArrowLeft, Camera, Hammer, Loader2, Pencil } from "lucide-react";
 
@@ -111,6 +112,7 @@ async function fileToBase64(file: File): Promise<string> {
 
 
 function SnagDetailPage() {
+  const { t } = useTranslation();
 
   const params = useParams();
 
@@ -156,7 +158,7 @@ function SnagDetailPage() {
 
     onSuccess: () => {
 
-      toast.success("Status updated");
+      toast.success(t("snags.statusUpdated"));
 
       void qc.invalidateQueries({ queryKey: ["snag", id] });
 
@@ -202,7 +204,7 @@ function SnagDetailPage() {
 
     onSuccess: () => {
 
-      toast.success("Snag updated");
+      toast.success(t("snags.updated"));
 
       setEditing(false);
 
@@ -230,7 +232,7 @@ function SnagDetailPage() {
       });
     },
     onSuccess: () => {
-      toast.success("Photo uploaded");
+      toast.success(t("snags.photoUploaded"));
       void qc.invalidateQueries({ queryKey: ["snag", id] });
     },
     onError: (e: Error) => toast.error(e.message),
@@ -280,9 +282,9 @@ function SnagDetailPage() {
 
 
 
-  if (isLoading) return <p className="text-muted-foreground">Loading snag…</p>;
+  if (isLoading) return <p className="text-muted-foreground">{t("snags.loading")}</p>;
 
-  if (!snag) return <p className="text-muted-foreground">Snag not found.</p>;
+  if (!snag) return <p className="text-muted-foreground">{t("snags.notFound")}</p>;
 
 
 
@@ -312,17 +314,17 @@ function SnagDetailPage() {
 
           <h1 className="text-xl font-semibold">{snag.snag_number as string}</h1>
 
-          <p className="text-xs text-muted-foreground">{String(snag.category)} · {String(snag.area ?? "—")}</p>
+          <p className="text-xs text-muted-foreground">{t(`snags.categories.${String(snag.category)}`, { defaultValue: String(snag.category) })} · {String(snag.area ?? "—")}</p>
 
         </div>
 
-        <Badge variant="outline" className="ml-auto">{snag.status as string}</Badge>
+        <Badge variant="outline" className="ml-auto">{t(`snags.status.${String(snag.status)}`, { defaultValue: String(snag.status) })}</Badge>
 
         {canEdit && !editing && (
 
           <Button variant="outline" size="sm" onClick={startEdit}>
 
-            <Pencil className="mr-1 h-3.5 w-3.5" />Edit
+            <Pencil className="mr-1 h-3.5 w-3.5" />{t("common.edit")}
 
           </Button>
 
@@ -338,7 +340,7 @@ function SnagDetailPage() {
 
           <div>
 
-            <Label>Area</Label>
+            <Label>{t("snags.area")}</Label>
 
             <Input value={editForm.area} onChange={(e) => setEditForm((f) => ({ ...f, area: e.target.value }))} />
 
@@ -346,7 +348,7 @@ function SnagDetailPage() {
 
           <div>
 
-            <Label>Category</Label>
+            <Label>{t("common.category")}</Label>
 
             <Select value={editForm.category} onValueChange={(v) => setEditForm((f) => ({ ...f, category: v }))}>
 
@@ -354,7 +356,7 @@ function SnagDetailPage() {
 
               <SelectContent>
 
-                {CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c.replace(/_/g, " ")}</SelectItem>)}
+                {CATEGORIES.map((c) => <SelectItem key={c} value={c}>{t(`snags.categories.${c}`)}</SelectItem>)}
 
               </SelectContent>
 
@@ -364,7 +366,7 @@ function SnagDetailPage() {
 
           <div>
 
-            <Label>Description</Label>
+            <Label>{t("common.description")}</Label>
 
             <Textarea value={editForm.description} onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))} rows={4} />
 
@@ -376,7 +378,7 @@ function SnagDetailPage() {
 
               <div>
 
-                <Label>Severity</Label>
+                <Label>{t("snags.severityLabel")}</Label>
 
                 <Select value={editForm.severity} onValueChange={(v) => setEditForm((f) => ({ ...f, severity: v }))}>
 
@@ -384,7 +386,7 @@ function SnagDetailPage() {
 
                   <SelectContent>
 
-                    {["low", "medium", "high", "critical"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                    {["low", "medium", "high", "critical"].map((s) => <SelectItem key={s} value={s}>{t(`snags.severity.${s}`)}</SelectItem>)}
 
                   </SelectContent>
 
@@ -394,7 +396,7 @@ function SnagDetailPage() {
 
               <div>
 
-                <Label>Priority</Label>
+                <Label>{t("snags.priorityLabel")}</Label>
 
                 <Select value={editForm.priority} onValueChange={(v) => setEditForm((f) => ({ ...f, priority: v }))}>
 
@@ -402,7 +404,7 @@ function SnagDetailPage() {
 
                   <SelectContent>
 
-                    {["low", "normal", "high", "urgent"].map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                    {["low", "normal", "high", "urgent"].map((p) => <SelectItem key={p} value={p}>{t(`snags.priority.${p}`)}</SelectItem>)}
 
                   </SelectContent>
 
@@ -412,7 +414,7 @@ function SnagDetailPage() {
 
               <div className="col-span-2">
 
-                <Label>Target date</Label>
+                <Label>{t("snags.target")}</Label>
 
                 <Input type="date" value={editForm.targetDate} onChange={(e) => setEditForm((f) => ({ ...f, targetDate: e.target.value }))} />
 
@@ -428,11 +430,11 @@ function SnagDetailPage() {
 
               {editMut.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
 
-              Save
+              {t("common.save")}
 
             </Button>
 
-            <Button variant="ghost" onClick={() => setEditing(false)}>Cancel</Button>
+            <Button variant="ghost" onClick={() => setEditing(false)}>{t("common.cancel")}</Button>
 
           </div>
 
@@ -446,17 +448,17 @@ function SnagDetailPage() {
 
           <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
 
-            <span>Severity: {snag.severity as string}</span>
+            <span>{t("snags.severityLabel")}: {t(`snags.severity.${String(snag.severity)}`, { defaultValue: String(snag.severity) })}</span>
 
             {!floorView && (
 
               <>
 
-                <span>Priority: {snag.priority as string}</span>
+                <span>{t("snags.priorityLabel")}: {t(`snags.priority.${String(snag.priority)}`, { defaultValue: String(snag.priority) })}</span>
 
-                <span>Target: {(snag.target_date as string) ?? "—"}</span>
+                <span>{t("snags.target")}: {(snag.target_date as string) ?? "—"}</span>
 
-                <span>Risk: {snag.risk_score as number}</span>
+                <span>{t("snags.risk")}: {snag.risk_score as number}</span>
 
               </>
 
@@ -476,13 +478,13 @@ function SnagDetailPage() {
 
           <div className="flex items-center justify-between">
 
-            <h2 className="text-sm font-medium">Photos</h2>
+            <h2 className="text-sm font-medium">{t("snags.photos")}</h2>
 
             <Button variant="outline" size="sm" onClick={() => photoRef.current?.click()} disabled={photoMut.isPending}>
 
               {photoMut.isPending ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Camera className="mr-1 h-3.5 w-3.5" />}
 
-              Upload photo
+              {t("snags.uploadPhoto")}
 
             </Button>
 
@@ -512,7 +514,7 @@ function SnagDetailPage() {
 
           {photos.length === 0 ? (
 
-            <p className="text-xs text-muted-foreground">No photos yet.</p>
+            <p className="text-xs text-muted-foreground">{t("snags.noPhotos")}</p>
 
           ) : (
 
@@ -526,7 +528,7 @@ function SnagDetailPage() {
 
                   <Button variant="link" size="sm" className="h-auto p-0" onClick={() => viewPhoto(p.file_path)}>
 
-                    View
+                    {t("common.view")}
 
                   </Button>
 
@@ -550,13 +552,13 @@ function SnagDetailPage() {
 
           <Select onValueChange={(v) => statusMut.mutate(v as (typeof STATUSES)[number])}>
 
-            <SelectTrigger className="w-48"><SelectValue placeholder="Update status" /></SelectTrigger>
+            <SelectTrigger className="w-48"><SelectValue placeholder={t("snags.updateStatus")} /></SelectTrigger>
 
             <SelectContent>
 
               {STATUSES.map((s) => (
 
-                <SelectItem key={s} value={s}>{s.replace(/_/g, " ")}</SelectItem>
+                <SelectItem key={s} value={s}>{t(`snags.status.${s}`)}</SelectItem>
 
               ))}
 
@@ -574,7 +576,7 @@ function SnagDetailPage() {
 
         <div className="rounded-lg border border-border bg-card p-4">
 
-          <h2 className="text-sm font-medium mb-3">Status history</h2>
+          <h2 className="text-sm font-medium mb-3">{t("snags.statusHistory")}</h2>
 
           <ul className="space-y-2 text-xs">
 
@@ -582,7 +584,7 @@ function SnagDetailPage() {
 
               <li key={i} className="flex justify-between border-b border-border/50 pb-2">
 
-                <span>{String(h.to_status)}</span>
+                <span>{t(`snags.status.${String(h.to_status)}`, { defaultValue: String(h.to_status) })}</span>
 
                 <span className="text-muted-foreground">
 

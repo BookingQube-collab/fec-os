@@ -3,6 +3,7 @@
 
 
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 
 
@@ -28,9 +29,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 type CategoryTrackerPageProps = {
 
-  title: string;
+  titleKey: string;
 
-  subtitle: string;
+  subtitleKey: string;
 
   categories: E3Category[];
 
@@ -38,7 +39,8 @@ type CategoryTrackerPageProps = {
 
 
 
-export function CategoryTrackerPage({ title, subtitle, categories }: CategoryTrackerPageProps) {
+export function CategoryTrackerPage({ titleKey, subtitleKey, categories }: CategoryTrackerPageProps) {
+  const { t } = useTranslation();
 
   const [filter, setFilter] = useState({ location: "All", field: "All" });
 
@@ -66,7 +68,7 @@ export function CategoryTrackerPage({ title, subtitle, categories }: CategoryTra
 
   return (
 
-    <E3TrackerPageShell title={title} subtitle={subtitle}>
+    <E3TrackerPageShell title={t(titleKey)} subtitle={t(subtitleKey)}>
 
       <FilterRow value={filter} onChange={handleFilterChange} />
 

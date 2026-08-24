@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 
+import { completeJsonViaGateway } from "@/lib/ai/complete-json";
 import { createAuthenticatedAction } from "@/lib/server/create-action";
 
 const ComplaintStatus = z.enum(["new", "investigating", "resolved", "escalated", "dismissed"]);
@@ -109,44 +110,33 @@ export const triageComplaintWithAI = createAuthenticatedAction(
       reasoning: "",
     };
 
-    const apiKey = process.env.LOVABLE_API_KEY;
-    let triage = { ...fallback };
-    if (apiKey) {
-      const prompt = `You are a guest experience triage assistant. Analyse this complaint and reply ONLY with JSON: {"category":"...","severity":"low|medium|high|critical","sentiment":"neutral|frustrated|angry|satisfied","suggested_actions":["..."],"reasoning":"..."}\n\nChannel: ${data.channel}\nSummary: ${data.summary}`;
-      try {
-        const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey },
-          body: JSON.stringify({
-            model: "google/gemini-3-flash-preview",
-            messages: [{ role: "user", content: prompt }],
-          }),
-        });
-        if (res.ok) {
-          const j = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
-          const text = j.choices?.[0]?.message?.content ?? "{}";
-          const match = text.match(/\{[\s\S]*\}/);
-          const parsed = match ? JSON.parse(match[0]) : {};
-          triage = {
-            category: typeof parsed.category === "string" ? parsed.category : "general",
-            severity: ["low", "medium", "high", "critical"].includes(parsed.severity)
-              ? parsed.severity
-              : "low",
-            sentiment: ["neutral", "frustrated", "angry", "satisfied"].includes(parsed.sentiment)
-              ? parsed.sentiment
-              : "neutral",
-            suggested_actions: Array.isArray(parsed.suggested_actions)
-              ? parsed.suggested_actions.slice(0, 5).map(String)
-              : [],
-            reasoning: typeof parsed.reasoning === "string" ? parsed.reasoning : "",
-          };
-        } else {
-          triage = { ...fallback, reasoning: "AI gateway error" };
+    const prompt = `You are a guest experience triage assistant. Analyse this complaint and reply ONLY with JSON: {"category":"...","severity":"low|medium|high|critical","sentiment":"neutral|frustrated|angry|satisfied","suggested_actions":["..."],"reasoning":"..."}\n\nChannel: ${data.channel}\nSummary: ${data.summary}`;
+    const parsed = (await completeJsonViaGateway(
+      [{ role: "user", content: prompt }],
+      { moduleSource: "customer.complaint_triage" },
+    )) as {
+      category?: string;
+      severity?: string;
+      sentiment?: string;
+      suggested_actions?: unknown;
+      reasoning?: string;
+    } | null;
+
+    const triage = parsed
+      ? {
+          category: typeof parsed.category === "string" ? parsed.category : "general",
+          severity: (["low", "medium", "high", "critical"].includes(parsed.severity ?? "")
+            ? parsed.severity!
+            : "low") as "low" | "medium" | "high" | "critical",
+          sentiment: (["neutral", "frustrated", "angry", "satisfied"].includes(parsed.sentiment ?? "")
+            ? parsed.sentiment!
+            : "neutral") as "neutral" | "frustrated" | "angry" | "satisfied",
+          suggested_actions: Array.isArray(parsed.suggested_actions)
+            ? parsed.suggested_actions.slice(0, 5).map(String)
+            : [],
+          reasoning: typeof parsed.reasoning === "string" ? parsed.reasoning : "",
         }
-      } catch {
-        triage = { ...fallback, reasoning: "AI triage failed" };
-      }
-    }
+      : { ...fallback, reasoning: "AI unavailable — configure a provider in Admin → AI Integrations." };
 
     const { error } = await context.supabase.rpc("save_complaint_triage", {
       _id: data.id,

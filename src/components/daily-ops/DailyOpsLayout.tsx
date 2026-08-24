@@ -18,14 +18,12 @@ export function DailyOpsLayout({ children }: { children: React.ReactNode }) {
         {t("dailyOps.loading")}
       </div>
     }>
-    <div className="space-y-5 font-sans">
+    <div className="space-y-5">
       <div>
-        <h1 className="font-display text-2xl font-semibold text-[#0B1F3A]">
-          {t("dailyOps.title")}
-        </h1>
-        <p className="mt-1 text-sm text-[#475569]">{t("dailyOps.subtitle")}</p>
+        <h1 className="page-title">{t("dailyOps.title")}</h1>
+        <p className="page-subtitle">{t("dailyOps.subtitle")}</p>
       </div>
-      <nav className="flex flex-wrap gap-2 border-b border-[#E2E8F0] pb-3">
+      <nav className="flex flex-wrap gap-2 border-b border-border pb-3">
         {DAILY_OPS_NAV_ITEMS.map((item) => {
           const active =
             item.href === "/daily-ops"
@@ -35,12 +33,7 @@ export function DailyOpsLayout({ children }: { children: React.ReactNode }) {
             <Link
               key={item.href}
               href={item.href}
-              className={cn(
-                "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
-                active
-                  ? "bg-[#0B1F3A] text-white"
-                  : "text-[#0B1F3A] hover:bg-[#F2F4F7] hover:text-[#E8821E]",
-              )}
+              className={cn("filter-chip", active && "filter-chip-active")}
             >
               {t(item.labelKey)}
             </Link>
@@ -68,8 +61,8 @@ export function DailyOpsPageShell({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="font-display text-xl font-semibold text-[#0B1F3A]">{title}</h2>
-          {subtitle ? <p className="mt-1 text-sm text-[#64748B]">{subtitle}</p> : null}
+          <h2 className="text-xl font-semibold text-foreground">{title}</h2>
+          {subtitle ? <p className="page-subtitle mt-1">{subtitle}</p> : null}
         </div>
         {actions}
       </div>

@@ -52,3 +52,17 @@ export function parseCsv(text: string): Record<string, string>[] {
     return obj;
   });
 }
+
+export function escapeCsvCell(value: string): string {
+  if (/[",\n\r]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
+  return value;
+}
+
+/** UTF-8 CSV with BOM so Excel on Windows keeps Arabic names. */
+export function toCsv(headers: readonly string[], rows: Array<Array<string | number | null | undefined>>): string {
+  const lines = [headers.join(",")];
+  for (const row of rows) {
+    lines.push(row.map((cell) => escapeCsvCell(String(cell ?? ""))).join(","));
+  }
+  return `\uFEFF${lines.join("\n")}\n`;
+}

@@ -127,6 +127,7 @@ Full file list: `app/api/**/route.ts` (86 files).
 | `/api/public/bookingqube-sync` | Shared secret header |
 | `/api/public/attendance-sync` | Shared secret header |
 | `/api/public/attendance-ingest` | `ATTENDANCE_INGEST_API_KEY` (Bearer or `X-API-Key`) — [docs](./api/attendance-ingest.md) |
+| `/iclock/*` (alias `/api/public/iclock/*`) | ZKTeco ADMS: mapped device SN + optional `ADMS_COMM_KEY` / `ADMS_IP_ALLOWLIST` |
 | `/api/public/escalation-sweep` | Cron secret |
 | `/api/compliance/process-expiry-notifications` | Cron secret |
 

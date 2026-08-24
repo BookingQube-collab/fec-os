@@ -4,6 +4,7 @@ export interface MasterDepartmentRow {
   code: string | null;
   active: boolean;
   sort_order: number;
+  parent_id?: string | null;
 }
 
 /** Split compound activity strings on + , or / */

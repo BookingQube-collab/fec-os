@@ -20,6 +20,7 @@ const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const dryRun = process.argv.includes("--dry-run");
 const skipAuth = process.argv.includes("--skip-auth");
+const includeDemoStaff = process.argv.includes("--include-demo-staff");
 
 if (!dryRun && (!url || !serviceKey)) {
   console.error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.");
@@ -190,8 +191,12 @@ async function main() {
     user_id: remap(r.user_id),
     email,
   }));
-  await upsertBatch("staff", staff);
-  console.log(`Upserted ${staff.length} staff.`);
+  if (includeDemoStaff) {
+    await upsertBatch("staff", staff);
+    console.log(`Upserted ${staff.length} staff.`);
+  } else {
+    console.log("Skipped demo staff upsert (keeps the E3 Employee Roster). Pass --include-demo-staff to override.");
+  }
 
   await upsertBatch(
     "task_templates",
@@ -219,10 +224,11 @@ async function main() {
   await upsertBatch("task_item_results", taskItemResults);
   console.log(`Upserted ${taskInstances.length} task instances.`);
 
-  const shifts = data.shifts.map(({ location_code, employee_code, staff_name, ...r }) => ({
+  const shifts = data.shifts.map(({ location_code, employee_code, staff_name, staff_id, ...r }) => ({
     ...r,
     location_id: remapLoc(r.location_id),
     user_id: remap(r.user_id),
+    staff_id: includeDemoStaff ? staff_id : null,
   }));
   await upsertBatch("shifts", shifts);
   console.log(`Upserted ${shifts.length} shifts (attendance).`);

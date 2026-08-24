@@ -4,10 +4,13 @@ import Link from "next/link";
 import { ChevronDown, ChevronUp, FileText, Upload } from "lucide-react";
 import { useState } from "react";
 
-import { AMC_CATEGORY_LABELS, type AmcCategory, ragForContract, ragForService } from "@/lib/amc/constants";
+import { useTranslation } from "react-i18next";
+
+import { ragForContract, ragForService, translateAmcCategory, translateAmcStatus } from "@/lib/amc/constants";
 import { lineStatus } from "@/lib/compliance/compliance-derive";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { fmtQar } from "@/lib/currency";
 import { cn } from "@/lib/utils";
 
 export interface AmcContractCardData {
@@ -66,10 +69,6 @@ function statusBadgeClass(status: string) {
   return "bg-muted text-muted-foreground";
 }
 
-function formatQar(n: number) {
-  return `QAR ${n.toLocaleString("en-QA", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-}
-
 export function AmcContractCard({
   contract,
   showSite = true,
@@ -77,9 +76,10 @@ export function AmcContractCard({
   contract: AmcContractCardData;
   showSite?: boolean;
 }) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const rag = ragForContract(contract.contract_end_date, contract.status);
-  const categoryLabel = AMC_CATEGORY_LABELS[contract.category as AmcCategory] ?? contract.category;
+  const categoryLabel = translateAmcCategory(t, contract.category);
 
   return (
     <div className="rounded-lg border border-border bg-card shadow-sm overflow-hidden">
@@ -100,80 +100,84 @@ export function AmcContractCard({
             )}
           </div>
           <Badge variant="outline" className={statusBadgeClass(contract.status)}>
-            {contract.status}
+            {translateAmcStatus(t, contract.status)}
           </Badge>
         </div>
       </div>
 
       <div className="grid grid-cols-3 gap-px bg-border text-center text-xs">
         <div className="bg-card p-2">
-          <div className="text-muted-foreground">Start</div>
+          <div className="text-muted-foreground">{t("amc.card.start")}</div>
           <div className="font-medium">{contract.contract_start_date}</div>
         </div>
         <div className="bg-card p-2">
-          <div className="text-muted-foreground">End</div>
+          <div className="text-muted-foreground">{t("amc.card.end")}</div>
           <div className="font-medium">{contract.contract_end_date}</div>
         </div>
         <div className={cn("bg-card p-2", rag === "red" && "text-rose-400", rag === "orange" && "text-amber-400")}>
-          <div className="text-muted-foreground">Days left</div>
+          <div className="text-muted-foreground">{t("amc.card.daysLeft")}</div>
           <div className="font-semibold">{contract.days_left}</div>
         </div>
       </div>
 
       <div className="grid grid-cols-3 gap-px bg-border border-t border-border text-center text-xs">
         <div className="bg-card p-2">
-          <div className="text-muted-foreground">Value</div>
-          <div className="font-medium">{formatQar(contract.contract_value)}</div>
+          <div className="text-muted-foreground">{t("amc.card.value")}</div>
+          <div className="font-medium">{fmtQar(contract.contract_value)}</div>
         </div>
         <div className="bg-card p-2">
-          <div className="text-muted-foreground">Paid</div>
-          <div className="font-medium text-emerald-600">{formatQar(contract.paid_amount)}</div>
+          <div className="text-muted-foreground">{t("amc.card.paid")}</div>
+          <div className="font-medium text-emerald-600">{fmtQar(contract.paid_amount)}</div>
         </div>
         <div className="bg-card p-2">
-          <div className="text-muted-foreground">Outstanding</div>
+          <div className="text-muted-foreground">{t("amc.card.outstanding")}</div>
           <div className={cn("font-medium", contract.outstanding_amount > 0 && "text-amber-400")}>
-            {formatQar(contract.outstanding_amount)}
+            {fmtQar(contract.outstanding_amount)}
           </div>
         </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-2 text-xs">
         <Badge variant="outline" className={statusBadgeClass(contract.payment_status)}>
-          {contract.payment_status.replace(/_/g, " ")}
+          {translateAmcStatus(t, contract.payment_status)}
         </Badge>
         {contract.paid_pct != null && (
-          <span className="text-muted-foreground">Paid {contract.paid_pct}%</span>
+          <span className="text-muted-foreground">{t("amc.card.paidPct", { pct: contract.paid_pct })}</span>
         )}
         {contract.visits_total != null && (
-          <span className="text-muted-foreground">{contract.visits_done}/{contract.visits_total} visits</span>
+          <span className="text-muted-foreground">{t("amc.card.visits", { done: contract.visits_done, total: contract.visits_total })}</span>
         )}
-        <span className="text-muted-foreground capitalize">{contract.service_frequency.replace(/_/g, " ")}</span>
+        <span className="text-muted-foreground">{t(`amc.freq.${contract.service_frequency}`, { defaultValue: contract.service_frequency.replace(/_/g, " ") })}</span>
         {contract.next_service_date && (
-          <span className="text-muted-foreground">Next: {contract.next_service_date}</span>
+          <span className="text-muted-foreground">{t("amc.card.next", { date: contract.next_service_date })}</span>
         )}
       </div>
 
       {contract.next_unpaid_line && (
         <div className="border-t border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-800">
-          Payment due: {contract.next_unpaid_line.label} — QAR {contract.next_unpaid_line.amount.toLocaleString()} ({contract.next_unpaid_line.due_date})
+          {t("amc.card.paymentDue", {
+            label: contract.next_unpaid_line.label,
+            amount: fmtQar(contract.next_unpaid_line.amount),
+            date: contract.next_unpaid_line.due_date,
+          })}
         </div>
       )}
 
       {contract.status === "tbc" && (
         <div className="border-t border-border bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
-          Documents not yet received
+          {t("amc.card.docsPending")}
         </div>
       )}
 
       {(contract.payment_lines?.length ?? 0) > 0 && (
         <div className="border-t border-border px-4 py-2 text-xs">
-          <div className="mb-1 font-medium text-muted-foreground">Payment lines</div>
+          <div className="mb-1 font-medium text-muted-foreground">{t("amc.card.paymentLines")}</div>
           <ul className="space-y-1">
             {contract.payment_lines!.map((p) => (
               <li key={p.id} className="flex justify-between gap-2">
                 <span>{p.label}</span>
                 <span className={lineStatus(p.paid, p.due_date) === "Paid" ? "text-emerald-600" : lineStatus(p.paid, p.due_date) === "Overdue" ? "rag-red" : ""}>
-                  QAR {p.amount.toLocaleString()} · {lineStatus(p.paid, p.due_date)}
+                  {fmtQar(p.amount)} · {t(`amc.line.${lineStatus(p.paid, p.due_date)}`, { defaultValue: lineStatus(p.paid, p.due_date) })}
                 </span>
               </li>
             ))}
@@ -188,7 +192,7 @@ export function AmcContractCard({
             className="flex w-full items-center justify-between px-4 py-2 text-xs font-medium hover:bg-muted/40"
             onClick={() => setExpanded((v) => !v)}
           >
-            Service schedule ({contract.schedules!.length})
+            {t("amc.card.serviceSchedule", { count: contract.schedules!.length })}
             {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           </button>
           {expanded && (
@@ -206,7 +210,7 @@ export function AmcContractCard({
                       sRag === "orange" && "rag-amber",
                       sRag === "yellow" && "text-amber-200",
                     )}>
-                      {s.status}
+                      {translateAmcStatus(t, s.status)}
                     </Badge>
                   </div>
                 );
@@ -216,15 +220,15 @@ export function AmcContractCard({
         </div>
       )}
 
-      <div className="flex gap-2 border-t border-border bg-muted/20 px-4 py-2">
-        <Button variant="outline" size="sm" className="h-7 text-xs" asChild>
+      <div className="flex items-center gap-3 border-t border-border bg-muted/20 px-4 py-3">
+        <Button variant="outline" size="sm" asChild>
           <Link href={`/compliance/amc-contracts/${contract.id}`}>
-            <FileText className="mr-1 h-3 w-3" />Details
+            <FileText className="h-4 w-4" />{t("amc.card.details")}
           </Link>
         </Button>
-        <Button variant="ghost" size="sm" className="h-7 text-xs" asChild>
+        <Button variant="ghost" size="sm" asChild>
           <Link href={`/compliance/amc-contracts/${contract.id}?upload=1`}>
-            <Upload className="mr-1 h-3 w-3" />Attach
+            <Upload className="h-4 w-4" />{t("amc.card.attach")}
           </Link>
         </Button>
       </div>

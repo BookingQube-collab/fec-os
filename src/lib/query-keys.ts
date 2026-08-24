@@ -10,6 +10,16 @@ export const queryKeys = {
     all: ["sites"] as const,
     list: () => [...queryKeys.sites.all, "list"] as const,
   },
+  locationAreas: {
+    all: ["location-areas"] as const,
+    list: (locationId: string | null, activeOnly = false) =>
+      [...queryKeys.locationAreas.all, "list", locationId, activeOnly] as const,
+  },
+  maintenanceOptions: {
+    all: ["maintenance-options"] as const,
+    list: (kind: "category" | "issue_type", activeOnly = true) =>
+      [...queryKeys.maintenanceOptions.all, "list", kind, activeOnly] as const,
+  },
   dashboard: {
     all: ["dashboard"] as const,
     kpis: (period: DashboardPeriod, locationId: string | null, view: string) =>
@@ -131,6 +141,7 @@ export const queryKeys = {
     all: ["vendors"] as const,
     list: (filters?: object) => [...queryKeys.vendors.all, "list", filters ?? {}] as const,
     dashboard: (filters?: object) => [...queryKeys.vendors.all, "dashboard", filters ?? {}] as const,
+    detail: (id: string) => [...queryKeys.vendors.all, "detail", id] as const,
   },
   issues: {
     all: ["issues"] as const,
@@ -149,11 +160,15 @@ export const queryKeys = {
     all: ["notifications"] as const,
     escalations: () => [...queryKeys.notifications.all, "escalations"] as const,
     list: (filters?: object) => [...queryKeys.notifications.all, "list", filters ?? {}] as const,
+    inbox: (userId?: string | null) => [...queryKeys.notifications.all, "inbox", userId ?? "anon"] as const,
   },
   people: {
     all: ["people"] as const,
     dashboard: (filters?: object) => [...queryKeys.people.all, "dashboard", filters ?? {}] as const,
-    staff: (locationId?: string | null) => [...queryKeys.people.all, "staff", locationId ?? null] as const,
+    staff: (locationId?: string | null, includeArchived?: boolean) =>
+      [...queryKeys.people.all, "staff", locationId ?? null, includeArchived ? "archived" : "active"] as const,
+    staffProfile: (id: string) => [...queryKeys.people.all, "staff-profile", id] as const,
+    rosterImports: () => [...queryKeys.people.all, "roster-imports"] as const,
     departments: () => [...queryKeys.people.all, "departments"] as const,
     shifts: (locationId?: string | null) => [...queryKeys.people.all, "shifts", locationId ?? null] as const,
     training: (locationId?: string | null) => [...queryKeys.people.all, "training", locationId ?? null] as const,
@@ -167,6 +182,27 @@ export const queryKeys = {
       ] as const,
     attendanceExceptions: (locationId?: string | null) =>
       [...queryKeys.people.all, "attendance-exceptions", locationId ?? null] as const,
+    attendanceIngestLogs: () => [...queryKeys.people.all, "attendance-ingest-logs"] as const,
+    attendanceHr: (filters?: object) => [...queryKeys.people.all, "attendance-hr", filters ?? {}] as const,
+  },
+  performance: {
+    all: ["performance"] as const,
+    dashboard: () => [...queryKeys.performance.all, "dashboard"] as const,
+    cycles: () => [...queryKeys.performance.all, "cycles"] as const,
+    kraTemplates: () => [...queryKeys.performance.all, "kra-templates"] as const,
+    kpiTemplates: () => [...queryKeys.performance.all, "kpi-templates"] as const,
+    assignments: (cycleId?: string | null) =>
+      [...queryKeys.performance.all, "assignments", cycleId ?? null] as const,
+    evaluations: (filters?: object) =>
+      [...queryKeys.performance.all, "evaluations", filters ?? {}] as const,
+    evaluation: (id: string) => [...queryKeys.performance.all, "evaluation", id] as const,
+    profile: (staffId: string) => [...queryKeys.performance.all, "profile", staffId] as const,
+    achievements: (filters?: object) =>
+      [...queryKeys.performance.all, "achievements", filters ?? {}] as const,
+    nominations: (filters?: object) =>
+      [...queryKeys.performance.all, "nominations", filters ?? {}] as const,
+    scoreboard: (locationId?: string | null) =>
+      [...queryKeys.performance.all, "scoreboard", locationId ?? null] as const,
   },
   facility: {
     all: ["facility"] as const,
@@ -229,10 +265,16 @@ export const queryKeys = {
   ceo: {
     all: ["ceo"] as const,
     overview: () => [...queryKeys.ceo.all, "overview"] as const,
+    tickets: () => [...queryKeys.ceo.all, "tickets"] as const,
+    incidents: () => [...queryKeys.ceo.all, "incidents"] as const,
   },
   admin: {
     all: ["admin"] as const,
     users: () => [...queryKeys.admin.all, "users"] as const,
+    translations: (locale: string) =>
+      [...queryKeys.admin.all, "translations", locale] as const,
+    diagnostics: () => [...queryKeys.admin.all, "diagnostics"] as const,
+    aiIntegrations: () => [...queryKeys.admin.all, "ai-integrations"] as const,
   },
   branches: {
     all: ["branches"] as const,
@@ -278,5 +320,30 @@ export const queryKeys = {
       [...queryKeys.weeklyReports.all, "executive-list", weekStart ?? null] as const,
     executiveDetail: (id?: string | null) =>
       [...queryKeys.weeklyReports.all, "executive", id ?? null] as const,
+  },
+  procurement: {
+    all: ["procurement"] as const,
+    dashboard: (locationId?: string | null) =>
+      [...queryKeys.procurement.all, "dashboard", locationId ?? null] as const,
+    list: (filters?: object) => [...queryKeys.procurement.all, "list", filters ?? {}] as const,
+    detail: (id?: string | null) => [...queryKeys.procurement.all, "detail", id ?? null] as const,
+    options: () => [...queryKeys.procurement.all, "options"] as const,
+    config: () => [...queryKeys.procurement.all, "config"] as const,
+  },
+  events: {
+    all: ["events"] as const,
+    dashboard: (locationId?: string | null) =>
+      [...queryKeys.events.all, "dashboard", locationId ?? null] as const,
+    list: (filters?: object) => [...queryKeys.events.all, "list", filters ?? {}] as const,
+    calendar: (month: string, locationId?: string | null) =>
+      [...queryKeys.events.all, "calendar", month, locationId ?? null] as const,
+    myTasks: (locationId?: string | null) =>
+      [...queryKeys.events.all, "my-tasks", locationId ?? null] as const,
+    options: () => [...queryKeys.events.all, "options"] as const,
+    detail: (id?: string | null) => [...queryKeys.events.all, "detail", id ?? null] as const,
+    scope: (id?: string | null) => [...queryKeys.events.all, "scope", id ?? null] as const,
+    plan: (id?: string | null) => [...queryKeys.events.all, "plan", id ?? null] as const,
+    budget: (id?: string | null) => [...queryKeys.events.all, "budget", id ?? null] as const,
+    reports: (filters?: object) => [...queryKeys.events.all, "reports", filters ?? {}] as const,
   },
 } as const;

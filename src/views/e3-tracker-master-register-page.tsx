@@ -40,8 +40,8 @@ export default function E3MasterRegisterPage() {
 
   return (
     <E3TrackerPageShell
-      title="Master Register"
-      subtitle="Full compliance register across all categories, locations, and areas."
+      title={t("e3Tracker.pages.masterRegister.title")}
+      subtitle={t("e3Tracker.pages.masterRegister.subtitle")}
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <FilterRow value={filter} onChange={handleFilterChange} />
@@ -55,7 +55,7 @@ export default function E3MasterRegisterPage() {
                 setPage(1);
               }}
             />
-            <Label htmlFor="license-only" className="text-sm font-medium text-[#0B1F3A]">
+            <Label htmlFor="license-only" className="text-sm font-medium text-foreground">
               {t("e3Tracker.licenseDocs.filterOnly")}
             </Label>
           </div>

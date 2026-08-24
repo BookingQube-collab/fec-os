@@ -21,6 +21,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
+import { StaffDirectory } from "@/components/people/staff-directory";
 import { useStaff } from "@/hooks/queries/usePeople";
 import { useSites } from "@/hooks/queries/useSites";
 import {
@@ -43,7 +44,8 @@ import {
 import { useMasterDepartments } from "@/hooks/queries/useDepartments";
 import { DepartmentMultiSelect } from "@/components/people/department-multi-select";
 import { ManageDepartmentsDialog } from "@/components/people/manage-departments-dialog";
-import { AttendanceTablePanel } from "@/components/people/attendance-table-panel";
+import { CollapsibleSection } from "@/components/dashboard/collapsible-section";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   useShifts,
   useTraining,
@@ -64,6 +66,7 @@ import type { StaffRow } from "@/lib/queries/module-queries.core";
 import { queryKeys } from "@/lib/query-keys";
 import { usePermission } from "@/hooks/use-permission";
 import { useAppStore } from "@/stores/app-store";
+import { PageHeader } from "@/components/layout/page-header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -100,6 +103,20 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+
+const AttendanceTablePanel = dynamic(
+  () =>
+    import("@/components/people/attendance-table-panel").then((m) => m.AttendanceTablePanel),
+  { ssr: false, loading: () => <Skeleton className="h-72 rounded-2xl" /> },
+);
+
+const AttendanceIngestHitsPanel = dynamic(
+  () =>
+    import("@/components/people/attendance-ingest-hits-panel").then(
+      (m) => m.AttendanceIngestHitsPanel,
+    ),
+  { ssr: false, loading: () => <Skeleton className="h-40 rounded-2xl" /> },
+);
 
 const PeopleDashboardPanel = dynamic(
   () =>
@@ -178,25 +195,29 @@ type AttendanceRow = {
 function PeoplePage() {
   const { t } = useTranslation();
   const canEdit = usePermission("people.edit_roster");
+  const canImport = usePermission("people.import_roster");
   return (
     <div className="space-y-5">
-      <header className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="grid h-9 w-9 place-items-center rounded-md bg-primary/10 text-primary">
-            <Users className="h-5 w-5" />
-          </div>
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight">{t("people.title")}</h1>
-            <p className="text-xs text-muted-foreground">{t("people.subtitle")}</p>
-          </div>
-        </div>
-        {canEdit && (
+      <PageHeader
+        icon={Users}
+        title={t("people.title")}
+        subtitle={t("people.subtitle")}
+        actions={
           <div className="flex flex-wrap gap-2">
-            <PeopleSampleDownloadMenu />
-            <ImportCsvDialog />
+            {canEdit ? (
+              <>
+                <PeopleSampleDownloadMenu />
+                <ImportCsvDialog />
+              </>
+            ) : null}
+            {canImport ? (
+              <Button asChild variant="secondary" size="sm">
+                <Link href="/people/import">{t("nav.importRoster")}</Link>
+              </Button>
+            ) : null}
           </div>
-        )}
-      </header>
+        }
+      />
       <Tabs defaultValue="dashboard">
         <TabsList>
           <TabsTrigger value="dashboard">{t("people.tabs.dashboard")}</TabsTrigger>
@@ -229,26 +250,19 @@ function Empty({ children }: { children: React.ReactNode }) {
   );
 }
 
-function formatStaffLocation(s: StaffRow): string {
-  if (s.location_code && s.location_name) return `${s.location_code} — ${s.location_name}`;
-  if (s.location_code) return s.location_code;
-  if (s.location_name) return s.location_name;
-  return "—";
-}
-
 function StaffTab() {
   const { t } = useTranslation();
   const locationId = useLoc();
   const canEdit = usePermission("people.edit_roster");
   const qc = useQueryClient();
-  const { data, isLoading } = useStaff(locationId ?? null);
+  const { data, isLoading } = useStaff(locationId ?? null, { includeArchived: true });
   const { data: sites } = useSites();
   const [createOpen, setCreateOpen] = useState(false);
   const [editRow, setEditRow] = useState<StaffRow | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const invalidate = () => {
-    void qc.invalidateQueries({ queryKey: queryKeys.people.staff(locationId ?? null) });
+    void qc.invalidateQueries({ queryKey: queryKeys.people.staff(locationId ?? null, true) });
     void qc.invalidateQueries({ queryKey: queryKeys.people.departments() });
     void qc.invalidateQueries({ queryKey: queryKeys.people.dashboard({ locationId: locationId ?? null }) });
   };
@@ -282,51 +296,13 @@ function StaffTab() {
       {!data?.length ? (
         <Empty>{t("people.staff.empty")}</Empty>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-border">
-          <table className="w-full text-sm">
-            <thead className="bg-surface/60 text-xs uppercase tracking-wider text-muted-foreground">
-              <tr>
-                <th className="px-3 py-2 text-left">{t("people.staff.code")}</th>
-                <th className="px-3 py-2 text-left">{t("people.staff.name")}</th>
-                <th className="px-3 py-2 text-left">{t("people.staff.title")}</th>
-                <th className="px-3 py-2 text-left">{t("people.staff.location")}</th>
-                <th className="px-3 py-2 text-left">{t("people.staff.dept")}</th>
-                <th className="px-3 py-2 text-left">{t("people.staff.status")}</th>
-                {canEdit && <th className="px-3 py-2 text-right">{t("people.actions")}</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {data.map((s) => (
-                <tr key={s.id} className="border-t border-border hover:bg-surface/40">
-                  <td className="px-3 py-2 font-mono text-xs">{s.employee_code}</td>
-                  <td className="px-3 py-2 font-medium">{s.full_name}</td>
-                  <td className="px-3 py-2 text-xs text-muted-foreground">{s.job_title ?? "—"}</td>
-                  <td className="px-3 py-2 text-xs text-muted-foreground" title={formatStaffLocation(s)}>
-                    {formatStaffLocation(s)}
-                  </td>
-                  <td className="px-3 py-2 text-xs text-muted-foreground">
-                    {s.department_names?.length ? s.department_names.join(", ") : s.department ?? "—"}
-                  </td>
-                  <td className="px-3 py-2">
-                    <Badge variant="outline" className="uppercase text-[10px]">{s.status}</Badge>
-                  </td>
-                  {canEdit && (
-                    <td className="px-3 py-2 text-right">
-                      <div className="inline-flex gap-1">
-                        <Button size="sm" variant="ghost" onClick={() => setEditRow(s)}>
-                          <Pencil className="h-3 w-3" />
-                        </Button>
-                        <Button size="sm" variant="ghost" onClick={() => setDeleteId(s.id)}>
-                          <Trash2 className="h-3 w-3 text-rose-400" />
-                        </Button>
-                      </div>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <StaffDirectory
+          staff={data}
+          locationId={locationId ?? null}
+          canEdit={canEdit}
+          onEdit={setEditRow}
+          onArchive={setDeleteId}
+        />
       )}
 
       {editRow && (
@@ -743,7 +719,7 @@ function NewShiftDialog({
           </div>
           <div><Label>{t("people.shifts.starts")}</Label><Input type="datetime-local" value={startsAt} onChange={(e) => setStartsAt(e.target.value)} /></div>
           <div><Label>{t("people.shifts.ends")}</Label><Input type="datetime-local" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} /></div>
-          <div><Label>{t("people.shifts.role")}</Label><Input value={roleLabel} onChange={(e) => setRoleLabel(e.target.value)} placeholder="e.g. Floor host" /></div>
+          <div><Label>{t("people.shifts.role")}</Label><Input value={roleLabel} onChange={(e) => setRoleLabel(e.target.value)} placeholder={t("people.shifts.rolePlaceholder")} /></div>
         </div>
         <DialogFooter>
           <Button onClick={() => m.mutate()} disabled={m.isPending || !startsAt || !endsAt}>
@@ -1098,6 +1074,7 @@ function AttendanceTab() {
   const locationId = useLoc();
   const canCorrect = usePermission("attendance.correct");
   const canImport = usePermission("attendance.import");
+  const canViewAttendance = usePermission("attendance.view");
   const qc = useQueryClient();
   const today = new Date().toISOString().slice(0, 10);
 
@@ -1126,6 +1103,17 @@ function AttendanceTab() {
 
   return (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[1.25rem] border border-border/60 bg-card px-4 py-3">
+        <div>
+          <p className="text-sm font-semibold">Time & Attendance</p>
+          <p className="text-xs text-muted-foreground">
+            Upload ZKTeco files, map biometric users, and export consolidated HR reports.
+          </p>
+        </div>
+        <Button asChild size="sm">
+          <Link href="/people/attendance">Open module</Link>
+        </Button>
+      </div>
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
           {t("people.attendance.summaryHint", { count: exceptions?.length ?? 0 })}
@@ -1148,7 +1136,16 @@ function AttendanceTab() {
         </div>
       </div>
 
-      <AttendanceTablePanel locationId={locationId} />
+      {canViewAttendance && (
+        <CollapsibleSection title={t("people.attendance.ingestLogsTitle")} defaultOpen>
+          <AttendanceIngestHitsPanel />
+        </CollapsibleSection>
+      )}
+
+      <AttendanceTablePanel
+        locationId={locationId}
+        openExceptionsCount={exceptions?.length ?? 0}
+      />
     </div>
   );
 }
@@ -1297,9 +1294,9 @@ function PeopleSampleDownloadMenu() {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button type="button" size="sm" variant="outline">
-          <Download className="h-3.5 w-3.5" />
-          <span className="ml-1.5">{t("people.downloadSample")}</span>
-          <ChevronDown className="ml-1 h-3.5 w-3.5 opacity-60" />
+          <Download />
+          {t("people.downloadSample")}
+          <ChevronDown className="opacity-70" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
@@ -1347,7 +1344,7 @@ function ImportCsvDialog() {
     onSuccess: (res) => {
       toast.success(t("people.importSuccess", { count: res.imported }));
       setOpen(false);
-      void qc.invalidateQueries({ queryKey: queryKeys.people.staff(locationId ?? null) });
+      void qc.invalidateQueries({ queryKey: queryKeys.people.staff(locationId ?? null, true) });
       void qc.invalidateQueries({ queryKey: queryKeys.people.dashboard({ locationId: locationId ?? null }) });
       void qc.invalidateQueries({ queryKey: queryKeys.people.shifts(locationId ?? null) });
     },

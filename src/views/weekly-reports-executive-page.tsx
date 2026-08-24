@@ -60,7 +60,7 @@ export default function WeeklyReportsExecutivePage() {
     <WeeklyReportsLayout>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h2 className="font-display text-xl font-semibold text-[#0B1F3A]">{t("weeklyReports.nav.executive")}</h2>
+          <h2 className="text-xl font-semibold text-foreground">{t("weeklyReports.nav.executive")}</h2>
           <p className="mt-1 text-sm text-[#64748B]">{t("weeklyReports.executive.subtitle")}</p>
         </div>
         {canExecutive && (

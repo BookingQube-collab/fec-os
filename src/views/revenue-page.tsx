@@ -2,6 +2,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { Loader2, RefreshCw, Sparkles } from "lucide-react";
 import { toast } from "sonner";
@@ -35,6 +36,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/layout/page-header";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { retryImport } from "@/lib/retry-import";
@@ -48,11 +50,30 @@ const RevenueDailyChart = dynamic(
   { ssr: false, loading: () => <Skeleton className="h-64 rounded-lg" /> },
 );
 
+const REVENUE_TABS = ["bookingqube", "pnl", "leakage", "roi"] as const;
+type RevenueTab = (typeof REVENUE_TABS)[number];
+
+function parseRevenueTab(value: string | null): RevenueTab {
+  return REVENUE_TABS.includes(value as RevenueTab) ? (value as RevenueTab) : "bookingqube";
+}
+
 function Page() {
   const locationId = useAppStore((s) => s.currentLocationId);
   const qc = useQueryClient();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const tab = parseRevenueTab(searchParams.get("tab"));
   const canSyncBookingQube = usePermission("revenue.sync_bookingqube");
   const [forecastNarr, setForecastNarr] = useState<string | null>(null);
+
+  function setTab(next: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next === "bookingqube") params.delete("tab");
+    else params.set("tab", next);
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }
 
   const pace = useRevenuePace(locationId);
   const pnl = useBranchPnL();
@@ -104,11 +125,11 @@ function Page() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold text-foreground">Revenue Intelligence</h1>
-          <p className="text-sm text-muted-foreground">Pace, forecast, leakage, and asset ROI across the estate.</p>
-        </div>
+      <PageHeader
+        kicker="Commercial"
+        title="Revenue intelligence"
+        subtitle="Pace, forecast, leakage, and asset return across the estate."
+        actions={
         <div className="flex flex-wrap items-center gap-2">
           {canSyncBookingQube && (
             <Button
@@ -129,7 +150,8 @@ function Page() {
             AI forecast (90d)
           </Button>
         </div>
-      </div>
+        }
+      />
 
       {forecastNarr && (
         <div className="rounded-lg border border-border bg-card p-5">
@@ -153,7 +175,7 @@ function Page() {
 
       <RevenueDailyChart series={series} />
 
-      <Tabs defaultValue="bookingqube">
+      <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="bookingqube">BookingQube MTD</TabsTrigger>
           <TabsTrigger value="pnl">Branch P&amp;L</TabsTrigger>
