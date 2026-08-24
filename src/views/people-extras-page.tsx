@@ -35,7 +35,6 @@ export default function PeopleExtrasPage() {
             <p className="text-sm text-muted-foreground">{t("people.extras.empty")}</p>
           ) : (
             <div className="overflow-x-auto">
-            <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
