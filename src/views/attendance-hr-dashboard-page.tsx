@@ -3,8 +3,8 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useMemo, useState, Suspense } from "react";
-import { AlertTriangle, Building2, ClipboardCheck, Clock, Upload, UserX, Users } from "lucide-react";
+import { useMemo, useState, Suspense, type ReactNode } from "react";
+import { AlertTriangle, Building2, ClipboardCheck, Clock, MapPin, Upload, UserX, Users, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { AttendanceHrDashboardChart } from "@/components/attendance-hr/attendance-hr-dashboard-charts";
@@ -22,8 +22,6 @@ import { STALE } from "@/lib/query-client";
 import { queryKeys } from "@/lib/query-keys";
 import { useAppStore } from "@/stores/app-store";
 
-type WatchTriple = [string, number, string?];
-
 function monthBounds(month: string) {
   const ym = month.slice(0, 7);
   const [year, mo] = ym.split("-").map(Number);
@@ -33,6 +31,84 @@ function monthBounds(month: string) {
 
 function ymd(value: string | null | undefined) {
   return value ? String(value).slice(0, 10) : "";
+}
+
+type WatchlistEntry = {
+  id: string;
+  count: number;
+  name: string;
+  locationName?: string | null;
+  locationRegion?: string | null;
+  locationCode?: string | null;
+};
+
+function watchlistLocationLabel(entry: WatchlistEntry): string | null {
+  const name = entry.locationName?.trim() || null;
+  const region = entry.locationRegion?.trim() || null;
+  const code = entry.locationCode?.trim() || null;
+  if (name && region) return `${name} · ${region}`;
+  return name || code || null;
+}
+
+function WatchlistGroup({
+  title,
+  empty,
+  entries,
+  pill,
+  icon: Icon,
+}: {
+  title: string;
+  empty: string;
+  entries: WatchlistEntry[];
+  pill: (count: number) => ReactNode;
+  icon: LucideIcon;
+}) {
+  return (
+    <div>
+      <p className="mb-2 text-xs font-medium text-muted-foreground">{title}</p>
+      {entries.length === 0 ? (
+        <p className="rounded-2xl border border-dashed border-border/80 px-3 py-3 text-sm text-muted-foreground">{empty}</p>
+      ) : (
+        <div className="space-y-2">
+          {entries.map((entry) => (
+            <WatchlistRow key={entry.id} entry={entry} pill={pill(entry.count)} icon={Icon} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WatchlistRow({
+  entry,
+  pill,
+  icon: Icon,
+}: {
+  entry: WatchlistEntry;
+  pill: ReactNode;
+  icon: LucideIcon;
+}) {
+  const location = watchlistLocationLabel(entry);
+  return (
+    <Link
+      href={`/people/staff/${entry.id}`}
+      className="flex items-center justify-between gap-3 rounded-2xl border border-border/60 px-3 py-2.5 hover:bg-secondary/50"
+    >
+      <div className="flex min-w-0 items-center gap-2">
+        <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium">{entry.name}</p>
+          {location ? (
+            <p className="flex items-center gap-1 truncate text-xs text-muted-foreground">
+              <MapPin className="h-3 w-3 shrink-0" />
+              <span className="truncate">{location}</span>
+            </p>
+          ) : null}
+        </div>
+      </div>
+      <div className="shrink-0 text-xs">{pill}</div>
+    </Link>
+  );
 }
 
 export default function AttendanceHrDashboardPage() {
@@ -238,42 +314,36 @@ function AttendanceHrDashboardBody() {
           <h2 className="mb-3 text-sm font-semibold">
             {t("attendanceHr.dashboard.watchlist", { defaultValue: "Watchlist" })}
           </h2>
-          <p className="mb-2 text-xs font-medium text-muted-foreground">
-            {t("attendanceHr.dashboard.frequentLate", { defaultValue: "Frequent late" })}
-          </p>
-          <ul className="mb-4 space-y-1 text-sm">
-            {(dash.data?.frequentLate ?? []).length === 0 ? (
-              <li className="text-muted-foreground">{t("attendanceHr.dashboard.noLate", { defaultValue: "No late pattern yet." })}</li>
-            ) : null}
-            {(dash.data?.frequentLate ?? []).map((entry) => {
-              const [id, n, label] = entry as WatchTriple;
-              return (
-                <li key={id} className="flex justify-between gap-3">
-                  <span className="truncate">{label || id.slice(0, 8)}</span>
-                  <span className="shrink-0 tabular-nums">{n} {t("attendanceHr.dashboard.days", { defaultValue: "days" })}</span>
-                </li>
-              );
-            })}
-          </ul>
-          <p className="mb-2 text-xs font-medium text-muted-foreground">
-            {t("attendanceHr.dashboard.frequentMissed", { defaultValue: "Frequent missed punches" })}
-          </p>
-          <ul className="space-y-1 text-sm">
-            {(dash.data?.frequentMissed ?? []).length === 0 ? (
-              <li className="text-muted-foreground">
-                {t("attendanceHr.dashboard.noMissed", { defaultValue: "No missed-punch pattern yet." })}
-              </li>
-            ) : null}
-            {(dash.data?.frequentMissed ?? []).map((entry) => {
-              const [id, n, label] = entry as WatchTriple;
-              return (
-                <li key={id} className="flex justify-between gap-3">
-                  <span className="truncate">{label || id.slice(0, 8)}</span>
-                  <span className="shrink-0 tabular-nums">{n} {t("attendanceHr.dashboard.days", { defaultValue: "days" })}</span>
-                </li>
-              );
-            })}
-          </ul>
+          {(dash.data?.frequentLate ?? []).length === 0 && (dash.data?.frequentMissed ?? []).length === 0 ? (
+            <p className="rounded-2xl border border-dashed border-border/80 px-3 py-6 text-center text-sm text-muted-foreground">
+              {t("attendanceHr.dashboard.watchlistEmpty", { defaultValue: "No one on the watchlist for this period." })}
+            </p>
+          ) : (
+            <div className="space-y-4">
+              <WatchlistGroup
+                title={t("attendanceHr.dashboard.frequentLate", { defaultValue: "Frequent late" })}
+                empty={t("attendanceHr.dashboard.noLate", { defaultValue: "No late pattern yet." })}
+                entries={dash.data?.frequentLate ?? []}
+                pill={(count) => (
+                  <Badge variant="warning">
+                    {count} {t("attendanceHr.dashboard.late", { defaultValue: "late" })}
+                  </Badge>
+                )}
+                icon={AlertTriangle}
+              />
+              <WatchlistGroup
+                title={t("attendanceHr.dashboard.frequentMissed", { defaultValue: "Frequent missed punches" })}
+                empty={t("attendanceHr.dashboard.noMissed", { defaultValue: "No missed-punch pattern yet." })}
+                entries={dash.data?.frequentMissed ?? []}
+                pill={(count) => (
+                  <Badge variant="destructive">
+                    {count} {t("attendanceHr.dashboard.missed", { defaultValue: "Missed" })}
+                  </Badge>
+                )}
+                icon={ClipboardCheck}
+              />
+            </div>
+          )}
         </NeumorphicCard>
       </div>
     </div>

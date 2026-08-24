@@ -16,6 +16,11 @@ import {
   type ExistingBiometricUser,
   type IncomingBiometricUser,
 } from "@/lib/attendance-hr/process";
+import {
+  attendanceRosterPeriod,
+  filterPunchesForImportPeriod,
+  type AttendanceRosterPeriodMode,
+} from "@/lib/attendance-hr/roster-period";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -26,6 +31,16 @@ function asUploadFile(value: FormDataEntryValue): File | null {
   if (typeof maybe.arrayBuffer !== "function") return null;
   if (typeof maybe.name !== "string" || !maybe.name) return null;
   return maybe;
+}
+
+function importPeriodFromForm(form: FormData) {
+  const periodMode: AttendanceRosterPeriodMode =
+    String(form.get("periodMode") ?? "month") === "week" ? "week" : "month";
+  return attendanceRosterPeriod({
+    mode: periodMode,
+    weekStart: String(form.get("weekStart") ?? "").trim() || null,
+    month: String(form.get("month") ?? "").trim() || null,
+  });
 }
 
 export async function POST(request: Request) {
@@ -42,6 +57,7 @@ export async function POST(request: Request) {
 
       const uploads = form.getAll("files").map(asUploadFile).filter((f): f is File => f != null);
       if (!uploads.length) throw new Error("Upload at least one file.");
+      const period = importPeriodFromForm(form);
 
       const buffers = await Promise.all(
         uploads.map(async (file) => ({ file, buffer: Buffer.from(await file.arrayBuffer()) })),
@@ -60,6 +76,7 @@ export async function POST(request: Request) {
             locationId,
             deviceId,
             companyId,
+            period,
           });
           const ids = raw.uniqueUserIds ?? [];
           let matchedStaff = 0;
@@ -103,11 +120,12 @@ export async function POST(request: Request) {
         matchedStaff: previews.reduce((n, p) => n + (p.matchedStaff ?? 0), 0),
         unmatched: previews.reduce((n, p) => n + (p.unmatched ?? 0), 0),
         errorCount: previews.reduce((n, p) => n + (p.ok ? 0 : 1) + (p.errors?.length ?? 0), 0),
-        dateFrom: previews.map((p) => p.dateFrom).filter((d): d is string => Boolean(d)).sort()[0] ?? null,
-        dateTo: previews.map((p) => p.dateTo).filter((d): d is string => Boolean(d)).sort().at(-1) ?? null,
+        skippedOutsidePeriod: previews.reduce((n, p) => n + (p.skippedOutsidePeriod ?? 0), 0),
+        dateFrom: period.dateFrom,
+        dateTo: period.dateTo,
       };
 
-      if (mode !== "commit") return { mode: "preview" as const, previews, summary };
+      if (mode !== "commit") return { mode: "preview" as const, periodMode: String(form.get("periodMode") ?? "month"), previews, summary, dateFrom: period.dateFrom, dateTo: period.dateTo };
 
       const { data: batch, error: bErr } = await context.supabase
         .from("attendance_imports")
@@ -150,9 +168,9 @@ export async function POST(request: Request) {
         });
       }
 
-      const result = await processBatch(context, batch.id, companyId, locationId, deviceId, saved);
-      const dateFrom = result.dateFrom ?? summary.dateFrom;
-      const dateTo = result.dateTo ?? summary.dateTo;
+      const result = await processBatch(context, batch.id, companyId, locationId, deviceId, saved, period);
+      const dateFrom = result.dateFrom ?? period.dateFrom;
+      const dateTo = result.dateTo ?? period.dateTo;
 
       return {
         mode: "commit" as const,
@@ -236,6 +254,7 @@ async function processBatch(
   locationId: string,
   deviceId: string,
   files: Array<{ id: string; buffer: Buffer; filename: string; fileType: string }>,
+  period: { dateFrom: string; dateTo: string },
 ) {
   await context.supabase
     .from("attendance_imports")
@@ -280,6 +299,7 @@ async function processBatch(
       } else if (file.fileType === "csv" || file.fileType === "tsv") {
         punches = parseDelimitedAttendance(file.buffer.toString("utf8"), file.fileType === "tsv" ? "\t" : ",").punches;
       }
+      punches = filterPunchesForImportPeriod(punches, period).kept;
 
       const rows = buildPunchRows({
         punches,

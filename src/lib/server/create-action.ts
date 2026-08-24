@@ -34,12 +34,25 @@ function validationMessage(error: z.ZodError): string {
   return error.errors.map((e) => e.message).join("; ") || "Validation failed";
 }
 
-function asError(e: unknown): Error {
-  if (e instanceof Error) return e;
+function errorMessage(e: unknown): string {
   if (e && typeof e === "object" && "message" in e && typeof (e as { message: unknown }).message === "string") {
-    return new Error((e as { message: string }).message);
+    const msg = (e as { message: string }).message.trim();
+    const details =
+      "details" in e && typeof (e as { details: unknown }).details === "string"
+        ? (e as { details: string }).details.trim()
+        : "";
+    const code = "code" in e && typeof (e as { code: unknown }).code === "string" ? (e as { code: string }).code : "";
+    if (!msg) return "Something went wrong";
+    if (details && !msg.includes(details)) return code ? `${msg} (${code}): ${details}` : `${msg}: ${details}`;
+    return msg;
   }
-  return new Error("Something went wrong");
+  if (e instanceof Error && e.message.trim()) return e.message;
+  return "Something went wrong";
+}
+
+/** Always a plain Error. PostgrestError and other Error subclasses do not serialize across server actions. */
+function asError(e: unknown): Error {
+  return new Error(errorMessage(e));
 }
 
 function toSafeActionError(e: unknown): SafeActionResult<never> {

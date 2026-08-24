@@ -5,6 +5,7 @@ import { fileSha256 } from "./hash";
 import { parseAttlogBuffer } from "./parse-attlog";
 import { parseDelimitedAttendance, parseWorkbookAttendance } from "./parse-spreadsheet";
 import { parseUserDat } from "./parse-user-dat";
+import { filterPunchesForImportPeriod } from "./roster-period";
 
 function sanitizePreviewErrors(errors: ParseIssue[], limit = 20): ParseIssue[] {
   return errors.slice(0, limit).map((e) => ({
@@ -36,6 +37,7 @@ export async function previewAttendanceFile(file: {
   locationId: string;
   deviceId: string;
   companyId: string;
+  period?: { dateFrom: string; dateTo: string } | null;
 }) {
   const guard = guardAttendanceUpload(file.filename, file.buffer.length);
   if (!guard.ok) {
@@ -98,8 +100,9 @@ export async function previewAttendanceFile(file: {
       guard.fileType === "csv" || guard.fileType === "tsv"
         ? parseDelimitedAttendance(file.buffer.toString("utf8"), guard.fileType === "tsv" ? "\t" : ",")
         : await parseWorkbookAttendance(file.buffer);
-    const stats = punchStats(parsed.punches);
-    const ok = parsed.punches.length > 0 || parsed.users.length > 0;
+    const filtered = filterPunchesForImportPeriod(parsed.punches, file.period);
+    const stats = punchStats(filtered.kept);
+    const ok = filtered.kept.length > 0 || parsed.users.length > 0;
     return {
       ok,
       kind: parsed.kind,
@@ -107,8 +110,9 @@ export async function previewAttendanceFile(file: {
       fileHash: fileSha256(file.buffer),
       users: parsed.users.slice(0, 200),
       userCount: parsed.users.length,
-      punches: parsed.punches.slice(0, 200),
-      punchCount: parsed.punches.length,
+      punches: filtered.kept.slice(0, 200),
+      punchCount: filtered.kept.length,
+      skippedOutsidePeriod: filtered.skipped,
       uniqueUserIds: stats.uniqueUserIds,
       uniqueUserCount: stats.uniqueUserCount || parsed.users.length,
       dateFrom: stats.dateFrom,
@@ -119,8 +123,9 @@ export async function previewAttendanceFile(file: {
     };
   }
   const parsed = parseAttlogBuffer(file.buffer);
-  const stats = punchStats(parsed.punches);
-  const ok = parsed.punches.length > 0;
+  const filtered = filterPunchesForImportPeriod(parsed.punches, file.period);
+  const stats = punchStats(filtered.kept);
+  const ok = filtered.kept.length > 0;
   return {
     ok,
     kind: "attlog" as const,
@@ -128,8 +133,9 @@ export async function previewAttendanceFile(file: {
     fileHash: fileSha256(file.buffer),
     users: [],
     userCount: stats.uniqueUserCount,
-    punches: parsed.punches.slice(0, 200),
-    punchCount: parsed.punches.length,
+    punches: filtered.kept.slice(0, 200),
+    punchCount: filtered.kept.length,
+    skippedOutsidePeriod: filtered.skipped,
     uniqueUserIds: stats.uniqueUserIds,
     uniqueUserCount: stats.uniqueUserCount,
     dateFrom: stats.dateFrom,

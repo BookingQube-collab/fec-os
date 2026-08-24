@@ -15,9 +15,10 @@ import {
   ChevronDown,
   CalendarDays,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
@@ -44,7 +45,6 @@ import {
 import { useMasterDepartments } from "@/hooks/queries/useDepartments";
 import { DepartmentMultiSelect } from "@/components/people/department-multi-select";
 import { ManageDepartmentsDialog } from "@/components/people/manage-departments-dialog";
-import { CollapsibleSection } from "@/components/dashboard/collapsible-section";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   useShifts,
@@ -108,14 +108,6 @@ const AttendanceTablePanel = dynamic(
   () =>
     import("@/components/people/attendance-table-panel").then((m) => m.AttendanceTablePanel),
   { ssr: false, loading: () => <Skeleton className="h-72 rounded-2xl" /> },
-);
-
-const AttendanceIngestHitsPanel = dynamic(
-  () =>
-    import("@/components/people/attendance-ingest-hits-panel").then(
-      (m) => m.AttendanceIngestHitsPanel,
-    ),
-  { ssr: false, loading: () => <Skeleton className="h-40 rounded-2xl" /> },
 );
 
 const PeopleDashboardPanel = dynamic(
@@ -193,9 +185,39 @@ type AttendanceRow = {
 };
 
 function PeoplePage() {
+  return (
+    <Suspense fallback={<div className="h-24" />}>
+      <PeoplePageBody />
+    </Suspense>
+  );
+}
+
+const PEOPLE_TABS = ["dashboard", "staff", "shifts", "attendance", "training"] as const;
+const PEOPLE_MAIN_TABS = ["dashboard", "staff", "training"] as const;
+type PeopleTab = (typeof PEOPLE_TABS)[number];
+
+function isPeopleTab(value: string): value is PeopleTab {
+  return (PEOPLE_TABS as readonly string[]).includes(value);
+}
+
+function PeoplePageBody() {
   const { t } = useTranslation();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const canEdit = usePermission("people.edit_roster");
   const canImport = usePermission("people.import_roster");
+  const tabParam = searchParams.get("tab") ?? "dashboard";
+  const tab = isPeopleTab(tabParam) ? tabParam : "dashboard";
+  const hiddenTab = !(PEOPLE_MAIN_TABS as readonly string[]).includes(tab);
+
+  const setTab = (next: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next === "dashboard") params.delete("tab");
+    else params.set("tab", next);
+    const qs = params.toString();
+    router.replace(qs ? `/people?${qs}` : "/people", { scroll: false });
+  };
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -218,14 +240,23 @@ function PeoplePage() {
           </div>
         }
       />
-      <Tabs defaultValue="dashboard">
+      <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
-          <TabsTrigger value="dashboard">{t("people.tabs.dashboard")}</TabsTrigger>
-          <TabsTrigger value="staff">{t("people.tabs.staff")}</TabsTrigger>
-          <TabsTrigger value="shifts">{t("people.tabs.shifts")}</TabsTrigger>
-          <TabsTrigger value="attendance">{t("people.tabs.attendance")}</TabsTrigger>
-          <TabsTrigger value="training">{t("people.tabs.training")}</TabsTrigger>
+          {PEOPLE_MAIN_TABS.map((value) => (
+            <TabsTrigger key={value} value={value}>{t(`people.tabs.${value}`)}</TabsTrigger>
+          ))}
+          {hiddenTab ? (
+            <TabsTrigger value={tab} className="sr-only">{t(`people.tabs.${tab}`)}</TabsTrigger>
+          ) : null}
         </TabsList>
+        {hiddenTab ? (
+          <p className="mt-3 text-xs text-muted-foreground">
+            {t("people.extras.hiddenTabHint")}{" "}
+            <Link href="/people/extras" className="font-medium underline-offset-4 hover:underline">
+              {t("people.extras.openExtras")}
+            </Link>
+          </p>
+        ) : null}
         <TabsContent value="dashboard" className="mt-4">
           <PeopleDashboardPanel />
         </TabsContent>
@@ -1074,7 +1105,6 @@ function AttendanceTab() {
   const locationId = useLoc();
   const canCorrect = usePermission("attendance.correct");
   const canImport = usePermission("attendance.import");
-  const canViewAttendance = usePermission("attendance.view");
   const qc = useQueryClient();
   const today = new Date().toISOString().slice(0, 10);
 
@@ -1135,12 +1165,6 @@ function AttendanceTab() {
           )}
         </div>
       </div>
-
-      {canViewAttendance && (
-        <CollapsibleSection title={t("people.attendance.ingestLogsTitle")} defaultOpen>
-          <AttendanceIngestHitsPanel />
-        </CollapsibleSection>
-      )}
 
       <AttendanceTablePanel
         locationId={locationId}

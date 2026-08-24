@@ -2,7 +2,12 @@
 
 import { z } from "zod";
 
-import { createAuthenticatedAction, createAuthenticatedActionNoInput, type AuthContext } from "@/lib/server/create-action";
+import {
+  createAuthenticatedAction,
+  createAuthenticatedActionNoInput,
+  createSafeAuthenticatedAction,
+  type AuthContext,
+} from "@/lib/server/create-action";
 import { ForbiddenError, assertLocationAccess } from "@/lib/server/authorize";
 import { canUserDo } from "@/lib/rbac";
 
@@ -20,6 +25,7 @@ import {
   pickDashboardPeriod,
   qatarTodayYmd,
   summaryToDayRow,
+  enrichWatchlistEntries,
   frequentExceptionLeaders,
   type AttendanceDashboardPunch,
 } from "@/lib/attendance-hr/dashboard";
@@ -304,16 +310,15 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
     const frequentLate = frequentExceptionLeaders(dayRows, "late");
     const frequentMissed = frequentExceptionLeaders(dayRows, "missed");
     const watchIds = [...frequentLate, ...frequentMissed].map((row) => row.id);
-    const staffNames = new Map<string, string>();
+    const namedStaff: Array<{ id: string; full_name?: string | null; location_id?: string | null }> = [];
     if (watchIds.length) {
-      const { data: named } = await context.supabase.from("staff").select("id, full_name").in("id", watchIds);
-      for (const row of named ?? []) staffNames.set(row.id, row.full_name);
+      const { data: named } = await context.supabase
+        .from("staff")
+        .select("id, full_name, location_id")
+        .in("id", watchIds);
+      namedStaff.push(...(named ?? []));
     }
-    const labelWatch = (row: { id: string; count: number }): [string, number, string] => [
-      row.id,
-      row.count,
-      staffNames.get(row.id) ?? row.id.slice(0, 8),
-    ];
+    const labelWatch = (leaders: typeof frequentLate) => enrichWatchlistEntries(leaders, namedStaff, sites);
 
     return {
       workDate: dateTo,
@@ -341,8 +346,8 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
         in: site.in,
         out: site.out,
       })),
-      frequentLate: frequentLate.map(labelWatch),
-      frequentMissed: frequentMissed.map(labelWatch),
+      frequentLate: labelWatch(frequentLate),
+      frequentMissed: labelWatch(frequentMissed),
       rows: dayRows.slice(0, 200),
     };
   },
@@ -650,13 +655,20 @@ async function assertMapUsers(context: AuthContext) {
   }
 }
 
+function throwPg(error: { message: string; details?: string; code?: string } | null): asserts error is null {
+  if (!error) return;
+  const extra = [error.code, error.details].filter(Boolean).join(" — ");
+  throw new Error(extra ? `${error.message} (${extra})` : error.message);
+}
+
 async function loadBiometricMapping(context: AuthContext, mappingId: string) {
   const { data: mapping, error } = await context.supabase
     .from("attendance_biometric_users")
     .select("*")
     .eq("id", mappingId)
     .single();
-  if (error) throw error;
+  throwPg(error);
+  if (!mapping) throw new Error("Device user mapping not found");
   await assertSite(context, mapping.location_id as string);
   return mapping;
 }
@@ -674,7 +686,7 @@ async function clearMappedLogs(
     .eq("device_id", String(mapping.device_id))
     .eq("biometric_user_id", String(mapping.biometric_user_id))
     .eq("staff_id", staffId);
-  if (error) throw error;
+  throwPg(error);
 }
 
 async function recalcRecentAttendance(context: AuthContext, locationId: string) {
@@ -686,7 +698,7 @@ async function recalcRecentAttendance(context: AuthContext, locationId: string) 
 export const unmapAttendanceBiometricUser = createAuthenticatedAction(
   z.object({ mappingId: z.string().uuid() }),
   async (data, context) => {
-    assertMapUsers(context);
+    await assertMapUsers(context);
     const mapping = await loadBiometricMapping(context, data.mappingId);
 
     const { error: uErr } = await context.supabase
@@ -702,7 +714,7 @@ export const unmapAttendanceBiometricUser = createAuthenticatedAction(
         mapped_at: null,
       })
       .eq("id", data.mappingId);
-    if (uErr) throw uErr;
+    throwPg(uErr);
 
     await clearMappedLogs(context, mapping);
     await audit(context, "attendance.unmap_user", "attendance_biometric_users", data.mappingId, mapping.location_id as string, {
@@ -714,26 +726,33 @@ export const unmapAttendanceBiometricUser = createAuthenticatedAction(
   { auth: { capability: "attendance.map_users" } },
 );
 
-export const removeAttendanceBiometricUser = createAuthenticatedAction(
+export const removeAttendanceBiometricUser = createSafeAuthenticatedAction(
   z.object({ mappingId: z.string().uuid() }),
   async (data, context) => {
-    assertMapUsers(context);
+    await assertMapUsers(context);
     const mapping = await loadBiometricMapping(context, data.mappingId);
 
     await clearMappedLogs(context, mapping);
 
-    const { error: dErr } = await context.supabase
+    const { error: dErr, count } = await context.supabase
       .from("attendance_biometric_users")
-      .delete()
+      .delete({ count: "exact" })
       .eq("id", data.mappingId);
-    if (dErr) throw dErr;
+    throwPg(dErr);
+    if (count === 0) throw new Error("Device user mapping was not removed (not found or no permission)");
 
-    await audit(context, "attendance.remove_device_user", "attendance_biometric_users", data.mappingId, mapping.location_id as string, {
-      biometric_user_id: mapping.biometric_user_id,
-      device_name: mapping.device_name,
-      previous_staff_id: mapping.staff_id,
+    try {
+      await audit(context, "attendance.remove_device_user", "attendance_biometric_users", data.mappingId, mapping.location_id as string, {
+        biometric_user_id: mapping.biometric_user_id,
+        device_name: mapping.device_name,
+        previous_staff_id: mapping.staff_id,
+      });
+    } catch (e) {
+      console.warn("[attendance-hr] audit after remove failed", e instanceof Error ? e.message : e);
+    }
+    void recalcRecentAttendance(context, mapping.location_id as string).catch((e) => {
+      console.warn("[attendance-hr] recalc after remove failed", e instanceof Error ? e.message : e);
     });
-    await recalcRecentAttendance(context, mapping.location_id as string);
     return { ok: true };
   },
   { auth: { capability: "attendance.map_users" } },

@@ -149,6 +149,28 @@ describe("attendance preview from .dat", () => {
     expect(() => JSON.stringify(preview)).not.toThrow();
   });
 
+  it("drops punches outside the selected weekly period", async () => {
+    const buffer = readFileSync(join(fixtureDir, "JJA1251800498_attlog.dat"));
+    const full = await previewAttendanceFile({
+      filename: "device-1.dat",
+      buffer,
+      locationId: "loc",
+      deviceId: "dev",
+      companyId: "co",
+    });
+    const week = await previewAttendanceFile({
+      filename: "device-1.dat",
+      buffer,
+      locationId: "loc",
+      deviceId: "dev",
+      companyId: "co",
+      period: { dateFrom: "2099-01-01", dateTo: "2099-01-07" },
+    });
+    expect(full.punchCount).toBeGreaterThan(0);
+    expect(week.punchCount).toBe(0);
+    expect(week.skippedOutsidePeriod).toBe(full.punchCount);
+  });
+
   it("returns a clear failed preview for unreadable binary .dat", async () => {
     const buffer = Buffer.from([0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b]);
     const preview = await previewAttendanceFile({

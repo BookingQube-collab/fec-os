@@ -12,6 +12,7 @@ import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -24,6 +25,11 @@ import {
   selectAttendanceImportFiles,
   type SkippedImportFile,
 } from "@/lib/attendance-hr/select-import-files";
+import {
+  attendanceRosterPeriod,
+  qatarWeekBounds,
+  type AttendanceRosterPeriodMode,
+} from "@/lib/attendance-hr/roster-period";
 import { STALE } from "@/lib/query-client";
 import { queryKeys } from "@/lib/query-keys";
 
@@ -45,6 +51,7 @@ type FilePreview = {
   uniqueUserCount?: number;
   matchedStaff?: number;
   unmatched?: number;
+  skippedOutsidePeriod?: number;
   dateFrom?: string | null;
   dateTo?: string | null;
   errors?: Array<{ message: string }>;
@@ -65,6 +72,7 @@ type PreviewResponse = {
     matchedStaff: number;
     unmatched: number;
     errorCount: number;
+    skippedOutsidePeriod?: number;
     dateFrom: string | null;
     dateTo: string | null;
   };
@@ -76,6 +84,10 @@ function formatWhen(iso: string | null | undefined) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleString("en-GB", { timeZone: "Asia/Qatar", hour12: false });
+}
+
+function todayYmd() {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" });
 }
 
 function canConfirmPreview(preview: PreviewResponse | null) {
@@ -103,6 +115,9 @@ export default function AttendanceHrImportPage() {
   const [companyId, setCompanyId] = useState("");
   const [locationId, setLocationId] = useState("");
   const [deviceId, setDeviceId] = useState("");
+  const [periodMode, setPeriodMode] = useState<AttendanceRosterPeriodMode>("month");
+  const [weekStart, setWeekStart] = useState(() => qatarWeekBounds(todayYmd()).dateFrom);
+  const [month, setMonth] = useState(() => todayYmd().slice(0, 7));
   const [files, setFiles] = useState<File[]>([]);
   const [skipped, setSkipped] = useState<SkippedImportFile[]>([]);
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
@@ -112,6 +127,14 @@ export default function AttendanceHrImportPage() {
     () => (bootstrap.data?.devices ?? []).filter((d) => !locationId || d.location_id === locationId),
     [bootstrap.data?.devices, locationId],
   );
+
+  const period = useMemo(() => {
+    try {
+      return attendanceRosterPeriod({ mode: periodMode, weekStart, month });
+    } catch {
+      return { dateFrom: weekStart, dateTo: weekStart };
+    }
+  }, [periodMode, weekStart, month]);
 
   const resetReview = () => {
     setPreview(null);
@@ -149,6 +172,9 @@ export default function AttendanceHrImportPage() {
       form.set("companyId", companyId);
       form.set("locationId", locationId);
       form.set("deviceId", deviceId);
+      form.set("periodMode", periodMode);
+      form.set("weekStart", weekStart);
+      form.set("month", month);
       for (const file of files) form.append("files", file);
       const res = await fetch("/api/people/attendance-hr/import", { method: "POST", body: form, credentials: "include" });
       const body = (await res.json().catch(() => ({}))) as PreviewResponse & { error?: string };
@@ -278,6 +304,58 @@ export default function AttendanceHrImportPage() {
           </li>
         </ol>
 
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="attendance-import-period">{t("attendanceHr.import.stepPeriod")}</Label>
+            <SearchableSelect
+              id="attendance-import-period"
+              value={periodMode}
+              onValueChange={(next) => {
+                setPeriodMode(next === "week" ? "week" : "month");
+                resetReview();
+              }}
+              options={[
+                { value: "week", label: t("attendanceHr.import.periodWeek") },
+                { value: "month", label: t("attendanceHr.import.periodMonth") },
+              ]}
+            />
+          </div>
+          {periodMode === "week" ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="attendance-import-week">{t("attendanceHr.import.weekStart")}</Label>
+              <Input
+                id="attendance-import-week"
+                type="date"
+                value={weekStart}
+                onChange={(e) => {
+                  setWeekStart(qatarWeekBounds(e.target.value || todayYmd()).dateFrom);
+                  resetReview();
+                }}
+              />
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <Label htmlFor="attendance-import-month">{t("attendanceHr.import.month")}</Label>
+              <Input
+                id="attendance-import-month"
+                type="month"
+                value={month}
+                onChange={(e) => {
+                  setMonth(e.target.value);
+                  resetReview();
+                }}
+              />
+            </div>
+          )}
+          <div className="space-y-1.5">
+            <Label>{t("attendanceHr.import.dateRange")}</Label>
+            <p className="rounded-full border border-border/70 bg-background px-3 py-2 text-sm">
+              {period.dateFrom} – {period.dateTo}
+            </p>
+            <p className="text-xs text-muted-foreground">{t("attendanceHr.import.periodHelp")}</p>
+          </div>
+        </div>
+
         <div className="space-y-3">
           <Label htmlFor="attendance-import-files">{t("attendanceHr.import.stepFiles")}</Label>
           <input
@@ -348,6 +426,11 @@ export default function AttendanceHrImportPage() {
             {files.length ? `${t("attendanceHr.import.filesSelected", { count: files.length })} ` : null}
             {t("attendanceHr.import.templateWarning")}
           </p>
+          {preview?.summary?.skippedOutsidePeriod ? (
+            <p className="text-xs text-amber-800 dark:text-amber-300">
+              {t("attendanceHr.import.skippedOutside", { count: preview.summary.skippedOutsidePeriod })}
+            </p>
+          ) : null}
           {skipped.length > 0 ? (
             <p className="text-xs text-amber-800 dark:text-amber-300">
               {t("attendanceHr.import.skipped", {
@@ -417,6 +500,10 @@ export default function AttendanceHrImportPage() {
             <div className="rounded-2xl border p-3">
               <dt className="text-xs text-muted-foreground">{t("attendanceHr.import.errors")}</dt>
               <dd className="font-semibold">{preview.summary?.errorCount ?? 0}</dd>
+            </div>
+            <div className="rounded-2xl border p-3">
+              <dt className="text-xs text-muted-foreground">{t("attendanceHr.import.skippedOutsideLabel")}</dt>
+              <dd className="font-semibold">{preview.summary?.skippedOutsidePeriod ?? preview.previews.reduce((n, p) => n + (p.skippedOutsidePeriod ?? 0), 0)}</dd>
             </div>
             <div className="col-span-2 rounded-2xl border p-3">
               <dt className="text-xs text-muted-foreground">{t("attendanceHr.import.dateRange")}</dt>

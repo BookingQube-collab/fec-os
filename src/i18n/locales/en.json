@@ -122,7 +122,8 @@
     "training": "Training",
     "attendance": "Attendance",
     "attendanceHr": "Time & Attendance",
-    "importRoster": "Import roster"
+    "importRoster": "Import roster",
+    "peopleExtras": "Extras (review)"
   },
   "common": {
     "search": "Search",
@@ -2326,13 +2327,46 @@
   },
   "people": {
     "title": "People",
-    "subtitle": "Directory, rolling 7-day shifts, and training compliance.",
+    "subtitle": "Staff directory, employee roster import, and training.",
     "tabs": {
       "dashboard": "Dashboard",
       "staff": "Staff",
       "shifts": "Shifts",
       "attendance": "Attendance",
       "training": "Training"
+    },
+    "extras": {
+      "title": "Pages to review",
+      "subtitle": "These pages still work. They were taken out of the main People menu because they duplicate another screen. Open one, then say if we should delete that page.",
+      "colTitle": "Page",
+      "colPath": "Old path",
+      "colReason": "Why it was hidden",
+      "colCanonical": "Keep using",
+      "open": "Open page",
+      "hidden": "Hidden from main nav",
+      "visibleElsewhere": "Still in another module",
+      "hiddenTabHint": "This tab is hidden from the People menu. It is listed under Extras so you can decide whether to delete it.",
+      "openExtras": "Open extras",
+      "noAccess": "You do not have access to this review list.",
+      "empty": "No review pages for your role.",
+      "items": {
+        "taRoster": {
+          "title": "Time & Attendance shift roster",
+          "reason": "Duplicate of the People-level Import roster. Time & Attendance should import punches, not host a second roster app."
+        },
+        "peopleAttendance": {
+          "title": "People → Attendance tab",
+          "reason": "Duplicate of Time & Attendance (dashboard, import, reports, mapping)."
+        },
+        "peopleShifts": {
+          "title": "People → Shifts tab",
+          "reason": "Duplicate of Daily Ops roster (who works this week) and People Import roster."
+        },
+        "dailyOpsRoster": {
+          "title": "Daily Ops roster",
+          "reason": "Operations shift calendar — not the HR staff roster. Left in Daily Ops. Say if you want this page deleted too."
+        }
+      }
     },
     "actions": "Actions",
     "downloadSample": "Download Sample",
@@ -5040,7 +5074,9 @@
       "frequentMissed": "Frequent missed punches",
       "noLate": "No late pattern yet.",
       "noMissed": "No missed-punch pattern yet.",
+      "watchlistEmpty": "No one on the watchlist for this period.",
       "days": "days",
+      "missed": "Missed",
       "chartTitle": "In / out by site",
       "chartSubtitle": "Mapped and unmatched punches for the selected period.",
       "chartEmpty": "No punches for this period."
@@ -5148,14 +5184,23 @@
     "import": {
       "kicker": "People",
       "title": "Import attendance",
-      "subtitle": "Select company, site and device, then upload user.dat, *_attlog.dat, Excel or CSV. Fingerprint templates are rejected.",
+      "subtitle": "Choose weekly or monthly, then company, site and device. Upload user.dat, *_attlog.dat, Excel or CSV. Fingerprint templates are rejected.",
       "stepCompany": "1. Company",
       "selectCompany": "Select company",
       "stepSite": "2. Site",
       "selectSite": "Select site",
       "stepDevice": "3. Device",
       "selectDevice": "Select device",
-      "stepFiles": "4. Files",
+      "stepPeriod": "4. Period",
+      "periodWeek": "Weekly",
+      "periodMonth": "Monthly",
+      "weekStart": "Week start",
+      "month": "Month",
+      "periodHelp": "Only punches in this week or month are imported. Pick the period that matches the files.",
+      "skippedOutsideLabel": "Outside period",
+      "skippedOutside": "{{count}} punch outside this period skipped.",
+      "skippedOutside_other": "{{count}} punches outside this period skipped.",
+      "stepFiles": "5. Files",
       "chooseFiles": "Choose files",
       "chooseFolder": "Choose folder",
       "clearAll": "Clear all",
@@ -5260,6 +5305,7 @@
       "recentUploads": "Recent attendance roster uploads",
       "loading": "Loading…",
       "uploadsEmpty": "No week or month roster uploaded yet for attendance tally.",
+      "hiddenHint": "This page is hidden from Time & Attendance. The canonical staff roster is People → Import roster. This screen is listed in Extras until you say to delete it.",
       "uploadedAt": "Uploaded",
       "period": "Period",
       "rowsImported": "Rows saved"

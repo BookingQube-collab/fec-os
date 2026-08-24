@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarRange, Download, Upload } from "lucide-react";
+import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -191,6 +192,16 @@ export default function AttendanceHrRosterPage() {
         }
       />
       <AttendanceHrNav />
+      <p className="text-xs text-muted-foreground">
+        {t("attendanceHr.roster.hiddenHint")}{" "}
+        <Link href="/people/extras" className="font-medium underline-offset-4 hover:underline">
+          {t("people.extras.openExtras")}
+        </Link>
+        {" · "}
+        <Link href="/people/import" className="font-medium underline-offset-4 hover:underline">
+          {t("nav.importRoster")}
+        </Link>
+      </p>
 
       <StaffSampleDownloadDialog
         open={sampleOpen}

@@ -2,6 +2,7 @@ import {
   Activity,
   AlertOctagon,
   AlertTriangle,
+  Archive,
   BarChart3,
   Bell,
   BellRing,
@@ -193,6 +194,7 @@ export const NAV_DEPARTMENTS: NavDepartment[] = [
       { href: "/people/performance", labelKey: "nav.performance", icon: Gauge, capability: "performance.view" },
       { href: "/leaderboard", labelKey: "nav.leaderboard", icon: Medal, capability: "leaderboard.view" },
       { href: "/sop", labelKey: "nav.sop", icon: BookOpen, capability: "sop.view" },
+      { href: "/people/extras", labelKey: "nav.peopleExtras", icon: Archive, capability: "people.view_roster" },
     ],
   },
   {

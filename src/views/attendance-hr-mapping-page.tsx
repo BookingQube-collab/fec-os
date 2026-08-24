@@ -12,7 +12,6 @@ import { PageHeader } from "@/components/layout/page-header";
 import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -70,6 +69,28 @@ function staffAvailableAtLocation(s: StaffOption, locationId: string | null) {
 
 function isMultiSiteStaff(s: StaffOption) {
   return Boolean(s.is_roaming) || (s.work_location_ids?.length ?? 0) > 1;
+}
+
+function asClientError(e: unknown, fallback: string): Error {
+  if (e instanceof Error && e.message.trim()) return e;
+  if (e && typeof e === "object" && "message" in e && typeof (e as { message: unknown }).message === "string") {
+    return new Error((e as { message: string }).message);
+  }
+  return new Error(fallback);
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, timeoutMessage: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(timeoutMessage)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 function StaffSearchSelect({
@@ -230,7 +251,7 @@ export default function AttendanceHrMappingPage() {
     mutationFn: (p: { mappingId: string; staffId: string }) => mapAttendanceBiometricUser(p),
     onMutate: async (vars) => {
       markBusy([vars.mappingId], true);
-      await qc.cancelQueries({ queryKey: mappingQueryKey });
+      void qc.cancelQueries({ queryKey: mappingQueryKey });
       const previous = qc.getQueryData<MappingRow[]>(mappingQueryKey);
       patchMappings((current) =>
         current.map((row) => (row.id === vars.mappingId ? { ...row, staff_id: vars.staffId } : row)),
@@ -254,7 +275,7 @@ export default function AttendanceHrMappingPage() {
     mutationFn: (p: { mappingId: string }) => unmapAttendanceBiometricUser(p),
     onMutate: async (vars) => {
       markBusy([vars.mappingId], true);
-      await qc.cancelQueries({ queryKey: mappingQueryKey });
+      void qc.cancelQueries({ queryKey: mappingQueryKey });
       const previous = qc.getQueryData<MappingRow[]>(mappingQueryKey);
       patchMappings((current) =>
         current.map((row) => (row.id === vars.mappingId ? { ...row, staff_id: null } : row)),
@@ -273,23 +294,38 @@ export default function AttendanceHrMappingPage() {
     },
   });
   const removeMut = useMutation({
-    mutationFn: (p: { mappingId: string }) => removeAttendanceBiometricUser(p),
+    mutationFn: async (p: { mappingId: string }) => {
+      try {
+        const pending = removeAttendanceBiometricUser(p);
+        pending.catch(() => {});
+        const result = await withTimeout(
+          pending,
+          20_000,
+          "Remove is taking too long. Close this dialog and try again.",
+        );
+        if (!result.ok) throw new Error(result.error || "Could not remove device name");
+        return result.data;
+      } catch (e) {
+        throw asClientError(e, "Could not remove device name");
+      }
+    },
+    retry: false,
     onMutate: async (vars) => {
       markBusy([vars.mappingId], true);
-      await qc.cancelQueries({ queryKey: mappingQueryKey });
+      void qc.cancelQueries({ queryKey: mappingQueryKey });
       const previous = qc.getQueryData<MappingRow[]>(mappingQueryKey);
       patchMappings((current) => current.filter((row) => row.id !== vars.mappingId));
       clearRowDraft(vars.mappingId);
-      setRemoveTarget(null);
       return { previous };
     },
     onSuccess: () => toast.success(t("attendanceHr.mapping.removedToast")),
     onError: (e: Error, _vars, ctx) => {
       if (ctx?.previous) qc.setQueryData(mappingQueryKey, ctx.previous);
-      toast.error(e.message);
+      toast.error(e.message || "Could not remove device name");
     },
     onSettled: (_data, _err, vars) => {
       markBusy([vars.mappingId], false);
+      setRemoveTarget(null);
       syncMappingsInBackground();
     },
   });
@@ -300,7 +336,7 @@ export default function AttendanceHrMappingPage() {
     onMutate: async (mappings) => {
       const ids = mappings.map((item) => item.mappingId);
       markBusy(ids, true);
-      await qc.cancelQueries({ queryKey: mappingQueryKey });
+      void qc.cancelQueries({ queryKey: mappingQueryKey });
       const previous = qc.getQueryData<MappingRow[]>(mappingQueryKey);
       const staffById = new Map(mappings.map((item) => [item.mappingId, item.staffId]));
       patchMappings((current) =>
@@ -562,7 +598,12 @@ export default function AttendanceHrMappingPage() {
         </table>
       </NeumorphicCard>
 
-      <AlertDialog open={!!removeTarget} onOpenChange={(open) => !open && !removeMut.isPending && setRemoveTarget(null)}>
+      <AlertDialog
+        open={!!removeTarget}
+        onOpenChange={(open) => {
+          if (!open) setRemoveTarget(null);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t("attendanceHr.mapping.removeNameTitle")}</AlertDialogTitle>
@@ -574,21 +615,18 @@ export default function AttendanceHrMappingPage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={removeMut.isPending}>{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <Button
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={removeMut.isPending}
-              onClick={(e) => {
-                e.preventDefault();
+              onClick={() => {
                 const id = removeTarget?.id;
                 if (id) removeMut.mutate({ mappingId: id });
               }}
             >
-              {removeMut.isPending ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : null}
+              {removeMut.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               {removeMut.isPending ? t("common.saving") : t("attendanceHr.mapping.removeNameConfirm")}
-            </AlertDialogAction>
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

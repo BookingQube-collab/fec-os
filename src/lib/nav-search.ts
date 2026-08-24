@@ -17,10 +17,10 @@ const EXTRA_SEARCH_ITEMS: NavSearchHit[] = [
     capability: "amc.view",
   },
   {
-    href: "/people/attendance/roster",
-    labelKey: "nav.attendanceRoster",
-    aliases: ["roster", "attendance", "attendance roster"],
-    capability: "attendance.view",
+    href: "/people/extras",
+    labelKey: "nav.peopleExtras",
+    aliases: ["extras", "legacy", "duplicate pages", "pages to review"],
+    capability: "people.view_roster",
   },
 ];
 
@@ -29,16 +29,17 @@ const NAV_SEARCH_ALIASES: Record<string, string[]> = {
   "/compliance/amc-schedule": ["amc", "inspections", "amc schedule"],
   "/compliance/amc-contracts": ["amc", "amc contracts", "contracts"],
   "/people": ["people", "staff", "roster"],
-  "/people/import": ["roster", "import roster", "import"],
-  "/people/attendance": ["attendance", "roster", "time"],
-  "/people/attendance/roster": ["roster", "attendance", "attendance roster"],
-  "/daily-ops": ["roster", "daily ops", "ops"],
+  "/people/import": ["roster", "import roster", "import", "employee roster"],
+  "/people/attendance": ["attendance", "time", "time and attendance"],
+  "/people/extras": ["extras", "legacy", "duplicate", "roster"],
+  "/daily-ops": ["daily ops", "ops"],
 };
 
 const PREFERRED_HREFS = [
   "/compliance/amc-dashboard",
   "/compliance/amc-contracts",
   "/people/attendance",
+  "/people/import",
   "/people",
 ];
 

@@ -3,14 +3,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
-import { CalendarRange, Clock, Building2, Upload, FileBarChart, Users, ClipboardCheck, Settings } from "lucide-react";
+import { Clock, Building2, Upload, FileBarChart, Users, ClipboardCheck, Settings } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
 const TABS = [
   { href: "/people/attendance", key: "dashboard", icon: Clock },
   { href: "/people/attendance/import", key: "import", icon: Upload },
-  { href: "/people/attendance/roster", key: "roster", icon: CalendarRange },
   { href: "/people/attendance/reports", key: "reports", icon: FileBarChart },
   { href: "/people/attendance/mapping", key: "mapping", icon: Users },
   { href: "/people/attendance/corrections", key: "corrections", icon: ClipboardCheck },

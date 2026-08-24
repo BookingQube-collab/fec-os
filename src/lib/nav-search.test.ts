@@ -19,9 +19,8 @@ describe("nav search", () => {
     expect(attendance.some((h) => h.href.includes("attendance"))).toBe(true);
 
     const roster = searchNav("roster", index, t);
-    expect(
-      roster.some((h) => h.href.includes("people") || h.href.includes("roster") || h.href === "/daily-ops"),
-    ).toBe(true);
+    expect(roster.some((h) => h.href === "/people/import")).toBe(true);
+    expect(roster.every((h) => h.href !== "/people/attendance/roster")).toBe(true);
   });
 
   it("hides AMC hits when the role cannot view AMC", () => {

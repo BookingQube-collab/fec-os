@@ -5,7 +5,9 @@ import {
   buildAbsentRowsForPeriod,
   countRosterEmployees,
   dayRowsFromPunches,
+  enrichWatchlistEntries,
   enumerateYmd,
+  formatWatchlistLocation,
   frequentExceptionLeaders,
   mergeAttendanceSites,
   monthBounds,
@@ -220,12 +222,71 @@ describe("frequentExceptionLeaders", () => {
   it("watchlist is mapped staff only", () => {
     const leaders = frequentExceptionLeaders(
       [
-        { staff_id: null, biometric_user_id: "9", late_minutes: 12 },
-        { staff_id: "abc", late_minutes: 4 },
-        { staff_id: "abc", late_minutes: 8 },
+        { staff_id: null, biometric_user_id: "9", late_minutes: 12, location_id: INF },
+        { staff_id: "abc", late_minutes: 4, location_id: INF },
+        { staff_id: "abc", late_minutes: 8, location_id: INF },
       ],
       "late",
     );
-    expect(leaders).toEqual([{ id: "abc", count: 2 }]);
+    expect(leaders).toEqual([{ id: "abc", count: 2, locationId: INF }]);
+  });
+
+  it("uses the site where most exceptions occurred", () => {
+    const leaders = frequentExceptionLeaders(
+      [
+        { staff_id: "abc", missed_punch: true, location_id: INF },
+        { staff_id: "abc", missed_punch: true, location_id: KDS },
+        { staff_id: "abc", missed_punch: true, location_id: KDS },
+      ],
+      "missed",
+    );
+    expect(leaders).toEqual([{ id: "abc", count: 3, locationId: KDS }]);
+  });
+});
+
+describe("enrichWatchlistEntries", () => {
+  const sites = [
+    { id: INF, code: "INF-CC", name: "Inflatapark", region: "City Center Doha" },
+    { id: KDS, code: "KDS-CC", name: "Kids Driving School", region: "City Center" },
+  ];
+
+  it("joins staff name and site, falling back to home location", () => {
+    const entries = enrichWatchlistEntries(
+      [{ id: "abc", count: 6, locationId: null }],
+      [{ id: "abc", full_name: "Sara Ali", location_id: INF }],
+      sites,
+    );
+    expect(entries).toEqual([
+      {
+        id: "abc",
+        count: 6,
+        name: "Sara Ali",
+        locationId: INF,
+        locationName: "Inflatapark",
+        locationRegion: "City Center Doha",
+        locationCode: "INF-CC",
+      },
+    ]);
+    expect(formatWatchlistLocation(entries[0])).toBe("Inflatapark · City Center Doha");
+  });
+
+  it("prefers the attendance site over home location", () => {
+    const entries = enrichWatchlistEntries(
+      [{ id: "abc", count: 2, locationId: KDS }],
+      [{ id: "abc", full_name: "Sara Ali", location_id: INF }],
+      sites,
+    );
+    expect(entries[0].locationId).toBe(KDS);
+    expect(formatWatchlistLocation(entries[0])).toBe("Kids Driving School · City Center");
+  });
+
+  it("omits location when the site is unknown", () => {
+    const entries = enrichWatchlistEntries(
+      [{ id: "abc", count: 1, locationId: "missing" }],
+      [{ id: "abc", full_name: "Sara Ali", location_id: "also-missing" }],
+      sites,
+    );
+    expect(entries[0].locationName).toBeNull();
+    expect(formatWatchlistLocation(entries[0])).toBeNull();
   });
 });

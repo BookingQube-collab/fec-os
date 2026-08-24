@@ -1,4 +1,6 @@
 import { canUserDo, type AppRole } from "@/lib/rbac";
+import { assignAttendanceDate } from "./calculate";
+import { DEFAULT_SHIFT } from "./constants";
 
 export type AttendanceRosterPeriodMode = "week" | "month";
 
@@ -70,6 +72,20 @@ export function attendanceRosterPeriod(input: {
   const start = (input.weekStart ?? input.dateFrom ?? "").slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) throw new Error("Choose a week start date.");
   return qatarWeekBounds(start);
+}
+
+export function punchWorkDateInPeriod(punchAt: string, dateFrom: string, dateTo: string): boolean {
+  const day = assignAttendanceDate(punchAt, DEFAULT_SHIFT);
+  return Boolean(day) && day >= dateFrom && day <= dateTo;
+}
+
+export function filterPunchesForImportPeriod<T extends { punchAt: string }>(
+  punches: T[],
+  period: { dateFrom: string; dateTo: string } | null | undefined,
+): { kept: T[]; skipped: number } {
+  if (!period) return { kept: punches, skipped: 0 };
+  const kept = punches.filter((p) => punchWorkDateInPeriod(p.punchAt, period.dateFrom, period.dateTo));
+  return { kept, skipped: punches.length - kept.length };
 }
 
 /** Header-only fallback. Live download uses `/api/people/attendance-hr/roster?download=sample`. */

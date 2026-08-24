@@ -333,20 +333,98 @@ export function aggregateDashboardPeriod(
 
 export const aggregateDashboardDay = aggregateDashboardPeriod;
 
+export type AttendanceWatchlistLeader = {
+  id: string;
+  count: number;
+  locationId: string | null;
+};
+
+export type AttendanceWatchlistEntry = {
+  id: string;
+  count: number;
+  name: string;
+  locationId: string | null;
+  locationName: string | null;
+  locationRegion: string | null;
+  locationCode: string | null;
+};
+
 export function frequentExceptionLeaders(
-  rows: Array<{ staff_id: string | null; biometric_user_id?: string | null; late_minutes?: number | null; missed_punch?: boolean | null }>,
+  rows: Array<{
+    staff_id: string | null;
+    location_id?: string | null;
+    biometric_user_id?: string | null;
+    late_minutes?: number | null;
+    missed_punch?: boolean | null;
+  }>,
   kind: "late" | "missed",
   limit = 8,
-): Array<{ id: string; count: number }> {
+): AttendanceWatchlistLeader[] {
   const counts = new Map<string, number>();
+  const locCounts = new Map<string, Map<string, number>>();
   for (const row of rows) {
     if (!row.staff_id) continue;
     const hit = kind === "late" ? Number(row.late_minutes) > 0 : Boolean(row.missed_punch);
     if (!hit) continue;
     counts.set(row.staff_id, (counts.get(row.staff_id) ?? 0) + 1);
+    const locationId = row.location_id?.trim();
+    if (!locationId) continue;
+    const byLoc = locCounts.get(row.staff_id) ?? new Map<string, number>();
+    byLoc.set(locationId, (byLoc.get(locationId) ?? 0) + 1);
+    locCounts.set(row.staff_id, byLoc);
   }
   return [...counts.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, limit)
-    .map(([id, count]) => ({ id, count }));
+    .map(([id, count]) => {
+      const byLoc = locCounts.get(id);
+      const locationId = byLoc
+        ? [...byLoc.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? null
+        : null;
+      return { id, count, locationId };
+    });
+}
+
+export function enrichWatchlistEntries(
+  leaders: AttendanceWatchlistLeader[],
+  staff: Array<{ id: string; full_name?: string | null; location_id?: string | null }>,
+  sites: Array<{ id: string; code: string; name: string; region?: string | null }>,
+): AttendanceWatchlistEntry[] {
+  const staffById = new Map(staff.map((row) => [row.id, row]));
+  const siteById = new Map(sites.map((site) => [site.id, site]));
+  return leaders.map((row) => {
+    const person = staffById.get(row.id);
+    const preferredIds = [row.locationId, person?.location_id ?? null];
+    let locationId: string | null = null;
+    let site: { id: string; code: string; name: string; region?: string | null } | undefined;
+    for (const candidate of preferredIds) {
+      if (!candidate) continue;
+      const found = siteById.get(candidate);
+      if (found) {
+        locationId = candidate;
+        site = found;
+        break;
+      }
+    }
+    return {
+      id: row.id,
+      count: row.count,
+      name: person?.full_name?.trim() || row.id.slice(0, 8),
+      locationId,
+      locationName: site?.name ?? null,
+      locationRegion: site?.region ?? null,
+      locationCode: site?.code ?? null,
+    };
+  });
+}
+
+/** Site name plus mall/region, matching Attendance by site. Never invents a venue. */
+export function formatWatchlistLocation(
+  entry: Pick<AttendanceWatchlistEntry, "locationName" | "locationRegion" | "locationCode">,
+): string | null {
+  const name = entry.locationName?.trim() || null;
+  const region = entry.locationRegion?.trim() || null;
+  const code = entry.locationCode?.trim() || null;
+  if (name && region) return `${name} · ${region}`;
+  return name || code || null;
 }
