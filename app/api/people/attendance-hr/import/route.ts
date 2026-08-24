@@ -103,6 +103,7 @@ export async function POST(request: Request) {
             punchCount: 0,
             uniqueUserIds: [],
             uniqueUserCount: 0,
+            skippedOutsidePeriod: 0,
             dateFrom: null,
             dateTo: null,
             matchedStaff: 0,
