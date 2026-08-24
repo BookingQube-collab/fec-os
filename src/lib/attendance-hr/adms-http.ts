@@ -9,7 +9,13 @@ import {
   pendingAdmsCommandLine,
   touchAdmsDevice,
 } from "@/lib/attendance-hr/adms-ingest";
-import { admsOk, buildAdmsHandshake, parseAdmsDeviceCmdAck, parseAdmsQuery } from "@/lib/attendance-hr/parse-adms";
+import {
+  admsOk,
+  buildAdmsHandshake,
+  parseAdmsDeviceCmdAck,
+  parseAdmsEndpoint,
+  parseAdmsQuery,
+} from "@/lib/attendance-hr/parse-adms";
 import { decodeAttendanceText } from "@/lib/attendance-hr/parse-attlog";
 import { validateAdmsCommKey, validateAdmsIp } from "@/lib/server/adms-auth";
 
@@ -24,14 +30,24 @@ function admsText(body: string, status = 200) {
   });
 }
 
-function endpointFromSlug(slug: string[] | undefined): string {
-  const joined = (slug ?? []).join("/").replace(/\.aspx$/i, "").toLowerCase();
-  if (!joined) return "root";
-  if (joined === "cdata" || joined.endsWith("/cdata")) return "cdata";
-  if (joined === "getrequest" || joined.endsWith("/getrequest")) return "getrequest";
-  if (joined === "devicecmd" || joined === "devicemd" || joined.endsWith("/devicecmd")) return "devicecmd";
-  if (joined === "registry" || joined.endsWith("/registry")) return "registry";
-  return joined;
+export function handleAdmsHead() {
+  return new NextResponse(null, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      Pragma: "no-cache",
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
+export function handleAdmsOptions() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      Allow: "GET, POST, HEAD, OPTIONS",
+    },
+  });
 }
 
 async function readBodyText(request: Request): Promise<string> {
@@ -72,13 +88,13 @@ async function handleGetRequest(request: Request, sn: string, queryKey: string |
 export async function handleAdmsGet(request: Request, slug?: string[]) {
   const url = new URL(request.url);
   const q = parseAdmsQuery(url);
-  const endpoint = endpointFromSlug(slug);
+  const endpoint = parseAdmsEndpoint(slug);
 
-  if (endpoint === "getrequest" || endpoint === "root") {
+  if (endpoint === "getrequest") {
     return handleGetRequest(request, q.sn, q.pushcommkey);
   }
 
-  if (endpoint === "cdata" || endpoint === "registry") {
+  if (endpoint === "cdata" || endpoint === "registry" || endpoint === "root") {
     const auth = await authorize(request, q.sn, q.pushcommkey);
     if (auth.error) return auth.error;
     try {
@@ -103,7 +119,7 @@ export async function handleAdmsGet(request: Request, slug?: string[]) {
 export async function handleAdmsPost(request: Request, slug?: string[]) {
   const url = new URL(request.url);
   const q = parseAdmsQuery(url);
-  const endpoint = endpointFromSlug(slug);
+  const endpoint = parseAdmsEndpoint(slug);
 
   if (endpoint === "getrequest") {
     return handleGetRequest(request, q.sn, q.pushcommkey);

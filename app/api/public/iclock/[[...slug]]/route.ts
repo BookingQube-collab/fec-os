@@ -1,4 +1,4 @@
-import { handleAdmsGet, handleAdmsPost } from "@/lib/attendance-hr/adms-http";
+import { handleAdmsGet, handleAdmsHead, handleAdmsOptions, handleAdmsPost } from "@/lib/attendance-hr/adms-http";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,4 +19,12 @@ export async function GET(request: Request, ctx: RouteCtx) {
 export async function POST(request: Request, ctx: RouteCtx) {
   const { slug } = await ctx.params;
   return handleAdmsPost(request, slug);
+}
+
+export async function HEAD() {
+  return handleAdmsHead();
+}
+
+export async function OPTIONS() {
+  return handleAdmsOptions();
 }

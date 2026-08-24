@@ -1,4 +1,12 @@
-export { USER_DAT_RECORD_SIZE, DEFAULT_RULES, DEFAULT_SHIFT, ATTENDANCE_STATUSES, FEC_ATTENDANCE_SITES } from "./constants";
+export {
+  USER_DAT_RECORD_SIZE,
+  DEFAULT_RULES,
+  DEFAULT_SHIFT,
+  ATTENDANCE_STATUSES,
+  FEC_ATTENDANCE_SITES,
+  ADMS_ONLINE_WINDOW_MS,
+  isAdmsDeviceOnline,
+} from "./constants";
 export { parseUserDat, buildUserDat } from "./parse-user-dat";
 export { parseAttlog, parseAttlogBuffer, parsePunchTimestamp, decodeAttendanceText } from "./parse-attlog";
 export {

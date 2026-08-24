@@ -9,10 +9,12 @@ import { toast } from "sonner";
 import { AttendanceHrNav } from "@/components/attendance-hr/attendance-hr-nav";
 import { PageHeader } from "@/components/layout/page-header";
 import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { isAdmsDeviceOnline } from "@/lib/attendance-hr/constants";
 import { getAttendanceHrBootstrap, requestAttendanceDeviceFetch, saveAttendanceDevice, saveAttendanceShiftTemplate } from "@/lib/attendance-hr.functions";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
@@ -63,14 +65,12 @@ export default function AttendanceHrSettingsPage() {
     queryKey: queryKeys.people.attendanceHr({ view: "bootstrap" }),
     queryFn: () => getAttendanceHrBootstrap(),
     staleTime: STALE.people,
-    refetchInterval: (query) => {
-      const devices = (query.state.data as { devices?: DeviceRow[] } | undefined)?.devices ?? [];
-      const waiting = devices.some((d) => d.adms_pending_cmd || d.adms_cmd_queued_at);
-      return waiting ? 15_000 : false;
-    },
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
   });
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const host = hostFromOrigin(origin);
+  const admsHost = isLocalDevHost(host) ? "e3fec.vercel.app" : host;
   const pushPath = `${origin}/iclock`;
   const [deviceName, setDeviceName] = useState("ZKTeco Device 2");
   const [deviceCode, setDeviceCode] = useState("ZK-2");
@@ -232,22 +232,31 @@ export default function AttendanceHrSettingsPage() {
               adms_cmd_queued_at: src.adms_cmd_queued_at == null ? null : String(src.adms_cmd_queued_at),
               adms_attlog_stamp: src.adms_attlog_stamp == null ? null : String(src.adms_attlog_stamp),
             };
-            const serial = (snDrafts[d.id] ?? d.serial_number ?? "").trim();
+            const savedSerial = (d.serial_number ?? "").trim();
             const lastContact = formatAdmsWhen(d.last_adms_at);
             const lastPunch = d.adms_attlog_stamp ? formatAdmsWhen(d.last_sync_at) : null;
             const fetchPending = Boolean(d.adms_pending_cmd?.trim());
             const fetchDelivered = Boolean(d.adms_cmd_queued_at) && !fetchPending;
+            const online = Boolean(savedSerial) && isAdmsDeviceOnline(d.last_adms_at);
+            const fetchDisabled = fetchDev.isPending || !savedSerial || !online;
             return (
               <div key={d.id} className="space-y-2 rounded-2xl border px-3 py-3">
-                <p className="text-sm font-medium">
-                  {d.device_name} · {d.device_code}
-                </p>
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-medium">
+                    {d.device_name} · {d.device_code}
+                  </p>
+                  {savedSerial ? (
+                    <Badge variant={online ? "success" : "warning"}>
+                      {online ? t("attendanceHr.settings.deviceOnline") : t("attendanceHr.settings.deviceOffline")}
+                    </Badge>
+                  ) : null}
+                </div>
                 <p className="text-xs text-muted-foreground">
                   {siteNameById.get(d.location_id) ?? d.location_id}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {t("attendanceHr.settings.lastAdmsContact")}:{" "}
-                  {lastContact ?? t("attendanceHr.settings.neverContacted")}
+                  {lastContact ?? t("attendanceHr.settings.never")}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {t("attendanceHr.settings.lastPunchUpload")}: {lastPunch ?? t("attendanceHr.settings.never")}
@@ -267,7 +276,7 @@ export default function AttendanceHrSettingsPage() {
                     {t("attendanceHr.settings.lastAdmsError")}: {d.last_adms_error}
                   </p>
                 ) : null}
-                {!serial ? (
+                {!savedSerial ? (
                   <p className="text-xs text-muted-foreground">{t("attendanceHr.settings.noSerialHint")}</p>
                 ) : null}
                 <Label>{t("attendanceHr.settings.serialNumber")}</Label>
@@ -287,14 +296,27 @@ export default function AttendanceHrSettingsPage() {
                   <Button
                     type="button"
                     variant="secondary"
-                    disabled={fetchDev.isPending || !(snDrafts[d.id] ?? d.serial_number)}
+                    disabled={fetchDisabled}
+                    title={
+                      !savedSerial
+                        ? t("attendanceHr.settings.noSerialHint")
+                        : !online
+                          ? t("attendanceHr.settings.fetchDisabledOffline")
+                          : undefined
+                    }
                     onClick={() => fetchDev.mutate(d)}
                   >
                     <Download className="mr-1 h-4 w-4" />
                     {t("attendanceHr.settings.fetchNow")}
                   </Button>
                 </div>
-                <p className="text-xs text-muted-foreground">{t("attendanceHr.settings.fetchHelp")}</p>
+                {savedSerial && !online ? (
+                  <p className="text-xs text-muted-foreground">
+                    {t("attendanceHr.settings.fetchOfflineHint", { host: admsHost })}
+                  </p>
+                ) : savedSerial ? (
+                  <p className="text-xs text-muted-foreground">{t("attendanceHr.settings.fetchHelp")}</p>
+                ) : null}
               </div>
             );
           })}

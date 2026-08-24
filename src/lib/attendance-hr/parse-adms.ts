@@ -53,6 +53,21 @@ export function parseAdmsQuery(url: URL): {
   };
 }
 
+/** Map /iclock/... path segments to an iClock endpoint. Strips .aspx per segment. */
+export function parseAdmsEndpoint(slug: string[] | undefined): string {
+  const joined = (slug ?? [])
+    .map((part) => part.replace(/\.aspx$/i, ""))
+    .filter(Boolean)
+    .join("/")
+    .toLowerCase();
+  if (!joined) return "root";
+  if (joined === "cdata" || joined.endsWith("/cdata")) return "cdata";
+  if (joined === "getrequest" || joined.endsWith("/getrequest")) return "getrequest";
+  if (joined === "devicecmd" || joined === "devicemd" || joined.endsWith("/devicecmd")) return "devicecmd";
+  if (joined === "registry" || joined.endsWith("/registry")) return "registry";
+  return joined;
+}
+
 function parseKeyValueLine(line: string): Record<string, string> {
   const trimmed = line.replace(USER_LINE_RE, "").trim();
   if (!trimmed) return {};

@@ -7,7 +7,7 @@ import { ForbiddenError, assertLocationAccess } from "@/lib/server/authorize";
 import { canUserDo } from "@/lib/rbac";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { ATTENDANCE_FILE_BUCKET, DEFAULT_RULES, DEFAULT_SHIFT } from "@/lib/attendance-hr/constants";
+import { ATTENDANCE_FILE_BUCKET, DEFAULT_RULES, DEFAULT_SHIFT, isAdmsDeviceOnline } from "@/lib/attendance-hr/constants";
 import { queueAdmsAttlogQuery } from "@/lib/attendance-hr/adms-ingest";
 import {
   aggregateDashboardPeriod,
@@ -792,7 +792,7 @@ export const requestAttendanceDeviceFetch = createAuthenticatedAction(
   async (data, context) => {
     const { data: device, error } = await context.supabase
       .from("attendance_devices")
-      .select("id, location_id, serial_number, timezone")
+      .select("id, location_id, serial_number, timezone, last_adms_at")
       .eq("id", data.deviceId)
       .maybeSingle();
     if (error) throw error;
@@ -800,6 +800,9 @@ export const requestAttendanceDeviceFetch = createAuthenticatedAction(
     await assertLocationAccess(context, device.location_id as string);
     if (!String(device.serial_number ?? "").trim()) {
       throw new Error("Save the device serial number first.");
+    }
+    if (!isAdmsDeviceOnline(device.last_adms_at == null ? null : String(device.last_adms_at))) {
+      throw new Error("Device is offline. Fetch runs only after the terminal polls the server.");
     }
     const result = await queueAdmsAttlogQuery(
       supabaseAdmin,

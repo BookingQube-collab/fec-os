@@ -25,7 +25,11 @@ const nextConfig: NextConfig = {
     ],
   },
   async rewrites() {
-    return [{ source: "/iclock", destination: "/api/public/iclock/cdata" }];
+    return [
+      { source: "/iclock", destination: "/api/public/iclock/cdata" },
+      { source: "/iclock.aspx", destination: "/iclock/cdata" },
+      { source: "/iclock.aspx/:path*", destination: "/iclock/:path*" },
+    ];
   },
   async headers() {
     return [

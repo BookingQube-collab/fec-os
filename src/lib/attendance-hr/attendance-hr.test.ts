@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { parseEncryptionKey } from "@/lib/ai/crypto";
 
 import { calculateDailyAttendance, markProbableDuplicates } from "./calculate";
-import { DEFAULT_SHIFT, USER_DAT_RECORD_SIZE } from "./constants";
+import { ADMS_ONLINE_WINDOW_MS, DEFAULT_SHIFT, isAdmsDeviceOnline, USER_DAT_RECORD_SIZE } from "./constants";
 import { decryptFileBuffer, encryptFileBuffer } from "./file-crypto";
 import { detectBufferKind } from "./detect";
 import { guardAttendanceUpload } from "./file-guard";
@@ -25,6 +25,7 @@ import {
   formatAdmsGetRequestCommand,
   parseAdmsAttlog,
   parseAdmsDeviceCmdAck,
+  parseAdmsEndpoint,
   parseAdmsQuery,
   parseAdmsUsers,
 } from "./parse-adms";
@@ -488,6 +489,11 @@ describe("ZKTeco ADMS / iClock parse", () => {
     expect(firstSync).toContain("OPERLOGStamp=0");
     expect(firstSync).toContain("ATTPHOTOStamp=None");
     expect(buildAdmsHandshake({ sn: "X", attlogStamp: "None" })).toContain("ATTLOGStamp=0");
+    expect(parseAdmsEndpoint(undefined)).toBe("root");
+    expect(parseAdmsEndpoint([])).toBe("root");
+    expect(parseAdmsEndpoint(["cdata.aspx"])).toBe("cdata");
+    expect(parseAdmsEndpoint(["getrequest.aspx"])).toBe("getrequest");
+    expect(parseAdmsEndpoint(["CData"])).toBe("cdata");
   });
 
   it("builds a DATA QUERY ATTLOG getrequest command and parses device ACK", () => {
@@ -501,6 +507,30 @@ describe("ZKTeco ADMS / iClock parse", () => {
     expect(formatAdmsDateTime(from)).toBe("2026-08-24 00:00:00");
     expect(parseAdmsDeviceCmdAck("ID=7&Return=0")).toEqual({ id: 7, returnCode: 0 });
     expect(parseAdmsDeviceCmdAck("OK")).toBeNull();
+  });
+});
+
+describe("isAdmsDeviceOnline", () => {
+  const now = new Date("2026-08-24T15:00:00.000Z");
+
+  it("is false when the device has never contacted ADMS", () => {
+    expect(isAdmsDeviceOnline(null, now)).toBe(false);
+    expect(isAdmsDeviceOnline(undefined, now)).toBe(false);
+    expect(isAdmsDeviceOnline("", now)).toBe(false);
+  });
+
+  it("is true within the freshness window, including the exact boundary", () => {
+    expect(isAdmsDeviceOnline(new Date(now.getTime() - ADMS_ONLINE_WINDOW_MS + 1_000), now)).toBe(true);
+    expect(isAdmsDeviceOnline(new Date(now.getTime() - ADMS_ONLINE_WINDOW_MS).toISOString(), now)).toBe(true);
+  });
+
+  it("is false after the freshness window", () => {
+    expect(isAdmsDeviceOnline(new Date(now.getTime() - ADMS_ONLINE_WINDOW_MS - 1).toISOString(), now)).toBe(false);
+  });
+
+  it("treats a slightly future last_adms_at as online and invalid stamps as offline", () => {
+    expect(isAdmsDeviceOnline(new Date(now.getTime() + 5_000).toISOString(), now)).toBe(true);
+    expect(isAdmsDeviceOnline("not-a-date", now)).toBe(false);
   });
 });
 

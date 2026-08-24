@@ -1,6 +1,20 @@
 export const USER_DAT_RECORD_SIZE = 72;
 export const DEFAULT_DUPLICATE_WINDOW_SECONDS = 60;
 export const DEFAULT_TIMEZONE = "Asia/Qatar";
+/** BioPro TransInterval=1, so a 2-minute freshness window is enough for live Online. */
+export const ADMS_ONLINE_WINDOW_MS = 120_000;
+
+/** True when the terminal actually contacted ADMS (cdata or getrequest) recently. */
+export function isAdmsDeviceOnline(
+  lastAdmsAt: string | Date | null | undefined,
+  now: Date | number = Date.now(),
+): boolean {
+  if (lastAdmsAt == null || lastAdmsAt === "") return false;
+  const t = lastAdmsAt instanceof Date ? lastAdmsAt.getTime() : new Date(lastAdmsAt).getTime();
+  if (!Number.isFinite(t)) return false;
+  const nowMs = typeof now === "number" ? now : now.getTime();
+  return nowMs - t <= ADMS_ONLINE_WINDOW_MS;
+}
 export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 export const MAX_IMPORT_ROWS = 50_000;
 export const ATTENDANCE_FILE_BUCKET = "attendance-imports";
