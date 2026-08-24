@@ -12,8 +12,8 @@ async function run(request: Request) {
   const authError = validateCronRequest(request);
   if (authError) return authError;
 
-  const hoursRaw = Number(new URL(request.url).searchParams.get("hours") ?? 3);
-  const hours = Number.isFinite(hoursRaw) ? Math.min(168, Math.max(1, hoursRaw)) : 3;
+  const hoursRaw = Number(new URL(request.url).searchParams.get("hours") ?? 24);
+  const hours = Number.isFinite(hoursRaw) ? Math.min(168, Math.max(1, hoursRaw)) : 24;
 
   try {
     const result = await queueAdmsAttlogQueryForAll(supabaseAdmin, hours);

@@ -70,12 +70,12 @@ The browser cannot talk to the device. FEC-OS on Vercel also **cannot** open TCP
 4. Set `ADMS_COMM_KEY` in the server environment and the same value on the device if **Server Auth** exists.
 5. Device must reach the public host (venue Wi‑Fi with outbound 443, or VPN). Map User IDs as usual; a name change on the device does **not** clear `staff_id`.
 
-### Fetch punches (click or hourly)
+### Fetch punches (click or daily)
 
 Vercel cannot open TCP 4370. Instead HR queues a ZKTeco command; the terminal uploads when it next polls `/iclock/getrequest` (usually 1–2 minutes if `TransInterval=1`).
 
 1. **Click:** People → Time & Attendance → Settings → **Fetch punches** on a device that has a serial number. That queues `DATA QUERY ATTLOG` for the last 48 hours.
-2. **Hourly:** Vercel Cron `GET /api/public/attendance-adms-poll` (see `vercel.json`) queues the last 3 hours for every ADMS device. Set `CRON_SECRET` in Vercel. Hourly crons need **Vercel Pro**; on Hobby use an external scheduler (e.g. cron-job.org) to hit the same URL every hour with `Authorization: Bearer $CRON_SECRET`.
+2. **Daily:** Vercel Cron `GET /api/public/attendance-adms-poll` (see `vercel.json`) runs around 03:00 UTC / 06:00 Qatar and queues the last 24 hours for every ADMS device. Set `CRON_SECRET` in Vercel. Hobby cannot run hourly crons; for hourly, use an external scheduler (e.g. cron-job.org) against the same URL with `Authorization: Bearer $CRON_SECRET` and `?hours=3`.
 3. Apply migration `20260824140000_attendance_adms_commands.sql` so pending commands persist.
 
 Unknown serials are rejected (`AUTH_ERROR`). Fingerprint/face templates are not stored. If the firmware has no HTTPS/ADMS menu, keep USB import or add a small LAN agent later — do not expect the hosted Next.js app to poll 4370.

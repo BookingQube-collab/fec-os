@@ -22,7 +22,7 @@ These are **not** created by the Supabase integration. Add them in the Vercel UI
 
 | Variable | Environments | Notes |
 |----------|--------------|-------|
-| `CRON_SECRET` | Production (and Preview if testing crons) | Protects `/api/public/*` cron routes including hourly ADMS fetch (`/api/public/attendance-adms-poll`). Generate with `openssl rand -hex 32`. Vercel Cron sends `Authorization: Bearer $CRON_SECRET`. |
+| `CRON_SECRET` | Production (and Preview if testing crons) | Protects `/api/public/*` cron routes including daily ADMS fetch (`/api/public/attendance-adms-poll`). Generate with `openssl rand -hex 32`. Vercel Cron sends `Authorization: Bearer $CRON_SECRET`. Hobby allows daily crons only. |
 | `ATTENDANCE_INGEST_API_KEY` | Production (and Preview if testing) | `POST /api/public/attendance-ingest` — see [attendance-ingest.md](./api/attendance-ingest.md). |
 | `ADMS_COMM_KEY` | Production (if BioPro SA40 / ZKTeco ADMS push is used) | Shared secret for `/iclock/*`. Pair with a mapped device SN in Time & Attendance → Settings. Optional `ADMS_IP_ALLOWLIST`. |
 

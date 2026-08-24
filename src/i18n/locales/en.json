@@ -5296,7 +5296,7 @@
       "fetchNow": "Fetch punches",
       "fetchQueued": "Fetch queued. The device will upload on its next poll (usually 1–2 minutes).",
       "fetchHelp": "Queues a command for this terminal. FEC-OS cannot reach TCP 4370 from Vercel — the device must poll /iclock/getrequest.",
-      "hourlyHelp": "Hourly schedule: Vercel Cron calls /api/public/attendance-adms-poll every hour (needs CRON_SECRET and Vercel Pro for hourly; Hobby is daily). You can also click Fetch punches anytime."
+      "hourlyHelp": "Daily schedule: Vercel Cron calls /api/public/attendance-adms-poll around 06:00 Qatar time (needs CRON_SECRET). Hobby cannot run hourly crons. Click Fetch punches anytime, or use an external scheduler for hourly."
     }
   }
 }
