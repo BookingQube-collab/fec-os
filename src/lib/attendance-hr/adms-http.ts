@@ -136,5 +136,3 @@ export async function handleAdmsPost(request: Request, slug?: string[]) {
     return admsText("ERROR", 500);
   }
 }
-
-export { handleAdmsGet as handleAdmsGet, handleAdmsPost as handleAdmsPost };

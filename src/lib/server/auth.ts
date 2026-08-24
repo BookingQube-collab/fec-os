@@ -113,13 +113,14 @@ async function resolveUserFromJwt(
   };
   if (typeof auth.getClaims === "function") {
     const { data, error } = await auth.getClaims();
-    const sub = typeof data?.claims?.sub === "string" ? data.claims.sub : null;
+    const claims = data?.claims;
+    const sub = typeof claims?.sub === "string" ? claims.sub : null;
     if (!error && sub) {
       return {
         userId: sub,
         claims: {
           sub,
-          email: typeof data.claims?.email === "string" ? data.claims.email : null,
+          email: typeof claims?.email === "string" ? claims.email : null,
         },
       };
     }
