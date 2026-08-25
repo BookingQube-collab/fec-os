@@ -35,14 +35,19 @@ export function formatWorkDateDdMmYyyy(workDate: string): string {
   return `${d}-${m}-${y}`;
 }
 
-/** 12-hour time with seconds, e.g. 2:27:43 PM */
+const QATAR_TZ = "Asia/Qatar";
+
+/** 12-hour time with seconds, e.g. 10:17:44 AM (Qatar). */
 export function formatPunchTime12h(iso: string | null | undefined): string {
   if (!iso) return "";
-  return new Date(iso).toLocaleTimeString("en-US", {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
     second: "2-digit",
     hour12: true,
+    timeZone: QATAR_TZ,
   });
 }
 
@@ -68,43 +73,75 @@ export function hasOvertime(row: Pick<AttendanceSummaryRow, "overtime_minutes" |
   return row.overtime_minutes > 0 || row.status === "overtime";
 }
 
+const INCOMPLETE_BADGE = "border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-300";
+const MISSING_PUNCH_BADGE = "border-rose-500/40 bg-rose-500/15 text-rose-600 dark:text-rose-300";
+const LATE_BADGE = "border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-300";
+const COMPLETE_BADGE = "border-emerald-500/40 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
+
+const NAMED_STATUS_DISPLAY: Record<string, AttendanceStatusDisplay> = {
+  weekly_off: {
+    label: "Weekly off",
+    badgeClass: "border-slate-400/50 bg-slate-500/10 text-slate-600 dark:text-slate-300",
+  },
+  public_holiday: {
+    label: "Public holiday",
+    badgeClass: "border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+  },
+  annual_leave: {
+    label: "Annual leave",
+    badgeClass: "border-blue-500/40 bg-blue-500/10 text-blue-700 dark:text-blue-300",
+  },
+  sick_leave: {
+    label: "Sick leave",
+    badgeClass: "border-violet-500/40 bg-violet-500/15 text-violet-700 dark:text-violet-300",
+  },
+  unpaid_leave: {
+    label: "Unpaid leave",
+    badgeClass: "border-slate-400/50 bg-slate-500/10 text-slate-600 dark:text-slate-300",
+  },
+  unscheduled: {
+    label: "Unscheduled",
+    badgeClass: "border-zinc-500/40 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300",
+  },
+  review_required: {
+    label: "Review required",
+    badgeClass: LATE_BADGE,
+  },
+};
+
 export function getAttendanceStatusDisplay(
   row: Pick<AttendanceSummaryRow, "status" | "missed_punch" | "actual_in" | "actual_out">,
 ): AttendanceStatusDisplay {
+  const named = NAMED_STATUS_DISPLAY[row.status];
+  if (named) return named;
+
   const hasIn = Boolean(row.actual_in);
   const hasOut = Boolean(row.actual_out);
 
   if (row.status === "absent" || (!hasIn && !hasOut)) {
-    return {
-      label: "Missing Punch",
-      badgeClass: "border-rose-500/40 bg-rose-500/15 text-rose-600 dark:text-rose-300",
-    };
+    return { label: "Missing Punch", badgeClass: MISSING_PUNCH_BADGE };
   }
 
-  if (row.missed_punch || row.status === "missed_punch" || (hasIn !== hasOut)) {
-    if (hasIn && !hasOut) {
-      return {
-        label: "Incomplete",
-        badgeClass: "border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-300",
-      };
+  if (
+    row.missed_punch ||
+    row.status === "missed_punch" ||
+    row.status === "incomplete" ||
+    hasIn !== hasOut
+  ) {
+    if ((hasIn && !hasOut) || row.status === "incomplete") {
+      return { label: "Incomplete", badgeClass: INCOMPLETE_BADGE };
     }
-    return {
-      label: "Missing Punch",
-      badgeClass: "border-rose-500/40 bg-rose-500/15 text-rose-600 dark:text-rose-300",
-    };
+    return { label: "Missing Punch", badgeClass: MISSING_PUNCH_BADGE };
   }
 
-  if (row.status === "late" || row.status === "early_leave") {
+  if (row.status === "late" || row.status === "early_leave" || row.status === "early_departure") {
     return {
       label: row.status === "late" ? "Late" : "Early Leave",
-      badgeClass: "border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-300",
+      badgeClass: LATE_BADGE,
     };
   }
 
-  return {
-    label: "Complete",
-    badgeClass: "border-emerald-500/40 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
-  };
+  return { label: "Complete", badgeClass: COMPLETE_BADGE };
 }
 
 export function attendanceDateRange(preset: "week" | "month"): { from: string; to: string } {
@@ -188,35 +225,111 @@ export function computeAttendanceKpis(rows: AttendanceSummaryRow[]): AttendanceK
   };
 }
 
-export function buildAttendanceCsv(rows: AttendanceSummaryRow[]): string {
-  const header = [
-    "Location",
-    "User Name",
-    "Date",
-    "First Check-In",
-    "Last Check-Out",
-    "Total Hours Worked",
-    "Overtime",
-    "Overtime Hours",
-    "Status",
-  ];
+export type AttendanceListingSource = {
+  id?: string;
+  locationLabel: string;
+  userName: string;
+  userNameUnmapped?: boolean;
+  work_date: string;
+  actual_in: string | null;
+  actual_out: string | null;
+  overtime_minutes: number;
+  status: string;
+  missed_punch: boolean;
+};
+
+export const ATTENDANCE_LISTING_COLUMNS = [
+  "Location",
+  "User Name",
+  "Date",
+  "First Check-In",
+  "Last Check-Out",
+  "Total Hours Worked",
+  "Overtime",
+  "Overtime Hours",
+  "Status",
+] as const;
+
+export type AttendanceListingCells = {
+  location: string;
+  userName: string;
+  date: string;
+  firstCheckIn: string;
+  lastCheckOut: string;
+  totalHours: string;
+  overtime: string;
+  overtimeHours: string;
+  status: string;
+};
+
+export function toAttendanceListingSource(row: AttendanceSummaryRow): AttendanceListingSource {
+  return {
+    id: row.id,
+    locationLabel: formatLocationLabel(row.location),
+    userName: row.staff?.full_name ?? "—",
+    work_date: row.work_date,
+    actual_in: row.actual_in,
+    actual_out: row.actual_out,
+    overtime_minutes: row.overtime_minutes,
+    status: row.status,
+    missed_punch: row.missed_punch,
+  };
+}
+
+export function attendanceListingCells(row: AttendanceListingSource): AttendanceListingCells {
+  const hours = computeHoursWorked(row.actual_in, row.actual_out);
+  const ot = hasOvertime(row);
+  const status = getAttendanceStatusDisplay(row);
+  return {
+    location: row.locationLabel,
+    userName: row.userName,
+    date: formatWorkDateDdMmYyyy(row.work_date),
+    firstCheckIn: formatPunchTime12h(row.actual_in) || "—",
+    lastCheckOut: formatPunchTime12h(row.actual_out) || "—",
+    totalHours: formatHoursValue(hours),
+    overtime: ot ? "Yes" : "No",
+    overtimeHours: ot ? formatOvertimeHours(row.overtime_minutes) : "—",
+    status: status.label,
+  };
+}
+
+export function attendanceListingExportObjects(rows: AttendanceListingSource[]) {
+  return rows.map((row) => {
+    const cells = attendanceListingCells(row);
+    return {
+      Location: cells.location,
+      "User Name": cells.userName,
+      Date: cells.date,
+      "First Check-In": cells.firstCheckIn,
+      "Last Check-Out": cells.lastCheckOut,
+      "Total Hours Worked": cells.totalHours,
+      Overtime: cells.overtime,
+      "Overtime Hours": cells.overtimeHours,
+      Status: cells.status,
+    };
+  });
+}
+
+export function buildAttendanceListingCsv(rows: AttendanceListingSource[]): string {
   const lines = rows.map((row) => {
-    const hours = computeHoursWorked(row.actual_in, row.actual_out);
-    const status = getAttendanceStatusDisplay(row);
-    const ot = hasOvertime(row);
+    const cells = attendanceListingCells(row);
     return [
-      formatLocationLabel(row.location),
-      row.staff?.full_name ?? "",
-      formatWorkDateDdMmYyyy(row.work_date),
-      formatPunchTime12h(row.actual_in),
-      formatPunchTime12h(row.actual_out),
-      hours != null ? String(hours) : "",
-      ot ? "Yes" : "No",
-      ot ? formatOvertimeHours(row.overtime_minutes) : "",
-      status.label,
+      cells.location,
+      cells.userName,
+      cells.date,
+      cells.firstCheckIn,
+      cells.lastCheckOut,
+      cells.totalHours,
+      cells.overtime,
+      cells.overtimeHours,
+      cells.status,
     ]
       .map((cell) => `"${String(cell).replace(/"/g, '""')}"`)
       .join(",");
   });
-  return [header.join(","), ...lines].join("\n");
+  return [ATTENDANCE_LISTING_COLUMNS.join(","), ...lines].join("\n");
+}
+
+export function buildAttendanceCsv(rows: AttendanceSummaryRow[]): string {
+  return buildAttendanceListingCsv(rows.map(toAttendanceListingSource));
 }

@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Download, Search } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,31 +14,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { useStaff } from "@/hooks/queries/usePeople";
 import { useAttendanceDailySummary } from "@/hooks/queries/usePeopleExtended";
 import { AttendanceKpiStrip } from "@/components/people/attendance-kpi-strip";
+import { AttendanceRecordsTable } from "@/components/people/attendance-records-table";
 import {
   attendanceDateRange,
   buildAttendanceCsv,
   computeAttendanceKpis,
-  computeHoursWorked,
-  formatHoursValue,
-  formatLocationLabel,
-  formatOvertimeHours,
-  formatPunchTime12h,
-  formatWorkDateDdMmYyyy,
-  getAttendanceStatusDisplay,
-  hasOvertime,
   resolveAttendanceDateRange,
   todayIsoDate,
+  toAttendanceListingSource,
   type AttendanceDatePreset,
   type AttendanceSummaryRow,
 } from "@/lib/attendance-display";
@@ -198,79 +183,7 @@ export function AttendanceTablePanel({
           <p className="mt-2 text-xs">{t("people.attendance.emptyHint")}</p>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-border">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-surface/60 hover:bg-surface/60">
-                <TableHead className="whitespace-nowrap text-xs uppercase tracking-wider">
-                  {t("people.attendance.location")}
-                </TableHead>
-                <TableHead className="whitespace-nowrap text-xs uppercase tracking-wider">
-                  {t("people.attendance.userName")}
-                </TableHead>
-                <TableHead className="whitespace-nowrap text-xs uppercase tracking-wider">
-                  {t("people.attendance.date")}
-                </TableHead>
-                <TableHead className="whitespace-nowrap text-xs uppercase tracking-wider">
-                  {t("people.attendance.firstCheckIn")}
-                </TableHead>
-                <TableHead className="whitespace-nowrap text-xs uppercase tracking-wider">
-                  {t("people.attendance.lastCheckOut")}
-                </TableHead>
-                <TableHead className="whitespace-nowrap text-xs uppercase tracking-wider">
-                  {t("people.attendance.totalHours")}
-                </TableHead>
-                <TableHead className="whitespace-nowrap text-xs uppercase tracking-wider">
-                  {t("people.attendance.overtime")}
-                </TableHead>
-                <TableHead className="whitespace-nowrap text-xs uppercase tracking-wider">
-                  {t("people.attendance.overtimeHours")}
-                </TableHead>
-                <TableHead className="whitespace-nowrap text-xs uppercase tracking-wider">
-                  {t("people.attendance.status")}
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filtered.map((row) => {
-                const hours = computeHoursWorked(row.actual_in, row.actual_out);
-                const statusDisplay = getAttendanceStatusDisplay(row);
-                const ot = hasOvertime(row);
-                return (
-                  <TableRow key={row.id}>
-                    <TableCell className="min-w-[10rem] text-xs text-muted-foreground">
-                      {formatLocationLabel(row.location)}
-                    </TableCell>
-                    <TableCell className="font-medium whitespace-nowrap">
-                      {row.staff?.full_name ?? "—"}
-                    </TableCell>
-                    <TableCell className="tabular-nums whitespace-nowrap text-xs">
-                      {formatWorkDateDdMmYyyy(row.work_date)}
-                    </TableCell>
-                    <TableCell className="tabular-nums whitespace-nowrap text-xs">
-                      {formatPunchTime12h(row.actual_in) || "—"}
-                    </TableCell>
-                    <TableCell className="tabular-nums whitespace-nowrap text-xs">
-                      {formatPunchTime12h(row.actual_out) || "—"}
-                    </TableCell>
-                    <TableCell className="tabular-nums text-xs">{formatHoursValue(hours)}</TableCell>
-                    <TableCell className="text-xs">
-                      {ot ? t("people.training.yes") : t("people.training.no")}
-                    </TableCell>
-                    <TableCell className="tabular-nums text-xs">
-                      {ot ? formatOvertimeHours(row.overtime_minutes) : "—"}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className={statusDisplay.badgeClass}>
-                        {statusDisplay.label}
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
+        <AttendanceRecordsTable rows={filtered.map(toAttendanceListingSource)} />
       )}
     </div>
   );

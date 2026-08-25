@@ -4,6 +4,8 @@ import { expectedOnDutyStaffIds, expectedRowsForDay, isWorkDateCovered } from ".
 import {
   attendanceRosterPeriod,
   buildAttendanceRosterPreview,
+  looksLikeEmployeeRosterHeaders,
+  looksLikeShiftRosterHeaders,
   matchAttendanceRosterStaff,
   parseDutyCell,
   parseRosterDateCell,
@@ -231,6 +233,17 @@ describe("buildAttendanceRosterPreview", () => {
     });
     expect(preview.errors[0]).toMatch(/Employee Roster/i);
     expect(preview.matched).toBe(0);
+  });
+});
+
+describe("roster header classification", () => {
+  it("treats dated shift templates as shift rosters, not salary directories", () => {
+    const shift = ["date", "staff_name", "qid", "employee_code", "location", "location_name", "shift_start", "shift_end", "duty"];
+    const directory = ["employee_code", "full_name", "qid", "location", "location_name", "position", "type", "e3", "contact", "joining date", "status", "salary"];
+    expect(looksLikeShiftRosterHeaders(shift)).toBe(true);
+    expect(looksLikeEmployeeRosterHeaders(shift)).toBe(false);
+    expect(looksLikeShiftRosterHeaders(directory)).toBe(false);
+    expect(looksLikeEmployeeRosterHeaders(directory)).toBe(true);
   });
 });
 

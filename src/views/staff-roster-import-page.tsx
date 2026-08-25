@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderOpen, Loader2, Upload, X, Download } from "lucide-react";
-import { type DragEvent, useEffect, useRef, useState } from "react";
+import { type DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { StaffSampleDownloadDialog } from "@/components/people/staff-sample-download-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -27,14 +28,35 @@ import {
 } from "@/lib/staff-roster/select-import-file";
 import type { PreviewLine, RosterColumnKey, RosterPreview, RosterRowAction } from "@/lib/staff-roster/types";
 import { cn } from "@/lib/utils";
-import { downloadCsvFromApi } from "@/lib/staff-import";
+import { downloadFileFromApi } from "@/lib/staff-import";
 import { CANONICAL_LOCATION_CODES } from "@/lib/locations/normalize";
+import {
+  attendanceRosterPeriod,
+  qatarWeekBounds,
+  type AttendanceRosterPeriodMode,
+} from "@/lib/attendance-hr/roster-period";
 import { useAppStore } from "@/stores/app-store";
 
 type UploadArg = { mode: "preview" | "commit"; overrideMap?: boolean };
 
+type ShiftPreviewRow = {
+  rowNumber: number;
+  workDate: string;
+  locationCode: string | null;
+  staffLabel: string;
+  qid: string | null;
+  employeeCode: string | null;
+  shiftStart: string | null;
+  shiftEnd: string | null;
+  isWeekOff: boolean;
+  matchRule: string;
+  status: "matched" | "unmatched" | "skipped";
+  message: string | null;
+};
+
 type PreviewResponse = {
   mode: string;
+  kind?: "shift_roster" | "directory";
   batchId?: string;
   preview?: RosterPreview;
   applied?: boolean;
@@ -43,12 +65,22 @@ type PreviewResponse = {
   headers?: string[];
   mapping?: Record<string, string>;
   worksheetName?: string | null;
-  errors?: Array<{ rowNumber: number; code: string; message: string }>;
+  errors?: Array<{ rowNumber: number; code: string; message: string } | string>;
+  periodMode?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  matched?: number;
+  unmatched?: number;
+  skipped?: number;
+  warnings?: string[];
+  rows?: ShiftPreviewRow[];
+  imported?: number;
 };
 
 type HistoryResponse = {
   batches: Array<{
     id: string;
+    kind?: string;
     status: string;
     mode: string;
     uploaded_by: string | null;
@@ -78,6 +110,10 @@ const MAP_FIELDS: Array<{ key: RosterColumnKey; required?: boolean }> = [
 ];
 
 const PREVIEW_ROW_CAP = 80;
+
+function todayYmd() {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" });
+}
 
 function kindLabel(kind: ReturnType<typeof rosterFileKind>, t: (key: string) => string) {
   if (kind === "excel") return t("people.roster.fileKindExcel");
@@ -111,6 +147,9 @@ export default function StaffRosterImportPage() {
   const [dragOver, setDragOver] = useState(false);
   const [importMode, setImportMode] = useState<"safe_sync" | "authoritative_replace">("safe_sync");
   const [confirmHard, setConfirmHard] = useState(false);
+  const [periodMode, setPeriodMode] = useState<AttendanceRosterPeriodMode>("week");
+  const [weekStart, setWeekStart] = useState(() => qatarWeekBounds(todayYmd()).dateFrom);
+  const [month, setMonth] = useState(() => todayYmd().slice(0, 7));
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [mappingRequired, setMappingRequired] = useState(false);
@@ -133,6 +172,14 @@ export default function StaffRosterImportPage() {
   });
 
   const lockedMode = venueSafeOnly ? "safe_sync" : importMode;
+
+  const period = useMemo(() => {
+    try {
+      return attendanceRosterPeriod({ mode: periodMode, weekStart, month });
+    } catch {
+      return { dateFrom: weekStart, dateTo: weekStart };
+    }
+  }, [periodMode, weekStart, month]);
 
   useEffect(() => {
     setRememberedMap(loadRosterColumnMap());
@@ -170,6 +217,11 @@ export default function StaffRosterImportPage() {
       form.set("mode", arg.mode);
       form.set("importMode", lockedMode);
       form.set("confirmHardDelete", confirmHard ? "true" : "false");
+      form.set("periodMode", periodMode);
+      form.set("weekStart", weekStart);
+      form.set("month", month);
+      form.set("dateFrom", period.dateFrom);
+      form.set("dateTo", period.dateTo);
       if (arg.mode === "preview") {
         if (!file) throw new Error(t("people.roster.chooseFile"));
         form.append("file", file);
@@ -202,7 +254,17 @@ export default function StaffRosterImportPage() {
         saveRosterColumnMap(mapping);
         setRememberedMap(mapping);
       }
-      toast.success(arg.mode === "commit" ? t("people.roster.applied") : t("people.roster.previewReady"));
+      toast.success(
+        arg.mode === "commit"
+          ? data.kind === "shift_roster"
+            ? t("people.roster.shiftApplied", {
+              count: data.imported ?? data.matched ?? 0,
+              from: data.dateFrom ?? period.dateFrom,
+              to: data.dateTo ?? period.dateTo,
+            })
+            : t("people.roster.applied")
+          : t("people.roster.previewReady"),
+      );
       void qc.invalidateQueries({ queryKey: queryKeys.people.rosterImports() });
       if (arg.mode === "commit") {
         void qc.invalidateQueries({ queryKey: queryKeys.people.all });
@@ -217,13 +279,13 @@ export default function StaffRosterImportPage() {
 
   useEffect(() => {
     if (!file || mappingRequired) return;
-    const key = `${file.name}:${file.size}:${file.lastModified}:${lockedMode}:${confirmHard}`;
+    const key = `${file.name}:${file.size}:${file.lastModified}:${lockedMode}:${confirmHard}:${periodMode}:${period.dateFrom}:${period.dateTo}`;
     if (previewKeyRef.current === key) return;
     previewKeyRef.current = key;
     uploadMut.mutate({ mode: "preview" });
-    // mutate identity is stable enough; we key retries on file/mode.
+    // mutate identity is stable enough; we key retries on file/mode/period.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [file, lockedMode, confirmHard, mappingRequired]);
+  }, [file, lockedMode, confirmHard, mappingRequired, periodMode, period.dateFrom, period.dateTo]);
 
   const rollbackMut = useMutation({
     mutationFn: async (id: string) => {
@@ -240,8 +302,13 @@ export default function StaffRosterImportPage() {
 
   const p = preview?.preview;
   const counts = p?.counts ?? preview?.counts;
+  const isShiftPreview = preview?.kind === "shift_roster";
   const readyToConfirm = Boolean(
-    preview?.batchId && preview.mode !== "commit" && !preview.needsMapping && p && !uploadMut.isPending,
+    preview?.batchId &&
+      preview.mode !== "commit" &&
+      !preview.needsMapping &&
+      !uploadMut.isPending &&
+      (isShiftPreview ? (preview.matched ?? 0) > 0 : Boolean(p)),
   );
   const previewing = uploadMut.isPending && uploadMut.variables?.mode === "preview";
   const committing = uploadMut.isPending && uploadMut.variables?.mode === "commit";
@@ -257,7 +324,9 @@ export default function StaffRosterImportPage() {
           ? null
           : preview?.mode === "commit"
             ? null
-            : t("people.roster.confirmHintPreview");
+            : isShiftPreview && (preview.matched ?? 0) === 0
+              ? t("people.roster.shiftNothingMatched")
+              : t("people.roster.confirmHintPreview");
 
   const mapHeaders = preview?.headers ?? [];
 
@@ -274,10 +343,16 @@ export default function StaffRosterImportPage() {
   const downloadSample = async (sampleLocationId: string | null) => {
     try {
       setSampleBusy(true);
-      const params = new URLSearchParams();
+      const params = new URLSearchParams({
+        download: "sample",
+        periodMode,
+        weekStart,
+        month,
+        dateFrom: period.dateFrom,
+        dateTo: period.dateTo,
+      });
       if (sampleLocationId) params.set("locationId", sampleLocationId);
-      const qs = params.toString();
-      await downloadCsvFromApi(`/api/people/roster-export${qs ? `?${qs}` : ""}`);
+      await downloadFileFromApi(`/api/people/roster-import?${params.toString()}`);
       toast.success(t("people.roster.sampleReady"));
       setSampleOpen(false);
     } catch (e) {
@@ -317,6 +392,61 @@ export default function StaffRosterImportPage() {
       <div className="surface-card space-y-4 p-5">
         <p className="text-xs text-muted-foreground">{t("people.roster.keepCsv")}</p>
         <p className="text-xs text-muted-foreground">{t("people.roster.matchHint")}</p>
+
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="roster-import-period">{t("people.roster.stepPeriod")}</Label>
+            <SearchableSelect
+              id="roster-import-period"
+              value={periodMode}
+              onValueChange={(next) => {
+                setPeriodMode(next === "month" ? "month" : "week");
+                previewKeyRef.current = null;
+                setPreview(null);
+              }}
+              options={[
+                { value: "week", label: t("people.roster.periodWeek") },
+                { value: "month", label: t("people.roster.periodMonth") },
+              ]}
+            />
+            <p className="text-xs text-muted-foreground">{t("people.roster.periodHelp")}</p>
+          </div>
+          {periodMode === "week" ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="roster-import-week">{t("people.roster.weekStart")}</Label>
+              <Input
+                id="roster-import-week"
+                type="date"
+                value={weekStart}
+                onChange={(e) => {
+                  setWeekStart(qatarWeekBounds(e.target.value || todayYmd()).dateFrom);
+                  previewKeyRef.current = null;
+                  setPreview(null);
+                }}
+              />
+              <p className="text-xs text-muted-foreground">
+                {period.dateFrom} – {period.dateTo}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <Label htmlFor="roster-import-month">{t("people.roster.month")}</Label>
+              <Input
+                id="roster-import-month"
+                type="month"
+                value={month}
+                onChange={(e) => {
+                  setMonth(e.target.value);
+                  previewKeyRef.current = null;
+                  setPreview(null);
+                }}
+              />
+              <p className="text-xs text-muted-foreground">
+                {period.dateFrom} – {period.dateTo}
+              </p>
+            </div>
+          )}
+        </div>
 
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-3">
@@ -450,7 +580,7 @@ export default function StaffRosterImportPage() {
           </div>
         </div>
 
-        {mappingRequired ? (
+        {mappingRequired && !isShiftPreview ? (
           <div className="space-y-3 rounded-2xl border border-amber-300/70 bg-amber-50/50 p-4 dark:bg-amber-950/20">
             <div>
               <h3 className="text-sm font-semibold">{t("people.roster.mapColumns")}</h3>
@@ -487,7 +617,7 @@ export default function StaffRosterImportPage() {
         ) : null}
 
         <div className="flex flex-wrap items-center gap-2">
-          {!mappingRequired ? (
+          {!mappingRequired || isShiftPreview ? (
             <Button
               type="button"
               variant="secondary"
@@ -525,7 +655,14 @@ export default function StaffRosterImportPage() {
         </div>
       ) : null}
 
-      {p || (preview?.mode === "commit" && counts) ? (
+      {isShiftPreview ? (
+        <ShiftPreviewPanel
+          preview={preview}
+          readyToConfirm={readyToConfirm}
+          committing={committing}
+          onConfirm={() => uploadMut.mutate({ mode: "commit" })}
+        />
+      ) : p || (preview?.mode === "commit" && counts) ? (
         <PreviewPanel
           preview={preview}
           rowsOpen={rowsOpen}
@@ -558,12 +695,12 @@ export default function StaffRosterImportPage() {
                 <TableRow key={b.id}>
                   <TableCell className="font-mono text-[10px]">{b.id.slice(0, 8)}</TableCell>
                   <TableCell className="text-xs">{b.staff_import_files?.[0]?.filename ?? "—"}</TableCell>
-                  <TableCell className="text-xs">{b.mode}</TableCell>
+                  <TableCell className="text-xs">{b.kind === "shift_roster" ? `${b.kind} · ${b.mode}` : b.mode}</TableCell>
                   <TableCell><Badge variant="outline">{b.status}</Badge></TableCell>
                   <TableCell className="text-xs">+{b.create_count} ~{b.update_count} /{b.unchanged_count} !{b.review_count}</TableCell>
                   <TableCell className="text-xs">{new Date(b.created_at).toLocaleString()}</TableCell>
                   <TableCell className="text-right">
-                    {b.status === "applied" ? (
+                    {b.status === "applied" && b.kind !== "shift_roster" ? (
                       <Button size="sm" variant="ghost" onClick={() => rollbackMut.mutate(b.id)}>
                         {t("people.roster.rollback")}
                       </Button>
@@ -575,6 +712,97 @@ export default function StaffRosterImportPage() {
           </Table>
         )}
       </div>
+    </div>
+  );
+}
+
+function ShiftPreviewPanel({
+  preview,
+  readyToConfirm,
+  committing,
+  onConfirm,
+}: {
+  preview: PreviewResponse | null;
+  readyToConfirm: boolean;
+  committing: boolean;
+  onConfirm: () => void;
+}) {
+  const { t } = useTranslation();
+  if (!preview) return null;
+  const rows = (preview.rows ?? []).slice(0, PREVIEW_ROW_CAP);
+  const errorMessages = (preview.errors ?? []).map((err) => (typeof err === "string" ? err : err.message));
+  return (
+    <div className="surface-card space-y-4 p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-sm font-semibold">{t("people.roster.preview")}</h2>
+            {preview.mode === "commit" ? (
+              <Badge variant="success">{t("people.roster.applied")}</Badge>
+            ) : readyToConfirm ? (
+              <Badge variant="success">{t("people.roster.readyToConfirm")}</Badge>
+            ) : null}
+            <Badge variant="outline">
+              {preview.dateFrom} – {preview.dateTo}
+            </Badge>
+          </div>
+        </div>
+        <Button type="button" variant={readyToConfirm ? "default" : "outline"} disabled={!readyToConfirm} onClick={onConfirm}>
+          {committing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+          {t("people.roster.confirm")}
+        </Button>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant="success">{t("people.roster.shiftMatched", { count: preview.matched ?? 0 })}</Badge>
+        <Badge variant="warning">{t("people.roster.shiftUnmatched", { count: preview.unmatched ?? 0 })}</Badge>
+        {(preview.skipped ?? 0) > 0 ? (
+          <Badge variant="secondary">{t("people.roster.shiftSkipped", { count: preview.skipped })}</Badge>
+        ) : null}
+      </div>
+      {errorMessages.map((msg) => (
+        <p key={msg} className="text-sm text-destructive">{msg}</p>
+      ))}
+      {(preview.warnings ?? []).map((msg) => (
+        <p key={msg} className="text-xs text-muted-foreground">{msg}</p>
+      ))}
+      {rows.length ? (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t("people.roster.colDate")}</TableHead>
+              <TableHead>{t("people.roster.colStaff")}</TableHead>
+              <TableHead>{t("people.roster.col.location")}</TableHead>
+              <TableHead>{t("people.roster.colShift")}</TableHead>
+              <TableHead>{t("people.roster.colDuty")}</TableHead>
+              <TableHead>{t("people.roster.action")}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((row, i) => (
+              <TableRow key={`${row.rowNumber}-${row.workDate}-${i}`}>
+                <TableCell className="whitespace-nowrap">{row.workDate || "—"}</TableCell>
+                <TableCell>
+                  <div className="font-medium">{row.staffLabel}</div>
+                  <div className="text-xs text-muted-foreground">{row.employeeCode || row.qid || ""}</div>
+                </TableCell>
+                <TableCell>{row.locationCode ?? "—"}</TableCell>
+                <TableCell className="whitespace-nowrap">
+                  {row.isWeekOff ? "—" : [row.shiftStart, row.shiftEnd].filter(Boolean).join("–") || "—"}
+                </TableCell>
+                <TableCell>
+                  {row.isWeekOff ? t("people.roster.dutyOff") : t("people.roster.dutyYes")}
+                </TableCell>
+                <TableCell>
+                  <Badge variant={row.status === "matched" ? "success" : row.status === "skipped" ? "secondary" : "destructive"}>
+                    {row.status}
+                  </Badge>
+                  {row.message ? <p className="mt-1 text-xs text-muted-foreground">{row.message}</p> : null}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      ) : null}
     </div>
   );
 }

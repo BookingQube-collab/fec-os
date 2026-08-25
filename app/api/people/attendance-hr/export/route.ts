@@ -11,16 +11,17 @@ import {
   listAttendanceImports,
 } from "@/lib/attendance-hr.functions";
 import {
+  ATTENDANCE_LISTING_COLUMNS,
+  attendanceListingCells,
+  attendanceListingExportObjects,
+  buildAttendanceListingCsv,
+} from "@/lib/attendance-display";
+import {
   attendanceHrExportStaffName,
+  attendanceHrToListingSource,
   formatAttendanceHrLocation,
   type AttendanceHrReportRow,
 } from "@/lib/attendance-hr/report";
-
-function csvCell(value: unknown): string {
-  const s = value == null ? "" : String(value);
-  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-  return s;
-}
 
 function asUuid(value: string | null): string | null {
   if (!value) return null;
@@ -29,22 +30,8 @@ function asUuid(value: string | null): string | null {
     : null;
 }
 
-function exportDisplayRows(daily: AttendanceHrReportRow[]) {
-  return daily.map((r) => ({
-    work_date: r.work_date,
-    staff_name: attendanceHrExportStaffName(r),
-    employee_code: r.employee_code ?? "",
-    location: formatAttendanceHrLocation(r.location_code, r.location_name),
-    location_code: r.location_code ?? "",
-    location_name: r.location_name ?? "",
-    status: r.status,
-    actual_in: r.actual_in ?? "",
-    actual_out: r.actual_out ?? "",
-    late_minutes: r.late_minutes,
-    overtime_minutes: r.overtime_minutes,
-    punch_count: r.punch_count,
-    biometric_user_id: r.biometric_user_id ?? "",
-  }));
+function listingSources(daily: AttendanceHrReportRow[]) {
+  return daily.map((r) => attendanceHrToListingSource(r));
 }
 
 export async function GET(request: Request) {
@@ -66,7 +53,8 @@ export async function GET(request: Request) {
         listAttendanceImports({ locationId }),
       ]);
 
-      const display = exportDisplayRows(daily);
+      const listing = listingSources(daily);
+      const display = attendanceListingExportObjects(listing);
       const missed = daily.filter((r) => r.missed_punch);
       const late = daily.filter((r) => Number(r.late_minutes) > 0 || Number(r.early_leave_minutes) > 0);
       const absence = daily.filter((r) =>
@@ -74,39 +62,7 @@ export async function GET(request: Request) {
       );
 
       if (format === "csv") {
-        const header = [
-          "work_date",
-          "staff_name",
-          "employee_code",
-          "location",
-          "location_code",
-          "location_name",
-          "status",
-          "actual_in",
-          "actual_out",
-          "late_minutes",
-          "overtime_minutes",
-        ];
-        const body = display
-          .map((r) =>
-            [
-              r.work_date,
-              r.staff_name,
-              r.employee_code,
-              r.location,
-              r.location_code,
-              r.location_name,
-              r.status,
-              r.actual_in,
-              r.actual_out,
-              r.late_minutes,
-              r.overtime_minutes,
-            ]
-              .map(csvCell)
-              .join(","),
-          )
-          .join("\n");
-        return new NextResponse(`${header.join(",")}\n${body}`, {
+        return new NextResponse(buildAttendanceListingCsv(listing), {
           headers: {
             "Content-Type": "text/csv; charset=utf-8",
             "Content-Disposition": `attachment; filename="attendance-${dateFrom}-${dateTo}.csv"`,
@@ -117,20 +73,24 @@ export async function GET(request: Request) {
       if (format === "pdf") {
         const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
         doc.setFontSize(14);
-        doc.text(`Attendance HR ${dateFrom} – ${dateTo}`, 40, 36);
+        doc.text(`Attendance ${dateFrom} – ${dateTo}`, 40, 36);
         autoTable(doc, {
           startY: 48,
-          head: [["Date", "Staff", "Location", "Status", "In", "Out", "Late", "OT"]],
-          body: display.slice(0, 200).map((r) => [
-            r.work_date,
-            r.staff_name,
-            r.location,
-            r.status,
-            r.actual_in ? String(r.actual_in).slice(11, 16) : "",
-            r.actual_out ? String(r.actual_out).slice(11, 16) : "",
-            String(r.late_minutes ?? 0),
-            String(r.overtime_minutes ?? 0),
-          ]),
+          head: [[...ATTENDANCE_LISTING_COLUMNS]],
+          body: listing.slice(0, 200).map((r) => {
+            const cells = attendanceListingCells(r);
+            return [
+              cells.location,
+              cells.userName,
+              cells.date,
+              cells.firstCheckIn,
+              cells.lastCheckOut,
+              cells.totalHours,
+              cells.overtime,
+              cells.overtimeHours,
+              cells.status,
+            ];
+          }),
           styles: { fontSize: 8 },
         });
         const buf = Buffer.from(doc.output("arraybuffer"));

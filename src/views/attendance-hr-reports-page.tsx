@@ -26,7 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { AttendanceRecordsTable } from "@/components/people/attendance-records-table";
 import { useSites } from "@/hooks/queries/useSites";
 import {
   getAttendanceHrBootstrap,
@@ -35,6 +35,7 @@ import {
 } from "@/lib/attendance-hr.functions";
 import { ATTENDANCE_STATUSES } from "@/lib/attendance-hr/constants";
 import {
+  attendanceHrToListingSource,
   computeAttendanceHrReportKpis,
   formatAttendanceHrLocation,
   type AttendanceHrReportRow,
@@ -47,13 +48,6 @@ import { useAppStore } from "@/stores/app-store";
 
 function iso(d: Date) {
   return d.toISOString().slice(0, 10);
-}
-
-function formatPunchTime(value: string | null) {
-  if (!value) return "—";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleTimeString("en-GB", { timeZone: "Asia/Qatar", hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
 export default function AttendanceHrReportsPage() {
@@ -124,6 +118,10 @@ export default function AttendanceHrReportsPage() {
   }, [sites, bootstrap.data?.sites, locationId]);
 
   const rows = (q.data ?? []) as AttendanceHrReportRow[];
+  const listingRows = useMemo(
+    () => rows.map((row) => attendanceHrToListingSource(row, t("attendanceHr.reports.unmapped"))),
+    [rows, t],
+  );
   const kpis = useMemo(() => computeAttendanceHrReportKpis(rows), [rows]);
 
   const selectedLocation = locationOptions.find((loc) => loc.id === locationId);
@@ -260,77 +258,34 @@ export default function AttendanceHrReportsPage() {
 
       <AttendanceHrReportsKpiStrip kpis={kpis} isLoading={q.isLoading} />
 
-      <NeumorphicCard className="overflow-x-auto p-0">
-        <Table>
-          <TableHeader>
-            <TableRow className="text-xs text-muted-foreground">
-              <TableHead className="px-4">{t("attendanceHr.reports.colDate")}</TableHead>
-              <TableHead>{t("attendanceHr.reports.colStaff")}</TableHead>
-              <TableHead>{t("attendanceHr.reports.colLocation")}</TableHead>
-              <TableHead>{t("attendanceHr.reports.colIn")}</TableHead>
-              <TableHead>{t("attendanceHr.reports.colOut")}</TableHead>
-              <TableHead>{t("attendanceHr.reports.colStatus")}</TableHead>
-              <TableHead>{t("attendanceHr.reports.colLate")}</TableHead>
-              <TableHead className="px-4">{t("attendanceHr.reports.colOt")}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {q.isLoading ? (
-              <TableRow>
-                <TableCell className="px-4 py-6 text-muted-foreground" colSpan={8}>
-                  {t("attendanceHr.reports.loading")}
-                </TableCell>
-              </TableRow>
-            ) : emptyImport ? (
-              <TableRow>
-                <TableCell className="px-4 py-8" colSpan={8}>
-                  <div className="space-y-3 text-sm">
-                    <p className="text-muted-foreground">{t("attendanceHr.reports.empty")}</p>
-                    <Button asChild size="sm">
-                      <Link href="/people/attendance/import">
-                        <Upload className="h-4 w-4" />
-                        {t("attendanceHr.reports.importCta")}
-                      </Link>
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ) : emptyFiltered ? (
-              <TableRow>
-                <TableCell className="px-4 py-6 text-muted-foreground" colSpan={8}>
-                  {t("attendanceHr.reports.emptyFiltered")}
-                </TableCell>
-              </TableRow>
-            ) : (
-              rows.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell className="px-4 py-2 whitespace-nowrap">{row.work_date}</TableCell>
-                  <TableCell>
-                    {row.staff_name ? (
-                      <span className="block">
-                        <span className="font-medium">{row.staff_name}</span>
-                        {row.employee_code ? (
-                          <span className="mt-0.5 block text-xs text-muted-foreground">{row.employee_code}</span>
-                        ) : null}
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground">{t("attendanceHr.reports.unmapped")}</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap text-xs">
-                    {formatAttendanceHrLocation(row.location_code, row.location_name) || "—"}
-                  </TableCell>
-                  <TableCell>{formatPunchTime(row.actual_in)}</TableCell>
-                  <TableCell>{formatPunchTime(row.actual_out)}</TableCell>
-                  <TableCell>{t(`attendanceHr.reports.statuses.${row.status}`, { defaultValue: row.status })}</TableCell>
-                  <TableCell>{row.late_minutes}</TableCell>
-                  <TableCell className="px-4">{row.overtime_minutes}</TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-      </NeumorphicCard>
+      {q.isLoading ? (
+        <AttendanceRecordsTable
+          rows={[]}
+          empty={<p className="text-sm text-muted-foreground">{t("attendanceHr.reports.loading")}</p>}
+        />
+      ) : emptyImport ? (
+        <AttendanceRecordsTable
+          rows={[]}
+          empty={
+            <div className="space-y-3 text-sm">
+              <p className="text-muted-foreground">{t("attendanceHr.reports.empty")}</p>
+              <Button asChild size="sm">
+                <Link href="/people/attendance/import">
+                  <Upload className="h-4 w-4" />
+                  {t("attendanceHr.reports.importCta")}
+                </Link>
+              </Button>
+            </div>
+          }
+        />
+      ) : emptyFiltered ? (
+        <AttendanceRecordsTable
+          rows={[]}
+          empty={<p className="text-sm text-muted-foreground">{t("attendanceHr.reports.emptyFiltered")}</p>}
+        />
+      ) : (
+        <AttendanceRecordsTable rows={listingRows} />
+      )}
 
       <AlertDialog open={confirmOpen} onOpenChange={(open) => !open && !purgeMut.isPending && setConfirmOpen(false)}>
         <AlertDialogContent>

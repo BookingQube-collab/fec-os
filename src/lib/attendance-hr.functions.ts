@@ -1197,7 +1197,7 @@ export const purgeAttendanceHrImportedData = createAuthenticatedAction(
 );
 
 type StaffLookup = { id: string; full_name: string | null; employee_code: string | null; qid: string | null };
-type LocationLookup = { id: string; code: string; name: string | null };
+type LocationLookup = { id: string; code: string; name: string | null; region: string | null };
 
 async function enrichAttendanceHrDailyRows(
   context: AuthContext,
@@ -1208,7 +1208,7 @@ async function enrichAttendanceHrDailyRows(
 
   const [staffRows, locationRows] = await Promise.all([
     loadByIds<StaffLookup>(context, "staff", "id, full_name, employee_code, qid", staffIds),
-    loadByIds<LocationLookup>(context, "locations", "id, code, name", locationIds),
+    loadByIds<LocationLookup>(context, "locations", "id, code, name, region", locationIds),
   ]);
 
   const staffById = new Map(staffRows.map((row) => [row.id, row]));
@@ -1236,6 +1236,7 @@ async function enrichAttendanceHrDailyRows(
       qid: staff?.qid ?? null,
       location_code: location?.code ?? null,
       location_name: location?.name ?? null,
+      location_region: location?.region ?? null,
     };
   });
 }

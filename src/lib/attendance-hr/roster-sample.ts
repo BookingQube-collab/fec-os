@@ -5,11 +5,11 @@ import { type StaffPlacement } from "@/lib/staff-sample-scope";
 export const ATTENDANCE_ROSTER_SAMPLE_MAX_ROWS = 10_000;
 export const ATTENDANCE_ROSTER_SAMPLE_DUTY_DEFAULT = "Yes";
 
-export function buildAttendanceRosterSampleCsv(
+export function buildAttendanceRosterSampleMatrix(
   dates: string[],
   placements: StaffPlacement[],
   options?: { dutyDefault?: string; maxRows?: number },
-): { csv: string; rowCount: number; truncated: boolean } {
+): { headers: readonly string[]; rows: string[][]; rowCount: number; truncated: boolean } {
   const duty = options?.dutyDefault ?? ATTENDANCE_ROSTER_SAMPLE_DUTY_DEFAULT;
   const maxRows = options?.maxRows ?? ATTENDANCE_ROSTER_SAMPLE_MAX_ROWS;
   const rows: Array<Array<string>> = [];
@@ -34,8 +34,22 @@ export function buildAttendanceRosterSampleCsv(
     }
   }
   return {
-    csv: toCsv(ATTENDANCE_ROSTER_TEMPLATE_HEADERS, rows),
+    headers: ATTENDANCE_ROSTER_TEMPLATE_HEADERS,
+    rows,
     rowCount: rows.length,
+    truncated,
+  };
+}
+
+export function buildAttendanceRosterSampleCsv(
+  dates: string[],
+  placements: StaffPlacement[],
+  options?: { dutyDefault?: string; maxRows?: number },
+): { csv: string; rowCount: number; truncated: boolean } {
+  const { headers, rows, rowCount, truncated } = buildAttendanceRosterSampleMatrix(dates, placements, options);
+  return {
+    csv: toCsv(headers, rows),
+    rowCount,
     truncated,
   };
 }

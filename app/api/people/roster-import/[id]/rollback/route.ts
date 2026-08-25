@@ -10,11 +10,15 @@ export async function POST(
     async (context) => {
       const { data: batch, error } = await context.supabase
         .from("staff_import_batches")
-        .select("id, status")
+        .select("id, status, summary")
         .eq("id", id)
         .single();
       if (error) throw error;
       if (batch.status !== "applied") throw new Error("Only applied imports can be rolled back");
+      const summary = (batch as { summary?: { kind?: string } }).summary;
+      if (summary?.kind === "shift_roster") {
+        throw new Error("Shift roster imports cannot be rolled back here. Re-upload the same week or month to replace it.");
+      }
       return rollbackRosterBatch(context, id);
     },
     request,

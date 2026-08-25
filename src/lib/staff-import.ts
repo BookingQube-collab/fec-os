@@ -229,6 +229,34 @@ export async function downloadCsvFromApi(url: string): Promise<void> {
   downloadCsvContent(body.csv, body.filename);
 }
 
+export async function downloadFileFromApi(url: string): Promise<void> {
+  const res = await fetch(url, { credentials: "include" });
+  const body = (await res.json().catch(() => ({}))) as {
+    csv?: string;
+    base64?: string;
+    filename?: string;
+    mime?: string;
+    error?: string;
+  };
+  if (!res.ok) throw new Error(body.error ?? "Download failed");
+  if (body.base64 && body.filename) {
+    const bin = Uint8Array.from(atob(body.base64), (c) => c.charCodeAt(0));
+    const blob = new Blob([bin], { type: body.mime || "application/octet-stream" });
+    const objectUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = objectUrl;
+    a.download = body.filename;
+    a.click();
+    URL.revokeObjectURL(objectUrl);
+    return;
+  }
+  if (body.csv && body.filename) {
+    downloadCsvContent(body.csv, body.filename);
+    return;
+  }
+  throw new Error(body.error ?? "Download failed");
+}
+
 export function expandWeeklyRoster(
   rows: Record<string, string>[],
   year: number,

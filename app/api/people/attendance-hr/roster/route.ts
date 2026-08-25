@@ -1,24 +1,16 @@
 import { withAuthRouteRequest } from "@/lib/server/api-route";
 import { listAttendanceRosterUploads } from "@/lib/attendance-hr.functions";
-import {
-  assertAttendanceRosterLocation,
-  assertCanUploadAttendanceRoster,
-  replaceAttendanceRosterPeriod,
-} from "@/lib/attendance-hr/roster-apply";
+import { assertAttendanceRosterLocation, assertCanUploadAttendanceRoster } from "@/lib/attendance-hr/roster-apply";
+import { commitLiveShiftRoster, previewLiveShiftRoster } from "@/lib/attendance-hr/roster-run";
 import {
   attendanceRosterPeriod,
-  buildAttendanceRosterPreview,
   guardAttendanceRosterUpload,
   parseAttendanceRosterFile,
   type AttendanceRosterPeriodMode,
-  type AttendanceRosterShift,
-  type AttendanceRosterStaff,
 } from "@/lib/attendance-hr/roster-upload";
 import { buildAttendanceRosterSampleCsv, enumerateRosterSampleDates, rosterSampleFilename } from "@/lib/attendance-hr/roster-sample";
-import { fetchWorkLocationsByStaffId } from "@/lib/staff-work-locations";
 import { loadLiveStaffForSample, resolveSampleScope } from "@/lib/staff-sample-load";
 import { staffPlacementsForScope } from "@/lib/staff-sample-scope";
-import { CANONICAL_LOCATION_CODES } from "@/lib/locations/normalize";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -117,93 +109,26 @@ export async function POST(request: Request) {
         };
       }
 
-      const [{ data: staffRows, error: staffErr }, { data: locationRows, error: locErr }, { data: shiftRows }] = await Promise.all([
-        context.supabase
-          .from("staff")
-          .select("id, full_name, employee_code, qid, location_id, status")
-          .is("deleted_at", null)
-          .limit(5000),
-        context.supabase.from("locations").select("id, code, name, region, status").in("code", [...CANONICAL_LOCATION_CODES]),
-        context.supabase.from("attendance_shift_templates").select("id, location_id, start_time, end_time").eq("active", true),
-      ]);
-      if (staffErr) throw staffErr;
-      if (locErr) throw locErr;
-
-      const workByStaff = await fetchWorkLocationsByStaffId(
-        context.supabase,
-        (staffRows ?? []).map((row) => row.id),
-      );
-      const staff: AttendanceRosterStaff[] = (staffRows ?? []).map((row) => ({
-        id: row.id,
-        full_name: row.full_name,
-        employee_code: row.employee_code,
-        qid: row.qid,
-        location_id: row.location_id,
-        work_location_ids: (workByStaff.get(row.id) ?? []).map((loc) => loc.id),
-      }));
-      const locations = (locationRows ?? []).map((loc) => ({
-        id: loc.id,
-        code: loc.code,
-        name: loc.name,
-        region: loc.region ?? null,
-      }));
-      const shifts: AttendanceRosterShift[] = (shiftRows ?? []).map((s) => ({
-        id: String(s.id),
-        location_id: (s.location_id as string | null) ?? null,
-        start_time: String(s.start_time ?? ""),
-        end_time: String(s.end_time ?? ""),
-      }));
-
-      const preview = buildAttendanceRosterPreview({
+      const preview = await previewLiveShiftRoster(context, {
         records: parsed.records,
         periodMode: periodMode as AttendanceRosterPeriodMode,
         dateFrom: period.dateFrom,
         dateTo: period.dateTo,
         selectedLocationId: locationId,
-        staff,
-        locations,
-        shifts,
       });
 
       if (mode !== "commit") {
         return { mode: "preview" as const, ...preview };
       }
-      if (!preview.matched) {
-        throw new Error(preview.errors[0] ?? "No matched roster rows to save.");
-      }
-
-      const byLocation = new Map<string, typeof preview.rows>();
-      for (const row of preview.rows) {
-        if (row.status !== "matched" || !row.locationId) continue;
-        const list = byLocation.get(row.locationId) ?? [];
-        list.push(row);
-        byLocation.set(row.locationId, list);
-      }
-
-      const results = [];
-      for (const [locId, rows] of byLocation) {
-        await assertAttendanceRosterLocation(context, locId);
-        results.push(
-          await replaceAttendanceRosterPeriod(context, {
-            locationId: locId,
-            dateFrom: period.dateFrom,
-            dateTo: period.dateTo,
-            fileName: file.name,
-            fileType: file.name.split(".").pop()?.toLowerCase() ?? "csv",
-            rows,
-          }),
-        );
-      }
-
-      const imported = results.reduce((n, r) => n + r.imported, 0);
-      const processed = results.reduce((n, r) => n + r.processed, 0);
+      const committed = await commitLiveShiftRoster(context, {
+        preview,
+        fileName: file.name,
+        fileType: file.name.split(".").pop()?.toLowerCase() ?? "csv",
+      });
       return {
         mode: "commit" as const,
         ...preview,
-        imported,
-        processed,
-        dateFrom: period.dateFrom,
-        dateTo: period.dateTo,
+        ...committed,
       };
     },
     request,

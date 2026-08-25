@@ -1,4 +1,5 @@
 import { rosterSheetLabel } from "@/lib/locations/normalize";
+import { formatLocationLabel } from "@/lib/attendance-display";
 
 export type AttendanceHrReportRow = {
   id: string;
@@ -19,6 +20,7 @@ export type AttendanceHrReportRow = {
   qid: string | null;
   location_code: string | null;
   location_name: string | null;
+  location_region: string | null;
 };
 
 export function isAttendanceHrUnmappedSearch(raw: string): boolean {
@@ -55,6 +57,47 @@ export function formatAttendanceHrLocation(code?: string | null, name?: string |
 
 export function attendanceHrExportStaffName(row: Pick<AttendanceHrReportRow, "staff_name">, unmapped = "Unmapped"): string {
   return row.staff_name?.trim() || unmapped;
+}
+
+/** Site name for the people-style attendance listing (no venue code prefix). */
+export function attendanceHrListingLocation(
+  row: Pick<AttendanceHrReportRow, "location_code" | "location_name" | "location_region">,
+): string {
+  if (row.location_name && row.location_region) {
+    return formatLocationLabel({ name: row.location_name, region: row.location_region });
+  }
+  const label = rosterSheetLabel(row.location_code ?? "", row.location_name);
+  return label || row.location_name || row.location_code || "—";
+}
+
+export function attendanceHrToListingSource(
+  row: AttendanceHrReportRow,
+  unmapped = "Unmapped",
+): {
+  id: string;
+  locationLabel: string;
+  userName: string;
+  userNameUnmapped: boolean;
+  work_date: string;
+  actual_in: string | null;
+  actual_out: string | null;
+  overtime_minutes: number;
+  status: string;
+  missed_punch: boolean;
+} {
+  const mappedName = row.staff_name?.trim() ?? "";
+  return {
+    id: row.id,
+    locationLabel: attendanceHrListingLocation(row),
+    userName: mappedName || unmapped,
+    userNameUnmapped: !mappedName,
+    work_date: row.work_date,
+    actual_in: row.actual_in,
+    actual_out: row.actual_out,
+    overtime_minutes: row.overtime_minutes,
+    status: row.status,
+    missed_punch: row.missed_punch,
+  };
 }
 
 export type AttendanceHrReportKpis = {

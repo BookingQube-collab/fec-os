@@ -251,12 +251,24 @@ export function parseWeekdayCell(raw: string | null | undefined): number | null 
   return n == null ? null : n;
 }
 
-function looksLikeEmployeeRosterHeaders(headers: string[]): boolean {
+function headerLooksShiftish(header: string): boolean {
+  const n = normHeader(header);
+  if (n.includes("shift") || n === "duty" || n === "weekday" || n === "date" || n === "work date") return true;
+  if (parseWeekdayCell(header) != null) return true;
+  return Boolean(parseRosterDateCell(header));
+}
+
+export function looksLikeEmployeeRosterHeaders(headers: string[]): boolean {
   const n = headers.map(normHeader);
   const hasQid = n.some((h) => h === "qid" || h.includes("qatar id"));
   const hrish = n.some((h) => h.includes("salary") || h === "e3" || h.includes("joining") || h.includes("employment type"));
-  const shiftish = n.some((h) => h.includes("shift") || h === "duty" || h === "weekday" || h === "date");
+  const shiftish = headers.some((h) => headerLooksShiftish(h));
   return hasQid && hrish && !shiftish;
+}
+
+export function looksLikeShiftRosterHeaders(headers: string[]): boolean {
+  if (!headers.length || looksLikeEmployeeRosterHeaders(headers)) return false;
+  return headers.some((h) => headerLooksShiftish(h));
 }
 
 function stripHtml(html: string): string {

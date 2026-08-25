@@ -386,6 +386,7 @@ describe("HR report row helpers", () => {
       qid: null,
       location_code: "OFF-CC",
       location_name: "Office",
+      location_region: null,
       ...partial,
     });
     const kpis = computeAttendanceHrReportKpis([
@@ -428,6 +429,7 @@ describe("HR report row helpers", () => {
         qid: null,
         location_code: "OFF-CC",
         location_name: "Office",
+        location_region: null,
       },
     ]);
     expect(kpis.present).toBe(1);
