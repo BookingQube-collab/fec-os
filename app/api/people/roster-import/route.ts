@@ -78,7 +78,7 @@ export async function GET(request: Request) {
     async (context, req) => {
       const params = searchParams(req);
       if (params.get("download") === "sample") {
-        const { period } = readPeriod(params);
+        const { period, periodMode } = readPeriod(params);
         const { staff, locations } = await loadLiveStaffForSample(context);
         const scope = await resolveSampleScope(context, locations, params.get("locationId"));
         const placements = staffPlacementsForScope(staff, locations, {
@@ -88,6 +88,7 @@ export async function GET(request: Request) {
         const { buffer, truncated, rowCount } = await buildPeopleRosterSampleXlsx(
           enumerateRosterSampleDates(period.dateFrom, period.dateTo),
           placements,
+          { periodMode },
         );
         if (truncated) {
           throw new Error("Sample is too large. Download one location or a week instead of the full month.");
@@ -191,9 +192,9 @@ export async function POST(request: Request) {
       const guard = guardRosterUpload(file.name, buffer.length);
       if (!guard.ok) throw new Error(guard.message);
 
-      const attParsed = await parseAttendanceRosterFile(guard.filename, buffer);
-      const attHeaders = attParsed.records[0] ? Object.keys(attParsed.records[0]) : [];
-      if (!attParsed.error && looksLikeShiftRosterHeaders(attHeaders)) {
+        const attParsed = await parseAttendanceRosterFile(guard.filename, buffer);
+        const attHeaders = attParsed.records[0] ? Object.keys(attParsed.records[0]) : [];
+        if (!attParsed.error && looksLikeShiftRosterHeaders(attHeaders)) {
         const shiftPreview = await previewLiveShiftRoster(context, {
           records: attParsed.records,
           periodMode,
@@ -240,7 +241,7 @@ export async function POST(request: Request) {
           file_type: guard.fileType,
           file_hash: rosterFileSha256(buffer),
           storage_path: stored.path,
-          worksheet_name: "Roster",
+          worksheet_name: attParsed.sheetName ?? "Date Wise Roster",
           byte_size: stored.byteSize,
           encrypted: stored.encrypted,
         });

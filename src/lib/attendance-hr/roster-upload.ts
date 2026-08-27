@@ -1,4 +1,4 @@
-import { parseCsv } from "@/lib/csv-parse";
+import { parseCsv, parseCsvMatrix } from "@/lib/csv-parse";
 import { isQidShapedCode } from "@/lib/staff-employee-code";
 import { resolveLocationCode, type LocationLookup } from "@/lib/locations/normalize";
 import { decodeHtmlEntities, normalizeName, normalizeQid } from "@/lib/staff-roster/values";
@@ -44,10 +44,11 @@ const CODE_HEADERS = ["employee code", "employee_code", "staff code", "code", "e
 const LOCATION_HEADERS = ["location", "location_code", "branch", "venue", "site"];
 const LOCATION_NAME_HEADERS = ["location_name", "location name"];
 const DATE_HEADERS = ["date", "work date", "shift date", "day"];
-const WEEKDAY_HEADERS = ["weekday", "day name", "dow"];
 const START_HEADERS = ["shift start", "start_time", "start", "from", "in"];
 const END_HEADERS = ["shift end", "end_time", "end", "to", "out"];
+const SHIFT_HEADERS = ["shift", "shift time", "shift hours", "duty time", "hours"];
 const DUTY_HEADERS = ["duty", "status", "scheduled", "off", "week off"];
+const WEEKDAY_HEADERS = ["weekday", "day name", "dow", "day"];
 
 const IDENTITY_HEADER_SET = new Set(
   [
@@ -60,6 +61,7 @@ const IDENTITY_HEADER_SET = new Set(
     ...WEEKDAY_HEADERS,
     ...START_HEADERS,
     ...END_HEADERS,
+    ...SHIFT_HEADERS,
     ...DUTY_HEADERS,
   ].map((h) => normHeader(h)),
 );
@@ -139,10 +141,10 @@ export function parseDutyCell(raw: string | null | undefined): { isWeekOff: bool
   const s = String(raw ?? "").trim().toLowerCase().replace(/[_-]+/g, " ");
   if (!s) return { isWeekOff: false, known: false };
   if (/^\d{1,2}:\d{2}/.test(s)) return { isWeekOff: false, known: true };
-  if (["off", "week off", "weekly off", "rest", "no", "n", "0", "false", "wo", "off day", "offday"].includes(s)) {
+  if (["off", "week off", "weekly off", "day off", "rest", "no", "n", "0", "false", "wo", "off day", "offday", "leave"].includes(s)) {
     return { isWeekOff: true, known: true };
   }
-  if (["yes", "y", "duty", "on", "scheduled", "work", "1", "true", "present"].includes(s)) {
+  if (["yes", "y", "duty", "on", "scheduled", "work", "working", "1", "true", "present"].includes(s)) {
     return { isWeekOff: false, known: true };
   }
   return { isWeekOff: false, known: false };
@@ -236,6 +238,15 @@ export function parseRosterDateCell(raw: string | number | Date | null | undefin
     if (!month || day < 1 || day > 31) return null;
     return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
   }
+  const namedHyphen = s.match(/^(\d{1,2})[\/.\-]([A-Za-z]+)[\/.\-](\d{2,4})$/);
+  if (namedHyphen) {
+    const day = Number(namedHyphen[1]);
+    const month = MONTHS[namedHyphen[2].toLowerCase()] ?? 0;
+    let year = Number(namedHyphen[3]);
+    if (year < 100) year += 2000;
+    if (!month || day < 1 || day > 31) return null;
+    return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  }
   if (/^\d{5}$/.test(s)) return parseRosterDateCell(Number(s));
   const parsed = new Date(s);
   if (!Number.isNaN(parsed.getTime()) && /\d{4}/.test(s)) {
@@ -283,8 +294,14 @@ export function htmlTablesToMatrices(html: string): string[][][] {
   });
 }
 
+function findShiftHeaderRowIndex(matrix: string[][]): number {
+  const shiftIdx = matrix.findIndex((row) => looksLikeShiftRosterHeaders(row.map((c) => String(c ?? "").trim())));
+  if (shiftIdx >= 0) return shiftIdx;
+  return matrix.findIndex((row) => row.some((c) => String(c ?? "").trim()));
+}
+
 function matrixToRecords(matrix: string[][]): Record<string, string>[] {
-  const headerIdx = matrix.findIndex((row) => row.some((c) => c.trim()));
+  const headerIdx = findShiftHeaderRowIndex(matrix);
   if (headerIdx < 0) return [];
   const headers = matrix[headerIdx].map((h, i) => (h.trim() ? h.trim() : `col_${i}`));
   const rows: Record<string, string>[] = [];
@@ -300,7 +317,13 @@ function matrixToRecords(matrix: string[][]): Record<string, string>[] {
 }
 
 function recordsFromCsv(text: string): Record<string, string>[] {
+  const matrix = parseCsvMatrix(text.replace(/^\uFEFF/, ""));
+  if (findShiftHeaderRowIndex(matrix) >= 0) return matrixToRecords(matrix);
   return parseCsv(text.replace(/^\uFEFF/, ""));
+}
+
+function pickShiftRosterSheetName(names: string[]): string | undefined {
+  return names.find((n) => /date\s*wise/i.test(n)) ?? names.find((n) => /^roster$/i.test(n)) ?? names[0];
 }
 
 type DraftRow = {
@@ -333,8 +356,9 @@ function pickIdentity(row: Record<string, string>) {
   const weekdayKey = findHeader(keys, WEEKDAY_HEADERS);
   const startKey = findHeader(keys, START_HEADERS);
   const endKey = findHeader(keys, END_HEADERS);
+  const shiftKey = findHeader(keys, SHIFT_HEADERS);
   const dutyKey = findHeader(keys, DUTY_HEADERS);
-  return { nameKey, qidKey, codeKey, locKey, dateKey, weekdayKey, startKey, endKey, dutyKey, keys };
+  return { nameKey, qidKey, codeKey, locKey, dateKey, weekdayKey, startKey, endKey, shiftKey, dutyKey, keys };
 }
 
 function isGridRecords(rows: Record<string, string>[]): boolean {
@@ -355,7 +379,9 @@ function draftFromLongRow(row: Record<string, string>, rowNumber: number): Draft
   const employeeCode = cell(row, id.codeKey);
   const combined = staffName || qid || employeeCode;
   if (!combined) return null;
-  const range = parseShiftRange(cell(row, id.dutyKey));
+  const shiftRaw = cell(row, id.shiftKey);
+  const dutyRaw = cell(row, id.dutyKey) || cell(row, findHeader(Object.keys(row), ["status"])) || shiftRaw;
+  const range = parseShiftRange(shiftRaw || dutyRaw);
   const start = parseTimeCell(cell(row, id.startKey)) ?? range.start;
   const end = parseTimeCell(cell(row, id.endKey)) ?? range.end;
   return {
@@ -369,7 +395,7 @@ function draftFromLongRow(row: Record<string, string>, rowNumber: number): Draft
     locationRaw: locationRawFromRow(row, id.locKey),
     shiftStart: start,
     shiftEnd: end,
-    dutyRaw: cell(row, id.dutyKey) || cell(row, findHeader(Object.keys(row), ["status"])),
+    dutyRaw,
   };
 }
 
@@ -555,7 +581,7 @@ function recordsFromUnknown(text: string): { records: Record<string, string>[]; 
 export async function parseAttendanceRosterFile(
   filename: string,
   buffer: Buffer,
-): Promise<{ records: Record<string, string>[]; error?: string }> {
+): Promise<{ records: Record<string, string>[]; error?: string; sheetName?: string }> {
   const base = filename.replace(/\\/g, "/").split("/").pop()?.toLowerCase() ?? "";
   if (base.endsWith(".html") || base.endsWith(".htm")) {
     return recordsFromUnknown(buffer.toString("utf8"));
@@ -563,11 +589,16 @@ export async function parseAttendanceRosterFile(
   if (base.endsWith(".xlsx") || base.endsWith(".xls")) {
     const XLSX = await import("xlsx");
     const wb = XLSX.read(buffer, { type: "buffer", cellDates: true, raw: false });
-    const sheetName = wb.SheetNames[0];
+    const sheetName = pickShiftRosterSheetName(wb.SheetNames);
     if (!sheetName) return { records: [], error: "Workbook has no sheets." };
     const sheet = wb.Sheets[sheetName];
-    const csv = XLSX.utils.sheet_to_csv(sheet, { FS: ",", RS: "\n" });
-    return { records: recordsFromCsv(csv) };
+    const matrix = XLSX.utils.sheet_to_json<(string | number | Date | null)[]>(sheet, {
+      header: 1,
+      raw: false,
+      defval: "",
+    });
+    const asStrings = matrix.map((r) => (r ?? []).map((c) => String(c ?? "").trim()));
+    return { records: matrixToRecords(asStrings), sheetName };
   }
   const text = buffer.toString("utf8");
   if (/<table[\s>]/i.test(text) || /<html/i.test(text)) return recordsFromUnknown(text);

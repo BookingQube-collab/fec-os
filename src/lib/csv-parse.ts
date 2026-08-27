@@ -1,5 +1,5 @@
-/** Parse CSV text into row objects (header row required). */
-export function parseCsv(text: string): Record<string, string>[] {
+/** Parse CSV text into a matrix (blank lines omitted). */
+export function parseCsvMatrix(text: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
   let field = "";
@@ -41,6 +41,12 @@ export function parseCsv(text: string): Record<string, string>[] {
   }
   pushField();
   if (row.length) pushRow();
+  return rows;
+}
+
+/** Parse CSV text into row objects (header row required). */
+export function parseCsv(text: string): Record<string, string>[] {
+  const rows = parseCsvMatrix(text);
   if (!rows.length) return [];
 
   const headers = rows[0].map((h) => h.trim().toLowerCase());

@@ -7,6 +7,7 @@ import {
   looksLikeEmployeeRosterHeaders,
   looksLikeShiftRosterHeaders,
   matchAttendanceRosterStaff,
+  parseAttendanceRosterFile,
   parseDutyCell,
   parseRosterDateCell,
   parseShiftRange,
@@ -75,14 +76,19 @@ describe("parse helpers", () => {
   it("reads duty off/yes and shift ranges", () => {
     expect(parseDutyCell("Off")).toEqual({ isWeekOff: true, known: true });
     expect(parseDutyCell("Yes")).toEqual({ isWeekOff: false, known: true });
+    expect(parseDutyCell("DAY OFF")).toEqual({ isWeekOff: true, known: true });
+    expect(parseDutyCell("WORKING")).toEqual({ isWeekOff: false, known: true });
     expect(parseTimeCell("9:00")).toBe("09:00");
     expect(parseShiftRange("14:00-22:00")).toEqual({ start: "14:00", end: "22:00" });
+    expect(parseShiftRange("12:00 PM–10:00 PM")).toEqual({ start: "12:00", end: "22:00" });
   });
 
   it("parses Qatar-style dates", () => {
     expect(parseRosterDateCell("2026-08-17")).toBe("2026-08-17");
     expect(parseRosterDateCell("17/08/2026")).toBe("2026-08-17");
     expect(parseRosterDateCell("17 Aug 2026")).toBe("2026-08-17");
+    expect(parseRosterDateCell("28-Jul-2026")).toBe("2026-07-28");
+    expect(parseRosterDateCell("1-Aug-2026")).toBe("2026-08-01");
   });
 });
 
@@ -143,6 +149,89 @@ describe("buildAttendanceRosterPreview", () => {
     expect(preview.rows.filter((r) => r.isWeekOff)).toHaveLength(1);
     expect(preview.rows.every((r) => r.staffId === "s-hassan")).toBe(true);
     expect(preview.rows.every((r) => r.locationCode === "KDS-CC")).toBe(true);
+  });
+
+  it("parses the E3 date-wise roster (DATE/DAY/EMPLOYEE/LOCATION/SHIFT/STATUS)", () => {
+    const records = [
+      {
+        DATE: "16-Aug-2026",
+        DAY: "Sunday",
+        EMPLOYEE: "Hassan Al-Kaabi",
+        POSITION: "Branch Manager",
+        LOCATION: "Kids Driving School - City Center",
+        SHIFT: "12:00 PM–10:00 PM",
+        STATUS: "WORKING",
+      },
+      {
+        DATE: "17-Aug-2026",
+        DAY: "Monday",
+        EMPLOYEE: "Hassan Al-Kaabi",
+        POSITION: "Branch Manager",
+        LOCATION: "Kids Driving School - City Center",
+        SHIFT: "DAY OFF",
+        STATUS: "OFF",
+      },
+    ];
+    const preview = buildAttendanceRosterPreview({
+      records,
+      periodMode: "week",
+      dateFrom: "2026-08-16",
+      dateTo: "2026-08-22",
+      selectedLocationId: KDS,
+      staff,
+      locations,
+      shifts: [],
+    });
+    expect(preview.errors).toHaveLength(0);
+    expect(preview.matched).toBe(2);
+    expect(preview.rows[0]).toMatchObject({
+      staffId: "s-hassan",
+      workDate: "2026-08-16",
+      shiftStart: "12:00",
+      shiftEnd: "22:00",
+      isWeekOff: false,
+    });
+    expect(preview.rows[1]).toMatchObject({
+      staffId: "s-hassan",
+      workDate: "2026-08-17",
+      isWeekOff: true,
+    });
+  });
+
+  it("skips E3 title rows and reads the Date Wise Roster sheet", async () => {
+    const XLSX = await import("xlsx");
+    const aoa = [
+      ["DATE WISE MONTHLY ROSTER"],
+      ["E3 — Events and Entertainments Enterprises Trading WLL   |   Period: 16-Aug-2026 to 22-Aug-2026"],
+      [],
+      ["DATE", "DAY", "EMPLOYEE", "POSITION", "LOCATION", "SHIFT", "STATUS"],
+      ["16-Aug-2026", "Sunday", "Hassan Al-Kaabi", "Branch Manager", "Kids Driving School - City Center", "12:00 PM–10:00 PM", "WORKING"],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["ignore"]]), "Summary");
+    XLSX.utils.book_append_sheet(wb, ws, "Date Wise Roster");
+    const buffer = Buffer.from(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }));
+    const parsed = await parseAttendanceRosterFile("E3_Date_Wise_Roster.xlsx", buffer);
+    expect(parsed.sheetName).toBe("Date Wise Roster");
+    expect(parsed.records).toHaveLength(1);
+    expect(parsed.records[0]).toMatchObject({
+      EMPLOYEE: "Hassan Al-Kaabi",
+      SHIFT: "12:00 PM–10:00 PM",
+      STATUS: "WORKING",
+    });
+    const preview = buildAttendanceRosterPreview({
+      records: parsed.records,
+      periodMode: "week",
+      dateFrom: "2026-08-16",
+      dateTo: "2026-08-22",
+      selectedLocationId: KDS,
+      staff,
+      locations,
+      shifts: [],
+    });
+    expect(preview.matched).toBe(1);
+    expect(preview.rows[0]).toMatchObject({ shiftStart: "12:00", shiftEnd: "22:00", isWeekOff: false });
   });
 
   it("matches location code and ignores location_name when both are present", () => {
@@ -239,9 +328,12 @@ describe("buildAttendanceRosterPreview", () => {
 describe("roster header classification", () => {
   it("treats dated shift templates as shift rosters, not salary directories", () => {
     const shift = ["date", "staff_name", "qid", "employee_code", "location", "location_name", "shift_start", "shift_end", "duty"];
+    const e3DateWise = ["DATE", "DAY", "EMPLOYEE", "POSITION", "LOCATION", "SHIFT", "STATUS"];
     const directory = ["employee_code", "full_name", "qid", "location", "location_name", "position", "type", "e3", "contact", "joining date", "status", "salary"];
     expect(looksLikeShiftRosterHeaders(shift)).toBe(true);
     expect(looksLikeEmployeeRosterHeaders(shift)).toBe(false);
+    expect(looksLikeShiftRosterHeaders(e3DateWise)).toBe(true);
+    expect(looksLikeEmployeeRosterHeaders(e3DateWise)).toBe(false);
     expect(looksLikeShiftRosterHeaders(directory)).toBe(false);
     expect(looksLikeEmployeeRosterHeaders(directory)).toBe(true);
   });

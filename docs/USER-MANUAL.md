@@ -208,10 +208,10 @@ Choose **Weekly** or **Monthly**, then week start (Sunday) or month. Shift rows 
 
 1. Click **Download sample**.
 2. Choose **All locations** or **One site**.
-3. Download. The workbook lists **saved employee names and locations** for the selected week or month.
-4. Fill **shift start**, **shift end**, and **Duty (Yes/Off)** only.
+3. Download. The workbook is the E3 date-wise roster (`Date Wise Roster` sheet) for the selected week or month: **DATE**, **DAY**, **EMPLOYEE**, **POSITION**, **LOCATION**, **SHIFT**, **STATUS**. Names, positions, and locations come from saved staff.
+4. Fill **SHIFT** (for example `12:00 PM–10:00 PM` or `DAY OFF`) and **STATUS** (`WORKING` or `OFF`) only.
 
-The sample is a roster template from the directory. **It does not include salary.**
+The sample is a roster template from the directory. **It does not include salary.** Weekly download lists Sunday–Saturday; monthly lists every day in that month.
 
 ### Import
 
