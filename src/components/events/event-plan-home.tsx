@@ -115,7 +115,7 @@ export function EventPlanHome({
   const [applyFlags, setApplyFlags] = useState({ scope: false, tasks: true, risks: true, dates: false });
   const today = todayYmd();
   const urls = eventOpsUrls(ev.id, ev.location_id);
-  const prs = overview.linkedPrs ?? [];
+  const prs = useMemo(() => overview.linkedPrs ?? [], [overview.linkedPrs]);
   const maint = overview.linkedMaintenance ?? [];
   const pendingPrs = prs.filter((pr) => PENDING_PR_STATUSES.has(pr.status));
   const approvedPrs = prs.filter((pr) => !PENDING_PR_STATUSES.has(pr.status));

@@ -117,7 +117,7 @@ export default function AttendanceHrReportsPage() {
     return ordered;
   }, [sites, bootstrap.data?.sites, locationId]);
 
-  const rows = (q.data ?? []) as AttendanceHrReportRow[];
+  const rows = useMemo(() => (q.data ?? []) as AttendanceHrReportRow[], [q.data]);
   const listingRows = useMemo(
     () => rows.map((row) => attendanceHrToListingSource(row, t("attendanceHr.reports.unmapped"))),
     [rows, t],

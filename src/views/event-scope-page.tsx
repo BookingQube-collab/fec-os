@@ -75,10 +75,11 @@ export default function EventScopePage() {
   const [deliv, setDeliv] = useState({ title: "", due_date: "", owner_staff_id: NONE });
   const [brief, setBrief] = useState("");
   const [suggested, setSuggested] = useState<Array<{ title: string; due_date: string | null }>>([]);
+  const latestSections = latest?.sections;
 
   useEffect(() => {
-    setSections(mergeSections(latest?.sections));
-  }, [latest?.id]);
+    setSections(mergeSections(latestSections));
+  }, [latest?.id, latestSections]);
 
   const documents = eventQ.data?.documents ?? [];
   const team = eventQ.data?.team ?? [];

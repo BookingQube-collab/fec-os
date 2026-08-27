@@ -71,7 +71,7 @@ function EstatePage() {
     };
   }, [qc]);
 
-  const rollups = data ?? [];
+  const rollups = useMemo(() => data ?? [], [data]);
   const counts = {
     red: rollups.filter((r) => r.rag === "red").length,
     amber: rollups.filter((r) => r.rag === "amber").length,

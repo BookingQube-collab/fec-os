@@ -236,7 +236,7 @@ export function EventGantt({
       .filter(Boolean);
 
     return { headers, cols, pos, useWeeks, rows, links, rowH: 32, todayLeft };
-  }, [ar, baseline, dependencies, milestones, t, tasks, today, wbs]);
+  }, [ar, dependencies, milestones, t, tasks, today, wbs]);
 
   if (!model) {
     return <p className="text-sm text-muted-foreground">{t("events.plan.ganttEmpty")}</p>;

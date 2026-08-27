@@ -170,11 +170,11 @@ export async function POST(request: Request) {
             .eq("id", batchId);
           if (uErr) throw uErr;
           return {
+            ...shiftPreview,
+            ...committed,
             mode: "commit" as const,
             kind: "shift_roster" as const,
             batchId,
-            ...shiftPreview,
-            ...committed,
           };
         }
         const preview = summary?.preview;
@@ -248,11 +248,11 @@ export async function POST(request: Request) {
         if (fErr) throw fErr;
 
         return {
+          ...shiftPreview,
           mode: "preview" as const,
           kind: "shift_roster" as const,
           batchId: batch.id,
           periodMode,
-          ...shiftPreview,
         };
       }
 

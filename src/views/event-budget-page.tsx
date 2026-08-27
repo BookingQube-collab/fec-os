@@ -197,11 +197,11 @@ export default function EventBudgetPage() {
     );
   }, [budgetQ.data]);
 
-  const categories = budgetQ.data?.categories ?? [];
-  const subcategories = budgetQ.data?.subcategories ?? [];
+  const categories = useMemo(() => budgetQ.data?.categories ?? [], [budgetQ.data?.categories]);
+  const subcategories = useMemo(() => budgetQ.data?.subcategories ?? [], [budgetQ.data?.subcategories]);
   const locked = status === "locked";
   const editable = canFinance && !locked;
-  const linkedPrs = budgetQ.data?.linkedPrs ?? [];
+  const linkedPrs = useMemo(() => budgetQ.data?.linkedPrs ?? [], [budgetQ.data?.linkedPrs]);
   const documents = eventQ.data?.documents ?? [];
   const missingBoqN =
     missingDepartmentBoqs(documents, eventQ.data?.workstreams).length ||

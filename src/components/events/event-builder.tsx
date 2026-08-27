@@ -104,6 +104,8 @@ export function EventBuilder({
 
   const ev = eventQ.data?.event;
   const locationId = form.location_id || storeLocation || "";
+  const latestScopeVersion = scopeQ.data?.versions[0];
+  const savedBudgetLines = budgetQ.data?.lines;
 
   useEffect(() => {
     if (!ev) return;
@@ -126,12 +128,11 @@ export function EventBuilder({
       description: ev.description ?? "",
     }));
     setBrief((b) => b || ev.notes || ev.description || "");
-  }, [ev?.id]);
+  }, [ev]);
 
   useEffect(() => {
-    const latest = scopeQ.data?.versions[0];
-    if (latest?.sections?.length) setSections(mergeScopeSections(latest.sections));
-  }, [scopeQ.data?.versions[0]?.id]);
+    if (latestScopeVersion?.sections?.length) setSections(mergeScopeSections(latestScopeVersion.sections));
+  }, [latestScopeVersion]);
 
   useEffect(() => {
     const rows = planQ.data?.tasks ?? [];
@@ -153,7 +154,7 @@ export function EventBuilder({
   }, [planQ.data?.tasks]);
 
   useEffect(() => {
-    const lines = budgetQ.data?.lines ?? [];
+    const lines = savedBudgetLines ?? [];
     if (!lines.length) return;
     setBudgetLines(
       lines.map((l) => ({
@@ -163,7 +164,7 @@ export function EventBuilder({
         notes: l.notes ?? "",
       })),
     );
-  }, [budgetQ.data?.header?.id]);
+  }, [savedBudgetLines]);
 
   const completed = useMemo(
     () => ({

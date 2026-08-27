@@ -54,7 +54,7 @@ export default function EventsReportsPage() {
   const visibleIds = EVENT_REPORT_IDS.filter((id) => canFinance || !FINANCE_REPORT_IDS.has(id));
   const activeId = visibleIds.includes(reportId) ? reportId : "project_status";
   const report = q.data?.reports.find((r) => r.id === activeId) ?? null;
-  const rows = report?.rows ?? [];
+  const rows = useMemo(() => report?.rows ?? [], [report?.rows]);
   const visuals = useMemo(
     () => buildEventReportVisuals(activeId, report?.rows ?? []),
     [activeId, report],

@@ -211,7 +211,7 @@ function ProcurementRequisitionsInner({
     queryFn: () => listPurchaseRequisitions(filters),
   });
 
-  const rows = (list.data ?? []) as PrListRow[];
+  const rows = useMemo(() => (list.data ?? []) as PrListRow[], [list.data]);
 
   const departments = useMemo(
     () => [...new Set(rows.map((r) => r.department_name).filter((n) => n && n !== "—"))].sort(),

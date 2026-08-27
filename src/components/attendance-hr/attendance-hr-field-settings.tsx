@@ -138,7 +138,7 @@ export function AttendanceHrFieldSettings() {
     patch(locationId, { latitude: String(known.latitude), longitude: String(known.longitude) });
   }
 
-  async function useMyLocation(locationId: string) {
+  async function fillGpsLocation(locationId: string) {
     navigator.geolocation.getCurrentPosition(
       (pos) => patch(locationId, { latitude: pos.coords.latitude.toFixed(6), longitude: pos.coords.longitude.toFixed(6) }),
       () => toast.error(t("attendanceHr.field.gpsDenied")),
@@ -215,7 +215,7 @@ export function AttendanceHrFieldSettings() {
                   <Button size="sm" variant="secondary" onClick={() => fillKnown(fence.locationId, fence.locationCode)}>
                     {t("attendanceHr.hrConfig.fillKnown")}
                   </Button>
-                  <Button size="sm" variant="secondary" onClick={() => void useMyLocation(fence.locationId)}>
+                  <Button size="sm" variant="secondary" onClick={() => void fillGpsLocation(fence.locationId)}>
                     {t("attendanceHr.hrConfig.useGps")}
                   </Button>
                   <CapabilityGate capability="attendance.configure">

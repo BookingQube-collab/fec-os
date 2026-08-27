@@ -109,7 +109,7 @@ export default function EventPlanPage() {
   const staff = options.data?.staff ?? [];
   const departments = options.data?.departments ?? [];
   const wbs = plan.data?.wbs ?? [];
-  const tasks = plan.data?.tasks ?? [];
+  const tasks = useMemo(() => plan.data?.tasks ?? [], [plan.data?.tasks]);
   const milestones = plan.data?.milestones ?? [];
   const latestBaseline = plan.data?.latestScheduleBaseline ?? plan.data?.baselines[0] ?? null;
   const overview = eventQ.data;

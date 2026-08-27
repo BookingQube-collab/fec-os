@@ -154,9 +154,12 @@ function TranslationEditProviderInner({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const overlayItems = overlays.data?.items;
   const reverseIndex = useMemo(() => {
     const map = new Map<string, string[]>();
     if (!editMode || !canEdit) return map;
+    // overlayItems: rebuild after applyResourceOverlay mutates i18n bundles in place.
+    void overlayItems;
     const addBundle = (lng: string) => {
       const bundle = i18n.getResourceBundle(lng, "translation") as object | undefined;
       const flat = flattenResources(bundle);
@@ -171,7 +174,7 @@ function TranslationEditProviderInner({ children }: { children: ReactNode }) {
     addBundle("en");
     addBundle("ar");
     return map;
-  }, [i18n, overlays.data, editMode, canEdit]);
+  }, [i18n, overlayItems, editMode, canEdit]);
 
   const lookupKeys = useCallback(
     (el: Element): string[] => {
