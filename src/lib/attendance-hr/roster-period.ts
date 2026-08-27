@@ -22,12 +22,13 @@ export const ATTENDANCE_ROSTER_TEMPLATE_HEADERS = [
   "duty",
 ] as const;
 
+/** FEC staff monthly cycle: 28th of previous month through 27th of selected month (YYYY-MM). */
 export function monthBounds(month: string): { dateFrom: string; dateTo: string } {
   const ym = month.slice(0, 7);
   const [year, mo] = ym.split("-").map(Number);
   if (!year || !mo) return { dateFrom: `${ym}-01`, dateTo: `${ym}-01` };
-  const last = new Date(Date.UTC(year, mo, 0)).getUTCDate();
-  return { dateFrom: `${ym}-01`, dateTo: `${ym}-${String(last).padStart(2, "0")}` };
+  const from = new Date(Date.UTC(year, mo - 2, 28));
+  return { dateFrom: from.toISOString().slice(0, 10), dateTo: `${ym}-27` };
 }
 
 export function enumerateYmd(from: string, to: string): string[] {

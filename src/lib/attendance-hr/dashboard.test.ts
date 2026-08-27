@@ -52,10 +52,10 @@ describe("pickDashboardPeriod", () => {
   });
 
   it("defaults to the month of the latest punch", () => {
-    expect(monthBounds("2026-08")).toEqual({ dateFrom: "2026-08-01", dateTo: "2026-08-31" });
+    expect(monthBounds("2026-08")).toEqual({ dateFrom: "2026-07-28", dateTo: "2026-08-27" });
     expect(
       pickDashboardPeriod({ today: "2026-08-24", latestPunchDate: "2026-08-10" }),
-    ).toMatchObject({ dateFrom: "2026-08-01", dateTo: "2026-08-31", usedImportedPeriod: true });
+    ).toMatchObject({ dateFrom: "2026-07-28", dateTo: "2026-08-27", usedImportedPeriod: true });
   });
 });
 

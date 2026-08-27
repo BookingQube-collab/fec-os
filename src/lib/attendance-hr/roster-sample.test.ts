@@ -79,8 +79,8 @@ describe("attendance roster sample", () => {
   });
 
   it("names the file by scope and period", () => {
-    expect(rosterSampleFilename("2026-08-01", "2026-08-31", "INF-CC")).toBe(
-      "attendance-roster-sample-inf-cc-2026-08-01-to-2026-08-31.csv",
+    expect(rosterSampleFilename("2026-07-28", "2026-08-27", "INF-CC")).toBe(
+      "attendance-roster-sample-inf-cc-2026-07-28-to-2026-08-27.csv",
     );
     expect(rosterSampleFilename("2026-08-16", "2026-08-22", null)).toContain("all-");
   });

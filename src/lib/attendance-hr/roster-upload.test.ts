@@ -64,10 +64,14 @@ describe("attendance roster period", () => {
     expect(qatarWeekBounds("2026-08-17")).toEqual({ dateFrom: "2026-08-16", dateTo: "2026-08-22" });
   });
 
-  it("uses the whole month for month mode", () => {
+  it("uses the 28–27 payroll cycle for month mode", () => {
     expect(attendanceRosterPeriod({ mode: "month", month: "2026-08" })).toEqual({
-      dateFrom: "2026-08-01",
-      dateTo: "2026-08-31",
+      dateFrom: "2026-07-28",
+      dateTo: "2026-08-27",
+    });
+    expect(attendanceRosterPeriod({ mode: "month", month: "2027-01" })).toEqual({
+      dateFrom: "2026-12-28",
+      dateTo: "2027-01-27",
     });
   });
 });
@@ -270,23 +274,30 @@ describe("buildAttendanceRosterPreview", () => {
   });
 
   it("skips dated rows outside the selected period instead of writing other months", () => {
+    const period = attendanceRosterPeriod({ mode: "month", month: "2026-08" });
     const csv = [
       "date,employee_code,location,duty",
-      "2026-07-31,KDS-CC-BM,KDS-CC,Yes",
+      "2026-07-27,KDS-CC-BM,KDS-CC,Yes",
+      "2026-07-28,KDS-CC-BM,KDS-CC,Yes",
       "2026-08-16,KDS-CC-BM,KDS-CC,Yes",
+      "2026-08-28,KDS-CC-BM,KDS-CC,Yes",
     ].join("\n");
     const preview = buildAttendanceRosterPreview({
       records: parseCsv(csv),
       periodMode: "month",
-      dateFrom: "2026-08-01",
-      dateTo: "2026-08-31",
+      dateFrom: period.dateFrom,
+      dateTo: period.dateTo,
       selectedLocationId: KDS,
       staff,
       locations,
       shifts: [],
     });
-    expect(preview.rows.filter((r) => r.status === "skipped")).toHaveLength(1);
-    expect(preview.matched).toBe(1);
+    expect(preview.rows.filter((r) => r.status === "skipped")).toHaveLength(2);
+    expect(preview.matched).toBe(2);
+    expect(preview.rows.filter((r) => r.status !== "skipped").map((r) => r.workDate).sort()).toEqual([
+      "2026-07-28",
+      "2026-08-16",
+    ]);
   });
 
   it("accepts the Daily Ops dated shift CSV so supervisors can reuse that file", () => {

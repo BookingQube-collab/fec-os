@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { attendanceRosterPeriod } from "@/lib/attendance-hr/roster-period";
+import { enumerateRosterSampleDates } from "@/lib/attendance-hr/roster-sample";
 import {
   buildAttendanceRosterPreview,
   looksLikeShiftRosterHeaders,
@@ -71,12 +73,23 @@ describe("people roster period sample", () => {
     ]);
   });
 
-  it("titles a month sample as DATE WISE MONTHLY ROSTER", () => {
-    const { title, periodLine } = buildPeopleRosterSampleMatrix(["2026-08-01", "2026-08-31"], placements, {
+  it("titles a month sample as DATE WISE MONTHLY ROSTER over the 28–27 cycle", () => {
+    const period = attendanceRosterPeriod({ mode: "month", month: "2026-08" });
+    const dates = enumerateRosterSampleDates(period.dateFrom, period.dateTo);
+    const { title, periodLine } = buildPeopleRosterSampleMatrix(dates, placements, {
       periodMode: "month",
     });
     expect(title).toBe("DATE WISE MONTHLY ROSTER");
-    expect(periodLine).toContain("1-Aug-2026 to 31-Aug-2026");
+    expect(dates[0]).toBe("2026-07-28");
+    expect(dates.at(-1)).toBe("2026-08-27");
+    expect(periodLine).toContain("28-Jul-2026 to 27-Aug-2026");
+  });
+
+  it("rolls monthly sample dates across year-end", () => {
+    const period = attendanceRosterPeriod({ mode: "month", month: "2027-01" });
+    const dates = enumerateRosterSampleDates(period.dateFrom, period.dateTo);
+    expect(dates[0]).toBe("2026-12-28");
+    expect(dates.at(-1)).toBe("2027-01-27");
   });
 
   it("parses the generated workbook as a shift roster (not a salary/directory workbook)", async () => {
@@ -130,7 +143,7 @@ describe("people roster period sample", () => {
     expect(peopleRosterSampleFilename("2026-08-16", "2026-08-22", "INF-CC")).toBe(
       "e3-date-wise-roster-inf-cc-2026-08-16-to-2026-08-22.xlsx",
     );
-    expect(peopleRosterSampleFilename("2026-08-01", "2026-08-31", null)).toContain("all-");
+    expect(peopleRosterSampleFilename("2026-07-28", "2026-08-27", null)).toContain("all-");
   });
 
   it("formats E3 dates and weekdays the way the source roster does", () => {

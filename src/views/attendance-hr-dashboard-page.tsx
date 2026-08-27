@@ -19,16 +19,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getAttendanceHrDashboard } from "@/lib/attendance-hr.functions";
+import { monthBounds } from "@/lib/attendance-hr/roster-period";
 import { STALE } from "@/lib/query-client";
 import { queryKeys } from "@/lib/query-keys";
 import { useAppStore } from "@/stores/app-store";
-
-function monthBounds(month: string) {
-  const ym = month.slice(0, 7);
-  const [year, mo] = ym.split("-").map(Number);
-  const last = new Date(Date.UTC(year, mo, 0)).getUTCDate();
-  return { dateFrom: `${ym}-01`, dateTo: `${ym}-${String(last).padStart(2, "0")}` };
-}
 
 function ymd(value: string | null | undefined) {
   return value ? String(value).slice(0, 10) : "";

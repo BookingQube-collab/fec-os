@@ -14,10 +14,17 @@ describe("attendance import period", () => {
     });
   });
 
-  it("resolves a calendar month", () => {
+  it("resolves the 28–27 payroll month, not a calendar month", () => {
     expect(attendanceRosterPeriod({ mode: "month", month: "2026-08" })).toEqual({
-      dateFrom: "2026-08-01",
-      dateTo: "2026-08-31",
+      dateFrom: "2026-07-28",
+      dateTo: "2026-08-27",
+    });
+  });
+
+  it("rolls the monthly cycle across year-end", () => {
+    expect(attendanceRosterPeriod({ mode: "month", month: "2027-01" })).toEqual({
+      dateFrom: "2026-12-28",
+      dateTo: "2027-01-27",
     });
   });
 
