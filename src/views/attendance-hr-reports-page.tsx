@@ -247,6 +247,9 @@ export default function AttendanceHrReportsPage() {
           <Button variant="secondary" asChild>
             <a href={`${exportHref}&format=pdf`}>{t("attendanceHr.reports.exportPdf")}</a>
           </Button>
+          <Button variant="secondary" asChild>
+            <a href={`${exportHref}&format=payroll`}>{t("attendanceHr.reports.exportPayroll")}</a>
+          </Button>
           <CapabilityGate capability="attendance.import">
             <Button variant="destructive" onClick={() => setConfirmOpen(true)}>
               <Trash2 className="h-4 w-4" />

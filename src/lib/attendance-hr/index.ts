@@ -56,6 +56,9 @@ export {
   lookupStaffByBiometric,
 } from "./process";
 export { expectedRowsForDay, isWorkDateCovered, expectedOnDutyStaffIds } from "./roster-expected";
+export { evaluateGeofence, haversineMeters, pickNearestFence } from "./geofence";
+export { mapHrNotifyEvent, shouldSendHrNotify } from "./hr-notify";
+export { aggregatePayrollRows } from "./payroll";
 export {
   ATTENDANCE_ROSTER_ACCEPT,
   attendanceRosterPeriod,

@@ -44,6 +44,13 @@ import {
   fetchWorkLocationsByStaffId,
   punchOrHomeStaffOrFilter,
 } from "@/lib/staff-work-locations";
+import {
+  buildAvailabilityTrends,
+  emptyAvailabilityTrends,
+  previousPeriod,
+  upcomingPeriod,
+} from "@/lib/attendance-hr/availability";
+import { dispatchHrNotify } from "@/lib/attendance-hr/hr-notify-dispatch";
 
 async function audit(
   context: AuthContext,
@@ -320,6 +327,50 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
     }
     const labelWatch = (leaders: typeof frequentLate) => enrichWatchlistEntries(leaders, namedStaff, sites);
 
+    let trends = emptyAvailabilityTrends();
+    try {
+      const hist = previousPeriod(dateFrom, dateTo);
+      const next = upcomingPeriod(dateTo, 7);
+      const locFilter = data.locationId ?? null;
+      const histQ = context.supabase
+        .from("attendance_daily_summary")
+        .select("status, late_minutes, missed_punch")
+        .gte("work_date", hist.dateFrom)
+        .lte("work_date", hist.dateTo)
+        .limit(20000);
+      const upcomingQ = context.supabase
+        .from("attendance_roster_assignments")
+        .select("is_week_off")
+        .gte("work_date", next.dateFrom)
+        .lte("work_date", next.dateTo)
+        .limit(20000);
+      const histVisitQ = context.supabase
+        .from("staff_location_events")
+        .select("id", { count: "exact", head: true })
+        .gte("recorded_at", `${hist.dateFrom}T00:00:00.000Z`)
+        .lte("recorded_at", `${hist.dateTo}T23:59:59.999Z`);
+      const curVisitQ = context.supabase
+        .from("staff_location_events")
+        .select("id", { count: "exact", head: true })
+        .gte("recorded_at", `${dateFrom}T00:00:00.000Z`)
+        .lte("recorded_at", `${dateTo}T23:59:59.999Z`);
+      const [histRes, upcomingRes, histVisits, curVisits] = await Promise.all([
+        locFilter ? histQ.eq("location_id", locFilter) : histQ,
+        locFilter ? upcomingQ.eq("location_id", locFilter) : upcomingQ,
+        locFilter ? histVisitQ.eq("location_id", locFilter) : histVisitQ,
+        locFilter ? curVisitQ.eq("location_id", locFilter) : curVisitQ,
+      ]);
+      trends = buildAvailabilityTrends({
+        historyRows: histRes.data ?? [],
+        currentRows: dayRows,
+        historyVisits: histVisits.error ? 0 : histVisits.count ?? 0,
+        currentVisits: curVisits.error ? 0 : curVisits.count ?? 0,
+        upcomingRows: upcomingRes.data ?? [],
+      });
+    } catch {
+      trends = emptyAvailabilityTrends();
+    }
+
     return {
       workDate: dateTo,
       dateFrom,
@@ -328,6 +379,7 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
       today,
       usedImportedPeriod,
       usedLatestPunch: usedImportedPeriod && !data.dateFrom && !data.month && !data.date,
+      trends,
       kpis: {
         employees,
         present: agg.present,
@@ -951,6 +1003,12 @@ export const submitAttendanceCorrection = createAuthenticatedAction(
       .single();
     if (error) throw error;
     await audit(context, "attendance.correction_submitted", "attendance_corrections", row.id, data.locationId);
+    await dispatchHrNotify({
+      kind: "correction_submitted",
+      workDate: data.workDate ?? null,
+      locationId: data.locationId,
+      sourceId: row.id,
+    });
     return { id: row.id };
   },
   { auth: { capability: "attendance.correct" } },
@@ -988,6 +1046,16 @@ export const reviewAttendanceCorrection = createAuthenticatedAction(
       await applyCorrection(context, row);
     }
     await audit(context, `attendance.correction_${data.decision}`, "attendance_corrections", data.id, row.location_id as string);
+    const requester = typeof row.requested_by === "string" ? row.requested_by : null;
+    await dispatchHrNotify(
+      {
+        kind: data.decision === "approved" ? "correction_approved" : "correction_rejected",
+        workDate: row.work_date ? String(row.work_date).slice(0, 10) : null,
+        locationId: row.location_id as string,
+        sourceId: data.id,
+      },
+      requester ? [requester] : undefined,
+    );
     return { ok: true };
   },
   { auth: { capability: "attendance.approve" } },

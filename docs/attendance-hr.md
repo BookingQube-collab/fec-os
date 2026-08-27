@@ -139,6 +139,20 @@ Statuses include present, absent, weekly off, public holiday, annual/sick/unpaid
 
 Raw punches are never overwritten; corrections live in `attendance_corrections`.
 
+## Field & attendance controls
+
+**People → Time & Attendance → Field** plus **Settings → HR rules / Site geofences**.
+
+- **Geofences:** one lat/lng + radius per site (`attendance_geofences`). Operate vs restrict. Evaluated on app GPS check-in, not ZKTeco punches.
+- **GeoTracking:** `staff_location_events` last-known list/map. Roaming techs are the same staff row as Mapping.
+- **Face:** `staff_face_enrollments` + optional client liveness. Not an identity-match pipeline.
+- **Payroll export:** Attendance listing → Payroll workbook (`format=payroll`). Ready vs blocked (missed punch / review).
+- **Notifications:** people-category in-app events (corrections, geofence exit, late/missed sweep).
+- **Offline:** IndexedDB queue in the browser; flush on `online`. PWA installability unchanged; do not intercept Next.js navigations.
+- **HR rules:** `hr_field_settings` + existing shift templates / duplicate window.
+
+Schema: `supabase/migrations/20260829120000_hr_field_attendance_controls.sql`.
+
 ## Security
 
 - Original files stored in private bucket `attendance-imports`, AES-256-GCM when `ATTENDANCE_FILE_ENCRYPTION_KEY` or `AI_CREDENTIALS_ENCRYPTION_KEY` is set  
@@ -155,4 +169,4 @@ npm run db:push
 
 ## Tests
 
-Parsers and calculation rules: `src/lib/attendance-hr/attendance-hr.test.ts` using fixtures in `src/lib/attendance-hr/fixtures/` (`user.dat`, `JJA1251800498_attlog.dat`).
+Parsers and calculation rules: `src/lib/attendance-hr/attendance-hr.test.ts` using fixtures in `src/lib/attendance-hr/fixtures/` (`user.dat`, `JJA1251800498_attlog.dat`). Geofence inside/outside: `geofence.test.ts`. HR notification mapping: `hr-notify.test.ts`.

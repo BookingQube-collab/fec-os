@@ -20,6 +20,10 @@ const PwaServiceWorker = dynamic(
   () => import("@/components/pwa/pwa-service-worker").then((m) => m.PwaServiceWorker),
   { ssr: false },
 );
+const HrFieldSync = dynamic(
+  () => import("@/components/attendance-hr/hr-field-sync").then((m) => m.HrFieldSync),
+  { ssr: false },
+);
 const InstallAppDialogHost = dynamic(
   () => import("@/components/pwa/install-app-control").then((m) => m.InstallAppDialogHost),
   { ssr: false },
@@ -44,6 +48,7 @@ export function Providers({ children }: { children: ReactNode }) {
             <PasskeyEnrollDialog />
             <InstallAppDialogHost />
             <PwaServiceWorker />
+            <HrFieldSync />
             <Toaster richColors position={language === "ar" ? "top-left" : "top-right"} />
           </TranslationEditProvider>
         </PwaInstallProvider>

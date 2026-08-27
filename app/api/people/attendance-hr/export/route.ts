@@ -10,6 +10,7 @@ import {
   listAttendanceHrMappings,
   listAttendanceImports,
 } from "@/lib/attendance-hr.functions";
+import { getPayrollAttendanceSummary } from "@/lib/attendance-hr-field.functions";
 import {
   ATTENDANCE_LISTING_COLUMNS,
   attendanceListingCells,
@@ -45,6 +46,35 @@ export async function GET(request: Request) {
       const dateFrom = params.get("from") ?? new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
       const dateTo = params.get("to") ?? new Date().toISOString().slice(0, 10);
       const format = params.get("format") ?? "xlsx";
+
+      if (format === "payroll") {
+        const payroll = await getPayrollAttendanceSummary({ locationId, dateFrom, dateTo });
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(
+          wb,
+          XLSX.utils.json_to_sheet(
+            payroll.rows.map((r) => ({
+              Employee: r.staffName,
+              "Employee code": r.employeeCode,
+              Present: r.daysPresent,
+              Absent: r.daysAbsent,
+              Late: r.daysLate,
+              "Missed punches": r.missedPunches,
+              "Worked hours": Math.round((r.workedMinutes / 60) * 100) / 100,
+              "Overtime hours": Math.round((r.overtimeMinutes / 60) * 100) / 100,
+              "Ready for payroll": r.payrollReady ? "Yes" : "No",
+            })),
+          ),
+          "Payroll",
+        );
+        const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+        return new NextResponse(new Uint8Array(buf), {
+          headers: {
+            "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "Content-Disposition": `attachment; filename="attendance-payroll-${dateFrom}-${dateTo}.xlsx"`,
+          },
+        });
+      }
 
       const [daily, punches, unmatched, imports] = await Promise.all([
         getAttendanceHrDaily({ locationId, dateFrom, dateTo, status, staffId, staffQ }),

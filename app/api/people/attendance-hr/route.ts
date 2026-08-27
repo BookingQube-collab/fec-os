@@ -9,6 +9,13 @@ import {
   listAttendanceHrMappings,
   listAttendanceImports,
 } from "@/lib/attendance-hr.functions";
+import {
+  getHrFieldSettings,
+  listAttendanceGeofences,
+  listStaffLastKnownLocations,
+  listStaffLocationEvents,
+  getPayrollAttendanceSummary,
+} from "@/lib/attendance-hr-field.functions";
 
 export async function GET(request: Request) {
   return withAuthRouteRequest(
@@ -45,6 +52,17 @@ export async function GET(request: Request) {
       if (view === "mappings") return listAttendanceHrMappings({ locationId, unmatchedOnly: params.get("unmatched") === "1" });
       if (view === "corrections") return listAttendanceCorrections({ locationId });
       if (view === "imports") return listAttendanceImports({ locationId });
+      if (view === "field-settings") return getHrFieldSettings();
+      if (view === "geofences") return listAttendanceGeofences();
+      if (view === "tracking") return listStaffLastKnownLocations();
+      if (view === "field-events") return listStaffLocationEvents({ locationId, limit: 80 });
+      if (view === "payroll") {
+        return getPayrollAttendanceSummary({
+          locationId,
+          dateFrom,
+          dateTo,
+        });
+      }
       return getAttendanceHrDashboard({ locationId, date });
     },
     request,

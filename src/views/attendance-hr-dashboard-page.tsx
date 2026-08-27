@@ -4,10 +4,11 @@ import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMemo, useState, Suspense, type ReactNode } from "react";
-import { AlertTriangle, Building2, ClipboardCheck, Clock, MapPin, Upload, UserX, Users, type LucideIcon } from "lucide-react";
+import { AlertTriangle, Building2, ClipboardCheck, Clock, MapPin, Upload, UserX, Users, CalendarRange, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { AttendanceHrDashboardChart } from "@/components/attendance-hr/attendance-hr-dashboard-charts";
+import { AttendanceHrTrendsChart } from "@/components/attendance-hr/attendance-hr-trends-chart";
 import { AttendanceHrNav, AttendanceHrSitesHint } from "@/components/attendance-hr/attendance-hr-nav";
 import { TintedKpiCard } from "@/components/dashboard/tinted-kpi-card";
 import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
@@ -266,6 +267,33 @@ function AttendanceHrDashboardBody() {
           />
         </div>
       )}
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <TintedKpiCard
+          title={t("attendanceHr.dashboard.history")}
+          value={dash.data?.trends?.history.present ?? 0}
+          hint={t("attendanceHr.dashboard.historyHint")}
+          icon={CalendarRange}
+          tint="slate"
+        />
+        <TintedKpiCard
+          title={t("attendanceHr.dashboard.currentVisits")}
+          value={dash.data?.trends?.current.visits ?? 0}
+          hint={t("attendanceHr.dashboard.currentVisitsHint")}
+          icon={MapPin}
+          tint="sky"
+          href="/people/attendance/field"
+        />
+        <TintedKpiCard
+          title={t("attendanceHr.dashboard.upcomingRoster")}
+          value={dash.data?.trends?.upcoming.rostered ?? 0}
+          hint={t("attendanceHr.dashboard.upcomingHint")}
+          icon={Users}
+          tint="green"
+        />
+      </div>
+
+      <AttendanceHrTrendsChart trends={dash.data?.trends} />
 
       <AttendanceHrDashboardChart
         sites={sites.map((site) => ({

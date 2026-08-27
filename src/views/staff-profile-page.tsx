@@ -18,6 +18,8 @@ import { useSites } from "@/hooks/queries/useSites";
 import { usePermission } from "@/hooks/use-permission";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
+import { FaceCaptureDialog } from "@/components/attendance-hr/face-capture-dialog";
+import { getStaffFaceEnrollment, saveStaffFaceEnrollment } from "@/lib/attendance-hr-field.functions";
 import { transferStaffMember, updateStaffSalary, updateStaffWorkLocations } from "@/lib/staff-roster.functions";
 import { Checkbox } from "@/components/ui/checkbox";
 
@@ -71,7 +73,8 @@ export default function StaffProfilePage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
   const canEdit = usePermission("people.edit_roster");
-  const canSalary = usePermission("people.edit_salary");
+  const canConfigure = usePermission("attendance.configure");
+  const [enrollOpen, setEnrollOpen] = useState(false);
   const { data: sites } = useSites();
   const qc = useQueryClient();
   const [toLocationId, setToLocationId] = useState("");
@@ -118,6 +121,22 @@ export default function StaffProfilePage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const faceQ = useQuery({
+    queryKey: queryKeys.people.attendanceHr({ view: "face", staffId: id }),
+    queryFn: () => getStaffFaceEnrollment({ staffId: id }),
+    staleTime: STALE.people,
+  });
+
+  const enrollMut = useMutation({
+    mutationFn: (payload: { photoBase64: string; livenessPassed: boolean }) =>
+      saveStaffFaceEnrollment({ staffId: id, ...payload }),
+    onSuccess: () => {
+      toast.success(t("attendanceHr.field.enrolled"));
+      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const workSitesMut = useMutation({
     mutationFn: () => updateStaffWorkLocations({ id, locationIds: workLocationIds, isRoaming }),
     onSuccess: () => {
@@ -156,6 +175,18 @@ export default function StaffProfilePage() {
           <Row label={t("people.staff.qid")} value={s.qid} />
           <Row label={t("people.staff.contact")} value={s.phone} />
           <Row label={t("people.staff.email")} value={s.email} />
+          <div className="space-y-2 border-t pt-3">
+            <h3 className="text-xs font-medium">{t("people.profile.face")}</h3>
+            <p className="text-xs text-muted-foreground">{t("attendanceHr.field.faceHint")}</p>
+            <Badge variant={faceQ.data?.status === "enrolled" ? "success" : "muted"}>
+              {faceQ.data?.status === "enrolled" ? t("attendanceHr.field.enrolledBadge") : t("attendanceHr.field.notEnrolled")}
+            </Badge>
+            {canEdit || canConfigure ? (
+              <Button size="sm" variant="secondary" onClick={() => setEnrollOpen(true)}>
+                {t("attendanceHr.field.enrollFace")}
+              </Button>
+            ) : null}
+          </div>
         </section>
         <section className="surface-card space-y-2 p-5">
           <h2 className="text-sm font-semibold">{t("people.profile.employment")}</h2>
@@ -322,6 +353,13 @@ export default function StaffProfilePage() {
           </div>
         )}
       </section>
+      <FaceCaptureDialog
+        open={enrollOpen}
+        onOpenChange={setEnrollOpen}
+        title={t("attendanceHr.field.enrollFace")}
+        description={t("attendanceHr.field.faceHint")}
+        onCaptured={(result) => enrollMut.mutate({ photoBase64: result.dataUrl, livenessPassed: result.livenessPassed })}
+      />
     </div>
   );
 }
