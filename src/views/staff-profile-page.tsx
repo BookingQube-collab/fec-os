@@ -73,6 +73,7 @@ export default function StaffProfilePage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
   const canEdit = usePermission("people.edit_roster");
+  const canSalary = usePermission("people.edit_salary");
   const canConfigure = usePermission("attendance.configure");
   const [enrollOpen, setEnrollOpen] = useState(false);
   const { data: sites } = useSites();
