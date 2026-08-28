@@ -1,21 +1,19 @@
 import { type NextRequest } from "next/server";
 
-import { createTimer } from "@/lib/performance/timer";
 import { updateSession } from "@/integrations/supabase/middleware";
 
 export async function middleware(request: NextRequest) {
-  const timer = createTimer("middleware", request.nextUrl.pathname);
-  const response = await updateSession(request);
-  timer.end();
-  return response;
+  return updateSession(request);
 }
 
 export const config = {
   matcher: [
     /*
-     * Page navigations only — API routes authenticate via withAuthRouteRequest;
-     * skip _next, PWA worker, and static assets so prefetch/HMR stay cheap.
+     * Page navigations only. Skip Edge work for:
+     * - Next internals (_next/*)
+     * - API (withAuthRouteRequest) and ADMS iclock
+     * - PWA worker / favicon / common static extensions
      */
-    "/((?!_next/|favicon.ico|api/|iclock/|sw\\.js|.*\\.(?:svg|png|jpg|jpeg|gif|webp|webmanifest|ico|woff|woff2|ttf|eot)$).*)",
+    "/((?!_next/|favicon.ico|api/|iclock/|sw\\.js|manifest\\.webmanifest|.*\\.(?:svg|png|jpg|jpeg|gif|webp|webmanifest|ico|woff|woff2|ttf|eot|css|js|map|txt|xml|json)$).*)",
   ],
 };
