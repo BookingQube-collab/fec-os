@@ -14,6 +14,13 @@ import {
   type HrLeaveActor,
   type HrLeaveStatus,
 } from "@/lib/hr-leave";
+import {
+  DEFAULT_ANNUAL_ALLOTMENT,
+  DEFAULT_SICK_ALLOTMENT,
+  detectLeaveConflicts,
+  summarizeLeaveBalances,
+  sumUsedLeaveDays,
+} from "@/lib/hr-advanced";
 
 async function myStaff(context: AuthContext) {
   const { data } = await context.supabase
@@ -47,6 +54,55 @@ function mapLeaveRow(row: Record<string, unknown>) {
   };
 }
 
+async function loadLeaveConflicts(
+  context: AuthContext,
+  staffId: string,
+  dateFrom: string,
+  dateTo: string,
+  excludeId?: string,
+) {
+  const [rosterRes, attendanceRes, leaveRes] = await Promise.all([
+    context.supabase
+      .from("attendance_roster_assignments")
+      .select("work_date")
+      .eq("staff_id", staffId)
+      .gte("work_date", dateFrom)
+      .lte("work_date", dateTo)
+      .limit(100),
+    context.supabase
+      .from("attendance_daily_summary")
+      .select("work_date, status")
+      .eq("staff_id", staffId)
+      .gte("work_date", dateFrom)
+      .lte("work_date", dateTo)
+      .in("status", ["present", "late", "overtime", "early_leave", "early_departure"])
+      .limit(100),
+    context.supabase
+      .from("hr_leave_requests")
+      .select("id, date_from, date_to, status")
+      .eq("staff_id", staffId)
+      .neq("status", "cancelled")
+      .neq("status", "rejected")
+      .lte("date_from", dateTo)
+      .gte("date_to", dateFrom)
+      .limit(50),
+  ]);
+
+  return detectLeaveConflicts({
+    dateFrom,
+    dateTo,
+    rosterDates: (rosterRes.data ?? []).map((r) => String(r.work_date)),
+    attendancePresentDates: (attendanceRes.data ?? []).map((r) => String(r.work_date)),
+    overlappingLeave: (leaveRes.data ?? [])
+      .filter((r) => !excludeId || String(r.id) !== excludeId)
+      .map((r) => ({
+        dateFrom: String(r.date_from).slice(0, 10),
+        dateTo: String(r.date_to).slice(0, 10),
+        status: String(r.status),
+      })),
+  });
+}
+
 export const listLeaveRequests = createAuthenticatedAction(
   z.object({
     status: z.enum(HR_LEAVE_STATUSES).nullable().optional(),
@@ -75,18 +131,118 @@ export const listLeaveRequests = createAuthenticatedAction(
   { auth: { anyCapability: ["hr.leave.manage", "hr.employee_app"] } },
 );
 
+export const previewLeaveConflicts = createAuthenticatedAction(
+  z.object({
+    dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    staffId: z.string().uuid().optional(),
+  }),
+  async (data, context) => {
+    const manage = canUserDo(context.roles ?? [], "hr.leave.manage");
+    const mine = await myStaff(context);
+    const staffId = manage && data.staffId ? data.staffId : mine?.id;
+    if (!staffId) throw new ForbiddenError("No staff record linked.");
+    if (!manage && staffId !== mine?.id) throw new ForbiddenError("You can only preview your own leave.");
+    const conflicts = await loadLeaveConflicts(context, staffId, data.dateFrom, data.dateTo);
+    return { conflicts, days: countLeaveDays(data.dateFrom, data.dateTo) };
+  },
+  { auth: { anyCapability: ["hr.leave.manage", "hr.employee_app"] } },
+);
+
+export const getLeaveBalanceSummary = createAuthenticatedAction(
+  z.object({
+    staffId: z.string().uuid().optional(),
+    year: z.number().int().min(2020).max(2100).optional(),
+  }),
+  async (data, context) => {
+    const manage = canUserDo(context.roles ?? [], "hr.leave.manage") || canUserDo(context.roles ?? [], "hr.manage");
+    const mine = await myStaff(context);
+    const staffId = manage && data.staffId ? data.staffId : mine?.id;
+    if (!staffId) return { year: data.year ?? new Date().getFullYear(), balances: [] };
+    const year = data.year ?? new Date().getFullYear();
+
+    const { data: allotments, error: balErr } = await context.supabase
+      .from("hr_leave_balances")
+      .select("leave_type, allotted_days")
+      .eq("staff_id", staffId)
+      .eq("period_year", year);
+    if (balErr && !tableMissing(balErr.message)) throw balErr;
+
+    const { data: leaveRows, error: leaveErr } = await context.supabase
+      .from("hr_leave_requests")
+      .select("leave_type, days, status, date_from")
+      .eq("staff_id", staffId)
+      .eq("status", "approved");
+    if (leaveErr && !tableMissing(leaveErr.message)) throw leaveErr;
+
+    const used = sumUsedLeaveDays(
+      (leaveRows ?? []).map((r) => ({
+        leaveType: String(r.leave_type),
+        days: Number(r.days ?? 0),
+        status: String(r.status),
+        dateFrom: String(r.date_from),
+      })),
+      year,
+    );
+
+    let allotmentRows = (allotments ?? []).map((a) => ({
+      leaveType: String(a.leave_type),
+      allottedDays: Number(a.allotted_days ?? 0),
+    }));
+    if (allotmentRows.length === 0) {
+      allotmentRows = [
+        { leaveType: "annual", allottedDays: DEFAULT_ANNUAL_ALLOTMENT },
+        { leaveType: "sick", allottedDays: DEFAULT_SICK_ALLOTMENT },
+      ];
+    }
+    return { year, balances: summarizeLeaveBalances(allotmentRows, used) };
+  },
+  { auth: { anyCapability: ["hr.leave.manage", "hr.manage", "hr.employee_app"] } },
+);
+
+export const upsertLeaveBalance = createAuthenticatedAction(
+  z.object({
+    staffId: z.string().uuid(),
+    leaveType: z.enum(HR_LEAVE_TYPES),
+    year: z.number().int().min(2020).max(2100),
+    allottedDays: z.number().min(0).max(365),
+    notes: z.string().max(500).optional().nullable(),
+  }),
+  async (data, context) => {
+    const { error } = await context.supabase.from("hr_leave_balances").upsert(
+      {
+        staff_id: data.staffId,
+        leave_type: data.leaveType,
+        period_year: data.year,
+        allotted_days: data.allottedDays,
+        notes: data.notes ?? null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "staff_id,leave_type,period_year" },
+    );
+    if (error) throw error;
+    return { ok: true };
+  },
+  { auth: { anyCapability: ["hr.leave.manage", "hr.manage"] } },
+);
+
 export const submitLeaveRequest = createAuthenticatedAction(
   z.object({
     leaveType: z.enum(HR_LEAVE_TYPES).default("annual"),
     dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     reason: z.string().max(500).optional().nullable(),
+    acknowledgeConflicts: z.boolean().optional(),
   }),
   async (data, context) => {
     const staff = await myStaff(context);
     if (!staff) throw new ForbiddenError("Your login is not linked to a staff record.");
     const days = countLeaveDays(data.dateFrom, data.dateTo);
     if (days < 1) throw new Error("Leave end date must be on or after the start date.");
+    const conflicts = await loadLeaveConflicts(context, staff.id, data.dateFrom, data.dateTo);
+    if (conflicts.length > 0 && !data.acknowledgeConflicts) {
+      return { id: null as string | null, days, conflicts, requiresAck: true as const };
+    }
     const { data: row, error } = await context.supabase
       .from("hr_leave_requests")
       .insert({
@@ -109,7 +265,7 @@ export const submitLeaveRequest = createAuthenticatedAction(
       locationId: staff.location_id,
       sourceId: row.id,
     });
-    return { id: row.id as string, days };
+    return { id: row.id as string, days, conflicts, requiresAck: false as const };
   },
   { auth: { capability: "hr.employee_app" } },
 );
@@ -159,3 +315,41 @@ export const reviewLeaveRequest = createAuthenticatedAction(
   },
   { auth: { anyCapability: ["hr.leave.manage", "hr.employee_app"] } },
 );
+
+export const bulkReviewLeaveRequests = createAuthenticatedAction(
+  z.object({
+    ids: z.array(z.string().uuid()).min(1).max(50),
+    status: z.enum(["approved", "rejected"]),
+    reviewNote: z.string().max(500).optional().nullable(),
+  }),
+  async (data, context) => {
+    let updated = 0;
+    const errors: string[] = [];
+    for (const id of data.ids) {
+      try {
+        await reviewLeaveRequest({ id, status: data.status, reviewNote: data.reviewNote ?? null });
+        updated += 1;
+      } catch (e) {
+        errors.push(`${id}: ${e instanceof Error ? e.message : "failed"}`);
+      }
+    }
+    return { updated, errors };
+  },
+  { auth: { capability: "hr.leave.manage" } },
+);
+
+export const listStaffForLeaveBalances = createAuthenticatedActionNoInput(async (context) => {
+  const { data, error } = await context.supabase
+    .from("staff")
+    .select("id, full_name, employee_code")
+    .in("status", ["active", "on_leave"])
+    .is("deleted_at", null)
+    .order("full_name")
+    .limit(500);
+  if (error) throw error;
+  return (data ?? []).map((s) => ({
+    id: s.id as string,
+    name: s.full_name as string,
+    employeeCode: (s.employee_code as string | null) ?? null,
+  }));
+}, { auth: { anyCapability: ["hr.leave.manage", "hr.manage"] } });

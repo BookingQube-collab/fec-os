@@ -16,6 +16,8 @@ export const getHrOverview = createAuthenticatedAction(
   async (data, context: AuthContext) => {
     const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" });
     const period = defaultPayrollPeriod(today);
+    const dayStart = `${today}T00:00:00+03:00`;
+    const dayEnd = `${today}T23:59:59+03:00`;
 
     const staffFilter = context.supabase
       .from("staff")
@@ -44,6 +46,38 @@ export const getHrOverview = createAuthenticatedAction(
     const leaveMissing = Boolean(leaveErr && (tableMissing(leaveErr.message) || /permission/i.test(leaveErr.message)));
     if (leaveErr && !leaveMissing) throw leaveErr;
 
+    const { count: onLeaveToday, error: onLeaveErr } = await context.supabase
+      .from("hr_leave_requests")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "approved")
+      .lte("date_from", today)
+      .gte("date_to", today);
+    const onLeaveMissing = Boolean(onLeaveErr && (tableMissing(onLeaveErr.message) || /permission/i.test(onLeaveErr.message)));
+    if (onLeaveErr && !onLeaveMissing) throw onLeaveErr;
+
+    let fieldCheckedIn = 0;
+    const fieldQ = context.supabase
+      .from("staff_location_events")
+      .select("staff_id, event_type, recorded_at")
+      .gte("recorded_at", dayStart)
+      .lte("recorded_at", dayEnd)
+      .in("event_type", ["check_in", "check_out"])
+      .order("recorded_at", { ascending: false })
+      .limit(2000);
+    const { data: fieldRows, error: fieldErr } = data.locationId
+      ? await fieldQ.eq("location_id", data.locationId)
+      : await fieldQ;
+    if (fieldErr && !tableMissing(fieldErr.message) && !/permission/i.test(fieldErr.message ?? "")) throw fieldErr;
+    if (fieldRows?.length) {
+      const lastByStaff = new Map<string, string>();
+      for (const row of fieldRows) {
+        const sid = String(row.staff_id);
+        if (lastByStaff.has(sid)) continue;
+        lastByStaff.set(sid, String(row.event_type));
+      }
+      fieldCheckedIn = [...lastByStaff.values()].filter((t) => t === "check_in").length;
+    }
+
     let payrollBlocked = 0;
     if (canUserDo(context.roles ?? [], "payroll.view")) {
       try {
@@ -61,10 +95,13 @@ export const getHrOverview = createAuthenticatedAction(
     return {
       headcount: headcount ?? 0,
       presentToday: presentToday ?? 0,
+      onLeaveToday: onLeaveMissing ? 0 : onLeaveToday ?? 0,
       pendingLeave: leaveMissing ? 0 : pendingLeave ?? 0,
+      fieldCheckedIn,
       payrollBlocked,
       period,
+      today,
     };
   },
-  { auth: { capability: "people.view_roster" } },
+  { auth: { anyCapability: ["people.view_roster", "hr.manage", "hr.leave.manage"] } },
 );

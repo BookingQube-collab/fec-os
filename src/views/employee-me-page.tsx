@@ -14,13 +14,21 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getFieldCheckInContext, saveStaffFaceEnrollment } from "@/lib/attendance-hr-field.functions";
 import { getMyAttendance } from "@/lib/hr-employee.functions";
-import { listLeaveRequests, reviewLeaveRequest, submitLeaveRequest } from "@/lib/hr-leave.functions";
+import {
+  getLeaveBalanceSummary,
+  listLeaveRequests,
+  reviewLeaveRequest,
+  submitLeaveRequest,
+} from "@/lib/hr-leave.functions";
+import { listAnnouncements } from "@/lib/hr-announcements.functions";
+import { getEmployeeDocumentUrl, listEmployeeDocuments } from "@/lib/hr-documents.functions";
 import { listFieldCheckInQueue, removeFieldCheckIn } from "@/lib/attendance-hr/offline-queue";
 import { formatWorkDateDdMmYyyy, formatPunchTime12h, formatHoursValue, computeHoursWorked } from "@/lib/attendance-display";
 import { useNotifications } from "@/hooks/queries/useNotifications";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { HR_LEAVE_TYPES } from "@/lib/hr-leave";
+import type { LeaveConflict } from "@/lib/hr-advanced";
 
 function isIos() {
   if (typeof navigator === "undefined") return false;
@@ -39,6 +47,7 @@ export default function EmployeeMePage() {
   const [leaveFrom, setLeaveFrom] = useState("");
   const [leaveTo, setLeaveTo] = useState("");
   const [leaveReason, setLeaveReason] = useState("");
+  const [leaveConflicts, setLeaveConflicts] = useState<LeaveConflict[]>([]);
   const [installDismissed, setInstallDismissed] = useState(false);
 
   useEffect(() => {
@@ -77,6 +86,21 @@ export default function EmployeeMePage() {
   const leave = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "my-leave" }),
     queryFn: () => listLeaveRequests({ mineOnly: true }),
+    staleTime: STALE.people,
+  });
+  const balances = useQuery({
+    queryKey: queryKeys.people.hrLeaveBalances({ mine: true }),
+    queryFn: () => getLeaveBalanceSummary({}),
+    staleTime: STALE.people,
+  });
+  const announcements = useQuery({
+    queryKey: queryKeys.people.hrAnnouncements({ mine: true }),
+    queryFn: () => listAnnouncements({}),
+    staleTime: STALE.people,
+  });
+  const myDocs = useQuery({
+    queryKey: queryKeys.people.hrDocs({ mine: true }),
+    queryFn: () => listEmployeeDocuments({ mineOnly: true }),
     staleTime: STALE.people,
   });
   const notes = useNotifications({ limit: 12 });
@@ -135,18 +159,32 @@ export default function EmployeeMePage() {
   });
 
   const askLeave = useMutation({
-    mutationFn: () =>
+    mutationFn: (acknowledgeConflicts?: boolean) =>
       submitLeaveRequest({
         leaveType,
         dateFrom: leaveFrom,
         dateTo: leaveTo || leaveFrom,
         reason: leaveReason || null,
+        acknowledgeConflicts: acknowledgeConflicts ?? false,
       }),
-    onSuccess: () => {
+    onSuccess: (res) => {
+      if (res.requiresAck) {
+        setLeaveConflicts(res.conflicts);
+        toast.message(t("hr.leave.conflictWarn"));
+        return;
+      }
       toast.success(t("hr.leave.submitted"));
       setLeaveReason("");
+      setLeaveConflicts([]);
       void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+      void qc.invalidateQueries({ queryKey: queryKeys.people.hrLeaveBalances() });
     },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const openDoc = useMutation({
+    mutationFn: getEmployeeDocumentUrl,
+    onSuccess: (res) => window.open(res.url, "_blank", "noopener,noreferrer"),
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -263,6 +301,18 @@ export default function EmployeeMePage() {
 
       <section className="rounded-2xl border p-4 space-y-3">
         <h2 className="text-sm font-semibold">{t("hr.leave.requestTitle")}</h2>
+        {(balances.data?.balances ?? []).length > 0 ? (
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            {balances.data!.balances.slice(0, 4).map((b) => (
+              <div key={b.leaveType} className="rounded-xl border px-2 py-1.5">
+                <p className="font-medium">{t(`hr.leave.types.${b.leaveType}`)}</p>
+                <p className="text-muted-foreground">
+                  {t("hr.leave.remaining", { remaining: b.remainingDays, allotted: b.allottedDays, used: b.usedDays })}
+                </p>
+              </div>
+            ))}
+          </div>
+        ) : null}
         <div className="grid grid-cols-2 gap-2">
           <div>
             <Label>{t("hr.leave.from")}</Label>
@@ -285,13 +335,29 @@ export default function EmployeeMePage() {
           ))}
         </select>
         <Input placeholder={t("hr.leave.reason")} value={leaveReason} onChange={(e) => setLeaveReason(e.target.value)} />
-        <Button disabled={!leaveFrom || askLeave.isPending} onClick={() => askLeave.mutate()}>
+        {leaveConflicts.length > 0 ? (
+          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
+            <p className="font-medium">{t("hr.leave.conflictWarn")}</p>
+            <ul className="mt-1 list-disc pl-4">
+              {leaveConflicts.slice(0, 5).map((c, i) => (
+                <li key={`${c.kind}-${c.workDate}-${i}`}>
+                  {c.workDate}: {c.detail}
+                </li>
+              ))}
+            </ul>
+            <Button className="mt-2" size="sm" disabled={askLeave.isPending} onClick={() => askLeave.mutate(true)}>
+              {t("hr.leave.submitAnyway")}
+            </Button>
+          </div>
+        ) : null}
+        <Button disabled={!leaveFrom || askLeave.isPending} onClick={() => askLeave.mutate(false)}>
           {t("hr.leave.submit")}
         </Button>
-        {(leave.data ?? []).slice(0, 8).map((row) => (
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("hr.leave.history")}</h3>
+        {(leave.data ?? []).slice(0, 12).map((row) => (
           <div key={row.id} className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
             <span>
-              {row.dateFrom} → {row.dateTo} · {t(`hr.leave.status.${row.status}`)}
+              {row.dateFrom} → {row.dateTo} · {t(`hr.leave.types.${row.leaveType}`)} · {t(`hr.leave.status.${row.status}`)} · {row.days}d
             </span>
             {row.status === "pending" ? (
               <Button
@@ -305,6 +371,41 @@ export default function EmployeeMePage() {
             ) : null}
           </div>
         ))}
+      </section>
+
+      {(announcements.data ?? []).length > 0 ? (
+        <section className="rounded-2xl border p-4">
+          <h2 className="text-sm font-semibold">{t("hr.me.announcements")}</h2>
+          <ul className="mt-2 space-y-2">
+            {(announcements.data ?? []).slice(0, 5).map((a) => (
+              <li key={a.id} className="rounded-xl border px-3 py-2 text-sm">
+                <p className="font-medium">{a.title}</p>
+                <p className="whitespace-pre-wrap text-xs text-muted-foreground">{a.body}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      <section className="rounded-2xl border p-4">
+        <h2 className="text-sm font-semibold">{t("hr.me.myDocuments")}</h2>
+        {(myDocs.data ?? []).length === 0 ? (
+          <p className="mt-2 text-sm text-muted-foreground">{t("hr.me.noDocuments")}</p>
+        ) : (
+          <ul className="mt-2 space-y-2">
+            {(myDocs.data ?? []).map((doc) => (
+              <li key={doc.id} className="flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm">
+                <span>
+                  {t(`hr.docs.types.${doc.docType}`)}
+                  {doc.expiryDate ? ` · ${doc.expiryDate}` : ""}
+                </span>
+                <Button size="sm" variant="ghost" onClick={() => openDoc.mutate({ id: doc.id })}>
+                  {t("hr.docs.view")}
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <section className="rounded-2xl border p-4">

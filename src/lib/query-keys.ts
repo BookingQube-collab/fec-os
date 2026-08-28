@@ -184,6 +184,13 @@ export const queryKeys = {
       [...queryKeys.people.all, "attendance-exceptions", locationId ?? null] as const,
     attendanceIngestLogs: () => [...queryKeys.people.all, "attendance-ingest-logs"] as const,
     attendanceHr: (filters?: object) => [...queryKeys.people.all, "attendance-hr", filters ?? {}] as const,
+    hrOverview: (filters?: object) => [...queryKeys.people.all, "hr-overview", filters ?? {}] as const,
+    hrDocs: (filters?: object) => [...queryKeys.people.all, "hr-docs", filters ?? {}] as const,
+    hrChecklists: (filters?: object) => [...queryKeys.people.all, "hr-checklists", filters ?? {}] as const,
+    hrAnnouncements: (filters?: object) => [...queryKeys.people.all, "hr-announcements", filters ?? {}] as const,
+    hrOtPolicy: () => [...queryKeys.people.all, "hr-ot-policy"] as const,
+    hrReports: (filters?: object) => [...queryKeys.people.all, "hr-reports", filters ?? {}] as const,
+    hrLeaveBalances: (filters?: object) => [...queryKeys.people.all, "hr-leave-balances", filters ?? {}] as const,
   },
   performance: {
     all: ["performance"] as const,
