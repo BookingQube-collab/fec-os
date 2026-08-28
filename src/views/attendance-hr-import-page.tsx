@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { getAttendanceHrBootstrap } from "@/lib/attendance-hr.functions";
 import {
   ATTENDANCE_IMPORT_ACCEPT,
@@ -27,6 +28,8 @@ import {
 } from "@/lib/attendance-hr/select-import-files";
 import {
   attendanceRosterPeriod,
+  formatPayrollRange,
+  payrollMonthOf,
   qatarWeekBounds,
   type AttendanceRosterPeriodMode,
 } from "@/lib/attendance-hr/roster-period";
@@ -98,7 +101,7 @@ function canConfirmPreview(preview: PreviewResponse | null) {
 }
 
 export default function AttendanceHrImportPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const router = useRouter();
   const qc = useQueryClient();
   const filesRef = useRef<HTMLInputElement>(null);
@@ -117,7 +120,7 @@ export default function AttendanceHrImportPage() {
   const [deviceId, setDeviceId] = useState("");
   const [periodMode, setPeriodMode] = useState<AttendanceRosterPeriodMode>("month");
   const [weekStart, setWeekStart] = useState(() => qatarWeekBounds(todayYmd()).dateFrom);
-  const [month, setMonth] = useState(() => todayYmd().slice(0, 7));
+  const [month, setMonth] = useState(() => payrollMonthOf(todayYmd()));
   const [files, setFiles] = useState<File[]>([]);
   const [skipped, setSkipped] = useState<SkippedImportFile[]>([]);
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
@@ -277,9 +280,10 @@ export default function AttendanceHrImportPage() {
               emptyOption={{ value: "", label: t("attendanceHr.import.selectSite") }}
               options={sites.map((s) => {
                 const loc = s.location as { name?: string; code?: string } | null;
+                const label = formatLocationLabel(loc?.code, loc?.name);
                 return {
                   value: s.location_id,
-                  label: loc?.name ?? s.location_id,
+                  label: label === "—" ? s.location_id : label,
                   keywords: `${loc?.code ?? ""} ${loc?.name ?? ""} ${s.location_id}`,
                 };
               })}
@@ -350,7 +354,7 @@ export default function AttendanceHrImportPage() {
           <div className="space-y-1.5">
             <Label>{t("attendanceHr.import.dateRange")}</Label>
             <p className="rounded-full border border-border/70 bg-background px-3 py-2 text-sm">
-              {period.dateFrom} – {period.dateTo}
+              {formatPayrollRange(period.dateFrom, period.dateTo, i18n.language)}
             </p>
             <p className="text-xs text-muted-foreground">{t("attendanceHr.import.periodHelp")}</p>
           </div>

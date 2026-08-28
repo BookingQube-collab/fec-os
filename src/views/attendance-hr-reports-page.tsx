@@ -35,28 +35,31 @@ import {
 } from "@/lib/attendance-hr.functions";
 import { ATTENDANCE_STATUSES } from "@/lib/attendance-hr/constants";
 import {
+  defaultPayrollPeriod,
+  formatPayrollRange,
+  monthBounds,
+  payrollMonthMatchingBounds,
+} from "@/lib/attendance-hr/roster-period";
+import {
   attendanceHrToListingSource,
   computeAttendanceHrReportKpis,
   formatAttendanceHrLocation,
   type AttendanceHrReportRow,
 } from "@/lib/attendance-hr/report";
-import { CANONICAL_LOCATION_CODES, rosterSheetLabel } from "@/lib/locations/normalize";
+import { CANONICAL_LOCATION_CODES, formatLocationLabel, rosterSheetLabel } from "@/lib/locations/normalize";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
 
-function iso(d: Date) {
-  return d.toISOString().slice(0, 10);
-}
-
 export default function AttendanceHrReportsPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const locationId = useAppStore((s) => s.currentLocationId);
   const setCurrentLocationId = useAppStore((s) => s.setCurrentLocationId);
   const qc = useQueryClient();
-  const [from, setFrom] = useState(iso(new Date(Date.now() - 7 * 86400000)));
-  const [to, setTo] = useState(iso(new Date()));
+  const [{ month, dateFrom: from, dateTo: to }, setPeriod] = useState(() =>
+    defaultPayrollPeriod(new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" })),
+  );
   const [status, setStatus] = useState("");
   const [staffQ, setStaffQ] = useState("");
   const [staffQDebounced, setStaffQDebounced] = useState("");
@@ -181,18 +184,21 @@ export default function AttendanceHrReportsPage() {
             >
               {t("common.allLocations")}
             </button>
-            {locationOptions.map((site) => (
+            {locationOptions.map((site) => {
+              const label = formatLocationLabel(site.code, rosterSheetLabel(site.code, site.name));
+              return (
               <button
                 key={site.id}
                 type="button"
-                title={rosterSheetLabel(site.code, site.name)}
-                className={cn("filter-chip", locationId === site.id && "filter-chip-active")}
+                title={label}
+                className={cn("filter-chip max-w-[18rem] truncate", locationId === site.id && "filter-chip-active")}
                 aria-pressed={locationId === site.id}
                 onClick={() => setCurrentLocationId(site.id)}
               >
-                {site.code}
+                {label}
               </button>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -212,12 +218,51 @@ export default function AttendanceHrReportsPage() {
             </div>
           </div>
           <div className="space-y-1.5">
+            <Label htmlFor="attendance-hr-month">{t("attendanceHr.reports.month")}</Label>
+            <Input
+              id="attendance-hr-month"
+              type="month"
+              value={month}
+              onChange={(e) => {
+                const ym = e.target.value;
+                if (!/^\d{4}-\d{2}$/.test(ym)) return;
+                setPeriod({ month: ym, ...monthBounds(ym) });
+              }}
+            />
+          </div>
+          <div className="space-y-1.5">
             <Label htmlFor="attendance-hr-from">{t("attendanceHr.reports.from")}</Label>
-            <Input id="attendance-hr-from" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+            <Input
+              id="attendance-hr-from"
+              type="date"
+              value={from}
+              onChange={(e) =>
+                setPeriod((p) => ({
+                  dateFrom: e.target.value,
+                  dateTo: p.dateTo,
+                  month: payrollMonthMatchingBounds(e.target.value, p.dateTo) ?? p.month,
+                }))
+              }
+            />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="attendance-hr-to">{t("attendanceHr.reports.to")}</Label>
-            <Input id="attendance-hr-to" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+            <Input
+              id="attendance-hr-to"
+              type="date"
+              value={to}
+              onChange={(e) =>
+                setPeriod((p) => ({
+                  dateFrom: p.dateFrom,
+                  dateTo: e.target.value,
+                  month: payrollMonthMatchingBounds(p.dateFrom, e.target.value) ?? p.month,
+                }))
+              }
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>{t("attendanceHr.import.dateRange")}</Label>
+            <p className="py-2 text-sm font-medium">{formatPayrollRange(from, to, i18n.language)}</p>
           </div>
           <div className="min-w-44 space-y-1.5">
             <Label>{t("attendanceHr.reports.status")}</Label>
@@ -247,9 +292,11 @@ export default function AttendanceHrReportsPage() {
           <Button variant="secondary" asChild>
             <a href={`${exportHref}&format=pdf`}>{t("attendanceHr.reports.exportPdf")}</a>
           </Button>
-          <Button variant="secondary" asChild>
-            <a href={`${exportHref}&format=payroll`}>{t("attendanceHr.reports.exportPayroll")}</a>
-          </Button>
+          <CapabilityGate capability="payroll.view">
+            <Button variant="secondary" asChild>
+              <Link href="/people/payroll">{t("nav.hrPayroll")}</Link>
+            </Button>
+          </CapabilityGate>
           <CapabilityGate capability="attendance.import">
             <Button variant="destructive" onClick={() => setConfirmOpen(true)}>
               <Trash2 className="h-4 w-4" />

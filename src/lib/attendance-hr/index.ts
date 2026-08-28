@@ -32,7 +32,8 @@ export {
   pickDashboardPeriod,
   qatarTodayYmd,
 } from "./dashboard";
-export { punchHash, fileSha256, mappingKey } from "./hash";
+export { punchHash, fileSha256 } from "./hash";
+export { mappingKey, subjectKey } from "./keys";
 export { encryptFileBuffer, decryptFileBuffer, hasAttendanceFileKey } from "./file-crypto";
 export { detectBufferKind } from "./detect";
 export { previewAttendanceFile } from "./preview";
@@ -64,7 +65,13 @@ export {
   attendanceRosterPeriod,
   buildAttendanceRosterTemplateCsv,
   canUploadAttendanceRoster,
+  defaultPayrollPeriod,
   enumerateYmd,
+  formatPayrollDate,
+  formatPayrollRange,
+  monthBounds,
+  payrollMonthMatchingBounds,
+  payrollMonthOf,
   qatarWeekBounds,
 } from "./roster-period";
 export { buildAttendanceRosterSampleCsv, rosterSampleFilename } from "./roster-sample";

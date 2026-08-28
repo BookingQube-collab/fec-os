@@ -18,6 +18,7 @@ import { useStaff } from "@/hooks/queries/usePeople";
 import { useAttendanceDailySummary } from "@/hooks/queries/usePeopleExtended";
 import { AttendanceKpiStrip } from "@/components/people/attendance-kpi-strip";
 import { AttendanceRecordsTable } from "@/components/people/attendance-records-table";
+import { formatPayrollRange } from "@/lib/attendance-hr/roster-period";
 import {
   attendanceDateRange,
   buildAttendanceCsv,
@@ -37,7 +38,7 @@ export function AttendanceTablePanel({
   locationId: string;
   openExceptionsCount?: number;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const monthRange = useMemo(() => attendanceDateRange("month"), []);
   const [datePreset, setDatePreset] = useState<AttendanceDatePreset>("month");
   const [dateFrom, setDateFrom] = useState(monthRange.from);
@@ -160,6 +161,7 @@ export function AttendanceTablePanel({
               }}
             />
           </div>
+          <p className="pb-2 text-xs text-muted-foreground">{formatPayrollRange(from, to, i18n.language)}</p>
         </div>
         <Button
           type="button"

@@ -12,6 +12,7 @@ import {
 import { useExpiryAlerts } from "@/hooks/queries/useExpiryAlerts";
 import { useReportExport } from "@/hooks/use-report-export";
 import { useAppStore } from "@/stores/app-store";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { fmtQar } from "@/lib/currency";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -24,7 +25,7 @@ function AlertSection({
 }: {
   title: string;
   tone: string;
-  rows: { id: string; location_code: string | null; document_type: string; document_name: string | null; expiry_date: string; days_to_expiry: number; outstanding_amount: number }[];
+  rows: { id: string; location_code: string | null; location_name?: string | null; document_type: string; document_name: string | null; expiry_date: string; days_to_expiry: number; outstanding_amount: number }[];
 }) {
   if (!rows.length) return null;
   return (
@@ -45,7 +46,7 @@ function AlertSection({
           <TableBody>
             {rows.map((r) => (
               <TableRow key={r.id}>
-                <TableCell className="font-mono text-xs">{r.location_code ?? "—"}</TableCell>
+                <TableCell className="text-xs">{formatLocationLabel(r.location_code, r.location_name)}</TableCell>
                 <TableCell>{r.document_name ?? COMPLIANCE_DOCUMENT_TYPE_LABELS[r.document_type as keyof typeof COMPLIANCE_DOCUMENT_TYPE_LABELS] ?? r.document_type}</TableCell>
                 <TableCell>{new Date(r.expiry_date).toLocaleDateString()}</TableCell>
                 <TableCell className={r.days_to_expiry < 0 ? "text-rose-400" : ""}>{r.days_to_expiry}</TableCell>
@@ -151,7 +152,7 @@ function ComplianceExpiryAlertsPage() {
             <TableBody>
               {data.site_status.map((site) => (
                 <TableRow key={site.location_id}>
-                  <TableCell className="font-mono text-xs">{site.location_code}</TableCell>
+                  <TableCell className="text-xs">{formatLocationLabel(site.location_code, site.location_name)}</TableCell>
                   {site.documents.map((d) => (
                     <TableCell key={d.document_type}>
                       <Badge variant="outline" className={expiryTierColor(d.expiry_tier)}>{d.expiry_tier}</Badge>

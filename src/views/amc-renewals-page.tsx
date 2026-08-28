@@ -7,6 +7,7 @@ import { useAmcRenewals } from "@/hooks/queries/useAmcRenewals";
 import { useTranslation } from "react-i18next";
 
 import { translateAmcCategory, translateAmcStatus } from "@/lib/amc/constants";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -50,7 +51,7 @@ function AmcRenewalsPage() {
             ) : (
               renewals.map((r) => (
                 <TableRow key={r.id}>
-                  <TableCell className="font-mono text-xs">{r.location_code}</TableCell>
+                  <TableCell className="text-xs">{formatLocationLabel(r.location_code, r.location_name)}</TableCell>
                   <TableCell>{translateAmcCategory(t, r.category)}</TableCell>
                   <TableCell>
                     <Link href={`/compliance/amc-contracts/${r.id}`} className="text-primary hover:underline">{r.vendor_name}</Link>

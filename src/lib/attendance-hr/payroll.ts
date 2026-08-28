@@ -24,6 +24,7 @@ export type PayrollStaffRow = {
   overtimeMinutes: number;
   blockingDays: number;
   payrollReady: boolean;
+  locationLabel?: string;
 };
 
 export function isPayrollBlockingDay(row: Pick<PayrollDayInput, "status" | "missed_punch">): boolean {

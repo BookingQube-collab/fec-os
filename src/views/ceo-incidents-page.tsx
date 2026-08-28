@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 
 import { useCeoIncidents24h } from "@/hooks/queries/useCeo";
 import { usePermission } from "@/hooks/use-permission";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { incidentTypeLabel } from "@/lib/daily-ops/constants";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
@@ -85,11 +86,11 @@ function Page() {
                   <td className="px-3 py-2 text-xs text-muted-foreground">
                     {canOccBranch ? (
                       <Link href={`/occ/branch/${incident.location_id}`} className="hover:underline">
-                        {incident.location_name} · {incident.location_code}
+                        {formatLocationLabel(incident.location_code, incident.location_name)}
                       </Link>
                     ) : (
                       <>
-                        {incident.location_name} · {incident.location_code}
+                        {formatLocationLabel(incident.location_code, incident.location_name)}
                       </>
                     )}
                   </td>

@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { useTranslation } from "react-i18next";
 
 import { EventReportAiBrief } from "@/components/events/event-report-ai-brief";
 import { EventReportsDetailTable, formatReportCell } from "@/components/events/event-reports-detail-table";
-import { EventReportsVisuals } from "@/components/events/event-reports-visuals";
 import { EventSourceBanner } from "@/components/events/event-source-banner";
 import { PageHeader } from "@/components/layout/page-header";
 import { DownloadReportButton } from "@/components/reports/download-report-button";
@@ -18,12 +18,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useEventReports } from "@/hooks/queries/useEvents";
 import { useReportExport } from "@/hooks/use-report-export";
 import { EVENT_REPORT_IDS, FINANCE_REPORT_IDS, type EventReportId } from "@/lib/events/reports";
 import { buildEventReportVisuals } from "@/lib/events/report-visuals";
+import { retryImport } from "@/lib/retry-import";
 import { downloadCsvContent } from "@/lib/staff-import";
 import { useAppStore } from "@/stores/app-store";
+
+const EventReportsVisuals = dynamic(
+  () =>
+    retryImport(() =>
+      import("@/components/events/event-reports-visuals").then((m) => m.EventReportsVisuals),
+    ),
+  { ssr: false, loading: () => <Skeleton className="h-64 rounded-2xl" /> },
+);
 
 export default function EventsReportsPage() {
   const { t, i18n } = useTranslation();

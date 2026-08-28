@@ -10,6 +10,7 @@ import { ragForContract, ragForService, translateAmcCategory, translateAmcStatus
 import { lineStatus } from "@/lib/compliance/compliance-derive";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { fmtQar } from "@/lib/currency";
 import { cn } from "@/lib/utils";
 
@@ -88,9 +89,7 @@ export function AmcContractCard({
           <div>
             {showSite && (
               <div className="mb-1 text-xs font-semibold tracking-wide">
-                <span className="font-mono text-primary">{contract.location_code}</span>
-                <span className="mx-1 text-muted-foreground">·</span>
-                <span>{contract.location_name}</span>
+                {formatLocationLabel(contract.location_code, contract.location_name)}
               </div>
             )}
             <div className="text-sm font-semibold">{categoryLabel}</div>

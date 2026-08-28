@@ -30,6 +30,7 @@ import {
   truncateAxisLabel,
 } from "@/lib/chart-theme";
 import { fmtNumber, fmtQar } from "@/lib/currency";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import type { PeopleDashboardSalaryLocation } from "@/lib/queries/people-dashboard.core";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -58,6 +59,7 @@ export function SalaryByLocationChart({
   rows: PeopleDashboardSalaryLocation[];
 }) {
   const { t } = useTranslation();
+  const chartRows = rows.map((row) => ({ ...row, label: formatLocationLabel(row.code, row.name) }));
   return (
     <ChartCard title={t("people.dashboard.salaryByLocation")} subtitle={t("people.dashboard.salaryNote")}>
       {rows.length === 0 ? (
@@ -65,9 +67,15 @@ export function SalaryByLocationChart({
       ) : (
         <div className={CHART_PLOT}>
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={rows} margin={CHART_MARGIN}>
+            <BarChart data={chartRows} margin={CHART_MARGIN}>
               <CartesianGrid {...chartGridProps} />
-              <XAxis dataKey="code" tick={chartTick} stroke={CHART.grid} />
+              <XAxis
+                dataKey="label"
+                tick={chartTick}
+                stroke={CHART.grid}
+                interval={0}
+                tickFormatter={(value) => truncateAxisLabel(String(value), 18)}
+              />
               <YAxis
                 tick={chartTick}
                 stroke={CHART.grid}
@@ -79,7 +87,7 @@ export function SalaryByLocationChart({
                 formatter={(value: number) => [fmtQar(value), t("people.dashboard.monthlyQar")]}
                 labelFormatter={(_, payload) => {
                   const row = payload?.[0]?.payload as { code?: string; name?: string } | undefined;
-                  return row?.name ? `${row.code} — ${row.name}` : String(_);
+                  return row ? formatLocationLabel(row.code, row.name) : String(_);
                 }}
               />
               <Bar dataKey="monthly_salary_qar" fill={CHART.teal} name={t("people.dashboard.monthlyQar")} radius={[4, 4, 0, 0]} />
@@ -107,9 +115,18 @@ export function PeopleDashboardCharts({
             </div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={staffByLocation} margin={CHART_MARGIN}>
+              <BarChart
+                data={staffByLocation.map((row) => ({ ...row, label: formatLocationLabel(row.code, row.name) }))}
+                margin={CHART_MARGIN}
+              >
                 <CartesianGrid {...chartGridProps} />
-                <XAxis dataKey="code" tick={chartTick} stroke={CHART.grid} />
+                <XAxis
+                  dataKey="label"
+                  tick={chartTick}
+                  stroke={CHART.grid}
+                  interval={0}
+                  tickFormatter={(value) => truncateAxisLabel(String(value), 18)}
+                />
                 <YAxis tick={chartTick} stroke={CHART.grid} allowDecimals={false} />
                 <Tooltip
                   contentStyle={chartTooltipStyle}
@@ -117,7 +134,7 @@ export function PeopleDashboardCharts({
                   formatter={(value: number) => [value, "Staff"]}
                   labelFormatter={(_, payload) => {
                     const row = payload?.[0]?.payload as { code?: string; name?: string } | undefined;
-                    return row?.name ? `${row.code} — ${row.name}` : String(_);
+                    return row ? formatLocationLabel(row.code, row.name) : String(_);
                   }}
                 />
                 <Bar dataKey="count" fill={CHART.ink} name="Staff" radius={[4, 4, 0, 0]} />

@@ -7,6 +7,7 @@ import { ArrowLeft, CheckCircle2, ImagePlus, Loader2, Trash2 } from "lucide-reac
 import { toast } from "sonner";
 import { useRef } from "react";
 
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { getIssue, updateIssueStatus, verifyIssue, addIssuePhoto, listIssuePhotos, softDeleteIssue } from "@/lib/issues.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -129,8 +130,8 @@ function IssueDetail() {
         <InfoCard title="Branch">
           {data.location ? (
             <>
-              <div className="text-sm font-medium">{data.location.name}</div>
-              <div className="text-xs text-muted-foreground">{data.location.code} · {data.location.city}</div>
+              <div className="text-sm font-medium">{formatLocationLabel(data.location.code, data.location.name)}</div>
+              <div className="text-xs text-muted-foreground">{data.location.city}</div>
             </>
           ) : <span className="text-xs text-muted-foreground">—</span>}
         </InfoCard>
@@ -173,7 +174,7 @@ function IssueDetail() {
           <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
             {photosQuery.data.map((p) => (
               <a key={p.path} href={p.url ?? "#"} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-md border border-border bg-background">
-                {p.url ? <img src={p.url} alt="evidence" className="aspect-square w-full object-cover" /> : <div className="aspect-square w-full" />}
+                {p.url ? <img src={p.url} alt="evidence" width={320} height={320} loading="lazy" decoding="async" className="aspect-square w-full object-cover" /> : <div className="aspect-square w-full" />}
               </a>
             ))}
           </div>

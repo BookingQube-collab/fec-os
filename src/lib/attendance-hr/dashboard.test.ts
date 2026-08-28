@@ -55,7 +55,24 @@ describe("pickDashboardPeriod", () => {
     expect(monthBounds("2026-08")).toEqual({ dateFrom: "2026-07-28", dateTo: "2026-08-27" });
     expect(
       pickDashboardPeriod({ today: "2026-08-24", latestPunchDate: "2026-08-10" }),
-    ).toMatchObject({ dateFrom: "2026-07-28", dateTo: "2026-08-27", usedImportedPeriod: true });
+    ).toMatchObject({ dateFrom: "2026-07-28", dateTo: "2026-08-27", month: "2026-08", usedImportedPeriod: true });
+  });
+
+  it("treats the 28th as the next FEC month", () => {
+    expect(
+      pickDashboardPeriod({ today: "2026-08-28", latestPunchDate: null }),
+    ).toMatchObject({ dateFrom: "2026-08-28", dateTo: "2026-09-27", month: "2026-09", usedImportedPeriod: false });
+  });
+
+  it("keeps explicit 28–27 bounds on the named FEC month", () => {
+    expect(
+      pickDashboardPeriod({
+        dateFrom: "2026-07-28",
+        dateTo: "2026-08-27",
+        today: "2026-08-24",
+        latestPunchDate: null,
+      }),
+    ).toMatchObject({ dateFrom: "2026-07-28", dateTo: "2026-08-27", month: "2026-08", usedImportedPeriod: false });
   });
 });
 
@@ -267,7 +284,7 @@ describe("enrichWatchlistEntries", () => {
         locationCode: "INF-CC",
       },
     ]);
-    expect(formatWatchlistLocation(entries[0])).toBe("Inflatapark · City Center Doha");
+    expect(formatWatchlistLocation(entries[0])).toBe("INF-CC — Inflatapark - City Center Doha");
   });
 
   it("prefers the attendance site over home location", () => {
@@ -277,7 +294,7 @@ describe("enrichWatchlistEntries", () => {
       sites,
     );
     expect(entries[0].locationId).toBe(KDS);
-    expect(formatWatchlistLocation(entries[0])).toBe("Kids Driving School · City Center");
+    expect(formatWatchlistLocation(entries[0])).toBe("KDS-CC — Kids Driving School - City Center");
   });
 
   it("omits location when the site is unknown", () => {

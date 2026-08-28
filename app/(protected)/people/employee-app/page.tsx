@@ -1,0 +1,3 @@
+import { lazyView } from "@/lib/lazy-view";
+
+export default lazyView(() => import("@/views/hr-employee-app-admin-page"), "table");

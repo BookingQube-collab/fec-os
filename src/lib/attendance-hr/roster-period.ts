@@ -31,6 +31,49 @@ export function monthBounds(month: string): { dateFrom: string; dateTo: string }
   return { dateFrom: from.toISOString().slice(0, 10), dateTo: `${ym}-27` };
 }
 
+/** FEC month that contains `ymd`: the 28th onward belongs to the next calendar month. */
+export function payrollMonthOf(ymd: string): string {
+  const day = ymd.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return day.slice(0, 7);
+  if (Number(day.slice(8, 10)) < 28) return day.slice(0, 7);
+  const year = Number(day.slice(0, 4));
+  const month = Number(day.slice(5, 7));
+  if (month === 12) return `${year + 1}-01`;
+  return `${year}-${String(month + 1).padStart(2, "0")}`;
+}
+
+export function payrollMonthMatchingBounds(dateFrom: string, dateTo: string): string | null {
+  const from = dateFrom.slice(0, 10);
+  const to = dateTo.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) return null;
+  const month = payrollMonthOf(to);
+  const bounds = monthBounds(month);
+  return bounds.dateFrom === from && bounds.dateTo === to ? month : null;
+}
+
+export function defaultPayrollPeriod(todayYmd: string): { month: string; dateFrom: string; dateTo: string } {
+  const month = payrollMonthOf(todayYmd);
+  return { month, ...monthBounds(month) };
+}
+
+/** Visible date, e.g. "28 Jul". */
+export function formatPayrollDate(ymd: string, locale = "en"): string {
+  const intlLocale = locale.toLowerCase().startsWith("ar") ? "ar" : "en-GB";
+  const iso = ymd.slice(0, 10);
+  const d = new Date(`${iso}T12:00:00.000Z`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return new Intl.DateTimeFormat(intlLocale, {
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+  }).format(d);
+}
+
+/** Visible cycle text, e.g. "28 Jul – 27 Aug". */
+export function formatPayrollRange(dateFrom: string, dateTo: string, locale = "en"): string {
+  return `${formatPayrollDate(dateFrom, locale)} – ${formatPayrollDate(dateTo, locale)}`;
+}
+
 export function enumerateYmd(from: string, to: string): string[] {
   const days: string[] = [];
   const start = new Date(`${from}T00:00:00.000Z`);

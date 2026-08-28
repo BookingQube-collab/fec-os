@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   LOCATION_ALIASES,
+  formatLocationLabel,
+  formatLocationName,
+  formatLocationRecord,
   normalizeLocationKey,
   resolveLocationCode,
   rosterSheetLabel,
@@ -37,5 +40,34 @@ describe("location normalize", () => {
       { id: "1", code: "UA-DM", name: "Urban Arena", region: "Doha Mall" },
     ];
     expect(resolveLocationCode("Urban Arena Doha Mall", locations)).toBe("UA-DM");
+  });
+
+  it("resolves combined display labels back to the venue code", () => {
+    expect(resolveLocationCode("INF-CC — Inflatapark - City Center")).toBe("INF-CC");
+    expect(resolveLocationCode("KDS-CC · Kids Driving School - City Center")).toBe("KDS-CC");
+    expect(resolveLocationCode("Inflatapark - City Center")).toBe("INF-CC");
+  });
+});
+
+describe("formatLocationLabel", () => {
+  it("joins code and name with an em dash", () => {
+    expect(formatLocationLabel("INF-CC", "Inflatapark - City Center")).toBe(
+      "INF-CC — Inflatapark - City Center",
+    );
+  });
+
+  it("skips empty parts", () => {
+    expect(formatLocationLabel("INF-CC", "")).toBe("INF-CC");
+    expect(formatLocationLabel(null, "Inflatapark")).toBe("Inflatapark");
+    expect(formatLocationLabel("  ", "  ")).toBe("—");
+    expect(formatLocationLabel("INF-CC", "INF-CC")).toBe("INF-CC");
+  });
+
+  it("composes live name and region, then the display label", () => {
+    expect(formatLocationName("Inflatapark", "City Center Doha")).toBe("Inflatapark - City Center Doha");
+    expect(formatLocationName("Inflatapark - City Center", "City Center")).toBe("Inflatapark - City Center");
+    expect(
+      formatLocationRecord({ code: "INF-CC", name: "Inflatapark", region: "City Center Doha" }),
+    ).toBe("INF-CC — Inflatapark - City Center Doha");
   });
 });

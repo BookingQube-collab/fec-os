@@ -1133,17 +1133,6 @@ function AttendanceTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[1.25rem] border border-border/60 bg-card px-4 py-3">
-        <div>
-          <p className="text-sm font-semibold">Time & Attendance</p>
-          <p className="text-xs text-muted-foreground">
-            Upload ZKTeco files, map biometric users, and export consolidated HR reports.
-          </p>
-        </div>
-        <Button asChild size="sm">
-          <Link href="/people/attendance">Open module</Link>
-        </Button>
-      </div>
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
           {t("people.attendance.summaryHint", { count: exceptions?.length ?? 0 })}

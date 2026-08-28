@@ -29,6 +29,7 @@ import {
   type StaffActivityItem,
   type StaffActivityKind,
 } from "@/lib/leaderboard.functions";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { useSites } from "@/hooks/queries/useSites";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -173,7 +174,7 @@ function Page() {
               <SelectItem value="all">{t("common.allBranches")}</SelectItem>
               {(locs ?? []).map((l) => (
                 <SelectItem key={l.id} value={l.id}>
-                  {l.code} — {l.name}
+                  {formatLocationLabel(l.code, l.name)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -366,7 +367,7 @@ function RunnersUpRow({ rows }: { rows: LeaderboardRow[] }) {
                 <div className="truncate text-sm font-medium text-foreground">{name}</div>
                 <div className="text-xs text-muted-foreground">
                   #{row.rank ?? "—"}
-                  {row.location && ` · ${row.location.code}`}
+                  {row.location && ` · ${formatLocationLabel(row.location.code, row.location.name)}`}
                 </div>
               </div>
               <div className="text-right">
@@ -475,7 +476,7 @@ function RankingsTable({
                           {showBranch && row.location && (
                             <>
                               <span className="mx-1 text-border">·</span>
-                              {row.location.code}
+                              {formatLocationLabel(row.location.code, row.location.name)}
                             </>
                           )}
                         </div>

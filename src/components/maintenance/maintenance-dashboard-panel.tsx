@@ -7,6 +7,7 @@ import { KpiSkeletonStrip } from "@/components/loading/page-skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useMaintenanceDashboard } from "@/hooks/queries/useMaintenanceDashboard";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { useAppStore } from "@/stores/app-store";
 
 const MaintenanceDashboardCharts = dynamic(
@@ -151,7 +152,7 @@ export function MaintenanceDashboardPanel() {
                 <tbody>
                   {data.jobs_by_location.map((l) => (
                     <tr key={l.code} className="border-t border-border">
-                      <td className="px-3 py-2 font-medium">{l.code}</td>
+                      <td className="px-3 py-2 font-medium">{formatLocationLabel(l.code, l.name)}</td>
                       <td className="px-3 py-2 text-right">{l.count}</td>
                     </tr>
                   ))}
@@ -286,7 +287,7 @@ export function MaintenanceDashboardPanel() {
                 <tbody>
                   {data.active_downtime.map((d) => (
                     <tr key={d.id} className="border-t border-border">
-                      <td className="px-3 py-2 text-xs">{d.location_code}</td>
+                      <td className="px-3 py-2 text-xs">{formatLocationLabel(d.location_code, d.location_name)}</td>
                       <td className="px-3 py-2 font-medium">{d.reason}</td>
                       <td className="px-3 py-2 text-xs text-muted-foreground">
                         {new Date(d.started_at).toLocaleString()}

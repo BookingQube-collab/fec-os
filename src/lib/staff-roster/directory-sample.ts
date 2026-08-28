@@ -1,5 +1,5 @@
 import { toCsv } from "@/lib/csv-parse";
-import { rosterSheetLabel } from "@/lib/locations/normalize";
+import { formatLocationLabel, rosterSheetLabel } from "@/lib/locations/normalize";
 
 export const DIRECTORY_SAMPLE_HEADERS = [
   "employee_code",
@@ -50,7 +50,7 @@ export function buildDirectorySampleCsv(
       person.employee_code ?? "",
       person.full_name ?? "",
       person.qid ?? "",
-      person.locationCode,
+      formatLocationLabel(person.locationCode, person.locationName || rosterSheetLabel(person.locationCode)),
       person.locationName || rosterSheetLabel(person.locationCode),
       person.job_title ?? "",
       person.employment_type ?? "",

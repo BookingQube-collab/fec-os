@@ -140,6 +140,7 @@ import {
 import { isMissingEventColumn, textMatchesEvent } from "@/lib/events/ops-link";
 import { validateBase64Size, validateUploadMimeList } from "@/lib/server/upload-validation";
 import { eventDisplayName, uniqueEventProjectNames } from "@/lib/procurement/event-link";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { canUserDo, type AppRole } from "@/lib/rbac";
 import { ForbiddenError, assertLocationAccess } from "@/lib/server/authorize";
 import {
@@ -1398,10 +1399,10 @@ export const listEvents = createAuthenticatedAction(
     const locIds = [...new Set(list.map((r) => r.location_id))];
     const staffIds = [...new Set(list.map((r) => r.pm_staff_id).filter(Boolean))] as string[];
     const [{ data: locs }, { data: staff }] = await Promise.all([
-      locIds.length ? context.supabase.from("locations").select("id, name").in("id", locIds) : { data: [] },
+      locIds.length ? context.supabase.from("locations").select("id, code, name").in("id", locIds) : { data: [] },
       staffIds.length ? context.supabase.from("staff").select("id, full_name").in("id", staffIds) : { data: [] },
     ]);
-    const locMap = new Map((locs ?? []).map((l) => [l.id, l.name]));
+    const locMap = new Map((locs ?? []).map((l) => [l.id, formatLocationLabel(l.code, l.name)]));
     const staffMap = new Map((staff ?? []).map((s) => [s.id, s.full_name]));
     const stageMap = new Map(lookups.stages.map((s) => [s.id, s]));
     const typeMap = new Map(lookups.types.map((t) => [t.id, t.code]));

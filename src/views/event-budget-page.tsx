@@ -4,13 +4,12 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Fragment, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { CollapsibleSection } from "@/components/dashboard/collapsible-section";
 import { EventFinanceKpis, EventFinanceMoreFigures } from "@/components/events/event-finance-kpis";
-import { EventMarginChart } from "@/components/events/event-margin-chart";
-import { EventSpendChart } from "@/components/events/event-spend-chart";
 import { EventWorkspaceNav } from "@/components/events/event-workspace-nav";
 import { PageHeader } from "@/components/layout/page-header";
 import { PrStatusPill } from "@/components/procurement/pr-status-pill";
@@ -24,6 +23,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { retryImport } from "@/lib/retry-import";
 import {
   Table,
   TableBody,
@@ -59,6 +60,18 @@ import {
 } from "@/lib/events.functions";
 import type { EventBudgetTotals } from "@/lib/events/types";
 import { queryKeys } from "@/lib/query-keys";
+
+const EventSpendChart = dynamic(
+  () =>
+    retryImport(() => import("@/components/events/event-spend-chart").then((m) => m.EventSpendChart)),
+  { ssr: false, loading: () => <Skeleton className="h-56 rounded-2xl" /> },
+);
+
+const EventMarginChart = dynamic(
+  () =>
+    retryImport(() => import("@/components/events/event-margin-chart").then((m) => m.EventMarginChart)),
+  { ssr: false, loading: () => <Skeleton className="h-56 rounded-2xl" /> },
+);
 
 type LineDraft = {
   key: string;

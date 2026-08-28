@@ -15,6 +15,7 @@ import {
 import { useComplianceDocuments } from "@/hooks/queries/useComplianceDocuments";
 import { useReportExport } from "@/hooks/use-report-export";
 import { useAppStore } from "@/stores/app-store";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { fmtQar } from "@/lib/currency";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -147,7 +148,7 @@ function ComplianceDocumentsRegisterPage() {
             <tbody>
               {items.map((d) => (
                 <tr key={d.id} className="border-t border-border hover:bg-surface/40">
-                  <td className="px-3 py-2 font-mono text-xs">{d.location_code ?? "—"}</td>
+                  <td className="px-3 py-2 text-xs">{formatLocationLabel(d.location_code, d.location_name)}</td>
                   <td className="px-3 py-2">
                     <div className="font-medium">
                       {d.document_name ?? t(`complianceHub.documents.types.${d.document_type}`, { defaultValue: COMPLIANCE_DOCUMENT_TYPE_LABELS[d.document_type as keyof typeof COMPLIANCE_DOCUMENT_TYPE_LABELS] ?? d.document_type })}

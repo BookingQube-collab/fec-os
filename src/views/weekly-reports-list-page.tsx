@@ -28,6 +28,7 @@ import {
   WEEKLY_REPORT_STATUSES,
   weekStartMonday,
 } from "@/lib/weekly-reports/constants";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { cn } from "@/lib/utils";
 
 const RAG_CLASS = {
@@ -58,7 +59,7 @@ export default function WeeklyReportsListPage() {
   const { data: reports = [], isLoading } = useWeeklyReports(filters);
 
   const exportRows = reports.map((r) => ({
-    location: r.locations?.name ?? "—",
+    location: formatLocationLabel(r.locations?.code, r.locations?.name),
     week: formatWeekLabel(r.reporting_week_start),
     status: WEEKLY_REPORT_STATUS_LABELS[r.status],
     revenue: r.revenue ?? 0,
@@ -70,7 +71,7 @@ export default function WeeklyReportsListPage() {
   const { exportPdf, exportExcel } = useReportExport({
     pageKey: "weekly_reports",
     title: t("weeklyReports.title"),
-    venueLabel: locationId === "all" ? "All locations" : sites?.find((s) => s.id === locationId)?.name ?? "—",
+    venueLabel: locationId === "all" ? "All locations" : formatLocationLabel(sites?.find((s) => s.id === locationId)?.code, sites?.find((s) => s.id === locationId)?.name),
     filters: { week: formatWeekLabel(weekStart), status },
     kpis: [
       { label: "Reports", value: reports.length },
@@ -120,7 +121,7 @@ export default function WeeklyReportsListPage() {
               <SelectContent>
                 <SelectItem value="all">{t("weeklyReports.filters.allLocations")}</SelectItem>
                 {(sites ?? []).map((s) => (
-                  <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                  <SelectItem key={s.id} value={s.id}>{formatLocationLabel(s.code, s.name)}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -185,7 +186,7 @@ export default function WeeklyReportsListPage() {
               <TableBody>
                 {reports.map((r) => (
                   <TableRow key={r.id}>
-                    <TableCell className="font-medium">{r.locations?.name ?? "—"}</TableCell>
+                    <TableCell className="font-medium">{formatLocationLabel(r.locations?.code, r.locations?.name)}</TableCell>
                     <TableCell>{formatWeekLabel(r.reporting_week_start)}</TableCell>
                     <TableCell>
                       <Badge className={cn("font-normal", RAG_CLASS[statusRag(r.status)])}>

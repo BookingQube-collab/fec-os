@@ -141,7 +141,7 @@ export function MediaThumbnail({
             <span className="line-clamp-2 text-center text-[10px]">{alt ?? t("maintenanceMedia.file")}</span>
           </div>
         ) : (
-          <img src={src} alt={alt ?? t("maintenanceMedia.previewAlt")} className="aspect-square w-full object-cover" />
+          <img src={src} alt={alt ?? t("maintenanceMedia.previewAlt")} width={320} height={320} loading="lazy" decoding="async" className="aspect-square w-full object-cover" />
         )}
       </button>
       {onRemove && (

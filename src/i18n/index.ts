@@ -2,7 +2,6 @@ import i18n, { type TFunction } from "i18next";
 import { initReactI18next } from "react-i18next";
 
 import en from "./locales/en.json";
-import ar from "./locales/ar.json";
 import { overridesToNested, type I18nOverrideRow } from "./overlay";
 
 export const SUPPORTED_LANGUAGES = ["en", "ar"] as const;
@@ -34,16 +33,34 @@ export function applyLanguageToDocument(lang: SupportedLanguage) {
 
 const initialLng = readStoredLanguage();
 
+let arabicLocaleLoad: Promise<void> | null = null;
+let arabicFileLoaded = false;
+
+/** Load Arabic strings on demand so English-first routes skip ~290KB of JSON. */
+export function loadArabicLocale(): Promise<void> {
+  if (arabicFileLoaded) return Promise.resolve();
+  arabicLocaleLoad ??= import("./locales/ar.json").then((mod) => {
+    i18n.addResourceBundle("ar", "translation", mod.default, true, false);
+    arabicFileLoaded = true;
+  });
+  return arabicLocaleLoad;
+}
+
 if (!i18n.isInitialized) {
   void i18n.use(initReactI18next).init({
     resources: {
       en: { translation: en },
-      ar: { translation: ar },
     },
-    lng: initialLng,
+    lng: initialLng === "ar" ? "en" : initialLng,
     fallbackLng: "en",
     interpolation: { escapeValue: false },
     react: { useSuspense: false },
+  });
+}
+
+if (initialLng === "ar") {
+  void loadArabicLocale().then(() => {
+    void i18n.changeLanguage("ar");
   });
 }
 

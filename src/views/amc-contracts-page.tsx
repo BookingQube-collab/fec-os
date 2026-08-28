@@ -7,6 +7,7 @@ import { useAmcContracts } from "@/hooks/queries/useAmcContracts";
 import { useTranslation } from "react-i18next";
 
 import { translateAmcCategory, translateAmcStatus } from "@/lib/amc/constants";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { fmtQar } from "@/lib/currency";
 import { useAppStore } from "@/stores/app-store";
 import { Badge } from "@/components/ui/badge";
@@ -56,7 +57,7 @@ function AmcContractsPage() {
             ) : (
               contracts.map((c) => (
                 <TableRow key={c.id}>
-                  <TableCell className="font-mono text-xs">{c.location_code}</TableCell>
+                  <TableCell className="text-xs">{formatLocationLabel(c.location_code, c.location_name)}</TableCell>
                   <TableCell>{translateAmcCategory(t, c.category)}</TableCell>
                   <TableCell>
                     <Link href={`/compliance/amc-contracts/${c.id}`} className="text-primary hover:underline">{c.vendor_name}</Link>

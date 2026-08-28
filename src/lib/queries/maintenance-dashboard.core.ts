@@ -36,7 +36,7 @@ export interface MaintenanceDashboardPayload {
   assets_by_criticality: Array<{ criticality: string; count: number }>;
   assets_by_category: Array<{ category: string; count: number }>;
   work_orders_trend: Array<{ week: string; created: number; completed: number }>;
-  downtime_by_location: Array<{ code: string; hours: number; events: number }>;
+  downtime_by_location: Array<{ code: string; name?: string; hours: number; events: number }>;
   technician_workload: Array<{
     user_id: string;
     display_name: string;
@@ -61,7 +61,7 @@ export interface MaintenanceDashboardPayload {
     sla_due_at: string;
     priority: string;
   }>;
-  jobs_by_location: Array<{ code: string; count: number }>;
+  jobs_by_location: Array<{ code: string; name?: string; count: number }>;
   delivery_status: Array<{ status: string; count: number }>;
   pm_calendar: Array<{ id: string; title: string; next_due_at: string; overdue: boolean }>;
   recent_activities: Array<{
@@ -77,6 +77,7 @@ export interface MaintenanceDashboardPayload {
     started_at: string;
     duration_minutes: number | null;
     location_code: string;
+    location_name?: string;
   }>;
   recent_work_orders: Array<{
     id: string;
@@ -131,13 +132,14 @@ export async function fetchMaintenanceDashboard(
   trendStart.setDate(trendStart.getDate() - 56);
   const trendStartIso = trendStart.toISOString();
 
-  let locQ = context.supabase.from("locations").select("id, code").in("status", ["active", "maintenance"]);
+  let locQ = context.supabase.from("locations").select("id, code, name").in("status", ["active", "maintenance"]);
   if (filters.locationId) locQ = locQ.eq("id", filters.locationId);
   const { data: locations, error: locErr } = await locQ;
   if (locErr) throw locErr;
 
   const locationIds = (locations ?? []).map((l) => l.id);
   const locationCodeById = new Map((locations ?? []).map((l) => [l.id, l.code]));
+  const locationNameById = new Map((locations ?? []).map((l) => [l.id, l.name]));
   const empty = locationIds.length === 0;
 
   if (empty) {
@@ -308,10 +310,16 @@ export async function fetchMaintenanceDashboard(
   const weeklyRate =
     weekCreatedCount > 0 ? Math.round((weekCompletedCount / weekCreatedCount) * 100) : 0;
 
-  const locJobCounts = new Map<string, number>();
+  const locJobCounts = new Map<string, { code: string; name: string; count: number }>();
   for (const w of openRows) {
-    const code = locationCodeById.get(w.location_id) ?? "—";
-    locJobCounts.set(code, (locJobCounts.get(code) ?? 0) + 1);
+    const id = w.location_id;
+    const bucket = locJobCounts.get(id) ?? {
+      code: locationCodeById.get(id) ?? "—",
+      name: locationNameById.get(id) ?? "—",
+      count: 0,
+    };
+    bucket.count += 1;
+    locJobCounts.set(id, bucket);
   }
 
   const deliveryStatusMap = new Map<string, number>();
@@ -407,13 +415,18 @@ export async function fetchMaintenanceDashboard(
     .sort((a, b) => b.open_count + b.in_progress_count - (a.open_count + a.in_progress_count))
     .slice(0, 10);
 
-  const downtimeLocMap = new Map<string, { hours: number; events: number }>();
+  const downtimeLocMap = new Map<string, { code: string; name: string; hours: number; events: number }>();
   for (const d of downtimeMonth ?? []) {
-    const code = locationCodeById.get(d.location_id) ?? "—";
-    const bucket = downtimeLocMap.get(code) ?? { hours: 0, events: 0 };
+    const id = d.location_id;
+    const bucket = downtimeLocMap.get(id) ?? {
+      code: locationCodeById.get(id) ?? "—",
+      name: locationNameById.get(id) ?? "—",
+      hours: 0,
+      events: 0,
+    };
     bucket.events += 1;
     bucket.hours += downtimeHours([d]);
-    downtimeLocMap.set(code, bucket);
+    downtimeLocMap.set(id, bucket);
   }
 
   const trendBuckets: Array<{ start: string; label: string }> = [];
@@ -480,8 +493,8 @@ export async function fetchMaintenanceDashboard(
       created: trendCreatedCounts[i] ?? 0,
       completed: trendCompletedCounts[i] ?? 0,
     })),
-    downtime_by_location: [...downtimeLocMap.entries()]
-      .map(([code, v]) => ({ code, hours: Math.round(v.hours * 10) / 10, events: v.events }))
+    downtime_by_location: [...downtimeLocMap.values()]
+      .map((v) => ({ code: v.code, name: v.name, hours: Math.round(v.hours * 10) / 10, events: v.events }))
       .sort((a, b) => b.hours - a.hours),
     technician_workload,
     overdue_work_orders: overdueRows
@@ -508,9 +521,7 @@ export async function fetchMaintenanceDashboard(
         sla_due_at: w.sla_due_at!,
         priority: w.priority ?? "normal",
       })),
-    jobs_by_location: [...locJobCounts.entries()]
-      .map(([code, count]) => ({ code, count }))
-      .sort((a, b) => b.count - a.count),
+    jobs_by_location: [...locJobCounts.values()].sort((a, b) => b.count - a.count),
     delivery_status: [...deliveryStatusMap.entries()].map(([status, count]) => ({ status, count })),
     pm_calendar: pmCalendar,
     recent_activities: recentActivities.slice(0, 15),
@@ -524,6 +535,7 @@ export async function fetchMaintenanceDashboard(
       started_at: d.started_at,
       duration_minutes: d.duration_minutes,
       location_code: locationCodeById.get(d.location_id) ?? "—",
+      location_name: locationNameById.get(d.location_id) ?? "—",
     })),
     recent_work_orders: recentWorkOrders ?? [],
   };

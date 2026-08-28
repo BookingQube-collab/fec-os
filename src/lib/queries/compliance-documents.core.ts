@@ -29,6 +29,7 @@ export interface ComplianceDocumentListRow {
   created_at: string;
   updated_at: string;
   location_code?: string;
+  location_name?: string;
   expiry_tier?: string;
   days_to_expiry?: number | null;
 }
@@ -76,9 +77,9 @@ export async function fetchComplianceDocuments(
 
   const locIds = [...new Set((rows ?? []).map((r) => r.location_id))];
   const { data: locs } = locIds.length
-    ? await context.supabase.from("locations").select("id, code").in("id", locIds)
+    ? await context.supabase.from("locations").select("id, code, name").in("id", locIds)
     : { data: [] };
-  const locMap = new Map((locs ?? []).map((l) => [l.id, l.code]));
+  const locMap = new Map((locs ?? []).map((l) => [l.id, l]));
 
   const today = new Date().toISOString().slice(0, 10);
 
@@ -101,7 +102,8 @@ export async function fetchComplianceDocuments(
         quotation_amount: Number(r.quotation_amount ?? 0),
         paid_amount: Number(r.paid_amount ?? 0),
         outstanding_amount: Number(r.outstanding_amount ?? 0),
-        location_code: locMap.get(r.location_id),
+        location_code: locMap.get(r.location_id)?.code,
+        location_name: locMap.get(r.location_id)?.name,
         days_to_expiry: daysToExpiry,
         expiry_tier: expiryTier,
       };

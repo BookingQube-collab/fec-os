@@ -9,23 +9,22 @@ import { Toaster } from "@/components/ui/sonner";
 import { PwaInstallProvider } from "@/hooks/use-pwa-install";
 import { AuthProvider } from "@/hooks/use-auth";
 import { TranslationEditProvider } from "@/components/i18n/translation-edit-provider";
-import { applyLanguageToDocument } from "@/i18n";
+import { applyLanguageToDocument, loadArabicLocale } from "@/i18n";
 import "@/i18n";
 import { getQueryClient } from "@/lib/query-client";
 import { useAppStore } from "@/stores/app-store";
 import { AppErrorBoundary } from "@/components/diagnostics/error-boundary";
-import { PasskeyEnrollDialog } from "@/components/auth/passkey-enroll-dialog";
 
 const PwaServiceWorker = dynamic(
   () => import("@/components/pwa/pwa-service-worker").then((m) => m.PwaServiceWorker),
   { ssr: false },
 );
-const HrFieldSync = dynamic(
-  () => import("@/components/attendance-hr/hr-field-sync").then((m) => m.HrFieldSync),
-  { ssr: false },
-);
 const InstallAppDialogHost = dynamic(
   () => import("@/components/pwa/install-app-control").then((m) => m.InstallAppDialogHost),
+  { ssr: false },
+);
+const PasskeyEnrollDialog = dynamic(
+  () => import("@/components/auth/passkey-enroll-dialog").then((m) => m.PasskeyEnrollDialog),
   { ssr: false },
 );
 
@@ -35,8 +34,17 @@ export function Providers({ children }: { children: ReactNode }) {
   const { i18n } = useTranslation();
 
   useEffect(() => {
-    if (i18n.language !== language) void i18n.changeLanguage(language);
-    applyLanguageToDocument(language);
+    let cancelled = false;
+    const apply = async () => {
+      if (language === "ar") await loadArabicLocale();
+      if (cancelled) return;
+      if (i18n.language !== language) void i18n.changeLanguage(language);
+      applyLanguageToDocument(language);
+    };
+    void apply();
+    return () => {
+      cancelled = true;
+    };
   }, [language, i18n]);
 
   return (
@@ -48,7 +56,6 @@ export function Providers({ children }: { children: ReactNode }) {
             <PasskeyEnrollDialog />
             <InstallAppDialogHost />
             <PwaServiceWorker />
-            <HrFieldSync />
             <Toaster richColors position={language === "ar" ? "top-left" : "top-right"} />
           </TranslationEditProvider>
         </PwaInstallProvider>

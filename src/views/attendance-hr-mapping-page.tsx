@@ -32,7 +32,7 @@ import {
   removeAttendanceBiometricUser,
   unmapAttendanceBiometricUser,
 } from "@/lib/attendance-hr.functions";
-import { CANONICAL_LOCATION_CODES, rosterSheetLabel } from "@/lib/locations/normalize";
+import { CANONICAL_LOCATION_CODES, formatLocationLabel, rosterSheetLabel } from "@/lib/locations/normalize";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { cn } from "@/lib/utils";
@@ -439,18 +439,21 @@ export default function AttendanceHrMappingPage() {
             >
               {t("common.allLocations")}
             </button>
-            {locationOptions.map((site) => (
+            {locationOptions.map((site) => {
+              const label = formatLocationLabel(site.code, rosterSheetLabel(site.code, site.name));
+              return (
               <button
                 key={site.id}
                 type="button"
-                title={rosterSheetLabel(site.code, site.name)}
-                className={cn("filter-chip", locationId === site.id && "filter-chip-active")}
+                title={label}
+                className={cn("filter-chip max-w-[18rem] truncate", locationId === site.id && "filter-chip-active")}
                 aria-pressed={locationId === site.id}
                 onClick={() => setCurrentLocationId(site.id)}
               >
-                {site.code}
+                {label}
               </button>
-            ))}
+              );
+            })}
           </div>
         </div>
         <div className="space-y-1.5">
@@ -544,8 +547,8 @@ export default function AttendanceHrMappingPage() {
                         </p>
                       ) : null}
                     </td>
-                    <td className="whitespace-nowrap text-xs text-muted-foreground">
-                      {site ? site.code : "—"}
+                    <td className="whitespace-nowrap text-xs text-muted-foreground" title={site ? formatLocationLabel(site.code, site.name) : undefined}>
+                      {site ? formatLocationLabel(site.code, site.name) : "—"}
                     </td>
                     <td>
                       <Badge variant={mapped ? "success" : "muted"}>

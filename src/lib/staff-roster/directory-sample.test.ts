@@ -26,7 +26,7 @@ describe("directory sample", () => {
     expect(rows[0]).toMatchObject({
       employee_code: "INF-CC-BM",
       full_name: "Amna Al-Naimi",
-      location: "INF-CC",
+      location: "INF-CC — Inflatapark - City Center",
       location_name: "Inflatapark - City Center",
       e3: "Yes",
       contact: "555",

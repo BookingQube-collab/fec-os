@@ -5,6 +5,7 @@ export interface ExpiryAlertRow {
   id: string;
   location_id: string;
   location_code: string | null;
+  location_name?: string | null;
   document_type: string;
   document_name: string | null;
   certificate_number: string | null;
@@ -92,6 +93,7 @@ export async function fetchExpiryAlerts(
     return {
       ...r,
       location_code: locMap.get(r.location_id)?.code ?? null,
+      location_name: locMap.get(r.location_id)?.name ?? null,
       days_to_expiry: days,
       expiry_tier: tierForDays(days),
       outstanding_amount: Number(r.outstanding_amount ?? 0),

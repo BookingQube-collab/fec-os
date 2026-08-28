@@ -10,7 +10,9 @@ import { DEFAULT_GEOFENCE_RADIUS_METERS, evaluateGeofence, pickNearestFence, SIT
 import { DEFAULT_HR_NOTIFY_TOGGLES } from "@/lib/attendance-hr/hr-notify";
 import { dispatchHrNotify } from "@/lib/attendance-hr/hr-notify-dispatch";
 import { aggregatePayrollRows, type PayrollDayInput } from "@/lib/attendance-hr/payroll";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { DEFAULT_RULES } from "@/lib/attendance-hr/constants";
+import { resolveSelfStaffId } from "@/lib/attendance-hr/self-staff";
 
 const FACE_BUCKET = "staff-faces";
 
@@ -218,7 +220,7 @@ export const listStaffLocationEvents = createAuthenticatedAction(
         isRoaming: Boolean((staff as { is_roaming?: boolean } | null)?.is_roaming),
         locationId: (row.location_id as string | null) ?? null,
         locationLabel: loc
-          ? `${(loc as { code?: string }).code ?? ""} ${(loc as { name?: string }).name ?? ""}`.trim()
+          ? formatLocationLabel((loc as { code?: string }).code, (loc as { name?: string }).name)
           : null,
         latitude: Number(row.latitude),
         longitude: Number(row.longitude),
@@ -276,7 +278,7 @@ export const listStaffLastKnownLocations = createAuthenticatedActionNoInput(
         employeeCode: (staff as { employee_code?: string } | null)?.employee_code ?? null,
         isRoaming: Boolean((staff as { is_roaming?: boolean } | null)?.is_roaming),
         locationLabel: loc
-          ? `${(loc as { code?: string }).code ?? ""} ${(loc as { name?: string }).name ?? ""}`.trim()
+          ? formatLocationLabel((loc as { code?: string }).code, (loc as { name?: string }).name)
           : null,
         latitude: Number(row.latitude),
         longitude: Number(row.longitude),
@@ -317,6 +319,7 @@ export const submitFieldCheckIn = createAuthenticatedAction(
     accuracyMeters: z.number().min(0).max(50000).nullable().optional(),
     eventType: z.enum(["check_in", "check_out", "ping"]).default("check_in"),
     locationId: z.string().uuid().nullable().optional(),
+    staffId: z.string().uuid().nullable().optional(),
     clientEventId: z.string().uuid().optional(),
     recordedAt: z.string().optional(),
     queuedOffline: z.boolean().optional(),
@@ -325,9 +328,8 @@ export const submitFieldCheckIn = createAuthenticatedAction(
   }),
   async (data, context) => {
     const staff = await myStaff(context);
-    if (!staff) {
-      throw new ForbiddenError("Your login is not linked to a staff record, so GPS check-in is not available.");
-    }
+    resolveSelfStaffId({ linkedStaffId: staff?.id ?? null, requestedStaffId: data.staffId ?? null });
+    if (!staff) throw new ForbiddenError("Your login is not linked to a staff record, so GPS check-in is not available.");
     const settings = await readFieldSettings(context);
     if (settings.requireFaceOnCheckin && data.eventType !== "ping") {
       if (settings.faceLivenessRequired && data.faceLivenessPassed !== true) {
@@ -433,7 +435,7 @@ export const submitFieldCheckIn = createAuthenticatedAction(
       violation: nearest?.evaluation.violation ?? false,
     };
   },
-  { auth: { capability: "attendance.view" } },
+  { auth: { anyCapability: ["attendance.view", "hr.employee_app"] } },
 );
 
 export const getStaffFaceEnrollment = createAuthenticatedAction(
@@ -459,7 +461,7 @@ export const getStaffFaceEnrollment = createAuthenticatedAction(
       hasPhoto: Boolean(row?.storage_path),
     };
   },
-  { auth: { capability: "attendance.view" } },
+  { auth: { anyCapability: ["attendance.view", "hr.employee_app"] } },
 );
 
 export const saveStaffFaceEnrollment = createAuthenticatedAction(
@@ -489,7 +491,7 @@ export const saveStaffFaceEnrollment = createAuthenticatedAction(
     if (error) throw error;
     return { ok: true, status: "enrolled" as const };
   },
-  { auth: { capability: "attendance.view" } },
+  { auth: { anyCapability: ["attendance.view", "hr.employee_app"] } },
 );
 
 export const getPayrollAttendanceSummary = createAuthenticatedAction(
@@ -511,12 +513,23 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
     const { data: rows, error } = await q;
     if (error) throw error;
     const staffIds = [...new Set((rows ?? []).map((r) => r.staff_id as string).filter(Boolean))];
-    const names = new Map<string, { full_name: string; employee_code: string }>();
+    const names = new Map<string, { full_name: string; employee_code: string; locationLabel: string }>();
     for (let i = 0; i < staffIds.length; i += 200) {
       const chunk = staffIds.slice(i, i + 200);
-      const { data: staffRows } = await context.supabase.from("staff").select("id, full_name, employee_code").in("id", chunk);
+      const { data: staffRows } = await context.supabase
+        .from("staff")
+        .select("id, full_name, employee_code, locations(code, name)")
+        .in("id", chunk);
       for (const s of staffRows ?? []) {
-        names.set(s.id, { full_name: s.full_name, employee_code: s.employee_code });
+        const loc = Array.isArray(s.locations) ? s.locations[0] : s.locations;
+        names.set(s.id, {
+          full_name: s.full_name,
+          employee_code: s.employee_code,
+          locationLabel: formatLocationLabel(
+            (loc as { code?: string } | null)?.code,
+            (loc as { name?: string } | null)?.name,
+          ),
+        });
       }
     }
     const days: PayrollDayInput[] = (rows ?? []).map((row) => {
@@ -533,7 +546,10 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
         punch_count: Number(row.punch_count ?? 0),
       };
     });
-    const summary = aggregatePayrollRows(days);
+    const summary = aggregatePayrollRows(days).map((row) => ({
+      ...row,
+      locationLabel: names.get(row.staffId)?.locationLabel ?? "—",
+    }));
     return {
       dateFrom: data.dateFrom,
       dateTo: data.dateTo,
@@ -542,7 +558,7 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
       rows: summary,
     };
   },
-  { auth: { capability: "attendance.view" } },
+  { auth: { capability: "payroll.view" } },
 );
 
 export const notifyAttendanceDeviations = createAuthenticatedAction(
@@ -629,5 +645,5 @@ export const getFieldCheckInContext = createAuthenticatedActionNoInput(
       enrollment,
     };
   },
-  { auth: { capability: "attendance.view" } },
+  { auth: { anyCapability: ["attendance.view", "hr.employee_app"] } },
 );

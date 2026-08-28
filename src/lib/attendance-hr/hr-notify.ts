@@ -7,7 +7,10 @@ export type HrNotifyKind =
   | "restricted"
   | "correction_submitted"
   | "correction_approved"
-  | "correction_rejected";
+  | "correction_rejected"
+  | "leave_submitted"
+  | "leave_approved"
+  | "leave_rejected";
 
 export type HrNotifyEvent = {
   kind: HrNotifyKind;
@@ -38,6 +41,9 @@ const TITLES: Record<HrNotifyKind, string> = {
   correction_submitted: "Attendance correction submitted",
   correction_approved: "Attendance correction approved",
   correction_rejected: "Attendance correction rejected",
+  leave_submitted: "Leave request submitted",
+  leave_approved: "Leave approved",
+  leave_rejected: "Leave rejected",
 };
 
 export function mapHrNotifyEvent(event: HrNotifyEvent): HrNotifyPayload {
@@ -46,8 +52,12 @@ export function mapHrNotifyEvent(event: HrNotifyEvent): HrNotifyPayload {
   const date = event.workDate ?? "";
   const actionUrl = event.kind.startsWith("correction")
     ? "/people/attendance/corrections"
+    : event.kind.startsWith("leave")
+      ? event.kind === "leave_submitted"
+        ? "/people/leave"
+        : "/hr/me"
     : event.kind === "geofence_exit" || event.kind === "restricted"
-      ? "/people/attendance/field"
+      ? "/people/field"
       : "/people/attendance/reports";
 
   let body: string;
@@ -79,6 +89,16 @@ export function mapHrNotifyEvent(event: HrNotifyEvent): HrNotifyPayload {
       break;
     case "correction_rejected":
       body = `Your correction for ${staff}${date ? ` on ${date}` : ""} was rejected.`;
+      break;
+    case "leave_submitted":
+      body = `${staff} submitted a leave request${date ? ` from ${date}` : ""}.`;
+      break;
+    case "leave_approved":
+      body = `Leave for ${staff}${date ? ` from ${date}` : ""} was approved.`;
+      severity = "info";
+      break;
+    case "leave_rejected":
+      body = `Leave for ${staff}${date ? ` from ${date}` : ""} was rejected.`;
       break;
   }
 

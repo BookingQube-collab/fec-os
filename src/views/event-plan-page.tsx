@@ -3,12 +3,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { CollapsibleSection } from "@/components/dashboard/collapsible-section";
-import { EventGantt } from "@/components/events/event-gantt";
 import { EventScheduleHints } from "@/components/events/event-schedule-hints";
 import { EventScheduleKpis } from "@/components/events/event-schedule-kpis";
 import { EventScheduleRegister } from "@/components/events/event-schedule-register";
@@ -20,6 +20,8 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { retryImport } from "@/lib/retry-import";
 import {
   Select,
   SelectContent,
@@ -57,6 +59,11 @@ import { LIFECYCLE_PHASES } from "@/lib/events/lifecycle";
 import type { EventTaskRow, EventWbsNode } from "@/lib/events/types";
 import { STANDARD_WORKSTREAMS } from "@/lib/events/workstreams";
 import { queryKeys } from "@/lib/query-keys";
+
+const EventGantt = dynamic(
+  () => retryImport(() => import("@/components/events/event-gantt").then((m) => m.EventGantt)),
+  { ssr: false, loading: () => <Skeleton className="h-72 rounded-2xl" /> },
+);
 
 function numOrNull(v: string) {
   if (!v.trim()) return null;

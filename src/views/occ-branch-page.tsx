@@ -19,6 +19,7 @@ import type { BranchPack } from "@/lib/queries/occ.core";
 import { useBranchPack } from "@/hooks/queries/useOcc";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { cn } from "@/lib/utils";
 
 function BranchPage() {
@@ -74,9 +75,9 @@ function BranchView({ pack }: { pack: BranchPack }) {
           <Link href="/occ" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
             <ArrowLeft className="h-3 w-3" /> Estate
           </Link>
-          <h2 className="mt-1 text-xl font-semibold tracking-tight">{pack.location.name}</h2>
+          <h2 className="mt-1 text-xl font-semibold tracking-tight">{formatLocationLabel(pack.location.code, pack.location.name)}</h2>
           <div className="text-xs text-muted-foreground">
-            {pack.location.code} · {pack.location.city} · {pack.location.status}
+            {pack.location.city} · {pack.location.status}
           </div>
         </div>
         <div className="flex items-center gap-2">

@@ -33,6 +33,35 @@ export function rosterSheetLabel(code: string, fallbackName?: string | null): st
   return ROSTER_SHEET_LABEL_BY_CODE[code as CanonicalLocationCode] ?? fallbackName ?? code;
 }
 
+/** Live name plus region, e.g. `Inflatapark - City Center Doha`. Skips empty parts. */
+export function formatLocationName(name?: string | null, region?: string | null): string {
+  const n = (name ?? "").trim();
+  const r = (region ?? "").trim();
+  if (n && r && !n.toLowerCase().includes(r.toLowerCase())) return `${n} - ${r}`;
+  return n || r;
+}
+
+/**
+ * User-facing venue label: `INF-CC — Inflatapark - City Center`.
+ * Skips empty parts; never returns a blank string.
+ */
+export function formatLocationLabel(code?: string | null, name?: string | null): string {
+  const c = (code ?? "").trim();
+  const n = (name ?? "").trim();
+  if (c && n && n.toUpperCase() !== c.toUpperCase()) return `${c} — ${n}`;
+  return c || n || "—";
+}
+
+/** Compose code + live name/region from a locations row. */
+export function formatLocationRecord(
+  loc: { code?: string | null; name?: string | null; region?: string | null } | null | undefined,
+): string {
+  if (!loc) return "—";
+  return formatLocationLabel(loc.code, formatLocationName(loc.name, loc.region) || loc.name);
+}
+
+const LOCATION_DISPLAY_SPLIT = /\s*[—–]\s*|\s+·\s+/;
+
 export function normalizeLocationKey(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
@@ -91,6 +120,14 @@ export function resolveLocationCode(
   const trimmed = raw.trim();
   const asCode = trimmed.toUpperCase();
   if ((CANONICAL_LOCATION_CODES as readonly string[]).includes(asCode)) return asCode;
+
+  const displayParts = trimmed.split(LOCATION_DISPLAY_SPLIT).map((part) => part.trim()).filter(Boolean);
+  if (displayParts.length >= 2) {
+    const head = displayParts[0]?.toUpperCase() ?? "";
+    if ((CANONICAL_LOCATION_CODES as readonly string[]).includes(head)) return head;
+    const fromName = resolveLocationCode(displayParts.slice(1).join(" - "), locations);
+    if (fromName) return fromName;
+  }
 
   const key = normalizeLocationKey(trimmed);
   const alias = LOCATION_ALIASES[key];

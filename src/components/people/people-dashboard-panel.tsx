@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
 import { TintedKpiCard, type KpiTint } from "@/components/dashboard/tinted-kpi-card";
@@ -8,7 +9,11 @@ import { KpiSkeletonStrip } from "@/components/loading/page-skeleton";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePeopleDashboard } from "@/hooks/queries/usePeopleDashboard";
 import { usePermission } from "@/hooks/use-permission";
+import { getHrOverview } from "@/lib/hr-overview.functions";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { fmtQar } from "@/lib/currency";
+import { queryKeys } from "@/lib/query-keys";
+import { STALE } from "@/lib/query-client";
 import { useAppStore } from "@/stores/app-store";
 
 const PeopleDashboardCharts = dynamic(
@@ -44,6 +49,11 @@ export function PeopleDashboardPanel() {
   const locationId = useAppStore((s) => s.currentLocationId);
   const canSalary = usePermission("people.view_salary");
   const { data, isLoading } = usePeopleDashboard({ locationId: locationId ?? null });
+  const overview = useQuery({
+    queryKey: queryKeys.people.attendanceHr({ view: "hr-overview", locationId: locationId ?? null }),
+    queryFn: () => getHrOverview({ locationId: locationId || null }),
+    staleTime: STALE.people,
+  });
 
   const k = data?.kpis;
 
@@ -72,6 +82,11 @@ export function PeopleDashboardPanel() {
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
         <KpiCard label={t("people.dashboard.totalStaff")} value={k?.total_staff ?? 0} tint="sky" />
+        <KpiCard label={t("people.dashboard.presentToday")} value={overview.data?.presentToday ?? 0} tint="green" />
+        <KpiCard label={t("people.dashboard.pendingLeave")} value={overview.data?.pendingLeave ?? 0} tint={(overview.data?.pendingLeave ?? 0) > 0 ? "amber" : "slate"} />
+        {canSalary ? (
+          <KpiCard label={t("people.dashboard.payrollBlocked")} value={overview.data?.payrollBlocked ?? 0} tint={(overview.data?.payrollBlocked ?? 0) > 0 ? "amber" : "slate"} />
+        ) : null}
         <KpiCard label={t("people.dashboard.activeStaff")} value={k?.active_staff ?? 0} tint="green" />
         <KpiCard label={t("people.dashboard.inactiveStaff")} value={k?.inactive_staff ?? 0} tint="slate" />
         <KpiCard
@@ -115,8 +130,7 @@ export function PeopleDashboardPanel() {
                 <table className="w-full text-sm">
                   <thead className="bg-surface/60 text-xs uppercase tracking-wider text-muted-foreground">
                     <tr>
-                      <th className="px-3 py-2 text-left">{t("people.staff.code")}</th>
-                      <th className="px-3 py-2 text-left">{t("people.staff.branch")}</th>
+                      <th className="px-3 py-2 text-left">{t("people.staff.location")}</th>
                       <th className="px-3 py-2 text-right">{t("people.dashboard.rosterHeadcount")}</th>
                       <th className="px-3 py-2 text-right">{t("people.dashboard.monthlyQar")}</th>
                       <th className="px-3 py-2 text-right">{t("people.dashboard.missingMonthly")}</th>
@@ -125,8 +139,9 @@ export function PeopleDashboardPanel() {
                   <tbody>
                     {data.salary_by_location.map((l) => (
                       <tr key={l.code} className="border-t border-border">
-                        <td className="px-3 py-2 font-mono text-xs">{l.code}</td>
-                        <td className="px-3 py-2 font-medium">{l.name}</td>
+                        <td className="px-3 py-2 font-medium">
+                          {formatLocationLabel(l.code, l.name)}
+                        </td>
                         <td className="px-3 py-2 text-right tabular-nums">{l.roster_headcount}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{fmtQar(l.monthly_salary_qar)}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{l.missing_monthly}</td>
@@ -164,16 +179,16 @@ export function PeopleDashboardPanel() {
               <table className="w-full text-sm">
                 <thead className="bg-surface/60 text-xs uppercase tracking-wider text-muted-foreground">
                   <tr>
-                    <th className="px-3 py-2 text-left">{t("people.staff.code")}</th>
-                    <th className="px-3 py-2 text-left">{t("people.staff.branch")}</th>
+                    <th className="px-3 py-2 text-left">{t("people.staff.location")}</th>
                     <th className="px-3 py-2 text-right">{t("people.dashboard.headcount")}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.staff_by_location.map((l) => (
                     <tr key={l.code} className="border-t border-border">
-                      <td className="px-3 py-2 font-mono text-xs">{l.code}</td>
-                      <td className="px-3 py-2 font-medium">{l.name}</td>
+                      <td className="px-3 py-2 font-medium">
+                        {formatLocationLabel(l.code, l.name)}
+                      </td>
                       <td className="px-3 py-2 text-right tabular-nums">{l.count}</td>
                     </tr>
                   ))}
@@ -205,7 +220,7 @@ export function PeopleDashboardPanel() {
                     <tr key={h.id} className="border-t border-border">
                       <td className="px-3 py-2 font-medium">{h.full_name}</td>
                       <td className="px-3 py-2 text-xs text-muted-foreground">{h.job_title ?? "—"}</td>
-                      <td className="px-3 py-2 font-mono text-xs">{h.location_code}</td>
+                      <td className="px-3 py-2 text-xs">{formatLocationLabel(h.location_code, h.location_name)}</td>
                       <td className="px-3 py-2 text-xs text-muted-foreground">{h.hire_date}</td>
                     </tr>
                   ))}

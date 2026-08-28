@@ -1,3 +1,4 @@
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { venueMatchesScope } from "@/lib/compliance/compliance-derive";
 import {
   COMPLIANCE_EXPIRY_ALERT_WINDOW_DAYS,
@@ -114,7 +115,7 @@ async function fetchDocumentAlerts(
       source: "document",
       title: row.document_name ?? row.document_type,
       subtitle: row.document_type,
-      locationLabel: loc?.code ?? "—",
+      locationLabel: loc ? formatLocationLabel(loc.code, loc.name) : "—",
       locationId: row.location_id,
       expiryDate: row.expiry_date,
       daysRemaining,
@@ -206,7 +207,7 @@ async function fetchLocationTrackerAlerts(
   let q = context.supabase
     .from("location_compliance_items_enriched")
     .select(
-      "id, location_id, location_code, requirement_name, category, governing_date, days_remaining, computed_status, expiry_bucket",
+      "id, location_id, location_code, location_name, requirement_name, category, governing_date, days_remaining, computed_status, expiry_bucket",
     )
     .in("computed_status", ["Expired", "Due Soon"]);
 
@@ -231,7 +232,10 @@ async function fetchLocationTrackerAlerts(
       source: "location_tracker",
       title: String(row.requirement_name),
       subtitle: String(row.category ?? ""),
-      locationLabel: String(row.location_code ?? "—"),
+      locationLabel: formatLocationLabel(
+        row.location_code == null ? null : String(row.location_code),
+        row.location_name == null ? null : String(row.location_name),
+      ),
       locationId: row.location_id as string,
       expiryDate: String(row.governing_date),
       daysRemaining,

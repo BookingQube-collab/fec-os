@@ -14,8 +14,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { isAdmsDeviceOnline } from "@/lib/attendance-hr/constants";
-import { AttendanceHrFieldSettings } from "@/components/attendance-hr/attendance-hr-field-settings";
 import { getAttendanceHrBootstrap, requestAttendanceDeviceFetch, saveAttendanceDevice, saveAttendanceShiftTemplate } from "@/lib/attendance-hr.functions";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
@@ -83,7 +83,7 @@ export default function AttendanceHrSettingsPage() {
     const map = new Map<string, string>();
     for (const s of q.data?.sites ?? []) {
       const loc = s.location as { name?: string; code?: string } | null;
-      map.set(s.location_id, loc?.name ? `${loc.code ? `${loc.code} · ` : ""}${loc.name}` : s.location_id);
+      map.set(s.location_id, loc ? formatLocationLabel(loc.code, loc.name) : s.location_id);
     }
     return map;
   }, [q.data?.sites]);
@@ -158,7 +158,6 @@ export default function AttendanceHrSettingsPage() {
         subtitle={t("attendanceHr.settings.subtitle")}
       />
       <AttendanceHrNav />
-      <AttendanceHrFieldSettings />
       <NeumorphicCard className="space-y-4 p-5">
         <div className="flex items-start gap-3">
           <Wifi className="mt-0.5 h-5 w-5 text-primary" />

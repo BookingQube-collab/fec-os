@@ -5,6 +5,7 @@ import { AlertOctagon } from "lucide-react";
 
 import { useRiskSummary, useRiskRegister } from "@/hooks/queries/useRisk";
 import { useAppStore } from "@/stores/app-store";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -58,7 +59,7 @@ function RiskRegisterPage() {
             ) : (
               rows.map((r) => (
                 <TableRow key={r.id}>
-                  <TableCell className="font-mono text-xs">{r.location_code}</TableCell>
+                  <TableCell className="text-xs">{formatLocationLabel(r.location_code, r.location_name)}</TableCell>
                   <TableCell>{r.risk_category}</TableCell>
                   <TableCell className="max-w-xs truncate">{r.description}</TableCell>
                   <TableCell><Badge variant="outline" className={r.risk_score >= 15 ? "rag-red" : r.risk_score >= 8 ? "rag-amber" : ""}>{r.risk_score}</Badge></TableCell>

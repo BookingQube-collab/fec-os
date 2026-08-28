@@ -47,13 +47,13 @@ describe("attendance roster sample", () => {
       staff_name: "Amna Al-Naimi",
       qid: "28910000001",
       employee_code: "INF-CC-BM",
-      location: "INF-CC",
+      location: "INF-CC — Inflatapark - City Center",
       location_name: "Inflatapark - City Center",
       shift_start: "",
       shift_end: "",
       duty: "Yes",
     });
-    expect(rows.some((r) => r.staff_name === "Russell Bombita Pante" && r.location === "INF-CC")).toBe(true);
+    expect(rows.some((r) => r.staff_name === "Russell Bombita Pante" && r.location === "INF-CC — Inflatapark - City Center")).toBe(true);
     expect(Object.keys(rows[0])).toEqual([
       "date",
       "staff_name",

@@ -28,6 +28,7 @@ import {
 import { useInventoryItems, useInventoryStock, useInventoryAlerts } from "@/hooks/queries/useInventory";
 import { usePermission } from "@/hooks/use-permission";
 import { useAppStore } from "@/stores/app-store";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { queryKeys } from "@/lib/query-keys";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -310,7 +311,7 @@ function StockPanel({
                   <TableCell className="font-mono text-xs">{s.sku}</TableCell>
                   <TableCell>{s.item_name}</TableCell>
                   <TableCell>{s.size ?? "—"}</TableCell>
-                  <TableCell>{s.location_code}</TableCell>
+                  <TableCell>{formatLocationLabel(s.location_code, s.location_name)}</TableCell>
                   <TableCell>
                     {s.quantity_on_hand} {s.unit}
                   </TableCell>

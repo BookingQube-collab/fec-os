@@ -1,12 +1,12 @@
-import { CANONICAL_LOCATION_CODES } from "@/lib/locations/normalize";
+import { CANONICAL_LOCATION_CODES, formatLocationLabel, formatLocationName } from "@/lib/locations/normalize";
 import { isActiveRosterStaff } from "@/lib/staff-status";
 
 import { assignAttendanceDate, calculateDailyAttendance } from "./calculate";
 import { DEFAULT_SHIFT } from "./constants";
-import { subjectKey } from "./hash";
-import { enumerateYmd, monthBounds } from "./roster-period";
+import { subjectKey } from "./keys";
+import { enumerateYmd, monthBounds, payrollMonthMatchingBounds, payrollMonthOf } from "./roster-period";
 
-export { enumerateYmd, monthBounds };
+export { enumerateYmd, monthBounds, payrollMonthMatchingBounds, payrollMonthOf };
 
 export type AttendanceDashboardDayRow = {
   location_id: string;
@@ -61,11 +61,12 @@ export function pickDashboardPeriod(input: {
   latestPunchDate: string | null;
 }): { dateFrom: string; dateTo: string; month: string; usedImportedPeriod: boolean } {
   if (input.dateFrom && input.dateTo) {
+    const cycleMonth = payrollMonthMatchingBounds(input.dateFrom, input.dateTo);
     return {
       dateFrom: input.dateFrom,
       dateTo: input.dateTo,
-      month: input.dateFrom.slice(0, 7),
-      usedImportedPeriod: true,
+      month: cycleMonth ?? (input.month && /^\d{4}-\d{2}$/.test(input.month) ? input.month : input.dateFrom.slice(0, 7)),
+      usedImportedPeriod: !cycleMonth,
     };
   }
   if (input.date) {
@@ -75,10 +76,10 @@ export function pickDashboardPeriod(input: {
     return { ...monthBounds(input.month), month: input.month, usedImportedPeriod: false };
   }
   if (input.latestPunchDate) {
-    const month = input.latestPunchDate.slice(0, 7);
+    const month = payrollMonthOf(input.latestPunchDate);
     return { ...monthBounds(month), month, usedImportedPeriod: true };
   }
-  const month = input.today.slice(0, 7);
+  const month = payrollMonthOf(input.today);
   return { ...monthBounds(month), month, usedImportedPeriod: false };
 }
 
@@ -418,13 +419,12 @@ export function enrichWatchlistEntries(
   });
 }
 
-/** Site name plus mall/region, matching Attendance by site. Never invents a venue. */
+/** Site code plus live name/region. Never invents a venue. */
 export function formatWatchlistLocation(
   entry: Pick<AttendanceWatchlistEntry, "locationName" | "locationRegion" | "locationCode">,
 ): string | null {
-  const name = entry.locationName?.trim() || null;
-  const region = entry.locationRegion?.trim() || null;
+  const name = formatLocationName(entry.locationName, entry.locationRegion);
   const code = entry.locationCode?.trim() || null;
-  if (name && region) return `${name} · ${region}`;
-  return name || code || null;
+  if (!name && !code) return null;
+  return formatLocationLabel(code, name);
 }

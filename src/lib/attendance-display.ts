@@ -1,3 +1,6 @@
+import { defaultPayrollPeriod } from "@/lib/attendance-hr/roster-period";
+import { formatLocationRecord } from "@/lib/locations/normalize";
+
 export type AttendanceSummaryRow = {
   id: string;
   location_id: string;
@@ -21,10 +24,10 @@ export type AttendanceStatusDisplay = {
   badgeClass: string;
 };
 
-export function formatLocationLabel(loc: { name: string; region: string | null } | null | undefined): string {
-  if (!loc) return "—";
-  if (loc.region) return `${loc.name} - ${loc.region}`;
-  return loc.name;
+export function formatLocationLabel(
+  loc: { code?: string | null; name: string; region: string | null } | null | undefined,
+): string {
+  return formatLocationRecord(loc);
 }
 
 /** DD-MM-YYYY from YYYY-MM-DD or ISO date string. */
@@ -144,15 +147,19 @@ export function getAttendanceStatusDisplay(
   return { label: "Complete", badgeClass: COMPLETE_BADGE };
 }
 
-export function attendanceDateRange(preset: "week" | "month"): { from: string; to: string } {
-  const to = new Date();
-  const from = new Date();
-  const days = preset === "week" ? 7 : 30;
-  from.setDate(from.getDate() - days);
-  return {
-    from: from.toISOString().slice(0, 10),
-    to: to.toISOString().slice(0, 10),
-  };
+export function attendanceDateRange(preset: "week" | "month", todayYmd?: string): { from: string; to: string } {
+  if (preset === "week") {
+    const to = new Date();
+    const from = new Date();
+    from.setDate(from.getDate() - 7);
+    return {
+      from: from.toISOString().slice(0, 10),
+      to: to.toISOString().slice(0, 10),
+    };
+  }
+  const today = todayYmd ?? new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" });
+  const bounds = defaultPayrollPeriod(today);
+  return { from: bounds.dateFrom, to: bounds.dateTo };
 }
 
 export function todayIsoDate(): string {

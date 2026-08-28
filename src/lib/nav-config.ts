@@ -27,16 +27,18 @@ import {
   LayoutDashboard,
   LineChart,
   ListChecks,
+  MapPinned,
   Medal,
   Package,
+  Palmtree,
   Radio,
   Settings,
+  Smartphone,
   ShieldCheck,
   ShoppingCart,
   Sparkles,
   TicketCheck,
   TrendingUp,
-  Upload,
   Users,
   Wallet,
   Wrench,
@@ -147,6 +149,35 @@ const EVENTS_NAV_GROUP: SidebarNavGroup = {
   ],
 };
 
+const HR_STAFF_NAV_GROUP: SidebarNavGroup = {
+  id: "hr-staff",
+  labelKey: "nav.hrStaff",
+  icon: Users,
+  pathPrefix: "/people",
+  viewCapability: "people.view_roster",
+  items: [
+    { href: "/people", labelKey: "nav.hrDirectory", capability: "people.view_roster" },
+    { href: "/people/import", labelKey: "nav.importRoster", capability: "people.import_roster" },
+    { href: "/people/training", labelKey: "nav.training", capability: "people.view_roster" },
+  ],
+};
+
+const HR_ATTENDANCE_NAV_GROUP: SidebarNavGroup = {
+  id: "hr-attendance",
+  labelKey: "nav.hrAttendance",
+  icon: Clock,
+  pathPrefix: "/people/attendance",
+  viewCapability: "attendance.view",
+  items: [
+    { href: "/people/attendance", labelKey: "nav.attendanceDashboard", capability: "attendance.view" },
+    { href: "/people/attendance/import", labelKey: "nav.attendanceImport", capability: "attendance.import" },
+    { href: "/people/attendance/reports", labelKey: "nav.attendanceListing", capability: "attendance.view" },
+    { href: "/people/attendance/mapping", labelKey: "nav.attendanceMapping", capability: "attendance.view" },
+    { href: "/people/attendance/corrections", labelKey: "nav.attendanceCorrections", capability: "attendance.view" },
+    { href: "/people/attendance/settings", labelKey: "nav.attendanceDevices", capability: "attendance.view" },
+  ],
+};
+
 const WEEKLY_REPORTS_NAV_GROUP: SidebarNavGroup = {
   id: "weekly-reports",
   labelKey: "nav.weeklyReports",
@@ -188,14 +219,17 @@ export const NAV_DEPARTMENTS: NavDepartment[] = [
     icon: Users,
     audience: ["executive", "supervisor", "all"],
     items: [
-      { href: "/people", labelKey: "nav.people", icon: Users, capability: "people.view_roster" },
-      { href: "/people/import", labelKey: "nav.importRoster", icon: Upload, capability: "people.import_roster" },
-      { href: "/people/attendance", labelKey: "nav.attendanceHr", icon: Clock, capability: "attendance.view" },
+      { href: "/people/payroll", labelKey: "nav.hrPayroll", icon: Wallet, capability: "payroll.view" },
+      { href: "/people/field", labelKey: "nav.hrField", icon: MapPinned, capability: "attendance.view" },
+      { href: "/people/leave", labelKey: "nav.hrLeave", icon: Palmtree, capability: "hr.leave.manage" },
+      { href: "/people/employee-app", labelKey: "nav.hrEmployeeApp", icon: Smartphone, capability: "attendance.view" },
+      { href: "/hr/me", labelKey: "nav.hrMyApp", icon: Smartphone, capability: "hr.employee_app" },
       { href: "/people/performance", labelKey: "nav.performance", icon: Gauge, capability: "performance.view" },
       { href: "/leaderboard", labelKey: "nav.leaderboard", icon: Medal, capability: "leaderboard.view" },
       { href: "/sop", labelKey: "nav.sop", icon: BookOpen, capability: "sop.view" },
       { href: "/people/extras", labelKey: "nav.peopleExtras", icon: Archive, capability: "people.view_roster" },
     ],
+    groups: [HR_STAFF_NAV_GROUP, HR_ATTENDANCE_NAV_GROUP],
   },
   {
     id: "maintenance",
@@ -298,6 +332,8 @@ export const SIDEBAR_NAV_GROUPS: SidebarNavGroup[] = [
   MAINTENANCE_NAV_GROUP,
   PROCUREMENT_NAV_GROUP,
   EVENTS_NAV_GROUP,
+  HR_STAFF_NAV_GROUP,
+  HR_ATTENDANCE_NAV_GROUP,
 ];
 
 const PRIMARY_RAIL_MAX = 8;
@@ -488,6 +524,12 @@ export function isSidebarNavGroupItemActive(href: string, pathname: string): boo
   if (href === "/procurement/requisitions") {
     return pathname === href || pathname.startsWith("/procurement/requisitions/");
   }
+  if (href === "/people") {
+    return pathname === href;
+  }
+  if (href === "/people/attendance") {
+    return pathname === href;
+  }
   if (href === "/events") {
     return pathname === href;
   }
@@ -505,6 +547,14 @@ export function isSidebarNavGroupActive(
   pathname: string,
   extraHrefs: string[] = [],
 ): boolean {
+  if (pathPrefix === "/people") {
+    if (pathname === "/people" || pathname.startsWith("/people/staff/") || pathname.startsWith("/people/import") || pathname.startsWith("/people/training")) {
+      return true;
+    }
+    return extraHrefs.some(
+      (href) => href !== pathPrefix && (pathname === href || pathname.startsWith(`${href}/`)),
+    );
+  }
   if (pathname === pathPrefix || pathname.startsWith(`${pathPrefix}/`)) return true;
   return extraHrefs.some(
     (href) => href !== pathPrefix && (pathname === href || pathname.startsWith(`${href}/`)),

@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useSites } from "@/hooks/queries/useSites";
 import { usePermission } from "@/hooks/use-permission";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { FaceCaptureDialog } from "@/components/attendance-hr/face-capture-dialog";
@@ -220,13 +221,15 @@ export default function StaffProfilePage() {
         </section>
         <section className="surface-card space-y-2 p-5">
           <h2 className="text-sm font-semibold">{t("people.profile.location")}</h2>
-          <Row label={t("people.staff.location")} value={`${s.locations?.code ?? ""} — ${s.locations?.name ?? ""}`} />
+          <Row label={t("people.staff.location")} value={formatLocationLabel(s.locations?.code, s.locations?.name)} />
           <Row label={t("people.staff.dept")} value={s.department} />
           {!canEdit && (s.work_locations?.length || s.is_roaming) ? (
             <div className="flex flex-wrap gap-1 pt-1">
               {s.is_roaming ? <Badge variant="outline">{t("people.staff.roaming")}</Badge> : null}
               {(s.work_locations ?? []).map((loc) => (
-                <Badge key={loc.id} variant="secondary">{loc.code}</Badge>
+                <Badge key={loc.id} variant="secondary" title={formatLocationLabel(loc.code, loc.name)}>
+                  {formatLocationLabel(loc.code, loc.name)}
+                </Badge>
               ))}
             </div>
           ) : null}
@@ -265,7 +268,7 @@ export default function StaffProfilePage() {
                           }}
                         />
                         <span>
-                          {site.code} — {site.name}
+                          {formatLocationLabel(site.code, site.name)}
                           {home ? ` (${t("people.staff.primaryLocation")})` : ""}
                         </span>
                       </label>
@@ -285,7 +288,7 @@ export default function StaffProfilePage() {
                 emptyOption={{ value: "", label: t("people.staff.selectBranch") }}
                 options={(sites ?? []).map((site) => ({
                   value: site.id,
-                  label: `${site.code} — ${site.name}`,
+                  label: formatLocationLabel(site.code, site.name),
                   keywords: `${site.code} ${site.name}`,
                 }))}
               />

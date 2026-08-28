@@ -15,11 +15,11 @@ import { usePermission } from "@/hooks/use-permission";
 import { queryKeys } from "@/lib/query-keys";
 import { archiveStaffMember, restoreStaffMember } from "@/lib/staff-roster.functions";
 import type { StaffRow } from "@/lib/queries/module-queries.core";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { isActiveStaffStatus } from "@/lib/staff-status";
 
 function formatLocation(s: StaffRow): string {
-  if (s.location_code && s.location_name) return `${s.location_code} — ${s.location_name}`;
-  return s.location_code || s.location_name || "—";
+  return formatLocationLabel(s.location_code, s.location_name);
 }
 
 function staffLocationCodes(s: StaffRow): string[] {
@@ -71,10 +71,16 @@ export function StaffDirectory({
     () => [...new Set(staff.map((s) => s.job_title).filter(Boolean))] as string[],
     [staff],
   );
-  const locations = useMemo(
-    () => [...new Set(staff.flatMap((s) => staffLocationCodes(s)))] as string[],
-    [staff],
-  );
+  const locations = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const s of staff) {
+      if (s.location_code) map.set(s.location_code, formatLocationLabel(s.location_code, s.location_name));
+      for (const loc of s.work_locations ?? []) {
+        if (loc.code && !map.has(loc.code)) map.set(loc.code, formatLocationLabel(loc.code, loc.name));
+      }
+    }
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [staff]);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -156,7 +162,7 @@ export function StaffDirectory({
           onValueChange={(next) => { setLoc(next); setPage(1); }}
           placeholder={t("people.staff.allLocations")}
           emptyOption={{ value: "", label: t("people.staff.allLocations") }}
-          options={locations.map((c) => ({ value: c, label: c }))}
+          options={locations.map(([code, label]) => ({ value: code, label, keywords: `${code} ${label}` }))}
           triggerClassName="h-10 min-h-10 w-auto min-w-[9.5rem] font-normal"
           className="w-auto"
         />
@@ -268,8 +274,8 @@ export function StaffDirectory({
                     {(s.work_locations ?? [])
                       .filter((loc) => loc.code && loc.code !== s.location_code)
                       .map((loc) => (
-                        <Badge key={loc.id} variant="secondary" className="text-[10px]">
-                          {loc.code}
+                        <Badge key={loc.id} variant="secondary" className="text-[10px]" title={formatLocationLabel(loc.code, loc.name)}>
+                          {formatLocationLabel(loc.code, loc.name)}
                         </Badge>
                       ))}
                   </div>

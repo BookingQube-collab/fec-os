@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 
 import { useCeoUrgentTickets } from "@/hooks/queries/useCeo";
 import { usePermission } from "@/hooks/use-permission";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -84,7 +85,7 @@ function Page() {
                     ) : null}
                   </td>
                   <td className="px-3 py-2 text-xs text-muted-foreground">
-                    {ticket.location_name} · {ticket.location_code}
+                    {formatLocationLabel(ticket.location_code, ticket.location_name)}
                   </td>
                   <td className="px-3 py-2">
                     <Badge variant={ticket.priority === "urgent" ? "destructive" : "outline"}>

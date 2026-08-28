@@ -17,11 +17,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { getAttendanceHrBootstrap, listAttendanceRosterUploads } from "@/lib/attendance-hr.functions";
 import {
   ATTENDANCE_ROSTER_ACCEPT,
   attendanceRosterPeriod,
   canUploadAttendanceRoster,
+  formatPayrollRange,
+  payrollMonthOf,
   qatarWeekBounds,
   type AttendanceRosterPeriodMode,
 } from "@/lib/attendance-hr/roster-period";
@@ -68,7 +71,7 @@ function todayYmd() {
 }
 
 export default function AttendanceHrRosterPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const storeLocationId = useAppStore((s) => s.currentLocationId);
@@ -87,7 +90,7 @@ export default function AttendanceHrRosterPage() {
 
   const [periodMode, setPeriodMode] = useState<AttendanceRosterPeriodMode>("week");
   const [weekStart, setWeekStart] = useState(() => qatarWeekBounds(todayYmd()).dateFrom);
-  const [month, setMonth] = useState(() => todayYmd().slice(0, 7));
+  const [month, setMonth] = useState(() => payrollMonthOf(todayYmd()));
   const [locationId, setLocationId] = useState(storeLocationId ?? "");
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
@@ -248,7 +251,7 @@ export default function AttendanceHrRosterPage() {
                 }}
               />
               <p className="text-xs text-muted-foreground">
-                {period.dateFrom} – {period.dateTo}
+                {formatPayrollRange(period.dateFrom, period.dateTo, i18n.language)}
               </p>
             </div>
           ) : (
@@ -264,7 +267,7 @@ export default function AttendanceHrRosterPage() {
                 }}
               />
               <p className="text-xs text-muted-foreground">
-                {period.dateFrom} – {period.dateTo}
+                {formatPayrollRange(period.dateFrom, period.dateTo, i18n.language)}
               </p>
             </div>
           )}
@@ -284,7 +287,7 @@ export default function AttendanceHrRosterPage() {
               }}
               options={sites.map((s) => {
                 const loc = s.location as { name?: string; code?: string } | null;
-                const label = loc?.code ? `${loc.code} — ${loc.name}` : loc?.name ?? s.location_id;
+                const label = loc ? formatLocationLabel(loc.code, loc.name) : s.location_id;
                 return { value: s.location_id, label, keywords: `${loc?.code ?? ""} ${loc?.name ?? ""}` };
               })}
             />

@@ -11,6 +11,7 @@ import { useAppStore } from "@/stores/app-store";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { fmtQar } from "@/lib/currency";
 
 function UtilitiesPage() {
@@ -92,7 +93,7 @@ function UtilitiesPage() {
             ) : (
               rows.map((r) => (
                 <TableRow key={r.id}>
-                  <TableCell className="font-mono text-xs">{r.location_code}</TableCell>
+                  <TableCell className="text-xs">{formatLocationLabel(r.location_code, r.location_name)}</TableCell>
                   <TableCell><Badge variant="outline">{r.utility_type}</Badge></TableCell>
                   <TableCell>{r.period_month}</TableCell>
                   <TableCell>{r.consumption ?? "—"}</TableCell>

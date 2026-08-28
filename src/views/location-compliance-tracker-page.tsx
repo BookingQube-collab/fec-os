@@ -23,6 +23,7 @@ import { useSites } from "@/hooks/queries/useSites";
 import { usePermission } from "@/hooks/use-permission";
 import { useFloorSupervisorView } from "@/hooks/use-floor-supervisor-view";
 import { formatDisplayDate } from "@/lib/compliance/compliance-derive";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { fmtQar } from "@/lib/currency";
 import {
   attachmentSummary,
@@ -173,7 +174,9 @@ function LocationComplianceTrackerPage() {
   const { exportPdf, exportExcel } = useReportExport({
     pageKey: "LocationComplianceTracker",
     title: t("complianceHub.tracker.title"),
-    venueLabel: locationFilter !== "all" ? sites?.find((s) => s.id === locationFilter)?.code ?? "Site" : "All",
+    venueLabel: locationFilter !== "all"
+      ? formatLocationLabel(sites?.find((s) => s.id === locationFilter)?.code, sites?.find((s) => s.id === locationFilter)?.name)
+      : "All",
     filters: { location: locationFilter, category, status } as Record<string, string | null | undefined>,
     kpis: kpis
       ? [

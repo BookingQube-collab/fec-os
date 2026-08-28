@@ -16,7 +16,7 @@ import { enumerateYmd } from "./dashboard";
 import { expectedRowsForDay, isWorkDateCovered } from "./roster-expected";
 import { ATTENDANCE_TALLY_UPLOAD_NOTE } from "./roster-upload";
 import { encryptFileBuffer, hasAttendanceFileKey } from "./file-crypto";
-import { subjectKey } from "./hash";
+import { subjectKey } from "./keys";
 import {
   BIOMETRIC_USER_CONFLICT,
   type MergedBiometricUser,

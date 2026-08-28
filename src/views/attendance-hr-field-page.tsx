@@ -6,8 +6,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
-import { AttendanceHrNav } from "@/components/attendance-hr/attendance-hr-nav";
 import { FaceCaptureDialog } from "@/components/attendance-hr/face-capture-dialog";
+import { AttendanceHrFieldSettings } from "@/components/attendance-hr/attendance-hr-field-settings";
 import { queueOrSubmitFieldCheckIn } from "@/components/attendance-hr/hr-field-sync";
 import { CapabilityGate } from "@/components/auth/capability-gate";
 import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
@@ -16,7 +16,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   getFieldCheckInContext,
-  getPayrollAttendanceSummary,
   listStaffLastKnownLocations,
   listStaffLocationEvents,
   notifyAttendanceDeviations,
@@ -84,11 +83,6 @@ export default function AttendanceHrFieldPage() {
 
   const from = useMemo(() => new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10), []);
   const to = useMemo(() => new Date().toISOString().slice(0, 10), []);
-  const payroll = useQuery({
-    queryKey: queryKeys.people.attendanceHr({ view: "payroll", locationId, from, to }),
-    queryFn: () => getPayrollAttendanceSummary({ locationId: locationId || null, dateFrom: from, dateTo: to }),
-    staleTime: STALE.people,
-  });
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
@@ -154,11 +148,10 @@ export default function AttendanceHrFieldPage() {
     <div className="space-y-6">
       <PageHeader
         icon={MapPinned}
-        kicker={t("attendanceHr.field.kicker")}
-        title={t("attendanceHr.field.title")}
-        subtitle={t("attendanceHr.field.subtitle")}
+        kicker={t("hr.field.kicker")}
+        title={t("hr.field.title")}
+        subtitle={t("hr.field.subtitle")}
       />
-      <AttendanceHrNav />
 
       {!online ? (
         <p className="flex items-center gap-2 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
@@ -283,7 +276,14 @@ export default function AttendanceHrFieldPage() {
       </NeumorphicCard>
 
       <NeumorphicCard className="space-y-3 p-5">
-        <h2 className="text-sm font-semibold">{t("attendanceHr.field.visitLog")}</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold">{t("attendanceHr.field.visitLog")}</h2>
+          <CapabilityGate capability="attendance.approve">
+            <Button variant="secondary" disabled={notify.isPending} onClick={() => notify.mutate()}>
+              {t("attendanceHr.field.notifyDeviations")}
+            </Button>
+          </CapabilityGate>
+        </div>
         {(events.data ?? []).length === 0 ? (
           <p className="text-sm text-muted-foreground">{t("attendanceHr.field.noEvents")}</p>
         ) : (
@@ -309,28 +309,7 @@ export default function AttendanceHrFieldPage() {
         )}
       </NeumorphicCard>
 
-      <NeumorphicCard className="space-y-3 p-5">
-        <h2 className="text-sm font-semibold">{t("attendanceHr.field.payrollTitle")}</h2>
-        <p className="text-xs text-muted-foreground">{t("attendanceHr.field.payrollHint")}</p>
-        <p className="text-sm">
-          {t("attendanceHr.field.payrollReady", {
-            ready: payroll.data?.readyCount ?? 0,
-            blocked: payroll.data?.blockedCount ?? 0,
-          })}
-        </p>
-        <div className="flex flex-wrap gap-2">
-          <Button asChild variant="secondary">
-            <a href={`/api/people/attendance-hr/export?format=payroll&from=${from}&to=${to}${locationId ? `&locationId=${locationId}` : ""}`}>
-              {t("attendanceHr.reports.exportPayroll")}
-            </a>
-          </Button>
-          <CapabilityGate capability="attendance.approve">
-            <Button variant="secondary" disabled={notify.isPending} onClick={() => notify.mutate()}>
-              {t("attendanceHr.field.notifyDeviations")}
-            </Button>
-          </CapabilityGate>
-        </div>
-      </NeumorphicCard>
+      <AttendanceHrFieldSettings />
 
       <FaceCaptureDialog
         open={selfieOpen}

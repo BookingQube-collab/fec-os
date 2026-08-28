@@ -33,7 +33,7 @@ export const HR_EXTRA_PAGES: HrExtraPage[] = [
     titleKey: "people.extras.items.peopleAttendance.title",
     reasonKey: "people.extras.items.peopleAttendance.reason",
     path: "/people?tab=attendance",
-    canonicalPath: "/people/attendance",
+    canonicalPath: "/people/attendance/reports",
     canonicalKey: "nav.attendanceHr",
     visibility: "hidden",
     capability: "people.view_roster",

@@ -573,6 +573,10 @@ export function AppSidebar() {
   useEffect(() => {
     if (primary.length === 0) return;
     const prefetchAll = () => {
+      const connection = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } })
+        .connection;
+      if (connection?.saveData) return;
+      if (connection?.effectiveType === "slow-2g" || connection?.effectiveType === "2g") return;
       for (const item of primary) router.prefetch(item.href);
     };
     if (typeof requestIdleCallback !== "undefined") {

@@ -14,6 +14,7 @@ import { useSites } from "@/hooks/queries/useSites";
 import { usePmSchedules } from "@/hooks/queries/usePmSchedules";
 import { useDowntimeEvents } from "@/hooks/queries/useDowntimeEvents";
 import { usePermission } from "@/hooks/use-permission";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { queryKeys } from "@/lib/query-keys";
 import {
   aiDraftWorkOrder,
@@ -974,7 +975,7 @@ function DowntimePanel({ canExecute }: { canExecute: boolean }) {
             <Select value={form.location_id} onValueChange={(v) => setForm((f) => ({ ...f, location_id: v }))}>
               <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
               <SelectContent>
-                {(locsQ.data ?? []).map((l) => <SelectItem key={l.id} value={l.id}>{l.code}</SelectItem>)}
+                {(locsQ.data ?? []).map((l) => <SelectItem key={l.id} value={l.id}>{formatLocationLabel(l.code, l.name)}</SelectItem>)}
               </SelectContent>
             </Select>
           </FormField>

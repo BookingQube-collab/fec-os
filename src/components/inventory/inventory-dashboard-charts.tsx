@@ -25,7 +25,9 @@ import {
   chartTick,
   chartTooltipLabelStyle,
   chartTooltipStyle,
+  truncateAxisLabel,
 } from "@/lib/chart-theme";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 
 const STATUS_COLORS: Record<string, string> = {
   ok: CHART.teal,
@@ -34,7 +36,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 interface InventoryDashboardChartsProps {
-  stockByLocation: Array<{ code: string; units: number }>;
+  stockByLocation: Array<{ code: string; name?: string; units: number }>;
   stockBySize: Array<{ size: string; units: number }>;
   stockByStatus: Array<{ status: string; count: number }>;
 }
@@ -50,9 +52,18 @@ export function InventoryDashboardCharts({
       <ChartWidget title={t("inventory.charts.byBranch")}>
         <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={stockByLocation} margin={CHART_MARGIN}>
+            <BarChart
+              data={stockByLocation.map((row) => ({ ...row, label: formatLocationLabel(row.code, row.name) }))}
+              margin={CHART_MARGIN}
+            >
               <CartesianGrid {...chartGridProps} />
-              <XAxis dataKey="code" tick={chartTick} stroke={CHART.grid} />
+              <XAxis
+                dataKey="label"
+                tick={chartTick}
+                stroke={CHART.grid}
+                interval={0}
+                tickFormatter={(value) => truncateAxisLabel(String(value), 18)}
+              />
               <YAxis tick={chartTick} stroke={CHART.grid} />
               <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} />
               <Bar dataKey="units" fill={CHART.ink} name={t("inventory.charts.units")} radius={[4, 4, 0, 0]} />

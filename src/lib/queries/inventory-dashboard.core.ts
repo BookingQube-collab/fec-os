@@ -23,6 +23,7 @@ export interface InventoryDashboardPayload {
     item_name: string;
     size: string | null;
     location_code: string;
+    location_name?: string;
     quantity_on_hand: number;
     reorder_level: number;
   }>;
@@ -32,6 +33,7 @@ export interface InventoryDashboardPayload {
     item_name: string;
     size: string | null;
     location_code: string;
+    location_name?: string;
     movement_type: string;
     quantity: number;
     quantity_after: number;
@@ -146,6 +148,7 @@ export async function fetchInventoryDashboard(
         item_name: item.name,
         size: item.size,
         location_code: loc?.code ?? "—",
+        location_name: loc?.name ?? "—",
         quantity_on_hand: onHand,
         reorder_level: reorder,
       };
@@ -183,6 +186,7 @@ export async function fetchInventoryDashboard(
       item_name: item?.name ?? "—",
       size: item?.size ?? null,
       location_code: loc?.code ?? "—",
+      location_name: loc?.name ?? "—",
       movement_type: m.movement_type,
       quantity: Number(m.quantity),
       quantity_after: Number(m.quantity_after),

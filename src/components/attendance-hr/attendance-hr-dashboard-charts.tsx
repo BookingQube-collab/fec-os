@@ -14,15 +14,17 @@ import {
   chartTick,
   chartTooltipLabelStyle,
   chartTooltipStyle,
+  truncateAxisLabel,
 } from "@/lib/chart-theme";
 
 export function AttendanceHrDashboardChart({
   sites,
 }: {
-  sites: Array<{ code: string; in: number; out: number; late: number }>;
+  sites: Array<{ code: string; label?: string; in: number; out: number; late: number }>;
 }) {
   const { t } = useTranslation();
   const hasData = sites.some((site) => site.in + site.out + site.late > 0);
+  const chartSites = sites.map((site) => ({ ...site, label: site.label || site.code }));
 
   return (
     <ChartCard
@@ -34,9 +36,15 @@ export function AttendanceHrDashboardChart({
       ) : (
         <div className={CHART_PLOT}>
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={sites} margin={CHART_MARGIN}>
+            <BarChart data={chartSites} margin={CHART_MARGIN}>
               <CartesianGrid {...chartGridProps} />
-              <XAxis dataKey="code" tick={chartTick} stroke={CHART.grid} />
+              <XAxis
+                dataKey="label"
+                tick={chartTick}
+                stroke={CHART.grid}
+                interval={0}
+                tickFormatter={(value) => truncateAxisLabel(String(value), 18)}
+              />
               <YAxis tick={chartTick} stroke={CHART.grid} allowDecimals={false} />
               <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} />
               <Legend wrapperStyle={chartLegendStyle} />

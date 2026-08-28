@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  attendanceDateRange,
   attendanceListingCells,
   formatPunchTime12h,
   formatWorkDateDdMmYyyy,
@@ -9,6 +10,10 @@ import {
 import { attendanceHrToListingSource, type AttendanceHrReportRow } from "./attendance-hr/report";
 
 describe("attendance listing display", () => {
+  it("defaults the month preset to the FEC 28–27 cycle", () => {
+    expect(attendanceDateRange("month", "2026-08-15")).toEqual({ from: "2026-07-28", to: "2026-08-27" });
+    expect(attendanceDateRange("month", "2026-08-28")).toEqual({ from: "2026-08-28", to: "2026-09-27" });
+  });
   it("formats work date as DD-MM-YYYY", () => {
     expect(formatWorkDateDdMmYyyy("2026-08-25")).toBe("25-08-2026");
   });
@@ -69,7 +74,7 @@ describe("attendance listing display", () => {
       location_region: "City Center Doha",
     };
     const listing = attendanceHrToListingSource(row);
-    expect(listing.locationLabel).toBe("Inflatapark - City Center Doha");
+    expect(listing.locationLabel).toBe("INF-CC — Inflatapark - City Center Doha");
     expect(listing.userName).toBe("Ahmed Ali");
     const cells = attendanceListingCells(listing);
     expect(cells.date).toBe("25-08-2026");

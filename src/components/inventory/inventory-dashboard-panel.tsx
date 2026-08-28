@@ -7,6 +7,7 @@ import { KpiSkeletonStrip } from "@/components/loading/page-skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useInventoryDashboard } from "@/hooks/queries/useInventoryDashboard";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { useAppStore } from "@/stores/app-store";
 
 const InventoryDashboardCharts = dynamic(
@@ -111,7 +112,7 @@ export function InventoryDashboardPanel() {
                           </Badge>
                         ) : null}
                       </td>
-                      <td className="px-3 py-2">{a.location_code}</td>
+                      <td className="px-3 py-2">{formatLocationLabel(a.location_code, a.location_name)}</td>
                       <td className="px-3 py-2 text-right text-amber-600">
                         {a.quantity_on_hand} / {a.reorder_level}
                       </td>
@@ -148,7 +149,7 @@ export function InventoryDashboardPanel() {
                       </td>
                       <td className="px-3 py-2">
                         <span className="font-mono text-xs">{m.sku}</span>
-                        <span className="ml-1 text-muted-foreground">@ {m.location_code}</span>
+                        <span className="ml-1 text-muted-foreground">@ {formatLocationLabel(m.location_code, m.location_name)}</span>
                       </td>
                       <td className="px-3 py-2 capitalize">{m.movement_type.replace(/_/g, " ")}</td>
                       <td className="px-3 py-2 text-right">{m.quantity_after}</td>

@@ -40,6 +40,32 @@ describe("admin sidebar visibility", () => {
     expect(getVisibleDepartments(["technician"]).some((dept) => dept.id === "admin")).toBe(false);
   });
 
+  it("lists HR payroll and field for executives", () => {
+    const people = getVisibleDepartments(["ceo"]).find((dept) => dept.id === "people");
+    expect(people).toBeDefined();
+    const hrefs = new Set([
+      ...(people?.items.map((item) => item.href) ?? []),
+      ...(people?.groups.flatMap((group) => group.items.map((item) => item.href)) ?? []),
+    ]);
+    expect(hrefs.has("/people")).toBe(true);
+    expect(hrefs.has("/people/attendance")).toBe(true);
+    expect(hrefs.has("/people/attendance/reports")).toBe(true);
+    expect(hrefs.has("/people/payroll")).toBe(true);
+    expect(hrefs.has("/people/field")).toBe(true);
+    expect(hrefs.has("/people/employee-app")).toBe(true);
+    expect(hrefs.has("/people/leave")).toBe(true);
+    expect([...hrefs].some((href) => href === "/people/attendance/field")).toBe(false);
+  });
+
+  it("hides payroll from technicians", () => {
+    const people = getVisibleDepartments(["technician"]).find((dept) => dept.id === "people");
+    const hrefs = new Set([
+      ...(people?.items.map((item) => item.href) ?? []),
+      ...(people?.groups.flatMap((group) => group.items.map((item) => item.href)) ?? []),
+    ]);
+    expect(hrefs.has("/people/payroll")).toBe(false);
+  });
+
   it("keeps a group visible when some children fail capability checks", () => {
     const maintenance = getVisibleDepartments(["technician"]).find((dept) => dept.id === "maintenance");
     const group = maintenance?.groups.find((g) => g.id === "maintenance");

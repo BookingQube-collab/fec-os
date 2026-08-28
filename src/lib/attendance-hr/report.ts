@@ -1,5 +1,4 @@
-import { rosterSheetLabel } from "@/lib/locations/normalize";
-import { formatLocationLabel } from "@/lib/attendance-display";
+import { formatLocationLabel, formatLocationName, rosterSheetLabel } from "@/lib/locations/normalize";
 
 export type AttendanceHrReportRow = {
   id: string;
@@ -49,25 +48,24 @@ export function attendanceHrStaffMatches(
 }
 
 export function formatAttendanceHrLocation(code?: string | null, name?: string | null): string {
-  if (!code && !name) return "";
-  if (!code) return name ?? "";
-  const label = rosterSheetLabel(code, name);
-  return label && label !== code ? `${code} · ${label}` : code;
+  const c = code?.trim() ?? "";
+  const n = name?.trim() ?? "";
+  if (!c && !n) return "";
+  const resolved = c ? rosterSheetLabel(c, n || null) : n;
+  return formatLocationLabel(c, resolved);
 }
 
 export function attendanceHrExportStaffName(row: Pick<AttendanceHrReportRow, "staff_name">, unmapped = "Unmapped"): string {
   return row.staff_name?.trim() || unmapped;
 }
 
-/** Site name for the people-style attendance listing (no venue code prefix). */
+/** Site label for the people-style attendance listing: code plus live name. */
 export function attendanceHrListingLocation(
   row: Pick<AttendanceHrReportRow, "location_code" | "location_name" | "location_region">,
 ): string {
-  if (row.location_name && row.location_region) {
-    return formatLocationLabel({ name: row.location_name, region: row.location_region });
-  }
-  const label = rosterSheetLabel(row.location_code ?? "", row.location_name);
-  return label || row.location_name || row.location_code || "—";
+  const liveName = formatLocationName(row.location_name, row.location_region);
+  const name = liveName || rosterSheetLabel(row.location_code ?? "", row.location_name);
+  return formatLocationLabel(row.location_code, name);
 }
 
 export function attendanceHrToListingSource(

@@ -3,12 +3,11 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useMemo, useState, Suspense, type ReactNode } from "react";
+import { useState, Suspense, type ReactNode } from "react";
+import dynamic from "next/dynamic";
 import { AlertTriangle, Building2, ClipboardCheck, Clock, MapPin, Upload, UserX, Users, CalendarRange, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { AttendanceHrDashboardChart } from "@/components/attendance-hr/attendance-hr-dashboard-charts";
-import { AttendanceHrTrendsChart } from "@/components/attendance-hr/attendance-hr-trends-chart";
 import { AttendanceHrNav, AttendanceHrSitesHint } from "@/components/attendance-hr/attendance-hr-nav";
 import { TintedKpiCard } from "@/components/dashboard/tinted-kpi-card";
 import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
@@ -19,13 +18,41 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getAttendanceHrDashboard } from "@/lib/attendance-hr.functions";
-import { monthBounds } from "@/lib/attendance-hr/roster-period";
+import {
+  defaultPayrollPeriod,
+  formatPayrollDate,
+  monthBounds,
+  payrollMonthMatchingBounds,
+  payrollMonthOf,
+} from "@/lib/attendance-hr/roster-period";
+import { formatLocationLabel, formatLocationName, formatLocationRecord } from "@/lib/locations/normalize";
+import { retryImport } from "@/lib/retry-import";
 import { STALE } from "@/lib/query-client";
 import { queryKeys } from "@/lib/query-keys";
 import { useAppStore } from "@/stores/app-store";
 
+const AttendanceHrTrendsChart = dynamic(
+  () =>
+    retryImport(() =>
+      import("@/components/attendance-hr/attendance-hr-trends-chart").then((m) => m.AttendanceHrTrendsChart),
+    ),
+  { ssr: false, loading: () => <Skeleton className="h-64 rounded-2xl" /> },
+);
+
+const AttendanceHrDashboardChart = dynamic(
+  () =>
+    retryImport(() =>
+      import("@/components/attendance-hr/attendance-hr-dashboard-charts").then((m) => m.AttendanceHrDashboardChart),
+    ),
+  { ssr: false, loading: () => <Skeleton className="h-64 rounded-2xl" /> },
+);
+
 function ymd(value: string | null | undefined) {
   return value ? String(value).slice(0, 10) : "";
+}
+
+function todayYmd() {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" });
 }
 
 type WatchlistEntry = {
@@ -38,11 +65,10 @@ type WatchlistEntry = {
 };
 
 function watchlistLocationLabel(entry: WatchlistEntry): string | null {
-  const name = entry.locationName?.trim() || null;
-  const region = entry.locationRegion?.trim() || null;
+  const name = formatLocationName(entry.locationName, entry.locationRegion);
   const code = entry.locationCode?.trim() || null;
-  if (name && region) return `${name} · ${region}`;
-  return name || code || null;
+  if (!name && !code) return null;
+  return formatLocationLabel(code, name);
 }
 
 function WatchlistGroup({
@@ -115,44 +141,51 @@ export default function AttendanceHrDashboardPage() {
 }
 
 function AttendanceHrDashboardBody() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const locationId = useAppStore((s) => s.currentLocationId);
   const search = useSearchParams();
   const urlFrom = ymd(search.get("from"));
   const urlTo = ymd(search.get("to"));
-  const [monthOverride, setMonthOverride] = useState<string | null>(null);
 
-  const period = useMemo(() => {
-    if (monthOverride) return { ...monthBounds(monthOverride), month: monthOverride };
-    if (urlFrom && urlTo) return { dateFrom: urlFrom, dateTo: urlTo, month: urlFrom.slice(0, 7) };
-    return { dateFrom: undefined as string | undefined, dateTo: undefined as string | undefined, month: undefined as string | undefined };
-  }, [monthOverride, urlFrom, urlTo]);
+  const [{ month, dateFrom, dateTo }, setPeriod] = useState(() => {
+    if (urlFrom && urlTo) {
+      return {
+        month: payrollMonthMatchingBounds(urlFrom, urlTo) ?? payrollMonthOf(urlTo),
+        dateFrom: urlFrom,
+        dateTo: urlTo,
+      };
+    }
+    return defaultPayrollPeriod(todayYmd());
+  });
+
+  const applyMonth = (ym: string) => {
+    if (!/^\d{4}-\d{2}$/.test(ym)) return;
+    setPeriod({ month: ym, ...monthBounds(ym) });
+  };
 
   const dash = useQuery({
     queryKey: queryKeys.people.attendanceHr({
       view: "dashboard",
       locationId,
-      dateFrom: period.dateFrom,
-      dateTo: period.dateTo,
-      month: period.month,
+      dateFrom,
+      dateTo,
+      month,
     }),
     queryFn: () =>
       getAttendanceHrDashboard({
         locationId: locationId || null,
-        dateFrom: period.dateFrom,
-        dateTo: period.dateTo,
-        month: period.dateFrom ? undefined : period.month,
+        dateFrom,
+        dateTo,
+        month,
       }),
     staleTime: STALE.people,
   });
 
   const kpis = dash.data?.kpis;
   const sites = dash.data?.sites ?? [];
-  const dateFrom = period.dateFrom ?? dash.data?.dateFrom ?? "";
-  const dateTo = period.dateTo ?? dash.data?.dateTo ?? "";
-  const monthValue = monthOverride ?? dash.data?.month ?? dateFrom.slice(0, 7);
-  const periodHint = dateFrom && dateTo ? `${dateFrom} → ${dateTo}` : "";
-  const usedImported = Boolean(dash.data?.usedImportedPeriod) && !monthOverride;
+  const fromLabel = dateFrom ? formatPayrollDate(dateFrom, i18n.language) : "";
+  const toLabel = dateTo ? formatPayrollDate(dateTo, i18n.language) : "";
+  const usedImported = Boolean(dash.data?.usedImportedPeriod) && !payrollMonthMatchingBounds(dateFrom, dateTo);
 
   return (
     <div className="space-y-6">
@@ -166,12 +199,42 @@ function AttendanceHrDashboardBody() {
         actions={
           <div className="flex flex-wrap items-end gap-3">
             <div className="space-y-1.5">
-              <Label htmlFor="attendance-hr-dashboard-month">{t("attendanceHr.dashboard.month", { defaultValue: "Month" })}</Label>
+              <Label htmlFor="attendance-hr-dashboard-month">{t("attendanceHr.dashboard.month")}</Label>
               <Input
                 id="attendance-hr-dashboard-month"
                 type="month"
-                value={monthValue}
-                onChange={(e) => setMonthOverride(e.target.value || null)}
+                value={month}
+                onChange={(e) => applyMonth(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="attendance-hr-dashboard-from">{t("attendanceHr.dashboard.from")}</Label>
+              <Input
+                id="attendance-hr-dashboard-from"
+                type="date"
+                value={dateFrom}
+                onChange={(e) =>
+                  setPeriod((p) => ({
+                    dateFrom: e.target.value,
+                    dateTo: p.dateTo,
+                    month: payrollMonthMatchingBounds(e.target.value, p.dateTo) ?? p.month,
+                  }))
+                }
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="attendance-hr-dashboard-to">{t("attendanceHr.dashboard.to")}</Label>
+              <Input
+                id="attendance-hr-dashboard-to"
+                type="date"
+                value={dateTo}
+                onChange={(e) =>
+                  setPeriod((p) => ({
+                    dateFrom: p.dateFrom,
+                    dateTo: e.target.value,
+                    month: payrollMonthMatchingBounds(p.dateFrom, e.target.value) ?? p.month,
+                  }))
+                }
               />
             </div>
             <Button asChild>
@@ -185,19 +248,11 @@ function AttendanceHrDashboardBody() {
       />
       <AttendanceHrNav />
       <AttendanceHrSitesHint />
-      {periodHint ? (
+      {fromLabel && toLabel ? (
         <p className="text-xs text-muted-foreground">
           {usedImported
-            ? t("attendanceHr.dashboard.importedPeriodHint", {
-              from: dateFrom,
-              to: dateTo,
-              defaultValue: "Showing imported period {{from}} – {{to}}.",
-            })
-            : t("attendanceHr.dashboard.periodHint", {
-              from: dateFrom,
-              to: dateTo,
-              defaultValue: "Tiles are person-days for {{from}} – {{to}}. Unmapped punches stay in Unmatched until Mapping.",
-            })}
+            ? t("attendanceHr.dashboard.importedPeriodHint", { from: fromLabel, to: toLabel })
+            : t("attendanceHr.dashboard.periodHint", { from: fromLabel, to: toLabel })}
         </p>
       ) : null}
 
@@ -292,6 +347,7 @@ function AttendanceHrDashboardBody() {
       <AttendanceHrDashboardChart
         sites={sites.map((site) => ({
           code: site.code,
+          label: formatLocationRecord(site),
           in: site.in,
           out: site.out,
           late: site.late,
@@ -318,8 +374,9 @@ function AttendanceHrDashboardBody() {
                   <div className="flex items-center gap-2">
                     <Building2 className="h-4 w-4 text-muted-foreground" />
                     <div>
-                      <p className="text-sm font-medium">{site.name ?? site.locationId}</p>
-                      <p className="text-xs text-muted-foreground">{site.region ?? site.code}</p>
+                      <p className="text-sm font-medium" title={formatLocationRecord(site)}>
+                        {formatLocationRecord(site)}
+                      </p>
                     </div>
                   </div>
                   <div className="flex gap-2 text-xs">

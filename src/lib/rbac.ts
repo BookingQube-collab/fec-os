@@ -103,6 +103,12 @@ export const CAPABILITIES = {
   "people.import_roster": ["ceo", "coo", "regional_ops", "hr", "branch_gm", "duty_manager"],
   "people.view_salary": ["ceo", "coo", "cfo", "hr"],
   "people.edit_salary": ["ceo", "coo", "cfo", "hr"],
+  "payroll.view": ["ceo", "coo", "cfo", "hr"],
+  "hr.employee_app": [
+    "ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager",
+    "tech_supervisor", "technician", "cashier_host", "auditor", "hr", "customer_service",
+  ],
+  "hr.leave.manage": ["ceo", "coo", "regional_ops", "branch_gm", "hr"],
 
   // Compliance
   "compliance.view": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "auditor"],

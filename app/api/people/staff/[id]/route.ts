@@ -1,3 +1,4 @@
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { withAuthRouteRequest } from "@/lib/server/api-route";
 import { canUserDo } from "@/lib/rbac";
 import { ForbiddenError } from "@/lib/server/authorize";
@@ -69,7 +70,7 @@ export async function GET(
           .select("id, code, name")
           .in("id", locationIds);
         for (const loc of locs ?? []) {
-          locationLabels.set(loc.id, `${loc.code} — ${loc.name}`);
+          locationLabels.set(loc.id, formatLocationLabel(loc.code, loc.name));
         }
       }
       const transfers = (transferRows ?? []).map((row) => ({
@@ -88,7 +89,7 @@ export async function GET(
       const workLocations = (await fetchWorkLocationsByStaffId(context.supabase, [id])).get(id) ?? [];
       const attendanceLocationIds = [...new Set((attendance ?? []).map((row) => row.location_id).filter(Boolean))];
       for (const loc of workLocations) {
-        locationLabels.set(loc.id, loc.code ? `${loc.code} — ${loc.name}` : loc.name);
+        locationLabels.set(loc.id, formatLocationLabel(loc.code, loc.name));
       }
       const missingAttendanceLocs = attendanceLocationIds.filter((locId) => !locationLabels.has(locId));
       if (missingAttendanceLocs.length) {
@@ -97,7 +98,7 @@ export async function GET(
           .select("id, code, name")
           .in("id", missingAttendanceLocs);
         for (const loc of attLocs ?? []) {
-          locationLabels.set(loc.id, `${loc.code} — ${loc.name}`);
+          locationLabels.set(loc.id, formatLocationLabel(loc.code, loc.name));
         }
       }
 

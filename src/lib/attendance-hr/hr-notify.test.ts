@@ -27,7 +27,7 @@ describe("mapHrNotifyEvent", () => {
       distanceMeters: 840,
     });
     expect(payload.severity).toBe("critical");
-    expect(payload.actionUrl).toBe("/people/attendance/field");
+    expect(payload.actionUrl).toBe("/people/field");
     expect(payload.body).toContain("840 m");
   });
 

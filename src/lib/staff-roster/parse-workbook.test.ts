@@ -103,6 +103,15 @@ describe("parseCsvRoster", () => {
     expect(parsed.rows[0]?.locationCode).toBe("INF-CC");
     expect(parsed.rows[0]?.locationLabel).toBe("INF-CC");
   });
+
+  it("resolves combined location labels from a sample export", () => {
+    const csv = [
+      "employee_code,full_name,qid,location,location_name,position,type,e3,contact,joining date,status",
+      "INF-CC-BM,Amna Al-Naimi,2891,INF-CC — Inflatapark - City Center,Inflatapark - City Center,Branch Manager,permanent,Yes,555,2020-01-01,active",
+    ].join("\n");
+    const parsed = parseCsvRoster(csv);
+    expect(parsed.rows[0]?.locationCode).toBe("INF-CC");
+  });
 });
 
 describe("parseRosterWorkbook", () => {

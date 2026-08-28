@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 
 export type SampleSiteOption = {
@@ -91,11 +92,14 @@ export function StaffSampleDownloadDialog({
                 onValueChange={setLocationId}
                 placeholder={t("people.roster.sampleSelectLocation")}
                 emptyOption={{ value: "", label: t("people.roster.sampleSelectLocation") }}
-                options={locations.map((site) => ({
-                  value: site.id,
-                  label: site.code ? `${site.code} — ${site.name ?? ""}`.trim() : site.name ?? site.id,
-                  keywords: `${site.code ?? ""} ${site.name ?? ""}`,
-                }))}
+                options={locations.map((site) => {
+                  const label = formatLocationLabel(site.code, site.name);
+                  return {
+                    value: site.id,
+                    label: label === "—" ? site.id : label,
+                    keywords: `${site.code ?? ""} ${site.name ?? ""}`,
+                  };
+                })}
               />
             </div>
           ) : null}

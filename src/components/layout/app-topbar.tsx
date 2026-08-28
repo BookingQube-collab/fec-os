@@ -34,6 +34,7 @@ import { useActionInbox, useEscalations } from "@/hooks/queries/useNotifications
 import { useComplianceExpiryNotifications } from "@/hooks/queries/useComplianceExpiryNotifications";
 import { canViewComplianceExpiryAlerts } from "@/lib/compliance/compliance-expiry-access";
 import type { InboxItemKind } from "@/lib/notifications/inbox";
+import { formatLocationRecord } from "@/lib/locations/normalize";
 import { queryKeys } from "@/lib/query-keys";
 import { ackEscalation, markAllNotificationsRead, markNotificationRead } from "@/lib/notifications.functions";
 import type { AppRole } from "@/lib/rbac";
@@ -387,8 +388,8 @@ export function AppTopbar() {
                 .filter((l) => l.status === "active")
                 .map((l) => ({
                   value: l.id,
-                  label: l.code,
-                  keywords: `${l.code} ${l.name ?? ""}`,
+                  label: formatLocationRecord(l),
+                  keywords: `${l.code} ${l.name ?? ""} ${l.region ?? ""}`,
                 })),
             ]}
           />

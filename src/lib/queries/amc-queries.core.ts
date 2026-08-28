@@ -22,6 +22,7 @@ export interface AmcContractListRow {
   contract_value: number;
   outstanding_amount: number;
   location_code?: string;
+  location_name?: string;
 }
 
 export interface AmcContractFilters {
@@ -57,16 +58,17 @@ export async function fetchAmcContracts(
 
   const locIds = [...new Set((rows ?? []).map((r) => r.location_id))];
   const { data: locs } = locIds.length
-    ? await context.supabase.from("locations").select("id, code").in("id", locIds)
+    ? await context.supabase.from("locations").select("id, code, name").in("id", locIds)
     : { data: [] };
-  const locMap = new Map((locs ?? []).map((l) => [l.id, l.code]));
+  const locMap = new Map((locs ?? []).map((l) => [l.id, l]));
 
   return {
     items: (rows ?? []).map((r) => ({
       ...r,
       contract_value: Number(r.contract_value),
       outstanding_amount: Number(r.outstanding_amount ?? 0),
-      location_code: locMap.get(r.location_id),
+      location_code: locMap.get(r.location_id)?.code,
+      location_name: locMap.get(r.location_id)?.name,
     })),
     total: count ?? 0,
   };

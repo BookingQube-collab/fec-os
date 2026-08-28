@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { useFacilityDashboard } from "@/hooks/queries/useFacility";
 import { useDeferredQuery } from "@/hooks/use-deferred-query";
 import { useAppStore } from "@/stores/app-store";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -43,7 +44,7 @@ function FacilityPage() {
             {group.tasks.slice(0, 4).map((t) => (
               <div key={t.id} className="rounded-md border border-border bg-card p-3 text-sm">
                 <div className="font-medium">{t.title}</div>
-                <div className="text-xs text-muted-foreground">{t.location_code} · {t.category}</div>
+                <div className="text-xs text-muted-foreground">{formatLocationLabel(t.location_code, t.location_name)} · {t.category}</div>
               </div>
             ))}
           </div>
@@ -69,7 +70,7 @@ function FacilityPage() {
             ) : (
               tasks.map((t) => (
                 <TableRow key={t.id}>
-                  <TableCell className="font-mono text-xs">{t.location_code}</TableCell>
+                  <TableCell className="text-xs">{formatLocationLabel(t.location_code, t.location_name)}</TableCell>
                   <TableCell>{t.category}</TableCell>
                   <TableCell>{t.title}</TableCell>
                   <TableCell><Badge variant="outline">{t.priority}</Badge></TableCell>

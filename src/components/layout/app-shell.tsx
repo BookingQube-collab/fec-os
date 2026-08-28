@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import type { ReactNode } from "react";
 
 import { GlobalComplianceExpiryBanner } from "@/components/compliance/global-compliance-expiry-banner";
@@ -12,6 +13,11 @@ import { AppErrorBoundary } from "@/components/diagnostics/error-boundary";
 import { useAppStore } from "@/stores/app-store";
 import { cn } from "@/lib/utils";
 
+const HrFieldSync = dynamic(
+  () => import("@/components/attendance-hr/hr-field-sync").then((m) => m.HrFieldSync),
+  { ssr: false },
+);
+
 export function AppShell({ children }: { children: ReactNode }) {
   useNavigationPerf();
   const sidebarExpanded = useAppStore((s) => s.sidebarExpanded);
@@ -19,6 +25,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen text-foreground" data-surge-mode={surgeMode ? "true" : "false"}>
       <SitesPrefetch />
+      <HrFieldSync />
       <AppSidebar />
       <div
         className={cn(

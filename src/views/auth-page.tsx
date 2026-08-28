@@ -13,11 +13,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { defaultHomeForRoles, type AppRole } from "@/lib/rbac";
 import {
-  authenticateWithPasskey,
   isSecureWebAuthnContext,
   isWebAuthnAvailable,
-  isWebAuthnUserCancel,
-} from "@/lib/webauthn/browser";
+} from "@/lib/webauthn/detect";
 import {
   markPasskeyJustUsed,
   readPasskeyHint,
@@ -94,20 +92,25 @@ function AuthPage() {
   const handlePasskey = async () => {
     setSubmitting(true);
     try {
-      const hint = readPasskeyHint();
-      const result = await authenticateWithPasskey(hint?.credentialIds);
-      const { error } = await supabase.auth.setSession({
-        access_token: result.access_token,
-        refresh_token: result.refresh_token,
-      });
-      if (error) throw error;
-      markPasskeyJustUsed();
-      rememberPasskeyCredential(result.email, result.user_id, result.credential_id);
-      toast.success(t("auth.signedIn"));
-    } catch (err) {
-      if (!isWebAuthnUserCancel(err)) {
-        toast.error(err instanceof Error ? err.message : t("auth.passkeyFailed"));
+      const { authenticateWithPasskey, isWebAuthnUserCancel } = await import("@/lib/webauthn/browser");
+      try {
+        const hint = readPasskeyHint();
+        const result = await authenticateWithPasskey(hint?.credentialIds);
+        const { error } = await supabase.auth.setSession({
+          access_token: result.access_token,
+          refresh_token: result.refresh_token,
+        });
+        if (error) throw error;
+        markPasskeyJustUsed();
+        rememberPasskeyCredential(result.email, result.user_id, result.credential_id);
+        toast.success(t("auth.signedIn"));
+      } catch (err) {
+        if (!isWebAuthnUserCancel(err)) {
+          toast.error(err instanceof Error ? err.message : t("auth.passkeyFailed"));
+        }
       }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("auth.passkeyFailed"));
     } finally {
       setSubmitting(false);
     }

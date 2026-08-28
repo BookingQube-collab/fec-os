@@ -247,6 +247,7 @@ export function SearchableSelect({
             aria-haspopup="listbox"
             aria-expanded={open}
             aria-controls={listId}
+            title={collectNodeText(selectedLabel) || undefined}
             onKeyDown={onTriggerKeyDown}
             className={cn(
               buttonVariants({ variant: "outline" }),

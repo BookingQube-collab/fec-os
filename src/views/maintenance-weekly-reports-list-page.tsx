@@ -29,6 +29,7 @@ import {
   WEEKLY_REPORT_STATUSES,
   weekStartMonday,
 } from "@/lib/maintenance-weekly-reports/constants";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { cn } from "@/lib/utils";
 
 const RAG_CLASS = {
@@ -154,7 +155,7 @@ export default function MaintenanceWeeklyReportsListPage() {
               <SelectItem value="all">{t("maintenanceWeeklyReports.filters.allLocations")}</SelectItem>
               {sites.map((site) => (
                 <SelectItem key={site.id} value={site.id}>
-                  {site.code}
+                  {formatLocationLabel(site.code, site.name)}
                 </SelectItem>
               ))}
             </SelectContent>

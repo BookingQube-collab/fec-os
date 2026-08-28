@@ -1,5 +1,6 @@
 import { toCsv } from "@/lib/csv-parse";
 import { ATTENDANCE_ROSTER_TEMPLATE_HEADERS, enumerateYmd } from "@/lib/attendance-hr/roster-period";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { type StaffPlacement } from "@/lib/staff-sample-scope";
 
 export const ATTENDANCE_ROSTER_SAMPLE_MAX_ROWS = 10_000;
@@ -25,7 +26,7 @@ export function buildAttendanceRosterSampleMatrix(
         place.staff.full_name ?? "",
         place.staff.qid ?? "",
         place.staff.employee_code ?? "",
-        place.locationCode,
+        formatLocationLabel(place.locationCode, place.locationName),
         place.locationName,
         "",
         "",

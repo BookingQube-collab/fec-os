@@ -1,7 +1,4 @@
 import { NextResponse } from "next/server";
-import * as XLSX from "xlsx";
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
 
 import { withAuthRouteRequest, searchParams } from "@/lib/server/api-route";
 import {
@@ -36,6 +33,7 @@ function listingSources(daily: AttendanceHrReportRow[]) {
 }
 
 export async function GET(request: Request) {
+  const format = searchParams(request).get("format") ?? "xlsx";
   return withAuthRouteRequest(
     async (_context, req) => {
       const params = searchParams(req);
@@ -45,15 +43,16 @@ export async function GET(request: Request) {
       const staffQ = params.get("staffQ")?.trim() || undefined;
       const dateFrom = params.get("from") ?? new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
       const dateTo = params.get("to") ?? new Date().toISOString().slice(0, 10);
-      const format = params.get("format") ?? "xlsx";
 
       if (format === "payroll") {
+        const XLSX = await import("xlsx");
         const payroll = await getPayrollAttendanceSummary({ locationId, dateFrom, dateTo });
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(
           wb,
           XLSX.utils.json_to_sheet(
             payroll.rows.map((r) => ({
+              Location: r.locationLabel ?? "—",
               Employee: r.staffName,
               "Employee code": r.employeeCode,
               Present: r.daysPresent,
@@ -101,6 +100,8 @@ export async function GET(request: Request) {
       }
 
       if (format === "pdf") {
+        const [{ jsPDF }, autoTableMod] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
+        const autoTable = autoTableMod.default;
         const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
         doc.setFontSize(14);
         doc.text(`Attendance ${dateFrom} – ${dateTo}`, 40, 36);
@@ -132,6 +133,7 @@ export async function GET(request: Request) {
         });
       }
 
+      const XLSX = await import("xlsx");
       const wb = XLSX.utils.book_new();
       const sheet = (name: string, rows: unknown[]) => {
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows as Record<string, unknown>[]), name.slice(0, 31));
@@ -174,6 +176,6 @@ export async function GET(request: Request) {
       });
     },
     request,
-    { capability: "attendance.export" },
+    { capability: format === "payroll" ? "payroll.view" : "attendance.export" },
   );
 }

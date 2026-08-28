@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { LOCATION_TYPE_BY_CODE } from "@/lib/compliance/location-compliance-derive";
 import {
   fetchLocationTrackerAlerts,
@@ -321,7 +322,7 @@ export const syncLocationComplianceNotifications = createAuthenticatedAction(
         rules.push({
           type: "expired",
           title: `Expired: ${item.requirement_name}`,
-          body: `${item.location_code} — ${item.category} expired. Renew immediately.`,
+          body: `${formatLocationLabel(item.location_code, item.location_name)} — ${item.category} expired. Renew immediately.`,
           severity: "critical",
         });
       } else if (days != null) {
@@ -335,7 +336,7 @@ export const syncLocationComplianceNotifications = createAuthenticatedAction(
             rules.push({
               type: ruleType,
               title: `${threshold}d to expiry: ${item.requirement_name}`,
-              body: `${item.location_code} — renew by ${item.governing_date ?? "—"}.`,
+              body: `${formatLocationLabel(item.location_code, item.location_name)} — renew by ${item.governing_date ?? "—"}.`,
               severity: threshold <= 15 ? "warning" : "info",
             });
           }
@@ -346,7 +347,7 @@ export const syncLocationComplianceNotifications = createAuthenticatedAction(
         rules.push({
           type: "service_overdue",
           title: `Service overdue: ${item.requirement_name}`,
-          body: `${item.location_code} — next service was ${item.next_service_date}.`,
+          body: `${formatLocationLabel(item.location_code, item.location_name)} — next service was ${item.next_service_date}.`,
           severity: "warning",
         });
       }
@@ -354,7 +355,7 @@ export const syncLocationComplianceNotifications = createAuthenticatedAction(
         rules.push({
           type: "missing_doc",
           title: `Missing document: ${item.requirement_name}`,
-          body: `${item.location_code} — required compliance item has no certificate on file.`,
+          body: `${formatLocationLabel(item.location_code, item.location_name)} — required compliance item has no certificate on file.`,
           severity: "warning",
         });
       }
@@ -362,7 +363,7 @@ export const syncLocationComplianceNotifications = createAuthenticatedAction(
         rules.push({
           type: "payment_outstanding",
           title: `Outstanding payment: ${item.requirement_name}`,
-          body: `${item.location_code} — QAR ${Number(item.outstanding_amount).toLocaleString()} outstanding.`,
+          body: `${formatLocationLabel(item.location_code, item.location_name)} — QAR ${Number(item.outstanding_amount).toLocaleString()} outstanding.`,
           severity: "info",
         });
       }

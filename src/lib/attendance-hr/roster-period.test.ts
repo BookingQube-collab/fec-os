@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   attendanceRosterPeriod,
+  defaultPayrollPeriod,
   filterPunchesForImportPeriod,
+  formatPayrollRange,
+  payrollMonthMatchingBounds,
+  payrollMonthOf,
   punchWorkDateInPeriod,
 } from "./roster-period";
 
@@ -16,6 +20,24 @@ describe("attendance import period", () => {
 
   it("resolves the 28–27 payroll month, not a calendar month", () => {
     expect(attendanceRosterPeriod({ mode: "month", month: "2026-08" })).toEqual({
+      dateFrom: "2026-07-28",
+      dateTo: "2026-08-27",
+    });
+  });
+
+  it("maps a date onto the FEC month that contains it", () => {
+    expect(payrollMonthOf("2026-08-27")).toBe("2026-08");
+    expect(payrollMonthOf("2026-07-28")).toBe("2026-08");
+    expect(payrollMonthOf("2026-08-28")).toBe("2026-09");
+    expect(payrollMonthOf("2026-12-28")).toBe("2027-01");
+  });
+
+  it("formats the payroll range as day + short month", () => {
+    expect(formatPayrollRange("2026-07-28", "2026-08-27")).toBe("28 Jul – 27 Aug");
+    expect(payrollMonthMatchingBounds("2026-07-28", "2026-08-27")).toBe("2026-08");
+    expect(payrollMonthMatchingBounds("2026-08-01", "2026-08-31")).toBeNull();
+    expect(defaultPayrollPeriod("2026-08-27")).toEqual({
+      month: "2026-08",
       dateFrom: "2026-07-28",
       dateTo: "2026-08-27",
     });

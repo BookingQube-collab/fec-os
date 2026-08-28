@@ -53,6 +53,7 @@ export interface PeopleDashboardPayload {
     full_name: string;
     job_title: string | null;
     location_code: string;
+    location_name: string;
     hire_date: string;
   }>;
 }
@@ -298,6 +299,7 @@ export async function fetchPeopleDashboard(
         full_name: s.full_name,
         job_title: s.job_title,
         location_code: loc?.code ?? "—",
+        location_name: loc?.name ?? "—",
         hire_date: s.hire_date!,
       };
     });

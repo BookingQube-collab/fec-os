@@ -15,6 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { exportAmcDashboardCsv } from "@/lib/amc.functions";
 import { useAmcDashboardSummary, useAmcDashboardContracts } from "@/hooks/queries/useAmcDashboardSummary";
 import { useDocumentExpiryKpis } from "@/hooks/queries/useExpiryAlerts";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { AMC_CATEGORIES, FEC_BRANCH_CODES, translateAmcCategory } from "@/lib/amc/constants";
 import { useReportExport } from "@/hooks/use-report-export";
 import { useSites } from "@/hooks/queries/useSites";
@@ -257,9 +258,7 @@ export function AmcDashboardPage({ embedded = false }: { embedded?: boolean }) {
             {group.locations.map((site) => (
               <div key={site.location_id} className="space-y-3 pl-1 border-l-2 border-primary/20">
                 <h3 className="text-xs font-semibold tracking-wide text-foreground">
-                  <span className="font-mono text-primary">{site.location_code}</span>
-                  <span className="mx-1.5 text-muted-foreground">·</span>
-                  {site.location_name}
+                  {formatLocationLabel(site.location_code, site.location_name)}
                   <span className="ml-2 font-normal text-muted-foreground">
                     ({t("amc.contractCount", { count: site.contracts.length })})
                   </span>

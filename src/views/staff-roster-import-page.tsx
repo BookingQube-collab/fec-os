@@ -32,6 +32,8 @@ import { downloadFileFromApi } from "@/lib/staff-import";
 import { CANONICAL_LOCATION_CODES } from "@/lib/locations/normalize";
 import {
   attendanceRosterPeriod,
+  formatPayrollRange,
+  payrollMonthOf,
   qatarWeekBounds,
   type AttendanceRosterPeriodMode,
 } from "@/lib/attendance-hr/roster-period";
@@ -132,7 +134,7 @@ function actionVariant(action: RosterRowAction): "success" | "info" | "muted" | 
 }
 
 export default function StaffRosterImportPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const roles = useUserRoles();
   const venueSafeOnly = roles.some((r) => r === "branch_gm" || r === "duty_manager")
     && !roles.some((r) => ["ceo", "coo", "cfo", "regional_ops", "hr"].includes(r));
@@ -149,7 +151,7 @@ export default function StaffRosterImportPage() {
   const [confirmHard, setConfirmHard] = useState(false);
   const [periodMode, setPeriodMode] = useState<AttendanceRosterPeriodMode>("week");
   const [weekStart, setWeekStart] = useState(() => qatarWeekBounds(todayYmd()).dateFrom);
-  const [month, setMonth] = useState(() => todayYmd().slice(0, 7));
+  const [month, setMonth] = useState(() => payrollMonthOf(todayYmd()));
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [mappingRequired, setMappingRequired] = useState(false);
@@ -425,7 +427,7 @@ export default function StaffRosterImportPage() {
                 }}
               />
               <p className="text-xs text-muted-foreground">
-                {period.dateFrom} – {period.dateTo}
+                {formatPayrollRange(period.dateFrom, period.dateTo, i18n.language)}
               </p>
             </div>
           ) : (
@@ -442,7 +444,7 @@ export default function StaffRosterImportPage() {
                 }}
               />
               <p className="text-xs text-muted-foreground">
-                {period.dateFrom} – {period.dateTo}
+                {formatPayrollRange(period.dateFrom, period.dateTo, i18n.language)}
               </p>
             </div>
           )}

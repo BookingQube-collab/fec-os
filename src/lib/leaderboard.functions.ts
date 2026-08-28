@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import type { AuthContext } from "@/lib/server/create-action";
 import {
   createAuthenticatedAction,
@@ -215,7 +216,7 @@ export const listStaffRecentActivity = createAuthenticatedAction(
         staff_name: "Staff",
         employee_code: null,
         location_id: locId,
-        location_label: loc ? `${loc.code} — ${loc.name}` : null,
+        location_label: loc ? formatLocationLabel(loc.code, loc.name) : null,
         summary: item?.label ? `Completed checklist: ${item.label}` : "Completed checklist item",
       });
     }
@@ -244,7 +245,7 @@ export const listStaffRecentActivity = createAuthenticatedAction(
         staff_name: "Staff",
         employee_code: null,
         location_id: row.location_id,
-        location_label: loc ? `${loc.code} — ${loc.name}` : null,
+        location_label: loc ? formatLocationLabel(loc.code, loc.name) : null,
         summary: `Created booking ${row.reference} (${row.contact_name})`,
       });
     }
@@ -277,7 +278,7 @@ export const listStaffRecentActivity = createAuthenticatedAction(
         staff_name: "Staff",
         employee_code: null,
         location_id: row.location_id,
-        location_label: loc ? `${loc.code} — ${loc.name}` : null,
+        location_label: loc ? formatLocationLabel(loc.code, loc.name) : null,
         summary,
       });
     }

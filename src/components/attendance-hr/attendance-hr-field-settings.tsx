@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { SITE_GEOFENCE_DEFAULTS } from "@/lib/attendance-hr/geofence";
 import {
   getHrFieldSettings,
@@ -193,8 +194,7 @@ export function AttendanceHrFieldSettings() {
               <div key={fence.locationId} className="space-y-2 rounded-2xl border px-3 py-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-sm font-medium">
-                    {fence.locationCode ? `${fence.locationCode} · ` : ""}
-                    {fence.locationName ?? fence.name}
+                    {formatLocationLabel(fence.locationCode, fence.locationName ?? fence.name)}
                   </p>
                   <ToggleRow label={t("attendanceHr.hrConfig.active")} checked={draft.active} onChange={(v) => patch(fence.locationId, { active: v })} />
                 </div>

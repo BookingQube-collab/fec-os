@@ -1,8 +1,4 @@
-import {
-  browserSupportsWebAuthn,
-  startAuthentication,
-  startRegistration,
-} from "@simplewebauthn/browser";
+import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
 import type {
   AuthenticationResponseJSON,
   PublicKeyCredentialCreationOptionsJSON,
@@ -13,13 +9,7 @@ import type {
 import { apiGet, apiPost } from "@/lib/api-client";
 import { rememberPasskeyCredential } from "./hint";
 
-export function isSecureWebAuthnContext(): boolean {
-  return typeof window !== "undefined" && window.isSecureContext;
-}
-
-export function isWebAuthnAvailable(): boolean {
-  return isSecureWebAuthnContext() && browserSupportsWebAuthn();
-}
+export { isSecureWebAuthnContext, isWebAuthnAvailable } from "./detect";
 
 export function isWebAuthnUserCancel(error: unknown): boolean {
   const names = new Set<string>();

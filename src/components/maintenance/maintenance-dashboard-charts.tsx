@@ -25,7 +25,9 @@ import {
   chartTick,
   chartTooltipLabelStyle,
   chartTooltipStyle,
+  truncateAxisLabel,
 } from "@/lib/chart-theme";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 
 const STATUS_COLORS: Record<string, string> = {
   planned: CHART.info,
@@ -48,7 +50,7 @@ interface MaintenanceDashboardChartsProps {
   assetsByCriticality: Array<{ criticality: string; count: number }>;
   assetsByCategory: Array<{ category: string; count: number }>;
   workOrdersTrend: Array<{ week: string; created: number; completed: number }>;
-  downtimeByLocation: Array<{ code: string; hours: number; events: number }>;
+  downtimeByLocation: Array<{ code: string; name?: string; hours: number; events: number }>;
 }
 
 export function MaintenanceDashboardCharts({
@@ -176,9 +178,18 @@ export function MaintenanceDashboardCharts({
         <ChartWidget title="Downtime by location (this month)">
           <div className="h-56">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={downtimeByLocation} margin={CHART_MARGIN}>
+              <BarChart
+                data={downtimeByLocation.map((row) => ({ ...row, label: formatLocationLabel(row.code, row.name) }))}
+                margin={CHART_MARGIN}
+              >
                 <CartesianGrid {...chartGridProps} />
-                <XAxis dataKey="code" tick={chartTick} stroke={CHART.grid} />
+                <XAxis
+                  dataKey="label"
+                  tick={chartTick}
+                  stroke={CHART.grid}
+                  interval={0}
+                  tickFormatter={(value) => truncateAxisLabel(String(value), 18)}
+                />
                 <YAxis tick={chartTick} stroke={CHART.grid} />
                 <Tooltip
                   contentStyle={chartTooltipStyle}

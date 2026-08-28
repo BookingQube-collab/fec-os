@@ -1,3 +1,5 @@
-import { lazyView } from "@/lib/lazy-view";
+import { redirect } from "next/navigation";
 
-export default lazyView(() => import("@/views/attendance-hr-field-page"), "table");
+export default function AttendanceFieldRedirect() {
+  redirect("/people/field");
+}
