@@ -14,6 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useUserRoles } from "@/hooks/use-auth";
 import {
   getDepartmentFlyoutLinks,
+  getDepartmentFlyoutTree,
   getPrimaryRailNav,
   getVisibleDepartments,
   isDepartmentActive,
@@ -83,6 +84,7 @@ function SidebarNavGroupSection({
   prefetchRoute,
   onNavigate,
   compact,
+  expandByDefault,
 }: {
   group: SidebarNavGroup;
   pathname: string;
@@ -90,6 +92,8 @@ function SidebarNavGroupSection({
   prefetchRoute: (href: string) => void;
   onNavigate?: () => void;
   compact?: boolean;
+  /** When true, open even if no child route is active (flyout browsing). */
+  expandByDefault?: boolean;
 }) {
   const Icon = group.icon;
   const groupActive = isSidebarNavGroupActive(
@@ -99,7 +103,7 @@ function SidebarNavGroupSection({
   );
 
   return (
-    <Collapsible defaultOpen={groupActive}>
+    <Collapsible defaultOpen={expandByDefault || groupActive}>
       <CollapsibleTrigger
         className={cn(
           "group flex w-full items-center gap-2 rounded-full text-sm",
@@ -331,6 +335,70 @@ function FlyoutLinkList({
   );
 }
 
+/** Parent → indented children for department flyouts (HR Time & Attendance, etc.). */
+function DepartmentFlyoutTree({
+  department,
+  pathname,
+  t,
+  prefetchRoute,
+  onNavigate,
+  compact,
+}: {
+  department: VisibleNavDepartment;
+  pathname: string;
+  t: (key: string) => string;
+  prefetchRoute: (href: string) => void;
+  onNavigate?: () => void;
+  compact?: boolean;
+}) {
+  const tree = useMemo(() => getDepartmentFlyoutTree(department), [department]);
+
+  if (tree.groups.length === 0) {
+    return (
+      <FlyoutLinkList
+        links={getDepartmentFlyoutLinks(department)}
+        pathname={pathname}
+        t={t}
+        prefetchRoute={prefetchRoute}
+        onNavigate={onNavigate}
+      />
+    );
+  }
+
+  return (
+    <div className={cn("space-y-1", compact ? "p-1" : "p-1.5")}>
+      {tree.groups.map((group) => (
+        <SidebarNavGroupSection
+          key={group.id}
+          group={group}
+          pathname={pathname}
+          t={t}
+          prefetchRoute={prefetchRoute}
+          onNavigate={onNavigate}
+          compact={compact}
+          expandByDefault
+        />
+      ))}
+      {tree.items.length > 0 && (
+        <ul className="space-y-0.5 pt-1">
+          {tree.items.map((item) => (
+            <li key={item.href}>
+              <NavLinkRow
+                item={item}
+                pathname={pathname}
+                t={t}
+                prefetchRoute={prefetchRoute}
+                onNavigate={onNavigate}
+                compact={compact}
+              />
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function RailIconWithFlyout({
   item,
   pathname,
@@ -359,10 +427,12 @@ function RailIconWithFlyout({
     () => (department ? getDepartmentFlyoutLinks(department) : []),
     [department],
   );
+  const hasGroups = Boolean(department && department.groups.length > 0);
   const moduleActive = department ? isDepartmentActive(department, pathname) : false;
   const open = openId === item.departmentId;
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasFlyout = links.length > 0;
+  const showInlineTree = expanded && department && hasGroups && (open || moduleActive);
 
   const clearClose = useCallback(() => {
     if (closeTimer.current) {
@@ -388,77 +458,109 @@ function RailIconWithFlyout({
   useEffect(() => () => clearClose(), [clearClose]);
 
   return (
-    <Popover
-      open={open}
-      onOpenChange={(next) => {
-        if (!next) {
-          setOpenId((current) => (current === item.departmentId ? null : current));
-        }
-      }}
-    >
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant={moduleActive ? "default" : "ghost"}
-          size={expanded ? "default" : "icon"}
-          title={groupLabel}
-          aria-label={groupLabel}
-          aria-expanded={open}
-          aria-haspopup={hasFlyout ? "menu" : undefined}
-          onMouseEnter={openFlyout}
-          onMouseLeave={scheduleClose}
-          onFocus={openFlyout}
-          onClick={() => {
-            if (!hasFlyout) return;
-            if (open) setOpenId(null);
-            else openFlyout();
-          }}
-          className={cn(
-            expanded && "h-10 w-full justify-start px-2.5",
-            open && !moduleActive && "bg-sidebar-accent text-sidebar-accent-foreground",
-          )}
-        >
-          <Icon className="h-[18px] w-[18px] stroke-[1.5]" />
-          {expanded ? <span className="truncate">{groupLabel}</span> : null}
-        </Button>
-      </PopoverTrigger>
+    <div className={cn("w-full", expanded && "space-y-0.5")}>
+      <Popover
+        open={!expanded && open}
+        onOpenChange={(next) => {
+          if (!next) {
+            setOpenId((current) => (current === item.departmentId ? null : current));
+          }
+        }}
+      >
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant={moduleActive ? "default" : "ghost"}
+            size={expanded ? "default" : "icon"}
+            title={groupLabel}
+            aria-label={groupLabel}
+            aria-expanded={Boolean(open || showInlineTree)}
+            aria-haspopup={hasFlyout ? "menu" : undefined}
+            onMouseEnter={() => {
+              if (!expanded) openFlyout();
+            }}
+            onMouseLeave={() => {
+              if (!expanded) scheduleClose();
+            }}
+            onFocus={() => {
+              if (!expanded) openFlyout();
+            }}
+            onClick={() => {
+              if (!hasFlyout) return;
+              if (open) setOpenId(null);
+              else openFlyout();
+            }}
+            className={cn(
+              expanded && "h-10 w-full justify-start px-2.5",
+              open && !moduleActive && "bg-sidebar-accent text-sidebar-accent-foreground",
+            )}
+          >
+            <Icon className="h-[18px] w-[18px] stroke-[1.5]" />
+            {expanded ? <span className="truncate">{groupLabel}</span> : null}
+          </Button>
+        </PopoverTrigger>
 
-      {hasFlyout && (
-        <PopoverContent
-          side={flyoutSide}
-          align="start"
-          sideOffset={10}
-          collisionPadding={12}
-          onOpenAutoFocus={(e) => e.preventDefault()}
-          onCloseAutoFocus={(e) => e.preventDefault()}
-          onMouseEnter={clearClose}
-          onMouseLeave={scheduleClose}
-          role="menu"
-          aria-label={groupLabel}
-          className={cn(
-            FLYOUT_Z,
-            "w-[16.5rem] border-border/80 bg-popover p-0 text-popover-foreground shadow-elevated-md",
-            "rounded-[1.5rem] outline-none",
-          )}
-        >
-          <div className="border-b border-border/70 bg-surface-2/90 px-3.5 py-2.5">
-            <p className="section-kicker uppercase tracking-wide">
-              {t("nav.subFeatures")}
-            </p>
-            <p className="mt-0.5 text-sm font-semibold leading-snug text-foreground">{groupLabel}</p>
-          </div>
-          <div className="max-h-[min(70vh,28rem)] overflow-y-auto overscroll-contain">
-            <FlyoutLinkList
-              links={links}
-              pathname={pathname}
-              t={t}
-              prefetchRoute={prefetchRoute}
-              onNavigate={() => setOpenId(null)}
-            />
-          </div>
-        </PopoverContent>
-      )}
-    </Popover>
+        {hasFlyout && !expanded && (
+          <PopoverContent
+            side={flyoutSide}
+            align="start"
+            sideOffset={10}
+            collisionPadding={12}
+            onOpenAutoFocus={(e) => e.preventDefault()}
+            onCloseAutoFocus={(e) => e.preventDefault()}
+            onMouseEnter={clearClose}
+            onMouseLeave={scheduleClose}
+            role="menu"
+            aria-label={groupLabel}
+            className={cn(
+              FLYOUT_Z,
+              hasGroups ? "w-[17.5rem]" : "w-[16.5rem]",
+              "border-border/80 bg-popover p-0 text-popover-foreground shadow-elevated-md",
+              "rounded-[1.5rem] outline-none",
+            )}
+          >
+            <div className="border-b border-border/70 bg-surface-2/90 px-3.5 py-2.5">
+              <p className="section-kicker uppercase tracking-wide">
+                {t("nav.subFeatures")}
+              </p>
+              <p className="mt-0.5 text-sm font-semibold leading-snug text-foreground">{groupLabel}</p>
+            </div>
+            <div className="max-h-[min(70vh,32rem)] overflow-y-auto overscroll-contain">
+              {department && hasGroups ? (
+                <DepartmentFlyoutTree
+                  department={department}
+                  pathname={pathname}
+                  t={t}
+                  prefetchRoute={prefetchRoute}
+                  onNavigate={() => setOpenId(null)}
+                />
+              ) : (
+                <FlyoutLinkList
+                  links={links}
+                  pathname={pathname}
+                  t={t}
+                  prefetchRoute={prefetchRoute}
+                  onNavigate={() => setOpenId(null)}
+                />
+              )}
+            </div>
+          </PopoverContent>
+        )}
+      </Popover>
+
+      {showInlineTree && department ? (
+        <div className="ms-1 max-h-[min(50vh,22rem)] overflow-y-auto border-s border-border/60 ps-1.5">
+          <DepartmentFlyoutTree
+            department={department}
+            pathname={pathname}
+            t={t}
+            prefetchRoute={prefetchRoute}
+            onNavigate={() => setOpenId(null)}
+            compact
+          />
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -483,6 +585,7 @@ function ModuleSubsSheet({
     () => (department ? getDepartmentFlyoutLinks(department) : []),
     [department],
   );
+  const hasGroups = Boolean(department && department.groups.length > 0);
   const title = department ? t(department.labelKey) : t(item.labelKey);
 
   return (
@@ -495,13 +598,24 @@ function ModuleSubsSheet({
           <SheetTitle>{title}</SheetTitle>
         </SheetHeader>
         <div className="mt-3 min-h-0 flex-1 overflow-y-auto pb-4">
-          <FlyoutLinkList
-            links={links}
-            pathname={pathname}
-            t={t}
-            prefetchRoute={prefetchRoute}
-            onNavigate={() => onOpenChange(false)}
-          />
+          {department && hasGroups ? (
+            <DepartmentFlyoutTree
+              department={department}
+              pathname={pathname}
+              t={t}
+              prefetchRoute={prefetchRoute}
+              onNavigate={() => onOpenChange(false)}
+              compact
+            />
+          ) : (
+            <FlyoutLinkList
+              links={links}
+              pathname={pathname}
+              t={t}
+              prefetchRoute={prefetchRoute}
+              onNavigate={() => onOpenChange(false)}
+            />
+          )}
         </div>
       </SheetContent>
     </Sheet>

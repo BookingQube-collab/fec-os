@@ -144,18 +144,7 @@ const EVENTS_NAV_GROUP: SidebarNavGroup = {
   ],
 };
 
-/** HR IA — ordered for daily workflow: overview → people → attendance → workforce → admin → more. */
-const HR_OVERVIEW_NAV_GROUP: SidebarNavGroup = {
-  id: "hr-overview",
-  labelKey: "nav.hrOverview",
-  icon: LayoutDashboard,
-  pathPrefix: "/people/hr",
-  viewCapability: "people.view_roster",
-  items: [
-    { href: "/people/hr", labelKey: "nav.hrDashboard", capability: "people.view_roster" },
-  ],
-};
-
+/** HR IA — ordered for daily workflow: people → attendance → workforce → HR admin → more. */
 const HR_STAFF_NAV_GROUP: SidebarNavGroup = {
   id: "hr-staff",
   labelKey: "nav.hrStaff",
@@ -198,13 +187,15 @@ const HR_WORKFORCE_NAV_GROUP: SidebarNavGroup = {
   ],
 };
 
+/** HR admin cluster — dashboard + documents/onboarding/announcements/settings/reports (+ employee app). */
 const HR_ADMIN_NAV_GROUP: SidebarNavGroup = {
   id: "hr-admin",
   labelKey: "nav.hrAdmin",
   icon: ClipboardList,
-  pathPrefix: "/people/hr/documents",
+  pathPrefix: "/people/hr",
   viewCapability: "hr.manage",
   items: [
+    { href: "/people/hr", labelKey: "nav.hrDashboard", capability: "people.view_roster" },
     { href: "/people/hr/documents", labelKey: "nav.hrDocuments", capability: "hr.manage" },
     { href: "/people/hr/onboarding", labelKey: "nav.hrOnboarding", capability: "hr.manage" },
     { href: "/people/hr/announcements", labelKey: "nav.hrAnnouncements", capability: "hr.manage" },
@@ -281,7 +272,6 @@ export const NAV_DEPARTMENTS: NavDepartment[] = [
     audience: ["executive", "supervisor", "all"],
     items: [],
     groups: [
-      HR_OVERVIEW_NAV_GROUP,
       HR_STAFF_NAV_GROUP,
       HR_ATTENDANCE_NAV_GROUP,
       HR_WORKFORCE_NAV_GROUP,
@@ -391,7 +381,6 @@ export const SIDEBAR_NAV_GROUPS: SidebarNavGroup[] = [
   MAINTENANCE_NAV_GROUP,
   PROCUREMENT_NAV_GROUP,
   EVENTS_NAV_GROUP,
-  HR_OVERVIEW_NAV_GROUP,
   HR_STAFF_NAV_GROUP,
   HR_ATTENDANCE_NAV_GROUP,
   HR_WORKFORCE_NAV_GROUP,
@@ -594,7 +583,7 @@ export function isSidebarNavGroupItemActive(href: string, pathname: string): boo
     return pathname === href;
   }
   if (href === "/people/hr") {
-    // Exact match — nested /people/hr/* belongs to HR admin items
+    // Exact match — nested /people/hr/* are sibling admin children
     return pathname === href;
   }
   if (href === "/people/attendance") {
@@ -625,9 +614,12 @@ export function isSidebarNavGroupActive(
       (href) => href !== pathPrefix && (pathname === href || pathname.startsWith(`${href}/`)),
     );
   }
-  // HR dashboard root — do not treat /people/hr/documents etc. as overview
+  // HR admin: dashboard + /people/hr/* (employee-app uses extraHrefs)
   if (pathPrefix === "/people/hr") {
-    return pathname === "/people/hr";
+    if (pathname === "/people/hr" || pathname.startsWith("/people/hr/")) return true;
+    return extraHrefs.some(
+      (href) => href !== pathPrefix && (pathname === href || pathname.startsWith(`${href}/`)),
+    );
   }
   if (pathname === pathPrefix || pathname.startsWith(`${pathPrefix}/`)) return true;
   return extraHrefs.some(
@@ -778,14 +770,12 @@ export function isPrimaryRailActive(
 
 export type PrimaryRailItem = NavItem & { departmentId: NavDepartmentId };
 
-/** Flattened links for a department flyout (rail + overflow). */
+/** Flattened links for a department flyout (rail + overflow). Prefer getDepartmentFlyoutTree for UI. */
 export function getDepartmentFlyoutLinks(department: VisibleNavDepartment): RailFlyoutLink[] {
-  const seen = new Set<string>();
+  const tree = getDepartmentFlyoutTree(department);
   const links: RailFlyoutLink[] = [];
-  for (const group of department.groups) {
+  for (const group of tree.groups) {
     for (const sub of group.items) {
-      if (seen.has(sub.href)) continue;
-      seen.add(sub.href);
       links.push({
         href: sub.href,
         labelKey: sub.labelKey,
@@ -795,11 +785,20 @@ export function getDepartmentFlyoutLinks(department: VisibleNavDepartment): Rail
       });
     }
   }
-  for (const item of department.items) {
-    if (seen.has(item.href)) continue;
-    seen.add(item.href);
+  for (const item of tree.items) {
     links.push({ ...item, fromGroup: false });
   }
   return links;
+}
+
+/** Hierarchical sections for flyout / expanded sidebar (parents → indented children). */
+export function getDepartmentFlyoutTree(department: VisibleNavDepartment): {
+  groups: SidebarNavGroup[];
+  items: NavItem[];
+} {
+  return {
+    groups: department.groups,
+    items: department.items,
+  };
 }
 

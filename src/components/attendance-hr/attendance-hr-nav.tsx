@@ -20,7 +20,10 @@ export function AttendanceHrNav() {
   const pathname = usePathname();
   const { t } = useTranslation();
   return (
-    <nav className="flex max-w-full flex-nowrap gap-1 overflow-x-auto rounded-full border border-border/70 bg-secondary/40 p-1">
+    <nav
+      className="flex max-w-full flex-nowrap gap-1 overflow-x-auto rounded-full border border-border/70 bg-secondary/40 p-1 md:hidden"
+      aria-label={t("attendanceHr.title")}
+    >
       {TABS.map((tab) => {
         const active = tab.href === "/people/attendance" ? pathname === tab.href : pathname.startsWith(tab.href);
         return (

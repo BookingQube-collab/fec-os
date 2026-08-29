@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   getDepartmentFlyoutLinks,
+  getDepartmentFlyoutTree,
   getPrimaryRailNav,
   getVisibleDepartments,
+  isSidebarNavGroupActive,
+  isSidebarNavGroupItemActive,
 } from "@/lib/nav-config";
 
 const ADMIN_HREFS = [
@@ -57,10 +60,9 @@ describe("admin sidebar visibility", () => {
     expect([...hrefs].some((href) => href === "/people/attendance/field")).toBe(false);
   });
 
-  it("organizes People into HR workflow groups", () => {
+  it("organizes People into HR workflow groups with nested tab children", () => {
     const people = getVisibleDepartments(["ceo"]).find((dept) => dept.id === "people");
     expect(people?.groups.map((g) => g.id)).toEqual([
-      "hr-overview",
       "hr-staff",
       "hr-attendance",
       "hr-workforce",
@@ -69,6 +71,29 @@ describe("admin sidebar visibility", () => {
       "hr-more",
     ]);
     expect(people?.items).toEqual([]);
+
+    expect(people?.groups.find((g) => g.id === "hr-attendance")?.items.map((i) => i.href)).toEqual([
+      "/people/attendance",
+      "/people/attendance/import",
+      "/people/attendance/reports",
+      "/people/attendance/mapping",
+      "/people/attendance/corrections",
+      "/people/attendance/settings",
+    ]);
+    expect(people?.groups.find((g) => g.id === "hr-staff")?.items.map((i) => i.href)).toEqual([
+      "/people",
+      "/people/import",
+      "/people/training",
+    ]);
+    expect(people?.groups.find((g) => g.id === "hr-admin")?.items.map((i) => i.href)).toEqual([
+      "/people/hr",
+      "/people/hr/documents",
+      "/people/hr/onboarding",
+      "/people/hr/announcements",
+      "/people/hr/settings",
+      "/people/hr/reports",
+      "/people/employee-app",
+    ]);
     expect(people?.groups.find((g) => g.id === "hr-workforce")?.items.map((i) => i.href)).toEqual([
       "/people/payroll",
       "/people/leave",
@@ -77,6 +102,30 @@ describe("admin sidebar visibility", () => {
     expect(people?.groups.find((g) => g.id === "hr-attendance")?.items.some((i) => i.href === "/people/field")).toBe(
       false,
     );
+  });
+
+  it("exposes hierarchical flyout tree for People (parents preserve children)", () => {
+    const people = getVisibleDepartments(["ceo"]).find((dept) => dept.id === "people");
+    expect(people).toBeDefined();
+    const tree = getDepartmentFlyoutTree(people!);
+    expect(tree.groups.map((g) => g.id)).toContain("hr-attendance");
+    const attendance = tree.groups.find((g) => g.id === "hr-attendance");
+    expect(attendance?.labelKey).toBe("nav.hrAttendance");
+    expect(attendance?.items).toHaveLength(6);
+    expect(tree.items).toEqual([]);
+  });
+
+  it("highlights attendance parent when a child tab route is active", () => {
+    expect(
+      isSidebarNavGroupActive("/people/attendance", "/people/attendance/import", [
+        "/people/attendance",
+        "/people/attendance/import",
+      ]),
+    ).toBe(true);
+    expect(isSidebarNavGroupItemActive("/people/attendance", "/people/attendance/import")).toBe(false);
+    expect(isSidebarNavGroupItemActive("/people/attendance/import", "/people/attendance/import")).toBe(true);
+    expect(isSidebarNavGroupItemActive("/people/hr", "/people/hr/documents")).toBe(false);
+    expect(isSidebarNavGroupActive("/people/hr", "/people/hr/documents")).toBe(true);
   });
 
   it("keeps payroll visible for CFO via workforce group", () => {
