@@ -7,8 +7,10 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
-import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
-import { PageHeader } from "@/components/layout/page-header";
+import { HrEmptyState } from "@/components/hr/hr-empty-state";
+import { HrPanel } from "@/components/hr/hr-panel";
+import { HrSection } from "@/components/hr/hr-section";
+import { HrShell } from "@/components/hr/hr-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -94,88 +96,103 @@ export default function HrDocumentsPage() {
   return (
     <CapabilityGate
       capability="hr.manage"
-      fallback={<p className="rounded-2xl border border-dashed p-8 text-sm text-muted-foreground">{t("hr.docs.noAccess")}</p>}
+      fallback={
+        <HrShell>
+          <HrPanel>
+            <HrEmptyState message={t("hr.docs.noAccess")} />
+          </HrPanel>
+        </HrShell>
+      }
     >
-      <div className="space-y-6">
-        <PageHeader icon={FileText} kicker={t("hr.docs.kicker")} title={t("hr.docs.title")} subtitle={t("hr.docs.subtitle")} />
-
-        <NeumorphicCard className="grid gap-3 p-5 sm:grid-cols-2 lg:grid-cols-5">
-          <div className="lg:col-span-2">
-            <Label>{t("hr.docs.staff")}</Label>
-            <select
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-              value={staffId}
-              onChange={(e) => setStaffId(e.target.value)}
-            >
-              <option value="">{t("hr.docs.allStaff")}</option>
-              {(staff.data ?? []).map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                  {s.employeeCode ? ` (${s.employeeCode})` : ""}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <Label>{t("hr.docs.type")}</Label>
-            <select
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-              value={docType}
-              onChange={(e) => setDocType(e.target.value as (typeof HR_DOC_TYPES)[number])}
-            >
-              {HR_DOC_TYPES.map((value) => (
-                <option key={value} value={value}>
-                  {t(`hr.docs.types.${value}`)}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <Label>{t("hr.docs.expiry")}</Label>
-            <Input type="date" value={expiry} onChange={(e) => setExpiry(e.target.value)} />
-          </div>
-          <div>
-            <Label>{t("hr.docs.file")}</Label>
-            <Input type="file" accept=".pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-          </div>
-          <div className="flex items-end lg:col-span-5">
-            <Button disabled={!staffId || !file || upload.isPending} onClick={() => upload.mutate()}>
-              {t("hr.docs.upload")}
-            </Button>
-          </div>
-        </NeumorphicCard>
-
-        <NeumorphicCard className="space-y-2 p-5">
-          {(docs.data ?? []).length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t("hr.docs.empty")}</p>
-          ) : (
-            (docs.data ?? []).map((doc) => (
-              <div key={doc.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-3 py-3">
-                <div>
-                  <p className="font-medium">
-                    {doc.staffName} · {t(`hr.docs.types.${doc.docType}`)}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {doc.fileName ?? "—"}
-                    {doc.expiryDate ? ` · ${t("hr.docs.expires", { date: doc.expiryDate })}` : ""}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  {doc.expiryDate && doc.expiryDate < new Date().toISOString().slice(0, 10) ? (
-                    <Badge variant="destructive">{t("hr.docs.expired")}</Badge>
-                  ) : null}
-                  <Button size="sm" variant="secondary" onClick={() => openDoc.mutate({ id: doc.id })}>
-                    {t("hr.docs.view")}
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => remove.mutate({ id: doc.id })}>
-                    {t("hr.docs.delete")}
-                  </Button>
-                </div>
+      <HrShell>
+        <HrSection
+          icon={FileText}
+          kicker={t("hr.docs.kicker")}
+          title={t("hr.docs.title")}
+          subtitle={t("hr.docs.subtitle")}
+        >
+          <HrPanel delay={0}>
+            <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-5">
+              <div className="lg:col-span-2">
+                <Label>{t("hr.docs.staff")}</Label>
+                <select
+                  className="flex h-10 w-full rounded-xl border border-input bg-background px-3 text-sm"
+                  value={staffId}
+                  onChange={(e) => setStaffId(e.target.value)}
+                >
+                  <option value="">{t("hr.docs.allStaff")}</option>
+                  {(staff.data ?? []).map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                      {s.employeeCode ? ` (${s.employeeCode})` : ""}
+                    </option>
+                  ))}
+                </select>
               </div>
-            ))
-          )}
-        </NeumorphicCard>
-      </div>
+              <div>
+                <Label>{t("hr.docs.type")}</Label>
+                <select
+                  className="flex h-10 w-full rounded-xl border border-input bg-background px-3 text-sm"
+                  value={docType}
+                  onChange={(e) => setDocType(e.target.value as (typeof HR_DOC_TYPES)[number])}
+                >
+                  {HR_DOC_TYPES.map((value) => (
+                    <option key={value} value={value}>
+                      {t(`hr.docs.types.${value}`)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <Label>{t("hr.docs.expiry")}</Label>
+                <Input type="date" value={expiry} onChange={(e) => setExpiry(e.target.value)} />
+              </div>
+              <div>
+                <Label>{t("hr.docs.file")}</Label>
+                <Input type="file" accept=".pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+              </div>
+              <div className="flex items-end lg:col-span-5">
+                <Button disabled={!staffId || !file || upload.isPending} onClick={() => upload.mutate()}>
+                  {t("hr.docs.upload")}
+                </Button>
+              </div>
+            </div>
+          </HrPanel>
+
+          <HrPanel delay={1}>
+            <div className="space-y-2 p-4 sm:p-5">
+              {(docs.data ?? []).length === 0 ? (
+                <HrEmptyState message={t("hr.docs.empty")} icon={FileText} />
+              ) : (
+                (docs.data ?? []).map((doc) => (
+                  <div key={doc.id} className="hr-list-row">
+                    <div>
+                      <p className="font-medium">
+                        {doc.staffName} · {t(`hr.docs.types.${doc.docType}`)}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {doc.fileName ?? "—"}
+                        {doc.expiryDate ? ` · ${t("hr.docs.expires", { date: doc.expiryDate })}` : ""}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {doc.expiryDate && doc.expiryDate < new Date().toISOString().slice(0, 10) ? (
+                        <Badge variant="destructive">{t("hr.docs.expired")}</Badge>
+                      ) : null}
+                      <Button size="sm" variant="secondary" onClick={() => openDoc.mutate({ id: doc.id })}>
+                        {t("hr.docs.view")}
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => remove.mutate({ id: doc.id })}>
+                        {t("hr.docs.delete")}
+                      </Button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </HrPanel>
+        </HrSection>
+      </HrShell>
     </CapabilityGate>
   );
 }

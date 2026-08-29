@@ -10,8 +10,10 @@ import { FaceCaptureDialog } from "@/components/attendance-hr/face-capture-dialo
 import { AttendanceHrFieldSettings } from "@/components/attendance-hr/attendance-hr-field-settings";
 import { queueOrSubmitFieldCheckIn } from "@/components/attendance-hr/hr-field-sync";
 import { CapabilityGate } from "@/components/auth/capability-gate";
-import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
-import { PageHeader } from "@/components/layout/page-header";
+import { HrEmptyState } from "@/components/hr/hr-empty-state";
+import { HrPanel } from "@/components/hr/hr-panel";
+import { HrSection } from "@/components/hr/hr-section";
+import { HrShell } from "@/components/hr/hr-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -145,189 +147,199 @@ export default function AttendanceHrFieldPage() {
   const mapLng = last?.longitude;
 
   return (
-    <div className="space-y-6">
-      <PageHeader
+    <HrShell>
+      <HrSection
         icon={MapPinned}
         kicker={t("hr.field.kicker")}
         title={t("hr.field.title")}
         subtitle={t("hr.field.subtitle")}
-      />
+      >
+        {!online ? (
+          <p className="flex items-center gap-2 rounded-[1.25rem] border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm hr-enter">
+            <WifiOff className="h-4 w-4" />
+            {t("attendanceHr.field.offlineBanner")}
+          </p>
+        ) : null}
 
-      {!online ? (
-        <p className="flex items-center gap-2 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
-          <WifiOff className="h-4 w-4" />
-          {t("attendanceHr.field.offlineBanner")}
-        </p>
-      ) : null}
+        {queue.length > 0 ? (
+          <HrPanel delay={0}>
+            <div className="space-y-2 p-4 sm:p-5">
+              <h2 className="text-sm font-semibold tracking-tight">{t("attendanceHr.field.pendingSync")}</h2>
+              <p className="text-xs text-muted-foreground">{t("attendanceHr.field.pendingHint")}</p>
+              {queue.map((item) => (
+                <div key={item.clientEventId} className="hr-list-row text-sm">
+                  <span>
+                    {item.payload.eventType} · {new Date(item.queuedAt).toLocaleString()}
+                  </span>
+                  <Button size="sm" variant="secondary" onClick={() => void removeFieldCheckIn(item.clientEventId).then(refreshQueue)}>
+                    {t("attendanceHr.field.discard")}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </HrPanel>
+        ) : null}
 
-      {queue.length > 0 ? (
-        <NeumorphicCard className="space-y-2 p-5">
-          <h2 className="text-sm font-semibold">{t("attendanceHr.field.pendingSync")}</h2>
-          <p className="text-xs text-muted-foreground">{t("attendanceHr.field.pendingHint")}</p>
-          {queue.map((item) => (
-            <div key={item.clientEventId} className="flex items-center justify-between gap-2 rounded-2xl border px-3 py-2 text-sm">
-              <span>
-                {item.payload.eventType} · {new Date(item.queuedAt).toLocaleString()}
-              </span>
-              <Button size="sm" variant="secondary" onClick={() => void removeFieldCheckIn(item.clientEventId).then(refreshQueue)}>
-                {t("attendanceHr.field.discard")}
+        <div className="grid gap-4 lg:grid-cols-2">
+          <HrPanel delay={1}>
+            <div className="space-y-3 p-4 sm:p-5">
+              <h2 className="text-sm font-semibold tracking-tight">{t("attendanceHr.field.checkIn")}</h2>
+              <p className="text-xs text-muted-foreground">{t("attendanceHr.field.checkInHint")}</p>
+              {ctx.data?.staff ? (
+                <p className="text-sm">
+                  {ctx.data.staff.fullName} · {ctx.data.staff.employeeCode}
+                </p>
+              ) : (
+                <p className="text-sm text-muted-foreground">{t("attendanceHr.field.noStaffLink")}</p>
+              )}
+              {pendingSelfie ? (
+                <Badge variant={pendingSelfie.livenessPassed ? "success" : "warning"}>
+                  {pendingSelfie.livenessPassed ? t("attendanceHr.field.livenessOk") : t("attendanceHr.field.livenessFail")}
+                </Badge>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                <Button disabled={!ctx.data?.staff || checkIn.isPending} onClick={() => checkIn.mutate("check_in")}>
+                  {t("attendanceHr.field.checkInBtn")}
+                </Button>
+                <Button variant="secondary" disabled={!ctx.data?.staff || checkIn.isPending} onClick={() => checkIn.mutate("check_out")}>
+                  {t("attendanceHr.field.checkOutBtn")}
+                </Button>
+                <Button variant="secondary" disabled={!ctx.data?.staff || checkIn.isPending} onClick={() => checkIn.mutate("ping")}>
+                  <Radio className="mr-1 h-4 w-4" />
+                  {t("attendanceHr.field.ping")}
+                </Button>
+                <Button variant="secondary" onClick={() => setSelfieOpen(true)}>
+                  <ScanFace className="mr-1 h-4 w-4" />
+                  {t("attendanceHr.field.selfie")}
+                </Button>
+              </div>
+            </div>
+          </HrPanel>
+
+          <HrPanel delay={2}>
+            <div className="space-y-3 p-4 sm:p-5">
+              <h2 className="text-sm font-semibold tracking-tight">{t("attendanceHr.field.faceTitle")}</h2>
+              <p className="text-xs text-muted-foreground">{t("attendanceHr.field.faceHint")}</p>
+              <Badge variant={ctx.data?.enrollment.status === "enrolled" ? "success" : "muted"}>
+                {ctx.data?.enrollment.status === "enrolled" ? t("attendanceHr.field.enrolledBadge") : t("attendanceHr.field.notEnrolled")}
+              </Badge>
+              <Button variant="secondary" onClick={() => setEnrollOpen(true)}>
+                {t("attendanceHr.field.enrollFace")}
               </Button>
             </div>
-          ))}
-        </NeumorphicCard>
-      ) : null}
+          </HrPanel>
+        </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <NeumorphicCard className="space-y-3 p-5">
-          <h2 className="text-sm font-semibold">{t("attendanceHr.field.checkIn")}</h2>
-          <p className="text-xs text-muted-foreground">{t("attendanceHr.field.checkInHint")}</p>
-          {ctx.data?.staff ? (
-            <p className="text-sm">
-              {ctx.data.staff.fullName} · {ctx.data.staff.employeeCode}
-            </p>
-          ) : (
-            <p className="text-sm text-muted-foreground">{t("attendanceHr.field.noStaffLink")}</p>
-          )}
-          {pendingSelfie ? (
-            <Badge variant={pendingSelfie.livenessPassed ? "success" : "warning"}>
-              {pendingSelfie.livenessPassed ? t("attendanceHr.field.livenessOk") : t("attendanceHr.field.livenessFail")}
-            </Badge>
-          ) : null}
-          <div className="flex flex-wrap gap-2">
-            <Button disabled={!ctx.data?.staff || checkIn.isPending} onClick={() => checkIn.mutate("check_in")}>
-              {t("attendanceHr.field.checkInBtn")}
-            </Button>
-            <Button variant="secondary" disabled={!ctx.data?.staff || checkIn.isPending} onClick={() => checkIn.mutate("check_out")}>
-              {t("attendanceHr.field.checkOutBtn")}
-            </Button>
-            <Button variant="secondary" disabled={!ctx.data?.staff || checkIn.isPending} onClick={() => checkIn.mutate("ping")}>
-              <Radio className="mr-1 h-4 w-4" />
-              {t("attendanceHr.field.ping")}
-            </Button>
-            <Button variant="secondary" onClick={() => setSelfieOpen(true)}>
-              <ScanFace className="mr-1 h-4 w-4" />
-              {t("attendanceHr.field.selfie")}
-            </Button>
+        <HrPanel delay={3}>
+          <div className="space-y-3 p-4 sm:p-5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold tracking-tight">{t("attendanceHr.field.lastKnown")}</h2>
+              <Button size="sm" variant="secondary" onClick={() => void tracking.refetch()}>
+                <RefreshCw className="mr-1 h-3.5 w-3.5" />
+                {t("attendanceHr.field.refresh")}
+              </Button>
+            </div>
+            {typeof mapLat === "number" && typeof mapLng === "number" ? (
+              <iframe title={t("attendanceHr.field.mapTitle")} className="h-56 w-full rounded-[1.15rem] border border-[var(--hr-border)]" src={osmEmbed(mapLat, mapLng)} />
+            ) : (
+              <HrEmptyState message={t("attendanceHr.field.noPositions")} icon={MapPinned} />
+            )}
+            <div className="hr-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>{t("attendanceHr.field.colStaff")}</th>
+                    <th>{t("attendanceHr.field.colWhere")}</th>
+                    <th>{t("attendanceHr.field.colFence")}</th>
+                    <th>{t("attendanceHr.field.colWhen")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(tracking.data ?? []).map((row) => (
+                    <tr key={row.staffId}>
+                      <td>
+                        {row.staffName ?? "—"}
+                        {row.isRoaming ? (
+                          <Badge variant="info" className="ms-2">
+                            {t("attendanceHr.mapping.multiSite")}
+                          </Badge>
+                        ) : null}
+                      </td>
+                      <td className="text-xs text-muted-foreground">{row.locationLabel ?? `${row.latitude.toFixed(4)}, ${row.longitude.toFixed(4)}`}</td>
+                      <td>
+                        {row.insideGeofence == null ? (
+                          "—"
+                        ) : (
+                          <Badge variant={row.insideGeofence ? "success" : "destructive"}>
+                            {row.insideGeofence ? t("attendanceHr.field.inside") : t("attendanceHr.field.outside")}
+                          </Badge>
+                        )}
+                      </td>
+                      <td className="text-xs">{new Date(row.recordedAt).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </NeumorphicCard>
+        </HrPanel>
 
-        <NeumorphicCard className="space-y-3 p-5">
-          <h2 className="text-sm font-semibold">{t("attendanceHr.field.faceTitle")}</h2>
-          <p className="text-xs text-muted-foreground">{t("attendanceHr.field.faceHint")}</p>
-          <Badge variant={ctx.data?.enrollment.status === "enrolled" ? "success" : "muted"}>
-            {ctx.data?.enrollment.status === "enrolled" ? t("attendanceHr.field.enrolledBadge") : t("attendanceHr.field.notEnrolled")}
-          </Badge>
-          <Button variant="secondary" onClick={() => setEnrollOpen(true)}>
-            {t("attendanceHr.field.enrollFace")}
-          </Button>
-        </NeumorphicCard>
-      </div>
-
-      <NeumorphicCard className="space-y-3 p-5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold">{t("attendanceHr.field.lastKnown")}</h2>
-          <Button size="sm" variant="secondary" onClick={() => void tracking.refetch()}>
-            <RefreshCw className="mr-1 h-3.5 w-3.5" />
-            {t("attendanceHr.field.refresh")}
-          </Button>
-        </div>
-        {typeof mapLat === "number" && typeof mapLng === "number" ? (
-          <iframe title={t("attendanceHr.field.mapTitle")} className="h-56 w-full rounded-2xl border" src={osmEmbed(mapLat, mapLng)} />
-        ) : (
-          <p className="text-sm text-muted-foreground">{t("attendanceHr.field.noPositions")}</p>
-        )}
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="text-xs uppercase text-muted-foreground">
-              <tr>
-                <th className="px-2 py-1 text-left">{t("attendanceHr.field.colStaff")}</th>
-                <th className="px-2 py-1 text-left">{t("attendanceHr.field.colWhere")}</th>
-                <th className="px-2 py-1 text-left">{t("attendanceHr.field.colFence")}</th>
-                <th className="px-2 py-1 text-left">{t("attendanceHr.field.colWhen")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(tracking.data ?? []).map((row) => (
-                <tr key={row.staffId} className="border-t">
-                  <td className="px-2 py-1">
-                    {row.staffName ?? "—"}
-                    {row.isRoaming ? (
-                      <Badge variant="info" className="ml-2">
-                        {t("attendanceHr.mapping.multiSite")}
-                      </Badge>
-                    ) : null}
-                  </td>
-                  <td className="px-2 py-1 text-xs text-muted-foreground">{row.locationLabel ?? `${row.latitude.toFixed(4)}, ${row.longitude.toFixed(4)}`}</td>
-                  <td className="px-2 py-1">
-                    {row.insideGeofence == null ? (
-                      "—"
-                    ) : (
-                      <Badge variant={row.insideGeofence ? "success" : "destructive"}>
-                        {row.insideGeofence ? t("attendanceHr.field.inside") : t("attendanceHr.field.outside")}
-                      </Badge>
-                    )}
-                  </td>
-                  <td className="px-2 py-1 text-xs">{new Date(row.recordedAt).toLocaleString()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </NeumorphicCard>
-
-      <NeumorphicCard className="space-y-3 p-5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold">{t("attendanceHr.field.visitLog")}</h2>
-          <CapabilityGate capability="attendance.approve">
-            <Button variant="secondary" disabled={notify.isPending} onClick={() => notify.mutate()}>
-              {t("attendanceHr.field.notifyDeviations")}
-            </Button>
-          </CapabilityGate>
-        </div>
-        {(events.data ?? []).length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t("attendanceHr.field.noEvents")}</p>
-        ) : (
-          <div className="space-y-2">
-            {(events.data ?? []).slice(0, 20).map((row) => (
-              <div key={row.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border px-3 py-2 text-sm">
-                <div>
-                  <p className="font-medium">
-                    {row.staffName} · {row.eventType}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {row.locationLabel ?? "—"}
-                    {row.distanceMeters != null ? ` · ${row.distanceMeters} m` : ""}
-                    {row.queuedOffline ? ` · ${t("attendanceHr.field.synced")}` : ""}
-                  </p>
-                </div>
-                <Badge variant={row.insideGeofence === false ? "destructive" : row.insideGeofence ? "success" : "muted"}>
-                  {row.insideGeofence == null ? t("attendanceHr.field.noFence") : row.insideGeofence ? t("attendanceHr.field.inside") : t("attendanceHr.field.outside")}
-                </Badge>
+        <HrPanel delay={4}>
+          <div className="space-y-3 p-4 sm:p-5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold tracking-tight">{t("attendanceHr.field.visitLog")}</h2>
+              <CapabilityGate capability="attendance.approve">
+                <Button variant="secondary" disabled={notify.isPending} onClick={() => notify.mutate()}>
+                  {t("attendanceHr.field.notifyDeviations")}
+                </Button>
+              </CapabilityGate>
+            </div>
+            {(events.data ?? []).length === 0 ? (
+              <HrEmptyState message={t("attendanceHr.field.noEvents")} icon={MapPinned} />
+            ) : (
+              <div className="space-y-2">
+                {(events.data ?? []).slice(0, 20).map((row) => (
+                  <div key={row.id} className="hr-list-row text-sm">
+                    <div>
+                      <p className="font-medium">
+                        {row.staffName} · {row.eventType}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {row.locationLabel ?? "—"}
+                        {row.distanceMeters != null ? ` · ${row.distanceMeters} m` : ""}
+                        {row.queuedOffline ? ` · ${t("attendanceHr.field.synced")}` : ""}
+                      </p>
+                    </div>
+                    <Badge variant={row.insideGeofence === false ? "destructive" : row.insideGeofence ? "success" : "muted"}>
+                      {row.insideGeofence == null ? t("attendanceHr.field.noFence") : row.insideGeofence ? t("attendanceHr.field.inside") : t("attendanceHr.field.outside")}
+                    </Badge>
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
-        )}
-      </NeumorphicCard>
+        </HrPanel>
 
-      <AttendanceHrFieldSettings />
+        <AttendanceHrFieldSettings />
 
-      <FaceCaptureDialog
-        open={selfieOpen}
-        onOpenChange={setSelfieOpen}
-        onCaptured={(result) => {
-          setPendingSelfie(result);
-          toast.message(result.livenessPassed ? t("attendanceHr.field.livenessOk") : t("attendanceHr.field.livenessFail"));
-        }}
-      />
-      <FaceCaptureDialog
-        open={enrollOpen}
-        onOpenChange={setEnrollOpen}
-        title={t("attendanceHr.field.enrollFace")}
-        description={t("attendanceHr.field.faceHint")}
-        onCaptured={(result) => {
-          enroll.mutate({ photoBase64: result.dataUrl, livenessPassed: result.livenessPassed });
-        }}
-      />
-    </div>
+        <FaceCaptureDialog
+          open={selfieOpen}
+          onOpenChange={setSelfieOpen}
+          onCaptured={(result) => {
+            setPendingSelfie(result);
+            toast.message(result.livenessPassed ? t("attendanceHr.field.livenessOk") : t("attendanceHr.field.livenessFail"));
+          }}
+        />
+        <FaceCaptureDialog
+          open={enrollOpen}
+          onOpenChange={setEnrollOpen}
+          title={t("attendanceHr.field.enrollFace")}
+          description={t("attendanceHr.field.faceHint")}
+          onCaptured={(result) => {
+            enroll.mutate({ photoBase64: result.dataUrl, livenessPassed: result.livenessPassed });
+          }}
+        />
+      </HrSection>
+    </HrShell>
   );
 }

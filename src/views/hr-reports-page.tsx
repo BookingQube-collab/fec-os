@@ -7,8 +7,11 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
-import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
-import { PageHeader } from "@/components/layout/page-header";
+import { HrEmptyState } from "@/components/hr/hr-empty-state";
+import { HrKpiTile } from "@/components/hr/hr-kpi-tile";
+import { HrPanel } from "@/components/hr/hr-panel";
+import { HrSection } from "@/components/hr/hr-section";
+import { HrShell } from "@/components/hr/hr-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -37,101 +40,103 @@ export default function HrReportsPage() {
     staleTime: STALE.people,
   });
 
+  const metrics = [
+    { key: "leaveDays", value: report.data?.leaveDaysInPeriod ?? "—", tone: "mustard" as const, span: "wide" as const },
+    { key: "syncedLeave", value: report.data?.syncedLeaveDays ?? "—", tone: "ok" as const, span: "default" as const },
+    { key: "leaveStatusDays", value: report.data?.attendance.leaveStatusDays ?? "—", tone: "cream" as const, span: "default" as const },
+    { key: "presentDays", value: report.data?.attendance.presentDays ?? "—", tone: "charcoal" as const, span: "tall" as const },
+    { key: "absentDays", value: report.data?.attendance.absentDays ?? "—", tone: "alert" as const, span: "default" as const },
+    { key: "otHours", value: report.data?.attendance.overtimeHours ?? "—", tone: "info" as const, span: "default" as const },
+    { key: "expiringDocs", value: report.data?.expiringDocs ?? "—", tone: "mustard" as const, span: "wide" as const },
+  ];
+
   return (
     <CapabilityGate
       capability="hr.manage"
-      fallback={<p className="rounded-2xl border border-dashed p-8 text-sm text-muted-foreground">{t("hr.reports.noAccess")}</p>}
+      fallback={
+        <HrShell>
+          <HrPanel>
+            <HrEmptyState message={t("hr.reports.noAccess")} />
+          </HrPanel>
+        </HrShell>
+      }
     >
-      <div className="space-y-6">
-        <PageHeader
+      <HrShell>
+        <HrSection
           icon={FileBarChart}
           kicker={t("hr.reports.kicker")}
           title={t("hr.reports.title")}
           subtitle={t("hr.reports.subtitle", { range: formatPayrollRange(dateFrom, dateTo, i18n.language) })}
-        />
-
-        <NeumorphicCard className="grid gap-3 p-5 sm:grid-cols-3">
-          <div>
-            <Label>{t("hr.payroll.month")}</Label>
-            <Input
-              type="month"
-              value={month}
-              onChange={(e) => setPeriod({ month: e.target.value, ...monthBounds(e.target.value) })}
-            />
-          </div>
-          <div>
-            <Label>{t("hr.payroll.location")}</Label>
-            <Select value={locationId} onValueChange={setLocationId}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t("common.allBranches")}</SelectItem>
-                {(sites ?? []).map((s) => (
-                  <SelectItem key={s.id} value={s.id}>
-                    {formatLocationLabel(s.code, s.name)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex flex-wrap items-end gap-2">
-            <Button asChild size="sm">
-              <a href={report.data?.payrollExportHref ?? "#"}>{t("hr.reports.payrollWorkbook")}</a>
-            </Button>
-            <Button asChild size="sm" variant="secondary">
-              <Link href={report.data?.attendanceReportsHref ?? "/people/attendance/reports"}>
-                {t("hr.reports.attendanceLink")}
-              </Link>
-            </Button>
-          </div>
-        </NeumorphicCard>
-
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <NeumorphicCard className="p-4">
-            <p className="text-xs text-muted-foreground">{t("hr.reports.leaveDays")}</p>
-            <p className="text-2xl font-semibold tabular-nums">{report.data?.leaveDaysInPeriod ?? "—"}</p>
-          </NeumorphicCard>
-          <NeumorphicCard className="p-4">
-            <p className="text-xs text-muted-foreground">{t("hr.reports.syncedLeave")}</p>
-            <p className="text-2xl font-semibold tabular-nums">{report.data?.syncedLeaveDays ?? "—"}</p>
-          </NeumorphicCard>
-          <NeumorphicCard className="p-4">
-            <p className="text-xs text-muted-foreground">{t("hr.reports.leaveStatusDays")}</p>
-            <p className="text-2xl font-semibold tabular-nums">{report.data?.attendance.leaveStatusDays ?? "—"}</p>
-          </NeumorphicCard>
-          <NeumorphicCard className="p-4">
-            <p className="text-xs text-muted-foreground">{t("hr.reports.presentDays")}</p>
-            <p className="text-2xl font-semibold tabular-nums">{report.data?.attendance.presentDays ?? "—"}</p>
-          </NeumorphicCard>
-          <NeumorphicCard className="p-4">
-            <p className="text-xs text-muted-foreground">{t("hr.reports.absentDays")}</p>
-            <p className="text-2xl font-semibold tabular-nums">{report.data?.attendance.absentDays ?? "—"}</p>
-          </NeumorphicCard>
-          <NeumorphicCard className="p-4">
-            <p className="text-xs text-muted-foreground">{t("hr.reports.otHours")}</p>
-            <p className="text-2xl font-semibold tabular-nums">{report.data?.attendance.overtimeHours ?? "—"}</p>
-          </NeumorphicCard>
-          <NeumorphicCard className="p-4">
-            <p className="text-xs text-muted-foreground">{t("hr.reports.expiringDocs")}</p>
-            <p className="text-2xl font-semibold tabular-nums">{report.data?.expiringDocs ?? "—"}</p>
-          </NeumorphicCard>
-        </div>
-
-        <NeumorphicCard className="space-y-2 p-5">
-          <h2 className="text-sm font-semibold">{t("hr.reports.headcountBySite")}</h2>
-          {(report.data?.headcountBySite ?? []).length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t("hr.reports.empty")}</p>
-          ) : (
-            (report.data?.headcountBySite ?? []).map((row) => (
-              <div key={row.locationId ?? "none"} className="flex items-center justify-between rounded-xl border px-3 py-2 text-sm">
-                <span>{row.label}</span>
-                <span className="font-semibold tabular-nums">{row.headcount}</span>
+        >
+          <HrPanel delay={0}>
+            <div className="grid gap-3 p-4 sm:grid-cols-3 sm:p-5">
+              <div>
+                <Label>{t("hr.payroll.month")}</Label>
+                <Input
+                  type="month"
+                  value={month}
+                  onChange={(e) => setPeriod({ month: e.target.value, ...monthBounds(e.target.value) })}
+                />
               </div>
-            ))
-          )}
-        </NeumorphicCard>
-      </div>
+              <div>
+                <Label>{t("hr.payroll.location")}</Label>
+                <Select value={locationId} onValueChange={setLocationId}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{t("common.allBranches")}</SelectItem>
+                    {(sites ?? []).map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {formatLocationLabel(s.code, s.name)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-wrap items-end gap-2">
+                <Button asChild size="sm">
+                  <a href={report.data?.payrollExportHref ?? "#"}>{t("hr.reports.payrollWorkbook")}</a>
+                </Button>
+                <Button asChild size="sm" variant="secondary">
+                  <Link href={report.data?.attendanceReportsHref ?? "/people/attendance/reports"}>
+                    {t("hr.reports.attendanceLink")}
+                  </Link>
+                </Button>
+              </div>
+            </div>
+          </HrPanel>
+
+          <div className="hr-kpi-grid">
+            {metrics.map((m, i) => (
+              <HrKpiTile
+                key={m.key}
+                label={t(`hr.reports.${m.key}`)}
+                value={m.value}
+                tone={m.tone}
+                span={m.span}
+                delay={i + 1}
+              />
+            ))}
+          </div>
+
+          <HrPanel delay={metrics.length + 1}>
+            <div className="space-y-2 p-4 sm:p-5">
+              <h2 className="text-sm font-semibold tracking-tight">{t("hr.reports.headcountBySite")}</h2>
+              {(report.data?.headcountBySite ?? []).length === 0 ? (
+                <HrEmptyState message={t("hr.reports.empty")} icon={FileBarChart} />
+              ) : (
+                (report.data?.headcountBySite ?? []).map((row) => (
+                  <div key={row.locationId ?? "none"} className="hr-list-row text-sm">
+                    <span>{row.label}</span>
+                    <span className="font-semibold tabular-nums tracking-tight">{row.headcount}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </HrPanel>
+        </HrSection>
+      </HrShell>
     </CapabilityGate>
   );
 }

@@ -8,6 +8,7 @@ import { toast } from "sonner";
 
 import { FaceCaptureDialog } from "@/components/attendance-hr/face-capture-dialog";
 import { queueOrSubmitFieldCheckIn } from "@/components/attendance-hr/hr-field-sync";
+import { HrShell } from "@/components/hr/hr-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -235,36 +236,40 @@ export default function EmployeeMePage() {
   });
 
   return (
+    <HrShell className="mx-auto max-w-lg px-1">
     <div className="space-y-4">
       {!installDismissed ? (
-        <section className="rounded-2xl border border-primary/30 bg-primary/5 p-4 text-sm">
-          <p className="font-semibold">{t("hr.me.installTitle")}</p>
-          <p className="mt-1 text-muted-foreground">
-            {ios ? t("hr.me.installIos") : t("hr.me.installAndroid")}
-          </p>
-          <div className="mt-2 flex gap-2">
-            <Button size="sm" variant="secondary" onClick={() => setInstallDismissed(true)}>
-              {t("hr.me.installDismiss")}
-            </Button>
-            {ios ? (
-              <p className="flex items-center gap-1 text-xs text-muted-foreground">
-                <Share className="h-3.5 w-3.5" />
-                {t("hr.me.shareHint")}
-              </p>
-            ) : null}
+        <section className="hr-notice hr-enter text-sm">
+          <div>
+            <p className="font-semibold tracking-tight">{t("hr.me.installTitle")}</p>
+            <p className="mt-1 text-muted-foreground">
+              {ios ? t("hr.me.installIos") : t("hr.me.installAndroid")}
+            </p>
+            <div className="mt-2 flex gap-2">
+              <Button size="sm" variant="secondary" onClick={() => setInstallDismissed(true)}>
+                {t("hr.me.installDismiss")}
+              </Button>
+              {ios ? (
+                <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <Share className="h-3.5 w-3.5" />
+                  {t("hr.me.shareHint")}
+                </p>
+              ) : null}
+            </div>
           </div>
         </section>
       ) : null}
 
       {!online ? (
-        <p className="flex items-center gap-2 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
+        <p className="flex items-center gap-2 rounded-[1.25rem] border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
           <WifiOff className="h-4 w-4" />
           {t("attendanceHr.field.offlineBanner")}
         </p>
       ) : null}
 
-      <section className="rounded-2xl border bg-card p-4">
-        <h1 className="text-base font-semibold">{ctx.data?.staff?.fullName ?? t("hr.me.unlinked")}</h1>
+      <section className="hr-panel-shell hr-enter">
+        <div className="hr-panel p-4">
+        <h1 className="text-lg font-semibold tracking-tight">{ctx.data?.staff?.fullName ?? t("hr.me.unlinked")}</h1>
         <p className="text-xs text-muted-foreground">{ctx.data?.staff?.employeeCode}</p>
         {lastDay ? (
           <p className="mt-2 text-sm">
@@ -297,13 +302,15 @@ export default function EmployeeMePage() {
             {t("attendanceHr.field.enrollFace")}
           </Button>
         </div>
+        </div>
       </section>
 
       {queue.length > 0 ? (
-        <section className="rounded-2xl border p-4">
-          <h2 className="text-sm font-semibold">{t("attendanceHr.field.pendingSync")}</h2>
+        <section className="hr-panel-shell">
+          <div className="hr-panel space-y-2 p-4">
+          <h2 className="text-sm font-semibold tracking-tight">{t("attendanceHr.field.pendingSync")}</h2>
           {queue.map((item) => (
-            <div key={item.clientEventId} className="mt-2 flex items-center justify-between text-sm">
+            <div key={item.clientEventId} className="flex items-center justify-between text-sm">
               <span>
                 {item.payload.eventType} · {new Date(item.queuedAt).toLocaleString()}
               </span>
@@ -312,36 +319,42 @@ export default function EmployeeMePage() {
               </Button>
             </div>
           ))}
+          </div>
         </section>
       ) : null}
 
-      <section className="rounded-2xl border p-4">
-        <h2 className="text-sm font-semibold">{t("hr.me.myAttendance")}</h2>
+      <section className="hr-panel-shell">
+        <div className="hr-panel p-4">
+        <h2 className="text-sm font-semibold tracking-tight">{t("hr.me.myAttendance")}</h2>
         <p className="text-xs text-muted-foreground">
           {attendance.data ? `${attendance.data.dateFrom} → ${attendance.data.dateTo}` : t("common.loading")}
         </p>
         <div className="mt-2 space-y-2">
           {(attendance.data?.rows ?? []).map((row) => (
-            <div key={row.id} className="rounded-xl border px-3 py-2 text-sm">
-              <div className="flex justify-between gap-2">
-                <span>{formatWorkDateDdMmYyyy(row.workDate)}</span>
-                <Badge variant={row.missedPunch ? "destructive" : "muted"}>{row.status}</Badge>
+            <div key={row.id} className="hr-list-row !py-2 text-sm">
+              <div className="min-w-0 flex-1">
+                <div className="flex justify-between gap-2">
+                  <span>{formatWorkDateDdMmYyyy(row.workDate)}</span>
+                  <Badge variant={row.missedPunch ? "destructive" : "muted"}>{row.status}</Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {row.locationLabel} · {formatPunchTime12h(row.actualIn) || "—"} – {formatPunchTime12h(row.actualOut) || "—"} ·{" "}
+                  {formatHoursValue(computeHoursWorked(row.actualIn, row.actualOut))}h
+                </p>
               </div>
-              <p className="text-xs text-muted-foreground">
-                {row.locationLabel} · {formatPunchTime12h(row.actualIn) || "—"} – {formatPunchTime12h(row.actualOut) || "—"} ·{" "}
-                {formatHoursValue(computeHoursWorked(row.actualIn, row.actualOut))}h
-              </p>
             </div>
           ))}
         </div>
+        </div>
       </section>
 
-      <section className="rounded-2xl border p-4 space-y-3">
-        <h2 className="text-sm font-semibold">{t("hr.leave.requestTitle")}</h2>
+      <section className="hr-panel-shell">
+        <div className="hr-panel space-y-3 p-4">
+        <h2 className="text-sm font-semibold tracking-tight">{t("hr.leave.requestTitle")}</h2>
         {(balances.data?.balances ?? []).length > 0 ? (
           <div className="grid grid-cols-2 gap-2 text-xs">
             {balances.data!.balances.slice(0, 4).map((b) => (
-              <div key={b.leaveType} className="rounded-xl border px-2 py-1.5">
+              <div key={b.leaveType} className="rounded-xl border border-[var(--hr-border)] bg-white/70 px-2 py-1.5">
                 <p className="font-medium">{t(`hr.leave.types.${b.leaveType}`)}</p>
                 <p className="text-muted-foreground">
                   {t("hr.leave.remaining", { remaining: b.remainingDays, allotted: b.allottedDays, used: b.usedDays })}
@@ -361,7 +374,7 @@ export default function EmployeeMePage() {
           </div>
         </div>
         <select
-          className="h-10 w-full rounded-full border bg-background px-3 text-sm"
+          className="h-10 w-full rounded-xl border bg-background px-3 text-sm"
           value={leaveType}
           onChange={(e) => setLeaveType(e.target.value as (typeof HR_LEAVE_TYPES)[number])}
         >
@@ -408,28 +421,32 @@ export default function EmployeeMePage() {
             ) : null}
           </div>
         ))}
+        </div>
       </section>
 
       {(announcements.data ?? []).length > 0 ? (
-        <section className="rounded-2xl border p-4">
-          <h2 className="text-sm font-semibold">{t("hr.me.announcements")}</h2>
+        <section className="hr-panel-shell">
+          <div className="hr-panel p-4">
+          <h2 className="text-sm font-semibold tracking-tight">{t("hr.me.announcements")}</h2>
           <ul className="mt-2 space-y-2">
             {(announcements.data ?? []).slice(0, 5).map((a) => (
-              <li key={a.id} className="rounded-xl border px-3 py-2 text-sm">
+              <li key={a.id} className="hr-list-row !items-start flex-col text-sm">
                 <p className="font-medium">{a.title}</p>
                 <p className="whitespace-pre-wrap text-xs text-muted-foreground">{a.body}</p>
               </li>
             ))}
           </ul>
+          </div>
         </section>
       ) : null}
 
-      <section className="rounded-2xl border p-4">
-        <h2 className="text-sm font-semibold">{t("hr.me.myDocuments")}</h2>
-        <div className="mt-3 space-y-2 rounded-xl border border-dashed p-3">
+      <section className="hr-panel-shell">
+        <div className="hr-panel p-4">
+        <h2 className="text-sm font-semibold tracking-tight">{t("hr.me.myDocuments")}</h2>
+        <div className="mt-3 space-y-2 rounded-xl border border-dashed border-[var(--hr-border)] p-3">
           <p className="text-xs text-muted-foreground">{t("hr.me.uploadHint")}</p>
           <select
-            className="h-10 w-full rounded-full border bg-background px-3 text-sm"
+            className="h-10 w-full rounded-xl border bg-background px-3 text-sm"
             value={docType}
             onChange={(e) => setDocType(e.target.value as (typeof HR_DOC_TYPES)[number])}
           >
@@ -454,7 +471,7 @@ export default function EmployeeMePage() {
         ) : (
           <ul className="mt-2 space-y-2">
             {(myDocs.data ?? []).map((doc) => (
-              <li key={doc.id} className="flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm">
+              <li key={doc.id} className="hr-list-row text-sm">
                 <span>
                   {t(`hr.docs.types.${doc.docType}`)}
                   {doc.expiryDate ? ` · ${doc.expiryDate}` : ""}
@@ -466,22 +483,25 @@ export default function EmployeeMePage() {
             ))}
           </ul>
         )}
+        </div>
       </section>
 
-      <section className="rounded-2xl border p-4">
-        <h2 className="text-sm font-semibold">{t("hr.me.notifications")}</h2>
+      <section className="hr-panel-shell">
+        <div className="hr-panel p-4">
+        <h2 className="text-sm font-semibold tracking-tight">{t("hr.me.notifications")}</h2>
         {(notes.data ?? []).length === 0 ? (
           <p className="mt-2 text-sm text-muted-foreground">{t("hr.me.noNotifications")}</p>
         ) : (
           <ul className="mt-2 space-y-2">
             {(notes.data ?? []).map((n) => (
-              <li key={n.id} className="rounded-xl border px-3 py-2 text-sm">
+              <li key={n.id} className="hr-list-row !items-start flex-col text-sm">
                 <p className="font-medium">{n.title}</p>
                 <p className="text-xs text-muted-foreground">{n.body}</p>
               </li>
             ))}
           </ul>
         )}
+        </div>
       </section>
 
       <FaceCaptureDialog
@@ -502,5 +522,6 @@ export default function EmployeeMePage() {
         }}
       />
     </div>
+    </HrShell>
   );
 }

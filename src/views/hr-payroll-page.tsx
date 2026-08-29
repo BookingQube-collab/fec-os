@@ -7,8 +7,11 @@ import { Banknote, ClipboardCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
-import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
-import { PageHeader } from "@/components/layout/page-header";
+import { HrEmptyState } from "@/components/hr/hr-empty-state";
+import { HrKpiTile } from "@/components/hr/hr-kpi-tile";
+import { HrPanel } from "@/components/hr/hr-panel";
+import { HrSection } from "@/components/hr/hr-section";
+import { HrShell } from "@/components/hr/hr-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -73,122 +76,140 @@ export default function HrPayrollPage() {
     <CapabilityGate
       capability="payroll.view"
       fallback={
-        <p className="rounded-2xl border border-dashed p-8 text-sm text-muted-foreground">{t("hr.payroll.noAccess")}</p>
+        <HrShell>
+          <HrPanel>
+            <HrEmptyState message={t("hr.payroll.noAccess")} />
+          </HrPanel>
+        </HrShell>
       }
     >
-      <div className="space-y-6">
-        <PageHeader
+      <HrShell>
+        <HrSection
           icon={Banknote}
           kicker={t("hr.payroll.kicker")}
           title={t("hr.payroll.title")}
           subtitle={t("hr.payroll.subtitle", { range: formatPayrollRange(dateFrom, dateTo, i18n.language) })}
-        />
+        >
+          <HrPanel delay={0}>
+            <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-4">
+              <div>
+                <Label htmlFor="hr-payroll-month">{t("hr.payroll.month")}</Label>
+                <Input
+                  id="hr-payroll-month"
+                  type="month"
+                  value={month}
+                  onChange={(e) => setPeriod({ month: e.target.value, ...monthBounds(e.target.value) })}
+                />
+              </div>
+              <div>
+                <Label>{t("hr.payroll.location")}</Label>
+                <Select value={locationId} onValueChange={setLocationId}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{t("common.allBranches")}</SelectItem>
+                    {(sites ?? []).map((site) => (
+                      <SelectItem key={site.id} value={site.id}>
+                        {formatLocationLabel(site.code, site.name)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-end gap-2 lg:col-span-2">
+                <Button asChild>
+                  <a href={exportHref}>{t("hr.payroll.export")}</a>
+                </Button>
+                <Button variant="secondary" asChild>
+                  <Link href="/people/attendance/corrections">
+                    <ClipboardCheck className="mr-1 h-4 w-4" />
+                    {t("hr.payroll.corrections")}
+                  </Link>
+                </Button>
+              </div>
+            </div>
+          </HrPanel>
 
-        <NeumorphicCard className="grid gap-3 p-5 sm:grid-cols-2 lg:grid-cols-4">
-          <div>
-            <Label htmlFor="hr-payroll-month">{t("hr.payroll.month")}</Label>
-            <Input
-              id="hr-payroll-month"
-              type="month"
-              value={month}
-              onChange={(e) => setPeriod({ month: e.target.value, ...monthBounds(e.target.value) })}
+          {otHint ? (
+            <HrPanel delay={1}>
+              <div className="hr-notice">
+                <div className="min-w-0">
+                  <p className="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    {t("hr.payroll.otPolicy")}
+                  </p>
+                  <p className="mt-1 text-sm font-medium">{otHint}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{t("hr.payroll.otPolicyHint")}</p>
+                </div>
+              </div>
+            </HrPanel>
+          ) : null}
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <HrKpiTile
+              label={t("hr.payroll.ready")}
+              value={payroll.data?.readyCount ?? ready.length}
+              tone="ok"
+              delay={2}
+            />
+            <HrKpiTile
+              label={t("hr.payroll.blocked")}
+              value={payroll.data?.blockedCount ?? blocked.length}
+              tone="alert"
+              delay={3}
             />
           </div>
-          <div>
-            <Label>{t("hr.payroll.location")}</Label>
-            <Select value={locationId} onValueChange={setLocationId}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t("common.allBranches")}</SelectItem>
-                {(sites ?? []).map((site) => (
-                  <SelectItem key={site.id} value={site.id}>
-                    {formatLocationLabel(site.code, site.name)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-end gap-2">
-            <Button asChild>
-              <a href={exportHref}>{t("hr.payroll.export")}</a>
-            </Button>
-            <Button variant="secondary" asChild>
-              <Link href="/people/attendance/corrections">
-                <ClipboardCheck className="mr-1 h-4 w-4" />
-                {t("hr.payroll.corrections")}
-              </Link>
-            </Button>
-          </div>
-        </NeumorphicCard>
 
-        {otHint ? (
-          <NeumorphicCard className="p-4 text-sm">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">{t("hr.payroll.otPolicy")}</p>
-            <p className="mt-1">{otHint}</p>
-            <p className="mt-1 text-xs text-muted-foreground">{t("hr.payroll.otPolicyHint")}</p>
-          </NeumorphicCard>
-        ) : null}
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <NeumorphicCard className="p-5">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">{t("hr.payroll.ready")}</p>
-            <p className="mt-1 text-2xl font-semibold">{payroll.data?.readyCount ?? ready.length}</p>
-          </NeumorphicCard>
-          <NeumorphicCard className="p-5">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">{t("hr.payroll.blocked")}</p>
-            <p className="mt-1 text-2xl font-semibold">{payroll.data?.blockedCount ?? blocked.length}</p>
-          </NeumorphicCard>
-        </div>
-
-        <NeumorphicCard className="overflow-x-auto p-0">
-          <table className="w-full text-sm">
-            <thead className="text-xs uppercase text-muted-foreground">
-              <tr>
-                <th className="px-3 py-2 text-left">{t("hr.payroll.colStaff")}</th>
-                <th className="px-3 py-2 text-left">{t("hr.payroll.colLocation")}</th>
-                <th className="px-3 py-2 text-left">{t("hr.payroll.colPresent")}</th>
-                <th className="px-3 py-2 text-left">{t("hr.payroll.colMissed")}</th>
-                <th className="px-3 py-2 text-left">{t("hr.payroll.colOt")}</th>
-                <th className="px-3 py-2 text-left">{t("hr.payroll.colStatus")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">
-                    {t("hr.payroll.empty")}
-                  </td>
-                </tr>
-              ) : (
-                rows.map((row) => (
-                  <tr key={row.staffId} className="border-t">
-                    <td className="px-3 py-2">
-                      <p className="font-medium">{row.staffName}</p>
-                      <p className="text-xs text-muted-foreground">{row.employeeCode}</p>
-                    </td>
-                    <td className="px-3 py-2 text-xs">{row.locationLabel ?? "—"}</td>
-                    <td className="px-3 py-2 tabular-nums">{row.daysPresent}</td>
-                    <td className="px-3 py-2 tabular-nums">{row.missedPunches}</td>
-                    <td className="px-3 py-2 tabular-nums">{Math.round((row.overtimeMinutes / 60) * 100) / 100}</td>
-                    <td className="px-3 py-2">
-                      <Badge variant={row.payrollReady ? "success" : "destructive"}>
-                        {row.payrollReady ? t("hr.payroll.readyBadge") : t("hr.payroll.blockedBadge")}
-                      </Badge>
-                      {!row.payrollReady ? (
-                        <Link href="/people/attendance/corrections" className="ml-2 text-xs underline">
-                          {t("hr.payroll.fix")}
-                        </Link>
-                      ) : null}
-                    </td>
+          <HrPanel flat delay={4} className="overflow-hidden">
+            <div className="hr-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>{t("hr.payroll.colStaff")}</th>
+                    <th>{t("hr.payroll.colLocation")}</th>
+                    <th>{t("hr.payroll.colPresent")}</th>
+                    <th>{t("hr.payroll.colMissed")}</th>
+                    <th>{t("hr.payroll.colOt")}</th>
+                    <th>{t("hr.payroll.colStatus")}</th>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </NeumorphicCard>
-      </div>
+                </thead>
+                <tbody>
+                  {rows.length === 0 ? (
+                    <tr>
+                      <td colSpan={6}>
+                        <HrEmptyState message={t("hr.payroll.empty")} icon={Banknote} />
+                      </td>
+                    </tr>
+                  ) : (
+                    rows.map((row) => (
+                      <tr key={row.staffId}>
+                        <td>
+                          <p className="font-medium">{row.staffName}</p>
+                          <p className="text-xs text-muted-foreground">{row.employeeCode}</p>
+                        </td>
+                        <td className="text-xs">{row.locationLabel ?? "—"}</td>
+                        <td className="tabular-nums">{row.daysPresent}</td>
+                        <td className="tabular-nums">{row.missedPunches}</td>
+                        <td className="tabular-nums">{Math.round((row.overtimeMinutes / 60) * 100) / 100}</td>
+                        <td>
+                          <Badge variant={row.payrollReady ? "success" : "destructive"}>
+                            {row.payrollReady ? t("hr.payroll.readyBadge") : t("hr.payroll.blockedBadge")}
+                          </Badge>
+                          {!row.payrollReady ? (
+                            <Link href="/people/attendance/corrections" className="ms-2 text-xs underline underline-offset-2">
+                              {t("hr.payroll.fix")}
+                            </Link>
+                          ) : null}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </HrPanel>
+        </HrSection>
+      </HrShell>
     </CapabilityGate>
   );
 }
