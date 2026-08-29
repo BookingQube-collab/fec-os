@@ -130,8 +130,11 @@ export default function StaffProfilePage() {
   });
 
   const enrollMut = useMutation({
-    mutationFn: (payload: { photoBase64: string; livenessPassed: boolean }) =>
-      saveStaffFaceEnrollment({ staffId: id, ...payload }),
+    mutationFn: async (payload: { photoBase64: string; livenessPassed: boolean }) => {
+      const result = await saveStaffFaceEnrollment({ staffId: id, ...payload });
+      if (!result.ok) throw new Error(result.error);
+      return result.data;
+    },
     onSuccess: () => {
       toast.success(t("attendanceHr.field.enrolled"));
       void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });

@@ -5460,6 +5460,7 @@
       "enrolledBadge": "Enrolled",
       "notEnrolled": "Not enrolled",
       "enrollFace": "Enroll face",
+      "enrollNeedStaff": "Link this login to a staff row before enrolling a face. Admins can still view tracking without a staff link.",
       "enrolled": "Face photo enrolled.",
       "lastKnown": "Last known positions",
       "refresh": "Refresh",

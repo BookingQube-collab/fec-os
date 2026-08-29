@@ -128,13 +128,27 @@ export default function AttendanceHrFieldPage() {
   });
 
   const enroll = useMutation({
-    mutationFn: saveStaffFaceEnrollment,
+    mutationFn: async (payload: { photoBase64: string; livenessPassed: boolean }) => {
+      const result = await saveStaffFaceEnrollment(payload);
+      if (!result.ok) throw new Error(result.error);
+      return result.data;
+    },
     onSuccess: () => {
       toast.success(t("attendanceHr.field.enrolled"));
       invalidate();
     },
     onError: (e: Error) => toast.error(e.message),
   });
+
+  const canEnrollSelf = Boolean(ctx.data?.staff?.id);
+
+  function openEnroll() {
+    if (!canEnrollSelf) {
+      toast.error(t("attendanceHr.field.enrollNeedStaff"));
+      return;
+    }
+    setEnrollOpen(true);
+  }
 
   const notify = useMutation({
     mutationFn: () => notifyAttendanceDeviations({ locationId: locationId || null, dateFrom: from, dateTo: to }),
@@ -220,10 +234,13 @@ export default function AttendanceHrFieldPage() {
             <div className="space-y-3 p-4 sm:p-5">
               <h2 className="text-sm font-semibold tracking-tight">{t("attendanceHr.field.faceTitle")}</h2>
               <p className="text-xs text-muted-foreground">{t("attendanceHr.field.faceHint")}</p>
-              <Badge variant={ctx.data?.enrollment.status === "enrolled" ? "success" : "muted"}>
-                {ctx.data?.enrollment.status === "enrolled" ? t("attendanceHr.field.enrolledBadge") : t("attendanceHr.field.notEnrolled")}
+              <Badge variant={ctx.data?.enrollment?.status === "enrolled" ? "success" : "muted"}>
+                {ctx.data?.enrollment?.status === "enrolled" ? t("attendanceHr.field.enrolledBadge") : t("attendanceHr.field.notEnrolled")}
               </Badge>
-              <Button variant="secondary" onClick={() => setEnrollOpen(true)}>
+              {!canEnrollSelf ? (
+                <p className="text-sm text-muted-foreground">{t("attendanceHr.field.enrollNeedStaff")}</p>
+              ) : null}
+              <Button variant="secondary" disabled={!canEnrollSelf || enroll.isPending} onClick={openEnroll}>
                 {t("attendanceHr.field.enrollFace")}
               </Button>
             </div>

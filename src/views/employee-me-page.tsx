@@ -166,13 +166,27 @@ export default function EmployeeMePage() {
   });
 
   const enroll = useMutation({
-    mutationFn: saveStaffFaceEnrollment,
+    mutationFn: async (payload: { photoBase64: string; livenessPassed: boolean }) => {
+      const result = await saveStaffFaceEnrollment(payload);
+      if (!result.ok) throw new Error(result.error);
+      return result.data;
+    },
     onSuccess: () => {
       toast.success(t("attendanceHr.field.enrolled"));
       invalidate();
     },
     onError: (e: Error) => toast.error(e.message),
   });
+
+  const canEnrollSelf = Boolean(ctx.data?.staff?.id);
+
+  function openEnroll() {
+    if (!canEnrollSelf) {
+      toast.error(t("attendanceHr.field.enrollNeedStaff"));
+      return;
+    }
+    setEnrollOpen(true);
+  }
 
   const askLeave = useMutation({
     mutationFn: (acknowledgeConflicts?: boolean) =>
@@ -294,14 +308,17 @@ export default function EmployeeMePage() {
             {t("attendanceHr.field.selfie")}
           </Button>
         </div>
-        <div className="mt-3 flex items-center justify-between">
-          <Badge variant={ctx.data?.enrollment.status === "enrolled" ? "success" : "muted"}>
-            {ctx.data?.enrollment.status === "enrolled" ? t("attendanceHr.field.enrolledBadge") : t("attendanceHr.field.notEnrolled")}
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <Badge variant={ctx.data?.enrollment?.status === "enrolled" ? "success" : "muted"}>
+            {ctx.data?.enrollment?.status === "enrolled" ? t("attendanceHr.field.enrolledBadge") : t("attendanceHr.field.notEnrolled")}
           </Badge>
-          <Button size="sm" variant="ghost" onClick={() => setEnrollOpen(true)}>
+          <Button size="sm" variant="ghost" disabled={!canEnrollSelf || enroll.isPending} onClick={openEnroll}>
             {t("attendanceHr.field.enrollFace")}
           </Button>
         </div>
+        {!canEnrollSelf ? (
+          <p className="mt-2 text-xs text-muted-foreground">{t("attendanceHr.field.enrollNeedStaff")}</p>
+        ) : null}
         </div>
       </section>
 

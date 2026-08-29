@@ -88,6 +88,9 @@ export function FaceCaptureDialog({
     setReady(false);
     void (async () => {
       try {
+        if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+          throw new DOMException("Camera API unavailable", "NotFoundError");
+        }
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: { ideal: "user" }, width: { ideal: 640 }, height: { ideal: 480 } },
           audio: false,

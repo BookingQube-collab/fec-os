@@ -3,7 +3,12 @@
 import { z } from "zod";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { createAuthenticatedAction, createAuthenticatedActionNoInput, type AuthContext } from "@/lib/server/create-action";
+import {
+  createAuthenticatedAction,
+  createAuthenticatedActionNoInput,
+  createSafeAuthenticatedAction,
+  type AuthContext,
+} from "@/lib/server/create-action";
 import { ForbiddenError, assertLocationAccess } from "@/lib/server/authorize";
 import { canUserDo } from "@/lib/rbac";
 import { DEFAULT_GEOFENCE_RADIUS_METERS, evaluateGeofence, pickNearestFence, SITE_GEOFENCE_DEFAULTS } from "@/lib/attendance-hr/geofence";
@@ -13,6 +18,7 @@ import { aggregatePayrollRows, type PayrollDayInput } from "@/lib/attendance-hr/
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { DEFAULT_RULES } from "@/lib/attendance-hr/constants";
 import { resolveSelfStaffId } from "@/lib/attendance-hr/self-staff";
+import { resolveFaceEnrollmentTarget } from "@/lib/attendance-hr/face-enrollment";
 
 const FACE_BUCKET = "staff-faces";
 
@@ -308,7 +314,13 @@ async function storeFacePhoto(path: string, dataUrl: string) {
     contentType,
     upsert: true,
   });
-  if (error) throw error;
+  if (error) {
+    const msg = error.message || "Storage upload failed";
+    if (/bucket|not found|does not exist/i.test(msg)) {
+      throw new Error("Face photo storage bucket is missing. Apply the HR field attendance migration.");
+    }
+    throw new Error(msg);
+  }
   return path;
 }
 
@@ -452,7 +464,10 @@ export const getStaffFaceEnrollment = createAuthenticatedAction(
       .select("staff_id, status, enrolled_at, liveness_passed, storage_path")
       .eq("staff_id", staffId)
       .maybeSingle();
-    if (error && !tableMissing(error.message)) throw error;
+    if (error && !tableMissing(error.message)) {
+      // Soft-fail so profile / field UIs do not surface Next.js RSC digest toasts.
+      return { staffId, status: "none" as const, enrolledAt: null, livenessPassed: false, hasPhoto: false };
+    }
     return {
       staffId,
       status: row?.status === "enrolled" ? ("enrolled" as const) : row?.status === "revoked" ? ("revoked" as const) : ("none" as const),
@@ -464,7 +479,8 @@ export const getStaffFaceEnrollment = createAuthenticatedAction(
   { auth: { anyCapability: ["attendance.view", "hr.employee_app"] } },
 );
 
-export const saveStaffFaceEnrollment = createAuthenticatedAction(
+/** Safe action: never throws across the wire (avoids Next.js production RSC digest toasts). */
+export const saveStaffFaceEnrollment = createSafeAuthenticatedAction(
   z.object({
     staffId: z.string().uuid().nullable().optional(),
     photoBase64: z.string().max(1_400_000),
@@ -472,14 +488,37 @@ export const saveStaffFaceEnrollment = createAuthenticatedAction(
   }),
   async (data, context) => {
     const mine = await myStaff(context);
-    const staffId = data.staffId ?? mine?.id ?? null;
-    if (!staffId) throw new ForbiddenError("No staff record to enroll.");
-    const editingOther = Boolean(data.staffId && data.staffId !== mine?.id);
-    if (editingOther && !canUserDo(context.roles ?? [], "attendance.configure") && !canUserDo(context.roles ?? [], "people.edit_roster")) {
+    const canEnrollOthers =
+      canUserDo(context.roles ?? [], "attendance.configure") || canUserDo(context.roles ?? [], "people.edit_roster");
+    const target = resolveFaceEnrollmentTarget({
+      linkedStaffId: mine?.id ?? null,
+      requestedStaffId: data.staffId ?? null,
+      canEnrollOthers,
+    });
+    if (!target.ok) {
+      if (target.reason === "no_staff") {
+        throw new ForbiddenError(
+          "Your login is not linked to a staff record, so face enrollment is not available.",
+        );
+      }
       throw new ForbiddenError("You cannot enroll another employee's face.");
     }
+    const staffId = target.staffId;
+
+    const { data: staffRow, error: staffErr } = await context.supabase
+      .from("staff")
+      .select("id")
+      .eq("id", staffId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (staffErr && !tableMissing(staffErr.message)) throw staffErr;
+    if (!staffRow) {
+      throw new ForbiddenError("Staff record not found for face enrollment.");
+    }
+
     const path = await storeFacePhoto(`${staffId}/enrollment.jpg`, data.photoBase64);
-    const { error } = await context.supabase.from("staff_face_enrollments").upsert({
+    // Service role after auth checks — avoids RLS edge cases breaking linked-staff enroll.
+    const { error } = await supabaseAdmin.from("staff_face_enrollments").upsert({
       staff_id: staffId,
       storage_path: path,
       status: "enrolled",
@@ -488,8 +527,13 @@ export const saveStaffFaceEnrollment = createAuthenticatedAction(
       enrolled_by: context.userId,
       notes: "Client-side liveness only. Identity match is not claimed.",
     });
-    if (error) throw error;
-    return { ok: true, status: "enrolled" as const };
+    if (error) {
+      if (tableMissing(error.message)) {
+        throw new Error("Face enrollment tables are not set up yet. Apply the HR field attendance migration.");
+      }
+      throw error;
+    }
+    return { status: "enrolled" as const, staffId };
   },
   { auth: { anyCapability: ["attendance.view", "hr.employee_app"] } },
 );
@@ -628,14 +672,16 @@ export const getFieldCheckInContext = createAuthenticatedActionNoInput(
         .select("staff_id, status, enrolled_at, liveness_passed, storage_path")
         .eq("staff_id", staff.id)
         .maybeSingle();
-      if (error && !tableMissing(error.message)) throw error;
-      enrollment = {
-        staffId: staff.id,
-        status: row?.status === "enrolled" ? "enrolled" : row?.status === "revoked" ? "revoked" : "none",
-        enrolledAt: row?.enrolled_at ? String(row.enrolled_at) : null,
-        livenessPassed: Boolean(row?.liveness_passed),
-        hasPhoto: Boolean(row?.storage_path),
-      };
+      // Soft-fail: never crash Field / employee pages over enrollment status.
+      if (!error || tableMissing(error.message)) {
+        enrollment = {
+          staffId: staff.id,
+          status: row?.status === "enrolled" ? "enrolled" : row?.status === "revoked" ? "revoked" : "none",
+          enrolledAt: row?.enrolled_at ? String(row.enrolled_at) : null,
+          livenessPassed: Boolean(row?.liveness_passed),
+          hasPhoto: Boolean(row?.storage_path),
+        };
+      }
     }
     return {
       staff: staff
