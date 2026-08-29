@@ -10,6 +10,7 @@ import {
   Megaphone,
   Palmtree,
   Settings2,
+  Timer,
   UserCheck,
   Users,
 } from "lucide-react";
@@ -44,6 +45,9 @@ export default function HrDashboardPage() {
     { key: "pendingLeave", value: d?.pendingLeave ?? "—", href: "/people/leave", icon: ClipboardList },
     { key: "fieldCheckedIn", value: d?.fieldCheckedIn ?? "—", href: "/people/field", icon: MapPinned },
     { key: "payrollBlocked", value: d?.payrollBlocked ?? "—", href: "/people/payroll", icon: Banknote },
+    { key: "expiringDocs", value: d?.expiringDocs ?? "—", href: "/people/hr/documents", icon: FileText },
+    { key: "openOnboarding", value: d?.openOnboarding ?? "—", href: "/people/hr/onboarding", icon: ClipboardList },
+    { key: "activeAnnouncements", value: d?.activeAnnouncements ?? "—", href: "/people/hr/announcements", icon: Megaphone },
   ] as const;
 
   const links = [
@@ -70,6 +74,20 @@ export default function HrDashboardPage() {
           title={t("hr.dashboard.title")}
           subtitle={t("hr.dashboard.subtitle", { range: periodLabel })}
         />
+
+        {d?.otPolicySummary ? (
+          <NeumorphicCard className="flex flex-wrap items-start gap-3 p-4">
+            <Timer className="mt-0.5 h-5 w-5 text-muted-foreground" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">{t("hr.dashboard.otPolicy")}</p>
+              <p className="text-sm">{d.otPolicySummary}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{t("hr.dashboard.otPolicyHint")}</p>
+            </div>
+            <Button asChild size="sm" variant="secondary">
+              <Link href="/people/hr/settings">{t("hr.dashboard.links.settings")}</Link>
+            </Button>
+          </NeumorphicCard>
+        ) : null}
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {tiles.map((tile) => (

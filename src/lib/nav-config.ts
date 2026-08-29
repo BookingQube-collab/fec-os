@@ -2,11 +2,9 @@ import {
   Activity,
   AlertOctagon,
   AlertTriangle,
-  Archive,
   BarChart3,
   Bell,
   BellRing,
-  BookOpen,
   Briefcase,
   Building,
   Building2,
@@ -27,11 +25,7 @@ import {
   LayoutDashboard,
   LineChart,
   ListChecks,
-  MapPinned,
-  Medal,
-  Megaphone,
   Package,
-  Palmtree,
   Radio,
   Settings,
   Smartphone,
@@ -150,6 +144,18 @@ const EVENTS_NAV_GROUP: SidebarNavGroup = {
   ],
 };
 
+/** HR IA — ordered for daily workflow: overview → people → attendance → workforce → admin → more. */
+const HR_OVERVIEW_NAV_GROUP: SidebarNavGroup = {
+  id: "hr-overview",
+  labelKey: "nav.hrOverview",
+  icon: LayoutDashboard,
+  pathPrefix: "/people/hr",
+  viewCapability: "people.view_roster",
+  items: [
+    { href: "/people/hr", labelKey: "nav.hrDashboard", capability: "people.view_roster" },
+  ],
+};
+
 const HR_STAFF_NAV_GROUP: SidebarNavGroup = {
   id: "hr-staff",
   labelKey: "nav.hrStaff",
@@ -176,6 +182,60 @@ const HR_ATTENDANCE_NAV_GROUP: SidebarNavGroup = {
     { href: "/people/attendance/mapping", labelKey: "nav.attendanceMapping", capability: "attendance.view" },
     { href: "/people/attendance/corrections", labelKey: "nav.attendanceCorrections", capability: "attendance.view" },
     { href: "/people/attendance/settings", labelKey: "nav.attendanceDevices", capability: "attendance.view" },
+  ],
+};
+
+const HR_WORKFORCE_NAV_GROUP: SidebarNavGroup = {
+  id: "hr-workforce",
+  labelKey: "nav.hrWorkforce",
+  icon: Wallet,
+  pathPrefix: "/people/payroll",
+  viewCapability: "payroll.view",
+  items: [
+    { href: "/people/payroll", labelKey: "nav.hrPayroll", capability: "payroll.view" },
+    { href: "/people/leave", labelKey: "nav.hrLeave", capability: "hr.leave.manage" },
+    { href: "/people/field", labelKey: "nav.hrField", capability: "attendance.view" },
+  ],
+};
+
+const HR_ADMIN_NAV_GROUP: SidebarNavGroup = {
+  id: "hr-admin",
+  labelKey: "nav.hrAdmin",
+  icon: ClipboardList,
+  pathPrefix: "/people/hr/documents",
+  viewCapability: "hr.manage",
+  items: [
+    { href: "/people/hr/documents", labelKey: "nav.hrDocuments", capability: "hr.manage" },
+    { href: "/people/hr/onboarding", labelKey: "nav.hrOnboarding", capability: "hr.manage" },
+    { href: "/people/hr/announcements", labelKey: "nav.hrAnnouncements", capability: "hr.manage" },
+    { href: "/people/hr/settings", labelKey: "nav.hrSettings", capability: "hr.manage" },
+    { href: "/people/hr/reports", labelKey: "nav.hrReports", capability: "hr.manage" },
+    { href: "/people/employee-app", labelKey: "nav.hrEmployeeApp", capability: "attendance.view" },
+  ],
+};
+
+const HR_EMPLOYEE_NAV_GROUP: SidebarNavGroup = {
+  id: "hr-employee",
+  labelKey: "nav.hrEmployee",
+  icon: Smartphone,
+  pathPrefix: "/hr/me",
+  viewCapability: "hr.employee_app",
+  items: [
+    { href: "/hr/me", labelKey: "nav.hrMyApp", capability: "hr.employee_app" },
+  ],
+};
+
+const HR_MORE_NAV_GROUP: SidebarNavGroup = {
+  id: "hr-more",
+  labelKey: "nav.hrMore",
+  icon: Gauge,
+  pathPrefix: "/people/performance",
+  viewCapability: "performance.view",
+  items: [
+    { href: "/people/performance", labelKey: "nav.performance", capability: "performance.view" },
+    { href: "/leaderboard", labelKey: "nav.leaderboard", capability: "leaderboard.view" },
+    { href: "/sop", labelKey: "nav.sop", capability: "sop.view" },
+    { href: "/people/extras", labelKey: "nav.peopleExtras", capability: "people.view_roster" },
   ],
 };
 
@@ -219,24 +279,16 @@ export const NAV_DEPARTMENTS: NavDepartment[] = [
     labelKey: "nav.departments.people",
     icon: Users,
     audience: ["executive", "supervisor", "all"],
-    items: [
-      { href: "/people/hr", labelKey: "nav.hrDashboard", icon: LayoutDashboard, capability: "people.view_roster" },
-      { href: "/people/payroll", labelKey: "nav.hrPayroll", icon: Wallet, capability: "payroll.view" },
-      { href: "/people/field", labelKey: "nav.hrField", icon: MapPinned, capability: "attendance.view" },
-      { href: "/people/leave", labelKey: "nav.hrLeave", icon: Palmtree, capability: "hr.leave.manage" },
-      { href: "/people/hr/documents", labelKey: "nav.hrDocuments", icon: FileText, capability: "hr.manage" },
-      { href: "/people/hr/onboarding", labelKey: "nav.hrOnboarding", icon: ClipboardList, capability: "hr.manage" },
-      { href: "/people/hr/announcements", labelKey: "nav.hrAnnouncements", icon: Megaphone, capability: "hr.manage" },
-      { href: "/people/hr/settings", labelKey: "nav.hrSettings", icon: Settings, capability: "hr.manage" },
-      { href: "/people/hr/reports", labelKey: "nav.hrReports", icon: FileBarChart, capability: "hr.manage" },
-      { href: "/people/employee-app", labelKey: "nav.hrEmployeeApp", icon: Smartphone, capability: "attendance.view" },
-      { href: "/hr/me", labelKey: "nav.hrMyApp", icon: Smartphone, capability: "hr.employee_app" },
-      { href: "/people/performance", labelKey: "nav.performance", icon: Gauge, capability: "performance.view" },
-      { href: "/leaderboard", labelKey: "nav.leaderboard", icon: Medal, capability: "leaderboard.view" },
-      { href: "/sop", labelKey: "nav.sop", icon: BookOpen, capability: "sop.view" },
-      { href: "/people/extras", labelKey: "nav.peopleExtras", icon: Archive, capability: "people.view_roster" },
+    items: [],
+    groups: [
+      HR_OVERVIEW_NAV_GROUP,
+      HR_STAFF_NAV_GROUP,
+      HR_ATTENDANCE_NAV_GROUP,
+      HR_WORKFORCE_NAV_GROUP,
+      HR_ADMIN_NAV_GROUP,
+      HR_EMPLOYEE_NAV_GROUP,
+      HR_MORE_NAV_GROUP,
     ],
-    groups: [HR_STAFF_NAV_GROUP, HR_ATTENDANCE_NAV_GROUP],
   },
   {
     id: "maintenance",
@@ -339,8 +391,13 @@ export const SIDEBAR_NAV_GROUPS: SidebarNavGroup[] = [
   MAINTENANCE_NAV_GROUP,
   PROCUREMENT_NAV_GROUP,
   EVENTS_NAV_GROUP,
+  HR_OVERVIEW_NAV_GROUP,
   HR_STAFF_NAV_GROUP,
   HR_ATTENDANCE_NAV_GROUP,
+  HR_WORKFORCE_NAV_GROUP,
+  HR_ADMIN_NAV_GROUP,
+  HR_EMPLOYEE_NAV_GROUP,
+  HR_MORE_NAV_GROUP,
 ];
 
 const PRIMARY_RAIL_MAX = 8;
@@ -367,7 +424,9 @@ export function navAudienceForRoles(roles: AppRole[]): NavAudience {
 }
 
 function filterNavGroup(group: SidebarNavGroup, roles: AppRole[]): SidebarNavGroup | null {
-  if (!canUserDo(roles, group.viewCapability)) return null;
+  // Filter by child capabilities only so mixed groups (e.g. HR workforce: payroll +
+  // leave + field) stay visible when the user can open any child — even if they lack
+  // the group's nominal viewCapability (CFO has payroll.view but not people.view_roster).
   const items = group.items.filter((item) => canUserDo(roles, item.capability));
   if (items.length === 0) return null;
   return { ...group, items };
@@ -534,6 +593,10 @@ export function isSidebarNavGroupItemActive(href: string, pathname: string): boo
   if (href === "/people") {
     return pathname === href;
   }
+  if (href === "/people/hr") {
+    // Exact match — nested /people/hr/* belongs to HR admin items
+    return pathname === href;
+  }
   if (href === "/people/attendance") {
     return pathname === href;
   }
@@ -561,6 +624,10 @@ export function isSidebarNavGroupActive(
     return extraHrefs.some(
       (href) => href !== pathPrefix && (pathname === href || pathname.startsWith(`${href}/`)),
     );
+  }
+  // HR dashboard root — do not treat /people/hr/documents etc. as overview
+  if (pathPrefix === "/people/hr") {
+    return pathname === "/people/hr";
   }
   if (pathname === pathPrefix || pathname.startsWith(`${pathPrefix}/`)) return true;
   return extraHrefs.some(

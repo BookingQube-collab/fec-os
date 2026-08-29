@@ -57,6 +57,34 @@ describe("admin sidebar visibility", () => {
     expect([...hrefs].some((href) => href === "/people/attendance/field")).toBe(false);
   });
 
+  it("organizes People into HR workflow groups", () => {
+    const people = getVisibleDepartments(["ceo"]).find((dept) => dept.id === "people");
+    expect(people?.groups.map((g) => g.id)).toEqual([
+      "hr-overview",
+      "hr-staff",
+      "hr-attendance",
+      "hr-workforce",
+      "hr-admin",
+      "hr-employee",
+      "hr-more",
+    ]);
+    expect(people?.items).toEqual([]);
+    expect(people?.groups.find((g) => g.id === "hr-workforce")?.items.map((i) => i.href)).toEqual([
+      "/people/payroll",
+      "/people/leave",
+      "/people/field",
+    ]);
+    expect(people?.groups.find((g) => g.id === "hr-attendance")?.items.some((i) => i.href === "/people/field")).toBe(
+      false,
+    );
+  });
+
+  it("keeps payroll visible for CFO via workforce group", () => {
+    const people = getVisibleDepartments(["cfo"]).find((dept) => dept.id === "people");
+    const hrefs = new Set(people?.groups.flatMap((g) => g.items.map((i) => i.href)) ?? []);
+    expect(hrefs.has("/people/payroll")).toBe(true);
+  });
+
   it("hides payroll from technicians", () => {
     const people = getVisibleDepartments(["technician"]).find((dept) => dept.id === "people");
     const hrefs = new Set([

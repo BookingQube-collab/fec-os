@@ -125,7 +125,7 @@ export const getOtPolicy = createAuthenticatedActionNoInput(async (context) => {
     summaryNotes: (data?.summary_notes as string | null) ?? null,
     updatedAt: data?.updated_at ? String(data.updated_at) : null,
   };
-}, { auth: { anyCapability: ["hr.manage", "attendance.configure", "people.view_roster"] } });
+}, { auth: { anyCapability: ["hr.manage", "attendance.configure", "people.view_roster", "payroll.view", "hr.employee_app"] } });
 
 export const updateOtPolicy = createAuthenticatedAction(
   z.object({

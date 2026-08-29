@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   aggregateHeadcountBySite,
+  checklistProgress,
   dateRangesOverlap,
   detectLeaveConflicts,
+  enumerateLeaveDates,
   formatOtPolicySummary,
+  mapHrLeaveTypeToAttendance,
   sumLeaveDaysInPeriod,
   sumUsedLeaveDays,
   summarizeLeaveBalances,
@@ -63,6 +66,24 @@ describe("OT policy summary", () => {
         requiresPreapproval: true,
       }),
     ).toContain("OT after 8h worked");
+  });
+});
+
+describe("leave → attendance mapping", () => {
+  it("maps HR types to attendance leave statuses", () => {
+    expect(mapHrLeaveTypeToAttendance("annual")).toBe("annual_leave");
+    expect(mapHrLeaveTypeToAttendance("sick")).toBe("sick_leave");
+    expect(mapHrLeaveTypeToAttendance("emergency")).toBe("unpaid_leave");
+    expect(enumerateLeaveDates("2026-08-28", "2026-08-30")).toEqual([
+      "2026-08-28",
+      "2026-08-29",
+      "2026-08-30",
+    ]);
+    expect(checklistProgress([{ status: "done" }, { status: "pending" }, { status: "skipped" }])).toEqual({
+      done: 2,
+      total: 3,
+      percent: 67,
+    });
   });
 });
 

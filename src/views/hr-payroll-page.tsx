@@ -20,6 +20,8 @@ import {
   formatPayrollRange,
   monthBounds,
 } from "@/lib/attendance-hr/roster-period";
+import { formatOtPolicySummary } from "@/lib/hr-advanced";
+import { getOtPolicy } from "@/lib/hr-announcements.functions";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { useSites } from "@/hooks/queries/useSites";
 import { queryKeys } from "@/lib/query-keys";
@@ -41,6 +43,21 @@ export default function HrPayrollPage() {
     queryFn: () => getPayrollAttendanceSummary({ locationId: loc, dateFrom, dateTo }),
     staleTime: STALE.people,
   });
+
+  const otPolicy = useQuery({
+    queryKey: queryKeys.people.hrOtPolicy(),
+    queryFn: () => getOtPolicy(),
+    staleTime: STALE.people,
+  });
+
+  const otHint = otPolicy.data
+    ? formatOtPolicySummary({
+        overtimeAfterMinutes: otPolicy.data.overtimeAfterMinutes,
+        maxDailyOtMinutes: otPolicy.data.maxDailyOtMinutes,
+        maxWeeklyOtMinutes: otPolicy.data.maxWeeklyOtMinutes,
+        requiresPreapproval: otPolicy.data.requiresPreapproval,
+      })
+    : null;
 
   const exportHref = useMemo(() => {
     const params = new URLSearchParams({ format: "payroll", from: dateFrom, to: dateTo });
@@ -105,6 +122,14 @@ export default function HrPayrollPage() {
             </Button>
           </div>
         </NeumorphicCard>
+
+        {otHint ? (
+          <NeumorphicCard className="p-4 text-sm">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">{t("hr.payroll.otPolicy")}</p>
+            <p className="mt-1">{otHint}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{t("hr.payroll.otPolicyHint")}</p>
+          </NeumorphicCard>
+        ) : null}
 
         <div className="grid gap-3 sm:grid-cols-2">
           <NeumorphicCard className="p-5">

@@ -71,7 +71,7 @@ export const listEmployeeDocuments = createAuthenticatedAction(
 
 export const uploadEmployeeDocument = createAuthenticatedAction(
   z.object({
-    staffId: z.string().uuid(),
+    staffId: z.string().uuid().optional(),
     docType: z.enum(HR_DOC_TYPES),
     title: z.string().max(200).optional().nullable(),
     expiryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
@@ -83,7 +83,14 @@ export const uploadEmployeeDocument = createAuthenticatedAction(
   async (data, context) => {
     validateUploadMime(data.content_type, "document");
     validateBase64Size(data.data_base64, 10 * 1024 * 1024);
-    const path = `${data.staffId}/${Date.now()}-${data.filename.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+    const manage = canUserDo(context.roles ?? [], "hr.manage");
+    const mine = await myStaff(context);
+    const staffId = manage && data.staffId ? data.staffId : mine?.id;
+    if (!staffId) throw new ForbiddenError("No staff record linked for document upload.");
+    if (!manage && staffId !== mine?.id) {
+      throw new ForbiddenError("You can only upload documents for yourself.");
+    }
+    const path = `${staffId}/${Date.now()}-${data.filename.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
     const bytes = Uint8Array.from(atob(data.data_base64), (c) => c.charCodeAt(0));
     const { error: upErr } = await context.supabase.storage
       .from(DOC_BUCKET)
@@ -93,7 +100,7 @@ export const uploadEmployeeDocument = createAuthenticatedAction(
     const { data: row, error } = await context.supabase
       .from("hr_employee_documents")
       .insert({
-        staff_id: data.staffId,
+        staff_id: staffId,
         doc_type: data.docType,
         title: data.title ?? data.filename,
         file_path: path,
@@ -108,7 +115,7 @@ export const uploadEmployeeDocument = createAuthenticatedAction(
     if (error) throw error;
     return { id: row.id as string };
   },
-  { auth: { capability: "hr.manage" } },
+  { auth: { anyCapability: ["hr.manage", "hr.employee_app"] } },
 );
 
 export const getEmployeeDocumentUrl = createAuthenticatedAction(

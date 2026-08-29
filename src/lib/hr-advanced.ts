@@ -174,3 +174,41 @@ export type HrChecklistKind = (typeof HR_CHECKLIST_KINDS)[number];
 
 export const DEFAULT_ANNUAL_ALLOTMENT = 21;
 export const DEFAULT_SICK_ALLOTMENT = 14;
+
+/** Attendance engine leave statuses (see attendance-hr/calculate). */
+export type AttendanceLeaveType = "annual_leave" | "sick_leave" | "unpaid_leave";
+
+/** Map HR leave request types onto attendance_leave_records.leave_type. */
+export function mapHrLeaveTypeToAttendance(leaveType: string): AttendanceLeaveType {
+  if (leaveType === "annual") return "annual_leave";
+  if (leaveType === "sick") return "sick_leave";
+  return "unpaid_leave";
+}
+
+/** Inclusive calendar dates (YYYY-MM-DD) for a leave span. */
+export function enumerateLeaveDates(dateFrom: string, dateTo: string): string[] {
+  const from = dateFrom.slice(0, 10);
+  const to = dateTo.slice(0, 10);
+  const days = countLeaveDays(from, to);
+  if (days < 1) return [];
+  const out: string[] = [];
+  const start = Date.parse(`${from}T00:00:00.000Z`);
+  for (let i = 0; i < days; i += 1) {
+    out.push(new Date(start + i * 86_400_000).toISOString().slice(0, 10));
+  }
+  return out;
+}
+
+export function checklistProgress(items: Array<{ status: string }>): {
+  done: number;
+  total: number;
+  percent: number;
+} {
+  const total = items.length;
+  const done = items.filter((i) => i.status === "done" || i.status === "skipped").length;
+  return {
+    done,
+    total,
+    percent: total === 0 ? 0 : Math.round((done / total) * 100),
+  };
+}

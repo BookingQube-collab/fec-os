@@ -14,10 +14,13 @@ import {
   type HrLeaveActor,
   type HrLeaveStatus,
 } from "@/lib/hr-leave";
+import { recalculateAttendanceRange } from "@/lib/attendance-hr/process";
 import {
   DEFAULT_ANNUAL_ALLOTMENT,
   DEFAULT_SICK_ALLOTMENT,
   detectLeaveConflicts,
+  enumerateLeaveDates,
+  mapHrLeaveTypeToAttendance,
   summarizeLeaveBalances,
   sumUsedLeaveDays,
 } from "@/lib/hr-advanced";
@@ -52,6 +55,59 @@ function mapLeaveRow(row: Record<string, unknown>) {
     reviewNote: (row.review_note as string | null) ?? null,
     createdAt: String(row.created_at),
   };
+}
+
+async function syncApprovedLeaveToAttendance(
+  context: AuthContext,
+  leave: {
+    id: string;
+    staffId: string;
+    locationId: string | null;
+    leaveType: string;
+    dateFrom: string;
+    dateTo: string;
+  },
+): Promise<{ syncedDays: number; skipped: boolean }> {
+  if (!leave.locationId) return { syncedDays: 0, skipped: true };
+  const dates = enumerateLeaveDates(leave.dateFrom, leave.dateTo);
+  if (dates.length === 0) return { syncedDays: 0, skipped: true };
+  const attendanceType = mapHrLeaveTypeToAttendance(leave.leaveType);
+  const rows = dates.map((leave_date) => ({
+    location_id: leave.locationId as string,
+    staff_id: leave.staffId,
+    leave_date,
+    leave_type: attendanceType,
+    source: "hr_leave",
+    notes: `hr_leave:${leave.id}`,
+    hr_leave_request_id: leave.id,
+    created_by: context.userId,
+  }));
+  const { error } = await context.supabase
+    .from("attendance_leave_records")
+    .upsert(rows, { onConflict: "staff_id,leave_date" });
+  if (error) {
+    // Column may be missing before migration; retry without hr_leave_request_id.
+    if (/hr_leave_request_id|schema cache/i.test(error.message)) {
+      const fallback = rows.map(({ hr_leave_request_id: _id, ...rest }) => rest);
+      const { error: retryErr } = await context.supabase
+        .from("attendance_leave_records")
+        .upsert(fallback, { onConflict: "staff_id,leave_date" });
+      if (retryErr) throw retryErr;
+    } else {
+      throw error;
+    }
+  }
+  try {
+    await recalculateAttendanceRange(
+      context.supabase,
+      leave.locationId,
+      leave.dateFrom.slice(0, 10),
+      leave.dateTo.slice(0, 10),
+    );
+  } catch {
+    // Leave rows are still stored; recalc can be run later from Attendance.
+  }
+  return { syncedDays: dates.length, skipped: false };
 }
 
 async function loadLeaveConflicts(
@@ -279,7 +335,7 @@ export const reviewLeaveRequest = createAuthenticatedAction(
   async (data, context) => {
     const { data: existing, error: readErr } = await context.supabase
       .from("hr_leave_requests")
-      .select("id, staff_id, status, date_from, staff(full_name, user_id, location_id)")
+      .select("id, staff_id, leave_type, status, date_from, date_to, staff(full_name, user_id, location_id)")
       .eq("id", data.id)
       .maybeSingle();
     if (readErr) throw readErr;
@@ -304,6 +360,18 @@ export const reviewLeaveRequest = createAuthenticatedAction(
       .eq("id", data.id);
     if (error) throw error;
     const staffRow = Array.isArray(existing.staff) ? existing.staff[0] : existing.staff;
+    let syncedDays = 0;
+    if (data.status === "approved") {
+      const sync = await syncApprovedLeaveToAttendance(context, {
+        id: String(existing.id),
+        staffId: String(existing.staff_id),
+        locationId: (staffRow as { location_id?: string | null } | null)?.location_id ?? null,
+        leaveType: String(existing.leave_type),
+        dateFrom: String(existing.date_from).slice(0, 10),
+        dateTo: String(existing.date_to).slice(0, 10),
+      });
+      syncedDays = sync.syncedDays;
+    }
     await dispatchHrNotify({
       kind: data.status === "approved" ? "leave_approved" : data.status === "rejected" ? "leave_rejected" : "leave_submitted",
       staffName: (staffRow as { full_name?: string } | null)?.full_name ?? "Staff",
@@ -311,7 +379,7 @@ export const reviewLeaveRequest = createAuthenticatedAction(
       locationId: (staffRow as { location_id?: string } | null)?.location_id ?? null,
       sourceId: existing.id as string,
     });
-    return { ok: true };
+    return { ok: true, syncedDays };
   },
   { auth: { anyCapability: ["hr.leave.manage", "hr.employee_app"] } },
 );

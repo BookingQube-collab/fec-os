@@ -87,10 +87,18 @@ export default function HrReportsPage() {
           </div>
         </NeumorphicCard>
 
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <NeumorphicCard className="p-4">
             <p className="text-xs text-muted-foreground">{t("hr.reports.leaveDays")}</p>
             <p className="text-2xl font-semibold tabular-nums">{report.data?.leaveDaysInPeriod ?? "—"}</p>
+          </NeumorphicCard>
+          <NeumorphicCard className="p-4">
+            <p className="text-xs text-muted-foreground">{t("hr.reports.syncedLeave")}</p>
+            <p className="text-2xl font-semibold tabular-nums">{report.data?.syncedLeaveDays ?? "—"}</p>
+          </NeumorphicCard>
+          <NeumorphicCard className="p-4">
+            <p className="text-xs text-muted-foreground">{t("hr.reports.leaveStatusDays")}</p>
+            <p className="text-2xl font-semibold tabular-nums">{report.data?.attendance.leaveStatusDays ?? "—"}</p>
           </NeumorphicCard>
           <NeumorphicCard className="p-4">
             <p className="text-xs text-muted-foreground">{t("hr.reports.presentDays")}</p>
@@ -99,6 +107,14 @@ export default function HrReportsPage() {
           <NeumorphicCard className="p-4">
             <p className="text-xs text-muted-foreground">{t("hr.reports.absentDays")}</p>
             <p className="text-2xl font-semibold tabular-nums">{report.data?.attendance.absentDays ?? "—"}</p>
+          </NeumorphicCard>
+          <NeumorphicCard className="p-4">
+            <p className="text-xs text-muted-foreground">{t("hr.reports.otHours")}</p>
+            <p className="text-2xl font-semibold tabular-nums">{report.data?.attendance.overtimeHours ?? "—"}</p>
+          </NeumorphicCard>
+          <NeumorphicCard className="p-4">
+            <p className="text-xs text-muted-foreground">{t("hr.reports.expiringDocs")}</p>
+            <p className="text-2xl font-semibold tabular-nums">{report.data?.expiringDocs ?? "—"}</p>
           </NeumorphicCard>
         </div>
 

@@ -12,6 +12,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { checklistProgress } from "@/lib/hr-advanced";
 import {
   listChecklistTemplates,
   listStaffChecklists,
@@ -28,6 +29,7 @@ export default function HrOnboardingPage() {
   const [staffId, setStaffId] = useState("");
   const [templateId, setTemplateId] = useState("");
   const [filterKind, setFilterKind] = useState<"onboarding" | "offboarding" | "all">("all");
+  const [filterStatus, setFilterStatus] = useState<"open" | "completed" | "all">("open");
 
   const templates = useQuery({
     queryKey: queryKeys.people.hrChecklists({ view: "templates" }),
@@ -40,11 +42,11 @@ export default function HrOnboardingPage() {
     staleTime: STALE.people,
   });
   const lists = useQuery({
-    queryKey: queryKeys.people.hrChecklists({ kind: filterKind }),
+    queryKey: queryKeys.people.hrChecklists({ kind: filterKind, status: filterStatus }),
     queryFn: () =>
       listStaffChecklists({
         kind: filterKind === "all" ? undefined : filterKind,
-        status: "open",
+        status: filterStatus === "all" ? undefined : filterStatus,
       }),
     staleTime: STALE.people,
   });
@@ -60,7 +62,8 @@ export default function HrOnboardingPage() {
 
   const toggleItem = useMutation({
     mutationFn: updateChecklistItem,
-    onSuccess: () => {
+    onSuccess: (res) => {
+      if (res.checklistCompleted) toast.success(t("hr.onboarding.completed"));
       void qc.invalidateQueries({ queryKey: queryKeys.people.hrChecklists() });
     },
     onError: (e: Error) => toast.error(e.message),
@@ -79,7 +82,7 @@ export default function HrOnboardingPage() {
           subtitle={t("hr.onboarding.subtitle")}
         />
 
-        <NeumorphicCard className="grid gap-3 p-5 sm:grid-cols-2 lg:grid-cols-4">
+        <NeumorphicCard className="grid gap-3 p-5 sm:grid-cols-2 lg:grid-cols-5">
           <div>
             <Label>{t("hr.onboarding.staff")}</Label>
             <select
@@ -130,6 +133,18 @@ export default function HrOnboardingPage() {
               <option value="offboarding">{t("hr.onboarding.kinds.offboarding")}</option>
             </select>
           </div>
+          <div>
+            <Label>{t("hr.onboarding.statusFilter")}</Label>
+            <select
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value as typeof filterStatus)}
+            >
+              <option value="open">{t("hr.onboarding.status.open")}</option>
+              <option value="completed">{t("hr.onboarding.status.completed")}</option>
+              <option value="all">{t("hr.onboarding.allStatuses")}</option>
+            </select>
+          </div>
         </NeumorphicCard>
 
         <div className="space-y-3">
@@ -138,38 +153,51 @@ export default function HrOnboardingPage() {
               <p className="text-sm text-muted-foreground">{t("hr.onboarding.empty")}</p>
             </NeumorphicCard>
           ) : (
-            (lists.data ?? []).map((row) => (
-              <NeumorphicCard key={row.id} className="space-y-3 p-5">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <p className="font-medium">
-                      {row.staffName} · {t(`hr.onboarding.kinds.${row.kind}`)}
-                    </p>
-                    <p className="text-xs text-muted-foreground">{row.employeeCode ?? "—"}</p>
+            (lists.data ?? []).map((row) => {
+              const progress = checklistProgress(row.items);
+              return (
+                <NeumorphicCard key={row.id} className="space-y-3 p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="font-medium">
+                        {row.staffName} · {t(`hr.onboarding.kinds.${row.kind}`)}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {row.employeeCode ?? "—"} · {t("hr.onboarding.progress", { done: progress.done, total: progress.total, percent: progress.percent })}
+                      </p>
+                    </div>
+                    <Badge variant={row.status === "completed" ? "success" : "muted"}>
+                      {t(`hr.onboarding.status.${row.status}`)}
+                    </Badge>
                   </div>
-                  <Badge variant={row.status === "completed" ? "success" : "muted"}>
-                    {t(`hr.onboarding.status.${row.status}`)}
-                  </Badge>
-                </div>
-                <ul className="space-y-2">
-                  {row.items.map((item) => (
-                    <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm">
-                      <span>{item.title}</span>
-                      <div className="flex gap-2">
-                        <Badge variant={item.status === "done" ? "success" : "outline"}>
-                          {t(`hr.onboarding.itemStatus.${item.status}`)}
-                        </Badge>
-                        {item.status !== "done" ? (
-                          <Button size="sm" variant="secondary" onClick={() => toggleItem.mutate({ itemId: item.id, status: "done" })}>
-                            {t("hr.onboarding.markDone")}
-                          </Button>
-                        ) : null}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </NeumorphicCard>
-            ))
+                  <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                    <div className="h-full bg-primary transition-all" style={{ width: `${progress.percent}%` }} />
+                  </div>
+                  <ul className="space-y-2">
+                    {row.items.map((item) => (
+                      <li key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm">
+                        <span>{item.title}</span>
+                        <div className="flex gap-2">
+                          <Badge variant={item.status === "done" ? "success" : item.status === "skipped" ? "outline" : "muted"}>
+                            {t(`hr.onboarding.itemStatus.${item.status}`)}
+                          </Badge>
+                          {row.status === "open" && item.status === "pending" ? (
+                            <>
+                              <Button size="sm" variant="secondary" onClick={() => toggleItem.mutate({ itemId: item.id, status: "done" })}>
+                                {t("hr.onboarding.markDone")}
+                              </Button>
+                              <Button size="sm" variant="ghost" onClick={() => toggleItem.mutate({ itemId: item.id, status: "skipped" })}>
+                                {t("hr.onboarding.markSkipped")}
+                              </Button>
+                            </>
+                          ) : null}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </NeumorphicCard>
+              );
+            })
           )}
         </div>
       </div>

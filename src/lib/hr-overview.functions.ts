@@ -6,6 +6,7 @@ import { createAuthenticatedAction, type AuthContext } from "@/lib/server/create
 import { canUserDo } from "@/lib/rbac";
 import { defaultPayrollPeriod } from "@/lib/attendance-hr/roster-period";
 import { getPayrollAttendanceSummary } from "@/lib/attendance-hr-field.functions";
+import { formatOtPolicySummary } from "@/lib/hr-advanced";
 
 function tableMissing(message: string | undefined): boolean {
   return Boolean(message && /does not exist|schema cache|relation/i.test(message));
@@ -18,6 +19,9 @@ export const getHrOverview = createAuthenticatedAction(
     const period = defaultPayrollPeriod(today);
     const dayStart = `${today}T00:00:00+03:00`;
     const dayEnd = `${today}T23:59:59+03:00`;
+    const expiryHorizon = new Date(`${today}T00:00:00+03:00`);
+    expiryHorizon.setDate(expiryHorizon.getDate() + 30);
+    const expiryTo = expiryHorizon.toISOString().slice(0, 10);
 
     const staffFilter = context.supabase
       .from("staff")
@@ -92,6 +96,52 @@ export const getHrOverview = createAuthenticatedAction(
       }
     }
 
+    const { count: expiringDocs, error: docsErr } = await context.supabase
+      .from("hr_employee_documents")
+      .select("id", { count: "exact", head: true })
+      .not("expiry_date", "is", null)
+      .lte("expiry_date", expiryTo);
+    const docsMissing = Boolean(docsErr && (tableMissing(docsErr.message) || /permission/i.test(docsErr.message ?? "")));
+    if (docsErr && !docsMissing) throw docsErr;
+
+    const { count: openOnboarding, error: onboardErr } = await context.supabase
+      .from("hr_staff_checklists")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "open");
+    const onboardMissing = Boolean(
+      onboardErr && (tableMissing(onboardErr.message) || /permission/i.test(onboardErr.message ?? "")),
+    );
+    if (onboardErr && !onboardMissing) throw onboardErr;
+
+    const { count: activeAnnouncements, error: annErr } = await context.supabase
+      .from("hr_announcements")
+      .select("id", { count: "exact", head: true })
+      .eq("active", true);
+    const annMissing = Boolean(annErr && (tableMissing(annErr.message) || /permission/i.test(annErr.message ?? "")));
+    if (annErr && !annMissing) throw annErr;
+
+    let otPolicySummary: string | null = null;
+    const { data: otRow, error: otErr } = await context.supabase
+      .from("hr_ot_policy")
+      .select(
+        "overtime_after_minutes, max_daily_ot_minutes, max_weekly_ot_minutes, requires_preapproval, summary_notes",
+      )
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (otErr && !tableMissing(otErr.message) && !/permission/i.test(otErr.message ?? "")) throw otErr;
+    if (otRow) {
+      otPolicySummary = formatOtPolicySummary({
+        overtimeAfterMinutes: Number(otRow.overtime_after_minutes ?? 480),
+        maxDailyOtMinutes: otRow.max_daily_ot_minutes != null ? Number(otRow.max_daily_ot_minutes) : null,
+        maxWeeklyOtMinutes: otRow.max_weekly_ot_minutes != null ? Number(otRow.max_weekly_ot_minutes) : null,
+        requiresPreapproval: Boolean(otRow.requires_preapproval),
+      });
+      if (otRow.summary_notes) {
+        otPolicySummary = `${otPolicySummary} — ${String(otRow.summary_notes).slice(0, 120)}`;
+      }
+    }
+
     return {
       headcount: headcount ?? 0,
       presentToday: presentToday ?? 0,
@@ -99,6 +149,10 @@ export const getHrOverview = createAuthenticatedAction(
       pendingLeave: leaveMissing ? 0 : pendingLeave ?? 0,
       fieldCheckedIn,
       payrollBlocked,
+      expiringDocs: docsMissing ? 0 : expiringDocs ?? 0,
+      openOnboarding: onboardMissing ? 0 : openOnboarding ?? 0,
+      activeAnnouncements: annMissing ? 0 : activeAnnouncements ?? 0,
+      otPolicySummary,
       period,
       today,
     };

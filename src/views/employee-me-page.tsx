@@ -21,18 +21,30 @@ import {
   submitLeaveRequest,
 } from "@/lib/hr-leave.functions";
 import { listAnnouncements } from "@/lib/hr-announcements.functions";
-import { getEmployeeDocumentUrl, listEmployeeDocuments } from "@/lib/hr-documents.functions";
+import {
+  getEmployeeDocumentUrl,
+  listEmployeeDocuments,
+  uploadEmployeeDocument,
+} from "@/lib/hr-documents.functions";
 import { listFieldCheckInQueue, removeFieldCheckIn } from "@/lib/attendance-hr/offline-queue";
 import { formatWorkDateDdMmYyyy, formatPunchTime12h, formatHoursValue, computeHoursWorked } from "@/lib/attendance-display";
 import { useNotifications } from "@/hooks/queries/useNotifications";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { HR_LEAVE_TYPES } from "@/lib/hr-leave";
-import type { LeaveConflict } from "@/lib/hr-advanced";
+import { HR_DOC_TYPES, type LeaveConflict } from "@/lib/hr-advanced";
 
 function isIos() {
   if (typeof navigator === "undefined") return false;
   return /iphone|ipad|ipod/i.test(navigator.userAgent);
+}
+
+async function fileToBase64(file: File): Promise<string> {
+  const buf = await file.arrayBuffer();
+  let binary = "";
+  const bytes = new Uint8Array(buf);
+  for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i]!);
+  return btoa(binary);
 }
 
 export default function EmployeeMePage() {
@@ -49,6 +61,9 @@ export default function EmployeeMePage() {
   const [leaveReason, setLeaveReason] = useState("");
   const [leaveConflicts, setLeaveConflicts] = useState<LeaveConflict[]>([]);
   const [installDismissed, setInstallDismissed] = useState(false);
+  const [docType, setDocType] = useState<(typeof HR_DOC_TYPES)[number]>("qid");
+  const [docExpiry, setDocExpiry] = useState("");
+  const [docFile, setDocFile] = useState<File | null>(null);
 
   useEffect(() => {
     const sync = () => setOnline(navigator.onLine);
@@ -185,6 +200,28 @@ export default function EmployeeMePage() {
   const openDoc = useMutation({
     mutationFn: getEmployeeDocumentUrl,
     onSuccess: (res) => window.open(res.url, "_blank", "noopener,noreferrer"),
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const uploadDoc = useMutation({
+    mutationFn: async () => {
+      if (!docFile) throw new Error(t("hr.me.needFile"));
+      const data_base64 = await fileToBase64(docFile);
+      return uploadEmployeeDocument({
+        docType,
+        filename: docFile.name,
+        data_base64,
+        content_type: docFile.type || "application/pdf",
+        expiryDate: docExpiry || null,
+        title: docFile.name,
+      });
+    },
+    onSuccess: () => {
+      toast.success(t("hr.docs.uploaded"));
+      setDocFile(null);
+      setDocExpiry("");
+      void qc.invalidateQueries({ queryKey: queryKeys.people.hrDocs() });
+    },
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -389,6 +426,29 @@ export default function EmployeeMePage() {
 
       <section className="rounded-2xl border p-4">
         <h2 className="text-sm font-semibold">{t("hr.me.myDocuments")}</h2>
+        <div className="mt-3 space-y-2 rounded-xl border border-dashed p-3">
+          <p className="text-xs text-muted-foreground">{t("hr.me.uploadHint")}</p>
+          <select
+            className="h-10 w-full rounded-full border bg-background px-3 text-sm"
+            value={docType}
+            onChange={(e) => setDocType(e.target.value as (typeof HR_DOC_TYPES)[number])}
+          >
+            {HR_DOC_TYPES.map((value) => (
+              <option key={value} value={value}>
+                {t(`hr.docs.types.${value}`)}
+              </option>
+            ))}
+          </select>
+          <Input type="date" value={docExpiry} onChange={(e) => setDocExpiry(e.target.value)} />
+          <Input
+            type="file"
+            accept="application/pdf,image/jpeg,image/png,image/webp"
+            onChange={(e) => setDocFile(e.target.files?.[0] ?? null)}
+          />
+          <Button size="sm" disabled={!docFile || uploadDoc.isPending} onClick={() => uploadDoc.mutate()}>
+            {t("hr.me.uploadDoc")}
+          </Button>
+        </div>
         {(myDocs.data ?? []).length === 0 ? (
           <p className="mt-2 text-sm text-muted-foreground">{t("hr.me.noDocuments")}</p>
         ) : (
