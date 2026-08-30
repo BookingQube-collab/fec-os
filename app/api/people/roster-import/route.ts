@@ -1,3 +1,4 @@
+import { logger } from "@/core/logger";
 import { withAuthRouteRequest, searchParams } from "@/lib/server/api-route";
 import { canUserDo } from "@/lib/rbac";
 import { attendanceRosterPeriod, monthBounds, qatarWeekBounds, type AttendanceRosterPeriodMode } from "@/lib/attendance-hr/roster-period";
@@ -8,6 +9,7 @@ import {
   type AttendanceRosterPreview,
 } from "@/lib/attendance-hr/roster-upload";
 import { applyRosterPreview, buildRosterPreview } from "@/lib/staff-roster/apply";
+import { mergeShiftPreviewRows } from "@/lib/staff-roster/batch-preview";
 import type { RosterColumnKey, RosterPreview } from "@/lib/staff-roster/types";
 import { guardRosterUpload } from "@/lib/staff-roster/file-guard";
 import { persistRosterOriginalFile, rosterFileSha256 } from "@/lib/staff-roster/persist";
@@ -33,6 +35,32 @@ type ShiftBatchSummary = {
   fileName: string;
   fileType: string;
 };
+
+function readPreviewPatch(form: FormData): { rows?: AttendanceRosterPreview["rows"]; preview?: RosterPreview } | null {
+  const raw = form.get("previewPatch");
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const rec = parsed as { rows?: AttendanceRosterPreview["rows"]; preview?: RosterPreview };
+    return rec;
+  } catch {
+    return null;
+  }
+}
+
+async function persistOriginalBestEffort(
+  context: Parameters<typeof persistRosterOriginalFile>[0],
+  fileId: string,
+  buffer: Buffer,
+) {
+  try {
+    return await persistRosterOriginalFile(context, fileId, buffer);
+  } catch (error) {
+    logger.error("api", "Roster original file persist failed; preview is still available", error);
+    return null;
+  }
+}
 
 function readColumnMap(form: FormData): Partial<Record<RosterColumnKey, string>> | null {
   const raw = form.get("columnMap");
@@ -151,9 +179,23 @@ export async function POST(request: Request) {
         if (error || !batch) throw error ?? new Error("Import batch not found");
         if (batch.status !== "preview") throw new Error("This batch is no longer awaiting confirmation");
         const summary = batch.summary as (ShiftBatchSummary & { preview?: RosterPreview }) | null;
+        const previewPatch = readPreviewPatch(form);
         if (summary?.kind === "shift_roster") {
-          const shiftPreview = summary.preview;
-          if (!shiftPreview) throw new Error("Preview payload is missing; upload again.");
+          const storedShift = summary.preview;
+          if (!storedShift) throw new Error("Preview payload is missing; upload again.");
+          const shiftPreview = mergeShiftPreviewRows(storedShift, previewPatch?.rows);
+          if (previewPatch?.rows?.length) {
+            const { error: patchErr } = await context.supabase
+              .from("staff_import_batches")
+              .update({
+                summary: { ...summary, preview: shiftPreview } as unknown as import("@/integrations/supabase/types").Json,
+                update_count: shiftPreview.matched,
+                review_count: shiftPreview.unmatched,
+                row_count: shiftPreview.rows.length,
+              })
+              .eq("id", batchId);
+            if (patchErr) throw patchErr;
+          }
           const committed = await commitLiveShiftRoster(context, {
             preview: shiftPreview,
             fileName: summary.fileName,
@@ -177,7 +219,7 @@ export async function POST(request: Request) {
             batchId,
           };
         }
-        const preview = summary?.preview;
+        const preview = previewPatch?.preview ?? summary?.preview;
         if (!preview) throw new Error("Preview payload is missing; upload again.");
         const result = await applyRosterPreview(context, batchId, {
           ...preview,
@@ -233,19 +275,19 @@ export async function POST(request: Request) {
         if (bErr || !batch) throw bErr ?? new Error("Could not create import batch");
 
         const fileId = crypto.randomUUID();
-        const stored = await persistRosterOriginalFile(context, fileId, buffer);
+        const stored = await persistOriginalBestEffort(context, fileId, buffer);
         const { error: fErr } = await context.supabase.from("staff_import_files").insert({
           id: fileId,
           batch_id: batch.id,
           filename: guard.filename,
           file_type: guard.fileType,
           file_hash: rosterFileSha256(buffer),
-          storage_path: stored.path,
+          storage_path: stored?.path ?? null,
           worksheet_name: attParsed.sheetName ?? "Date Wise Roster",
-          byte_size: stored.byteSize,
-          encrypted: stored.encrypted,
+          byte_size: stored?.byteSize ?? buffer.length,
+          encrypted: stored?.encrypted ?? false,
         });
-        if (fErr) throw fErr;
+        if (fErr) logger.error("api", "Roster import file row failed; preview is still available", fErr);
 
         return {
           ...shiftPreview,
@@ -314,19 +356,19 @@ export async function POST(request: Request) {
       if (bErr || !batch) throw bErr ?? new Error("Could not create import batch");
 
       const fileId = crypto.randomUUID();
-      const stored = await persistRosterOriginalFile(context, fileId, buffer);
+      const stored = await persistOriginalBestEffort(context, fileId, buffer);
       const { error: fErr } = await context.supabase.from("staff_import_files").insert({
         id: fileId,
         batch_id: batch.id,
         filename: guard.filename,
         file_type: guard.fileType,
         file_hash: rosterFileSha256(buffer),
-        storage_path: stored.path,
+        storage_path: stored?.path ?? null,
         worksheet_name: parsed.worksheetName,
-        byte_size: stored.byteSize,
-        encrypted: stored.encrypted,
+        byte_size: stored?.byteSize ?? buffer.length,
+        encrypted: stored?.encrypted ?? false,
       });
-      if (fErr) throw fErr;
+      if (fErr) logger.error("api", "Roster import file row failed; preview is still available", fErr);
 
       const rowInserts = [...preview.rows, ...preview.missing].map((line) => ({
         batch_id: batch.id,
@@ -342,7 +384,7 @@ export async function POST(request: Request) {
       }));
       if (rowInserts.length) {
         const { error: rErr } = await context.supabase.from("staff_import_rows").insert(rowInserts);
-        if (rErr) throw rErr;
+        if (rErr) logger.error("api", "Roster import row snapshot failed; preview is still available", rErr);
       }
 
       const includeSalary = canUserDo(context.roles ?? [], "people.view_salary");
