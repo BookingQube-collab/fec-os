@@ -28,6 +28,14 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: "fec-os-app",
+      partialize: (state) => ({
+        currentLocationId: state.currentLocationId,
+        language: state.language,
+        surgeMode: state.surgeMode,
+      }),
+      onRehydrateStorage: () => (state) => {
+        state?.setSidebarExpanded(false);
+      },
       storage: createJSONStorage(() => {
         if (typeof window === "undefined") {
           return {

@@ -84,7 +84,7 @@ function SidebarNavGroupSection({
   prefetchRoute,
   onNavigate,
   compact,
-  expandByDefault,
+  forceOpen,
 }: {
   group: SidebarNavGroup;
   pathname: string;
@@ -92,8 +92,8 @@ function SidebarNavGroupSection({
   prefetchRoute: (href: string) => void;
   onNavigate?: () => void;
   compact?: boolean;
-  /** When true, open even if no child route is active (flyout browsing). */
-  expandByDefault?: boolean;
+  /** Open while searching so matches stay visible. Never auto-open for the active route. */
+  forceOpen?: boolean;
 }) {
   const Icon = group.icon;
   const groupActive = isSidebarNavGroupActive(
@@ -101,9 +101,14 @@ function SidebarNavGroupSection({
     pathname,
     group.items.map((item) => item.href),
   );
+  const [open, setOpen] = useState(Boolean(forceOpen));
+
+  useEffect(() => {
+    setOpen(Boolean(forceOpen));
+  }, [pathname, forceOpen]);
 
   return (
-    <Collapsible defaultOpen={expandByDefault || groupActive}>
+    <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger
         className={cn(
           "group flex w-full items-center gap-2 rounded-full text-sm",
@@ -173,6 +178,8 @@ function DepartmentSection({
   const DeptIcon = dept.icon;
   const deptActive = isDepartmentActive(dept, pathname);
   const q = searchQuery?.trim().toLowerCase() ?? "";
+  const searchOpen = Boolean(q);
+  const [open, setOpen] = useState(false);
 
   const filteredItems = q
     ? dept.items.filter((item) => t(item.labelKey).toLowerCase().includes(q))
@@ -190,11 +197,15 @@ function DepartmentSection({
         .filter((group) => group.items.length > 0)
     : dept.groups;
 
+  useEffect(() => {
+    setOpen(searchOpen);
+  }, [pathname, searchOpen]);
+
   if (filteredItems.length === 0 && filteredGroups.length === 0) return null;
 
   return (
     <li className={compact ? "col-span-2" : undefined}>
-      <Collapsible defaultOpen={deptActive || Boolean(q)}>
+      <Collapsible open={open} onOpenChange={setOpen}>
         <CollapsibleTrigger
           className={cn(
             "group flex w-full items-center gap-2 rounded-full text-xs font-semibold uppercase tracking-wider",
@@ -217,6 +228,7 @@ function DepartmentSection({
                 prefetchRoute={prefetchRoute}
                 onNavigate={onNavigate}
                 compact={compact}
+                forceOpen={searchOpen}
               />
             ))}
             {filteredItems.length > 0 && (
@@ -376,7 +388,6 @@ function DepartmentFlyoutTree({
           prefetchRoute={prefetchRoute}
           onNavigate={onNavigate}
           compact={compact}
-          expandByDefault
         />
       ))}
       {tree.items.length > 0 && (
@@ -431,8 +442,11 @@ function RailIconWithFlyout({
   const moduleActive = department ? isDepartmentActive(department, pathname) : false;
   const open = openId === item.departmentId;
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ignoreHoverRef = useRef(false);
   const hasFlyout = links.length > 0;
-  const showInlineTree = expanded && department && hasGroups && (open || moduleActive);
+  // Only stay open while browsing (hover/click). Navigating must collapse —
+  // do not keep the tree open just because the route is under this module.
+  const showInlineTree = expanded && department && hasGroups && open;
 
   const clearClose = useCallback(() => {
     if (closeTimer.current) {
@@ -440,6 +454,16 @@ function RailIconWithFlyout({
       closeTimer.current = null;
     }
   }, []);
+
+  const closeFlyout = useCallback(() => {
+    clearClose();
+    setOpenId((current) => (current === item.departmentId ? null : current));
+  }, [clearClose, item.departmentId, setOpenId]);
+
+  const closeAfterNavigate = useCallback(() => {
+    ignoreHoverRef.current = true;
+    closeFlyout();
+  }, [closeFlyout]);
 
   const scheduleClose = useCallback(() => {
     clearClose();
@@ -462,9 +486,7 @@ function RailIconWithFlyout({
       <Popover
         open={!expanded && open}
         onOpenChange={(next) => {
-          if (!next) {
-            setOpenId((current) => (current === item.departmentId ? null : current));
-          }
+          if (!next) closeFlyout();
         }}
       >
         <PopoverTrigger asChild>
@@ -474,20 +496,23 @@ function RailIconWithFlyout({
             size={expanded ? "default" : "icon"}
             title={groupLabel}
             aria-label={groupLabel}
-            aria-expanded={Boolean(open || showInlineTree)}
+            aria-expanded={open}
             aria-haspopup={hasFlyout ? "menu" : undefined}
             onMouseEnter={() => {
+              if (ignoreHoverRef.current) return;
               if (!expanded) openFlyout();
             }}
             onMouseLeave={() => {
+              ignoreHoverRef.current = false;
               if (!expanded) scheduleClose();
             }}
             onFocus={() => {
+              if (ignoreHoverRef.current) return;
               if (!expanded) openFlyout();
             }}
             onClick={() => {
               if (!hasFlyout) return;
-              if (open) setOpenId(null);
+              if (open) closeFlyout();
               else openFlyout();
             }}
             className={cn(
@@ -532,7 +557,7 @@ function RailIconWithFlyout({
                   pathname={pathname}
                   t={t}
                   prefetchRoute={prefetchRoute}
-                  onNavigate={() => setOpenId(null)}
+                  onNavigate={closeAfterNavigate}
                 />
               ) : (
                 <FlyoutLinkList
@@ -540,7 +565,7 @@ function RailIconWithFlyout({
                   pathname={pathname}
                   t={t}
                   prefetchRoute={prefetchRoute}
-                  onNavigate={() => setOpenId(null)}
+                  onNavigate={closeAfterNavigate}
                 />
               )}
             </div>
@@ -555,7 +580,7 @@ function RailIconWithFlyout({
             pathname={pathname}
             t={t}
             prefetchRoute={prefetchRoute}
-            onNavigate={() => setOpenId(null)}
+            onNavigate={closeAfterNavigate}
             compact
           />
         </div>
@@ -682,7 +707,9 @@ export function AppSidebar() {
   useEffect(() => {
     setFlyoutId(null);
     setMobileModuleHref(null);
-  }, [pathname]);
+    setMoreOpen(false);
+    setSidebarExpanded(false);
+  }, [pathname, setSidebarExpanded]);
 
   useEffect(() => {
     if (primary.length === 0) return;
