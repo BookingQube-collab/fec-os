@@ -2721,6 +2721,8 @@
       "historyWhen": "When",
       "openPreview": "Open preview",
       "openingPreview": "Opening preview…",
+      "closePreview": "Close",
+      "closePreviewHelp": "Dismiss this preview without importing. Choose a file or open a history row to preview again.",
       "savedPreview": "Saved preview from import history. Click another row to switch batches.",
       "editShiftHint": "Edit shift times or week-off, then confirm. Unmatched rows stay unmatched until you re-upload a corrected file.",
       "filterAll": "All ({{count}})",

@@ -149,7 +149,6 @@ export default function StaffRosterImportPage() {
   const filesRef = useRef<HTMLInputElement>(null);
   const folderRef = useRef<HTMLInputElement>(null);
   const previewKeyRef = useRef<string | null>(null);
-  const openedHistoryRef = useRef<string | null>(null);
   const [rememberedMap, setRememberedMap] = useState<SavedRosterColumnMap | null>(null);
   const [activeBatchId, setActiveBatchId] = useState<string | null>(null);
 
@@ -203,6 +202,16 @@ export default function StaffRosterImportPage() {
     setManualMap(null);
     setActiveBatchId(null);
     previewKeyRef.current = null;
+  };
+
+  const closePreview = () => {
+    setPreview(null);
+    setPreviewError(null);
+    setMappingRequired(false);
+    setManualMap(null);
+    setActiveBatchId(null);
+    // Keep previewKeyRef when a file is still selected so Close does not
+    // immediately re-run auto-preview. The Preview button resets the key.
   };
 
   const applyPicked = (list: FileList | Iterable<File> | null) => {
@@ -332,16 +341,6 @@ export default function StaffRosterImportPage() {
       toast.error(e.message);
     },
   });
-
-  useEffect(() => {
-    if (file || preview || openedHistoryRef.current) return;
-    const latest = history.data?.batches.find((b) => b.status === "preview");
-    if (!latest) return;
-    openedHistoryRef.current = latest.id;
-    openMut.mutate(latest.id);
-    // Open the newest saved preview once so a refresh still shows the grid.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [history.data, file, preview]);
 
   const rollbackMut = useMutation({
     mutationFn: async (id: string) => {
@@ -698,6 +697,17 @@ export default function StaffRosterImportPage() {
             {committing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {t("people.roster.confirm")}
           </Button>
+          {preview ? (
+            <Button
+              type="button"
+              variant="outline"
+              title={t("people.roster.closePreviewHelp")}
+              onClick={closePreview}
+            >
+              <X className="h-4 w-4" />
+              {t("people.roster.closePreview")}
+            </Button>
+          ) : null}
           {confirmReason ? (
             <p className="text-xs text-muted-foreground">{confirmReason}</p>
           ) : readyToConfirm ? (
@@ -726,6 +736,7 @@ export default function StaffRosterImportPage() {
           readyToConfirm={readyToConfirm}
           committing={committing}
           onConfirm={() => uploadMut.mutate({ mode: "commit" })}
+          onClose={closePreview}
           onRowsChange={(rows) => {
             setPreview((prev) => {
               if (!prev) return prev;
@@ -747,6 +758,7 @@ export default function StaffRosterImportPage() {
           readyToConfirm={readyToConfirm}
           committing={committing}
           onConfirm={() => uploadMut.mutate({ mode: "commit" })}
+          onClose={closePreview}
         />
       ) : null}
 
@@ -831,12 +843,14 @@ function ShiftPreviewPanel({
   readyToConfirm,
   committing,
   onConfirm,
+  onClose,
   onRowsChange,
 }: {
   preview: PreviewResponse | null;
   readyToConfirm: boolean;
   committing: boolean;
   onConfirm: () => void;
+  onClose: () => void;
   onRowsChange: (rows: ShiftPreviewRow[]) => void;
 }) {
   const { t } = useTranslation();
@@ -879,10 +893,16 @@ function ShiftPreviewPanel({
           <p className="text-xs text-muted-foreground">{t("people.roster.savedPreview")}</p>
           {editable ? <p className="text-xs text-muted-foreground">{t("people.roster.editShiftHint")}</p> : null}
         </div>
-        <Button type="button" variant={readyToConfirm ? "default" : "outline"} disabled={!readyToConfirm} onClick={onConfirm}>
-          {committing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-          {t("people.roster.confirm")}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" variant="outline" title={t("people.roster.closePreviewHelp")} onClick={onClose}>
+            <X className="h-4 w-4" />
+            {t("people.roster.closePreview")}
+          </Button>
+          <Button type="button" variant={readyToConfirm ? "default" : "outline"} disabled={!readyToConfirm} onClick={onConfirm}>
+            {committing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {t("people.roster.confirm")}
+          </Button>
+        </div>
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant="success">{t("people.roster.shiftMatched", { count: preview.matched ?? 0 })}</Badge>
@@ -1013,6 +1033,7 @@ function PreviewPanel({
   readyToConfirm,
   committing,
   onConfirm,
+  onClose,
 }: {
   preview: PreviewResponse | null;
   rowsOpen: boolean;
@@ -1020,6 +1041,7 @@ function PreviewPanel({
   readyToConfirm: boolean;
   committing: boolean;
   onConfirm: () => void;
+  onClose: () => void;
 }) {
   const { t } = useTranslation();
   const p = preview?.preview;
@@ -1054,10 +1076,16 @@ function PreviewPanel({
             <p className="text-xs text-muted-foreground">{t("people.roster.autoMapped", { sheet: p.worksheetName })}</p>
           ) : null}
         </div>
-        <Button type="button" variant={readyToConfirm ? "default" : "outline"} disabled={!readyToConfirm} onClick={onConfirm}>
-          {committing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-          {t("people.roster.confirm")}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" variant="outline" title={t("people.roster.closePreviewHelp")} onClick={onClose}>
+            <X className="h-4 w-4" />
+            {t("people.roster.closePreview")}
+          </Button>
+          <Button type="button" variant={readyToConfirm ? "default" : "outline"} disabled={!readyToConfirm} onClick={onConfirm}>
+            {committing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {t("people.roster.confirm")}
+          </Button>
+        </div>
       </div>
 
       <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
