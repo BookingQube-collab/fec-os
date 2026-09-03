@@ -1,0 +1,14 @@
+WORKFLOW
+Every PR moves through the same control path
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+04
+1 · Request
+Create Details, Items, Payment and Files
+Select an active vendor or quick-create one
+Submit only when totals and documents agree
+2 · Review and delivery
+Assigned stages approve, reject or request changes
+Approved requests proceed to milestones / clearance
+Payments are recorded against the approved structure
+Timeline and documents remain the audit record
+A vendor compliance warning may allow work during grace; a blocked vendor requires the correct policy action or authorised override.

@@ -16,6 +16,7 @@ import {
   Phone,
   Printer,
   RotateCcw,
+  ShieldCheck,
   Tag,
   Trash2,
   UserRound,
@@ -137,6 +138,16 @@ export default function ProcurementRequisitionDetailPage() {
 
   const nodes = useMemo(() => (d && h ? buildTimeline(d, t, i18n.language) : []), [d, h, t, i18n.language]);
   const returnNote = useMemo(() => (d ? latestPrReturnOrReject(d.history) : null), [d]);
+  const stageOptions = useMemo(() => {
+    if (!d) return [];
+    const pending = d.steps.filter((s) => s.status === "pending");
+    return pending.map((step) => ({
+      id: step.id,
+      label: t(`procurement.detail.timelineStep.${step.step_role}`, {
+        defaultValue: t(`procurement.steps.${step.step_role}`),
+      }),
+    }));
+  }, [d, t]);
 
   if (detail.isLoading) {
     return <p className="text-muted-foreground">{t("common.loading")}</p>;
@@ -282,6 +293,7 @@ export default function ProcurementRequisitionDetailPage() {
           ) : null}
           {d.canAct ? (
             <Button variant={reviewing ? "outline" : "default"} onClick={() => setReviewing((v) => !v)}>
+              <ShieldCheck />
               {reviewing ? t("procurement.detail.closeReview") : t("procurement.detail.reviewRequest")}
             </Button>
           ) : null}
@@ -336,6 +348,7 @@ export default function ProcurementRequisitionDetailPage() {
           roleLabel={t(`procurement.detail.timelineStep.${h.current_step_role ?? "dept_head"}`, {
             defaultValue: t(`procurement.steps.${h.current_step_role ?? "dept_head"}`),
           })}
+          stageOptions={stageOptions.length ? stageOptions : undefined}
           universal={universal}
           pending={actions.pending}
           onApprove={(comments) => {

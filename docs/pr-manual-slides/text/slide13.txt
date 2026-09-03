@@ -1,0 +1,15 @@
+DECISION STANDARD
+Choose the decision that matches the evidence
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+13
+Approve
+Business need is clear
+Vendor and totals are correct
+Documents support the request
+Your approval stage requirements are satisfied
+Request changes or reject
+Request Changes — missing or correctable information
+Reject — request should not proceed
+State exactly what failed and what evidence is needed
+Never use free-text feedback to bypass a required field or policy
+A short, specific decision note is more useful than a long generic comment.

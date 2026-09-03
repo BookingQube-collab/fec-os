@@ -1,0 +1,16 @@
+GRACE EXTENSION
+Extend grace only with Super Admin authority
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+24
+1
+Read the current compliance position.
+2
+Set an appropriate extension duration.
+3
+Confirm the projected new deadline.
+4
+Enter the mandatory justification (minimum 10 characters).
+5
+Authorise only when the exception is defensible and recorded.
+OPERATOR NOTE
+A grace extension changes the deadline; it does not prove the vendor is compliant.

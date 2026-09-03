@@ -1,0 +1,16 @@
+QUICK-CREATE
+Add a vendor without leaving the PR
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+09
+1
+Enter the company or freelancer name.
+2
+Choose Company or Freelancer entity type.
+3
+Choose the engagement type and contact details.
+4
+Set the compliance deadline: 7, 14, 30 days or custom.
+5
+Create &amp; Get Link only after checking the email and mobile.
+OPERATOR NOTE
+Freelancer quick-create currently states “Requires QID”. Company quick-create uses the company compliance route.

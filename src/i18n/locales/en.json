@@ -460,12 +460,13 @@
     "myQueueCount": "My Queue ({{n}})",
     "pendingYourReview": "{{n}} Pending Your Review",
     "refresh": "Refresh",
-    "actionRequired": "Action required",
+    "actionRequired": "ACTION REQUIRED",
     "chrome": {
       "nav": "Purchase request sections",
       "purchases": "Purchases",
       "vendors": "Vendors",
       "analytics": "Analytics",
+      "compliance": "Compliance",
       "help": "Help",
       "config": "Admin"
     },
@@ -916,9 +917,12 @@
       "reviewRequest": "Review Request",
       "closeReview": "Close Review",
       "reviewingAs": "Reviewing as {{role}}",
+      "reviewingUniversal": "Reviewing as {{role}} (Universal Access)",
       "universalAccess": "Universal Access",
       "actingOnStage": "Acting on stage: {{stage}} (Pending)",
+      "selectStage": "Select approval stage",
       "feedbackPlaceholder": "Provide your feedback or requirements...",
+      "feedbackPlaceholderReject": "Provide your feedback or requirements (required for rejections or change requests)...",
       "requestChanges": "Request Changes",
       "approveRequest": "Approve Request",
       "documentExport": "Document Export",
@@ -1047,6 +1051,7 @@
         "vendors": "Vendors",
         "analytics": "Analytics",
         "checklists": "Checklists",
+        "crosscheck": "Cross-check",
         "troubleshoot": "Troubleshooting",
         "security": "Security"
       },
@@ -1117,12 +1122,23 @@
         ]
       },
       "vendors": {
-        "title": "Manage suppliers from the vendor directory",
-        "body": "FEC-OS reuses the estate vendor module. Quick-Create Vendor from a PR adds the record immediately. Create & Get Link copies the staff Vendors URL — the public self-service onboarding portal from the E3 tracker is not part of this module.",
+        "title": "Manage suppliers from the Vendor Ecosystem",
+        "body": "Approved Directory lists registered vendors. Compliance Matrix shows document readiness. Onboarding Pipeline tracks invited vendors. Use Quick-Create from a PR or the Vendors hub. Manage Files, Compliance Cases, and Extend Grace from each vendor card.",
         "steps": [
-          "Use the Vendors directory for registered suppliers.",
-          "Quick-create only after checking email and mobile.",
-          "Do not create a second vendor because a record is incomplete."
+          "Use Invite for self-service onboarding (7-day link).",
+          "Rule Matrix publishes company and freelancer document requirements.",
+          "Legacy pending assessment is a warning — it should not hide an existing vendor.",
+          "Do not create a second vendor because an invitation is incomplete."
+        ]
+      },
+      "compliance": {
+        "title": "Use the gateway as the risk worklist",
+        "body": "Compliance Gateway shows system health, fully secured vendors, and regulatory risk. Filter or scan vendors needing attention. Export audit only to approved storage.",
+        "steps": [
+          "Read System Health and Regulatory Risk together.",
+          "Run Compliance Scan when records should be recalculated.",
+          "Open Policy Settings only with the correct authority.",
+          "A score alone is not the full decision — entity type and deadline also matter."
         ]
       },
       "analytics": {
@@ -1133,6 +1149,16 @@
           "Vendor concentration shows reliance on suppliers.",
           "Purpose allocation shows where demand is concentrated.",
           "Reconcile material figures with the underlying PR records before reporting externally."
+        ]
+      },
+      "crosscheck": {
+        "title": "Verify these defaults before committing an action",
+        "body": "Observed interface differences are not instructions to alter production data. Read the actual dialog every time and pause when a default conflicts with published policy.",
+        "steps": [
+          "Invite Vendor says the onboarding link is 7 days.",
+          "Global Policy default grace is 15 days; open compliance case may show 14 days.",
+          "Confirm freelancer QID requirements with Super Admin before sending.",
+          "Do not assume one deadline controls every link or case."
         ]
       },
       "checklists": {
@@ -1162,6 +1188,28 @@
           "Do not change compliance status merely to unblock a PR."
         ]
       }
+    },
+    "compliance": {
+      "title": "Compliance Gateway",
+      "subtitle": "System-wide regulatory audit • Q3 2026",
+      "body": "This hub monitors vendor legality by aggregating proof-of-registration and tax certificates. Use it as a risk worklist — it highlights missing documents but does not replace human review of validity.",
+      "systemHealth": "System Health",
+      "fullySecured": "Fully Secured",
+      "regulatoryRisk": "Regulatory Risk",
+      "vendors": "VENDORS",
+      "critical": "CRITICAL",
+      "searchPlaceholder": "Search vendor legal cache...",
+      "policySettings": "Policy Settings",
+      "exportAudit": "Export Audit",
+      "runScan": "Run Compliance Scan",
+      "scanDone": "Compliance scan completed — scores refreshed.",
+      "vendorEntity": "Vendor Entity",
+      "entityId": "ID: {{id}} • {{status}}",
+      "colCr": "Registration (CR)",
+      "colTax": "Tax Certificate",
+      "colComputer": "Computer Card",
+      "colContract": "Master Contract",
+      "score": "Score"
     },
     "config": {
       "title": "Delegation of authority",
@@ -4278,6 +4326,110 @@
       "active": "Active",
       "inactive": "Inactive",
       "nearExpiry": "Near Expiry"
+    },
+    "ecosystem": {
+      "subtitle": "Global supplier matrix & compliance hub",
+      "quickCreate": "Quick-Create Vendor",
+      "ruleMatrix": "Rule Matrix",
+      "invite": "Invite",
+      "approvedDirectory": "Approved Directory",
+      "complianceMatrix": "Compliance Matrix (Grid)",
+      "onboardingPipeline": "Onboarding Pipeline",
+      "searchPlaceholder": "Search entity name, IBAN, tax ID, or contact…",
+      "chip": {
+        "all": "All",
+        "active": "Active",
+        "blocked": "Blocked",
+        "frozen": "Frozen"
+      },
+      "allEntityTypes": "All Entity Types",
+      "company": "Company",
+      "freelancer": "Freelancer",
+      "companyEntity": "Company / Entity",
+      "freelancerEntity": "Freelancer / Individual",
+      "permanent": "Permanent",
+      "identity": "Identity",
+      "hotline": "Hotline",
+      "taxVat": "Tax / VAT",
+      "regId": "Reg. ID",
+      "baseOps": "Base of Operations",
+      "bankIban": "Bank IBAN",
+      "bankMasked": "Bank — ****",
+      "unregistered": "Unregistered",
+      "pendingReg": "Pending",
+      "dohaDefault": "Doha",
+      "unrated": "Unrated",
+      "manageFiles": "Manage Files",
+      "complianceCases": "Compliance Cases",
+      "extendGrace": "Extend Grace",
+      "active": "Active",
+      "frozen": "Frozen",
+      "unassessed": "Unassessed",
+      "legacyPending": "Legacy Pending Assessment",
+      "missing": "Missing",
+      "noDeadline": "No deadline",
+      "invited": "Invited",
+      "inProgress": "In Progress",
+      "reviewDraft": "Review Draft →",
+      "pipelineTitle": "Self-Service Onboarding Pipeline",
+      "inviteAnother": "+ Invite Another Vendor",
+      "gatewayTitle": "Compliance Document Gateway",
+      "gatewayHint": "Drop regulatory files here — PDF, XLSX, or DOCX (max 10 MB)",
+      "inviteTitle": "Invite Vendor (Self-Service)",
+      "inviteSubtitle": "Generate a secure 7-day self-service onboarding link",
+      "vendorClassification": "Vendor Classification",
+      "companyName": "Company Name",
+      "freelancerName": "Freelancer Full Name / Trade Name",
+      "contactPerson": "Contact Person",
+      "contactEmail": "Contact Email",
+      "contactPhone": "Contact Phone",
+      "complianceChecklist": "Required Compliance Checklist",
+      "complianceChecklistHint": "Configure mandatory documents",
+      "mandatory": "Mandatory",
+      "optional": "Optional",
+      "internalNotes": "Internal Notes / Instructions (Optional)",
+      "generateLink": "Generate Link",
+      "inviteSent": "Invitation created — vendor appears in the onboarding pipeline.",
+      "ruleMatrixTitle": "Vendor Rule Matrix (Spreadsheet Settings)",
+      "ruleMatrixHint": "Configure mandatory legal & financial requirements. Changes do not block Purchase Requests.",
+      "simulateImpact": "Simulate Impact",
+      "publishRuleset": "Publish Ruleset",
+      "rulesPublished": "Ruleset published for future compliance evaluation.",
+      "graceTitle": "Extend Grace Period",
+      "currentDeadline": "Current deadline",
+      "extensionDays": "Extension duration",
+      "projectedDeadline": "Projected new deadline",
+      "justification": "Justification",
+      "authoriseGrace": "Authorise Extension",
+      "graceExtended": "Grace period extended.",
+      "matrix": {
+        "vendor": "Vendor",
+        "type": "Type",
+        "engagement": "Engagement",
+        "status": "Status",
+        "score": "Score",
+        "deadline": "Deadline",
+        "cr": "Commercial Reg…",
+        "qid": "Qatar ID (QID)",
+        "actions": "Actions"
+      },
+      "rule": {
+        "requirement": "Requirement",
+        "active": "Active",
+        "coApp": "Co. App",
+        "coMandatory": "Co. Mandatory",
+        "freeMandatory": "Free. Mandatory",
+        "expiry": "Expiry Req",
+        "weight": "Score Wt"
+      },
+      "doc": {
+        "commercial_registration": "Commercial Registration",
+        "tax_certificate": "Tax Certificate",
+        "establishment_card": "Establishment Card",
+        "qid_passport": "Qatar ID (QID) / Passport",
+        "freelance_permit": "Freelance Permit / Tax Card",
+        "bank_confirmation": "Bank Account Confirmation"
+      }
     },
     "filters": {
       "category": "Category",

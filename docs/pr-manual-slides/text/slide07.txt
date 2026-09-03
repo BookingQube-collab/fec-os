@@ -1,0 +1,16 @@
+CREATE PR
+Create the request in four steps
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+07
+1
+Details — business context and vendor.
+2
+Items — what is being purchased and at what value.
+3
+Payment — milestone or payment structure.
+4
+Files — quotations and supporting evidence.
+5
+Use Next to progress; Discard closes the draft.
+OPERATOR NOTE
+Complete each tab in sequence so later totals and validations have the required context.

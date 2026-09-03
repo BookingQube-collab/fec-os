@@ -1,0 +1,15 @@
+PURCHASES
+Find the right request before you act
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+06
+Search and filter
+Search by title, PR number, vendor, department, requester or purpose
+Use All / Pending / Approved / Rejected chips
+Open Filters for additional narrowing
+Select a row only when you have verified the PR number
+Queue and export
+My Queue shows work awaiting your decision
+Quick Approve is a high-trust action—open the record first when context is unclear
+Export creates the corporate Excel report
+Do not export data to personal or unmanaged storage
+Best practice: identify the request by PR number, vendor and amount—not title alone.

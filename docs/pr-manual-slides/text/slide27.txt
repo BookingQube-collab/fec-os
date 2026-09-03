@@ -1,0 +1,16 @@
+ANALYTICS
+Use concentration views to spot dependency
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+27
+1
+Department Yield compares spend and recovered savings.
+2
+Vendor Concentration shows reliance on suppliers.
+3
+Purpose Allocation shows where demand is concentrated.
+4
+Change filters before comparing periods.
+5
+Document the filter context in exported commentary.
+OPERATOR NOTE
+A chart without its period and filters can be misleading.

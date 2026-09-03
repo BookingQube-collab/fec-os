@@ -1,0 +1,17 @@
+CURRENT SCREEN CROSS-CHECK
+Verify these defaults before committing an action
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+31
+Observed in production
+Invite Vendor says the onboarding link is 7 days
+Global Policy default grace is 15 days
+Open Compliance Case currently shows 14 days
+Global freelancer checklist is empty
+Invite Freelancer currently marks QID/Passport mandatory
+Operator response
+Read the actual dialog every time
+Adjust the case deadline to approved policy
+Confirm freelancer requirements with Super Admin
+Do not assume one deadline controls every link or case
+Pause when a default conflicts with the published policy
+These are current interface differences—not instructions to alter production data.

@@ -1,0 +1,16 @@
+POLICY SETTINGS
+Global policy sets the default behaviour
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+22
+1
+Default grace period is currently 15 days.
+2
+Expiration warning horizon is 30 days.
+3
+Freelancer cash / cheque exemption is enabled.
+4
+Corporate checklist has three configured items.
+5
+Freelancer mandatory checklist is empty by default.
+OPERATOR NOTE
+Only authorised Super Admin users should change policy. Save with a clear operational reason and verify the result.

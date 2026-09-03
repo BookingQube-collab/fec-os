@@ -149,6 +149,38 @@ export const completeVendorFollowup = createAuthenticatedAction(
   { auth: { capability: "vendors.manage" } },
 );
 
+export const extendVendorGrace = createAuthenticatedAction(
+  z.object({
+    id: z.string().uuid(),
+    extensionDays: z.number().int().min(1).max(90),
+    reason: z.string().min(10).max(500),
+  }),
+  async (data, context) => {
+    const { data: vendor, error: readErr } = await context.supabase
+      .from("vendors")
+      .select("id, compliance_deadline, notes")
+      .eq("id", data.id)
+      .single();
+    if (readErr) throw readErr;
+    const base = vendor.compliance_deadline ? new Date(String(vendor.compliance_deadline)) : new Date();
+    base.setDate(base.getDate() + data.extensionDays);
+    const nextDeadline = base.toISOString().slice(0, 10);
+    const noteLine = `[Grace extended +${data.extensionDays}d] ${data.reason}`;
+    const notes = [vendor.notes, noteLine].filter(Boolean).join("\n");
+    const { error } = await context.supabase
+      .from("vendors")
+      .update({
+        compliance_deadline: nextDeadline,
+        compliance_status: "grace",
+        notes,
+      })
+      .eq("id", data.id);
+    if (error) throw error;
+    return { ok: true, compliance_deadline: nextDeadline };
+  },
+  { auth: { capability: "vendors.manage" } },
+);
+
 export const getVendorDashboard = createAuthenticatedAction(
   LocFilter,
   async (data, context) => {

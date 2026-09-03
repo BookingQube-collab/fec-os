@@ -1,0 +1,16 @@
+APPROVAL
+Review the correct stage before deciding
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+12
+1
+Select the stage assigned to you.
+2
+Read the PR record and every attachment.
+3
+Enter useful feedback—especially for changes or rejection.
+4
+Request Changes when the PR can be corrected.
+5
+Approve only when scope, vendor, amount and evidence agree.
+OPERATOR NOTE
+Super Admin shows Universal Access. Other users see only stages permitted by their role.

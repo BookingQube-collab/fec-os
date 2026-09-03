@@ -1,0 +1,17 @@
+TROUBLESHOOTING
+Diagnose the screen before retrying
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+32
+If data looks missing
+Refresh and confirm active filters
+Clear the search box
+Switch to All PRs / Approved Directory
+Check your role and department
+Use the visible retry action after an API error
+If an action is blocked
+Read the field-level validation message
+Complete required prior tabs
+Confirm vendor compliance and deadline
+Check approval stage ownership
+Escalate policy / permission issues instead of repeating clicks
+Do not recreate records until you confirm the original record truly does not exist.

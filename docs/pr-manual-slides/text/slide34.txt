@@ -1,0 +1,17 @@
+REVIEWER · ADMIN CHECKLIST
+Before you approve or configure
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+34
+Reviewer
+Correct PR and stage
+Purpose, amount and vendor verified
+Attachments opened
+Feedback is specific
+Decision matches available evidence
+Admin / Super Admin
+Entity and record verified
+Policy impact understood
+Mandatory justification recorded
+Sensitive data stays masked
+Audit trail will remain intact
+When in doubt, request clarification or changes. Do not use elevated access to guess.

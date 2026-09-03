@@ -1,0 +1,16 @@
+VENDORS
+Manage suppliers from the Vendor Ecosystem
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+15
+1
+Approved Directory lists registered vendors.
+2
+Compliance Matrix shows document readiness.
+3
+Onboarding Pipeline tracks invited vendors.
+4
+Use Invite for self-service onboarding.
+5
+Manage Files, Compliance Cases and Extend Grace from the vendor card.
+OPERATOR NOTE
+Legacy pending assessment is a warning state; it should not hide an existing vendor.

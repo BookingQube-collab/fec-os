@@ -152,7 +152,8 @@ function exportCsv(rows: PrListRow[], filename: string) {
       row.requested_at ?? "",
     ].map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","),
   );
-  const blob = new Blob([[header.join(","), ...body].join("\n")], { type: "text/csv;charset=utf-8" });
+  const bom = "\uFEFF";
+  const blob = new Blob([bom + [header.join(","), ...body].join("\n")], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -341,7 +342,7 @@ function ProcurementRequisitionsInner({
       toast.message(t("procurement.exportEmpty"));
       return;
     }
-    exportCsv(chosen, "purchase-requests.csv");
+    exportCsv(chosen, "purchase-requests-export.csv");
   }
 
   async function copyNumber(value: string) {

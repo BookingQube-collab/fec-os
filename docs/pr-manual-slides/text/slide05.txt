@@ -1,0 +1,16 @@
+PURCHASES
+Start from the Purchase Requests dashboard
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+05
+1
+Use All PRs for the complete register.
+2
+Use My Queue for decisions assigned to you.
+3
+Open New Request to begin a PR.
+4
+Use status totals to spot pending, approved or rejected work.
+5
+Refresh if the data looks stale before taking action.
+OPERATOR NOTE
+The dashboard is the operational starting point for requesters and reviewers.

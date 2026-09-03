@@ -1,0 +1,17 @@
+SECURITY
+Protect links, documents and banking data
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+30
+Always
+Use your own authenticated account
+Share vendor links only with the named recipient
+Mask banking details in screenshots and messages
+Check role, entity and PR number before acting
+Use approved storage for exports and documents
+Never
+Post invitation links in group chats
+Copy full IBAN or identity data into comments
+Approve because a requester says it is urgent
+Create duplicate vendors to bypass onboarding
+Change compliance status merely to unblock a PR
+If you suspect the wrong person received a link, revoke or regenerate it through the authorised workflow and record the incident.

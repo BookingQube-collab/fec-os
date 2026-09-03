@@ -1,0 +1,17 @@
+REQUESTER CHECKLIST
+Before you submit a PR
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+33
+Business check
+Title and scope are specific
+Department, purpose and project are correct
+Vendor identity matches the quotation
+Items and currency are accurate
+Priority reflects genuine urgency
+Control check
+Total equals the item and payment structure
+Required files are attached and readable
+Banking changes are not hidden in PR comments
+No duplicate vendor or request was created
+The final review screen contains no unresolved error
+A complete PR moves faster because reviewers do not need to reconstruct the business case.

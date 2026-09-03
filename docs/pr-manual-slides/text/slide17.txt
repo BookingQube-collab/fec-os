@@ -1,0 +1,16 @@
+FREELANCER ONBOARDING
+Invite a freelancer with the right checklist
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+17
+1
+Select Freelancer / Individual.
+2
+Enter the full name / trade name and contact person.
+3
+Confirm email, phone and currency.
+4
+Review every mandatory / optional document toggle.
+5
+Generate the link only when the checklist matches policy.
+OPERATOR NOTE
+The current invite screen marks QID/Passport mandatory by default. Confirm this against Global Policy Settings before sending.

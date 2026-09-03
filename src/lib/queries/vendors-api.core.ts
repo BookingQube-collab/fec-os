@@ -19,6 +19,14 @@ export interface VendorListRow {
   status: string | null;
   active: boolean;
   created_at: string | null;
+  entity_type: string;
+  engagement_type: string | null;
+  compliance_deadline: string | null;
+  compliance_status: string;
+  document_count: number;
+  doc_types: string[];
+  compliance_score: number;
+  onboarding_stage: "approved" | "invited" | "in_progress";
   location_names: string[];
   active_pr_count: number;
   total_spend: number;
@@ -44,8 +52,13 @@ type VendorQueryRow = Omit<
   | "contract_count"
   | "nearest_contract_end"
   | "near_expiry"
+  | "document_count"
+  | "doc_types"
+  | "compliance_score"
+  | "onboarding_stage"
 > & {
   branch_coverage?: string[];
+  notes?: string | null;
 };
 
 export async function fetchVendorsApi(
@@ -60,7 +73,7 @@ export async function fetchVendorsApi(
   let q = context.supabase
     .from("vendors")
     .select(
-      "id, name, category, service_category, contact_person, phone, email, trade_license_no, cr_no, address, amc_status, payment_terms, status, active, created_at, branch_coverage",
+      "id, name, category, service_category, contact_person, phone, email, trade_license_no, cr_no, address, amc_status, payment_terms, status, active, created_at, branch_coverage, entity_type, engagement_type, compliance_deadline, compliance_status, notes",
       { count: "exact" },
     )
     .order("name")
@@ -87,15 +100,28 @@ export async function fetchVendorsApi(
     context,
     raw.map((v) => ({ id: v.id, locationIds: v.branch_coverage ?? [] })),
   );
+  const docMeta = await loadVendorDocumentMeta(context, raw.map((v) => v.id));
 
   return {
     items: raw.map((v) => {
       const extra = extras.get(v.id);
-      const { branch_coverage: _bc, ...rest } = v;
+      const docs = docMeta.get(v.id) ?? { count: 0, types: [] as string[] };
+      const entityType = (v.entity_type as string | null) ?? "company";
+      const complianceStatus = (v.compliance_status as string | null) ?? "unassessed";
+      const score = computeComplianceScore(entityType, docs.types, complianceStatus);
+      const { branch_coverage: _bc, notes: _notes, ...rest } = v;
       return {
         ...rest,
         payment_terms: rest.payment_terms ?? null,
         created_at: rest.created_at ?? null,
+        entity_type: entityType,
+        engagement_type: (v.engagement_type as string | null) ?? null,
+        compliance_deadline: (v.compliance_deadline as string | null) ?? null,
+        compliance_status: complianceStatus,
+        document_count: docs.count,
+        doc_types: docs.types,
+        compliance_score: score,
+        onboarding_stage: inferOnboardingStage(complianceStatus, docs.count, Boolean(v.compliance_deadline)),
         location_names: extra?.location_names ?? [],
         active_pr_count: extra?.active_pr_count ?? 0,
         total_spend: extra?.total_spend ?? 0,
@@ -106,6 +132,74 @@ export async function fetchVendorsApi(
     }),
     total: count ?? raw.length,
   };
+}
+
+function normalizeDocType(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+}
+
+function requiredDocTypes(entityType: string): string[] {
+  return entityType === "freelancer"
+    ? ["qid", "qatar_id", "passport", "qid_passport"]
+    : ["commercial_registration", "cr", "commercial_reg"];
+}
+
+function hasDocType(types: string[], keys: string[]): boolean {
+  const normalized = types.map(normalizeDocType);
+  return keys.some((key) => normalized.some((t) => t.includes(key)));
+}
+
+function computeComplianceScore(entityType: string, docTypes: string[], complianceStatus: string): number {
+  if (complianceStatus === "compliant") return 100;
+  const required =
+    entityType === "freelancer"
+      ? [["qid", "qatar_id", "passport", "qid_passport"]]
+      : [
+          ["commercial_registration", "cr", "commercial_reg"],
+          ["tax", "tax_certificate", "tin"],
+          ["establishment", "computer_card"],
+        ];
+  let matched = 0;
+  for (const group of required) {
+    if (hasDocType(docTypes, group)) matched += 1;
+  }
+  if (!required.length) return complianceStatus === "blocked" ? 0 : 50;
+  return Math.round((matched / required.length) * 100);
+}
+
+function inferOnboardingStage(
+  complianceStatus: string,
+  documentCount: number,
+  hasDeadline: boolean,
+): VendorListRow["onboarding_stage"] {
+  if (complianceStatus === "compliant") return "approved";
+  if (hasDeadline && complianceStatus !== "blocked" && documentCount === 0) return "invited";
+  if (hasDeadline && documentCount > 0 && complianceStatus !== "compliant") return "in_progress";
+  if (complianceStatus === "unassessed" || complianceStatus === "grace" || complianceStatus === "warning") {
+    return documentCount > 0 ? "in_progress" : "invited";
+  }
+  return "approved";
+}
+
+async function loadVendorDocumentMeta(context: AuthContext, vendorIds: string[]) {
+  const map = new Map<string, { count: number; types: string[] }>();
+  if (!vendorIds.length) return map;
+  const { data, error } = await context.supabase
+    .from("vendor_documents")
+    .select("vendor_id, doc_type")
+    .in("vendor_id", vendorIds);
+  if (error) throw error;
+  for (const row of data ?? []) {
+    const id = row.vendor_id as string;
+    const prev = map.get(id) ?? { count: 0, types: [] as string[] };
+    prev.count += 1;
+    if (row.doc_type) prev.types.push(String(row.doc_type));
+    map.set(id, prev);
+  }
+  return map;
 }
 
 type VendorExtras = Pick<

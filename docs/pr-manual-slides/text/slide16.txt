@@ -1,0 +1,16 @@
+COMPANY ONBOARDING
+Invite a company through self-service
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+16
+1
+Select Company / Entity.
+2
+Enter company and contact information.
+3
+Set the correct operating currency.
+4
+Choose mandatory and optional compliance documents.
+5
+Generate the invitation only after checking the recipient email.
+OPERATOR NOTE
+The live dialog states that the self-service onboarding link is valid for 7 days.

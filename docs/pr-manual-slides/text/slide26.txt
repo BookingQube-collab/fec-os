@@ -1,0 +1,16 @@
+ANALYTICS
+Read performance and liability in one view
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+26
+1
+Select the reporting period.
+2
+Filter departments, projects and vendors.
+3
+Review cycle velocity and budget adherence.
+4
+Use forecasted liability for upcoming exposure.
+5
+Interpret savings and compliance with the active filters.
+OPERATOR NOTE
+Analytics support decisions; reconcile material figures with the underlying PR records before reporting externally.

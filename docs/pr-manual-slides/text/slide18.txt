@@ -1,0 +1,16 @@
+ONBOARDING
+Track every invitation in the pipeline
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+18
+1
+Invited means the secure link was created.
+2
+In Progress means the vendor started the draft.
+3
+Review Draft opens submitted onboarding information.
+4
+Use the gateway area for compliance documents.
+5
+Follow up before the invitation expires.
+OPERATOR NOTE
+Do not create a second vendor record because an invitation is incomplete—use the existing pipeline record.

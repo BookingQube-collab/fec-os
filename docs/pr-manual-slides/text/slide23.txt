@@ -1,0 +1,16 @@
+EXISTING VENDOR
+Open a compliance case for requested updates
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+23
+1
+Choose the audit reason.
+2
+Check the submission deadline before opening.
+3
+Select only documents actually required.
+4
+Write clear special instructions for the vendor.
+5
+Open Case &amp; Generate Link after the scope is correct.
+OPERATOR NOTE
+The live case dialog currently shows 14 days while Global Policy shows 15. Adjust or confirm the deadline before opening the case.

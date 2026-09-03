@@ -1,0 +1,17 @@
+ACCESS
+Your role controls what you can see and do
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+03
+Operational roles
+Requester / User — create and follow own PRs
+Supervisor — first-stage review and feedback
+Approver — review assigned approval stages
+Admin — manage operations, vendors and records
+Super Admin — universal review, policy and system settings
+Vendor access
+Vendors do not use the staff dashboard
+They enter through a secure self-service link
+The link is scoped to the requested onboarding or update
+Staff review submitted changes before use
+Never forward a vendor link to another entity
+If a control is missing, confirm your role and department assignment before reporting a system fault.

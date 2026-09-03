@@ -635,6 +635,18 @@
     background: var(--color-primary);
     color: var(--color-primary-foreground);
   }
+
+  .pr-module .pr-vendor-card {
+    transition: box-shadow 160ms ease;
+  }
+
+  .pr-module .pr-vendor-card:hover {
+    box-shadow: var(--shadow-elevated-sm);
+  }
+
+  .pr-review-panel textarea {
+    background: color-mix(in oklab, var(--color-muted) 35%, var(--color-card));
+  }
 }
 
 @layer components {

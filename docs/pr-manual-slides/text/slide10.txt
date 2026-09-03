@@ -1,0 +1,15 @@
+ITEMS · PAYMENT · FILES
+Make the commercial record audit-ready
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+10
+Items and totals
+Describe each good or service clearly
+Enter quantity, unit rate and correct currency
+Confirm the line total and overall exposure agree
+Avoid lump-sum descriptions when multiple deliverables exist
+Payment and evidence
+Build milestones that match the quotation / contract
+State due timing and completion conditions
+Attach quotation, scope, comparison or supporting files
+Use meaningful filenames and remove obsolete duplicates
+Before submission: item total = estimated exposure = payment structure. Explain any permitted difference.

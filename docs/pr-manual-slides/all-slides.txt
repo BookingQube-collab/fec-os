@@ -1,0 +1,610 @@
+=== SLIDE 1 ===
+PRACTICAL USER MANUAL
+E3 Purchase Request System
+Practical user manual based on the live application
+Purchase requests · approvals · vendors · compliance · analytics · administration
+LIVE PRODUCTION SCREENS · AUGUST 2026
+
+=== SLIDE 2 ===
+START HERE
+Use this manual as an operating guide
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+02
+What it covers
+Creating and tracking purchase requests
+Reviewing and approving work in the queue
+Registering companies and freelancers
+Vendor onboarding and compliance controls
+Analytics, administration, exports and PDF setup
+Safe operating rules
+Save only accurate business information
+Never approve your own request unless policy allows
+Do not expose banking data or invitation links
+Read validation messages before retrying
+Stop and confirm policy when screen defaults conflict
+Screens were captured from the live application on 23 August 2026. Labels and defaults shown here reflect the current production interface.
+
+=== SLIDE 3 ===
+ACCESS
+Your role controls what you can see and do
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+03
+Operational roles
+Requester / User — create and follow own PRs
+Supervisor — first-stage review and feedback
+Approver — review assigned approval stages
+Admin — manage operations, vendors and records
+Super Admin — universal review, policy and system settings
+Vendor access
+Vendors do not use the staff dashboard
+They enter through a secure self-service link
+The link is scoped to the requested onboarding or update
+Staff review submitted changes before use
+Never forward a vendor link to another entity
+If a control is missing, confirm your role and department assignment before reporting a system fault.
+
+=== SLIDE 4 ===
+WORKFLOW
+Every PR moves through the same control path
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+04
+1 · Request
+Create Details, Items, Payment and Files
+Select an active vendor or quick-create one
+Submit only when totals and documents agree
+2 · Review and delivery
+Assigned stages approve, reject or request changes
+Approved requests proceed to milestones / clearance
+Payments are recorded against the approved structure
+Timeline and documents remain the audit record
+A vendor compliance warning may allow work during grace; a blocked vendor requires the correct policy action or authorised override.
+
+=== SLIDE 5 ===
+PURCHASES
+Start from the Purchase Requests dashboard
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+05
+1
+Use All PRs for the complete register.
+2
+Use My Queue for decisions assigned to you.
+3
+Open New Request to begin a PR.
+4
+Use status totals to spot pending, approved or rejected work.
+5
+Refresh if the data looks stale before taking action.
+OPERATOR NOTE
+The dashboard is the operational starting point for requesters and reviewers.
+
+=== SLIDE 6 ===
+PURCHASES
+Find the right request before you act
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+06
+Search and filter
+Search by title, PR number, vendor, department, requester or purpose
+Use All / Pending / Approved / Rejected chips
+Open Filters for additional narrowing
+Select a row only when you have verified the PR number
+Queue and export
+My Queue shows work awaiting your decision
+Quick Approve is a high-trust action—open the record first when context is unclear
+Export creates the corporate Excel report
+Do not export data to personal or unmanaged storage
+Best practice: identify the request by PR number, vendor and amount—not title alone.
+
+=== SLIDE 7 ===
+CREATE PR
+Create the request in four steps
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+07
+1
+Details — business context and vendor.
+2
+Items — what is being purchased and at what value.
+3
+Payment — milestone or payment structure.
+4
+Files — quotations and supporting evidence.
+5
+Use Next to progress; Discard closes the draft.
+OPERATOR NOTE
+Complete each tab in sequence so later totals and validations have the required context.
+
+=== SLIDE 8 ===
+DETAILS TAB
+Complete the business context first
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+08
+Required business data
+Request Title — clear and specific
+Submitting Department — correct cost owner
+Purpose Category — business classification
+Project / Asset — becomes available after category
+Priority — use urgency honestly
+Requirement Overview — scope and reason
+Commercial data
+Vendor Partnership — select an active vendor
+Currency — choose the quotation currency
+Total Estimated Exposure — verify against items
+Keep vendor name and quotation consistent
+Use Quick-Create only when the vendor is not registered
+A strong title describes the purchase, not merely the supplier name.
+
+=== SLIDE 9 ===
+QUICK-CREATE
+Add a vendor without leaving the PR
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+09
+1
+Enter the company or freelancer name.
+2
+Choose Company or Freelancer entity type.
+3
+Choose the engagement type and contact details.
+4
+Set the compliance deadline: 7, 14, 30 days or custom.
+5
+Create &amp; Get Link only after checking the email and mobile.
+OPERATOR NOTE
+Freelancer quick-create currently states “Requires QID”. Company quick-create uses the company compliance route.
+
+=== SLIDE 10 ===
+ITEMS · PAYMENT · FILES
+Make the commercial record audit-ready
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+10
+Items and totals
+Describe each good or service clearly
+Enter quantity, unit rate and correct currency
+Confirm the line total and overall exposure agree
+Avoid lump-sum descriptions when multiple deliverables exist
+Payment and evidence
+Build milestones that match the quotation / contract
+State due timing and completion conditions
+Attach quotation, scope, comparison or supporting files
+Use meaningful filenames and remove obsolete duplicates
+Before submission: item total = estimated exposure = payment structure. Explain any permitted difference.
+
+=== SLIDE 11 ===
+REQUEST RECORD
+Use the detail page as the single source of truth
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+11
+1
+Confirm requester, department, purpose and vendor.
+2
+Check Financial Summary and line items.
+3
+Review Payment Milestones &amp; Clearance.
+4
+Open attached documents before deciding.
+5
+Use Procurement Timeline to understand the audit history.
+OPERATOR NOTE
+Edit and Delete are high-impact controls. Verify status, ownership and policy before using them.
+
+=== SLIDE 12 ===
+APPROVAL
+Review the correct stage before deciding
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+12
+1
+Select the stage assigned to you.
+2
+Read the PR record and every attachment.
+3
+Enter useful feedback—especially for changes or rejection.
+4
+Request Changes when the PR can be corrected.
+5
+Approve only when scope, vendor, amount and evidence agree.
+OPERATOR NOTE
+Super Admin shows Universal Access. Other users see only stages permitted by their role.
+
+=== SLIDE 13 ===
+DECISION STANDARD
+Choose the decision that matches the evidence
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+13
+Approve
+Business need is clear
+Vendor and totals are correct
+Documents support the request
+Your approval stage requirements are satisfied
+Request changes or reject
+Request Changes — missing or correctable information
+Reject — request should not proceed
+State exactly what failed and what evidence is needed
+Never use free-text feedback to bypass a required field or policy
+A short, specific decision note is more useful than a long generic comment.
+
+=== SLIDE 14 ===
+AFTER APPROVAL
+Payments follow the approved structure
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+14
+Milestone control
+Record progress against the approved milestone
+Confirm delivery or acceptance evidence
+Do not exceed the approved request amount
+Attach clearance evidence where required
+Audit discipline
+Keep payment status aligned with actual settlement
+Use the timeline to trace approvals and clearances
+Do not replace approved files silently
+Escalate bank-detail changes through the vendor review process
+Approval authorises the request; it does not remove payment, delivery or banking controls.
+
+=== SLIDE 15 ===
+VENDORS
+Manage suppliers from the Vendor Ecosystem
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+15
+1
+Approved Directory lists registered vendors.
+2
+Compliance Matrix shows document readiness.
+3
+Onboarding Pipeline tracks invited vendors.
+4
+Use Invite for self-service onboarding.
+5
+Manage Files, Compliance Cases and Extend Grace from the vendor card.
+OPERATOR NOTE
+Legacy pending assessment is a warning state; it should not hide an existing vendor.
+
+=== SLIDE 16 ===
+COMPANY ONBOARDING
+Invite a company through self-service
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+16
+1
+Select Company / Entity.
+2
+Enter company and contact information.
+3
+Set the correct operating currency.
+4
+Choose mandatory and optional compliance documents.
+5
+Generate the invitation only after checking the recipient email.
+OPERATOR NOTE
+The live dialog states that the self-service onboarding link is valid for 7 days.
+
+=== SLIDE 17 ===
+FREELANCER ONBOARDING
+Invite a freelancer with the right checklist
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+17
+1
+Select Freelancer / Individual.
+2
+Enter the full name / trade name and contact person.
+3
+Confirm email, phone and currency.
+4
+Review every mandatory / optional document toggle.
+5
+Generate the link only when the checklist matches policy.
+OPERATOR NOTE
+The current invite screen marks QID/Passport mandatory by default. Confirm this against Global Policy Settings before sending.
+
+=== SLIDE 18 ===
+ONBOARDING
+Track every invitation in the pipeline
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+18
+1
+Invited means the secure link was created.
+2
+In Progress means the vendor started the draft.
+3
+Review Draft opens submitted onboarding information.
+4
+Use the gateway area for compliance documents.
+5
+Follow up before the invitation expires.
+OPERATOR NOTE
+Do not create a second vendor record because an invitation is incomplete—use the existing pipeline record.
+
+=== SLIDE 19 ===
+COMPLIANCE MATRIX
+Use the matrix to find missing requirements
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+19
+1
+Filter by company / freelancer and status.
+2
+Read the compliance score and deadline together.
+3
+Check each requirement column for missing evidence.
+4
+Open the vendor action only after verifying the entity.
+5
+Prioritise expired and near-deadline cases.
+OPERATOR NOTE
+A score alone is not the full decision; entity type, deadline and configured checklist also matter.
+
+=== SLIDE 20 ===
+RULE MATRIX
+Publish vendor rules deliberately
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+20
+1
+Activate only requirements the organisation uses.
+2
+Set company and freelancer applicability separately.
+3
+Choose whether each document is mandatory.
+4
+Set expiry and scoring weight where appropriate.
+5
+Simulate Impact before Publish Ruleset.
+OPERATOR NOTE
+Publishing affects future compliance evaluation. Record the business reason for every policy change.
+
+=== SLIDE 21 ===
+COMPLIANCE
+Use the gateway as the risk worklist
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+21
+1
+Read System Health and Regulatory Risk.
+2
+Filter or scan vendors needing attention.
+3
+Open Policy Settings only with the correct authority.
+4
+Run Compliance Scan when records should be recalculated.
+5
+Export Audit only to approved storage.
+OPERATOR NOTE
+The gateway highlights missing or authenticated documents; it does not replace human review of document validity.
+
+=== SLIDE 22 ===
+POLICY SETTINGS
+Global policy sets the default behaviour
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+22
+1
+Default grace period is currently 15 days.
+2
+Expiration warning horizon is 30 days.
+3
+Freelancer cash / cheque exemption is enabled.
+4
+Corporate checklist has three configured items.
+5
+Freelancer mandatory checklist is empty by default.
+OPERATOR NOTE
+Only authorised Super Admin users should change policy. Save with a clear operational reason and verify the result.
+
+=== SLIDE 23 ===
+EXISTING VENDOR
+Open a compliance case for requested updates
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+23
+1
+Choose the audit reason.
+2
+Check the submission deadline before opening.
+3
+Select only documents actually required.
+4
+Write clear special instructions for the vendor.
+5
+Open Case &amp; Generate Link after the scope is correct.
+OPERATOR NOTE
+The live case dialog currently shows 14 days while Global Policy shows 15. Adjust or confirm the deadline before opening the case.
+
+=== SLIDE 24 ===
+GRACE EXTENSION
+Extend grace only with Super Admin authority
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+24
+1
+Read the current compliance position.
+2
+Set an appropriate extension duration.
+3
+Confirm the projected new deadline.
+4
+Enter the mandatory justification (minimum 10 characters).
+5
+Authorise only when the exception is defensible and recorded.
+OPERATOR NOTE
+A grace extension changes the deadline; it does not prove the vendor is compliant.
+
+=== SLIDE 25 ===
+DOCUMENTS
+Attach vendor evidence to the correct record
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+25
+1
+Choose the document type and name.
+2
+Upload only approved file formats up to 10 MB.
+3
+Enter an expiry date when the document expires.
+4
+Check the selected type matches the entity.
+5
+Attach, then confirm the file appears in Official Records.
+OPERATOR NOTE
+The current type list starts with Commercial Registration even for a freelancer—change it before attaching the file.
+
+=== SLIDE 26 ===
+ANALYTICS
+Read performance and liability in one view
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+26
+1
+Select the reporting period.
+2
+Filter departments, projects and vendors.
+3
+Review cycle velocity and budget adherence.
+4
+Use forecasted liability for upcoming exposure.
+5
+Interpret savings and compliance with the active filters.
+OPERATOR NOTE
+Analytics support decisions; reconcile material figures with the underlying PR records before reporting externally.
+
+=== SLIDE 27 ===
+ANALYTICS
+Use concentration views to spot dependency
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+27
+1
+Department Yield compares spend and recovered savings.
+2
+Vendor Concentration shows reliance on suppliers.
+3
+Purpose Allocation shows where demand is concentrated.
+4
+Change filters before comparing periods.
+5
+Document the filter context in exported commentary.
+OPERATOR NOTE
+A chart without its period and filters can be misleading.
+
+=== SLIDE 28 ===
+ADMIN
+The Admin Console controls system configuration
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+28
+1
+Overview and Department Analytics monitor the estate.
+2
+Departments, Projects and Catalog define master data.
+3
+Vendor and User Management control operational access.
+4
+Account Requests handle new access demand.
+5
+Backups and PDF Settings support governance.
+OPERATOR NOTE
+Admin options are role-protected. Configuration changes can affect every user and request.
+
+=== SLIDE 29 ===
+PDF SETTINGS
+Control the official PR document output
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+29
+1
+Upload approved logo, header and footer graphics.
+2
+Set brand colours accurately.
+3
+Maintain the document header and watermark text.
+4
+Enable signature layout when required.
+5
+Save only after previewing the intended output.
+OPERATOR NOTE
+PDF branding affects formal exports. Use controlled brand assets and avoid personal logos or unapproved watermarks.
+
+=== SLIDE 30 ===
+SECURITY
+Protect links, documents and banking data
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+30
+Always
+Use your own authenticated account
+Share vendor links only with the named recipient
+Mask banking details in screenshots and messages
+Check role, entity and PR number before acting
+Use approved storage for exports and documents
+Never
+Post invitation links in group chats
+Copy full IBAN or identity data into comments
+Approve because a requester says it is urgent
+Create duplicate vendors to bypass onboarding
+Change compliance status merely to unblock a PR
+If you suspect the wrong person received a link, revoke or regenerate it through the authorised workflow and record the incident.
+
+=== SLIDE 31 ===
+CURRENT SCREEN CROSS-CHECK
+Verify these defaults before committing an action
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+31
+Observed in production
+Invite Vendor says the onboarding link is 7 days
+Global Policy default grace is 15 days
+Open Compliance Case currently shows 14 days
+Global freelancer checklist is empty
+Invite Freelancer currently marks QID/Passport mandatory
+Operator response
+Read the actual dialog every time
+Adjust the case deadline to approved policy
+Confirm freelancer requirements with Super Admin
+Do not assume one deadline controls every link or case
+Pause when a default conflicts with the published policy
+These are current interface differences—not instructions to alter production data.
+
+=== SLIDE 32 ===
+TROUBLESHOOTING
+Diagnose the screen before retrying
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+32
+If data looks missing
+Refresh and confirm active filters
+Clear the search box
+Switch to All PRs / Approved Directory
+Check your role and department
+Use the visible retry action after an API error
+If an action is blocked
+Read the field-level validation message
+Complete required prior tabs
+Confirm vendor compliance and deadline
+Check approval stage ownership
+Escalate policy / permission issues instead of repeating clicks
+Do not recreate records until you confirm the original record truly does not exist.
+
+=== SLIDE 33 ===
+REQUESTER CHECKLIST
+Before you submit a PR
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+33
+Business check
+Title and scope are specific
+Department, purpose and project are correct
+Vendor identity matches the quotation
+Items and currency are accurate
+Priority reflects genuine urgency
+Control check
+Total equals the item and payment structure
+Required files are attached and readable
+Banking changes are not hidden in PR comments
+No duplicate vendor or request was created
+The final review screen contains no unresolved error
+A complete PR moves faster because reviewers do not need to reconstruct the business case.
+
+=== SLIDE 34 ===
+REVIEWER · ADMIN CHECKLIST
+Before you approve or configure
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+34
+Reviewer
+Correct PR and stage
+Purpose, amount and vendor verified
+Attachments opened
+Feedback is specific
+Decision matches available evidence
+Admin / Super Admin
+Entity and record verified
+Policy impact understood
+Mandatory justification recorded
+Sensitive data stays masked
+Audit trail will remain intact
+When in doubt, request clarification or changes. Do not use elevated access to guess.
+
+=== SLIDE 35 ===
+OPERATING PRINCIPLE
+Use the live record, follow the controls
+Create accurately · review deliberately · protect vendor data · keep the audit trail complete
+Production manual · 23 August 2026
+END OF MANUAL

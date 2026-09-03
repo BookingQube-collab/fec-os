@@ -1,0 +1,16 @@
+PDF SETTINGS
+Control the official PR document output
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+29
+1
+Upload approved logo, header and footer graphics.
+2
+Set brand colours accurately.
+3
+Maintain the document header and watermark text.
+4
+Enable signature layout when required.
+5
+Save only after previewing the intended output.
+OPERATOR NOTE
+PDF branding affects formal exports. Use controlled brand assets and avoid personal logos or unapproved watermarks.

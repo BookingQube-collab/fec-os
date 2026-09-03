@@ -1,0 +1,16 @@
+ADMIN
+The Admin Console controls system configuration
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+28
+1
+Overview and Department Analytics monitor the estate.
+2
+Departments, Projects and Catalog define master data.
+3
+Vendor and User Management control operational access.
+4
+Account Requests handle new access demand.
+5
+Backups and PDF Settings support governance.
+OPERATOR NOTE
+Admin options are role-protected. Configuration changes can affect every user and request.

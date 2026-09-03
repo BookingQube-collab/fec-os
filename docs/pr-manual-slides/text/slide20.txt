@@ -1,0 +1,16 @@
+RULE MATRIX
+Publish vendor rules deliberately
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+20
+1
+Activate only requirements the organisation uses.
+2
+Set company and freelancer applicability separately.
+3
+Choose whether each document is mandatory.
+4
+Set expiry and scoring weight where appropriate.
+5
+Simulate Impact before Publish Ruleset.
+OPERATOR NOTE
+Publishing affects future compliance evaluation. Record the business reason for every policy change.

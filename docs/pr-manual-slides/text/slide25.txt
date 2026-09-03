@@ -1,0 +1,16 @@
+DOCUMENTS
+Attach vendor evidence to the correct record
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+25
+1
+Choose the document type and name.
+2
+Upload only approved file formats up to 10 MB.
+3
+Enter an expiry date when the document expires.
+4
+Check the selected type matches the entity.
+5
+Attach, then confirm the file appears in Official Records.
+OPERATOR NOTE
+The current type list starts with Commercial Registration even for a freelancer—change it before attaching the file.

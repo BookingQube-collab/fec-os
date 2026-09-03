@@ -11,6 +11,7 @@ const ITEMS = [
   { href: "/procurement", labelKey: "procurement.chrome.purchases", match: "purchases" as const },
   { href: "/vendors", labelKey: "procurement.chrome.vendors", match: "vendors" as const, capability: "vendors.view" as const },
   { href: "/procurement/analytics", labelKey: "procurement.chrome.analytics", match: "analytics" as const },
+  { href: "/procurement/compliance", labelKey: "procurement.chrome.compliance", match: "compliance" as const, capability: "vendors.view" as const },
   { href: "/procurement/help", labelKey: "procurement.chrome.help", match: "help" as const },
   {
     href: "/procurement/config",
@@ -23,6 +24,7 @@ const ITEMS = [
 function chromeMatch(pathname: string, match: (typeof ITEMS)[number]["match"]) {
   if (match === "vendors") return pathname.startsWith("/vendors");
   if (match === "analytics") return pathname.startsWith("/procurement/analytics");
+  if (match === "compliance") return pathname.startsWith("/procurement/compliance");
   if (match === "help") return pathname.startsWith("/procurement/help");
   if (match === "config") return pathname.startsWith("/procurement/config");
   return (

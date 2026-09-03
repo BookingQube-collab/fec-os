@@ -1,0 +1,17 @@
+START HERE
+Use this manual as an operating guide
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+02
+What it covers
+Creating and tracking purchase requests
+Reviewing and approving work in the queue
+Registering companies and freelancers
+Vendor onboarding and compliance controls
+Analytics, administration, exports and PDF setup
+Safe operating rules
+Save only accurate business information
+Never approve your own request unless policy allows
+Do not expose banking data or invitation links
+Read validation messages before retrying
+Stop and confirm policy when screen defaults conflict
+Screens were captured from the live application on 23 August 2026. Labels and defaults shown here reflect the current production interface.

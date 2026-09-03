@@ -1,0 +1,16 @@
+COMPLIANCE MATRIX
+Use the matrix to find missing requirements
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+19
+1
+Filter by company / freelancer and status.
+2
+Read the compliance score and deadline together.
+3
+Check each requirement column for missing evidence.
+4
+Open the vendor action only after verifying the entity.
+5
+Prioritise expired and near-deadline cases.
+OPERATOR NOTE
+A score alone is not the full decision; entity type, deadline and configured checklist also matter.

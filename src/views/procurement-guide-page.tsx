@@ -16,8 +16,10 @@ const SECTIONS = [
   "approval",
   "after",
   "vendors",
+  "compliance",
   "analytics",
   "checklists",
+  "crosscheck",
   "troubleshoot",
   "security",
 ] as const;
@@ -84,9 +86,16 @@ export default function ProcurementGuidePage() {
             </div>
           ) : null}
           {id === "vendors" ? (
-            <div className="mt-4">
+            <div className="mt-4 flex flex-wrap gap-2">
               <Button size="sm" variant="outline" asChild>
                 <Link href="/vendors">{t("nav.vendors")}</Link>
+              </Button>
+            </div>
+          ) : null}
+          {id === "compliance" ? (
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" asChild>
+                <Link href="/procurement/compliance">{t("procurement.chrome.compliance")}</Link>
               </Button>
             </div>
           ) : null}

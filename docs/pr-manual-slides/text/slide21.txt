@@ -1,0 +1,16 @@
+COMPLIANCE
+Use the gateway as the risk worklist
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+21
+1
+Read System Health and Regulatory Risk.
+2
+Filter or scan vendors needing attention.
+3
+Open Policy Settings only with the correct authority.
+4
+Run Compliance Scan when records should be recalculated.
+5
+Export Audit only to approved storage.
+OPERATOR NOTE
+The gateway highlights missing or authenticated documents; it does not replace human review of document validity.

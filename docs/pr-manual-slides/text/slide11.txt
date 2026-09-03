@@ -1,0 +1,16 @@
+REQUEST RECORD
+Use the detail page as the single source of truth
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+11
+1
+Confirm requester, department, purpose and vendor.
+2
+Check Financial Summary and line items.
+3
+Review Payment Milestones &amp; Clearance.
+4
+Open attached documents before deciding.
+5
+Use Procurement Timeline to understand the audit history.
+OPERATOR NOTE
+Edit and Delete are high-impact controls. Verify status, ownership and policy before using them.

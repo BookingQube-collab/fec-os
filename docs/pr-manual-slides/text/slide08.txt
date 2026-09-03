@@ -1,0 +1,18 @@
+DETAILS TAB
+Complete the business context first
+E3 PR SYSTEM · PRACTICAL USER MANUAL
+08
+Required business data
+Request Title — clear and specific
+Submitting Department — correct cost owner
+Purpose Category — business classification
+Project / Asset — becomes available after category
+Priority — use urgency honestly
+Requirement Overview — scope and reason
+Commercial data
+Vendor Partnership — select an active vendor
+Currency — choose the quotation currency
+Total Estimated Exposure — verify against items
+Keep vendor name and quotation consistent
+Use Quick-Create only when the vendor is not registered
+A strong title describes the purchase, not merely the supplier name.
