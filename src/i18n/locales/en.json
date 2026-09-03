@@ -79,7 +79,7 @@
     "customer": "Customer",
     "pos": "Purchase Orders",
     "procurement": "PR & Procurement",
-    "procurementDashboard": "Dashboard",
+    "procurementDashboard": "Purchases",
     "procurementRequisitions": "Purchase Requests",
     "procurementMyRequests": "My Requests",
     "procurementApprovals": "My Approvals",
@@ -457,6 +457,18 @@
     "newRequest": "New Request",
     "allPrs": "All PRs",
     "myQueue": "My Queue",
+    "myQueueCount": "My Queue ({{n}})",
+    "pendingYourReview": "{{n}} Pending Your Review",
+    "refresh": "Refresh",
+    "actionRequired": "Action required",
+    "chrome": {
+      "nav": "Purchase request sections",
+      "purchases": "Purchases",
+      "vendors": "Vendors",
+      "analytics": "Analytics",
+      "help": "Help",
+      "config": "Admin"
+    },
     "export": "Export",
     "exportEmpty": "Nothing to export.",
     "searchPlaceholder": "Search by title, PR #, vendor, department, requester, purpose...",
@@ -803,13 +815,26 @@
         "clearance": "Clearance",
         "other": "Other"
       },
-      "quickCreateTitle": "Quick-create vendor",
+      "quickCreateVendor": "Quick-Create Vendor",
+      "quickCreateTitle": "Quick-Create Vendor",
+      "quickCreateHint": "Add minimal vendor details. Vendor is created immediately and can be selected in PRs right away.",
+      "vendorNamePlaceholder": "e.g. Al-Rawabi Logistics W.L.L.",
+      "vendorContact": "Contact person",
+      "vendorContactPlaceholder": "e.g. Ahmed Al-Mansoori",
+      "vendorAddress": "Address",
+      "vendorAddressPlaceholder": "e.g. Zone 56, Street 340, Doha, Qatar",
+      "entityFreelancerQid": "Freelancer (Requires QID)",
+      "quickCreateNeedContact": "Check contact person, email, and mobile before creating the vendor.",
+      "createAndGetLink": "Create & Get Link",
+      "linkCopied": "Vendor created. Staff vendor directory link copied — public onboarding is not enabled here.",
+      "deadlineDaysShort": "{{n}} Days",
       "entityType": "Entity type",
       "entityCompany": "Company",
       "entityFreelancer": "Freelancer",
       "freelancerQid": "Freelancer records currently require QID.",
       "engagement": "Engagement type",
       "engagementType": {
+        "permanent": "Permanent Vendor",
         "one_off": "One-off",
         "retainer": "Retainer",
         "amc": "AMC",
@@ -884,6 +909,18 @@
       "selectPreview": "Select a document to preview.",
       "previewLocal": "This file is stored locally and cannot be previewed here.",
       "noVendorContact": "No vendor contact on file.",
+      "edit": "Edit",
+      "delete": "Delete",
+      "deleteReason": "Deleted from the purchase request record",
+      "confirmDeleteBody": "Delete this purchase request? This cancels the record and keeps the audit trail.",
+      "reviewRequest": "Review Request",
+      "closeReview": "Close Review",
+      "reviewingAs": "Reviewing as {{role}}",
+      "universalAccess": "Universal Access",
+      "actingOnStage": "Acting on stage: {{stage}} (Pending)",
+      "feedbackPlaceholder": "Provide your feedback or requirements...",
+      "requestChanges": "Request Changes",
+      "approveRequest": "Approve Request",
       "documentExport": "Document Export",
       "exportCsv": "Export CSV",
       "exportSummary": "Export summary",
@@ -967,15 +1004,30 @@
     "analytics": {
       "title": "Procurement analytics",
       "subtitle": "Cycle velocity, budget adherence, forecasted liability, and concentration.",
+      "consoleTitle": "Intelligence Console",
+      "consoleSubtitle": "Global procurement velocity and liquidity forecast.",
+      "monthlyView": "Monthly view",
+      "quarterlyView": "Quarterly view",
+      "customRange": "Custom range",
+      "projects": "Projects",
       "apply": "Apply filters",
-      "cycleUnit": "Average days to approval",
+      "cycleUnit": "Creation to sign-off",
+      "cycleHintE3": "Creation to sign-off",
       "budgetAdherence": "Budget adherence",
       "budgetHint": "Share of PRs within department budget",
+      "budgetHintE3": "Zero-variation PRs",
       "liability": "Forecasted liability",
       "liabilityHint": "Pending PRs plus approved unpaid milestones",
+      "liabilityHintE3": "Next 30d projected",
+      "overdueLiability": "{{amount}} overdue",
+      "savings": "Negotiated savings",
+      "savingsHint": "Recovered capital",
       "signoff": "Sign-off rate",
       "signoffHint": "Approved of closed requests",
       "purposeAllocation": "Purpose allocation",
+      "departmentYield": "Department Yield",
+      "spentVsSavings": "Spent vs savings recovery",
+      "filterContext": "Document the period and filters before comparing or exporting commentary.",
       "reconcile": "Reconcile before external reporting",
       "reconcileHint": "Material figures should be checked against the underlying PR records.",
       "paid": "Paid against milestones",
@@ -1027,12 +1079,13 @@
         ]
       },
       "dashboard": {
-        "title": "Start from the Purchase Requests dashboard",
-        "body": "Use All PRs for the complete register and My Queue for decisions assigned to you. Status totals show pending, approved, or rejected work. Refresh if the data looks stale.",
+        "title": "Start from Purchase Requests",
+        "body": "Purchases opens the live register — the same All PRs / My Queue workspace. Status totals show pending, approved, or rejected work. Refresh if the data looks stale. The gold chip counts decisions waiting on you.",
         "steps": [
           "Open New Request to begin a PR.",
           "Search by title, PR number, vendor, department, requester, or purpose.",
-          "Export creates the corporate Excel/CSV report — do not send it to personal storage."
+          "Export creates the corporate Excel/CSV report — do not send it to personal storage.",
+          "Approve on a row is a high-trust action — open the record first when context is unclear."
         ]
       },
       "create": {
@@ -1047,10 +1100,10 @@
       },
       "approval": {
         "title": "Review the correct stage before deciding",
-        "body": "Select the stage assigned to you. Read the PR record and every attachment. Enter useful feedback — especially for changes or rejection. Approve only when scope, vendor, amount, and evidence agree.",
+        "body": "Open Review Request on the record. Super Admin / configure users see Universal Access; others see only the stage they can act on. Read every attachment. Enter useful feedback — especially for changes or rejection.",
         "steps": [
           "Approve when the business need is clear and documents support the request.",
-          "Request changes when information is missing or correctable.",
+          "Request Changes when information is missing or correctable.",
           "Reject when the request should not proceed — state exactly what failed."
         ]
       },
@@ -1065,18 +1118,18 @@
       },
       "vendors": {
         "title": "Manage suppliers from the vendor directory",
-        "body": "FEC-OS reuses the estate vendor module. Register companies or freelancers, attach documents, and watch near-expiry compliance. Do not create a second vendor because an invitation or record is incomplete.",
+        "body": "FEC-OS reuses the estate vendor module. Quick-Create Vendor from a PR adds the record immediately. Create & Get Link copies the staff Vendors URL — the public self-service onboarding portal from the E3 tracker is not part of this module.",
         "steps": [
-          "Use Approved Directory for registered vendors.",
-          "Quick-create from a PR only after checking email and mobile.",
-          "A score or AMC status alone is not the full decision."
+          "Use the Vendors directory for registered suppliers.",
+          "Quick-create only after checking email and mobile.",
+          "Do not create a second vendor because a record is incomplete."
         ]
       },
       "analytics": {
         "title": "Read performance and liability in one view",
-        "body": "Select the reporting period, then filter departments and vendors. Review cycle velocity, budget adherence, and forecasted liability. A chart without its period and filters can be misleading.",
+        "body": "The Intelligence Console is the analytics workspace. Select Monthly, Quarterly, or a custom period, then filter departments, projects, and vendors. A chart without its period and filters can be misleading.",
         "steps": [
-          "Department yield compares spend by cost owner.",
+          "Department Yield compares spend by cost owner.",
           "Vendor concentration shows reliance on suppliers.",
           "Purpose allocation shows where demand is concentrated.",
           "Reconcile material figures with the underlying PR records before reporting externally."

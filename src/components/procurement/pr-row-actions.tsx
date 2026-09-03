@@ -86,11 +86,24 @@ export function usePrActions(options?: {
   return {
     pending: act.isPending,
     open: (kind: PrActionKind, target: PrActionTarget) => setDialog({ kind, target }),
+    approve: (target: PrActionTarget, comments?: string) => {
+      lastTarget.current = target;
+      act.mutate({ id: target.id, action: "approve", comments: comments || undefined });
+    },
+    reject: (target: PrActionTarget, comments: string) => {
+      lastTarget.current = target;
+      act.mutate({ id: target.id, action: "reject", comments });
+    },
+    requestChanges: (target: PrActionTarget, comments: string) => {
+      lastTarget.current = target;
+      act.mutate({ id: target.id, action: "return", comments });
+    },
     reissue: (target: PrActionTarget) => {
       lastTarget.current = target;
       act.mutate({ id: target.id, action: "reissue" });
     },
     cancel: (target: PrActionTarget, comments: string) => {
+      lastTarget.current = target;
       act.mutate({ id: target.id, action: "cancel", comments });
     },
     dialogs: (
@@ -162,28 +175,29 @@ export function PrRowActions({
 
   return (
     <div className="flex flex-wrap items-center justify-end gap-1.5">
+      {canAct ? (
+        <Button
+          size="sm"
+          variant="outline"
+          className="border-emerald-400 text-emerald-800 hover:bg-emerald-50 dark:border-emerald-500/50 dark:text-emerald-300 dark:hover:bg-emerald-500/10"
+          disabled={pending}
+          onClick={onApprove}
+        >
+          <Check />
+          {t("procurement.detail.approve")}
+        </Button>
+      ) : null}
       <Button size="sm" variant="outline" asChild>
         <Link href={href}>
           <Eye />
           {t("procurement.list.view")}
         </Link>
       </Button>
-      {canAct ? (
-        <>
-          <Button
-            size="sm"
-            className="bg-emerald-700 text-white hover:bg-emerald-800"
-            disabled={pending}
-            onClick={onApprove}
-          >
-            {!compact ? <Check /> : null}
-            {t("procurement.detail.approve")}
-          </Button>
-          <Button size="sm" variant="outline" disabled={pending} onClick={onReject}>
-            {!compact ? <X /> : null}
-            {t("procurement.detail.reject")}
-          </Button>
-        </>
+      {canAct && !compact ? (
+        <Button size="sm" variant="outline" disabled={pending} onClick={onReject}>
+          <X />
+          {t("procurement.detail.reject")}
+        </Button>
       ) : null}
       {canEdit && reviseHref ? (
         <Button size="sm" asChild>

@@ -26,12 +26,23 @@ function StatusIcon({ status }: { status: string }) {
   return <CircleSlash />;
 }
 
-export function PrStatusPill({ status, className }: { status: string; className?: string }) {
+export function PrStatusPill({
+  status,
+  actionRequired,
+  className,
+}: {
+  status: string;
+  actionRequired?: boolean;
+  className?: string;
+}) {
   const { t } = useTranslation();
   return (
-    <Badge variant={prStatusTone(status)} className={cn("font-semibold", className)}>
-      <StatusIcon status={status} />
-      {t(`procurement.status.${status}`, { defaultValue: status })}
-    </Badge>
+    <div className={cn("flex flex-col items-start", className)}>
+      <Badge variant={prStatusTone(status)} className="font-semibold">
+        <StatusIcon status={status} />
+        {t(`procurement.status.${status}`, { defaultValue: status })}
+      </Badge>
+      {actionRequired ? <span className="pr-action-required">{t("procurement.actionRequired")}</span> : null}
+    </div>
   );
 }

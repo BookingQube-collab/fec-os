@@ -511,6 +511,130 @@
   .filter-chip-active:hover {
     background-color: color-mix(in oklab, var(--color-primary) 90%, black);
   }
+
+  .pr-chrome-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    padding: 0.3rem;
+    border-radius: 9999px;
+    border: 1px solid color-mix(in oklab, var(--color-border) 55%, transparent);
+    background: color-mix(in oklab, var(--color-card) 88%, var(--color-background));
+    width: fit-content;
+    max-width: 100%;
+  }
+
+  .pr-chrome-link {
+    display: inline-flex;
+    min-height: 2.1rem;
+    align-items: center;
+    border-radius: 9999px;
+    padding: 0.35rem 0.95rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--color-muted-foreground);
+    transition: background-color 160ms, color 160ms;
+  }
+
+  .pr-chrome-link:hover {
+    background: var(--color-secondary);
+    color: var(--color-foreground);
+  }
+
+  .pr-chrome-link-active {
+    background: var(--color-primary);
+    color: var(--color-primary-foreground);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  }
+
+  .pr-pending-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border-radius: 9999px;
+    border: 1px solid var(--kpi-amber-border);
+    background: var(--kpi-amber-bg);
+    padding: 0.2rem 0.7rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    color: var(--kpi-amber-icon);
+  }
+
+  .pr-number-pill {
+    display: inline-flex;
+    max-width: 16rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    border-radius: 9999px;
+    background: color-mix(in oklab, var(--color-primary) 8%, var(--color-card));
+    padding: 0.25rem 0.7rem;
+    font-size: 0.75rem;
+    font-weight: 650;
+    color: var(--color-foreground);
+  }
+
+  .pr-action-required {
+    display: inline-flex;
+    margin-top: 0.3rem;
+    align-items: center;
+    border-radius: 9999px;
+    border: 1px solid var(--kpi-orange-border);
+    background: var(--kpi-orange-bg);
+    padding: 0.1rem 0.55rem;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--kpi-orange-icon);
+  }
+
+  .pr-module .pr-table-wrap {
+    overflow: hidden;
+    border-radius: 1rem;
+    border: 1px solid color-mix(in oklab, var(--color-border) 40%, transparent);
+    background: var(--color-card);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+  }
+
+  .pr-module .pr-table-wrap table {
+    font-size: 0.875rem;
+  }
+
+  .pr-module .pr-table-wrap thead th {
+    font-size: 0.7rem;
+    letter-spacing: 0.06em;
+  }
+
+  .pr-module .pr-table-wrap tbody td {
+    padding-top: 0.95rem;
+    padding-bottom: 0.95rem;
+    vertical-align: middle;
+  }
+
+  .pr-deadline-seg {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+
+  .pr-deadline-seg button {
+    min-height: 2.15rem;
+    border-radius: 9999px;
+    border: 1px solid color-mix(in oklab, var(--color-border) 70%, transparent);
+    background: var(--color-card);
+    padding: 0 0.85rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--color-muted-foreground);
+  }
+
+  .pr-deadline-seg button[data-active="true"] {
+    border-color: var(--color-primary);
+    background: var(--color-primary);
+    color: var(--color-primary-foreground);
+  }
 }
 
 @layer components {

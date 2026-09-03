@@ -12,10 +12,12 @@ import {
   FileText,
   Lock,
   Mail,
+  Pencil,
   Phone,
   Printer,
   RotateCcw,
   Tag,
+  Trash2,
   UserRound,
 } from "lucide-react";
 import Link from "next/link";
@@ -23,9 +25,11 @@ import { useParams, useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { PrReviewPanel } from "@/components/procurement/pr-review-panel";
 import { usePrActions } from "@/components/procurement/pr-row-actions";
 import { PrStatusPill } from "@/components/procurement/pr-status-pill";
 import { PrTimeline, type TimelineNode } from "@/components/procurement/pr-timeline";
+import { usePermission } from "@/hooks/use-permission";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -73,6 +77,8 @@ export default function ProcurementRequisitionDetailPage() {
   const [clearAction, setClearAction] = useState<"clear" | "pay">("clear");
   const [evidence, setEvidence] = useState("");
   const [payAmount, setPayAmount] = useState("");
+  const [reviewing, setReviewing] = useState(true);
+  const universal = usePermission("procurement.configure");
   const actions = usePrActions({
     onReissued: (prId, isOwner) => {
       if (isOwner) router.push(reviseRequisitionPath(prId));
@@ -196,7 +202,7 @@ export default function ProcurementRequisitionDetailPage() {
             </Link>
           </Button>
           <div className="min-w-0 space-y-2">
-            <span className="inline-flex max-w-full truncate rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+            <span className="pr-number-pill max-w-full">
               {summary.prNumber}
             </span>
             <div className="flex flex-wrap items-center gap-2">
@@ -218,48 +224,6 @@ export default function ProcurementRequisitionDetailPage() {
           </div>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
-          {d.canAct ? (
-            <>
-              <Button
-                className="bg-emerald-700 text-white hover:bg-emerald-800"
-                disabled={actions.pending}
-                onClick={() => actions.open("approve", actionTarget)}
-              >
-                {h.over_budget && h.budget_increase_pending
-                  ? t("procurement.detail.approveBudgetIncrease", { amount: fmtNumber(Number(h.excess_amount || 0)) })
-                  : h.over_budget && (h.current_step_role === "dept_head")
-                    ? t("procurement.detail.approveAndRequestExcess", { amount: fmtNumber(Number(h.excess_amount || 0)) })
-                    : h.over_budget && (h.current_step_role === "gm" || h.current_step_role === "ceo")
-                      ? t("procurement.detail.approveBudgetIncrease", { amount: fmtNumber(Number(h.excess_amount || 0)) })
-                      : t("procurement.detail.approve")}
-              </Button>
-              <Button variant="outline" disabled={actions.pending} onClick={() => actions.open("reject", actionTarget)}>
-                {t("procurement.detail.reject")}
-              </Button>
-              <Button variant="outline" disabled={actions.pending} onClick={() => actions.open("return", actionTarget)}>
-                {t("procurement.list.sendBack")}
-              </Button>
-            </>
-          ) : null}
-          {d.canReissue ? (
-            <Button variant="outline" disabled={actions.pending} onClick={() => actions.reissue(actionTarget)}>
-              <RotateCcw />
-              {t("procurement.detail.reissue")}
-            </Button>
-          ) : null}
-          {d.canEdit ? (
-            <Button asChild>
-              <Link href={reviseRequisitionPath(id)}>
-                {t("procurement.detail.revise")}
-              </Link>
-            </Button>
-          ) : null}
-          {d.isLocked ? (
-            <Button variant="outline" disabled>
-              <Lock />
-              {t("procurement.detail.locked")}
-            </Button>
-          ) : null}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline">
@@ -280,16 +244,47 @@ export default function ProcurementRequisitionDetailPage() {
                 <Printer />
                 {t("procurement.detail.print")}
               </DropdownMenuItem>
-              {d.canCancel ? (
-                <DropdownMenuItem
-                  disabled={actions.pending}
-                  onClick={() => actions.cancel(actionTarget, "Cancelled by requester")}
-                >
-                  {t("procurement.detail.cancel")}
-                </DropdownMenuItem>
-              ) : null}
             </DropdownMenuContent>
           </DropdownMenu>
+          {d.canEdit ? (
+            <Button variant="outline" asChild>
+              <Link href={reviseRequisitionPath(id)}>
+                <Pencil />
+                {t("procurement.detail.edit")}
+              </Link>
+            </Button>
+          ) : null}
+          {d.canReissue ? (
+            <Button variant="outline" disabled={actions.pending} onClick={() => actions.reissue(actionTarget)}>
+              <RotateCcw />
+              {t("procurement.detail.reissue")}
+            </Button>
+          ) : null}
+          {d.canCancel ? (
+            <Button
+              variant="destructive"
+              disabled={actions.pending}
+              onClick={() => {
+                if (window.confirm(t("procurement.detail.confirmDeleteBody"))) {
+                  actions.cancel(actionTarget, t("procurement.detail.deleteReason"));
+                }
+              }}
+            >
+              <Trash2 />
+              {t("procurement.detail.delete")}
+            </Button>
+          ) : null}
+          {d.isLocked && !d.canAct ? (
+            <Button variant="outline" disabled>
+              <Lock />
+              {t("procurement.detail.locked")}
+            </Button>
+          ) : null}
+          {d.canAct ? (
+            <Button variant={reviewing ? "outline" : "default"} onClick={() => setReviewing((v) => !v)}>
+              {reviewing ? t("procurement.detail.closeReview") : t("procurement.detail.reviewRequest")}
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -336,6 +331,37 @@ export default function ProcurementRequisitionDetailPage() {
         </div>
       ) : null}
 
+      {d.canAct && reviewing ? (
+        <PrReviewPanel
+          roleLabel={t(`procurement.detail.timelineStep.${h.current_step_role ?? "dept_head"}`, {
+            defaultValue: t(`procurement.steps.${h.current_step_role ?? "dept_head"}`),
+          })}
+          universal={universal}
+          pending={actions.pending}
+          onApprove={(comments) => {
+            if (h.over_budget) {
+              actions.open("approve", actionTarget);
+              return;
+            }
+            actions.approve(actionTarget, comments);
+          }}
+          onReject={(comments) => {
+            if (comments.length < 3) {
+              actions.open("reject", actionTarget);
+              return;
+            }
+            actions.reject(actionTarget, comments);
+          }}
+          onRequestChanges={(comments) => {
+            if (comments.length < 3) {
+              actions.open("return", actionTarget);
+              return;
+            }
+            actions.requestChanges(actionTarget, comments);
+          }}
+        />
+      ) : null}
+
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem] xl:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="space-y-5">
           <section className="relative rounded-2xl border border-border/40 bg-card p-5 shadow-elevated-xs">
@@ -344,7 +370,7 @@ export default function ProcurementRequisitionDetailPage() {
               className={cn(
                 "absolute end-5 top-5 uppercase",
                 prio === "high" || prio === "emergency"
-                  ? "border-orange-300 text-orange-700"
+                  ? "border-red-300 bg-red-50 text-red-700 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-300"
                   : "border-orange-200 text-orange-600",
               )}
             >
@@ -615,7 +641,7 @@ function Meta({
         <Icon className="h-4 w-4" />
       </span>
       <div>
-        <p className="text-xs text-muted-foreground">{label}</p>
+        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{label}</p>
         <p className="font-medium">{value || "—"}</p>
       </div>
     </div>

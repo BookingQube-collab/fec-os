@@ -2176,6 +2176,7 @@ export const getProcurementAnalytics = createAuthenticatedAction(
       locationId: z.string().uuid().nullable().optional(),
       departmentId: z.string().uuid().nullable().optional(),
       vendorId: z.string().uuid().nullable().optional(),
+      projectName: z.string().optional().nullable(),
       from: z.string().optional().nullable(),
       to: z.string().optional().nullable(),
     })
@@ -2184,7 +2185,7 @@ export const getProcurementAnalytics = createAuthenticatedAction(
     let q = context.supabase
       .from("purchase_requisitions")
       .select(
-        "id, pr_number, requested_at, submitted_at, department_id, location_id, vendor_id, title, purpose_category, justification, total_amount, status, over_budget, created_at",
+        "id, pr_number, requested_at, submitted_at, required_by, department_id, location_id, vendor_id, title, project_name, purpose_category, justification, total_amount, status, over_budget, created_at",
       )
       .neq("status", "cancelled")
       .order("created_at", { ascending: false })
@@ -2226,6 +2227,12 @@ export const getProcurementAnalytics = createAuthenticatedAction(
     }
     if (data.vendorId) {
       list = list.filter((r) => vendorByPr.get(r.id) === data.vendorId);
+    }
+    const projects = [
+      ...new Set(list.map((r) => ((r.project_name as string | null) ?? "").trim()).filter(Boolean)),
+    ].sort();
+    if (data.projectName) {
+      list = list.filter((r) => ((r.project_name as string | null) ?? "").trim() === data.projectName);
     }
 
     const deptIds = [...new Set(list.map((r) => r.department_id).filter(Boolean))] as string[];
@@ -2283,6 +2290,10 @@ export const getProcurementAnalytics = createAuthenticatedAction(
     const paidValue = approved.reduce((s, r) => s + (paidByPr.get(r.id) ?? 0), 0);
     const pendingValue = pending.reduce((s, r) => s + Number(r.total_amount ?? 0), 0);
     const forecastedLiability = pendingValue + Math.max(0, approvedValue - paidValue);
+    const today = todayIso();
+    const overdueValue = pending
+      .filter((r) => Boolean(r.required_by) && String(r.required_by) < today)
+      .reduce((s, r) => s + Number(r.total_amount ?? 0), 0);
 
     const byDept = new Map<string, { id: string | null; name: string; count: number; amount: number }>();
     const byVendor = new Map<string, { id: string | null; name: string; count: number; amount: number }>();
@@ -2308,10 +2319,12 @@ export const getProcurementAnalytics = createAuthenticatedAction(
       signoffRate,
       budgetAdherence,
       forecastedLiability,
+      overdueValue,
       approvedValue,
       paidValue,
       pendingValue,
       savings: 0,
+      projects,
       departments: topNamed(byDept, 8),
       vendors: topNamed(byVendor, 8),
       purposes: topNamed(byPurpose, 8),

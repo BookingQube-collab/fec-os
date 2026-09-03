@@ -76,10 +76,7 @@ export default function ProcurementGuidePage() {
           {id === "dashboard" ? (
             <div className="mt-4 flex flex-wrap gap-2">
               <Button size="sm" variant="outline" asChild>
-                <Link href="/procurement">{t("nav.procurementDashboard")}</Link>
-              </Button>
-              <Button size="sm" variant="outline" asChild>
-                <Link href="/procurement/requisitions">{t("procurement.allPrs")}</Link>
+                <Link href="/procurement">{t("procurement.allPrs")}</Link>
               </Button>
               <Button size="sm" variant="outline" asChild>
                 <Link href="/procurement/approvals">{t("procurement.myQueue")}</Link>

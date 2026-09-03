@@ -198,10 +198,12 @@ function ProcurementRequisitionNewInner() {
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [milestones, setMilestones] = useState<PrMilestoneDraft[]>(defaultMilestones("post_delivery", 0));
   const [vendorEntity, setVendorEntity] = useState<"company" | "freelancer">("company");
-  const [vendorEngagement, setVendorEngagement] = useState<(typeof PR_ENGAGEMENT_TYPES)[number]>("one_off");
+  const [vendorEngagement, setVendorEngagement] = useState<(typeof PR_ENGAGEMENT_TYPES)[number]>("permanent");
   const [vendorEmail, setVendorEmail] = useState("");
   const [vendorPhone, setVendorPhone] = useState("");
-  const [vendorDeadlineDays, setVendorDeadlineDays] = useState<"7" | "14" | "30" | "custom">("14");
+  const [vendorContact, setVendorContact] = useState("");
+  const [vendorAddress, setVendorAddress] = useState("");
+  const [vendorDeadlineDays, setVendorDeadlineDays] = useState<"7" | "14" | "30" | "custom">("30");
   const [vendorDeadlineCustom, setVendorDeadlineCustom] = useState("");
   const [aiGenerated, setAiGenerated] = useState(false);
   const [defaultsApplied, setDefaultsApplied] = useState(false);
@@ -434,18 +436,34 @@ function ProcurementRequisitionNewInner() {
         branchCoverage: [],
         entityType: vendorEntity,
         engagementType: vendorEngagement,
+        contactPerson: vendorContact.trim() || undefined,
         email: vendorEmail.trim() || undefined,
         phone: vendorPhone.trim() || undefined,
         complianceDeadline: deadline,
-        notes: vendorEntity === "freelancer" ? "Requires QID" : undefined,
+        notes: [
+          vendorEntity === "freelancer" ? "Requires QID" : "",
+          vendorAddress.trim() ? `Address: ${vendorAddress.trim()}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n") || undefined,
       });
     },
     onSuccess: async (row) => {
       setVendorId(row.id);
       setVendorOpen(false);
       setVendorName("");
+      setVendorContact("");
+      setVendorAddress("");
+      setVendorEmail("");
+      setVendorPhone("");
       await qc.invalidateQueries({ queryKey: queryKeys.procurement.options() });
-      toast.success(t("procurement.wizard.vendorCreated"));
+      const staffUrl = `${window.location.origin}/vendors`;
+      try {
+        await navigator.clipboard.writeText(staffUrl);
+        toast.success(t("procurement.wizard.linkCopied"));
+      } catch {
+        toast.success(t("procurement.wizard.vendorCreated"));
+      }
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -744,7 +762,8 @@ function ProcurementRequisitionNewInner() {
                     setVendorOpen(true);
                   }}
                 >
-                  {t("procurement.wizard.addNew")}
+                  <Sparkles className="h-3.5 w-3.5 text-amber-600" />
+                  {t("procurement.wizard.quickCreateVendor")}
                 </Button>
               </div>
               <Select value={vendorId || "none"} onValueChange={(v) => setVendorId(v === "none" ? "" : v)}>
@@ -1078,22 +1097,30 @@ function ProcurementRequisitionNewInner() {
       <Dialog open={vendorOpen} onOpenChange={setVendorOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>{t("procurement.wizard.quickCreateTitle")}</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-amber-600" />
+              {t("procurement.wizard.quickCreateTitle")}
+            </DialogTitle>
+            <p className="text-sm text-muted-foreground">{t("procurement.wizard.quickCreateHint")}</p>
           </DialogHeader>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5 sm:col-span-2">
-              <Label>{t("procurement.wizard.vendorName")}</Label>
-              <Input value={vendorName} onChange={(e) => setVendorName(e.target.value)} />
+              <Label>{t("procurement.wizard.vendorName")} *</Label>
+              <Input
+                value={vendorName}
+                onChange={(e) => setVendorName(e.target.value)}
+                placeholder={t("procurement.wizard.vendorNamePlaceholder")}
+              />
             </div>
             <div className="space-y-1.5">
-              <Label>{t("procurement.wizard.entityType")}</Label>
+              <Label>{t("procurement.wizard.entityType")} *</Label>
               <Select value={vendorEntity} onValueChange={(v) => setVendorEntity(v as typeof vendorEntity)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="company">{t("procurement.wizard.entityCompany")}</SelectItem>
-                  <SelectItem value="freelancer">{t("procurement.wizard.entityFreelancer")}</SelectItem>
+                  <SelectItem value="freelancer">{t("procurement.wizard.entityFreelancerQid")}</SelectItem>
                 </SelectContent>
               </Select>
               {vendorEntity === "freelancer" ? (
@@ -1101,7 +1128,7 @@ function ProcurementRequisitionNewInner() {
               ) : null}
             </div>
             <div className="space-y-1.5">
-              <Label>{t("procurement.wizard.engagement")}</Label>
+              <Label>{t("procurement.wizard.engagement")} *</Label>
               <Select value={vendorEngagement} onValueChange={(v) => setVendorEngagement(v as typeof vendorEngagement)}>
                 <SelectTrigger>
                   <SelectValue />
@@ -1115,27 +1142,55 @@ function ProcurementRequisitionNewInner() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5">
-              <Label>{t("procurement.wizard.vendorEmail")}</Label>
-              <Input type="email" value={vendorEmail} onChange={(e) => setVendorEmail(e.target.value)} />
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label>{t("procurement.wizard.vendorContact")} *</Label>
+              <Input
+                value={vendorContact}
+                onChange={(e) => setVendorContact(e.target.value)}
+                placeholder={t("procurement.wizard.vendorContactPlaceholder")}
+              />
             </div>
             <div className="space-y-1.5">
-              <Label>{t("procurement.wizard.vendorPhone")}</Label>
-              <Input value={vendorPhone} onChange={(e) => setVendorPhone(e.target.value)} />
+              <Label>{t("procurement.wizard.vendorPhone")} *</Label>
+              <Input
+                value={vendorPhone}
+                onChange={(e) => setVendorPhone(e.target.value)}
+                placeholder="+974 5500 1234"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>{t("procurement.wizard.vendorEmail")} *</Label>
+              <Input
+                type="email"
+                value={vendorEmail}
+                onChange={(e) => setVendorEmail(e.target.value)}
+                placeholder="billing@vendor.com"
+              />
             </div>
             <div className="space-y-1.5 sm:col-span-2">
-              <Label>{t("procurement.wizard.complianceDeadline")}</Label>
-              <Select value={vendorDeadlineDays} onValueChange={(v) => setVendorDeadlineDays(v as typeof vendorDeadlineDays)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="7">{t("procurement.wizard.deadlineDays", { n: 7 })}</SelectItem>
-                  <SelectItem value="14">{t("procurement.wizard.deadlineDays", { n: 14 })}</SelectItem>
-                  <SelectItem value="30">{t("procurement.wizard.deadlineDays", { n: 30 })}</SelectItem>
-                  <SelectItem value="custom">{t("procurement.wizard.deadlineCustom")}</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label>{t("procurement.wizard.vendorAddress")}</Label>
+              <Input
+                value={vendorAddress}
+                onChange={(e) => setVendorAddress(e.target.value)}
+                placeholder={t("procurement.wizard.vendorAddressPlaceholder")}
+              />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label>{t("procurement.wizard.complianceDeadline")} *</Label>
+              <div className="pr-deadline-seg">
+                {(["7", "14", "30", "custom"] as const).map((id) => (
+                  <button
+                    key={id}
+                    type="button"
+                    data-active={vendorDeadlineDays === id}
+                    onClick={() => setVendorDeadlineDays(id)}
+                  >
+                    {id === "custom"
+                      ? t("procurement.wizard.deadlineCustom")
+                      : t("procurement.wizard.deadlineDaysShort", { n: id })}
+                  </button>
+                ))}
+              </div>
               {vendorDeadlineDays === "custom" ? (
                 <Input type="date" className="mt-2" value={vendorDeadlineCustom} onChange={(e) => setVendorDeadlineCustom(e.target.value)} />
               ) : null}
@@ -1143,15 +1198,21 @@ function ProcurementRequisitionNewInner() {
           </div>
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => setVendorOpen(false)}>
-              {t("procurement.wizard.discard")}
+              {t("common.cancel")}
             </Button>
             <Button
               type="button"
               disabled={!vendorName.trim() || addVendor.isPending}
-              onClick={() => addVendor.mutate()}
+              onClick={() => {
+                if (!vendorEmail.trim() || !vendorPhone.trim() || !vendorContact.trim()) {
+                  toast.error(t("procurement.wizard.quickCreateNeedContact"));
+                  return;
+                }
+                addVendor.mutate();
+              }}
             >
               {addVendor.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              {t("procurement.wizard.createAndUse")}
+              {t("procurement.wizard.createAndGetLink")}
             </Button>
           </DialogFooter>
         </DialogContent>

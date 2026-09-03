@@ -10,7 +10,7 @@ export type PrMilestoneStatus = (typeof PR_MILESTONE_STATUSES)[number];
 export const PR_VENDOR_ENTITY_TYPES = ["company", "freelancer"] as const;
 export type PrVendorEntityType = (typeof PR_VENDOR_ENTITY_TYPES)[number];
 
-export const PR_ENGAGEMENT_TYPES = ["one_off", "retainer", "amc", "project"] as const;
+export const PR_ENGAGEMENT_TYPES = ["permanent", "one_off", "retainer", "amc", "project"] as const;
 export type PrEngagementType = (typeof PR_ENGAGEMENT_TYPES)[number];
 
 export const PR_COMPLIANCE_DEADLINE_DAYS = [7, 14, 30] as const;

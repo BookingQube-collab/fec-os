@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -21,6 +21,7 @@ import {
   LayoutGrid,
   LayoutList,
   Plus,
+  RefreshCw,
   Search,
   ShoppingCart,
 } from "lucide-react";
@@ -181,7 +182,6 @@ function ProcurementRequisitionsInner({
   const { t } = useTranslation();
   const locationId = useAppStore((s) => s.currentLocationId);
   const searchParams = useSearchParams();
-  const pathname = usePathname();
   const eventId = searchParams.get("eventId");
 
   const [search, setSearch] = useState("");
@@ -364,14 +364,25 @@ function ProcurementRequisitionsInner({
   }
 
   const queueHref = eventId ? `/procurement/approvals?eventId=${eventId}` : "/procurement/approvals";
-  const allHref = eventId ? `/procurement/requisitions?eventId=${eventId}` : "/procurement/requisitions";
-  const allActive = !mine && !pendingMine && pathname.startsWith("/procurement/requisitions");
+  const allHref = eventId ? `/procurement?eventId=${eventId}` : "/procurement";
+  const allActive = !mine && !pendingMine;
   const queueActive = pendingMine;
+  const queueCount = rows.filter((row) => row.canAct).length;
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title={t("procurement.pageTitle")}
+        title={
+          <span className="inline-flex flex-wrap items-center gap-2.5">
+            {t("procurement.pageTitle")}
+            {queueCount > 0 ? (
+              <span className="pr-pending-chip">
+                <Hourglass className="h-3.5 w-3.5" />
+                {t("procurement.pendingYourReview", { n: queueCount })}
+              </span>
+            ) : null}
+          </span>
+        }
         subtitle={t("procurement.pageSubtitle")}
         actions={
           <div className="flex flex-wrap items-center gap-2">
@@ -392,14 +403,17 @@ function ProcurementRequisitionsInner({
               >
                 <Link href={queueHref}>
                   <Hourglass />
-                  {t("procurement.myQueue")}
+                  {t("procurement.myQueueCount", { n: queueCount })}
                 </Link>
               </Button>
             </div>
+            <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => list.refetch()} aria-label={t("procurement.refresh")}>
+              <RefreshCw className={cn("h-4 w-4", list.isFetching && "animate-spin")} />
+            </Button>
             <Button
               variant="outline"
               size="sm"
-              className="border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+              className="border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-500/40 dark:text-emerald-300 dark:hover:bg-emerald-500/10"
               onClick={handleExport}
             >
               <Download />
@@ -455,7 +469,8 @@ function ProcurementRequisitionsInner({
                   : "border-border/70 bg-card text-muted-foreground hover:bg-secondary",
               )}
             >
-              {t(`procurement.statusChip.${key}`)} ({count})
+              {t(`procurement.statusChip.${key}`)}
+              {key !== "all" ? ` ${count}` : count ? ` ${count}` : ""}
             </button>
           ))}
           <Popover>
@@ -573,7 +588,7 @@ function ProcurementRequisitionsInner({
           onReissue={(row) => actions.reissue(toActionTarget(row))}
         />
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-border/40 bg-card shadow-[0_4px_20px_rgba(0,0,0,0.05)]">
+        <div className="pr-table-wrap">
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
@@ -635,7 +650,7 @@ function ProcurementRequisitionsInner({
                       />
                     </TableCell>
                     <TableCell>
-                      <span className="inline-flex max-w-[16rem] truncate rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
+                      <span className="pr-number-pill">
                         {row.pr_number ?? t("procurement.list.draftNumber")}
                       </span>
                     </TableCell>
@@ -660,7 +675,7 @@ function ProcurementRequisitionsInner({
                       ) : null}
                     </TableCell>
                     <TableCell>
-                      <PrStatusPill status={row.status} />
+                      <PrStatusPill status={row.status} actionRequired={Boolean(row.canAct)} />
                     </TableCell>
                     <TableCell className="font-bold tabular-nums">
                       {fmtNumber(row.total_amount)} QAR
@@ -835,7 +850,7 @@ function PrCardGrid({
                 </Link>
               ) : null}
             </div>
-            <PrStatusPill status={row.status} />
+            <PrStatusPill status={row.status} actionRequired={Boolean(row.canAct)} />
           </div>
           <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
             <div>
