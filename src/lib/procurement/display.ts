@@ -26,17 +26,25 @@ export function splitJustification(text: string | null | undefined): {
 }
 
 export function prDisplayTitle(opts: {
+  title?: string | null;
   project_name?: string | null;
   justification?: string | null;
   pr_number?: string | null;
 }): string {
+  if (opts.title?.trim()) return opts.title.trim();
   const parsed = splitJustification(opts.justification);
   if (parsed.title && parsed.title.length <= 160) return parsed.title;
   if (opts.project_name?.trim()) return opts.project_name.trim();
   return opts.pr_number?.trim() || "";
 }
 
-export function inferPaymentStructure(justification: string | null | undefined): PrPaymentStructure {
+export function inferPaymentStructure(
+  justification: string | null | undefined,
+  stored?: string | null,
+): PrPaymentStructure {
+  if (stored === "full_advance" || stored === "milestones" || stored === "post_delivery") {
+    return stored;
+  }
   const blob = justification ?? "";
   if (ADVANCE_RE.test(blob)) return "full_advance";
   if (MILESTONE_RE.test(blob)) return "milestones";

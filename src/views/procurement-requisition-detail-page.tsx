@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Building2,
@@ -42,6 +42,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { fmtNumber, fmtQar } from "@/lib/currency";
 import {
   headerStatusChip,
@@ -53,16 +56,23 @@ import {
   reviseRequisitionPath,
   splitJustification,
 } from "@/lib/procurement/display";
-import { getPurchaseRequisition } from "@/lib/procurement.functions";
+import { vendorComplianceTone } from "@/lib/procurement/milestones";
+import { getPurchaseRequisition, recordPrMilestone } from "@/lib/procurement.functions";
 import { queryKeys } from "@/lib/query-keys";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 export default function ProcurementRequisitionDetailPage() {
   const { t, i18n } = useTranslation();
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const id = params.id;
+  const qc = useQueryClient();
   const [previewId, setPreviewId] = useState<string | null>(null);
+  const [clearId, setClearId] = useState<string | null>(null);
+  const [clearAction, setClearAction] = useState<"clear" | "pay">("clear");
+  const [evidence, setEvidence] = useState("");
+  const [payAmount, setPayAmount] = useState("");
   const actions = usePrActions({
     onReissued: (prId, isOwner) => {
       if (isOwner) router.push(reviseRequisitionPath(prId));
@@ -81,8 +91,26 @@ export default function ProcurementRequisitionDetailPage() {
   const parsed = useMemo(() => splitJustification(h?.justification), [h?.justification]);
   const title = h ? prDisplayTitle(h) || t("procurement.list.untitled") : "";
   const description = parsed.overview || parsed.title;
-  const purpose = h?.project_name?.trim() || h?.cost_center || h?.location_name || "—";
-  const payment = inferPaymentStructure(h?.justification);
+  const purpose =
+    (h as { purpose_category?: string | null } | undefined)?.purpose_category?.trim() ||
+    h?.project_name?.trim() ||
+    h?.cost_center ||
+    h?.location_name ||
+    "—";
+  const payment = inferPaymentStructure(
+    h?.justification,
+    (h as { payment_structure?: string | null } | undefined)?.payment_structure,
+  );
+  const milestoneMut = useMutation({
+    mutationFn: recordPrMilestone,
+    onSuccess: () => {
+      toast.success(t("procurement.detail.milestoneRecorded"));
+      setClearId(null);
+      setEvidence("");
+      void qc.invalidateQueries({ queryKey: queryKeys.procurement.detail(id) });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
   const dateLabel = formatLongDate(h?.requested_at ?? h?.created_at, i18n.language);
 
   const goodsLines = useMemo(
@@ -356,25 +384,111 @@ export default function ProcurementRequisitionDetailPage() {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-base font-semibold">{t("procurement.detail.milestones")}</h2>
               <p className="text-xs text-muted-foreground">
-                {t("procurement.detail.disbursed", { paid: fmtNumber(0), total: fmtNumber(total) })}
+                {t("procurement.detail.disbursed", {
+                  paid: fmtNumber((d.milestones ?? []).reduce((s, m) => s + Number(m.paid_amount ?? 0), 0)),
+                  total: fmtNumber(total),
+                })}
               </p>
             </div>
-            <div className="mt-4 rounded-xl border border-border/40 bg-muted/30 p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
+            <div className="mt-4 space-y-3">
+              {(d.milestones ?? []).length === 0 ? (
+                <div className="rounded-xl border border-border/40 bg-muted/30 p-4">
                   <p className="font-semibold">{t(`procurement.detail.milestone.${payment}`)}</p>
                   <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-muted-foreground">
                     <Clock className="h-3.5 w-3.5" />
                     {t("procurement.statusChip.pending")}
-                    <span className="mx-1">·</span>
-                    {formatShortDate(h.required_by ?? h.requested_at, i18n.language)}
                   </p>
                 </div>
-                <p className="text-sm font-semibold tabular-nums">
-                  {fmtNumber(total)} {h.currency || "QAR"}
-                </p>
-              </div>
+              ) : (
+                (d.milestones ?? []).map((ms) => (
+                  <div key={ms.id} className="rounded-xl border border-border/40 bg-muted/30 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold">{ms.title}</p>
+                        <p className="mt-2 inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <Clock className="h-3.5 w-3.5" />
+                          {t(`procurement.detail.milestoneStatus.${ms.status}`)}
+                          {ms.due_date ? (
+                            <>
+                              <span className="mx-1">·</span>
+                              {formatShortDate(ms.due_date, i18n.language)}
+                            </>
+                          ) : null}
+                        </p>
+                        {ms.conditions ? <p className="mt-1 text-xs text-muted-foreground">{ms.conditions}</p> : null}
+                        {ms.evidence_note ? (
+                          <p className="mt-1 text-xs text-muted-foreground">{ms.evidence_note}</p>
+                        ) : null}
+                      </div>
+                      <p className="text-sm font-semibold tabular-nums">
+                        {fmtNumber(ms.amount)} {h.currency || "QAR"}
+                      </p>
+                    </div>
+                    {d.canClearMilestones && ms.status === "pending" ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setClearId(ms.id);
+                            setClearAction("clear");
+                            setPayAmount(String(ms.amount));
+                          }}
+                        >
+                          {t("procurement.detail.clearMilestone")}
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            setClearId(ms.id);
+                            setClearAction("pay");
+                            setPayAmount(String(ms.amount));
+                          }}
+                        >
+                          {t("procurement.detail.recordPayment")}
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+                ))
+              )}
             </div>
+            {clearId ? (
+              <div className="mt-4 space-y-3 rounded-xl border border-primary/20 bg-primary/5 p-4">
+                <p className="text-sm font-semibold">
+                  {clearAction === "pay" ? t("procurement.detail.recordPayment") : t("procurement.detail.clearMilestone")}
+                </p>
+                {clearAction === "pay" ? (
+                  <div className="space-y-1.5">
+                    <Label>{t("procurement.wizard.milestoneAmount")}</Label>
+                    <Input type="number" min={0} step="0.01" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} />
+                  </div>
+                ) : null}
+                <div className="space-y-1.5">
+                  <Label>{t("procurement.detail.evidence")}</Label>
+                  <Textarea rows={3} value={evidence} onChange={(e) => setEvidence(e.target.value)} />
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    disabled={milestoneMut.isPending || evidence.trim().length < 3}
+                    onClick={() =>
+                      milestoneMut.mutate({
+                        id: clearId,
+                        action: clearAction,
+                        paid_amount: Number(payAmount) || undefined,
+                        evidence_note: evidence.trim(),
+                      })
+                    }
+                  >
+                    {t("procurement.detail.confirmClearance")}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setClearId(null)}>
+                    {t("procurement.wizard.discard")}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
           </section>
 
           <section className="rounded-2xl border border-border/40 bg-card p-5 shadow-elevated-xs">
@@ -438,7 +552,12 @@ export default function ProcurementRequisitionDetailPage() {
                         onClick={() => setPreviewId(file.id)}
                       >
                         <FileText className="h-4 w-4 text-primary" />
-                        <span className="truncate">{file.file_name}</span>
+                        <span className="min-w-0 flex-1 truncate">{file.file_name}</span>
+                        {(file as { doc_type?: string }).doc_type ? (
+                          <Badge variant="muted" className="uppercase">
+                            {t(`procurement.wizard.docType.${(file as { doc_type?: string }).doc_type ?? "other"}`)}
+                          </Badge>
+                        ) : null}
                       </button>
                     </li>
                   ))}
@@ -447,9 +566,28 @@ export default function ProcurementRequisitionDetailPage() {
             </section>
             <section className="rounded-2xl border border-border/40 bg-card p-5 shadow-elevated-xs">
               <h2 className="text-base font-semibold">{t("procurement.detail.preview")}</h2>
-              <p className="mt-8 text-center text-sm text-muted-foreground">
-                {previewId ? t("procurement.detail.previewLocal") : t("procurement.detail.selectPreview")}
-              </p>
+              {(() => {
+                const selected = d.attachments.find((f) => f.id === previewId) as
+                  | { url?: string | null; file_name: string; file_mime?: string | null }
+                  | undefined;
+                if (!selected) {
+                  return <p className="mt-8 text-center text-sm text-muted-foreground">{t("procurement.detail.selectPreview")}</p>;
+                }
+                if (!selected.url) {
+                  return <p className="mt-8 text-center text-sm text-muted-foreground">{t("procurement.detail.previewLocal")}</p>;
+                }
+                if ((selected.file_mime ?? "").startsWith("image/")) {
+                  return (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={selected.url} alt={selected.file_name} className="mt-3 max-h-72 w-full rounded-xl object-contain" />
+                  );
+                }
+                return (
+                  <a href={selected.url} target="_blank" rel="noreferrer" className="mt-6 block text-center text-sm text-primary underline">
+                    {t("procurement.detail.openAttachment")}
+                  </a>
+                );
+              })()}
             </section>
           </div>
         </div>
@@ -508,7 +646,10 @@ function VendorCard({
 }) {
   const { t } = useTranslation();
   const tax = vendor.payment_terms || vendor.notes;
-  const status = (vendor.amc_status || "unassessed").replace(/_/g, " ");
+  const rawStatus =
+    (vendor as { compliance_status?: string | null }).compliance_status || vendor.amc_status || "unassessed";
+  const status = rawStatus.replace(/_/g, " ");
+  const tone = vendorComplianceTone(rawStatus);
   return (
     <div className="mt-5 rounded-xl bg-muted/50 p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -516,7 +657,7 @@ function VendorCard({
           <p className="font-semibold">{vendor.name}</p>
           {tax ? <p className="text-xs text-muted-foreground">{tax}</p> : null}
         </div>
-        <Badge variant="muted" className="uppercase">
+        <Badge variant={tone === "block" ? "destructive" : tone === "warn" ? "warning" : "muted"} className="uppercase">
           {status}
         </Badge>
       </div>
@@ -541,6 +682,11 @@ function VendorCard({
         ) : null}
         {!vendor.contact_person && !vendor.email && !vendor.phone ? (
           <span>{t("procurement.detail.noVendorContact")}</span>
+        ) : null}
+        {tone === "block" ? (
+          <p className="mt-2 w-full text-xs text-destructive">{t("procurement.wizard.vendorBlocked")}</p>
+        ) : tone === "warn" ? (
+          <p className="mt-2 w-full text-xs text-amber-700 dark:text-amber-300">{t("procurement.wizard.vendorGrace")}</p>
         ) : null}
       </div>
     </div>

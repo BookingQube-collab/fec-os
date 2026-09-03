@@ -336,6 +336,7 @@ export const queryKeys = {
     detail: (id?: string | null) => [...queryKeys.procurement.all, "detail", id ?? null] as const,
     options: () => [...queryKeys.procurement.all, "options"] as const,
     config: () => [...queryKeys.procurement.all, "config"] as const,
+    analytics: (filters?: object) => [...queryKeys.procurement.all, "analytics", filters ?? {}] as const,
   },
   events: {
     all: ["events"] as const,

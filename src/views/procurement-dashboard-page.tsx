@@ -287,6 +287,12 @@ export default function ProcurementDashboardPage() {
             <Button variant="outline" asChild>
               <Link href="/procurement/approvals">{t("procurement.dashboard.viewApprovals")}</Link>
             </Button>
+            <Button variant="outline" asChild>
+              <Link href="/procurement/analytics">{t("nav.procurementAnalytics")}</Link>
+            </Button>
+            <Button variant="outline" asChild>
+              <Link href="/procurement/help">{t("nav.procurementHelp")}</Link>
+            </Button>
             <CapabilityGate capability="procurement.create">
               <Button asChild>
                 <Link href="/procurement/requisitions/new">{t("procurement.newPr")}</Link>

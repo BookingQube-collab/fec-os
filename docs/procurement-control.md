@@ -27,6 +27,8 @@ Phase 1 of purchase requisition control. Existing **vendors** and **purchase_ord
 - `/procurement/requisitions/[id]` approval workspace
 - `/procurement/my-requests`
 - `/procurement/approvals`
+- `/procurement/analytics`
+- `/procurement/help` practical PR guide
 - `/procurement/config` DOA thresholds
 
 ## Approval routing
@@ -60,10 +62,19 @@ Requester reviews prices and submits. Fallback heuristics apply if no AI key is 
 6. **CFO / regional_ops**: finance step
 7. Create a PR as CEO and confirm approve is blocked on that record
 
+## Added to match the E3 PR practical manual
+
+- First-class title, purpose category, header vendor, estimated exposure, payment structure
+- Payment milestones with post-approval clearance / payment evidence
+- Stored attachments (quotation / scope / comparison / clearance) in `pr-attachments`
+- Vendor quick-create (company / freelancer, engagement, compliance deadline)
+- Analytics (`/procurement/analytics`) and in-app guide (`/procurement/help`)
+
 ## Deferred (not faked as complete)
 
 - Item master admin UI, labor rates
 - Full quotation comparison UI
 - Budget transfers / dashboards (placeholder remaining budget only)
 - PO/GRN conversion, vendor scorecards, savings tracker
-- AI OCR, WhatsApp, PDF report packs
+- Vendor self-service invitation links / public onboarding portal
+- AI OCR, WhatsApp, branded PDF settings admin

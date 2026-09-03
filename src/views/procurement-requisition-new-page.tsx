@@ -30,6 +30,7 @@ import {
   PR_LINE_CATEGORIES,
   type PrLineDraft,
 } from "@/components/procurement/pr-line-items-editor";
+import { PrMilestoneEditor } from "@/components/procurement/pr-milestone-editor";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -52,12 +53,19 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { usePermission } from "@/hooks/use-permission";
 import { fmtQar } from "@/lib/currency";
+import { PR_DOC_TYPES, PR_ENGAGEMENT_TYPES, PR_MAX_FILE_BYTES, PR_MAX_FILES } from "@/lib/procurement/constants";
 import {
   inferPaymentStructure,
   isFreightLine,
   latestPrReturnOrReject,
   splitJustification,
 } from "@/lib/procurement/display";
+import {
+  defaultMilestones,
+  milestoneSum,
+  newMilestoneKey,
+  type PrMilestoneDraft,
+} from "@/lib/procurement/milestones";
 import {
   aiDraftPurchaseRequisition,
   getProcurementConfig,
@@ -78,6 +86,21 @@ type WizardTab = "details" | "items" | "payment" | "files";
 type PrAiFocus = "all" | "details" | "items" | "payment" | "approvers";
 type PaymentStructure = "full_advance" | "milestones" | "post_delivery";
 type DraftFields = Awaited<ReturnType<typeof aiDraftPurchaseRequisition>>["fields"];
+type PendingFile = { key: string; name: string; mime: string; docType: (typeof PR_DOC_TYPES)[number]; data: string };
+
+async function fileToPending(file: File): Promise<PendingFile> {
+  const buf = await file.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i]!);
+  return {
+    key: newPrLineKey(),
+    name: file.name,
+    mime: file.type || "application/octet-stream",
+    docType: /quote|quotation/i.test(file.name) ? "quotation" : "other",
+    data: btoa(binary),
+  };
+}
 
 const TABS: WizardTab[] = ["details", "items", "payment", "files"];
 const PAYMENTS: PaymentStructure[] = ["full_advance", "milestones", "post_delivery"];
@@ -172,6 +195,14 @@ function ProcurementRequisitionNewInner() {
   const [paymentReason, setPaymentReason] = useState("");
   const [extraApproverIds, setExtraApproverIds] = useState<string[]>([]);
   const [fileNames, setFileNames] = useState<string[]>([]);
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+  const [milestones, setMilestones] = useState<PrMilestoneDraft[]>(defaultMilestones("post_delivery", 0));
+  const [vendorEntity, setVendorEntity] = useState<"company" | "freelancer">("company");
+  const [vendorEngagement, setVendorEngagement] = useState<(typeof PR_ENGAGEMENT_TYPES)[number]>("one_off");
+  const [vendorEmail, setVendorEmail] = useState("");
+  const [vendorPhone, setVendorPhone] = useState("");
+  const [vendorDeadlineDays, setVendorDeadlineDays] = useState<"7" | "14" | "30" | "custom">("14");
+  const [vendorDeadlineCustom, setVendorDeadlineCustom] = useState("");
   const [aiGenerated, setAiGenerated] = useState(false);
   const [defaultsApplied, setDefaultsApplied] = useState(false);
   const [hydrated, setHydrated] = useState(!existingId);
@@ -218,11 +249,24 @@ function ProcurementRequisitionNewInner() {
     const freightAmt = loaded.lines
       .filter((line) => isFreightLine(line.name))
       .reduce((sum, line) => sum + Number(line.line_total ?? 0), 0);
-    setTitle(parsed.title || loaded.header.project_name || "");
-    setOverview(parsed.overview);
+    const storedPayment = inferPaymentStructure(
+      loaded.header.justification,
+      (loaded.header as { payment_structure?: string | null }).payment_structure,
+    );
+    setTitle((loaded.header as { title?: string | null }).title || parsed.title || loaded.header.project_name || "");
+    setOverview(parsed.overview || loaded.header.justification || "");
     setDepartmentId(loaded.header.department_id ?? "");
-    setVendorId(loaded.vendor?.id ?? goods.find((l) => l.preferred_vendor_id)?.preferred_vendor_id ?? "");
-    setPurposeCategory(goods.find((l) => l.category)?.category ?? "");
+    setVendorId(
+      (loaded.header as { vendor_id?: string | null }).vendor_id ||
+        loaded.vendor?.id ||
+        goods.find((l) => l.preferred_vendor_id)?.preferred_vendor_id ||
+        "",
+    );
+    setPurposeCategory(
+      (loaded.header as { purpose_category?: string | null }).purpose_category ||
+        goods.find((l) => l.category)?.category ||
+        "",
+    );
     setProject(loaded.header.project_name ?? "");
     setLinkedEventId((loaded.header.event_id as string | null) ?? "");
     setPriority((loaded.header.priority as typeof priority) || "normal");
@@ -232,8 +276,20 @@ function ProcurementRequisitionNewInner() {
     setSpendType((loaded.header.spend_type as typeof spendType) || "opex");
     setRequiredBy(loaded.header.required_by ?? "");
     setFreight(freightAmt);
-    setPayment(inferPaymentStructure(loaded.header.justification));
-    setPaymentReason(parsed.rest);
+    setPayment(storedPayment);
+    setPaymentReason((loaded.header as { payment_notes?: string | null }).payment_notes || parsed.rest);
+    setMilestones(
+      loaded.milestones?.length
+        ? loaded.milestones.map((row) => ({
+            key: newMilestoneKey(),
+            title: row.title,
+            amount: Number(row.amount),
+            due_date: row.due_date ?? "",
+            due_timing: row.due_timing ?? "",
+            conditions: row.conditions ?? "",
+          }))
+        : defaultMilestones(storedPayment, Number(loaded.header.total_amount ?? 0), loaded.header.required_by),
+    );
     setLines(
       goods.length
         ? goods.map((l) => ({
@@ -324,6 +380,7 @@ function ProcurementRequisitionNewInner() {
     if (focus === "all" || focus === "payment") {
       setPayment(fields.payment_structure);
       setPaymentReason(fields.payment_reason);
+      setMilestones(defaultMilestones(fields.payment_structure, grandTotal, requiredBy));
     }
     if (focus === "all" || focus === "approvers") {
       setExtraApproverIds(fields.extra_approver_department_ids ?? []);
@@ -367,7 +424,22 @@ function ProcurementRequisitionNewInner() {
   });
 
   const addVendor = useMutation({
-    mutationFn: () => createVendor({ name: vendorName.trim(), branchCoverage: [] }),
+    mutationFn: () => {
+      const deadline =
+        vendorDeadlineDays === "custom"
+          ? vendorDeadlineCustom || null
+          : new Date(Date.now() + Number(vendorDeadlineDays) * 86_400_000).toISOString().slice(0, 10);
+      return createVendor({
+        name: vendorName.trim(),
+        branchCoverage: [],
+        entityType: vendorEntity,
+        engagementType: vendorEngagement,
+        email: vendorEmail.trim() || undefined,
+        phone: vendorPhone.trim() || undefined,
+        complianceDeadline: deadline,
+        notes: vendorEntity === "freelancer" ? "Requires QID" : undefined,
+      });
+    },
     onSuccess: async (row) => {
       setVendorId(row.id);
       setVendorOpen(false);
@@ -447,6 +519,11 @@ function ProcurementRequisitionNewInner() {
             },
           ]
         : [];
+    if (submit && payment === "milestones" && Math.abs(milestoneSum(milestones) - grandTotal) > 0.01 && !paymentReason.trim()) {
+      toast.error(t("procurement.wizard.missingMilestoneNote"));
+      setTab("payment");
+      return;
+    }
     save.mutate({
       id: existingId || undefined,
       location_id: siteId,
@@ -459,8 +536,29 @@ function ProcurementRequisitionNewInner() {
       priority,
       required_by: requiredBy || null,
       justification: composeJustification() || notes.trim() || title.trim(),
-      attachment_path: fileNames[0] ? `local:${fileNames[0]}` : null,
-      attachment_name: fileNames[0] ?? null,
+      title: title.trim(),
+      purpose_category: purposeCategory || null,
+      vendor_id: vendorId || null,
+      estimated_exposure: grandTotal,
+      payment_structure: payment,
+      payment_notes: paymentReason.trim() || null,
+      milestones: (payment === "milestones" ? milestones : defaultMilestones(payment, grandTotal, requiredBy)).map(
+        (row) => ({
+          title: row.title || t(`procurement.wizard.paymentDetail.${payment}`),
+          amount: Number(row.amount) || 0,
+          due_date: row.due_date || null,
+          due_timing: row.due_timing || null,
+          conditions: row.conditions || null,
+        }),
+      ),
+      files: pendingFiles.map((file) => ({
+        file_name: file.name,
+        file_mime: file.mime,
+        doc_type: file.docType,
+        data_base64: file.data,
+      })),
+      attachment_path: null,
+      attachment_name: null,
       submit,
       lines: [
         ...namedLines.map((l) => ({
@@ -488,7 +586,16 @@ function ProcurementRequisitionNewInner() {
 
   const addFiles = (list: FileList | null) => {
     if (!list?.length) return;
-    setFileNames((prev) => [...prev, ...Array.from(list).map((f) => f.name)].slice(0, 12));
+    const chosen = Array.from(list).slice(0, PR_MAX_FILES);
+    const oversized = chosen.find((file) => file.size > PR_MAX_FILE_BYTES);
+    if (oversized) {
+      toast.error(t("procurement.wizard.fileTooLarge"));
+      return;
+    }
+    void Promise.all(chosen.map(fileToPending)).then((next) => {
+      setPendingFiles((prev) => [...prev, ...next].slice(0, PR_MAX_FILES));
+      setFileNames((prev) => [...prev, ...next.map((f) => f.name)].slice(0, PR_MAX_FILES));
+    });
   };
 
   const toggleExtra = (id: string) => {
@@ -653,6 +760,20 @@ function ProcurementRequisitionNewInner() {
                   ))}
                 </SelectContent>
               </Select>
+              {(() => {
+                const selected = (options.data?.vendors ?? []).find((v) => v.id === vendorId) as
+                  | { compliance_status?: string; amc_status?: string }
+                  | undefined;
+                const status = selected?.compliance_status || selected?.amc_status;
+                if (!status) return null;
+                if (status === "blocked") {
+                  return <p className="text-xs text-destructive">{t("procurement.wizard.vendorBlocked")}</p>;
+                }
+                if (status === "warning" || status === "grace" || status === "unassessed") {
+                  return <p className="text-xs text-amber-700 dark:text-amber-300">{t("procurement.wizard.vendorGrace")}</p>;
+                }
+                return null;
+              })()}
             </div>
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-1.5">
@@ -774,6 +895,7 @@ function ProcurementRequisitionNewInner() {
                     onClick={() => {
                       setPayment(id);
                       setPaymentReason(t(`procurement.wizard.paymentBody.${id}`));
+                      setMilestones(defaultMilestones(id, grandTotal, requiredBy));
                     }}
                     className={cn(
                       "rounded-2xl border px-4 py-4 text-left transition-colors",
@@ -796,10 +918,22 @@ function ProcurementRequisitionNewInner() {
               </div>
               <p className="mt-2 text-sm text-muted-foreground">{paymentReason || t(`procurement.wizard.paymentBody.${payment}`)}</p>
             </div>
+            {payment === "milestones" ? (
+              <PrMilestoneEditor rows={milestones} total={grandTotal} onChange={setMilestones} />
+            ) : null}
+            <div className="space-y-1.5">
+              <Label>{t("procurement.wizard.paymentNotes")}</Label>
+              <Textarea
+                rows={3}
+                value={paymentReason}
+                onChange={(e) => setPaymentReason(e.target.value)}
+                placeholder={t("procurement.wizard.paymentNotesPlaceholder")}
+              />
+            </div>
           </TabsContent>
 
           <TabsContent value="files" className="space-y-5 py-5">
-            <p className="text-xs text-muted-foreground">{t("procurement.wizard.filesHint")}</p>
+            <p className="text-xs text-muted-foreground">{t("procurement.wizard.filesHintStored")}</p>
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
@@ -813,12 +947,48 @@ function ProcurementRequisitionNewInner() {
               <Upload className="h-6 w-6 text-muted-foreground" />
               <p className="text-sm font-medium">{t("procurement.wizard.dropTitle")}</p>
               <p className="text-xs text-muted-foreground">{t("procurement.wizard.dropHint")}</p>
-              {fileNames.length ? (
-                <p className="text-xs text-foreground">{fileNames.join(" · ")}</p>
+              {pendingFiles.length ? (
+                <p className="text-xs text-foreground">{pendingFiles.map((f) => f.name).join(" · ")}</p>
               ) : (
                 <p className="text-xs text-muted-foreground">{t("procurement.wizard.noFiles")}</p>
               )}
             </button>
+            {pendingFiles.length ? (
+              <ul className="space-y-2">
+                {pendingFiles.map((file) => (
+                  <li key={file.key} className="flex flex-wrap items-center gap-2 rounded-xl border border-border/40 px-3 py-2">
+                    <span className="min-w-0 flex-1 truncate text-sm">{file.name}</span>
+                    <Select
+                      value={file.docType}
+                      onValueChange={(v) =>
+                        setPendingFiles((prev) =>
+                          prev.map((f) => (f.key === file.key ? { ...f, docType: v as PendingFile["docType"] } : f)),
+                        )
+                      }
+                    >
+                      <SelectTrigger className="w-40">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PR_DOC_TYPES.map((type) => (
+                          <SelectItem key={type} value={type}>
+                            {t(`procurement.wizard.docType.${type}`)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setPendingFiles((prev) => prev.filter((f) => f.key !== file.key))}
+                    >
+                      {t("procurement.wizard.removeFile")}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
             <input
               ref={fileInputRef}
               type="file"
@@ -906,13 +1076,70 @@ function ProcurementRequisitionNewInner() {
       </div>
 
       <Dialog open={vendorOpen} onOpenChange={setVendorOpen}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>{t("procurement.wizard.vendor")}</DialogTitle>
+            <DialogTitle>{t("procurement.wizard.quickCreateTitle")}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-1.5">
-            <Label>{t("procurement.wizard.vendorName")}</Label>
-            <Input value={vendorName} onChange={(e) => setVendorName(e.target.value)} />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label>{t("procurement.wizard.vendorName")}</Label>
+              <Input value={vendorName} onChange={(e) => setVendorName(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>{t("procurement.wizard.entityType")}</Label>
+              <Select value={vendorEntity} onValueChange={(v) => setVendorEntity(v as typeof vendorEntity)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="company">{t("procurement.wizard.entityCompany")}</SelectItem>
+                  <SelectItem value="freelancer">{t("procurement.wizard.entityFreelancer")}</SelectItem>
+                </SelectContent>
+              </Select>
+              {vendorEntity === "freelancer" ? (
+                <p className="text-xs text-muted-foreground">{t("procurement.wizard.freelancerQid")}</p>
+              ) : null}
+            </div>
+            <div className="space-y-1.5">
+              <Label>{t("procurement.wizard.engagement")}</Label>
+              <Select value={vendorEngagement} onValueChange={(v) => setVendorEngagement(v as typeof vendorEngagement)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PR_ENGAGEMENT_TYPES.map((id) => (
+                    <SelectItem key={id} value={id}>
+                      {t(`procurement.wizard.engagementType.${id}`)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>{t("procurement.wizard.vendorEmail")}</Label>
+              <Input type="email" value={vendorEmail} onChange={(e) => setVendorEmail(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>{t("procurement.wizard.vendorPhone")}</Label>
+              <Input value={vendorPhone} onChange={(e) => setVendorPhone(e.target.value)} />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label>{t("procurement.wizard.complianceDeadline")}</Label>
+              <Select value={vendorDeadlineDays} onValueChange={(v) => setVendorDeadlineDays(v as typeof vendorDeadlineDays)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="7">{t("procurement.wizard.deadlineDays", { n: 7 })}</SelectItem>
+                  <SelectItem value="14">{t("procurement.wizard.deadlineDays", { n: 14 })}</SelectItem>
+                  <SelectItem value="30">{t("procurement.wizard.deadlineDays", { n: 30 })}</SelectItem>
+                  <SelectItem value="custom">{t("procurement.wizard.deadlineCustom")}</SelectItem>
+                </SelectContent>
+              </Select>
+              {vendorDeadlineDays === "custom" ? (
+                <Input type="date" className="mt-2" value={vendorDeadlineCustom} onChange={(e) => setVendorDeadlineCustom(e.target.value)} />
+              ) : null}
+            </div>
           </div>
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => setVendorOpen(false)}>
@@ -924,7 +1151,7 @@ function ProcurementRequisitionNewInner() {
               onClick={() => addVendor.mutate()}
             >
               {addVendor.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              {t("procurement.wizard.addNew")}
+              {t("procurement.wizard.createAndUse")}
             </Button>
           </DialogFooter>
         </DialogContent>

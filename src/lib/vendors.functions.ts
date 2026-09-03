@@ -64,11 +64,15 @@ export const createVendor = createAuthenticatedAction(
     category: z.enum(VENDOR_CATEGORIES).default("other"),
     contactPerson: z.string().max(200).optional(),
     phone: z.string().max(50).optional(),
-    email: z.string().email().optional(),
+    email: z.string().email().optional().or(z.literal("")),
     branchCoverage: z.array(z.string().uuid()).default([]),
     amcStatus: z.string().max(50).optional(),
     paymentTerms: z.string().max(200).optional(),
     notes: z.string().max(1000).optional(),
+    entityType: z.enum(["company", "freelancer"]).optional(),
+    engagementType: z.string().max(40).optional(),
+    complianceDeadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+    complianceStatus: z.enum(["unassessed", "grace", "compliant", "warning", "blocked"]).optional(),
   }),
   async (data, context) => {
     const { data: row, error } = await context.supabase
@@ -78,11 +82,15 @@ export const createVendor = createAuthenticatedAction(
         category: data.category,
         contact_person: data.contactPerson ?? null,
         phone: data.phone ?? null,
-        email: data.email ?? null,
+        email: data.email?.trim() || null,
         branch_coverage: data.branchCoverage,
         amc_status: data.amcStatus ?? null,
         payment_terms: data.paymentTerms ?? null,
         notes: data.notes ?? null,
+        entity_type: data.entityType ?? "company",
+        engagement_type: data.engagementType ?? null,
+        compliance_deadline: data.complianceDeadline ?? null,
+        compliance_status: data.complianceStatus ?? (data.complianceDeadline ? "grace" : "unassessed"),
       })
       .select("id")
       .single();

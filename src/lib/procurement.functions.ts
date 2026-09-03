@@ -45,8 +45,16 @@ import {
   type PrVendorHistoryHint,
 } from "@/lib/procurement/ai-request-draft";
 import { eventDisplayName, uniqueEventProjectNames } from "@/lib/procurement/event-link";
+import {
+  PR_ATTACHMENT_BUCKET,
+  PR_ATTACHMENT_MIMES,
+  PR_MAX_FILE_BYTES,
+  PR_MAX_FILES,
+} from "@/lib/procurement/constants";
+import { defaultMilestones, roundMoney } from "@/lib/procurement/milestones";
 import { notifyPurchaseRequisitionEvent } from "@/lib/notifications/action-notify";
 import { ForbiddenError, assertLocationAccess } from "@/lib/server/authorize";
+import { validateBase64Size, validateUploadMimeList } from "@/lib/server/upload-validation";
 import {
   createAuthenticatedAction,
   createAuthenticatedActionNoInput,
@@ -85,6 +93,21 @@ const LineSchema = z.object({
   remarks: z.string().max(500).optional().nullable(),
 });
 
+const MilestoneInputSchema = z.object({
+  title: z.string().min(1).max(200),
+  amount: z.number().min(0),
+  due_date: z.string().optional().nullable(),
+  due_timing: z.string().max(120).optional().nullable(),
+  conditions: z.string().max(1000).optional().nullable(),
+});
+
+const AttachmentInputSchema = z.object({
+  file_name: z.string().min(1).max(200),
+  file_mime: z.string().max(120).optional().nullable(),
+  doc_type: z.enum(["quotation", "scope", "comparison", "clearance", "other"]).default("other"),
+  data_base64: z.string().min(10).max(16_000_000),
+});
+
 const HeaderSchema = z.object({
   department_id: z.string().uuid().nullable().optional(),
   cost_center: z.string().max(80).optional().nullable(),
@@ -96,8 +119,16 @@ const HeaderSchema = z.object({
   priority: z.enum(["low", "normal", "high", "emergency"]).default("normal"),
   required_by: z.string().optional().nullable(),
   justification: z.string().min(3).max(4000),
+  title: z.string().max(200).optional().nullable(),
+  purpose_category: z.string().max(80).optional().nullable(),
+  vendor_id: z.string().uuid().optional().nullable(),
+  estimated_exposure: z.number().min(0).optional().nullable(),
+  payment_structure: z.enum(["full_advance", "milestones", "post_delivery"]).optional(),
+  payment_notes: z.string().max(2000).optional().nullable(),
   attachment_path: z.string().max(500).optional().nullable(),
   attachment_name: z.string().max(200).optional().nullable(),
+  milestones: z.array(MilestoneInputSchema).optional(),
+  files: z.array(AttachmentInputSchema).max(PR_MAX_FILES).optional(),
 });
 
 async function writePrAudit(
@@ -405,6 +436,82 @@ async function replaceLines(
   if (error) throw error;
 }
 
+function sanitizePrFileName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9._-]+/g, "-").slice(0, 120) || "file";
+}
+
+async function replaceMilestones(
+  context: AuthContext,
+  prId: string,
+  structure: "full_advance" | "milestones" | "post_delivery",
+  total: number,
+  requiredBy: string | null | undefined,
+  incoming?: z.infer<typeof MilestoneInputSchema>[],
+) {
+  const rows =
+    incoming && incoming.length
+      ? incoming
+      : defaultMilestones(structure, total, requiredBy).map((row) => ({
+          title: row.title,
+          amount: row.amount,
+          due_date: row.due_date || null,
+          due_timing: row.due_timing,
+          conditions: row.conditions,
+        }));
+  await context.supabase.from("pr_payment_milestones").delete().eq("pr_id", prId);
+  const { error } = await context.supabase.from("pr_payment_milestones").insert(
+    rows.map((row, idx) => ({
+      pr_id: prId,
+      line_no: idx + 1,
+      title: row.title,
+      amount: roundMoney(row.amount),
+      due_date: row.due_date || null,
+      due_timing: row.due_timing ?? null,
+      conditions: row.conditions ?? null,
+      status: "pending",
+    })),
+  );
+  if (error) throw error;
+}
+
+async function storePrAttachments(
+  context: AuthContext,
+  prId: string,
+  files: z.infer<typeof AttachmentInputSchema>[],
+) {
+  for (const file of files) {
+    validateBase64Size(file.data_base64, PR_MAX_FILE_BYTES);
+    const mime = file.file_mime || "application/octet-stream";
+    validateUploadMimeList(mime, [...PR_ATTACHMENT_MIMES]);
+    const safe = sanitizePrFileName(file.file_name);
+    const path = `${prId}/${Date.now()}-${safe}`;
+    const buffer = Buffer.from(file.data_base64, "base64");
+    const { error: upErr } = await context.supabase.storage
+      .from(PR_ATTACHMENT_BUCKET)
+      .upload(path, buffer, { contentType: mime, upsert: false });
+    if (upErr) throw upErr;
+    const { error } = await context.supabase.from("pr_attachments").insert({
+      pr_id: prId,
+      file_name: file.file_name,
+      file_path: path,
+      file_mime: mime,
+      doc_type: file.doc_type,
+      file_size: buffer.length,
+      uploaded_by: context.userId,
+    });
+    if (error) throw error;
+  }
+}
+
+async function signedPrAttachmentUrl(context: AuthContext, filePath: string): Promise<string | null> {
+  if (!filePath || filePath.startsWith("local:")) return null;
+  const { data, error } = await context.supabase.storage
+    .from(PR_ATTACHMENT_BUCKET)
+    .createSignedUrl(filePath, 3600);
+  if (error) return null;
+  return data.signedUrl;
+}
+
 async function buildAndStoreSteps(
   context: AuthContext,
   prId: string,
@@ -434,7 +541,11 @@ export const getProcurementOptions = createAuthenticatedActionNoInput(
           .select("id, name, parent_id")
           .eq("active", true)
           .order("sort_order"),
-        context.supabase.from("vendors").select("id, name").eq("active", true).order("name"),
+        context.supabase
+          .from("vendors")
+          .select("id, name, entity_type, compliance_status, compliance_deadline, amc_status")
+          .eq("active", true)
+          .order("name"),
         context.supabase
           .from("proc_items")
           .select("id, sku, name, category, unit")
@@ -699,7 +810,7 @@ export const getProcurementDashboard = createAuthenticatedAction(
     let q = context.supabase
       .from("purchase_requisitions")
       .select(
-        "id, pr_number, requested_at, requested_by, department_id, location_id, justification, total_amount, status, current_step_role, required_by, priority, created_at",
+        "id, pr_number, requested_at, requested_by, department_id, location_id, justification, title, purpose_category, vendor_id, total_amount, status, current_step_role, required_by, priority, created_at",
       )
       .order("created_at", { ascending: false })
       .limit(800);
@@ -929,7 +1040,7 @@ export const listPurchaseRequisitions = createAuthenticatedAction(
     let q = context.supabase
       .from("purchase_requisitions")
       .select(
-        "id, pr_number, requested_at, requested_by, department_id, location_id, justification, total_amount, status, current_step_role, required_by, priority, created_at, event_id, project_name, over_budget, excess_amount, budget_increase_pending",
+        "id, pr_number, requested_at, requested_by, department_id, location_id, justification, title, purpose_category, vendor_id, total_amount, status, current_step_role, required_by, priority, created_at, event_id, project_name, over_budget, excess_amount, budget_increase_pending",
       )
       .order("created_at", { ascending: false })
       .limit(300);
@@ -955,7 +1066,7 @@ export const listPurchaseRequisitions = createAuthenticatedAction(
         let nameQ = context.supabase
           .from("purchase_requisitions")
           .select(
-            "id, pr_number, requested_at, requested_by, department_id, location_id, justification, total_amount, status, current_step_role, required_by, priority, created_at, event_id, project_name, over_budget, excess_amount, budget_increase_pending",
+            "id, pr_number, requested_at, requested_by, department_id, location_id, justification, title, purpose_category, vendor_id, total_amount, status, current_step_role, required_by, priority, created_at, event_id, project_name, over_budget, excess_amount, budget_increase_pending",
           )
           .is("event_id", null)
           .in("project_name", names)
@@ -1021,15 +1132,26 @@ export const listPurchaseRequisitions = createAuthenticatedAction(
       if (lineErr) throw lineErr;
       return lines ?? [];
     });
+    const headerVendorIds = [...new Set(list.map((r) => (r as { vendor_id?: string | null }).vendor_id).filter(Boolean))] as string[];
     const vendorIds = [
-      ...new Set(lineRows.map((l) => l.preferred_vendor_id).filter(Boolean)),
+      ...new Set([
+        ...headerVendorIds,
+        ...lineRows.map((l) => l.preferred_vendor_id).filter(Boolean),
+      ]),
     ] as string[];
     const { data: vendorRows } = vendorIds.length
       ? await context.supabase.from("vendors").select("id, name").in("id", vendorIds)
       : { data: [] as { id: string; name: string }[] };
     const vendorMap = new Map((vendorRows ?? []).map((v) => [v.id, v.name]));
     const vendorByPr = new Map<string, { name: string; amount: number }>();
+    for (const row of list) {
+      const headerVendor = (row as { vendor_id?: string | null }).vendor_id;
+      if (headerVendor && vendorMap.has(headerVendor)) {
+        vendorByPr.set(row.id, { name: vendorMap.get(headerVendor)!, amount: Number(row.total_amount ?? 0) });
+      }
+    }
     for (const line of lineRows) {
+      if (vendorByPr.has(line.pr_id)) continue;
       const vendorId = line.preferred_vendor_id as string | null;
       if (!vendorId) continue;
       const name = vendorMap.get(vendorId);
@@ -1072,7 +1194,9 @@ export const listPurchaseRequisitions = createAuthenticatedAction(
         project_name: r.project_name ?? null,
         event_id: r.event_id ?? null,
         event_label: linked?.label ?? null,
-        purpose: (r.justification ?? "").slice(0, 80),
+        purpose: (r.title as string | null)?.trim() || (r.justification ?? "").slice(0, 80),
+        title: (r.title as string | null) ?? null,
+        purpose_category: (r.purpose_category as string | null) ?? null,
         canAct: flags.canAct,
         canReissue: flags.canReissue,
         canEdit: flags.canEdit,
@@ -1093,7 +1217,7 @@ export const getPurchaseRequisition = createAuthenticatedAction(
       .single();
     if (error) throw error;
 
-    const [{ data: lines }, { data: steps }, { data: history }, { data: attachments }, { data: location }, { data: dept }] =
+    const [{ data: lines }, { data: steps }, { data: history }, { data: attachments }, { data: milestones }, { data: location }, { data: dept }] =
       await Promise.all([
         context.supabase.from("pr_lines").select("*").eq("pr_id", data.id).order("line_no"),
         context.supabase.from("pr_approval_steps").select("*").eq("pr_id", data.id).order("step_order"),
@@ -1103,6 +1227,7 @@ export const getPurchaseRequisition = createAuthenticatedAction(
           .eq("pr_id", data.id)
           .order("created_at", { ascending: true }),
         context.supabase.from("pr_attachments").select("*").eq("pr_id", data.id).order("created_at"),
+        context.supabase.from("pr_payment_milestones").select("*").eq("pr_id", data.id).order("line_no"),
         context.supabase.from("locations").select("id, name").eq("id", pr.location_id).maybeSingle(),
         pr.department_id
           ? resolveDepartmentNames(context, [pr.department_id as string]).then((map) => ({
@@ -1112,7 +1237,10 @@ export const getPurchaseRequisition = createAuthenticatedAction(
       ]);
 
     const lineRows = lines ?? [];
-    const vendorId = lineRows.find((l) => l.preferred_vendor_id)?.preferred_vendor_id as string | null;
+    const vendorId =
+      ((pr.vendor_id as string | null) ??
+        (lineRows.find((l) => l.preferred_vendor_id)?.preferred_vendor_id as string | null)) ||
+      null;
     const actorIds = [
       ...new Set(
         [
@@ -1137,7 +1265,9 @@ export const getPurchaseRequisition = createAuthenticatedAction(
       vendorId
         ? context.supabase
             .from("vendors")
-            .select("id, name, contact_person, phone, email, amc_status, payment_terms, notes, category, active")
+            .select(
+              "id, name, contact_person, phone, email, amc_status, payment_terms, notes, category, active, entity_type, engagement_type, compliance_deadline, compliance_status",
+            )
             .eq("id", vendorId)
             .maybeSingle()
         : Promise.resolve({ data: null }),
@@ -1181,13 +1311,29 @@ export const getPurchaseRequisition = createAuthenticatedAction(
           notes: (vendorRes.data.notes as string | null) ?? null,
           category: (vendorRes.data.category as string | null) ?? null,
           active: Boolean(vendorRes.data.active),
+          entity_type: (vendorRes.data.entity_type as string | null) ?? "company",
+          engagement_type: (vendorRes.data.engagement_type as string | null) ?? null,
+          compliance_deadline: (vendorRes.data.compliance_deadline as string | null) ?? null,
+          compliance_status: (vendorRes.data.compliance_status as string | null) ?? "unassessed",
         }
       : null;
+
+    const attachmentRows = await Promise.all(
+      (attachments ?? []).map(async (file) => ({
+        ...file,
+        url: await signedPrAttachmentUrl(context, file.file_path as string),
+      })),
+    );
+
+    const canClearMilestones =
+      ["approved", "po_created"].includes(pr.status as string) &&
+      (isOwner || canUserDo(roles, "procurement.finance") || canUserDo(roles, "procurement.configure"));
 
     return {
       header: {
         ...pr,
         total_amount: Number(pr.total_amount),
+        estimated_exposure: pr.estimated_exposure != null ? Number(pr.estimated_exposure) : Number(pr.total_amount),
         location_name: location?.name ?? "—",
         department_name: dept?.name ?? "—",
         requester_name: actorNames[pr.requested_by] ?? "User",
@@ -1200,7 +1346,12 @@ export const getPurchaseRequisition = createAuthenticatedAction(
       })),
       steps: steps ?? [],
       history: history ?? [],
-      attachments: attachments ?? [],
+      attachments: attachmentRows,
+      milestones: (milestones ?? []).map((row) => ({
+        ...row,
+        amount: Number(row.amount),
+        paid_amount: Number(row.paid_amount ?? 0),
+      })),
       vendor,
       actorNames,
       budget,
@@ -1218,6 +1369,7 @@ export const getPurchaseRequisition = createAuthenticatedAction(
       canCancel,
       isOwner,
       isLocked,
+      canClearMilestones,
     };
   },
   { auth: { capability: "procurement.view" } },
@@ -1250,6 +1402,7 @@ export const savePurchaseRequisition = createAuthenticatedAction(
       }
     }
 
+    const paymentStructure = data.payment_structure ?? "post_delivery";
     const header = {
       requested_by: context.userId,
       requester_staff_id: staff?.id ?? null,
@@ -1264,6 +1417,12 @@ export const savePurchaseRequisition = createAuthenticatedAction(
       emergency,
       required_by: data.required_by || null,
       justification: data.justification,
+      title: data.title?.trim() || null,
+      purpose_category: data.purpose_category ?? null,
+      vendor_id: data.vendor_id ?? null,
+      estimated_exposure: data.estimated_exposure ?? null,
+      payment_structure: paymentStructure,
+      payment_notes: data.payment_notes ?? null,
     };
 
     let prId = data.id ?? null;
@@ -1300,7 +1459,20 @@ export const savePurchaseRequisition = createAuthenticatedAction(
 
     await replaceLines(context, prId, data.lines);
 
-    if (data.attachment_path) {
+    const lineTotal = data.lines.reduce((sum, line) => sum + roundMoney(line.qty * line.unit_price), 0);
+    const exposure = data.estimated_exposure ?? lineTotal;
+    await replaceMilestones(
+      context,
+      prId,
+      paymentStructure,
+      exposure,
+      data.required_by,
+      data.milestones,
+    );
+
+    if (data.files?.length) {
+      await storePrAttachments(context, prId, data.files);
+    } else if (data.attachment_path) {
       await context.supabase.from("pr_attachments").insert({
         pr_id: prId,
         file_name: data.attachment_name || "attachment",
@@ -1877,4 +2049,273 @@ export const saveProcurementConfig = createAuthenticatedAction(
     return { ok: true };
   },
   { auth: { capability: "procurement.configure" } },
+);
+
+export const recordPrMilestone = createAuthenticatedAction(
+  z.object({
+    id: z.string().uuid(),
+    action: z.enum(["clear", "pay"]),
+    paid_amount: z.number().min(0).optional(),
+    evidence_note: z.string().min(3).max(1000),
+  }),
+  async (data, context) => {
+    const { data: milestone, error } = await context.supabase
+      .from("pr_payment_milestones")
+      .select("*")
+      .eq("id", data.id)
+      .single();
+    if (error) throw error;
+
+    const { data: pr, error: prErr } = await context.supabase
+      .from("purchase_requisitions")
+      .select("id, status, requested_by, location_id, total_amount")
+      .eq("id", milestone.pr_id)
+      .single();
+    if (prErr) throw prErr;
+    await assertLocationAccess(context, pr.location_id);
+
+    if (!["approved", "po_created"].includes(pr.status as string)) {
+      throw new Error("Milestones can be cleared only after the PR is approved.");
+    }
+
+    const roles = (context.roles ?? []) as AppRole[];
+    const allowed =
+      pr.requested_by === context.userId ||
+      canUserDo(roles, "procurement.finance") ||
+      canUserDo(roles, "procurement.configure");
+    if (!allowed) throw new ForbiddenError("You cannot record clearance on this PR.");
+
+    if (data.action === "clear") {
+      const { error: updErr } = await context.supabase
+        .from("pr_payment_milestones")
+        .update({
+          status: "cleared",
+          cleared_at: new Date().toISOString(),
+          cleared_by: context.userId,
+          evidence_note: data.evidence_note,
+        })
+        .eq("id", data.id);
+      if (updErr) throw updErr;
+    } else {
+      const payAmt = roundMoney(data.paid_amount ?? Number(milestone.amount));
+      if (payAmt > Number(milestone.amount) + 0.009) {
+        throw new Error("Paid amount cannot exceed the approved milestone.");
+      }
+      const { data: siblings } = await context.supabase
+        .from("pr_payment_milestones")
+        .select("id, paid_amount")
+        .eq("pr_id", pr.id);
+      const alreadyPaid = (siblings ?? [])
+        .filter((row) => row.id !== data.id)
+        .reduce((sum, row) => sum + Number(row.paid_amount ?? 0), 0);
+      if (alreadyPaid + payAmt > Number(pr.total_amount) + 0.009) {
+        throw new Error("Payments cannot exceed the approved request amount.");
+      }
+      const { error: updErr } = await context.supabase
+        .from("pr_payment_milestones")
+        .update({
+          status: "paid",
+          paid_amount: payAmt,
+          paid_at: new Date().toISOString(),
+          paid_by: context.userId,
+          cleared_at: milestone.cleared_at ?? new Date().toISOString(),
+          cleared_by: milestone.cleared_by ?? context.userId,
+          evidence_note: data.evidence_note,
+        })
+        .eq("id", data.id);
+      if (updErr) throw updErr;
+    }
+
+    await context.supabase.from("pr_approval_history").insert({
+      pr_id: pr.id,
+      action: data.action === "pay" ? "milestone_paid" : "milestone_cleared",
+      from_status: pr.status,
+      to_status: pr.status,
+      actor_id: context.userId,
+      comments: data.evidence_note,
+      metadata: { milestone_id: data.id },
+    });
+    await writePrAudit(context, {
+      action: data.action === "pay" ? "pr.milestone.pay" : "pr.milestone.clear",
+      entityType: "pr_payment_milestones",
+      entityId: data.id,
+      prId: pr.id,
+      locationId: pr.location_id,
+      metadata: { evidence_note: data.evidence_note },
+    });
+    return { id: data.id, status: data.action === "pay" ? "paid" : "cleared" };
+  },
+  { auth: { capability: "procurement.view" } },
+);
+
+export const getPrAttachmentUrl = createAuthenticatedAction(
+  z.object({ id: z.string().uuid() }),
+  async (data, context) => {
+    const { data: file, error } = await context.supabase
+      .from("pr_attachments")
+      .select("id, pr_id, file_path, file_name")
+      .eq("id", data.id)
+      .single();
+    if (error) throw error;
+    const { data: pr, error: prErr } = await context.supabase
+      .from("purchase_requisitions")
+      .select("location_id")
+      .eq("id", file.pr_id)
+      .single();
+    if (prErr) throw prErr;
+    await assertLocationAccess(context, pr.location_id);
+    const url = await signedPrAttachmentUrl(context, file.file_path as string);
+    return { url, file_name: file.file_name as string };
+  },
+  { auth: { capability: "procurement.view" } },
+);
+
+export const getProcurementAnalytics = createAuthenticatedAction(
+  z
+    .object({
+      locationId: z.string().uuid().nullable().optional(),
+      departmentId: z.string().uuid().nullable().optional(),
+      vendorId: z.string().uuid().nullable().optional(),
+      from: z.string().optional().nullable(),
+      to: z.string().optional().nullable(),
+    })
+    .default({}),
+  async (data, context) => {
+    let q = context.supabase
+      .from("purchase_requisitions")
+      .select(
+        "id, pr_number, requested_at, submitted_at, department_id, location_id, vendor_id, title, purpose_category, justification, total_amount, status, over_budget, created_at",
+      )
+      .neq("status", "cancelled")
+      .order("created_at", { ascending: false })
+      .limit(800);
+    if (data.locationId) q = q.eq("location_id", data.locationId);
+    if (data.departmentId) q = q.eq("department_id", data.departmentId);
+    if (data.from) q = q.gte("requested_at", data.from);
+    if (data.to) q = q.lte("requested_at", data.to);
+    const { data: rows, error } = await q;
+    if (error) throw error;
+    let list = rows ?? [];
+
+    const prIds = list.map((r) => r.id);
+    const lineRows = await fetchInChunks(prIds, async (chunk) => {
+      const { data: lines, error: lineErr } = await context.supabase
+        .from("pr_lines")
+        .select("pr_id, preferred_vendor_id, line_total")
+        .in("pr_id", chunk);
+      if (lineErr) throw lineErr;
+      return lines ?? [];
+    });
+    const milestoneRows = await fetchInChunks(prIds, async (chunk) => {
+      const { data: ms, error: msErr } = await context.supabase
+        .from("pr_payment_milestones")
+        .select("pr_id, amount, paid_amount, status")
+        .in("pr_id", chunk);
+      if (msErr) throw msErr;
+      return ms ?? [];
+    });
+
+    const vendorByPr = new Map<string, string>();
+    for (const row of list) {
+      if (row.vendor_id) vendorByPr.set(row.id, row.vendor_id as string);
+    }
+    for (const line of lineRows) {
+      if (!vendorByPr.has(line.pr_id) && line.preferred_vendor_id) {
+        vendorByPr.set(line.pr_id, line.preferred_vendor_id as string);
+      }
+    }
+    if (data.vendorId) {
+      list = list.filter((r) => vendorByPr.get(r.id) === data.vendorId);
+    }
+
+    const deptIds = [...new Set(list.map((r) => r.department_id).filter(Boolean))] as string[];
+    const vendorIds = [...new Set([...list.map((r) => vendorByPr.get(r.id)).filter(Boolean)])] as string[];
+    const [{ data: depts }, { data: vendors }, { data: history }] = await Promise.all([
+      deptIds.length
+        ? resolveDepartmentNames(context, deptIds).then((map) => ({
+            data: [...map.entries()].map(([id, name]) => ({ id, name })),
+          }))
+        : Promise.resolve({ data: [] as { id: string; name: string }[] }),
+      vendorIds.length
+        ? context.supabase.from("vendors").select("id, name").in("id", vendorIds)
+        : Promise.resolve({ data: [] as { id: string; name: string }[] }),
+      prIds.length
+        ? context.supabase
+            .from("pr_approval_history")
+            .select("pr_id, to_status, created_at")
+            .in("pr_id", prIds)
+            .eq("to_status", "approved")
+        : Promise.resolve({ data: [] as { pr_id: string; to_status: string; created_at: string }[] }),
+    ]);
+    const deptMap = new Map((depts ?? []).map((d) => [d.id, d.name]));
+    const vendorMap = new Map((vendors ?? []).map((v) => [v.id, v.name]));
+    const approvedAt = new Map<string, string>();
+    for (const row of history ?? []) {
+      if (!approvedAt.has(row.pr_id)) approvedAt.set(row.pr_id, row.created_at);
+    }
+
+    const approved = list.filter((r) => r.status === "approved" || r.status === "po_created");
+    const pending = list.filter((r) =>
+      ["submitted", "dept_review", "gm_review", "ceo_review", "finance_review", "procurement_review"].includes(
+        r.status as string,
+      ),
+    );
+    const rejected = list.filter((r) => r.status === "rejected");
+    const cycleDays = approved
+      .map((r) => {
+        const start = (r.submitted_at as string | null) ?? (r.created_at as string);
+        const end = approvedAt.get(r.id);
+        if (!start || !end) return null;
+        return Math.max(0, (new Date(end).getTime() - new Date(start).getTime()) / 86_400_000);
+      })
+      .filter((n): n is number => n != null);
+    const avgCycle = cycleDays.length ? cycleDays.reduce((a, b) => a + b, 0) / cycleDays.length : 0;
+    const closed = approved.length + rejected.length;
+    const signoffRate = closed ? approved.length / closed : 0;
+    const overBudget = list.filter((r) => Boolean(r.over_budget)).length;
+    const budgetAdherence = list.length ? 1 - overBudget / list.length : 1;
+
+    const paidByPr = new Map<string, number>();
+    for (const row of milestoneRows) {
+      paidByPr.set(row.pr_id, (paidByPr.get(row.pr_id) ?? 0) + Number(row.paid_amount ?? 0));
+    }
+    const approvedValue = approved.reduce((s, r) => s + Number(r.total_amount ?? 0), 0);
+    const paidValue = approved.reduce((s, r) => s + (paidByPr.get(r.id) ?? 0), 0);
+    const pendingValue = pending.reduce((s, r) => s + Number(r.total_amount ?? 0), 0);
+    const forecastedLiability = pendingValue + Math.max(0, approvedValue - paidValue);
+
+    const byDept = new Map<string, { id: string | null; name: string; count: number; amount: number }>();
+    const byVendor = new Map<string, { id: string | null; name: string; count: number; amount: number }>();
+    const byPurpose = new Map<string, { id: string | null; name: string; count: number; amount: number }>();
+    for (const row of list) {
+      const amount = Number(row.total_amount ?? 0);
+      const deptId = (row.department_id as string | null) ?? null;
+      const deptName = deptId ? (deptMap.get(deptId) ?? "Unassigned") : "Unassigned";
+      addNamedAmount(byDept, deptId, deptName, amount);
+      const vendorId = vendorByPr.get(row.id) ?? null;
+      addNamedAmount(byVendor, vendorId, vendorId ? (vendorMap.get(vendorId) ?? "Vendor") : "No vendor", amount);
+      const purpose = (row.purpose_category as string | null)?.trim() || "general";
+      addNamedAmount(byPurpose, purpose, purpose, amount);
+    }
+
+    return {
+      total: list.length,
+      value: list.reduce((s, r) => s + Number(r.total_amount ?? 0), 0),
+      pending: pending.length,
+      approved: approved.length,
+      rejected: rejected.length,
+      avgCycleDays: Math.round(avgCycle * 10) / 10,
+      signoffRate,
+      budgetAdherence,
+      forecastedLiability,
+      approvedValue,
+      paidValue,
+      pendingValue,
+      savings: 0,
+      departments: topNamed(byDept, 8),
+      vendors: topNamed(byVendor, 8),
+      purposes: topNamed(byPurpose, 8),
+    };
+  },
+  { defaultInput: {}, auth: { capability: "procurement.view" } },
 );

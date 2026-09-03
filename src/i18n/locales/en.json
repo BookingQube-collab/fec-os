@@ -80,9 +80,11 @@
     "pos": "Purchase Orders",
     "procurement": "PR & Procurement",
     "procurementDashboard": "Dashboard",
-    "procurementRequisitions": "Purchase Requisitions",
+    "procurementRequisitions": "Purchase Requests",
     "procurementMyRequests": "My Requests",
     "procurementApprovals": "My Approvals",
+    "procurementAnalytics": "Analytics",
+    "procurementHelp": "PR guide",
     "procurementConfig": "Configuration",
     "events": "Project Management",
     "eventsDashboard": "Dashboard",
@@ -776,7 +778,51 @@
       },
       "financeVerified": "Finance-Verified Structure",
       "recommendPayment": "Recommend structure",
+      "paymentNotes": "Payment notes / difference reason",
+      "paymentNotesPlaceholder": "Explain any difference between items, exposure, and the payment structure.",
+      "milestoneSchedule": "Milestone schedule",
+      "milestoneHint": "Build stages that match the quotation. Totals should equal estimated exposure.",
+      "addMilestone": "Add milestone",
+      "removeMilestone": "Remove milestone",
+      "milestoneTitle": "Milestone",
+      "milestoneAmount": "Amount (QAR)",
+      "milestoneDue": "Due date",
+      "milestoneTiming": "Due timing",
+      "milestoneConditions": "Completion conditions",
+      "milestoneTotal": "Milestones {{amount}} vs exposure {{exposure}}",
+      "milestoneMismatch": "explain the permitted difference before submit",
+      "missingMilestoneNote": "Explain why the milestone total differs from estimated exposure.",
       "filesHint": "Attach quotes or specs if you have them. Files stay on this device until a storage upload is available.",
+      "filesHintStored": "Attach quotation, scope, comparison, or supporting files (PDF, images, spreadsheets — 10 MB each). Files are stored with the PR record.",
+      "fileTooLarge": "Each file must be 10 MB or smaller.",
+      "removeFile": "Remove",
+      "docType": {
+        "quotation": "Quotation",
+        "scope": "Scope",
+        "comparison": "Comparison",
+        "clearance": "Clearance",
+        "other": "Other"
+      },
+      "quickCreateTitle": "Quick-create vendor",
+      "entityType": "Entity type",
+      "entityCompany": "Company",
+      "entityFreelancer": "Freelancer",
+      "freelancerQid": "Freelancer records currently require QID.",
+      "engagement": "Engagement type",
+      "engagementType": {
+        "one_off": "One-off",
+        "retainer": "Retainer",
+        "amc": "AMC",
+        "project": "Project"
+      },
+      "vendorEmail": "Email",
+      "vendorPhone": "Mobile",
+      "complianceDeadline": "Compliance deadline",
+      "deadlineDays": "{{n}} days",
+      "deadlineCustom": "Custom date",
+      "createAndUse": "Create & use",
+      "vendorBlocked": "This vendor is blocked. Use the authorised override or choose another vendor.",
+      "vendorGrace": "Vendor compliance is in grace or unassessed — work may continue, but review the record.",
       "dropTitle": "Drop supporting documents",
       "dropHint": "PDF, images, or spreadsheets — or click to browse",
       "noFiles": "No files selected yet.",
@@ -904,6 +950,164 @@
         "resume": "Purchase request resumed.",
         "cancel": "Purchase request cancelled.",
         "reissue": "Purchase request reissued."
+      },
+      "milestoneStatus": {
+        "pending": "Pending",
+        "cleared": "Cleared",
+        "paid": "Paid",
+        "cancelled": "Cancelled"
+      },
+      "clearMilestone": "Record clearance",
+      "recordPayment": "Record payment",
+      "evidence": "Clearance / payment evidence",
+      "confirmClearance": "Save evidence",
+      "milestoneRecorded": "Milestone updated.",
+      "openAttachment": "Open attached file"
+    },
+    "analytics": {
+      "title": "Procurement analytics",
+      "subtitle": "Cycle velocity, budget adherence, forecasted liability, and concentration.",
+      "apply": "Apply filters",
+      "cycleUnit": "Average days to approval",
+      "budgetAdherence": "Budget adherence",
+      "budgetHint": "Share of PRs within department budget",
+      "liability": "Forecasted liability",
+      "liabilityHint": "Pending PRs plus approved unpaid milestones",
+      "signoff": "Sign-off rate",
+      "signoffHint": "Approved of closed requests",
+      "purposeAllocation": "Purpose allocation",
+      "reconcile": "Reconcile before external reporting",
+      "reconcileHint": "Material figures should be checked against the underlying PR records.",
+      "paid": "Paid against milestones",
+      "requests": "Requests in filter"
+    },
+    "guide": {
+      "title": "Purchase request practical guide",
+      "subtitle": "Operating steps from the E3 PR manual, mapped to FEC-OS screens.",
+      "nav": {
+        "start": "Start here",
+        "roles": "Roles",
+        "workflow": "Workflow",
+        "dashboard": "Purchases",
+        "create": "Create a PR",
+        "approval": "Approval",
+        "after": "After approval",
+        "vendors": "Vendors",
+        "analytics": "Analytics",
+        "checklists": "Checklists",
+        "troubleshoot": "Troubleshooting",
+        "security": "Security"
+      },
+      "start": {
+        "title": "Use this as an operating guide",
+        "body": "Create and track purchase requests, review the queue, register vendors, and keep the audit trail complete. Save only accurate business information. Never approve your own request.",
+        "steps": [
+          "Identify the request by PR number, vendor, and amount — not title alone.",
+          "Read validation messages before retrying.",
+          "Stop and confirm policy when a screen default conflicts with published rules."
+        ]
+      },
+      "roles": {
+        "title": "Your role controls what you can see and do",
+        "body": "Requester creates and follows own PRs. Duty manager is first-stage review. Branch GM / CEO / finance act on assigned DOA stages. Executives configure policy. Vendors do not use the staff dashboard.",
+        "steps": [
+          "Requester / User — create and follow own PRs",
+          "Supervisor (duty manager) — first-stage review and feedback",
+          "Approver (GM / CEO / finance) — review the assigned stage",
+          "Admin / Super Admin — vendors, DOA, and system settings"
+        ]
+      },
+      "workflow": {
+        "title": "Every PR moves through the same control path",
+        "body": "Create Details, Items, Payment and Files. Assigned stages approve, reject, or request changes. Approved requests proceed to milestones and clearance. Timeline and documents remain the audit record.",
+        "steps": [
+          "Submit only when totals and documents agree.",
+          "A vendor compliance warning may allow work during grace.",
+          "A blocked vendor requires the correct policy action or authorised override."
+        ]
+      },
+      "dashboard": {
+        "title": "Start from the Purchase Requests dashboard",
+        "body": "Use All PRs for the complete register and My Queue for decisions assigned to you. Status totals show pending, approved, or rejected work. Refresh if the data looks stale.",
+        "steps": [
+          "Open New Request to begin a PR.",
+          "Search by title, PR number, vendor, department, requester, or purpose.",
+          "Export creates the corporate Excel/CSV report — do not send it to personal storage."
+        ]
+      },
+      "create": {
+        "title": "Create the request in four steps",
+        "body": "Details first (title, department, purpose, project/asset, priority, vendor, overview), then items, payment structure, then files. Complete each tab so later totals have the required context.",
+        "steps": [
+          "A strong title describes the purchase, not merely the supplier name.",
+          "Confirm line total = estimated exposure = payment structure.",
+          "Attach quotation, scope, or comparison with meaningful filenames.",
+          "Quick-create a vendor only when they are not already registered."
+        ]
+      },
+      "approval": {
+        "title": "Review the correct stage before deciding",
+        "body": "Select the stage assigned to you. Read the PR record and every attachment. Enter useful feedback — especially for changes or rejection. Approve only when scope, vendor, amount, and evidence agree.",
+        "steps": [
+          "Approve when the business need is clear and documents support the request.",
+          "Request changes when information is missing or correctable.",
+          "Reject when the request should not proceed — state exactly what failed."
+        ]
+      },
+      "after": {
+        "title": "Payments follow the approved structure",
+        "body": "Record progress against the approved milestone. Confirm delivery or acceptance evidence. Do not exceed the approved request amount. Approval authorises the request; it does not remove payment or banking controls.",
+        "steps": [
+          "Keep payment status aligned with actual settlement.",
+          "Do not replace approved files silently.",
+          "Escalate bank-detail changes through the vendor review process."
+        ]
+      },
+      "vendors": {
+        "title": "Manage suppliers from the vendor directory",
+        "body": "FEC-OS reuses the estate vendor module. Register companies or freelancers, attach documents, and watch near-expiry compliance. Do not create a second vendor because an invitation or record is incomplete.",
+        "steps": [
+          "Use Approved Directory for registered vendors.",
+          "Quick-create from a PR only after checking email and mobile.",
+          "A score or AMC status alone is not the full decision."
+        ]
+      },
+      "analytics": {
+        "title": "Read performance and liability in one view",
+        "body": "Select the reporting period, then filter departments and vendors. Review cycle velocity, budget adherence, and forecasted liability. A chart without its period and filters can be misleading.",
+        "steps": [
+          "Department yield compares spend by cost owner.",
+          "Vendor concentration shows reliance on suppliers.",
+          "Purpose allocation shows where demand is concentrated.",
+          "Reconcile material figures with the underlying PR records before reporting externally."
+        ]
+      },
+      "checklists": {
+        "title": "Requester and reviewer checks",
+        "body": "A complete PR moves faster because reviewers do not need to reconstruct the business case. When in doubt, request clarification or changes.",
+        "steps": [
+          "Title and scope are specific; department, purpose, and project are correct.",
+          "Vendor identity matches the quotation; items and currency are accurate.",
+          "Required files are attached and readable; no duplicate vendor or request.",
+          "Reviewer: correct PR and stage, attachments opened, feedback is specific."
+        ]
+      },
+      "troubleshoot": {
+        "title": "Diagnose the screen before retrying",
+        "body": "If data looks missing, refresh, clear search, switch to All PRs, and check your role. If an action is blocked, read the field-level message and confirm vendor compliance and stage ownership.",
+        "steps": [
+          "Do not recreate records until you confirm the original record does not exist.",
+          "Escalate policy or permission issues instead of repeating clicks."
+        ]
+      },
+      "security": {
+        "title": "Protect links, documents, and banking data",
+        "body": "Use your own authenticated account. Mask banking details in screenshots. Check role, entity, and PR number before acting. Never approve only because a requester says it is urgent.",
+        "steps": [
+          "Do not copy full IBAN or identity data into comments.",
+          "Do not create duplicate vendors to bypass onboarding.",
+          "Do not change compliance status merely to unblock a PR."
+        ]
       }
     },
     "config": {
@@ -2679,6 +2883,9 @@
       "history": "Import history",
       "emptyHistory": "No roster imports yet.",
       "rollback": "Roll back",
+      "deleteHistoryTitle": "Delete this import?",
+      "deleteHistoryDescription": "This removes the history row, the uploaded file, and the saved preview. Confirmed staff or roster data stays in the system.",
+      "historyDeleted": "Import removed from history.",
       "new": "New",
       "updated": "Updated",
       "unchanged": "Unchanged",
@@ -2737,6 +2944,10 @@
       "colDuty": "Duty",
       "dutyYes": "On duty",
       "dutyOff": "Week off",
+      "shiftStart": "Start",
+      "shiftEnd": "End",
+      "shiftTo": "to",
+      "renderingRows": "Loading rows…",
       "shiftApplied": "Saved {{count}} roster rows for {{from}} – {{to}}.",
       "shiftNothingMatched": "No staff could be matched for this week or month.",
       "col": {

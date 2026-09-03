@@ -125,6 +125,8 @@ const PROCUREMENT_NAV_GROUP: SidebarNavGroup = {
     { href: "/vendors", labelKey: "nav.vendors", capability: "vendors.view" },
     { href: "/procurement/my-requests", labelKey: "nav.procurementMyRequests", capability: "procurement.create" },
     { href: "/procurement/approvals", labelKey: "nav.procurementApprovals", capability: "procurement.view" },
+    { href: "/procurement/analytics", labelKey: "nav.procurementAnalytics", capability: "procurement.view" },
+    { href: "/procurement/help", labelKey: "nav.procurementHelp", capability: "procurement.view" },
     { href: "/procurement/config", labelKey: "nav.procurementConfig", capability: "procurement.configure" },
   ],
 };
@@ -578,6 +580,9 @@ export function isSidebarNavGroupItemActive(href: string, pathname: string): boo
   }
   if (href === "/procurement/requisitions") {
     return pathname === href || pathname.startsWith("/procurement/requisitions/");
+  }
+  if (href === "/procurement/analytics" || href === "/procurement/help") {
+    return pathname === href || pathname.startsWith(`${href}/`);
   }
   if (href === "/people") {
     return pathname === href;

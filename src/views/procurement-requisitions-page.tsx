@@ -85,6 +85,7 @@ type PrListRow = {
   location_name: string;
   vendor_name: string | null;
   project_name: string | null;
+  title?: string | null;
   event_id?: string | null;
   event_label?: string | null;
   purpose: string;
@@ -121,6 +122,8 @@ function toActionTarget(row: PrListRow): PrActionTarget {
 }
 
 function prTitle(row: PrListRow): string {
+  const titled = (row as { title?: string | null }).title?.trim();
+  if (titled) return titled;
   const project = row.project_name?.trim();
   if (project) return project;
   const purpose = row.purpose?.trim();

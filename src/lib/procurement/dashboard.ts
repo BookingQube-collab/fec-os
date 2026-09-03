@@ -107,6 +107,9 @@ export type PrHeaderRow = {
   department_id: string | null;
   location_id: string;
   justification: string | null;
+  title?: string | null;
+  purpose_category?: string | null;
+  vendor_id?: string | null;
   total_amount: number | null;
   status: string;
   current_step_role: string | null;
@@ -253,7 +256,7 @@ export function toListRow(
     department_name: names.department,
     location_name: names.location,
     vendor_name: names.vendor,
-    purpose: (row.justification ?? "").slice(0, 80),
+    purpose: row.title?.trim() || (row.justification ?? "").slice(0, 80),
     total_amount: amountOf(row),
     status: row.status,
     current_step_role: row.current_step_role,
