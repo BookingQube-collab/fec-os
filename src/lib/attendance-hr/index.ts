@@ -28,7 +28,13 @@ export {
   applyAttendanceShiftPolicy,
   breakMinutesForLocation,
   expectedShiftMinutes,
+  isUrbanArenaLocationCode,
   normalizeAttendanceEmploymentRole,
+  ATTENDANCE_EMPLOYMENT_TYPES,
+  DEFAULT_BREAK_MINUTES,
+  URBAN_ARENA_BREAK_MINUTES,
+  PERMANENT_SHIFT_MINUTES,
+  EXTENDED_SHIFT_MINUTES,
 } from "./shift-policy";
 export type { AttendanceEmploymentRole, AttendanceEmploymentType } from "./shift-policy";
 export { findAttendanceGaps, resolveResyncWindow, qatarRangeToFetchWindow } from "./gap-check";

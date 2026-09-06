@@ -42,14 +42,28 @@ export function expectedShiftMinutes(role: AttendanceEmploymentRole | null | und
   return PERMANENT_SHIFT_MINUTES;
 }
 
-/** Urban Arena sites (UA-*) use a 30-minute break; all other locations use 60 minutes. */
-export function breakMinutesForLocation(locationCode: string | null | undefined): number {
+/** True when location code is Urban Arena (UA / UA-* / UA_*). */
+export function isUrbanArenaLocationCode(locationCode: string | null | undefined): boolean {
   const code = String(locationCode ?? "")
     .trim()
     .toUpperCase();
-  if (code === "UA" || code.startsWith("UA-") || code.startsWith("UA_")) {
-    return URBAN_ARENA_BREAK_MINUTES;
+  return code === "UA" || code.startsWith("UA-") || code.startsWith("UA_");
+}
+
+/**
+ * Break minutes for a site.
+ * Prefer an explicit override (from attendance_site_settings.break_minutes).
+ * Otherwise Urban Arena sites use 30 minutes; all other locations use 60.
+ */
+export function breakMinutesForLocation(
+  locationCode: string | null | undefined,
+  overrideMinutes?: number | null,
+): number {
+  if (overrideMinutes != null && Number.isFinite(Number(overrideMinutes))) {
+    const n = Math.round(Number(overrideMinutes));
+    if (n >= 0 && n <= 240) return n;
   }
+  if (isUrbanArenaLocationCode(locationCode)) return URBAN_ARENA_BREAK_MINUTES;
   return DEFAULT_BREAK_MINUTES;
 }
 
@@ -59,11 +73,15 @@ export function breakMinutesForLocation(locationCode: string | null | undefined)
  */
 export function applyAttendanceShiftPolicy(
   base: ShiftTemplateInput,
-  opts: { employmentType?: string | null; locationCode?: string | null },
+  opts: {
+    employmentType?: string | null;
+    locationCode?: string | null;
+    breakMinutesOverride?: number | null;
+  },
 ): ShiftTemplateInput {
   const role = normalizeAttendanceEmploymentRole(opts.employmentType);
   const expected = expectedShiftMinutes(role);
-  const breakMin = breakMinutesForLocation(opts.locationCode);
+  const breakMin = breakMinutesForLocation(opts.locationCode, opts.breakMinutesOverride);
   return {
     ...base,
     breakMinutes: breakMin,

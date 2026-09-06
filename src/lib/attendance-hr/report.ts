@@ -23,6 +23,8 @@ export type AttendanceHrReportRow = {
   location_code: string | null;
   location_name: string | null;
   location_region: string | null;
+  /** Explicit site break override when set on attendance_site_settings. */
+  location_break_minutes?: number | null;
 };
 
 export function isAttendanceHrUnmappedSearch(raw: string): boolean {
@@ -103,7 +105,7 @@ export function attendanceHrToListingSource(
     actual_out: row.actual_out,
     overtime_minutes: row.overtime_minutes,
     worked_minutes: row.worked_minutes,
-    break_minutes: breakMinutesForLocation(row.location_code),
+    break_minutes: breakMinutesForLocation(row.location_code, row.location_break_minutes),
     status: row.status,
     missed_punch: row.missed_punch,
   };

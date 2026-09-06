@@ -327,13 +327,16 @@ function StaffTab() {
       {!data?.length ? (
         <Empty>{t("people.staff.empty")}</Empty>
       ) : (
-        <StaffDirectory
-          staff={data}
-          locationId={locationId ?? null}
-          canEdit={canEdit}
-          onEdit={setEditRow}
-          onArchive={setDeleteId}
-        />
+        <>
+          <p className="text-xs text-muted-foreground">{t("people.staff.roleHoursHelp")}</p>
+          <StaffDirectory
+            staff={data}
+            locationId={locationId ?? null}
+            canEdit={canEdit}
+            onEdit={setEditRow}
+            onArchive={setDeleteId}
+          />
+        </>
       )}
 
       {editRow && (
@@ -398,9 +401,14 @@ function StaffFormDialog({
   );
   const [phone, setPhone] = useState(staff?.phone ?? "");
   const [email, setEmail] = useState(staff?.email ?? "");
+  const [employmentType, setEmploymentType] = useState<string>(staff?.employment_type ?? "permanent");
 
   const m = useMutation({
     mutationFn: async () => {
+      const employment =
+        employmentType === ""
+          ? null
+          : (employmentType as "permanent" | "temporary" | "secondment" | "joker");
       if (isEdit) {
         await updateStaff({
           id: staff!.id,
@@ -411,6 +419,7 @@ function StaffFormDialog({
           status,
           phone: phone || null,
           email: email || null,
+          employmentType: employment,
         });
         return;
       }
@@ -425,6 +434,7 @@ function StaffFormDialog({
         status,
         phone: phone || undefined,
         email: email || undefined,
+        employmentType: employment,
       });
     },
     onSuccess: () => {
@@ -506,8 +516,20 @@ function StaffFormDialog({
                 </SelectContent>
               </Select>
             </div>
-            <div />
+            <div>
+              <Label>{t("people.staff.employmentType")}</Label>
+              <Select value={employmentType} onValueChange={setEmploymentType}>
+                <SelectTrigger><SelectValue placeholder={t("people.staff.employmentType")} /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="permanent">{t("people.staff.employmentTypes.permanent")}</SelectItem>
+                  <SelectItem value="secondment">{t("people.staff.employmentTypes.secondment")}</SelectItem>
+                  <SelectItem value="joker">{t("people.staff.employmentTypes.joker")}</SelectItem>
+                  <SelectItem value="temporary">{t("people.staff.employmentTypes.temporary")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
+          <p className="text-xs text-muted-foreground">{t("people.staff.roleHoursHelp")}</p>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>{t("people.staff.phone")}</Label>

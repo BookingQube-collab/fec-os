@@ -180,7 +180,7 @@ export async function recalculateAttendanceRange(
     leaveQuery = leaveQuery.in("staff_id", staffScope);
   }
 
-  const [{ data: logs, error }, { data: roster }, { data: holidays }, { data: leaves }, { data: shifts }, { data: ruleRows }, { data: staffRows }, { data: locationRow }] =
+  const [{ data: logs, error }, { data: roster }, { data: holidays }, { data: leaves }, { data: shifts }, { data: ruleRows }, { data: staffRows }, { data: locationRow }, { data: siteSetting }] =
     await Promise.all([
       logsQuery,
       rosterQuery,
@@ -192,8 +192,13 @@ export async function recalculateAttendanceRange(
         ? supabase.from("staff").select("id, location_id, status, employment_type").in("id", staffScope).is("deleted_at", null)
         : supabase.from("staff").select("id, location_id, status, employment_type").is("deleted_at", null).limit(5000),
       supabase.from("locations").select("id, code").eq("id", locationId).maybeSingle(),
+      supabase.from("attendance_site_settings").select("break_minutes").eq("location_id", locationId).maybeSingle(),
     ]);
   const locationCode = locationRow?.code ? String(locationRow.code) : null;
+  const breakMinutesOverride =
+    siteSetting && (siteSetting as { break_minutes?: number | null }).break_minutes != null
+      ? Number((siteSetting as { break_minutes?: number | null }).break_minutes)
+      : null;
   const employmentByStaffId = new Map(
     (staffRows ?? []).map((row) => [String(row.id), (row as { employment_type?: string | null }).employment_type ?? null]),
   );
@@ -257,6 +262,7 @@ export async function recalculateAttendanceRange(
     const shift = applyAttendanceShiftPolicy(baseShift, {
       employmentType: staffId ? employmentByStaffId.get(staffId) ?? null : null,
       locationCode,
+      breakMinutesOverride,
     });
     // Recompute duplicate flags from scratch (ignore stale DB flags from cross-user ingest bugs).
     const marked = markProbableDuplicates(
@@ -378,6 +384,7 @@ export async function recalculateAttendanceRange(
       const shift = applyAttendanceShiftPolicy(baseShift, {
         employmentType: employmentByStaffId.get(staffId) ?? null,
         locationCode,
+        breakMinutesOverride,
       });
       const calc = calculateDailyAttendance([], {
         workDate,

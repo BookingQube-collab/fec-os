@@ -181,10 +181,10 @@ export function StaffDirectory({
           placeholder={t("people.staff.allTypes")}
           emptyOption={{ value: "", label: t("people.staff.allTypes") }}
           options={[
-            { value: "permanent", label: t("people.dashboard.permanent") },
-            { value: "temporary", label: t("people.dashboard.temporary") },
-            { value: "secondment", label: "Secondment" },
-            { value: "joker", label: "Joker" },
+            { value: "permanent", label: t("people.staff.employmentTypes.permanent") },
+            { value: "secondment", label: t("people.staff.employmentTypes.secondment") },
+            { value: "joker", label: t("people.staff.employmentTypes.joker") },
+            { value: "temporary", label: t("people.staff.employmentTypes.temporary") },
           ]}
           triggerClassName="h-10 min-h-10 w-auto min-w-[9.5rem] font-normal"
           className="w-auto"
@@ -262,7 +262,11 @@ export function StaffDirectory({
                 </td>
                 <td className="px-3 py-2 font-mono text-xs">{s.qid ?? "—"}</td>
                 <td className="px-3 py-2 text-xs">{s.e3_enrolled == null ? "—" : s.e3_enrolled ? t("people.training.yes") : t("people.training.no")}</td>
-                <td className="px-3 py-2 text-xs capitalize">{s.employment_type ?? "—"}</td>
+                <td className="px-3 py-2 text-xs">
+                  {s.employment_type
+                    ? t(`people.staff.employmentTypes.${s.employment_type}`, s.employment_type)
+                    : "—"}
+                </td>
                 <td className="px-3 py-2 text-xs">{s.phone ?? "—"}</td>
                 <td className="px-3 py-2 text-xs text-muted-foreground">{s.job_title ?? "—"}</td>
                 <td className="px-3 py-2 text-xs text-muted-foreground">

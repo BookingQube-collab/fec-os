@@ -32,6 +32,12 @@ describe("attendance shift policy", () => {
     expect(breakMinutesForLocation("KDS-CC")).toBe(60);
   });
 
+  it("prefers an explicit break override when present", () => {
+    expect(breakMinutesForLocation("INF-CC", 45)).toBe(45);
+    expect(breakMinutesForLocation("UA-DM", 60)).toBe(60);
+    expect(breakMinutesForLocation("UA-DM", null)).toBe(30);
+  });
+
   it("applies break and OT threshold onto a shift template", () => {
     const permanentInf = applyAttendanceShiftPolicy(DEFAULT_SHIFT, {
       employmentType: "permanent",
@@ -46,5 +52,12 @@ describe("attendance shift policy", () => {
     });
     expect(jokerUa.breakMinutes).toBe(30);
     expect(jokerUa.overtimeAfterMinutes).toBe(600);
+
+    const overridden = applyAttendanceShiftPolicy(DEFAULT_SHIFT, {
+      employmentType: "permanent",
+      locationCode: "INF-CC",
+      breakMinutesOverride: 45,
+    });
+    expect(overridden.breakMinutes).toBe(45);
   });
 });

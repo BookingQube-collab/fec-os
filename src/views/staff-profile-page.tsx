@@ -22,6 +22,7 @@ import { STALE } from "@/lib/query-client";
 import { FaceCaptureDialog } from "@/components/attendance-hr/face-capture-dialog";
 import { getStaffFaceEnrollment, saveStaffFaceEnrollment } from "@/lib/attendance-hr-field.functions";
 import { transferStaffMember, updateStaffSalary, updateStaffWorkLocations } from "@/lib/staff-roster.functions";
+import { updateStaff } from "@/lib/people.functions";
 import { Checkbox } from "@/components/ui/checkbox";
 
 type ProfileResponse = {
@@ -85,6 +86,7 @@ export default function StaffProfilePage() {
   const [salary, setSalary] = useState("");
   const [workLocationIds, setWorkLocationIds] = useState<string[]>([]);
   const [isRoaming, setIsRoaming] = useState(false);
+  const [employmentType, setEmploymentType] = useState("");
 
   const profile = useQuery({
     queryKey: queryKeys.people.staffProfile(id),
@@ -103,6 +105,7 @@ export default function StaffProfilePage() {
     const ids = new Set<string>([loaded.location_id, ...(loaded.work_locations ?? []).map((loc) => loc.id)]);
     setWorkLocationIds([...ids]);
     setIsRoaming(Boolean(loaded.is_roaming));
+    setEmploymentType(loaded.employment_type ?? "permanent");
   }, [profile.data?.staff]);
 
   const transferMut = useMutation({
@@ -146,6 +149,20 @@ export default function StaffProfilePage() {
     mutationFn: () => updateStaffWorkLocations({ id, locationIds: workLocationIds, isRoaming }),
     onSuccess: () => {
       toast.success(t("people.staff.workLocationsSaved"));
+      void qc.invalidateQueries({ queryKey: queryKeys.people.staffProfile(id) });
+      void qc.invalidateQueries({ queryKey: queryKeys.people.all });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const employmentMut = useMutation({
+    mutationFn: () =>
+      updateStaff({
+        id,
+        employmentType: (employmentType || null) as "permanent" | "temporary" | "secondment" | "joker" | null,
+      }),
+    onSuccess: () => {
+      toast.success(t("people.staff.updateSuccess"));
       void qc.invalidateQueries({ queryKey: queryKeys.people.staffProfile(id) });
       void qc.invalidateQueries({ queryKey: queryKeys.people.all });
     },
@@ -196,7 +213,39 @@ export default function StaffProfilePage() {
         <section className="surface-card space-y-2 p-5">
           <h2 className="text-sm font-semibold">{t("people.profile.employment")}</h2>
           <Row label={t("people.staff.title")} value={s.job_title} />
-          <Row label={t("people.staff.type")} value={s.employment_type} />
+          {canEdit ? (
+            <div className="space-y-2">
+              <Label>{t("people.staff.employmentType")}</Label>
+              <SearchableSelect
+                value={employmentType}
+                onValueChange={setEmploymentType}
+                placeholder={t("people.staff.employmentType")}
+                options={[
+                  { value: "permanent", label: t("people.staff.employmentTypes.permanent") },
+                  { value: "secondment", label: t("people.staff.employmentTypes.secondment") },
+                  { value: "joker", label: t("people.staff.employmentTypes.joker") },
+                  { value: "temporary", label: t("people.staff.employmentTypes.temporary") },
+                ]}
+              />
+              <p className="text-xs text-muted-foreground">{t("people.staff.roleHoursHelp")}</p>
+              <Button
+                size="sm"
+                onClick={() => employmentMut.mutate()}
+                disabled={employmentMut.isPending || employmentType === (s.employment_type ?? "permanent")}
+              >
+                {t("common.save")}
+              </Button>
+            </div>
+          ) : (
+            <Row
+              label={t("people.staff.type")}
+              value={
+                s.employment_type
+                  ? t(`people.staff.employmentTypes.${s.employment_type}`, s.employment_type)
+                  : null
+              }
+            />
+          )}
           <Row label={t("people.staff.e3")} value={s.e3_enrolled == null ? null : s.e3_enrolled ? "Yes" : "No"} />
           <Row label={t("people.staff.hireDate")} value={s.hire_date} />
           <Row label={t("people.staff.status")} value={s.status} />

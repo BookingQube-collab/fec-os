@@ -89,17 +89,26 @@ export async function fetchAttendanceDailySummary(
   const staffIds = [...new Set(rows.map((r) => r.staff_id).filter(Boolean))] as string[];
   const locationIds = [...new Set(rows.map((r) => r.location_id).filter(Boolean))] as string[];
 
-  const [{ data: staff }, { data: locations }] = await Promise.all([
+  const [{ data: staff }, { data: locations }, { data: siteSettings }] = await Promise.all([
     staffIds.length
       ? context.supabase.from("staff").select("id, full_name, employee_code, employment_type").in("id", staffIds)
       : Promise.resolve({ data: [] }),
     locationIds.length
       ? context.supabase.from("locations").select("id, code, name, region").in("id", locationIds)
       : Promise.resolve({ data: [] }),
+    locationIds.length
+      ? context.supabase.from("attendance_site_settings").select("location_id, break_minutes").in("location_id", locationIds)
+      : Promise.resolve({ data: [] as Array<{ location_id: string; break_minutes: number | null }> }),
   ]);
 
   const staffMap = new Map((staff ?? []).map((s) => [s.id, s]));
   const locationMap = new Map((locations ?? []).map((l) => [l.id, l]));
+  const breakByLocationId = new Map(
+    (siteSettings ?? []).map((row) => [
+      (row as { location_id: string }).location_id,
+      (row as { break_minutes?: number | null }).break_minutes ?? null,
+    ]),
+  );
 
   return rows.map((r) => {
     const loc = locationMap.get(r.location_id) ?? null;
@@ -108,7 +117,7 @@ export async function fetchAttendanceDailySummary(
       ...r,
       staff: r.staff_id ? staffMap.get(r.staff_id) ?? null : null,
       location: loc,
-      break_minutes: breakMinutesForLocation(code),
+      break_minutes: breakMinutesForLocation(code, breakByLocationId.get(r.location_id) ?? null),
     };
   });
 }

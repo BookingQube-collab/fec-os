@@ -88,7 +88,7 @@ export const getAttendanceHrBootstrap = createAuthenticatedActionNoInput(
         context.supabase.from("hr_companies").select("id, code, name, active").eq("active", true).order("name"),
         context.supabase
           .from("attendance_site_settings")
-          .select("location_id, company_id, attendance_enabled, timezone, locations(id, code, name, region, status)"),
+          .select("location_id, company_id, attendance_enabled, timezone, break_minutes, locations(id, code, name, region, status)"),
         context.supabase
           .from("locations")
           .select("id, code, name, region, status")
@@ -151,6 +151,7 @@ export const getAttendanceHrBootstrap = createAuthenticatedActionNoInput(
           company_id: setting?.company_id ?? null,
           attendance_enabled: setting?.attendance_enabled ?? true,
           timezone: setting?.timezone ?? DEFAULT_RULES.timezone,
+          break_minutes: setting?.break_minutes ?? null,
           location: nested ?? loc,
         };
       }),
@@ -1111,6 +1112,53 @@ export const saveAttendanceSiteSetting = createAuthenticatedAction(
   { auth: { capability: "attendance.configure" } },
 );
 
+/** Save per-site attendance break minutes (null clears override → UA 30 / else 60). */
+export const saveAttendanceLocationBreak = createAuthenticatedAction(
+  z.object({
+    locationId: z.string().uuid(),
+    breakMinutes: z.number().int().min(0).max(240).nullable(),
+  }),
+  async (data, context) => {
+    await assertSite(context, data.locationId);
+
+    const { data: existing, error: fetchErr } = await context.supabase
+      .from("attendance_site_settings")
+      .select("location_id, company_id, attendance_enabled, timezone, notes")
+      .eq("location_id", data.locationId)
+      .maybeSingle();
+    if (fetchErr) throw fetchErr;
+
+    if (existing) {
+      const { error } = await context.supabase
+        .from("attendance_site_settings")
+        .update({ break_minutes: data.breakMinutes })
+        .eq("location_id", data.locationId);
+      if (error) throw error;
+      return { ok: true as const };
+    }
+
+    const { data: company, error: companyErr } = await context.supabase
+      .from("hr_companies")
+      .select("id")
+      .eq("code", "E3")
+      .eq("active", true)
+      .maybeSingle();
+    if (companyErr) throw companyErr;
+    if (!company?.id) throw new Error("No active HR company (E3) to attach site settings");
+
+    const { error } = await context.supabase.from("attendance_site_settings").insert({
+      location_id: data.locationId,
+      company_id: company.id as string,
+      attendance_enabled: true,
+      timezone: DEFAULT_RULES.timezone,
+      break_minutes: data.breakMinutes,
+    });
+    if (error) throw error;
+    return { ok: true as const };
+  },
+  { auth: { capability: "attendance.configure" } },
+);
+
 export const submitAttendanceCorrection = createAuthenticatedAction(
   z.object({
     locationId: z.string().uuid(),
@@ -1422,7 +1470,13 @@ type StaffLookup = {
   qid: string | null;
   employment_type: string | null;
 };
-type LocationLookup = { id: string; code: string; name: string | null; region: string | null };
+type LocationLookup = {
+  id: string;
+  code: string;
+  name: string | null;
+  region: string | null;
+  break_minutes?: number | null;
+};
 
 async function enrichAttendanceHrDailyRows(
   context: AuthContext,
@@ -1431,17 +1485,24 @@ async function enrichAttendanceHrDailyRows(
   const staffIds = [...new Set(rows.map((row) => row.staff_id).filter((id): id is string => typeof id === "string" && id.length > 0))];
   const locationIds = [...new Set(rows.map((row) => row.location_id).filter((id): id is string => typeof id === "string" && id.length > 0))];
 
-  const [staffRows, locationRows] = await Promise.all([
+  const [staffRows, locationRows, siteSettings] = await Promise.all([
     loadByIds<StaffLookup>(context, "staff", "id, full_name, employee_code, qid, employment_type", staffIds),
     loadByIds<LocationLookup>(context, "locations", "id, code, name, region", locationIds),
+    locationIds.length
+      ? context.supabase.from("attendance_site_settings").select("location_id, break_minutes").in("location_id", locationIds)
+      : Promise.resolve({ data: [] as Array<{ location_id: string; break_minutes: number | null }> }),
   ]);
 
   const staffById = new Map(staffRows.map((row) => [row.id, row]));
   const locationById = new Map(locationRows.map((row) => [row.id, row]));
+  const breakByLocationId = new Map(
+    (siteSettings.data ?? []).map((row) => [row.location_id as string, (row as { break_minutes?: number | null }).break_minutes ?? null]),
+  );
 
   return rows.map((row) => {
     const staff = typeof row.staff_id === "string" ? staffById.get(row.staff_id) : undefined;
     const location = typeof row.location_id === "string" ? locationById.get(row.location_id) : undefined;
+    const locationId = typeof row.location_id === "string" ? row.location_id : "";
     return {
       id: String(row.id),
       location_id: String(row.location_id ?? ""),
@@ -1464,6 +1525,7 @@ async function enrichAttendanceHrDailyRows(
       location_code: location?.code ?? null,
       location_name: location?.name ?? null,
       location_region: location?.region ?? null,
+      location_break_minutes: locationId ? (breakByLocationId.get(locationId) ?? null) : null,
     };
   });
 }

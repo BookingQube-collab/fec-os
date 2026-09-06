@@ -2854,6 +2854,14 @@
       "roamingHint": "غير موجود في جدول إكسل للمواقع. المزامنة التالية من HTML لن تؤرشف هذا الشخص.",
       "saveWorkLocations": "حفظ مواقع العمل",
       "workLocationsSaved": "تم تحديث مواقع العمل",
+      "employmentType": "نوع التوظيف",
+      "employmentTypes": {
+        "permanent": "دائم",
+        "temporary": "مؤقت",
+        "secondment": "إعارة",
+        "joker": "جوكر"
+      },
+      "roleHoursHelp": "ساعات الحضور المتوقعة: الدائم 9 ساعات/يوم؛ الإعارة والجوكر 10 ساعات/يوم. الاستراحة حسب الموقع (افتراضي 60 دقيقة؛ أوربان أرينا 30 دقيقة).",
       "statuses": {
         "active": "نشط",
         "on_leave": "في إجازة",
@@ -5939,7 +5947,20 @@
       "saveName": "حفظ الاسم",
       "nameSaved": "تم حفظ اسم الجهاز",
       "nameRequired": "أدخل اسم الجهاز.",
-      "namePlaceholder": "مثال: ZKTeco Device 1"
+      "namePlaceholder": "مثال: ZKTeco Device 1",
+      "siteTimingTitle": "توقيت العمل حسب الموقع",
+      "siteTimingHelp": "دقائق الاستراحة لكل موقع تُستخدم في حساب الحضور. الساعات اليومية المتوقعة تبقى حسب نوع توظيف كل موظف.",
+      "roleHoursNote": "الأدوار: دائم {{permanentHours}} س · إعارة وجوكر {{extendedHours}} س. الاستراحة الافتراضية: {{defaultBreak}} دقيقة لمعظم المواقع · أوربان أرينا (UA-*) {{uaBreak}} دقيقة.",
+      "roleHoursCol": "الساعات المتوقعة (حسب الدور)",
+      "roleHoursCell": "دائم {{permanentHours}} س · إعارة/جوكر {{extendedHours}} س",
+      "breakMinutes": "الاستراحة (دقائق)",
+      "breakSaved": "تم حفظ دقائق استراحة الموقع",
+      "breakInvalid": "أدخل دقائق الاستراحة بين 0 و 240.",
+      "breakUsingDefault": "يستخدم الافتراضي ({{minutes}} دقيقة)",
+      "breakOverrideSet": "تجاوز مخصص ({{minutes}} دقيقة)",
+      "breakResetDefault": "إعادة الافتراضي",
+      "breakDefaultUa": "افتراضي أوربان أرينا 30 دقيقة",
+      "breakDefaultOther": "افتراضي 60 دقيقة"
     },
     "field": {
       "kicker": "الحضور الموحّد",
