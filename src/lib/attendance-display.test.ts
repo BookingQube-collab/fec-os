@@ -23,7 +23,7 @@ describe("attendance listing display", () => {
     expect(formatPunchTime12h(null)).toBe("");
   });
 
-  it("styles missed punch and missing punch statuses with full-row tints", () => {
+  it("tints only missed punch rows; other statuses stay untinted", () => {
     const missed = getAttendanceStatusDisplay({
       status: "missed_punch",
       missed_punch: true,
@@ -52,6 +52,17 @@ describe("attendance listing display", () => {
     });
     expect(missing.label).toBe("Missing Punch");
     expect(missing.badgeClass).toMatch(/rose/);
+    expect(missing.rowClass).toBe("");
+
+    const late = getAttendanceStatusDisplay({
+      status: "late",
+      missed_punch: false,
+      actual_in: "2026-08-25T07:17:44.000Z",
+      actual_out: "2026-08-25T16:00:00.000Z",
+    });
+    expect(late.label).toBe("Late");
+    expect(late.badgeClass).toMatch(/amber/);
+    expect(late.rowClass).toBe("");
 
     const complete = getAttendanceStatusDisplay({
       status: "present",
@@ -60,6 +71,7 @@ describe("attendance listing display", () => {
       actual_out: "2026-08-25T16:00:00.000Z",
     });
     expect(complete.label).toBe("Complete");
+    expect(complete.rowClass).toBe("");
   });
 
   it("maps HR rows onto the people listing columns", () => {

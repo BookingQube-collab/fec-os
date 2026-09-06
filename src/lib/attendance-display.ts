@@ -25,7 +25,7 @@ export type AttendanceSummaryRow = {
 export type AttendanceStatusDisplay = {
   label: string;
   badgeClass: string;
-  /** Soft full-row background tint matching the status pill. */
+  /** Soft full-row tint for Weekly off / Missed punch only; empty for all other statuses. */
   rowClass: string;
 };
 
@@ -110,15 +110,10 @@ const LATE_BADGE = "border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text
 const COMPLETE_BADGE = "border-emerald-500/40 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
 const WEEKLY_OFF_BADGE = "border-sky-500/50 bg-sky-500/15 text-sky-800 dark:text-sky-200";
 
-/** Paint cells — `<tr>` backgrounds are unreliable with border-collapse. */
+/** Full-row tints only for Weekly off + Missed punch — `<tr>` bg is unreliable with border-collapse. */
 const MISSED_PUNCH_ROW = "[&>td]:bg-amber-400/25 hover:[&>td]:bg-amber-400/35";
-const MISSING_PUNCH_ROW = "[&>td]:bg-rose-500/15 hover:[&>td]:bg-rose-500/25";
-const LATE_ROW = "[&>td]:bg-amber-500/15 hover:[&>td]:bg-amber-500/25";
-const COMPLETE_ROW = "[&>td]:bg-emerald-500/10 hover:[&>td]:bg-emerald-500/15";
 const WEEKLY_OFF_ROW = "[&>td]:bg-sky-500/20 hover:[&>td]:bg-sky-500/30";
-const LEAVE_ROW = "[&>td]:bg-blue-500/15 hover:[&>td]:bg-blue-500/25";
-const HOLIDAY_ROW = "[&>td]:bg-sky-500/15 hover:[&>td]:bg-sky-500/25";
-const UNSCHEDULED_ROW = "[&>td]:bg-zinc-500/15 hover:[&>td]:bg-zinc-500/25";
+const NO_ROW_TINT = "";
 
 const STATUS_ALIASES: Record<string, string> = {
   week_off: "weekly_off",
@@ -143,32 +138,32 @@ const NAMED_STATUS_DISPLAY: Record<string, AttendanceStatusDisplay> = {
   public_holiday: {
     label: "Public holiday",
     badgeClass: "border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300",
-    rowClass: HOLIDAY_ROW,
+    rowClass: NO_ROW_TINT,
   },
   annual_leave: {
     label: "Annual leave",
     badgeClass: "border-blue-500/40 bg-blue-500/10 text-blue-700 dark:text-blue-300",
-    rowClass: LEAVE_ROW,
+    rowClass: NO_ROW_TINT,
   },
   sick_leave: {
     label: "Sick leave",
     badgeClass: "border-violet-500/40 bg-violet-500/15 text-violet-700 dark:text-violet-300",
-    rowClass: "[&>td]:bg-violet-500/15 hover:[&>td]:bg-violet-500/25",
+    rowClass: NO_ROW_TINT,
   },
   unpaid_leave: {
     label: "Unpaid leave",
     badgeClass: "border-slate-400/50 bg-slate-500/10 text-slate-600 dark:text-slate-300",
-    rowClass: WEEKLY_OFF_ROW,
+    rowClass: NO_ROW_TINT,
   },
   unscheduled: {
     label: "Unscheduled",
     badgeClass: "border-zinc-500/40 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300",
-    rowClass: UNSCHEDULED_ROW,
+    rowClass: NO_ROW_TINT,
   },
   review_required: {
     label: "Review required",
     badgeClass: LATE_BADGE,
-    rowClass: LATE_ROW,
+    rowClass: NO_ROW_TINT,
   },
 };
 
@@ -195,18 +190,18 @@ export function getAttendanceStatusDisplay(
   }
 
   if (statusKey === "absent" || (!hasIn && !hasOut)) {
-    return { label: "Missing Punch", badgeClass: MISSING_PUNCH_BADGE, rowClass: MISSING_PUNCH_ROW };
+    return { label: "Missing Punch", badgeClass: MISSING_PUNCH_BADGE, rowClass: NO_ROW_TINT };
   }
 
   if (statusKey === "late" || statusKey === "early_leave" || statusKey === "early_departure") {
     return {
       label: statusKey === "late" ? "Late" : "Early Leave",
       badgeClass: LATE_BADGE,
-      rowClass: LATE_ROW,
+      rowClass: NO_ROW_TINT,
     };
   }
 
-  return { label: "Complete", badgeClass: COMPLETE_BADGE, rowClass: COMPLETE_ROW };
+  return { label: "Complete", badgeClass: COMPLETE_BADGE, rowClass: NO_ROW_TINT };
 }
 
 export function attendanceDateRange(preset: "week" | "month", todayYmd?: string): { from: string; to: string } {
