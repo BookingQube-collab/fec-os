@@ -252,16 +252,20 @@ export const createAttendanceSummary = createAuthenticatedAction(
     await assertLocationAccess(context, data.locationId);
     const { data: row, error } = await context.supabase
       .from("attendance_daily_summary")
-      .insert({
-        location_id: data.locationId,
-        staff_id: data.staffId,
-        work_date: data.workDate,
-        status: data.status,
-        late_minutes: data.lateMinutes,
-        missed_punch: data.missedPunch,
-        actual_in: data.actualIn ?? null,
-        actual_out: data.actualOut ?? null,
-      })
+      .upsert(
+        {
+          location_id: data.locationId,
+          staff_id: data.staffId,
+          work_date: data.workDate,
+          subject_key: `staff:${data.staffId}`,
+          status: data.status,
+          late_minutes: data.lateMinutes,
+          missed_punch: data.missedPunch,
+          actual_in: data.actualIn ?? null,
+          actual_out: data.actualOut ?? null,
+        },
+        { onConflict: "location_id,staff_id,work_date" },
+      )
       .select("id")
       .single();
     if (error) throw error;
@@ -397,6 +401,7 @@ export const generateAttendanceSummary = createAuthenticatedAction(
           staff_id: staffId,
           user_id: shift.user_id,
           work_date: data.workDate,
+          subject_key: `staff:${staffId}`,
           shift_id: shift.id,
           scheduled_in: shift.starts_at,
           scheduled_out: shift.ends_at,

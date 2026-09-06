@@ -315,6 +315,7 @@ export async function ingestAttendanceRecords(
             staff_id: staff.id,
             user_id: staff.user_id,
             work_date: workDate,
+            subject_key: `staff:${staff.id}`,
             actual_in: actualIn,
             actual_out: actualOut,
             status,

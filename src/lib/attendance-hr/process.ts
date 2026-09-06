@@ -401,8 +401,21 @@ export async function recalculateAttendanceRange(
     }
   }
 
-  for (let i = 0; i < summaryRows.length; i += 200) {
-    const chunk = summaryRows.slice(i, i + 200);
+  // Prefer staff unique key for mapped rows. Upserting only on subject_key races with
+  // ingest/legacy writers that already have (location_id, staff_id, work_date) but a
+  // blank or different subject_key — INSERT then hits attendance_daily_summary_location_id_staff_id_work_date_key.
+  const mapped = summaryRows.filter((row) => row.staff_id);
+  const unmapped = summaryRows.filter((row) => !row.staff_id);
+
+  for (let i = 0; i < mapped.length; i += 200) {
+    const chunk = mapped.slice(i, i + 200);
+    const { error: upsertError } = await supabase
+      .from("attendance_daily_summary")
+      .upsert(chunk, { onConflict: "location_id,staff_id,work_date" });
+    if (upsertError) throw upsertError;
+  }
+  for (let i = 0; i < unmapped.length; i += 200) {
+    const chunk = unmapped.slice(i, i + 200);
     const { error: upsertError } = await supabase
       .from("attendance_daily_summary")
       .upsert(chunk, { onConflict: "location_id,subject_key,work_date" });
