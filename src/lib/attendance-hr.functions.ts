@@ -910,7 +910,7 @@ const resyncWindowSchema = z.object({
 });
 
 /** Scan rostered / excluded-punch gaps for a site over FEC month or specific dates. */
-export const checkAttendancePunchGaps = createAuthenticatedAction(
+export const checkAttendancePunchGaps = createSafeAuthenticatedAction(
   resyncWindowSchema,
   async (data, context) => {
     await assertSite(context, data.locationId);
@@ -930,12 +930,17 @@ export const checkAttendancePunchGaps = createAuthenticatedAction(
   { auth: { capability: "attendance.view" } },
 );
 
+export type ResyncFetchSkipReason = "no_serial" | "device_offline";
+
 /**
  * Admin resync:
  * - reprocessStored: recompute duplicate flags + daily summaries from DB punches (works offline)
  * - fetchFromDevice: queue ADMS DATA QUERY ATTLOG for the window (device must poll; no TCP pull from Vercel)
+ *
+ * Uses createSafeAuthenticatedAction so failures return `{ ok: false }` instead of throwing
+ * (thrown server actions white-screen the Settings page in production RSC).
  */
-export const resyncAttendancePunches = createAuthenticatedAction(
+export const resyncAttendancePunches = createSafeAuthenticatedAction(
   resyncWindowSchema.extend({
     reprocessStored: z.boolean().default(true),
     fetchFromDevice: z.boolean().default(false),
@@ -948,25 +953,15 @@ export const resyncAttendancePunches = createAuthenticatedAction(
       month: data.month ?? defaultPayrollPeriod(qatarTodayYmd()).month,
     });
 
-    let reprocessed = 0;
-    if (data.reprocessStored) {
-      const result = await recalculateAttendanceRange(
-        context.supabase,
-        data.locationId,
-        window.dateFrom,
-        window.dateTo,
-      );
-      reprocessed = result.processed;
-    }
-
     let fetchQueued: {
       cmdId: number;
       from: string;
       to: string;
       deviceId: string;
     } | null = null;
-    let fetchSkippedReason: string | null = null;
+    let fetchSkippedReason: ResyncFetchSkipReason | null = null;
 
+    // Validate device SN / online status BEFORE expensive reprocess so missing SN never crashes the UI.
     if (data.fetchFromDevice) {
       let deviceQuery = context.supabase
         .from("attendance_devices")
@@ -978,12 +973,11 @@ export const resyncAttendancePunches = createAuthenticatedAction(
       if (error) throw error;
       const withSn = (devices ?? []).filter((d) => String(d.serial_number ?? "").trim());
       if (!withSn.length) {
-        fetchSkippedReason = "No device with a serial number at this site. Save SN first, or use USB import.";
+        fetchSkippedReason = "no_serial";
       } else {
         const online = withSn.find((d) => isAdmsDeviceOnline(d.last_adms_at == null ? null : String(d.last_adms_at)));
         if (!online) {
-          fetchSkippedReason =
-            "Device is offline. FEC-OS cannot pull TCP 4370 from Vercel — wait until the terminal polls, or use USB import.";
+          fetchSkippedReason = "device_offline";
         } else {
           const { from, to } = qatarRangeToFetchWindow(window.dateFrom, window.dateTo);
           const result = await queueAdmsAttlogQueryRange(
@@ -999,29 +993,47 @@ export const resyncAttendancePunches = createAuthenticatedAction(
             to: result.to.toISOString(),
             deviceId: String(online.id),
           };
-          await audit(context, "adms_resync_queued", "attendance_device", String(online.id), data.locationId, {
-            mode: data.mode,
-            dateFrom: window.dateFrom,
-            dateTo: window.dateTo,
-            cmdId: result.cmdId,
-          });
+          try {
+            await audit(context, "adms_resync_queued", "attendance_device", String(online.id), data.locationId, {
+              mode: data.mode,
+              dateFrom: window.dateFrom,
+              dateTo: window.dateTo,
+              cmdId: result.cmdId,
+            });
+          } catch (e) {
+            console.warn("[attendance-hr] audit after adms_resync_queued failed", e instanceof Error ? e.message : e);
+          }
         }
       }
     }
 
-    await audit(context, "attendance_resync", "attendance_site", data.locationId, data.locationId, {
-      mode: data.mode,
-      dateFrom: window.dateFrom,
-      dateTo: window.dateTo,
-      reprocessStored: data.reprocessStored,
-      fetchFromDevice: data.fetchFromDevice,
-      reprocessed,
-      fetchQueued,
-      fetchSkippedReason,
-    });
+    let reprocessed = 0;
+    if (data.reprocessStored) {
+      const result = await recalculateAttendanceRange(
+        context.supabase,
+        data.locationId,
+        window.dateFrom,
+        window.dateTo,
+      );
+      reprocessed = result.processed;
+    }
+
+    try {
+      await audit(context, "attendance_resync", "attendance_site", data.locationId, data.locationId, {
+        mode: data.mode,
+        dateFrom: window.dateFrom,
+        dateTo: window.dateTo,
+        reprocessStored: data.reprocessStored,
+        fetchFromDevice: data.fetchFromDevice,
+        reprocessed,
+        fetchQueued,
+        fetchSkippedReason,
+      });
+    } catch (e) {
+      console.warn("[attendance-hr] audit after attendance_resync failed", e instanceof Error ? e.message : e);
+    }
 
     return {
-      ok: true as const,
       dateFrom: window.dateFrom,
       dateTo: window.dateTo,
       reprocessed,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Download, RefreshCw, Search, Settings, Wifi } from "lucide-react";
+import { Copy, Download, Loader2, RefreshCw, Search, Settings, Wifi } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { cn } from "@/lib/utils";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { isAdmsDeviceOnline } from "@/lib/attendance-hr/constants";
 import { qatarTodayYmd } from "@/lib/attendance-hr/dashboard";
@@ -26,6 +27,7 @@ import {
   resyncAttendancePunches,
   saveAttendanceDevice,
   saveAttendanceShiftTemplate,
+  type ResyncFetchSkipReason,
 } from "@/lib/attendance-hr.functions";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
@@ -101,6 +103,7 @@ export default function AttendanceHrSettingsPage() {
   const [deviceSn, setDeviceSn] = useState("");
   const [locationId, setLocationId] = useState("");
   const [snDrafts, setSnDrafts] = useState<Record<string, string>>({});
+  const [nameDrafts, setNameDrafts] = useState<Record<string, string>>({});
 
   const defaultMonth = defaultPayrollPeriod(qatarTodayYmd()).month;
   const [resyncLocationId, setResyncLocationId] = useState("");
@@ -109,6 +112,14 @@ export default function AttendanceHrSettingsPage() {
   const [resyncMonth, setResyncMonth] = useState(defaultMonth);
   const [resyncDatesText, setResyncDatesText] = useState("2026-08-08, 2026-08-18");
   const [gapReport, setGapReport] = useState<AttendanceGapReport | null>(null);
+  const [resyncBusyKind, setResyncBusyKind] = useState<"check" | "reprocess" | "fetch" | null>(null);
+
+  const fetchSkipMessage = (reason: ResyncFetchSkipReason | string | null | undefined) => {
+    if (reason === "no_serial") return t("attendanceHr.settings.resyncNoSerial");
+    if (reason === "device_offline") return t("attendanceHr.settings.resyncDeviceOffline");
+    if (typeof reason === "string" && reason.trim()) return reason;
+    return null;
+  };
 
   const siteNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -125,6 +136,11 @@ export default function AttendanceHrSettingsPage() {
         (d) => !resyncLocationId || d.location_id === resyncLocationId,
       ),
     [q.data?.devices, resyncLocationId],
+  );
+
+  const selectedResyncDevice = useMemo(
+    () => resyncDevices.find((d) => d.id === resyncDeviceId) ?? null,
+    [resyncDevices, resyncDeviceId],
   );
 
   const saveDev = useMutation({
@@ -149,13 +165,33 @@ export default function AttendanceHrSettingsPage() {
         id: device.id,
         locationId: device.location_id,
         deviceCode: device.device_code,
-        deviceName: device.device_name,
+        deviceName: (nameDrafts[device.id] ?? device.device_name).trim() || device.device_name,
         vendor: "zkteco",
         serialNumber: (snDrafts[device.id] ?? device.serial_number ?? "").trim() || null,
         connectionMode: (snDrafts[device.id] ?? device.serial_number ?? "").trim() ? "adms" : "file",
       }),
     onSuccess: () => {
       toast.success(t("attendanceHr.settings.snSaved"));
+      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const saveName = useMutation({
+    mutationFn: (device: DeviceRow) => {
+      const nextName = (nameDrafts[device.id] ?? device.device_name).trim();
+      if (!nextName) throw new Error(t("attendanceHr.settings.nameRequired"));
+      return saveAttendanceDevice({
+        id: device.id,
+        locationId: device.location_id,
+        deviceCode: device.device_code,
+        deviceName: nextName,
+        vendor: "zkteco",
+        serialNumber: (snDrafts[device.id] ?? device.serial_number ?? "").trim() || null,
+        connectionMode: (snDrafts[device.id] ?? device.serial_number ?? "").trim() ? "adms" : "file",
+      });
+    },
+    onSuccess: () => {
+      toast.success(t("attendanceHr.settings.nameSaved"));
       void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
     },
     onError: (e: Error) => toast.error(e.message),
@@ -208,8 +244,28 @@ export default function AttendanceHrSettingsPage() {
     };
   };
 
+  const assertClientFetchReady = (fetchFromDevice: boolean) => {
+    if (!fetchFromDevice) return;
+    if (resyncDeviceId && selectedResyncDevice) {
+      const sn = String(selectedResyncDevice.serial_number ?? "").trim();
+      if (!sn) throw new Error(t("attendanceHr.settings.resyncNoSerial"));
+      return;
+    }
+    const anySn = resyncDevices.some((d) => String(d.serial_number ?? "").trim());
+    if (!anySn) throw new Error(t("attendanceHr.settings.resyncNoSerial"));
+  };
+
   const checkGaps = useMutation({
-    mutationFn: async () => checkAttendancePunchGaps(buildResyncPayload()),
+    mutationFn: async () => {
+      setResyncBusyKind("check");
+      try {
+        const result = await checkAttendancePunchGaps(buildResyncPayload());
+        if (!result.ok) throw new Error(result.error);
+        return result.data;
+      } finally {
+        setResyncBusyKind(null);
+      }
+    },
     onSuccess: (report) => {
       setGapReport(report);
       if (report.totals.gaps === 0) {
@@ -218,27 +274,35 @@ export default function AttendanceHrSettingsPage() {
         toast.message(t("attendanceHr.settings.gapsFound", { count: report.totals.gaps }));
       }
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(e.message || t("attendanceHr.settings.resyncFailed")),
   });
 
   const resyncMut = useMutation({
-    mutationFn: async (opts: { reprocessStored: boolean; fetchFromDevice: boolean }) =>
-      resyncAttendancePunches({ ...buildResyncPayload(), ...opts }),
+    mutationFn: async (opts: { reprocessStored: boolean; fetchFromDevice: boolean }) => {
+      setResyncBusyKind(opts.fetchFromDevice ? "fetch" : "reprocess");
+      try {
+        assertClientFetchReady(opts.fetchFromDevice);
+        const result = await resyncAttendancePunches({ ...buildResyncPayload(), ...opts });
+        if (!result.ok) throw new Error(result.error);
+        return result.data;
+      } finally {
+        setResyncBusyKind(null);
+      }
+    },
     onSuccess: (result) => {
       void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
-      if (result.fetchSkippedReason) {
-        toast.warning(result.fetchSkippedReason);
-      }
+      const skipMsg = fetchSkipMessage(result.fetchSkippedReason);
+      if (skipMsg) toast.warning(skipMsg);
       if (result.fetchQueued) {
         toast.success(t("attendanceHr.settings.resyncFetchQueued"));
       } else if (result.reprocessed > 0) {
         toast.success(t("attendanceHr.settings.resyncReprocessed", { count: result.reprocessed }));
-      } else {
+      } else if (!skipMsg) {
         toast.success(t("attendanceHr.settings.resyncDone"));
       }
       void checkGaps.mutateAsync().catch(() => undefined);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(e.message || t("attendanceHr.settings.resyncFailed")),
   });
 
   const gapKindLabel = (kind: string) => {
@@ -247,6 +311,8 @@ export default function AttendanceHrSettingsPage() {
     if (kind === "no_in") return t("attendanceHr.settings.gapKindNoIn");
     return t("attendanceHr.settings.gapKindAbsent");
   };
+
+  const resyncBusy = checkGaps.isPending || resyncMut.isPending;
 
   return (
     <div className="space-y-6">
@@ -413,30 +479,64 @@ export default function AttendanceHrSettingsPage() {
           <Button
             type="button"
             variant="secondary"
-            disabled={checkGaps.isPending || !resyncLocationId}
+            disabled={resyncBusy || !resyncLocationId}
             onClick={() => checkGaps.mutate()}
           >
-            <Search className="mr-1 h-4 w-4" />
-            {t("attendanceHr.settings.checkGaps")}
+            {resyncBusyKind === "check" ? (
+              <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+            ) : (
+              <Search className="mr-1 h-4 w-4" />
+            )}
+            {resyncBusyKind === "check"
+              ? t("attendanceHr.settings.checkingGaps")
+              : t("attendanceHr.settings.checkGaps")}
           </Button>
           <Button
             type="button"
             variant="secondary"
-            disabled={resyncMut.isPending || !resyncLocationId}
+            disabled={resyncBusy || !resyncLocationId}
+            title={t("attendanceHr.settings.reprocessStoredHint")}
             onClick={() => resyncMut.mutate({ reprocessStored: true, fetchFromDevice: false })}
           >
-            <RefreshCw className="mr-1 h-4 w-4" />
-            {t("attendanceHr.settings.reprocessStored")}
+            {resyncBusyKind === "reprocess" ? (
+              <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-1 h-4 w-4" />
+            )}
+            {resyncBusyKind === "reprocess"
+              ? t("attendanceHr.settings.reprocessing")
+              : t("attendanceHr.settings.reprocessStored")}
           </Button>
           <Button
             type="button"
-            disabled={resyncMut.isPending || !resyncLocationId}
+            disabled={resyncBusy || !resyncLocationId}
             onClick={() => resyncMut.mutate({ reprocessStored: true, fetchFromDevice: true })}
           >
-            <Download className="mr-1 h-4 w-4" />
-            {t("attendanceHr.settings.resyncFromDevice")}
+            {resyncBusyKind === "fetch" ? (
+              <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="mr-1 h-4 w-4" />
+            )}
+            {resyncBusyKind === "fetch"
+              ? t("attendanceHr.settings.fetchingFromDevice")
+              : t("attendanceHr.settings.resyncFromDevice")}
           </Button>
         </div>
+        {resyncBusy ? (
+          <p
+            className="flex items-center gap-2 rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-950 dark:text-sky-100"
+            role="status"
+            aria-live="polite"
+          >
+            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+            {resyncBusyKind === "check"
+              ? t("attendanceHr.settings.checkingGaps")
+              : resyncBusyKind === "reprocess"
+                ? t("attendanceHr.settings.reprocessing")
+                : t("attendanceHr.settings.fetchingFromDevice")}
+          </p>
+        ) : null}
+        <p className="text-xs text-muted-foreground">{t("attendanceHr.settings.reprocessStoredHint")}</p>
         {gapReport ? (
           <div className="space-y-3 rounded-2xl border px-4 py-3">
             {gapReport.totals.gaps === 0 ? (
@@ -465,7 +565,7 @@ export default function AttendanceHrSettingsPage() {
                   <Button
                     type="button"
                     size="sm"
-                    disabled={resyncMut.isPending}
+                    disabled={resyncBusy}
                     onClick={() =>
                       resyncMut.mutate({
                         reprocessStored: true,
@@ -473,6 +573,7 @@ export default function AttendanceHrSettingsPage() {
                       })
                     }
                   >
+                    {resyncBusy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
                     {t("attendanceHr.settings.gapsAskResync")}
                   </Button>
                 </div>
@@ -524,18 +625,32 @@ export default function AttendanceHrSettingsPage() {
             const fetchPending = Boolean(d.adms_pending_cmd?.trim());
             const fetchDelivered = Boolean(d.adms_cmd_queued_at) && !fetchPending;
             const online = Boolean(savedSerial) && isAdmsDeviceOnline(d.last_adms_at);
+            const hasSn = Boolean(savedSerial);
             const fetchDisabled = fetchDev.isPending || !savedSerial || !online;
+            const nameDraft = nameDrafts[d.id] ?? d.device_name;
             return (
-              <div key={d.id} className="space-y-2 rounded-2xl border px-3 py-3">
+              <div
+                key={d.id}
+                className={cn(
+                  "space-y-2 rounded-2xl border px-3 py-3 transition-colors",
+                  online
+                    ? "border-emerald-500 bg-background shadow-[inset_0_0_0_1px_rgba(16,185,129,0.25)]"
+                    : hasSn
+                      ? "border-amber-400/70 bg-amber-50/80 dark:border-amber-500/50 dark:bg-amber-950/30"
+                      : "border-border/70 bg-muted/40",
+                )}
+              >
                 <div className="flex items-start justify-between gap-2">
                   <p className="text-sm font-medium">
                     {d.device_name} · {d.device_code}
                   </p>
-                  {savedSerial ? (
+                  {hasSn ? (
                     <Badge variant={online ? "success" : "warning"}>
                       {online ? t("attendanceHr.settings.deviceOnline") : t("attendanceHr.settings.deviceOffline")}
                     </Badge>
-                  ) : null}
+                  ) : (
+                    <Badge variant="secondary">{t("attendanceHr.settings.deviceNoSerial")}</Badge>
+                  )}
                 </div>
                 <p className="text-xs text-muted-foreground">
                   {siteNameById.get(d.location_id) ?? d.location_id}
@@ -565,9 +680,28 @@ export default function AttendanceHrSettingsPage() {
                 {!savedSerial ? (
                   <p className="text-xs text-muted-foreground">{t("attendanceHr.settings.noSerialHint")}</p>
                 ) : null}
-                <Label>{t("attendanceHr.settings.serialNumber")}</Label>
+                <Label htmlFor={`device-name-${d.id}`}>{t("attendanceHr.settings.name")}</Label>
                 <div className="flex gap-2">
                   <Input
+                    id={`device-name-${d.id}`}
+                    value={nameDraft}
+                    onChange={(e) => setNameDrafts((prev) => ({ ...prev, [d.id]: e.target.value }))}
+                    placeholder={t("attendanceHr.settings.namePlaceholder")}
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={saveName.isPending || !nameDraft.trim() || nameDraft.trim() === d.device_name}
+                    onClick={() => saveName.mutate(d)}
+                  >
+                    {saveName.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+                    {t("attendanceHr.settings.saveName")}
+                  </Button>
+                </div>
+                <Label htmlFor={`device-sn-${d.id}`}>{t("attendanceHr.settings.serialNumber")}</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id={`device-sn-${d.id}`}
                     value={snDrafts[d.id] ?? d.serial_number ?? ""}
                     onChange={(e) => setSnDrafts((prev) => ({ ...prev, [d.id]: e.target.value }))}
                     placeholder={t("attendanceHr.settings.serialPlaceholder")}
@@ -592,7 +726,11 @@ export default function AttendanceHrSettingsPage() {
                     }
                     onClick={() => fetchDev.mutate(d)}
                   >
-                    <Download className="mr-1 h-4 w-4" />
+                    {fetchDev.isPending ? (
+                      <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="mr-1 h-4 w-4" />
+                    )}
                     {t("attendanceHr.settings.fetchNow")}
                   </Button>
                 </div>
