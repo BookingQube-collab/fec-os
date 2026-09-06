@@ -23,15 +23,26 @@ describe("attendance listing display", () => {
     expect(formatPunchTime12h(null)).toBe("");
   });
 
-  it("styles incomplete and missing punch statuses", () => {
-    const incomplete = getAttendanceStatusDisplay({
+  it("styles missed punch and missing punch statuses with full-row tints", () => {
+    const missed = getAttendanceStatusDisplay({
       status: "missed_punch",
       missed_punch: true,
       actual_in: "2026-08-25T07:17:44.000Z",
       actual_out: null,
     });
-    expect(incomplete.label).toBe("Incomplete");
-    expect(incomplete.badgeClass).toMatch(/amber/);
+    expect(missed.label).toBe("Missed punch");
+    expect(missed.badgeClass).toMatch(/amber/);
+    expect(missed.rowClass).toMatch(/amber/);
+    expect(missed.rowClass).toMatch(/\[&>td\]:bg-/);
+
+    const aliased = getAttendanceStatusDisplay({
+      status: "incomplete",
+      missed_punch: false,
+      actual_in: "2026-08-25T07:17:44.000Z",
+      actual_out: null,
+    });
+    expect(aliased.label).toBe("Missed punch");
+    expect(aliased.rowClass).toMatch(/amber/);
 
     const missing = getAttendanceStatusDisplay({
       status: "absent",
@@ -89,7 +100,7 @@ describe("attendance listing display", () => {
     expect(cells.systemUserId).toBe("staff-1");
     expect(cells.overtime).toBe("No");
     expect(cells.overtimeHours).toBe("—");
-    expect(cells.status).toBe("Incomplete");
+    expect(cells.status).toBe("Missed punch");
   });
 
   it("tints weekly off rows and keeps the Weekly off label", () => {
@@ -100,7 +111,17 @@ describe("attendance listing display", () => {
       actual_out: null,
     });
     expect(weekly.label).toBe("Weekly off");
-    expect(weekly.rowClass).toMatch(/slate/);
+    expect(weekly.rowClass).toMatch(/sky/);
+    expect(weekly.rowClass).toMatch(/\[&>td\]:bg-/);
+
+    const aliased = getAttendanceStatusDisplay({
+      status: "week_off",
+      missed_punch: false,
+      actual_in: null,
+      actual_out: null,
+    });
+    expect(aliased.label).toBe("Weekly off");
+    expect(aliased.rowClass).toBe(weekly.rowClass);
   });
 
   it("prefers stored worked_minutes for total hours", () => {

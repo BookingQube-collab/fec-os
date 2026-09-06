@@ -68,7 +68,7 @@ export function AttendanceRecordsTable({
               return (
                 <TableRow
                   key={row.id ?? `${row.userName}-${row.work_date}-${index}`}
-                  className={cn(statusDisplay.rowClass)}
+                  className={cn("hover:bg-transparent", statusDisplay.rowClass)}
                 >
                   <TableCell className="min-w-[10rem] text-xs text-muted-foreground">
                     {row.locationLabel}

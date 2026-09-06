@@ -104,25 +104,41 @@ export function hasOvertime(row: Pick<AttendanceSummaryRow, "overtime_minutes" |
   return row.overtime_minutes > 0 || row.status === "overtime";
 }
 
-const INCOMPLETE_BADGE = "border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-300";
+const MISSED_PUNCH_BADGE = "border-amber-500/50 bg-amber-500/20 text-amber-800 dark:text-amber-200";
 const MISSING_PUNCH_BADGE = "border-rose-500/40 bg-rose-500/15 text-rose-600 dark:text-rose-300";
 const LATE_BADGE = "border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-300";
 const COMPLETE_BADGE = "border-emerald-500/40 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
+const WEEKLY_OFF_BADGE = "border-sky-500/50 bg-sky-500/15 text-sky-800 dark:text-sky-200";
 
-const INCOMPLETE_ROW = "bg-amber-500/10 hover:bg-amber-500/15";
-const MISSING_PUNCH_ROW = "bg-rose-500/10 hover:bg-rose-500/15";
-const LATE_ROW = "bg-amber-500/10 hover:bg-amber-500/15";
-const COMPLETE_ROW = "bg-emerald-500/10 hover:bg-emerald-500/15";
-const WEEKLY_OFF_ROW = "bg-slate-500/15 hover:bg-slate-500/20";
-const LEAVE_ROW = "bg-blue-500/10 hover:bg-blue-500/15";
-const HOLIDAY_ROW = "bg-sky-500/10 hover:bg-sky-500/15";
-const UNSCHEDULED_ROW = "bg-zinc-500/10 hover:bg-zinc-500/15";
+/** Paint cells — `<tr>` backgrounds are unreliable with border-collapse. */
+const MISSED_PUNCH_ROW = "[&>td]:bg-amber-400/25 hover:[&>td]:bg-amber-400/35";
+const MISSING_PUNCH_ROW = "[&>td]:bg-rose-500/15 hover:[&>td]:bg-rose-500/25";
+const LATE_ROW = "[&>td]:bg-amber-500/15 hover:[&>td]:bg-amber-500/25";
+const COMPLETE_ROW = "[&>td]:bg-emerald-500/10 hover:[&>td]:bg-emerald-500/15";
+const WEEKLY_OFF_ROW = "[&>td]:bg-sky-500/20 hover:[&>td]:bg-sky-500/30";
+const LEAVE_ROW = "[&>td]:bg-blue-500/15 hover:[&>td]:bg-blue-500/25";
+const HOLIDAY_ROW = "[&>td]:bg-sky-500/15 hover:[&>td]:bg-sky-500/25";
+const UNSCHEDULED_ROW = "[&>td]:bg-zinc-500/15 hover:[&>td]:bg-zinc-500/25";
+
+const STATUS_ALIASES: Record<string, string> = {
+  week_off: "weekly_off",
+  weekoff: "weekly_off",
+  off: "weekly_off",
+  misspunch: "missed_punch",
+  missedpunch: "missed_punch",
+  incomplete: "missed_punch",
+};
 
 const NAMED_STATUS_DISPLAY: Record<string, AttendanceStatusDisplay> = {
   weekly_off: {
     label: "Weekly off",
-    badgeClass: "border-slate-400/50 bg-slate-500/10 text-slate-600 dark:text-slate-300",
+    badgeClass: WEEKLY_OFF_BADGE,
     rowClass: WEEKLY_OFF_ROW,
+  },
+  missed_punch: {
+    label: "Missed punch",
+    badgeClass: MISSED_PUNCH_BADGE,
+    rowClass: MISSED_PUNCH_ROW,
   },
   public_holiday: {
     label: "Public holiday",
@@ -137,7 +153,7 @@ const NAMED_STATUS_DISPLAY: Record<string, AttendanceStatusDisplay> = {
   sick_leave: {
     label: "Sick leave",
     badgeClass: "border-violet-500/40 bg-violet-500/15 text-violet-700 dark:text-violet-300",
-    rowClass: "bg-violet-500/10 hover:bg-violet-500/15",
+    rowClass: "[&>td]:bg-violet-500/15 hover:[&>td]:bg-violet-500/25",
   },
   unpaid_leave: {
     label: "Unpaid leave",
@@ -156,34 +172,35 @@ const NAMED_STATUS_DISPLAY: Record<string, AttendanceStatusDisplay> = {
   },
 };
 
+function normalizeAttendanceStatusKey(status: string): string {
+  const raw = String(status ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  return STATUS_ALIASES[raw] ?? raw;
+}
+
 export function getAttendanceStatusDisplay(
   row: Pick<AttendanceSummaryRow, "status" | "missed_punch" | "actual_in" | "actual_out">,
 ): AttendanceStatusDisplay {
-  const named = NAMED_STATUS_DISPLAY[row.status];
+  const statusKey = normalizeAttendanceStatusKey(row.status);
+  const named = NAMED_STATUS_DISPLAY[statusKey];
   if (named) return named;
 
   const hasIn = Boolean(row.actual_in);
   const hasOut = Boolean(row.actual_out);
 
-  if (row.status === "absent" || (!hasIn && !hasOut)) {
+  if (row.missed_punch || hasIn !== hasOut) {
+    return NAMED_STATUS_DISPLAY.missed_punch;
+  }
+
+  if (statusKey === "absent" || (!hasIn && !hasOut)) {
     return { label: "Missing Punch", badgeClass: MISSING_PUNCH_BADGE, rowClass: MISSING_PUNCH_ROW };
   }
 
-  if (
-    row.missed_punch ||
-    row.status === "missed_punch" ||
-    row.status === "incomplete" ||
-    hasIn !== hasOut
-  ) {
-    if ((hasIn && !hasOut) || row.status === "incomplete") {
-      return { label: "Incomplete", badgeClass: INCOMPLETE_BADGE, rowClass: INCOMPLETE_ROW };
-    }
-    return { label: "Missing Punch", badgeClass: MISSING_PUNCH_BADGE, rowClass: MISSING_PUNCH_ROW };
-  }
-
-  if (row.status === "late" || row.status === "early_leave" || row.status === "early_departure") {
+  if (statusKey === "late" || statusKey === "early_leave" || statusKey === "early_departure") {
     return {
-      label: row.status === "late" ? "Late" : "Early Leave",
+      label: statusKey === "late" ? "Late" : "Early Leave",
       badgeClass: LATE_BADGE,
       rowClass: LATE_ROW,
     };
@@ -253,7 +270,7 @@ export function computeAttendanceKpis(rows: AttendanceSummaryRow[]): AttendanceK
 
     const display = getAttendanceStatusDisplay(row);
     if (display.label === "Complete") complete++;
-    else if (display.label === "Incomplete") incomplete++;
+    else if (display.label === "Incomplete" || display.label === "Missed punch") incomplete++;
     else if (display.label === "Missing Punch") missingPunch++;
     else if (display.label === "Late" || display.label === "Early Leave") late++;
 
