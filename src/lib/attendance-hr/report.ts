@@ -82,7 +82,6 @@ export function attendanceHrToListingSource(
   userName: string;
   userNameUnmapped: boolean;
   deviceUserId: string | null;
-  systemUserId: string | null;
   work_date: string;
   actual_in: string | null;
   actual_out: string | null;
@@ -99,7 +98,6 @@ export function attendanceHrToListingSource(
     userName: mappedName || unmapped,
     userNameUnmapped: !mappedName,
     deviceUserId: row.biometric_user_id,
-    systemUserId: row.staff_id,
     work_date: row.work_date,
     actual_in: row.actual_in,
     actual_out: row.actual_out,

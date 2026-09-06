@@ -2876,7 +2876,6 @@
       "staff": "Staff",
       "userName": "User Name",
       "deviceUserId": "Device User ID",
-      "systemUserId": "System User ID",
       "location": "Location",
       "selectStaff": "Select staff",
       "searchStaff": "Search by name…",

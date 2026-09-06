@@ -295,7 +295,6 @@ export type AttendanceListingSource = {
   userName: string;
   userNameUnmapped?: boolean;
   deviceUserId?: string | null;
-  systemUserId?: string | null;
   work_date: string;
   actual_in: string | null;
   actual_out: string | null;
@@ -310,7 +309,6 @@ export const ATTENDANCE_LISTING_COLUMNS = [
   "Location",
   "User Name",
   "Device User ID",
-  "System User ID",
   "Date",
   "First Check-In",
   "Last Check-Out",
@@ -324,7 +322,6 @@ export type AttendanceListingCells = {
   location: string;
   userName: string;
   deviceUserId: string;
-  systemUserId: string;
   date: string;
   firstCheckIn: string;
   lastCheckOut: string;
@@ -340,7 +337,6 @@ export function toAttendanceListingSource(row: AttendanceSummaryRow): Attendance
     locationLabel: formatLocationLabel(row.location),
     userName: row.staff?.full_name ?? "—",
     deviceUserId: row.biometric_user_id ?? null,
-    systemUserId: row.staff_id ?? null,
     work_date: row.work_date,
     actual_in: row.actual_in,
     actual_out: row.actual_out,
@@ -360,7 +356,6 @@ export function attendanceListingCells(row: AttendanceListingSource): Attendance
     location: row.locationLabel,
     userName: row.userName,
     deviceUserId: row.deviceUserId?.trim() || "—",
-    systemUserId: row.systemUserId?.trim() || "—",
     date: formatWorkDateDdMmYyyy(row.work_date),
     firstCheckIn: formatPunchTime12h(row.actual_in) || "—",
     lastCheckOut: formatPunchTime12h(row.actual_out) || "—",
@@ -378,7 +373,6 @@ export function attendanceListingExportObjects(rows: AttendanceListingSource[]) 
       Location: cells.location,
       "User Name": cells.userName,
       "Device User ID": cells.deviceUserId,
-      "System User ID": cells.systemUserId,
       Date: cells.date,
       "First Check-In": cells.firstCheckIn,
       "Last Check-Out": cells.lastCheckOut,
@@ -397,7 +391,6 @@ export function buildAttendanceListingCsv(rows: AttendanceListingSource[]): stri
       cells.location,
       cells.userName,
       cells.deviceUserId,
-      cells.systemUserId,
       cells.date,
       cells.firstCheckIn,
       cells.lastCheckOut,
