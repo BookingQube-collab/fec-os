@@ -90,6 +90,7 @@ describe("admin sidebar visibility", () => {
       "/people/hr/documents",
       "/people/hr/onboarding",
       "/people/hr/announcements",
+      "/people/hr/shift-policy",
       "/people/hr/settings",
       "/people/hr/reports",
       "/people/employee-app",

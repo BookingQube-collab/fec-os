@@ -192,13 +192,26 @@ export async function recalculateAttendanceRange(
         ? supabase.from("staff").select("id, location_id, status, employment_type").in("id", staffScope).is("deleted_at", null)
         : supabase.from("staff").select("id, location_id, status, employment_type").is("deleted_at", null).limit(5000),
       supabase.from("locations").select("id, code").eq("id", locationId).maybeSingle(),
-      supabase.from("attendance_site_settings").select("break_minutes").eq("location_id", locationId).maybeSingle(),
+      supabase
+        .from("attendance_site_settings")
+        .select("break_minutes, permanent_hours, secondment_hours, joker_hours")
+        .eq("location_id", locationId)
+        .maybeSingle(),
     ]);
   const locationCode = locationRow?.code ? String(locationRow.code) : null;
+  const sitePolicy = (siteSetting ?? null) as {
+    break_minutes?: number | null;
+    permanent_hours?: number | null;
+    secondment_hours?: number | null;
+    joker_hours?: number | null;
+  } | null;
   const breakMinutesOverride =
-    siteSetting && (siteSetting as { break_minutes?: number | null }).break_minutes != null
-      ? Number((siteSetting as { break_minutes?: number | null }).break_minutes)
-      : null;
+    sitePolicy?.break_minutes != null ? Number(sitePolicy.break_minutes) : null;
+  const permanentHours =
+    sitePolicy?.permanent_hours != null ? Number(sitePolicy.permanent_hours) : null;
+  const secondmentHours =
+    sitePolicy?.secondment_hours != null ? Number(sitePolicy.secondment_hours) : null;
+  const jokerHours = sitePolicy?.joker_hours != null ? Number(sitePolicy.joker_hours) : null;
   const employmentByStaffId = new Map(
     (staffRows ?? []).map((row) => [String(row.id), (row as { employment_type?: string | null }).employment_type ?? null]),
   );
@@ -263,6 +276,9 @@ export async function recalculateAttendanceRange(
       employmentType: staffId ? employmentByStaffId.get(staffId) ?? null : null,
       locationCode,
       breakMinutesOverride,
+      permanentHours,
+      secondmentHours,
+      jokerHours,
     });
     // Recompute duplicate flags from scratch (ignore stale DB flags from cross-user ingest bugs).
     const marked = markProbableDuplicates(
@@ -385,6 +401,9 @@ export async function recalculateAttendanceRange(
         employmentType: employmentByStaffId.get(staffId) ?? null,
         locationCode,
         breakMinutesOverride,
+        permanentHours,
+        secondmentHours,
+        jokerHours,
       });
       const calc = calculateDailyAttendance([], {
         workDate,

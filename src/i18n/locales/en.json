@@ -147,6 +147,7 @@
     "hrDocuments": "Employee files",
     "hrOnboarding": "Onboarding",
     "hrAnnouncements": "Announcements",
+    "hrShiftPolicy": "Site working hours",
     "hrSettings": "HR settings",
     "hrReports": "HR reports",
     "hrEmployeeApp": "Employee app",
@@ -2809,7 +2810,7 @@
         "secondment": "Secondment",
         "joker": "Joker"
       },
-      "roleHoursHelp": "Attendance expected hours: Permanent 9h/day; Secondment and Joker 10h/day. Break is set per site (default 60 min; Urban Arena 30 min)."
+      "roleHoursHelp": "Tag each person as Permanent, Secondment, or Joker. Expected daily hours and break are set per location under HR admin → Site working hours."
     },
     "shifts": {
       "loading": "Loading shifts…",
@@ -2973,8 +2974,8 @@
       "acceptHint": "Accepted: .xlsx .xls .csv .html — columns DATE, EMPLOYEE, LOCATION, SHIFT",
       "autoPreview": "Preview starts automatically after you choose a file.",
       "reading": "Reading shift roster…",
-      "readingHint": "Matching staff by name and location against the directory. QID and other details come from the system.",
-      "matchHint": "This page is for shift roster only (DATE, EMPLOYEE, LOCATION, SHIFT). Staff directory CSV stays on People.",
+      "readingHint": "Matching staff by name and location. QID and other details come from saved staff records.",
+      "matchHint": "Shift roster only: DATE, EMPLOYEE, LOCATION, SHIFT. Confirm once, then review or amend the uploaded roster below.",
       "extraFiles": "Using {{name}}. Other files were skipped.",
       "fileKindExcel": "Excel",
       "fileKindCsv": "CSV",
@@ -3011,10 +3012,10 @@
       "previewFailed": "Preview failed",
       "applied": "Import applied.",
       "rolledBack": "Import rolled back.",
-      "keepCsv": "Staff directory CSV import remains on the People page. This page saves the approved shift roster only.",
+      "keepCsv": "This page registers and amends the approved shift roster only — not employment type or staff master data.",
       "downloadSample": "Download sample",
       "sampleTitle": "Download sample",
-      "sampleHelp": "Choose all locations or one site. The workbook only needs DATE, EMPLOYEE, LOCATION, and SHIFT for the selected week or month. Names and locations are filled from saved staff. Fill SHIFT only — for example 12:00 PM–10:00 PM, or DAY OFF. Other details come from the staff directory.",
+      "sampleHelp": "Choose all locations or one site. The workbook only needs DATE, EMPLOYEE, LOCATION, and SHIFT for the selected week or month. Names and locations are filled from saved staff. Fill SHIFT only — for example 12:00 PM–10:00 PM, or DAY OFF.",
       "sampleScope": "Locations",
       "sampleAll": "All locations",
       "sampleOne": "One site",
@@ -5934,7 +5935,9 @@
       "nameRequired": "Enter a device name.",
       "namePlaceholder": "e.g. ZKTeco Device 1",
       "siteTimingTitle": "Site working timing",
-      "siteTimingHelp": "Per-site break minutes used in attendance calculations. Expected daily hours stay role-based on each staff member’s employment type.",
+      "siteTimingHelp": "Per-site break minutes and role hours are configured in HR admin.",
+      "siteTimingMoved": "Expected daily hours (Permanent / Secondment / Joker) and break minutes are managed under HR admin → Site working hours.",
+      "openSiteWorkingHours": "Open site working hours",
       "roleHoursNote": "Roles: Permanent {{permanentHours}}h · Secondment & Joker {{extendedHours}}h. Break defaults: {{defaultBreak}} min most sites · Urban Arena (UA-*) {{uaBreak}} min.",
       "roleHoursCol": "Expected hours (by role)",
       "roleHoursCell": "Permanent {{permanentHours}}h · Secondment/Joker {{extendedHours}}h",
@@ -6134,6 +6137,7 @@
         "documents": "Documents",
         "announcements": "Announcements",
         "onboarding": "Onboarding",
+        "shiftPolicy": "Site working hours",
         "settings": "OT settings",
         "reports": "Reports"
       }
@@ -6229,6 +6233,28 @@
       "notes": "Policy notes",
       "save": "Save policy",
       "saved": "OT policy saved"
+    },
+    "shiftPolicy": {
+      "kicker": "HR admin",
+      "title": "Site working hours",
+      "subtitle": "Set Permanent, Secondment, and Joker expected daily hours plus break minutes for each location.",
+      "noAccess": "Site working hours are limited to HR managers.",
+      "help": "Defaults: Permanent {{permanentHours}}h · Secondment & Joker {{extendedHours}}h. Break {{defaultBreak}} min most sites · Urban Arena {{uaBreak}} min. Staff employment type on the directory picks which hours apply.",
+      "location": "Location",
+      "selectLocation": "Select location",
+      "role": "Employment type",
+      "expectedHours": "Expected daily hours",
+      "defaultHours": "Default {{hours}}h",
+      "breakMinutes": "Break (minutes)",
+      "breakHelp": "One break length for this location, applied to all three employment types.",
+      "breakInvalid": "Enter break minutes between 0 and 240.",
+      "hoursInvalid": "Enter hours between 1 and 16 for {{role}}.",
+      "needLocation": "Select a location first.",
+      "saved": "Site working hours saved",
+      "applyAll": "Apply defaults to all locations",
+      "applyAllConfirm": "Write Permanent 9h, Secondment 10h, Joker 10h, and standard breaks (UA 30 / else 60) to every location?",
+      "applyAllHelp": "Applies the built-in defaults to every site in one step. You can still fine-tune a single location afterward.",
+      "appliedAll": "Defaults applied to {{count}} locations"
     },
     "reports": {
       "kicker": "HR",

@@ -4,6 +4,8 @@ import { DEFAULT_SHIFT } from "./constants";
 import {
   applyAttendanceShiftPolicy,
   breakMinutesForLocation,
+  defaultSiteShiftPolicy,
+  expectedShiftHours,
   expectedShiftMinutes,
   normalizeAttendanceEmploymentRole,
 } from "./shift-policy";
@@ -25,6 +27,15 @@ describe("attendance shift policy", () => {
     expect(expectedShiftMinutes("joker")).toBe(600);
   });
 
+  it("honors per-site hour overrides", () => {
+    expect(
+      expectedShiftHours("permanent", { permanentHours: 8.5, secondmentHours: 10, jokerHours: 10 }),
+    ).toBe(8.5);
+    expect(
+      expectedShiftMinutes("joker", { permanentHours: 9, secondmentHours: 11, jokerHours: 11 }),
+    ).toBe(660);
+  });
+
   it("deducts 30 minutes for Urban Arena and 60 elsewhere", () => {
     expect(breakMinutesForLocation("UA-DM")).toBe(30);
     expect(breakMinutesForLocation("ua-dm")).toBe(30);
@@ -36,6 +47,16 @@ describe("attendance shift policy", () => {
     expect(breakMinutesForLocation("INF-CC", 45)).toBe(45);
     expect(breakMinutesForLocation("UA-DM", 60)).toBe(60);
     expect(breakMinutesForLocation("UA-DM", null)).toBe(30);
+  });
+
+  it("builds default site policy from location code", () => {
+    expect(defaultSiteShiftPolicy("UA-DM")).toEqual({
+      breakMinutes: 30,
+      permanentHours: 9,
+      secondmentHours: 10,
+      jokerHours: 10,
+    });
+    expect(defaultSiteShiftPolicy("INF-CC").breakMinutes).toBe(60);
   });
 
   it("applies break and OT threshold onto a shift template", () => {
@@ -57,7 +78,9 @@ describe("attendance shift policy", () => {
       employmentType: "permanent",
       locationCode: "INF-CC",
       breakMinutesOverride: 45,
+      permanentHours: 8,
     });
     expect(overridden.breakMinutes).toBe(45);
+    expect(overridden.overtimeAfterMinutes).toBe(480);
   });
 });

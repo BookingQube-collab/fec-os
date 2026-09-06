@@ -73,6 +73,7 @@ export default function HrDashboardPage() {
     { href: "/people/hr/documents", labelKey: "hr.dashboard.links.documents", icon: FileText },
     { href: "/people/hr/announcements", labelKey: "hr.dashboard.links.announcements", icon: Megaphone },
     { href: "/people/hr/onboarding", labelKey: "hr.dashboard.links.onboarding", icon: ClipboardList },
+    { href: "/people/hr/shift-policy", labelKey: "hr.dashboard.links.shiftPolicy", icon: Timer },
     { href: "/people/hr/settings", labelKey: "hr.dashboard.links.settings", icon: Settings2 },
     { href: "/people/hr/reports", labelKey: "hr.dashboard.links.reports", icon: FileText },
   ] as const;

@@ -13,6 +13,7 @@ import { canUserDo } from "@/lib/rbac";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { ATTENDANCE_FILE_BUCKET, DEFAULT_RULES, DEFAULT_SHIFT, isAdmsDeviceOnline } from "@/lib/attendance-hr/constants";
+import { defaultSiteShiftPolicy } from "@/lib/attendance-hr/shift-policy";
 import { queueAdmsAttlogQuery, queueAdmsAttlogQueryRange } from "@/lib/attendance-hr/adms-ingest";
 import {
   findAttendanceGaps,
@@ -88,7 +89,7 @@ export const getAttendanceHrBootstrap = createAuthenticatedActionNoInput(
         context.supabase.from("hr_companies").select("id, code, name, active").eq("active", true).order("name"),
         context.supabase
           .from("attendance_site_settings")
-          .select("location_id, company_id, attendance_enabled, timezone, break_minutes, locations(id, code, name, region, status)"),
+          .select("location_id, company_id, attendance_enabled, timezone, break_minutes, permanent_hours, secondment_hours, joker_hours, locations(id, code, name, region, status)"),
         context.supabase
           .from("locations")
           .select("id, code, name, region, status")
@@ -152,6 +153,9 @@ export const getAttendanceHrBootstrap = createAuthenticatedActionNoInput(
           attendance_enabled: setting?.attendance_enabled ?? true,
           timezone: setting?.timezone ?? DEFAULT_RULES.timezone,
           break_minutes: setting?.break_minutes ?? null,
+          permanent_hours: setting?.permanent_hours ?? null,
+          secondment_hours: setting?.secondment_hours ?? null,
+          joker_hours: setting?.joker_hours ?? null,
           location: nested ?? loc,
         };
       }),
@@ -1119,44 +1123,183 @@ export const saveAttendanceLocationBreak = createAuthenticatedAction(
     breakMinutes: z.number().int().min(0).max(240).nullable(),
   }),
   async (data, context) => {
-    await assertSite(context, data.locationId);
-
-    const { data: existing, error: fetchErr } = await context.supabase
-      .from("attendance_site_settings")
-      .select("location_id, company_id, attendance_enabled, timezone, notes")
-      .eq("location_id", data.locationId)
-      .maybeSingle();
-    if (fetchErr) throw fetchErr;
-
-    if (existing) {
-      const { error } = await context.supabase
-        .from("attendance_site_settings")
-        .update({ break_minutes: data.breakMinutes })
-        .eq("location_id", data.locationId);
-      if (error) throw error;
-      return { ok: true as const };
-    }
-
-    const { data: company, error: companyErr } = await context.supabase
-      .from("hr_companies")
-      .select("id")
-      .eq("code", "E3")
-      .eq("active", true)
-      .maybeSingle();
-    if (companyErr) throw companyErr;
-    if (!company?.id) throw new Error("No active HR company (E3) to attach site settings");
-
-    const { error } = await context.supabase.from("attendance_site_settings").insert({
-      location_id: data.locationId,
-      company_id: company.id as string,
-      attendance_enabled: true,
-      timezone: DEFAULT_RULES.timezone,
-      break_minutes: data.breakMinutes,
+    await upsertAttendanceSiteShiftPolicy(context, {
+      locationId: data.locationId,
+      breakMinutes: data.breakMinutes,
     });
-    if (error) throw error;
     return { ok: true as const };
   },
   { auth: { capability: "attendance.configure" } },
+);
+
+const siteShiftPolicySchema = z.object({
+  locationId: z.string().uuid(),
+  breakMinutes: z.number().int().min(0).max(240),
+  permanentHours: z.number().min(1).max(16),
+  secondmentHours: z.number().min(1).max(16),
+  jokerHours: z.number().min(1).max(16),
+});
+
+async function ensureE3CompanyId(context: AuthContext): Promise<string> {
+  const { data: company, error: companyErr } = await context.supabase
+    .from("hr_companies")
+    .select("id")
+    .eq("code", "E3")
+    .eq("active", true)
+    .maybeSingle();
+  if (companyErr) throw companyErr;
+  if (!company?.id) throw new Error("No active HR company (E3) to attach site settings");
+  return company.id as string;
+}
+
+async function upsertAttendanceSiteShiftPolicy(
+  context: AuthContext,
+  data: {
+    locationId: string;
+    breakMinutes?: number | null;
+    permanentHours?: number | null;
+    secondmentHours?: number | null;
+    jokerHours?: number | null;
+  },
+) {
+  await assertSite(context, data.locationId);
+
+  const patch: Record<string, unknown> = {};
+  if (data.breakMinutes !== undefined) patch.break_minutes = data.breakMinutes;
+  if (data.permanentHours !== undefined) patch.permanent_hours = data.permanentHours;
+  if (data.secondmentHours !== undefined) patch.secondment_hours = data.secondmentHours;
+  if (data.jokerHours !== undefined) patch.joker_hours = data.jokerHours;
+
+  const { data: existing, error: fetchErr } = await context.supabase
+    .from("attendance_site_settings")
+    .select("location_id, company_id")
+    .eq("location_id", data.locationId)
+    .maybeSingle();
+  if (fetchErr) throw fetchErr;
+
+  if (existing) {
+    const { error } = await context.supabase
+      .from("attendance_site_settings")
+      .update(patch)
+      .eq("location_id", data.locationId);
+    if (error) throw error;
+    return;
+  }
+
+  const companyId = await ensureE3CompanyId(context);
+  const { error } = await context.supabase.from("attendance_site_settings").insert({
+    location_id: data.locationId,
+    company_id: companyId,
+    attendance_enabled: true,
+    timezone: DEFAULT_RULES.timezone,
+    ...patch,
+  });
+  if (error) throw error;
+}
+
+/** List locations with effective site shift policy (hours + break). */
+export const listAttendanceSiteShiftPolicies = createAuthenticatedActionNoInput(
+  async (context) => {
+    const [{ data: locations, error: locErr }, { data: settings, error: setErr }] = await Promise.all([
+      context.supabase
+        .from("locations")
+        .select("id, code, name, region, status")
+        .in("code", [...CANONICAL_LOCATION_CODES])
+        .order("name"),
+      context.supabase
+        .from("attendance_site_settings")
+        .select("location_id, break_minutes, permanent_hours, secondment_hours, joker_hours"),
+    ]);
+    if (locErr) throw locErr;
+    if (setErr) throw setErr;
+
+    const byId = new Map(
+      (settings ?? []).map((row) => [
+        row.location_id as string,
+        row as {
+          location_id: string;
+          break_minutes?: number | null;
+          permanent_hours?: number | null;
+          secondment_hours?: number | null;
+          joker_hours?: number | null;
+        },
+      ]),
+    );
+
+    return {
+      sites: (locations ?? []).map((loc) => {
+        const stored = byId.get(loc.id);
+        const defaults = defaultSiteShiftPolicy(loc.code);
+        return {
+          locationId: loc.id,
+          code: loc.code,
+          name: loc.name,
+          region: loc.region,
+          status: loc.status,
+          breakMinutes:
+            stored?.break_minutes != null ? Number(stored.break_minutes) : defaults.breakMinutes,
+          permanentHours:
+            stored?.permanent_hours != null ? Number(stored.permanent_hours) : defaults.permanentHours,
+          secondmentHours:
+            stored?.secondment_hours != null
+              ? Number(stored.secondment_hours)
+              : defaults.secondmentHours,
+          jokerHours:
+            stored?.joker_hours != null ? Number(stored.joker_hours) : defaults.jokerHours,
+          hasCustomBreak: stored?.break_minutes != null,
+          hasCustomHours:
+            stored?.permanent_hours != null ||
+            stored?.secondment_hours != null ||
+            stored?.joker_hours != null,
+        };
+      }),
+    };
+  },
+  { auth: { capability: "hr.manage" } },
+);
+
+/** Save permanent / secondment / joker hours + break for one location. */
+export const saveAttendanceSiteShiftPolicy = createAuthenticatedAction(
+  siteShiftPolicySchema,
+  async (data, context) => {
+    await upsertAttendanceSiteShiftPolicy(context, {
+      locationId: data.locationId,
+      breakMinutes: data.breakMinutes,
+      permanentHours: data.permanentHours,
+      secondmentHours: data.secondmentHours,
+      jokerHours: data.jokerHours,
+    });
+    return { ok: true as const };
+  },
+  { auth: { capability: "hr.manage" } },
+);
+
+/**
+ * Write built-in defaults (9 / 10 / 10 + UA 30 / else 60) to every canonical location.
+ */
+export const applyDefaultAttendanceSiteShiftPolicies = createAuthenticatedActionNoInput(
+  async (context) => {
+    const { data: locations, error } = await context.supabase
+      .from("locations")
+      .select("id, code")
+      .in("code", [...CANONICAL_LOCATION_CODES]);
+    if (error) throw error;
+
+    let updated = 0;
+    for (const loc of locations ?? []) {
+      const defaults = defaultSiteShiftPolicy(loc.code);
+      await upsertAttendanceSiteShiftPolicy(context, {
+        locationId: loc.id,
+        breakMinutes: defaults.breakMinutes,
+        permanentHours: defaults.permanentHours,
+        secondmentHours: defaults.secondmentHours,
+        jokerHours: defaults.jokerHours,
+      });
+      updated += 1;
+    }
+    return { ok: true as const, updated };
+  },
+  { auth: { capability: "hr.manage" } },
 );
 
 export const submitAttendanceCorrection = createAuthenticatedAction(

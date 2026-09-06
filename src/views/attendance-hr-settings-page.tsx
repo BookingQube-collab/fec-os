@@ -26,20 +26,12 @@ import {
   requestAttendanceDeviceFetch,
   resyncAttendancePunches,
   saveAttendanceDevice,
-  saveAttendanceLocationBreak,
   saveAttendanceShiftTemplate,
   type ResyncFetchSkipReason,
 } from "@/lib/attendance-hr.functions";
-import {
-  breakMinutesForLocation,
-  DEFAULT_BREAK_MINUTES,
-  EXTENDED_SHIFT_MINUTES,
-  PERMANENT_SHIFT_MINUTES,
-  URBAN_ARENA_BREAK_MINUTES,
-} from "@/lib/attendance-hr/shift-policy";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
-import { usePermission } from "@/hooks/use-permission";
+import Link from "next/link";
 
 type DeviceRow = {
   id: string;
@@ -95,7 +87,6 @@ function parseDatesInput(raw: string): string[] {
 
 export default function AttendanceHrSettingsPage() {
   const { t, i18n } = useTranslation();
-  const canConfigure = usePermission("attendance.configure");
   const qc = useQueryClient();
   const q = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "bootstrap" }),
@@ -114,7 +105,6 @@ export default function AttendanceHrSettingsPage() {
   const [locationId, setLocationId] = useState("");
   const [snDrafts, setSnDrafts] = useState<Record<string, string>>({});
   const [nameDrafts, setNameDrafts] = useState<Record<string, string>>({});
-  const [breakDrafts, setBreakDrafts] = useState<Record<string, string>>({});
 
   const defaultMonth = defaultPayrollPeriod(qatarTodayYmd()).month;
   const [resyncLocationId, setResyncLocationId] = useState("");
@@ -235,42 +225,6 @@ export default function AttendanceHrSettingsPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const saveBreak = useMutation({
-    mutationFn: (payload: { locationId: string; breakMinutes: number | null }) =>
-      saveAttendanceLocationBreak(payload),
-    onSuccess: (_data, vars) => {
-      toast.success(t("attendanceHr.settings.breakSaved"));
-      setBreakDrafts((prev) => {
-        const next = { ...prev };
-        delete next[vars.locationId];
-        return next;
-      });
-      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr({ view: "bootstrap" }) });
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  const siteTimingRows = useMemo(() => {
-    return (q.data?.sites ?? []).map((s) => {
-      const loc = s.location as { name?: string; code?: string } | null;
-      const code = loc?.code ?? "";
-      const stored =
-        (s as { break_minutes?: number | null }).break_minutes != null
-          ? Number((s as { break_minutes?: number | null }).break_minutes)
-          : null;
-      const effective = breakMinutesForLocation(code, stored);
-      const draft = breakDrafts[s.location_id];
-      return {
-        locationId: s.location_id,
-        code,
-        label: loc ? formatLocationLabel(loc.code, loc.name) : s.location_id,
-        stored,
-        effective,
-        draftValue: draft ?? String(effective),
-      };
-    });
-  }, [q.data?.sites, breakDrafts]);
-
   const buildResyncPayload = () => {
     if (!resyncLocationId) throw new Error(t("attendanceHr.settings.resyncNeedSite"));
     if (resyncMode === "fec_month") {
@@ -371,104 +325,12 @@ export default function AttendanceHrSettingsPage() {
       />
       <AttendanceHrNav />
 
-      <NeumorphicCard className="space-y-4 p-5">
-        <div>
-          <h2 className="text-sm font-semibold">{t("attendanceHr.settings.siteTimingTitle")}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{t("attendanceHr.settings.siteTimingHelp")}</p>
-          <p className="mt-2 text-xs text-muted-foreground">
-            {t("attendanceHr.settings.roleHoursNote", {
-              permanentHours: PERMANENT_SHIFT_MINUTES / 60,
-              extendedHours: EXTENDED_SHIFT_MINUTES / 60,
-              defaultBreak: DEFAULT_BREAK_MINUTES,
-              uaBreak: URBAN_ARENA_BREAK_MINUTES,
-            })}
-          </p>
-        </div>
-        <div className="overflow-x-auto rounded-xl border border-border/70">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/40 text-xs uppercase tracking-wider text-muted-foreground">
-              <tr>
-                <th className="px-3 py-2 text-left">{t("attendanceHr.settings.site")}</th>
-                <th className="px-3 py-2 text-left">{t("attendanceHr.settings.roleHoursCol")}</th>
-                <th className="px-3 py-2 text-left">{t("attendanceHr.settings.breakMinutes")}</th>
-                {canConfigure ? <th className="px-3 py-2 text-right">{t("people.actions")}</th> : null}
-              </tr>
-            </thead>
-            <tbody>
-              {siteTimingRows.map((row) => {
-                const dirty = Number(row.draftValue) !== row.effective;
-                return (
-                  <tr key={row.locationId} className="border-t border-border/60">
-                    <td className="px-3 py-2">
-                      <div className="font-medium">{row.label}</div>
-                      <div className="text-xs text-muted-foreground">{row.code}</div>
-                    </td>
-                    <td className="px-3 py-2 text-xs text-muted-foreground">
-                      {t("attendanceHr.settings.roleHoursCell", {
-                        permanentHours: PERMANENT_SHIFT_MINUTES / 60,
-                        extendedHours: EXTENDED_SHIFT_MINUTES / 60,
-                      })}
-                    </td>
-                    <td className="px-3 py-2">
-                      {canConfigure ? (
-                        <Input
-                          className="h-9 w-24"
-                          type="number"
-                          min={0}
-                          max={240}
-                          value={row.draftValue}
-                          onChange={(e) =>
-                            setBreakDrafts((prev) => ({ ...prev, [row.locationId]: e.target.value }))
-                          }
-                        />
-                      ) : (
-                        <span className="tabular-nums">{row.effective}</span>
-                      )}
-                      <p className="mt-1 text-[11px] text-muted-foreground">
-                        {row.stored == null
-                          ? t("attendanceHr.settings.breakUsingDefault", { minutes: row.effective })
-                          : t("attendanceHr.settings.breakOverrideSet", { minutes: row.stored })}
-                      </p>
-                    </td>
-                    {canConfigure ? (
-                      <td className="px-3 py-2 text-right">
-                        <div className="inline-flex flex-wrap justify-end gap-1">
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            disabled={!dirty || saveBreak.isPending}
-                            onClick={() => {
-                              const n = Number(row.draftValue);
-                              if (!Number.isFinite(n) || n < 0 || n > 240) {
-                                toast.error(t("attendanceHr.settings.breakInvalid"));
-                                return;
-                              }
-                              saveBreak.mutate({ locationId: row.locationId, breakMinutes: Math.round(n) });
-                            }}
-                          >
-                            {t("common.save")}
-                          </Button>
-                          {row.stored != null ? (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              disabled={saveBreak.isPending}
-                              onClick={() =>
-                                saveBreak.mutate({ locationId: row.locationId, breakMinutes: null })
-                              }
-                            >
-                              {t("attendanceHr.settings.breakResetDefault")}
-                            </Button>
-                          ) : null}
-                        </div>
-                      </td>
-                    ) : null}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+      <NeumorphicCard className="space-y-3 p-5">
+        <h2 className="text-sm font-semibold">{t("attendanceHr.settings.siteTimingTitle")}</h2>
+        <p className="text-sm text-muted-foreground">{t("attendanceHr.settings.siteTimingMoved")}</p>
+        <Button asChild size="sm" variant="secondary">
+          <Link href="/people/hr/shift-policy">{t("attendanceHr.settings.openSiteWorkingHours")}</Link>
+        </Button>
       </NeumorphicCard>
 
       <NeumorphicCard className="space-y-4 p-5">
