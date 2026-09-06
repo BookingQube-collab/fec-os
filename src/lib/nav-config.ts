@@ -156,6 +156,7 @@ const HR_STAFF_NAV_GROUP: SidebarNavGroup = {
   items: [
     { href: "/people", labelKey: "nav.hrDirectory", capability: "people.view_roster" },
     { href: "/people/import", labelKey: "nav.importRoster", capability: "people.import_roster" },
+    { href: "/people/roster", labelKey: "nav.monthlyRoster", capability: "people.view_roster" },
     { href: "/people/training", labelKey: "nav.training", capability: "people.view_roster" },
   ],
 };

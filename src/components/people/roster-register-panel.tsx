@@ -26,11 +26,21 @@ import { STALE } from "@/lib/query-client";
 import { queryKeys } from "@/lib/query-keys";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 
+export type RosterSourceFilter = "all" | "upload" | "amend" | "manual";
+
 type RosterRegisterPanelProps = {
   dateFrom: string;
   dateTo: string;
   defaultLocationId?: string | null;
   refreshToken?: number | string;
+  /** When true (default), only upload + amend. Set false on the monthly roster page. */
+  sourceUploadOnly?: boolean;
+  /** Show source filter dropdown (useful when sourceUploadOnly is false). */
+  showSourceFilter?: boolean;
+  /** Hide the card title/help when the parent page already has a header. */
+  hideHeader?: boolean;
+  /** Table scroll height in px. */
+  maxHeight?: number;
 };
 
 type Draft = {
@@ -39,11 +49,22 @@ type Draft = {
   isWeekOff: boolean;
 };
 
+function sourceLabel(source: string, t: (key: string) => string) {
+  if (source === "amend") return t("people.roster.registerSourceAmend");
+  if (source === "upload") return t("people.roster.registerSourceUpload");
+  if (source === "manual") return t("people.roster.registerSourceManual");
+  return source;
+}
+
 export function RosterRegisterPanel({
   dateFrom,
   dateTo,
   defaultLocationId,
   refreshToken,
+  sourceUploadOnly = true,
+  showSourceFilter = false,
+  hideHeader = false,
+  maxHeight = 480,
 }: RosterRegisterPanelProps) {
   const { t, i18n } = useTranslation();
   const qc = useQueryClient();
@@ -55,6 +76,7 @@ export function RosterRegisterPanel({
 
   const [locationId, setLocationId] = useState(defaultLocationId ?? "");
   const [staffId, setStaffId] = useState("");
+  const [sourceFilter, setSourceFilter] = useState<RosterSourceFilter>("all");
   const [query, setQuery] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -68,9 +90,13 @@ export function RosterRegisterPanel({
       locationId: locationId || null,
       dateFrom,
       dateTo,
-      sourceUploadOnly: true as const,
+      sourceUploadOnly,
+      source:
+        !sourceUploadOnly && sourceFilter !== "all"
+          ? (sourceFilter as "upload" | "amend" | "manual")
+          : null,
     }),
-    [locationId, dateFrom, dateTo],
+    [locationId, dateFrom, dateTo, sourceUploadOnly, sourceFilter],
   );
 
   const register = useQuery({
@@ -99,7 +125,7 @@ export function RosterRegisterPanel({
     return rows.filter((row) => {
       if (staffId && row.staffId !== staffId) return false;
       if (!q) return true;
-      return [row.staffName, row.employeeCode, row.qid, row.locationCode, row.workDate]
+      return [row.staffName, row.employeeCode, row.qid, row.locationCode, row.workDate, row.source]
         .some((value) => String(value ?? "").toLowerCase().includes(q));
     });
   }, [rows, query, staffId]);
@@ -148,18 +174,33 @@ export function RosterRegisterPanel({
     setDraft(null);
   };
 
+  const emptyMessage = sourceUploadOnly
+    ? t("people.roster.registerEmpty")
+    : t("people.roster.registerEmptyAll");
+
   return (
     <div className="surface-card space-y-4 p-5">
-      <div className="space-y-1">
+      {!hideHeader ? (
+        <div className="space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-sm font-semibold">{t("people.roster.registerTitle")}</h2>
+            <Badge variant="outline">
+              {formatPayrollRange(dateFrom, dateTo, i18n.language)}
+            </Badge>
+            <Badge variant="secondary">{t("people.roster.registerCount", { count: filtered.length })}</Badge>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {sourceUploadOnly ? t("people.roster.registerHelp") : t("people.roster.registerHelpAll")}
+          </p>
+        </div>
+      ) : (
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-sm font-semibold">{t("people.roster.registerTitle")}</h2>
           <Badge variant="outline">
             {formatPayrollRange(dateFrom, dateTo, i18n.language)}
           </Badge>
           <Badge variant="secondary">{t("people.roster.registerCount", { count: filtered.length })}</Badge>
         </div>
-        <p className="text-xs text-muted-foreground">{t("people.roster.registerHelp")}</p>
-      </div>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="space-y-1.5">
@@ -183,7 +224,22 @@ export function RosterRegisterPanel({
             options={staffOptions}
           />
         </div>
-        <div className="space-y-1.5 sm:col-span-2">
+        {showSourceFilter && !sourceUploadOnly ? (
+          <div className="space-y-1.5">
+            <Label>{t("people.roster.registerFilterSource")}</Label>
+            <SearchableSelect
+              value={sourceFilter}
+              onValueChange={(value) => setSourceFilter((value || "all") as RosterSourceFilter)}
+              options={[
+                { value: "all", label: t("people.roster.registerAllSources") },
+                { value: "upload", label: t("people.roster.registerSourceUpload") },
+                { value: "amend", label: t("people.roster.registerSourceAmend") },
+                { value: "manual", label: t("people.roster.registerSourceManual") },
+              ]}
+            />
+          </div>
+        ) : null}
+        <div className={`space-y-1.5 ${showSourceFilter && !sourceUploadOnly ? "" : "sm:col-span-2"}`}>
           <Label htmlFor="roster-register-search">{t("people.roster.searchRows")}</Label>
           <Input
             id="roster-register-search"
@@ -204,9 +260,9 @@ export function RosterRegisterPanel({
           {register.error instanceof Error ? register.error.message : t("people.roster.registerLoadFailed")}
         </p>
       ) : filtered.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t("people.roster.registerEmpty")}</p>
+        <p className="text-sm text-muted-foreground">{emptyMessage}</p>
       ) : (
-        <div className="overflow-auto rounded-lg border border-border/70" style={{ maxHeight: 480 }}>
+        <div className="overflow-auto rounded-lg border border-border/70" style={{ maxHeight }}>
           <Table>
             <TableHeader className="sticky top-0 z-10 bg-card">
               <TableRow>
@@ -262,13 +318,7 @@ export function RosterRegisterPanel({
                       )}
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline">
-                        {row.source === "amend"
-                          ? t("people.roster.registerSourceAmend")
-                          : row.source === "upload"
-                            ? t("people.roster.registerSourceUpload")
-                            : row.source}
-                      </Badge>
+                      <Badge variant="outline">{sourceLabel(row.source, t)}</Badge>
                     </TableCell>
                     {canAmend ? (
                       <TableCell className="text-end">

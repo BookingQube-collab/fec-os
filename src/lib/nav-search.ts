@@ -30,6 +30,7 @@ const NAV_SEARCH_ALIASES: Record<string, string[]> = {
   "/compliance/amc-contracts": ["amc", "amc contracts", "contracts"],
   "/people": ["people", "staff", "roster", "hr"],
   "/people/import": ["roster", "import roster", "import", "employee roster"],
+  "/people/roster": ["monthly roster", "roster register", "view roster", "shift roster"],
   "/people/attendance": ["attendance", "time", "time and attendance"],
   "/people/attendance/reports": ["attendance listing", "attendance records"],
   "/people/payroll": ["payroll", "salary", "workbook"],
@@ -44,6 +45,7 @@ const PREFERRED_HREFS = [
   "/compliance/amc-dashboard",
   "/compliance/amc-contracts",
   "/people/attendance",
+  "/people/roster",
   "/people/import",
   "/people",
 ];

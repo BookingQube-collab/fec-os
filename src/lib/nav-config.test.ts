@@ -83,6 +83,7 @@ describe("admin sidebar visibility", () => {
     expect(people?.groups.find((g) => g.id === "hr-staff")?.items.map((i) => i.href)).toEqual([
       "/people",
       "/people/import",
+      "/people/roster",
       "/people/training",
     ]);
     expect(people?.groups.find((g) => g.id === "hr-admin")?.items.map((i) => i.href)).toEqual([

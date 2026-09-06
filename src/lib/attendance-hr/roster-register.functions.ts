@@ -52,6 +52,7 @@ function assertCanAmendRoster(roles: AppRole[] | string[] | undefined) {
 function assertCanViewRosterRegister(roles: AppRole[] | string[] | undefined) {
   const list = (roles ?? []) as AppRole[];
   if (
+    canUserDo(list, "people.view_roster") ||
     canUserDo(list, "people.import_roster") ||
     canUserDo(list, "people.edit_roster") ||
     canUserDo(list, "daily_ops.roster.upload") ||
@@ -68,7 +69,10 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
     staffId: z.string().uuid().nullable().optional(),
     dateFrom: ymd,
     dateTo: ymd,
+    /** When true, only upload + amend rows (legacy import register). */
     sourceUploadOnly: z.boolean().optional().default(false),
+    /** Optional single-source filter. Ignored when sourceUploadOnly is true. */
+    source: z.enum(["upload", "amend", "manual"]).nullable().optional(),
   }),
   async (data, context) => {
     assertCanViewRosterRegister(context.roles);
@@ -86,6 +90,7 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
     if (data.locationId) q = q.eq("location_id", data.locationId);
     if (data.staffId) q = q.eq("staff_id", data.staffId);
     if (data.sourceUploadOnly) q = q.in("source", ["upload", "amend"]);
+    else if (data.source) q = q.eq("source", data.source);
 
     const { data: rows, error } = await q;
     if (error) throw error;
@@ -152,7 +157,17 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
       rows: mapped,
     };
   },
-  { auth: { anyCapability: ["people.import_roster", "people.edit_roster", "daily_ops.roster.upload", "attendance.view"] } },
+  {
+    auth: {
+      anyCapability: [
+        "people.view_roster",
+        "people.import_roster",
+        "people.edit_roster",
+        "daily_ops.roster.upload",
+        "attendance.view",
+      ],
+    },
+  },
 );
 
 export const updateRosterAssignment = createAuthenticatedAction(

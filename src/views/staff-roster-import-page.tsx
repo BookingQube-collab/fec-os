@@ -1,13 +1,13 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { FolderOpen, Loader2, Upload, X, Download } from "lucide-react";
+import { CalendarDays, FolderOpen, Loader2, Upload, X, Download } from "lucide-react";
+import Link from "next/link";
 import { type DragEvent, type UIEvent, memo, startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
 import { PageHeader } from "@/components/layout/page-header";
-import { RosterRegisterPanel } from "@/components/people/roster-register-panel";
 import { ShiftRangeEditor } from "@/components/people/shift-range-editor";
 import { StaffSampleDownloadDialog } from "@/components/people/staff-sample-download-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -108,7 +108,6 @@ export default function StaffRosterImportPage() {
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [sampleOpen, setSampleOpen] = useState(false);
   const [sampleBusy, setSampleBusy] = useState(false);
-  const [registerRefresh, setRegisterRefresh] = useState(0);
   const storeLocationId = useAppStore((s) => s.currentLocationId);
   const sites = useSites();
 
@@ -204,7 +203,6 @@ export default function StaffRosterImportPage() {
           : t("people.roster.previewReady"),
       );
       if (arg.mode === "commit") {
-        setRegisterRefresh((n) => n + 1);
         void qc.invalidateQueries({ queryKey: queryKeys.people.all });
       }
     },
@@ -525,12 +523,18 @@ export default function StaffRosterImportPage() {
         />
       ) : null}
 
-      <RosterRegisterPanel
-        dateFrom={period.dateFrom}
-        dateTo={period.dateTo}
-        defaultLocationId={storeLocationId}
-        refreshToken={registerRefresh}
-      />
+      <div className="surface-card flex flex-wrap items-center justify-between gap-4 p-5">
+        <div className="space-y-1">
+          <h2 className="text-sm font-semibold">{t("people.roster.viewTitle")}</h2>
+          <p className="text-xs text-muted-foreground">{t("people.roster.viewFromImportHelp")}</p>
+        </div>
+        <Button asChild variant="secondary" size="sm">
+          <Link href="/people/roster">
+            <CalendarDays className="h-4 w-4" />
+            {t("people.roster.viewFromImport")}
+          </Link>
+        </Button>
+      </div>
     </div>
   );
 }
