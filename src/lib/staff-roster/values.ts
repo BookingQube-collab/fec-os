@@ -86,10 +86,12 @@ export function parseEmploymentType(raw: string | null | undefined): {
   unknown: boolean;
 } {
   if (raw == null) return { type: null, unknown: false };
-  const s = String(raw).trim().toLowerCase();
+  const s = String(raw).trim().toLowerCase().replace(/\s+/g, "_");
   if (!s) return { type: null, unknown: false };
   if (s === "permanent") return { type: "permanent", unknown: false };
   if (s === "temporary" || s === "temp") return { type: "temporary", unknown: false };
+  if (s === "secondment" || s === "seconded") return { type: "secondment", unknown: false };
+  if (s === "joker") return { type: "joker", unknown: false };
   return { type: null, unknown: true };
 }
 

@@ -2930,6 +2930,8 @@
       "edit": "تعديل سجل",
       "staff": "الموظف",
       "userName": "اسم المستخدم",
+      "deviceUserId": "معرّف مستخدم الجهاز",
+      "systemUserId": "معرّف مستخدم النظام",
       "location": "الموقع",
       "selectStaff": "اختر موظفاً",
       "searchStaff": "بحث بالاسم…",

@@ -1415,7 +1415,13 @@ export const purgeAttendanceHrImportedData = createAuthenticatedAction(
   { auth: { capability: "attendance.import" } },
 );
 
-type StaffLookup = { id: string; full_name: string | null; employee_code: string | null; qid: string | null };
+type StaffLookup = {
+  id: string;
+  full_name: string | null;
+  employee_code: string | null;
+  qid: string | null;
+  employment_type: string | null;
+};
 type LocationLookup = { id: string; code: string; name: string | null; region: string | null };
 
 async function enrichAttendanceHrDailyRows(
@@ -1426,7 +1432,7 @@ async function enrichAttendanceHrDailyRows(
   const locationIds = [...new Set(rows.map((row) => row.location_id).filter((id): id is string => typeof id === "string" && id.length > 0))];
 
   const [staffRows, locationRows] = await Promise.all([
-    loadByIds<StaffLookup>(context, "staff", "id, full_name, employee_code, qid", staffIds),
+    loadByIds<StaffLookup>(context, "staff", "id, full_name, employee_code, qid, employment_type", staffIds),
     loadByIds<LocationLookup>(context, "locations", "id, code, name, region", locationIds),
   ]);
 
@@ -1450,6 +1456,8 @@ async function enrichAttendanceHrDailyRows(
       overtime_minutes: Number(row.overtime_minutes ?? 0),
       missed_punch: Boolean(row.missed_punch),
       punch_count: Number(row.punch_count ?? 0),
+      worked_minutes: row.worked_minutes == null ? null : Number(row.worked_minutes),
+      employment_type: staff?.employment_type ?? null,
       staff_name: staff?.full_name?.trim() || null,
       employee_code: staff?.employee_code ?? null,
       qid: staff?.qid ?? null,

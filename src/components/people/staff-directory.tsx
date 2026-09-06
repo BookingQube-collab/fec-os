@@ -183,6 +183,8 @@ export function StaffDirectory({
           options={[
             { value: "permanent", label: t("people.dashboard.permanent") },
             { value: "temporary", label: t("people.dashboard.temporary") },
+            { value: "secondment", label: "Secondment" },
+            { value: "joker", label: "Joker" },
           ]}
           triggerClassName="h-10 min-h-10 w-auto min-w-[9.5rem] font-normal"
           className="w-auto"

@@ -113,6 +113,8 @@ export async function GET(request: Request) {
             return [
               cells.location,
               cells.userName,
+              cells.deviceUserId,
+              cells.systemUserId,
               cells.date,
               cells.firstCheckIn,
               cells.lastCheckOut,

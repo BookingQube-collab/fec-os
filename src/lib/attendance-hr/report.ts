@@ -1,4 +1,5 @@
 import { formatLocationLabel, formatLocationName, rosterSheetLabel } from "@/lib/locations/normalize";
+import { breakMinutesForLocation } from "@/lib/attendance-hr/shift-policy";
 
 export type AttendanceHrReportRow = {
   id: string;
@@ -14,6 +15,8 @@ export type AttendanceHrReportRow = {
   overtime_minutes: number;
   missed_punch: boolean;
   punch_count: number;
+  worked_minutes: number | null;
+  employment_type: string | null;
   staff_name: string | null;
   employee_code: string | null;
   qid: string | null;
@@ -76,10 +79,14 @@ export function attendanceHrToListingSource(
   locationLabel: string;
   userName: string;
   userNameUnmapped: boolean;
+  deviceUserId: string | null;
+  systemUserId: string | null;
   work_date: string;
   actual_in: string | null;
   actual_out: string | null;
   overtime_minutes: number;
+  worked_minutes: number | null;
+  break_minutes: number;
   status: string;
   missed_punch: boolean;
 } {
@@ -89,10 +96,14 @@ export function attendanceHrToListingSource(
     locationLabel: attendanceHrListingLocation(row),
     userName: mappedName || unmapped,
     userNameUnmapped: !mappedName,
+    deviceUserId: row.biometric_user_id,
+    systemUserId: row.staff_id,
     work_date: row.work_date,
     actual_in: row.actual_in,
     actual_out: row.actual_out,
     overtime_minutes: row.overtime_minutes,
+    worked_minutes: row.worked_minutes,
+    break_minutes: breakMinutesForLocation(row.location_code),
     status: row.status,
     missed_punch: row.missed_punch,
   };

@@ -174,7 +174,7 @@ export const updateStaffRosterFields = createAuthenticatedAction(
     id: z.string().uuid(),
     qid: z.string().max(32).nullable().optional(),
     e3Enrolled: z.boolean().nullable().optional(),
-    employmentType: z.enum(["permanent", "temporary"]).nullable().optional(),
+    employmentType: z.enum(["permanent", "temporary", "secondment", "joker"]).nullable().optional(),
     phone: z.string().max(40).nullable().optional(),
     status: z.enum(["active", "on_leave", "terminated", "inactive"]).optional(),
   }),

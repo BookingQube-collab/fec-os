@@ -400,7 +400,7 @@ export const createStaff = createAuthenticatedAction(
     email: z.string().email().optional().or(z.literal("")),
     qid: z.string().max(32).optional(),
     e3Enrolled: z.boolean().nullable().optional(),
-    employmentType: z.enum(["permanent", "temporary"]).nullable().optional(),
+    employmentType: z.enum(["permanent", "temporary", "secondment", "joker"]).nullable().optional(),
   }),
   async (data, context) => {
     await assertLocationAccess(context, data.locationId);
@@ -463,7 +463,7 @@ export const updateStaff = createAuthenticatedAction(
     email: z.string().email().nullable().optional().or(z.literal("")),
     qid: z.string().max(32).nullable().optional(),
     e3Enrolled: z.boolean().nullable().optional(),
-    employmentType: z.enum(["permanent", "temporary"]).nullable().optional(),
+    employmentType: z.enum(["permanent", "temporary", "secondment", "joker"]).nullable().optional(),
   }),
   async (data, context) => {
     const { data: existing, error: fetchErr } = await context.supabase
@@ -484,7 +484,7 @@ export const updateStaff = createAuthenticatedAction(
       email?: string | null;
       qid?: string | null;
       e3_enrolled?: boolean | null;
-      employment_type?: "permanent" | "temporary" | null;
+      employment_type?: "permanent" | "temporary" | "secondment" | "joker" | null;
     } = {};
     if (data.fullName !== undefined) patch.full_name = data.fullName;
     if (data.jobTitle !== undefined) patch.job_title = data.jobTitle;

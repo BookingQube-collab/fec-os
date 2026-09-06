@@ -8,6 +8,7 @@ import { parseEncryptionKey } from "@/lib/ai/crypto";
 
 import { calculateDailyAttendance, markProbableDuplicates } from "./calculate";
 import { ADMS_ONLINE_WINDOW_MS, DEFAULT_SHIFT, isAdmsDeviceOnline, USER_DAT_RECORD_SIZE } from "./constants";
+import { applyAttendanceShiftPolicy } from "./shift-policy";
 import { decryptFileBuffer, encryptFileBuffer } from "./file-crypto";
 import { detectBufferKind } from "./detect";
 import { guardAttendanceUpload } from "./file-guard";
@@ -353,6 +354,47 @@ describe("daily calculation", () => {
     expect(day.statusFlags).toContain("missed_punch");
   });
 
+  it("applies permanent 9h expected with 1h break for INF-CC style shifts", () => {
+    const day = calculateDailyAttendance(
+      [
+        { punchAt: "2026-08-01T07:28:31.000Z" },
+        { punchAt: "2026-08-01T17:05:25.000Z" },
+      ],
+      {
+        workDate: "2026-08-01",
+        scheduled: true,
+        shift: applyAttendanceShiftPolicy(shift, {
+          employmentType: "permanent",
+          locationCode: "INF-CC",
+        }),
+      },
+    );
+    // ~9.62h gross − 60m break ≈ 8.62h net → under 9h expected → no OT
+    expect(day.workedMinutes).toBeGreaterThan(500);
+    expect(day.workedMinutes).toBeLessThan(540);
+    expect(day.overtimeMinutes).toBe(0);
+  });
+
+  it("applies joker 10h expected with 30m Urban Arena break", () => {
+    const day = calculateDailyAttendance(
+      [
+        { punchAt: "2026-08-01T05:00:00.000Z" },
+        { punchAt: "2026-08-01T16:00:00.000Z" },
+      ],
+      {
+        workDate: "2026-08-01",
+        scheduled: true,
+        shift: applyAttendanceShiftPolicy(shift, {
+          employmentType: "joker",
+          locationCode: "UA-DM",
+        }),
+      },
+    );
+    // 11h gross − 30m = 10.5h → 30m OT over 10h
+    expect(day.workedMinutes).toBe(630);
+    expect(day.overtimeMinutes).toBe(30);
+  });
+
   it("supports overnight shifts when out is after midnight", () => {
     const night = { ...shift, name: "Night", startTime: "22:00", endTime: "07:00", overnight: true };
     const day = calculateDailyAttendance(
@@ -405,6 +447,8 @@ describe("HR report row helpers", () => {
       overtime_minutes: 0,
       missed_punch: false,
       punch_count: 2,
+      worked_minutes: 480,
+      employment_type: "permanent",
       staff_name: "Ahmed",
       employee_code: "E3-012",
       qid: null,
@@ -448,6 +492,8 @@ describe("HR report row helpers", () => {
         overtime_minutes: 0,
         missed_punch: false,
         punch_count: 2,
+        worked_minutes: 480,
+        employment_type: "permanent",
         staff_name: "Ahmed",
         employee_code: "E3-012",
         qid: null,

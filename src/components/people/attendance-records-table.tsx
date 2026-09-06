@@ -13,13 +13,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  computeHoursWorked,
   formatHoursValue,
   formatOvertimeHours,
   formatPunchTime12h,
   formatWorkDateDdMmYyyy,
   getAttendanceStatusDisplay,
   hasOvertime,
+  resolveTotalHoursWorked,
   type AttendanceListingSource,
 } from "@/lib/attendance-display";
 import { cn } from "@/lib/utils";
@@ -42,6 +42,8 @@ export function AttendanceRecordsTable({
           <TableRow className="bg-surface/60 hover:bg-surface/60">
             <TableHead className={HEAD_CLASS}>{t("people.attendance.location")}</TableHead>
             <TableHead className={HEAD_CLASS}>{t("people.attendance.userName")}</TableHead>
+            <TableHead className={HEAD_CLASS}>{t("people.attendance.deviceUserId")}</TableHead>
+            <TableHead className={HEAD_CLASS}>{t("people.attendance.systemUserId")}</TableHead>
             <TableHead className={HEAD_CLASS}>{t("people.attendance.date")}</TableHead>
             <TableHead className={HEAD_CLASS}>{t("people.attendance.firstCheckIn")}</TableHead>
             <TableHead className={HEAD_CLASS}>{t("people.attendance.lastCheckOut")}</TableHead>
@@ -54,17 +56,20 @@ export function AttendanceRecordsTable({
         <TableBody>
           {rows.length === 0 ? (
             <TableRow>
-              <TableCell className="px-4 py-8" colSpan={9}>
+              <TableCell className="px-4 py-8" colSpan={11}>
                 {empty}
               </TableCell>
             </TableRow>
           ) : (
             rows.map((row, index) => {
-              const hours = computeHoursWorked(row.actual_in, row.actual_out);
+              const hours = resolveTotalHoursWorked(row);
               const statusDisplay = getAttendanceStatusDisplay(row);
               const ot = hasOvertime(row);
               return (
-                <TableRow key={row.id ?? `${row.userName}-${row.work_date}-${index}`}>
+                <TableRow
+                  key={row.id ?? `${row.userName}-${row.work_date}-${index}`}
+                  className={cn(statusDisplay.rowClass)}
+                >
                   <TableCell className="min-w-[10rem] text-xs text-muted-foreground">
                     {row.locationLabel}
                   </TableCell>
@@ -75,6 +80,12 @@ export function AttendanceRecordsTable({
                     )}
                   >
                     {row.userName}
+                  </TableCell>
+                  <TableCell className="font-mono text-xs tabular-nums whitespace-nowrap">
+                    {row.deviceUserId?.trim() || "—"}
+                  </TableCell>
+                  <TableCell className="font-mono text-xs tabular-nums whitespace-nowrap">
+                    {row.systemUserId?.trim() || "—"}
                   </TableCell>
                   <TableCell className="tabular-nums whitespace-nowrap text-xs">
                     {formatWorkDateDdMmYyyy(row.work_date)}

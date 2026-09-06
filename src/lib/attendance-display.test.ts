@@ -66,6 +66,8 @@ describe("attendance listing display", () => {
       overtime_minutes: 0,
       missed_punch: true,
       punch_count: 1,
+      worked_minutes: null,
+      employment_type: "permanent",
       staff_name: "Ahmed Ali",
       employee_code: "E3-012",
       qid: null,
@@ -76,12 +78,46 @@ describe("attendance listing display", () => {
     const listing = attendanceHrToListingSource(row);
     expect(listing.locationLabel).toBe("INF-CC — Inflatapark - City Center Doha");
     expect(listing.userName).toBe("Ahmed Ali");
+    expect(listing.deviceUserId).toBe("9");
+    expect(listing.systemUserId).toBe("staff-1");
+    expect(listing.break_minutes).toBe(60);
     const cells = attendanceListingCells(listing);
     expect(cells.date).toBe("25-08-2026");
     expect(cells.firstCheckIn).toMatch(/10:17:44\s*AM/);
     expect(cells.lastCheckOut).toBe("—");
+    expect(cells.deviceUserId).toBe("9");
+    expect(cells.systemUserId).toBe("staff-1");
     expect(cells.overtime).toBe("No");
     expect(cells.overtimeHours).toBe("—");
     expect(cells.status).toBe("Incomplete");
+  });
+
+  it("tints weekly off rows and keeps the Weekly off label", () => {
+    const weekly = getAttendanceStatusDisplay({
+      status: "weekly_off",
+      missed_punch: false,
+      actual_in: null,
+      actual_out: null,
+    });
+    expect(weekly.label).toBe("Weekly off");
+    expect(weekly.rowClass).toMatch(/slate/);
+  });
+
+  it("prefers stored worked_minutes for total hours", () => {
+    const cells = attendanceListingCells({
+      locationLabel: "INF-CC",
+      userName: "Test",
+      deviceUserId: "12",
+      systemUserId: "uuid-1",
+      work_date: "2026-08-25",
+      actual_in: "2026-08-25T07:00:00.000Z",
+      actual_out: "2026-08-25T17:00:00.000Z",
+      overtime_minutes: 0,
+      worked_minutes: 480,
+      break_minutes: 60,
+      status: "present",
+      missed_punch: false,
+    });
+    expect(cells.totalHours).toBe("8.00");
   });
 });

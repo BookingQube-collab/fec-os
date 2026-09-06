@@ -1,6 +1,7 @@
 import { assertLocationAccess } from "@/lib/server/authorize";
 import type { AuthContext } from "@/lib/server/auth";
 import { fetchHomeStaffIdsAtLocation, punchOrHomeStaffOrFilter } from "@/lib/staff-work-locations";
+import { breakMinutesForLocation } from "@/lib/attendance-hr/shift-policy";
 
 export async function fetchShifts(context: AuthContext, locationId?: string | null) {
   if (!locationId) return [];
@@ -71,7 +72,7 @@ export async function fetchAttendanceDailySummary(
   let q = context.supabase
     .from("attendance_daily_summary")
     .select(
-      "id, location_id, staff_id, work_date, status, late_minutes, early_leave_minutes, overtime_minutes, missed_punch, actual_in, actual_out, scheduled_in, scheduled_out",
+      "id, location_id, staff_id, biometric_user_id, work_date, status, late_minutes, early_leave_minutes, overtime_minutes, missed_punch, actual_in, actual_out, scheduled_in, scheduled_out, worked_minutes",
     )
     .gte("work_date", from)
     .lte("work_date", to)
@@ -90,7 +91,7 @@ export async function fetchAttendanceDailySummary(
 
   const [{ data: staff }, { data: locations }] = await Promise.all([
     staffIds.length
-      ? context.supabase.from("staff").select("id, full_name, employee_code").in("id", staffIds)
+      ? context.supabase.from("staff").select("id, full_name, employee_code, employment_type").in("id", staffIds)
       : Promise.resolve({ data: [] }),
     locationIds.length
       ? context.supabase.from("locations").select("id, code, name, region").in("id", locationIds)
@@ -100,11 +101,16 @@ export async function fetchAttendanceDailySummary(
   const staffMap = new Map((staff ?? []).map((s) => [s.id, s]));
   const locationMap = new Map((locations ?? []).map((l) => [l.id, l]));
 
-  return rows.map((r) => ({
-    ...r,
-    staff: r.staff_id ? staffMap.get(r.staff_id) ?? null : null,
-    location: locationMap.get(r.location_id) ?? null,
-  }));
+  return rows.map((r) => {
+    const loc = locationMap.get(r.location_id) ?? null;
+    const code = loc && typeof loc === "object" && "code" in loc ? String((loc as { code?: string }).code ?? "") : "";
+    return {
+      ...r,
+      staff: r.staff_id ? staffMap.get(r.staff_id) ?? null : null,
+      location: loc,
+      break_minutes: breakMinutesForLocation(code),
+    };
+  });
 }
 
 export async function fetchAttendanceExceptions(context: AuthContext, locationId?: string | null) {

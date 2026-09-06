@@ -24,7 +24,13 @@ export {
   isAllowedAttendanceImportFilename,
   selectAttendanceImportFiles,
 } from "./select-import-files";
-export { calculateDailyAttendance, markProbableDuplicates, assignAttendanceDate, summarizePeriod } from "./calculate";
+export {
+  applyAttendanceShiftPolicy,
+  breakMinutesForLocation,
+  expectedShiftMinutes,
+  normalizeAttendanceEmploymentRole,
+} from "./shift-policy";
+export type { AttendanceEmploymentRole, AttendanceEmploymentType } from "./shift-policy";
 export { findAttendanceGaps, resolveResyncWindow, qatarRangeToFetchWindow } from "./gap-check";
 export type { AttendanceGapReport, AttendanceGapRow } from "./gap-check";
 

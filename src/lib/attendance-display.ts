@@ -5,6 +5,7 @@ export type AttendanceSummaryRow = {
   id: string;
   location_id: string;
   staff_id: string | null;
+  biometric_user_id?: string | null;
   work_date: string;
   status: string;
   late_minutes: number;
@@ -15,6 +16,8 @@ export type AttendanceSummaryRow = {
   actual_out: string | null;
   scheduled_in: string | null;
   scheduled_out: string | null;
+  worked_minutes?: number | null;
+  break_minutes?: number | null;
   staff: { full_name?: string; employee_code?: string } | null;
   location: { code: string; name: string; region: string | null } | null;
 };
@@ -22,6 +25,8 @@ export type AttendanceSummaryRow = {
 export type AttendanceStatusDisplay = {
   label: string;
   badgeClass: string;
+  /** Soft full-row background tint matching the status pill. */
+  rowClass: string;
 };
 
 export function formatLocationLabel(
@@ -54,11 +59,34 @@ export function formatPunchTime12h(iso: string | null | undefined): string {
   });
 }
 
+/** Gross punch-span hours (no break). Prefer resolveTotalHoursWorked when break/net is needed. */
 export function computeHoursWorked(actualIn: string | null, actualOut: string | null): number | null {
   if (!actualIn || !actualOut) return null;
   const ms = new Date(actualOut).getTime() - new Date(actualIn).getTime();
   if (ms < 0) return null;
   return Math.round((ms / 3_600_000) * 100) / 100;
+}
+
+/**
+ * Net hours for the listing: prefer stored worked_minutes (post-break from recalc),
+ * else punch span minus location break minutes when known.
+ */
+export function resolveTotalHoursWorked(row: {
+  actual_in: string | null;
+  actual_out: string | null;
+  worked_minutes?: number | null;
+  break_minutes?: number | null;
+}): number | null {
+  if (row.worked_minutes != null && Number.isFinite(Number(row.worked_minutes))) {
+    const mins = Number(row.worked_minutes);
+    if (mins >= 0 && (row.actual_in || row.actual_out || mins > 0)) {
+      return Math.round((mins / 60) * 100) / 100;
+    }
+  }
+  const gross = computeHoursWorked(row.actual_in, row.actual_out);
+  if (gross == null) return null;
+  const breakMin = row.break_minutes != null && Number.isFinite(Number(row.break_minutes)) ? Number(row.break_minutes) : 0;
+  return Math.max(0, Math.round((gross - breakMin / 60) * 100) / 100);
 }
 
 export function formatHoursValue(hours: number | null): string {
@@ -81,34 +109,50 @@ const MISSING_PUNCH_BADGE = "border-rose-500/40 bg-rose-500/15 text-rose-600 dar
 const LATE_BADGE = "border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-300";
 const COMPLETE_BADGE = "border-emerald-500/40 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
 
+const INCOMPLETE_ROW = "bg-amber-500/10 hover:bg-amber-500/15";
+const MISSING_PUNCH_ROW = "bg-rose-500/10 hover:bg-rose-500/15";
+const LATE_ROW = "bg-amber-500/10 hover:bg-amber-500/15";
+const COMPLETE_ROW = "bg-emerald-500/10 hover:bg-emerald-500/15";
+const WEEKLY_OFF_ROW = "bg-slate-500/15 hover:bg-slate-500/20";
+const LEAVE_ROW = "bg-blue-500/10 hover:bg-blue-500/15";
+const HOLIDAY_ROW = "bg-sky-500/10 hover:bg-sky-500/15";
+const UNSCHEDULED_ROW = "bg-zinc-500/10 hover:bg-zinc-500/15";
+
 const NAMED_STATUS_DISPLAY: Record<string, AttendanceStatusDisplay> = {
   weekly_off: {
     label: "Weekly off",
     badgeClass: "border-slate-400/50 bg-slate-500/10 text-slate-600 dark:text-slate-300",
+    rowClass: WEEKLY_OFF_ROW,
   },
   public_holiday: {
     label: "Public holiday",
     badgeClass: "border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300",
+    rowClass: HOLIDAY_ROW,
   },
   annual_leave: {
     label: "Annual leave",
     badgeClass: "border-blue-500/40 bg-blue-500/10 text-blue-700 dark:text-blue-300",
+    rowClass: LEAVE_ROW,
   },
   sick_leave: {
     label: "Sick leave",
     badgeClass: "border-violet-500/40 bg-violet-500/15 text-violet-700 dark:text-violet-300",
+    rowClass: "bg-violet-500/10 hover:bg-violet-500/15",
   },
   unpaid_leave: {
     label: "Unpaid leave",
     badgeClass: "border-slate-400/50 bg-slate-500/10 text-slate-600 dark:text-slate-300",
+    rowClass: WEEKLY_OFF_ROW,
   },
   unscheduled: {
     label: "Unscheduled",
     badgeClass: "border-zinc-500/40 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300",
+    rowClass: UNSCHEDULED_ROW,
   },
   review_required: {
     label: "Review required",
     badgeClass: LATE_BADGE,
+    rowClass: LATE_ROW,
   },
 };
 
@@ -122,7 +166,7 @@ export function getAttendanceStatusDisplay(
   const hasOut = Boolean(row.actual_out);
 
   if (row.status === "absent" || (!hasIn && !hasOut)) {
-    return { label: "Missing Punch", badgeClass: MISSING_PUNCH_BADGE };
+    return { label: "Missing Punch", badgeClass: MISSING_PUNCH_BADGE, rowClass: MISSING_PUNCH_ROW };
   }
 
   if (
@@ -132,19 +176,20 @@ export function getAttendanceStatusDisplay(
     hasIn !== hasOut
   ) {
     if ((hasIn && !hasOut) || row.status === "incomplete") {
-      return { label: "Incomplete", badgeClass: INCOMPLETE_BADGE };
+      return { label: "Incomplete", badgeClass: INCOMPLETE_BADGE, rowClass: INCOMPLETE_ROW };
     }
-    return { label: "Missing Punch", badgeClass: MISSING_PUNCH_BADGE };
+    return { label: "Missing Punch", badgeClass: MISSING_PUNCH_BADGE, rowClass: MISSING_PUNCH_ROW };
   }
 
   if (row.status === "late" || row.status === "early_leave" || row.status === "early_departure") {
     return {
       label: row.status === "late" ? "Late" : "Early Leave",
       badgeClass: LATE_BADGE,
+      rowClass: LATE_ROW,
     };
   }
 
-  return { label: "Complete", badgeClass: COMPLETE_BADGE };
+  return { label: "Complete", badgeClass: COMPLETE_BADGE, rowClass: COMPLETE_ROW };
 }
 
 export function attendanceDateRange(preset: "week" | "month", todayYmd?: string): { from: string; to: string } {
@@ -215,7 +260,7 @@ export function computeAttendanceKpis(rows: AttendanceSummaryRow[]): AttendanceK
     if (row.status === "absent") absent++;
     if (hasOvertime(row)) overtime++;
 
-    const hours = computeHoursWorked(row.actual_in, row.actual_out);
+    const hours = resolveTotalHoursWorked(row);
     if (hours != null) totalHours += hours;
   }
 
@@ -237,10 +282,14 @@ export type AttendanceListingSource = {
   locationLabel: string;
   userName: string;
   userNameUnmapped?: boolean;
+  deviceUserId?: string | null;
+  systemUserId?: string | null;
   work_date: string;
   actual_in: string | null;
   actual_out: string | null;
   overtime_minutes: number;
+  worked_minutes?: number | null;
+  break_minutes?: number | null;
   status: string;
   missed_punch: boolean;
 };
@@ -248,6 +297,8 @@ export type AttendanceListingSource = {
 export const ATTENDANCE_LISTING_COLUMNS = [
   "Location",
   "User Name",
+  "Device User ID",
+  "System User ID",
   "Date",
   "First Check-In",
   "Last Check-Out",
@@ -260,6 +311,8 @@ export const ATTENDANCE_LISTING_COLUMNS = [
 export type AttendanceListingCells = {
   location: string;
   userName: string;
+  deviceUserId: string;
+  systemUserId: string;
   date: string;
   firstCheckIn: string;
   lastCheckOut: string;
@@ -274,22 +327,28 @@ export function toAttendanceListingSource(row: AttendanceSummaryRow): Attendance
     id: row.id,
     locationLabel: formatLocationLabel(row.location),
     userName: row.staff?.full_name ?? "—",
+    deviceUserId: row.biometric_user_id ?? null,
+    systemUserId: row.staff_id ?? null,
     work_date: row.work_date,
     actual_in: row.actual_in,
     actual_out: row.actual_out,
     overtime_minutes: row.overtime_minutes,
+    worked_minutes: row.worked_minutes ?? null,
+    break_minutes: row.break_minutes ?? null,
     status: row.status,
     missed_punch: row.missed_punch,
   };
 }
 
 export function attendanceListingCells(row: AttendanceListingSource): AttendanceListingCells {
-  const hours = computeHoursWorked(row.actual_in, row.actual_out);
+  const hours = resolveTotalHoursWorked(row);
   const ot = hasOvertime(row);
   const status = getAttendanceStatusDisplay(row);
   return {
     location: row.locationLabel,
     userName: row.userName,
+    deviceUserId: row.deviceUserId?.trim() || "—",
+    systemUserId: row.systemUserId?.trim() || "—",
     date: formatWorkDateDdMmYyyy(row.work_date),
     firstCheckIn: formatPunchTime12h(row.actual_in) || "—",
     lastCheckOut: formatPunchTime12h(row.actual_out) || "—",
@@ -306,6 +365,8 @@ export function attendanceListingExportObjects(rows: AttendanceListingSource[]) 
     return {
       Location: cells.location,
       "User Name": cells.userName,
+      "Device User ID": cells.deviceUserId,
+      "System User ID": cells.systemUserId,
       Date: cells.date,
       "First Check-In": cells.firstCheckIn,
       "Last Check-Out": cells.lastCheckOut,
@@ -323,6 +384,8 @@ export function buildAttendanceListingCsv(rows: AttendanceListingSource[]): stri
     return [
       cells.location,
       cells.userName,
+      cells.deviceUserId,
+      cells.systemUserId,
       cells.date,
       cells.firstCheckIn,
       cells.lastCheckOut,

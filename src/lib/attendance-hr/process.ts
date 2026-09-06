@@ -22,6 +22,7 @@ import {
   type MergedBiometricUser,
 } from "./mapping-merge";
 import { previewAttendanceFile } from "./preview";
+import { applyAttendanceShiftPolicy } from "./shift-policy";
 
 export {
   BIOMETRIC_USER_CONFLICT,
@@ -179,7 +180,7 @@ export async function recalculateAttendanceRange(
     leaveQuery = leaveQuery.in("staff_id", staffScope);
   }
 
-  const [{ data: logs, error }, { data: roster }, { data: holidays }, { data: leaves }, { data: shifts }, { data: ruleRows }, { data: staffRows }] =
+  const [{ data: logs, error }, { data: roster }, { data: holidays }, { data: leaves }, { data: shifts }, { data: ruleRows }, { data: staffRows }, { data: locationRow }] =
     await Promise.all([
       logsQuery,
       rosterQuery,
@@ -188,9 +189,14 @@ export async function recalculateAttendanceRange(
       supabase.from("attendance_shift_templates").select("*").eq("active", true),
       supabase.from("attendance_rule_sets").select("*").order("scope"),
       staffScope
-        ? Promise.resolve({ data: [] as Array<{ id: string; location_id: string; status: string | null }>, error: null })
-        : supabase.from("staff").select("id, location_id, status").is("deleted_at", null).limit(5000),
+        ? supabase.from("staff").select("id, location_id, status, employment_type").in("id", staffScope).is("deleted_at", null)
+        : supabase.from("staff").select("id, location_id, status, employment_type").is("deleted_at", null).limit(5000),
+      supabase.from("locations").select("id, code").eq("id", locationId).maybeSingle(),
     ]);
+  const locationCode = locationRow?.code ? String(locationRow.code) : null;
+  const employmentByStaffId = new Map(
+    (staffRows ?? []).map((row) => [String(row.id), (row as { employment_type?: string | null }).employment_type ?? null]),
+  );
   let coveragePeriods: Array<{ start: string; end: string }> = [];
   if (!staffScope) {
     try {
@@ -247,7 +253,11 @@ export async function recalculateAttendanceRange(
     const staffId = (sample.staff_id as string | null) ?? null;
     const rosterRow = staffId ? rosterByKey.get(`${staffId}|${workDate}`) : undefined;
     const leaveRow = staffId ? leaveByKey.get(`${staffId}|${workDate}`) : undefined;
-    const shift = rosterRow?.shift_template_id ? shiftById.get(String(rosterRow.shift_template_id)) ?? fallbackShift : fallbackShift;
+    const baseShift = rosterRow?.shift_template_id ? shiftById.get(String(rosterRow.shift_template_id)) ?? fallbackShift : fallbackShift;
+    const shift = applyAttendanceShiftPolicy(baseShift, {
+      employmentType: staffId ? employmentByStaffId.get(staffId) ?? null : null,
+      locationCode,
+    });
     // Recompute duplicate flags from scratch (ignore stale DB flags from cross-user ingest bugs).
     const marked = markProbableDuplicates(
       punches.map((p) => ({
@@ -362,9 +372,13 @@ export async function recalculateAttendanceRange(
       if (staffScope && !staffScope.includes(staffId)) continue;
       if (covered.has(`${staffId}|${workDate}`)) continue;
       const leaveRow = leaveByKey.get(`${staffId}|${workDate}`);
-      const shift = rosterRow.shift_template_id
+      const baseShift = rosterRow.shift_template_id
         ? shiftById.get(String(rosterRow.shift_template_id)) ?? fallbackShift
         : fallbackShift;
+      const shift = applyAttendanceShiftPolicy(baseShift, {
+        employmentType: employmentByStaffId.get(staffId) ?? null,
+        locationCode,
+      });
       const calc = calculateDailyAttendance([], {
         workDate,
         scheduled: !rosterRow.is_week_off,

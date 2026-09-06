@@ -23,7 +23,7 @@ export type StaffRoleValue =
   | "security"
   | "other";
 
-export type EmploymentType = "permanent" | "temporary";
+export type EmploymentType = "permanent" | "temporary" | "secondment" | "joker";
 
 export type ParsedRosterRow = {
   rowNumber: number;
