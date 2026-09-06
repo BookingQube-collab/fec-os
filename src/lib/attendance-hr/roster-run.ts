@@ -4,6 +4,7 @@ import type { AuthContext } from "@/lib/server/auth";
 import { CANONICAL_LOCATION_CODES } from "@/lib/locations/normalize";
 import { fetchWorkLocationsByStaffId } from "@/lib/staff-work-locations";
 
+import { rematchPreviewShiftTemplates } from "./roster-amend";
 import { assertAttendanceRosterLocation, replaceAttendanceRosterPeriod } from "./roster-apply";
 import {
   buildAttendanceRosterPreview,
@@ -84,8 +85,11 @@ export async function commitLiveShiftRoster(
     throw new Error(input.preview.errors[0] ?? "No matched roster rows to save.");
   }
 
-  const byLocation = new Map<string, typeof input.preview.rows>();
-  for (const row of input.preview.rows) {
+  // Re-resolve templates after preview edits (times / week-off) so saved rows match what the user confirmed.
+  const preview = await rematchPreviewShiftTemplates(context, input.preview);
+
+  const byLocation = new Map<string, typeof preview.rows>();
+  for (const row of preview.rows) {
     if (row.status !== "matched" || !row.locationId) continue;
     const list = byLocation.get(row.locationId) ?? [];
     list.push(row);
@@ -98,8 +102,8 @@ export async function commitLiveShiftRoster(
     results.push(
       await replaceAttendanceRosterPeriod(context, {
         locationId: locId,
-        dateFrom: input.preview.dateFrom,
-        dateTo: input.preview.dateTo,
+        dateFrom: preview.dateFrom,
+        dateTo: preview.dateTo,
         fileName: input.fileName,
         fileType: input.fileType,
         rows,
@@ -110,7 +114,7 @@ export async function commitLiveShiftRoster(
   return {
     imported: results.reduce((n, r) => n + r.imported, 0),
     processed: results.reduce((n, r) => n + r.processed, 0),
-    dateFrom: input.preview.dateFrom,
-    dateTo: input.preview.dateTo,
+    dateFrom: preview.dateFrom,
+    dateTo: preview.dateTo,
   };
 }

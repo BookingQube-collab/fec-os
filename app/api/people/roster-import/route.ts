@@ -1,6 +1,5 @@
 import { logger } from "@/core/logger";
 import { withAuthRouteRequest, searchParams } from "@/lib/server/api-route";
-import { canUserDo } from "@/lib/rbac";
 import { attendanceRosterPeriod, monthBounds, qatarWeekBounds, type AttendanceRosterPeriodMode } from "@/lib/attendance-hr/roster-period";
 import { commitLiveShiftRoster, previewLiveShiftRoster } from "@/lib/attendance-hr/roster-run";
 import {
@@ -8,12 +7,9 @@ import {
   parseAttendanceRosterFile,
   type AttendanceRosterPreview,
 } from "@/lib/attendance-hr/roster-upload";
-import { applyRosterPreview, buildRosterPreview } from "@/lib/staff-roster/apply";
 import { mergeShiftPreviewRows } from "@/lib/staff-roster/batch-preview";
-import type { RosterColumnKey, RosterPreview } from "@/lib/staff-roster/types";
 import { guardRosterUpload } from "@/lib/staff-roster/file-guard";
 import { persistRosterOriginalFile, rosterFileSha256 } from "@/lib/staff-roster/persist";
-import { mapRosterColumns, parseRosterWorkbook, ROSTER_COLUMN_KEYS } from "@/lib/staff-roster/parse-workbook";
 import {
   buildPeopleRosterSampleXlsx,
   enumerateRosterSampleDates,
@@ -36,13 +32,13 @@ type ShiftBatchSummary = {
   fileType: string;
 };
 
-function readPreviewPatch(form: FormData): { rows?: AttendanceRosterPreview["rows"]; preview?: RosterPreview } | null {
+function readPreviewPatch(form: FormData): { rows?: AttendanceRosterPreview["rows"] } | null {
   const raw = form.get("previewPatch");
   if (typeof raw !== "string" || !raw.trim()) return null;
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-    const rec = parsed as { rows?: AttendanceRosterPreview["rows"]; preview?: RosterPreview };
+    const rec = parsed as { rows?: AttendanceRosterPreview["rows"] };
     return rec;
   } catch {
     return null;
@@ -58,23 +54,6 @@ async function persistOriginalBestEffort(
     return await persistRosterOriginalFile(context, fileId, buffer);
   } catch (error) {
     logger.error("api", "Roster original file persist failed; preview is still available", error);
-    return null;
-  }
-}
-
-function readColumnMap(form: FormData): Partial<Record<RosterColumnKey, string>> | null {
-  const raw = form.get("columnMap");
-  if (typeof raw !== "string" || !raw.trim()) return null;
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-    const mapping: Partial<Record<RosterColumnKey, string>> = {};
-    for (const key of ROSTER_COLUMN_KEYS) {
-      const value = (parsed as Record<string, unknown>)[key];
-      if (typeof value === "string" && value.trim()) mapping[key] = value.trim();
-    }
-    return Object.keys(mapping).length ? mapping : null;
-  } catch {
     return null;
   }
 }
@@ -158,10 +137,7 @@ export async function POST(request: Request) {
       const importMode = (String(form.get("importMode") ?? "safe_sync") === "authoritative_replace"
         ? "authoritative_replace"
         : "safe_sync") as RosterImportMode;
-      const confirmHardDelete = String(form.get("confirmHardDelete") ?? "") === "true";
       const batchId = String(form.get("batchId") ?? "");
-      const columnMap = readColumnMap(form);
-      const preferHint = String(form.get("columnMapOverride") ?? "") === "true";
       const { periodMode, period } = readPeriod({
         get: (key) => {
           const value = form.get(key);
@@ -178,178 +154,99 @@ export async function POST(request: Request) {
           .single();
         if (error || !batch) throw error ?? new Error("Import batch not found");
         if (batch.status !== "preview") throw new Error("This batch is no longer awaiting confirmation");
-        const summary = batch.summary as (ShiftBatchSummary & { preview?: RosterPreview }) | null;
+        const summary = batch.summary as ShiftBatchSummary | null;
         const previewPatch = readPreviewPatch(form);
-        if (summary?.kind === "shift_roster") {
-          const storedShift = summary.preview;
-          if (!storedShift) throw new Error("Preview payload is missing; upload again.");
-          const shiftPreview = mergeShiftPreviewRows(storedShift, previewPatch?.rows);
-          if (previewPatch?.rows?.length) {
-            const { error: patchErr } = await context.supabase
-              .from("staff_import_batches")
-              .update({
-                summary: { ...summary, preview: shiftPreview } as unknown as import("@/integrations/supabase/types").Json,
-                update_count: shiftPreview.matched,
-                review_count: shiftPreview.unmatched,
-                row_count: shiftPreview.rows.length,
-              })
-              .eq("id", batchId);
-            if (patchErr) throw patchErr;
-          }
-          const committed = await commitLiveShiftRoster(context, {
-            preview: shiftPreview,
-            fileName: summary.fileName,
-            fileType: summary.fileType,
-          });
-          const { error: uErr } = await context.supabase
+        if (summary?.kind !== "shift_roster") {
+          throw new Error(
+            "This page confirms shift rosters only. Use People for staff directory imports.",
+          );
+        }
+        const storedShift = summary.preview;
+        if (!storedShift) throw new Error("Preview payload is missing; upload again.");
+        const shiftPreview = mergeShiftPreviewRows(storedShift, previewPatch?.rows);
+        if (previewPatch?.rows?.length) {
+          const { error: patchErr } = await context.supabase
             .from("staff_import_batches")
             .update({
-              status: "applied",
-              completed_at: new Date().toISOString(),
-              update_count: committed.imported,
+              summary: { ...summary, preview: shiftPreview } as unknown as import("@/integrations/supabase/types").Json,
+              update_count: shiftPreview.matched,
+              review_count: shiftPreview.unmatched,
               row_count: shiftPreview.rows.length,
             })
             .eq("id", batchId);
-          if (uErr) throw uErr;
-          return {
-            ...shiftPreview,
-            ...committed,
-            mode: "commit" as const,
-            kind: "shift_roster" as const,
-            batchId,
-          };
+          if (patchErr) throw patchErr;
         }
-        const preview = previewPatch?.preview ?? summary?.preview;
-        if (!preview) throw new Error("Preview payload is missing; upload again.");
-        const result = await applyRosterPreview(context, batchId, {
-          ...preview,
-          canHardDelete: preview.canHardDelete && confirmHardDelete,
+        const committed = await commitLiveShiftRoster(context, {
+          preview: shiftPreview,
+          fileName: summary.fileName,
+          fileType: summary.fileType,
         });
-        return { mode: "commit" as const, kind: "directory" as const, batchId, ...result };
+        const { error: uErr } = await context.supabase
+          .from("staff_import_batches")
+          .update({
+            status: "applied",
+            completed_at: new Date().toISOString(),
+            update_count: committed.imported,
+            row_count: shiftPreview.rows.length,
+          })
+          .eq("id", batchId);
+        if (uErr) throw uErr;
+        return {
+          ...shiftPreview,
+          ...committed,
+          mode: "commit" as const,
+          kind: "shift_roster" as const,
+          batchId,
+        };
       }
 
       const file = form.get("file");
-      if (!(file instanceof File)) throw new Error("Upload an Employee Roster workbook.");
+      if (!(file instanceof File)) throw new Error("Upload a shift roster workbook (DATE, EMPLOYEE, LOCATION, SHIFT).");
       const buffer = Buffer.from(await file.arrayBuffer());
       const guard = guardRosterUpload(file.name, buffer.length);
       if (!guard.ok) throw new Error(guard.message);
 
-        const attParsed = await parseAttendanceRosterFile(guard.filename, buffer);
-        const attHeaders = attParsed.records[0] ? Object.keys(attParsed.records[0]) : [];
-        if (!attParsed.error && looksLikeShiftRosterHeaders(attHeaders)) {
-        const shiftPreview = await previewLiveShiftRoster(context, {
-          records: attParsed.records,
-          periodMode,
-          dateFrom: period.dateFrom,
-          dateTo: period.dateTo,
-          selectedLocationId: null,
-        });
-        const shiftSummary: ShiftBatchSummary = {
-          kind: "shift_roster",
-          preview: shiftPreview,
-          periodMode,
-          dateFrom: period.dateFrom,
-          dateTo: period.dateTo,
-          fileName: guard.filename,
-          fileType: guard.fileType,
-        };
-        const { data: batch, error: bErr } = await context.supabase
-          .from("staff_import_batches")
-          .insert({
-            status: "preview",
-            mode: importMode,
-            confirm_hard_delete: false,
-            uploaded_by: context.userId,
-            file_count: 1,
-            row_count: shiftPreview.rows.length,
-            create_count: 0,
-            update_count: shiftPreview.matched,
-            unchanged_count: 0,
-            archive_count: 0,
-            delete_count: 0,
-            review_count: shiftPreview.unmatched,
-            summary: shiftSummary as unknown as import("@/integrations/supabase/types").Json,
-          })
-          .select("id")
-          .single();
-        if (bErr || !batch) throw bErr ?? new Error("Could not create import batch");
-
-        const fileId = crypto.randomUUID();
-        const stored = await persistOriginalBestEffort(context, fileId, buffer);
-        const { error: fErr } = await context.supabase.from("staff_import_files").insert({
-          id: fileId,
-          batch_id: batch.id,
-          filename: guard.filename,
-          file_type: guard.fileType,
-          file_hash: rosterFileSha256(buffer),
-          storage_path: stored?.path ?? null,
-          worksheet_name: attParsed.sheetName ?? "Date Wise Roster",
-          byte_size: stored?.byteSize ?? buffer.length,
-          encrypted: stored?.encrypted ?? false,
-        });
-        if (fErr) logger.error("api", "Roster import file row failed; preview is still available", fErr);
-
-        return {
-          ...shiftPreview,
-          mode: "preview" as const,
-          kind: "shift_roster" as const,
-          batchId: batch.id,
-          periodMode,
-        };
+      const attParsed = await parseAttendanceRosterFile(guard.filename, buffer);
+      if (attParsed.error) throw new Error(attParsed.error);
+      const attHeaders = attParsed.records[0] ? Object.keys(attParsed.records[0]) : [];
+      if (!looksLikeShiftRosterHeaders(attHeaders)) {
+        throw new Error(
+          "This page imports shift rosters only (DATE, EMPLOYEE, LOCATION, SHIFT). Use People → staff CSV import for the employee directory.",
+        );
       }
 
-      const parsed = await parseRosterWorkbook(guard.filename, buffer, { columnMap, preferHint });
-      if (parsed.errors.length && !parsed.rows.length) {
-        const missingHeaders = parsed.errors.some((e) => e.code === "missing_headers");
-        if (missingHeaders && parsed.headers.length > 0) {
-          return {
-            mode: "preview" as const,
-            kind: "directory" as const,
-            headers: parsed.headers,
-            mapping: mapRosterColumns(parsed.headers, columnMap, preferHint),
-            worksheetName: parsed.worksheetName,
-            errors: parsed.errors,
-            periodMode,
-            dateFrom: period.dateFrom,
-            dateTo: period.dateTo,
-            needsMapping: true,
-          };
-        }
-        throw new Error(parsed.errors[0]?.message ?? "Could not read Employee Roster.");
-      }
-      const preview = await buildRosterPreview(context, parsed.rows, {
-        mode: importMode,
-        confirmHardDelete,
-        skippedEmpty: parsed.skippedEmpty,
-        mapping: parsed.mapping as Record<string, string>,
-        worksheetName: parsed.worksheetName,
-        errors: parsed.errors,
+      const shiftPreview = await previewLiveShiftRoster(context, {
+        records: attParsed.records,
+        periodMode,
+        dateFrom: period.dateFrom,
+        dateTo: period.dateTo,
+        selectedLocationId: null,
       });
-
+      const shiftSummary: ShiftBatchSummary = {
+        kind: "shift_roster",
+        preview: shiftPreview,
+        periodMode,
+        dateFrom: period.dateFrom,
+        dateTo: period.dateTo,
+        fileName: guard.filename,
+        fileType: guard.fileType,
+      };
       const { data: batch, error: bErr } = await context.supabase
         .from("staff_import_batches")
         .insert({
           status: "preview",
           mode: importMode,
-          confirm_hard_delete: confirmHardDelete,
+          confirm_hard_delete: false,
           uploaded_by: context.userId,
           file_count: 1,
-          row_count: preview.rows.length + preview.missing.length,
-          create_count: preview.counts.create,
-          update_count: preview.counts.update,
-          unchanged_count: preview.counts.unchanged,
-          archive_count: preview.counts.archive,
-          delete_count: preview.counts.delete,
-          review_count: preview.counts.review,
-          summary: {
-            kind: "directory",
-            preview,
-            mapping: parsed.mapping,
-            worksheetName: parsed.worksheetName,
-            periodMode,
-            dateFrom: period.dateFrom,
-            dateTo: period.dateTo,
-          } as unknown as import("@/integrations/supabase/types").Json,
+          row_count: shiftPreview.rows.length,
+          create_count: 0,
+          update_count: shiftPreview.matched,
+          unchanged_count: 0,
+          archive_count: 0,
+          delete_count: 0,
+          review_count: shiftPreview.unmatched,
+          summary: shiftSummary as unknown as import("@/integrations/supabase/types").Json,
         })
         .select("id")
         .single();
@@ -364,46 +261,18 @@ export async function POST(request: Request) {
         file_type: guard.fileType,
         file_hash: rosterFileSha256(buffer),
         storage_path: stored?.path ?? null,
-        worksheet_name: parsed.worksheetName,
+        worksheet_name: attParsed.sheetName ?? "Date Wise Roster",
         byte_size: stored?.byteSize ?? buffer.length,
         encrypted: stored?.encrypted ?? false,
       });
       if (fErr) logger.error("api", "Roster import file row failed; preview is still available", fErr);
 
-      const rowInserts = [...preview.rows, ...preview.missing].map((line) => ({
-        batch_id: batch.id,
-        row_number: line.rowNumber,
-        raw: { fullName: line.fullName, locationCode: line.locationCode } as unknown as import("@/integrations/supabase/types").Json,
-        match_staff_id: line.matchStaffId,
-        match_rule: line.matchRule,
-        action: line.action,
-        warnings: line.warnings,
-        old_values: line.oldValues as unknown as import("@/integrations/supabase/types").Json,
-        new_values: line.newValues as unknown as import("@/integrations/supabase/types").Json,
-        field_diffs: line.fieldDiffs as unknown as import("@/integrations/supabase/types").Json,
-      }));
-      if (rowInserts.length) {
-        const { error: rErr } = await context.supabase.from("staff_import_rows").insert(rowInserts);
-        if (rErr) logger.error("api", "Roster import row snapshot failed; preview is still available", rErr);
-      }
-
-      const includeSalary = canUserDo(context.roles ?? [], "people.view_salary");
-      if (!includeSalary) {
-        for (const line of preview.rows) {
-          delete line.newValues.monthly_salary_qar;
-          delete line.oldValues.monthly_salary_qar;
-          line.fieldDiffs = line.fieldDiffs.filter((d) => d.field !== "monthly_salary_qar");
-        }
-      }
-
       return {
+        ...shiftPreview,
         mode: "preview" as const,
-        kind: "directory" as const,
+        kind: "shift_roster" as const,
         batchId: batch.id,
-        preview,
         periodMode,
-        dateFrom: period.dateFrom,
-        dateTo: period.dateTo,
       };
     },
     request,

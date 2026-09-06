@@ -169,6 +169,7 @@ export const queryKeys = {
       [...queryKeys.people.all, "staff", locationId ?? null, includeArchived ? "archived" : "active"] as const,
     staffProfile: (id: string) => [...queryKeys.people.all, "staff-profile", id] as const,
     rosterImports: () => [...queryKeys.people.all, "roster-imports"] as const,
+    rosterRegister: (filters?: object) => [...queryKeys.people.all, "roster-register", filters ?? {}] as const,
     departments: () => [...queryKeys.people.all, "departments"] as const,
     shifts: (locationId?: string | null) => [...queryKeys.people.all, "shifts", locationId ?? null] as const,
     training: (locationId?: string | null) => [...queryKeys.people.all, "training", locationId ?? null] as const,
