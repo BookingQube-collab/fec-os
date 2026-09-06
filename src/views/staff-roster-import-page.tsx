@@ -281,8 +281,11 @@ export default function StaffRosterImportPage() {
         void qc.invalidateQueries({ queryKey: queryKeys.people.all });
       }
     },
-    onError: (e: Error) => {
-      setPreview(null);
+    onError: (e: Error, arg) => {
+      // Keep a finished preview visible when confirm fails so the user can retry.
+      if (arg.mode === "preview") {
+        setPreview(null);
+      }
       setPreviewError(e.message);
       toast.error(e.message);
     },
@@ -320,15 +323,17 @@ export default function StaffRosterImportPage() {
     ? t("people.roster.confirmHintFile")
     : mappingRequired && !isShiftPreview
       ? t("people.roster.confirmHintMapping")
-      : previewing || !preview
-        ? t("people.roster.confirmHintPreview")
-        : readyToConfirm
-          ? null
-          : preview?.mode === "commit"
+      : committing
+        ? t("people.roster.confirming")
+        : previewing || !preview
+          ? t("people.roster.confirmHintPreview")
+          : readyToConfirm
             ? null
-            : isShiftPreview && (preview.matched ?? 0) === 0
-              ? t("people.roster.shiftNothingMatched")
-              : t("people.roster.confirmHintPreview");
+            : preview?.mode === "commit"
+              ? null
+              : isShiftPreview && (preview.matched ?? 0) === 0
+                ? t("people.roster.shiftNothingMatched")
+                : t("people.roster.confirmHintPreview");
 
   const mapHeaders = preview?.headers ?? [];
 
@@ -635,12 +640,12 @@ export default function StaffRosterImportPage() {
           ) : null}
           <Button
             type="button"
-            variant={readyToConfirm ? "default" : "outline"}
+            variant={readyToConfirm || committing ? "default" : "outline"}
             disabled={!readyToConfirm}
             onClick={() => uploadMut.mutate({ mode: "commit" })}
           >
             {committing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            {t("people.roster.confirm")}
+            {committing ? t("people.roster.confirming") : t("people.roster.confirm")}
           </Button>
           {preview ? (
             <Button
@@ -816,9 +821,9 @@ const ShiftPreviewPanel = memo(function ShiftPreviewPanel({
             <X className="h-4 w-4" />
             {t("people.roster.closePreview")}
           </Button>
-          <Button type="button" variant={readyToConfirm ? "default" : "outline"} disabled={!readyToConfirm} onClick={onConfirm}>
+          <Button type="button" variant={readyToConfirm || committing ? "default" : "outline"} disabled={!readyToConfirm} onClick={onConfirm}>
             {committing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            {t("people.roster.confirm")}
+            {committing ? t("people.roster.confirming") : t("people.roster.confirm")}
           </Button>
         </div>
       </div>
@@ -1028,9 +1033,9 @@ function PreviewPanel({
             <X className="h-4 w-4" />
             {t("people.roster.closePreview")}
           </Button>
-          <Button type="button" variant={readyToConfirm ? "default" : "outline"} disabled={!readyToConfirm} onClick={onConfirm}>
+          <Button type="button" variant={readyToConfirm || committing ? "default" : "outline"} disabled={!readyToConfirm} onClick={onConfirm}>
             {committing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            {t("people.roster.confirm")}
+            {committing ? t("people.roster.confirming") : t("people.roster.confirm")}
           </Button>
         </div>
       </div>
@@ -1084,12 +1089,14 @@ function PreviewPanel({
         </div>
       ) : null}
 
-      {readyToConfirm ? (
+      {readyToConfirm || committing ? (
         <div className="flex flex-col gap-2 border-t border-border/70 pt-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-muted-foreground">{t("people.roster.confirmHelp")}</p>
+          <p className="text-sm text-muted-foreground">
+            {committing ? t("people.roster.confirming") : t("people.roster.confirmHelp")}
+          </p>
           <Button type="button" onClick={onConfirm} disabled={!readyToConfirm}>
             {committing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            {t("people.roster.confirm")}
+            {committing ? t("people.roster.confirming") : t("people.roster.confirm")}
           </Button>
         </div>
       ) : null}

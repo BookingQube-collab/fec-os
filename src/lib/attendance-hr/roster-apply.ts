@@ -25,13 +25,16 @@ export async function assertAttendanceRosterLocation(context: AuthContext, locat
   await assertLocationAccess(context, locationId);
 }
 
+/** Drop zero-punch summaries for uploaded staff on days they are no longer rostered. */
 async function cleanupStaleAbsents(
   supabase: AuthContext["supabase"],
   locationId: string,
   dateFrom: string,
   dateTo: string,
   rows: MatchedRosterRow[],
+  staffIds: string[],
 ) {
+  if (!staffIds.length) return;
   const byDate = new Map<string, string[]>();
   for (const row of rows) {
     if (row.status !== "matched" || !row.staffId || row.locationId !== locationId) continue;
@@ -41,25 +44,23 @@ async function cleanupStaleAbsents(
   }
   for (const workDate of enumerateYmd(dateFrom, dateTo)) {
     const keep = new Set(byDate.get(workDate) ?? []);
-    let q = supabase
+    const stale = staffIds.filter((id) => !keep.has(id));
+    if (!stale.length) continue;
+    const { error } = await supabase
       .from("attendance_daily_summary")
       .delete()
       .eq("location_id", locationId)
       .eq("work_date", workDate)
       .eq("punch_count", 0)
-      .not("staff_id", "is", null);
-    const filtered = keep.size
-      ? (q as unknown as { not: (column: string, op: string, value: string) => typeof q }).not(
-          "staff_id",
-          "in",
-          `(${[...keep].join(",")})`,
-        )
-      : q;
-    const { error } = await filtered;
+      .in("staff_id", stale);
     if (error) throw error;
   }
 }
 
+/**
+ * Upsert shift assignments for the staff present in `rows` only.
+ * Does not wipe other staff at the location (one-person reuploads stay fast and safe).
+ */
 export async function replaceAttendanceRosterPeriod(
   context: AuthContext,
   input: {
@@ -72,15 +73,29 @@ export async function replaceAttendanceRosterPeriod(
   },
 ) {
   await assertAttendanceRosterLocation(context, input.locationId);
+
+  const unique = [...assignmentsFromPreview(input.rows).values()].filter((row) => row.locationId === input.locationId);
+  const staffIds = [
+    ...new Set(
+      unique
+        .map((row) => row.staffId)
+        .filter((id): id is string => typeof id === "string" && id.length > 0),
+    ),
+  ];
+  if (!staffIds.length) {
+    return { imported: 0, uploadId: null as string | null, processed: 0 };
+  }
+
+  // Scope delete to uploaded staff — never clear the rest of the location roster.
   const { error: delErr } = await context.supabase
     .from("attendance_roster_assignments")
     .delete()
     .eq("location_id", input.locationId)
     .gte("work_date", input.dateFrom)
-    .lte("work_date", input.dateTo);
+    .lte("work_date", input.dateTo)
+    .in("staff_id", staffIds);
   if (delErr) throw delErr;
 
-  const unique = [...assignmentsFromPreview(input.rows).values()].filter((row) => row.locationId === input.locationId);
   const payload = unique.map((row) => ({
     location_id: input.locationId,
     staff_id: row.staffId,
@@ -99,6 +114,8 @@ export async function replaceAttendanceRosterPeriod(
     if (error) throw error;
   }
 
+  // Staff-scoped upserts must not mark the whole period as location coverage
+  // (that would make other staff "unexpected" on later full recalcs).
   const { data: uploadRow, error: upErr } = await context.supabase
     .from("daily_ops_roster_uploads")
     .insert({
@@ -109,13 +126,26 @@ export async function replaceAttendanceRosterPeriod(
       period_end: input.dateTo,
       rows_imported: payload.length,
       uploaded_by: context.userId,
-      notes: ATTENDANCE_TALLY_UPLOAD_NOTE,
+      notes: `${ATTENDANCE_TALLY_UPLOAD_NOTE}:staff_upsert`,
     })
     .select("id")
     .single();
   if (upErr) throw upErr;
 
-  const recalc = await recalculateAttendanceRange(context.supabase, input.locationId, input.dateFrom, input.dateTo);
-  await cleanupStaleAbsents(context.supabase, input.locationId, input.dateFrom, input.dateTo, unique);
+  const recalc = await recalculateAttendanceRange(
+    context.supabase,
+    input.locationId,
+    input.dateFrom,
+    input.dateTo,
+    { staffIds },
+  );
+  await cleanupStaleAbsents(
+    context.supabase,
+    input.locationId,
+    input.dateFrom,
+    input.dateTo,
+    unique,
+    staffIds,
+  );
   return { imported: payload.length, uploadId: uploadRow.id as string, processed: recalc.processed };
 }

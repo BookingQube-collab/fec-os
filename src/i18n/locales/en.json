@@ -2973,6 +2973,7 @@
       "preview": "Preview",
       "confirm": "Confirm import",
       "confirmHelp": "Counts look right? Confirm applies this preview. The file is not uploaded again.",
+      "confirming": "Saving roster…",
       "confirmHintFile": "Choose a file to preview.",
       "confirmHintPreview": "Wait for preview to finish.",
       "confirmHintMapping": "Map Location and Employee Name, then preview.",

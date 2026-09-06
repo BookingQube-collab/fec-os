@@ -151,44 +151,60 @@ export async function recalculateAttendanceRange(
   locationId: string,
   dateFrom: string,
   dateTo: string,
+  options?: { staffIds?: string[] },
 ) {
+  const staffScope = options?.staffIds?.length ? [...new Set(options.staffIds.filter(Boolean))] : null;
+
+  let logsQuery = supabase
+    .from("attendance_logs")
+    .select("staff_id, biometric_user_id, device_id, punch_at, probable_duplicate, excluded_from_calc, attendance_date")
+    .eq("location_id", locationId)
+    .gte("attendance_date", dateFrom)
+    .lte("attendance_date", dateTo);
+  let rosterQuery = supabase
+    .from("attendance_roster_assignments")
+    .select("staff_id, work_date, shift_template_id, is_week_off")
+    .eq("location_id", locationId)
+    .gte("work_date", dateFrom)
+    .lte("work_date", dateTo);
+  let leaveQuery = supabase
+    .from("attendance_leave_records")
+    .select("staff_id, leave_date, leave_type")
+    .eq("location_id", locationId)
+    .gte("leave_date", dateFrom)
+    .lte("leave_date", dateTo);
+  if (staffScope) {
+    logsQuery = logsQuery.in("staff_id", staffScope);
+    rosterQuery = rosterQuery.in("staff_id", staffScope);
+    leaveQuery = leaveQuery.in("staff_id", staffScope);
+  }
+
   const [{ data: logs, error }, { data: roster }, { data: holidays }, { data: leaves }, { data: shifts }, { data: ruleRows }, { data: staffRows }] =
     await Promise.all([
-      supabase
-        .from("attendance_logs")
-        .select("staff_id, biometric_user_id, device_id, punch_at, probable_duplicate, excluded_from_calc, attendance_date")
-        .eq("location_id", locationId)
-        .gte("attendance_date", dateFrom)
-        .lte("attendance_date", dateTo),
-      supabase
-        .from("attendance_roster_assignments")
-        .select("staff_id, work_date, shift_template_id, is_week_off")
-        .eq("location_id", locationId)
-        .gte("work_date", dateFrom)
-        .lte("work_date", dateTo),
+      logsQuery,
+      rosterQuery,
       supabase.from("attendance_holidays").select("holiday_date, name, location_id").gte("holiday_date", dateFrom).lte("holiday_date", dateTo),
-      supabase
-        .from("attendance_leave_records")
-        .select("staff_id, leave_date, leave_type")
-        .eq("location_id", locationId)
-        .gte("leave_date", dateFrom)
-        .lte("leave_date", dateTo),
+      leaveQuery,
       supabase.from("attendance_shift_templates").select("*").eq("active", true),
       supabase.from("attendance_rule_sets").select("*").order("scope"),
-      supabase.from("staff").select("id, location_id, status").is("deleted_at", null).limit(5000),
+      staffScope
+        ? Promise.resolve({ data: [] as Array<{ id: string; location_id: string; status: string | null }>, error: null })
+        : supabase.from("staff").select("id, location_id, status").is("deleted_at", null).limit(5000),
     ]);
   let coveragePeriods: Array<{ start: string; end: string }> = [];
-  try {
-    const { data: uploads } = await supabase
-      .from("daily_ops_roster_uploads")
-      .select("period_start, period_end, notes")
-      .eq("location_id", locationId)
-      .eq("notes", ATTENDANCE_TALLY_UPLOAD_NOTE);
-    coveragePeriods = (uploads ?? [])
-      .filter((row) => row.period_start && row.period_end)
-      .map((row) => ({ start: String(row.period_start).slice(0, 10), end: String(row.period_end).slice(0, 10) }));
-  } catch {
-    coveragePeriods = [];
+  if (!staffScope) {
+    try {
+      const { data: uploads } = await supabase
+        .from("daily_ops_roster_uploads")
+        .select("period_start, period_end, notes")
+        .eq("location_id", locationId)
+        .eq("notes", ATTENDANCE_TALLY_UPLOAD_NOTE);
+      coveragePeriods = (uploads ?? [])
+        .filter((row) => row.period_start && row.period_end)
+        .map((row) => ({ start: String(row.period_start).slice(0, 10), end: String(row.period_end).slice(0, 10) }));
+    } catch {
+      coveragePeriods = [];
+    }
   }
   if (error) throw error;
 
@@ -223,6 +239,7 @@ export async function recalculateAttendanceRange(
     groups.set(`${subject}|${day}`, list);
   }
 
+  const summaryRows: Array<Record<string, unknown>> = [];
   let processed = 0;
   for (const [key, punches] of groups) {
     const [subject, workDate] = key.split("|");
@@ -248,46 +265,47 @@ export async function recalculateAttendanceRange(
       shift,
       rules,
     });
-    const { error: upsertError } = await supabase.from("attendance_daily_summary").upsert(
-      {
-        location_id: locationId,
-        staff_id: staffId,
-        work_date: workDate,
-        subject_key: subject,
-        actual_in: calc.actualIn,
-        actual_out: calc.actualOut,
-        status: calc.status,
-        status_flags: calc.statusFlags,
-        late_minutes: calc.lateMinutes,
-        early_leave_minutes: calc.earlyLeaveMinutes,
-        overtime_minutes: calc.overtimeMinutes,
-        missed_punch: calc.missedPunch,
-        punch_count: calc.validPunchCount,
-        raw_punch_times: calc.rawPunchTimes,
-        worked_minutes: calc.workedMinutes,
-        regular_minutes: calc.regularMinutes,
-        exception_reason: calc.exceptionReason,
-        biometric_user_id: sample.biometric_user_id,
-        device_id: sample.device_id,
-        shift_template_id: rosterRow?.shift_template_id ?? null,
-      },
-      { onConflict: "location_id,subject_key,work_date" },
-    );
-    if (upsertError) throw upsertError;
+    summaryRows.push({
+      location_id: locationId,
+      staff_id: staffId,
+      work_date: workDate,
+      subject_key: subject,
+      actual_in: calc.actualIn,
+      actual_out: calc.actualOut,
+      status: calc.status,
+      status_flags: calc.statusFlags,
+      late_minutes: calc.lateMinutes,
+      early_leave_minutes: calc.earlyLeaveMinutes,
+      overtime_minutes: calc.overtimeMinutes,
+      missed_punch: calc.missedPunch,
+      punch_count: calc.validPunchCount,
+      raw_punch_times: calc.rawPunchTimes,
+      worked_minutes: calc.workedMinutes,
+      regular_minutes: calc.regularMinutes,
+      exception_reason: calc.exceptionReason,
+      biometric_user_id: sample.biometric_user_id,
+      device_id: sample.device_id,
+      shift_template_id: rosterRow?.shift_template_id ?? null,
+    });
     processed += 1;
   }
 
   let workStaffIds: string[] = [];
-  try {
-    const { data: links } = await supabase.from("staff_work_locations").select("staff_id").eq("location_id", locationId);
-    workStaffIds = [...new Set((links ?? []).map((row) => String(row.staff_id)).filter(Boolean))];
-  } catch {
-    workStaffIds = [];
+  if (!staffScope) {
+    try {
+      const { data: links } = await supabase.from("staff_work_locations").select("staff_id").eq("location_id", locationId);
+      workStaffIds = [...new Set((links ?? []).map((row) => String(row.staff_id)).filter(Boolean))];
+    } catch {
+      workStaffIds = [];
+    }
   }
   const workIdSet = new Set(workStaffIds);
-  const fallbackStaffIds = (staffRows ?? [])
-    .filter((row) => isActiveRosterStaff(row.status) && (row.location_id === locationId || workIdSet.has(row.id)))
-    .map((row) => row.id);
+  // Staff-scoped confirm must not expand to the whole site directory.
+  const fallbackStaffIds = staffScope
+    ? []
+    : (staffRows ?? [])
+      .filter((row) => isActiveRosterStaff(row.status) && (row.location_id === locationId || workIdSet.has(row.id)))
+      .map((row) => row.id);
   const covered = new Set<string>();
   for (const [key, punches] of groups) {
     const workDate = key.split("|").at(-1) ?? "";
@@ -308,10 +326,12 @@ export async function recalculateAttendanceRange(
       workDate,
       dayRoster,
       fallbackStaffIds,
-      coveredByUpload: isWorkDateCovered(workDate, coveragePeriods),
+      // Staff patches do not own location coverage — avoid clearing other staff as unexpected.
+      coveredByUpload: staffScope ? false : isWorkDateCovered(workDate, coveragePeriods),
     });
     for (const rosterRow of expected) {
       const staffId = String(rosterRow.staff_id);
+      if (staffScope && !staffScope.includes(staffId)) continue;
       if (covered.has(`${staffId}|${workDate}`)) continue;
       const leaveRow = leaveByKey.get(`${staffId}|${workDate}`);
       const shift = rosterRow.shift_template_id
@@ -326,35 +346,39 @@ export async function recalculateAttendanceRange(
         shift,
         rules,
       });
-      const { error: upsertError } = await supabase.from("attendance_daily_summary").upsert(
-        {
-          location_id: locationId,
-          staff_id: staffId,
-          work_date: workDate,
-          subject_key: subjectKey(staffId, "", ""),
-          actual_in: calc.actualIn,
-          actual_out: calc.actualOut,
-          status: calc.status,
-          status_flags: calc.statusFlags,
-          late_minutes: calc.lateMinutes,
-          early_leave_minutes: calc.earlyLeaveMinutes,
-          overtime_minutes: calc.overtimeMinutes,
-          missed_punch: calc.missedPunch,
-          punch_count: calc.validPunchCount,
-          raw_punch_times: calc.rawPunchTimes,
-          worked_minutes: calc.workedMinutes,
-          regular_minutes: calc.regularMinutes,
-          exception_reason: calc.exceptionReason,
-          biometric_user_id: null,
-          device_id: null,
-          shift_template_id: rosterRow.shift_template_id ?? null,
-        },
-        { onConflict: "location_id,subject_key,work_date" },
-      );
-      if (upsertError) throw upsertError;
+      summaryRows.push({
+        location_id: locationId,
+        staff_id: staffId,
+        work_date: workDate,
+        subject_key: subjectKey(staffId, "", ""),
+        actual_in: calc.actualIn,
+        actual_out: calc.actualOut,
+        status: calc.status,
+        status_flags: calc.statusFlags,
+        late_minutes: calc.lateMinutes,
+        early_leave_minutes: calc.earlyLeaveMinutes,
+        overtime_minutes: calc.overtimeMinutes,
+        missed_punch: calc.missedPunch,
+        punch_count: calc.validPunchCount,
+        raw_punch_times: calc.rawPunchTimes,
+        worked_minutes: calc.workedMinutes,
+        regular_minutes: calc.regularMinutes,
+        exception_reason: calc.exceptionReason,
+        biometric_user_id: null,
+        device_id: null,
+        shift_template_id: rosterRow.shift_template_id ?? null,
+      });
       covered.add(`${staffId}|${workDate}`);
       processed += 1;
     }
+  }
+
+  for (let i = 0; i < summaryRows.length; i += 200) {
+    const chunk = summaryRows.slice(i, i + 200);
+    const { error: upsertError } = await supabase
+      .from("attendance_daily_summary")
+      .upsert(chunk, { onConflict: "location_id,subject_key,work_date" });
+    if (upsertError) throw upsertError;
   }
 
   return { processed };
