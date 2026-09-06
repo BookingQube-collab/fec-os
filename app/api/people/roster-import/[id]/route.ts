@@ -1,5 +1,6 @@
 import { withAuthRouteRequest } from "@/lib/server/api-route";
 import { rosterImportPreviewFromBatch } from "@/lib/staff-roster/batch-preview";
+import { deleteRosterImportBatch } from "@/lib/staff-roster/delete-batch";
 
 export const runtime = "nodejs";
 
@@ -21,6 +22,18 @@ export async function GET(
       if (!payload) throw new Error("Preview payload is missing; upload again.");
       return payload;
     },
+    request,
+    { capability: "people.import_roster" },
+  );
+}
+
+export async function DELETE(
+  request: Request,
+  ctx: { params: Promise<{ id: string }> },
+) {
+  const { id } = await ctx.params;
+  return withAuthRouteRequest(
+    async (context) => deleteRosterImportBatch(context, id),
     request,
     { capability: "people.import_roster" },
   );

@@ -155,25 +155,19 @@ describe("buildAttendanceRosterPreview", () => {
     expect(preview.rows.every((r) => r.locationCode === "KDS-CC")).toBe(true);
   });
 
-  it("parses the E3 date-wise roster (DATE/DAY/EMPLOYEE/LOCATION/SHIFT/STATUS)", () => {
+  it("parses the minimal DATE/EMPLOYEE/LOCATION/SHIFT roster", () => {
     const records = [
       {
         DATE: "16-Aug-2026",
-        DAY: "Sunday",
         EMPLOYEE: "Hassan Al-Kaabi",
-        POSITION: "Branch Manager",
         LOCATION: "Kids Driving School - City Center",
         SHIFT: "12:00 PM–10:00 PM",
-        STATUS: "WORKING",
       },
       {
         DATE: "17-Aug-2026",
-        DAY: "Monday",
         EMPLOYEE: "Hassan Al-Kaabi",
-        POSITION: "Branch Manager",
         LOCATION: "Kids Driving School - City Center",
         SHIFT: "DAY OFF",
-        STATUS: "OFF",
       },
     ];
     const preview = buildAttendanceRosterPreview({
@@ -194,11 +188,42 @@ describe("buildAttendanceRosterPreview", () => {
       shiftStart: "12:00",
       shiftEnd: "22:00",
       isWeekOff: false,
+      matchRule: "name_location",
     });
     expect(preview.rows[1]).toMatchObject({
       staffId: "s-hassan",
       workDate: "2026-08-17",
       isWeekOff: true,
+    });
+  });
+
+  it("still accepts legacy E3 columns (DAY/POSITION/STATUS) when present", () => {
+    const records = [
+      {
+        DATE: "16-Aug-2026",
+        DAY: "Sunday",
+        EMPLOYEE: "Hassan Al-Kaabi",
+        POSITION: "Branch Manager",
+        LOCATION: "Kids Driving School - City Center",
+        SHIFT: "12:00 PM–10:00 PM",
+        STATUS: "WORKING",
+      },
+    ];
+    const preview = buildAttendanceRosterPreview({
+      records,
+      periodMode: "week",
+      dateFrom: "2026-08-16",
+      dateTo: "2026-08-22",
+      selectedLocationId: KDS,
+      staff,
+      locations,
+      shifts: [],
+    });
+    expect(preview.matched).toBe(1);
+    expect(preview.rows[0]).toMatchObject({
+      staffId: "s-hassan",
+      shiftStart: "12:00",
+      shiftEnd: "22:00",
     });
   });
 
@@ -208,8 +233,8 @@ describe("buildAttendanceRosterPreview", () => {
       ["DATE WISE MONTHLY ROSTER"],
       ["E3 — Events and Entertainments Enterprises Trading WLL   |   Period: 16-Aug-2026 to 22-Aug-2026"],
       [],
-      ["DATE", "DAY", "EMPLOYEE", "POSITION", "LOCATION", "SHIFT", "STATUS"],
-      ["16-Aug-2026", "Sunday", "Hassan Al-Kaabi", "Branch Manager", "Kids Driving School - City Center", "12:00 PM–10:00 PM", "WORKING"],
+      ["DATE", "EMPLOYEE", "LOCATION", "SHIFT"],
+      ["16-Aug-2026", "Hassan Al-Kaabi", "Kids Driving School - City Center", "12:00 PM–10:00 PM"],
     ];
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     const wb = XLSX.utils.book_new();
@@ -221,8 +246,8 @@ describe("buildAttendanceRosterPreview", () => {
     expect(parsed.records).toHaveLength(1);
     expect(parsed.records[0]).toMatchObject({
       EMPLOYEE: "Hassan Al-Kaabi",
+      LOCATION: "Kids Driving School - City Center",
       SHIFT: "12:00 PM–10:00 PM",
-      STATUS: "WORKING",
     });
     const preview = buildAttendanceRosterPreview({
       records: parsed.records,
@@ -339,12 +364,15 @@ describe("buildAttendanceRosterPreview", () => {
 describe("roster header classification", () => {
   it("treats dated shift templates as shift rosters, not salary directories", () => {
     const shift = ["date", "staff_name", "qid", "employee_code", "location", "location_name", "shift_start", "shift_end", "duty"];
-    const e3DateWise = ["DATE", "DAY", "EMPLOYEE", "POSITION", "LOCATION", "SHIFT", "STATUS"];
+    const e3DateWise = ["DATE", "EMPLOYEE", "LOCATION", "SHIFT"];
+    const e3Legacy = ["DATE", "DAY", "EMPLOYEE", "POSITION", "LOCATION", "SHIFT", "STATUS"];
     const directory = ["employee_code", "full_name", "qid", "location", "location_name", "position", "type", "e3", "contact", "joining date", "status", "salary"];
     expect(looksLikeShiftRosterHeaders(shift)).toBe(true);
     expect(looksLikeEmployeeRosterHeaders(shift)).toBe(false);
     expect(looksLikeShiftRosterHeaders(e3DateWise)).toBe(true);
     expect(looksLikeEmployeeRosterHeaders(e3DateWise)).toBe(false);
+    expect(looksLikeShiftRosterHeaders(e3Legacy)).toBe(true);
+    expect(looksLikeEmployeeRosterHeaders(e3Legacy)).toBe(false);
     expect(looksLikeShiftRosterHeaders(directory)).toBe(false);
     expect(looksLikeEmployeeRosterHeaders(directory)).toBe(true);
   });

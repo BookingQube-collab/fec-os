@@ -46,29 +46,27 @@ describe("people roster period sample", () => {
     accessibleLocationIds: new Set([INF, KDS]),
   });
 
-  it("uses the E3 date-wise roster headers and leaves SHIFT/STATUS empty", () => {
+  it("uses only DATE EMPLOYEE LOCATION SHIFT and leaves SHIFT empty", () => {
     const { headers, rows, title } = buildPeopleRosterSampleMatrix(["2026-08-16", "2026-08-17"], placements, {
       periodMode: "week",
     });
     expect([...headers]).toEqual([...PEOPLE_ROSTER_SAMPLE_HEADERS]);
+    expect(headers).toEqual(["DATE", "EMPLOYEE", "LOCATION", "SHIFT"]);
+    expect(headers).not.toContain("DAY");
+    expect(headers).not.toContain("POSITION");
+    expect(headers).not.toContain("STATUS");
     expect(headers).not.toContain("salary");
     expect(title).toBe("DATE WISE WEEKLY ROSTER");
     expect(rows[0]).toEqual([
       "16-Aug-2026",
-      "Sunday",
       "Amna Al-Naimi",
-      "Branch Manager",
       "Inflatapark - City Center",
-      "",
       "",
     ]);
     expect(rows[1]).toEqual([
       "17-Aug-2026",
-      "Monday",
       "Amna Al-Naimi",
-      "Branch Manager",
       "Inflatapark - City Center",
-      "",
       "",
     ]);
   });
@@ -102,13 +100,13 @@ describe("people roster period sample", () => {
     expect(parsed.sheetName).toBe(PEOPLE_ROSTER_SAMPLE_SHEET);
     expect(parsed.records[0]).toMatchObject({
       DATE: "16-Aug-2026",
-      DAY: "Sunday",
       EMPLOYEE: "Amna Al-Naimi",
-      POSITION: "Branch Manager",
       LOCATION: "Inflatapark - City Center",
       SHIFT: "",
-      STATUS: "",
     });
+    expect(parsed.records[0]).not.toHaveProperty("DAY");
+    expect(parsed.records[0]).not.toHaveProperty("POSITION");
+    expect(parsed.records[0]).not.toHaveProperty("STATUS");
 
     const preview = buildAttendanceRosterPreview({
       records: parsed.records,

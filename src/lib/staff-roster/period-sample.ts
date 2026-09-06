@@ -2,7 +2,7 @@ import { enumerateRosterSampleDates } from "@/lib/attendance-hr/roster-sample";
 import type { AttendanceRosterPeriodMode } from "@/lib/attendance-hr/roster-period";
 import type { StaffPlacement } from "@/lib/staff-sample-scope";
 
-/** Leave SHIFT / STATUS blank so the user fills duty times, not directory/salary fields. */
+/** Leave SHIFT blank so the user fills duty times; other staff details come from the directory. */
 export const PEOPLE_ROSTER_SAMPLE_DUTY_DEFAULT = "";
 
 /** Sheet name from E3 Date Wise Roster (with Location). */
@@ -10,14 +10,12 @@ export const PEOPLE_ROSTER_SAMPLE_SHEET = "Date Wise Roster";
 
 export const PEOPLE_ROSTER_SAMPLE_ORG = "E3 — Events and Entertainments Enterprises Trading WLL";
 
+/** Required roster-import columns only — QID, position, department, etc. are resolved from staff. */
 export const PEOPLE_ROSTER_SAMPLE_HEADERS = [
   "DATE",
-  "DAY",
   "EMPLOYEE",
-  "POSITION",
   "LOCATION",
   "SHIFT",
-  "STATUS",
 ] as const;
 
 const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
@@ -53,7 +51,6 @@ export function buildPeopleRosterSampleMatrix(
   let truncated = false;
   outer: for (const date of dates) {
     const dateLabel = formatE3RosterDate(date);
-    const dayLabel = weekdayLongName(date);
     for (const place of placements) {
       if (rows.length >= maxRows) {
         truncated = true;
@@ -61,11 +58,8 @@ export function buildPeopleRosterSampleMatrix(
       }
       rows.push([
         dateLabel,
-        dayLabel,
         place.staff.full_name ?? "",
-        place.staff.job_title ?? "",
         place.locationName,
-        "",
         "",
       ]);
     }
@@ -99,21 +93,19 @@ export async function buildPeopleRosterSampleXlsx(
     placements,
     options,
   );
+  const lastCol = headers.length - 1;
   const XLSX = await import("xlsx");
   const aoa: Array<Array<string>> = [[title], [periodLine], [], [...headers], ...rows];
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws["!merges"] = [
-    { s: { r: 0, c: 0 }, e: { r: 0, c: 6 } },
-    { s: { r: 1, c: 0 }, e: { r: 1, c: 6 } },
+    { s: { r: 0, c: 0 }, e: { r: 0, c: lastCol } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: lastCol } },
   ];
   ws["!cols"] = [
     { wch: 14 },
-    { wch: 12 },
     { wch: 28 },
-    { wch: 22 },
     { wch: 34 },
     { wch: 22 },
-    { wch: 12 },
   ];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, PEOPLE_ROSTER_SAMPLE_SHEET);

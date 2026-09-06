@@ -1,12 +1,13 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { FolderOpen, Loader2, Upload, X, Download } from "lucide-react";
-import { type DragEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type DragEvent, type UIEvent, memo, startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
 import { PageHeader } from "@/components/layout/page-header";
+import { ShiftRangeEditor } from "@/components/people/shift-range-editor";
 import { StaffSampleDownloadDialog } from "@/components/people/staff-sample-download-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,7 +19,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useUserRoles } from "@/hooks/use-auth";
 import { useSites } from "@/hooks/queries/useSites";
 import { queryKeys } from "@/lib/query-keys";
-import { STALE } from "@/lib/query-client";
 import { loadRosterColumnMap, saveRosterColumnMap, type SavedRosterColumnMap } from "@/lib/staff-roster/column-map-store";
 import {
   formatRosterFileSize,
@@ -79,25 +79,6 @@ type PreviewResponse = {
   imported?: number;
 };
 
-type HistoryResponse = {
-  batches: Array<{
-    id: string;
-    kind?: string;
-    status: string;
-    mode: string;
-    uploaded_by: string | null;
-    created_at: string;
-    create_count: number;
-    update_count: number;
-    unchanged_count: number;
-    archive_count: number;
-    delete_count: number;
-    review_count: number;
-    error_message: string | null;
-    staff_import_files?: Array<{ filename: string; file_type: string; worksheet_name: string | null }>;
-  }>;
-};
-
 const MAP_FIELDS: Array<{ key: RosterColumnKey; required?: boolean }> = [
   { key: "location", required: true },
   { key: "full_name", required: true },
@@ -112,6 +93,9 @@ const MAP_FIELDS: Array<{ key: RosterColumnKey; required?: boolean }> = [
 ];
 
 const PREVIEW_ROW_CAP = 2000;
+const SHIFT_ROW_HEIGHT = 68;
+const SHIFT_VIEWPORT_PX = 520;
+const SHIFT_OVERSCAN = 8;
 
 function isShiftRosterPreview(preview: PreviewResponse | null): boolean {
   if (!preview) return false;
@@ -150,7 +134,6 @@ export default function StaffRosterImportPage() {
   const folderRef = useRef<HTMLInputElement>(null);
   const previewKeyRef = useRef<string | null>(null);
   const [rememberedMap, setRememberedMap] = useState<SavedRosterColumnMap | null>(null);
-  const [activeBatchId, setActiveBatchId] = useState<string | null>(null);
 
   const [file, setFile] = useState<File | null>(null);
   const [skipped, setSkipped] = useState<string[]>([]);
@@ -164,22 +147,11 @@ export default function StaffRosterImportPage() {
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [mappingRequired, setMappingRequired] = useState(false);
   const [manualMap, setManualMap] = useState<SavedRosterColumnMap | null>(null);
-  const [rowsOpen, setRowsOpen] = useState(true);
+  const [rowsOpen, setRowsOpen] = useState(false);
   const [sampleOpen, setSampleOpen] = useState(false);
   const [sampleBusy, setSampleBusy] = useState(false);
   const storeLocationId = useAppStore((s) => s.currentLocationId);
   const sites = useSites();
-
-  const history = useQuery({
-    queryKey: queryKeys.people.rosterImports(),
-    queryFn: async () => {
-      const res = await fetch("/api/people/roster-import", { credentials: "include" });
-      const body = (await res.json()) as HistoryResponse & { error?: string };
-      if (!res.ok) throw new Error(body.error ?? "Failed to load history");
-      return body;
-    },
-    staleTime: STALE.people,
-  });
 
   const lockedMode = venueSafeOnly ? "safe_sync" : importMode;
 
@@ -200,19 +172,31 @@ export default function StaffRosterImportPage() {
     setPreviewError(null);
     setMappingRequired(false);
     setManualMap(null);
-    setActiveBatchId(null);
     previewKeyRef.current = null;
   };
 
-  const closePreview = () => {
+  const closePreview = useCallback(() => {
     setPreview(null);
     setPreviewError(null);
     setMappingRequired(false);
     setManualMap(null);
-    setActiveBatchId(null);
     // Keep previewKeyRef when a file is still selected so Close does not
     // immediately re-run auto-preview. The Preview button resets the key.
-  };
+  }, []);
+
+  const handleShiftRowsChange = useCallback((rows: ShiftPreviewRow[], recount = true) => {
+    setPreview((prev) => {
+      if (!prev) return prev;
+      if (!recount) return { ...prev, rows };
+      return {
+        ...prev,
+        rows,
+        matched: rows.filter((row) => row.status === "matched").length,
+        unmatched: rows.filter((row) => row.status === "unmatched").length,
+        skipped: rows.filter((row) => row.status === "skipped").length,
+      };
+    });
+  }, []);
 
   const applyPicked = (list: FileList | Iterable<File> | null) => {
     if (!list) return;
@@ -274,8 +258,9 @@ export default function StaffRosterImportPage() {
         return;
       }
       setMappingRequired(false);
-      setPreview(data);
-      if (data.batchId) setActiveBatchId(data.batchId);
+      startTransition(() => {
+        setPreview(data);
+      });
       const mapping = data.preview?.mapping as SavedRosterColumnMap | undefined;
       if (mapping && mapping.full_name && mapping.location) {
         saveRosterColumnMap(mapping);
@@ -292,7 +277,6 @@ export default function StaffRosterImportPage() {
             : t("people.roster.applied")
           : t("people.roster.previewReady"),
       );
-      void qc.invalidateQueries({ queryKey: queryKeys.people.rosterImports() });
       if (arg.mode === "commit") {
         void qc.invalidateQueries({ queryKey: queryKeys.people.all });
       }
@@ -304,6 +288,10 @@ export default function StaffRosterImportPage() {
     },
   });
 
+  const confirmImport = useCallback(() => {
+    uploadMut.mutate({ mode: "commit" });
+  }, [uploadMut]);
+
   useEffect(() => {
     if (!file || mappingRequired) return;
     const key = `${file.name}:${file.size}:${file.lastModified}:${lockedMode}:${confirmHard}:${periodMode}:${period.dateFrom}:${period.dateTo}`;
@@ -314,47 +302,6 @@ export default function StaffRosterImportPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file, lockedMode, confirmHard, mappingRequired, periodMode, period.dateFrom, period.dateTo]);
 
-  const openMut = useMutation({
-    mutationFn: async (id: string) => {
-      const res = await fetch(`/api/people/roster-import/${id}`, { credentials: "include" });
-      const body = (await res.json()) as PreviewResponse & { error?: string };
-      if (!res.ok) throw new Error(body.error ?? t("people.roster.previewFailed"));
-      if (!body.kind && !body.preview && !body.rows) throw new Error(t("people.roster.previewFailed"));
-      return body;
-    },
-    onSuccess: (data, id) => {
-      setPreviewError(null);
-      setMappingRequired(false);
-      setPreview(data);
-      setActiveBatchId(id);
-      if (data.periodMode === "month" || data.periodMode === "week") {
-        setPeriodMode(data.periodMode);
-      }
-      if (data.dateFrom) {
-        if (data.periodMode === "month") setMonth(data.dateFrom.slice(0, 7));
-        else setWeekStart(qatarWeekBounds(data.dateFrom).dateFrom);
-      }
-      toast.success(t("people.roster.previewReady"));
-    },
-    onError: (e: Error) => {
-      setPreviewError(e.message);
-      toast.error(e.message);
-    },
-  });
-
-  const rollbackMut = useMutation({
-    mutationFn: async (id: string) => {
-      const res = await fetch(`/api/people/roster-import/${id}/rollback`, { method: "POST", credentials: "include" });
-      const body = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(body.error ?? "Rollback failed");
-    },
-    onSuccess: () => {
-      toast.success(t("people.roster.rolledBack"));
-      void qc.invalidateQueries({ queryKey: queryKeys.people.rosterImports() });
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
   const p = preview?.preview;
   const counts = p?.counts ?? preview?.counts;
   const isShiftPreview = isShiftRosterPreview(preview);
@@ -363,19 +310,17 @@ export default function StaffRosterImportPage() {
       preview.mode !== "commit" &&
       !preview.needsMapping &&
       !uploadMut.isPending &&
-      !openMut.isPending &&
       (isShiftPreview ? (preview.matched ?? 0) > 0 : Boolean(p)),
   );
   const previewing = uploadMut.isPending && uploadMut.variables?.mode === "preview";
-  const openingSaved = openMut.isPending;
   const committing = uploadMut.isPending && uploadMut.variables?.mode === "commit";
   const mappingReady = Boolean(manualMap?.location && manualMap?.full_name);
 
-  const confirmReason = !file && !preview && !openingSaved
+  const confirmReason = !file && !preview
     ? t("people.roster.confirmHintFile")
     : mappingRequired && !isShiftPreview
       ? t("people.roster.confirmHintMapping")
-      : previewing || openingSaved || !preview
+      : previewing || !preview
         ? t("people.roster.confirmHintPreview")
         : readyToConfirm
           ? null
@@ -723,32 +668,14 @@ export default function StaffRosterImportPage() {
         </div>
       ) : null}
 
-      {openingSaved && !preview ? (
-        <div className="surface-card flex items-center gap-3 p-5">
-          <Loader2 className="h-4 w-4 animate-spin text-primary" />
-          <p className="text-sm">{t("people.roster.openingPreview")}</p>
-        </div>
-      ) : null}
-
       {isShiftPreview ? (
         <ShiftPreviewPanel
           preview={preview}
           readyToConfirm={readyToConfirm}
           committing={committing}
-          onConfirm={() => uploadMut.mutate({ mode: "commit" })}
+          onConfirm={confirmImport}
           onClose={closePreview}
-          onRowsChange={(rows) => {
-            setPreview((prev) => {
-              if (!prev) return prev;
-              return {
-                ...prev,
-                rows,
-                matched: rows.filter((row) => row.status === "matched").length,
-                unmatched: rows.filter((row) => row.status === "unmatched").length,
-                skipped: rows.filter((row) => row.status === "skipped").length,
-              };
-            });
-          }}
+          onRowsChange={handleShiftRowsChange}
         />
       ) : p || (preview?.mode === "commit" && counts) ? (
         <PreviewPanel
@@ -757,88 +684,43 @@ export default function StaffRosterImportPage() {
           setRowsOpen={setRowsOpen}
           readyToConfirm={readyToConfirm}
           committing={committing}
-          onConfirm={() => uploadMut.mutate({ mode: "commit" })}
+          onConfirm={confirmImport}
           onClose={closePreview}
         />
       ) : null}
-
-      <div className="surface-card space-y-3 p-5">
-        <h2 className="text-sm font-semibold">{t("people.roster.history")}</h2>
-        {!history.data?.batches.length ? (
-          <p className="text-sm text-muted-foreground">{t("people.roster.emptyHistory")}</p>
-        ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t("people.roster.historyId")}</TableHead>
-                <TableHead>{t("people.roster.historyFile")}</TableHead>
-                <TableHead>{t("people.roster.historyMode")}</TableHead>
-                <TableHead>{t("people.roster.historyStatus")}</TableHead>
-                <TableHead>{t("people.roster.historyCounts")}</TableHead>
-                <TableHead>{t("people.roster.historyWhen")}</TableHead>
-                <TableHead />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {history.data.batches.map((b) => (
-                <TableRow
-                  key={b.id}
-                  className={cn(
-                    "cursor-pointer",
-                    activeBatchId === b.id && "bg-muted/40",
-                  )}
-                  onClick={() => openMut.mutate(b.id)}
-                >
-                  <TableCell className="font-mono text-[10px]">{b.id.slice(0, 8)}</TableCell>
-                  <TableCell className="text-xs">{b.staff_import_files?.[0]?.filename ?? "—"}</TableCell>
-                  <TableCell className="text-xs">{b.kind === "shift_roster" ? `${b.kind} · ${b.mode}` : b.mode}</TableCell>
-                  <TableCell><Badge variant={b.status === "preview" ? "warning" : "outline"}>{b.status}</Badge></TableCell>
-                  <TableCell className="text-xs">
-                    {b.kind === "shift_roster"
-                      ? t("people.roster.shiftHistoryCounts", { matched: b.update_count, unmatched: b.review_count })
-                      : `+${b.create_count} ~${b.update_count} /${b.unchanged_count} !${b.review_count}`}
-                  </TableCell>
-                  <TableCell className="text-xs">{new Date(b.created_at).toLocaleString()}</TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={openMut.isPending}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openMut.mutate(b.id);
-                        }}
-                      >
-                        {openMut.isPending && openMut.variables === b.id
-                          ? t("people.roster.openingPreview")
-                          : t("people.roster.openPreview")}
-                      </Button>
-                      {b.status === "applied" && b.kind !== "shift_roster" ? (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            rollbackMut.mutate(b.id);
-                          }}
-                        >
-                          {t("people.roster.rollback")}
-                        </Button>
-                      ) : null}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
-      </div>
     </div>
   );
 }
 
-function ShiftPreviewPanel({
+function useVirtualWindow(count: number, rowHeight = SHIFT_ROW_HEIGHT) {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+
+  const onScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
+    setScrollTop(event.currentTarget.scrollTop);
+  }, []);
+
+  const reset = useCallback(() => {
+    scrollerRef.current?.scrollTo({ top: 0 });
+    setScrollTop(0);
+  }, []);
+
+  const start = Math.max(0, Math.floor(scrollTop / rowHeight) - SHIFT_OVERSCAN);
+  const visible = Math.ceil(SHIFT_VIEWPORT_PX / rowHeight) + SHIFT_OVERSCAN * 2;
+  const end = Math.min(count, start + visible);
+
+  return {
+    scrollerRef,
+    onScroll,
+    reset,
+    start,
+    end,
+    topPad: start * rowHeight,
+    bottomPad: Math.max(0, (count - end) * rowHeight),
+  };
+}
+
+const ShiftPreviewPanel = memo(function ShiftPreviewPanel({
   preview,
   readyToConfirm,
   committing,
@@ -851,29 +733,65 @@ function ShiftPreviewPanel({
   committing: boolean;
   onConfirm: () => void;
   onClose: () => void;
-  onRowsChange: (rows: ShiftPreviewRow[]) => void;
+  onRowsChange: (rows: ShiftPreviewRow[], recount?: boolean) => void;
 }) {
   const { t } = useTranslation();
   const [filter, setFilter] = useState<"all" | "matched" | "unmatched" | "skipped">("all");
   const [query, setQuery] = useState("");
-  if (!preview) return null;
-  const allRows = preview.rows ?? [];
-  const editable = preview.mode !== "commit";
-  const filtered = allRows.filter((row) => {
-    if (filter !== "all" && row.status !== filter) return false;
-    const q = query.trim().toLowerCase();
-    if (!q) return true;
-    return [row.staffLabel, row.employeeCode, row.qid, row.locationCode, row.workDate]
-      .some((value) => String(value ?? "").toLowerCase().includes(q));
-  });
-  const shown = filtered.slice(0, PREVIEW_ROW_CAP);
-  const errorMessages = (preview.errors ?? []).map((err) => (typeof err === "string" ? err : err.message));
+  const [rowsOpen, setRowsOpen] = useState(false);
+  const [tableReady, setTableReady] = useState(false);
+  const deferredQuery = useDeferredValue(query);
+  const allRows = preview?.rows ?? [];
+  const batchKey = preview?.batchId ?? "";
+  const editable = Boolean(preview && preview.mode !== "commit");
+  const rowsRef = useRef(allRows);
+  rowsRef.current = allRows;
 
-  const patchRow = (row: ShiftPreviewRow, patch: Partial<ShiftPreviewRow>) => {
-    onRowsChange(allRows.map((item) => (
+  useEffect(() => {
+    setRowsOpen(false);
+    setTableReady(false);
+    setFilter("all");
+    setQuery("");
+  }, [batchKey]);
+
+  useEffect(() => {
+    if (!rowsOpen || !preview) {
+      setTableReady(false);
+      return;
+    }
+    setTableReady(false);
+    const id = window.setTimeout(() => setTableReady(true), 0);
+    return () => window.clearTimeout(id);
+  }, [rowsOpen, batchKey, preview]);
+
+  const filtered = useMemo(() => {
+    if (!rowsOpen) return [];
+    const q = deferredQuery.trim().toLowerCase();
+    return allRows.filter((row) => {
+      if (filter !== "all" && row.status !== filter) return false;
+      if (!q) return true;
+      return [row.staffLabel, row.employeeCode, row.qid, row.locationCode, row.workDate]
+        .some((value) => String(value ?? "").toLowerCase().includes(q));
+    });
+  }, [allRows, filter, deferredQuery, rowsOpen]);
+
+  const windowed = useVirtualWindow(filtered.length);
+
+  useEffect(() => {
+    windowed.reset();
+  }, [filter, deferredQuery, batchKey, windowed.reset]);
+
+  const patchRow = useCallback((row: ShiftPreviewRow, patch: Partial<ShiftPreviewRow>) => {
+    const next = rowsRef.current.map((item) => (
       item.rowNumber === row.rowNumber && item.workDate === row.workDate ? { ...item, ...patch } : item
-    )));
-  };
+    ));
+    onRowsChange(next, "isWeekOff" in patch || "status" in patch);
+  }, [onRowsChange]);
+
+  if (!preview) return null;
+
+  const errorMessages = (preview.errors ?? []).map((err) => (typeof err === "string" ? err : err.message));
+  const slice = filtered.slice(windowed.start, windowed.end);
 
   return (
     <div className="surface-card space-y-4 p-5">
@@ -890,7 +808,7 @@ function ShiftPreviewPanel({
               {preview.dateFrom} – {preview.dateTo}
             </Badge>
           </div>
-          <p className="text-xs text-muted-foreground">{t("people.roster.savedPreview")}</p>
+          <p className="text-xs text-muted-foreground">{t("people.roster.previewNote")}</p>
           {editable ? <p className="text-xs text-muted-foreground">{t("people.roster.editShiftHint")}</p> : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -917,114 +835,143 @@ function ShiftPreviewPanel({
       {(preview.warnings ?? []).map((msg) => (
         <p key={msg} className="text-xs text-muted-foreground">{msg}</p>
       ))}
-      <div className="flex flex-wrap items-center gap-2">
-        {(["all", "matched", "unmatched", "skipped"] as const).map((value) => (
-          <Button
-            key={value}
-            type="button"
-            size="sm"
-            variant={filter === value ? "default" : "outline"}
-            onClick={() => setFilter(value)}
-          >
-            {value === "all"
-              ? t("people.roster.filterAll", { count: allRows.length })
-              : value === "matched"
-                ? t("people.roster.shiftMatched", { count: preview.matched ?? 0 })
-                : value === "unmatched"
-                  ? t("people.roster.shiftUnmatched", { count: preview.unmatched ?? 0 })
-                  : t("people.roster.shiftSkipped", { count: preview.skipped ?? 0 })}
-          </Button>
-        ))}
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={t("people.roster.searchRows")}
-          className="h-8 max-w-xs"
-        />
-      </div>
-      {shown.length ? (
-        <div className="space-y-2">
-          {filtered.length > PREVIEW_ROW_CAP ? (
-            <p className="text-xs text-muted-foreground">
-              {t("people.roster.showingFirst", { shown: shown.length, total: filtered.length })}
-            </p>
-          ) : null}
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t("people.roster.colDate")}</TableHead>
-                <TableHead>{t("people.roster.colStaff")}</TableHead>
-                <TableHead>{t("people.roster.col.location")}</TableHead>
-                <TableHead>{t("people.roster.colShift")}</TableHead>
-                <TableHead>{t("people.roster.colDuty")}</TableHead>
-                <TableHead>{t("people.roster.action")}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {shown.map((row, i) => (
-                <TableRow key={`${row.rowNumber}-${row.workDate}-${i}`}>
-                  <TableCell className="whitespace-nowrap">{row.workDate || "—"}</TableCell>
-                  <TableCell>
-                    <div className="font-medium">{row.staffLabel}</div>
-                    <div className="text-xs text-muted-foreground">{row.employeeCode || row.qid || ""}</div>
-                  </TableCell>
-                  <TableCell>{row.locationCode ?? "—"}</TableCell>
-                  <TableCell>
-                    {editable ? (
-                      <div className="flex items-center gap-1">
-                        <Input
-                          type="time"
-                          className="h-8 w-[6.5rem]"
-                          value={row.shiftStart ?? ""}
-                          disabled={row.isWeekOff}
-                          onChange={(e) => patchRow(row, { shiftStart: e.target.value || null })}
-                        />
-                        <span className="text-xs text-muted-foreground">–</span>
-                        <Input
-                          type="time"
-                          className="h-8 w-[6.5rem]"
-                          value={row.shiftEnd ?? ""}
-                          disabled={row.isWeekOff}
-                          onChange={(e) => patchRow(row, { shiftEnd: e.target.value || null })}
-                        />
-                      </div>
-                    ) : (
-                      <span className="whitespace-nowrap">
-                        {row.isWeekOff ? "—" : [row.shiftStart, row.shiftEnd].filter(Boolean).join("–") || "—"}
-                      </span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {editable ? (
-                      <label className="flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={row.isWeekOff}
-                          onChange={(e) => patchRow(row, { isWeekOff: e.target.checked })}
-                        />
-                        {row.isWeekOff ? t("people.roster.dutyOff") : t("people.roster.dutyYes")}
-                      </label>
-                    ) : (
-                      row.isWeekOff ? t("people.roster.dutyOff") : t("people.roster.dutyYes")
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={row.status === "matched" ? "success" : row.status === "skipped" ? "secondary" : "destructive"}>
-                      {row.status}
-                    </Badge>
-                    {row.message ? <p className="mt-1 text-xs text-muted-foreground">{row.message}</p> : null}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      ) : (
-        <p className="text-sm text-muted-foreground">{t("people.roster.emptyTab")}</p>
-      )}
+      <Button type="button" variant="ghost" size="sm" onClick={() => setRowsOpen((open) => !open)}>
+        {rowsOpen ? t("people.roster.hideRows") : t("people.roster.showRows")}
+      </Button>
+      {rowsOpen ? (
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            {(["all", "matched", "unmatched", "skipped"] as const).map((value) => (
+              <Button
+                key={value}
+                type="button"
+                size="sm"
+                variant={filter === value ? "default" : "outline"}
+                onClick={() => setFilter(value)}
+              >
+                {value === "all"
+                  ? t("people.roster.filterAll", { count: allRows.length })
+                  : value === "matched"
+                    ? t("people.roster.shiftMatched", { count: preview.matched ?? 0 })
+                    : value === "unmatched"
+                      ? t("people.roster.shiftUnmatched", { count: preview.unmatched ?? 0 })
+                      : t("people.roster.shiftSkipped", { count: preview.skipped ?? 0 })}
+              </Button>
+            ))}
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={t("people.roster.searchRows")}
+              className="h-8 max-w-xs"
+            />
+          </div>
+          {!tableReady ? (
+            <p className="text-sm text-muted-foreground">{t("people.roster.renderingRows")}</p>
+          ) : filtered.length ? (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">
+                {t("people.roster.filterAll", { count: filtered.length })}
+              </p>
+              <div
+                ref={windowed.scrollerRef}
+                onScroll={windowed.onScroll}
+                className="relative w-full overflow-auto rounded-lg border border-border/70"
+                style={{ maxHeight: SHIFT_VIEWPORT_PX }}
+              >
+                <table className="w-full caption-bottom text-sm text-foreground">
+                  <TableHeader className="sticky top-0 z-10 bg-card">
+                    <TableRow>
+                      <TableHead>{t("people.roster.colDate")}</TableHead>
+                      <TableHead>{t("people.roster.colStaff")}</TableHead>
+                      <TableHead>{t("people.roster.col.location")}</TableHead>
+                      <TableHead>{t("people.roster.colShift")}</TableHead>
+                      <TableHead>{t("people.roster.colDuty")}</TableHead>
+                      <TableHead>{t("people.roster.action")}</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {windowed.topPad > 0 ? (
+                      <tr aria-hidden>
+                        <td colSpan={6} style={{ height: windowed.topPad, padding: 0, border: 0 }} />
+                      </tr>
+                    ) : null}
+                    {slice.map((row, i) => (
+                      <ShiftPreviewRowView
+                        key={`${row.rowNumber}-${row.workDate}-${windowed.start + i}`}
+                        row={row}
+                        editable={editable}
+                        onPatch={patchRow}
+                      />
+                    ))}
+                    {windowed.bottomPad > 0 ? (
+                      <tr aria-hidden>
+                        <td colSpan={6} style={{ height: windowed.bottomPad, padding: 0, border: 0 }} />
+                      </tr>
+                    ) : null}
+                  </TableBody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">{t("people.roster.emptyTab")}</p>
+          )}
+        </>
+      ) : null}
     </div>
   );
-}
+});
+
+const ShiftPreviewRowView = memo(function ShiftPreviewRowView({
+  row,
+  editable,
+  onPatch,
+}: {
+  row: ShiftPreviewRow;
+  editable: boolean;
+  onPatch: (row: ShiftPreviewRow, patch: Partial<ShiftPreviewRow>) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <TableRow>
+      <TableCell className="whitespace-nowrap">{row.workDate || "—"}</TableCell>
+      <TableCell>
+        <div className="font-medium">{row.staffLabel}</div>
+        <div className="text-xs text-muted-foreground">{row.employeeCode || row.qid || ""}</div>
+      </TableCell>
+      <TableCell>{row.locationCode ?? "—"}</TableCell>
+      <TableCell>
+        <ShiftRangeEditor
+          start={row.shiftStart}
+          end={row.shiftEnd}
+          disabled={row.isWeekOff}
+          readOnly={!editable}
+          onStartChange={(value) => onPatch(row, { shiftStart: value })}
+          onEndChange={(value) => onPatch(row, { shiftEnd: value })}
+        />
+      </TableCell>
+      <TableCell>
+        {editable ? (
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={row.isWeekOff}
+              onChange={(e) => onPatch(row, { isWeekOff: e.target.checked })}
+            />
+            {row.isWeekOff ? t("people.roster.dutyOff") : t("people.roster.dutyYes")}
+          </label>
+        ) : (
+          row.isWeekOff ? t("people.roster.dutyOff") : t("people.roster.dutyYes")
+        )}
+      </TableCell>
+      <TableCell>
+        <Badge variant={row.status === "matched" ? "success" : row.status === "skipped" ? "secondary" : "destructive"}>
+          {row.status}
+        </Badge>
+        {row.message ? <p className="mt-1 text-xs text-muted-foreground">{row.message}</p> : null}
+      </TableCell>
+    </TableRow>
+  );
+});
 
 function PreviewPanel({
   preview,
@@ -1071,7 +1018,7 @@ function PreviewPanel({
               <Badge variant="success">{t("people.roster.readyToConfirm")}</Badge>
             ) : null}
           </div>
-          <p className="text-xs text-muted-foreground">{t("people.roster.savedPreview")}</p>
+          <p className="text-xs text-muted-foreground">{t("people.roster.previewNote")}</p>
           {p?.worksheetName ? (
             <p className="text-xs text-muted-foreground">{t("people.roster.autoMapped", { sheet: p.worksheetName })}</p>
           ) : null}
