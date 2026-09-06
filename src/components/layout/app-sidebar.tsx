@@ -219,18 +219,6 @@ function DepartmentSection({
         </CollapsibleTrigger>
         <CollapsibleContent>
           <div className={cn("space-y-1", compact ? "mt-2" : "mt-1")}>
-            {filteredGroups.map((group) => (
-              <SidebarNavGroupSection
-                key={group.id}
-                group={group}
-                pathname={pathname}
-                t={t}
-                prefetchRoute={prefetchRoute}
-                onNavigate={onNavigate}
-                compact={compact}
-                forceOpen={searchOpen}
-              />
-            ))}
             {filteredItems.length > 0 && (
               <ul className={cn(compact && "grid grid-cols-2 gap-2")}>
                 {filteredItems.map((item) => (
@@ -247,6 +235,18 @@ function DepartmentSection({
                 ))}
               </ul>
             )}
+            {filteredGroups.map((group) => (
+              <SidebarNavGroupSection
+                key={group.id}
+                group={group}
+                pathname={pathname}
+                t={t}
+                prefetchRoute={prefetchRoute}
+                onNavigate={onNavigate}
+                compact={compact}
+                forceOpen={searchOpen}
+              />
+            ))}
           </div>
         </CollapsibleContent>
       </Collapsible>
@@ -379,19 +379,8 @@ function DepartmentFlyoutTree({
 
   return (
     <div className={cn("space-y-1", compact ? "p-1" : "p-1.5")}>
-      {tree.groups.map((group) => (
-        <SidebarNavGroupSection
-          key={group.id}
-          group={group}
-          pathname={pathname}
-          t={t}
-          prefetchRoute={prefetchRoute}
-          onNavigate={onNavigate}
-          compact={compact}
-        />
-      ))}
       {tree.items.length > 0 && (
-        <ul className="space-y-0.5 pt-1">
+        <ul className="space-y-0.5 pb-1">
           {tree.items.map((item) => (
             <li key={item.href}>
               <NavLinkRow
@@ -406,6 +395,17 @@ function DepartmentFlyoutTree({
           ))}
         </ul>
       )}
+      {tree.groups.map((group) => (
+        <SidebarNavGroupSection
+          key={group.id}
+          group={group}
+          pathname={pathname}
+          t={t}
+          prefetchRoute={prefetchRoute}
+          onNavigate={onNavigate}
+          compact={compact}
+        />
+      ))}
     </div>
   );
 }

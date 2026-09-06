@@ -155,11 +155,27 @@ const HR_STAFF_NAV_GROUP: SidebarNavGroup = {
   viewCapability: "people.view_roster",
   items: [
     { href: "/people", labelKey: "nav.hrDirectory", capability: "people.view_roster" },
-    { href: "/people/import", labelKey: "nav.importRoster", capability: "people.import_roster" },
-    { href: "/people/roster", labelKey: "nav.monthlyRoster", capability: "people.view_roster" },
     { href: "/people/training", labelKey: "nav.training", capability: "people.view_roster" },
   ],
 };
+
+/** Promoted out of nested HR Staff so they stay visible in the People flyout (groups start collapsed). */
+const PEOPLE_ROSTER_NAV_ITEMS: NavItem[] = [
+  {
+    href: "/people/roster",
+    labelKey: "nav.monthlyRoster",
+    icon: CalendarDays,
+    capability: "people.view_roster",
+    departmentId: "people",
+  },
+  {
+    href: "/people/import",
+    labelKey: "nav.importRoster",
+    icon: ClipboardList,
+    capability: "people.import_roster",
+    departmentId: "people",
+  },
+];
 
 const HR_ATTENDANCE_NAV_GROUP: SidebarNavGroup = {
   id: "hr-attendance",
@@ -274,7 +290,7 @@ export const NAV_DEPARTMENTS: NavDepartment[] = [
     labelKey: "nav.departments.people",
     icon: Users,
     audience: ["executive", "supervisor", "all"],
-    items: [],
+    items: PEOPLE_ROSTER_NAV_ITEMS,
     groups: [
       HR_STAFF_NAV_GROUP,
       HR_ATTENDANCE_NAV_GROUP,
@@ -614,7 +630,11 @@ export function isSidebarNavGroupActive(
   extraHrefs: string[] = [],
 ): boolean {
   if (pathPrefix === "/people") {
-    if (pathname === "/people" || pathname.startsWith("/people/staff/") || pathname.startsWith("/people/import") || pathname.startsWith("/people/training")) {
+    if (
+      pathname === "/people" ||
+      pathname.startsWith("/people/staff/") ||
+      pathname.startsWith("/people/training")
+    ) {
       return true;
     }
     return extraHrefs.some(
@@ -706,6 +726,11 @@ export function getRailFlyoutLinks(
   const seen = new Set<string>();
   const links: RailFlyoutLink[] = [];
 
+  for (const item of department.items) {
+    if (seen.has(item.href)) continue;
+    seen.add(item.href);
+    links.push({ ...item, fromGroup: false });
+  }
   for (const group of department.groups) {
     for (const sub of group.items) {
       if (seen.has(sub.href)) continue;
@@ -718,11 +743,6 @@ export function getRailFlyoutLinks(
         fromGroup: true,
       });
     }
-  }
-  for (const item of department.items) {
-    if (seen.has(item.href)) continue;
-    seen.add(item.href);
-    links.push({ ...item, fromGroup: false });
   }
 
   return { department, links };
@@ -781,6 +801,9 @@ export type PrimaryRailItem = NavItem & { departmentId: NavDepartmentId };
 export function getDepartmentFlyoutLinks(department: VisibleNavDepartment): RailFlyoutLink[] {
   const tree = getDepartmentFlyoutTree(department);
   const links: RailFlyoutLink[] = [];
+  for (const item of tree.items) {
+    links.push({ ...item, fromGroup: false });
+  }
   for (const group of tree.groups) {
     for (const sub of group.items) {
       links.push({
@@ -792,20 +815,17 @@ export function getDepartmentFlyoutLinks(department: VisibleNavDepartment): Rail
       });
     }
   }
-  for (const item of tree.items) {
-    links.push({ ...item, fromGroup: false });
-  }
   return links;
 }
 
-/** Hierarchical sections for flyout / expanded sidebar (parents → indented children). */
+/** Hierarchical sections for flyout / expanded sidebar (promoted items, then parent groups). */
 export function getDepartmentFlyoutTree(department: VisibleNavDepartment): {
   groups: SidebarNavGroup[];
   items: NavItem[];
 } {
   return {
-    groups: department.groups,
     items: department.items,
+    groups: department.groups,
   };
 }
 

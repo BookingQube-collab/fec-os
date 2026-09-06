@@ -70,7 +70,7 @@ describe("admin sidebar visibility", () => {
       "hr-employee",
       "hr-more",
     ]);
-    expect(people?.items).toEqual([]);
+    expect(people?.items.map((i) => i.href)).toEqual(["/people/roster", "/people/import"]);
 
     expect(people?.groups.find((g) => g.id === "hr-attendance")?.items.map((i) => i.href)).toEqual([
       "/people/attendance",
@@ -82,8 +82,6 @@ describe("admin sidebar visibility", () => {
     ]);
     expect(people?.groups.find((g) => g.id === "hr-staff")?.items.map((i) => i.href)).toEqual([
       "/people",
-      "/people/import",
-      "/people/roster",
       "/people/training",
     ]);
     expect(people?.groups.find((g) => g.id === "hr-admin")?.items.map((i) => i.href)).toEqual([
@@ -110,11 +108,20 @@ describe("admin sidebar visibility", () => {
     const people = getVisibleDepartments(["ceo"]).find((dept) => dept.id === "people");
     expect(people).toBeDefined();
     const tree = getDepartmentFlyoutTree(people!);
+    expect(tree.items.map((i) => i.href)).toEqual(["/people/roster", "/people/import"]);
     expect(tree.groups.map((g) => g.id)).toContain("hr-attendance");
     const attendance = tree.groups.find((g) => g.id === "hr-attendance");
     expect(attendance?.labelKey).toBe("nav.hrAttendance");
     expect(attendance?.items).toHaveLength(6);
-    expect(tree.items).toEqual([]);
+  });
+
+  it("surfaces Monthly roster and Shift roster at the top of the People flyout", () => {
+    const people = getVisibleDepartments(["ceo"]).find((dept) => dept.id === "people");
+    const flyout = getDepartmentFlyoutLinks(people!);
+    expect(flyout[0]?.href).toBe("/people/roster");
+    expect(flyout[0]?.labelKey).toBe("nav.monthlyRoster");
+    expect(flyout[1]?.href).toBe("/people/import");
+    expect(flyout[1]?.labelKey).toBe("nav.importRoster");
   });
 
   it("highlights attendance parent when a child tab route is active", () => {
