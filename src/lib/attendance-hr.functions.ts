@@ -13,7 +13,13 @@ import { canUserDo } from "@/lib/rbac";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { ATTENDANCE_FILE_BUCKET, DEFAULT_RULES, DEFAULT_SHIFT, isAdmsDeviceOnline } from "@/lib/attendance-hr/constants";
-import { queueAdmsAttlogQuery } from "@/lib/attendance-hr/adms-ingest";
+import { queueAdmsAttlogQuery, queueAdmsAttlogQueryRange } from "@/lib/attendance-hr/adms-ingest";
+import {
+  findAttendanceGaps,
+  qatarRangeToFetchWindow,
+  resolveResyncWindow,
+} from "@/lib/attendance-hr/gap-check";
+import { defaultPayrollPeriod } from "@/lib/attendance-hr/roster-period";
 import {
   aggregateDashboardPeriod,
   buildAbsentRowsForPeriod,
@@ -890,6 +896,139 @@ export const requestAttendanceDeviceFetch = createAuthenticatedAction(
       cmdId: result.cmdId,
       from: result.from.toISOString(),
       to: result.to.toISOString(),
+    };
+  },
+  { auth: { capability: "attendance.manage_devices" } },
+);
+
+const resyncWindowSchema = z.object({
+  locationId: z.string().uuid(),
+  mode: z.enum(["dates", "fec_month"]),
+  dates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).max(62).optional(),
+  month: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+  deviceId: z.string().uuid().optional().nullable(),
+});
+
+/** Scan rostered / excluded-punch gaps for a site over FEC month or specific dates. */
+export const checkAttendancePunchGaps = createAuthenticatedAction(
+  resyncWindowSchema,
+  async (data, context) => {
+    await assertSite(context, data.locationId);
+    const window = resolveResyncWindow({
+      mode: data.mode,
+      dates: data.dates,
+      month: data.month ?? defaultPayrollPeriod(qatarTodayYmd()).month,
+    });
+    const report = await findAttendanceGaps(context.supabase, {
+      locationId: data.locationId,
+      dateFrom: window.dateFrom,
+      dateTo: window.dateTo,
+      dates: window.dates.length ? window.dates : undefined,
+    });
+    return report;
+  },
+  { auth: { capability: "attendance.view" } },
+);
+
+/**
+ * Admin resync:
+ * - reprocessStored: recompute duplicate flags + daily summaries from DB punches (works offline)
+ * - fetchFromDevice: queue ADMS DATA QUERY ATTLOG for the window (device must poll; no TCP pull from Vercel)
+ */
+export const resyncAttendancePunches = createAuthenticatedAction(
+  resyncWindowSchema.extend({
+    reprocessStored: z.boolean().default(true),
+    fetchFromDevice: z.boolean().default(false),
+  }),
+  async (data, context) => {
+    await assertSite(context, data.locationId);
+    const window = resolveResyncWindow({
+      mode: data.mode,
+      dates: data.dates,
+      month: data.month ?? defaultPayrollPeriod(qatarTodayYmd()).month,
+    });
+
+    let reprocessed = 0;
+    if (data.reprocessStored) {
+      const result = await recalculateAttendanceRange(
+        context.supabase,
+        data.locationId,
+        window.dateFrom,
+        window.dateTo,
+      );
+      reprocessed = result.processed;
+    }
+
+    let fetchQueued: {
+      cmdId: number;
+      from: string;
+      to: string;
+      deviceId: string;
+    } | null = null;
+    let fetchSkippedReason: string | null = null;
+
+    if (data.fetchFromDevice) {
+      let deviceQuery = context.supabase
+        .from("attendance_devices")
+        .select("id, location_id, serial_number, timezone, last_adms_at")
+        .eq("location_id", data.locationId)
+        .eq("active", true);
+      if (data.deviceId) deviceQuery = deviceQuery.eq("id", data.deviceId);
+      const { data: devices, error } = await deviceQuery;
+      if (error) throw error;
+      const withSn = (devices ?? []).filter((d) => String(d.serial_number ?? "").trim());
+      if (!withSn.length) {
+        fetchSkippedReason = "No device with a serial number at this site. Save SN first, or use USB import.";
+      } else {
+        const online = withSn.find((d) => isAdmsDeviceOnline(d.last_adms_at == null ? null : String(d.last_adms_at)));
+        if (!online) {
+          fetchSkippedReason =
+            "Device is offline. FEC-OS cannot pull TCP 4370 from Vercel — wait until the terminal polls, or use USB import.";
+        } else {
+          const { from, to } = qatarRangeToFetchWindow(window.dateFrom, window.dateTo);
+          const result = await queueAdmsAttlogQueryRange(
+            supabaseAdmin,
+            String(online.id),
+            from,
+            to,
+            online.timezone ? String(online.timezone) : "Asia/Qatar",
+          );
+          fetchQueued = {
+            cmdId: result.cmdId,
+            from: result.from.toISOString(),
+            to: result.to.toISOString(),
+            deviceId: String(online.id),
+          };
+          await audit(context, "adms_resync_queued", "attendance_device", String(online.id), data.locationId, {
+            mode: data.mode,
+            dateFrom: window.dateFrom,
+            dateTo: window.dateTo,
+            cmdId: result.cmdId,
+          });
+        }
+      }
+    }
+
+    await audit(context, "attendance_resync", "attendance_site", data.locationId, data.locationId, {
+      mode: data.mode,
+      dateFrom: window.dateFrom,
+      dateTo: window.dateTo,
+      reprocessStored: data.reprocessStored,
+      fetchFromDevice: data.fetchFromDevice,
+      reprocessed,
+      fetchQueued,
+      fetchSkippedReason,
+    });
+
+    return {
+      ok: true as const,
+      dateFrom: window.dateFrom,
+      dateTo: window.dateTo,
+      reprocessed,
+      fetchQueued,
+      fetchSkippedReason,
+      /** FEC month uses 28→27 of the named calendar month. */
+      monthConvention: "fec_28_27" as const,
     };
   },
   { auth: { capability: "attendance.manage_devices" } },

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, MapPin, Users } from "lucide-react";
+import { Loader2, MapPin, Search, Users } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useSites } from "@/hooks/queries/useSites";
@@ -138,6 +139,7 @@ export default function AttendanceHrMappingPage() {
   const [removeTarget, setRemoveTarget] = useState<MappingRow | null>(null);
   const [busyIds, setBusyIds] = useState<Record<string, true>>({});
   const [mergeFilter, setMergeFilter] = useState<MergeFilter>("all");
+  const [searchQ, setSearchQ] = useState("");
   const { data: sites } = useSites();
   const mappingQueryKey = queryKeys.people.attendanceHr({ view: "map", locationId });
   const attendanceHrRootKey = [...queryKeys.people.all, "attendance-hr"] as const;
@@ -192,11 +194,33 @@ export default function AttendanceHrMappingPage() {
   const rows = useMemo(() => (q.data ?? []) as unknown as MappingRow[], [q.data]);
   const mappedCount = rows.filter((row) => Boolean(row.staff_id)).length;
   const unmappedCount = rows.length - mappedCount;
+  const staffNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const s of (bootstrap.data?.staff ?? []) as StaffOption[]) {
+      map.set(s.id, s.full_name);
+    }
+    return map;
+  }, [bootstrap.data?.staff]);
   const visibleRows = useMemo(() => {
-    if (mergeFilter === "mapped") return rows.filter((row) => Boolean(row.staff_id));
-    if (mergeFilter === "unmapped") return rows.filter((row) => !row.staff_id);
-    return rows;
-  }, [rows, mergeFilter]);
+    const qText = searchQ.trim().toLowerCase();
+    return rows.filter((row) => {
+      if (mergeFilter === "mapped" && !row.staff_id) return false;
+      if (mergeFilter === "unmapped" && row.staff_id) return false;
+      if (!qText) return true;
+      const selectedStaffId = staffByRow[row.id] ?? String(row.staff_id ?? "");
+      const employeeName = selectedStaffId ? (staffNameById.get(selectedStaffId) ?? "") : "";
+      const hay = [
+        row.biometric_user_id,
+        row.device_name ?? "",
+        row.previous_device_name ?? "",
+        row.full_name ?? "",
+        employeeName,
+      ]
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(qText);
+    });
+  }, [rows, mergeFilter, searchQ, staffByRow, staffNameById]);
   const staff = useMemo(() => {
     const all = (bootstrap.data?.staff ?? []) as StaffOption[];
     const keepIds = new Set<string>();
@@ -478,12 +502,33 @@ export default function AttendanceHrMappingPage() {
             ))}
           </div>
         </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="attendance-mapping-search">{t("attendanceHr.mapping.searchUsers")}</Label>
+          <div className="relative max-w-md">
+            <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              id="attendance-mapping-search"
+              value={searchQ}
+              onChange={(e) => setSearchQ(e.target.value)}
+              placeholder={t("attendanceHr.mapping.searchUsersPlaceholder")}
+              className="ps-9"
+              autoComplete="off"
+            />
+          </div>
+        </div>
         <p className="text-xs text-muted-foreground">
-          {t("attendanceHr.mapping.showingSummary", {
-            shown: rows.length,
-            mapped: mappedCount,
-            unmapped: unmappedCount,
-          })}
+          {searchQ.trim()
+            ? t("attendanceHr.mapping.showingFiltered", {
+                shown: visibleRows.length,
+                total: rows.length,
+                mapped: mappedCount,
+                unmapped: unmappedCount,
+              })
+            : t("attendanceHr.mapping.showingSummary", {
+                shown: rows.length,
+                mapped: mappedCount,
+                unmapped: unmappedCount,
+              })}
         </p>
       </NeumorphicCard>
 
@@ -517,11 +562,13 @@ export default function AttendanceHrMappingPage() {
             ) : visibleRows.length === 0 ? (
               <tr>
                 <td className="px-4 py-6 text-muted-foreground" colSpan={6}>
-                  {mergeFilter === "mapped"
-                    ? t("attendanceHr.mapping.emptyMapped")
-                    : mergeFilter === "unmapped"
-                      ? t("attendanceHr.mapping.emptyUnmapped")
-                      : t("attendanceHr.mapping.empty")}
+                  {searchQ.trim()
+                    ? t("attendanceHr.mapping.emptySearch")
+                    : mergeFilter === "mapped"
+                      ? t("attendanceHr.mapping.emptyMapped")
+                      : mergeFilter === "unmapped"
+                        ? t("attendanceHr.mapping.emptyUnmapped")
+                        : t("attendanceHr.mapping.empty")}
                 </td>
               </tr>
             ) : (

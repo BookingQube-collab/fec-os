@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, Download, Settings, Wifi } from "lucide-react";
+import { Copy, Download, RefreshCw, Search, Settings, Wifi } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -16,7 +16,17 @@ import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { isAdmsDeviceOnline } from "@/lib/attendance-hr/constants";
-import { getAttendanceHrBootstrap, requestAttendanceDeviceFetch, saveAttendanceDevice, saveAttendanceShiftTemplate } from "@/lib/attendance-hr.functions";
+import { qatarTodayYmd } from "@/lib/attendance-hr/dashboard";
+import type { AttendanceGapReport } from "@/lib/attendance-hr/gap-check";
+import { defaultPayrollPeriod, formatPayrollRange } from "@/lib/attendance-hr/roster-period";
+import {
+  checkAttendancePunchGaps,
+  getAttendanceHrBootstrap,
+  requestAttendanceDeviceFetch,
+  resyncAttendancePunches,
+  saveAttendanceDevice,
+  saveAttendanceShiftTemplate,
+} from "@/lib/attendance-hr.functions";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 
@@ -34,6 +44,8 @@ type DeviceRow = {
   adms_cmd_queued_at?: string | null;
   adms_attlog_stamp?: string | null;
 };
+
+type ResyncMode = "fec_month" | "dates";
 
 function isLocalDevHost(host: string): boolean {
   const h = host.toLowerCase();
@@ -59,8 +71,19 @@ async function copyText(value: string) {
   await navigator.clipboard.writeText(value);
 }
 
+function parseDatesInput(raw: string): string[] {
+  return [
+    ...new Set(
+      raw
+        .split(/[\s,;]+/)
+        .map((part) => part.trim())
+        .filter((part) => /^\d{4}-\d{2}-\d{2}$/.test(part)),
+    ),
+  ].sort();
+}
+
 export default function AttendanceHrSettingsPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const qc = useQueryClient();
   const q = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "bootstrap" }),
@@ -79,6 +102,14 @@ export default function AttendanceHrSettingsPage() {
   const [locationId, setLocationId] = useState("");
   const [snDrafts, setSnDrafts] = useState<Record<string, string>>({});
 
+  const defaultMonth = defaultPayrollPeriod(qatarTodayYmd()).month;
+  const [resyncLocationId, setResyncLocationId] = useState("");
+  const [resyncDeviceId, setResyncDeviceId] = useState("");
+  const [resyncMode, setResyncMode] = useState<ResyncMode>("fec_month");
+  const [resyncMonth, setResyncMonth] = useState(defaultMonth);
+  const [resyncDatesText, setResyncDatesText] = useState("2026-08-08, 2026-08-18");
+  const [gapReport, setGapReport] = useState<AttendanceGapReport | null>(null);
+
   const siteNameById = useMemo(() => {
     const map = new Map<string, string>();
     for (const s of q.data?.sites ?? []) {
@@ -87,6 +118,14 @@ export default function AttendanceHrSettingsPage() {
     }
     return map;
   }, [q.data?.sites]);
+
+  const resyncDevices = useMemo(
+    () =>
+      ((q.data?.devices ?? []) as DeviceRow[]).filter(
+        (d) => !resyncLocationId || d.location_id === resyncLocationId,
+      ),
+    [q.data?.devices, resyncLocationId],
+  );
 
   const saveDev = useMutation({
     mutationFn: () =>
@@ -148,6 +187,66 @@ export default function AttendanceHrSettingsPage() {
     onSuccess: () => toast.success(t("attendanceHr.settings.shiftSaved")),
     onError: (e: Error) => toast.error(e.message),
   });
+
+  const buildResyncPayload = () => {
+    if (!resyncLocationId) throw new Error(t("attendanceHr.settings.resyncNeedSite"));
+    if (resyncMode === "fec_month") {
+      return {
+        locationId: resyncLocationId,
+        mode: "fec_month" as const,
+        month: resyncMonth,
+        deviceId: resyncDeviceId || null,
+      };
+    }
+    const dates = parseDatesInput(resyncDatesText);
+    if (!dates.length) throw new Error(t("attendanceHr.settings.resyncNeedDates"));
+    return {
+      locationId: resyncLocationId,
+      mode: "dates" as const,
+      dates,
+      deviceId: resyncDeviceId || null,
+    };
+  };
+
+  const checkGaps = useMutation({
+    mutationFn: async () => checkAttendancePunchGaps(buildResyncPayload()),
+    onSuccess: (report) => {
+      setGapReport(report);
+      if (report.totals.gaps === 0) {
+        toast.success(t("attendanceHr.settings.gapsNone"));
+      } else {
+        toast.message(t("attendanceHr.settings.gapsFound", { count: report.totals.gaps }));
+      }
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const resyncMut = useMutation({
+    mutationFn: async (opts: { reprocessStored: boolean; fetchFromDevice: boolean }) =>
+      resyncAttendancePunches({ ...buildResyncPayload(), ...opts }),
+    onSuccess: (result) => {
+      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+      if (result.fetchSkippedReason) {
+        toast.warning(result.fetchSkippedReason);
+      }
+      if (result.fetchQueued) {
+        toast.success(t("attendanceHr.settings.resyncFetchQueued"));
+      } else if (result.reprocessed > 0) {
+        toast.success(t("attendanceHr.settings.resyncReprocessed", { count: result.reprocessed }));
+      } else {
+        toast.success(t("attendanceHr.settings.resyncDone"));
+      }
+      void checkGaps.mutateAsync().catch(() => undefined);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const gapKindLabel = (kind: string) => {
+    if (kind === "all_punches_excluded") return t("attendanceHr.settings.gapKindExcluded");
+    if (kind === "missed_punch") return t("attendanceHr.settings.gapKindMissed");
+    if (kind === "no_in") return t("attendanceHr.settings.gapKindNoIn");
+    return t("attendanceHr.settings.gapKindAbsent");
+  };
 
   return (
     <div className="space-y-6">
@@ -214,6 +313,192 @@ export default function AttendanceHrSettingsPage() {
         ) : null}
         <p className="text-xs text-muted-foreground">{t("attendanceHr.settings.hourlyHelp")}</p>
       </NeumorphicCard>
+
+      <NeumorphicCard className="space-y-4 p-5">
+        <div className="flex items-start gap-3">
+          <RefreshCw className="mt-0.5 h-5 w-5 text-primary" />
+          <div>
+            <h2 className="text-sm font-semibold">{t("attendanceHr.settings.resyncTitle")}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">{t("attendanceHr.settings.resyncHelp")}</p>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">{t("attendanceHr.settings.resyncArchitecture")}</p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1">
+            <Label>{t("attendanceHr.settings.resyncSite")}</Label>
+            <SearchableSelect
+              value={resyncLocationId}
+              onValueChange={(v) => {
+                setResyncLocationId(v);
+                setResyncDeviceId("");
+                setGapReport(null);
+              }}
+              placeholder={t("attendanceHr.settings.selectSite")}
+              emptyOption={{ value: "", label: t("attendanceHr.settings.selectSite") }}
+              options={(q.data?.sites ?? []).map((s) => {
+                const loc = s.location as { name?: string; code?: string } | null;
+                return {
+                  value: s.location_id,
+                  label: loc ? formatLocationLabel(loc.code, loc.name) : s.location_id,
+                  keywords: `${loc?.code ?? ""} ${loc?.name ?? ""}`,
+                };
+              })}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>{t("attendanceHr.settings.resyncDevice")}</Label>
+            <SearchableSelect
+              value={resyncDeviceId}
+              onValueChange={setResyncDeviceId}
+              placeholder={t("attendanceHr.settings.resyncDeviceAny")}
+              emptyOption={{ value: "", label: t("attendanceHr.settings.resyncDeviceAny") }}
+              options={resyncDevices.map((d) => ({
+                value: d.id,
+                label: `${d.device_name} · ${d.device_code}`,
+                keywords: `${d.serial_number ?? ""} ${d.device_code}`,
+              }))}
+            />
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2" role="group" aria-label={t("attendanceHr.settings.resyncMode")}>
+          <button
+            type="button"
+            className={`filter-chip ${resyncMode === "fec_month" ? "filter-chip-active" : ""}`}
+            aria-pressed={resyncMode === "fec_month"}
+            onClick={() => setResyncMode("fec_month")}
+          >
+            {t("attendanceHr.settings.resyncModeMonth")}
+          </button>
+          <button
+            type="button"
+            className={`filter-chip ${resyncMode === "dates" ? "filter-chip-active" : ""}`}
+            aria-pressed={resyncMode === "dates"}
+            onClick={() => setResyncMode("dates")}
+          >
+            {t("attendanceHr.settings.resyncModeDates")}
+          </button>
+        </div>
+        {resyncMode === "fec_month" ? (
+          <div className="max-w-xs space-y-1">
+            <Label htmlFor="resync-month">{t("attendanceHr.settings.resyncMonth")}</Label>
+            <Input
+              id="resync-month"
+              type="month"
+              value={resyncMonth}
+              onChange={(e) => setResyncMonth(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              {t("attendanceHr.settings.resyncMonthHint", {
+                range: formatPayrollRange(
+                  defaultPayrollPeriod(`${resyncMonth}-15`).dateFrom,
+                  defaultPayrollPeriod(`${resyncMonth}-15`).dateTo,
+                  i18n.language,
+                ),
+              })}
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-1">
+            <Label htmlFor="resync-dates">{t("attendanceHr.settings.resyncDates")}</Label>
+            <Input
+              id="resync-dates"
+              value={resyncDatesText}
+              onChange={(e) => setResyncDatesText(e.target.value)}
+              placeholder={t("attendanceHr.settings.resyncDatesPlaceholder")}
+            />
+            <p className="text-xs text-muted-foreground">{t("attendanceHr.settings.resyncDatesHint")}</p>
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={checkGaps.isPending || !resyncLocationId}
+            onClick={() => checkGaps.mutate()}
+          >
+            <Search className="mr-1 h-4 w-4" />
+            {t("attendanceHr.settings.checkGaps")}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={resyncMut.isPending || !resyncLocationId}
+            onClick={() => resyncMut.mutate({ reprocessStored: true, fetchFromDevice: false })}
+          >
+            <RefreshCw className="mr-1 h-4 w-4" />
+            {t("attendanceHr.settings.reprocessStored")}
+          </Button>
+          <Button
+            type="button"
+            disabled={resyncMut.isPending || !resyncLocationId}
+            onClick={() => resyncMut.mutate({ reprocessStored: true, fetchFromDevice: true })}
+          >
+            <Download className="mr-1 h-4 w-4" />
+            {t("attendanceHr.settings.resyncFromDevice")}
+          </Button>
+        </div>
+        {gapReport ? (
+          <div className="space-y-3 rounded-2xl border px-4 py-3">
+            {gapReport.totals.gaps === 0 ? (
+              <p className="text-sm text-muted-foreground">{t("attendanceHr.settings.gapsNoneDetail")}</p>
+            ) : (
+              <>
+                <p className="text-sm font-medium">
+                  {t("attendanceHr.settings.gapsPrompt", { count: gapReport.totals.gaps })}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {t("attendanceHr.settings.gapsBreakdown", {
+                    excluded: gapReport.totals.allExcluded,
+                    absent: gapReport.totals.absentRostered,
+                    missed: gapReport.totals.missedPunch,
+                  })}
+                </p>
+                {gapReport.reprocessLikelyHelps ? (
+                  <p className="text-xs text-amber-800 dark:text-amber-200">
+                    {t("attendanceHr.settings.gapsReprocessHint")}
+                  </p>
+                ) : null}
+                {gapReport.deviceFetchLikelyHelps ? (
+                  <p className="text-xs text-muted-foreground">{t("attendanceHr.settings.gapsFetchHint")}</p>
+                ) : null}
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={resyncMut.isPending}
+                    onClick={() =>
+                      resyncMut.mutate({
+                        reprocessStored: true,
+                        fetchFromDevice: gapReport.deviceFetchLikelyHelps,
+                      })
+                    }
+                  >
+                    {t("attendanceHr.settings.gapsAskResync")}
+                  </Button>
+                </div>
+                <ul className="max-h-56 space-y-1 overflow-y-auto text-xs">
+                  {gapReport.gaps.slice(0, 40).map((gap) => (
+                    <li key={`${gap.workDate}-${gap.staffId ?? gap.biometricUserId ?? "x"}-${gap.kind}`}>
+                      <span className="font-medium">{gap.workDate}</span>
+                      {" · "}
+                      {gap.staffName ?? gap.biometricUserId ?? "—"}
+                      {" · "}
+                      {gapKindLabel(gap.kind)}
+                      {gap.rawPunchCount > 0
+                        ? ` · ${t("attendanceHr.settings.gapPunches", {
+                            raw: gap.rawPunchCount,
+                            valid: gap.validPunchCount,
+                          })}`
+                        : ""}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
+        ) : null}
+      </NeumorphicCard>
+
       <div className="grid gap-4 lg:grid-cols-2">
         <NeumorphicCard className="space-y-3 p-5">
           <h2 className="text-sm font-semibold">{t("attendanceHr.settings.devices")}</h2>

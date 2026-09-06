@@ -278,6 +278,30 @@ describe("punch hash and duplicates", () => {
     expect(marked[1].probableDuplicate).toBe(true);
     expect(marked[2].probableDuplicate).toBe(false);
   });
+
+  it("does not mark different biometric users as duplicates of each other", () => {
+    const marked = markProbableDuplicates(
+      [
+        { punchAt: "2026-08-01T07:16:58.000Z", biometricUserId: "5", probableDuplicate: false },
+        { punchAt: "2026-08-01T07:17:20.000Z", biometricUserId: "12", probableDuplicate: false },
+      ],
+      60,
+      { groupKey: (p) => p.biometricUserId },
+    );
+    expect(marked[0].probableDuplicate).toBe(false);
+    expect(marked[1].probableDuplicate).toBe(false);
+  });
+
+  it("clears stale probableDuplicate flags when recomputing", () => {
+    const marked = markProbableDuplicates(
+      [
+        { punchAt: "2026-08-08T09:40:26.000Z", probableDuplicate: true },
+        { punchAt: "2026-08-08T19:02:21.000Z", probableDuplicate: true },
+      ],
+      60,
+    );
+    expect(marked.every((p) => p.probableDuplicate === false)).toBe(true);
+  });
 });
 
 describe("daily calculation", () => {

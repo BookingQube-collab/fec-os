@@ -25,6 +25,9 @@ export {
   selectAttendanceImportFiles,
 } from "./select-import-files";
 export { calculateDailyAttendance, markProbableDuplicates, assignAttendanceDate, summarizePeriod } from "./calculate";
+export { findAttendanceGaps, resolveResyncWindow, qatarRangeToFetchWindow } from "./gap-check";
+export type { AttendanceGapReport, AttendanceGapRow } from "./gap-check";
+
 export {
   aggregateDashboardPeriod,
   countRosterEmployees,

@@ -172,6 +172,23 @@ export async function queueAdmsAttlogQuery(
 ): Promise<{ cmdId: number; command: string; from: Date; to: Date }> {
   const to = new Date();
   const from = new Date(to.getTime() - Math.max(1, hours) * 3600_000);
+  return queueAdmsAttlogQueryRange(sb, deviceId, from, to, timeZone);
+}
+
+/** Queue DATA QUERY ATTLOG for an explicit wall-clock window (device timezone). */
+export async function queueAdmsAttlogQueryRange(
+  sb: AdminClient,
+  deviceId: string,
+  from: Date,
+  to: Date,
+  timeZone = "Asia/Qatar",
+): Promise<{ cmdId: number; command: string; from: Date; to: Date }> {
+  if (!(from instanceof Date) || Number.isNaN(from.getTime()) || !(to instanceof Date) || Number.isNaN(to.getTime())) {
+    throw new Error("Invalid fetch window.");
+  }
+  if (from.getTime() > to.getTime()) {
+    throw new Error("Fetch start must be before end.");
+  }
   const command = buildAdmsAttlogQueryCommand(from, to, timeZone);
   const { data: row, error: readError } = await sb
     .from("attendance_devices")

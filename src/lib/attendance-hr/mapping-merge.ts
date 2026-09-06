@@ -111,8 +111,14 @@ export function buildPunchRows(input: {
   staffByBiometric?: Map<string, string>;
 }) {
   const withDupes = markProbableDuplicates(
-    input.punches.map((p) => ({ ...p, punchAt: p.punchAt, probableDuplicate: false as boolean })),
+    input.punches.map((p) => ({
+      ...p,
+      punchAt: p.punchAt,
+      probableDuplicate: false as boolean,
+      _dupGroup: canonicalBiometricUserId(p.biometricUserId),
+    })),
     input.windowSeconds,
+    { groupKey: (p) => p._dupGroup },
   );
   return withDupes.map((p) => {
     const biometricUserId = canonicalBiometricUserId(p.biometricUserId);

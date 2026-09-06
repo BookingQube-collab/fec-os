@@ -47,18 +47,58 @@ export function assignAttendanceDate(punchIso: string, shift: ShiftTemplateInput
   return qatarYmd(punch);
 }
 
-export function markProbableDuplicates<T extends CalcPunch>(punches: T[], windowSeconds: number): T[] {
+/**
+ * Marks rapid-fire repeats as duplicates within each person stream.
+ * Always recomputes flags (does not preserve stale `probableDuplicate`).
+ * Pass `groupKey` when the batch mixes multiple people (e.g. full ATTLOG ingest);
+ * without it, the whole list is treated as one person (safe for per-subject recalc).
+ */
+export function markProbableDuplicates<T extends CalcPunch>(
+  punches: T[],
+  windowSeconds: number,
+  options?: { groupKey?: (punch: T) => string },
+): T[] {
+  if (!punches.length) return punches;
+  const groupKey = options?.groupKey;
+  if (!groupKey) return markProbableDuplicatesInGroup(punches, windowSeconds);
+
+  const indexed = punches.map((p, index) => ({ p, index }));
+  const byGroup = new Map<string, Array<{ p: T; index: number }>>();
+  for (const item of indexed) {
+    const key = groupKey(item.p) || "__";
+    const list = byGroup.get(key) ?? [];
+    list.push(item);
+    byGroup.set(key, list);
+  }
+
+  const out = punches.map((p) => ({ ...p, probableDuplicate: false }));
+  for (const group of byGroup.values()) {
+    const marked = markProbableDuplicatesInGroup(
+      group.map((g) => g.p),
+      windowSeconds,
+    );
+    group.forEach((g, i) => {
+      out[g.index] = { ...out[g.index], probableDuplicate: Boolean(marked[i]?.probableDuplicate) };
+    });
+  }
+  return out;
+}
+
+function markProbableDuplicatesInGroup<T extends CalcPunch>(punches: T[], windowSeconds: number): T[] {
   const sorted = [...punches].sort((a, b) => new Date(a.punchAt).getTime() - new Date(b.punchAt).getTime());
   const windowMs = Math.max(0, windowSeconds) * 1000;
   let lastKept: number | null = null;
-  return sorted.map((p) => {
+  const flagged = new Map<T, boolean>();
+  for (const p of sorted) {
     const t = new Date(p.punchAt).getTime();
     if (lastKept != null && t - lastKept <= windowMs && windowMs > 0) {
-      return { ...p, probableDuplicate: true };
+      flagged.set(p, true);
+      continue;
     }
     lastKept = t;
-    return { ...p, probableDuplicate: p.probableDuplicate ?? false };
-  });
+    flagged.set(p, false);
+  }
+  return punches.map((p) => ({ ...p, probableDuplicate: flagged.get(p) ?? false }));
 }
 
 export function calculateDailyAttendance(punches: CalcPunch[], ctx: DayContext): DailyCalcResult {

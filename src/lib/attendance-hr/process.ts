@@ -157,7 +157,7 @@ export async function recalculateAttendanceRange(
 
   let logsQuery = supabase
     .from("attendance_logs")
-    .select("staff_id, biometric_user_id, device_id, punch_at, probable_duplicate, excluded_from_calc, attendance_date")
+    .select("id, staff_id, biometric_user_id, device_id, punch_at, probable_duplicate, excluded_from_calc, attendance_date")
     .eq("location_id", locationId)
     .gte("attendance_date", dateFrom)
     .lte("attendance_date", dateTo);
@@ -248,14 +248,42 @@ export async function recalculateAttendanceRange(
     const rosterRow = staffId ? rosterByKey.get(`${staffId}|${workDate}`) : undefined;
     const leaveRow = staffId ? leaveByKey.get(`${staffId}|${workDate}`) : undefined;
     const shift = rosterRow?.shift_template_id ? shiftById.get(String(rosterRow.shift_template_id)) ?? fallbackShift : fallbackShift;
+    // Recompute duplicate flags from scratch (ignore stale DB flags from cross-user ingest bugs).
     const marked = markProbableDuplicates(
       punches.map((p) => ({
+        id: p.id as string,
         punchAt: p.punch_at as string,
-        probableDuplicate: Boolean(p.probable_duplicate),
-        excludedFromCalc: Boolean(p.excluded_from_calc),
+        probableDuplicate: false,
+        excludedFromCalc: false,
       })),
       rules.duplicateWindowSeconds,
     );
+    const flagUpdates = marked
+      .filter((m) => m.id)
+      .map((m) => {
+        const original = punches.find((p) => p.id === m.id);
+        const nextDup = Boolean(m.probableDuplicate);
+        const prevDup = Boolean(original?.probable_duplicate);
+        const prevExcl = Boolean(original?.excluded_from_calc);
+        if (prevDup === nextDup && prevExcl === nextDup) return null;
+        return { id: m.id as string, probable_duplicate: nextDup, excluded_from_calc: nextDup };
+      })
+      .filter((row): row is { id: string; probable_duplicate: boolean; excluded_from_calc: boolean } => Boolean(row));
+    for (let i = 0; i < flagUpdates.length; i += 40) {
+      const chunk = flagUpdates.slice(i, i + 40);
+      await Promise.all(
+        chunk.map(async (row) => {
+          const { error: flagError } = await supabase
+            .from("attendance_logs")
+            .update({
+              probable_duplicate: row.probable_duplicate,
+              excluded_from_calc: row.excluded_from_calc,
+            })
+            .eq("id", row.id);
+          if (flagError) throw flagError;
+        }),
+      );
+    }
     const calc = calculateDailyAttendance(marked, {
       workDate,
       scheduled: Boolean(rosterRow) && !rosterRow?.is_week_off,
