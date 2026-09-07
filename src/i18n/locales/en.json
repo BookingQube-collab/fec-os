@@ -5656,6 +5656,7 @@
       "emptyFiltered": "No rows match these filters.",
       "importCta": "Import files",
       "loading": "Loading attendance…",
+      "searching": "Searching…",
       "kpiStrip": "Attendance totals for this view",
       "kpiTotal": "Records",
       "kpiStaff": "Staff",

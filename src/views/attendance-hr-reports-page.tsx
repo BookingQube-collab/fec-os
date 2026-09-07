@@ -2,8 +2,8 @@
 
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import Link from "next/link";
-import { FileBarChart, MapPin, Search, Trash2, Upload } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { FileBarChart, Loader2, MapPin, Search, Trash2, Upload } from "lucide-react";
+import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -67,7 +67,9 @@ export default function AttendanceHrReportsPage() {
   const { data: sites } = useSites();
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setStaffQDebounced(staffQ), 300);
+    const timer = window.setTimeout(() => {
+      startTransition(() => setStaffQDebounced(staffQ));
+    }, 350);
     return () => window.clearTimeout(timer);
   }, [staffQ]);
 
@@ -90,6 +92,13 @@ export default function AttendanceHrReportsPage() {
     staleTime: STALE.people,
     placeholderData: keepPreviousData,
   });
+
+  const staffSearchDebouncing = staffQ !== staffQDebounced;
+  const staffSearchFetching =
+    q.isFetching &&
+    !q.isLoading &&
+    (staffQ.trim().length > 0 || staffQDebounced.trim().length > 0);
+  const isStaffSearchPending = staffSearchDebouncing || staffSearchFetching;
 
   const locationOptions = useMemo(() => {
     const byCode = new Map<string, { id: string; code: string; name: string }>();
@@ -121,11 +130,16 @@ export default function AttendanceHrReportsPage() {
   }, [sites, bootstrap.data?.sites, locationId]);
 
   const rows = useMemo(() => (q.data ?? []) as AttendanceHrReportRow[], [q.data]);
+  const deferredRows = useDeferredValue(rows);
   const listingRows = useMemo(
-    () => rows.map((row) => attendanceHrToListingSource(row, t("attendanceHr.reports.unmapped"))),
-    [rows, t],
+    () => deferredRows.map((row) => attendanceHrToListingSource(row, t("attendanceHr.reports.unmapped"))),
+    [deferredRows, t],
   );
-  const kpis = useMemo(() => computeAttendanceHrReportKpis(rows), [rows]);
+  const kpis = useMemo(() => computeAttendanceHrReportKpis(deferredRows), [deferredRows]);
+  const isTableDeferred = deferredRows !== rows;
+  const showSearchBusy =
+    isStaffSearchPending ||
+    (isTableDeferred && (staffQ.trim().length > 0 || staffQDebounced.trim().length > 0));
 
   const selectedLocation = locationOptions.find((loc) => loc.id === locationId);
   const locationLabel = selectedLocation
@@ -213,8 +227,15 @@ export default function AttendanceHrReportsPage() {
                 onChange={(e) => setStaffQ(e.target.value)}
                 placeholder={t("attendanceHr.reports.staffSearch")}
                 autoComplete="off"
-                className="ps-9"
+                aria-busy={showSearchBusy}
+                className={cn("ps-9", showSearchBusy && "pe-9")}
               />
+              {showSearchBusy ? (
+                <Loader2
+                  className="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground"
+                  aria-hidden
+                />
+              ) : null}
             </div>
           </div>
           <div className="space-y-1.5">
@@ -308,34 +329,46 @@ export default function AttendanceHrReportsPage() {
 
       <AttendanceHrReportsKpiStrip kpis={kpis} isLoading={q.isLoading} />
 
-      {q.isLoading ? (
-        <AttendanceRecordsTable
-          rows={[]}
-          empty={<p className="text-sm text-muted-foreground">{t("attendanceHr.reports.loading")}</p>}
-        />
-      ) : emptyImport ? (
-        <AttendanceRecordsTable
-          rows={[]}
-          empty={
-            <div className="space-y-3 text-sm">
-              <p className="text-muted-foreground">{t("attendanceHr.reports.empty")}</p>
-              <Button asChild size="sm">
-                <Link href="/people/attendance/import">
-                  <Upload className="h-4 w-4" />
-                  {t("attendanceHr.reports.importCta")}
-                </Link>
-              </Button>
+      <div className="relative" aria-busy={showSearchBusy}>
+        {showSearchBusy && !q.isLoading ? (
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-start justify-center bg-background/55 pt-16 backdrop-blur-[1px]">
+            <div className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-sm text-muted-foreground shadow-sm">
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              <span>{t("attendanceHr.reports.searching")}</span>
             </div>
-          }
-        />
-      ) : emptyFiltered ? (
-        <AttendanceRecordsTable
-          rows={[]}
-          empty={<p className="text-sm text-muted-foreground">{t("attendanceHr.reports.emptyFiltered")}</p>}
-        />
-      ) : (
-        <AttendanceRecordsTable rows={listingRows} />
-      )}
+          </div>
+        ) : null}
+        <div className={cn(showSearchBusy && !q.isLoading && "opacity-60 transition-opacity")}>
+          {q.isLoading ? (
+            <AttendanceRecordsTable
+              rows={[]}
+              empty={<p className="text-sm text-muted-foreground">{t("attendanceHr.reports.loading")}</p>}
+            />
+          ) : emptyImport ? (
+            <AttendanceRecordsTable
+              rows={[]}
+              empty={
+                <div className="space-y-3 text-sm">
+                  <p className="text-muted-foreground">{t("attendanceHr.reports.empty")}</p>
+                  <Button asChild size="sm">
+                    <Link href="/people/attendance/import">
+                      <Upload className="h-4 w-4" />
+                      {t("attendanceHr.reports.importCta")}
+                    </Link>
+                  </Button>
+                </div>
+              }
+            />
+          ) : emptyFiltered && !showSearchBusy ? (
+            <AttendanceRecordsTable
+              rows={[]}
+              empty={<p className="text-sm text-muted-foreground">{t("attendanceHr.reports.emptyFiltered")}</p>}
+            />
+          ) : (
+            <AttendanceRecordsTable rows={listingRows} />
+          )}
+        </div>
+      </div>
 
       <AlertDialog open={confirmOpen} onOpenChange={(open) => !open && !purgeMut.isPending && setConfirmOpen(false)}>
         <AlertDialogContent>
