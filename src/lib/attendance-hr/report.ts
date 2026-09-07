@@ -1,5 +1,6 @@
 import { formatLocationLabel, formatLocationName, rosterSheetLabel } from "@/lib/locations/normalize";
-import { breakMinutesForLocation } from "@/lib/attendance-hr/shift-policy";
+import { breakMinutesForLocation, expectedShiftMinutes, normalizeAttendanceEmploymentRole } from "@/lib/attendance-hr/shift-policy";
+import { resolveHoursBasedAttendanceStatus } from "@/lib/attendance-display";
 
 export type AttendanceHrReportRow = {
   id: string;
@@ -25,6 +26,11 @@ export type AttendanceHrReportRow = {
   location_region: string | null;
   /** Explicit site break override when set on attendance_site_settings. */
   location_break_minutes?: number | null;
+  /** Expected net daily minutes from site working hours for this staff employment type. */
+  expected_minutes?: number | null;
+  permanent_hours?: number | null;
+  secondment_hours?: number | null;
+  joker_hours?: number | null;
 };
 
 export function isAttendanceHrUnmappedSearch(raw: string): boolean {
@@ -88,10 +94,21 @@ export function attendanceHrToListingSource(
   overtime_minutes: number;
   worked_minutes: number | null;
   break_minutes: number;
+  expected_minutes: number | null;
+  employment_type: string | null;
   status: string;
   missed_punch: boolean;
 } {
   const mappedName = row.staff_name?.trim() ?? "";
+  const role = normalizeAttendanceEmploymentRole(row.employment_type);
+  const expected =
+    row.expected_minutes != null && Number.isFinite(Number(row.expected_minutes))
+      ? Math.round(Number(row.expected_minutes))
+      : expectedShiftMinutes(role, {
+          permanentHours: row.permanent_hours,
+          secondmentHours: row.secondment_hours,
+          jokerHours: row.joker_hours,
+        });
   return {
     id: row.id,
     locationLabel: attendanceHrListingLocation(row),
@@ -104,6 +121,8 @@ export function attendanceHrToListingSource(
     overtime_minutes: row.overtime_minutes,
     worked_minutes: row.worked_minutes,
     break_minutes: breakMinutesForLocation(row.location_code, row.location_break_minutes),
+    expected_minutes: expected,
+    employment_type: row.employment_type,
     status: row.status,
     missed_punch: row.missed_punch,
   };
@@ -136,11 +155,13 @@ export function computeAttendanceHrReportKpis(rows: AttendanceHrReportRow[]): At
 
   for (const row of rows) {
     identities.add(reportIdentityKey(row));
-    if (row.status === "present") present += 1;
-    if (row.status === "absent") absent += 1;
-    if (row.status === "late" || Number(row.late_minutes) > 0) late += 1;
-    if (row.status === "missed_punch" || row.missed_punch) missedPunch += 1;
-    if (row.status === "unscheduled") unscheduled += 1;
+    const listing = attendanceHrToListingSource(row);
+    const resolved = resolveHoursBasedAttendanceStatus(listing);
+    if (resolved === "present" || resolved === "overtime") present += 1;
+    if (resolved === "absent") absent += 1;
+    if (resolved === "late" || Number(row.late_minutes) > 0) late += 1;
+    if (resolved === "missed_punch" || row.missed_punch) missedPunch += 1;
+    if (resolved === "unscheduled") unscheduled += 1;
   }
 
   return {

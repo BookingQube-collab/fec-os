@@ -50,27 +50,43 @@ describe("attendance listing display", () => {
       actual_in: null,
       actual_out: null,
     });
-    expect(missing.label).toBe("Missing Punch");
+    expect(missing.label).toBe("Absent");
     expect(missing.badgeClass).toMatch(/rose/);
     expect(missing.rowClass).toBe("");
 
-    const late = getAttendanceStatusDisplay({
+    const lateButFullHours = getAttendanceStatusDisplay({
+      status: "late",
+      missed_punch: false,
+      actual_in: "2026-08-25T07:17:44.000Z",
+      actual_out: "2026-08-25T17:30:00.000Z",
+      worked_minutes: 540,
+      expected_minutes: 540,
+    });
+    expect(lateButFullHours.label).toBe("Present");
+    expect(lateButFullHours.badgeClass).toMatch(/emerald/);
+    expect(lateButFullHours.rowClass).toBe("");
+
+    const shortHours = getAttendanceStatusDisplay({
       status: "late",
       missed_punch: false,
       actual_in: "2026-08-25T07:17:44.000Z",
       actual_out: "2026-08-25T16:00:00.000Z",
+      worked_minutes: 480,
+      expected_minutes: 540,
     });
-    expect(late.label).toBe("Late");
-    expect(late.badgeClass).toMatch(/amber/);
-    expect(late.rowClass).toBe("");
+    expect(shortHours.label).toBe("Short hours");
+    expect(shortHours.badgeClass).toMatch(/amber/);
+    expect(shortHours.rowClass).toBe("");
 
     const complete = getAttendanceStatusDisplay({
       status: "present",
       missed_punch: false,
       actual_in: "2026-08-25T07:17:44.000Z",
       actual_out: "2026-08-25T16:00:00.000Z",
+      worked_minutes: 540,
+      expected_minutes: 540,
     });
-    expect(complete.label).toBe("Complete");
+    expect(complete.label).toBe("Present");
     expect(complete.rowClass).toBe("");
   });
 

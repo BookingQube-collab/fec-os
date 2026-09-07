@@ -113,7 +113,7 @@ export function isCheckedOut(row: Pick<AttendanceDashboardDayRow, "actual_out">)
 
 /** Mapped staff with in and out (complete). Unmapped never count as Present. */
 export function isMappedPresent(row: AttendanceDashboardDayRow): boolean {
-  return Boolean(row.staff_id) && isCheckedIn(row) && !row.missed_punch && row.status !== "absent";
+  return Boolean(row.staff_id) && isCheckedIn(row) && !row.missed_punch && row.status !== "absent" && row.status !== "short_hours";
 }
 
 export function isMappedMissed(row: AttendanceDashboardDayRow): boolean {

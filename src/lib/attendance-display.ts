@@ -1,4 +1,9 @@
 import { defaultPayrollPeriod } from "@/lib/attendance-hr/roster-period";
+import {
+  expectedShiftMinutes,
+  normalizeAttendanceEmploymentRole,
+  type SiteShiftPolicyOverrides,
+} from "@/lib/attendance-hr/shift-policy";
 import { formatLocationRecord } from "@/lib/locations/normalize";
 
 export type AttendanceSummaryRow = {
@@ -18,6 +23,9 @@ export type AttendanceSummaryRow = {
   scheduled_out: string | null;
   worked_minutes?: number | null;
   break_minutes?: number | null;
+  /** Expected net daily minutes from site working hours + employment type. */
+  expected_minutes?: number | null;
+  employment_type?: string | null;
   staff: { full_name?: string; employee_code?: string } | null;
   location: { code: string; name: string; region: string | null } | null;
 };
@@ -121,7 +129,10 @@ const STATUS_ALIASES: Record<string, string> = {
   off: "weekly_off",
   misspunch: "missed_punch",
   missedpunch: "missed_punch",
-  incomplete: "missed_punch",
+  short_hour: "short_hours",
+  shorthours: "short_hours",
+  hours_missed: "short_hours",
+  incomplete_hours: "short_hours",
 };
 
 const NAMED_STATUS_DISPLAY: Record<string, AttendanceStatusDisplay> = {
@@ -134,6 +145,11 @@ const NAMED_STATUS_DISPLAY: Record<string, AttendanceStatusDisplay> = {
     label: "Missed punch",
     badgeClass: MISSED_PUNCH_BADGE,
     rowClass: MISSED_PUNCH_ROW,
+  },
+  short_hours: {
+    label: "Short hours",
+    badgeClass: LATE_BADGE,
+    rowClass: NO_ROW_TINT,
   },
   public_holiday: {
     label: "Public holiday",
@@ -165,7 +181,24 @@ const NAMED_STATUS_DISPLAY: Record<string, AttendanceStatusDisplay> = {
     badgeClass: LATE_BADGE,
     rowClass: NO_ROW_TINT,
   },
+  present: {
+    label: "Present",
+    badgeClass: COMPLETE_BADGE,
+    rowClass: NO_ROW_TINT,
+  },
 };
+
+const PROTECTED_STATUS_KEYS = new Set([
+  "weekly_off",
+  "public_holiday",
+  "annual_leave",
+  "sick_leave",
+  "unpaid_leave",
+  "unscheduled",
+  "review_required",
+  "absent",
+  "missed_punch",
+]);
 
 function normalizeAttendanceStatusKey(status: string): string {
   const raw = String(status ?? "")
@@ -175,10 +208,80 @@ function normalizeAttendanceStatusKey(status: string): string {
   return STATUS_ALIASES[raw] ?? raw;
 }
 
-export function getAttendanceStatusDisplay(
-  row: Pick<AttendanceSummaryRow, "status" | "missed_punch" | "actual_in" | "actual_out">,
-): AttendanceStatusDisplay {
+/** Resolve expected net minutes from employment type + optional site hour overrides. */
+export function resolveExpectedWorkMinutes(input: {
+  expected_minutes?: number | null;
+  employment_type?: string | null;
+  sitePolicy?: SiteShiftPolicyOverrides | null;
+}): number | null {
+  if (input.expected_minutes != null && Number.isFinite(Number(input.expected_minutes))) {
+    const n = Math.round(Number(input.expected_minutes));
+    return n > 0 ? n : null;
+  }
+  const role = normalizeAttendanceEmploymentRole(input.employment_type);
+  const minutes = expectedShiftMinutes(role, input.sitePolicy ?? null);
+  return minutes > 0 ? minutes : null;
+}
+
+/**
+ * Prefer hours-vs-expected as the primary status when both punches exist.
+ * Keeps roster / leave / missed-punch statuses intact. Late alone does not win
+ * when net hours meet the site expected daily length.
+ */
+export function resolveHoursBasedAttendanceStatus(
+  row: {
+    status: string;
+    missed_punch?: boolean;
+    actual_in?: string | null;
+    actual_out?: string | null;
+    worked_minutes?: number | null;
+    break_minutes?: number | null;
+    expected_minutes?: number | null;
+    employment_type?: string | null;
+    sitePolicy?: SiteShiftPolicyOverrides | null;
+  },
+): string {
   const statusKey = normalizeAttendanceStatusKey(row.status);
+  if (PROTECTED_STATUS_KEYS.has(statusKey)) return statusKey;
+
+  const hasIn = Boolean(row.actual_in);
+  const hasOut = Boolean(row.actual_out);
+  if (row.missed_punch || hasIn !== hasOut) return "missed_punch";
+  if (!hasIn && !hasOut) {
+    return statusKey === "absent" ? "absent" : statusKey || "absent";
+  }
+
+  const expected = resolveExpectedWorkMinutes(row);
+  const workedHours = resolveTotalHoursWorked({
+    actual_in: row.actual_in ?? null,
+    actual_out: row.actual_out ?? null,
+    worked_minutes: row.worked_minutes,
+    break_minutes: row.break_minutes,
+  });
+  if (expected != null && workedHours != null) {
+    const workedMinutes = Math.round(workedHours * 60);
+    return workedMinutes >= expected ? "present" : "short_hours";
+  }
+
+  if (statusKey === "incomplete" && hasIn && hasOut) return "short_hours";
+  if (statusKey === "late" || statusKey === "early_leave" || statusKey === "early_departure" || statusKey === "overtime") {
+    return statusKey === "early_leave" ? "early_departure" : statusKey;
+  }
+  if (statusKey === "short_hours") return "short_hours";
+  if (statusKey === "present" || statusKey === "complete") return "present";
+  return statusKey || "present";
+}
+
+export function getAttendanceStatusDisplay(
+  row: Pick<AttendanceSummaryRow, "status" | "missed_punch" | "actual_in" | "actual_out"> & {
+    worked_minutes?: number | null;
+    break_minutes?: number | null;
+    expected_minutes?: number | null;
+    employment_type?: string | null;
+    sitePolicy?: SiteShiftPolicyOverrides | null;
+  },
+): AttendanceStatusDisplay {
+  const statusKey = resolveHoursBasedAttendanceStatus(row);
   const named = NAMED_STATUS_DISPLAY[statusKey];
   if (named) return named;
 
@@ -190,7 +293,7 @@ export function getAttendanceStatusDisplay(
   }
 
   if (statusKey === "absent" || (!hasIn && !hasOut)) {
-    return { label: "Missing Punch", badgeClass: MISSING_PUNCH_BADGE, rowClass: NO_ROW_TINT };
+    return { label: "Absent", badgeClass: MISSING_PUNCH_BADGE, rowClass: NO_ROW_TINT };
   }
 
   if (statusKey === "late" || statusKey === "early_leave" || statusKey === "early_departure") {
@@ -201,7 +304,11 @@ export function getAttendanceStatusDisplay(
     };
   }
 
-  return { label: "Complete", badgeClass: COMPLETE_BADGE, rowClass: NO_ROW_TINT };
+  if (statusKey === "incomplete") {
+    return hasIn && hasOut ? NAMED_STATUS_DISPLAY.short_hours : NAMED_STATUS_DISPLAY.missed_punch;
+  }
+
+  return NAMED_STATUS_DISPLAY.present;
 }
 
 export function attendanceDateRange(preset: "week" | "month", todayYmd?: string): { from: string; to: string } {
@@ -264,12 +371,13 @@ export function computeAttendanceKpis(rows: AttendanceSummaryRow[]): AttendanceK
     if (row.staff_id) staffIds.add(row.staff_id);
 
     const display = getAttendanceStatusDisplay(row);
-    if (display.label === "Complete") complete++;
-    else if (display.label === "Incomplete" || display.label === "Missed punch") incomplete++;
-    else if (display.label === "Missing Punch") missingPunch++;
+    if (display.label === "Present" || display.label === "Complete") complete++;
+    else if (display.label === "Incomplete" || display.label === "Missed punch" || display.label === "Short hours") {
+      incomplete++;
+    } else if (display.label === "Missing Punch" || display.label === "Absent") missingPunch++;
     else if (display.label === "Late" || display.label === "Early Leave") late++;
 
-    if (row.status === "absent") absent++;
+    if (row.status === "absent" || display.label === "Absent") absent++;
     if (hasOvertime(row)) overtime++;
 
     const hours = resolveTotalHoursWorked(row);
@@ -301,6 +409,8 @@ export type AttendanceListingSource = {
   overtime_minutes: number;
   worked_minutes?: number | null;
   break_minutes?: number | null;
+  expected_minutes?: number | null;
+  employment_type?: string | null;
   status: string;
   missed_punch: boolean;
 };
@@ -343,6 +453,8 @@ export function toAttendanceListingSource(row: AttendanceSummaryRow): Attendance
     overtime_minutes: row.overtime_minutes,
     worked_minutes: row.worked_minutes ?? null,
     break_minutes: row.break_minutes ?? null,
+    expected_minutes: row.expected_minutes ?? null,
+    employment_type: row.employment_type ?? null,
     status: row.status,
     missed_punch: row.missed_punch,
   };

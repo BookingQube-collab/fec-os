@@ -324,10 +324,11 @@ describe("daily calculation", () => {
     const day = calculateDailyAttendance(
       [
         { punchAt: "2026-08-01T05:05:00.000Z" },
-        { punchAt: "2026-08-01T14:00:00.000Z" },
+        { punchAt: "2026-08-01T14:10:00.000Z" },
       ],
       { workDate: "2026-08-01", scheduled: true, shift },
     );
+    expect(day.status).toBe("present");
     expect(day.statusFlags).toContain("present");
     expect(day.actualIn).toBeTruthy();
     expect(day.actualOut).toBeTruthy();
@@ -369,10 +370,35 @@ describe("daily calculation", () => {
         }),
       },
     );
-    // ~9.62h gross − 60m break ≈ 8.62h net → under 9h expected → no OT
+    // ~9.62h gross − 60m break ≈ 8.62h net → under 9h expected → no OT + short hours
     expect(day.workedMinutes).toBeGreaterThan(500);
     expect(day.workedMinutes).toBeLessThan(540);
     expect(day.overtimeMinutes).toBe(0);
+    expect(day.status).toBe("short_hours");
+    expect(day.statusFlags).toContain("short_hours");
+  });
+
+  it("marks present when late but net hours meet expected daily length", () => {
+    const day = calculateDailyAttendance(
+      [
+        // 10:20 Qatar in, 20:20 out → 10h gross − 60m = 9h net; shift start 08:00 → late
+        { punchAt: "2026-08-01T07:20:00.000Z" },
+        { punchAt: "2026-08-01T17:20:00.000Z" },
+      ],
+      {
+        workDate: "2026-08-01",
+        scheduled: true,
+        shift: applyAttendanceShiftPolicy(shift, {
+          employmentType: "permanent",
+          locationCode: "INF-CC",
+        }),
+      },
+    );
+    expect(day.lateMinutes).toBeGreaterThan(0);
+    expect(day.workedMinutes).toBe(540);
+    expect(day.status).toBe("present");
+    expect(day.statusFlags).toContain("late");
+    expect(day.statusFlags).toContain("present");
   });
 
   it("applies joker 10h expected with 30m Urban Arena break", () => {
@@ -441,13 +467,13 @@ describe("HR report row helpers", () => {
       biometric_user_id: "9",
       work_date: "2024-05-01",
       actual_in: "2024-05-01T05:00:00.000Z",
-      actual_out: "2024-05-01T14:00:00.000Z",
+      actual_out: "2024-05-01T15:00:00.000Z",
       late_minutes: 0,
       early_leave_minutes: 0,
       overtime_minutes: 0,
       missed_punch: false,
       punch_count: 2,
-      worked_minutes: 480,
+      worked_minutes: 540,
       employment_type: "permanent",
       staff_name: "Ahmed",
       employee_code: "E3-012",
@@ -455,20 +481,21 @@ describe("HR report row helpers", () => {
       location_code: "OFF-CC",
       location_name: "Office",
       location_region: null,
+      expected_minutes: 540,
       ...partial,
     });
     const kpis = computeAttendanceHrReportKpis([
       row({ id: "1", status: "present", staff_id: "a" }),
       row({ id: "2", status: "present", staff_id: "a", work_date: "2024-05-02" }),
-      row({ id: "3", status: "absent", staff_id: "b", actual_in: null, actual_out: null, punch_count: 0 }),
-      row({ id: "4", status: "late", staff_id: "c", late_minutes: 12 }),
-      row({ id: "5", status: "missed_punch", staff_id: "d", missed_punch: true, actual_out: null }),
-      row({ id: "6", status: "unscheduled", staff_id: null, biometric_user_id: "21" }),
+      row({ id: "3", status: "absent", staff_id: "b", actual_in: null, actual_out: null, punch_count: 0, worked_minutes: null }),
+      row({ id: "4", status: "late", staff_id: "c", late_minutes: 12, worked_minutes: 540 }),
+      row({ id: "5", status: "missed_punch", staff_id: "d", missed_punch: true, actual_out: null, worked_minutes: null }),
+      row({ id: "6", status: "unscheduled", staff_id: null, biometric_user_id: "21", worked_minutes: null, actual_in: null, actual_out: null }),
     ]);
     expect(kpis).toEqual({
       total: 6,
       uniqueStaff: 5,
-      present: 2,
+      present: 3,
       absent: 1,
       late: 1,
       missedPunch: 1,
@@ -486,13 +513,13 @@ describe("HR report row helpers", () => {
         work_date: "2024-05-01",
         status: "present",
         actual_in: "2024-05-01T05:10:00.000Z",
-        actual_out: "2024-05-01T14:00:00.000Z",
+        actual_out: "2024-05-01T15:00:00.000Z",
         late_minutes: 10,
         early_leave_minutes: 0,
         overtime_minutes: 0,
         missed_punch: false,
         punch_count: 2,
-        worked_minutes: 480,
+        worked_minutes: 540,
         employment_type: "permanent",
         staff_name: "Ahmed",
         employee_code: "E3-012",
@@ -500,6 +527,39 @@ describe("HR report row helpers", () => {
         location_code: "OFF-CC",
         location_name: "Office",
         location_region: null,
+        expected_minutes: 540,
+      },
+    ]);
+    expect(kpis.present).toBe(1);
+    expect(kpis.late).toBe(1);
+  });
+
+  it("counts stale late rows as present when net hours meet site expected", () => {
+    const kpis = computeAttendanceHrReportKpis([
+      {
+        id: "1",
+        location_id: "loc-1",
+        staff_id: "a",
+        biometric_user_id: "9",
+        work_date: "2024-08-25",
+        status: "late",
+        actual_in: "2024-08-25T07:20:00.000Z",
+        actual_out: "2024-08-25T17:20:00.000Z",
+        late_minutes: 130,
+        early_leave_minutes: 0,
+        overtime_minutes: 0,
+        missed_punch: false,
+        punch_count: 2,
+        worked_minutes: 540,
+        employment_type: "permanent",
+        staff_name: "Wasanthi",
+        employee_code: "E3-100",
+        qid: null,
+        location_code: "INF-CC",
+        location_name: "Inflatapark",
+        location_region: "City Center",
+        permanent_hours: 9,
+        expected_minutes: 540,
       },
     ]);
     expect(kpis.present).toBe(1);

@@ -33,6 +33,7 @@ export const ATTENDANCE_STATUSES = [
   "late",
   "early_departure",
   "missed_punch",
+  "short_hours",
   "incomplete",
   "overtime",
   "review_required",

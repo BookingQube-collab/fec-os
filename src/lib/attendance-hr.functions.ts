@@ -13,7 +13,11 @@ import { canUserDo } from "@/lib/rbac";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { ATTENDANCE_FILE_BUCKET, DEFAULT_RULES, DEFAULT_SHIFT, isAdmsDeviceOnline } from "@/lib/attendance-hr/constants";
-import { defaultSiteShiftPolicy } from "@/lib/attendance-hr/shift-policy";
+import {
+  defaultSiteShiftPolicy,
+  expectedShiftMinutes,
+  normalizeAttendanceEmploymentRole,
+} from "@/lib/attendance-hr/shift-policy";
 import { queueAdmsAttlogQuery, queueAdmsAttlogQueryRange } from "@/lib/attendance-hr/adms-ingest";
 import {
   findAttendanceGaps,
@@ -1632,20 +1636,48 @@ async function enrichAttendanceHrDailyRows(
     loadByIds<StaffLookup>(context, "staff", "id, full_name, employee_code, qid, employment_type", staffIds),
     loadByIds<LocationLookup>(context, "locations", "id, code, name, region", locationIds),
     locationIds.length
-      ? context.supabase.from("attendance_site_settings").select("location_id, break_minutes").in("location_id", locationIds)
-      : Promise.resolve({ data: [] as Array<{ location_id: string; break_minutes: number | null }> }),
+      ? context.supabase
+          .from("attendance_site_settings")
+          .select("location_id, break_minutes, permanent_hours, secondment_hours, joker_hours")
+          .in("location_id", locationIds)
+      : Promise.resolve({
+          data: [] as Array<{
+            location_id: string;
+            break_minutes: number | null;
+            permanent_hours?: number | null;
+            secondment_hours?: number | null;
+            joker_hours?: number | null;
+          }>,
+        }),
   ]);
 
   const staffById = new Map(staffRows.map((row) => [row.id, row]));
   const locationById = new Map(locationRows.map((row) => [row.id, row]));
-  const breakByLocationId = new Map(
-    (siteSettings.data ?? []).map((row) => [row.location_id as string, (row as { break_minutes?: number | null }).break_minutes ?? null]),
+  type SiteHoursRow = {
+    location_id: string;
+    break_minutes?: number | null;
+    permanent_hours?: number | null;
+    secondment_hours?: number | null;
+    joker_hours?: number | null;
+  };
+  const siteByLocationId = new Map(
+    (siteSettings.data ?? []).map((row) => [row.location_id as string, row as SiteHoursRow]),
   );
 
   return rows.map((row) => {
     const staff = typeof row.staff_id === "string" ? staffById.get(row.staff_id) : undefined;
     const location = typeof row.location_id === "string" ? locationById.get(row.location_id) : undefined;
     const locationId = typeof row.location_id === "string" ? row.location_id : "";
+    const site = locationId ? siteByLocationId.get(locationId) : undefined;
+    const permanentHours = site?.permanent_hours != null ? Number(site.permanent_hours) : null;
+    const secondmentHours = site?.secondment_hours != null ? Number(site.secondment_hours) : null;
+    const jokerHours = site?.joker_hours != null ? Number(site.joker_hours) : null;
+    const employmentType = staff?.employment_type ?? null;
+    const expectedMinutes = expectedShiftMinutes(normalizeAttendanceEmploymentRole(employmentType), {
+      permanentHours,
+      secondmentHours,
+      jokerHours,
+    });
     return {
       id: String(row.id),
       location_id: String(row.location_id ?? ""),
@@ -1661,14 +1693,18 @@ async function enrichAttendanceHrDailyRows(
       missed_punch: Boolean(row.missed_punch),
       punch_count: Number(row.punch_count ?? 0),
       worked_minutes: row.worked_minutes == null ? null : Number(row.worked_minutes),
-      employment_type: staff?.employment_type ?? null,
+      employment_type: employmentType,
       staff_name: staff?.full_name?.trim() || null,
       employee_code: staff?.employee_code ?? null,
       qid: staff?.qid ?? null,
       location_code: location?.code ?? null,
       location_name: location?.name ?? null,
       location_region: location?.region ?? null,
-      location_break_minutes: locationId ? (breakByLocationId.get(locationId) ?? null) : null,
+      location_break_minutes: site?.break_minutes ?? null,
+      expected_minutes: expectedMinutes,
+      permanent_hours: permanentHours,
+      secondment_hours: secondmentHours,
+      joker_hours: jokerHours,
     };
   });
 }

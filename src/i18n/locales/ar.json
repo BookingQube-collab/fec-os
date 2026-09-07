@@ -5710,6 +5710,7 @@
         "late": "تأخير",
         "early_departure": "انصراف مبكر",
         "missed_punch": "بصمة ناقصة",
+        "short_hours": "ساعات ناقصة",
         "incomplete": "غير مكتمل",
         "overtime": "وقت إضافي",
         "review_required": "يحتاج مراجعة",

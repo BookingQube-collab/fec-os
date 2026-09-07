@@ -1,4 +1,4 @@
-export const PAYROLL_BLOCKING_STATUSES = new Set(["missed_punch", "incomplete", "review_required"]);
+export const PAYROLL_BLOCKING_STATUSES = new Set(["missed_punch", "incomplete", "short_hours", "review_required"]);
 
 export type PayrollDayInput = {
   staff_id: string | null;

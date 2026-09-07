@@ -188,7 +188,6 @@ export function calculateDailyAttendance(punches: CalcPunch[], ctx: DayContext):
     if (lateMs > 0) {
       lateMinutes = Math.round(lateMs / 60_000);
       flags.push("late");
-      if (status === "present") status = "late";
     }
   }
 
@@ -197,7 +196,6 @@ export function calculateDailyAttendance(punches: CalcPunch[], ctx: DayContext):
     if (earlyMs > 60_000) {
       earlyLeaveMinutes = Math.round(earlyMs / 60_000);
       flags.push("early_departure");
-      if (status === "present") status = "early_departure";
     }
   }
 
@@ -207,6 +205,29 @@ export function calculateDailyAttendance(punches: CalcPunch[], ctx: DayContext):
     const otAfter = shift?.overtimeAfterMinutes ?? 480;
     overtimeMinutes = Math.max(0, workedMinutes - otAfter);
     if (overtimeMinutes > 0) flags.push("overtime");
+
+    // Hours vs site expected length are the primary status. Late / early stay as flags only.
+    const punchIssue = status === "missed_punch" || status === "review_required";
+    if (!punchIssue) {
+      const minWork = Math.max(0, Number(shift?.minWorkMinutes ?? 0));
+      if (minWork > 0) {
+        if (workedMinutes >= minWork) {
+          status = "present";
+          flags.push("present");
+        } else {
+          status = "short_hours";
+          flags.push("short_hours", "incomplete");
+          exceptionReason = exceptionReason ?? `Net hours below expected (${minWork} min)`;
+        }
+      } else if (lateMinutes > 0) {
+        status = "late";
+      } else if (earlyLeaveMinutes > 0) {
+        status = "early_departure";
+      } else {
+        status = "present";
+        flags.push("present");
+      }
+    }
   } else {
     flags.push("incomplete");
   }
@@ -228,7 +249,7 @@ export function calculateDailyAttendance(punches: CalcPunch[], ctx: DayContext):
     regularMinutes: Math.max(0, workedMinutes - overtimeMinutes),
     overtimeMinutes,
     missedPunch,
-    status: uniqueFlags[0] ?? status,
+    status,
     statusFlags: uniqueFlags,
     exceptionReason,
   };
