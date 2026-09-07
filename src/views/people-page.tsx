@@ -465,7 +465,6 @@ function StaffFormDialog({
         if (!next) setPhotoDraft({ dataUrl: null, remove: false });
         onOpenChange(next);
       }}
-      }
     >
       {!isEdit && (
         <DialogTrigger asChild>
