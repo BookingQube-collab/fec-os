@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { StaffAvatar } from "@/components/people/staff-photo-field";
 import { usePermission } from "@/hooks/use-permission";
 import { queryKeys } from "@/lib/query-keys";
 import { archiveStaffMember, restoreStaffMember } from "@/lib/staff-roster.functions";
@@ -240,6 +241,7 @@ export function StaffDirectory({
         <table className="w-full text-sm">
           <thead className="bg-surface/60 text-xs uppercase tracking-wider text-muted-foreground">
             <tr>
+              <th className="px-3 py-2 text-left">{t("people.staff.photo")}</th>
               <th className="px-3 py-2 text-left">{t("people.staff.code")}</th>
               <th className="px-3 py-2 text-left">{t("people.staff.name")}</th>
               <th className="px-3 py-2 text-left">{t("people.staff.qid")}</th>
@@ -256,6 +258,14 @@ export function StaffDirectory({
           <tbody>
             {pageRows.map((s) => (
               <tr key={s.id} className="border-t border-border hover:bg-surface/40">
+                <td className="px-3 py-2">
+                  <StaffAvatar
+                    staffId={s.id}
+                    name={s.full_name}
+                    hasPhoto={s.has_photo}
+                    photoUpdatedAt={s.photo_updated_at}
+                  />
+                </td>
                 <td className="px-3 py-2 font-mono text-xs">{s.employee_code}</td>
                 <td className="px-3 py-2 font-medium">
                   <Link className="hover:underline" href={`/people/staff/${s.id}`}>{s.full_name}</Link>

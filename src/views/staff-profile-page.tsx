@@ -20,9 +20,10 @@ import { formatLocationLabel } from "@/lib/locations/normalize";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { FaceCaptureDialog } from "@/components/attendance-hr/face-capture-dialog";
+import { StaffAvatar, StaffPhotoField, type StaffPhotoDraft } from "@/components/people/staff-photo-field";
 import { getStaffFaceEnrollment, saveStaffFaceEnrollment } from "@/lib/attendance-hr-field.functions";
 import { transferStaffMember, updateStaffSalary, updateStaffWorkLocations } from "@/lib/staff-roster.functions";
-import { updateStaff } from "@/lib/people.functions";
+import { removeStaffPhoto, saveStaffPhoto, updateStaff } from "@/lib/people.functions";
 import { Checkbox } from "@/components/ui/checkbox";
 
 type ProfileResponse = {
@@ -42,6 +43,8 @@ type ProfileResponse = {
     staff_role: string | null;
     location_id: string;
     is_roaming?: boolean;
+    has_photo?: boolean;
+    photo_updated_at?: string | null;
     work_locations?: Array<{ id: string; code: string; name: string }>;
     locations?: { code: string; name: string } | null;
   };
@@ -87,6 +90,7 @@ export default function StaffProfilePage() {
   const [workLocationIds, setWorkLocationIds] = useState<string[]>([]);
   const [isRoaming, setIsRoaming] = useState(false);
   const [employmentType, setEmploymentType] = useState("");
+  const [photoDraft, setPhotoDraft] = useState<StaffPhotoDraft>({ dataUrl: null, remove: false });
 
   const profile = useQuery({
     queryKey: queryKeys.people.staffProfile(id),
@@ -169,6 +173,27 @@ export default function StaffProfilePage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const photoMut = useMutation({
+    mutationFn: async () => {
+      if (photoDraft.dataUrl) {
+        await saveStaffPhoto({ id, photoDataUrl: photoDraft.dataUrl });
+        return "saved" as const;
+      }
+      if (photoDraft.remove) {
+        await removeStaffPhoto({ id });
+        return "removed" as const;
+      }
+      throw new Error(t("people.staff.photoInvalid"));
+    },
+    onSuccess: (kind) => {
+      toast.success(kind === "removed" ? t("people.staff.photoRemoved") : t("people.staff.photoSaved"));
+      setPhotoDraft({ dataUrl: null, remove: false });
+      void qc.invalidateQueries({ queryKey: queryKeys.people.staffProfile(id) });
+      void qc.invalidateQueries({ queryKey: queryKeys.people.all });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const s = profile.data?.staff;
   if (profile.isLoading) {
     return <p className="text-sm text-muted-foreground">{t("people.staff.loading")}</p>;
@@ -185,15 +210,55 @@ export default function StaffProfilePage() {
         title={s.full_name}
         subtitle={`${s.employee_code} · ${s.locations?.code ?? ""} ${s.locations?.name ?? ""}${s.is_roaming ? ` · ${t("people.staff.roaming")}` : ""}`}
         actions={
-          <Button asChild variant="secondary" size="sm">
-            <Link href="/people">{t("nav.people")}</Link>
-          </Button>
+          <div className="flex items-center gap-3">
+            <StaffAvatar
+              staffId={s.id}
+              name={s.full_name}
+              hasPhoto={Boolean(s.has_photo) && !photoDraft.remove}
+              photoUpdatedAt={s.photo_updated_at}
+              className="h-12 w-12 border border-border"
+            />
+            <Button asChild variant="secondary" size="sm">
+              <Link href="/people">{t("nav.people")}</Link>
+            </Button>
+          </div>
         }
       />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <section className="surface-card space-y-2 p-5">
           <h2 className="text-sm font-semibold">{t("people.profile.personal")}</h2>
+          {canEdit ? (
+            <div className="space-y-2 border-b pb-3">
+              <h3 className="text-xs font-medium">{t("people.profile.directoryPhoto")}</h3>
+              <StaffPhotoField
+                staffId={s.id}
+                hasPhoto={Boolean(s.has_photo)}
+                photoUpdatedAt={s.photo_updated_at ?? null}
+                draft={photoDraft}
+                onChange={setPhotoDraft}
+                disabled={photoMut.isPending}
+              />
+              <Button
+                size="sm"
+                onClick={() => photoMut.mutate()}
+                disabled={photoMut.isPending || (!photoDraft.dataUrl && !photoDraft.remove)}
+              >
+                {photoMut.isPending ? t("common.saving") : t("common.save")}
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3 border-b pb-3">
+              <StaffAvatar
+                staffId={s.id}
+                name={s.full_name}
+                hasPhoto={Boolean(s.has_photo)}
+                photoUpdatedAt={s.photo_updated_at}
+                className="h-16 w-16 border border-border"
+              />
+              <span className="text-xs text-muted-foreground">{t("people.profile.directoryPhoto")}</span>
+            </div>
+          )}
           <Row label={t("people.staff.qid")} value={s.qid} />
           <Row label={t("people.staff.contact")} value={s.phone} />
           <Row label={t("people.staff.email")} value={s.email} />

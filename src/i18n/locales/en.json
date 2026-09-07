@@ -2811,7 +2811,15 @@
         "secondment": "Secondment",
         "joker": "Joker"
       },
-      "roleHoursHelp": "Tag each person as Permanent, Secondment, or Joker. Expected daily hours and break are set per location under HR admin → Site working hours."
+      "roleHoursHelp": "Tag each person as Permanent, Secondment, or Joker. Expected daily hours and break are set per location under HR admin → Site working hours.",
+      "photo": "Photo",
+      "photoUpload": "Upload photo",
+      "photoRemove": "Remove photo",
+      "photoProcessing": "Compressing…",
+      "photoHint": "JPEG, PNG, or WebP. Resized on your device (max ~512px) and stored as binary in the database — not as a file folder.",
+      "photoInvalid": "Could not use that image. Try a smaller JPEG, PNG, or WebP.",
+      "photoSaved": "Staff photo saved",
+      "photoRemoved": "Staff photo removed"
     },
     "shifts": {
       "loading": "Loading shifts…",
@@ -3133,6 +3141,7 @@
       "attendance": "Attendance history",
       "training": "Training",
       "face": "Face enrollment",
+      "directoryPhoto": "Directory photo",
       "performance": "Performance",
       "transfers": "Transfers",
       "transferTitle": "Transfer location",

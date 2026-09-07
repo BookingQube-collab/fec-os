@@ -15,7 +15,7 @@ export async function GET(
       const { data: staff, error } = await context.supabase
         .from("staff")
         .select(
-          "id, employee_code, full_name, job_title, department, status, location_id, is_roaming, phone, email, hire_date, qid, e3_enrolled, employment_type, staff_role, source_row_no, deleted_at, locations!staff_location_id_fkey(code, name), staff_departments(department_id, master_departments(id, name, sort_order))",
+          "id, employee_code, full_name, job_title, department, status, location_id, is_roaming, phone, email, hire_date, qid, e3_enrolled, employment_type, staff_role, source_row_no, deleted_at, photo_updated_at, photo_mime, locations!staff_location_id_fkey(code, name), staff_departments(department_id, master_departments(id, name, sort_order))",
         )
         .eq("id", id)
         .maybeSingle();
@@ -120,6 +120,7 @@ export async function GET(
         staff: {
           ...staff,
           is_roaming: Boolean(staff.is_roaming),
+          has_photo: Boolean(staff.photo_updated_at),
           work_locations: workLocations,
         },
         compensation,

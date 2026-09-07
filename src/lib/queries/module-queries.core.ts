@@ -349,6 +349,9 @@ export interface StaffRow {
   employment_type: string | null;
   staff_role: string | null;
   monthly_salary_qar?: number | null;
+  /** True when photo_updated_at is set (bytea stored on staff row). */
+  has_photo: boolean;
+  photo_updated_at: string | null;
 }
 
 type StaffDeptJoin = {
@@ -395,6 +398,8 @@ function mapStaffRow(
     is_roaming: Boolean(rest.is_roaming),
     work_locations: [],
     work_location_ids: [],
+    has_photo: Boolean(rest.photo_updated_at),
+    photo_updated_at: (rest.photo_updated_at as string | null | undefined) ?? null,
   };
 }
 
@@ -419,7 +424,7 @@ export async function fetchStaff(
   let q = context.supabase
     .from("staff")
     .select(
-      "id, employee_code, full_name, job_title, department, status, location_id, is_roaming, phone, email, hire_date, qid, e3_enrolled, employment_type, staff_role, locations!staff_location_id_fkey(code, name), staff_departments(department_id, master_departments(id, name, sort_order))",
+      "id, employee_code, full_name, job_title, department, status, location_id, is_roaming, phone, email, hire_date, qid, e3_enrolled, employment_type, staff_role, photo_updated_at, locations!staff_location_id_fkey(code, name), staff_departments(department_id, master_departments(id, name, sort_order))",
     )
     .order("full_name")
     .limit(500);

@@ -2035,6 +2035,9 @@ export type Database = {
           job_title: string | null
           location_id: string
           phone: string | null
+          photo_data: string | null
+          photo_mime: string | null
+          photo_updated_at: string | null
           qid: string | null
           source_row_no: number | null
           staff_role: Database["public"]["Enums"]["staff_role"] | null
@@ -2057,6 +2060,9 @@ export type Database = {
           job_title?: string | null
           location_id: string
           phone?: string | null
+          photo_data?: string | null
+          photo_mime?: string | null
+          photo_updated_at?: string | null
           qid?: string | null
           source_row_no?: number | null
           staff_role?: Database["public"]["Enums"]["staff_role"] | null
@@ -2079,6 +2085,9 @@ export type Database = {
           job_title?: string | null
           location_id?: string
           phone?: string | null
+          photo_data?: string | null
+          photo_mime?: string | null
+          photo_updated_at?: string | null
           qid?: string | null
           source_row_no?: number | null
           staff_role?: Database["public"]["Enums"]["staff_role"] | null
@@ -4337,6 +4346,10 @@ export type Database = {
           _reason?: string
           _status: Database["public"]["Enums"]["po_status"]
         }
+        Returns: undefined
+      }
+      set_staff_photo_bytes: {
+        Args: { _staff_id: string; _photo_base64: string; _mime: string }
         Returns: undefined
       }
       user_can_access_location: {

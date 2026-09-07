@@ -23,6 +23,7 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
 import { StaffDirectory } from "@/components/people/staff-directory";
+import { StaffPhotoField, type StaffPhotoDraft } from "@/components/people/staff-photo-field";
 import { useStaff } from "@/hooks/queries/usePeople";
 import { useSites } from "@/hooks/queries/useSites";
 import {
@@ -34,6 +35,8 @@ import {
   cancelShift,
   createStaff,
   updateStaff,
+  saveStaffPhoto,
+  removeStaffPhoto,
   deactivateStaff,
   createTrainingEnrollment,
   updateTrainingEnrollment,
@@ -402,6 +405,7 @@ function StaffFormDialog({
   const [phone, setPhone] = useState(staff?.phone ?? "");
   const [email, setEmail] = useState(staff?.email ?? "");
   const [employmentType, setEmploymentType] = useState<string>(staff?.employment_type ?? "permanent");
+  const [photoDraft, setPhotoDraft] = useState<StaffPhotoDraft>({ dataUrl: null, remove: false });
 
   const m = useMutation({
     mutationFn: async () => {
@@ -409,6 +413,7 @@ function StaffFormDialog({
         employmentType === ""
           ? null
           : (employmentType as "permanent" | "temporary" | "secondment" | "joker");
+      let staffId = staff?.id;
       if (isEdit) {
         await updateStaff({
           id: staff!.id,
@@ -421,24 +426,32 @@ function StaffFormDialog({
           email: email || null,
           employmentType: employment,
         });
-        return;
+      } else {
+        if (!loc) throw new Error(t("people.staff.selectBranch"));
+        const created = await createStaff({
+          locationId: loc,
+          employeeCode,
+          fullName,
+          jobTitle: jobTitle || undefined,
+          departmentIds,
+          hireDate: hireDate || undefined,
+          status,
+          phone: phone || undefined,
+          email: email || undefined,
+          employmentType: employment,
+        });
+        staffId = created.id;
       }
-      if (!loc) throw new Error(t("people.staff.selectBranch"));
-      await createStaff({
-        locationId: loc,
-        employeeCode,
-        fullName,
-        jobTitle: jobTitle || undefined,
-        departmentIds,
-        hireDate: hireDate || undefined,
-        status,
-        phone: phone || undefined,
-        email: email || undefined,
-        employmentType: employment,
-      });
+
+      if (staffId && photoDraft.dataUrl) {
+        await saveStaffPhoto({ id: staffId, photoDataUrl: photoDraft.dataUrl });
+      } else if (staffId && photoDraft.remove && isEdit) {
+        await removeStaffPhoto({ id: staffId });
+      }
     },
     onSuccess: () => {
       toast.success(isEdit ? t("people.staff.updateSuccess") : t("people.staff.createSuccess"));
+      setPhotoDraft({ dataUrl: null, remove: false });
       onOpenChange(false);
       onSaved();
     },
@@ -446,7 +459,14 @@ function StaffFormDialog({
   });
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) setPhotoDraft({ dataUrl: null, remove: false });
+        onOpenChange(next);
+      }}
+      }
+    >
       {!isEdit && (
         <DialogTrigger asChild>
           <Button size="sm">
@@ -460,6 +480,14 @@ function StaffFormDialog({
           <DialogTitle>{isEdit ? t("people.staff.edit") : t("people.staff.add")}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
+          <StaffPhotoField
+            staffId={staff?.id}
+            hasPhoto={Boolean(staff?.has_photo)}
+            photoUpdatedAt={staff?.photo_updated_at ?? null}
+            draft={photoDraft}
+            onChange={setPhotoDraft}
+            disabled={m.isPending}
+          />
           {!isEdit && (
             <>
               <div>

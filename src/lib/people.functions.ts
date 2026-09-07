@@ -20,6 +20,9 @@ import { fetchStaffIdsWorkingAtLocation } from "@/lib/staff-work-locations";
 import { shiftUuid, staffUuid } from "@/lib/staff-import-ids";
 import { createAuthenticatedAction } from "@/lib/server/create-action";
 import type { AuthContext } from "@/lib/server/create-action";
+import {
+  decodeImageDataUrl,
+} from "@/lib/staff-photo";
 
 async function requireRosterEdit(context: AuthContext) {
   const { data: roles, error } = await context.supabase
@@ -516,6 +519,77 @@ export const updateStaff = createAuthenticatedAction(
       _metadata: {},
     });
     return { ok: true };
+  },
+  { auth: { capability: "people.edit_roster" } },
+);
+
+export const saveStaffPhoto = createAuthenticatedAction(
+  z.object({
+    id: z.string().uuid(),
+    photoDataUrl: z.string().min(80).max(400_000),
+  }),
+  async (data, context) => {
+    const { data: existing, error: fetchErr } = await context.supabase
+      .from("staff")
+      .select("location_id")
+      .eq("id", data.id)
+      .is("deleted_at", null)
+      .single();
+    if (fetchErr) throw fetchErr;
+    await assertLocationAccess(context, existing.location_id);
+
+    const { bytes, contentType } = decodeImageDataUrl(data.photoDataUrl);
+    const { error } = await context.supabase.rpc("set_staff_photo_bytes", {
+      _staff_id: data.id,
+      _photo_base64: bytes.toString("base64"),
+      _mime: contentType,
+    });
+    if (error) throw error;
+
+    await context.supabase.rpc("log_audit", {
+      _action: "staff.photo_saved",
+      _table_name: "staff",
+      _row_id: data.id,
+      _after: { photo_mime: contentType, bytes: bytes.length },
+      _location_id: existing.location_id,
+      _metadata: {},
+    });
+    return { ok: true as const, bytes: bytes.length, mime: contentType };
+  },
+  { auth: { capability: "people.edit_roster" } },
+);
+
+export const removeStaffPhoto = createAuthenticatedAction(
+  z.object({ id: z.string().uuid() }),
+  async (data, context) => {
+    const { data: existing, error: fetchErr } = await context.supabase
+      .from("staff")
+      .select("location_id")
+      .eq("id", data.id)
+      .is("deleted_at", null)
+      .single();
+    if (fetchErr) throw fetchErr;
+    await assertLocationAccess(context, existing.location_id);
+
+    const { error } = await context.supabase
+      .from("staff")
+      .update({
+        photo_data: null,
+        photo_mime: null,
+        photo_updated_at: null,
+      })
+      .eq("id", data.id);
+    if (error) throw error;
+
+    await context.supabase.rpc("log_audit", {
+      _action: "staff.photo_removed",
+      _table_name: "staff",
+      _row_id: data.id,
+      _after: {},
+      _location_id: existing.location_id,
+      _metadata: {},
+    });
+    return { ok: true as const };
   },
   { auth: { capability: "people.edit_roster" } },
 );
