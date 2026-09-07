@@ -1736,6 +1736,9 @@ async function enrichAttendanceHrDailyRows(
   );
   const rosterByStaffLocationDate = new Map<string, RosterShiftLookup>();
   const rosterByStaffDate = new Map<string, RosterShiftLookup>();
+  /** Latest working-day row with usable times per staff (duty-only days fall back to this). */
+  const fallbackByStaffId = new Map<string, RosterShiftLookup>();
+  const fallbackWorkDateByStaffId = new Map<string, string>();
   for (const row of rosterRes.data ?? []) {
     const staffId = String(row.staff_id ?? "");
     const locationId = String(row.location_id ?? "");
@@ -1758,6 +1761,13 @@ async function enrichAttendanceHrDailyRows(
       prev && (normalizeShiftHm(prev.shift_start) || prev.shift_template_id),
     );
     if (!prev || (hasTimes && !prevHasTimes)) rosterByStaffDate.set(dateKey, lookup);
+    if (!lookup.is_week_off && hasTimes) {
+      const prevFbDate = fallbackWorkDateByStaffId.get(staffId);
+      if (!prevFbDate || workDate >= prevFbDate) {
+        fallbackByStaffId.set(staffId, lookup);
+        fallbackWorkDateByStaffId.set(staffId, workDate);
+      }
+    }
   }
 
   return rows.map((row) => {
@@ -1784,6 +1794,7 @@ async function enrichAttendanceHrDailyRows(
       rosterByStaffLocationDate,
       rosterByStaffDate,
       shiftStartByTemplateId: shiftStartById,
+      fallbackByStaffId,
     });
     const actualIn = row.actual_in == null ? null : String(row.actual_in);
     const reportingMins = site?.reporting_time_minutes != null ? Number(site.reporting_time_minutes) : null;

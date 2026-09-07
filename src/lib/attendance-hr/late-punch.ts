@@ -75,9 +75,22 @@ export type RosterShiftLookup = {
   is_week_off: boolean;
 };
 
+function startHmFromRoster(
+  roster: RosterShiftLookup,
+  shiftStartByTemplateId: Map<string, { start: string | null; end: string | null }>,
+): string | null {
+  return (
+    normalizeShiftHm(roster.shift_start) ??
+    (roster.shift_template_id
+      ? shiftStartByTemplateId.get(String(roster.shift_template_id))?.start ?? null
+      : null)
+  );
+}
+
 /**
  * Resolve reporting-time ISO from roster assignment (+ optional template map).
- * Prefers location-scoped row, then staff+date fallback. Never invents 08:00.
+ * Prefers location-scoped row, then staff+date, then staff typical shift when the
+ * working-day assignment has null times (duty-only reuploads). Never invents 08:00.
  */
 export function resolveRosterScheduledIn(input: {
   staffId: string | null | undefined;
@@ -86,6 +99,8 @@ export function resolveRosterScheduledIn(input: {
   rosterByStaffLocationDate: Map<string, RosterShiftLookup>;
   rosterByStaffDate: Map<string, RosterShiftLookup>;
   shiftStartByTemplateId: Map<string, { start: string | null; end: string | null }>;
+  /** Most recent known shift for staff when the day's row has no clock times. */
+  fallbackByStaffId?: Map<string, RosterShiftLookup>;
 }): string | null {
   const staffId = input.staffId?.trim() || "";
   const workDate = String(input.workDate ?? "").slice(0, 10);
@@ -98,14 +113,21 @@ export function resolveRosterScheduledIn(input: {
   }
   candidates.push(input.rosterByStaffDate.get(`${staffId}|${workDate}`));
 
+  let sawWorkingDay = false;
   for (const roster of candidates) {
-    if (!roster || roster.is_week_off) continue;
-    const startHm =
-      normalizeShiftHm(roster.shift_start) ??
-      (roster.shift_template_id
-        ? input.shiftStartByTemplateId.get(String(roster.shift_template_id))?.start ?? null
-        : null);
+    if (!roster) continue;
+    if (roster.is_week_off) continue;
+    sawWorkingDay = true;
+    const startHm = startHmFromRoster(roster, input.shiftStartByTemplateId);
     if (startHm) return scheduledIsoFromHm(workDate, startHm);
+  }
+
+  if (sawWorkingDay) {
+    const fallback = input.fallbackByStaffId?.get(staffId);
+    if (fallback && !fallback.is_week_off) {
+      const startHm = startHmFromRoster(fallback, input.shiftStartByTemplateId);
+      if (startHm) return scheduledIsoFromHm(workDate, startHm);
+    }
   }
   return null;
 }
