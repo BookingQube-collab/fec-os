@@ -68,10 +68,10 @@ export function RosterRegisterPanel({
 }: RosterRegisterPanelProps) {
   const { t, i18n } = useTranslation();
   const qc = useQueryClient();
-  const canAmend =
-    usePermission("people.import_roster") ||
-    usePermission("people.edit_roster") ||
-    usePermission("daily_ops.roster.upload");
+  const canImportRoster = usePermission("people.import_roster");
+  const canEditRoster = usePermission("people.edit_roster");
+  const canUploadRoster = usePermission("daily_ops.roster.upload");
+  const canAmend = canImportRoster || canEditRoster || canUploadRoster;
   const sites = useSites();
 
   const [locationId, setLocationId] = useState(defaultLocationId ?? "");

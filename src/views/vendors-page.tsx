@@ -87,7 +87,7 @@ export default function VendorsPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const vendors = list.data?.items ?? [];
+  const vendors = useMemo(() => list.data?.items ?? [], [list.data?.items]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();

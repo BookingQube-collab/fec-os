@@ -27,10 +27,10 @@ function todayYmd() {
 
 export default function StaffRosterRegisterPage() {
   const { t, i18n } = useTranslation();
-  const canImport =
-    usePermission("people.import_roster") ||
-    usePermission("people.edit_roster") ||
-    usePermission("daily_ops.roster.upload");
+  const canImportRoster = usePermission("people.import_roster");
+  const canEditRoster = usePermission("people.edit_roster");
+  const canUploadRoster = usePermission("daily_ops.roster.upload");
+  const canImport = canImportRoster || canEditRoster || canUploadRoster;
   const storeLocationId = useAppStore((s) => s.currentLocationId);
 
   const [periodMode, setPeriodMode] = useState<AttendanceRosterPeriodMode>("month");
