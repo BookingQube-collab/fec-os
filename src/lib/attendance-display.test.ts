@@ -212,11 +212,13 @@ describe("attendance listing display", () => {
       userName: "Test",
       deviceUserId: "1",
       work_date: "2026-08-27",
-      actual_in: "2026-08-27T07:50:00.000Z",
+      actual_in: "2026-08-27T07:16:30.000Z",
       actual_out: "2026-08-27T17:00:00.000Z",
-      scheduled_in: "2026-08-27T07:00:00.000Z",
+      // roster 10:30; reporting 30 → display 10:00
+      scheduled_in: "2026-08-27T07:30:00.000Z",
+      reporting_time_minutes: 30,
       overtime_minutes: 0,
-      late_minutes: 11.5,
+      late_minutes: 1.5,
       worked_minutes: 540,
       break_minutes: 60,
       expected_minutes: 540,
@@ -224,7 +226,28 @@ describe("attendance listing display", () => {
       missed_punch: false,
     });
     expect(cells.reportingTime).toBe("10:00 AM");
-    expect(cells.latePunch).toBe("11.5");
+    expect(cells.latePunch).toBe("1.5");
+  });
+
+  it("live-computes reporting clock from roster start minus site minutes", () => {
+    const cells = attendanceListingCells({
+      locationLabel: "INF-CC",
+      userName: "Test",
+      deviceUserId: "1",
+      work_date: "2026-08-27",
+      actual_in: null,
+      actual_out: null,
+      scheduled_in: "2026-08-27T08:00:00.000Z", // roster 11:00
+      reporting_time_minutes: 30,
+      overtime_minutes: 0,
+      late_minutes: 0,
+      worked_minutes: null,
+      break_minutes: 60,
+      expected_minutes: 540,
+      status: "absent",
+      missed_punch: false,
+    });
+    expect(cells.reportingTime).toBe("10:30 AM");
   });
 
   it("shows OT as clock hours − expected when over 9h permanent", () => {

@@ -1,4 +1,5 @@
 import { defaultPayrollPeriod } from "@/lib/attendance-hr/roster-period";
+import { reportingClockIso } from "@/lib/attendance-hr/late-punch";
 import {
   expectedShiftMinutes,
   normalizeAttendanceEmploymentRole,
@@ -67,7 +68,7 @@ export function formatPunchTime12h(iso: string | null | undefined): string {
   });
 }
 
-/** Roster reporting time (shift start), e.g. 10:00 AM (Qatar). */
+/** Reporting clock = roster_start − reporting_time_minutes, e.g. 10:00 AM (Qatar). */
 export function formatReportingTime12h(iso: string | null | undefined): string {
   if (!iso) return "";
   const d = new Date(iso);
@@ -78,6 +79,25 @@ export function formatReportingTime12h(iso: string | null | undefined): string {
     hour12: true,
     timeZone: QATAR_TZ,
   });
+}
+
+/**
+ * Live reporting clock for Attendance listing: roster start − site reporting minutes.
+ * Example: roster 10:30 + reporting 30 → 10:00. Never hardcode 10:00.
+ */
+export function resolveReportingDisplayIso(row: {
+  scheduled_in?: string | null;
+  reporting_time_minutes?: number | null;
+  sitePolicy?: SiteShiftPolicyOverrides | null;
+}): string | null {
+  const mins =
+    row.reporting_time_minutes != null && Number.isFinite(Number(row.reporting_time_minutes))
+      ? Number(row.reporting_time_minutes)
+      : row.sitePolicy?.reportingTimeMinutes != null &&
+          Number.isFinite(Number(row.sitePolicy.reportingTimeMinutes))
+        ? Number(row.sitePolicy.reportingTimeMinutes)
+        : null;
+  return reportingClockIso(row.scheduled_in, mins);
 }
 
 /** Clock hours: last check-out − first check-in. Break is not deducted. */
@@ -162,7 +182,7 @@ export function hasOvertime(row: {
   return resolveOvertimeMinutes(row) > 0;
 }
 
-/** Roster late punch: minutes past roster_start + reporting + buffer. One decimal when fractional. */
+/** Roster late punch: minutes past reporting_clock + buffer. One decimal when fractional. */
 export function formatLatePunch(lateMinutes: number | null | undefined): string {
   const mins = Number(lateMinutes ?? 0);
   if (!Number.isFinite(mins) || mins <= 0) return "—";
@@ -483,6 +503,8 @@ export type AttendanceListingSource = {
   actual_in: string | null;
   actual_out: string | null;
   scheduled_in?: string | null;
+  /** Site reporting lead minutes before roster start (live compute). */
+  reporting_time_minutes?: number | null;
   overtime_minutes: number;
   late_minutes?: number | null;
   worked_minutes?: number | null;
@@ -554,7 +576,7 @@ export function attendanceListingCells(row: AttendanceListingSource): Attendance
     userName: row.userName,
     deviceUserId: row.deviceUserId?.trim() || "—",
     date: formatWorkDateDdMmYyyy(row.work_date),
-    reportingTime: formatReportingTime12h(row.scheduled_in) || "—",
+    reportingTime: formatReportingTime12h(resolveReportingDisplayIso(row)) || "—",
     firstCheckIn: formatPunchTime12h(row.actual_in) || "—",
     lastCheckOut: formatPunchTime12h(row.actual_out) || "—",
     totalHours: formatHoursValue(hours),

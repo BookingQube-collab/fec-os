@@ -24,6 +24,7 @@ import {
   latePunchCellClass,
   latePunchRowClass,
   resolveOvertimeMinutes,
+  resolveReportingDisplayIso,
   resolveTotalHoursWorked,
   type AttendanceListingSource,
 } from "@/lib/attendance-display";
@@ -97,7 +98,7 @@ export function AttendanceRecordsTable({
                     {formatWorkDateDdMmYyyy(row.work_date)}
                   </TableCell>
                   <TableCell className="tabular-nums whitespace-nowrap text-xs">
-                    {formatReportingTime12h(row.scheduled_in) || "—"}
+                    {formatReportingTime12h(resolveReportingDisplayIso(row)) || "—"}
                   </TableCell>
                   <TableCell
                     className={cn(

@@ -1,4 +1,4 @@
-import { lateGraceMinutesForLocation } from "./shift-policy";
+import { lateGraceMinutesForLocation, reportingTimeMinutesForLocation } from "./shift-policy";
 
 /** Qatar-local HH:MM on workDate → ISO (UTC). */
 export function scheduledIsoFromHm(workDate: string, time: string, addDays = 0): string {
@@ -23,15 +23,32 @@ export function normalizeShiftHm(value: string | null | undefined): string | nul
 }
 
 /**
+ * Reporting clock shown on Attendance = roster_start − reporting_time_minutes.
+ * Example: roster 10:30 − 30 min → 10:00. Never hardcode 10:00.
+ */
+export function reportingClockIso(
+  rosterScheduledIn: string | null | undefined,
+  reportingTimeMinutes?: number | null,
+): string | null {
+  if (!rosterScheduledIn) return null;
+  const startMs = new Date(rosterScheduledIn).getTime();
+  if (!Number.isFinite(startMs)) return null;
+  const lead = reportingTimeMinutesForLocation(reportingTimeMinutes);
+  return new Date(startMs - lead * 60_000).toISOString();
+}
+
+/**
  * Lateness past on-time window, one decimal minute (e.g. 11.5 = 11m 30s).
- * on_time_until = scheduled_in + reporting_time_minutes + buffer_minutes.
+ * reporting_clock = scheduled_in − reporting_time_minutes
+ * on_time_until = reporting_clock + buffer_minutes
+ * (= roster_start − reporting + buffer)
  */
 export function computeLatePunchMinutes(input: {
   actualIn: string | null | undefined;
   scheduledIn: string | null | undefined;
   reportingTimeMinutes?: number | null;
   bufferMinutes?: number | null;
-  /** When set, used instead of reporting+buffer (already combined grace). */
+  /** When set, used as minutes from roster_start to on_time_until (may be negative). */
   graceMinutes?: number | null;
 }): number {
   if (!input.actualIn || !input.scheduledIn) return 0;
@@ -40,9 +57,10 @@ export function computeLatePunchMinutes(input: {
   if (!Number.isFinite(inMs) || !Number.isFinite(startMs)) return 0;
   const grace =
     input.graceMinutes != null && Number.isFinite(Number(input.graceMinutes))
-      ? Math.max(0, Number(input.graceMinutes))
+      ? Number(input.graceMinutes)
       : lateGraceMinutesForLocation(input.reportingTimeMinutes, input.bufferMinutes);
-  const lateMs = inMs - startMs - grace * 60_000;
+  const onTimeUntilMs = startMs + grace * 60_000;
+  const lateMs = inMs - onTimeUntilMs;
   if (lateMs <= 0) return 0;
   return Math.round(lateMs / 6_000) / 10;
 }
@@ -88,7 +106,7 @@ function startHmFromRoster(
 }
 
 /**
- * Resolve reporting-time ISO from roster assignment (+ optional template map).
+ * Resolve roster shift-start ISO from roster assignment (+ optional template map).
  * Prefers location-scoped row, then staff+date, then staff typical shift when the
  * working-day assignment has null times (duty-only reuploads). Never invents 08:00.
  */

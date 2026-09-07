@@ -19,7 +19,7 @@ export const PERMANENT_SHIFT_MINUTES = PERMANENT_SHIFT_HOURS * 60;
 export const EXTENDED_SHIFT_MINUTES = EXTENDED_SHIFT_HOURS * 60;
 export const DEFAULT_BREAK_MINUTES = 60;
 export const URBAN_ARENA_BREAK_MINUTES = 30;
-/** Default reporting window (minutes after roster start) when site has no explicit value. */
+/** Default reporting lead (minutes before roster start) when site has no explicit value. */
 export const DEFAULT_REPORTING_TIME_MINUTES = 0;
 /** Default late buffer when site has no explicit buffer_minutes. */
 export const DEFAULT_BUFFER_MINUTES = 0;
@@ -27,9 +27,9 @@ export const DEFAULT_BUFFER_MINUTES = 0;
 /** Optional per-site overrides from attendance_site_settings. */
 export type SiteShiftPolicyOverrides = {
   breakMinutes?: number | null;
-  /** Minutes after roster start that still count as the reporting window. */
+  /** Minutes before roster start for the reporting clock (display + late baseline). */
   reportingTimeMinutes?: number | null;
-  /** Extra grace after the reporting window before late punch. */
+  /** Extra grace after the reporting clock before late punch. */
   bufferMinutes?: number | null;
   permanentHours?: number | null;
   secondmentHours?: number | null;
@@ -108,8 +108,9 @@ export function breakMinutesForLocation(
 }
 
 /**
- * Reporting window minutes after roster start (scheduled_in).
+ * Reporting lead minutes before roster start (scheduled_in).
  * Prefer an explicit override from attendance_site_settings.reporting_time_minutes.
+ * reporting_clock = roster_start − reporting_time_minutes.
  */
 export function reportingTimeMinutesForLocation(overrideMinutes?: number | null): number {
   if (overrideMinutes != null && Number.isFinite(Number(overrideMinutes))) {
@@ -120,7 +121,7 @@ export function reportingTimeMinutesForLocation(overrideMinutes?: number | null)
 }
 
 /**
- * Late buffer minutes for a site (extra grace after the reporting window).
+ * Late buffer minutes for a site (extra grace after the reporting clock).
  * Prefer an explicit override from attendance_site_settings.buffer_minutes.
  */
 export function bufferMinutesForLocation(overrideMinutes?: number | null): number {
@@ -132,20 +133,21 @@ export function bufferMinutesForLocation(overrideMinutes?: number | null): numbe
 }
 
 /**
- * Late grace = reporting window + buffer.
- * on_time_until = roster_start + reporting_time_minutes + buffer_minutes.
+ * Minutes from roster_start to on_time_until (may be negative when reporting > buffer).
+ * on_time_until = roster_start − reporting_time_minutes + buffer_minutes.
  */
 export function lateGraceMinutesForLocation(
   reportingTimeMinutes?: number | null,
   bufferMinutes?: number | null,
 ): number {
-  return reportingTimeMinutesForLocation(reportingTimeMinutes) + bufferMinutesForLocation(bufferMinutes);
+  return bufferMinutesForLocation(bufferMinutes) - reportingTimeMinutesForLocation(reportingTimeMinutes);
 }
 
 /**
  * Override shift template break + OT threshold from employment type and location.
  * Start/end times stay on the template / roster. When reporting and/or buffer
- * overrides are set, they replace template grace for late-punch calc.
+ * overrides are set, graceMinutes = buffer − reporting (offset from roster start
+ * to on_time_until).
  */
 export function applyAttendanceShiftPolicy(
   base: ShiftTemplateInput,

@@ -378,7 +378,7 @@ describe("daily calculation", () => {
   });
 
   it("Wasanthi-style: report 10:00 + buffer 15 → 10:26 is late punch", () => {
-    // 10:26 Qatar = 07:26Z; reporting 10:00 + buffer 15 → threshold 10:15
+    // Roster 10:30 − reporting 30 → reporting clock 10:00; + buffer 15 → late after 10:15
     const day = calculateDailyAttendance(
       [
         { punchAt: "2026-08-27T07:26:00.000Z" },
@@ -388,10 +388,11 @@ describe("daily calculation", () => {
         workDate: "2026-08-27",
         scheduled: true,
         shift: applyAttendanceShiftPolicy(
-          { ...shift, startTime: "10:00", endTime: "20:00" },
+          { ...shift, startTime: "10:30", endTime: "20:00" },
           {
             employmentType: "permanent",
             locationCode: "INF-CC",
+            reportingTimeMinutesOverride: 30,
             bufferMinutesOverride: 15,
           },
         ),
@@ -401,18 +402,18 @@ describe("daily calculation", () => {
     expect(day.statusFlags).toContain("late");
   });
 
-  it("Wasanthi-style: reporting 30 + buffer 15 → on time until 10:45", () => {
-    // 10:26 Qatar within roster 10:00 + 30 + 15
+  it("Wasanthi-style: reporting 30 + buffer 15 → on time until 10:15", () => {
+    // roster 10:30 − 30 + 15 → late after 10:15
     const onTime = calculateDailyAttendance(
       [
-        { punchAt: "2026-08-27T07:26:00.000Z" },
+        { punchAt: "2026-08-27T07:14:00.000Z" },
         { punchAt: "2026-08-27T17:06:28.000Z" },
       ],
       {
         workDate: "2026-08-27",
         scheduled: true,
         shift: applyAttendanceShiftPolicy(
-          { ...shift, startTime: "10:00", endTime: "20:00" },
+          { ...shift, startTime: "10:30", endTime: "20:00" },
           {
             employmentType: "permanent",
             locationCode: "INF-CC",
@@ -424,17 +425,17 @@ describe("daily calculation", () => {
     );
     expect(onTime.lateMinutes).toBe(0);
 
-    // 10:50 Qatar = 5 min past 10:45
+    // 10:20 Qatar = 5 min past 10:15
     const late = calculateDailyAttendance(
       [
-        { punchAt: "2026-08-27T07:50:00.000Z" },
+        { punchAt: "2026-08-27T07:20:00.000Z" },
         { punchAt: "2026-08-27T17:06:28.000Z" },
       ],
       {
         workDate: "2026-08-27",
         scheduled: true,
         shift: applyAttendanceShiftPolicy(
-          { ...shift, startTime: "10:00", endTime: "20:00" },
+          { ...shift, startTime: "10:30", endTime: "20:00" },
           {
             employmentType: "permanent",
             locationCode: "INF-CC",
@@ -457,10 +458,11 @@ describe("daily calculation", () => {
         workDate: "2026-08-27",
         scheduled: true,
         shift: applyAttendanceShiftPolicy(
-          { ...shift, startTime: "10:00", endTime: "20:00" },
+          { ...shift, startTime: "10:30", endTime: "20:00" },
           {
             employmentType: "permanent",
             locationCode: "INF-CC",
+            reportingTimeMinutesOverride: 30,
             bufferMinutesOverride: 15,
           },
         ),

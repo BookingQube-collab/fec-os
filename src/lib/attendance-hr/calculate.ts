@@ -191,7 +191,8 @@ export function calculateDailyAttendance(punches: CalcPunch[], ctx: DayContext):
   }
 
   if (scheduledIn) {
-    // Late = first check-in after roster start + reporting window + buffer (graceMinutes).
+    // Late = first check-in after reporting_clock + buffer.
+    // reporting_clock = roster_start − reporting_minutes; graceMinutes = −reporting + buffer.
     // One decimal minute (e.g. 11.5 = 11m 30s past the allowed window).
     lateMinutes = computeLatePunchMinutes({
       actualIn,

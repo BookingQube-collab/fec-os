@@ -87,6 +87,6 @@ describe("attendance shift policy", () => {
     });
     expect(overridden.breakMinutes).toBe(45);
     expect(overridden.overtimeAfterMinutes).toBe(480);
-    expect(overridden.graceMinutes).toBe(45); // reporting 30 + buffer 15
+    expect(overridden.graceMinutes).toBe(-15); // buffer 15 − reporting 30
   });
 });

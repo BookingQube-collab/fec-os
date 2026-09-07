@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   computeLatePunchMinutes,
   normalizeShiftHm,
+  reportingClockIso,
   resolveListingLateMinutes,
   resolveRosterScheduledIn,
   scheduledIsoFromHm,
@@ -18,14 +19,23 @@ describe("late punch helpers", () => {
   });
 
   it("builds Qatar-local scheduled ISO", () => {
-    expect(scheduledIsoFromHm("2026-08-27", "10:00")).toBe("2026-08-27T07:00:00.000Z");
+    expect(scheduledIsoFromHm("2026-08-27", "10:30")).toBe("2026-08-27T07:30:00.000Z");
   });
 
-  it("roster 10:00 + reporting 30 + buffer 15 → late after 10:45", () => {
+  it("reporting clock = roster start − reporting minutes (never hardcodes 10:00)", () => {
+    // roster 10:30 − 30 → 10:00
+    expect(reportingClockIso("2026-08-27T07:30:00.000Z", 30)).toBe("2026-08-27T07:00:00.000Z");
+    // roster 11:00 − 30 → 10:30
+    expect(reportingClockIso("2026-08-27T08:00:00.000Z", 30)).toBe("2026-08-27T07:30:00.000Z");
+    expect(reportingClockIso(null, 30)).toBeNull();
+  });
+
+  it("roster 10:30 − reporting 30 + buffer 15 → late after 10:15", () => {
+    // reporting_clock 10:00; on_time_until 10:15
     expect(
       computeLatePunchMinutes({
-        actualIn: "2026-08-27T07:26:00.000Z", // 10:26 Qatar
-        scheduledIn: "2026-08-27T07:00:00.000Z", // 10:00 Qatar
+        actualIn: "2026-08-27T07:14:00.000Z", // 10:14 Qatar
+        scheduledIn: "2026-08-27T07:30:00.000Z", // roster 10:30
         reportingTimeMinutes: 30,
         bufferMinutes: 15,
       }),
@@ -33,12 +43,21 @@ describe("late punch helpers", () => {
 
     expect(
       computeLatePunchMinutes({
-        actualIn: "2026-08-27T07:50:30.000Z", // 10:50:30 → 5.5 past 10:45
-        scheduledIn: "2026-08-27T07:00:00.000Z",
+        actualIn: "2026-08-27T07:26:00.000Z", // 10:26 → 11 past 10:15
+        scheduledIn: "2026-08-27T07:30:00.000Z",
         reportingTimeMinutes: 30,
         bufferMinutes: 15,
       }),
-    ).toBe(5.5);
+    ).toBe(11);
+
+    expect(
+      computeLatePunchMinutes({
+        actualIn: "2026-08-27T07:16:30.000Z", // 10:16:30 → 1.5 past 10:15
+        scheduledIn: "2026-08-27T07:30:00.000Z",
+        reportingTimeMinutes: 30,
+        bufferMinutes: 15,
+      }),
+    ).toBe(1.5);
   });
 
   it("does not use midnight/default baseline without scheduled_in", () => {
@@ -66,18 +85,18 @@ describe("late punch helpers", () => {
   it("listing late recomputes from roster start on read", () => {
     expect(
       resolveListingLateMinutes({
-        actualIn: "2026-08-27T07:50:30.000Z",
-        rosterScheduledIn: "2026-08-27T07:00:00.000Z",
+        actualIn: "2026-08-27T07:16:30.000Z",
+        rosterScheduledIn: "2026-08-27T07:30:00.000Z",
         reportingTimeMinutes: 30,
         bufferMinutes: 15,
       }),
-    ).toBe(5.5);
+    ).toBe(1.5);
   });
 
   it("resolves roster scheduled_in from shift_start without trusting stored 08:00", () => {
     const roster: RosterShiftLookup = {
       shift_template_id: null,
-      shift_start: "10:00",
+      shift_start: "10:30",
       shift_end: "20:00",
       is_week_off: false,
     };
@@ -92,7 +111,7 @@ describe("late punch helpers", () => {
         rosterByStaffDate: byDate,
         shiftStartByTemplateId: new Map(),
       }),
-    ).toBe("2026-08-27T07:00:00.000Z");
+    ).toBe("2026-08-27T07:30:00.000Z");
   });
 
   it("falls back to staff+date roster when location key has no shift times", () => {
@@ -104,7 +123,7 @@ describe("late punch helpers", () => {
     };
     const withTimes: RosterShiftLookup = {
       shift_template_id: null,
-      shift_start: "10:00",
+      shift_start: "10:30",
       shift_end: "20:00",
       is_week_off: false,
     };
@@ -117,7 +136,7 @@ describe("late punch helpers", () => {
         rosterByStaffDate: new Map([["s1|2026-08-27", withTimes]]),
         shiftStartByTemplateId: new Map(),
       }),
-    ).toBe("2026-08-27T07:00:00.000Z");
+    ).toBe("2026-08-27T07:30:00.000Z");
   });
 
   it("returns null when roster exists but has no shift start or template", () => {
@@ -148,7 +167,7 @@ describe("late punch helpers", () => {
     };
     const typical: RosterShiftLookup = {
       shift_template_id: null,
-      shift_start: "10:00",
+      shift_start: "10:30",
       shift_end: "20:00",
       is_week_off: false,
     };
@@ -162,13 +181,13 @@ describe("late punch helpers", () => {
         shiftStartByTemplateId: new Map(),
         fallbackByStaffId: new Map([["s1", typical]]),
       }),
-    ).toBe("2026-08-27T07:00:00.000Z");
+    ).toBe("2026-08-27T07:30:00.000Z");
   });
 
   it("does not invent fallback when there is no roster working day", () => {
     const typical: RosterShiftLookup = {
       shift_template_id: null,
-      shift_start: "10:00",
+      shift_start: "10:30",
       shift_end: "20:00",
       is_week_off: false,
     };

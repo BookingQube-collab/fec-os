@@ -48,6 +48,7 @@ export {
 export {
   computeLatePunchMinutes,
   normalizeShiftHm,
+  reportingClockIso,
   resolveListingLateMinutes,
   resolveRosterScheduledIn,
   scheduledIsoFromHm,

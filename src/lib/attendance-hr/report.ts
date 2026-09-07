@@ -27,9 +27,9 @@ export type AttendanceHrReportRow = {
   location_region: string | null;
   /** Explicit site break override when set on attendance_site_settings. */
   location_break_minutes?: number | null;
-  /** Site reporting window (minutes after roster start). */
+  /** Minutes before roster start for the reporting clock. */
   location_reporting_time_minutes?: number | null;
-  /** Site late buffer after the reporting window. */
+  /** Site late buffer after the reporting clock. */
   location_buffer_minutes?: number | null;
   /** Expected net daily minutes from site working hours for this staff employment type. */
   expected_minutes?: number | null;
@@ -97,6 +97,7 @@ export function attendanceHrToListingSource(
   actual_in: string | null;
   actual_out: string | null;
   scheduled_in: string | null;
+  reporting_time_minutes: number | null;
   overtime_minutes: number;
   late_minutes: number;
   worked_minutes: number | null;
@@ -126,6 +127,11 @@ export function attendanceHrToListingSource(
     actual_in: row.actual_in,
     actual_out: row.actual_out,
     scheduled_in: row.scheduled_in ?? null,
+    reporting_time_minutes:
+      row.location_reporting_time_minutes != null &&
+      Number.isFinite(Number(row.location_reporting_time_minutes))
+        ? Number(row.location_reporting_time_minutes)
+        : null,
     overtime_minutes: row.overtime_minutes,
     late_minutes: Number(row.late_minutes ?? 0),
     worked_minutes: row.worked_minutes,
