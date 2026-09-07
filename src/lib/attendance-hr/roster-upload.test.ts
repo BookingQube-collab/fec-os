@@ -87,6 +87,20 @@ describe("parse helpers", () => {
     expect(parseShiftRange("12:00 PM–10:00 PM")).toEqual({ start: "12:00", end: "22:00" });
   });
 
+  it("preserves E3 DATE WISE roster times (em/en/hyphen + AM/PM)", () => {
+    expect(parseDutyCell("10:30 AM—8:00 PM")).toEqual({ isWeekOff: false, known: true });
+    expect(parseDutyCell("12:30 PM—10:00 PM")).toEqual({ isWeekOff: false, known: true });
+    expect(parseShiftRange("10:30 AM—8:00 PM")).toEqual({ start: "10:30", end: "20:00" });
+    expect(parseShiftRange("10:30 AM–8:00 PM")).toEqual({ start: "10:30", end: "20:00" });
+    expect(parseShiftRange("10:30 AM-8:00 PM")).toEqual({ start: "10:30", end: "20:00" });
+    expect(parseShiftRange("10:30 AM−8:00 PM")).toEqual({ start: "10:30", end: "20:00" });
+    expect(parseShiftRange("12:30 PM—10:00 PM")).toEqual({ start: "12:30", end: "22:00" });
+    expect(parseShiftRange("12:30 PM–10:00 PM")).toEqual({ start: "12:30", end: "22:00" });
+    expect(parseShiftRange("10:30 AM to 8:00 PM")).toEqual({ start: "10:30", end: "20:00" });
+    expect(parseShiftRange("10:30:00 AM — 8:00:00 PM")).toEqual({ start: "10:30", end: "20:00" });
+    expect(parseShiftRange("DAY OFF")).toEqual({ start: null, end: null });
+  });
+
   it("parses Qatar-style dates", () => {
     expect(parseRosterDateCell("2026-08-17")).toBe("2026-08-17");
     expect(parseRosterDateCell("17/08/2026")).toBe("2026-08-17");
@@ -261,6 +275,66 @@ describe("buildAttendanceRosterPreview", () => {
     });
     expect(preview.matched).toBe(1);
     expect(preview.rows[0]).toMatchObject({ shiftStart: "12:00", shiftEnd: "22:00", isWeekOff: false });
+  });
+
+  it("keeps Wasanthi-style DATE WISE MONTHLY times instead of a 10:00–20:00 catalog shift", async () => {
+    const XLSX = await import("xlsx");
+    const aoa = [
+      ["DATE WISE MONTHLY ROSTER"],
+      ["E3 — Events and Entertainments Enterprises Trading WLL   |   Period: 28-Jul-2026 to 27-Aug-2026"],
+      [],
+      ["DATE", "EMPLOYEE", "POSITION", "LOCATION", "SHIFT"],
+      ["28-Jul-2026", "Wasanthi Hamamali Rankoth Pedige", "STAFF", "InflataPark - City Center", "DAY OFF"],
+      ["29-Jul-2026", "Wasanthi Hamamali Rankoth Pedige", "STAFF", "InflataPark - City Center", "10:30 AM—8:00 PM"],
+      ["30-Jul-2026", "Wasanthi Hamamali Rankoth Pedige", "STAFF", "InflataPark - City Center", "10:30 AM—8:00 PM"],
+      ["31-Jul-2026", "Wasanthi Hamamali Rankoth Pedige", "STAFF", "InflataPark - City Center", "12:30 PM—10:00 PM"],
+      ["01-Aug-2026", "Wasanthi Hamamali Rankoth Pedige", "STAFF", "InflataPark - City Center", "10:30 AM—8:00 PM"],
+      ["05-Aug-2026", "Wasanthi Hamamali Rankoth Pedige", "STAFF", "InflataPark - City Center", "DAY OFF"],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+    const buffer = Buffer.from(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }));
+    const parsed = await parseAttendanceRosterFile("FEC-aug.xlsx", buffer);
+    expect(parsed.records).toHaveLength(6);
+    expect(parsed.records[1]?.SHIFT).toMatch(/10:30/);
+    expect(parsed.records[3]?.SHIFT).toMatch(/12:30/);
+
+    const preview = buildAttendanceRosterPreview({
+      records: parsed.records,
+      periodMode: "month",
+      dateFrom: "2026-07-28",
+      dateTo: "2026-08-27",
+      selectedLocationId: INF,
+      staff: [
+        {
+          id: "s-wasanthi",
+          full_name: "WASANTHI HAMAMALI RANKOTH PEDIGE",
+          employee_code: "INF-CC-STF13",
+          qid: null,
+          location_id: INF,
+          work_location_ids: [],
+        },
+      ],
+      locations,
+      shifts: [{ id: "std-10-20", location_id: INF, start_time: "10:00", end_time: "20:00" }],
+    });
+    expect(preview.errors).toHaveLength(0);
+    expect(preview.matched).toBe(6);
+    expect(preview.rows.find((r) => r.workDate === "2026-07-28")).toMatchObject({ isWeekOff: true, shiftStart: null });
+    expect(preview.rows.find((r) => r.workDate === "2026-07-29")).toMatchObject({
+      shiftStart: "10:30",
+      shiftEnd: "20:00",
+      isWeekOff: false,
+      shiftTemplateId: null,
+    });
+    expect(preview.rows.find((r) => r.workDate === "2026-07-31")).toMatchObject({
+      shiftStart: "12:30",
+      shiftEnd: "22:00",
+      isWeekOff: false,
+      shiftTemplateId: null,
+    });
+    expect(preview.rows.find((r) => r.workDate === "2026-08-05")).toMatchObject({ isWeekOff: true });
   });
 
   it("matches location code and ignores location_name when both are present", () => {

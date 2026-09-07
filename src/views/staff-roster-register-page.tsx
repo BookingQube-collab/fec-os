@@ -1,12 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { CalendarDays, Upload } from "lucide-react";
-import { useMemo, useState } from "react";
+import { CalendarDays, Trash2, Upload } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { PageHeader } from "@/components/layout/page-header";
-import { RosterRegisterPanel } from "@/components/people/roster-register-panel";
+import {
+  RosterRegisterPanel,
+  type RosterDeleteAllState,
+  type RosterRegisterPanelHandle,
+} from "@/components/people/roster-register-panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -33,6 +37,11 @@ export default function StaffRosterRegisterPage() {
   const canImport = canImportRoster || canEditRoster || canUploadRoster;
   const storeLocationId = useAppStore((s) => s.currentLocationId);
 
+  const registerRef = useRef<RosterRegisterPanelHandle>(null);
+  const [deleteAllState, setDeleteAllState] = useState<RosterDeleteAllState>({
+    canDelete: canImport,
+    disabled: true,
+  });
   const [periodMode, setPeriodMode] = useState<AttendanceRosterPeriodMode>("month");
   const [weekStart, setWeekStart] = useState(() => qatarWeekBounds(todayYmd()).dateFrom);
   const [month, setMonth] = useState(() => payrollMonthOf(todayYmd()));
@@ -53,14 +62,28 @@ export default function StaffRosterRegisterPage() {
         title={t("people.roster.viewTitle")}
         subtitle={t("people.roster.viewSubtitle")}
         actions={
-          canImport ? (
-            <Button asChild variant="outline" size="sm">
-              <Link href="/people/import">
-                <Upload className="h-4 w-4" />
-                {t("nav.importRoster")}
-              </Link>
-            </Button>
-          ) : null
+          <>
+            {canImport ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="destructive"
+                disabled={deleteAllState.disabled}
+                onClick={() => registerRef.current?.openDeleteAll()}
+              >
+                <Trash2 className="h-4 w-4" />
+                {t("people.roster.registerDeleteAll")}
+              </Button>
+            ) : null}
+            {canImport ? (
+              <Button asChild variant="outline" size="sm">
+                <Link href="/people/import">
+                  <Upload className="h-4 w-4" />
+                  {t("nav.importRoster")}
+                </Link>
+              </Button>
+            ) : null}
+          </>
         }
       />
 
@@ -109,6 +132,7 @@ export default function StaffRosterRegisterPage() {
       </div>
 
       <RosterRegisterPanel
+        ref={registerRef}
         dateFrom={period.dateFrom}
         dateTo={period.dateTo}
         defaultLocationId={storeLocationId}
@@ -116,6 +140,7 @@ export default function StaffRosterRegisterPage() {
         showSourceFilter
         hideHeader
         maxHeight={640}
+        onDeleteAllStateChange={setDeleteAllState}
       />
     </div>
   );

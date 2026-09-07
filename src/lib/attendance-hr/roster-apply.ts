@@ -122,7 +122,11 @@ export async function replaceAttendanceRosterPeriod(
 
   const payload = unique.map((row) => {
     const prev = existingByKey.get(`${row.staffId}|${row.workDate}`);
-    const keepTimes = !row.isWeekOff && !row.shiftStart && Boolean(prev?.shift_start || prev?.shift_template_id);
+    const keepTimes =
+      !row.isWeekOff &&
+      !row.shiftStart &&
+      !row.explicitTimes &&
+      Boolean(prev?.shift_start || prev?.shift_template_id);
     return {
       location_id: input.locationId,
       staff_id: row.staffId,

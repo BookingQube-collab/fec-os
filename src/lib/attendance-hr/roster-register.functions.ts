@@ -3,7 +3,7 @@
 import { z } from "zod";
 
 import { canUserDo, type AppRole } from "@/lib/rbac";
-import { createAuthenticatedAction } from "@/lib/server/create-action";
+import { createAuthenticatedAction, type AuthContext } from "@/lib/server/create-action";
 import { ForbiddenError } from "@/lib/server/authorize";
 import { assertAttendanceRosterLocation } from "@/lib/attendance-hr/roster-apply";
 import {
@@ -12,6 +12,11 @@ import {
 } from "@/lib/attendance-hr/roster-amend";
 import { recalculateAttendanceRange } from "@/lib/attendance-hr/process";
 import { parseTimeCell } from "@/lib/attendance-hr/roster-upload";
+import {
+  assertRosterDeletePeriod,
+  chunkIds,
+  rosterRowMatchesSearch,
+} from "@/lib/attendance-hr/roster-register-scope";
 
 const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
@@ -277,6 +282,157 @@ export const deleteRosterAssignment = createAuthenticatedAction(
     });
 
     return { ok: true as const, id: data.id };
+  },
+  { auth: { anyCapability: ["people.import_roster", "people.edit_roster", "daily_ops.roster.upload"] } },
+);
+
+const rosterScopeInput = z.object({
+  locationId: z.string().uuid().nullable().optional(),
+  staffId: z.string().uuid().nullable().optional(),
+  dateFrom: ymd,
+  dateTo: ymd,
+  sourceUploadOnly: z.boolean().optional().default(false),
+  source: z.enum(["upload", "amend", "manual"]).nullable().optional(),
+  search: z.string().nullable().optional(),
+});
+
+type RosterScopeAssignment = {
+  id: string;
+  location_id: string;
+  staff_id: string;
+  work_date: string;
+  source: string | null;
+};
+
+async function fetchRosterAssignmentsInScope(
+  supabase: AuthContext["supabase"],
+  data: z.infer<typeof rosterScopeInput>,
+): Promise<RosterScopeAssignment[]> {
+  const pageSize = 1000;
+  const rows: RosterScopeAssignment[] = [];
+  for (let from = 0; ; from += pageSize) {
+    let q = supabase
+      .from("attendance_roster_assignments")
+      .select("id, location_id, staff_id, work_date, source")
+      .gte("work_date", data.dateFrom)
+      .lte("work_date", data.dateTo)
+      .order("id", { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (data.locationId) q = q.eq("location_id", data.locationId);
+    if (data.staffId) q = q.eq("staff_id", data.staffId);
+    if (data.sourceUploadOnly) q = q.in("source", ["upload", "amend"]);
+    else if (data.source) q = q.eq("source", data.source);
+
+    const { data: page, error } = await q;
+    if (error) throw error;
+    rows.push(...((page ?? []) as RosterScopeAssignment[]));
+    if (!page || page.length < pageSize) break;
+  }
+  return rows;
+}
+
+async function applyRosterSearchFilter(
+  supabase: AuthContext["supabase"],
+  assignments: RosterScopeAssignment[],
+  search: string,
+): Promise<RosterScopeAssignment[]> {
+  const q = search.trim();
+  if (!q) return assignments;
+
+  const staffIds = [...new Set(assignments.map((row) => String(row.staff_id)).filter(Boolean))];
+  const locationIds = [...new Set(assignments.map((row) => String(row.location_id)).filter(Boolean))];
+  const staffRows: { id: string; full_name: string | null; employee_code: string | null; qid: string | null }[] = [];
+  const locRows: { id: string; code: string | null }[] = [];
+  for (const ids of chunkIds(staffIds, 200)) {
+    const staffRes = await supabase.from("staff").select("id, full_name, employee_code, qid").in("id", ids);
+    if (staffRes.error) throw staffRes.error;
+    staffRows.push(...((staffRes.data ?? []) as typeof staffRows));
+  }
+  for (const ids of chunkIds(locationIds, 200)) {
+    const locRes = await supabase.from("locations").select("id, code").in("id", ids);
+    if (locRes.error) throw locRes.error;
+    locRows.push(...((locRes.data ?? []) as typeof locRows));
+  }
+
+  const staffById = new Map(staffRows.map((row) => [String(row.id), row]));
+  const locById = new Map(locRows.map((row) => [String(row.id), row]));
+
+  return assignments.filter((row) => {
+    const staff = staffById.get(String(row.staff_id));
+    const loc = locById.get(String(row.location_id));
+    return rosterRowMatchesSearch(
+      {
+        staffName: staff?.full_name ?? null,
+        employeeCode: staff?.employee_code ?? null,
+        qid: staff?.qid ?? null,
+        locationCode: loc?.code ?? null,
+        workDate: String(row.work_date).slice(0, 10),
+        source: String(row.source ?? "manual"),
+      },
+      q,
+    );
+  });
+}
+
+/** Delete every roster row in the selected period that matches the current register filters. */
+export const deleteRosterAssignments = createAuthenticatedAction(
+  rosterScopeInput,
+  async (data, context) => {
+    assertCanAmendRoster(context.roles);
+    assertRosterDeletePeriod(data.dateFrom, data.dateTo);
+    if (data.locationId) await assertAttendanceRosterLocation(context, data.locationId);
+
+    const scoped = await fetchRosterAssignmentsInScope(context.supabase, data);
+    const toDelete = data.search?.trim()
+      ? await applyRosterSearchFilter(context.supabase, scoped, data.search)
+      : scoped;
+
+    if (!toDelete.length) {
+      return { ok: true as const, deleted: 0, dateFrom: data.dateFrom, dateTo: data.dateTo };
+    }
+
+    const locationIds = [...new Set(toDelete.map((row) => String(row.location_id)))];
+    for (const locationId of locationIds) {
+      await assertAttendanceRosterLocation(context, locationId);
+    }
+
+    for (const ids of chunkIds(toDelete.map((row) => String(row.id)), 200)) {
+      const { error: delErr } = await context.supabase
+        .from("attendance_roster_assignments")
+        .delete()
+        .in("id", ids)
+        .gte("work_date", data.dateFrom)
+        .lte("work_date", data.dateTo);
+      if (delErr) throw delErr;
+    }
+
+    const byLocation = new Map<string, { staffIds: Set<string>; minDate: string; maxDate: string }>();
+    for (const row of toDelete) {
+      const locationId = String(row.location_id);
+      const staffId = String(row.staff_id);
+      const workDate = String(row.work_date).slice(0, 10);
+      const current = byLocation.get(locationId);
+      if (!current) {
+        byLocation.set(locationId, { staffIds: new Set([staffId]), minDate: workDate, maxDate: workDate });
+        continue;
+      }
+      current.staffIds.add(staffId);
+      if (workDate < current.minDate) current.minDate = workDate;
+      if (workDate > current.maxDate) current.maxDate = workDate;
+    }
+
+    for (const [locationId, scope] of byLocation) {
+      await recalculateAttendanceRange(context.supabase, locationId, scope.minDate, scope.maxDate, {
+        staffIds: [...scope.staffIds],
+      });
+    }
+
+    return {
+      ok: true as const,
+      deleted: toDelete.length,
+      dateFrom: data.dateFrom,
+      dateTo: data.dateTo,
+    };
   },
   { auth: { anyCapability: ["people.import_roster", "people.edit_roster", "daily_ops.roster.upload"] } },
 );

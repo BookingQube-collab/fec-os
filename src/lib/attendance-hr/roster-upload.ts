@@ -93,6 +93,8 @@ export type MatchedRosterRow = {
   employeeCode: string | null;
   shiftStart: string | null;
   shiftEnd: string | null;
+  /** Excel cell contained clock times — do not keep a previous catalog shift if parse misses them. */
+  explicitTimes?: boolean;
   shiftTemplateId: string | null;
   isWeekOff: boolean;
   matchRule: string;
@@ -137,10 +139,33 @@ function cell(row: Record<string, string>, key: string | null): string {
   return String(row[key] ?? "").trim();
 }
 
+/** Excel / Word range dashes and "to" — do not treat the letters t/o as separators. */
+const SHIFT_RANGE_SEP = /[\s\u00a0\u202f]*[-–—‒―−－‐‑~～/]+[\s\u00a0\u202f]*|\s+to\s+/i;
+
+function normalizeClockText(raw: string): string {
+  return raw
+    .replace(/[\u00a0\u202f\u2007\u2009\u200b]/g, " ")
+    .replace(/a\.?\s*m\.?/gi, "am")
+    .replace(/p\.?\s*m\.?/gi, "pm")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractClockTokens(raw: string): string[] {
+  return raw.match(/\d{1,2}[:.]\d{2}(?::\d{2})?(?:\s*(?:am|pm))?|\d{1,2}\s*(?:am|pm)/gi) ?? [];
+}
+
+function hmFromMinutes(totalMinutes: number): string {
+  const normalized = ((totalMinutes % (24 * 60)) + 24 * 60) % (24 * 60);
+  const h = Math.floor(normalized / 60);
+  const m = normalized % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
 export function parseDutyCell(raw: string | null | undefined): { isWeekOff: boolean; known: boolean } {
   const s = String(raw ?? "").trim().toLowerCase().replace(/[_-]+/g, " ");
   if (!s) return { isWeekOff: false, known: false };
-  if (/^\d{1,2}:\d{2}/.test(s)) return { isWeekOff: false, known: true };
+  if (extractClockTokens(normalizeClockText(String(raw ?? ""))).length > 0) return { isWeekOff: false, known: true };
   if (["off", "week off", "weekly off", "day off", "rest", "no", "n", "0", "false", "wo", "off day", "offday", "leave"].includes(s)) {
     return { isWeekOff: true, known: true };
   }
@@ -150,10 +175,20 @@ export function parseDutyCell(raw: string | null | undefined): { isWeekOff: bool
   return { isWeekOff: false, known: false };
 }
 
-export function parseTimeCell(raw: string | null | undefined): string | null {
-  const s = String(raw ?? "").trim();
+export function parseTimeCell(raw: string | number | Date | null | undefined): string | null {
+  if (raw instanceof Date && !Number.isNaN(raw.getTime())) {
+    return `${String(raw.getHours()).padStart(2, "0")}:${String(raw.getMinutes()).padStart(2, "0")}`;
+  }
+  if (typeof raw === "number" && Number.isFinite(raw) && raw > 0 && raw < 1) {
+    return hmFromMinutes(Math.round(raw * 24 * 60));
+  }
+  const s = normalizeClockText(String(raw ?? ""));
   if (!s) return null;
-  const ampm = s.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i);
+  if (/^0?\.\d+$/.test(s)) {
+    const n = Number(s);
+    if (n > 0 && n < 1) return hmFromMinutes(Math.round(n * 24 * 60));
+  }
+  const ampm = s.match(/^(\d{1,2})(?:[:.](\d{2})(?::\d{2})?)?\s*(am|pm)$/i);
   if (ampm) {
     let h = Number(ampm[1]);
     const m = Number(ampm[2] ?? 0);
@@ -162,21 +197,52 @@ export function parseTimeCell(raw: string | null | undefined): string | null {
     if (ap === "am" && h === 12) h = 0;
     return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
   }
-  const hm = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  const hm = s.match(/^(\d{1,2})[:.](\d{2})(?::\d{2})?$/);
   if (hm) return `${String(Number(hm[1])).padStart(2, "0")}:${hm[2]}`;
   const compact = s.match(/^(\d{2})(\d{2})$/);
   if (compact) return `${compact[1]}:${compact[2]}`;
   return null;
 }
 
-export function parseShiftRange(raw: string | null | undefined): { start: string | null; end: string | null } {
-  const s = String(raw ?? "").trim();
+export function parseShiftRange(raw: string | number | Date | null | undefined): { start: string | null; end: string | null } {
+  if (raw instanceof Date && !Number.isNaN(raw.getTime())) {
+    return { start: parseTimeCell(raw), end: null };
+  }
+  if (typeof raw === "number" && Number.isFinite(raw) && raw > 0 && raw < 1) {
+    return { start: parseTimeCell(raw), end: null };
+  }
+  const s = normalizeClockText(String(raw ?? ""));
   if (!s) return { start: null, end: null };
-  const parts = s.split(/\s*[-–—to]+\s*/i).filter(Boolean);
+
+  const tokens = extractClockTokens(s);
+  if (tokens.length >= 2) {
+    return { start: parseTimeCell(tokens[0]), end: parseTimeCell(tokens[tokens.length - 1]) };
+  }
+  if (tokens.length === 1) {
+    return { start: parseTimeCell(tokens[0]), end: null };
+  }
+
+  const parts = s.split(SHIFT_RANGE_SEP).map((part) => part.trim()).filter(Boolean);
   if (parts.length >= 2) {
     return { start: parseTimeCell(parts[0]), end: parseTimeCell(parts[1]) };
   }
   return { start: parseTimeCell(s), end: null };
+}
+
+function stringifyRosterCell(c: string | number | Date | null | undefined): string {
+  if (c == null || c === "") return "";
+  if (c instanceof Date && !Number.isNaN(c.getTime())) {
+    const hh = String(c.getHours()).padStart(2, "0");
+    const mm = String(c.getMinutes()).padStart(2, "0");
+    if (c.getFullYear() < 1901) return `${hh}:${mm}`;
+    const ymd = `${c.getFullYear()}-${String(c.getMonth() + 1).padStart(2, "0")}-${String(c.getDate()).padStart(2, "0")}`;
+    if (c.getHours() || c.getMinutes() || c.getSeconds()) return `${ymd} ${hh}:${mm}`;
+    return ymd;
+  }
+  if (typeof c === "number" && Number.isFinite(c) && c > 0 && c < 1) {
+    return hmFromMinutes(Math.round(c * 24 * 60));
+  }
+  return String(c).trim();
 }
 
 const MONTHS: Record<string, number> = {
@@ -338,6 +404,7 @@ type DraftRow = {
   shiftStart: string | null;
   shiftEnd: string | null;
   dutyRaw: string;
+  explicitTimes: boolean;
 };
 
 function locationRawFromRow(row: Record<string, string>, locKey: string | null): string {
@@ -384,6 +451,7 @@ function draftFromLongRow(row: Record<string, string>, rowNumber: number): Draft
   const range = parseShiftRange(shiftRaw || dutyRaw);
   const start = parseTimeCell(cell(row, id.startKey)) ?? range.start;
   const end = parseTimeCell(cell(row, id.endKey)) ?? range.end;
+  const clockSource = [cell(row, id.startKey), cell(row, id.endKey), shiftRaw, dutyRaw].filter(Boolean).join(" ");
   return {
     rowNumber,
     date: parseRosterDateCell(cell(row, id.dateKey)),
@@ -396,6 +464,7 @@ function draftFromLongRow(row: Record<string, string>, rowNumber: number): Draft
     shiftStart: start,
     shiftEnd: end,
     dutyRaw,
+    explicitTimes: Boolean(start && end) || extractClockTokens(normalizeClockText(clockSource)).length > 0,
   };
 }
 
@@ -433,6 +502,7 @@ function draftsFromGrid(rows: Record<string, string>[]): DraftRow[] {
         shiftStart: range.start,
         shiftEnd: range.end,
         dutyRaw: duty.known ? (duty.isWeekOff ? "Off" : "Yes") : value,
+        explicitTimes: Boolean(range.start && range.end) || extractClockTokens(normalizeClockText(value)).length > 0,
       });
     }
   });
@@ -597,7 +667,7 @@ export async function parseAttendanceRosterFile(
       raw: false,
       defval: "",
     });
-    const asStrings = matrix.map((r) => (r ?? []).map((c) => String(c ?? "").trim()));
+    const asStrings = matrix.map((r) => (r ?? []).map((c) => stringifyRosterCell(c)));
     return { records: matrixToRecords(asStrings), sheetName };
   }
   const text = buffer.toString("utf8");
@@ -777,6 +847,7 @@ export function buildAttendanceRosterPreview(input: {
       employeeCode: ids.code || null,
       shiftStart: isWeekOff ? null : draft.shiftStart,
       shiftEnd: isWeekOff ? null : draft.shiftEnd,
+      explicitTimes: draft.explicitTimes,
       shiftTemplateId: isWeekOff ? null : matchShiftTemplate(draft.shiftStart, draft.shiftEnd, locationId, input.shifts),
       isWeekOff,
       matchRule: matched.matchRule,
