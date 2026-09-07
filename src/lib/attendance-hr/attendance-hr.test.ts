@@ -370,12 +370,57 @@ describe("daily calculation", () => {
         }),
       },
     );
-    // ~9.62h gross − 60m break ≈ 8.62h net → under 9h expected → no OT + short hours
+    // ~9.62h gross − 60m break ≈ 8.62h net → under 9h expected → no OT + Late (not Short hours)
     expect(day.workedMinutes).toBeGreaterThan(500);
     expect(day.workedMinutes).toBeLessThan(540);
     expect(day.overtimeMinutes).toBe(0);
-    expect(day.status).toBe("short_hours");
-    expect(day.statusFlags).toContain("short_hours");
+    expect(day.status).toBe("late");
+    expect(day.statusFlags).toContain("late");
+    expect(day.lateMinutes).toBeGreaterThan(0);
+  });
+
+  it("Wasanthi-style 27-Aug: net under 9h → Late, OT No / 0 (not net−8)", () => {
+    // 10:28:31 → 20:06:28 Qatar = 07:28:31Z → 17:06:28Z
+    const day = calculateDailyAttendance(
+      [
+        { punchAt: "2026-08-27T07:28:31.000Z" },
+        { punchAt: "2026-08-27T17:06:28.000Z" },
+      ],
+      {
+        workDate: "2026-08-27",
+        scheduled: true,
+        shift: applyAttendanceShiftPolicy(
+          { ...shift, startTime: "10:00", endTime: "20:00" },
+          { employmentType: "permanent", locationCode: "INF-CC" },
+        ),
+      },
+    );
+    expect(day.workedMinutes).toBe(518); // 9h37m − 60m
+    expect(Math.round((day.workedMinutes / 60) * 100) / 100).toBe(8.63);
+    expect(day.overtimeMinutes).toBe(0);
+    expect(day.status).toBe("late");
+    expect(day.lateMinutes).toBeGreaterThan(0);
+  });
+
+  it("Wasanthi-style 25-Aug: net 9.10 over 9h → OT 0.10 (not net−8 = 1.10)", () => {
+    // 10:30:13 → 20:35:44 Qatar ≈ 07:30:13Z → 17:35:44Z → span 605m − 60 = 545m = 9.083h
+    const day = calculateDailyAttendance(
+      [
+        { punchAt: "2026-08-25T07:30:13.000Z" },
+        { punchAt: "2026-08-25T17:35:44.000Z" },
+      ],
+      {
+        workDate: "2026-08-25",
+        scheduled: true,
+        shift: applyAttendanceShiftPolicy(
+          { ...shift, startTime: "10:00", endTime: "20:00" },
+          { employmentType: "permanent", locationCode: "INF-CC" },
+        ),
+      },
+    );
+    expect(day.workedMinutes).toBe(546);
+    expect(day.overtimeMinutes).toBe(6); // 546 − 540 → 0.10h
+    expect(day.status).toBe("present");
   });
 
   it("marks present when late but net hours meet expected daily length", () => {

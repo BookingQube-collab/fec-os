@@ -92,6 +92,7 @@ export function attendanceHrToListingSource(
   actual_in: string | null;
   actual_out: string | null;
   overtime_minutes: number;
+  late_minutes: number;
   worked_minutes: number | null;
   break_minutes: number;
   expected_minutes: number | null;
@@ -119,6 +120,7 @@ export function attendanceHrToListingSource(
     actual_in: row.actual_in,
     actual_out: row.actual_out,
     overtime_minutes: row.overtime_minutes,
+    late_minutes: Number(row.late_minutes ?? 0),
     worked_minutes: row.worked_minutes,
     break_minutes: breakMinutesForLocation(row.location_code, row.location_break_minutes),
     expected_minutes: expected,

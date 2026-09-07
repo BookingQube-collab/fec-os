@@ -1,5 +1,6 @@
 import type { AttendanceRuleInput, AttendanceStatus, DailyCalcResult, ShiftTemplateInput } from "./constants";
 import { DEFAULT_RULES, DEFAULT_SHIFT } from "./constants";
+import { PERMANENT_SHIFT_MINUTES } from "./shift-policy";
 
 export type CalcPunch = {
   id?: string;
@@ -200,23 +201,34 @@ export function calculateDailyAttendance(punches: CalcPunch[], ctx: DayContext):
   }
 
   if (outDate) {
+    // Total hours worked = punch span − site break (net). OT uses the same net figure.
     const breakMin = shift?.breakMinutes ?? 0;
     workedMinutes = Math.max(0, Math.round((outDate.getTime() - inDate.getTime()) / 60_000) - breakMin);
-    const otAfter = shift?.overtimeAfterMinutes ?? 480;
-    overtimeMinutes = Math.max(0, workedMinutes - otAfter);
+    // Expected daily length from site policy × employment type (overtimeAfterMinutes / minWorkMinutes).
+    // Never fall back to a legacy 8h (480) day when expected is known.
+    const expectedMinutes = Math.max(
+      0,
+      Number(
+        shift?.overtimeAfterMinutes ??
+          shift?.minWorkMinutes ??
+          PERMANENT_SHIFT_MINUTES,
+      ),
+    );
+    overtimeMinutes = Math.max(0, workedMinutes - expectedMinutes);
     if (overtimeMinutes > 0) flags.push("overtime");
 
-    // Hours vs site expected length are the primary status. Late / early stay as flags only.
+    // Hours vs site expected length are the primary status. Under-expected → Late (not Short hours).
+    // Roster lateness stays in lateMinutes / Late punch column independently.
     const punchIssue = status === "missed_punch" || status === "review_required";
     if (!punchIssue) {
-      const minWork = Math.max(0, Number(shift?.minWorkMinutes ?? 0));
+      const minWork = Math.max(0, Number(shift?.minWorkMinutes ?? expectedMinutes));
       if (minWork > 0) {
         if (workedMinutes >= minWork) {
           status = "present";
           flags.push("present");
         } else {
-          status = "short_hours";
-          flags.push("short_hours", "incomplete");
+          status = "late";
+          flags.push("late", "incomplete");
           exceptionReason = exceptionReason ?? `Net hours below expected (${minWork} min)`;
         }
       } else if (lateMinutes > 0) {

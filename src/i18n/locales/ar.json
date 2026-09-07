@@ -2956,6 +2956,7 @@
       "firstCheckIn": "أول تسجيل دخول",
       "lastCheckOut": "آخر تسجيل خروج",
       "totalHours": "إجمالي ساعات العمل",
+      "latePunch": "تأخير البصمة",
       "overtime": "عمل إضافي",
       "overtimeHours": "ساعات العمل الإضافي",
       "lastWeek": "آخر 7 أيام",

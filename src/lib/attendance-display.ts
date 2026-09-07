@@ -76,7 +76,7 @@ export function computeHoursWorked(actualIn: string | null, actualOut: string | 
 }
 
 /**
- * Net hours for the listing: prefer stored worked_minutes (post-break from recalc),
+ * Net hours for the listing: prefer stored worked_minutes (punch span − break from recalc),
  * else punch span minus location break minutes when known.
  */
 export function resolveTotalHoursWorked(row: {
@@ -97,6 +97,35 @@ export function resolveTotalHoursWorked(row: {
   return Math.max(0, Math.round((gross - breakMin / 60) * 100) / 100);
 }
 
+/** OT minutes = max(0, net − expected). Prefer expected when known so UI never shows legacy net−8. */
+export function resolveOvertimeMinutes(row: {
+  actual_in?: string | null;
+  actual_out?: string | null;
+  worked_minutes?: number | null;
+  break_minutes?: number | null;
+  overtime_minutes?: number | null;
+  expected_minutes?: number | null;
+  employment_type?: string | null;
+  sitePolicy?: SiteShiftPolicyOverrides | null;
+  status?: string | null;
+}): number {
+  const expected = resolveExpectedWorkMinutes(row);
+  const workedHours = resolveTotalHoursWorked({
+    actual_in: row.actual_in ?? null,
+    actual_out: row.actual_out ?? null,
+    worked_minutes: row.worked_minutes,
+    break_minutes: row.break_minutes,
+  });
+  if (expected != null && workedHours != null) {
+    const workedMinutes = Math.round(workedHours * 60);
+    return Math.max(0, workedMinutes - expected);
+  }
+  const stored = Number(row.overtime_minutes ?? 0);
+  if (Number.isFinite(stored) && stored > 0) return Math.round(stored);
+  if (row.status === "overtime") return Math.max(0, Math.round(stored));
+  return 0;
+}
+
 export function formatHoursValue(hours: number | null): string {
   if (hours == null) return "—";
   return hours.toFixed(2);
@@ -108,8 +137,31 @@ export function formatOvertimeHours(minutes: number): string {
   return h % 1 === 0 ? String(h) : h.toFixed(2);
 }
 
-export function hasOvertime(row: Pick<AttendanceSummaryRow, "overtime_minutes" | "status">): boolean {
-  return row.overtime_minutes > 0 || row.status === "overtime";
+/** Overtime Yes only when resolved OT minutes are positive (1-minute epsilon). */
+export function hasOvertime(row: {
+  actual_in?: string | null;
+  actual_out?: string | null;
+  worked_minutes?: number | null;
+  break_minutes?: number | null;
+  overtime_minutes?: number | null;
+  expected_minutes?: number | null;
+  employment_type?: string | null;
+  sitePolicy?: SiteShiftPolicyOverrides | null;
+  status?: string | null;
+}): boolean {
+  return resolveOvertimeMinutes(row) > 0;
+}
+
+/** Roster late punch: first check-in after shift start (+ grace), from stored late_minutes. */
+export function formatLatePunch(lateMinutes: number | null | undefined): string {
+  const mins = Number(lateMinutes ?? 0);
+  if (!Number.isFinite(mins) || mins <= 0) return "No";
+  return String(Math.round(mins));
+}
+
+export function hasLatePunch(lateMinutes: number | null | undefined): boolean {
+  const mins = Number(lateMinutes ?? 0);
+  return Number.isFinite(mins) && mins > 0;
 }
 
 const MISSED_PUNCH_BADGE = "border-amber-500/50 bg-amber-500/20 text-amber-800 dark:text-amber-200";
@@ -129,10 +181,12 @@ const STATUS_ALIASES: Record<string, string> = {
   off: "weekly_off",
   misspunch: "missed_punch",
   missedpunch: "missed_punch",
-  short_hour: "short_hours",
-  shorthours: "short_hours",
-  hours_missed: "short_hours",
-  incomplete_hours: "short_hours",
+  // Under-expected hours → Late (product: keep Late, do not show Short hours)
+  short_hours: "late",
+  short_hour: "late",
+  shorthours: "late",
+  hours_missed: "late",
+  incomplete_hours: "late",
 };
 
 const NAMED_STATUS_DISPLAY: Record<string, AttendanceStatusDisplay> = {
@@ -146,8 +200,8 @@ const NAMED_STATUS_DISPLAY: Record<string, AttendanceStatusDisplay> = {
     badgeClass: MISSED_PUNCH_BADGE,
     rowClass: MISSED_PUNCH_ROW,
   },
-  short_hours: {
-    label: "Short hours",
+  late: {
+    label: "Late",
     badgeClass: LATE_BADGE,
     rowClass: NO_ROW_TINT,
   },
@@ -260,14 +314,14 @@ export function resolveHoursBasedAttendanceStatus(
   });
   if (expected != null && workedHours != null) {
     const workedMinutes = Math.round(workedHours * 60);
-    return workedMinutes >= expected ? "present" : "short_hours";
+    // Under expected net hours → Late (not Short hours)
+    return workedMinutes >= expected ? "present" : "late";
   }
 
-  if (statusKey === "incomplete" && hasIn && hasOut) return "short_hours";
+  if (statusKey === "incomplete" && hasIn && hasOut) return "late";
   if (statusKey === "late" || statusKey === "early_leave" || statusKey === "early_departure" || statusKey === "overtime") {
     return statusKey === "early_leave" ? "early_departure" : statusKey;
   }
-  if (statusKey === "short_hours") return "short_hours";
   if (statusKey === "present" || statusKey === "complete") return "present";
   return statusKey || "present";
 }
@@ -305,7 +359,7 @@ export function getAttendanceStatusDisplay(
   }
 
   if (statusKey === "incomplete") {
-    return hasIn && hasOut ? NAMED_STATUS_DISPLAY.short_hours : NAMED_STATUS_DISPLAY.missed_punch;
+    return hasIn && hasOut ? NAMED_STATUS_DISPLAY.late : NAMED_STATUS_DISPLAY.missed_punch;
   }
 
   return NAMED_STATUS_DISPLAY.present;
@@ -372,7 +426,7 @@ export function computeAttendanceKpis(rows: AttendanceSummaryRow[]): AttendanceK
 
     const display = getAttendanceStatusDisplay(row);
     if (display.label === "Present" || display.label === "Complete") complete++;
-    else if (display.label === "Incomplete" || display.label === "Missed punch" || display.label === "Short hours") {
+    else if (display.label === "Incomplete" || display.label === "Missed punch") {
       incomplete++;
     } else if (display.label === "Missing Punch" || display.label === "Absent") missingPunch++;
     else if (display.label === "Late" || display.label === "Early Leave") late++;
@@ -407,6 +461,7 @@ export type AttendanceListingSource = {
   actual_in: string | null;
   actual_out: string | null;
   overtime_minutes: number;
+  late_minutes?: number | null;
   worked_minutes?: number | null;
   break_minutes?: number | null;
   expected_minutes?: number | null;
@@ -423,6 +478,7 @@ export const ATTENDANCE_LISTING_COLUMNS = [
   "First Check-In",
   "Last Check-Out",
   "Total Hours Worked",
+  "Late punch",
   "Overtime",
   "Overtime Hours",
   "Status",
@@ -436,6 +492,7 @@ export type AttendanceListingCells = {
   firstCheckIn: string;
   lastCheckOut: string;
   totalHours: string;
+  latePunch: string;
   overtime: string;
   overtimeHours: string;
   status: string;
@@ -451,6 +508,7 @@ export function toAttendanceListingSource(row: AttendanceSummaryRow): Attendance
     actual_in: row.actual_in,
     actual_out: row.actual_out,
     overtime_minutes: row.overtime_minutes,
+    late_minutes: row.late_minutes ?? 0,
     worked_minutes: row.worked_minutes ?? null,
     break_minutes: row.break_minutes ?? null,
     expected_minutes: row.expected_minutes ?? null,
@@ -462,7 +520,8 @@ export function toAttendanceListingSource(row: AttendanceSummaryRow): Attendance
 
 export function attendanceListingCells(row: AttendanceListingSource): AttendanceListingCells {
   const hours = resolveTotalHoursWorked(row);
-  const ot = hasOvertime(row);
+  const otMinutes = resolveOvertimeMinutes(row);
+  const ot = otMinutes > 0;
   const status = getAttendanceStatusDisplay(row);
   return {
     location: row.locationLabel,
@@ -472,8 +531,9 @@ export function attendanceListingCells(row: AttendanceListingSource): Attendance
     firstCheckIn: formatPunchTime12h(row.actual_in) || "—",
     lastCheckOut: formatPunchTime12h(row.actual_out) || "—",
     totalHours: formatHoursValue(hours),
+    latePunch: formatLatePunch(row.late_minutes),
     overtime: ot ? "Yes" : "No",
-    overtimeHours: ot ? formatOvertimeHours(row.overtime_minutes) : "—",
+    overtimeHours: ot ? formatOvertimeHours(otMinutes) : "—",
     status: status.label,
   };
 }
@@ -489,6 +549,7 @@ export function attendanceListingExportObjects(rows: AttendanceListingSource[]) 
       "First Check-In": cells.firstCheckIn,
       "Last Check-Out": cells.lastCheckOut,
       "Total Hours Worked": cells.totalHours,
+      "Late punch": cells.latePunch,
       Overtime: cells.overtime,
       "Overtime Hours": cells.overtimeHours,
       Status: cells.status,
@@ -507,6 +568,7 @@ export function buildAttendanceListingCsv(rows: AttendanceListingSource[]): stri
       cells.firstCheckIn,
       cells.lastCheckOut,
       cells.totalHours,
+      cells.latePunch,
       cells.overtime,
       cells.overtimeHours,
       cells.status,

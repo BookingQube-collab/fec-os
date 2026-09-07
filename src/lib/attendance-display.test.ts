@@ -74,9 +74,19 @@ describe("attendance listing display", () => {
       worked_minutes: 480,
       expected_minutes: 540,
     });
-    expect(shortHours.label).toBe("Short hours");
+    expect(shortHours.label).toBe("Late");
     expect(shortHours.badgeClass).toMatch(/amber/);
     expect(shortHours.rowClass).toBe("");
+
+    const legacyShortHoursStatus = getAttendanceStatusDisplay({
+      status: "short_hours",
+      missed_punch: false,
+      actual_in: "2026-08-25T07:17:44.000Z",
+      actual_out: "2026-08-25T16:00:00.000Z",
+      worked_minutes: 480,
+      expected_minutes: 540,
+    });
+    expect(legacyShortHoursStatus.label).toBe("Late");
 
     const complete = getAttendanceStatusDisplay({
       status: "present",
@@ -159,11 +169,62 @@ describe("attendance listing display", () => {
       actual_in: "2026-08-25T07:00:00.000Z",
       actual_out: "2026-08-25T17:00:00.000Z",
       overtime_minutes: 0,
+      late_minutes: 0,
       worked_minutes: 480,
       break_minutes: 60,
       status: "present",
       missed_punch: false,
     });
     expect(cells.totalHours).toBe("8.00");
+    expect(cells.latePunch).toBe("No");
+  });
+
+  it("recomputes OT from expected so stale net−8 values are not shown", () => {
+    const cells = attendanceListingCells({
+      locationLabel: "INF-CC — Inflatapark - City Center Doha",
+      userName: "WASANTHI",
+      deviceUserId: "9",
+      work_date: "2026-08-27",
+      actual_in: "2026-08-27T07:28:31.000Z",
+      actual_out: "2026-08-27T17:06:28.000Z",
+      // Stale DB value as if OT = net − 8h
+      overtime_minutes: 40,
+      late_minutes: 28,
+      worked_minutes: 520,
+      break_minutes: 60,
+      expected_minutes: 540,
+      employment_type: "permanent",
+      status: "short_hours",
+      missed_punch: false,
+    });
+    expect(cells.totalHours).toBe("8.67");
+    expect(cells.overtime).toBe("No");
+    expect(cells.overtimeHours).toBe("—");
+    expect(cells.status).toBe("Late");
+    expect(cells.latePunch).toBe("28");
+  });
+
+  it("shows OT as net − expected when over 9h permanent", () => {
+    const cells = attendanceListingCells({
+      locationLabel: "INF-CC",
+      userName: "WASANTHI",
+      deviceUserId: "9",
+      work_date: "2026-08-25",
+      actual_in: "2026-08-25T07:30:13.000Z",
+      actual_out: "2026-08-25T17:35:44.000Z",
+      overtime_minutes: 66, // stale: looked like net − 8
+      late_minutes: 30,
+      worked_minutes: 546, // 9.10h
+      break_minutes: 60,
+      expected_minutes: 540,
+      employment_type: "permanent",
+      status: "present",
+      missed_punch: false,
+    });
+    expect(cells.totalHours).toBe("9.10");
+    expect(cells.overtime).toBe("Yes");
+    expect(cells.overtimeHours).toBe("0.10");
+    expect(cells.status).toBe("Present");
+    expect(cells.latePunch).toBe("30");
   });
 });

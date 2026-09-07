@@ -2893,6 +2893,7 @@
       "firstCheckIn": "First Check-In",
       "lastCheckOut": "Last Check-Out",
       "totalHours": "Total Hours Worked",
+      "latePunch": "Late punch",
       "overtime": "Overtime",
       "overtimeHours": "Overtime Hours",
       "lastWeek": "Last 7 days",

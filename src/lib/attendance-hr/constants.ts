@@ -156,8 +156,9 @@ export const DEFAULT_SHIFT: ShiftTemplateInput = {
   overnight: false,
   graceMinutes: 10,
   breakMinutes: 60,
-  minWorkMinutes: 480,
-  overtimeAfterMinutes: 480,
+  /** Permanent default: 9h net. Site policy × employment type overrides at recalc. */
+  minWorkMinutes: 540,
+  overtimeAfterMinutes: 540,
   earlyInWindowMinutes: 120,
   lateOutWindowMinutes: 180,
   dayCutoffTime: "06:00",

@@ -24,6 +24,23 @@ import {
 import { previewAttendanceFile } from "./preview";
 import { applyAttendanceShiftPolicy } from "./shift-policy";
 
+/** Qatar-local HH:MM on workDate → ISO (UTC), matching calculate.atDate. */
+function scheduledIso(workDate: string, time: string, addDays = 0): string {
+  const [hRaw, mRaw] = time.split(":");
+  const h = Number.parseInt(hRaw ?? "0", 10) || 0;
+  const m = Number.parseInt(mRaw ?? "0", 10) || 0;
+  const [y, mo, d] = workDate.split("-").map(Number);
+  return new Date(Date.UTC(y, mo - 1, d + addDays, h - 3, m, 0)).toISOString();
+}
+
+function scheduledBounds(workDate: string, shift: ShiftTemplateInput | null) {
+  if (!shift) return { scheduled_in: null as string | null, scheduled_out: null as string | null };
+  return {
+    scheduled_in: scheduledIso(workDate, shift.startTime),
+    scheduled_out: scheduledIso(workDate, shift.endTime, shift.overnight ? 1 : 0),
+  };
+}
+
 export {
   BIOMETRIC_USER_CONFLICT,
   buildPunchRows,
@@ -332,6 +349,7 @@ export async function recalculateAttendanceRange(
       subject_key: subject,
       actual_in: calc.actualIn,
       actual_out: calc.actualOut,
+      ...scheduledBounds(workDate, shift),
       status: calc.status,
       status_flags: calc.statusFlags,
       late_minutes: calc.lateMinutes,
@@ -421,6 +439,7 @@ export async function recalculateAttendanceRange(
         subject_key: subjectKey(staffId, "", ""),
         actual_in: calc.actualIn,
         actual_out: calc.actualOut,
+        ...scheduledBounds(workDate, shift),
         status: calc.status,
         status_flags: calc.statusFlags,
         late_minutes: calc.lateMinutes,

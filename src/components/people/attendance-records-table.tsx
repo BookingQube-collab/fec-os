@@ -14,11 +14,12 @@ import {
 } from "@/components/ui/table";
 import {
   formatHoursValue,
+  formatLatePunch,
   formatOvertimeHours,
   formatPunchTime12h,
   formatWorkDateDdMmYyyy,
   getAttendanceStatusDisplay,
-  hasOvertime,
+  resolveOvertimeMinutes,
   resolveTotalHoursWorked,
   type AttendanceListingSource,
 } from "@/lib/attendance-display";
@@ -47,6 +48,7 @@ export function AttendanceRecordsTable({
             <TableHead className={HEAD_CLASS}>{t("people.attendance.firstCheckIn")}</TableHead>
             <TableHead className={HEAD_CLASS}>{t("people.attendance.lastCheckOut")}</TableHead>
             <TableHead className={HEAD_CLASS}>{t("people.attendance.totalHours")}</TableHead>
+            <TableHead className={HEAD_CLASS}>{t("people.attendance.latePunch")}</TableHead>
             <TableHead className={HEAD_CLASS}>{t("people.attendance.overtime")}</TableHead>
             <TableHead className={HEAD_CLASS}>{t("people.attendance.overtimeHours")}</TableHead>
             <TableHead className={HEAD_CLASS}>{t("people.attendance.status")}</TableHead>
@@ -55,7 +57,7 @@ export function AttendanceRecordsTable({
         <TableBody>
           {rows.length === 0 ? (
             <TableRow>
-              <TableCell className="px-4 py-8" colSpan={10}>
+              <TableCell className="px-4 py-8" colSpan={11}>
                 {empty}
               </TableCell>
             </TableRow>
@@ -63,7 +65,8 @@ export function AttendanceRecordsTable({
             rows.map((row, index) => {
               const hours = resolveTotalHoursWorked(row);
               const statusDisplay = getAttendanceStatusDisplay(row);
-              const ot = hasOvertime(row);
+              const otMinutes = resolveOvertimeMinutes(row);
+              const ot = otMinutes > 0;
               return (
                 <TableRow
                   key={row.id ?? `${row.userName}-${row.work_date}-${index}`}
@@ -93,11 +96,12 @@ export function AttendanceRecordsTable({
                     {formatPunchTime12h(row.actual_out) || "—"}
                   </TableCell>
                   <TableCell className="tabular-nums text-xs">{formatHoursValue(hours)}</TableCell>
+                  <TableCell className="tabular-nums text-xs">{formatLatePunch(row.late_minutes)}</TableCell>
                   <TableCell className="text-xs">
                     {ot ? t("people.training.yes") : t("people.training.no")}
                   </TableCell>
                   <TableCell className="tabular-nums text-xs">
-                    {ot ? formatOvertimeHours(row.overtime_minutes) : "—"}
+                    {ot ? formatOvertimeHours(otMinutes) : "—"}
                   </TableCell>
                   <TableCell>
                     <Badge variant="outline" className={statusDisplay.badgeClass}>

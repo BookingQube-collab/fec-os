@@ -118,6 +118,7 @@ export async function GET(request: Request) {
               cells.firstCheckIn,
               cells.lastCheckOut,
               cells.totalHours,
+              cells.latePunch,
               cells.overtime,
               cells.overtimeHours,
               cells.status,
