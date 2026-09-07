@@ -17,8 +17,12 @@ import {
   formatLatePunch,
   formatOvertimeHours,
   formatPunchTime12h,
+  formatReportingTime12h,
   formatWorkDateDdMmYyyy,
   getAttendanceStatusDisplay,
+  hasLatePunch,
+  latePunchCellClass,
+  latePunchRowClass,
   resolveOvertimeMinutes,
   resolveTotalHoursWorked,
   type AttendanceListingSource,
@@ -45,6 +49,7 @@ export function AttendanceRecordsTable({
             <TableHead className={HEAD_CLASS}>{t("people.attendance.userName")}</TableHead>
             <TableHead className={HEAD_CLASS}>{t("people.attendance.deviceUserId")}</TableHead>
             <TableHead className={HEAD_CLASS}>{t("people.attendance.date")}</TableHead>
+            <TableHead className={HEAD_CLASS}>{t("people.attendance.reportingTime")}</TableHead>
             <TableHead className={HEAD_CLASS}>{t("people.attendance.firstCheckIn")}</TableHead>
             <TableHead className={HEAD_CLASS}>{t("people.attendance.lastCheckOut")}</TableHead>
             <TableHead className={HEAD_CLASS}>{t("people.attendance.totalHours")}</TableHead>
@@ -57,7 +62,7 @@ export function AttendanceRecordsTable({
         <TableBody>
           {rows.length === 0 ? (
             <TableRow>
-              <TableCell className="px-4 py-8" colSpan={11}>
+              <TableCell className="px-4 py-8" colSpan={12}>
                 {empty}
               </TableCell>
             </TableRow>
@@ -67,10 +72,12 @@ export function AttendanceRecordsTable({
               const statusDisplay = getAttendanceStatusDisplay(row);
               const otMinutes = resolveOvertimeMinutes(row);
               const ot = otMinutes > 0;
+              const late = hasLatePunch(row.late_minutes);
+              const rowTint = statusDisplay.rowClass || latePunchRowClass(row.late_minutes);
               return (
                 <TableRow
                   key={row.id ?? `${row.userName}-${row.work_date}-${index}`}
-                  className={cn("hover:bg-transparent", statusDisplay.rowClass)}
+                  className={cn("hover:bg-transparent", rowTint)}
                 >
                   <TableCell className="min-w-[10rem] text-xs text-muted-foreground">
                     {row.locationLabel}
@@ -90,13 +97,25 @@ export function AttendanceRecordsTable({
                     {formatWorkDateDdMmYyyy(row.work_date)}
                   </TableCell>
                   <TableCell className="tabular-nums whitespace-nowrap text-xs">
+                    {formatReportingTime12h(row.scheduled_in) || "—"}
+                  </TableCell>
+                  <TableCell
+                    className={cn(
+                      "tabular-nums whitespace-nowrap text-xs",
+                      latePunchCellClass(row.late_minutes),
+                    )}
+                  >
                     {formatPunchTime12h(row.actual_in) || "—"}
                   </TableCell>
                   <TableCell className="tabular-nums whitespace-nowrap text-xs">
                     {formatPunchTime12h(row.actual_out) || "—"}
                   </TableCell>
                   <TableCell className="tabular-nums text-xs">{formatHoursValue(hours)}</TableCell>
-                  <TableCell className="tabular-nums text-xs">{formatLatePunch(row.late_minutes)}</TableCell>
+                  <TableCell
+                    className={cn("tabular-nums text-xs", late ? latePunchCellClass(row.late_minutes) : "")}
+                  >
+                    {formatLatePunch(row.late_minutes)}
+                  </TableCell>
                   <TableCell className="text-xs">
                     {ot ? t("people.training.yes") : t("people.training.no")}
                   </TableCell>

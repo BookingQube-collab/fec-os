@@ -211,19 +211,22 @@ export async function recalculateAttendanceRange(
       supabase.from("locations").select("id, code").eq("id", locationId).maybeSingle(),
       supabase
         .from("attendance_site_settings")
-        .select("break_minutes, permanent_hours, secondment_hours, joker_hours")
+        .select("break_minutes, buffer_minutes, permanent_hours, secondment_hours, joker_hours")
         .eq("location_id", locationId)
         .maybeSingle(),
     ]);
   const locationCode = locationRow?.code ? String(locationRow.code) : null;
   const sitePolicy = (siteSetting ?? null) as {
     break_minutes?: number | null;
+    buffer_minutes?: number | null;
     permanent_hours?: number | null;
     secondment_hours?: number | null;
     joker_hours?: number | null;
   } | null;
   const breakMinutesOverride =
     sitePolicy?.break_minutes != null ? Number(sitePolicy.break_minutes) : null;
+  const bufferMinutesOverride =
+    sitePolicy?.buffer_minutes != null ? Number(sitePolicy.buffer_minutes) : null;
   const permanentHours =
     sitePolicy?.permanent_hours != null ? Number(sitePolicy.permanent_hours) : null;
   const secondmentHours =
@@ -293,6 +296,7 @@ export async function recalculateAttendanceRange(
       employmentType: staffId ? employmentByStaffId.get(staffId) ?? null : null,
       locationCode,
       breakMinutesOverride,
+      bufferMinutesOverride,
       permanentHours,
       secondmentHours,
       jokerHours,
@@ -419,6 +423,7 @@ export async function recalculateAttendanceRange(
         employmentType: employmentByStaffId.get(staffId) ?? null,
         locationCode,
         breakMinutesOverride,
+        bufferMinutesOverride,
         permanentHours,
         secondmentHours,
         jokerHours,

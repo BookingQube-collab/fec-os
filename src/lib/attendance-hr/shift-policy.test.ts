@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_SHIFT } from "./constants";
 import {
   applyAttendanceShiftPolicy,
   breakMinutesForLocation,
@@ -9,6 +8,7 @@ import {
   expectedShiftMinutes,
   normalizeAttendanceEmploymentRole,
 } from "./shift-policy";
+import { DEFAULT_SHIFT } from "./constants";
 
 describe("attendance shift policy", () => {
   it("maps employment types onto shift roles", () => {
@@ -52,6 +52,7 @@ describe("attendance shift policy", () => {
   it("builds default site policy from location code", () => {
     expect(defaultSiteShiftPolicy("UA-DM")).toEqual({
       breakMinutes: 30,
+      bufferMinutes: 0,
       permanentHours: 9,
       secondmentHours: 10,
       jokerHours: 10,
@@ -66,6 +67,7 @@ describe("attendance shift policy", () => {
     });
     expect(permanentInf.breakMinutes).toBe(60);
     expect(permanentInf.overtimeAfterMinutes).toBe(540);
+    expect(permanentInf.graceMinutes).toBe(DEFAULT_SHIFT.graceMinutes);
 
     const jokerUa = applyAttendanceShiftPolicy(DEFAULT_SHIFT, {
       employmentType: "joker",
@@ -78,9 +80,11 @@ describe("attendance shift policy", () => {
       employmentType: "permanent",
       locationCode: "INF-CC",
       breakMinutesOverride: 45,
+      bufferMinutesOverride: 15,
       permanentHours: 8,
     });
     expect(overridden.breakMinutes).toBe(45);
     expect(overridden.overtimeAfterMinutes).toBe(480);
+    expect(overridden.graceMinutes).toBe(15);
   });
 });

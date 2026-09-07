@@ -131,6 +131,7 @@ describe("attendance listing display", () => {
     expect(listing.break_minutes).toBe(60);
     const cells = attendanceListingCells(listing);
     expect(cells.date).toBe("25-08-2026");
+    expect(cells.reportingTime).toBe("—");
     expect(cells.firstCheckIn).toMatch(/10:17:44\s*AM/);
     expect(cells.lastCheckOut).toBe("—");
     expect(cells.deviceUserId).toBe("9");

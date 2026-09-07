@@ -22,6 +22,7 @@ import {
 } from "@/lib/attendance-hr.functions";
 import {
   DEFAULT_BREAK_MINUTES,
+  DEFAULT_BUFFER_MINUTES,
   EXTENDED_SHIFT_HOURS,
   PERMANENT_SHIFT_HOURS,
   URBAN_ARENA_BREAK_MINUTES,
@@ -32,10 +33,21 @@ import { STALE } from "@/lib/query-client";
 
 type Draft = {
   breakMinutes: string;
+  bufferMinutes: string;
   permanentHours: string;
   secondmentHours: string;
   jokerHours: string;
 };
+
+function parseDraftPolicy(draft: Draft) {
+  return {
+    breakMinutes: Number(draft.breakMinutes),
+    bufferMinutes: Number(draft.bufferMinutes),
+    permanentHours: Number(draft.permanentHours),
+    secondmentHours: Number(draft.secondmentHours),
+    jokerHours: Number(draft.jokerHours),
+  };
+}
 
 export default function HrShiftPolicyPage() {
   const { t } = useTranslation();
@@ -43,6 +55,7 @@ export default function HrShiftPolicyPage() {
   const [locationId, setLocationId] = useState("");
   const [draft, setDraft] = useState<Draft>({
     breakMinutes: String(DEFAULT_BREAK_MINUTES),
+    bufferMinutes: String(DEFAULT_BUFFER_MINUTES),
     permanentHours: String(PERMANENT_SHIFT_HOURS),
     secondmentHours: String(EXTENDED_SHIFT_HOURS),
     jokerHours: String(EXTENDED_SHIFT_HOURS),
@@ -63,6 +76,7 @@ export default function HrShiftPolicyPage() {
     if (!selected) return;
     setDraft({
       breakMinutes: String(selected.breakMinutes),
+      bufferMinutes: String(selected.bufferMinutes),
       permanentHours: String(selected.permanentHours),
       secondmentHours: String(selected.secondmentHours),
       jokerHours: String(selected.jokerHours),
@@ -74,33 +88,36 @@ export default function HrShiftPolicyPage() {
     setLocationId(q.data.sites[0].locationId);
   }, [locationId, q.data?.sites]);
 
+  const validateDraft = () => {
+    if (!locationId) throw new Error(t("hr.shiftPolicy.needLocation"));
+    const values = parseDraftPolicy(draft);
+    if (!Number.isFinite(values.breakMinutes) || values.breakMinutes < 0 || values.breakMinutes > 240) {
+      throw new Error(t("hr.shiftPolicy.breakInvalid"));
+    }
+    if (!Number.isFinite(values.bufferMinutes) || values.bufferMinutes < 0 || values.bufferMinutes > 120) {
+      throw new Error(t("hr.shiftPolicy.bufferInvalid"));
+    }
+    for (const [label, value] of [
+      [t("people.staff.employmentTypes.permanent"), values.permanentHours],
+      [t("people.staff.employmentTypes.secondment"), values.secondmentHours],
+      [t("people.staff.employmentTypes.joker"), values.jokerHours],
+    ] as const) {
+      if (!Number.isFinite(value) || value < 1 || value > 16) {
+        throw new Error(t("hr.shiftPolicy.hoursInvalid", { role: label }));
+      }
+    }
+    return {
+      locationId,
+      breakMinutes: Math.round(values.breakMinutes),
+      bufferMinutes: Math.round(values.bufferMinutes),
+      permanentHours: values.permanentHours,
+      secondmentHours: values.secondmentHours,
+      jokerHours: values.jokerHours,
+    };
+  };
+
   const save = useMutation({
-    mutationFn: () => {
-      if (!locationId) throw new Error(t("hr.shiftPolicy.needLocation"));
-      const breakMinutes = Number(draft.breakMinutes);
-      const permanentHours = Number(draft.permanentHours);
-      const secondmentHours = Number(draft.secondmentHours);
-      const jokerHours = Number(draft.jokerHours);
-      if (!Number.isFinite(breakMinutes) || breakMinutes < 0 || breakMinutes > 240) {
-        throw new Error(t("hr.shiftPolicy.breakInvalid"));
-      }
-      for (const [label, value] of [
-        [t("people.staff.employmentTypes.permanent"), permanentHours],
-        [t("people.staff.employmentTypes.secondment"), secondmentHours],
-        [t("people.staff.employmentTypes.joker"), jokerHours],
-      ] as const) {
-        if (!Number.isFinite(value) || value < 1 || value > 16) {
-          throw new Error(t("hr.shiftPolicy.hoursInvalid", { role: label }));
-        }
-      }
-      return saveAttendanceSiteShiftPolicy({
-        locationId,
-        breakMinutes: Math.round(breakMinutes),
-        permanentHours,
-        secondmentHours,
-        jokerHours,
-      });
-    },
+    mutationFn: () => saveAttendanceSiteShiftPolicy(validateDraft()),
     onSuccess: () => {
       toast.success(t("hr.shiftPolicy.saved"));
       void qc.invalidateQueries({ queryKey: queryKeys.people.hrSiteShiftPolicy() });
@@ -110,7 +127,17 @@ export default function HrShiftPolicyPage() {
   });
 
   const applyAll = useMutation({
-    mutationFn: () => applyDefaultAttendanceSiteShiftPolicies(),
+    mutationFn: () => {
+      const values = validateDraft();
+      return applyDefaultAttendanceSiteShiftPolicies({
+        sourceLocationId: values.locationId,
+        breakMinutes: values.breakMinutes,
+        bufferMinutes: values.bufferMinutes,
+        permanentHours: values.permanentHours,
+        secondmentHours: values.secondmentHours,
+        jokerHours: values.jokerHours,
+      });
+    },
     onSuccess: (result) => {
       toast.success(t("hr.shiftPolicy.appliedAll", { count: result.updated }));
       void qc.invalidateQueries({ queryKey: queryKeys.people.hrSiteShiftPolicy() });
@@ -142,6 +169,10 @@ export default function HrShiftPolicyPage() {
       hint: t("hr.shiftPolicy.defaultHours", { hours: EXTENDED_SHIFT_HOURS }),
     },
   ];
+
+  const selectedLabel = selected
+    ? formatLocationLabel(selected.code, selected.name)
+    : t("hr.shiftPolicy.selectLocation");
 
   return (
     <CapabilityGate
@@ -227,18 +258,34 @@ export default function HrShiftPolicyPage() {
                     </table>
                   </div>
 
-                  <div className="max-w-xs space-y-1.5">
-                    <Label htmlFor="hr-shift-break">{t("hr.shiftPolicy.breakMinutes")}</Label>
-                    <Input
-                      id="hr-shift-break"
-                      className="h-9 w-28"
-                      type="number"
-                      min={0}
-                      max={240}
-                      value={draft.breakMinutes}
-                      onChange={(e) => setDraft((d) => ({ ...d, breakMinutes: e.target.value }))}
-                    />
-                    <p className="text-xs text-muted-foreground">{t("hr.shiftPolicy.breakHelp")}</p>
+                  <div className="flex flex-wrap gap-6">
+                    <div className="max-w-xs space-y-1.5">
+                      <Label htmlFor="hr-shift-break">{t("hr.shiftPolicy.breakMinutes")}</Label>
+                      <Input
+                        id="hr-shift-break"
+                        className="h-9 w-28"
+                        type="number"
+                        min={0}
+                        max={240}
+                        value={draft.breakMinutes}
+                        onChange={(e) => setDraft((d) => ({ ...d, breakMinutes: e.target.value }))}
+                      />
+                      <p className="text-xs text-muted-foreground">{t("hr.shiftPolicy.breakHelp")}</p>
+                    </div>
+
+                    <div className="max-w-xs space-y-1.5">
+                      <Label htmlFor="hr-shift-buffer">{t("hr.shiftPolicy.bufferMinutes")}</Label>
+                      <Input
+                        id="hr-shift-buffer"
+                        className="h-9 w-28"
+                        type="number"
+                        min={0}
+                        max={120}
+                        value={draft.bufferMinutes}
+                        onChange={(e) => setDraft((d) => ({ ...d, bufferMinutes: e.target.value }))}
+                      />
+                      <p className="text-xs text-muted-foreground">{t("hr.shiftPolicy.bufferHelp")}</p>
+                    </div>
                   </div>
 
                   <div className="flex flex-wrap gap-2">
@@ -253,9 +300,15 @@ export default function HrShiftPolicyPage() {
                     <Button
                       type="button"
                       variant="secondary"
-                      disabled={applyAll.isPending}
+                      disabled={applyAll.isPending || !locationId}
                       onClick={() => {
-                        if (!window.confirm(t("hr.shiftPolicy.applyAllConfirm"))) return;
+                        if (
+                          !window.confirm(
+                            t("hr.shiftPolicy.applyAllConfirm", { location: selectedLabel }),
+                          )
+                        ) {
+                          return;
+                        }
                         applyAll.mutate();
                       }}
                     >

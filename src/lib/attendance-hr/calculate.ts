@@ -184,6 +184,7 @@ export function calculateDailyAttendance(punches: CalcPunch[], ctx: DayContext):
   }
 
   if (scheduledIn) {
+    // Late = first check-in after roster reporting time (shift start) + site buffer / grace.
     const graceMs = (shift?.graceMinutes ?? 0) * 60_000;
     const lateMs = inDate.getTime() - scheduledIn.getTime() - graceMs;
     if (lateMs > 0) {

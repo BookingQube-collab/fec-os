@@ -19,10 +19,14 @@ export const PERMANENT_SHIFT_MINUTES = PERMANENT_SHIFT_HOURS * 60;
 export const EXTENDED_SHIFT_MINUTES = EXTENDED_SHIFT_HOURS * 60;
 export const DEFAULT_BREAK_MINUTES = 60;
 export const URBAN_ARENA_BREAK_MINUTES = 30;
+/** Default late buffer when site has no explicit buffer_minutes. */
+export const DEFAULT_BUFFER_MINUTES = 0;
 
 /** Optional per-site overrides from attendance_site_settings. */
 export type SiteShiftPolicyOverrides = {
   breakMinutes?: number | null;
+  /** Grace after roster reporting time before late punch. */
+  bufferMinutes?: number | null;
   permanentHours?: number | null;
   secondmentHours?: number | null;
   jokerHours?: number | null;
@@ -100,8 +104,21 @@ export function breakMinutesForLocation(
 }
 
 /**
+ * Late buffer minutes for a site (grace after roster reporting / shift start).
+ * Prefer an explicit override from attendance_site_settings.buffer_minutes.
+ */
+export function bufferMinutesForLocation(overrideMinutes?: number | null): number {
+  if (overrideMinutes != null && Number.isFinite(Number(overrideMinutes))) {
+    const n = Math.round(Number(overrideMinutes));
+    if (n >= 0 && n <= 120) return n;
+  }
+  return DEFAULT_BUFFER_MINUTES;
+}
+
+/**
  * Override shift template break + OT threshold from employment type and location.
- * Start/end times and grace stay on the template / roster.
+ * Start/end times stay on the template / roster. When bufferMinutesOverride is set,
+ * it replaces template grace for late-punch calc.
  */
 export function applyAttendanceShiftPolicy(
   base: ShiftTemplateInput,
@@ -109,6 +126,7 @@ export function applyAttendanceShiftPolicy(
     employmentType?: string | null;
     locationCode?: string | null;
     breakMinutesOverride?: number | null;
+    bufferMinutesOverride?: number | null;
     permanentHours?: number | null;
     secondmentHours?: number | null;
     jokerHours?: number | null;
@@ -117,23 +135,29 @@ export function applyAttendanceShiftPolicy(
   const role = normalizeAttendanceEmploymentRole(opts.employmentType);
   const expected = expectedShiftMinutes(role, opts);
   const breakMin = breakMinutesForLocation(opts.locationCode, opts.breakMinutesOverride);
-  return {
+  const next: ShiftTemplateInput = {
     ...base,
     breakMinutes: breakMin,
     overtimeAfterMinutes: expected,
     minWorkMinutes: expected,
   };
+  if (opts.bufferMinutesOverride != null && Number.isFinite(Number(opts.bufferMinutesOverride))) {
+    next.graceMinutes = bufferMinutesForLocation(opts.bufferMinutesOverride);
+  }
+  return next;
 }
 
-/** Built-in defaults used when seeding / “apply to all locations”. */
+/** Built-in defaults used when seeding a new site with no saved policy. */
 export function defaultSiteShiftPolicy(locationCode: string | null | undefined): {
   breakMinutes: number;
+  bufferMinutes: number;
   permanentHours: number;
   secondmentHours: number;
   jokerHours: number;
 } {
   return {
     breakMinutes: breakMinutesForLocation(locationCode, null),
+    bufferMinutes: DEFAULT_BUFFER_MINUTES,
     permanentHours: PERMANENT_SHIFT_HOURS,
     secondmentHours: EXTENDED_SHIFT_HOURS,
     jokerHours: EXTENDED_SHIFT_HOURS,

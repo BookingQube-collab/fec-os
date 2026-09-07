@@ -67,6 +67,19 @@ export function formatPunchTime12h(iso: string | null | undefined): string {
   });
 }
 
+/** Roster reporting time (shift start), e.g. 10:00 AM (Qatar). */
+export function formatReportingTime12h(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: QATAR_TZ,
+  });
+}
+
 /** Gross punch-span hours (no break). Prefer resolveTotalHoursWorked when break/net is needed. */
 export function computeHoursWorked(actualIn: string | null, actualOut: string | null): number | null {
   if (!actualIn || !actualOut) return null;
@@ -152,7 +165,7 @@ export function hasOvertime(row: {
   return resolveOvertimeMinutes(row) > 0;
 }
 
-/** Roster late punch: first check-in after shift start (+ grace), from stored late_minutes. */
+/** Roster late punch: first check-in after reporting time + site buffer, from stored late_minutes. */
 export function formatLatePunch(lateMinutes: number | null | undefined): string {
   const mins = Number(lateMinutes ?? 0);
   if (!Number.isFinite(mins) || mins <= 0) return "No";
@@ -162,6 +175,17 @@ export function formatLatePunch(lateMinutes: number | null | undefined): string 
 export function hasLatePunch(lateMinutes: number | null | undefined): boolean {
   const mins = Number(lateMinutes ?? 0);
   return Number.isFinite(mins) && mins > 0;
+}
+
+const LATE_PUNCH_CELL = "font-semibold text-rose-700 dark:text-rose-300";
+const LATE_PUNCH_ROW = "[&>td]:bg-rose-500/10 hover:[&>td]:bg-rose-500/15";
+
+export function latePunchCellClass(lateMinutes: number | null | undefined): string {
+  return hasLatePunch(lateMinutes) ? LATE_PUNCH_CELL : "";
+}
+
+export function latePunchRowClass(lateMinutes: number | null | undefined): string {
+  return hasLatePunch(lateMinutes) ? LATE_PUNCH_ROW : "";
 }
 
 const MISSED_PUNCH_BADGE = "border-amber-500/50 bg-amber-500/20 text-amber-800 dark:text-amber-200";
@@ -460,6 +484,7 @@ export type AttendanceListingSource = {
   work_date: string;
   actual_in: string | null;
   actual_out: string | null;
+  scheduled_in?: string | null;
   overtime_minutes: number;
   late_minutes?: number | null;
   worked_minutes?: number | null;
@@ -475,6 +500,7 @@ export const ATTENDANCE_LISTING_COLUMNS = [
   "User Name",
   "Device User ID",
   "Date",
+  "Reporting time",
   "First Check-In",
   "Last Check-Out",
   "Total Hours Worked",
@@ -489,6 +515,7 @@ export type AttendanceListingCells = {
   userName: string;
   deviceUserId: string;
   date: string;
+  reportingTime: string;
   firstCheckIn: string;
   lastCheckOut: string;
   totalHours: string;
@@ -507,6 +534,7 @@ export function toAttendanceListingSource(row: AttendanceSummaryRow): Attendance
     work_date: row.work_date,
     actual_in: row.actual_in,
     actual_out: row.actual_out,
+    scheduled_in: row.scheduled_in,
     overtime_minutes: row.overtime_minutes,
     late_minutes: row.late_minutes ?? 0,
     worked_minutes: row.worked_minutes ?? null,
@@ -528,6 +556,7 @@ export function attendanceListingCells(row: AttendanceListingSource): Attendance
     userName: row.userName,
     deviceUserId: row.deviceUserId?.trim() || "—",
     date: formatWorkDateDdMmYyyy(row.work_date),
+    reportingTime: formatReportingTime12h(row.scheduled_in) || "—",
     firstCheckIn: formatPunchTime12h(row.actual_in) || "—",
     lastCheckOut: formatPunchTime12h(row.actual_out) || "—",
     totalHours: formatHoursValue(hours),
@@ -546,6 +575,7 @@ export function attendanceListingExportObjects(rows: AttendanceListingSource[]) 
       "User Name": cells.userName,
       "Device User ID": cells.deviceUserId,
       Date: cells.date,
+      "Reporting time": cells.reportingTime,
       "First Check-In": cells.firstCheckIn,
       "Last Check-Out": cells.lastCheckOut,
       "Total Hours Worked": cells.totalHours,
@@ -565,6 +595,7 @@ export function buildAttendanceListingCsv(rows: AttendanceListingSource[]): stri
       cells.userName,
       cells.deviceUserId,
       cells.date,
+      cells.reportingTime,
       cells.firstCheckIn,
       cells.lastCheckOut,
       cells.totalHours,

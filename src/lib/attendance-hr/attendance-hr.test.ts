@@ -379,6 +379,52 @@ describe("daily calculation", () => {
     expect(day.lateMinutes).toBeGreaterThan(0);
   });
 
+  it("Wasanthi-style: report 10:00 + buffer 15 → 10:26 is late punch", () => {
+    // 10:26 Qatar = 07:26Z; reporting 10:00 + buffer 15 → threshold 10:15
+    const day = calculateDailyAttendance(
+      [
+        { punchAt: "2026-08-27T07:26:00.000Z" },
+        { punchAt: "2026-08-27T17:06:28.000Z" },
+      ],
+      {
+        workDate: "2026-08-27",
+        scheduled: true,
+        shift: applyAttendanceShiftPolicy(
+          { ...shift, startTime: "10:00", endTime: "20:00" },
+          {
+            employmentType: "permanent",
+            locationCode: "INF-CC",
+            bufferMinutesOverride: 15,
+          },
+        ),
+      },
+    );
+    expect(day.lateMinutes).toBe(11);
+    expect(day.statusFlags).toContain("late");
+  });
+
+  it("Wasanthi-style: report 10:00 + buffer 15 → 10:14 is not late punch", () => {
+    const day = calculateDailyAttendance(
+      [
+        { punchAt: "2026-08-27T07:14:00.000Z" },
+        { punchAt: "2026-08-27T17:06:28.000Z" },
+      ],
+      {
+        workDate: "2026-08-27",
+        scheduled: true,
+        shift: applyAttendanceShiftPolicy(
+          { ...shift, startTime: "10:00", endTime: "20:00" },
+          {
+            employmentType: "permanent",
+            locationCode: "INF-CC",
+            bufferMinutesOverride: 15,
+          },
+        ),
+      },
+    );
+    expect(day.lateMinutes).toBe(0);
+  });
+
   it("Wasanthi-style 27-Aug: net under 9h → Late, OT No / 0 (not net−8)", () => {
     // 10:28:31 → 20:06:28 Qatar = 07:28:31Z → 17:06:28Z
     const day = calculateDailyAttendance(
