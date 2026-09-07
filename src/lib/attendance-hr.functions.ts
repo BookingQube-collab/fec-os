@@ -93,7 +93,7 @@ export const getAttendanceHrBootstrap = createAuthenticatedActionNoInput(
         context.supabase.from("hr_companies").select("id, code, name, active").eq("active", true).order("name"),
         context.supabase
           .from("attendance_site_settings")
-          .select("location_id, company_id, attendance_enabled, timezone, break_minutes, buffer_minutes, permanent_hours, secondment_hours, joker_hours, locations(id, code, name, region, status)"),
+          .select("location_id, company_id, attendance_enabled, timezone, break_minutes, reporting_time_minutes, buffer_minutes, permanent_hours, secondment_hours, joker_hours, locations(id, code, name, region, status)"),
         context.supabase
           .from("locations")
           .select("id, code, name, region, status")
@@ -157,6 +157,7 @@ export const getAttendanceHrBootstrap = createAuthenticatedActionNoInput(
           attendance_enabled: setting?.attendance_enabled ?? true,
           timezone: setting?.timezone ?? DEFAULT_RULES.timezone,
           break_minutes: setting?.break_minutes ?? null,
+          reporting_time_minutes: setting?.reporting_time_minutes ?? null,
           buffer_minutes: setting?.buffer_minutes ?? null,
           permanent_hours: setting?.permanent_hours ?? null,
           secondment_hours: setting?.secondment_hours ?? null,
@@ -1140,6 +1141,7 @@ export const saveAttendanceLocationBreak = createAuthenticatedAction(
 const siteShiftPolicySchema = z.object({
   locationId: z.string().uuid(),
   breakMinutes: z.number().int().min(0).max(240),
+  reportingTimeMinutes: z.number().int().min(0).max(180),
   bufferMinutes: z.number().int().min(0).max(120),
   permanentHours: z.number().min(1).max(16),
   secondmentHours: z.number().min(1).max(16),
@@ -1163,6 +1165,7 @@ async function upsertAttendanceSiteShiftPolicy(
   data: {
     locationId: string;
     breakMinutes?: number | null;
+    reportingTimeMinutes?: number | null;
     bufferMinutes?: number | null;
     permanentHours?: number | null;
     secondmentHours?: number | null;
@@ -1173,6 +1176,7 @@ async function upsertAttendanceSiteShiftPolicy(
 
   const patch: Record<string, unknown> = {};
   if (data.breakMinutes !== undefined) patch.break_minutes = data.breakMinutes;
+  if (data.reportingTimeMinutes !== undefined) patch.reporting_time_minutes = data.reportingTimeMinutes;
   if (data.bufferMinutes !== undefined) patch.buffer_minutes = data.bufferMinutes;
   if (data.permanentHours !== undefined) patch.permanent_hours = data.permanentHours;
   if (data.secondmentHours !== undefined) patch.secondment_hours = data.secondmentHours;
@@ -1205,7 +1209,7 @@ async function upsertAttendanceSiteShiftPolicy(
   if (error) throw error;
 }
 
-/** List locations with effective site shift policy (hours + break + buffer). */
+/** List locations with effective site shift policy (hours + break + reporting + buffer). */
 export const listAttendanceSiteShiftPolicies = createAuthenticatedActionNoInput(
   async (context) => {
     const [{ data: locations, error: locErr }, { data: settings, error: setErr }] = await Promise.all([
@@ -1216,7 +1220,9 @@ export const listAttendanceSiteShiftPolicies = createAuthenticatedActionNoInput(
         .order("name"),
       context.supabase
         .from("attendance_site_settings")
-        .select("location_id, break_minutes, buffer_minutes, permanent_hours, secondment_hours, joker_hours"),
+        .select(
+          "location_id, break_minutes, reporting_time_minutes, buffer_minutes, permanent_hours, secondment_hours, joker_hours",
+        ),
     ]);
     if (locErr) throw locErr;
     if (setErr) throw setErr;
@@ -1227,6 +1233,7 @@ export const listAttendanceSiteShiftPolicies = createAuthenticatedActionNoInput(
         row as {
           location_id: string;
           break_minutes?: number | null;
+          reporting_time_minutes?: number | null;
           buffer_minutes?: number | null;
           permanent_hours?: number | null;
           secondment_hours?: number | null;
@@ -1247,6 +1254,10 @@ export const listAttendanceSiteShiftPolicies = createAuthenticatedActionNoInput(
           status: loc.status,
           breakMinutes:
             stored?.break_minutes != null ? Number(stored.break_minutes) : defaults.breakMinutes,
+          reportingTimeMinutes:
+            stored?.reporting_time_minutes != null
+              ? Number(stored.reporting_time_minutes)
+              : defaults.reportingTimeMinutes,
           bufferMinutes:
             stored?.buffer_minutes != null ? Number(stored.buffer_minutes) : defaults.bufferMinutes,
           permanentHours:
@@ -1258,6 +1269,7 @@ export const listAttendanceSiteShiftPolicies = createAuthenticatedActionNoInput(
           jokerHours:
             stored?.joker_hours != null ? Number(stored.joker_hours) : defaults.jokerHours,
           hasCustomBreak: stored?.break_minutes != null,
+          hasCustomReporting: stored?.reporting_time_minutes != null,
           hasCustomBuffer: stored?.buffer_minutes != null,
           hasCustomHours:
             stored?.permanent_hours != null ||
@@ -1270,13 +1282,14 @@ export const listAttendanceSiteShiftPolicies = createAuthenticatedActionNoInput(
   { auth: { capability: "hr.manage" } },
 );
 
-/** Save permanent / secondment / joker hours + break + buffer for one location. */
+/** Save permanent / secondment / joker hours + break + reporting + buffer for one location. */
 export const saveAttendanceSiteShiftPolicy = createAuthenticatedAction(
   siteShiftPolicySchema,
   async (data, context) => {
     await upsertAttendanceSiteShiftPolicy(context, {
       locationId: data.locationId,
       breakMinutes: data.breakMinutes,
+      reportingTimeMinutes: data.reportingTimeMinutes,
       bufferMinutes: data.bufferMinutes,
       permanentHours: data.permanentHours,
       secondmentHours: data.secondmentHours,
@@ -1307,6 +1320,7 @@ export const applyDefaultAttendanceSiteShiftPolicies = createAuthenticatedAction
       await upsertAttendanceSiteShiftPolicy(context, {
         locationId: loc.id,
         breakMinutes: data.breakMinutes,
+        reportingTimeMinutes: data.reportingTimeMinutes,
         bufferMinutes: data.bufferMinutes,
         permanentHours: data.permanentHours,
         secondmentHours: data.secondmentHours,
@@ -1651,12 +1665,15 @@ async function enrichAttendanceHrDailyRows(
     locationIds.length
       ? context.supabase
           .from("attendance_site_settings")
-          .select("location_id, break_minutes, buffer_minutes, permanent_hours, secondment_hours, joker_hours")
+          .select(
+            "location_id, break_minutes, reporting_time_minutes, buffer_minutes, permanent_hours, secondment_hours, joker_hours",
+          )
           .in("location_id", locationIds)
       : Promise.resolve({
           data: [] as Array<{
             location_id: string;
             break_minutes: number | null;
+            reporting_time_minutes?: number | null;
             buffer_minutes?: number | null;
             permanent_hours?: number | null;
             secondment_hours?: number | null;
@@ -1670,6 +1687,7 @@ async function enrichAttendanceHrDailyRows(
   type SiteHoursRow = {
     location_id: string;
     break_minutes?: number | null;
+    reporting_time_minutes?: number | null;
     buffer_minutes?: number | null;
     permanent_hours?: number | null;
     secondment_hours?: number | null;
@@ -1717,6 +1735,7 @@ async function enrichAttendanceHrDailyRows(
       location_name: location?.name ?? null,
       location_region: location?.region ?? null,
       location_break_minutes: site?.break_minutes ?? null,
+      location_reporting_time_minutes: site?.reporting_time_minutes ?? null,
       location_buffer_minutes: site?.buffer_minutes ?? null,
       expected_minutes: expectedMinutes,
       permanent_hours: permanentHours,

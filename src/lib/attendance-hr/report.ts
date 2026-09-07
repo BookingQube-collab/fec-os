@@ -27,7 +27,9 @@ export type AttendanceHrReportRow = {
   location_region: string | null;
   /** Explicit site break override when set on attendance_site_settings. */
   location_break_minutes?: number | null;
-  /** Site late buffer after roster reporting time. */
+  /** Site reporting window (minutes after roster start). */
+  location_reporting_time_minutes?: number | null;
+  /** Site late buffer after the reporting window. */
   location_buffer_minutes?: number | null;
   /** Expected net daily minutes from site working hours for this staff employment type. */
   expected_minutes?: number | null;

@@ -80,7 +80,7 @@ export function formatReportingTime12h(iso: string | null | undefined): string {
   });
 }
 
-/** Gross punch-span hours (no break). Prefer resolveTotalHoursWorked when break/net is needed. */
+/** Clock hours: last check-out − first check-in. Break is not deducted. */
 export function computeHoursWorked(actualIn: string | null, actualOut: string | null): number | null {
   if (!actualIn || !actualOut) return null;
   const ms = new Date(actualOut).getTime() - new Date(actualIn).getTime();
@@ -89,8 +89,8 @@ export function computeHoursWorked(actualIn: string | null, actualOut: string | 
 }
 
 /**
- * Net hours for the listing: prefer stored worked_minutes (punch span − break from recalc),
- * else punch span minus location break minutes when known.
+ * Total hours worked for the listing: last check-out − first check-in.
+ * Prefer punch timestamps so a stale net (break-deducted) worked_minutes cannot hide clock time.
  */
 export function resolveTotalHoursWorked(row: {
   actual_in: string | null;
@@ -98,19 +98,16 @@ export function resolveTotalHoursWorked(row: {
   worked_minutes?: number | null;
   break_minutes?: number | null;
 }): number | null {
+  const clock = computeHoursWorked(row.actual_in, row.actual_out);
+  if (clock != null) return clock;
   if (row.worked_minutes != null && Number.isFinite(Number(row.worked_minutes))) {
     const mins = Number(row.worked_minutes);
-    if (mins >= 0 && (row.actual_in || row.actual_out || mins > 0)) {
-      return Math.round((mins / 60) * 100) / 100;
-    }
+    if (mins >= 0) return Math.round((mins / 60) * 100) / 100;
   }
-  const gross = computeHoursWorked(row.actual_in, row.actual_out);
-  if (gross == null) return null;
-  const breakMin = row.break_minutes != null && Number.isFinite(Number(row.break_minutes)) ? Number(row.break_minutes) : 0;
-  return Math.max(0, Math.round((gross - breakMin / 60) * 100) / 100);
+  return null;
 }
 
-/** OT minutes = max(0, net − expected). Prefer expected when known so UI never shows legacy net−8. */
+/** OT minutes = max(0, clock hours − expected). Prefer expected when known so UI never shows legacy −8. */
 export function resolveOvertimeMinutes(row: {
   actual_in?: string | null;
   actual_out?: string | null;
@@ -165,7 +162,7 @@ export function hasOvertime(row: {
   return resolveOvertimeMinutes(row) > 0;
 }
 
-/** Roster late punch: first check-in after reporting time + site buffer, from stored late_minutes. */
+/** Roster late punch: first check-in after roster start + reporting + buffer, from stored late_minutes. */
 export function formatLatePunch(lateMinutes: number | null | undefined): string {
   const mins = Number(lateMinutes ?? 0);
   if (!Number.isFinite(mins) || mins <= 0) return "No";
@@ -304,7 +301,7 @@ export function resolveExpectedWorkMinutes(input: {
 /**
  * Prefer hours-vs-expected as the primary status when both punches exist.
  * Keeps roster / leave / missed-punch statuses intact. Late alone does not win
- * when net hours meet the site expected daily length.
+ * when clock hours meet the site expected daily length.
  */
 export function resolveHoursBasedAttendanceStatus(
   row: {
@@ -338,7 +335,7 @@ export function resolveHoursBasedAttendanceStatus(
   });
   if (expected != null && workedHours != null) {
     const workedMinutes = Math.round(workedHours * 60);
-    // Under expected net hours → Late (not Short hours)
+    // Under expected clock hours → Late (not Short hours)
     return workedMinutes >= expected ? "present" : "late";
   }
 

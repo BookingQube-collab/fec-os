@@ -23,6 +23,7 @@ import {
 import {
   DEFAULT_BREAK_MINUTES,
   DEFAULT_BUFFER_MINUTES,
+  DEFAULT_REPORTING_TIME_MINUTES,
   EXTENDED_SHIFT_HOURS,
   PERMANENT_SHIFT_HOURS,
   URBAN_ARENA_BREAK_MINUTES,
@@ -33,6 +34,7 @@ import { STALE } from "@/lib/query-client";
 
 type Draft = {
   breakMinutes: string;
+  reportingTimeMinutes: string;
   bufferMinutes: string;
   permanentHours: string;
   secondmentHours: string;
@@ -42,6 +44,7 @@ type Draft = {
 function parseDraftPolicy(draft: Draft) {
   return {
     breakMinutes: Number(draft.breakMinutes),
+    reportingTimeMinutes: Number(draft.reportingTimeMinutes),
     bufferMinutes: Number(draft.bufferMinutes),
     permanentHours: Number(draft.permanentHours),
     secondmentHours: Number(draft.secondmentHours),
@@ -55,6 +58,7 @@ export default function HrShiftPolicyPage() {
   const [locationId, setLocationId] = useState("");
   const [draft, setDraft] = useState<Draft>({
     breakMinutes: String(DEFAULT_BREAK_MINUTES),
+    reportingTimeMinutes: String(DEFAULT_REPORTING_TIME_MINUTES),
     bufferMinutes: String(DEFAULT_BUFFER_MINUTES),
     permanentHours: String(PERMANENT_SHIFT_HOURS),
     secondmentHours: String(EXTENDED_SHIFT_HOURS),
@@ -76,6 +80,7 @@ export default function HrShiftPolicyPage() {
     if (!selected) return;
     setDraft({
       breakMinutes: String(selected.breakMinutes),
+      reportingTimeMinutes: String(selected.reportingTimeMinutes),
       bufferMinutes: String(selected.bufferMinutes),
       permanentHours: String(selected.permanentHours),
       secondmentHours: String(selected.secondmentHours),
@@ -94,6 +99,13 @@ export default function HrShiftPolicyPage() {
     if (!Number.isFinite(values.breakMinutes) || values.breakMinutes < 0 || values.breakMinutes > 240) {
       throw new Error(t("hr.shiftPolicy.breakInvalid"));
     }
+    if (
+      !Number.isFinite(values.reportingTimeMinutes) ||
+      values.reportingTimeMinutes < 0 ||
+      values.reportingTimeMinutes > 180
+    ) {
+      throw new Error(t("hr.shiftPolicy.reportingInvalid"));
+    }
     if (!Number.isFinite(values.bufferMinutes) || values.bufferMinutes < 0 || values.bufferMinutes > 120) {
       throw new Error(t("hr.shiftPolicy.bufferInvalid"));
     }
@@ -109,6 +121,7 @@ export default function HrShiftPolicyPage() {
     return {
       locationId,
       breakMinutes: Math.round(values.breakMinutes),
+      reportingTimeMinutes: Math.round(values.reportingTimeMinutes),
       bufferMinutes: Math.round(values.bufferMinutes),
       permanentHours: values.permanentHours,
       secondmentHours: values.secondmentHours,
@@ -132,6 +145,7 @@ export default function HrShiftPolicyPage() {
       return applyDefaultAttendanceSiteShiftPolicies({
         sourceLocationId: values.locationId,
         breakMinutes: values.breakMinutes,
+        reportingTimeMinutes: values.reportingTimeMinutes,
         bufferMinutes: values.bufferMinutes,
         permanentHours: values.permanentHours,
         secondmentHours: values.secondmentHours,
@@ -271,6 +285,22 @@ export default function HrShiftPolicyPage() {
                         onChange={(e) => setDraft((d) => ({ ...d, breakMinutes: e.target.value }))}
                       />
                       <p className="text-xs text-muted-foreground">{t("hr.shiftPolicy.breakHelp")}</p>
+                    </div>
+
+                    <div className="max-w-xs space-y-1.5">
+                      <Label htmlFor="hr-shift-reporting">{t("hr.shiftPolicy.reportingTimeMinutes")}</Label>
+                      <Input
+                        id="hr-shift-reporting"
+                        className="h-9 w-28"
+                        type="number"
+                        min={0}
+                        max={180}
+                        value={draft.reportingTimeMinutes}
+                        onChange={(e) =>
+                          setDraft((d) => ({ ...d, reportingTimeMinutes: e.target.value }))
+                        }
+                      />
+                      <p className="text-xs text-muted-foreground">{t("hr.shiftPolicy.reportingHelp")}</p>
                     </div>
 
                     <div className="max-w-xs space-y-1.5">

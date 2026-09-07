@@ -27,7 +27,9 @@ export {
 export {
   applyAttendanceShiftPolicy,
   breakMinutesForLocation,
+  reportingTimeMinutesForLocation,
   bufferMinutesForLocation,
+  lateGraceMinutesForLocation,
   defaultSiteShiftPolicy,
   expectedShiftHours,
   expectedShiftMinutes,
@@ -35,6 +37,7 @@ export {
   normalizeAttendanceEmploymentRole,
   ATTENDANCE_EMPLOYMENT_TYPES,
   DEFAULT_BREAK_MINUTES,
+  DEFAULT_REPORTING_TIME_MINUTES,
   DEFAULT_BUFFER_MINUTES,
   URBAN_ARENA_BREAK_MINUTES,
   PERMANENT_SHIFT_HOURS,

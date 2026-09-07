@@ -19,13 +19,17 @@ export const PERMANENT_SHIFT_MINUTES = PERMANENT_SHIFT_HOURS * 60;
 export const EXTENDED_SHIFT_MINUTES = EXTENDED_SHIFT_HOURS * 60;
 export const DEFAULT_BREAK_MINUTES = 60;
 export const URBAN_ARENA_BREAK_MINUTES = 30;
+/** Default reporting window (minutes after roster start) when site has no explicit value. */
+export const DEFAULT_REPORTING_TIME_MINUTES = 0;
 /** Default late buffer when site has no explicit buffer_minutes. */
 export const DEFAULT_BUFFER_MINUTES = 0;
 
 /** Optional per-site overrides from attendance_site_settings. */
 export type SiteShiftPolicyOverrides = {
   breakMinutes?: number | null;
-  /** Grace after roster reporting time before late punch. */
+  /** Minutes after roster start that still count as the reporting window. */
+  reportingTimeMinutes?: number | null;
+  /** Extra grace after the reporting window before late punch. */
   bufferMinutes?: number | null;
   permanentHours?: number | null;
   secondmentHours?: number | null;
@@ -104,7 +108,19 @@ export function breakMinutesForLocation(
 }
 
 /**
- * Late buffer minutes for a site (grace after roster reporting / shift start).
+ * Reporting window minutes after roster start (scheduled_in).
+ * Prefer an explicit override from attendance_site_settings.reporting_time_minutes.
+ */
+export function reportingTimeMinutesForLocation(overrideMinutes?: number | null): number {
+  if (overrideMinutes != null && Number.isFinite(Number(overrideMinutes))) {
+    const n = Math.round(Number(overrideMinutes));
+    if (n >= 0 && n <= 180) return n;
+  }
+  return DEFAULT_REPORTING_TIME_MINUTES;
+}
+
+/**
+ * Late buffer minutes for a site (extra grace after the reporting window).
  * Prefer an explicit override from attendance_site_settings.buffer_minutes.
  */
 export function bufferMinutesForLocation(overrideMinutes?: number | null): number {
@@ -116,9 +132,20 @@ export function bufferMinutesForLocation(overrideMinutes?: number | null): numbe
 }
 
 /**
+ * Late grace = reporting window + buffer.
+ * on_time_until = roster_start + reporting_time_minutes + buffer_minutes.
+ */
+export function lateGraceMinutesForLocation(
+  reportingTimeMinutes?: number | null,
+  bufferMinutes?: number | null,
+): number {
+  return reportingTimeMinutesForLocation(reportingTimeMinutes) + bufferMinutesForLocation(bufferMinutes);
+}
+
+/**
  * Override shift template break + OT threshold from employment type and location.
- * Start/end times stay on the template / roster. When bufferMinutesOverride is set,
- * it replaces template grace for late-punch calc.
+ * Start/end times stay on the template / roster. When reporting and/or buffer
+ * overrides are set, they replace template grace for late-punch calc.
  */
 export function applyAttendanceShiftPolicy(
   base: ShiftTemplateInput,
@@ -126,6 +153,7 @@ export function applyAttendanceShiftPolicy(
     employmentType?: string | null;
     locationCode?: string | null;
     breakMinutesOverride?: number | null;
+    reportingTimeMinutesOverride?: number | null;
     bufferMinutesOverride?: number | null;
     permanentHours?: number | null;
     secondmentHours?: number | null;
@@ -141,8 +169,16 @@ export function applyAttendanceShiftPolicy(
     overtimeAfterMinutes: expected,
     minWorkMinutes: expected,
   };
-  if (opts.bufferMinutesOverride != null && Number.isFinite(Number(opts.bufferMinutesOverride))) {
-    next.graceMinutes = bufferMinutesForLocation(opts.bufferMinutesOverride);
+  const hasReporting =
+    opts.reportingTimeMinutesOverride != null &&
+    Number.isFinite(Number(opts.reportingTimeMinutesOverride));
+  const hasBuffer =
+    opts.bufferMinutesOverride != null && Number.isFinite(Number(opts.bufferMinutesOverride));
+  if (hasReporting || hasBuffer) {
+    next.graceMinutes = lateGraceMinutesForLocation(
+      opts.reportingTimeMinutesOverride,
+      opts.bufferMinutesOverride,
+    );
   }
   return next;
 }
@@ -150,6 +186,7 @@ export function applyAttendanceShiftPolicy(
 /** Built-in defaults used when seeding a new site with no saved policy. */
 export function defaultSiteShiftPolicy(locationCode: string | null | undefined): {
   breakMinutes: number;
+  reportingTimeMinutes: number;
   bufferMinutes: number;
   permanentHours: number;
   secondmentHours: number;
@@ -157,6 +194,7 @@ export function defaultSiteShiftPolicy(locationCode: string | null | undefined):
 } {
   return {
     breakMinutes: breakMinutesForLocation(locationCode, null),
+    reportingTimeMinutes: DEFAULT_REPORTING_TIME_MINUTES,
     bufferMinutes: DEFAULT_BUFFER_MINUTES,
     permanentHours: PERMANENT_SHIFT_HOURS,
     secondmentHours: EXTENDED_SHIFT_HOURS,

@@ -52,6 +52,7 @@ describe("attendance shift policy", () => {
   it("builds default site policy from location code", () => {
     expect(defaultSiteShiftPolicy("UA-DM")).toEqual({
       breakMinutes: 30,
+      reportingTimeMinutes: 0,
       bufferMinutes: 0,
       permanentHours: 9,
       secondmentHours: 10,
@@ -80,11 +81,12 @@ describe("attendance shift policy", () => {
       employmentType: "permanent",
       locationCode: "INF-CC",
       breakMinutesOverride: 45,
+      reportingTimeMinutesOverride: 30,
       bufferMinutesOverride: 15,
       permanentHours: 8,
     });
     expect(overridden.breakMinutes).toBe(45);
     expect(overridden.overtimeAfterMinutes).toBe(480);
-    expect(overridden.graceMinutes).toBe(15);
+    expect(overridden.graceMinutes).toBe(45); // reporting 30 + buffer 15
   });
 });

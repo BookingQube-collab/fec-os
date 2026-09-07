@@ -184,7 +184,7 @@ export function calculateDailyAttendance(punches: CalcPunch[], ctx: DayContext):
   }
 
   if (scheduledIn) {
-    // Late = first check-in after roster reporting time (shift start) + site buffer / grace.
+    // Late = first check-in after roster start + reporting window + buffer (graceMinutes).
     const graceMs = (shift?.graceMinutes ?? 0) * 60_000;
     const lateMs = inDate.getTime() - scheduledIn.getTime() - graceMs;
     if (lateMs > 0) {
@@ -202,9 +202,9 @@ export function calculateDailyAttendance(punches: CalcPunch[], ctx: DayContext):
   }
 
   if (outDate) {
-    // Total hours worked = punch span − site break (net). OT uses the same net figure.
-    const breakMin = shift?.breakMinutes ?? 0;
-    workedMinutes = Math.max(0, Math.round((outDate.getTime() - inDate.getTime()) / 60_000) - breakMin);
+    // Total hours worked = last check-out − first check-in (clock span). Break is not deducted.
+    // OT / hours-based status compare the same clock span to site expected daily length.
+    workedMinutes = Math.max(0, Math.round((outDate.getTime() - inDate.getTime()) / 60_000));
     // Expected daily length from site policy × employment type (overtimeAfterMinutes / minWorkMinutes).
     // Never fall back to a legacy 8h (480) day when expected is known.
     const expectedMinutes = Math.max(
@@ -218,7 +218,7 @@ export function calculateDailyAttendance(punches: CalcPunch[], ctx: DayContext):
     overtimeMinutes = Math.max(0, workedMinutes - expectedMinutes);
     if (overtimeMinutes > 0) flags.push("overtime");
 
-    // Hours vs site expected length are the primary status. Under-expected → Late (not Short hours).
+    // Clock hours vs site expected length are the primary status. Under-expected → Late (not Short hours).
     // Roster lateness stays in lateMinutes / Late punch column independently.
     const punchIssue = status === "missed_punch" || status === "review_required";
     if (!punchIssue) {
