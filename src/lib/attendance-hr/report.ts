@@ -12,6 +12,7 @@ export type AttendanceHrReportRow = {
   actual_in: string | null;
   actual_out: string | null;
   scheduled_in?: string | null;
+  scheduled_out?: string | null;
   late_minutes: number;
   early_leave_minutes: number;
   overtime_minutes: number;
@@ -97,6 +98,7 @@ export function attendanceHrToListingSource(
   actual_in: string | null;
   actual_out: string | null;
   scheduled_in: string | null;
+  scheduled_out: string | null;
   reporting_time_minutes: number | null;
   overtime_minutes: number;
   late_minutes: number;
@@ -127,6 +129,7 @@ export function attendanceHrToListingSource(
     actual_in: row.actual_in,
     actual_out: row.actual_out,
     scheduled_in: row.scheduled_in ?? null,
+    scheduled_out: row.scheduled_out ?? null,
     reporting_time_minutes:
       row.location_reporting_time_minutes != null &&
       Number.isFinite(Number(row.location_reporting_time_minutes))

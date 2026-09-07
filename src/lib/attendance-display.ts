@@ -1,5 +1,6 @@
 import { defaultPayrollPeriod } from "@/lib/attendance-hr/roster-period";
 import { reportingClockIso } from "@/lib/attendance-hr/late-punch";
+import { computeAttendanceOvertimeMinutes } from "@/lib/attendance-hr/overtime";
 import {
   expectedShiftMinutes,
   normalizeAttendanceEmploymentRole,
@@ -127,10 +128,21 @@ export function resolveTotalHoursWorked(row: {
   return null;
 }
 
-/** OT minutes = max(0, clock hours − expected). Prefer expected when known so UI never shows legacy −8. */
+const NO_OVERTIME_STATUS_KEYS = new Set([
+  "weekly_off",
+  "week_off",
+  "public_holiday",
+  "annual_leave",
+  "sick_leave",
+  "unpaid_leave",
+]);
+
+/** OT minutes past roster end when scheduled_out exists; otherwise clock − site hours. Never hours−9 against a longer roster. */
 export function resolveOvertimeMinutes(row: {
   actual_in?: string | null;
   actual_out?: string | null;
+  scheduled_in?: string | null;
+  scheduled_out?: string | null;
   worked_minutes?: number | null;
   break_minutes?: number | null;
   overtime_minutes?: number | null;
@@ -139,16 +151,23 @@ export function resolveOvertimeMinutes(row: {
   sitePolicy?: SiteShiftPolicyOverrides | null;
   status?: string | null;
 }): number {
-  const expected = resolveExpectedWorkMinutes(row);
+  const statusKey = normalizeAttendanceStatusKey(row.status ?? "");
+  if (NO_OVERTIME_STATUS_KEYS.has(statusKey)) return 0;
+
   const workedHours = resolveTotalHoursWorked({
     actual_in: row.actual_in ?? null,
     actual_out: row.actual_out ?? null,
     worked_minutes: row.worked_minutes,
     break_minutes: row.break_minutes,
   });
-  if (expected != null && workedHours != null) {
-    const workedMinutes = Math.round(workedHours * 60);
-    return Math.max(0, workedMinutes - expected);
+  if (workedHours != null) {
+    return computeAttendanceOvertimeMinutes({
+      workedMinutes: Math.round(workedHours * 60),
+      actualOut: row.actual_out ?? null,
+      scheduledIn: row.scheduled_in ?? null,
+      scheduledOut: row.scheduled_out ?? null,
+      siteExpectedMinutes: resolveExpectedWorkMinutes(row),
+    });
   }
   const stored = Number(row.overtime_minutes ?? 0);
   if (Number.isFinite(stored) && stored > 0) return Math.round(stored);
@@ -171,6 +190,8 @@ export function formatOvertimeHours(minutes: number): string {
 export function hasOvertime(row: {
   actual_in?: string | null;
   actual_out?: string | null;
+  scheduled_in?: string | null;
+  scheduled_out?: string | null;
   worked_minutes?: number | null;
   break_minutes?: number | null;
   overtime_minutes?: number | null;
@@ -503,6 +524,7 @@ export type AttendanceListingSource = {
   actual_in: string | null;
   actual_out: string | null;
   scheduled_in?: string | null;
+  scheduled_out?: string | null;
   /** Site reporting lead minutes before roster start (live compute). */
   reporting_time_minutes?: number | null;
   overtime_minutes: number;
@@ -555,6 +577,7 @@ export function toAttendanceListingSource(row: AttendanceSummaryRow): Attendance
     actual_in: row.actual_in,
     actual_out: row.actual_out,
     scheduled_in: row.scheduled_in,
+    scheduled_out: row.scheduled_out,
     overtime_minutes: row.overtime_minutes,
     late_minutes: row.late_minutes ?? 0,
     worked_minutes: row.worked_minutes ?? null,

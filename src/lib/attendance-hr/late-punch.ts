@@ -105,12 +105,31 @@ function startHmFromRoster(
   );
 }
 
-/**
- * Resolve roster shift-start ISO from roster assignment (+ optional template map).
- * Prefers location-scoped row, then staff+date, then staff typical shift when the
- * working-day assignment has null times (duty-only reuploads). Never invents 08:00.
- */
-export function resolveRosterScheduledIn(input: {
+function endHmFromRoster(
+  roster: RosterShiftLookup,
+  shiftStartByTemplateId: Map<string, { start: string | null; end: string | null }>,
+): string | null {
+  return (
+    normalizeShiftHm(roster.shift_end) ??
+    (roster.shift_template_id
+      ? shiftStartByTemplateId.get(String(roster.shift_template_id))?.end ?? null
+      : null)
+  );
+}
+
+function scheduledBoundsFromHm(
+  workDate: string,
+  startHm: string | null,
+  endHm: string | null,
+): { scheduledIn: string | null; scheduledOut: string | null } {
+  const overnight = Boolean(startHm && endHm && endHm <= startHm);
+  return {
+    scheduledIn: startHm ? scheduledIsoFromHm(workDate, startHm) : null,
+    scheduledOut: endHm ? scheduledIsoFromHm(workDate, endHm, overnight ? 1 : 0) : null,
+  };
+}
+
+export type RosterScheduledBoundsInput = {
   staffId: string | null | undefined;
   locationId: string | null | undefined;
   workDate: string;
@@ -119,10 +138,21 @@ export function resolveRosterScheduledIn(input: {
   shiftStartByTemplateId: Map<string, { start: string | null; end: string | null }>;
   /** Most recent known shift for staff when the day's row has no clock times. */
   fallbackByStaffId?: Map<string, RosterShiftLookup>;
-}): string | null {
+};
+
+/**
+ * Resolve roster start/end ISO from roster assignment (+ optional template map).
+ * Prefers location-scoped row, then staff+date, then staff typical shift when the
+ * working-day assignment has null times (duty-only reuploads). Never invents 08:00.
+ */
+export function resolveRosterScheduledBounds(input: RosterScheduledBoundsInput): {
+  scheduledIn: string | null;
+  scheduledOut: string | null;
+} {
   const staffId = input.staffId?.trim() || "";
   const workDate = String(input.workDate ?? "").slice(0, 10);
-  if (!staffId || !/^\d{4}-\d{2}-\d{2}$/.test(workDate)) return null;
+  const empty = { scheduledIn: null, scheduledOut: null };
+  if (!staffId || !/^\d{4}-\d{2}-\d{2}$/.test(workDate)) return empty;
 
   const locationId = input.locationId?.trim() || "";
   const candidates: Array<RosterShiftLookup | undefined> = [];
@@ -137,15 +167,23 @@ export function resolveRosterScheduledIn(input: {
     if (roster.is_week_off) continue;
     sawWorkingDay = true;
     const startHm = startHmFromRoster(roster, input.shiftStartByTemplateId);
-    if (startHm) return scheduledIsoFromHm(workDate, startHm);
+    const endHm = endHmFromRoster(roster, input.shiftStartByTemplateId);
+    // Same start-first return as resolveRosterScheduledIn so late punch stays stable.
+    if (startHm) return scheduledBoundsFromHm(workDate, startHm, endHm);
   }
 
   if (sawWorkingDay) {
     const fallback = input.fallbackByStaffId?.get(staffId);
     if (fallback && !fallback.is_week_off) {
       const startHm = startHmFromRoster(fallback, input.shiftStartByTemplateId);
-      if (startHm) return scheduledIsoFromHm(workDate, startHm);
+      const endHm = endHmFromRoster(fallback, input.shiftStartByTemplateId);
+      if (startHm) return scheduledBoundsFromHm(workDate, startHm, endHm);
     }
   }
-  return null;
+  return empty;
+}
+
+/** Roster shift-start ISO only. See {@link resolveRosterScheduledBounds}. */
+export function resolveRosterScheduledIn(input: RosterScheduledBoundsInput): string | null {
+  return resolveRosterScheduledBounds(input).scheduledIn;
 }

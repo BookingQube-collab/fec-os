@@ -5,6 +5,7 @@ import {
   normalizeShiftHm,
   reportingClockIso,
   resolveListingLateMinutes,
+  resolveRosterScheduledBounds,
   resolveRosterScheduledIn,
   scheduledIsoFromHm,
   type RosterShiftLookup,
@@ -112,6 +113,19 @@ describe("late punch helpers", () => {
         shiftStartByTemplateId: new Map(),
       }),
     ).toBe("2026-08-27T07:30:00.000Z");
+    expect(
+      resolveRosterScheduledBounds({
+        staffId: "s1",
+        locationId: "loc1",
+        workDate: "2026-08-27",
+        rosterByStaffLocationDate: byLoc,
+        rosterByStaffDate: byDate,
+        shiftStartByTemplateId: new Map(),
+      }),
+    ).toEqual({
+      scheduledIn: "2026-08-27T07:30:00.000Z",
+      scheduledOut: "2026-08-27T17:00:00.000Z",
+    });
   });
 
   it("falls back to staff+date roster when location key has no shift times", () => {

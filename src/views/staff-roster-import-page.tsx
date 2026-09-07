@@ -70,6 +70,7 @@ type PreviewResponse = {
   warnings?: string[];
   rows?: ShiftPreviewRow[];
   imported?: number;
+  notSaved?: number;
   error?: string;
 };
 
@@ -193,15 +194,21 @@ export default function StaffRosterImportPage() {
       startTransition(() => {
         setPreview(data);
       });
-      toast.success(
-        arg.mode === "commit"
-          ? t("people.roster.shiftApplied", {
+      if (arg.mode === "commit") {
+        toast.success(
+          t("people.roster.shiftApplied", {
             count: data.imported ?? data.matched ?? 0,
             from: data.dateFrom ?? period.dateFrom,
             to: data.dateTo ?? period.dateTo,
-          })
-          : t("people.roster.previewReady"),
-      );
+          }),
+        );
+        const notSaved = data.notSaved ?? (data.unmatched ?? 0) + (data.skipped ?? 0);
+        if (notSaved > 0) {
+          toast.warning(t("people.roster.shiftAppliedRemainder", { count: notSaved }));
+        }
+      } else {
+        toast.success(t("people.roster.previewReady"));
+      }
       if (arg.mode === "commit") {
         void qc.invalidateQueries({ queryKey: queryKeys.people.all });
       }

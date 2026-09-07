@@ -471,7 +471,7 @@ describe("daily calculation", () => {
     expect(day.lateMinutes).toBe(0);
   });
 
-  it("Wasanthi-style 27-Aug: clock 9.63h vs 9h → Present + OT, late punch still recorded", () => {
+  it("Wasanthi-style 27-Aug: roster 10:30–20:00, out 20:06 → 6 min OT, not 9.63−9", () => {
     // 10:28:31 → 20:06:28 Qatar = 07:28:31Z → 17:06:28Z
     const day = calculateDailyAttendance(
       [
@@ -482,16 +482,15 @@ describe("daily calculation", () => {
         workDate: "2026-08-27",
         scheduled: true,
         shift: applyAttendanceShiftPolicy(
-          { ...shift, startTime: "10:00", endTime: "20:00" },
+          { ...shift, startTime: "10:30", endTime: "20:00" },
           { employmentType: "permanent", locationCode: "INF-CC" },
         ),
       },
     );
     expect(day.workedMinutes).toBe(578); // 9h 38m clock; break not deducted
     expect(Math.round((day.workedMinutes / 60) * 100) / 100).toBe(9.63);
-    expect(day.overtimeMinutes).toBe(38);
+    expect(day.overtimeMinutes).toBe(6);
     expect(day.status).toBe("present");
-    expect(day.lateMinutes).toBeGreaterThan(0);
   });
 
   it("Total Hours Worked = punch span 10:26:31 → 20:06:26 ≈ 9.665h (no break deduct)", () => {
@@ -505,18 +504,38 @@ describe("daily calculation", () => {
         workDate: "2026-08-27",
         scheduled: true,
         shift: applyAttendanceShiftPolicy(
-          { ...shift, startTime: "10:00", endTime: "20:00" },
+          { ...shift, startTime: "10:30", endTime: "20:00" },
           { employmentType: "permanent", locationCode: "INF-CC" },
         ),
       },
     );
     expect(day.workedMinutes).toBe(580);
     expect(Math.round((day.workedMinutes / 60) * 100) / 100).toBe(9.67);
-    expect(day.overtimeMinutes).toBe(40); // 580 − 540
+    expect(day.overtimeMinutes).toBe(6); // past 20:00, not 580 − 540
     expect(day.status).toBe("present");
   });
 
-  it("Wasanthi-style 25-Aug: clock 10.09h over 9h → OT 1.10h", () => {
+  it("Wasanthi-style 21-Aug: roster 12:30–22:00, out 21:59:50 → no OT", () => {
+    const day = calculateDailyAttendance(
+      [
+        { punchAt: "2026-08-21T09:25:40.000Z" },
+        { punchAt: "2026-08-21T18:59:50.000Z" },
+      ],
+      {
+        workDate: "2026-08-21",
+        scheduled: true,
+        shift: applyAttendanceShiftPolicy(
+          { ...shift, startTime: "12:30", endTime: "22:00" },
+          { employmentType: "permanent", locationCode: "INF-CC" },
+        ),
+      },
+    );
+    expect(day.workedMinutes).toBe(574);
+    expect(day.overtimeMinutes).toBe(0);
+    expect(day.status).toBe("present");
+  });
+
+  it("Wasanthi-style 25-Aug: out 20:35 vs roster 20:00 → 36 min OT, not 10.09−9", () => {
     // 10:30:13 → 20:35:44 Qatar ≈ 07:30:13Z → 17:35:44Z → 606m
     const day = calculateDailyAttendance(
       [
@@ -527,13 +546,13 @@ describe("daily calculation", () => {
         workDate: "2026-08-25",
         scheduled: true,
         shift: applyAttendanceShiftPolicy(
-          { ...shift, startTime: "10:00", endTime: "20:00" },
+          { ...shift, startTime: "10:30", endTime: "20:00" },
           { employmentType: "permanent", locationCode: "INF-CC" },
         ),
       },
     );
     expect(day.workedMinutes).toBe(606);
-    expect(day.overtimeMinutes).toBe(66); // 606 − 540 → 1.10h
+    expect(day.overtimeMinutes).toBe(36);
     expect(day.status).toBe("present");
   });
 
@@ -575,9 +594,9 @@ describe("daily calculation", () => {
         }),
       },
     );
-    // 11h clock → 1h OT over 10h (break not deducted)
+    // 11h clock, roster 08:00–17:00 → 2h past end (site 10h must not shrink that)
     expect(day.workedMinutes).toBe(660);
-    expect(day.overtimeMinutes).toBe(60);
+    expect(day.overtimeMinutes).toBe(120);
   });
 
   it("supports overnight shifts when out is after midnight", () => {

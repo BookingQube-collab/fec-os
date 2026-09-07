@@ -111,10 +111,15 @@ export async function commitLiveShiftRoster(
     );
   }
 
+  const imported = results.reduce((n, r) => n + r.imported, 0);
   return {
-    imported: results.reduce((n, r) => n + r.imported, 0),
+    imported,
     processed: results.reduce((n, r) => n + r.processed, 0),
     dateFrom: preview.dateFrom,
     dateTo: preview.dateTo,
+    matched: preview.matched,
+    unmatched: preview.unmatched,
+    skipped: preview.skipped,
+    notSaved: Math.max(0, preview.rows.length - imported),
   };
 }

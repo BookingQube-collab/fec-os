@@ -46,7 +46,7 @@ import { recalculateAttendanceRange } from "@/lib/attendance-hr/process";
 import {
   normalizeShiftHm,
   resolveListingLateMinutes,
-  resolveRosterScheduledIn,
+  resolveRosterScheduledBounds,
   type RosterShiftLookup,
 } from "@/lib/attendance-hr/late-punch";
 import {
@@ -1786,8 +1786,8 @@ async function enrichAttendanceHrDailyRows(
     });
     const workDate = String(row.work_date ?? "").slice(0, 10);
     const staffId = typeof row.staff_id === "string" ? row.staff_id : null;
-    // Only roster-derived start — never stored scheduled_in (often stale DEFAULT 08:00).
-    const scheduledIn = resolveRosterScheduledIn({
+    // Only roster-derived times — never stored scheduled_in (often stale DEFAULT 08:00).
+    const { scheduledIn, scheduledOut } = resolveRosterScheduledBounds({
       staffId,
       locationId,
       workDate,
@@ -1815,6 +1815,7 @@ async function enrichAttendanceHrDailyRows(
       actual_in: actualIn,
       actual_out: row.actual_out == null ? null : String(row.actual_out),
       scheduled_in: scheduledIn,
+      scheduled_out: scheduledOut,
       late_minutes: lateMinutes,
       early_leave_minutes: Number(row.early_leave_minutes ?? 0),
       overtime_minutes: Number(row.overtime_minutes ?? 0),

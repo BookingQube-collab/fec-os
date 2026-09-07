@@ -1,7 +1,7 @@
 import type { AttendanceRuleInput, AttendanceStatus, DailyCalcResult, ShiftTemplateInput } from "./constants";
 import { DEFAULT_RULES, DEFAULT_SHIFT } from "./constants";
 import { computeLatePunchMinutes } from "./late-punch";
-import { PERMANENT_SHIFT_MINUTES } from "./shift-policy";
+import { computeAttendanceOvertimeMinutes } from "./overtime";
 
 export type CalcPunch = {
   id?: string;
@@ -214,23 +214,23 @@ export function calculateDailyAttendance(punches: CalcPunch[], ctx: DayContext):
     // Total hours worked = last check-out − first check-in (clock span). Break is not deducted.
     // OT / hours-based status compare the same clock span to site expected daily length.
     workedMinutes = Math.max(0, Math.round((outDate.getTime() - inDate.getTime()) / 60_000));
-    // Expected daily length from site policy × employment type (overtimeAfterMinutes / minWorkMinutes).
-    // Never fall back to a legacy 8h (480) day when expected is known.
-    const expectedMinutes = Math.max(
-      0,
-      Number(
-        shift?.overtimeAfterMinutes ??
-          shift?.minWorkMinutes ??
-          PERMANENT_SHIFT_MINUTES,
-      ),
-    );
-    overtimeMinutes = Math.max(0, workedMinutes - expectedMinutes);
+    // OT = minutes past roster end when a shift exists; otherwise site working hours.
+    // A 9.5h roster must not create OT just because site permanent hours are 9h.
+    const siteExpected = Number(shift?.overtimeAfterMinutes ?? shift?.minWorkMinutes);
+    overtimeMinutes = computeAttendanceOvertimeMinutes({
+      workedMinutes,
+      actualOut: outDate.toISOString(),
+      scheduledIn: scheduledIn?.toISOString() ?? null,
+      scheduledOut: scheduledOut?.toISOString() ?? null,
+      siteExpectedMinutes: Number.isFinite(siteExpected) && siteExpected > 0 ? siteExpected : null,
+    });
     if (overtimeMinutes > 0) flags.push("overtime");
 
     // Clock hours vs site expected length are the primary status. Under-expected → Late (not Short hours).
     // Roster lateness stays in lateMinutes / Late punch column independently.
     const punchIssue = status === "missed_punch" || status === "review_required";
     if (!punchIssue) {
+      const expectedMinutes = Math.max(0, Number.isFinite(siteExpected) ? siteExpected : 0);
       const minWork = Math.max(0, Number(shift?.minWorkMinutes ?? expectedMinutes));
       if (minWork > 0) {
         if (workedMinutes >= minWork) {

@@ -316,7 +316,8 @@ export function parseRosterDateCell(raw: string | number | Date | null | undefin
   if (/^\d{5}$/.test(s)) return parseRosterDateCell(Number(s));
   const parsed = new Date(s);
   if (!Number.isNaN(parsed.getTime()) && /\d{4}/.test(s)) {
-    return parsed.toISOString().slice(0, 10);
+    // Local calendar date — toISOString() would shift Qatar (UTC+3) back a day.
+    return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
   }
   return null;
 }
@@ -445,22 +446,24 @@ function draftFromLongRow(row: Record<string, string>, rowNumber: number): Draft
   const qid = cell(row, id.qidKey);
   const employeeCode = cell(row, id.codeKey);
   const combined = staffName || qid || employeeCode;
-  if (!combined) return null;
   const shiftRaw = cell(row, id.shiftKey);
   const dutyRaw = cell(row, id.dutyKey) || cell(row, findHeader(Object.keys(row), ["status"])) || shiftRaw;
   const range = parseShiftRange(shiftRaw || dutyRaw);
   const start = parseTimeCell(cell(row, id.startKey)) ?? range.start;
   const end = parseTimeCell(cell(row, id.endKey)) ?? range.end;
   const clockSource = [cell(row, id.startKey), cell(row, id.endKey), shiftRaw, dutyRaw].filter(Boolean).join(" ");
+  const date = parseRosterDateCell(cell(row, id.dateKey));
+  const locationRaw = locationRawFromRow(row, id.locKey);
+  if (!combined && !date && !locationRaw && !shiftRaw && !dutyRaw) return null;
   return {
     rowNumber,
-    date: parseRosterDateCell(cell(row, id.dateKey)),
+    date,
     weekday: parseWeekdayCell(cell(row, id.weekdayKey)),
     staffName,
     qid,
     employeeCode,
     staffRaw: combined,
-    locationRaw: locationRawFromRow(row, id.locKey),
+    locationRaw,
     shiftStart: start,
     shiftEnd: end,
     dutyRaw,
@@ -592,16 +595,20 @@ export function matchAttendanceRosterStaff(
   const name = normalizeName(input.name);
   const locationId = input.locationId;
   if (name && locationId) {
-    const hits = active.filter((s) => {
-      if (normalizeName(s.full_name) !== name) return false;
-      if (s.location_id === locationId) return true;
-      return (s.work_location_ids ?? []).includes(locationId);
-    });
-    if (hits.length === 1) {
-      return { staffId: hits[0].id, matchRule: "name_location", message: null, label: hits[0].full_name || input.name };
+    const nameHits = active.filter((s) => normalizeName(s.full_name) === name);
+    const localHits = nameHits.filter((s) => s.location_id === locationId || (s.work_location_ids ?? []).includes(locationId));
+    if (localHits.length === 1) {
+      return { staffId: localHits[0].id, matchRule: "name_location", message: null, label: localHits[0].full_name || input.name };
     }
-    if (hits.length > 1) {
+    if (localHits.length > 1) {
       return { staffId: null, matchRule: "name_ambiguous", message: "Same name at this location — use QID or employee code.", label: input.name };
+    }
+    // Unique company-wide name: roster them at the Excel site even if home location differs.
+    if (nameHits.length === 1) {
+      return { staffId: nameHits[0].id, matchRule: "name_unique", message: null, label: nameHits[0].full_name || input.name };
+    }
+    if (nameHits.length > 1) {
+      return { staffId: null, matchRule: "name_unmatched", message: "No exact name match at this location.", label: input.name };
     }
     return { staffId: null, matchRule: "name_unmatched", message: "No exact name match at this location.", label: input.name };
   }
@@ -742,6 +749,26 @@ export function buildAttendanceRosterPreview(input: {
     if (expanded.length > ATTENDANCE_ROSTER_MAX_ROWS) break;
     const ids = splitStaffRaw(draft);
     const workDate = draft.date;
+    if (!ids.name && !ids.qid && !ids.code) {
+      rows.push({
+        rowNumber: draft.rowNumber,
+        workDate: workDate ?? "",
+        locationCode: resolveLocationCode(draft.locationRaw, input.locations),
+        locationId: null,
+        staffId: null,
+        staffLabel: "—",
+        qid: null,
+        employeeCode: null,
+        shiftStart: draft.shiftStart,
+        shiftEnd: draft.shiftEnd,
+        shiftTemplateId: null,
+        isWeekOff: parseDutyCell(draft.dutyRaw).isWeekOff,
+        matchRule: "missing_id",
+        status: "unmatched",
+        message: "Missing employee name, QID, or employee code.",
+      });
+      continue;
+    }
     if (!workDate) {
       rows.push({
         rowNumber: draft.rowNumber,
@@ -860,10 +887,18 @@ export function buildAttendanceRosterPreview(input: {
     errors.push(`File has more than ${ATTENDANCE_ROSTER_MAX_ROWS} rows.`);
   }
 
-  const matched = rows.filter((r) => r.status === "matched").length;
-  const unmatched = rows.filter((r) => r.status === "unmatched").length;
-  const skipped = rows.filter((r) => r.status === "skipped").length;
-  if (skipped) warnings.push(`${skipped} row(s) sit outside the selected week/month and will not be written.`);
+  const deduped = markDuplicateStaffDateRows(rows);
+  const matched = deduped.filter((r) => r.status === "matched").length;
+  const unmatched = deduped.filter((r) => r.status === "unmatched").length;
+  const skipped = deduped.filter((r) => r.status === "skipped").length;
+  const outside = deduped.filter((r) => r.matchRule === "outside_period").length;
+  const duplicates = deduped.filter((r) => r.matchRule === "duplicate_staff_date").length;
+  if (outside) warnings.push(`${outside} row(s) sit outside the selected week/month and will not be written.`);
+  if (duplicates) {
+    warnings.push(
+      `${duplicates} duplicate staff + date row(s) will not be written separately (one shift per person per day).`,
+    );
+  }
   if (unmatched) warnings.push(`${unmatched} row(s) could not be matched. Confirm writes matched rows only.`);
   if (!matched) errors.push("No staff could be matched. Fix QID / employee code / name + location, then preview again.");
 
@@ -872,7 +907,7 @@ export function buildAttendanceRosterPreview(input: {
     dateFrom: input.dateFrom,
     dateTo: input.dateTo,
     locationId: input.selectedLocationId,
-    rows: rows.slice(0, 2000),
+    rows: deduped.slice(0, 2000),
     matched,
     unmatched,
     skipped,
@@ -881,9 +916,28 @@ export function buildAttendanceRosterPreview(input: {
   };
 }
 
+/** One assignment per staff + date. Last in-file row wins, earlier copies are skipped. */
+export function markDuplicateStaffDateRows(rows: MatchedRosterRow[]): MatchedRosterRow[] {
+  const keepIndex = new Map<string, number>();
+  rows.forEach((row, index) => {
+    if (row.status !== "matched" || !row.staffId || !row.workDate) return;
+    keepIndex.set(`${row.staffId}|${row.workDate}`, index);
+  });
+  return rows.map((row, index) => {
+    if (row.status !== "matched" || !row.staffId || !row.workDate) return row;
+    if (keepIndex.get(`${row.staffId}|${row.workDate}`) === index) return row;
+    return {
+      ...row,
+      status: "skipped",
+      matchRule: "duplicate_staff_date",
+      message: `Duplicate of ${row.staffLabel} on ${row.workDate} — only one shift per person per day is saved.`,
+    };
+  });
+}
+
 export function assignmentsFromPreview(rows: MatchedRosterRow[]): Map<string, MatchedRosterRow> {
   const byKey = new Map<string, MatchedRosterRow>();
-  for (const row of rows) {
+  for (const row of markDuplicateStaffDateRows(rows)) {
     if (row.status !== "matched" || !row.staffId || !row.locationId || !row.workDate) continue;
     byKey.set(`${row.staffId}|${row.workDate}`, row);
   }

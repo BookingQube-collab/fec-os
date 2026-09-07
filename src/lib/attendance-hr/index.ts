@@ -50,9 +50,11 @@ export {
   normalizeShiftHm,
   reportingClockIso,
   resolveListingLateMinutes,
+  resolveRosterScheduledBounds,
   resolveRosterScheduledIn,
   scheduledIsoFromHm,
 } from "./late-punch";
+export { computeAttendanceOvertimeMinutes } from "./overtime";
 export type { RosterShiftLookup } from "./late-punch";
 export type {
   AttendanceEmploymentRole,

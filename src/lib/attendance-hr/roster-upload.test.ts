@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { expectedOnDutyStaffIds, expectedRowsForDay, isWorkDateCovered } from "./roster-expected";
 import {
+  assignmentsFromPreview,
   attendanceRosterPeriod,
   buildAttendanceRosterPreview,
   looksLikeEmployeeRosterHeaders,
@@ -108,6 +109,12 @@ describe("parse helpers", () => {
     expect(parseRosterDateCell("28-Jul-2026")).toBe("2026-07-28");
     expect(parseRosterDateCell("1-Aug-2026")).toBe("2026-08-01");
   });
+
+  it("keeps local calendar dates instead of shifting them back via UTC", () => {
+    const local = new Date(2026, 6, 28, 0, 0, 0);
+    expect(parseRosterDateCell(local)).toBe("2026-07-28");
+    expect(parseRosterDateCell("Tue Jul 28 2026")).toBe("2026-07-28");
+  });
 });
 
 describe("matchAttendanceRosterStaff", () => {
@@ -142,6 +149,15 @@ describe("matchAttendanceRosterStaff", () => {
     );
     expect(result.staffId).toBeNull();
     expect(result.matchRule).toBe("qid_unmatched");
+  });
+
+  it("matches a unique name at an Excel site that is not the staff home location", () => {
+    const result = matchAttendanceRosterStaff(
+      { qid: "", employeeCode: "", name: "Hassan Al-Kaabi", locationId: INF },
+      staff,
+    );
+    expect(result.staffId).toBe("s-hassan");
+    expect(result.matchRule).toBe("name_unique");
   });
 });
 
@@ -432,6 +448,90 @@ describe("buildAttendanceRosterPreview", () => {
     });
     expect(preview.errors[0]).toMatch(/Employee Roster/i);
     expect(preview.matched).toBe(0);
+  });
+
+  it("keeps empty-employee Excel rows visible as unmatched instead of dropping them", () => {
+    const preview = buildAttendanceRosterPreview({
+      records: [
+        {
+          DATE: "16-Aug-2026",
+          EMPLOYEE: "",
+          LOCATION: "InflataPark - City Center",
+          SHIFT: "DAY OFF",
+        },
+      ],
+      periodMode: "week",
+      dateFrom: "2026-08-16",
+      dateTo: "2026-08-22",
+      selectedLocationId: INF,
+      staff,
+      locations,
+      shifts: [],
+    });
+    expect(preview.rows).toHaveLength(1);
+    expect(preview.unmatched).toBe(1);
+    expect(preview.rows[0]).toMatchObject({
+      status: "unmatched",
+      matchRule: "missing_id",
+      workDate: "2026-08-16",
+    });
+  });
+
+  it("reproduces 95 parsed Excel rows vs 92 saved when 3 are duplicate staff + date", () => {
+    const period = attendanceRosterPeriod({ mode: "month", month: "2026-08" });
+    const monthDays: string[] = [];
+    for (let t = new Date(`${period.dateFrom}T12:00:00.000Z`).getTime(); t <= new Date(`${period.dateTo}T12:00:00.000Z`).getTime(); t += 86400000) {
+      monthDays.push(new Date(t).toISOString().slice(0, 10));
+    }
+    expect(monthDays).toHaveLength(31);
+
+    const names = ["Borag Alhadi Adam Abakar", "Flora Chepchumba Mutai", "WASANTHI HAMAMALI RANKOTH PEDIGE"] as const;
+    const monthStaff = [
+      { id: "s-borag", full_name: names[0], employee_code: "INF-CC-STF02", qid: null, location_id: INF, work_location_ids: [] as string[] },
+      { id: "s-flora", full_name: names[1], employee_code: "INF-CC-STF07", qid: null, location_id: INF, work_location_ids: [] as string[] },
+      { id: "s-wasanthi", full_name: names[2], employee_code: "INF-CC-STF13", qid: null, location_id: INF, work_location_ids: [] as string[] },
+    ];
+    const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
+    const e3Date = (ymd: string) => {
+      const [year, month, day] = ymd.split("-").map(Number);
+      return `${day}-${MONTH_SHORT[month - 1]}-${year}`;
+    };
+    const row = (ymd: string, name: string) => ({
+      DATE: e3Date(ymd),
+      EMPLOYEE: name,
+      POSITION: "STAFF",
+      LOCATION: "InflataPark - City Center",
+      SHIFT: "10:30 AM—8:00 PM",
+    });
+
+    // 31+31+30 unique days + 3 duplicate 28-Jul rows = 95 Excel data rows, 92 writable.
+    const records = [
+      ...monthDays.map((d) => row(d, names[0])),
+      ...monthDays.map((d) => row(d, names[1])),
+      ...monthDays.slice(0, 30).map((d) => row(d, names[2])),
+      row(monthDays[0], names[0]),
+      row(monthDays[0], names[1]),
+      row(monthDays[0], names[2]),
+    ];
+    expect(records).toHaveLength(95);
+
+    const preview = buildAttendanceRosterPreview({
+      records,
+      periodMode: "month",
+      dateFrom: period.dateFrom,
+      dateTo: period.dateTo,
+      selectedLocationId: null,
+      staff: monthStaff,
+      locations,
+      shifts: [],
+    });
+
+    expect(preview.rows).toHaveLength(95);
+    expect(preview.matched).toBe(92);
+    expect(preview.skipped).toBe(3);
+    expect(preview.rows.filter((r) => r.matchRule === "duplicate_staff_date")).toHaveLength(3);
+    expect(preview.warnings.some((w) => /duplicate staff \+ date/i.test(w))).toBe(true);
+    expect(assignmentsFromPreview(preview.rows).size).toBe(92);
   });
 });
 
