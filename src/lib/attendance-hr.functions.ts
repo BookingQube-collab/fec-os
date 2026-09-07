@@ -43,6 +43,7 @@ import {
 import { expectedOnDutyStaffIds, expectedRowsForDay, isWorkDateCovered } from "@/lib/attendance-hr/roster-expected";
 import { ATTENDANCE_TALLY_UPLOAD_NOTE } from "@/lib/attendance-hr/roster-upload";
 import { recalculateAttendanceRange } from "@/lib/attendance-hr/process";
+import { computeLatePunchMinutes, normalizeShiftHm, scheduledIsoFromHm } from "@/lib/attendance-hr/late-punch";
 import {
   attendanceHrStaffMatches,
   isAttendanceHrUnmappedSearch,
@@ -1658,8 +1659,17 @@ async function enrichAttendanceHrDailyRows(
 ): Promise<AttendanceHrReportRow[]> {
   const staffIds = [...new Set(rows.map((row) => row.staff_id).filter((id): id is string => typeof id === "string" && id.length > 0))];
   const locationIds = [...new Set(rows.map((row) => row.location_id).filter((id): id is string => typeof id === "string" && id.length > 0))];
+  const workDates = [
+    ...new Set(
+      rows
+        .map((row) => String(row.work_date ?? "").slice(0, 10))
+        .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)),
+    ),
+  ];
+  const dateFrom = workDates.length ? workDates.reduce((a, b) => (a < b ? a : b)) : null;
+  const dateTo = workDates.length ? workDates.reduce((a, b) => (a > b ? a : b)) : null;
 
-  const [staffRows, locationRows, siteSettings] = await Promise.all([
+  const [staffRows, locationRows, siteSettings, rosterRes, shiftRes] = await Promise.all([
     loadByIds<StaffLookup>(context, "staff", "id, full_name, employee_code, qid, employment_type", staffIds),
     loadByIds<LocationLookup>(context, "locations", "id, code, name, region", locationIds),
     locationIds.length
@@ -1680,6 +1690,20 @@ async function enrichAttendanceHrDailyRows(
             joker_hours?: number | null;
           }>,
         }),
+    staffIds.length && dateFrom && dateTo
+      ? context.supabase
+          .from("attendance_roster_assignments")
+          .select("staff_id, location_id, work_date, shift_template_id, shift_start, shift_end, is_week_off")
+          .in("staff_id", staffIds)
+          .gte("work_date", dateFrom)
+          .lte("work_date", dateTo)
+          .limit(20000)
+      : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
+    context.supabase
+      .from("attendance_shift_templates")
+      .select("id, start_time, end_time")
+      .eq("active", true)
+      .limit(5000),
   ]);
 
   const staffById = new Map(staffRows.map((row) => [row.id, row]));
@@ -1696,6 +1720,51 @@ async function enrichAttendanceHrDailyRows(
   const siteByLocationId = new Map(
     (siteSettings.data ?? []).map((row) => [row.location_id as string, row as SiteHoursRow]),
   );
+  const shiftStartById = new Map(
+    (shiftRes.data ?? []).map((row) => [
+      String(row.id),
+      {
+        start: normalizeShiftHm(row.start_time == null ? null : String(row.start_time)),
+        end: normalizeShiftHm(row.end_time == null ? null : String(row.end_time)),
+      },
+    ]),
+  );
+  const rosterByKey = new Map<string, {
+    shift_template_id: string | null;
+    shift_start: string | null;
+    shift_end: string | null;
+    is_week_off: boolean;
+  }>();
+  for (const row of rosterRes.data ?? []) {
+    const staffId = String(row.staff_id ?? "");
+    const locationId = String(row.location_id ?? "");
+    const workDate = String(row.work_date ?? "").slice(0, 10);
+    if (!staffId || !locationId || !workDate) continue;
+    rosterByKey.set(`${staffId}|${locationId}|${workDate}`, {
+      shift_template_id: (row.shift_template_id as string | null) ?? null,
+      shift_start: (row.shift_start as string | null) ?? null,
+      shift_end: (row.shift_end as string | null) ?? null,
+      is_week_off: Boolean(row.is_week_off),
+    });
+  }
+
+  function resolveScheduledIn(
+    staffId: string | null,
+    locationId: string,
+    workDate: string,
+    stored: string | null,
+  ): string | null {
+    if (staffId && workDate && locationId) {
+      const roster = rosterByKey.get(`${staffId}|${locationId}|${workDate}`);
+      if (roster && !roster.is_week_off) {
+        const startHm =
+          normalizeShiftHm(roster.shift_start) ??
+          (roster.shift_template_id ? shiftStartById.get(roster.shift_template_id)?.start ?? null : null);
+        if (startHm) return scheduledIsoFromHm(workDate, startHm);
+      }
+    }
+    return stored;
+  }
 
   return rows.map((row) => {
     const staff = typeof row.staff_id === "string" ? staffById.get(row.staff_id) : undefined;
@@ -1711,17 +1780,35 @@ async function enrichAttendanceHrDailyRows(
       secondmentHours,
       jokerHours,
     });
+    const workDate = String(row.work_date ?? "").slice(0, 10);
+    const staffId = typeof row.staff_id === "string" ? row.staff_id : null;
+    const storedScheduled = row.scheduled_in == null ? null : String(row.scheduled_in);
+    const scheduledIn = resolveScheduledIn(staffId, locationId, workDate, storedScheduled);
+    const actualIn = row.actual_in == null ? null : String(row.actual_in);
+    const reportingMins = site?.reporting_time_minutes != null ? Number(site.reporting_time_minutes) : null;
+    const bufferMins = site?.buffer_minutes != null ? Number(site.buffer_minutes) : null;
+    // Prefer live calc when roster start + site grace are known (fixes stale DEFAULT 08:00 late ints).
+    const liveLate =
+      scheduledIn && actualIn
+        ? computeLatePunchMinutes({
+            actualIn,
+            scheduledIn,
+            reportingTimeMinutes: reportingMins,
+            bufferMinutes: bufferMins,
+          })
+        : null;
+    const lateMinutes = liveLate != null ? liveLate : Number(row.late_minutes ?? 0);
     return {
       id: String(row.id),
       location_id: String(row.location_id ?? ""),
-      staff_id: typeof row.staff_id === "string" ? row.staff_id : null,
+      staff_id: staffId,
       biometric_user_id: row.biometric_user_id == null ? null : String(row.biometric_user_id),
       work_date: String(row.work_date ?? ""),
       status: String(row.status ?? ""),
-      actual_in: row.actual_in == null ? null : String(row.actual_in),
+      actual_in: actualIn,
       actual_out: row.actual_out == null ? null : String(row.actual_out),
-      scheduled_in: row.scheduled_in == null ? null : String(row.scheduled_in),
-      late_minutes: Number(row.late_minutes ?? 0),
+      scheduled_in: scheduledIn,
+      late_minutes: lateMinutes,
       early_leave_minutes: Number(row.early_leave_minutes ?? 0),
       overtime_minutes: Number(row.overtime_minutes ?? 0),
       missed_punch: Boolean(row.missed_punch),

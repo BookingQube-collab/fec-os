@@ -101,6 +101,8 @@ export async function replaceAttendanceRosterPeriod(
     staff_id: row.staffId,
     work_date: row.workDate,
     shift_template_id: row.shiftTemplateId,
+    shift_start: row.isWeekOff ? null : row.shiftStart,
+    shift_end: row.isWeekOff ? null : row.shiftEnd,
     is_week_off: row.isWeekOff,
     source: "upload",
     created_by: context.userId,

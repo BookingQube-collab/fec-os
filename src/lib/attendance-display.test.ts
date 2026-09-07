@@ -178,7 +178,7 @@ describe("attendance listing display", () => {
       missed_punch: false,
     });
     expect(cells.totalHours).toBe("10.00");
-    expect(cells.latePunch).toBe("No");
+    expect(cells.latePunch).toBe("—");
   });
 
   it("does not deduct the 1h break from Wasanthi 27-Aug clock time", () => {
@@ -204,6 +204,27 @@ describe("attendance listing display", () => {
     expect(cells.overtimeHours).toBe("0.67");
     expect(cells.status).toBe("Present");
     expect(cells.latePunch).toBe("26");
+  });
+
+  it("formats late punch with one decimal minute when fractional", () => {
+    const cells = attendanceListingCells({
+      locationLabel: "INF-CC",
+      userName: "Test",
+      deviceUserId: "1",
+      work_date: "2026-08-27",
+      actual_in: "2026-08-27T07:50:00.000Z",
+      actual_out: "2026-08-27T17:00:00.000Z",
+      scheduled_in: "2026-08-27T07:00:00.000Z",
+      overtime_minutes: 0,
+      late_minutes: 11.5,
+      worked_minutes: 540,
+      break_minutes: 60,
+      expected_minutes: 540,
+      status: "present",
+      missed_punch: false,
+    });
+    expect(cells.reportingTime).toBe("10:00 AM");
+    expect(cells.latePunch).toBe("11.5");
   });
 
   it("shows OT as clock hours − expected when over 9h permanent", () => {

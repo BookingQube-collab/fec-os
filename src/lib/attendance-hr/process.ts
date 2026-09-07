@@ -22,23 +22,72 @@ import {
   type MergedBiometricUser,
 } from "./mapping-merge";
 import { previewAttendanceFile } from "./preview";
+import { normalizeShiftHm, scheduledIsoFromHm } from "./late-punch";
 import { applyAttendanceShiftPolicy } from "./shift-policy";
 
-/** Qatar-local HH:MM on workDate → ISO (UTC), matching calculate.atDate. */
-function scheduledIso(workDate: string, time: string, addDays = 0): string {
-  const [hRaw, mRaw] = time.split(":");
-  const h = Number.parseInt(hRaw ?? "0", 10) || 0;
-  const m = Number.parseInt(mRaw ?? "0", 10) || 0;
-  const [y, mo, d] = workDate.split("-").map(Number);
-  return new Date(Date.UTC(y, mo - 1, d + addDays, h - 3, m, 0)).toISOString();
+function hasShiftHm(time: string | null | undefined): boolean {
+  return Boolean(normalizeShiftHm(time));
 }
 
 function scheduledBounds(workDate: string, shift: ShiftTemplateInput | null) {
-  if (!shift) return { scheduled_in: null as string | null, scheduled_out: null as string | null };
+  if (!shift || !hasShiftHm(shift.startTime)) {
+    return { scheduled_in: null as string | null, scheduled_out: null as string | null };
+  }
+  const start = normalizeShiftHm(shift.startTime)!;
+  const end = normalizeShiftHm(shift.endTime) ?? shift.endTime;
   return {
-    scheduled_in: scheduledIso(workDate, shift.startTime),
-    scheduled_out: scheduledIso(workDate, shift.endTime, shift.overnight ? 1 : 0),
+    scheduled_in: scheduledIsoFromHm(workDate, start),
+    scheduled_out: hasShiftHm(end)
+      ? scheduledIsoFromHm(workDate, end, shift.overnight ? 1 : 0)
+      : null,
   };
+}
+
+type RosterDayRow = {
+  staff_id: string;
+  work_date: string;
+  shift_template_id: string | null;
+  shift_start?: string | null;
+  shift_end?: string | null;
+  is_week_off: boolean;
+};
+
+/** Prefer assignment clock times, then linked template — never invent DEFAULT 08:00 as roster start. */
+function shiftForRosterDay(
+  rosterRow: RosterDayRow | undefined,
+  shiftById: Map<string, ShiftTemplateInput>,
+): ShiftTemplateInput | null {
+  if (!rosterRow || rosterRow.is_week_off) return null;
+  const startFromRow = normalizeShiftHm(rosterRow.shift_start ?? null);
+  const endFromRow = normalizeShiftHm(rosterRow.shift_end ?? null);
+  if (rosterRow.shift_template_id) {
+    const template = shiftById.get(String(rosterRow.shift_template_id));
+    if (template) {
+      return {
+        ...template,
+        startTime: startFromRow ?? template.startTime,
+        endTime: endFromRow ?? template.endTime,
+      };
+    }
+  }
+  if (startFromRow && endFromRow) {
+    return {
+      ...DEFAULT_SHIFT,
+      name: `${startFromRow}–${endFromRow}`,
+      startTime: startFromRow,
+      endTime: endFromRow,
+      overnight: startFromRow > endFromRow,
+    };
+  }
+  if (startFromRow) {
+    return {
+      ...DEFAULT_SHIFT,
+      name: startFromRow,
+      startTime: startFromRow,
+      endTime: endFromRow ?? DEFAULT_SHIFT.endTime,
+    };
+  }
+  return null;
 }
 
 export {
@@ -181,7 +230,7 @@ export async function recalculateAttendanceRange(
     .lte("attendance_date", dateTo);
   let rosterQuery = supabase
     .from("attendance_roster_assignments")
-    .select("staff_id, work_date, shift_template_id, is_week_off")
+    .select("staff_id, work_date, shift_template_id, shift_start, shift_end, is_week_off")
     .eq("location_id", locationId)
     .gte("work_date", dateFrom)
     .lte("work_date", dateTo);
@@ -269,8 +318,19 @@ export async function recalculateAttendanceRange(
   };
 
   const shiftById = new Map((shifts ?? []).map((s) => [String(s.id), toShift(s as Record<string, unknown>)]));
-  const fallbackShift = toShift((shifts ?? []).find((s) => !s.location_id) as Record<string, unknown> | undefined);
-  const rosterByKey = new Map((roster ?? []).map((r) => [`${r.staff_id}|${r.work_date}`, r]));
+  const rosterByKey = new Map(
+    (roster ?? []).map((r) => [
+      `${r.staff_id}|${r.work_date}`,
+      {
+        staff_id: String(r.staff_id),
+        work_date: String(r.work_date).slice(0, 10),
+        shift_template_id: (r.shift_template_id as string | null) ?? null,
+        shift_start: (r as { shift_start?: string | null }).shift_start ?? null,
+        shift_end: (r as { shift_end?: string | null }).shift_end ?? null,
+        is_week_off: Boolean(r.is_week_off),
+      } satisfies RosterDayRow,
+    ]),
+  );
   const leaveByKey = new Map((leaves ?? []).map((r) => [`${r.staff_id}|${r.leave_date}`, r]));
   const holidayByDate = new Map(
     (holidays ?? []).filter((h) => !h.location_id || h.location_id === locationId).map((h) => [String(h.holiday_date), String(h.name)]),
@@ -294,8 +354,9 @@ export async function recalculateAttendanceRange(
     const staffId = (sample.staff_id as string | null) ?? null;
     const rosterRow = staffId ? rosterByKey.get(`${staffId}|${workDate}`) : undefined;
     const leaveRow = staffId ? leaveByKey.get(`${staffId}|${workDate}`) : undefined;
-    const baseShift = rosterRow?.shift_template_id ? shiftById.get(String(rosterRow.shift_template_id)) ?? fallbackShift : fallbackShift;
-    const shift = applyAttendanceShiftPolicy(baseShift, {
+    const rosterShift = shiftForRosterDay(rosterRow, shiftById);
+    // Hours policy always applies; start/end only from real roster (never DEFAULT 08:00).
+    const shift = applyAttendanceShiftPolicy(rosterShift ?? DEFAULT_SHIFT, {
       employmentType: staffId ? employmentByStaffId.get(staffId) ?? null : null,
       locationCode,
       breakMinutesOverride,
@@ -305,6 +366,9 @@ export async function recalculateAttendanceRange(
       secondmentHours,
       jokerHours,
     });
+    const shiftForCalc: ShiftTemplateInput = rosterShift
+      ? { ...shift, startTime: rosterShift.startTime, endTime: rosterShift.endTime, overnight: rosterShift.overnight }
+      : { ...shift, startTime: "", endTime: "" };
     // Recompute duplicate flags from scratch (ignore stale DB flags from cross-user ingest bugs).
     const marked = markProbableDuplicates(
       punches.map((p) => ({
@@ -347,7 +411,7 @@ export async function recalculateAttendanceRange(
       weekOff: Boolean(rosterRow?.is_week_off),
       holidayName: holidayByDate.get(workDate) ?? null,
       leaveType: (leaveRow?.leave_type as "annual_leave" | "sick_leave" | "unpaid_leave" | null) ?? null,
-      shift,
+      shift: shiftForCalc,
       rules,
     });
     summaryRows.push({
@@ -357,7 +421,7 @@ export async function recalculateAttendanceRange(
       subject_key: subject,
       actual_in: calc.actualIn,
       actual_out: calc.actualOut,
-      ...scheduledBounds(workDate, shift),
+      ...scheduledBounds(workDate, shiftForCalc),
       status: calc.status,
       status_flags: calc.statusFlags,
       late_minutes: calc.lateMinutes,
@@ -406,6 +470,8 @@ export async function recalculateAttendanceRange(
         staff_id: String(row.staff_id),
         work_date: workDate,
         shift_template_id: (row.shift_template_id as string | null) ?? null,
+        shift_start: (row as { shift_start?: string | null }).shift_start ?? null,
+        shift_end: (row as { shift_end?: string | null }).shift_end ?? null,
         is_week_off: Boolean(row.is_week_off),
       }));
     const expected = expectedRowsForDay({
@@ -420,10 +486,16 @@ export async function recalculateAttendanceRange(
       if (staffScope && !staffScope.includes(staffId)) continue;
       if (covered.has(`${staffId}|${workDate}`)) continue;
       const leaveRow = leaveByKey.get(`${staffId}|${workDate}`);
-      const baseShift = rosterRow.shift_template_id
-        ? shiftById.get(String(rosterRow.shift_template_id)) ?? fallbackShift
-        : fallbackShift;
-      const shift = applyAttendanceShiftPolicy(baseShift, {
+      const fullRoster: RosterDayRow = {
+        staff_id: staffId,
+        work_date: workDate,
+        shift_template_id: (rosterRow.shift_template_id as string | null) ?? null,
+        shift_start: (rosterRow as { shift_start?: string | null }).shift_start ?? null,
+        shift_end: (rosterRow as { shift_end?: string | null }).shift_end ?? null,
+        is_week_off: Boolean(rosterRow.is_week_off),
+      };
+      const rosterShift = shiftForRosterDay(fullRoster, shiftById);
+      const shift = applyAttendanceShiftPolicy(rosterShift ?? DEFAULT_SHIFT, {
         employmentType: employmentByStaffId.get(staffId) ?? null,
         locationCode,
         breakMinutesOverride,
@@ -433,13 +505,16 @@ export async function recalculateAttendanceRange(
         secondmentHours,
         jokerHours,
       });
+      const shiftForCalc: ShiftTemplateInput = rosterShift
+        ? { ...shift, startTime: rosterShift.startTime, endTime: rosterShift.endTime, overnight: rosterShift.overnight }
+        : { ...shift, startTime: "", endTime: "" };
       const calc = calculateDailyAttendance([], {
         workDate,
         scheduled: !rosterRow.is_week_off,
         weekOff: Boolean(rosterRow.is_week_off),
         holidayName: holidayByDate.get(workDate) ?? null,
         leaveType: (leaveRow?.leave_type as "annual_leave" | "sick_leave" | "unpaid_leave" | null) ?? null,
-        shift,
+        shift: shiftForCalc,
         rules,
       });
       summaryRows.push({
@@ -449,7 +524,7 @@ export async function recalculateAttendanceRange(
         subject_key: subjectKey(staffId, "", ""),
         actual_in: calc.actualIn,
         actual_out: calc.actualOut,
-        ...scheduledBounds(workDate, shift),
+        ...scheduledBounds(workDate, shiftForCalc),
         status: calc.status,
         status_flags: calc.statusFlags,
         late_minutes: calc.lateMinutes,

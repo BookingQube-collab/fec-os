@@ -162,11 +162,12 @@ export function hasOvertime(row: {
   return resolveOvertimeMinutes(row) > 0;
 }
 
-/** Roster late punch: first check-in after roster start + reporting + buffer, from stored late_minutes. */
+/** Roster late punch: minutes past roster_start + reporting + buffer. One decimal when fractional. */
 export function formatLatePunch(lateMinutes: number | null | undefined): string {
   const mins = Number(lateMinutes ?? 0);
-  if (!Number.isFinite(mins) || mins <= 0) return "No";
-  return String(Math.round(mins));
+  if (!Number.isFinite(mins) || mins <= 0) return "—";
+  const rounded = Math.round(mins * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
 }
 
 export function hasLatePunch(lateMinutes: number | null | undefined): boolean {

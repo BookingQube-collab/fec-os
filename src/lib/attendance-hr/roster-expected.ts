@@ -2,6 +2,8 @@ export type RosterAssignmentRow = {
   staff_id: string;
   work_date: string;
   shift_template_id: string | null;
+  shift_start?: string | null;
+  shift_end?: string | null;
   is_week_off: boolean;
 };
 

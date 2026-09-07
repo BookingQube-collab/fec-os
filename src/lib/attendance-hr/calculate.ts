@@ -1,5 +1,6 @@
 import type { AttendanceRuleInput, AttendanceStatus, DailyCalcResult, ShiftTemplateInput } from "./constants";
 import { DEFAULT_RULES, DEFAULT_SHIFT } from "./constants";
+import { computeLatePunchMinutes } from "./late-punch";
 import { PERMANENT_SHIFT_MINUTES } from "./shift-policy";
 
 export type CalcPunch = {
@@ -175,8 +176,14 @@ export function calculateDailyAttendance(punches: CalcPunch[], ctx: DayContext):
   let workedMinutes = 0;
   let overtimeMinutes = 0;
 
-  const scheduledIn = shift ? atDate(ctx.workDate, shift.startTime) : null;
-  const scheduledOut = shift ? atDate(ctx.workDate, shift.endTime, shift.overnight ? 1 : 0) : null;
+  const scheduledIn =
+    shift?.startTime && /^\d{1,2}:\d{2}/.test(String(shift.startTime).trim())
+      ? atDate(ctx.workDate, shift.startTime)
+      : null;
+  const scheduledOut =
+    shift?.endTime && /^\d{1,2}:\d{2}/.test(String(shift.endTime).trim())
+      ? atDate(ctx.workDate, shift.endTime, shift.overnight ? 1 : 0)
+      : null;
   const inDate = new Date(actualIn);
   let outDate = actualOutIso ? new Date(actualOutIso) : null;
   if (outDate && outDate.getTime() < inDate.getTime()) {
@@ -185,12 +192,13 @@ export function calculateDailyAttendance(punches: CalcPunch[], ctx: DayContext):
 
   if (scheduledIn) {
     // Late = first check-in after roster start + reporting window + buffer (graceMinutes).
-    const graceMs = (shift?.graceMinutes ?? 0) * 60_000;
-    const lateMs = inDate.getTime() - scheduledIn.getTime() - graceMs;
-    if (lateMs > 0) {
-      lateMinutes = Math.round(lateMs / 60_000);
-      flags.push("late");
-    }
+    // One decimal minute (e.g. 11.5 = 11m 30s past the allowed window).
+    lateMinutes = computeLatePunchMinutes({
+      actualIn,
+      scheduledIn: scheduledIn.toISOString(),
+      graceMinutes: shift?.graceMinutes ?? 0,
+    });
+    if (lateMinutes > 0) flags.push("late");
   }
 
   if (outDate && scheduledOut) {

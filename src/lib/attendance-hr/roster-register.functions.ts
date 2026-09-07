@@ -80,7 +80,7 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
 
     let q = context.supabase
       .from("attendance_roster_assignments")
-      .select("id, location_id, staff_id, work_date, shift_template_id, is_week_off, source, created_at")
+      .select("id, location_id, staff_id, work_date, shift_template_id, shift_start, shift_end, is_week_off, source, created_at")
       .gte("work_date", data.dateFrom)
       .lte("work_date", data.dateTo)
       .order("work_date", { ascending: true })
@@ -132,6 +132,8 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
       const staff = staffById.get(String(row.staff_id));
       const loc = locById.get(String(row.location_id));
       const shift = row.shift_template_id ? shiftById.get(String(row.shift_template_id)) : undefined;
+      const startFromRow = (row as { shift_start?: string | null }).shift_start;
+      const endFromRow = (row as { shift_end?: string | null }).shift_end;
       return {
         id: String(row.id),
         locationId: String(row.location_id),
@@ -142,8 +144,16 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
         employeeCode: (staff?.employee_code as string | null | undefined) ?? null,
         qid: (staff?.qid as string | null | undefined) ?? null,
         workDate: String(row.work_date).slice(0, 10),
-        shiftStart: shift?.start_time ? String(shift.start_time).slice(0, 5) : null,
-        shiftEnd: shift?.end_time ? String(shift.end_time).slice(0, 5) : null,
+        shiftStart: startFromRow
+          ? String(startFromRow).slice(0, 5)
+          : shift?.start_time
+            ? String(shift.start_time).slice(0, 5)
+            : null,
+        shiftEnd: endFromRow
+          ? String(endFromRow).slice(0, 5)
+          : shift?.end_time
+            ? String(shift.end_time).slice(0, 5)
+            : null,
         shiftTemplateId: (row.shift_template_id as string | null) ?? null,
         isWeekOff: Boolean(row.is_week_off),
         source: String(row.source ?? "manual"),
@@ -218,6 +228,8 @@ export const updateRosterAssignment = createAuthenticatedAction(
       .update({
         is_week_off: isWeekOff,
         shift_template_id: isWeekOff ? null : shiftTemplateId,
+        shift_start: isWeekOff ? null : shiftStart,
+        shift_end: isWeekOff ? null : shiftEnd,
         source: existing.source === "upload" || existing.source === "amend" ? "amend" : existing.source,
       })
       .eq("id", data.id);

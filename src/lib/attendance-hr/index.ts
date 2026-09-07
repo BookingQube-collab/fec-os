@@ -45,6 +45,7 @@ export {
   PERMANENT_SHIFT_MINUTES,
   EXTENDED_SHIFT_MINUTES,
 } from "./shift-policy";
+export { computeLatePunchMinutes, normalizeShiftHm, scheduledIsoFromHm } from "./late-punch";
 export type {
   AttendanceEmploymentRole,
   AttendanceEmploymentType,
