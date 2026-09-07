@@ -46,3 +46,66 @@ export function computeLatePunchMinutes(input: {
   if (lateMs <= 0) return 0;
   return Math.round(lateMs / 6_000) / 10;
 }
+
+/**
+ * Reports listing late punch: recompute from roster start on read.
+ * Never trust stored late_minutes when there is no roster shift start — those
+ * values are often stale DEFAULT 08:00 baselines (e.g. 137).
+ */
+export function resolveListingLateMinutes(input: {
+  actualIn: string | null | undefined;
+  /** Roster-derived scheduled_in only; null when shift start is unknown. */
+  rosterScheduledIn: string | null | undefined;
+  reportingTimeMinutes?: number | null;
+  bufferMinutes?: number | null;
+}): number {
+  if (!input.rosterScheduledIn) return 0;
+  return computeLatePunchMinutes({
+    actualIn: input.actualIn,
+    scheduledIn: input.rosterScheduledIn,
+    reportingTimeMinutes: input.reportingTimeMinutes,
+    bufferMinutes: input.bufferMinutes,
+  });
+}
+
+export type RosterShiftLookup = {
+  shift_template_id: string | null;
+  shift_start: string | null;
+  shift_end: string | null;
+  is_week_off: boolean;
+};
+
+/**
+ * Resolve reporting-time ISO from roster assignment (+ optional template map).
+ * Prefers location-scoped row, then staff+date fallback. Never invents 08:00.
+ */
+export function resolveRosterScheduledIn(input: {
+  staffId: string | null | undefined;
+  locationId: string | null | undefined;
+  workDate: string;
+  rosterByStaffLocationDate: Map<string, RosterShiftLookup>;
+  rosterByStaffDate: Map<string, RosterShiftLookup>;
+  shiftStartByTemplateId: Map<string, { start: string | null; end: string | null }>;
+}): string | null {
+  const staffId = input.staffId?.trim() || "";
+  const workDate = String(input.workDate ?? "").slice(0, 10);
+  if (!staffId || !/^\d{4}-\d{2}-\d{2}$/.test(workDate)) return null;
+
+  const locationId = input.locationId?.trim() || "";
+  const candidates: Array<RosterShiftLookup | undefined> = [];
+  if (locationId) {
+    candidates.push(input.rosterByStaffLocationDate.get(`${staffId}|${locationId}|${workDate}`));
+  }
+  candidates.push(input.rosterByStaffDate.get(`${staffId}|${workDate}`));
+
+  for (const roster of candidates) {
+    if (!roster || roster.is_week_off) continue;
+    const startHm =
+      normalizeShiftHm(roster.shift_start) ??
+      (roster.shift_template_id
+        ? input.shiftStartByTemplateId.get(String(roster.shift_template_id))?.start ?? null
+        : null);
+    if (startHm) return scheduledIsoFromHm(workDate, startHm);
+  }
+  return null;
+}

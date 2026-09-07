@@ -43,7 +43,12 @@ import {
 import { expectedOnDutyStaffIds, expectedRowsForDay, isWorkDateCovered } from "@/lib/attendance-hr/roster-expected";
 import { ATTENDANCE_TALLY_UPLOAD_NOTE } from "@/lib/attendance-hr/roster-upload";
 import { recalculateAttendanceRange } from "@/lib/attendance-hr/process";
-import { computeLatePunchMinutes, normalizeShiftHm, scheduledIsoFromHm } from "@/lib/attendance-hr/late-punch";
+import {
+  normalizeShiftHm,
+  resolveListingLateMinutes,
+  resolveRosterScheduledIn,
+  type RosterShiftLookup,
+} from "@/lib/attendance-hr/late-punch";
 import {
   attendanceHrStaffMatches,
   isAttendanceHrUnmappedSearch,
@@ -1729,41 +1734,30 @@ async function enrichAttendanceHrDailyRows(
       },
     ]),
   );
-  const rosterByKey = new Map<string, {
-    shift_template_id: string | null;
-    shift_start: string | null;
-    shift_end: string | null;
-    is_week_off: boolean;
-  }>();
+  const rosterByStaffLocationDate = new Map<string, RosterShiftLookup>();
+  const rosterByStaffDate = new Map<string, RosterShiftLookup>();
   for (const row of rosterRes.data ?? []) {
     const staffId = String(row.staff_id ?? "");
     const locationId = String(row.location_id ?? "");
     const workDate = String(row.work_date ?? "").slice(0, 10);
-    if (!staffId || !locationId || !workDate) continue;
-    rosterByKey.set(`${staffId}|${locationId}|${workDate}`, {
+    if (!staffId || !workDate) continue;
+    const lookup: RosterShiftLookup = {
       shift_template_id: (row.shift_template_id as string | null) ?? null,
       shift_start: (row.shift_start as string | null) ?? null,
       shift_end: (row.shift_end as string | null) ?? null,
       is_week_off: Boolean(row.is_week_off),
-    });
-  }
-
-  function resolveScheduledIn(
-    staffId: string | null,
-    locationId: string,
-    workDate: string,
-    stored: string | null,
-  ): string | null {
-    if (staffId && workDate && locationId) {
-      const roster = rosterByKey.get(`${staffId}|${locationId}|${workDate}`);
-      if (roster && !roster.is_week_off) {
-        const startHm =
-          normalizeShiftHm(roster.shift_start) ??
-          (roster.shift_template_id ? shiftStartById.get(roster.shift_template_id)?.start ?? null : null);
-        if (startHm) return scheduledIsoFromHm(workDate, startHm);
-      }
-    }
-    return stored;
+    };
+    if (locationId) rosterByStaffLocationDate.set(`${staffId}|${locationId}|${workDate}`, lookup);
+    // Prefer a row that already has usable shift times when multiple locations exist.
+    const dateKey = `${staffId}|${workDate}`;
+    const prev = rosterByStaffDate.get(dateKey);
+    const hasTimes = Boolean(
+      normalizeShiftHm(lookup.shift_start) || lookup.shift_template_id,
+    );
+    const prevHasTimes = Boolean(
+      prev && (normalizeShiftHm(prev.shift_start) || prev.shift_template_id),
+    );
+    if (!prev || (hasTimes && !prevHasTimes)) rosterByStaffDate.set(dateKey, lookup);
   }
 
   return rows.map((row) => {
@@ -1782,22 +1776,24 @@ async function enrichAttendanceHrDailyRows(
     });
     const workDate = String(row.work_date ?? "").slice(0, 10);
     const staffId = typeof row.staff_id === "string" ? row.staff_id : null;
-    const storedScheduled = row.scheduled_in == null ? null : String(row.scheduled_in);
-    const scheduledIn = resolveScheduledIn(staffId, locationId, workDate, storedScheduled);
+    // Only roster-derived start — never stored scheduled_in (often stale DEFAULT 08:00).
+    const scheduledIn = resolveRosterScheduledIn({
+      staffId,
+      locationId,
+      workDate,
+      rosterByStaffLocationDate,
+      rosterByStaffDate,
+      shiftStartByTemplateId: shiftStartById,
+    });
     const actualIn = row.actual_in == null ? null : String(row.actual_in);
     const reportingMins = site?.reporting_time_minutes != null ? Number(site.reporting_time_minutes) : null;
     const bufferMins = site?.buffer_minutes != null ? Number(site.buffer_minutes) : null;
-    // Prefer live calc when roster start + site grace are known (fixes stale DEFAULT 08:00 late ints).
-    const liveLate =
-      scheduledIn && actualIn
-        ? computeLatePunchMinutes({
-            actualIn,
-            scheduledIn,
-            reportingTimeMinutes: reportingMins,
-            bufferMinutes: bufferMins,
-          })
-        : null;
-    const lateMinutes = liveLate != null ? liveLate : Number(row.late_minutes ?? 0);
+    const lateMinutes = resolveListingLateMinutes({
+      actualIn,
+      rosterScheduledIn: scheduledIn,
+      reportingTimeMinutes: reportingMins,
+      bufferMinutes: bufferMins,
+    });
     return {
       id: String(row.id),
       location_id: String(row.location_id ?? ""),

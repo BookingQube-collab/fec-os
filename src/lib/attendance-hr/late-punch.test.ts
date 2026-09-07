@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { computeLatePunchMinutes, normalizeShiftHm, scheduledIsoFromHm } from "./late-punch";
+import {
+  computeLatePunchMinutes,
+  normalizeShiftHm,
+  resolveListingLateMinutes,
+  resolveRosterScheduledIn,
+  scheduledIsoFromHm,
+  type RosterShiftLookup,
+} from "./late-punch";
 
 describe("late punch helpers", () => {
   it("normalizes HH:MM and HH:MM:SS", () => {
@@ -43,5 +50,92 @@ describe("late punch helpers", () => {
         bufferMinutes: 15,
       }),
     ).toBe(0);
+  });
+
+  it("listing late ignores stale stored minutes when roster start is missing", () => {
+    expect(
+      resolveListingLateMinutes({
+        actualIn: "2026-08-27T07:26:31.000Z",
+        rosterScheduledIn: null,
+        reportingTimeMinutes: 30,
+        bufferMinutes: 15,
+      }),
+    ).toBe(0);
+  });
+
+  it("listing late recomputes from roster start on read", () => {
+    expect(
+      resolveListingLateMinutes({
+        actualIn: "2026-08-27T07:50:30.000Z",
+        rosterScheduledIn: "2026-08-27T07:00:00.000Z",
+        reportingTimeMinutes: 30,
+        bufferMinutes: 15,
+      }),
+    ).toBe(5.5);
+  });
+
+  it("resolves roster scheduled_in from shift_start without trusting stored 08:00", () => {
+    const roster: RosterShiftLookup = {
+      shift_template_id: null,
+      shift_start: "10:00",
+      shift_end: "20:00",
+      is_week_off: false,
+    };
+    const byLoc = new Map([["s1|loc1|2026-08-27", roster]]);
+    const byDate = new Map([["s1|2026-08-27", roster]]);
+    expect(
+      resolveRosterScheduledIn({
+        staffId: "s1",
+        locationId: "loc1",
+        workDate: "2026-08-27",
+        rosterByStaffLocationDate: byLoc,
+        rosterByStaffDate: byDate,
+        shiftStartByTemplateId: new Map(),
+      }),
+    ).toBe("2026-08-27T07:00:00.000Z");
+  });
+
+  it("falls back to staff+date roster when location key has no shift times", () => {
+    const emptyLoc: RosterShiftLookup = {
+      shift_template_id: null,
+      shift_start: null,
+      shift_end: null,
+      is_week_off: false,
+    };
+    const withTimes: RosterShiftLookup = {
+      shift_template_id: null,
+      shift_start: "10:00",
+      shift_end: "20:00",
+      is_week_off: false,
+    };
+    expect(
+      resolveRosterScheduledIn({
+        staffId: "s1",
+        locationId: "loc1",
+        workDate: "2026-08-27",
+        rosterByStaffLocationDate: new Map([["s1|loc1|2026-08-27", emptyLoc]]),
+        rosterByStaffDate: new Map([["s1|2026-08-27", withTimes]]),
+        shiftStartByTemplateId: new Map(),
+      }),
+    ).toBe("2026-08-27T07:00:00.000Z");
+  });
+
+  it("returns null when roster exists but has no shift start or template", () => {
+    const empty: RosterShiftLookup = {
+      shift_template_id: null,
+      shift_start: null,
+      shift_end: null,
+      is_week_off: false,
+    };
+    expect(
+      resolveRosterScheduledIn({
+        staffId: "s1",
+        locationId: "loc1",
+        workDate: "2026-08-27",
+        rosterByStaffLocationDate: new Map([["s1|loc1|2026-08-27", empty]]),
+        rosterByStaffDate: new Map([["s1|2026-08-27", empty]]),
+        shiftStartByTemplateId: new Map(),
+      }),
+    ).toBeNull();
   });
 });
