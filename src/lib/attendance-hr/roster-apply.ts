@@ -86,6 +86,30 @@ export async function replaceAttendanceRosterPeriod(
     return { imported: 0, uploadId: null as string | null, processed: 0 };
   }
 
+  // Keep existing clock times when a duty-only reupload sends Yes/Off without HH:MM.
+  const existingByKey = new Map<
+    string,
+    { shift_template_id: string | null; shift_start: string | null; shift_end: string | null }
+  >();
+  {
+    const { data: existing, error: existingErr } = await context.supabase
+      .from("attendance_roster_assignments")
+      .select("staff_id, work_date, shift_template_id, shift_start, shift_end")
+      .eq("location_id", input.locationId)
+      .gte("work_date", input.dateFrom)
+      .lte("work_date", input.dateTo)
+      .in("staff_id", staffIds)
+      .limit(20000);
+    if (existingErr) throw existingErr;
+    for (const row of existing ?? []) {
+      existingByKey.set(`${row.staff_id}|${String(row.work_date).slice(0, 10)}`, {
+        shift_template_id: (row.shift_template_id as string | null) ?? null,
+        shift_start: (row.shift_start as string | null) ?? null,
+        shift_end: (row.shift_end as string | null) ?? null,
+      });
+    }
+  }
+
   // Scope delete to uploaded staff — never clear the rest of the location roster.
   const { error: delErr } = await context.supabase
     .from("attendance_roster_assignments")
@@ -96,17 +120,23 @@ export async function replaceAttendanceRosterPeriod(
     .in("staff_id", staffIds);
   if (delErr) throw delErr;
 
-  const payload = unique.map((row) => ({
-    location_id: input.locationId,
-    staff_id: row.staffId,
-    work_date: row.workDate,
-    shift_template_id: row.shiftTemplateId,
-    shift_start: row.isWeekOff ? null : row.shiftStart,
-    shift_end: row.isWeekOff ? null : row.shiftEnd,
-    is_week_off: row.isWeekOff,
-    source: "upload",
-    created_by: context.userId,
-  }));
+  const payload = unique.map((row) => {
+    const prev = existingByKey.get(`${row.staffId}|${row.workDate}`);
+    const keepTimes = !row.isWeekOff && !row.shiftStart && Boolean(prev?.shift_start || prev?.shift_template_id);
+    return {
+      location_id: input.locationId,
+      staff_id: row.staffId,
+      work_date: row.workDate,
+      shift_template_id: row.isWeekOff
+        ? null
+        : row.shiftTemplateId ?? (keepTimes ? prev?.shift_template_id ?? null : null),
+      shift_start: row.isWeekOff ? null : row.shiftStart ?? (keepTimes ? prev?.shift_start ?? null : null),
+      shift_end: row.isWeekOff ? null : row.shiftEnd ?? (keepTimes ? prev?.shift_end ?? null : null),
+      is_week_off: row.isWeekOff,
+      source: "upload",
+      created_by: context.userId,
+    };
+  });
 
   for (let i = 0; i < payload.length; i += 400) {
     const chunk = payload.slice(i, i + 400);

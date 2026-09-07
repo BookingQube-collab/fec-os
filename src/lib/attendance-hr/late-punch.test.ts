@@ -138,4 +138,50 @@ describe("late punch helpers", () => {
       }),
     ).toBeNull();
   });
+
+  it("uses staff typical shift when working-day roster has null times", () => {
+    const empty: RosterShiftLookup = {
+      shift_template_id: null,
+      shift_start: null,
+      shift_end: null,
+      is_week_off: false,
+    };
+    const typical: RosterShiftLookup = {
+      shift_template_id: null,
+      shift_start: "10:00",
+      shift_end: "20:00",
+      is_week_off: false,
+    };
+    expect(
+      resolveRosterScheduledIn({
+        staffId: "s1",
+        locationId: "loc1",
+        workDate: "2026-08-27",
+        rosterByStaffLocationDate: new Map([["s1|loc1|2026-08-27", empty]]),
+        rosterByStaffDate: new Map([["s1|2026-08-27", empty]]),
+        shiftStartByTemplateId: new Map(),
+        fallbackByStaffId: new Map([["s1", typical]]),
+      }),
+    ).toBe("2026-08-27T07:00:00.000Z");
+  });
+
+  it("does not invent fallback when there is no roster working day", () => {
+    const typical: RosterShiftLookup = {
+      shift_template_id: null,
+      shift_start: "10:00",
+      shift_end: "20:00",
+      is_week_off: false,
+    };
+    expect(
+      resolveRosterScheduledIn({
+        staffId: "s1",
+        locationId: "loc1",
+        workDate: "2026-08-27",
+        rosterByStaffLocationDate: new Map(),
+        rosterByStaffDate: new Map(),
+        shiftStartByTemplateId: new Map(),
+        fallbackByStaffId: new Map([["s1", typical]]),
+      }),
+    ).toBeNull();
+  });
 });
