@@ -1051,8 +1051,12 @@
     display: none !important;
   }
   .executive-report-print,
-  .executive-report-section {
+  .executive-report-section,
+  .weekly-review-section {
     break-inside: avoid;
     page-break-inside: avoid;
+  }
+  .weekly-review-page {
+    background: #fff !important;
   }
 }

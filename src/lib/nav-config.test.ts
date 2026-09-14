@@ -159,4 +159,16 @@ describe("admin sidebar visibility", () => {
     expect(group?.items.some((item) => item.href === "/maintenance")).toBe(true);
     expect(group?.items.some((item) => item.href === "/maintenance/weekly-report/executive")).toBe(false);
   });
+
+  it("lists Weekly Management Review under Operations for Head of Ops and HR", () => {
+    const ops = getVisibleDepartments(["regional_ops"]).find((dept) => dept.id === "operations");
+    expect(ops?.items.some((item) => item.href === "/operations/weekly-review")).toBe(true);
+    expect(ops?.items.some((item) => item.href === "/operations/corporate-deals")).toBe(true);
+    const hr = getVisibleDepartments(["hr"]).find((dept) => dept.id === "operations");
+    expect(hr?.items.some((item) => item.href === "/operations/weekly-review")).toBe(true);
+    expect(hr?.items.some((item) => item.href === "/operations/corporate-deals")).toBe(true);
+    const tech = getVisibleDepartments(["technician"]).find((dept) => dept.id === "operations");
+    expect(tech?.items.some((item) => item.href === "/operations/weekly-review")).toBe(false);
+    expect(tech?.items.some((item) => item.href === "/operations/corporate-deals")).toBe(false);
+  });
 });

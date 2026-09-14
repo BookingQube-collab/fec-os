@@ -25,6 +25,7 @@ const CATEGORY_RULES = [
   { id: "ceo", label: "CEO", prefix: "/api/ceo/" },
   { id: "inventory", label: "Inventory", prefix: "/api/inventory" },
   { id: "vendors", label: "Vendors", prefix: "/api/vendors" },
+  { id: "weekly-review", label: "Weekly Review", prefix: "/api/weekly-review" },
   { id: "weekly-reports", label: "Weekly Reports", prefix: "/api/weekly-reports/" },
   { id: "tasks", label: "Tasks", prefix: "/api/tasks" },
   { id: "snags", label: "Snags", prefix: "/api/snags" },

@@ -250,6 +250,14 @@ export const CAPABILITIES = {
   /** @deprecated alias — use weekly_reports.executive */
   "weekly_reports.generate": ["ceo", "coo", "regional_ops"],
 
+  // Weekly management review (Tuesday HoO pack)
+  "weekly_review.view": ["ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager", "hr", "auditor"],
+  "weekly_review.edit": ["ceo", "coo", "regional_ops"],
+
+  // Corporate Deals Weekly Report (BookingQube promo codes) — same gate as weekly review
+  "corporate_deals.view": ["ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager", "hr", "auditor"],
+  "corporate_deals.edit": ["ceo", "coo", "regional_ops"],
+
   // PR & Procurement Control
   "procurement.view": [
     "ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager",

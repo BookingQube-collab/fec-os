@@ -3998,9 +3998,43 @@ export type Database = {
       event_readiness_items: { Row: Record<string, unknown> & { id: string; event_id: string; code: string; title: string; category: string; is_required: boolean; is_complete: boolean; weight: number }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       event_gate_completions: { Row: Record<string, unknown> & { id: string; event_id: string; requirement_id: string; is_satisfied: boolean }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       sys_crash_incidents: { Row: { id: string; created_at: string; updated_at: string; message: string; stack: string | null; route: string | null; user_id: string | null; severity: string; status: string; source: string; resolved_at: string | null; resolved_by: string | null; metadata: Json }; Insert: { id?: string; created_at?: string; updated_at?: string; message: string; stack?: string | null; route?: string | null; user_id?: string | null; severity?: string; status?: string; source?: string; resolved_at?: string | null; resolved_by?: string | null; metadata?: Json }; Update: { id?: string; created_at?: string; updated_at?: string; message?: string; stack?: string | null; route?: string | null; user_id?: string | null; severity?: string; status?: string; source?: string; resolved_at?: string | null; resolved_by?: string | null; metadata?: Json }; Relationships: [] }
+      weekly_reviews: { Row: Record<string, unknown> & { id: string; week_label: string; week_start: string; week_end: string; meeting_date: string; prepared_by: string | null; notes: string | null; status: string; created_at: string; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      weekly_review_decisions: { Row: Record<string, unknown> & { id: string; review_id: string; location_id: string | null; venue_text: string | null; matter: string; decision_required: string; priority: string; outcome: string; note: string | null; sort_order: number; created_at: string; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      weekly_review_aggregators: { Row: Record<string, unknown> & { id: string; review_id: string; location_id: string; platform: string; redemptions: number; saving_qar: number; created_at: string; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      weekly_review_corporate: { Row: Record<string, unknown> & { id: string; review_id: string; location_id: string | null; company: string; deals: number; revenue_qar: number; created_at: string; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      weekly_review_social: { Row: Record<string, unknown> & { id: string; review_id: string; location_id: string; google_rating: number | null; total_reviews: number; new_reviews_campaign: number; new_reviews_organic: number; ig_followers: number; rewards_15min: number; created_at: string; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      weekly_review_loyalty: { Row: Record<string, unknown> & { id: string; review_id: string; location_id: string; new_members: number; active_members: number; rewards_redeemed: number; created_at: string; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      weekly_review_actions: { Row: Record<string, unknown> & { id: string; review_id: string; venue_text: string | null; action: string; owner: string | null; due: string | null; status: string; update_note: string | null; carried_from: string | null; sort_order: number; source_module: string | null; created_at: string; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      weekly_review_incidents: { Row: Record<string, unknown> & { id: string; review_id: string; location_id: string | null; description: string; action_taken: string | null; closed: boolean; created_at: string; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      corporate_deal_partners: { Row: Record<string, unknown> & { id: string; name: string; category: string; redemption_mechanism: string; sort_order: number; active: boolean; created_at: string; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      corporate_deal_codes: { Row: Record<string, unknown> & { id: string; promocode: string; partner_id: string | null; category: string; venue: string; notes: string | null; created_at: string; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      corporate_deal_weekly_log: { Row: Record<string, unknown> & { id: string; iso_week: string; promocode_id: string | null; promocode: string; description: string; company_name: string | null; times_used: number; booking_lines: number; tickets: number; total_discount: number; partner_id: string | null; partner_name: string | null; category: string; venue: string; imported_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      corporate_deal_month_data: { Row: Record<string, unknown> & { id: string; period_month: string; promocode_id: string | null; promocode: string; description: string; company_name: string | null; times_used: number; booking_lines: number; tickets: number; total_discount: number; partner_id: string | null; partner_name: string | null; category: string; venue: string; imported_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      corporate_deal_trend_data: { Row: Record<string, unknown> & { id: string; period_month: string; promocode_id: string | null; promocode: string; description: string; company_name: string | null; times_used: number; booking_lines: number; tickets: number; total_discount: number; partner_id: string | null; partner_name: string | null; category: string; venue: string; imported_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
     }
     Views: {
-      [_ in never]: never
+      weekly_review_summary: {
+        Row: {
+          review_id: string
+          week_start: string
+          week_label: string
+          aggregator_redemptions: number
+          corporate_deals: number
+          decisions_pending: number
+          actions_open: number
+          actions_total: number
+          incidents: number
+          new_reviews: number
+          prev_aggregator_redemptions: number | null
+          prev_corporate_deals: number | null
+          prev_decisions_pending: number | null
+          prev_actions_open: number | null
+          prev_actions_total: number | null
+          prev_incidents: number | null
+          prev_new_reviews: number | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       approve_shift_swap: { Args: { _id: string }; Returns: undefined }
@@ -4078,6 +4112,9 @@ export type Database = {
         }
         Returns: string
       }
+      can_edit_weekly_review: { Args: Record<PropertyKey, never>; Returns: boolean }
+      can_view_weekly_review: { Args: Record<PropertyKey, never>; Returns: boolean }
+      create_next_weekly_review: { Args: Record<PropertyKey, never>; Returns: string }
       create_complaint: {
         Args: {
           _category: string

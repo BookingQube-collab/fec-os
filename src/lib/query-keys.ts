@@ -330,6 +330,20 @@ export const queryKeys = {
     executiveDetail: (id?: string | null) =>
       [...queryKeys.weeklyReports.all, "executive", id ?? null] as const,
   },
+  weeklyReview: {
+    all: ["weeklyReview"] as const,
+    list: () => [...queryKeys.weeklyReview.all, "list"] as const,
+    detail: (id?: string | null) => [...queryKeys.weeklyReview.all, "detail", id ?? null] as const,
+  },
+  corporateDeals: {
+    all: ["corporateDeals"] as const,
+    report: (week?: string | null) => [...queryKeys.corporateDeals.all, "report", week ?? null] as const,
+    weeks: () => [...queryKeys.corporateDeals.all, "weeks"] as const,
+    partners: () => [...queryKeys.corporateDeals.all, "partners"] as const,
+    codes: (unmapped?: boolean) => [...queryKeys.corporateDeals.all, "codes", unmapped ?? false] as const,
+    log: (week?: string | null) => [...queryKeys.corporateDeals.all, "log", week ?? null] as const,
+    mom: () => [...queryKeys.corporateDeals.all, "mom"] as const,
+  },
   procurement: {
     all: ["procurement"] as const,
     dashboard: (locationId?: string | null) =>

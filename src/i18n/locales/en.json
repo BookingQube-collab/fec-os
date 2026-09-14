@@ -105,6 +105,8 @@
     "complianceCalendar": "Calendar",
     "reports": "Reports",
     "weeklyReports": "Weekly Reports",
+    "weeklyReview": "Weekly Management Review",
+    "corporateDeals": "Corporate Deals Weekly",
     "weeklyReportsList": "My Reports",
     "weeklyReportsNew": "New Report",
     "weeklyReportsReview": "Review Panel",
@@ -2163,6 +2165,218 @@
       "assignHandler": "Assign handler",
       "saved": "Handler updated",
       "fullCustomer": "Full customer module"
+    }
+  },
+  "weeklyReview": {
+    "title": "Weekly Management Review",
+    "subtitle": "Tuesday operations pack for Head of Operations.",
+    "present": "Present",
+    "enter": "Enter data",
+    "enterThisWeek": "Enter this week's data",
+    "startWeek": "Start new week",
+    "week": "Week",
+    "weekStart": "Start",
+    "weekEnd": "End",
+    "meetingDate": "Meeting date",
+    "notes": "Notes for today's meeting",
+    "notesPlaceholder": "Points to raise today",
+    "saved": "Saved",
+    "empty": "No weekly review yet. Start a new week, then upload the sample workbook or enter figures.",
+    "noNumbers": "No figures entered for this week. Switch to Enter data to fill the tabs before presenting.",
+    "exportPdf": "Export PDF",
+    "presenter": "Presented by {{name}}",
+    "tabs": {
+      "decisions": "Decisions needed",
+      "aggregators": "Aggregators",
+      "corporate": "Corporate deals",
+      "reviews": "Reviews & followers",
+      "loyalty": "Loyalty",
+      "actions": "Follow-up actions",
+      "incidents": "Incidents"
+    },
+    "kpi": {
+      "redemptions": "Aggregator redemptions",
+      "deals": "Corporate deals",
+      "decisions": "Decisions needed today",
+      "actions": "Actions open / total",
+      "incidents": "Incidents",
+      "reviews": "New Google reviews (3 sites)"
+    },
+    "sections": {
+      "notes": "Points to raise today",
+      "decisions": "Decisions required",
+      "aggregators": "Third-party aggregators",
+      "aggregatorsPlatform": "By platform",
+      "aggregatorsVenue": "By venue",
+      "pace": "Weekly pace",
+      "corporate": "Corporate deals",
+      "corporateSheet": "Open corporate deals sheet",
+      "reviews": "Reviews, followers and loyalty",
+      "actions": "Follow-up on previous minutes",
+      "incidents": "Incidents by venue",
+      "trends": "Trends across saved weeks"
+    },
+    "fields": {
+      "venue": "Venue",
+      "platform": "Platform",
+      "redemptions": "Redemptions",
+      "saving": "Saving (QAR)",
+      "company": "Company",
+      "deals": "Deals",
+      "revenue": "Revenue (QAR)",
+      "matter": "Matter",
+      "decision": "Decision required",
+      "priority": "Priority",
+      "outcome": "Outcome",
+      "note": "Note",
+      "rating": "Google rating",
+      "totalReviews": "Total reviews",
+      "campaign": "New reviews (campaign)",
+      "organic": "New reviews (organic)",
+      "followers": "IG followers",
+      "rewards15": "15-minute rewards",
+      "newMembers": "New members",
+      "activeMembers": "Active members",
+      "rewardsRedeemed": "Rewards redeemed",
+      "action": "Action",
+      "owner": "Owner",
+      "due": "Due",
+      "status": "Status",
+      "update": "Update",
+      "description": "Description",
+      "actionTaken": "Action taken",
+      "closed": "Closed"
+    },
+    "priority": {
+      "critical": "Critical",
+      "safety": "Safety",
+      "security": "Security",
+      "commercial": "Commercial",
+      "other": "Other"
+    },
+    "outcome": {
+      "pending": "Pending",
+      "approved": "Approved",
+      "declined": "Declined",
+      "deferred": "Deferred"
+    },
+    "actionStatus": {
+      "open": "Open",
+      "wip": "In progress",
+      "done": "Closed"
+    },
+    "addRow": "Add row",
+    "removeRow": "Remove row",
+    "noneReported": "None reported",
+    "closedCollapsed": "Closed items",
+    "openList": "Open actions",
+    "share": "Share",
+    "import": {
+      "sample": "Download sample",
+      "downloadWeek": "Download this week",
+      "upload": "Upload data",
+      "applied": "Workbook applied to this week"
+    },
+    "infographics": {
+      "nav": "Infographics",
+      "title": "Weekly infographics",
+      "empty": "Upload the sample workbook or enter figures, then open Infographics to see charts for this week.",
+      "noChart": "No figures yet",
+      "platformShare": "Redemptions by platform",
+      "venueShare": "Redemptions by venue",
+      "pace": "Actual vs weekly pace",
+      "actionsMix": "Follow-up status",
+      "priorityMix": "Decisions by priority"
+    }
+  },
+  "corporateDeals": {
+    "title": "Corporate Deals Weekly Report",
+    "subtitle": "BookingQube promo-code performance for Tuesday ops presentation.",
+    "week": "Reporting week",
+    "prevWeek": "Previous week",
+    "preparedBy": "Prepared by {{name}}",
+    "reviewedBy": "Reviewed by: —",
+    "exportPdf": "Export PDF (landscape)",
+    "empty": "No weekly promo log yet. Import a BookingQube CSV to start.",
+    "readOnly": "View only — Head of Ops or Admin can import and map codes.",
+    "unmappedBanner": "{{count}} unmapped promo codes need mapping (also raised on the action register).",
+    "noUsage": "Partners with no usage this month",
+    "allActive": "All master partners have usage this month.",
+    "tabs": {
+      "dashboard": "Dashboard",
+      "summary": "Summary",
+      "import": "Import",
+      "log": "Weekly log",
+      "mapping": "Code mapping",
+      "partners": "Partner master",
+      "mom": "MoM follow-up",
+      "readme": "Read me"
+    },
+    "kpi": {
+      "redemptions": "Redemptions",
+      "tickets": "Tickets",
+      "discount": "Discount",
+      "activePartners": "Active partners",
+      "aggregatorShare": "Aggregator share"
+    },
+    "category": {
+      "corporate": "Corporate discount",
+      "aggregator": "Aggregator BOGO"
+    },
+    "charts": {
+      "top10": "Top 10 partners",
+      "corpVsAgg": "Corporate vs Aggregator this week",
+      "weeklyTrend": "Weekly trend (current year)",
+      "monthlyTrend": "Monthly trend (13 months)",
+      "empty": "No chart data yet"
+    },
+    "fields": {
+      "partner": "Partner",
+      "category": "Category",
+      "venue": "Venue",
+      "code": "Promo code",
+      "mechanism": "Redemption mechanism",
+      "status": "Status"
+    },
+    "summary": {
+      "week": "This week",
+      "mtd": "Month to date"
+    },
+    "import": {
+      "kindWeek": "Weekly log",
+      "kindMonth": "Month data",
+      "kindTrend": "Trend data",
+      "paste": "Paste BookingQube CSV here…",
+      "preview": "Preview",
+      "commit": "Import",
+      "replace": "Replace existing week",
+      "previewReady": "Preview ready",
+      "previewStats": "{{rows}} rows · period {{period}} · {{unmapped}} unmapped codes",
+      "duplicateWeek": "This ISO week already exists — cancel or replace.",
+      "done": "Imported {{rows}} rows ({{unmapped}} unmapped)."
+    },
+    "mapping": {
+      "help": "New codes default to Unmapped. Map partner, category, and venue — Internal / promotion stays out of partner totals.",
+      "saved": "Mapping saved"
+    },
+    "mom": {
+      "reuseNote": "Uses the same weekly_review_actions register (source_module = corporate_deals_mom). Enter MoM points from the 8 Sep 2026 minutes here or in Weekly Management Review → Follow-up actions.",
+      "decision": "Decision / action",
+      "owner": "Owner",
+      "due": "Due",
+      "update": "Update",
+      "empty": "No MoM rows yet. Add them via the shared action register (tag source_module corporate_deals_mom)."
+    },
+    "readme": {
+      "title": "Tuesday routine",
+      "s1": "Export weekly promo codes from BookingQube (ISO week Mon–Sun).",
+      "s2": "Open Import, paste CSV, set week, Preview.",
+      "s3": "If the week already exists, Replace or Cancel.",
+      "s4": "Map any Unmapped codes (task also lands on the action register).",
+      "s5": "Replace Month data each week; Trend data monthly.",
+      "s6": "Select reporting week on Dashboard — KPIs, Top 10, trends update.",
+      "s7": "Present landscape Dashboard / Export PDF. Do not treat May 2026 aggregator method change as growth.",
+      "defs": "Partner totals include Corporate discount, Aggregator BOGO, and Not on master only. Internal / promotion and Unmapped are reported separately; Unmapped is never silent."
     }
   },
   "weeklyReports": {
