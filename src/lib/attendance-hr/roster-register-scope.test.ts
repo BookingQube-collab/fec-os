@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   assertRosterDeletePeriod,
+  buildRosterMatrix,
   chunkIds,
   filterRosterRegisterRows,
+  isWeekendYmd,
+  rosterMatrixCellKey,
+  rosterMonthSpans,
   rosterRegisterHasExtraFilters,
   rosterRowMatchesSearch,
 } from "./roster-register-scope";
@@ -60,5 +64,37 @@ describe("roster register bulk-delete scope", () => {
       ["c", "d"],
     ]);
     expect(chunkIds([], 200)).toEqual([]);
+  });
+
+  it("builds a staff × day matrix and stacks same-day multi-location rows", () => {
+    const a = {
+      ...row,
+      id: "1",
+      staffName: "Ada",
+      employeeCode: "A1",
+      qid: null as string | null,
+      workDate: "2026-07-28",
+      locationCode: "INF-CC",
+    };
+    const b = {
+      ...a,
+      id: "2",
+      staffId: "staff-2",
+      staffName: "Bob",
+      employeeCode: "B1",
+      workDate: "2026-07-29",
+    };
+    const multi = { ...a, id: "3", locationCode: "INF-EE" };
+    const matrix = buildRosterMatrix([b, a, multi], "2026-07-28", "2026-07-29");
+    expect(matrix.dates).toEqual(["2026-07-28", "2026-07-29"]);
+    expect(matrix.staff.map((s) => s.staffId)).toEqual(["staff-1", "staff-2"]);
+    expect(matrix.byStaffDate.get(rosterMatrixCellKey("staff-1", "2026-07-28"))).toHaveLength(2);
+    expect(matrix.monthSpans).toEqual([{ monthKey: "2026-07", startIdx: 0, count: 2 }]);
+    expect(isWeekendYmd("2026-08-01")).toBe(true);
+    expect(isWeekendYmd("2026-08-03")).toBe(false);
+    expect(rosterMonthSpans(["2026-07-31", "2026-08-01"])).toEqual([
+      { monthKey: "2026-07", startIdx: 0, count: 1 },
+      { monthKey: "2026-08", startIdx: 1, count: 1 },
+    ]);
   });
 });
