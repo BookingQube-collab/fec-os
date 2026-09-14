@@ -356,6 +356,8 @@ export async function commitCorporateDealImport(
 
   const unmappedCodesList: string[] = [];
   const newCodeRows: Array<{ promocode: string; category: string; venue: string }> = [];
+  // Avoid `[periodCol]: period` — computed keys add a string index signature that
+  // breaks Supabase RejectExcessProperties on insert.
   const inserts = parsed.map((r) => {
     const cls = classifyRow(r, byCode);
     if (cls.category === "Unmapped") {
@@ -368,8 +370,7 @@ export async function commitCorporateDealImport(
         });
       }
     }
-    return {
-      [periodCol]: period,
+    const shared = {
       promocode_id: r.promocode_id || null,
       promocode: r.promocode,
       description: r.description,
@@ -385,6 +386,9 @@ export async function commitCorporateDealImport(
       category: cls.category,
       venue: cls.venue,
     };
+    return input.kind === "week"
+      ? { iso_week: period, ...shared }
+      : { period_month: period, ...shared };
   });
 
   if (newCodeRows.length) {
@@ -432,7 +436,7 @@ async function ensureUnmappedActions(context: AuthContext, isoWeek: string, code
         week_start: weekStart,
         week_end: weekEnd,
         meeting_date: addDays(weekStart, 1),
-        prepared_by: context.user?.id ?? null,
+        prepared_by: context.userId ?? null,
         status: "draft",
         notes: "Auto-created for corporate deals unmapped follow-up",
       })
