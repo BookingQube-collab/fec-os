@@ -31,12 +31,13 @@ export interface LocationTrackerKpis {
 }
 
 const LIST_SELECT =
-  "id, location_id, location_code, location_name, area_sub_area, category, requirement_name, document_contract_type, is_required, vendor_name, issuing_authority, cert_contract_number, start_date, issue_date, expiry_date, renewal_due_date, service_frequency, last_service_date, next_service_date, computed_status, days_remaining, risk_level, owner, department, quotation_amount, paid_amount, outstanding_amount, payment_status, attachment_status, has_certificate, has_quotation, has_invoice, has_payment_proof, has_service_report, remarks, amc_contract_id, compliance_document_id, updated_at";
+  "id, location_id, location_code, location_name, area_sub_area, category, requirement_name, document_contract_type, is_required, vendor_name, issuing_authority, cert_contract_number, start_date, issue_date, expiry_date, renewal_due_date, service_frequency, last_service_date, next_service_date, computed_status, days_remaining, risk_level, owner, department, quotation_amount, paid_amount, outstanding_amount, payment_status, attachment_status, has_certificate, has_quotation, has_invoice, has_payment_proof, has_service_report, remarks, amc_contract_id, compliance_document_id, governing_date, updated_at";
 
-type EnrichedQuery = ReturnType<AuthContext["supabase"]["from"]>;
-
-function applyFilters(query: EnrichedQuery, filters: LocationTrackerFilters): EnrichedQuery {
-  let q = query;
+// Callers pass post-.select() builders. ReturnType<supabase.from> is QueryBuilder (no .eq);
+// unbound ReturnType<.select> collapses to an unrelated table's columns — keep Q from the call site.
+function applyFilters<Q>(query: Q, filters: LocationTrackerFilters): Q {
+  // ponytail: one cast; Supabase column generics don't survive a shared helper.
+  let q = query as any;
   if (filters.locationId) q = q.eq("location_id", filters.locationId);
   if (filters.category) q = q.eq("category", filters.category);
   if (filters.status) q = q.eq("computed_status", filters.status);
@@ -50,14 +51,14 @@ function applyFilters(query: EnrichedQuery, filters: LocationTrackerFilters): En
   if (filters.outstandingPayment) {
     q = q.gt("outstanding_amount", 0);
   }
-  return q;
+  return q as Q;
 }
 
 export async function fetchLocationTrackerKpis(
   context: AuthContext,
   filters: LocationTrackerFilters = {},
 ): Promise<LocationTrackerKpis> {
-  const count = (extra?: (q: EnrichedQuery) => EnrichedQuery) => {
+  const count = (extra?: (q: any) => any) => {
     let q = applyFilters(
       context.supabase.from("location_compliance_items_enriched").select("id", { count: "exact", head: true }),
       filters,

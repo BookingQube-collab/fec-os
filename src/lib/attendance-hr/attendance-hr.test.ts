@@ -301,7 +301,7 @@ describe("punch hash and duplicates", () => {
       ],
       60,
     );
-    expect(marked.every((p) => p.probableDuplicate === false)).toBe(true);
+    expect(marked.every((p) => !p.probableDuplicate)).toBe(true);
   });
 });
 
