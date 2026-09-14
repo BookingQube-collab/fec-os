@@ -36,6 +36,11 @@ export interface CategorySplit {
   discount: number;
 }
 
+export interface VenueSplit extends MetricTotals {
+  venue: string;
+  share: number;
+}
+
 export interface PeriodCompare {
   current: MetricTotals;
   previous: MetricTotals | null;
@@ -164,6 +169,32 @@ export function categorySplit(rows: readonly DealMetricRow[]): CategorySplit[] {
     map.set(r.category, cur);
   }
   return [...map.values()].sort((a, b) => b.discount - a.discount);
+}
+
+/** Partner-total redemptions by venue (event_title-derived). Share of discount. */
+export function rollupByVenue(rows: readonly DealMetricRow[]): VenueSplit[] {
+  const scoped = partnerTotalRows(rows);
+  const map = new Map<string, { redemptions: number; tickets: number; discount: number }>();
+  for (const r of scoped) {
+    const venue = (r.venue || "Not specified").trim() || "Not specified";
+    const cur = map.get(venue) ?? { redemptions: 0, tickets: 0, discount: 0 };
+    cur.redemptions += r.times_used || 0;
+    cur.tickets += r.tickets || 0;
+    cur.discount += r.total_discount || 0;
+    map.set(venue, cur);
+  }
+  const totalRedemptions = [...map.values()].reduce((s, v) => s + v.redemptions, 0);
+  return [...map.entries()]
+    .map(([venue, v]) => ({
+      venue,
+      redemptions: v.redemptions,
+      tickets: v.tickets,
+      discount: v.discount,
+      discount_per_redemption: v.redemptions > 0 ? v.discount / v.redemptions : 0,
+      // PDF "Share" is of partner redemptions (67/194 ≈ 35%), not discount
+      share: totalRedemptions > 0 ? v.redemptions / totalRedemptions : 0,
+    }))
+    .sort((a, b) => b.redemptions - a.redemptions || a.venue.localeCompare(b.venue));
 }
 
 export function comparePeriods(

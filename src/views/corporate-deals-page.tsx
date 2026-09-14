@@ -90,12 +90,30 @@ export default function CorporateDealsPage() {
     | { corporate: { discount: number; redemptions: number }; aggregator: { discount: number; redemptions: number }; share: number }
     | undefined;
   const noUsage = (report?.no_usage_partners as string[]) ?? [];
+  const byVenueWeek =
+    (report?.by_venue_week as Array<{
+      venue: string;
+      redemptions: number;
+      tickets: number;
+      discount: number;
+      share: number;
+    }>) ?? [];
+  const byVenueMtd =
+    (report?.by_venue_mtd as Array<{
+      venue: string;
+      redemptions: number;
+      tickets: number;
+      discount: number;
+      share: number;
+    }>) ?? [];
   const weeklyTrend = (report?.weekly_trend as Array<{ iso_week: string; corporate_discount: number; aggregator_discount: number }>) ?? [];
   const partners = (report?.partners as Array<Record<string, unknown>>) ?? [];
   const mtd = report?.mtd as { redemptions: number; tickets: number; discount: number; active_partners: number } | undefined;
+  const categorySplitMtd =
+    (report?.category_split_mtd as Array<{ category: string; redemptions: number; tickets: number; discount: number }>) ?? [];
   const monthlyTrend =
     (report?.monthly_trend as Array<{ period_month: string; corporate_discount: number; aggregator_discount: number }>) ?? [];
-
+  const unmatchedVenues = (report?.new_or_unmatched_venues as string[]) ?? [];
   const preparedBy = "Head of Ops";
 
   const onPreview = async () => {
@@ -324,6 +342,40 @@ export default function CorporateDealsPage() {
 
               <div className="grid gap-4 lg:grid-cols-2">
                 <div className="surface-card p-4">
+                  <h3 className="font-semibold">{t("corporateDeals.byVenue")}</h3>
+                  {byVenueWeek.length === 0 ? (
+                    <p className="mt-2 text-sm text-muted-foreground">{t("corporateDeals.charts.empty")}</p>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>{t("corporateDeals.fields.venue")}</TableHead>
+                          <TableHead className="text-end">{t("corporateDeals.kpi.redemptions")}</TableHead>
+                          <TableHead className="text-end">{t("corporateDeals.kpi.tickets")}</TableHead>
+                          <TableHead className="text-end">{t("corporateDeals.kpi.discount")}</TableHead>
+                          <TableHead className="text-end">{t("corporateDeals.fields.share")}</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {byVenueWeek.map((v) => (
+                          <TableRow key={v.venue}>
+                            <TableCell>{v.venue}</TableCell>
+                            <TableCell className="text-end">{v.redemptions}</TableCell>
+                            <TableCell className="text-end">{v.tickets}</TableCell>
+                            <TableCell className="text-end">{money(v.discount)}</TableCell>
+                            <TableCell className="text-end">{pct(v.share)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                  {unmatchedVenues.length > 0 ? (
+                    <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
+                      {t("corporateDeals.unmatchedVenues", { list: unmatchedVenues.join(", ") })}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="surface-card p-4">
                   <h3 className="font-semibold">{t("corporateDeals.noUsage")}</h3>
                   <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
                     {noUsage.length === 0 ? (
@@ -333,26 +385,27 @@ export default function CorporateDealsPage() {
                     )}
                   </ul>
                 </div>
-                <ChartCard title={t("corporateDeals.charts.weeklyTrend")}>
-                  {weeklyTrend.length === 0 ? (
-                    <ChartEmpty label={t("corporateDeals.charts.empty")} className="h-48" />
-                  ) : (
-                    <div className="h-48">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={weeklyTrend} margin={CHART_MARGIN}>
-                          <CartesianGrid {...chartGridProps} />
-                          <XAxis dataKey="iso_week" tick={chartTick} />
-                          <YAxis tick={chartTick} />
-                          <Tooltip contentStyle={chartTooltipStyle} />
-                          <Legend />
-                          <Line type="monotone" dataKey="corporate_discount" stroke={CHART.info} name={t("corporateDeals.category.corporate")} dot={false} />
-                          <Line type="monotone" dataKey="aggregator_discount" stroke={CHART.amber} name={t("corporateDeals.category.aggregator")} dot={false} />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                  )}
-                </ChartCard>
               </div>
+
+              <ChartCard title={t("corporateDeals.charts.weeklyTrend")}>
+                {weeklyTrend.length === 0 ? (
+                  <ChartEmpty label={t("corporateDeals.charts.empty")} className="h-48" />
+                ) : (
+                  <div className="h-48">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={weeklyTrend} margin={CHART_MARGIN}>
+                        <CartesianGrid {...chartGridProps} />
+                        <XAxis dataKey="iso_week" tick={chartTick} />
+                        <YAxis tick={chartTick} />
+                        <Tooltip contentStyle={chartTooltipStyle} />
+                        <Legend />
+                        <Line type="monotone" dataKey="corporate_discount" stroke={CHART.info} name={t("corporateDeals.category.corporate")} dot={false} />
+                        <Line type="monotone" dataKey="aggregator_discount" stroke={CHART.amber} name={t("corporateDeals.category.aggregator")} dot={false} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </ChartCard>
             </>
           )}
         </TabsContent>
@@ -378,6 +431,62 @@ export default function CorporateDealsPage() {
                   <p>{t("corporateDeals.kpi.activePartners")}: {mtd?.active_partners ?? 0}</p>
                 </div>
               </div>
+
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="surface-card p-4">
+                  <h3 className="mb-2 font-semibold">{t("corporateDeals.summary.categorySplit")}</h3>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{t("corporateDeals.fields.category")}</TableHead>
+                        <TableHead className="text-end">{t("corporateDeals.kpi.redemptions")}</TableHead>
+                        <TableHead className="text-end">{t("corporateDeals.kpi.discount")}</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {categorySplitMtd.map((c) => (
+                        <TableRow key={c.category}>
+                          <TableCell>{c.category}</TableCell>
+                          <TableCell className="text-end">{c.redemptions}</TableCell>
+                          <TableCell className="text-end">{money(c.discount)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+                <div className="surface-card p-4">
+                  <h3 className="mb-2 font-semibold">{t("corporateDeals.summary.venueSplit")}</h3>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{t("corporateDeals.fields.venue")}</TableHead>
+                        <TableHead className="text-end">{t("corporateDeals.summary.weekShort")}</TableHead>
+                        <TableHead className="text-end">{t("corporateDeals.summary.mtdShort")}</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {([...new Set([...byVenueWeek.map((v) => v.venue), ...byVenueMtd.map((v) => v.venue)])] as string[]).map(
+                        (venue) => {
+                          const w = byVenueWeek.find((x) => x.venue === venue);
+                          const m = byVenueMtd.find((x) => x.venue === venue);
+                          return (
+                            <TableRow key={venue}>
+                              <TableCell>{venue}</TableCell>
+                              <TableCell className="text-end">
+                                {w ? `${w.redemptions} / ${w.tickets}` : "—"}
+                              </TableCell>
+                              <TableCell className="text-end">
+                                {m ? `${m.redemptions} / ${m.tickets}` : "—"}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        },
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
@@ -496,6 +605,13 @@ export default function CorporateDealsPage() {
                       unmapped: (preview.unmapped_codes as string[] | undefined)?.length ?? 0,
                     })}
                   </p>
+                  {Number(preview.missing_event_title ?? 0) > 0 ? (
+                    <p className="text-amber-700 dark:text-amber-400">
+                      {t("corporateDeals.import.missingEventTitle", {
+                        count: Number(preview.missing_event_title),
+                      })}
+                    </p>
+                  ) : null}
                   {preview.duplicate_week ? (
                     <p className="text-amber-700 dark:text-amber-400">{t("corporateDeals.import.duplicateWeek")}</p>
                   ) : null}
@@ -514,6 +630,7 @@ export default function CorporateDealsPage() {
                   <TableHead>{t("corporateDeals.fields.partner")}</TableHead>
                   <TableHead>{t("corporateDeals.fields.category")}</TableHead>
                   <TableHead>{t("corporateDeals.fields.venue")}</TableHead>
+                  <TableHead>{t("corporateDeals.fields.event")}</TableHead>
                   <TableHead>{t("corporateDeals.kpi.redemptions")}</TableHead>
                   <TableHead>{t("corporateDeals.kpi.tickets")}</TableHead>
                   <TableHead>{t("corporateDeals.kpi.discount")}</TableHead>
@@ -526,6 +643,9 @@ export default function CorporateDealsPage() {
                     <TableCell>{String(row.partner_name ?? "—")}</TableCell>
                     <TableCell>{String(row.category)}</TableCell>
                     <TableCell>{String(row.venue)}</TableCell>
+                    <TableCell className="max-w-[12rem] truncate text-xs text-muted-foreground">
+                      {String(row.event_title ?? "—")}
+                    </TableCell>
                     <TableCell>{Number(row.times_used)}</TableCell>
                     <TableCell>{Number(row.tickets)}</TableCell>
                     <TableCell>{money(Number(row.total_discount))}</TableCell>

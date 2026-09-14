@@ -14,6 +14,7 @@ import {
   monthlyTrend,
   partnersWithNoUsageThisMonth,
   rollupByPartner,
+  rollupByVenue,
   unmappedCodes,
   weeklyTrend,
   type DealMetricRow,
@@ -205,6 +206,23 @@ export async function fetchCorporateDealReport(context: AuthContext, isoWeek: st
   const partners = rollupByPartner(weekRows, monthRows.length ? monthRows : weekRows);
   const noUsage = partnersWithNoUsageThisMonth(monthRows.length ? monthRows : weekRows);
   const unmapped = unmappedCodes(weekRows);
+  const venueWeek = rollupByVenue(weekRows);
+  const venueMtd = rollupByVenue(monthRows);
+  const knownVenueRoots = [
+    "Urban Arena",
+    "InflataPark",
+    "Kids City Driving School",
+    "Crayons & Bricks Vendome",
+    "Crayons & Bricks Dar Al Salam",
+    "Aspire Carousel",
+    "Cafe",
+    "KDS",
+    "C&B Vendome",
+    "C&B Dar Al Salam",
+  ];
+  const newOrUnmatchedVenues = venueWeek
+    .map((v) => v.venue)
+    .filter((v) => v !== "Not specified" && !knownVenueRoots.includes(v));
 
   return {
     iso_week: isoWeek,
@@ -226,7 +244,10 @@ export async function fetchCorporateDealReport(context: AuthContext, isoWeek: st
     top10: partners.filter((p) => p.redemptions > 0).slice(0, 10),
     partners,
     no_usage_partners: noUsage,
+    by_venue_week: venueWeek,
+    by_venue_mtd: venueMtd,
     category_split: categorySplit(weekRows),
+    category_split_mtd: categorySplit(monthRows),
     weekly_trend: weeklyTrend(allWeekly, year),
     monthly_trend: monthlyTrend(trendRows.length ? trendRows : allWeekly.map((r) => ({
       ...r,
@@ -234,6 +255,7 @@ export async function fetchCorporateDealReport(context: AuthContext, isoWeek: st
     }))),
     unmapped_count: unmapped.length,
     unmapped_codes: unmapped,
+    new_or_unmatched_venues: newOrUnmatchedVenues,
     caveat: aggregatorMethodChangeCaveat(isoWeek),
     partner_master: PARTNER_MASTER,
   };
@@ -246,6 +268,7 @@ export interface ImportPreview {
   row_count: number;
   duplicate_week: boolean;
   unmapped_codes: string[];
+  missing_event_title: number;
   sample: Array<Record<string, unknown>>;
 }
 
@@ -259,14 +282,17 @@ export async function previewCorporateDealImport(
   const period = input.period || detected.period;
   const { byCode } = await loadCodeMap(context);
   const unmapped: string[] = [];
+  let missing_event_title = 0;
   const sample = parsed.slice(0, 20).map((r) => {
     const cls = classifyRow(r, byCode);
     if (cls.category === "Unmapped") unmapped.push(r.promocode);
+    if (!r.event_title) missing_event_title += 1;
     return { ...r, ...cls };
   });
   for (const r of parsed.slice(20)) {
     const cls = classifyRow(r, byCode);
     if (cls.category === "Unmapped") unmapped.push(r.promocode);
+    if (!r.event_title) missing_event_title += 1;
   }
   let duplicate_week = false;
   if (input.kind === "week" && period) {
@@ -283,6 +309,7 @@ export async function previewCorporateDealImport(
     row_count: parsed.length,
     duplicate_week,
     unmapped_codes: [...new Set(unmapped)],
+    missing_event_title,
     sample,
   };
 }
@@ -334,7 +361,11 @@ export async function commitCorporateDealImport(
     if (cls.category === "Unmapped") {
       unmappedCodesList.push(r.promocode);
       if (!byCode.has(r.promocode.toLowerCase())) {
-        newCodeRows.push({ promocode: r.promocode, category: "Unmapped", venue: "Not specified" });
+        newCodeRows.push({
+          promocode: r.promocode,
+          category: "Unmapped",
+          venue: cls.venue || "Not specified",
+        });
       }
     }
     return {
@@ -343,6 +374,8 @@ export async function commitCorporateDealImport(
       promocode: r.promocode,
       description: r.description,
       company_name: r.company_name,
+      event_id: r.event_id,
+      event_title: r.event_title,
       times_used: r.times_used,
       booking_lines: r.booking_lines,
       tickets: r.tickets,

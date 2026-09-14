@@ -7,9 +7,10 @@ import {
   metricTotals,
   partnerTotalRows,
   rollupByPartner,
+  rollupByVenue,
 } from "./calc";
 import { PARTNER_MASTER } from "./constants";
-import { classifyRow, parsePromoExportCsv, stripHtmlDescription } from "./parse";
+import { classifyRow, parsePromoExportCsv, stripHtmlDescription, venueFromEventTitle } from "./parse";
 import type { DealMetricRow } from "./calc";
 
 /** Synthetic W37 partner totals matching workbook acceptance. */
@@ -30,7 +31,6 @@ function w37Rows(): DealMetricRow[] {
     { partner_name: "MyBenefit", category: "Corporate discount", times_used: 3, tickets: 8, total_discount: corpDiscount * 0.07 },
     { partner_name: "DHL", category: "Corporate discount", times_used: 1, tickets: 3, total_discount: corpDiscount * 0.05 },
     { partner_name: "QNB Rewards", category: "Corporate discount", times_used: 1, tickets: 2, total_discount: corpDiscount * 0.05 },
-    // Internal — must not affect partner totals
     {
       partner_name: null,
       category: "Internal / promotion",
@@ -38,14 +38,50 @@ function w37Rows(): DealMetricRow[] {
       tickets: 50,
       total_discount: 5000,
     },
-    // Unmapped — visible, not silently in partner KPIs... wait, "Not on master" is in partner totals.
-    // Unmapped is NOT in PARTNER_TOTAL_CATEGORIES — excluded from KPI but must surface.
     { partner_name: null, category: "Unmapped", times_used: 7, tickets: 7, total_discount: 100 },
   ];
 }
 
+/** Revised PDF W37 venue split (partner totals only). */
+function w37VenueRows(): DealMetricRow[] {
+  return [
+    {
+      partner_name: "Imtyazat",
+      category: "Corporate discount",
+      venue: "Urban Arena",
+      times_used: 67,
+      tickets: 241,
+      total_discount: 3914.75,
+    },
+    {
+      partner_name: "Urban Point",
+      category: "Aggregator BOGO",
+      venue: "InflataPark",
+      times_used: 58,
+      tickets: 148,
+      total_discount: 3273.5,
+    },
+    {
+      partner_name: "Qatar Airways",
+      category: "Corporate discount",
+      venue: "Kids City Driving School",
+      times_used: 45,
+      tickets: 158,
+      total_discount: 3230.75,
+    },
+    {
+      partner_name: "My Book",
+      category: "Aggregator BOGO",
+      venue: "Crayons & Bricks Vendome",
+      times_used: 24,
+      tickets: 29,
+      total_discount: 2331.5,
+    },
+  ];
+}
+
 function sepMtdRows(): DealMetricRow[] {
-  // W37 (12 active) + Huawei + Bein = 14; pad volume on existing partners to hit MTD totals
+  // Revised PDF Sep MTD: 351 / 1,042 / 21,132.95 / 14 active
   const w37 = w37Rows().filter((r) => r.category !== "Internal / promotion" && r.category !== "Unmapped");
   const extra: DealMetricRow[] = [
     { partner_name: "Huawei", category: "Corporate discount", times_used: 1, tickets: 1, total_discount: 1 },
@@ -58,9 +94,9 @@ function sepMtdRows(): DealMetricRow[] {
   combined.push({
     partner_name: "Urban Point",
     category: "Aggregator BOGO",
-    times_used: 350 - t.redemptions,
-    tickets: 1037 - t.tickets,
-    total_discount: 21102.2 - t.discount,
+    times_used: 351 - t.redemptions,
+    tickets: 1042 - t.tickets,
+    total_discount: 21132.95 - t.discount,
   });
   return combined;
 }
@@ -70,25 +106,56 @@ describe("corporate deals parse", () => {
     expect(stripHtmlDescription("<b>QIB</b>&nbsp;staff")).toBe("QIB staff");
   });
 
-  it("parses BookingQube-shaped CSV", () => {
-    const csv = `promocode_id,promocode,description,company_name,period_week,times_used,booking_lines,tickets,total_discount
-1,ENT01,<p>Entertainer</p>,NULL,2026-W37,2,2,6,40.5
-2,LOYAL,loyalty pass cafe,,2026-W37,1,1,1,10`;
+  it("parses event-wise BookingQube CSV and maps event_title to venue", () => {
+    const csv = `promocode_id,promocode,description,company_name,event_id,event_title,period_week,times_used,booking_lines,tickets,total_discount
+1,ENT01,<p>Entertainer</p>,NULL,e1,Urban Arena - Doha Mall,2026-W37,2,2,6,40.5
+2,LOYAL,loyalty pass cafe,,e2,Kids City Driving School,2026-W37,1,1,1,10`;
     const rows = parsePromoExportCsv(csv);
     expect(rows).toHaveLength(2);
+    expect(rows[0].event_title).toBe("Urban Arena - Doha Mall");
     expect(rows[0].company_name).toBeNull();
     expect(rows[0].description).toBe("Entertainer");
     expect(rows[0].total_discount).toBe(40.5);
+    const cls = classifyRow(rows[0], new Map());
+    expect(cls.venue).toBe("Urban Arena");
+  });
+
+  it("maps event titles to PDF venue labels", () => {
+    expect(venueFromEventTitle("Urban Arena - Doha Mall")).toBe("Urban Arena");
+    expect(venueFromEventTitle("Inflatapark - City Center")).toBe("InflataPark");
+    expect(venueFromEventTitle("Kids City Driving School")).toBe("Kids City Driving School");
+    expect(venueFromEventTitle("Crayons & Bricks - Vendome Mall")).toBe("Crayons & Bricks Vendome");
+    expect(venueFromEventTitle("KDS")).toBe("Kids City Driving School");
   });
 
   it("defaults unknown codes to Unmapped", () => {
-    const hit = classifyRow({ promocode: "ZZZ999", description: "mystery deal" }, new Map());
+    const hit = classifyRow({ promocode: "ZZZ999", description: "mystery deal", event_title: null }, new Map());
     expect(hit.category).toBe("Unmapped");
   });
 
   it("flags internal / promotion from description", () => {
-    const hit = classifyRow({ promocode: "JR1", description: "junior media-pass" }, new Map());
+    const hit = classifyRow({ promocode: "JR1", description: "junior media-pass", event_title: null }, new Map());
     expect(hit.category).toBe("Internal / promotion");
+  });
+
+  it("export event_title wins over code-mapping venue", () => {
+    const map = new Map([
+      [
+        "ent01",
+        {
+          promocode: "ENT01",
+          partner_name: "Entertainer",
+          category: "Aggregator BOGO" as const,
+          venue: "Cafe",
+        },
+      ],
+    ]);
+    const hit = classifyRow(
+      { promocode: "ENT01", description: "Entertainer", event_title: "InflataPark" },
+      map,
+    );
+    expect(hit.venue).toBe("InflataPark");
+    expect(hit.partner_name).toBe("Entertainer");
   });
 });
 
@@ -105,13 +172,31 @@ describe("corporate deals calc — acceptance W37 / Sep MTD", () => {
     expect(aggregatorShare(rows)).toBeCloseTo(0.68, 2);
   });
 
-  it("Sep MTD hits acceptance totals with 14 active partners", () => {
+  it("Sep MTD hits revised PDF totals with 14 active partners", () => {
     const rows = sepMtdRows();
     const t = metricTotals(rows);
-    expect(t.redemptions).toBe(350);
-    expect(t.tickets).toBe(1037);
-    expect(t.discount).toBeCloseTo(21102.2, 2);
+    expect(t.redemptions).toBe(351);
+    expect(t.tickets).toBe(1042);
+    expect(t.discount).toBeCloseTo(21132.95, 2);
     expect(activePartnerCount(rows)).toBe(14);
+  });
+
+  it("W37 venue split matches revised PDF", () => {
+    const split = rollupByVenue(w37VenueRows());
+    expect(split).toHaveLength(4);
+    expect(split[0]).toMatchObject({ venue: "Urban Arena", redemptions: 67, tickets: 241 });
+    expect(split[0].discount).toBeCloseTo(3914.75, 2);
+    expect(split[0].share).toBeCloseTo(0.35, 2);
+    expect(split.map((s) => s.venue)).toEqual([
+      "Urban Arena",
+      "InflataPark",
+      "Kids City Driving School",
+      "Crayons & Bricks Vendome",
+    ]);
+    const t = metricTotals(w37VenueRows());
+    expect(t.redemptions).toBe(194);
+    expect(t.tickets).toBe(576);
+    expect(t.discount).toBeCloseTo(12750.5, 2);
   });
 
   it("previous-week message before week 2", () => {

@@ -1,5 +1,7 @@
 import { parseCsv } from "@/lib/csv-parse";
+import { LOCATION_SHORT_NAME } from "@/lib/weekly-review/constants";
 import {
+  EVENT_TITLE_VENUE_RULES,
   INTERNAL_PROMO_PATTERNS,
   PARTNER_MASTER,
   type DealCategory,
@@ -12,6 +14,8 @@ export interface PromoExportRow {
   promocode: string;
   description: string;
   company_name: string | null;
+  event_id: string | null;
+  event_title: string | null;
   period_week: string | null;
   period_month: string | null;
   times_used: number;
@@ -84,10 +88,29 @@ export function isInternalPromotion(description: string, category?: DealCategory
   return INTERNAL_PROMO_PATTERNS.some((re) => re.test(description));
 }
 
+/** Resolve venue from BookingQube event_title; falls back to short-name aliases. */
+export function venueFromEventTitle(raw: string | null | undefined): string | null {
+  const s = (raw ?? "").trim();
+  if (!s) return null;
+  for (const rule of EVENT_TITLE_VENUE_RULES) {
+    if (rule.test.test(s)) return rule.venue;
+  }
+  for (const short of Object.values(LOCATION_SHORT_NAME)) {
+    if (s.toLowerCase() === short.toLowerCase()) {
+      if (short === "KDS") return "Kids City Driving School";
+      if (short === "C&B Vendome") return "Crayons & Bricks Vendome";
+      if (short === "C&B Dar Al Salam") return "Crayons & Bricks Dar Al Salam";
+      return short;
+    }
+  }
+  return s; // keep unknown titles visible so ops can flag them
+}
+
 export function classifyRow(
-  row: Pick<PromoExportRow, "promocode" | "description">,
+  row: Pick<PromoExportRow, "promocode" | "description" | "event_title">,
   mapping: Map<string, CodeMappingLookup>,
 ): { partner_name: string | null; category: DealCategory; venue: string } {
+  const fromExport = venueFromEventTitle(row.event_title);
   const key = row.promocode.trim().toLowerCase();
   const mapped = mapping.get(key);
   if (mapped) {
@@ -98,11 +121,12 @@ export function classifyRow(
     return {
       partner_name: mapped.partner_name,
       category,
-      venue: mapped.venue || "Not specified",
+      // Export wins over Code Mapping venue
+      venue: fromExport || mapped.venue || "Not specified",
     };
   }
   if (isInternalPromotion(row.description)) {
-    return { partner_name: null, category: "Internal / promotion", venue: "Not specified" };
+    return { partner_name: null, category: "Internal / promotion", venue: fromExport || "Not specified" };
   }
   const partnerHit = PARTNER_MASTER.find(
     (p) =>
@@ -113,10 +137,10 @@ export function classifyRow(
     return {
       partner_name: partnerHit.name,
       category: partnerHit.category,
-      venue: "Not specified",
+      venue: fromExport || "Not specified",
     };
   }
-  return { partner_name: null, category: "Unmapped", venue: "Not specified" };
+  return { partner_name: null, category: "Unmapped", venue: fromExport || "Not specified" };
 }
 
 export function parsePromoExportCsv(text: string): PromoExportRow[] {
@@ -124,11 +148,15 @@ export function parsePromoExportCsv(text: string): PromoExportRow[] {
   return rows
     .map((row) => {
       const company = pick(row, "company_name", "company");
+      const eventId = pick(row, "event_id", "eventid");
+      const eventTitle = pick(row, "event_title", "event", "venue", "location");
       return {
         promocode_id: pick(row, "promocode_id", "promo_code_id", "id"),
         promocode: pick(row, "promocode", "promo_code", "code"),
         description: stripHtmlDescription(pick(row, "description", "desc")),
         company_name: company === "" || company.toUpperCase() === "NULL" ? null : company,
+        event_id: eventId || null,
+        event_title: eventTitle || null,
         period_week: pick(row, "period_week", "week", "iso_week") || null,
         period_month: pick(row, "period_month", "month") || null,
         times_used: num(pick(row, "times_used", "redemptions", "uses")),

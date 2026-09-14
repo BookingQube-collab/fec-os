@@ -2301,6 +2301,8 @@
     "readOnly": "View only — Head of Ops or Admin can import and map codes.",
     "unmappedBanner": "{{count}} unmapped promo codes need mapping (also raised on the action register).",
     "noUsage": "Partners with no usage this month",
+    "byVenue": "By venue this week",
+    "unmatchedVenues": "New or unmatched event titles: {{list}}",
     "allActive": "All master partners have usage this month.",
     "tabs": {
       "dashboard": "Dashboard",
@@ -2334,29 +2336,36 @@
       "partner": "Partner",
       "category": "Category",
       "venue": "Venue",
+      "event": "Event title",
+      "share": "Share",
       "code": "Promo code",
       "mechanism": "Redemption mechanism",
       "status": "Status"
     },
     "summary": {
       "week": "This week",
-      "mtd": "Month to date"
+      "mtd": "Month to date",
+      "weekShort": "Week (red. / tix)",
+      "mtdShort": "MTD (red. / tix)",
+      "categorySplit": "Category split, month to date",
+      "venueSplit": "Venue split (week & month)"
     },
     "import": {
       "kindWeek": "Weekly log",
       "kindMonth": "Month data",
       "kindTrend": "Trend data",
-      "paste": "Paste BookingQube CSV here…",
+      "paste": "Paste BookingQube event-wise CSV here (must include event_id, event_title)…",
       "preview": "Preview",
       "commit": "Import",
       "replace": "Replace existing week",
       "previewReady": "Preview ready",
       "previewStats": "{{rows}} rows · period {{period}} · {{unmapped}} unmapped codes",
+      "missingEventTitle": "{{count}} rows have no event_title — venue split will be incomplete. Use the event-wise export.",
       "duplicateWeek": "This ISO week already exists — cancel or replace.",
       "done": "Imported {{rows}} rows ({{unmapped}} unmapped)."
     },
     "mapping": {
-      "help": "New codes default to Unmapped. Map partner, category, and venue — Internal / promotion stays out of partner totals.",
+      "help": "New codes default to Unmapped. Map partner and category; venue on the log comes from event_title (export wins over this column).",
       "saved": "Mapping saved"
     },
     "mom": {
@@ -2369,14 +2378,14 @@
     },
     "readme": {
       "title": "Tuesday routine",
-      "s1": "Export weekly promo codes from BookingQube (ISO week Mon–Sun).",
-      "s2": "Open Import, paste CSV, set week, Preview.",
-      "s3": "If the week already exists, Replace or Cancel.",
-      "s4": "Map any Unmapped codes (task also lands on the action register).",
-      "s5": "Replace Month data each week; Trend data monthly.",
-      "s6": "Select reporting week on Dashboard — KPIs, Top 10, trends update.",
+      "s1": "In BookingQube, export the event-wise promo-code report for the ISO week (Mon–Sun). It must include event_id and event_title (venue).",
+      "s2": "Open Import, paste CSV (columns through event_title), set week, Preview.",
+      "s3": "If the week already exists, Replace or Cancel. Confirm every row has an event_title.",
+      "s4": "Map any Unmapped codes (task also lands on the action register). Venue on the dashboard comes from event_title, not the code name.",
+      "s5": "Replace Month data each week (event-wise); Trend data monthly.",
+      "s6": "Select reporting week on Dashboard — KPIs, Top 10, by-venue split, and trends update.",
       "s7": "Present landscape Dashboard / Export PDF. Do not treat May 2026 aggregator method change as growth.",
-      "defs": "Partner totals include Corporate discount, Aggregator BOGO, and Not on master only. Internal / promotion and Unmapped are reported separately; Unmapped is never silent."
+      "defs": "Partner totals include Corporate discount, Aggregator BOGO, and Not on master only. Internal / promotion and Unmapped are reported separately; Unmapped is never silent. Venue = event_title from the export."
     }
   },
   "weeklyReports": {

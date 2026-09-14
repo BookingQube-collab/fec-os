@@ -16,17 +16,35 @@ export const PARTNER_TOTAL_CATEGORIES: ReadonlySet<DealCategory> = new Set([
   "Not on master",
 ]);
 
+/** Canonical venue labels — PDF event titles map here; short names kept for code-mapping UI. */
 export const DEAL_VENUES = [
-  "KDS",
-  "InflataPark",
   "Urban Arena",
-  "C&B Dar Al Salam",
+  "InflataPark",
+  "Kids City Driving School",
+  "Crayons & Bricks Vendome",
+  "Crayons & Bricks Dar Al Salam",
+  "KDS",
   "C&B Vendome",
+  "C&B Dar Al Salam",
   "Aspire Carousel",
   "Cafe",
   "Not specified",
 ] as const;
 export type DealVenue = (typeof DEAL_VENUES)[number];
+
+/**
+ * Map BookingQube `event_title` (and LOCATION_SHORT_NAME aliases) to report venue labels.
+ * Export wins over Code Mapping venue (workbook rule).
+ */
+export const EVENT_TITLE_VENUE_RULES: ReadonlyArray<{ test: RegExp; venue: DealVenue }> = [
+  { test: /urban\s*arena/i, venue: "Urban Arena" },
+  { test: /inflata/i, venue: "InflataPark" },
+  { test: /kids\s*city|driving\s*school|\bkds\b/i, venue: "Kids City Driving School" },
+  { test: /vendome|c\s*&\s*b\s*vendome|crayons.*vendome/i, venue: "Crayons & Bricks Vendome" },
+  { test: /dar\s*al\s*salam|c\s*&\s*b\s*dar|crayons.*dar/i, venue: "Crayons & Bricks Dar Al Salam" },
+  { test: /aspire|carousel/i, venue: "Aspire Carousel" },
+  { test: /\bcafe\b/i, venue: "Cafe" },
+];
 
 export interface PartnerMasterRow {
   name: string;
