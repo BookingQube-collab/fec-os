@@ -164,7 +164,7 @@ ALTER TABLE public.corporate_deal_weekly_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.corporate_deal_month_data ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.corporate_deal_trend_data ENABLE ROW LEVEL SECURITY;
 
--- Same gate as weekly management review (Head of Ops + Admin edit; management view)
+-- Same gate as weekly management review (Head of Ops + Admin edit, management view)
 DROP POLICY IF EXISTS "corporate_deal_partners read" ON public.corporate_deal_partners;
 CREATE POLICY "corporate_deal_partners read" ON public.corporate_deal_partners FOR SELECT TO authenticated
   USING (public.can_view_weekly_review());
