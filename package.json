@@ -25,7 +25,8 @@
     "db:bundle": "node scripts/bundle-pending-migrations.mjs",
     "generate:api-catalog": "node scripts/generate-api-catalog.mjs",
     "test": "vitest run",
-    "seed:ai-keys": "node --env-file=.env.local scripts/seed-ai-provider-keys.mjs"
+    "seed:ai-keys": "node --env-file=.env.local scripts/seed-ai-provider-keys.mjs",
+    "seed:corporate-deals-w37": "node --env-file=.env.local scripts/seed-corporate-deals-w37.mjs"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.15",
