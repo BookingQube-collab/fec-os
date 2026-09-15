@@ -187,7 +187,13 @@ describe("corporate deals calc — acceptance W37 / Sep MTD", () => {
   it("W37 venue split matches revised PDF", () => {
     const split = rollupByVenue(w37VenueRows());
     expect(split).toHaveLength(4);
-    expect(split[0]).toMatchObject({ venue: "Urban Arena", redemptions: 67, tickets: 241 });
+    expect(split[0]).toMatchObject({
+      venue: "Urban Arena",
+      redemptions: 67,
+      tickets: 241,
+      corporate_redemptions: 67,
+      aggregator_redemptions: 0,
+    });
     expect(split[0].discount).toBeCloseTo(3914.75, 2);
     expect(split[0].share).toBeCloseTo(0.35, 2);
     expect(split.map((s) => s.venue)).toEqual([

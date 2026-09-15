@@ -1,11 +1,11 @@
 # Corporate Deals seed (W37 / Sep 2026)
 
-Reconstructed from `FEC_Corporate_Deals_Weekly_Report_W37` PDF because BookingQube CSV/xlsx exports were not attached.
+Loaded from `FEC_Corporate_Deals_Weekly_Report.xlsx` (Weekly Log / Month Data / Trend Data / Code Mapping).
 
-- Weekly rows: partner×venue matrix matching PDF partner redemptions + venue split (tickets/discount allocated within venue; aggregator discount share ~68%).
-- Month rows: PDF Summary partner MTD figures, spread across venues using the week mix.
-- Internal / promotion (loyalty, cafe, karak): workbook Weekly Log + Month Data figures (W37 total 40, Sep MTD 79) — excluded from partner KPIs.
-- Trend rows: PDF monthly trend table (May–Sep 2026) as corp/agg aggregates.
-- Promo codes `SEED-*` are synthetic. Ops-confirmed codes (incl. loyalty*) are seeded into `corporate_deal_codes`.
+- Weekly W37: 32 rows → 194 / 576 / 12,750.50 / 12 active
+- Month 2026-09: 38 rows → 351 / 1,042 / 21,132.95 / 14 active
+- Internal / promotion: week 40, month 79
+- Trend: 2081 rows (full workbook export)
+- Code mapping: 1749 promocodes upserted
 
 Reload: `node --env-file=.env.local scripts/seed-corporate-deals-w37.mjs`

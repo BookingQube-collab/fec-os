@@ -82,6 +82,10 @@ const MOM_ACTIONS = [
   row(23, 23, "Estate", "FEC Project Management Tool — rework client approval workflow; finalize with hired expert", "Rajan Pathak", "TBC", NEEDS, needsDetail),
   row(24, 24, "Corporate deals", "Standardized weekly Corporate Deals Report — deals and performance by company", "Rajan Pathak", "Weekly", NEEDS, needsDetail, SOURCE_CORPORATE_MOM),
   row(25, 25, "C&B Vendome", "Activity plan — slime, acrylic painting, figurine painting, small slides + proposed pricing", "C&B Vendome Operations / Rajan Pathak", "September", NEEDS, needsDetail),
+  row(26, 26, "Corporate deals", "BOGO terms — approve monthly redemption cap per aggregator, or move to % discount at next renewal (Urban Point / My Book / Entertainer)", "Higher management", "This meeting", NEEDS, "85 free passes MTD; 24% of redemptions but 1.0 ticket each vs 3.7 for staff-ID.", SOURCE_CORPORATE_MOM),
+  row(27, 27, "Corporate deals", "Seven dormant partners — approve Ops to contact HR/app owners within two weeks (Dar App, Classmate, MyBenefit, DHL, Huawei, QMC, Snoonu)", "Operations", "Two weeks", NEEDS, "MyBenefit codes never redeemed since issue.", SOURCE_CORPORATE_MOM),
+  row(28, 28, "C&B Vendome", "Vendome channel — agree corporate push, or accept site as aggregator acquisition (23 of 24 week redemptions were BOGO)", "Higher management", "This meeting", NEEDS, "29 tickets total this week — lowest of four sites.", SOURCE_CORPORATE_MOM),
+  row(29, 29, "Corporate deals", "Imtyazat vs Al Jazeera Imtiyazat — confirm which ID counters check; merge or separate clearly at till", "Operations", "This week", NEEDS, "71 vs 6 month redemptions suggests one code used for both cards.", SOURCE_CORPORATE_MOM),
 ];
 
 function toDbRow(seed, reviewId) {
@@ -106,18 +110,20 @@ function toDbRow(seed, reviewId) {
 {
   const counts = { open: 0, wip: 0, done: 0 };
   for (const a of MOM_ACTIONS) counts[STATUS_LABEL_MAP[a.status_label].status]++;
-  if (MOM_ACTIONS.length !== 25) throw new Error(`expected 25 actions, got ${MOM_ACTIONS.length}`);
+  if (MOM_ACTIONS.length !== 29) throw new Error(`expected 29 actions, got ${MOM_ACTIONS.length}`);
   if (counts.done !== 1) throw new Error(`expected 1 done (socks), got ${counts.done}`);
   if (counts.wip !== 2) throw new Error(`expected 2 wip (CR + Camera 18), got ${counts.wip}`);
   const cr = MOM_ACTIONS.find((a) => a.sort_order === 4);
   const socks = MOM_ACTIONS.find((a) => a.sort_order === 2);
   const ups = MOM_ACTIONS.find((a) => a.sort_order === 7);
   const cam = MOM_ACTIONS.find((a) => a.sort_order === 16);
+  const corpMom = MOM_ACTIONS.filter((a) => a.source_module === SOURCE_CORPORATE_MOM);
   if (STATUS_LABEL_MAP[cr.status_label].status !== "wip") throw new Error("CR must be wip");
   if (STATUS_LABEL_MAP[socks.status_label].status !== "done") throw new Error("socks must be done");
   if (STATUS_LABEL_MAP[ups.status_label].status !== "open") throw new Error("UPS must be open");
   if (STATUS_LABEL_MAP[cam.status_label].status !== "wip") throw new Error("Camera 18 must be wip");
-  console.log("self-check ok", counts);
+  if (corpMom.length !== 5) throw new Error(`expected 5 corporate_deals_mom rows, got ${corpMom.length}`);
+  console.log("self-check ok", counts, "corporate_deals_mom", corpMom.length);
 }
 
 async function main() {

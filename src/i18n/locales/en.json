@@ -2296,6 +2296,9 @@
     "prevWeek": "Previous week",
     "preparedBy": "Prepared by {{name}}",
     "reviewedBy": "Reviewed by: —",
+    "reviewedByNamed": "Reviewed by: {{name}}",
+    "meetingLabel": "Meeting: {{date}}",
+    "nextReview": "Next review {{date}}",
     "exportPdf": "Export PDF (landscape)",
     "empty": "No weekly promo log yet. Import a BookingQube CSV to start.",
     "readOnly": "View only — Head of Ops or Admin can import and map codes.",
@@ -2312,8 +2315,16 @@
     "loyaltySubtitle": "Our own codes (loyalty, cafe, karak) — excluded from partner totals above.",
     "loyaltyEmpty": "No loyalty or in-house redemptions this week or month.",
     "loyaltyTotal": "Total",
+    "loyaltyPrevMonth": "Prev month",
+    "incidentsTitle": "Incidents & important points",
+    "incidentsSubtitle": "Nothing to report on incidents this week. Status of points from the previous minutes.",
+    "decisionsTitle": "Needs your decision",
+    "decisionsSubtitle": "Four items from this week's partner data, each with a specific ask.",
+    "decisionsMomNote": "Also on MoM follow-up (corporate_deals_mom).",
     "unmatchedVenues": "New or unmatched event titles: {{list}}",
     "allActive": "All master partners have usage this week.",
+    "statusActive": "Active",
+    "statusNoUsage": "No usage",
     "tabs": {
       "dashboard": "Dashboard",
       "summary": "Summary",
@@ -2339,7 +2350,7 @@
       "top10": "Top 10 partners",
       "corpVsAgg": "Corporate vs Aggregator this week",
       "weeklyTrend": "Weekly trend (current year)",
-      "monthlyTrend": "Monthly trend (13 months)",
+      "monthlyTrend": "Monthly redemptions by model (13 months)",
       "empty": "No chart data yet"
     },
     "fields": {
@@ -2358,7 +2369,9 @@
       "weekShort": "Week (red. / tix)",
       "mtdShort": "MTD (red. / tix)",
       "categorySplit": "Category split, month to date",
-      "venueSplit": "Venue split (week & month)"
+      "venueSplit": "Venue split (week & month)",
+      "partners": "Partner performance",
+      "partnersHint": "Week activity with month-to-date Active vs No usage status"
     },
     "import": {
       "kindWeek": "Weekly log",

@@ -176,6 +176,7 @@ export default function CorporateDealsPage() {
       week_tickets: number;
       month_redemptions: number;
       month_tickets: number;
+      prev_month_redemptions?: number;
     }>) ?? [];
   const byVenueWeek =
     (report?.by_venue_week as Array<{
@@ -184,6 +185,8 @@ export default function CorporateDealsPage() {
       tickets: number;
       discount: number;
       share: number;
+      corporate_redemptions?: number;
+      aggregator_redemptions?: number;
     }>) ?? [];
   const byVenueMtd =
     (report?.by_venue_mtd as Array<{
@@ -199,9 +202,47 @@ export default function CorporateDealsPage() {
   const categorySplitMtd =
     (report?.category_split_mtd as Array<{ category: string; redemptions: number; tickets: number; discount: number }>) ?? [];
   const monthlyTrend =
-    (report?.monthly_trend as Array<{ period_month: string; corporate_discount: number; aggregator_discount: number }>) ?? [];
+    (report?.monthly_trend as Array<{
+      period_month: string;
+      corporate_discount: number;
+      aggregator_discount: number;
+      corporate_redemptions?: number;
+      aggregator_redemptions?: number;
+    }>) ?? [];
   const unmatchedVenues = (report?.new_or_unmatched_venues as string[]) ?? [];
-  const preparedBy = "Head of Ops";
+  const brief = report?.brief as
+    | {
+        meta: {
+          prepared_by: string;
+          reviewed_by: string;
+          meeting_label: string;
+          week_label: string;
+          next_review: string;
+          source: string;
+        };
+        incidents_banner: { title: string; detail: string };
+        incident_points: Array<{
+          rank: number;
+          title: string;
+          detail: string;
+          ask: string;
+          status_label: string;
+          severity: string;
+        }>;
+        decisions: Array<{
+          rank: number;
+          title: string;
+          detail: string;
+          ask: string;
+          where: string;
+          severity: string;
+        }>;
+        venue_notes: Array<{ title: string; detail: string }>;
+      }
+    | null
+    | undefined;
+  const preparedBy = brief?.meta.prepared_by ?? "Head of Ops";
+  const reviewedBy = brief?.meta.reviewed_by ?? null;
 
   const onPreview = async () => {
     try {
@@ -272,34 +313,36 @@ export default function CorporateDealsPage() {
   }
 
   return (
-    <div className="corporate-deals-page space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">{t("corporateDeals.title")}</h1>
-          <p className="text-sm text-muted-foreground">{t("corporateDeals.subtitle")}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Select
-            value={activeWeek ?? undefined}
-            onValueChange={(v) => setWeek(v)}
-            disabled={!weeks.length}
-          >
-            <SelectTrigger className="w-44" aria-label={t("corporateDeals.week")}>
-              <SelectValue placeholder={t("corporateDeals.week")} />
-            </SelectTrigger>
-            <SelectContent>
-              {weeks.map((w) => (
-                <SelectItem key={w} value={w}>
-                  {w}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button type="button" variant="outline" onClick={() => window.print()}>
-            {t("corporateDeals.exportPdf")}
-          </Button>
-        </div>
-      </div>
+    <div className="corporate-deals-page space-y-6">
+      <PageHeader
+        className="print:hidden"
+        icon={FileBarChart}
+        title={t("corporateDeals.title")}
+        subtitle={t("corporateDeals.subtitle")}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <Select
+              value={activeWeek ?? undefined}
+              onValueChange={(v) => setWeek(v)}
+              disabled={!weeks.length}
+            >
+              <SelectTrigger className="w-44" aria-label={t("corporateDeals.week")}>
+                <SelectValue placeholder={t("corporateDeals.week")} />
+              </SelectTrigger>
+              <SelectContent>
+                {weeks.map((w) => (
+                  <SelectItem key={w} value={w}>
+                    {w}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button type="button" variant="outline" onClick={() => window.print()}>
+              {t("corporateDeals.exportPdf")}
+            </Button>
+          </div>
+        }
+      />
 
       {unmappedCount > 0 ? (
         <Alert className="print:hidden border-amber-500/40">
@@ -310,7 +353,7 @@ export default function CorporateDealsPage() {
       ) : null}
 
       <Tabs defaultValue="dashboard">
-        <TabsList className="print:hidden flex h-auto flex-wrap gap-1">
+        <TabsList className="print:hidden mb-1 flex h-auto flex-wrap gap-1">
           <TabsTrigger value="dashboard">{t("corporateDeals.tabs.dashboard")}</TabsTrigger>
           <TabsTrigger value="summary">{t("corporateDeals.tabs.summary")}</TabsTrigger>
           <TabsTrigger value="import">{t("corporateDeals.tabs.import")}</TabsTrigger>
@@ -321,7 +364,7 @@ export default function CorporateDealsPage() {
           <TabsTrigger value="readme">{t("corporateDeals.tabs.readme")}</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="dashboard" className="corporate-deals-dashboard space-y-4">
+        <TabsContent value="dashboard" className="corporate-deals-dashboard mt-4 space-y-5">
           {reportQ.isLoading ? (
             <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
           ) : !activeWeek ? (
@@ -333,12 +376,23 @@ export default function CorporateDealsPage() {
                   <h2 className="text-xl font-semibold">{t("corporateDeals.title")}</h2>
                   <p className="text-sm text-muted-foreground">
                     {t("corporateDeals.preparedBy", { name: preparedBy })} · {activeWeek}
+                    {brief?.meta.week_label ? ` · ${brief.meta.week_label}` : ""}
                     {report?.previous_week
                       ? ` · ${t("corporateDeals.prevWeek")}: ${String(report.previous_week)}`
                       : ""}
                   </p>
+                  {brief?.meta.meeting_label ? (
+                    <p className="text-xs text-muted-foreground">
+                      {t("corporateDeals.meetingDate", { date: brief.meta.meeting_label })}
+                      {brief.meta.source ? ` · ${brief.meta.source}` : ""}
+                    </p>
+                  ) : null}
                 </div>
-                <p className="text-sm text-muted-foreground">{t("corporateDeals.reviewedBy")}</p>
+                <p className="text-sm text-muted-foreground">
+                  {reviewedBy
+                    ? t("corporateDeals.reviewedByNamed", { name: reviewedBy })
+                    : t("corporateDeals.reviewedBy")}
+                </p>
               </header>
 
               {report?.caveat ? (
@@ -378,7 +432,7 @@ export default function CorporateDealsPage() {
                   {top10.length === 0 ? (
                     <ChartEmpty label={t("corporateDeals.charts.empty")} />
                   ) : (
-                    <div className="h-64">
+                    <div className="h-72">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={top10} margin={CHART_MARGIN}>
                           <CartesianGrid {...chartGridProps} />
@@ -396,7 +450,7 @@ export default function CorporateDealsPage() {
                   {!split ? (
                     <ChartEmpty label={t("corporateDeals.charts.empty")} />
                   ) : (
-                    <div className="h-64">
+                    <div className="h-72">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart
                           data={[
@@ -417,7 +471,7 @@ export default function CorporateDealsPage() {
                           <XAxis dataKey="name" tick={chartTick} />
                           <YAxis tick={chartTick} />
                           <Tooltip contentStyle={chartTooltipStyle} />
-                          <Legend />
+                          <Legend wrapperStyle={{ fontSize: 12 }} />
                           <Bar dataKey="discount" fill={CHART.teal} name={t("corporateDeals.kpi.discount")} />
                           <Bar dataKey="redemptions" fill={CHART.amber} name={t("corporateDeals.kpi.redemptions")} />
                         </BarChart>
@@ -439,7 +493,8 @@ export default function CorporateDealsPage() {
                           <TableHead>{t("corporateDeals.fields.venue")}</TableHead>
                           <TableHead className="text-end">{t("corporateDeals.kpi.redemptions")}</TableHead>
                           <TableHead className="text-end">{t("corporateDeals.kpi.tickets")}</TableHead>
-                          <TableHead className="text-end">{t("corporateDeals.kpi.discount")}</TableHead>
+                          <TableHead className="text-end">{t("corporateDeals.category.corporate")}</TableHead>
+                          <TableHead className="text-end">{t("corporateDeals.category.aggregator")}</TableHead>
                           <TableHead className="text-end">{t("corporateDeals.fields.share")}</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -449,13 +504,24 @@ export default function CorporateDealsPage() {
                             <TableCell>{v.venue}</TableCell>
                             <TableCell className="text-end">{v.redemptions}</TableCell>
                             <TableCell className="text-end">{v.tickets}</TableCell>
-                            <TableCell className="text-end">{money(v.discount)}</TableCell>
+                            <TableCell className="text-end">{v.corporate_redemptions ?? "—"}</TableCell>
+                            <TableCell className="text-end">{v.aggregator_redemptions ?? "—"}</TableCell>
                             <TableCell className="text-end">{pct(v.share)}</TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
                     </Table>
                   )}
+                  {brief?.venue_notes?.length ? (
+                    <ul className="mt-3 space-y-2">
+                      {brief.venue_notes.map((n) => (
+                        <li key={n.title} className="rounded-md border border-border/60 px-2.5 py-2">
+                          <div className="text-sm font-medium">{n.title}</div>
+                          <p className="mt-0.5 text-xs text-muted-foreground">{n.detail}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                   {unmatchedVenues.length > 0 ? (
                     <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
                       {t("corporateDeals.unmatchedVenues", { list: unmatchedVenues.join(", ") })}
@@ -547,6 +613,7 @@ export default function CorporateDealsPage() {
                         <TableHead>{t("corporateDeals.fields.venue")}</TableHead>
                         <TableHead className="text-end">{t("corporateDeals.summary.week")}</TableHead>
                         <TableHead className="text-end">{t("corporateDeals.summary.mtd")}</TableHead>
+                        <TableHead className="text-end">{t("corporateDeals.loyaltyPrevMonth")}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -569,6 +636,9 @@ export default function CorporateDealsPage() {
                               ? `${row.month_redemptions} / ${row.month_tickets}`
                               : "—"}
                           </TableCell>
+                          <TableCell className="text-end">
+                            {(row.prev_month_redemptions ?? 0) > 0 ? row.prev_month_redemptions : "—"}
+                          </TableCell>
                         </TableRow>
                       ))}
                       <TableRow>
@@ -583,26 +653,96 @@ export default function CorporateDealsPage() {
                           {loyaltyInhouse.reduce((s, r) => s + r.month_redemptions, 0)} /{" "}
                           {loyaltyInhouse.reduce((s, r) => s + r.month_tickets, 0)}
                         </TableCell>
+                        <TableCell className="text-end font-semibold">
+                          {loyaltyInhouse.reduce((s, r) => s + (r.prev_month_redemptions ?? 0), 0) || "—"}
+                        </TableCell>
                       </TableRow>
                     </TableBody>
                   </Table>
                 )}
               </div>
 
+              {brief ? (
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <div className="surface-card p-4">
+                    <h3 className="font-semibold">{t("corporateDeals.incidentsTitle")}</h3>
+                    <p className="mt-1 text-xs text-muted-foreground">{t("corporateDeals.incidentsSubtitle")}</p>
+                    <div className="mt-3 rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-2">
+                      <div className="text-sm font-semibold text-emerald-800 dark:text-emerald-300">
+                        {brief.incidents_banner.title}
+                      </div>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{brief.incidents_banner.detail}</p>
+                    </div>
+                    <ul className="mt-3 space-y-2">
+                      {brief.incident_points.map((item) => (
+                        <li key={item.rank} className="flex gap-3 rounded-md border px-2.5 py-2">
+                          <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-bold">
+                            {item.rank}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <div className="text-sm font-semibold leading-tight">{item.title}</div>
+                              <Badge variant="secondary">{item.status_label}</Badge>
+                            </div>
+                            <p className="mt-0.5 text-xs text-muted-foreground">{item.detail}</p>
+                            <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">{item.ask}</p>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="surface-card p-4">
+                    <h3 className="font-semibold">{t("corporateDeals.decisionsTitle")}</h3>
+                    <p className="mt-1 text-xs text-muted-foreground">{t("corporateDeals.decisionsSubtitle")}</p>
+                    <ul className="mt-3 space-y-2">
+                      {brief.decisions.map((item) => (
+                        <li
+                          key={item.rank}
+                          className={cn(
+                            "flex gap-3 rounded-md border px-2.5 py-2",
+                            item.severity === "crit"
+                              ? "border-destructive/30 bg-destructive/5"
+                              : item.severity === "gold"
+                                ? "border-amber-500/30 bg-amber-500/5"
+                                : "border-border/70",
+                          )}
+                        >
+                          <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-bold">
+                            {item.rank}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-semibold leading-tight">{item.title}</div>
+                            <p className="mt-0.5 text-xs text-muted-foreground">{item.detail}</p>
+                            <p className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">{item.ask}</p>
+                          </div>
+                          <div className="shrink-0 text-right text-xs text-muted-foreground whitespace-pre-line">
+                            {item.where}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      {t("corporateDeals.decisionsMomNote")}
+                      {brief.meta.next_review ? ` · ${t("corporateDeals.nextReview", { date: brief.meta.next_review })}` : ""}
+                    </p>
+                  </div>
+                </div>
+              ) : null}
+
               <ChartCard title={t("corporateDeals.charts.weeklyTrend")}>
                 {weeklyTrend.length === 0 ? (
-                  <ChartEmpty label={t("corporateDeals.charts.empty")} className="h-48" />
+                  <ChartEmpty label={t("corporateDeals.charts.empty")} className="h-64" />
                 ) : (
-                  <div className="h-48">
+                  <div className="h-64">
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={weeklyTrend} margin={CHART_MARGIN}>
+                      <LineChart data={weeklyTrend} margin={TREND_MARGIN}>
                         <CartesianGrid {...chartGridProps} />
                         <XAxis dataKey="iso_week" tick={chartTick} />
-                        <YAxis tick={chartTick} />
+                        <YAxis tick={chartTick} width={56} />
                         <Tooltip contentStyle={chartTooltipStyle} />
-                        <Legend />
-                        <Line type="monotone" dataKey="corporate_discount" stroke={CHART.info} name={t("corporateDeals.category.corporate")} dot={false} />
-                        <Line type="monotone" dataKey="aggregator_discount" stroke={CHART.amber} name={t("corporateDeals.category.aggregator")} dot={false} />
+                        <Legend wrapperStyle={{ fontSize: 12 }} />
+                        <Line type="monotone" dataKey="corporate_discount" stroke={CHART.info} name={t("corporateDeals.category.corporate")} dot={false} strokeWidth={2} />
+                        <Line type="monotone" dataKey="aggregator_discount" stroke={CHART.amber} name={t("corporateDeals.category.aggregator")} dot={false} strokeWidth={2} />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
@@ -612,34 +752,37 @@ export default function CorporateDealsPage() {
           )}
         </TabsContent>
 
-        <TabsContent value="summary" className="space-y-4">
+        <TabsContent value="summary" className="mt-4 space-y-5">
           {!activeWeek ? (
             <p className="text-sm text-muted-foreground">{t("corporateDeals.empty")}</p>
           ) : (
             <>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="surface-card p-4 text-sm">
-                  <h3 className="font-semibold">{t("corporateDeals.summary.week")}</h3>
-                  <p>{t("corporateDeals.kpi.redemptions")}: {kpis?.redemptions ?? 0}</p>
-                  <p>{t("corporateDeals.kpi.tickets")}: {kpis?.tickets ?? 0}</p>
-                  <p>{t("corporateDeals.kpi.discount")}: {money(kpis?.discount ?? 0)}</p>
-                  <p>{t("corporateDeals.kpi.activePartners")}: {kpis?.active_partners ?? 0}</p>
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="space-y-3">
+                  <p className="section-kicker">{t("corporateDeals.summary.week")}</p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <TintedKpiCard compact tint="sky" title={t("corporateDeals.kpi.redemptions")} value={kpis?.redemptions ?? 0} />
+                    <TintedKpiCard compact tint="green" title={t("corporateDeals.kpi.tickets")} value={kpis?.tickets ?? 0} />
+                    <TintedKpiCard compact tint="orange" title={t("corporateDeals.kpi.discount")} value={money(kpis?.discount ?? 0)} />
+                    <TintedKpiCard compact tint="amber" title={t("corporateDeals.kpi.activePartners")} value={kpis?.active_partners ?? 0} />
+                  </div>
                 </div>
-                <div className="surface-card p-4 text-sm">
-                  <h3 className="font-semibold">{t("corporateDeals.summary.mtd")}</h3>
-                  <p>{t("corporateDeals.kpi.redemptions")}: {mtd?.redemptions ?? 0}</p>
-                  <p>{t("corporateDeals.kpi.tickets")}: {mtd?.tickets ?? 0}</p>
-                  <p>{t("corporateDeals.kpi.discount")}: {money(mtd?.discount ?? 0)}</p>
-                  <p>{t("corporateDeals.kpi.activePartners")}: {mtd?.active_partners ?? 0}</p>
+                <div className="space-y-3">
+                  <p className="section-kicker">{t("corporateDeals.summary.mtd")}</p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <TintedKpiCard compact tint="sky" title={t("corporateDeals.kpi.redemptions")} value={mtd?.redemptions ?? 0} />
+                    <TintedKpiCard compact tint="green" title={t("corporateDeals.kpi.tickets")} value={mtd?.tickets ?? 0} />
+                    <TintedKpiCard compact tint="orange" title={t("corporateDeals.kpi.discount")} value={money(mtd?.discount ?? 0)} />
+                    <TintedKpiCard compact tint="amber" title={t("corporateDeals.kpi.activePartners")} value={mtd?.active_partners ?? 0} />
+                  </div>
                 </div>
               </div>
 
               <div className="grid gap-4 lg:grid-cols-2">
-                <div className="surface-card p-4">
-                  <h3 className="mb-2 font-semibold">{t("corporateDeals.summary.categorySplit")}</h3>
+                <SectionCard title={t("corporateDeals.summary.categorySplit")} bodyClassName="overflow-x-auto p-0 sm:p-0">
                   <Table>
                     <TableHeader>
-                      <TableRow>
+                      <TableRow className="hover:bg-transparent">
                         <TableHead>{t("corporateDeals.fields.category")}</TableHead>
                         <TableHead className="text-end">{t("corporateDeals.kpi.redemptions")}</TableHead>
                         <TableHead className="text-end">{t("corporateDeals.kpi.discount")}</TableHead>
@@ -647,20 +790,21 @@ export default function CorporateDealsPage() {
                     </TableHeader>
                     <TableBody>
                       {categorySplitMtd.map((c) => (
-                        <TableRow key={c.category}>
-                          <TableCell>{c.category}</TableCell>
-                          <TableCell className="text-end">{c.redemptions}</TableCell>
-                          <TableCell className="text-end">{money(c.discount)}</TableCell>
+                        <TableRow key={c.category} className="odd:bg-muted/20 hover:bg-muted/35">
+                          <TableCell>
+                            <CategoryBadge label={c.category} />
+                          </TableCell>
+                          <NumCell>{c.redemptions}</NumCell>
+                          <NumCell>{money(c.discount)}</NumCell>
                         </TableRow>
                       ))}
                     </TableBody>
                   </Table>
-                </div>
-                <div className="surface-card p-4">
-                  <h3 className="mb-2 font-semibold">{t("corporateDeals.summary.venueSplit")}</h3>
+                </SectionCard>
+                <SectionCard title={t("corporateDeals.summary.venueSplit")} bodyClassName="overflow-x-auto p-0 sm:p-0">
                   <Table>
                     <TableHeader>
-                      <TableRow>
+                      <TableRow className="hover:bg-transparent">
                         <TableHead>{t("corporateDeals.fields.venue")}</TableHead>
                         <TableHead className="text-end">{t("corporateDeals.summary.weekShort")}</TableHead>
                         <TableHead className="text-end">{t("corporateDeals.summary.mtdShort")}</TableHead>
@@ -672,67 +816,74 @@ export default function CorporateDealsPage() {
                           const w = byVenueWeek.find((x) => x.venue === venue);
                           const m = byVenueMtd.find((x) => x.venue === venue);
                           return (
-                            <TableRow key={venue}>
-                              <TableCell>{venue}</TableCell>
-                              <TableCell className="text-end">
-                                {w ? `${w.redemptions} / ${w.tickets}` : "—"}
-                              </TableCell>
-                              <TableCell className="text-end">
-                                {m ? `${m.redemptions} / ${m.tickets}` : "—"}
-                              </TableCell>
+                            <TableRow key={venue} className="odd:bg-muted/20 hover:bg-muted/35">
+                              <TableCell className="font-medium">{venue}</TableCell>
+                              <NumCell>{w ? `${w.redemptions} / ${w.tickets}` : "—"}</NumCell>
+                              <NumCell>{m ? `${m.redemptions} / ${m.tickets}` : "—"}</NumCell>
                             </TableRow>
                           );
                         },
                       )}
                     </TableBody>
                   </Table>
-                </div>
+                </SectionCard>
               </div>
 
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>{t("corporateDeals.fields.partner")}</TableHead>
-                      <TableHead>{t("corporateDeals.fields.category")}</TableHead>
-                      <TableHead>{t("corporateDeals.kpi.redemptions")}</TableHead>
-                      <TableHead>{t("corporateDeals.kpi.tickets")}</TableHead>
-                      <TableHead>{t("corporateDeals.kpi.discount")}</TableHead>
-                      <TableHead>{t("corporateDeals.fields.status")}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {partners.map((p) => (
-                      <TableRow key={String(p.partner_name)}>
-                        <TableCell>{String(p.partner_name)}</TableCell>
-                        <TableCell>{String(p.category)}</TableCell>
-                        <TableCell>{Number(p.redemptions)}</TableCell>
-                        <TableCell>{Number(p.tickets)}</TableCell>
-                        <TableCell>{money(Number(p.discount))}</TableCell>
-                        <TableCell>
-                          <Badge variant={p.status === "Active" ? "default" : "secondary"}>
-                            {String(p.status)}
-                          </Badge>
-                        </TableCell>
+              <SectionCard
+                title={t("corporateDeals.summary.partners")}
+                subtitle={t("corporateDeals.summary.partnersHint")}
+                bodyClassName="p-0 sm:p-0"
+              >
+                <div className="[&>div]:max-h-[min(32rem,65vh)]">
+                  <Table>
+                    <TableHeader className="sticky top-0 z-10 bg-card/95 shadow-[0_1px_0_0_hsl(var(--border))] backdrop-blur supports-[backdrop-filter]:bg-card/90">
+                      <TableRow className="hover:bg-transparent">
+                        <TableHead>{t("corporateDeals.fields.partner")}</TableHead>
+                        <TableHead>{t("corporateDeals.fields.category")}</TableHead>
+                        <TableHead className="text-end">{t("corporateDeals.kpi.redemptions")}</TableHead>
+                        <TableHead className="text-end">{t("corporateDeals.kpi.tickets")}</TableHead>
+                        <TableHead className="text-end">{t("corporateDeals.kpi.discount")}</TableHead>
+                        <TableHead>{t("corporateDeals.fields.status")}</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                    </TableHeader>
+                    <TableBody>
+                      {partners.map((p) => (
+                        <TableRow key={String(p.partner_name)} className="odd:bg-muted/15 hover:bg-muted/30">
+                          <TableCell className="font-medium">{String(p.partner_name)}</TableCell>
+                          <TableCell>
+                            <CategoryBadge label={String(p.category)} />
+                          </TableCell>
+                          <NumCell>{Number(p.redemptions)}</NumCell>
+                          <NumCell>{Number(p.tickets)}</NumCell>
+                          <NumCell>{money(Number(p.discount))}</NumCell>
+                          <TableCell>
+                            <PartnerStatusBadge
+                              status={String(p.status)}
+                              activeLabel={t("corporateDeals.statusActive")}
+                              idleLabel={t("corporateDeals.statusNoUsage")}
+                            />
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </SectionCard>
+
               <ChartCard title={t("corporateDeals.charts.monthlyTrend")}>
                 {monthlyTrend.length === 0 ? (
-                  <ChartEmpty label={t("corporateDeals.charts.empty")} />
+                  <ChartEmpty label={t("corporateDeals.charts.empty")} className="h-72" />
                 ) : (
-                  <div className="h-56">
+                  <div className="h-72">
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={monthlyTrend} margin={CHART_MARGIN}>
+                      <LineChart data={monthlyTrend} margin={TREND_MARGIN}>
                         <CartesianGrid {...chartGridProps} />
                         <XAxis dataKey="period_month" tick={chartTick} />
-                        <YAxis tick={chartTick} />
+                        <YAxis tick={chartTick} width={64} />
                         <Tooltip contentStyle={chartTooltipStyle} />
-                        <Legend />
-                        <Line type="monotone" dataKey="corporate_discount" stroke={CHART.info} name={t("corporateDeals.category.corporate")} />
-                        <Line type="monotone" dataKey="aggregator_discount" stroke={CHART.amber} name={t("corporateDeals.category.aggregator")} />
+                        <Legend wrapperStyle={{ fontSize: 12 }} />
+                        <Line type="monotone" dataKey="corporate_discount" stroke={CHART.info} name={t("corporateDeals.category.corporate")} strokeWidth={2} dot={false} />
+                        <Line type="monotone" dataKey="aggregator_discount" stroke={CHART.amber} name={t("corporateDeals.category.aggregator")} strokeWidth={2} dot={false} />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
@@ -912,84 +1063,90 @@ export default function CorporateDealsPage() {
           </Table>
         </TabsContent>
 
-        <TabsContent value="mom" className="space-y-3 print:hidden">
+        <TabsContent value="mom" className="mt-4 space-y-4 print:hidden">
           <Alert>
             <AlertDescription>{t("corporateDeals.mom.reuseNote")}</AlertDescription>
           </Alert>
-          {!canEdit ? (
-            <p className="text-sm text-muted-foreground">{t("corporateDeals.readOnly")}</p>
-          ) : (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={momMut.isPending}
-              onClick={() => {
-                void momMut
-                  .mutateAsync({
-                    action: "save_mom",
-                    action_text: "",
-                    venue_text: "Corporate deals",
-                    owner: "",
-                    due: "",
-                    status: "open",
-                    update_note: null,
-                    sort_order: ((momQ.data as unknown[] | undefined)?.length ?? 0) + 1,
-                  })
-                  .then(() => toast.success(t("corporateDeals.mom.saved")))
-                  .catch((e: Error) => toast.error(e.message));
-              }}
-            >
-              <Plus className="h-4 w-4" />
-              {t("corporateDeals.mom.add")}
-            </Button>
-          )}
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t("corporateDeals.fields.venue")}</TableHead>
-                <TableHead>{t("corporateDeals.mom.decision")}</TableHead>
-                <TableHead>{t("corporateDeals.mom.owner")}</TableHead>
-                <TableHead>{t("corporateDeals.mom.due")}</TableHead>
-                <TableHead>{t("corporateDeals.fields.status")}</TableHead>
-                <TableHead>{t("corporateDeals.mom.update")}</TableHead>
-                {canEdit ? <TableHead className="w-24" /> : null}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {((momQ.data as Array<Record<string, unknown>>) ?? []).map((row) => (
-                <MomActionRow
-                  key={String(row.id)}
-                  row={row}
-                  canEdit={canEdit}
-                  busy={momMut.isPending}
-                  onSave={async (patch) => {
-                    try {
-                      await momMut.mutateAsync({ action: "save_mom", ...patch });
-                      toast.success(t("corporateDeals.mom.saved"));
-                    } catch (e) {
-                      toast.error(e instanceof Error ? e.message : String(e));
-                    }
+          <SectionCard
+            title={t("corporateDeals.tabs.mom")}
+            actions={
+              canEdit ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={momMut.isPending}
+                  onClick={() => {
+                    void momMut
+                      .mutateAsync({
+                        action: "save_mom",
+                        action_text: "",
+                        venue_text: "Corporate deals",
+                        owner: "",
+                        due: "",
+                        status: "open",
+                        update_note: null,
+                        sort_order: ((momQ.data as unknown[] | undefined)?.length ?? 0) + 1,
+                      })
+                      .then(() => toast.success(t("corporateDeals.mom.saved")))
+                      .catch((e: Error) => toast.error(e.message));
                   }}
-                  onDelete={async (id) => {
-                    try {
-                      await momMut.mutateAsync({ action: "delete_mom", id });
-                      toast.success(t("corporateDeals.mom.deleted"));
-                    } catch (e) {
-                      toast.error(e instanceof Error ? e.message : String(e));
-                    }
-                  }}
-                />
-              ))}
-              {(momQ.data as unknown[] | undefined)?.length ? null : (
-                <TableRow>
-                  <TableCell colSpan={canEdit ? 7 : 6} className="text-sm text-muted-foreground">
-                    {t("corporateDeals.mom.empty")}
-                  </TableCell>
+                >
+                  <Plus className="h-4 w-4" />
+                  {t("corporateDeals.mom.add")}
+                </Button>
+              ) : (
+                <p className="text-sm text-muted-foreground">{t("corporateDeals.readOnly")}</p>
+              )
+            }
+            bodyClassName="overflow-x-auto p-0 sm:p-0"
+          >
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>{t("corporateDeals.fields.venue")}</TableHead>
+                  <TableHead>{t("corporateDeals.mom.decision")}</TableHead>
+                  <TableHead>{t("corporateDeals.mom.owner")}</TableHead>
+                  <TableHead>{t("corporateDeals.mom.due")}</TableHead>
+                  <TableHead>{t("corporateDeals.fields.status")}</TableHead>
+                  <TableHead>{t("corporateDeals.mom.update")}</TableHead>
+                  {canEdit ? <TableHead className="w-28 text-end">{t("common.actions")}</TableHead> : null}
                 </TableRow>
-              )}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {((momQ.data as Array<Record<string, unknown>>) ?? []).map((row) => (
+                  <MomActionRow
+                    key={String(row.id)}
+                    row={row}
+                    canEdit={canEdit}
+                    busy={momMut.isPending}
+                    onSave={async (patch) => {
+                      try {
+                        await momMut.mutateAsync({ action: "save_mom", ...patch });
+                        toast.success(t("corporateDeals.mom.saved"));
+                      } catch (e) {
+                        toast.error(e instanceof Error ? e.message : String(e));
+                      }
+                    }}
+                    onDelete={async (id) => {
+                      try {
+                        await momMut.mutateAsync({ action: "delete_mom", id });
+                        toast.success(t("corporateDeals.mom.deleted"));
+                      } catch (e) {
+                        toast.error(e instanceof Error ? e.message : String(e));
+                      }
+                    }}
+                  />
+                ))}
+                {(momQ.data as unknown[] | undefined)?.length ? null : (
+                  <TableRow>
+                    <TableCell colSpan={canEdit ? 7 : 6} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                      {t("corporateDeals.mom.empty")}
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </SectionCard>
         </TabsContent>
 
         <TabsContent value="readme" className="prose prose-sm dark:prose-invert max-w-none space-y-2">
@@ -1044,14 +1201,18 @@ function MomActionRow({
         <TableCell>{action || "—"}</TableCell>
         <TableCell>{owner || "—"}</TableCell>
         <TableCell>{due || "—"}</TableCell>
-        <TableCell>{status}</TableCell>
+        <TableCell>
+          <Badge variant={status === "done" ? "success" : status === "wip" ? "warning" : "info"}>
+            {t(`weeklyReview.actionStatus.${status}`, { defaultValue: status })}
+          </Badge>
+        </TableCell>
         <TableCell>{update || "—"}</TableCell>
       </TableRow>
     );
   }
 
   return (
-    <TableRow>
+    <TableRow className="align-top odd:bg-muted/10 hover:bg-muted/25">
       <TableCell>
         <Input className="h-8 min-w-28" value={venue} onChange={(e) => setVenue(e.target.value)} />
       </TableCell>
@@ -1081,38 +1242,40 @@ function MomActionRow({
       <TableCell>
         <Input className="h-8 min-w-40" value={update} onChange={(e) => setUpdate(e.target.value)} />
       </TableCell>
-      <TableCell className="space-x-1 whitespace-nowrap">
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          disabled={busy}
-          onClick={() =>
-            void onSave({
-              id: row.id,
-              review_id: row.review_id,
-              venue_text: venue || null,
-              action_text: action,
-              owner: owner || null,
-              due: due || null,
-              status,
-              update_note: update || null,
-              sort_order: row.sort_order,
-            })
-          }
-        >
-          {t("corporateDeals.mom.save")}
-        </Button>
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          disabled={busy}
-          aria-label={t("corporateDeals.mom.delete")}
-          onClick={() => void onDelete(String(row.id))}
-        >
-          <Trash2 className="h-4 w-4" />
-        </Button>
+      <TableCell className="whitespace-nowrap text-end">
+        <div className="inline-flex items-center gap-1">
+          <Button
+            type="button"
+            size="sm"
+            disabled={busy}
+            onClick={() =>
+              void onSave({
+                id: row.id,
+                review_id: row.review_id,
+                venue_text: venue || null,
+                action_text: action,
+                owner: owner || null,
+                due: due || null,
+                status,
+                update_note: update || null,
+                sort_order: row.sort_order,
+              })
+            }
+          >
+            {t("corporateDeals.mom.save")}
+          </Button>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="text-muted-foreground hover:text-destructive"
+            disabled={busy}
+            aria-label={t("corporateDeals.mom.delete")}
+            onClick={() => void onDelete(String(row.id))}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
       </TableCell>
     </TableRow>
   );

@@ -42,6 +42,8 @@ export interface CategorySplit {
 export interface VenueSplit extends MetricTotals {
   venue: string;
   share: number;
+  corporate_redemptions: number;
+  aggregator_redemptions: number;
 }
 
 export interface PeriodCompare {
@@ -248,13 +250,30 @@ export function categorySplit(rows: readonly DealMetricRow[]): CategorySplit[] {
 /** Partner-total redemptions by venue (event_title-derived). Share of discount. */
 export function rollupByVenue(rows: readonly DealMetricRow[]): VenueSplit[] {
   const scoped = partnerTotalRows(rows);
-  const map = new Map<string, { redemptions: number; tickets: number; discount: number }>();
+  const map = new Map<
+    string,
+    {
+      redemptions: number;
+      tickets: number;
+      discount: number;
+      corporate_redemptions: number;
+      aggregator_redemptions: number;
+    }
+  >();
   for (const r of scoped) {
     const venue = (r.venue || "Not specified").trim() || "Not specified";
-    const cur = map.get(venue) ?? { redemptions: 0, tickets: 0, discount: 0 };
+    const cur = map.get(venue) ?? {
+      redemptions: 0,
+      tickets: 0,
+      discount: 0,
+      corporate_redemptions: 0,
+      aggregator_redemptions: 0,
+    };
     cur.redemptions += r.times_used || 0;
     cur.tickets += r.tickets || 0;
     cur.discount += r.total_discount || 0;
+    if (r.category === "Corporate discount") cur.corporate_redemptions += r.times_used || 0;
+    if (r.category === "Aggregator BOGO") cur.aggregator_redemptions += r.times_used || 0;
     map.set(venue, cur);
   }
   const totalRedemptions = [...map.values()].reduce((s, v) => s + v.redemptions, 0);
@@ -267,6 +286,8 @@ export function rollupByVenue(rows: readonly DealMetricRow[]): VenueSplit[] {
       discount_per_redemption: v.redemptions > 0 ? v.discount / v.redemptions : 0,
       // PDF "Share" is of partner redemptions (67/194 ≈ 35%), not discount
       share: totalRedemptions > 0 ? v.redemptions / totalRedemptions : 0,
+      corporate_redemptions: v.corporate_redemptions,
+      aggregator_redemptions: v.aggregator_redemptions,
     }))
     .sort((a, b) => b.redemptions - a.redemptions || a.venue.localeCompare(b.venue));
 }
@@ -332,14 +353,39 @@ export function weeklyTrend(
 export function monthlyTrend(
   rows: readonly DealMetricRow[],
   lastN = 13,
-): Array<{ period_month: string; corporate_discount: number; aggregator_discount: number }> {
-  const map = new Map<string, { corporate_discount: number; aggregator_discount: number }>();
+): Array<{
+  period_month: string;
+  corporate_discount: number;
+  aggregator_discount: number;
+  corporate_redemptions: number;
+  aggregator_redemptions: number;
+}> {
+  const map = new Map<
+    string,
+    {
+      corporate_discount: number;
+      aggregator_discount: number;
+      corporate_redemptions: number;
+      aggregator_redemptions: number;
+    }
+  >();
   for (const r of partnerTotalRows(rows)) {
     const m = r.period_month;
     if (!m) continue;
-    const cur = map.get(m) ?? { corporate_discount: 0, aggregator_discount: 0 };
-    if (r.category === "Corporate discount") cur.corporate_discount += r.total_discount || 0;
-    if (r.category === "Aggregator BOGO") cur.aggregator_discount += r.total_discount || 0;
+    const cur = map.get(m) ?? {
+      corporate_discount: 0,
+      aggregator_discount: 0,
+      corporate_redemptions: 0,
+      aggregator_redemptions: 0,
+    };
+    if (r.category === "Corporate discount") {
+      cur.corporate_discount += r.total_discount || 0;
+      cur.corporate_redemptions += r.times_used || 0;
+    }
+    if (r.category === "Aggregator BOGO") {
+      cur.aggregator_discount += r.total_discount || 0;
+      cur.aggregator_redemptions += r.times_used || 0;
+    }
     map.set(m, cur);
   }
   return [...map.entries()]
@@ -371,16 +417,19 @@ export interface LoyaltyInHouseRow {
   week_tickets: number;
   month_redemptions: number;
   month_tickets: number;
+  /** Previous full calendar month (from trend), when provided. */
+  prev_month_redemptions: number;
 }
 
 /** Internal / promotion codes (loyalty, cafe, karak) — excluded from partner KPIs. */
 export function loyaltyInHouseByCode(
   weekRows: readonly DealMetricRow[],
   monthRows: readonly DealMetricRow[],
+  prevMonthRows: readonly DealMetricRow[] = [],
 ): LoyaltyInHouseRow[] {
   type Acc = LoyaltyInHouseRow;
   const map = new Map<string, Acc>();
-  const touch = (r: DealMetricRow, which: "week" | "month") => {
+  const touch = (r: DealMetricRow, which: "week" | "month" | "prev") => {
     const code = (r.promocode || "").trim() || "(unknown)";
     const key = code.toLowerCase();
     const cur = map.get(key) ?? {
@@ -391,20 +440,24 @@ export function loyaltyInHouseByCode(
       week_tickets: 0,
       month_redemptions: 0,
       month_tickets: 0,
+      prev_month_redemptions: 0,
     };
     if (r.description && !cur.description) cur.description = r.description;
     if (r.venue) cur.venue = r.venue;
     if (which === "week") {
       cur.week_redemptions += r.times_used || 0;
       cur.week_tickets += r.tickets || 0;
-    } else {
+    } else if (which === "month") {
       cur.month_redemptions += r.times_used || 0;
       cur.month_tickets += r.tickets || 0;
+    } else {
+      cur.prev_month_redemptions += r.times_used || 0;
     }
     map.set(key, cur);
   };
   for (const r of internalPromotionRows(weekRows)) touch(r, "week");
   for (const r of internalPromotionRows(monthRows)) touch(r, "month");
+  for (const r of internalPromotionRows(prevMonthRows)) touch(r, "prev");
   return [...map.values()].sort(
     (a, b) =>
       b.week_redemptions - a.week_redemptions ||
