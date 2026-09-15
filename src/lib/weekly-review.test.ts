@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import { isoWeekLabel, nextWeekBounds } from "./weekly-review/constants";
 import {
+  MOM_ACTIONS_2026_09_08,
+  STATUS_LABEL_MAP,
+  momActionToRow,
+} from "./weekly-review/mom-2026-09-08";
+import {
   carryForwardActions,
   carryForwardDecisions,
   formatDelta,
@@ -51,6 +56,24 @@ describe("weekly review week math", () => {
       meeting_date: "2026-09-15",
       week_label: "Week 38",
     });
+  });
+});
+
+describe("8 Sep 2026 MoM seed", () => {
+  it("maps Tuesday labels onto open/wip/done and keeps richer text in update_note", () => {
+    expect(MOM_ACTIONS_2026_09_08).toHaveLength(25);
+    expect(STATUS_LABEL_MAP["In progress"].status).toBe("wip");
+    expect(STATUS_LABEL_MAP.Received.status).toBe("done");
+    expect(STATUS_LABEL_MAP["Awaiting approval"].status).toBe("open");
+    expect(STATUS_LABEL_MAP["Waiting on supplier"].status).toBe("wip");
+    expect(STATUS_LABEL_MAP["Needs approval"].status).toBe("open");
+
+    const bySort = Object.fromEntries(MOM_ACTIONS_2026_09_08.map((a) => [a.sort_order, a]));
+    expect(momActionToRow(bySort[4], "r").status).toBe("wip");
+    expect(momActionToRow(bySort[2], "r").status).toBe("done");
+    expect(momActionToRow(bySort[7], "r").update_note).toMatch(/Awaiting approval/);
+    expect(momActionToRow(bySort[16], "r").status).toBe("wip");
+    expect(bySort[24].source_module).toBe("corporate_deals_mom");
   });
 });
 

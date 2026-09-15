@@ -2379,7 +2379,7 @@
       "saved": "Mapping saved"
     },
     "mom": {
-      "reuseNote": "Uses the same weekly_review_actions register (source_module = corporate_deals_mom). Enter MoM points from the 8 Sep 2026 minutes here or in Weekly Management Review → Follow-up actions.",
+      "reuseNote": "Shared weekly_review_actions register. 8 Sep 2026 Management & Ops MoM lives on Weekly Management Review → Follow-up (source_module weekly_review_mom). This tab lists corporate_deals_mom rows (e.g. Corporate Deals Report).",
       "decision": "Decision / action",
       "owner": "Owner",
       "due": "Due",
