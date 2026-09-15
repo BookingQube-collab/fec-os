@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { isoWeekLabel, nextWeekBounds } from "./weekly-review/constants";
+import { isCorporateDealsActionModule } from "./weekly-review/action-source";
 import {
   MOM_ACTIONS_2026_09_08,
   STATUS_LABEL_MAP,
@@ -61,7 +62,7 @@ describe("weekly review week math", () => {
 
 describe("8 Sep 2026 MoM seed", () => {
   it("maps Tuesday labels onto open/wip/done and keeps richer text in update_note", () => {
-    expect(MOM_ACTIONS_2026_09_08).toHaveLength(25);
+    expect(MOM_ACTIONS_2026_09_08).toHaveLength(29);
     expect(STATUS_LABEL_MAP["In progress"].status).toBe("wip");
     expect(STATUS_LABEL_MAP.Received.status).toBe("done");
     expect(STATUS_LABEL_MAP["Awaiting approval"].status).toBe("open");
@@ -74,6 +75,15 @@ describe("8 Sep 2026 MoM seed", () => {
     expect(momActionToRow(bySort[7], "r").update_note).toMatch(/Awaiting approval/);
     expect(momActionToRow(bySort[16], "r").status).toBe("wip");
     expect(bySort[24].source_module).toBe("corporate_deals_mom");
+    expect(MOM_ACTIONS_2026_09_08.filter((a) => a.source_module === "corporate_deals_mom")).toHaveLength(5);
+    expect(bySort[26].action).toMatch(/BOGO terms/);
+  });
+
+  it("treats corporate_deals_* as corporate-owned (weekly_review_mom stays on weekly review)", () => {
+    expect(isCorporateDealsActionModule("corporate_deals_mom")).toBe(true);
+    expect(isCorporateDealsActionModule("corporate_deals_unmap")).toBe(true);
+    expect(isCorporateDealsActionModule("weekly_review_mom")).toBe(false);
+    expect(isCorporateDealsActionModule(null)).toBe(false);
   });
 });
 

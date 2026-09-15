@@ -22,6 +22,7 @@ import {
   type DealMetricRow,
 } from "@/lib/corporate-deals/calc";
 import { DORMANT_PRIZE, PARTNER_MASTER, type DealCategory, type ImportKind } from "@/lib/corporate-deals/constants";
+import { briefForWeek } from "@/lib/corporate-deals/brief-w37";
 import {
   classifyRow,
   detectImportPeriod,
@@ -202,6 +203,17 @@ export async function fetchCorporateDealReport(context: AuthContext, isoWeek: st
   const allWeekly = await loadAllWeekly(context);
   const trendRows = await loadAllTrend(context);
   const year = Number(isoWeek.slice(0, 4)) || new Date().getFullYear();
+  const prevMonth =
+    periodMonth && /^\d{4}-\d{2}$/.test(periodMonth)
+      ? (() => {
+          const [y, m] = periodMonth.split("-").map(Number);
+          const d = new Date(Date.UTC(y, m - 2, 1));
+          return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+        })()
+      : null;
+  const prevMonthRows = prevMonth
+    ? trendRows.filter((r) => r.period_month === prevMonth)
+    : [];
 
   const kpis = metricTotals(weekRows);
   const mtd = metricTotals(monthRows);
@@ -235,6 +247,7 @@ export async function fetchCorporateDealReport(context: AuthContext, isoWeek: st
     previous_week: prevWeek,
     period_month: periodMonth,
     weeks,
+    brief: briefForWeek(isoWeek),
     kpis: {
       ...kpis,
       active_partners: activePartnerCount(weekRows),
@@ -267,7 +280,7 @@ export async function fetchCorporateDealReport(context: AuthContext, isoWeek: st
     unmapped_count: unmapped.length,
     unmapped_codes: unmapped,
     new_or_unmatched_venues: newOrUnmatchedVenues,
-    loyalty_inhouse: loyaltyInHouseByCode(weekRows, monthRows),
+    loyalty_inhouse: loyaltyInHouseByCode(weekRows, monthRows, prevMonthRows),
     caveat: aggregatorMethodChangeCaveat(isoWeek),
     partner_master: PARTNER_MASTER,
   };
@@ -490,11 +503,48 @@ function isoWeekToMonday(isoWeek: string): string | null {
   return ISOweekStart.toISOString().slice(0, 10);
 }
 
+const CORP_MOM = "corporate_deals_mom";
+
+/** Attach MoM rows to the latest weekly review pack (create one if the table is empty). */
+async function resolveMomReviewId(context: AuthContext, preferred?: string | null): Promise<string> {
+  if (preferred) return preferred;
+  const { data: latest, error } = await context.supabase
+    .from("weekly_reviews")
+    .select("id")
+    .order("week_start", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  if (latest?.id) return String(latest.id);
+
+  const today = new Date();
+  const monday = new Date(today);
+  const dow = monday.getUTCDay();
+  monday.setUTCDate(monday.getUTCDate() - ((dow + 6) % 7));
+  const weekStart = monday.toISOString().slice(0, 10);
+  const weekEnd = addDays(weekStart, 6);
+  const { data: created, error: createErr } = await context.supabase
+    .from("weekly_reviews")
+    .insert({
+      week_label: `Week ${weekStart}`,
+      week_start: weekStart,
+      week_end: weekEnd,
+      meeting_date: addDays(weekStart, 1),
+      prepared_by: context.userId ?? null,
+      status: "draft",
+      notes: "Auto-created for corporate deals MoM",
+    })
+    .select("id")
+    .single();
+  if (createErr) throw createErr;
+  return String(created.id);
+}
+
 export async function fetchCorporateDealMomActions(context: AuthContext) {
   const { data, error } = await context.supabase
     .from("weekly_review_actions")
     .select("*")
-    .eq("source_module", "corporate_deals_mom")
+    .eq("source_module", CORP_MOM)
     .order("sort_order");
   if (error) throw error;
   return data ?? [];
@@ -504,7 +554,7 @@ export async function saveCorporateDealMomAction(
   context: AuthContext,
   input: {
     id?: string;
-    review_id: string;
+    review_id?: string | null;
     venue_text?: string | null;
     action: string;
     owner?: string | null;
@@ -515,15 +565,16 @@ export async function saveCorporateDealMomAction(
   },
 ) {
   requireEdit(context);
+  const review_id = await resolveMomReviewId(context, input.review_id);
   const payload = {
-    review_id: input.review_id,
+    review_id,
     venue_text: input.venue_text ?? null,
     action: input.action,
     owner: input.owner ?? null,
     due: input.due ?? null,
     status: input.status,
     update_note: input.update_note ?? null,
-    source_module: "corporate_deals_mom",
+    source_module: CORP_MOM,
     sort_order: input.sort_order ?? 0,
   };
   if (input.id) {
@@ -531,6 +582,7 @@ export async function saveCorporateDealMomAction(
       .from("weekly_review_actions")
       .update(payload)
       .eq("id", input.id)
+      .eq("source_module", CORP_MOM)
       .select("*")
       .single();
     if (error) throw error;
@@ -543,6 +595,18 @@ export async function saveCorporateDealMomAction(
     .single();
   if (error) throw error;
   return data;
+}
+
+export async function deleteCorporateDealMomAction(context: AuthContext, id: string) {
+  requireEdit(context);
+  if (!id) throw new Error("id required");
+  const { error } = await context.supabase
+    .from("weekly_review_actions")
+    .delete()
+    .eq("id", id)
+    .eq("source_module", CORP_MOM);
+  if (error) throw error;
+  return { ok: true };
 }
 
 export async function fetchWeeklyLog(context: AuthContext, isoWeek?: string | null) {

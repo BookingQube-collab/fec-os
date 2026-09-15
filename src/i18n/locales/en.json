@@ -2379,12 +2379,17 @@
       "saved": "Mapping saved"
     },
     "mom": {
-      "reuseNote": "Shared weekly_review_actions register. 8 Sep 2026 Management & Ops MoM lives on Weekly Management Review → Follow-up (source_module weekly_review_mom). This tab lists corporate_deals_mom rows (e.g. Corporate Deals Report).",
+      "reuseNote": "Shared weekly_review_actions register tagged source_module = corporate_deals_mom. Management & Ops MoM lives on Weekly Management Review. Head of Ops / Admin can add, edit, and delete here.",
       "decision": "Decision / action",
       "owner": "Owner",
       "due": "Due",
       "update": "Update",
-      "empty": "No MoM rows yet. Add them via the shared action register (tag source_module corporate_deals_mom)."
+      "add": "Add MoM action",
+      "save": "Save",
+      "delete": "Delete",
+      "saved": "MoM action saved",
+      "deleted": "MoM action deleted",
+      "empty": "No corporate-deals MoM rows yet. Add one above (tagged corporate_deals_mom)."
     },
     "readme": {
       "title": "Tuesday routine",

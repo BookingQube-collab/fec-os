@@ -52,6 +52,17 @@ export function useCorporateDealMom() {
   });
 }
 
+export function useCorporateDealMomMutate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) => apiPost("/api/corporate-deals", body),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.corporateDeals.mom() });
+      void qc.invalidateQueries({ queryKey: queryKeys.weeklyReview.all });
+    },
+  });
+}
+
 export function useCorporateDealImport() {
   const qc = useQueryClient();
   return useMutation({

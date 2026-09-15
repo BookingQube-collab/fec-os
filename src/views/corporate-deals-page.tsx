@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { FileBarChart, Loader2, Plus, Trash2 } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -19,6 +19,7 @@ import {
 
 import { ChartCard, ChartEmpty } from "@/components/charts/chart-card";
 import { TintedKpiCard } from "@/components/dashboard/tinted-kpi-card";
+import { PageHeader } from "@/components/layout/page-header";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -38,12 +39,16 @@ import {
   useCorporateDealImport,
   useCorporateDealLog,
   useCorporateDealMom,
+  useCorporateDealMomMutate,
   useCorporateDealPartners,
   useCorporateDealReport,
 } from "@/hooks/queries/useCorporateDeals";
 import { DEAL_CATEGORIES, DEAL_VENUES, PARTNER_MASTER } from "@/lib/corporate-deals/constants";
+import { ACTION_STATUSES } from "@/lib/weekly-review/constants";
 import { CHART, chartGridProps, chartTick, chartTooltipStyle, CHART_MARGIN } from "@/lib/chart-theme";
 import { cn } from "@/lib/utils";
+
+const TREND_MARGIN = { top: 12, right: 16, left: 8, bottom: 16 } as const;
 
 function money(n: number) {
   return `QAR ${n.toLocaleString("en-QA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -51,6 +56,67 @@ function money(n: number) {
 
 function pct(n: number) {
   return `${Math.round(n * 100)}%`;
+}
+
+function SectionCard({
+  title,
+  subtitle,
+  actions,
+  children,
+  className,
+  bodyClassName,
+}: {
+  title: string;
+  subtitle?: string;
+  actions?: ReactNode;
+  children: ReactNode;
+  className?: string;
+  bodyClassName?: string;
+}) {
+  return (
+    <section className={cn("surface-card", className)}>
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/50 px-4 py-3.5 sm:px-5">
+        <div className="min-w-0">
+          <h3 className="text-base font-semibold tracking-tight text-foreground">{title}</h3>
+          {subtitle ? <p className="mt-0.5 text-xs text-muted-foreground">{subtitle}</p> : null}
+        </div>
+        {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
+      </div>
+      <div className={cn(bodyClassName ?? "p-4 sm:p-5")}>{children}</div>
+    </section>
+  );
+}
+
+function NumCell({ children, className }: { children: ReactNode; className?: string }) {
+  return <TableCell className={cn("text-end tabular-nums", className)}>{children}</TableCell>;
+}
+
+function PartnerStatusBadge({
+  status,
+  activeLabel,
+  idleLabel,
+}: {
+  status: string;
+  activeLabel: string;
+  idleLabel: string;
+}) {
+  const active = status === "Active";
+  return (
+    <Badge variant={active ? "success" : "muted"} className="whitespace-nowrap font-medium">
+      {active ? activeLabel : idleLabel}
+    </Badge>
+  );
+}
+
+function CategoryBadge({ label }: { label: string }) {
+  return (
+    <Badge
+      variant="outline"
+      className="max-w-[11rem] truncate border-border/70 bg-muted/25 font-normal tracking-normal text-muted-foreground"
+    >
+      {label}
+    </Badge>
+  );
 }
 
 export default function CorporateDealsPage() {
@@ -68,6 +134,7 @@ export default function CorporateDealsPage() {
   const unmappedQ = useCorporateDealCodes(true);
   const logQ = useCorporateDealLog(activeWeek);
   const momQ = useCorporateDealMom();
+  const momMut = useCorporateDealMomMutate();
   const importMut = useCorporateDealImport();
 
   const [csvText, setCsvText] = useState("");
@@ -849,6 +916,34 @@ export default function CorporateDealsPage() {
           <Alert>
             <AlertDescription>{t("corporateDeals.mom.reuseNote")}</AlertDescription>
           </Alert>
+          {!canEdit ? (
+            <p className="text-sm text-muted-foreground">{t("corporateDeals.readOnly")}</p>
+          ) : (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={momMut.isPending}
+              onClick={() => {
+                void momMut
+                  .mutateAsync({
+                    action: "save_mom",
+                    action_text: "",
+                    venue_text: "Corporate deals",
+                    owner: "",
+                    due: "",
+                    status: "open",
+                    update_note: null,
+                    sort_order: ((momQ.data as unknown[] | undefined)?.length ?? 0) + 1,
+                  })
+                  .then(() => toast.success(t("corporateDeals.mom.saved")))
+                  .catch((e: Error) => toast.error(e.message));
+              }}
+            >
+              <Plus className="h-4 w-4" />
+              {t("corporateDeals.mom.add")}
+            </Button>
+          )}
           <Table>
             <TableHeader>
               <TableRow>
@@ -858,22 +953,37 @@ export default function CorporateDealsPage() {
                 <TableHead>{t("corporateDeals.mom.due")}</TableHead>
                 <TableHead>{t("corporateDeals.fields.status")}</TableHead>
                 <TableHead>{t("corporateDeals.mom.update")}</TableHead>
+                {canEdit ? <TableHead className="w-24" /> : null}
               </TableRow>
             </TableHeader>
             <TableBody>
               {((momQ.data as Array<Record<string, unknown>>) ?? []).map((row) => (
-                <TableRow key={String(row.id)}>
-                  <TableCell>{String(row.venue_text ?? "—")}</TableCell>
-                  <TableCell>{String(row.action)}</TableCell>
-                  <TableCell>{String(row.owner ?? "—")}</TableCell>
-                  <TableCell>{String(row.due ?? "—")}</TableCell>
-                  <TableCell>{String(row.status)}</TableCell>
-                  <TableCell>{String(row.update_note ?? "—")}</TableCell>
-                </TableRow>
+                <MomActionRow
+                  key={String(row.id)}
+                  row={row}
+                  canEdit={canEdit}
+                  busy={momMut.isPending}
+                  onSave={async (patch) => {
+                    try {
+                      await momMut.mutateAsync({ action: "save_mom", ...patch });
+                      toast.success(t("corporateDeals.mom.saved"));
+                    } catch (e) {
+                      toast.error(e instanceof Error ? e.message : String(e));
+                    }
+                  }}
+                  onDelete={async (id) => {
+                    try {
+                      await momMut.mutateAsync({ action: "delete_mom", id });
+                      toast.success(t("corporateDeals.mom.deleted"));
+                    } catch (e) {
+                      toast.error(e instanceof Error ? e.message : String(e));
+                    }
+                  }}
+                />
               ))}
               {(momQ.data as unknown[] | undefined)?.length ? null : (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-sm text-muted-foreground">
+                  <TableCell colSpan={canEdit ? 7 : 6} className="text-sm text-muted-foreground">
                     {t("corporateDeals.mom.empty")}
                   </TableCell>
                 </TableRow>
@@ -903,6 +1013,108 @@ export default function CorporateDealsPage() {
         }
       `}</style>
     </div>
+  );
+}
+
+function MomActionRow({
+  row,
+  canEdit,
+  busy,
+  onSave,
+  onDelete,
+}: {
+  row: Record<string, unknown>;
+  canEdit: boolean;
+  busy: boolean;
+  onSave: (patch: Record<string, unknown>) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+}) {
+  const { t } = useTranslation();
+  const [venue, setVenue] = useState(String(row.venue_text ?? ""));
+  const [action, setAction] = useState(String(row.action ?? ""));
+  const [owner, setOwner] = useState(String(row.owner ?? ""));
+  const [due, setDue] = useState(String(row.due ?? ""));
+  const [status, setStatus] = useState(String(row.status ?? "open"));
+  const [update, setUpdate] = useState(String(row.update_note ?? ""));
+
+  if (!canEdit) {
+    return (
+      <TableRow>
+        <TableCell>{venue || "—"}</TableCell>
+        <TableCell>{action || "—"}</TableCell>
+        <TableCell>{owner || "—"}</TableCell>
+        <TableCell>{due || "—"}</TableCell>
+        <TableCell>{status}</TableCell>
+        <TableCell>{update || "—"}</TableCell>
+      </TableRow>
+    );
+  }
+
+  return (
+    <TableRow>
+      <TableCell>
+        <Input className="h-8 min-w-28" value={venue} onChange={(e) => setVenue(e.target.value)} />
+      </TableCell>
+      <TableCell>
+        <Input className="h-8 min-w-48" value={action} onChange={(e) => setAction(e.target.value)} />
+      </TableCell>
+      <TableCell>
+        <Input className="h-8 min-w-28" value={owner} onChange={(e) => setOwner(e.target.value)} />
+      </TableCell>
+      <TableCell>
+        <Input className="h-8 min-w-24" value={due} onChange={(e) => setDue(e.target.value)} />
+      </TableCell>
+      <TableCell>
+        <Select value={status} onValueChange={setStatus}>
+          <SelectTrigger className="h-8 w-28">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {ACTION_STATUSES.map((s) => (
+              <SelectItem key={s} value={s}>
+                {t(`weeklyReview.actionStatus.${s}`)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </TableCell>
+      <TableCell>
+        <Input className="h-8 min-w-40" value={update} onChange={(e) => setUpdate(e.target.value)} />
+      </TableCell>
+      <TableCell className="space-x-1 whitespace-nowrap">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={busy}
+          onClick={() =>
+            void onSave({
+              id: row.id,
+              review_id: row.review_id,
+              venue_text: venue || null,
+              action_text: action,
+              owner: owner || null,
+              due: due || null,
+              status,
+              update_note: update || null,
+              sort_order: row.sort_order,
+            })
+          }
+        >
+          {t("corporateDeals.mom.save")}
+        </Button>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          disabled={busy}
+          aria-label={t("corporateDeals.mom.delete")}
+          onClick={() => void onDelete(String(row.id))}
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </TableCell>
+    </TableRow>
   );
 }
 

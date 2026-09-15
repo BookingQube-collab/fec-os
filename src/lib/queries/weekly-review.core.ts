@@ -15,6 +15,7 @@ import type {
   ReviewSummary,
   WeeklyReview,
 } from "@/lib/weekly-review/model";
+import { isCorporateDealsActionModule } from "@/lib/weekly-review/action-source";
 
 function num(v: unknown): number {
   const n = Number(v);
@@ -155,7 +156,10 @@ export async function fetchWeeklyReviewPack(context: AuthContext, id: string): P
       active_members: num(r.active_members),
       rewards_redeemed: num(r.rewards_redeemed),
     })) as ReviewLoyalty[],
-    actions: (actions.data ?? []) as ReviewAction[],
+    // Corporate-deals MoM / unmap rows live on the shared register but are edited on /operations/corporate-deals
+    actions: ((actions.data ?? []) as Array<ReviewAction & { source_module?: string | null }>).filter(
+      (a) => !isCorporateDealsActionModule(a.source_module),
+    ) as ReviewAction[],
     incidents: (incidents.data ?? []) as ReviewIncident[],
     summary: summaryRow.data ? asSummary(summaryRow.data) : null,
     previous_social: [],
@@ -223,22 +227,24 @@ async function replaceChildRows(
   if (readErr) throw readErr;
   const keep = new Set(rows.map((r) => r.id));
   let toDelete = (existing ?? []).map((r) => r.id).filter((id) => !keep.has(id));
-  // Preserve corporate-deals MoM / unmapped follow-ups on the shared action register
-  if (table === "weekly_review_actions" && toDelete.length) {
+  let upsertRows = rows;
+  // Preserve corporate-deals MoM / unmapped follow-ups (not weekly_review_mom) from replace-all wipe
+  if (table === "weekly_review_actions") {
     const { data: tagged } = await context.supabase
       .from("weekly_review_actions")
-      .select("id")
-      .in("id", toDelete)
-      .not("source_module", "is", null);
+      .select("id, source_module")
+      .eq("review_id", reviewId)
+      .like("source_module", "corporate_deals_%");
     const protectedIds = new Set((tagged ?? []).map((r) => String(r.id)));
-    toDelete = toDelete.filter((id) => !protectedIds.has(id));
+    toDelete = toDelete.filter((id) => !protectedIds.has(String(id)));
+    upsertRows = rows.filter((r) => !protectedIds.has(String(r.id)));
   }
   if (toDelete.length) {
     const { error } = await context.supabase.from(table).delete().in("id", toDelete);
     if (error) throw error;
   }
-  if (!rows.length) return;
-  const payload = rows.map((r) => ({ ...r, review_id: reviewId }));
+  if (!upsertRows.length) return;
+  const payload = upsertRows.map((r) => ({ ...r, review_id: reviewId }));
   const { error } = await context.supabase.from(table).upsert(payload);
   if (error) throw error;
 }

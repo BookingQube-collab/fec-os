@@ -1,6 +1,7 @@
 import { createApiRoute, searchParams } from "@/lib/server/api-route";
 import {
   commitCorporateDealImport,
+  deleteCorporateDealMomAction,
   fetchCorporateDealCodes,
   fetchCorporateDealMomActions,
   fetchCorporateDealPartners,
@@ -78,7 +79,7 @@ export async function POST(request: Request) {
       if (action === "save_mom") {
         return saveCorporateDealMomAction(context, {
           id: body.id as string | undefined,
-          review_id: String(body.review_id ?? ""),
+          review_id: (body.review_id as string | null) ?? null,
           venue_text: (body.venue_text as string | null) ?? null,
           action: String(body.action_text ?? body.matter ?? ""),
           owner: (body.owner as string | null) ?? null,
@@ -87,6 +88,9 @@ export async function POST(request: Request) {
           update_note: (body.update_note as string | null) ?? null,
           sort_order: body.sort_order as number | undefined,
         });
+      }
+      if (action === "delete_mom") {
+        return deleteCorporateDealMomAction(context, String(body.id ?? ""));
       }
       throw new Error(`Unknown action: ${action}`);
     },
