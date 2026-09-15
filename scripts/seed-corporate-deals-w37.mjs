@@ -154,9 +154,126 @@ const KNOWN_CODES = [
   { promocode: "INFENTBOGO2", partner: "Entertainer", category: "Aggregator BOGO", venue: "InflataPark" },
   { promocode: "KDSBOGOE", partner: "Entertainer", category: "Aggregator BOGO", venue: "Kids City Driving School" },
   { promocode: "dmqnb15", partner: "QNB Rewards", category: "Corporate discount", venue: "Not specified" },
+  { promocode: "loyaltykds", partner: null, category: "Internal / promotion", venue: "Kids City Driving School" },
   { promocode: "loyaltyinf", partner: null, category: "Internal / promotion", venue: "InflataPark" },
-  { promocode: "karak100", partner: null, category: "Internal / promotion", venue: "Cafe" },
+  { promocode: "loyalty", partner: null, category: "Internal / promotion", venue: "Urban Arena" },
+  { promocode: "cafe50", partner: null, category: "Internal / promotion", venue: "Cafe" },
+  { promocode: "karak100", partner: null, category: "Internal / promotion", venue: "Urban Arena" },
 ];
+
+/**
+ * Loyalty / in-house Internal codes from workbook Weekly Log + Month Data (W37 / Sep 2026).
+ * Excluded from partner KPIs; shown separately on the Dashboard.
+ */
+const INTERNAL_WEEK = [
+  {
+    promocode: "loyaltykds",
+    description: "loyalty pass free city pass",
+    venue: "Kids City Driving School",
+    times_used: 7,
+    booking_lines: 7,
+    tickets: 7,
+    total_discount: 315,
+  },
+  {
+    promocode: "loyaltyinf",
+    description: "Loyalty pass",
+    venue: "InflataPark",
+    times_used: 1,
+    booking_lines: 1,
+    tickets: 1,
+    total_discount: 45,
+  },
+  {
+    promocode: "cafe50",
+    description: "50% off on cafe",
+    venue: "Urban Arena",
+    times_used: 31,
+    booking_lines: 36,
+    tickets: 36,
+    total_discount: 247.5,
+  },
+  {
+    promocode: "karak100",
+    description: "In-house karak offer",
+    venue: "Urban Arena",
+    times_used: 1,
+    booking_lines: 3,
+    tickets: 3,
+    total_discount: 15,
+  },
+];
+
+const INTERNAL_MONTH = [
+  {
+    promocode: "loyaltykds",
+    description: "loyalty pass free city pass",
+    venue: "Kids City Driving School",
+    times_used: 13,
+    booking_lines: 13,
+    tickets: 13,
+    total_discount: 585,
+  },
+  {
+    promocode: "loyaltyinf",
+    description: "Loyalty pass",
+    venue: "InflataPark",
+    times_used: 1,
+    booking_lines: 1,
+    tickets: 1,
+    total_discount: 45,
+  },
+  {
+    promocode: "loyalty",
+    description: "Loyalty customer free rookie pass",
+    venue: "Urban Arena",
+    times_used: 1,
+    booking_lines: 1,
+    tickets: 1,
+    total_discount: 45,
+  },
+  {
+    promocode: "cafe50",
+    description: "50% off on cafe",
+    venue: "Urban Arena",
+    times_used: 63,
+    booking_lines: 78,
+    tickets: 78,
+    total_discount: 443.5,
+  },
+  {
+    promocode: "karak100",
+    description: "In-house karak offer",
+    venue: "Urban Arena",
+    times_used: 1,
+    booking_lines: 3,
+    tickets: 3,
+    total_discount: 15,
+  },
+];
+
+function internalRows(period, list) {
+  return list.map((r) => {
+    const ev = EVENT[r.venue] ?? { id: null, title: r.venue };
+    return {
+      ...period,
+      promocode_id: null,
+      promocode: r.promocode,
+      description: r.description,
+      company_name: null,
+      event_id: ev.id,
+      event_title: ev.title,
+      times_used: r.times_used,
+      booking_lines: r.booking_lines,
+      tickets: r.tickets,
+      total_discount: r.total_discount,
+      partner_id: null,
+      partner_name: null,
+      category: "Internal / promotion",
+      venue: r.venue,
+    };
+  });
+}
 
 function round2(n) {
   return Math.round(n * 100) / 100;
@@ -467,15 +584,22 @@ async function main() {
     console.warn(`Expected 21 partners, got ${partnersByName.size} — run corporate deals migration seed first`);
   }
 
-  const weekRows = buildWeekRows(partnersByName);
-  const monthRows = buildMonthRows(partnersByName);
+  const weekRows = [...buildWeekRows(partnersByName), ...internalRows({ iso_week: ISO_WEEK }, INTERNAL_WEEK)];
+  const monthRows = [...buildMonthRows(partnersByName), ...internalRows({ period_month: PERIOD_MONTH }, INTERNAL_MONTH)];
   const trendRows = buildTrendRows(partnersByName);
 
   const weekKpi = kpi(weekRows);
   const monthKpi = kpi(monthRows);
+  const weekInternal = weekRows
+    .filter((r) => r.category === "Internal / promotion")
+    .reduce((s, r) => s + Number(r.times_used), 0);
+  const monthInternal = monthRows
+    .filter((r) => r.category === "Internal / promotion")
+    .reduce((s, r) => s + Number(r.times_used), 0);
   console.log("preflight week", weekKpi);
   console.log("preflight week venues", venueRollup(weekRows));
   console.log("preflight month", monthKpi);
+  console.log("preflight loyalty/in-house week", weekInternal, "month", monthInternal);
 
   if (weekKpi.red !== 194 || weekKpi.tik !== 576 || Math.abs(weekKpi.disc - 12750.5) > 0.02 || weekKpi.active !== 12) {
     throw new Error(`Week KPI mismatch: ${JSON.stringify(weekKpi)}`);
@@ -485,6 +609,9 @@ async function main() {
   }
   if (monthKpi.red !== 351 || monthKpi.tik !== 1042 || Math.abs(monthKpi.disc - 21132.95) > 0.02 || monthKpi.active !== 14) {
     throw new Error(`Month KPI mismatch: ${JSON.stringify(monthKpi)}`);
+  }
+  if (weekInternal !== 40 || monthInternal !== 79) {
+    throw new Error(`Loyalty/in-house totals week ${weekInternal} / month ${monthInternal} (expected 40 / 79)`);
   }
 
   mkdirSync(outDir, { recursive: true });
@@ -496,8 +623,9 @@ Reconstructed from \`FEC_Corporate_Deals_Weekly_Report_W37\` PDF because Booking
 
 - Weekly rows: partner×venue matrix matching PDF partner redemptions + venue split (tickets/discount allocated within venue; aggregator discount share ~68%).
 - Month rows: PDF Summary partner MTD figures, spread across venues using the week mix.
+- Internal / promotion (loyalty, cafe, karak): workbook Weekly Log + Month Data figures (W37 total 40, Sep MTD 79) — excluded from partner KPIs.
 - Trend rows: PDF monthly trend table (May–Sep 2026) as corp/agg aggregates.
-- Promo codes \`SEED-*\` are synthetic. Ops-confirmed codes are seeded into \`corporate_deal_codes\`.
+- Promo codes \`SEED-*\` are synthetic. Ops-confirmed codes (incl. loyalty*) are seeded into \`corporate_deal_codes\`.
 
 Reload: \`node --env-file=.env.local scripts/seed-corporate-deals-w37.mjs\`
 `);
@@ -532,11 +660,11 @@ Reload: \`node --env-file=.env.local scripts/seed-corporate-deals-w37.mjs\`
   // Verify from DB
   const { data: w37 } = await sb
     .from("corporate_deal_weekly_log")
-    .select("times_used,tickets,total_discount,category,venue,partner_name")
+    .select("promocode,times_used,tickets,total_discount,category,venue,partner_name")
     .eq("iso_week", ISO_WEEK);
   const { data: m09 } = await sb
     .from("corporate_deal_month_data")
-    .select("times_used,tickets,total_discount,category,partner_name,venue")
+    .select("promocode,times_used,tickets,total_discount,category,partner_name,venue")
     .eq("period_month", PERIOD_MONTH);
   const { count: trendCount } = await sb
     .from("corporate_deal_trend_data")
@@ -546,6 +674,14 @@ Reload: \`node --env-file=.env.local scripts/seed-corporate-deals-w37.mjs\`
   console.log("DB week", kpi(w37 || []), "rows", w37?.length);
   console.log("DB week venues", venueRollup(w37 || []));
   console.log("DB month", kpi(m09 || []), "rows", m09?.length);
+  console.log(
+    "DB loyalty week",
+    (w37 || []).filter((r) => r.category === "Internal / promotion").map((r) => `${r.promocode ?? "?"}:${r.times_used}`),
+  );
+  console.log(
+    "DB loyalty month",
+    (m09 || []).filter((r) => r.category === "Internal / promotion").map((r) => `${r.promocode ?? "?"}:${r.times_used}`),
+  );
   console.log("DB trend rows", trendCount, "codes", codeCount);
   console.log("CSV written to", outDir);
   console.log("done");

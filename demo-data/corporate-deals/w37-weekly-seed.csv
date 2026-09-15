@@ -39,3 +39,7 @@ promocode_id,promocode,description,company_name,event_id,event_title,period_week
 ,SEED-W37-QATARINVES-CRA,"Qatar Investment Authority",,evt-cbv,"Crayons & Bricks - Vendome Mall",2026-W37,2,2,2,194.29,"Qatar Investment Authority","Corporate discount","Crayons & Bricks Vendome"
 ,SEED-W37-QNBREWARDS-CRA,"QNB Rewards",,evt-cbv,"Crayons & Bricks - Vendome Mall",2026-W37,1,1,1,97.15,"QNB Rewards","Corporate discount","Crayons & Bricks Vendome"
 ,SEED-W37-QIB-CRA,"QIB",,evt-cbv,"Crayons & Bricks - Vendome Mall",2026-W37,1,1,1,97.14,"QIB","Corporate discount","Crayons & Bricks Vendome"
+,loyaltykds,"loyalty pass free city pass",,evt-kds,"Kids City Driving School",2026-W37,7,7,7,315,"","Internal / promotion","Kids City Driving School"
+,loyaltyinf,"Loyalty pass",,evt-ip,"Inflatapark - City Center",2026-W37,1,1,1,45,"","Internal / promotion","InflataPark"
+,cafe50,"50% off on cafe",,evt-ua,"Urban Arena - Doha Mall",2026-W37,31,36,36,247.5,"","Internal / promotion","Urban Arena"
+,karak100,"In-house karak offer",,evt-ua,"Urban Arena - Doha Mall",2026-W37,1,3,3,15,"","Internal / promotion","Urban Arena"

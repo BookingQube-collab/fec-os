@@ -1,5 +1,6 @@
 import {
   AGGREGATOR_METHOD_CHANGE_ISO_WEEK,
+  DORMANT_DEFAULT_ACTIONS,
   PARTNER_MASTER,
   PARTNER_TOTAL_CATEGORIES,
   type DealCategory,
@@ -14,6 +15,8 @@ export interface DealMetricRow {
   venue?: string | null;
   iso_week?: string | null;
   period_month?: string | null;
+  promocode?: string | null;
+  description?: string | null;
 }
 
 export interface MetricTotals {
@@ -145,13 +148,84 @@ export function rollupByPartner(
     .sort((a, b) => b.redemptions - a.redemptions || a.partner_name.localeCompare(b.partner_name));
 }
 
+function redemptionsByPartner(rows: readonly DealMetricRow[]): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const r of partnerTotalRows(rows)) {
+    if (!r.partner_name) continue;
+    map.set(r.partner_name, (map.get(r.partner_name) ?? 0) + (r.times_used || 0));
+  }
+  return map;
+}
+
 export function partnersWithNoUsageThisMonth(monthRows: readonly DealMetricRow[]): string[] {
   const active = new Set(
-    partnerTotalRows(monthRows)
-      .filter((r) => (r.times_used || 0) > 0 && r.partner_name)
-      .map((r) => r.partner_name as string),
+    [...redemptionsByPartner(monthRows).entries()].filter(([, n]) => n > 0).map(([name]) => name),
   );
   return PARTNER_MASTER.map((p) => p.name).filter((n) => !active.has(n));
+}
+
+export type DormantKind = "month" | "week";
+
+export interface DormantPartner {
+  partner_name: string;
+  redemption_mechanism: string;
+  kind: DormantKind;
+  week_redemptions: number;
+  month_redemptions: number;
+  /** Suggested ops action or status note. */
+  action: string;
+}
+
+function defaultDormantAction(name: string, kind: DormantKind, monthRedemptions: number): string {
+  const known = DORMANT_DEFAULT_ACTIONS[name];
+  if (known) return known;
+  if (kind === "week") {
+    return monthRedemptions === 1
+      ? "One redemption earlier in the month; no action needed yet"
+      : `${monthRedemptions} redemptions earlier in the month; no action needed yet`;
+  }
+  const mech = PARTNER_MASTER.find((p) => p.name === name)?.redemption_mechanism ?? "";
+  if (/staff\s*id/i.test(mech)) return "Send an offer reminder to the HR contact";
+  if (/app|pin|scity/i.test(mech)) return "Confirm the deal is visible in the app";
+  return "Confirm the offer is published and promoted";
+}
+
+/**
+ * Master partners with zero week redemptions.
+ * `month` = also zero MTD; `week` = MTD > 0 (quiet this week only).
+ * Falls back to week rows as MTD when month data is empty (same as no-usage list).
+ */
+export function dormantPartners(
+  weekRows: readonly DealMetricRow[],
+  monthRows: readonly DealMetricRow[],
+): DormantPartner[] {
+  const weekMap = redemptionsByPartner(weekRows);
+  const monthSource = monthRows.length ? monthRows : weekRows;
+  const monthMap = redemptionsByPartner(monthSource);
+  const hasMonthData = monthRows.length > 0;
+
+  return PARTNER_MASTER.map((p) => {
+    const week_redemptions = weekMap.get(p.name) ?? 0;
+    const month_redemptions = monthMap.get(p.name) ?? 0;
+    if (week_redemptions > 0) return null;
+    const kind: DormantKind = !hasMonthData || month_redemptions === 0 ? "month" : "week";
+    return {
+      partner_name: p.name,
+      redemption_mechanism: p.redemption_mechanism,
+      kind,
+      week_redemptions,
+      month_redemptions,
+      action: defaultDormantAction(p.name, kind, month_redemptions),
+    };
+  })
+    .filter((p): p is DormantPartner => p != null)
+    .sort((a, b) => {
+      // Month-long dormant first, then week-quiet; stable master order within each band.
+      if (a.kind !== b.kind) return a.kind === "month" ? -1 : 1;
+      const ai = PARTNER_MASTER.findIndex((p) => p.name === a.partner_name);
+      const bi = PARTNER_MASTER.findIndex((p) => p.name === b.partner_name);
+      return ai - bi;
+    });
 }
 
 export function categorySplit(rows: readonly DealMetricRow[]): CategorySplit[] {
@@ -287,4 +361,54 @@ export function unmappedCodes(rows: readonly DealMetricRow[]): DealMetricRow[] {
 
 export function internalPromotionRows(rows: readonly DealMetricRow[]): DealMetricRow[] {
   return rows.filter((r) => r.category === "Internal / promotion");
+}
+
+export interface LoyaltyInHouseRow {
+  promocode: string;
+  description: string | null;
+  venue: string;
+  week_redemptions: number;
+  week_tickets: number;
+  month_redemptions: number;
+  month_tickets: number;
+}
+
+/** Internal / promotion codes (loyalty, cafe, karak) — excluded from partner KPIs. */
+export function loyaltyInHouseByCode(
+  weekRows: readonly DealMetricRow[],
+  monthRows: readonly DealMetricRow[],
+): LoyaltyInHouseRow[] {
+  type Acc = LoyaltyInHouseRow;
+  const map = new Map<string, Acc>();
+  const touch = (r: DealMetricRow, which: "week" | "month") => {
+    const code = (r.promocode || "").trim() || "(unknown)";
+    const key = code.toLowerCase();
+    const cur = map.get(key) ?? {
+      promocode: code,
+      description: r.description ?? null,
+      venue: (r.venue || "Not specified").trim() || "Not specified",
+      week_redemptions: 0,
+      week_tickets: 0,
+      month_redemptions: 0,
+      month_tickets: 0,
+    };
+    if (r.description && !cur.description) cur.description = r.description;
+    if (r.venue) cur.venue = r.venue;
+    if (which === "week") {
+      cur.week_redemptions += r.times_used || 0;
+      cur.week_tickets += r.tickets || 0;
+    } else {
+      cur.month_redemptions += r.times_used || 0;
+      cur.month_tickets += r.tickets || 0;
+    }
+    map.set(key, cur);
+  };
+  for (const r of internalPromotionRows(weekRows)) touch(r, "week");
+  for (const r of internalPromotionRows(monthRows)) touch(r, "month");
+  return [...map.values()].sort(
+    (a, b) =>
+      b.week_redemptions - a.week_redemptions ||
+      b.month_redemptions - a.month_redemptions ||
+      a.promocode.localeCompare(b.promocode),
+  );
 }

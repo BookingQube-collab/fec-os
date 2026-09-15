@@ -96,5 +96,24 @@ export const INTERNAL_PROMO_PATTERNS = [
 /** From May 2026: BOGO+staff-ID replaced single-use 100% aggregator codes — do not present as growth. */
 export const AGGREGATOR_METHOD_CHANGE_ISO_WEEK = "2026-W18";
 
+/**
+ * Default follow-ups for week-zero partners (Week 37 brief / ops playbook).
+ * Used when no partner-tagged MoM row exists.
+ */
+export const DORMANT_DEFAULT_ACTIONS: Readonly<Record<string, string>> = {
+  "Dar App": "Confirm the listing is live in the app",
+  Classmate: "Check the offer is published and the PIN works",
+  MyBenefit: "Codes never used; brief counters and confirm promotion",
+  DHL: "Send an offer reminder to the HR contact",
+  Huawei: "Send an offer reminder to the HR contact",
+  "Qatar Media Corporation": "Last used in August; reminder to the HR contact",
+  "Snoonu Employees": "Confirm the deal is visible in the app",
+  Bein: "One redemption earlier in the month; no action needed yet",
+  "Qatar Living Deals": "One redemption earlier in the month; no action needed yet",
+};
+
+/** Brief estimate: reactivate month-long dormant at average corporate rate. */
+export const DORMANT_PRIZE = { redemptions: 60, tickets: 220 } as const;
+
 export const IMPORT_KINDS = ["week", "month", "trend"] as const;
 export type ImportKind = (typeof IMPORT_KINDS)[number];

@@ -12,6 +12,8 @@ import {
   corporateVsAggregator,
   metricTotals,
   monthlyTrend,
+  dormantPartners,
+  loyaltyInHouseByCode,
   partnersWithNoUsageThisMonth,
   rollupByPartner,
   rollupByVenue,
@@ -19,7 +21,7 @@ import {
   weeklyTrend,
   type DealMetricRow,
 } from "@/lib/corporate-deals/calc";
-import { PARTNER_MASTER, type DealCategory, type ImportKind } from "@/lib/corporate-deals/constants";
+import { DORMANT_PRIZE, PARTNER_MASTER, type DealCategory, type ImportKind } from "@/lib/corporate-deals/constants";
 import {
   classifyRow,
   detectImportPeriod,
@@ -45,6 +47,8 @@ function asMetric(row: Record<string, unknown>, period?: { iso_week?: string; pe
     venue: (row.venue as string | null) ?? null,
     iso_week: period?.iso_week ?? (row.iso_week as string | null) ?? null,
     period_month: period?.period_month ?? (row.period_month as string | null) ?? null,
+    promocode: (row.promocode as string | null) ?? null,
+    description: (row.description as string | null) ?? null,
   };
 }
 
@@ -204,7 +208,9 @@ export async function fetchCorporateDealReport(context: AuthContext, isoWeek: st
   const compare = comparePeriods(weekRows, prevRows);
   const split = corporateVsAggregator(weekRows);
   const partners = rollupByPartner(weekRows, monthRows.length ? monthRows : weekRows);
-  const noUsage = partnersWithNoUsageThisMonth(monthRows.length ? monthRows : weekRows);
+  const monthForStatus = monthRows.length ? monthRows : weekRows;
+  const noUsage = partnersWithNoUsageThisMonth(monthForStatus);
+  const dormant = dormantPartners(weekRows, monthRows);
   const unmapped = unmappedCodes(weekRows);
   const venueWeek = rollupByVenue(weekRows);
   const venueMtd = rollupByVenue(monthRows);
@@ -244,6 +250,11 @@ export async function fetchCorporateDealReport(context: AuthContext, isoWeek: st
     top10: partners.filter((p) => p.redemptions > 0).slice(0, 10),
     partners,
     no_usage_partners: noUsage,
+    dormant_partners: dormant,
+    dormant_prize:
+      dormant.some((d) => d.kind === "month")
+        ? { redemptions: DORMANT_PRIZE.redemptions, tickets: DORMANT_PRIZE.tickets }
+        : null,
     by_venue_week: venueWeek,
     by_venue_mtd: venueMtd,
     category_split: categorySplit(weekRows),
@@ -256,6 +267,7 @@ export async function fetchCorporateDealReport(context: AuthContext, isoWeek: st
     unmapped_count: unmapped.length,
     unmapped_codes: unmapped,
     new_or_unmatched_venues: newOrUnmatchedVenues,
+    loyalty_inhouse: loyaltyInHouseByCode(weekRows, monthRows),
     caveat: aggregatorMethodChangeCaveat(isoWeek),
     partner_master: PARTNER_MASTER,
   };

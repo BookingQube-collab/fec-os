@@ -41,3 +41,8 @@ promocode_id,promocode,description,company_name,event_id,event_title,period_mont
 ,SEED-M09-QNBREWARDS-URB,"QNB Rewards",,evt-ua,"Urban Arena - Doha Mall",2026-09,2,2,6,50.5,"QNB Rewards","Corporate discount","Urban Arena"
 ,SEED-M09-QNBREWARDS-KID,"QNB Rewards",,evt-kds,"Kids City Driving School",2026-09,2,2,6,50.5,"QNB Rewards","Corporate discount","Kids City Driving School"
 ,SEED-M09-QNBREWARDS-CRA,"QNB Rewards",,evt-cbv,"Crayons & Bricks - Vendome Mall",2026-09,2,2,6,50.5,"QNB Rewards","Corporate discount","Crayons & Bricks Vendome"
+,loyaltykds,"loyalty pass free city pass",,evt-kds,"Kids City Driving School",2026-09,13,13,13,585,"","Internal / promotion","Kids City Driving School"
+,loyaltyinf,"Loyalty pass",,evt-ip,"Inflatapark - City Center",2026-09,1,1,1,45,"","Internal / promotion","InflataPark"
+,loyalty,"Loyalty customer free rookie pass",,evt-ua,"Urban Arena - Doha Mall",2026-09,1,1,1,45,"","Internal / promotion","Urban Arena"
+,cafe50,"50% off on cafe",,evt-ua,"Urban Arena - Doha Mall",2026-09,63,78,78,443.5,"","Internal / promotion","Urban Arena"
+,karak100,"In-house karak offer",,evt-ua,"Urban Arena - Doha Mall",2026-09,1,3,3,15,"","Internal / promotion","Urban Arena"

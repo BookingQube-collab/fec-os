@@ -43,6 +43,7 @@ import {
 } from "@/hooks/queries/useCorporateDeals";
 import { DEAL_CATEGORIES, DEAL_VENUES, PARTNER_MASTER } from "@/lib/corporate-deals/constants";
 import { CHART, chartGridProps, chartTick, chartTooltipStyle, CHART_MARGIN } from "@/lib/chart-theme";
+import { cn } from "@/lib/utils";
 
 function money(n: number) {
   return `QAR ${n.toLocaleString("en-QA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -90,6 +91,25 @@ export default function CorporateDealsPage() {
     | { corporate: { discount: number; redemptions: number }; aggregator: { discount: number; redemptions: number }; share: number }
     | undefined;
   const noUsage = (report?.no_usage_partners as string[]) ?? [];
+  const dormant =
+    (report?.dormant_partners as Array<{
+      partner_name: string;
+      redemption_mechanism: string;
+      kind: "month" | "week";
+      action: string;
+      month_redemptions: number;
+    }>) ?? [];
+  const dormantPrize = report?.dormant_prize as { redemptions: number; tickets: number } | null | undefined;
+  const loyaltyInhouse =
+    (report?.loyalty_inhouse as Array<{
+      promocode: string;
+      description: string | null;
+      venue: string;
+      week_redemptions: number;
+      week_tickets: number;
+      month_redemptions: number;
+      month_tickets: number;
+    }>) ?? [];
   const byVenueWeek =
     (report?.by_venue_week as Array<{
       venue: string;
@@ -376,15 +396,130 @@ export default function CorporateDealsPage() {
                   ) : null}
                 </div>
                 <div className="surface-card p-4">
-                  <h3 className="font-semibold">{t("corporateDeals.noUsage")}</h3>
-                  <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
-                    {noUsage.length === 0 ? (
-                      <li>{t("corporateDeals.allActive")}</li>
+                  <h3 className="font-semibold">
+                    {dormant.length > 0
+                      ? t("corporateDeals.dormantTitle", { count: dormant.length })
+                      : t("corporateDeals.noUsage")}
+                  </h3>
+                  {dormant.length > 0 ? (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {t("corporateDeals.dormantSubtitle", {
+                        monthCount: dormant.filter((d) => d.kind === "month").length,
+                        weekCount: dormant.filter((d) => d.kind === "week").length,
+                      })}
+                    </p>
+                  ) : null}
+                  <ul className="mt-3 space-y-2">
+                    {dormant.length === 0 && noUsage.length === 0 ? (
+                      <li className="text-sm text-muted-foreground">{t("corporateDeals.allActive")}</li>
+                    ) : dormant.length === 0 ? (
+                      noUsage.map((n) => (
+                        <li key={n} className="text-sm text-muted-foreground">
+                          {n}
+                        </li>
+                      ))
                     ) : (
-                      noUsage.map((n) => <li key={n}>{n}</li>)
+                      dormant.map((d) => (
+                        <li
+                          key={d.partner_name}
+                          className={cn(
+                            "flex gap-3 rounded-md border px-2.5 py-2",
+                            d.kind === "month" ? "border-destructive/25 bg-destructive/5" : "border-border/70 bg-muted/30",
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold",
+                              d.kind === "month"
+                                ? "bg-destructive text-destructive-foreground"
+                                : "bg-destructive/40 text-destructive-foreground",
+                            )}
+                            aria-hidden
+                          >
+                            0
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-semibold leading-tight">{d.partner_name}</div>
+                            <div className="mt-0.5 text-xs text-muted-foreground">
+                              {d.kind === "month"
+                                ? t("corporateDeals.dormantMonthNote", { mechanism: d.redemption_mechanism })
+                                : t("corporateDeals.dormantWeekNote", { mechanism: d.redemption_mechanism })}
+                            </div>
+                            <div className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">{d.action}</div>
+                          </div>
+                        </li>
+                      ))
                     )}
                   </ul>
+                  {dormantPrize ? (
+                    <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-300">
+                        {t("corporateDeals.dormantPrizeTitle")}
+                      </div>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {t("corporateDeals.dormantPrize", {
+                          redemptions: dormantPrize.redemptions,
+                          tickets: dormantPrize.tickets,
+                        })}
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
+              </div>
+
+              <div className="surface-card p-4">
+                <h3 className="font-semibold">{t("corporateDeals.loyaltyTitle")}</h3>
+                <p className="mt-1 text-xs text-muted-foreground">{t("corporateDeals.loyaltySubtitle")}</p>
+                {loyaltyInhouse.length === 0 ? (
+                  <p className="mt-3 text-sm text-muted-foreground">{t("corporateDeals.loyaltyEmpty")}</p>
+                ) : (
+                  <Table className="mt-3">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{t("corporateDeals.fields.code")}</TableHead>
+                        <TableHead>{t("corporateDeals.fields.venue")}</TableHead>
+                        <TableHead className="text-end">{t("corporateDeals.summary.week")}</TableHead>
+                        <TableHead className="text-end">{t("corporateDeals.summary.mtd")}</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {loyaltyInhouse.map((row) => (
+                        <TableRow key={row.promocode}>
+                          <TableCell>
+                            <div className="font-medium">{row.promocode}</div>
+                            {row.description ? (
+                              <div className="text-xs text-muted-foreground">{row.description}</div>
+                            ) : null}
+                          </TableCell>
+                          <TableCell>{row.venue}</TableCell>
+                          <TableCell className="text-end">
+                            {row.week_redemptions > 0
+                              ? `${row.week_redemptions} / ${row.week_tickets}`
+                              : "—"}
+                          </TableCell>
+                          <TableCell className="text-end">
+                            {row.month_redemptions > 0
+                              ? `${row.month_redemptions} / ${row.month_tickets}`
+                              : "—"}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      <TableRow>
+                        <TableCell colSpan={2} className="font-semibold">
+                          {t("corporateDeals.loyaltyTotal")}
+                        </TableCell>
+                        <TableCell className="text-end font-semibold">
+                          {loyaltyInhouse.reduce((s, r) => s + r.week_redemptions, 0)} /{" "}
+                          {loyaltyInhouse.reduce((s, r) => s + r.week_tickets, 0)}
+                        </TableCell>
+                        <TableCell className="text-end font-semibold">
+                          {loyaltyInhouse.reduce((s, r) => s + r.month_redemptions, 0)} /{" "}
+                          {loyaltyInhouse.reduce((s, r) => s + r.month_tickets, 0)}
+                        </TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                )}
               </div>
 
               <ChartCard title={t("corporateDeals.charts.weeklyTrend")}>
