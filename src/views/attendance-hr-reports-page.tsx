@@ -47,6 +47,7 @@ import {
   monthBounds,
   payrollMonthMatchingBounds,
 } from "@/lib/attendance-hr/roster-period";
+import type { AttendanceListingSource } from "@/lib/attendance-display";
 import {
   attendanceHrToListingSource,
   computeAttendanceHrReportKpis,
@@ -214,7 +215,7 @@ export default function AttendanceHrReportsPage() {
       ? {
           mapStaffOptions,
           mappingBusyIds: mappingBusySet,
-          onMapStaff: (row: (typeof listingRows)[number], staffId: string) => {
+          onMapStaff: (row: AttendanceListingSource, staffId: string) => {
             const mappingId = row.biometricMappingId;
             if (!mappingId) return;
             mapMut.mutate({ mappingId, staffId });
