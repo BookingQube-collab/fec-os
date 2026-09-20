@@ -39,7 +39,9 @@ import {
   staffByBiometricFromMappings,
 } from "./mapping-merge";
 import {
+  attendanceHrDisplayStaffName,
   attendanceHrStaffMatches,
+  attendanceHrToListingSource,
   computeAttendanceHrReportKpis,
   formatAttendanceHrLocation,
   type AttendanceHrReportRow,
@@ -631,6 +633,47 @@ describe("HR report row helpers", () => {
   it("treats unmapped keyword as unmatched staff", () => {
     expect(attendanceHrStaffMatches({ staff_name: null, biometric_user_id: "9" }, "Unmapped")).toBe(true);
     expect(attendanceHrStaffMatches({ staff_name: "Ahmed Ali" }, "Unmapped")).toBe(false);
+  });
+
+  it("matches search against name-on-device for unmapped rows", () => {
+    expect(
+      attendanceHrStaffMatches({ staff_name: null, device_name: "WASANTHI", biometric_user_id: "9" }, "wasan"),
+    ).toBe(true);
+  });
+
+  it("prefers device name over Unmapped label for listing display", () => {
+    expect(attendanceHrDisplayStaffName({ staff_name: null, device_name: "Sara Khan" })).toBe("Sara Khan");
+    expect(attendanceHrDisplayStaffName({ staff_name: null, device_name: null }, "Unmapped")).toBe("Unmapped");
+    const listing = attendanceHrToListingSource({
+      id: "1",
+      location_id: "loc-1",
+      staff_id: null,
+      biometric_user_id: "18",
+      device_id: "dev-1",
+      work_date: "2026-08-25",
+      status: "unscheduled",
+      actual_in: null,
+      actual_out: null,
+      late_minutes: 0,
+      early_leave_minutes: 0,
+      overtime_minutes: 0,
+      missed_punch: false,
+      punch_count: 0,
+      worked_minutes: null,
+      employment_type: null,
+      staff_name: null,
+      device_name: "Device User 18",
+      biometric_mapping_id: "map-1",
+      employee_code: null,
+      qid: null,
+      location_code: "INF-CC",
+      location_name: "Inflatapark",
+      location_region: "City Center Doha",
+    });
+    expect(listing.userName).toBe("Device User 18");
+    expect(listing.userNameUnmapped).toBe(true);
+    expect(listing.biometricMappingId).toBe("map-1");
+    expect(listing.locationId).toBe("loc-1");
   });
 
   it("formats location as venue code plus name", () => {

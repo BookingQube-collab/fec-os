@@ -518,10 +518,16 @@ export type AttendanceListingSource = {
   id?: string;
   /** Stable staff identity for month-grid rows (staff:/bio:/row:). */
   staffKey?: string;
+  /** Site id for inline biometric mapping filters. */
+  locationId?: string;
   locationLabel: string;
   userName: string;
   userNameUnmapped?: boolean;
   deviceUserId?: string | null;
+  /** Name on device when unmapped (from attendance_biometric_users). */
+  deviceName?: string | null;
+  /** attendance_biometric_users.id for inline map. */
+  biometricMappingId?: string | null;
   employeeCode?: string | null;
   qid?: string | null;
   work_date: string;

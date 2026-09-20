@@ -1810,7 +1810,7 @@ async function enrichAttendanceHrDailyRows(
   const dateFrom = workDates.length ? workDates.reduce((a, b) => (a < b ? a : b)) : null;
   const dateTo = workDates.length ? workDates.reduce((a, b) => (a > b ? a : b)) : null;
 
-  const [staffRows, locationRows, siteSettings, rosterRes, shiftRes] = await Promise.all([
+  const [staffRows, locationRows, siteSettings, rosterRes, shiftRes, bioRes] = await Promise.all([
     loadByIds<StaffLookup>(context, "staff", "id, full_name, employee_code, qid, employment_type", staffIds),
     loadByIds<LocationLookup>(context, "locations", "id, code, name, region", locationIds),
     locationIds.length
@@ -1845,10 +1845,41 @@ async function enrichAttendanceHrDailyRows(
       .select("id, start_time, end_time")
       .eq("active", true)
       .limit(5000),
+    locationIds.length
+      ? context.supabase
+          .from("attendance_biometric_users")
+          .select("id, location_id, device_id, biometric_user_id, device_name, full_name")
+          .in("location_id", locationIds)
+          .limit(5000)
+      : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
   ]);
 
   const staffById = new Map(staffRows.map((row) => [row.id, row]));
   const locationById = new Map(locationRows.map((row) => [row.id, row]));
+  type BioLookup = {
+    id: string;
+    location_id: string;
+    device_id: string | null;
+    biometric_user_id: string;
+    device_name: string | null;
+    full_name: string | null;
+  };
+  const bioByDeviceKey = new Map<string, BioLookup>();
+  const bioByLocUser = new Map<string, BioLookup>();
+  for (const raw of bioRes.data ?? []) {
+    const bio: BioLookup = {
+      id: String(raw.id),
+      location_id: String(raw.location_id ?? ""),
+      device_id: raw.device_id == null ? null : String(raw.device_id),
+      biometric_user_id: String(raw.biometric_user_id ?? ""),
+      device_name: raw.device_name == null ? null : String(raw.device_name),
+      full_name: raw.full_name == null ? null : String(raw.full_name),
+    };
+    if (!bio.location_id || !bio.biometric_user_id) continue;
+    const locUser = `${bio.location_id}|${bio.biometric_user_id}`;
+    if (!bioByLocUser.has(locUser)) bioByLocUser.set(locUser, bio);
+    if (bio.device_id) bioByDeviceKey.set(`${locUser}|${bio.device_id}`, bio);
+  }
   type SiteHoursRow = {
     location_id: string;
     break_minutes?: number | null;
@@ -1941,11 +1972,20 @@ async function enrichAttendanceHrDailyRows(
       reportingTimeMinutes: reportingMins,
       bufferMinutes: bufferMins,
     });
+    const biometricUserId = row.biometric_user_id == null ? null : String(row.biometric_user_id);
+    const deviceId = row.device_id == null ? null : String(row.device_id);
+    const bio =
+      locationId && biometricUserId
+        ? (deviceId ? bioByDeviceKey.get(`${locationId}|${biometricUserId}|${deviceId}`) : undefined) ??
+          bioByLocUser.get(`${locationId}|${biometricUserId}`)
+        : undefined;
+    const deviceName = bio?.device_name?.trim() || bio?.full_name?.trim() || null;
     return {
       id: String(row.id),
       location_id: String(row.location_id ?? ""),
       staff_id: staffId,
-      biometric_user_id: row.biometric_user_id == null ? null : String(row.biometric_user_id),
+      biometric_user_id: biometricUserId,
+      device_id: deviceId,
       work_date: String(row.work_date ?? ""),
       status: String(row.status ?? ""),
       actual_in: actualIn,
@@ -1960,6 +2000,8 @@ async function enrichAttendanceHrDailyRows(
       worked_minutes: row.worked_minutes == null ? null : Number(row.worked_minutes),
       employment_type: employmentType,
       staff_name: staff?.full_name?.trim() || null,
+      device_name: deviceName,
+      biometric_mapping_id: bio?.id ?? null,
       employee_code: staff?.employee_code ?? null,
       qid: staff?.qid ?? null,
       location_code: location?.code ?? null,

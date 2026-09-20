@@ -5976,6 +5976,7 @@
       "cellOff": "Off",
       "cellDetailTitle": "Attendance detail",
       "unmapped": "Unmapped",
+      "mapStaffPlaceholder": "Select employee to map",
       "empty": "No attendance in this view yet. Import biometric or punch files first, then return here. If you already imported, try another location or date range.",
       "emptyFiltered": "No rows match these filters.",
       "importCta": "Import files",

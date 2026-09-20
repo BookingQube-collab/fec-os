@@ -27,11 +27,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AttendanceRecordsGrid } from "@/components/people/attendance-records-grid";
-import { AttendanceRecordsTable } from "@/components/people/attendance-records-table";
+import {
+  AttendanceRecordsTable,
+  type AttendanceMapStaffOption,
+} from "@/components/people/attendance-records-table";
 import { useSites } from "@/hooks/queries/useSites";
+import { useUserRoles } from "@/hooks/use-auth";
+import { canUserDo } from "@/lib/rbac";
 import {
   getAttendanceHrBootstrap,
   getAttendanceHrDaily,
+  mapAttendanceBiometricUser,
   purgeAttendanceHrImportedData,
 } from "@/lib/attendance-hr.functions";
 import { ATTENDANCE_STATUSES } from "@/lib/attendance-hr/constants";
@@ -58,6 +64,8 @@ export default function AttendanceHrReportsPage() {
   const locationId = useAppStore((s) => s.currentLocationId);
   const setCurrentLocationId = useAppStore((s) => s.setCurrentLocationId);
   const qc = useQueryClient();
+  const roles = useUserRoles();
+  const canMapUsers = canUserDo(roles, "attendance.map_users");
   const [{ month, dateFrom: from, dateTo: to }, setPeriod] = useState(() =>
     defaultPayrollPeriod(new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" })),
   );
@@ -66,6 +74,7 @@ export default function AttendanceHrReportsPage() {
   const [staffQDebounced, setStaffQDebounced] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [mappingBusyIds, setMappingBusyIds] = useState<Record<string, true>>({});
   const { data: sites } = useSites();
 
   useEffect(() => {
@@ -137,6 +146,11 @@ export default function AttendanceHrReportsPage() {
     () => deferredRows.map((row) => attendanceHrToListingSource(row, t("attendanceHr.reports.unmapped"))),
     [deferredRows, t],
   );
+  const mapStaffOptions = useMemo((): AttendanceMapStaffOption[] => {
+    if (!canMapUsers) return [];
+    return (bootstrap.data?.staff ?? []) as AttendanceMapStaffOption[];
+  }, [bootstrap.data?.staff, canMapUsers]);
+  const mappingBusySet = useMemo(() => new Set(Object.keys(mappingBusyIds)), [mappingBusyIds]);
   const kpis = useMemo(() => computeAttendanceHrReportKpis(deferredRows), [deferredRows]);
   const isTableDeferred = deferredRows !== rows;
   const showSearchBusy =
@@ -158,6 +172,26 @@ export default function AttendanceHrReportsPage() {
 
   const invalidate = () => void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
 
+  const mapMut = useMutation({
+    mutationFn: (p: { mappingId: string; staffId: string }) => mapAttendanceBiometricUser(p),
+    onMutate: (vars) => {
+      setMappingBusyIds((prev) => ({ ...prev, [vars.mappingId]: true }));
+    },
+    onSuccess: () => {
+      toast.success(t("attendanceHr.mapping.mappedToast"));
+      invalidate();
+    },
+    onError: (e: Error) => toast.error(e.message),
+    onSettled: (_data, _err, vars) => {
+      setMappingBusyIds((prev) => {
+        if (!(vars.mappingId in prev)) return prev;
+        const next = { ...prev };
+        delete next[vars.mappingId];
+        return next;
+      });
+    },
+  });
+
   const purgeMut = useMutation({
     mutationFn: () => purgeAttendanceHrImportedData({ locationId: locationId || null }),
     onSuccess: (result) => {
@@ -174,6 +208,19 @@ export default function AttendanceHrReportsPage() {
 
   const emptyImport = !q.isLoading && rows.length === 0 && !staffQDebounced.trim() && !status;
   const emptyFiltered = !q.isLoading && rows.length === 0 && Boolean(staffQDebounced.trim() || status);
+
+  const listMapProps =
+    canMapUsers && mapStaffOptions.length > 0
+      ? {
+          mapStaffOptions,
+          mappingBusyIds: mappingBusySet,
+          onMapStaff: (row: (typeof listingRows)[number], staffId: string) => {
+            const mappingId = row.biometricMappingId;
+            if (!mappingId) return;
+            mapMut.mutate({ mappingId, staffId });
+          },
+        }
+      : {};
 
   return (
     <div className="space-y-6">
@@ -392,6 +439,7 @@ export default function AttendanceHrReportsPage() {
             ) : (
               <AttendanceRecordsTable
                 rows={[]}
+                {...listMapProps}
                 empty={
                   q.isLoading ? (
                     <p className="text-sm text-muted-foreground">{t("attendanceHr.reports.loading")}</p>
@@ -414,7 +462,7 @@ export default function AttendanceHrReportsPage() {
           ) : viewMode === "grid" ? (
             <AttendanceRecordsGrid rows={listingRows} dateFrom={from} dateTo={to} />
           ) : (
-            <AttendanceRecordsTable rows={listingRows} />
+            <AttendanceRecordsTable rows={listingRows} {...listMapProps} />
           )}
         </div>
       </div>

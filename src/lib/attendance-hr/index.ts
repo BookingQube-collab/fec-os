@@ -79,6 +79,7 @@ export { previewAttendanceFile } from "./preview";
 export {
   attendanceHrStaffMatches,
   formatAttendanceHrLocation,
+  attendanceHrDisplayStaffName,
   attendanceHrExportStaffName,
   attendanceHrListingLocation,
   attendanceHrToListingSource,

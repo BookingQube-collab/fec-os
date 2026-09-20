@@ -7,6 +7,8 @@ export type AttendanceHrReportRow = {
   location_id: string;
   staff_id: string | null;
   biometric_user_id: string | null;
+  /** attendance_devices.id when known on the daily summary. */
+  device_id?: string | null;
   work_date: string;
   status: string;
   actual_in: string | null;
@@ -21,6 +23,10 @@ export type AttendanceHrReportRow = {
   worked_minutes: number | null;
   employment_type: string | null;
   staff_name: string | null;
+  /** Name on device from attendance_biometric_users (mapping page). */
+  device_name?: string | null;
+  /** attendance_biometric_users.id for inline map; null when no mapping row. */
+  biometric_mapping_id?: string | null;
   employee_code: string | null;
   qid: string | null;
   location_code: string | null;
@@ -47,6 +53,7 @@ export function isAttendanceHrUnmappedSearch(raw: string): boolean {
 export function attendanceHrStaffMatches(
   row: {
     staff_name?: string | null;
+    device_name?: string | null;
     employee_code?: string | null;
     qid?: string | null;
     biometric_user_id?: string | null;
@@ -57,7 +64,13 @@ export function attendanceHrStaffMatches(
   if (!q) return true;
   if (isAttendanceHrUnmappedSearch(q)) return !row.staff_name;
   const compact = q.replace(/\s+/g, "");
-  const fields = [row.staff_name ?? "", row.employee_code ?? "", row.qid ?? "", row.biometric_user_id ?? ""];
+  const fields = [
+    row.staff_name ?? "",
+    row.device_name ?? "",
+    row.employee_code ?? "",
+    row.qid ?? "",
+    row.biometric_user_id ?? "",
+  ];
   return fields.some((field) => {
     const value = field.toLowerCase();
     return value.includes(q) || value.replace(/\s+/g, "").includes(compact);
@@ -72,8 +85,19 @@ export function formatAttendanceHrLocation(code?: string | null, name?: string |
   return formatLocationLabel(c, resolved);
 }
 
-export function attendanceHrExportStaffName(row: Pick<AttendanceHrReportRow, "staff_name">, unmapped = "Unmapped"): string {
-  return row.staff_name?.trim() || unmapped;
+/** Mapped staff name, else name-on-device, else the unmapped label. */
+export function attendanceHrDisplayStaffName(
+  row: Pick<AttendanceHrReportRow, "staff_name" | "device_name">,
+  unmapped = "Unmapped",
+): string {
+  return row.staff_name?.trim() || row.device_name?.trim() || unmapped;
+}
+
+export function attendanceHrExportStaffName(
+  row: Pick<AttendanceHrReportRow, "staff_name" | "device_name">,
+  unmapped = "Unmapped",
+): string {
+  return attendanceHrDisplayStaffName(row, unmapped);
 }
 
 /** Site label for the people-style attendance listing: code plus live name. */
@@ -91,10 +115,13 @@ export function attendanceHrToListingSource(
 ): {
   id: string;
   staffKey: string;
+  locationId: string;
   locationLabel: string;
   userName: string;
   userNameUnmapped: boolean;
   deviceUserId: string | null;
+  deviceName: string | null;
+  biometricMappingId: string | null;
   employeeCode: string | null;
   qid: string | null;
   work_date: string;
@@ -113,6 +140,7 @@ export function attendanceHrToListingSource(
   missed_punch: boolean;
 } {
   const mappedName = row.staff_name?.trim() ?? "";
+  const deviceName = row.device_name?.trim() || null;
   const role = normalizeAttendanceEmploymentRole(row.employment_type);
   const expected =
     row.expected_minutes != null && Number.isFinite(Number(row.expected_minutes))
@@ -125,10 +153,13 @@ export function attendanceHrToListingSource(
   return {
     id: row.id,
     staffKey: attendanceHrIdentityKey(row),
+    locationId: row.location_id,
     locationLabel: attendanceHrListingLocation(row),
-    userName: mappedName || unmapped,
+    userName: attendanceHrDisplayStaffName(row, unmapped),
     userNameUnmapped: !mappedName,
     deviceUserId: row.biometric_user_id,
+    deviceName,
+    biometricMappingId: row.biometric_mapping_id ?? null,
     employeeCode: row.employee_code,
     qid: row.qid,
     work_date: row.work_date,
