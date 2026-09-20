@@ -3358,7 +3358,27 @@
       "noAttendance": "لا توجد ملخصات حضور يومية بعد.",
       "noTraining": "لا توجد تسجيلات تدريب.",
       "openPerformance": "فتح ملف الأداء",
-      "unknownLocation": "موقع غير معروف"
+      "unknownLocation": "موقع غير معروف",
+      "timeline": "الجدول الزمني للموظف",
+      "timelineEmpty": "لا أحداث في الجدول الزمني بعد.",
+      "timelineFilters": {
+        "all": "الكل",
+        "status_change": "الحالة",
+        "salary_change": "الراتب",
+        "leave_approved": "الإجازة",
+        "document_verified": "مستندات موثقة",
+        "document_replaced": "مستندات مستبدلة"
+      },
+      "eventTypes": {
+        "joining": "الانضمام",
+        "status_change": "تغيير الحالة",
+        "salary_change": "تغيير الراتب",
+        "leave_approved": "اعتماد إجازة",
+        "leave_rejected": "رفض إجازة",
+        "document_verified": "توثيق مستند",
+        "document_replaced": "استبدال مستند",
+        "document_uploaded": "رفع مستند"
+      }
     }
   },
   "events": {
@@ -6288,15 +6308,36 @@
       "empty": "لا طلبات في هذا التصفية.",
       "noAccess": "لا يمكنك مراجعة طلبات الإجازة.",
       "conflictWarn": "هذه الإجازة تتعارض مع الجدول أو الحضور أو طلب آخر.",
+      "overlapBlocked": "لا يُسمح بتداخل طلبات الإجازة.",
       "history": "سجل إجازاتي",
       "balancesTitle": "أرصدة الإجازات",
       "staff": "الموظف",
       "pickStaff": "اختر موظفاً",
       "type": "نوع الإجازة",
       "allotted": "الأيام المخصصة",
+      "carriedForward": "مرحّل",
+      "carriedLabel": "{{days}} مرحّل",
+      "accrualHint": "السنوية المستحقة {{accrued}} يوم خلال {{months}} شهر (التعيين {{hire}})",
       "saveBalance": "حفظ الرصيد",
       "balanceSaved": "تم حفظ رصيد الإجازة",
       "remaining": "متبقي {{remaining}} (مستخدم {{used}} من {{allotted}})",
+      "approveStep": "اعتماد الخطوة",
+      "hrFinalApprove": "اعتماد نهائي للموارد البشرية",
+      "stepAdvanced": "انتقل إلى {{step}}",
+      "waitingStep": "بانتظار: {{step}}",
+      "payrollImpact": "أثر على الرواتب",
+      "payrollImpactFlag": "وضع علامة أثر الرواتب عند الاعتماد النهائي",
+      "compOffEarned": "تاريخ استحقاق التعويض",
+      "compOffDays": "أيام التعويض",
+      "grantCompOff": "منح تعويض",
+      "compOffGranted": "تم منح التعويض",
+      "compassionateInside": "وفاة (داخل قطر)",
+      "compassionateOutside": "وفاة (خارج قطر)",
+      "steps": {
+        "manager": "المدير المباشر",
+        "ops": "العمليات / القسم",
+        "hr": "تحقق الموارد البشرية"
+      },
       "status": {
         "pending": "معلّق",
         "approved": "معتمد",
@@ -6309,6 +6350,10 @@
         "sick": "مرضية",
         "unpaid": "بدون راتب",
         "emergency": "طارئة",
+        "maternity": "أمومة",
+        "hajj": "حج",
+        "compassionate": "وفاة",
+        "comp_off": "تعويض",
         "other": "أخرى"
       }
     },

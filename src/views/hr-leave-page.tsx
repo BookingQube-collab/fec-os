@@ -17,8 +17,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  actOnLeaveApproval,
   bulkReviewLeaveRequests,
   getLeaveBalanceSummary,
+  grantCompOff,
   listLeaveRequests,
   listStaffForLeaveBalances,
   reviewLeaveRequest,
@@ -36,7 +38,12 @@ export default function HrLeavePage() {
   const [selected, setSelected] = useState<string[]>([]);
   const [balanceStaffId, setBalanceStaffId] = useState("");
   const [allotted, setAllotted] = useState("21");
+  const [carried, setCarried] = useState("0");
   const [balanceType, setBalanceType] = useState<(typeof HR_LEAVE_TYPES)[number]>("annual");
+  const [compDays, setCompDays] = useState("1");
+  const [compEarned, setCompEarned] = useState("");
+  const [compReason, setCompReason] = useState("");
+  const [payrollImpact, setPayrollImpact] = useState(false);
 
   const list = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "leave", status }),
@@ -72,6 +79,30 @@ export default function HrLeavePage() {
         toast.success(t("hr.leave.updated"));
       }
       setSelected([]);
+      invalidate();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const stepAct = useMutation({
+    mutationFn: actOnLeaveApproval,
+    onSuccess: (res) => {
+      if (res.final && (res.syncedDays ?? 0) > 0) {
+        toast.success(t("hr.leave.synced", { days: res.syncedDays }));
+      } else if (res.final) {
+        toast.success(t("hr.leave.updated"));
+      } else {
+        toast.success(t("hr.leave.stepAdvanced", { step: res.nextStep ?? "" }));
+      }
+      invalidate();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const grantComp = useMutation({
+    mutationFn: grantCompOff,
+    onSuccess: () => {
+      toast.success(t("hr.leave.compOffGranted"));
       invalidate();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -139,6 +170,10 @@ export default function HrLeavePage() {
 
           {status === "pending" && pendingIds.length > 0 ? (
             <div className="flex flex-wrap items-center gap-2 hr-enter">
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Checkbox checked={payrollImpact} onCheckedChange={(v) => setPayrollImpact(Boolean(v))} />
+                {t("hr.leave.payrollImpactFlag")}
+              </label>
               <Button
                 size="sm"
                 variant="outline"
@@ -185,20 +220,49 @@ export default function HrLeavePage() {
                         </p>
                         <p className="text-xs text-muted-foreground">
                           {row.employeeCode ?? "—"} · {row.dateFrom} → {row.dateTo} · {row.days} {t("hr.leave.days")}
+                          {row.currentStepRole
+                            ? ` · ${t("hr.leave.waitingStep", { step: t(`hr.leave.steps.${row.currentStepRole}`) })}`
+                            : ""}
+                          {row.payrollImpact ? ` · ${t("hr.leave.payrollImpact")}` : ""}
                           {row.reason ? ` · ${row.reason}` : ""}
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <Badge variant={row.status === "approved" ? "success" : row.status === "rejected" ? "destructive" : "muted"}>
                         {t(`hr.leave.status.${row.status}`)}
                       </Badge>
                       {row.status === "pending" ? (
                         <>
-                          <Button size="sm" disabled={review.isPending} onClick={() => review.mutate({ id: row.id, status: "approved" })}>
-                            {t("hr.leave.approve")}
+                          <Button
+                            size="sm"
+                            disabled={stepAct.isPending || review.isPending}
+                            onClick={() =>
+                              stepAct.mutate({
+                                leaveId: row.id,
+                                action: "approved",
+                                payrollImpact: row.currentStepRole === "hr" ? payrollImpact : false,
+                              })
+                            }
+                          >
+                            {t("hr.leave.approveStep")}
                           </Button>
-                          <Button size="sm" variant="secondary" disabled={review.isPending} onClick={() => review.mutate({ id: row.id, status: "rejected" })}>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={review.isPending}
+                            onClick={() =>
+                              review.mutate({ id: row.id, status: "approved", payrollImpact })
+                            }
+                          >
+                            {t("hr.leave.hrFinalApprove")}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            disabled={stepAct.isPending || review.isPending}
+                            onClick={() => stepAct.mutate({ leaveId: row.id, action: "rejected" })}
+                          >
                             {t("hr.leave.reject")}
                           </Button>
                         </>
@@ -248,6 +312,10 @@ export default function HrLeavePage() {
                   <Label>{t("hr.leave.allotted")}</Label>
                   <Input type="number" min={0} value={allotted} onChange={(e) => setAllotted(e.target.value)} />
                 </div>
+                <div>
+                  <Label>{t("hr.leave.carriedForward")}</Label>
+                  <Input type="number" min={0} value={carried} onChange={(e) => setCarried(e.target.value)} />
+                </div>
                 <div className="flex items-end">
                   <Button
                     disabled={!balanceStaffId || saveBalance.isPending}
@@ -257,6 +325,7 @@ export default function HrLeavePage() {
                         leaveType: balanceType,
                         year: new Date().getFullYear(),
                         allottedDays: Number(allotted) || 0,
+                        carriedForward: Number(carried) || 0,
                       })
                     }
                   >
@@ -264,6 +333,15 @@ export default function HrLeavePage() {
                   </Button>
                 </div>
               </div>
+              {balances.data?.accrual ? (
+                <p className="text-xs text-muted-foreground">
+                  {t("hr.leave.accrualHint", {
+                    accrued: balances.data.accrual.accruedDays,
+                    months: balances.data.accrual.monthsAccrued,
+                    hire: balances.data.accrual.hireDate ?? "—",
+                  })}
+                </p>
+              ) : null}
               {balances.data?.balances?.length ? (
                 <div className="grid gap-2 sm:grid-cols-3">
                   {balances.data.balances.map((b) => (
@@ -272,10 +350,45 @@ export default function HrLeavePage() {
                       <p className="text-muted-foreground">
                         {t("hr.leave.remaining", { remaining: b.remainingDays, allotted: b.allottedDays, used: b.usedDays })}
                       </p>
+                      {b.carriedForwardDays ? (
+                        <p className="text-xs text-muted-foreground">
+                          {t("hr.leave.carriedLabel", { days: b.carriedForwardDays })}
+                        </p>
+                      ) : null}
                     </div>
                   ))}
                 </div>
               ) : null}
+              <div className="grid gap-3 border-t border-[var(--hr-border)] pt-4 sm:grid-cols-4">
+                <div>
+                  <Label>{t("hr.leave.compOffEarned")}</Label>
+                  <Input type="date" value={compEarned} onChange={(e) => setCompEarned(e.target.value)} />
+                </div>
+                <div>
+                  <Label>{t("hr.leave.compOffDays")}</Label>
+                  <Input type="number" min={0.25} step={0.25} value={compDays} onChange={(e) => setCompDays(e.target.value)} />
+                </div>
+                <div>
+                  <Label>{t("hr.leave.reason")}</Label>
+                  <Input value={compReason} onChange={(e) => setCompReason(e.target.value)} />
+                </div>
+                <div className="flex items-end">
+                  <Button
+                    variant="outline"
+                    disabled={!balanceStaffId || !compEarned || grantComp.isPending}
+                    onClick={() =>
+                      grantComp.mutate({
+                        staffId: balanceStaffId,
+                        earnedOn: compEarned,
+                        days: Number(compDays) || 1,
+                        reason: compReason || null,
+                      })
+                    }
+                  >
+                    {t("hr.leave.grantCompOff")}
+                  </Button>
+                </div>
+              </div>
             </div>
           </HrPanel>
         </HrSection>

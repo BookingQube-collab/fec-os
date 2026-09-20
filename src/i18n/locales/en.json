@@ -3416,7 +3416,27 @@
       "noAttendance": "No daily attendance summaries yet.",
       "noTraining": "No training enrollments.",
       "openPerformance": "Open performance profile",
-      "unknownLocation": "Unknown location"
+      "unknownLocation": "Unknown location",
+      "timeline": "Employee timeline",
+      "timelineEmpty": "No timeline events yet.",
+      "timelineFilters": {
+        "all": "All",
+        "status_change": "Status",
+        "salary_change": "Salary",
+        "leave_approved": "Leave",
+        "document_verified": "Docs verified",
+        "document_replaced": "Docs replaced"
+      },
+      "eventTypes": {
+        "joining": "Joining",
+        "status_change": "Status change",
+        "salary_change": "Salary change",
+        "leave_approved": "Leave approved",
+        "leave_rejected": "Leave rejected",
+        "document_verified": "Document verified",
+        "document_replaced": "Document replaced",
+        "document_uploaded": "Document uploaded"
+      }
     }
   },
   "events": {
@@ -6376,15 +6396,36 @@
       "empty": "No leave requests in this filter.",
       "noAccess": "You cannot review leave requests.",
       "conflictWarn": "This leave overlaps roster, attendance, or another request.",
+      "overlapBlocked": "Overlapping leave requests are not allowed.",
       "history": "My leave history",
       "balancesTitle": "Leave balances",
       "staff": "Staff",
       "pickStaff": "Select staff",
       "type": "Leave type",
       "allotted": "Allotted days",
+      "carriedForward": "Carried forward",
+      "carriedLabel": "{{days}} carried forward",
+      "accrualHint": "Annual accrued {{accrued}}d over {{months}} mo (hire {{hire}})",
       "saveBalance": "Save allotment",
       "balanceSaved": "Leave balance saved",
       "remaining": "{{remaining}} left ({{used}} used of {{allotted}})",
+      "approveStep": "Approve step",
+      "hrFinalApprove": "HR final approve",
+      "stepAdvanced": "Advanced to {{step}}",
+      "waitingStep": "Waiting: {{step}}",
+      "payrollImpact": "Payroll impact",
+      "payrollImpactFlag": "Flag payroll impact on final approve",
+      "compOffEarned": "Comp-off earned",
+      "compOffDays": "Comp-off days",
+      "grantCompOff": "Grant comp-off",
+      "compOffGranted": "Comp-off granted",
+      "compassionateInside": "Compassionate (inside Qatar)",
+      "compassionateOutside": "Compassionate (outside Qatar)",
+      "steps": {
+        "manager": "Reporting manager",
+        "ops": "Ops / department",
+        "hr": "HR verification"
+      },
       "status": {
         "pending": "Pending",
         "approved": "Approved",
@@ -6397,6 +6438,10 @@
         "sick": "Sick",
         "unpaid": "Unpaid",
         "emergency": "Emergency",
+        "maternity": "Maternity",
+        "hajj": "Hajj",
+        "compassionate": "Compassionate",
+        "comp_off": "Comp off",
         "other": "Other"
       }
     },

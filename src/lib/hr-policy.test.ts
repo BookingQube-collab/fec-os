@@ -43,6 +43,14 @@ describe("hr policy defaults", () => {
     expect(HR_POLICY_DEFAULTS.payroll.currency).toBe("QAR");
     expect(HR_POLICY_DEFAULTS.payroll.timezone).toBe("Asia/Qatar");
   });
+
+  it("includes leave carry-forward, hajj, and comp-off policy keys", () => {
+    expect(HR_POLICY_DEFAULTS.leave.hajj_days).toBe(14);
+    expect(HR_POLICY_DEFAULTS.leave.carry_forward_max_days).toBe(5);
+    expect(HR_POLICY_DEFAULTS.leave.comp_off_expiry_days).toBe(90);
+    expect(HR_POLICY_DEFAULTS.leave.emergency_min_days).toBe(1);
+    expect(HR_POLICY_DEFAULTS.leave.emergency_max_days).toBe(7);
+  });
 });
 
 describe("roster missing guard", () => {

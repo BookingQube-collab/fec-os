@@ -115,6 +115,8 @@ export const CAPABILITIES = {
     "tech_supervisor", "technician", "cashier_host", "auditor", "hr", "customer_service",
   ],
   "hr.leave.manage": ["ceo", "coo", "regional_ops", "branch_gm", "hr"],
+  "hr.leave.approve_manager": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "hr"],
+  "hr.timeline.view": ["ceo", "coo", "regional_ops", "branch_gm", "hr"],
 
   // Compliance
   "compliance.view": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "auditor"],

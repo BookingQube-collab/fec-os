@@ -60,6 +60,7 @@ export default function EmployeeMePage() {
   const [leaveFrom, setLeaveFrom] = useState("");
   const [leaveTo, setLeaveTo] = useState("");
   const [leaveReason, setLeaveReason] = useState("");
+  const [compassionateScope, setCompassionateScope] = useState<"inside_qatar" | "outside_qatar">("inside_qatar");
   const [leaveConflicts, setLeaveConflicts] = useState<LeaveConflict[]>([]);
   const [installDismissed, setInstallDismissed] = useState(false);
   const [docType, setDocType] = useState<(typeof HR_DOC_TYPES)[number]>("qid");
@@ -196,8 +197,14 @@ export default function EmployeeMePage() {
         dateTo: leaveTo || leaveFrom,
         reason: leaveReason || null,
         acknowledgeConflicts: acknowledgeConflicts ?? false,
+        compassionateScope: leaveType === "compassionate" ? compassionateScope : null,
       }),
     onSuccess: (res) => {
+      if ("blocked" in res && res.blocked) {
+        setLeaveConflicts(res.conflicts);
+        toast.error(t("hr.leave.overlapBlocked"));
+        return;
+      }
       if (res.requiresAck) {
         setLeaveConflicts(res.conflicts);
         toast.message(t("hr.leave.conflictWarn"));
@@ -401,10 +408,24 @@ export default function EmployeeMePage() {
             </option>
           ))}
         </select>
+        {leaveType === "compassionate" ? (
+          <select
+            className="h-10 w-full rounded-xl border bg-background px-3 text-sm"
+            value={compassionateScope}
+            onChange={(e) => setCompassionateScope(e.target.value as "inside_qatar" | "outside_qatar")}
+          >
+            <option value="inside_qatar">{t("hr.leave.compassionateInside")}</option>
+            <option value="outside_qatar">{t("hr.leave.compassionateOutside")}</option>
+          </select>
+        ) : null}
         <Input placeholder={t("hr.leave.reason")} value={leaveReason} onChange={(e) => setLeaveReason(e.target.value)} />
         {leaveConflicts.length > 0 ? (
           <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
-            <p className="font-medium">{t("hr.leave.conflictWarn")}</p>
+            <p className="font-medium">
+              {leaveConflicts.some((c) => c.kind === "leave_overlap")
+                ? t("hr.leave.overlapBlocked")
+                : t("hr.leave.conflictWarn")}
+            </p>
             <ul className="mt-1 list-disc pl-4">
               {leaveConflicts.slice(0, 5).map((c, i) => (
                 <li key={`${c.kind}-${c.workDate}-${i}`}>
@@ -412,9 +433,11 @@ export default function EmployeeMePage() {
                 </li>
               ))}
             </ul>
-            <Button className="mt-2" size="sm" disabled={askLeave.isPending} onClick={() => askLeave.mutate(true)}>
-              {t("hr.leave.submitAnyway")}
-            </Button>
+            {!leaveConflicts.some((c) => c.kind === "leave_overlap") ? (
+              <Button className="mt-2" size="sm" disabled={askLeave.isPending} onClick={() => askLeave.mutate(true)}>
+                {t("hr.leave.submitAnyway")}
+              </Button>
+            ) : null}
           </div>
         ) : null}
         <Button disabled={!leaveFrom || askLeave.isPending} onClick={() => askLeave.mutate(false)}>

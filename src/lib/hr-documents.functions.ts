@@ -9,6 +9,7 @@ import {
   HR_DOC_TYPES,
   type HrDocType,
 } from "@/lib/hr-advanced";
+import { appendEmployeeEvent } from "@/lib/hr-employee-events";
 import { createAuthenticatedAction, type AuthContext } from "@/lib/server/create-action";
 import { ForbiddenError } from "@/lib/server/authorize";
 import { canUserDo, type AppRole } from "@/lib/rbac";
@@ -296,6 +297,14 @@ export const replaceEmployeeDocument = createAuthenticatedAction(
     await auditDoc(context, "hr_document.replace", String(row.id), {
       supersedes_id: old.id,
     });
+    await appendEmployeeEvent(context, {
+      staffId: String(old.staff_id),
+      eventType: "document_replaced",
+      payload: { doc_type: old.doc_type, supersedes_id: old.id },
+      documentId: String(row.id),
+      sourceTable: "hr_employee_documents",
+      sourceId: String(row.id),
+    });
     return { id: row.id as string };
   },
   { auth: { anyCapability: ["hr.docs.manage", "hr.manage", "hr.employee_app"] } },
@@ -356,12 +365,23 @@ export const verifyEmployeeDocument = createAuthenticatedAction(
       })
       .eq("id", data.id)
       .is("deleted_at", null)
-      .select("id, doc_type")
+      .select("id, doc_type, staff_id")
       .maybeSingle();
     if (error) throw error;
     if (!doc) throw new Error("Document not found.");
     await auditDoc(context, "hr_document.verify", data.id, {
       verification_status: data.verificationStatus,
+    });
+    await appendEmployeeEvent(context, {
+      staffId: String(doc.staff_id),
+      eventType: "document_verified",
+      payload: {
+        doc_type: doc.doc_type,
+        verification_status: data.verificationStatus,
+      },
+      documentId: data.id,
+      sourceTable: "hr_employee_documents",
+      sourceId: data.id,
     });
     return { ok: true };
   },

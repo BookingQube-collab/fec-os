@@ -22,6 +22,7 @@ import { STALE } from "@/lib/query-client";
 import { FaceCaptureDialog } from "@/components/attendance-hr/face-capture-dialog";
 import { StaffAvatar, StaffPhotoField, type StaffPhotoDraft } from "@/components/people/staff-photo-field";
 import { getStaffFaceEnrollment, saveStaffFaceEnrollment } from "@/lib/attendance-hr-field.functions";
+import { listEmployeeTimeline } from "@/lib/hr-leave.functions";
 import { transferStaffMember, updateStaffSalary, updateStaffWorkLocations } from "@/lib/staff-roster.functions";
 import { removeStaffPhoto, saveStaffPhoto, updateStaff } from "@/lib/people.functions";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -91,6 +92,7 @@ export default function StaffProfilePage() {
   const [isRoaming, setIsRoaming] = useState(false);
   const [employmentType, setEmploymentType] = useState("");
   const [photoDraft, setPhotoDraft] = useState<StaffPhotoDraft>({ dataUrl: null, remove: false });
+  const [timelineFilter, setTimelineFilter] = useState<string>("all");
 
   const profile = useQuery({
     queryKey: queryKeys.people.staffProfile(id),
@@ -134,6 +136,17 @@ export default function StaffProfilePage() {
     queryKey: queryKeys.people.attendanceHr({ view: "face", staffId: id }),
     queryFn: () => getStaffFaceEnrollment({ staffId: id }),
     staleTime: STALE.people,
+  });
+
+  const timeline = useQuery({
+    queryKey: queryKeys.people.hrEmployeeTimeline({ staffId: id, eventType: timelineFilter }),
+    queryFn: () =>
+      listEmployeeTimeline({
+        staffId: id,
+        eventType: timelineFilter === "all" ? null : timelineFilter,
+      }),
+    staleTime: STALE.people,
+    enabled: Boolean(id),
   });
 
   const enrollMut = useMutation({
@@ -427,6 +440,44 @@ export default function StaffProfilePage() {
               ))}
             </ul>
           ) : null}
+        </section>
+        <section className="surface-card space-y-2 p-5">
+          <h2 className="text-sm font-semibold">{t("people.profile.timeline")}</h2>
+          <div className="flex flex-wrap gap-2">
+            {(
+              ["all", "status_change", "salary_change", "leave_approved", "document_verified", "document_replaced"] as const
+            ).map((value) => (
+              <button
+                key={value}
+                type="button"
+                className={`rounded-md border px-2 py-1 text-xs ${
+                  timelineFilter === value ? "border-foreground bg-foreground text-background" : "border-border"
+                }`}
+                onClick={() => setTimelineFilter(value)}
+              >
+                {t(`people.profile.timelineFilters.${value}`)}
+              </button>
+            ))}
+          </div>
+          {(timeline.data ?? []).length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t("people.profile.timelineEmpty")}</p>
+          ) : (
+            <ul className="space-y-2 text-sm">
+              {(timeline.data ?? []).map((ev) => (
+                <li key={ev.id} className="border-b border-border/60 pb-2 last:border-0">
+                  <p className="font-medium">
+                    {ev.effectiveOn} · {t(`people.profile.eventTypes.${ev.eventType}`, ev.eventType)}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {Object.entries(ev.payload ?? {})
+                      .slice(0, 4)
+                      .map(([k, v]) => `${k}: ${String(v ?? "")}`)
+                      .join(" · ") || "—"}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
         <section className="surface-card space-y-2 p-5">
           <h2 className="text-sm font-semibold">{t("people.profile.training")}</h2>

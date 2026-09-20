@@ -50,6 +50,15 @@ describe("leave conflicts", () => {
     expect(conflicts.map((c) => c.kind).sort()).toEqual(["attendance", "leave_overlap", "roster"]);
   });
 
+  it("flags public holidays when provided", () => {
+    const conflicts = detectLeaveConflicts({
+      dateFrom: "2026-08-28",
+      dateTo: "2026-08-30",
+      holidayDates: ["2026-08-29"],
+    });
+    expect(conflicts.some((c) => c.kind === "holiday")).toBe(true);
+  });
+
   it("detects range overlap inclusively", () => {
     expect(dateRangesOverlap("2026-01-01", "2026-01-05", "2026-01-05", "2026-01-10")).toBe(true);
     expect(dateRangesOverlap("2026-01-01", "2026-01-05", "2026-01-06", "2026-01-10")).toBe(false);
@@ -74,6 +83,8 @@ describe("leave → attendance mapping", () => {
     expect(mapHrLeaveTypeToAttendance("annual")).toBe("annual_leave");
     expect(mapHrLeaveTypeToAttendance("sick")).toBe("sick_leave");
     expect(mapHrLeaveTypeToAttendance("emergency")).toBe("unpaid_leave");
+    expect(mapHrLeaveTypeToAttendance("maternity")).toBe("annual_leave");
+    expect(mapHrLeaveTypeToAttendance("compassionate")).toBe("annual_leave");
     expect(enumerateLeaveDates("2026-08-28", "2026-08-30")).toEqual([
       "2026-08-28",
       "2026-08-29",

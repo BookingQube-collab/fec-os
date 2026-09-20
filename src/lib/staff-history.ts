@@ -4,6 +4,7 @@
  */
 
 import type { Json } from "@/integrations/supabase/types";
+import { appendEmployeeEvent } from "@/lib/hr-employee-events";
 import type { AuthContext } from "@/lib/server/create-action";
 
 function qatarToday(): string {
@@ -84,6 +85,18 @@ export async function insertSalaryHistoryAndSync(
     },
     input.locationId,
   );
+  await appendEmployeeEvent(context, {
+    staffId: input.staffId,
+    eventType: "salary_change",
+    effectiveOn,
+    payload: {
+      monthly_total_qar: input.monthlyTotalQar,
+      daily_rate_qar: input.dailyRateQar ?? null,
+      reason: input.reason ?? null,
+    },
+    sourceTable: "staff_salary_history",
+    sourceId: hist.id,
+  });
   return { historyId: hist.id };
 }
 
@@ -131,5 +144,18 @@ export async function insertStatusHistory(
     },
     input.locationId,
   );
+  await appendEmployeeEvent(context, {
+    staffId: input.staffId,
+    eventType: "status_change",
+    effectiveOn,
+    payload: {
+      from_status: input.fromStatus,
+      to_status: input.toStatus,
+      reason: input.reason ?? null,
+    },
+    documentId: input.documentId ?? null,
+    sourceTable: "staff_status_history",
+    sourceId: hist.id,
+  });
   return { historyId: hist.id };
 }

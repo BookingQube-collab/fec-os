@@ -1,4 +1,9 @@
-import { countLeaveDays, type HrLeaveType } from "@/lib/hr-leave";
+import {
+  countLeaveDays,
+  type HrCompassionateScope,
+  type HrLeaveType,
+} from "@/lib/hr-leave";
+import { policyNumber } from "@/lib/hr-policy";
 
 export type LeaveBalanceRow = {
   leaveType: HrLeaveType;
@@ -11,10 +16,20 @@ export type LeaveBalanceSummary = {
   allottedDays: number;
   usedDays: number;
   remainingDays: number;
+  carriedForwardDays?: number;
+  expiredDays?: number;
+  pendingDays?: number;
+  availableDays?: number;
 };
 
 export function summarizeLeaveBalances(
-  allotments: Array<{ leaveType: string; allottedDays: number }>,
+  allotments: Array<{
+    leaveType: string;
+    allottedDays: number;
+    carriedForwardDays?: number;
+    expiredDays?: number;
+    pendingDays?: number;
+  }>,
   usedByType: Record<string, number>,
 ): LeaveBalanceSummary[] {
   const types = new Set<string>([
@@ -24,13 +39,22 @@ export function summarizeLeaveBalances(
   return [...types]
     .sort()
     .map((leaveType) => {
-      const allotted = allotments.find((a) => a.leaveType === leaveType)?.allottedDays ?? 0;
+      const row = allotments.find((a) => a.leaveType === leaveType);
+      const allotted = row?.allottedDays ?? 0;
+      const carried = row?.carriedForwardDays ?? 0;
+      const expired = row?.expiredDays ?? 0;
+      const pending = row?.pendingDays ?? 0;
       const used = usedByType[leaveType] ?? 0;
+      const available = Math.max(0, allotted + carried - expired - used - pending);
       return {
         leaveType: leaveType as HrLeaveType,
         allottedDays: allotted,
         usedDays: used,
-        remainingDays: Math.max(0, allotted - used),
+        remainingDays: available,
+        carriedForwardDays: carried,
+        expiredDays: expired,
+        pendingDays: pending,
+        availableDays: available,
       };
     });
 }
@@ -48,7 +72,7 @@ export function sumUsedLeaveDays(
   return out;
 }
 
-export type LeaveConflictKind = "roster" | "attendance" | "leave_overlap";
+export type LeaveConflictKind = "roster" | "attendance" | "leave_overlap" | "holiday";
 
 export type LeaveConflict = {
   kind: LeaveConflictKind;
@@ -75,6 +99,7 @@ export function detectLeaveConflicts(input: {
   dateTo: string;
   rosterDates?: string[];
   attendancePresentDates?: string[];
+  holidayDates?: string[];
   overlappingLeave?: Array<{ dateFrom: string; dateTo: string; status: string }>;
 }): LeaveConflict[] {
   const conflicts: LeaveConflict[] = [];
@@ -94,6 +119,12 @@ export function detectLeaveConflicts(input: {
       conflicts.push({ kind: "attendance", workDate: d, detail: "Present / punched" });
     }
   }
+  for (const workDate of input.holidayDates ?? []) {
+    const d = workDate.slice(0, 10);
+    if (d >= from && d <= to) {
+      conflicts.push({ kind: "holiday", workDate: d, detail: "Public holiday" });
+    }
+  }
   for (const row of input.overlappingLeave ?? []) {
     if (row.status === "cancelled" || row.status === "rejected") continue;
     if (dateRangesOverlap(from, to, row.dateFrom, row.dateTo)) {
@@ -105,6 +136,11 @@ export function detectLeaveConflicts(input: {
     }
   }
   return conflicts;
+}
+
+/** Overlapping leave requests are hard-blocked; roster/attendance/holiday may warn. */
+export function hasHardLeaveOverlap(conflicts: LeaveConflict[]): boolean {
+  return conflicts.some((c) => c.kind === "leave_overlap");
 }
 
 export function formatOtPolicySummary(policy: {
@@ -203,15 +239,106 @@ export type HrChecklistKind = (typeof HR_CHECKLIST_KINDS)[number];
 /** Fallback when policy store unavailable — keep in sync with hr_policy_settings seed. */
 export const DEFAULT_ANNUAL_ALLOTMENT = 21;
 export const DEFAULT_SICK_ALLOTMENT = 15;
+export const DEFAULT_COMPASSIONATE_INSIDE_QATAR = 5;
+export const DEFAULT_COMPASSIONATE_OUTSIDE_QATAR = 11;
 
 /** Attendance engine leave statuses (see attendance-hr/calculate). */
 export type AttendanceLeaveType = "annual_leave" | "sick_leave" | "unpaid_leave";
 
 /** Map HR leave request types onto attendance_leave_records.leave_type. */
 export function mapHrLeaveTypeToAttendance(leaveType: string): AttendanceLeaveType {
-  if (leaveType === "annual") return "annual_leave";
+  if (leaveType === "annual" || leaveType === "maternity" || leaveType === "hajj" || leaveType === "compassionate" || leaveType === "comp_off") {
+    return "annual_leave";
+  }
   if (leaveType === "sick") return "sick_leave";
   return "unpaid_leave";
+}
+
+export function compassionateDaysFromPolicy(
+  leaveSection: Record<string, unknown>,
+  scope: HrCompassionateScope,
+): number {
+  if (scope === "outside_qatar") {
+    return policyNumber(
+      leaveSection.compassionate_outside_qatar_days,
+      DEFAULT_COMPASSIONATE_OUTSIDE_QATAR,
+    );
+  }
+  return policyNumber(
+    leaveSection.compassionate_inside_qatar_days,
+    DEFAULT_COMPASSIONATE_INSIDE_QATAR,
+  );
+}
+
+/**
+ * Annual leave accrual from hire_date (AT#8 leave portion).
+ * When annual_from_hire_date is false, full policy annual_days once hired.
+ * Otherwise pro-rate by full months from hire within the calendar year (Qatar TZ dates as YMD).
+ */
+export function annualAccrualFromHireDate(input: {
+  hireDate: string | null | undefined;
+  year: number;
+  annualDays: number;
+  fromHireDate?: boolean;
+  asOfDate?: string;
+}): {
+  eligible: boolean;
+  accruedDays: number;
+  monthsAccrued: number;
+  fullYearDays: number;
+} {
+  const fullYearDays = Math.max(0, Number(input.annualDays) || 0);
+  const hire = input.hireDate?.slice(0, 10) ?? null;
+  if (!hire) {
+    return { eligible: false, accruedDays: 0, monthsAccrued: 0, fullYearDays };
+  }
+  const hireYear = Number(hire.slice(0, 4));
+  if (!Number.isFinite(hireYear) || hireYear > input.year) {
+    return { eligible: false, accruedDays: 0, monthsAccrued: 0, fullYearDays };
+  }
+
+  const asOf = (input.asOfDate ?? `${input.year}-12-31`).slice(0, 10);
+  const asOfYear = Number(asOf.slice(0, 4));
+  if (asOfYear < input.year) {
+    return { eligible: false, accruedDays: 0, monthsAccrued: 0, fullYearDays };
+  }
+  if (asOf < hire) {
+    return { eligible: false, accruedDays: 0, monthsAccrued: 0, fullYearDays };
+  }
+
+  if (input.fromHireDate === false) {
+    return { eligible: true, accruedDays: fullYearDays, monthsAccrued: 12, fullYearDays };
+  }
+
+  const yearStart = `${input.year}-01-01`;
+  const periodStart = hire > yearStart ? hire : yearStart;
+  const periodEnd = asOf > `${input.year}-12-31` ? `${input.year}-12-31` : asOf;
+  if (periodEnd < periodStart) {
+    return { eligible: true, accruedDays: 0, monthsAccrued: 0, fullYearDays };
+  }
+
+  const startY = Number(periodStart.slice(0, 4));
+  const startM = Number(periodStart.slice(5, 7));
+  const endY = Number(periodEnd.slice(0, 4));
+  const endM = Number(periodEnd.slice(5, 7));
+  // Full calendar months from start month through end month inclusive.
+  const monthsAccrued = Math.max(0, (endY - startY) * 12 + (endM - startM) + 1);
+  const cappedMonths = Math.min(12, monthsAccrued);
+  const accruedDays = Math.round((fullYearDays * cappedMonths) / 12 * 10) / 10;
+  return { eligible: true, accruedDays, monthsAccrued: cappedMonths, fullYearDays };
+}
+
+/** Comp-off may be used only before expiry unless HR exception is set. */
+export function canUseCompOff(input: {
+  expiresOn: string | null | undefined;
+  asOfDate: string;
+  hrException?: boolean;
+  remainingDays: number;
+}): boolean {
+  if (input.remainingDays <= 0) return false;
+  if (input.hrException) return true;
+  if (!input.expiresOn) return true;
+  return input.asOfDate.slice(0, 10) <= input.expiresOn.slice(0, 10);
 }
 
 /** Inclusive calendar dates (YYYY-MM-DD) for a leave span. */
