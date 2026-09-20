@@ -3726,6 +3726,109 @@ export type Database = {
       hr_staff_checklist_items: { Row: Record<string, unknown> & { id: string; checklist_id: string; title: string; status: string; sort_order: number; completed_at: string | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       hr_announcements: { Row: Record<string, unknown> & { id: string; title: string; body: string; active: boolean; published_at: string; expires_at: string | null; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       hr_ot_policy: { Row: Record<string, unknown> & { id: string; company_id: string | null; overtime_after_minutes: number; max_daily_ot_minutes: number | null; max_weekly_ot_minutes: number | null; requires_preapproval: boolean; summary_notes: string | null; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      hr_policy_settings: {
+        Row: {
+          id: string
+          company_id: string | null
+          section: string
+          key: string
+          value: Json
+          updated_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          company_id?: string | null
+          section: string
+          key: string
+          value: Json
+          updated_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          company_id?: string | null
+          section?: string
+          key?: string
+          value?: Json
+          updated_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      staff_profile_ext: {
+        Row: {
+          staff_id: string
+          nationality: string | null
+          emergency_contact_name: string | null
+          emergency_contact_phone: string | null
+          emergency_contact_relation: string | null
+          reporting_manager_staff_id: string | null
+          employment_category: string | null
+          probation_start: string | null
+          probation_end: string | null
+          passport_number: string | null
+          passport_expiry: string | null
+          visa_number: string | null
+          visa_expiry: string | null
+          sponsorship_info: string | null
+          payment_method: string | null
+          bank_name: string | null
+          iban: string | null
+          wps_employee_id: string | null
+          last_working_date: string | null
+          releasing_date: string | null
+          exit_reason: string | null
+          updated_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: Record<string, unknown>
+        Update: Record<string, unknown>
+        Relationships: []
+      }
+      staff_salary_history: {
+        Row: {
+          id: string
+          staff_id: string
+          effective_on: string
+          basic_qar: number | null
+          allowances: Json
+          monthly_total_qar: number | null
+          daily_rate_qar: number | null
+          currency: string
+          reason: string | null
+          letter_document_id: string | null
+          approved_by: string | null
+          approved_at: string | null
+          created_by: string | null
+          created_at: string
+        }
+        Insert: Record<string, unknown>
+        Update: Record<string, unknown>
+        Relationships: []
+      }
+      staff_status_history: {
+        Row: {
+          id: string
+          staff_id: string
+          from_status: string | null
+          to_status: string
+          effective_on: string
+          reason: string | null
+          document_id: string | null
+          approved_by: string | null
+          approved_at: string | null
+          created_by: string | null
+          created_at: string
+        }
+        Insert: Record<string, unknown>
+        Update: Record<string, unknown>
+        Relationships: []
+      }
       snag_lists: { Row: Record<string, unknown> & { id: string; location_id: string; name: string; status: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       snag_items: { Row: Record<string, unknown> & { id: string; snag_number: string; location_id: string; raised_at: string; area: string | null; category: string; description: string; severity: string; priority: string; status: string; target_date: string | null; risk_score: number; vendor_id: string | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       snag_photos: { Row: Record<string, unknown> & { id: string; snag_id: string; photo_type: string; file_path: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }

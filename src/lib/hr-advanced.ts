@@ -172,8 +172,9 @@ export type HrDocType = (typeof HR_DOC_TYPES)[number];
 export const HR_CHECKLIST_KINDS = ["onboarding", "offboarding"] as const;
 export type HrChecklistKind = (typeof HR_CHECKLIST_KINDS)[number];
 
+/** Fallback when policy store unavailable — keep in sync with hr_policy_settings seed. */
 export const DEFAULT_ANNUAL_ALLOTMENT = 21;
-export const DEFAULT_SICK_ALLOTMENT = 14;
+export const DEFAULT_SICK_ALLOTMENT = 15;
 
 /** Attendance engine leave statuses (see attendance-hr/calculate). */
 export type AttendanceLeaveType = "annual_leave" | "sick_leave" | "unpaid_leave";

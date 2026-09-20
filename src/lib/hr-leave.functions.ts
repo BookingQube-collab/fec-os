@@ -24,6 +24,7 @@ import {
   summarizeLeaveBalances,
   sumUsedLeaveDays,
 } from "@/lib/hr-advanced";
+import { readLeaveAllotmentDefaults } from "@/lib/hr-policy-read";
 
 async function myStaff(context: AuthContext) {
   const { data } = await context.supabase
@@ -246,9 +247,13 @@ export const getLeaveBalanceSummary = createAuthenticatedAction(
       allottedDays: Number(a.allotted_days ?? 0),
     }));
     if (allotmentRows.length === 0) {
+      const defaults = await readLeaveAllotmentDefaults(context).catch(() => ({
+        annual: DEFAULT_ANNUAL_ALLOTMENT,
+        sick: DEFAULT_SICK_ALLOTMENT,
+      }));
       allotmentRows = [
-        { leaveType: "annual", allottedDays: DEFAULT_ANNUAL_ALLOTMENT },
-        { leaveType: "sick", allottedDays: DEFAULT_SICK_ALLOTMENT },
+        { leaveType: "annual", allottedDays: defaults.annual },
+        { leaveType: "sick", allottedDays: defaults.sick },
       ];
     }
     return { year, balances: summarizeLeaveBalances(allotmentRows, used) };

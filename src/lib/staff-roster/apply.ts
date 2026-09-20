@@ -2,6 +2,8 @@ import type { Json } from "@/integrations/supabase/types";
 import { canUserDo, type AppRole } from "@/lib/rbac";
 import type { AuthContext } from "@/lib/server/create-action";
 import { ForbiddenError, assertLocationAccess } from "@/lib/server/authorize";
+import { rosterMissingStaffMutation } from "@/lib/hr-policy";
+import { insertSalaryHistoryAndSync } from "@/lib/staff-history";
 import { staffUuid } from "@/lib/staff-import-ids";
 
 import { diffStaffFields, matchRosterRow, proposeStaffValues, resolveRowAction, salaryWouldWipe } from "./match";
@@ -243,9 +245,9 @@ export async function buildRosterPreview(
       locationCode: s.location_code ?? null,
       warnings: hard
         ? ["Unreferenced — will be permanently deleted after confirmation"]
-        : ["Present in directory for an uploaded location but missing from the sheet"],
+        : ["Present in directory for an uploaded location but missing from the sheet — flagged for HR review (not terminated)"],
       oldValues: { status: s.status, employee_code: s.employee_code },
-      newValues: hard ? { deleted: true } : { status: "terminated", archived: true },
+      newValues: hard ? { deleted: true } : { ...rosterMissingStaffMutation() },
       fieldDiffs: [],
       referenced,
     });
@@ -303,12 +305,12 @@ async function writeSalary(
 ) {
   if (!canEditSalary(context.roles ?? [])) return;
   if (monthly == null) return;
-  const { error } = await context.supabase.from("staff_compensation").upsert({
-    staff_id: staffId,
-    monthly_salary_qar: monthly,
-    updated_by: context.userId,
+  // Sync current compensation only via salary history insert path.
+  await insertSalaryHistoryAndSync(context, {
+    staffId,
+    monthlyTotalQar: monthly,
+    reason: "roster_import",
   });
-  if (error) throw error;
 }
 
 async function audit(
@@ -414,26 +416,28 @@ export async function applyRosterPreview(
         await writeSalary(context, line.matchStaffId, (next.monthly_salary_qar as number | null) ?? null);
         await audit(context, "staff.updated", line.matchStaffId, next, next.location_id as string | undefined);
       } else if (line.action === "archive" && line.matchStaffId) {
+        // ponytail: roster missing ≠ termination. Flag for HR review only;
+        // termination requires an explicit approved workflow (later phase).
         await snapshotStaff(context, batchId, line.matchStaffId);
-        const { error } = await context.supabase
-          .from("staff")
-          .update({ status: "terminated", deleted_at: new Date().toISOString() })
-          .eq("id", line.matchStaffId);
-        if (error) throw error;
-        await audit(context, "staff.archived", line.matchStaffId, { status: "terminated" });
+        const flag = rosterMissingStaffMutation();
+        await audit(context, "staff.roster_missing_review", line.matchStaffId, {
+          ...flag,
+          employee_code: line.oldValues.employee_code ?? null,
+          prior_status: line.oldValues.status ?? null,
+        });
       } else if (line.action === "delete" && line.matchStaffId) {
         if (!preview.canHardDelete) {
           throw new ForbiddenError("Hard delete was not confirmed.");
         }
         const referenced = await staffIsReferenced(context, line.matchStaffId);
         if (referenced) {
+          // Referenced staff cannot be hard-deleted — flag for HR review; do not auto-terminate.
           await snapshotStaff(context, batchId, line.matchStaffId);
-          const { error } = await context.supabase
-            .from("staff")
-            .update({ status: "terminated", deleted_at: new Date().toISOString() })
-            .eq("id", line.matchStaffId);
-          if (error) throw error;
-          await audit(context, "staff.archived", line.matchStaffId, { status: "terminated", reason: "referenced" });
+          const flag = rosterMissingStaffMutation();
+          await audit(context, "staff.roster_missing_review", line.matchStaffId, {
+            ...flag,
+            reason: "referenced_cannot_hard_delete",
+          });
         } else {
           await snapshotStaff(context, batchId, line.matchStaffId);
           const { error } = await context.supabase.from("staff").delete().eq("id", line.matchStaffId);

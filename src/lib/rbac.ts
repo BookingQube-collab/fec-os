@@ -105,6 +105,9 @@ export const CAPABILITIES = {
   "people.edit_salary": ["ceo", "coo", "cfo", "hr"],
   "payroll.view": ["ceo", "coo", "cfo", "hr"],
   "hr.manage": ["ceo", "coo", "hr"],
+  "hr.policy.configure": ["ceo", "coo", "cfo", "hr"],
+  "hr.profile.view_sensitive": ["ceo", "coo", "cfo", "hr"],
+  "hr.profile.edit": ["ceo", "coo", "hr"],
   "hr.employee_app": [
     "ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager",
     "tech_supervisor", "technician", "cashier_host", "auditor", "hr", "customer_service",

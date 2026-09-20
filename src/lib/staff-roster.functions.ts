@@ -6,6 +6,7 @@ import { canUserDo } from "@/lib/rbac";
 import { createAuthenticatedAction, type AuthContext } from "@/lib/server/create-action";
 import { ForbiddenError } from "@/lib/server/authorize";
 import { rollbackRosterBatch } from "@/lib/staff-roster/apply";
+import { insertSalaryHistoryAndSync, insertStatusHistory } from "@/lib/staff-history";
 
 async function assertStaffLocation(context: AuthContext, staffId: string): Promise<{ location_id: string; status: string; deleted_at: string | null }> {
   const { data, error } = await context.supabase
@@ -138,16 +139,13 @@ export const updateStaffSalary = createAuthenticatedAction(
     if (!canUserDo(context.roles ?? [], "people.edit_salary")) {
       throw new ForbiddenError("Forbidden: missing capability people.edit_salary");
     }
-    await assertStaffLocation(context, data.id);
-    const { error } = await context.supabase.from("staff_compensation").upsert({
-      staff_id: data.id,
-      monthly_salary_qar: data.monthlySalaryQar,
-      daily_rate_qar: data.dailyRateQar ?? null,
-      updated_by: context.userId,
-    });
-    if (error) throw error;
-    await audit(context, "staff.salary_changed", data.id, {
-      monthly_salary_qar: data.monthlySalaryQar,
+    const existing = await assertStaffLocation(context, data.id);
+    await insertSalaryHistoryAndSync(context, {
+      staffId: data.id,
+      monthlyTotalQar: data.monthlySalaryQar,
+      dailyRateQar: data.dailyRateQar ?? null,
+      locationId: existing.location_id,
+      reason: "manual_update",
     });
     return { ok: true };
   },
@@ -182,6 +180,15 @@ export const updateStaffRosterFields = createAuthenticatedAction(
     const existing = await assertStaffLocation(context, data.id);
     const status =
       data.status === "inactive" ? "terminated" : data.status;
+    if (status && status !== existing.status) {
+      await insertStatusHistory(context, {
+        staffId: data.id,
+        fromStatus: existing.status,
+        toStatus: status,
+        reason: "roster_field_update",
+        locationId: existing.location_id,
+      });
+    }
     const { error } = await context.supabase
       .from("staff")
       .update({

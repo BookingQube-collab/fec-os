@@ -27,7 +27,7 @@ describe("leave balances", () => {
     const summary = summarizeLeaveBalances(
       [
         { leaveType: "annual", allottedDays: 21 },
-        { leaveType: "sick", allottedDays: 14 },
+        { leaveType: "sick", allottedDays: 15 },
       ],
       used,
     );
