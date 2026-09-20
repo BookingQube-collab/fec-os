@@ -28,10 +28,14 @@ export const getMyAttendance = createAuthenticatedAction(
   }),
   async (data, context) => {
     const staff = await myStaff(context);
-    const staffId = resolveSelfStaffId({ linkedStaffId: staff?.id ?? null });
     const period = defaultPayrollPeriod(new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" }));
     const dateFrom = data.dateFrom ?? period.dateFrom;
     const dateTo = data.dateTo ?? period.dateTo;
+    // Unlinked logins: empty summary (not an error) so My day does not stick on "Loading…"
+    if (!staff?.id) {
+      return { staffId: null, dateFrom, dateTo, rows: [] };
+    }
+    const staffId = resolveSelfStaffId({ linkedStaffId: staff.id });
     const { data: rows, error } = await context.supabase
       .from("attendance_daily_summary")
       .select("id, work_date, status, late_minutes, overtime_minutes, missed_punch, actual_in, actual_out, worked_minutes, locations(code, name)")
