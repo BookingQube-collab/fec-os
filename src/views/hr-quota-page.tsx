@@ -318,7 +318,7 @@ export default function HrQuotaPage() {
 
         <HrSection title={t("hr.quota.dashboardTitle")}>
           {!dashboard.data?.tiles.length ? (
-            <HrEmptyState title={t("hr.quota.empty")} />
+            <HrEmptyState message={t("hr.quota.empty")} />
           ) : (
             <div className="overflow-x-auto rounded-md border">
               <table className="w-full min-w-[720px] text-sm">

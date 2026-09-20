@@ -155,7 +155,7 @@ export default function HrJobRequestsAdminPage() {
 
         <HrSection title={t("hr.jobsAdmin.queue")}>
           {!queue.data?.length ? (
-            <HrEmptyState title={t("hr.jobsAdmin.empty")} />
+            <HrEmptyState message={t("hr.jobsAdmin.empty")} />
           ) : (
             <ul className="space-y-2">
               {queue.data.map((r) => (
@@ -286,7 +286,7 @@ export default function HrJobRequestsAdminPage() {
 
         <HrSection title={t("hr.jobsAdmin.vacancies")}>
           {!vacancies.data?.length ? (
-            <HrEmptyState title={t("hr.jobsAdmin.noVacancies")} />
+            <HrEmptyState message={t("hr.jobsAdmin.noVacancies")} />
           ) : (
             <ul className="space-y-2">
               {vacancies.data.map((v) => (

@@ -317,7 +317,7 @@ export default function HrJobRequestsPage() {
 
         <HrSection title={t("hr.jobs.myRequests")}>
           {!list.data?.length ? (
-            <HrEmptyState title={t("hr.jobs.empty")} />
+            <HrEmptyState message={t("hr.jobs.empty")} />
           ) : (
             <ul className="space-y-2">
               {list.data.map((r) => (

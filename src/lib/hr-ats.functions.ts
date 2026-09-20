@@ -108,10 +108,11 @@ type VacancyMatchRow = {
 };
 
 async function loadVacancyMatchContext(context: AuthContext, vacancyId: string) {
+  // Flat select — nested locations() blows TS ("instantiation excessively deep") on this schema.
   const { data: vac, error } = await context.supabase
     .from("hr_vacancies")
     .select(
-      "id, job_title, match_weights, required_location, requires_qid, requires_visa, job_request_id, location_id, department_id, locations(name)",
+      "id, job_title, match_weights, required_location, requires_qid, requires_visa, job_request_id, location_id, department_id",
     )
     .eq("id", vacancyId)
     .maybeSingle();
@@ -134,12 +135,19 @@ async function loadVacancyMatchContext(context: AuthContext, vacancyId: string) 
     jobDescription = (jr?.job_description as string | null) ?? null;
   }
 
-  const loc = vac.locations as { name: string } | null;
-  const requiredLocation =
-    (vac.required_location as string | null) ?? loc?.name ?? null;
+  let locName: string | null = null;
+  if (!vac.required_location && vac.location_id) {
+    const { data: loc } = await context.supabase
+      .from("locations")
+      .select("name")
+      .eq("id", vac.location_id)
+      .maybeSingle();
+    locName = (loc?.name as string | null) ?? null;
+  }
+  const requiredLocation = (vac.required_location as string | null) ?? locName;
 
   return {
-    vacancy: vac as VacancyMatchRow & { locations?: { name: string } | null },
+    vacancy: vac as VacancyMatchRow,
     skills,
     experienceYears,
     education,
@@ -252,7 +260,19 @@ export const getCandidateDetail = createAuthenticatedAction(
 
     const applicationIds = (apps ?? []).map((a) => String(a.id));
     let history: Array<Record<string, unknown>> = [];
-    let offers: Array<Record<string, unknown>> = [];
+    let offers: Array<{
+      id: string;
+      applicationId: string;
+      salaryQar: number | null;
+      currency: string;
+      joiningDate: string | null;
+      status: string;
+      issuedAt: string | null;
+      respondedAt: string | null;
+      declineReason: string | null;
+      notes: string | null;
+      createdAt: string;
+    }> = [];
     if (applicationIds.length) {
       const { data: hist } = await context.supabase
         .from("hr_application_stage_history")

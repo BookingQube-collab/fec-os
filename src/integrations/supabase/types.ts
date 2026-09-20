@@ -3695,13 +3695,13 @@ export type Database = {
       }
       attendance_devices: { Row: Record<string, unknown> & { id: string; location_id: string; device_code: string; device_name: string; vendor: string; active: boolean; last_sync_at: string | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       attendance_logs: { Row: Record<string, unknown> & { id: string; location_id: string; staff_id: string | null; punch_at: string; punch_type: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
-      attendance_daily_summary: { Row: Record<string, unknown> & { id: string; location_id: string; staff_id: string | null; work_date: string; status: string; late_minutes: number; missed_punch: boolean }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      attendance_daily_summary: { Row: Record<string, unknown> & { id: string; location_id: string; staff_id: string | null; work_date: string; status: string; late_minutes: number; missed_punch: boolean }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [{ foreignKeyName: "attendance_daily_summary_location_id_fkey"; columns: ["location_id"]; isOneToOne: false; referencedRelation: "locations"; referencedColumns: ["id"] }, { foreignKeyName: "attendance_daily_summary_staff_id_fkey"; columns: ["staff_id"]; isOneToOne: false; referencedRelation: "staff"; referencedColumns: ["id"] }] }
       attendance_exceptions: { Row: Record<string, unknown> & { id: string; summary_id: string; location_id: string; staff_id: string | null; exception_type: string; status: string; correction_in: string | null; correction_out: string | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       attendance_sync_jobs: { Row: Record<string, unknown> & { id: string; device_id: string | null; location_id: string | null; status: string; records_received: number; records_processed: number; error_message: string | null; completed_at: string | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       attendance_ingest_settings: { Row: Record<string, unknown> & { id: boolean; log_api_hits: boolean; updated_at: string; updated_by: string | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       attendance_ingest_hits: { Row: Record<string, unknown> & { id: string; called_at: string; payload: unknown; record_count: number; imported_count: number; failed_count: number; response_summary: unknown; source_ip: string | null; location_codes: string[]; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       hr_companies: { Row: Record<string, unknown> & { id: string; code: string; name: string; active: boolean }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
-      attendance_site_settings: { Row: Record<string, unknown> & { location_id: string; company_id: string; attendance_enabled: boolean; timezone: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      attendance_site_settings: { Row: Record<string, unknown> & { location_id: string; company_id: string; attendance_enabled: boolean; timezone: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [{ foreignKeyName: "attendance_site_settings_location_id_fkey"; columns: ["location_id"]; isOneToOne: true; referencedRelation: "locations"; referencedColumns: ["id"] }] }
       attendance_shift_templates: { Row: Record<string, unknown> & { id: string; company_id: string; location_id: string | null; name: string; start_time: string; end_time: string; overnight: boolean; active: boolean }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       attendance_rule_sets: { Row: Record<string, unknown> & { id: string; scope: string; duplicate_window_seconds: number }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       attendance_biometric_users: { Row: Record<string, unknown> & { id: string; company_id: string; location_id: string; device_id: string; biometric_user_id: string; staff_id: string | null; device_name: string | null; previous_device_name: string | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
@@ -3714,29 +3714,153 @@ export type Database = {
       attendance_corrections: { Row: Record<string, unknown> & { id: string; location_id: string; kind: string; reason: string; status: string; requested_by: string; requested_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       attendance_audit_events: { Row: Record<string, unknown> & { id: string; action: string; entity_type: string; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       hr_field_settings: { Row: Record<string, unknown> & { id: string; company_id: string | null; default_geofence_radius_meters: number; notify_missed_punch: boolean; notify_late: boolean; notify_geofence_exit: boolean; notify_corrections: boolean; require_gps_on_checkin: boolean; require_face_on_checkin: boolean; face_liveness_required: boolean }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
-      attendance_geofences: { Row: Record<string, unknown> & { id: string; location_id: string; name: string; latitude: number; longitude: number; radius_meters: number; mode: string; active: boolean; notes: string | null; locations?: { id: string; code: string; name: string; region: string | null } | { id: string; code: string; name: string; region: string | null }[] | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
-      staff_location_events: { Row: Record<string, unknown> & { id: string; staff_id: string; location_id: string | null; geofence_id: string | null; latitude: number; longitude: number; accuracy_meters: number | null; inside_geofence: boolean | null; distance_meters: number | null; event_type: string; recorded_at: string; source: string; queued_offline: boolean; face_status: string; face_liveness_passed: boolean | null; staff?: { full_name?: string; employee_code?: string; is_roaming?: boolean; location_id?: string } | { full_name?: string; employee_code?: string; is_roaming?: boolean; location_id?: string }[] | null; locations?: { code?: string; name?: string } | { code?: string; name?: string }[] | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      attendance_geofences: { Row: Record<string, unknown> & { id: string; location_id: string; name: string; latitude: number; longitude: number; radius_meters: number; mode: string; active: boolean; notes: string | null; locations?: { id: string; code: string; name: string; region: string | null } | { id: string; code: string; name: string; region: string | null }[] | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [{ foreignKeyName: "attendance_geofences_location_id_fkey"; columns: ["location_id"]; isOneToOne: false; referencedRelation: "locations"; referencedColumns: ["id"] }] }
+      staff_location_events: { Row: Record<string, unknown> & { id: string; staff_id: string; location_id: string | null; geofence_id: string | null; latitude: number; longitude: number; accuracy_meters: number | null; inside_geofence: boolean | null; distance_meters: number | null; event_type: string; recorded_at: string; source: string; queued_offline: boolean; face_status: string; face_liveness_passed: boolean | null; staff?: { full_name?: string; employee_code?: string; is_roaming?: boolean; location_id?: string } | { full_name?: string; employee_code?: string; is_roaming?: boolean; location_id?: string }[] | null; locations?: { code?: string; name?: string } | { code?: string; name?: string }[] | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [{ foreignKeyName: "staff_location_events_staff_id_fkey"; columns: ["staff_id"]; isOneToOne: false; referencedRelation: "staff"; referencedColumns: ["id"] }, { foreignKeyName: "staff_location_events_location_id_fkey"; columns: ["location_id"]; isOneToOne: false; referencedRelation: "locations"; referencedColumns: ["id"] }] }
       staff_face_enrollments: { Row: Record<string, unknown> & { staff_id: string; storage_path: string | null; status: string; liveness_passed: boolean; enrolled_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
-      hr_leave_requests: { Row: Record<string, unknown> & { id: string; staff_id: string; leave_type: string; date_from: string; date_to: string; days: number; reason: string | null; status: string; review_note: string | null; reviewed_by: string | null; reviewed_at: string | null; created_by: string | null; created_at: string; current_step_role?: string | null; payroll_impact?: boolean; emergency_treatment?: string | null; compassionate_scope?: string | null; maternity_delivery_date?: string | null; attach_annual_before?: number; attach_annual_after?: number; comp_off_balance_id?: string | null; staff?: { full_name?: string; employee_code?: string; user_id?: string; location_id?: string } | { full_name?: string; employee_code?: string; user_id?: string; location_id?: string }[] | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      hr_leave_requests: { Row: Record<string, unknown> & { id: string; staff_id: string; leave_type: string; date_from: string; date_to: string; days: number; reason: string | null; status: string; review_note: string | null; reviewed_by: string | null; reviewed_at: string | null; created_by: string | null; created_at: string; current_step_role?: string | null; payroll_impact?: boolean; emergency_treatment?: string | null; compassionate_scope?: string | null; maternity_delivery_date?: string | null; attach_annual_before?: number; attach_annual_after?: number; comp_off_balance_id?: string | null; staff?: { full_name?: string; employee_code?: string; user_id?: string; location_id?: string } | { full_name?: string; employee_code?: string; user_id?: string; location_id?: string }[] | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [{ foreignKeyName: "hr_leave_requests_staff_id_fkey"; columns: ["staff_id"]; isOneToOne: false; referencedRelation: "staff"; referencedColumns: ["id"] }] }
       hr_leave_balances: { Row: Record<string, unknown> & { id: string; staff_id: string; leave_type: string; period_year: number; allotted_days: number; notes: string | null; carried_forward?: number; expired_days?: number; pending_days?: number }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       hr_leave_types: { Row: Record<string, unknown> & { code: string; name_en: string; name_ar: string | null; paid: boolean; requires_doc: boolean; default_days: number | null; config: Record<string, unknown>; active: boolean; sort_order: number }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       hr_leave_approvals: { Row: Record<string, unknown> & { id: string; leave_id: string; step_order: number; step_role: string; status: string; acted_by: string | null; acted_at: string | null; comments: string | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       hr_comp_off_balances: { Row: Record<string, unknown> & { id: string; staff_id: string; earned_on: string; reason: string | null; days: number; hours: number | null; expires_on: string | null; used_days: number; remaining_days?: number; hr_exception: boolean; leave_request_id: string | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
-      hr_employee_events: { Row: Record<string, unknown> & { id: string; staff_id: string; event_type: string; effective_on: string; payload: Record<string, unknown>; actor_id: string | null; document_id: string | null; source_table: string | null; source_id: string | null; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
-      hr_employee_documents: { Row: Record<string, unknown> & { id: string; staff_id: string; doc_type: string; title: string | null; file_path: string | null; file_name: string | null; file_mime: string | null; expiry_date: string | null; notes: string | null; created_at: string; deleted_at?: string | null; status?: string; verification_status?: string; supersedes_id?: string | null; staff?: { full_name?: string; employee_code?: string } | { full_name?: string; employee_code?: string }[] | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      hr_employee_events: { Row: Record<string, unknown> & { id: string; staff_id: string; event_type: string; effective_on: string; payload: Record<string, unknown>; actor_id: string | null; document_id: string | null; source_table: string | null; source_id: string | null; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [{ foreignKeyName: "hr_employee_events_staff_id_fkey"; columns: ["staff_id"]; isOneToOne: false; referencedRelation: "staff"; referencedColumns: ["id"] }] }
+      hr_employee_documents: { Row: Record<string, unknown> & { id: string; staff_id: string; doc_type: string; title: string | null; file_path: string | null; file_name: string | null; file_mime: string | null; expiry_date: string | null; notes: string | null; created_at: string; deleted_at?: string | null; status?: string; verification_status?: string; supersedes_id?: string | null; staff?: { full_name?: string; employee_code?: string } | { full_name?: string; employee_code?: string }[] | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [{ foreignKeyName: "hr_employee_documents_staff_id_fkey"; columns: ["staff_id"]; isOneToOne: false; referencedRelation: "staff"; referencedColumns: ["id"] }] }
       hr_document_expiry_reminders: { Row: Record<string, unknown> & { id: string; document_id: string; milestone_days: number; channel: string; sent_at: string; acknowledged_at: string | null; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       hr_checklist_templates: { Row: Record<string, unknown> & { id: string; kind: string; title: string; active: boolean; sort_order: number; hr_checklist_template_items?: { id: string; title: string; sort_order: number }[] | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
-      hr_checklist_template_items: { Row: Record<string, unknown> & { id: string; template_id: string; title: string; sort_order: number }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
-      hr_staff_checklists: { Row: Record<string, unknown> & { id: string; staff_id: string; template_id: string | null; kind: string; status: string; started_at: string; completed_at: string | null; staff?: { full_name?: string; employee_code?: string } | { full_name?: string; employee_code?: string }[] | null; hr_staff_checklist_items?: { id: string; title: string; status: string; sort_order: number; completed_at: string | null }[] | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
-      hr_staff_checklist_items: { Row: Record<string, unknown> & { id: string; checklist_id: string; title: string; status: string; sort_order: number; completed_at: string | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      hr_checklist_template_items: { Row: Record<string, unknown> & { id: string; template_id: string; title: string; sort_order: number }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [{ foreignKeyName: "hr_checklist_template_items_template_id_fkey"; columns: ["template_id"]; isOneToOne: false; referencedRelation: "hr_checklist_templates"; referencedColumns: ["id"] }] }
+      hr_staff_checklists: { Row: Record<string, unknown> & { id: string; staff_id: string; template_id: string | null; kind: string; status: string; started_at: string; completed_at: string | null; staff?: { full_name?: string; employee_code?: string } | { full_name?: string; employee_code?: string }[] | null; hr_staff_checklist_items?: { id: string; title: string; status: string; sort_order: number; completed_at: string | null }[] | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [{ foreignKeyName: "hr_staff_checklists_staff_id_fkey"; columns: ["staff_id"]; isOneToOne: false; referencedRelation: "staff"; referencedColumns: ["id"] }] }
+      hr_staff_checklist_items: { Row: Record<string, unknown> & { id: string; checklist_id: string; title: string; status: string; sort_order: number; completed_at: string | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [{ foreignKeyName: "hr_staff_checklist_items_checklist_id_fkey"; columns: ["checklist_id"]; isOneToOne: false; referencedRelation: "hr_staff_checklists"; referencedColumns: ["id"] }] }
       hr_announcements: { Row: Record<string, unknown> & { id: string; title: string; body: string; active: boolean; published_at: string; expires_at: string | null; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       hr_ot_policy: { Row: Record<string, unknown> & { id: string; company_id: string | null; overtime_after_minutes: number; max_daily_ot_minutes: number | null; max_weekly_ot_minutes: number | null; requires_preapproval: boolean; summary_notes: string | null; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
-      hr_ot_claims: { Row: Record<string, unknown> & { id: string; staff_id: string; location_id: string | null; work_date: string; attendance_daily_id: string | null; scheduled_in: string | null; scheduled_out: string | null; actual_in: string | null; actual_out: string | null; eligible_minutes: number; claimed_minutes: number; approved_minutes: number | null; rate_type: string; rate_multiplier: number; amount_qar: number; status: string; evidence_path: string | null; notes: string | null; submitted_by: string | null; submitted_at: string | null; verified_by: string | null; verified_at: string | null; approved_by: string | null; approved_at: string | null; payroll_posted_by: string | null; payroll_posted_at: string | null; payroll_period_id?: string | null; created_by: string | null; created_at: string; updated_at: string; staff?: { full_name?: string; employee_code?: string; user_id?: string; location_id?: string; employment_type?: string; department?: string } | { full_name?: string; employee_code?: string; user_id?: string; location_id?: string; employment_type?: string; department?: string }[] | null; locations?: { id?: string; code?: string; name?: string } | { id?: string; code?: string; name?: string }[] | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      hr_ot_claims: { Row: Record<string, unknown> & { id: string; staff_id: string; location_id: string | null; work_date: string; attendance_daily_id: string | null; scheduled_in: string | null; scheduled_out: string | null; actual_in: string | null; actual_out: string | null; eligible_minutes: number; claimed_minutes: number; approved_minutes: number | null; rate_type: string; rate_multiplier: number; amount_qar: number; status: string; evidence_path: string | null; notes: string | null; submitted_by: string | null; submitted_at: string | null; verified_by: string | null; verified_at: string | null; approved_by: string | null; approved_at: string | null; payroll_posted_by: string | null; payroll_posted_at: string | null; payroll_period_id?: string | null; created_by: string | null; created_at: string; updated_at: string; staff?: { full_name?: string; employee_code?: string; user_id?: string; location_id?: string; employment_type?: string; department?: string } | { full_name?: string; employee_code?: string; user_id?: string; location_id?: string; employment_type?: string; department?: string }[] | null; locations?: { id?: string; code?: string; name?: string } | { id?: string; code?: string; name?: string }[] | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [{ foreignKeyName: "hr_ot_claims_staff_id_fkey"; columns: ["staff_id"]; isOneToOne: false; referencedRelation: "staff"; referencedColumns: ["id"] }, { foreignKeyName: "hr_ot_claims_location_id_fkey"; columns: ["location_id"]; isOneToOne: false; referencedRelation: "locations"; referencedColumns: ["id"] }] }
       hr_payroll_periods: { Row: Record<string, unknown> & { id: string; company_id: string | null; month: string; date_from: string; date_to: string; status: string; currency: string; notes: string | null; created_by: string | null; created_at: string; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
-      hr_payroll_lines: { Row: Record<string, unknown> & { id: string; period_id: string; staff_id: string; payment_method: string; earnings: unknown; deductions: unknown; gross_qar: number; net_qar: number; wps_eligible: boolean; variance_vs_prev: number | null; proration_factor: number; notes: string | null; created_at: string; updated_at: string; staff?: { full_name?: string; employee_code?: string; qid?: string | null } | { full_name?: string; employee_code?: string; qid?: string | null }[] | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      hr_payroll_lines: { Row: Record<string, unknown> & { id: string; period_id: string; staff_id: string; payment_method: string; earnings: unknown; deductions: unknown; gross_qar: number; net_qar: number; wps_eligible: boolean; variance_vs_prev: number | null; proration_factor: number; notes: string | null; created_at: string; updated_at: string; staff?: { full_name?: string; employee_code?: string; qid?: string | null } | { full_name?: string; employee_code?: string; qid?: string | null }[] | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [{ foreignKeyName: "hr_payroll_lines_period_id_fkey"; columns: ["period_id"]; isOneToOne: false; referencedRelation: "hr_payroll_periods"; referencedColumns: ["id"] }, { foreignKeyName: "hr_payroll_lines_staff_id_fkey"; columns: ["staff_id"]; isOneToOne: false; referencedRelation: "staff"; referencedColumns: ["id"] }] }
       hr_payslips: { Row: Record<string, unknown> & { id: string; line_id: string; file_path: string | null; generated_at: string; generated_by: string | null; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       hr_payroll_locks: { Row: Record<string, unknown> & { id: string; period_id: string; locked_by: string | null; locked_at: string; reopen_reason: string | null; reopen_approved_by: string | null; reopened_at: string | null; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       hr_ot_claim_approvals: { Row: Record<string, unknown> & { id: string; claim_id: string; step: string; action: string; actor_id: string | null; note: string | null; acted_at: string; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      hr_workforce_quotas: {
+        Row: Record<string, unknown> & {
+          id: string
+          location_id: string | null
+          department_id: string | null
+          designation: string | null
+          employment_category: string | null
+          approved_headcount: number
+          effective_on: string
+          notes: string | null
+          active: boolean
+          created_at: string
+          locations?: { name?: string } | { name?: string }[] | null
+          master_departments?: { name?: string } | { name?: string }[] | null
+        }
+        Insert: Record<string, unknown>
+        Update: Record<string, unknown>
+        Relationships: [
+          {
+            foreignKeyName: "hr_workforce_quotas_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_workforce_quotas_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "master_departments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hr_job_requests: { Row: Record<string, unknown> & { id: string; job_title: string; skills: string | null; experience_years: number | null; education: string | null; job_description: string | null; location_id: string | null; department_id: string | null; status: string; requested_by: string | null; current_step_role: string | null; exceeds_quota: boolean; quota_override_status: string; requires_finance: boolean }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      hr_job_request_approvals: { Row: Record<string, unknown> & { id: string; job_request_id: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [{ foreignKeyName: "hr_job_request_approvals_job_request_id_fkey"; columns: ["job_request_id"]; isOneToOne: false; referencedRelation: "hr_job_requests"; referencedColumns: ["id"] }] }
+      hr_vacancies: {
+        Row: Record<string, unknown> & {
+          id: string
+          job_request_id: string | null
+          job_title: string
+          department_id: string | null
+          location_id: string | null
+          vacancies_count: number
+          employment_category: string | null
+          status: string
+          match_weights: Json
+          required_location: string | null
+          requires_qid: boolean
+          requires_visa: boolean
+          recruiter_user_id: string | null
+          published_at: string | null
+          closed_at: string | null
+          hold_reason: string | null
+          close_reason: string | null
+          created_by: string | null
+          created_at: string
+          updated_at: string
+          locations?: { name?: string } | { name?: string }[] | null
+        }
+        Insert: Record<string, unknown>
+        Update: Record<string, unknown>
+        Relationships: [
+          {
+            foreignKeyName: "hr_vacancies_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_vacancies_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "master_departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_vacancies_job_request_id_fkey"
+            columns: ["job_request_id"]
+            isOneToOne: false
+            referencedRelation: "hr_job_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hr_candidates: { Row: Record<string, unknown> & { id: string; full_name: string; email: string | null; phone: string | null; nationality: string | null; location: string | null; cv_path: string | null; cv_file_name: string | null; cv_text: string | null; qid: string | null; visa_status: string | null; notice_period_days: number | null; expected_salary_qar: number | null; experience_years: number | null; education: string | null; skills: string | null; consent_at: string | null; duplicate_of: string | null; source: string; notes: string | null; created_at: string; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      hr_applications: {
+        Row: Record<string, unknown> & {
+          id: string
+          candidate_id: string
+          vacancy_id: string
+          stage: string
+          match_score: number | null
+          match_explanation: Json
+          ai_score: number | null
+          rejection_reason: string | null
+          hold_reason: string | null
+          applied_at: string
+          stage_changed_at: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: Record<string, unknown>
+        Update: Record<string, unknown>
+        Relationships: [
+          {
+            foreignKeyName: "hr_applications_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "hr_candidates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_applications_vacancy_id_fkey"
+            columns: ["vacancy_id"]
+            isOneToOne: false
+            referencedRelation: "hr_vacancies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hr_application_stage_history: { Row: Record<string, unknown> & { id: string; application_id: string; from_stage: string | null; to_stage: string; note: string | null; communication_channel: string | null; acted_by: string | null; acted_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [{ foreignKeyName: "hr_application_stage_history_application_id_fkey"; columns: ["application_id"]; isOneToOne: false; referencedRelation: "hr_applications"; referencedColumns: ["id"] }] }
+      hr_offers: { Row: Record<string, unknown> & { id: string; application_id: string; salary_qar: number | null; currency: string; joining_date: string | null; status: string; issued_at: string | null; responded_at: string | null; decline_reason: string | null; notes: string | null; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [{ foreignKeyName: "hr_offers_application_id_fkey"; columns: ["application_id"]; isOneToOne: false; referencedRelation: "hr_applications"; referencedColumns: ["id"] }] }
       hr_air_ticket_entitlements: {
         Row: Record<string, unknown> & {
           id: string
@@ -4089,7 +4213,15 @@ export type Database = {
         }
         Insert: Record<string, unknown>
         Update: Record<string, unknown>
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "staff_profile_ext_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: true
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       staff_salary_history: {
         Row: {

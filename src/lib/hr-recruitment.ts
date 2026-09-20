@@ -236,12 +236,9 @@ export function assertQuotaOverrideAllowed(input: {
     // Submit allowed with warning; override must be granted before final approve/publish.
     return { requiresOverride: true, canProceed: true };
   }
-  if (input.overrideStatus !== "approved") {
-    throw new Error(
-      "Job request exceeds workforce quota — higher management override required (AT#16).",
-    );
-  }
-  return { requiresOverride: true, canProceed: true };
+  throw new Error(
+    "Job request exceeds workforce quota — higher management override required (AT#16).",
+  );
 }
 
 export function assertCanPublishVacancy(input: {

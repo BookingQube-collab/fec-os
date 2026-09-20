@@ -72,7 +72,7 @@ export default function HrLeavePage() {
 
   const review = useMutation({
     mutationFn: reviewLeaveRequest,
-    onSuccess: (res, vars: { id: string; status: "approved" | "rejected" | "cancelled"; reviewNote?: string | null }) => {
+    onSuccess: (res, vars: { id: string; status: "approved" | "rejected" | "cancelled"; reviewNote?: string | null; payrollImpact?: boolean }) => {
       if (vars.status === "approved" && (res.syncedDays ?? 0) > 0) {
         toast.success(t("hr.leave.synced", { days: res.syncedDays }));
       } else {

@@ -763,7 +763,7 @@ export const actOnJobRequestStep = createAuthenticatedAction(
     const { data: existing, error: readErr } = await context.supabase
       .from("hr_job_requests")
       .select(
-        "id, status, current_step_role, exceeds_quota, quota_override_status, requires_finance",
+        "id, status, current_step_role, exceeds_quota, quota_override_status, requires_finance, requested_by, job_title",
       )
       .eq("id", data.jobRequestId)
       .maybeSingle();

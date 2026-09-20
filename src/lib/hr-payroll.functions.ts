@@ -756,8 +756,8 @@ export const adjustPayrollLine = createAuthenticatedAction(
     const p = Array.isArray(period) ? period[0] : period;
     assertPeriodEditable(asStatus(p!.status));
 
-    const earnings = ([...(line.earnings as PayrollMoneyLine[])] ?? []).filter((e) => e.code !== "other");
-    const deductions = ([...(line.deductions as PayrollMoneyLine[])] ?? []).filter((d) => d.code !== "other");
+    const earnings = [...((line.earnings as PayrollMoneyLine[] | null) ?? [])].filter((e) => e.code !== "other");
+    const deductions = [...((line.deductions as PayrollMoneyLine[] | null) ?? [])].filter((d) => d.code !== "other");
     if (data.otherEarningsQar != null && data.otherEarningsQar !== 0) {
       earnings.push({
         code: "other",

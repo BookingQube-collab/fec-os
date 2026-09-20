@@ -137,7 +137,12 @@ export const upsertHrPolicySetting = createAuthenticatedAction(
     companyId: z.string().uuid().nullable().optional(),
   }),
   async (data, context) => {
-    const { id } = await upsertPolicyRow(context, data);
+    const { id } = await upsertPolicyRow(context, {
+      section: data.section,
+      key: data.key,
+      value: data.value ?? null,
+      companyId: data.companyId,
+    });
     return { ok: true as const, id };
   },
   { auth: { capability: "hr.policy.configure" } },
