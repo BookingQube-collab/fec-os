@@ -232,6 +232,7 @@ export function AttendanceRecordsGrid({
                   [t("people.attendance.deviceUserId"), detailCells.deviceUserId],
                   [t("attendanceHr.reports.colDate"), detailCells.date],
                   [t("people.attendance.reportingTime"), detailCells.reportingTime],
+                  [t("people.attendance.shiftStart"), detailCells.shiftStart],
                   [t("attendanceHr.reports.colIn"), detailCells.firstCheckIn],
                   [t("attendanceHr.reports.colOut"), detailCells.lastCheckOut],
                   [t("people.attendance.totalHours"), detailCells.totalHours],

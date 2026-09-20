@@ -51,6 +51,7 @@ export function AttendanceRecordsTable({
             <TableHead className={HEAD_CLASS}>{t("people.attendance.deviceUserId")}</TableHead>
             <TableHead className={HEAD_CLASS}>{t("people.attendance.date")}</TableHead>
             <TableHead className={HEAD_CLASS}>{t("people.attendance.reportingTime")}</TableHead>
+            <TableHead className={HEAD_CLASS}>{t("people.attendance.shiftStart")}</TableHead>
             <TableHead className={HEAD_CLASS}>{t("people.attendance.firstCheckIn")}</TableHead>
             <TableHead className={HEAD_CLASS}>{t("people.attendance.lastCheckOut")}</TableHead>
             <TableHead className={HEAD_CLASS}>{t("people.attendance.totalHours")}</TableHead>
@@ -63,7 +64,7 @@ export function AttendanceRecordsTable({
         <TableBody>
           {rows.length === 0 ? (
             <TableRow>
-              <TableCell className="px-4 py-8" colSpan={12}>
+              <TableCell className="px-4 py-8" colSpan={13}>
                 {empty}
               </TableCell>
             </TableRow>
@@ -99,6 +100,9 @@ export function AttendanceRecordsTable({
                   </TableCell>
                   <TableCell className="tabular-nums whitespace-nowrap text-xs">
                     {formatReportingTime12h(resolveReportingDisplayIso(row)) || "—"}
+                  </TableCell>
+                  <TableCell className="tabular-nums whitespace-nowrap text-xs">
+                    {formatReportingTime12h(row.scheduled_in) || "—"}
                   </TableCell>
                   <TableCell
                     className={cn(

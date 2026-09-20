@@ -132,6 +132,7 @@ describe("attendance listing display", () => {
     const cells = attendanceListingCells(listing);
     expect(cells.date).toBe("25-08-2026");
     expect(cells.reportingTime).toBe("—");
+    expect(cells.shiftStart).toBe("—");
     expect(cells.firstCheckIn).toMatch(/10:17:44\s*AM/);
     expect(cells.lastCheckOut).toBe("—");
     expect(cells.deviceUserId).toBe("9");
@@ -276,6 +277,7 @@ describe("attendance listing display", () => {
       missed_punch: false,
     });
     expect(cells.reportingTime).toBe("10:00 AM");
+    expect(cells.shiftStart).toBe("10:30 AM");
     expect(cells.latePunch).toBe("1.5");
   });
 
@@ -298,6 +300,7 @@ describe("attendance listing display", () => {
       missed_punch: false,
     });
     expect(cells.reportingTime).toBe("10:30 AM");
+    expect(cells.shiftStart).toBe("11:00 AM");
   });
 
   it("shows OT as minutes past roster end, not clock hours − 9", () => {

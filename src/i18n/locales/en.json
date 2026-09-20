@@ -3162,6 +3162,7 @@
       "date": "Date",
       "firstCheckIn": "First Check-In",
       "reportingTime": "Reporting time",
+      "shiftStart": "Shift start",
       "lastCheckOut": "Last Check-Out",
       "totalHours": "Total Hours Worked",
       "latePunch": "Late punch",

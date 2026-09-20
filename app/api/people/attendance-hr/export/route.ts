@@ -115,6 +115,8 @@ export async function GET(request: Request) {
               cells.userName,
               cells.deviceUserId,
               cells.date,
+              cells.reportingTime,
+              cells.shiftStart,
               cells.firstCheckIn,
               cells.lastCheckOut,
               cells.totalHours,

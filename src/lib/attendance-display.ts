@@ -547,6 +547,7 @@ export const ATTENDANCE_LISTING_COLUMNS = [
   "Device User ID",
   "Date",
   "Reporting time",
+  "Shift start",
   "First Check-In",
   "Last Check-Out",
   "Total Hours Worked",
@@ -562,6 +563,8 @@ export type AttendanceListingCells = {
   deviceUserId: string;
   date: string;
   reportingTime: string;
+  /** Roster/scheduled shift start (`scheduled_in`); blank when no roster. */
+  shiftStart: string;
   firstCheckIn: string;
   lastCheckOut: string;
   totalHours: string;
@@ -604,6 +607,7 @@ export function attendanceListingCells(row: AttendanceListingSource): Attendance
     deviceUserId: row.deviceUserId?.trim() || "—",
     date: formatWorkDateDdMmYyyy(row.work_date),
     reportingTime: formatReportingTime12h(resolveReportingDisplayIso(row)) || "—",
+    shiftStart: formatReportingTime12h(row.scheduled_in) || "—",
     firstCheckIn: formatPunchTime12h(row.actual_in) || "—",
     lastCheckOut: formatPunchTime12h(row.actual_out) || "—",
     totalHours: formatHoursValue(hours),
@@ -623,6 +627,7 @@ export function attendanceListingExportObjects(rows: AttendanceListingSource[]) 
       "Device User ID": cells.deviceUserId,
       Date: cells.date,
       "Reporting time": cells.reportingTime,
+      "Shift start": cells.shiftStart,
       "First Check-In": cells.firstCheckIn,
       "Last Check-Out": cells.lastCheckOut,
       "Total Hours Worked": cells.totalHours,
@@ -643,6 +648,7 @@ export function buildAttendanceListingCsv(rows: AttendanceListingSource[]): stri
       cells.deviceUserId,
       cells.date,
       cells.reportingTime,
+      cells.shiftStart,
       cells.firstCheckIn,
       cells.lastCheckOut,
       cells.totalHours,
