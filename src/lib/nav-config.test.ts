@@ -96,6 +96,9 @@ describe("admin sidebar visibility", () => {
       "/people/hr/resignations",
       "/people/hr/terminations",
       "/people/hr/air-tickets",
+      "/people/hr/quota",
+      "/people/recruitment/jobs",
+      "/people/recruitment/jobs/admin",
       "/people/hr/settings",
       "/people/hr/reports",
       "/people/employee-app",
@@ -109,6 +112,9 @@ describe("admin sidebar visibility", () => {
       "/people/hr/resignations",
       "/people/hr/terminations",
       "/people/hr/air-tickets",
+      "/people/hr/quota",
+      "/people/recruitment/jobs",
+      "/people/recruitment/jobs/admin",
       "/people/field",
     ]);
     expect(people?.groups.find((g) => g.id === "hr-attendance")?.items.some((i) => i.href === "/people/field")).toBe(

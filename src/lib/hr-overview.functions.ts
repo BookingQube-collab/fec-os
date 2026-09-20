@@ -254,6 +254,49 @@ export const getHrOverview = createAuthenticatedAction(
       terminationQueue = (termCount ?? 0) + probationFlags;
     }
 
+    let openVacancies = 0;
+    let pendingJobRequests = 0;
+    let quotaShortage = 0;
+    let quotaExcess = 0;
+    if (
+      canUserDo(context.roles ?? [], "quota.view") ||
+      canUserDo(context.roles ?? [], "recruitment.manage") ||
+      canUserDo(context.roles ?? [], "recruitment.request")
+    ) {
+      const { data: vacRows, error: vacErr } = await context.supabase
+        .from("hr_vacancies")
+        .select("vacancies_count")
+        .eq("status", "open");
+      if (vacErr && !tableMissing(vacErr.message) && !/permission/i.test(vacErr.message ?? "")) {
+        throw vacErr;
+      }
+      openVacancies = (vacRows ?? []).reduce((n, r) => n + Number(r.vacancies_count ?? 1), 0);
+
+      const { count: jobCount, error: jobErr } = await context.supabase
+        .from("hr_job_requests")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "pending");
+      if (jobErr && !tableMissing(jobErr.message) && !/permission/i.test(jobErr.message ?? "")) {
+        throw jobErr;
+      }
+      pendingJobRequests = jobCount ?? 0;
+
+      if (canUserDo(context.roles ?? [], "quota.view")) {
+        const { data: quotaRows, error: quotaErr } = await context.supabase
+          .from("hr_workforce_quotas")
+          .select("approved_headcount")
+          .eq("active", true);
+        if (quotaErr && !tableMissing(quotaErr.message) && !/permission/i.test(quotaErr.message ?? "")) {
+          throw quotaErr;
+        }
+        const approved = (quotaRows ?? []).reduce((n, r) => n + Number(r.approved_headcount ?? 0), 0);
+        // ponytail: global variance only — per-scope dashboard lives on /people/hr/quota
+        const variance = (headcount ?? 0) - approved;
+        quotaExcess = Math.max(0, variance);
+        quotaShortage = Math.max(0, -variance);
+      }
+    }
+
     let upcomingAirTickets = 0;
     let overdueAirTickets = 0;
     if (canUserDo(context.roles ?? [], "hr.air_ticket.manage") || canUserDo(context.roles ?? [], "hr.manage")) {
@@ -316,6 +359,10 @@ export const getHrOverview = createAuthenticatedAction(
       terminationQueue,
       upcomingAirTickets,
       overdueAirTickets,
+      openVacancies,
+      pendingJobRequests,
+      quotaShortage,
+      quotaExcess,
       otPolicySummary,
       period,
       today,

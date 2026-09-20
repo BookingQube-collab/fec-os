@@ -141,6 +141,14 @@ export const CAPABILITIES = {
   "hr.termination.approve": ["ceo", "coo", "hr", "branch_gm"],
   "hr.timeline.view": ["ceo", "coo", "regional_ops", "branch_gm", "hr"],
 
+  // Recruitment / workforce quota (Phase 9 — ATS candidates = Phase 10)
+  "recruitment.request": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "hr"],
+  "recruitment.manage": ["ceo", "coo", "hr"],
+  "recruitment.view_salary_budget": ["ceo", "coo", "cfo", "hr"],
+  "quota.view": ["ceo", "coo", "cfo", "regional_ops", "branch_gm", "hr"],
+  "quota.manage": ["ceo", "coo", "hr", "regional_ops"],
+  "quota.override_approve": ["ceo", "coo", "cfo"],
+
   // Compliance
   "compliance.view": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "auditor"],
   "compliance.manage_documents": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor"],

@@ -11,11 +11,13 @@ import {
   MapPinned,
   Megaphone,
   Palmtree,
+  Briefcase,
   Plane,
   Settings2,
   Timer,
   UserCheck,
   Users,
+  BarChart3,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -50,6 +52,10 @@ const TILE_TINTS: Record<string, KpiTint> = {
   terminationQueue: "red",
   upcomingAirTickets: "sky",
   overdueAirTickets: "red",
+  openVacancies: "sky",
+  pendingJobRequests: "orange",
+  quotaShortage: "amber",
+  quotaExcess: "sky",
 };
 
 export default function HrDashboardPage() {
@@ -84,6 +90,10 @@ export default function HrDashboardPage() {
     { key: "terminationQueue", value: d?.terminationQueue ?? "—", href: "/people/hr/terminations", icon: AlertTriangle },
     { key: "upcomingAirTickets", value: d?.upcomingAirTickets ?? "—", href: "/people/hr/air-tickets", icon: Plane },
     { key: "overdueAirTickets", value: d?.overdueAirTickets ?? "—", href: "/people/hr/air-tickets", icon: Plane },
+    { key: "openVacancies", value: d?.openVacancies ?? "—", href: "/people/recruitment/jobs/admin", icon: Briefcase },
+    { key: "pendingJobRequests", value: d?.pendingJobRequests ?? "—", href: "/people/recruitment/jobs/admin", icon: Briefcase },
+    { key: "quotaShortage", value: d?.quotaShortage ?? "—", href: "/people/hr/quota", icon: BarChart3 },
+    { key: "quotaExcess", value: d?.quotaExcess ?? "—", href: "/people/hr/quota", icon: BarChart3 },
   ] as const;
 
   const links = [
@@ -95,6 +105,9 @@ export default function HrDashboardPage() {
     { href: "/people/hr/resignations", labelKey: "hr.dashboard.links.resignations", icon: Hourglass },
     { href: "/people/hr/terminations", labelKey: "hr.dashboard.links.terminations", icon: AlertTriangle },
     { href: "/people/hr/air-tickets", labelKey: "hr.dashboard.links.airTickets", icon: Plane },
+    { href: "/people/hr/quota", labelKey: "hr.dashboard.links.quota", icon: BarChart3 },
+    { href: "/people/recruitment/jobs", labelKey: "hr.dashboard.links.jobRequests", icon: Briefcase },
+    { href: "/people/recruitment/jobs/admin", labelKey: "hr.dashboard.links.jobAdmin", icon: Briefcase },
     { href: "/people/field", labelKey: "hr.dashboard.links.field", icon: MapPinned },
     { href: "/people/attendance/reports", labelKey: "hr.dashboard.links.attendance", icon: ClipboardList },
     { href: "/people/hr/documents", labelKey: "hr.dashboard.links.documents", icon: FileText },
