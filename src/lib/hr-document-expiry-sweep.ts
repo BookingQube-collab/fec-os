@@ -130,7 +130,7 @@ export async function runHrDocumentExpirySweep(sb: Sb): Promise<{
 
     await notifyUsers({
       userIds: recipients,
-      category: "people",
+      category: "hr_documents",
       title,
       body,
       severity: daysUntil <= 30 ? "warning" : "info",

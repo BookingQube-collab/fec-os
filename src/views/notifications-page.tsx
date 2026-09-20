@@ -12,6 +12,7 @@ import {
   markNotificationRead,
   upsertNotificationPreference,
 } from "@/lib/notifications.functions";
+import { NOTIFICATION_CATEGORIES } from "@/lib/notifications/categories";
 import { useActionInbox } from "@/hooks/queries/useNotifications";
 import { useAuth } from "@/hooks/use-auth";
 import { queryKeys } from "@/lib/query-keys";
@@ -19,19 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-const CATEGORIES = [
-  "general",
-  "escalation",
-  "kpi",
-  "sop",
-  "compliance",
-  "snag",
-  "inventory",
-  "procurement",
-  "maintenance",
-  "events",
-  "people",
-] as const;
+const CATEGORIES = NOTIFICATION_CATEGORIES;
 
 function NotificationsPage() {
   const { t } = useTranslation();

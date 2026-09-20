@@ -448,6 +448,23 @@ export const submitOtClaim = createAuthenticatedAction(
 
     if (status === "submitted") {
       await appendApproval(context, row.id as string, "submit", "submitted", data.notes);
+      try {
+        const { findUsersWithCapability, notifyUsers } = await import("@/lib/notifications/action-notify");
+        const mgrIds = await findUsersWithCapability("hr.ot.verify", staff.location_id ?? null);
+        await notifyUsers({
+          userIds: mgrIds,
+          locationId: staff.location_id ?? null,
+          category: "hr_ot",
+          title: "OT claim submitted",
+          body: `An OT claim for ${String(staff.full_name ?? "staff")} on ${data.workDate} needs verification.`,
+          severity: "warning",
+          actionUrl: "/people/hr/ot",
+          sourceType: "hr_ot_claims",
+          sourceId: String(row.id),
+        });
+      } catch {
+        /* non-blocking */
+      }
     }
 
     return { id: row.id as string, status, claimedMinutes, eligibleMinutes, amountQar };
@@ -615,6 +632,45 @@ export const actOnOtClaim = createAuthenticatedAction(
         sourceTable: "hr_ot_claims",
         sourceId: data.claimId,
       });
+    }
+
+    if (to === "submitted" || to === "manager_verified" || to === "hr_approved" || to === "rejected") {
+      try {
+        const { findUsersWithCapability, notifyUsers } = await import("@/lib/notifications/action-notify");
+        const staffJoin = Array.isArray(existing.staff) ? existing.staff[0] : existing.staff;
+        const staffName = (staffJoin as { full_name?: string } | null)?.full_name ?? "staff";
+        const staffUserId = (staffJoin as { user_id?: string } | null)?.user_id ?? null;
+        const locId = (existing.location_id as string | null) ?? null;
+        if (to === "submitted" || to === "manager_verified") {
+          const cap = to === "submitted" ? "hr.ot.verify" : "hr.ot.approve";
+          const ids = await findUsersWithCapability(cap, locId);
+          await notifyUsers({
+            userIds: ids,
+            locationId: locId,
+            category: "hr_ot",
+            title: to === "submitted" ? "OT claim submitted" : "OT claim ready for HR",
+            body: `OT for ${staffName} on ${String(existing.work_date).slice(0, 10)} needs action.`,
+            severity: "warning",
+            actionUrl: "/people/hr/ot",
+            sourceType: "hr_ot_claims",
+            sourceId: data.claimId,
+          });
+        } else if (staffUserId) {
+          await notifyUsers({
+            userIds: [String(staffUserId)],
+            locationId: locId,
+            category: "hr_ot",
+            title: to === "hr_approved" ? "OT claim approved" : "OT claim rejected",
+            body: `Your OT claim for ${String(existing.work_date).slice(0, 10)} was ${to === "hr_approved" ? "approved" : "rejected"}.`,
+            severity: to === "hr_approved" ? "info" : "warning",
+            actionUrl: "/hr/me",
+            sourceType: "hr_ot_claims",
+            sourceId: data.claimId,
+          });
+        }
+      } catch {
+        /* non-blocking */
+      }
     }
 
     return { ok: true as const, status: to };

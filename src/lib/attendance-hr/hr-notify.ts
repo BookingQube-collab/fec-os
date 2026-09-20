@@ -1,4 +1,6 @@
 export const HR_NOTIFY_CATEGORY = "people" as const;
+/** Leave request lifecycle uses dedicated preference category (Phase 11). */
+export const HR_LEAVE_NOTIFY_CATEGORY = "hr_leave" as const;
 
 export type HrNotifyKind =
   | "missed_punch"
@@ -24,7 +26,7 @@ export type HrNotifyEvent = {
 };
 
 export type HrNotifyPayload = {
-  category: typeof HR_NOTIFY_CATEGORY;
+  category: typeof HR_NOTIFY_CATEGORY | typeof HR_LEAVE_NOTIFY_CATEGORY;
   title: string;
   body: string;
   severity: "info" | "warning" | "critical";
@@ -102,13 +104,14 @@ export function mapHrNotifyEvent(event: HrNotifyEvent): HrNotifyPayload {
       break;
   }
 
+  const leaveKind = event.kind.startsWith("leave_");
   return {
-    category: HR_NOTIFY_CATEGORY,
+    category: leaveKind ? HR_LEAVE_NOTIFY_CATEGORY : HR_NOTIFY_CATEGORY,
     title: TITLES[event.kind],
     body,
     severity,
     actionUrl,
-    sourceType: "attendance_hr",
+    sourceType: leaveKind ? "hr_leave" : "attendance_hr",
     sourceId: event.sourceId ?? null,
   };
 }

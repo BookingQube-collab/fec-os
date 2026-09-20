@@ -621,6 +621,28 @@ export const advancePayrollPeriod = createAuthenticatedAction(
       .eq("status", from);
     if (error) throw error;
 
+    try {
+      const { findUsersWithCapability, notifyUsers } = await import("@/lib/notifications/action-notify");
+      const cap =
+        to === "finance_review" || to === "processed" || to === "paid"
+          ? "payroll.finance"
+          : "payroll.generate";
+      const ids = await findUsersWithCapability(cap as "payroll.finance" | "payroll.generate");
+      await notifyUsers({
+        userIds: ids,
+        excludeUserId: context.userId,
+        category: "hr_payroll",
+        title: `Payroll period → ${to}`,
+        body: `Period advanced to ${to}. WPS export is SIF-like for Finance validation only — not bank-certified.`,
+        severity: to === "paid" || to === "locked" ? "info" : "warning",
+        actionUrl: `/people/payroll/${data.periodId}`,
+        sourceType: "hr_payroll_periods",
+        sourceId: data.periodId,
+      });
+    } catch {
+      /* non-blocking */
+    }
+
     if (to === "paid") {
       // Mark pending air tickets paid for this period
       await context.supabase

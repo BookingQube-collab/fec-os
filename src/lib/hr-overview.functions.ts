@@ -12,6 +12,16 @@ import {
   isAirTicketOverdue,
   isAirTicketUpcoming,
 } from "@/lib/hr-air-ticket";
+import {
+  addDaysYmd,
+  aggregateHrHeadcountBreakdowns,
+  countExpiringDocType,
+  countJoiningSoon,
+  countLeavingSoon,
+  countMissingCvStaff,
+  countUnattestedEducationalDocs,
+  emptyHrOverviewBreakdowns,
+} from "@/lib/hr-overview";
 import { readPolicySection } from "@/lib/hr-policy-read";
 
 function tableMissing(message: string | undefined): boolean {
@@ -297,6 +307,96 @@ export const getHrOverview = createAuthenticatedAction(
       }
     }
 
+    let pendingOt = 0;
+    if (canUserDo(context.roles ?? [], "hr.ot.verify") || canUserDo(context.roles ?? [], "hr.ot.approve") || canUserDo(context.roles ?? [], "hr.manage")) {
+      const { count: otCount, error: otPendingErr } = await context.supabase
+        .from("hr_ot_claims")
+        .select("id", { count: "exact", head: true })
+        .in("status", ["submitted", "manager_verified"]);
+      if (otPendingErr && !tableMissing(otPendingErr.message) && !/permission/i.test(otPendingErr.message ?? "")) {
+        throw otPendingErr;
+      }
+      pendingOt = otCount ?? 0;
+    }
+
+    let breakdowns = emptyHrOverviewBreakdowns();
+    let expiringQids = 0;
+    let expiringPassports = 0;
+    let missingCvs = 0;
+    let unattestedEducational = 0;
+    let joiningSoon = 0;
+    let leavingSoon = 0;
+    {
+      let staffDetailQ = context.supabase
+        .from("staff")
+        .select(
+          "id, hire_date, status, location_id, job_title, locations(code, name), staff_profile_ext(employment_category, last_working_date), staff_departments(department_id, master_departments(name))",
+        )
+        .in("status", ["active", "on_leave", "serving_notice"])
+        .is("deleted_at", null)
+        .limit(3000);
+      if (data.locationId) staffDetailQ = staffDetailQ.eq("location_id", data.locationId);
+      const { data: staffDetail, error: detailErr } = await staffDetailQ;
+      if (detailErr && !tableMissing(detailErr.message) && !/permission/i.test(detailErr.message ?? "")) {
+        throw detailErr;
+      }
+      const mapped = (staffDetail ?? []).map((s) => {
+        const loc = Array.isArray(s.locations) ? s.locations[0] : s.locations;
+        const ext = Array.isArray(s.staff_profile_ext) ? s.staff_profile_ext[0] : s.staff_profile_ext;
+        const depts = Array.isArray(s.staff_departments) ? s.staff_departments : s.staff_departments ? [s.staff_departments] : [];
+        const firstDept = depts[0] as
+          | { department_id?: string; master_departments?: { name?: string } | { name?: string }[] | null }
+          | undefined;
+        const md = firstDept?.master_departments
+          ? Array.isArray(firstDept.master_departments)
+            ? firstDept.master_departments[0]
+            : firstDept.master_departments
+          : null;
+        return {
+          id: String(s.id),
+          hireDate: s.hire_date ? String(s.hire_date).slice(0, 10) : null,
+          status: String(s.status ?? "active"),
+          employmentCategory: (ext as { employment_category?: string | null } | null)?.employment_category ?? null,
+          lastWorkingDate: (ext as { last_working_date?: string | null } | null)?.last_working_date
+            ? String((ext as { last_working_date?: string | null }).last_working_date).slice(0, 10)
+            : null,
+          departmentId: firstDept?.department_id ?? null,
+          departmentName: md?.name ?? null,
+          locationId: (s.location_id as string | null) ?? null,
+          locationCode: (loc as { code?: string } | null)?.code ?? null,
+          locationName: (loc as { name?: string } | null)?.name ?? null,
+        };
+      });
+      breakdowns = aggregateHrHeadcountBreakdowns(mapped);
+      joiningSoon = countJoiningSoon(mapped, today, 30);
+      leavingSoon = countLeavingSoon(mapped, today, 30);
+
+      const staffIds = mapped.map((m) => m.id);
+      if (staffIds.length && (canUserDo(context.roles ?? [], "hr.docs.manage") || canUserDo(context.roles ?? [], "hr.manage"))) {
+        const { data: docRows, error: docListErr } = await context.supabase
+          .from("hr_employee_documents")
+          .select("staff_id, doc_type, expiry_date, mofa_status, deleted_at")
+          .in("staff_id", staffIds.slice(0, 1000))
+          .is("deleted_at", null)
+          .limit(5000);
+        if (docListErr && !tableMissing(docListErr.message) && !/permission/i.test(docListErr.message ?? "")) {
+          throw docListErr;
+        }
+        const docs = (docRows ?? []).map((d) => ({
+          staffId: String(d.staff_id),
+          docType: String(d.doc_type),
+          expiryDate: d.expiry_date ? String(d.expiry_date).slice(0, 10) : null,
+          mofaStatus: (d.mofa_status as string | null) ?? null,
+          deletedAt: (d.deleted_at as string | null) ?? null,
+        }));
+        const horizon = addDaysYmd(today, 30);
+        expiringQids = countExpiringDocType(docs, "qid", today, horizon);
+        expiringPassports = countExpiringDocType(docs, "passport", today, horizon);
+        missingCvs = countMissingCvStaff(staffIds, docs);
+        unattestedEducational = countUnattestedEducationalDocs(docs);
+      }
+    }
+
     let upcomingAirTickets = 0;
     let overdueAirTickets = 0;
     if (canUserDo(context.roles ?? [], "hr.air_ticket.manage") || canUserDo(context.roles ?? [], "hr.manage")) {
@@ -345,11 +445,18 @@ export const getHrOverview = createAuthenticatedAction(
       presentToday: presentToday ?? 0,
       onLeaveToday: onLeaveMissing ? 0 : onLeaveToday ?? 0,
       pendingLeave: leaveMissing ? 0 : pendingLeave ?? 0,
+      pendingOt,
       fieldCheckedIn,
       payrollBlocked,
       payrollExceptions,
       expiredDocs: expiredDocsMissing ? 0 : expiredDocs ?? 0,
       expiringDocs: docsMissing ? 0 : expiringDocs ?? 0,
+      expiringQids,
+      expiringPassports,
+      missingCvs,
+      unattestedEducational,
+      joiningSoon,
+      leavingSoon,
       openOnboarding: onboardMissing ? 0 : openOnboarding ?? 0,
       activeAnnouncements: annMissing ? 0 : activeAnnouncements ?? 0,
       activeWarnings,
@@ -363,6 +470,7 @@ export const getHrOverview = createAuthenticatedAction(
       pendingJobRequests,
       quotaShortage,
       quotaExcess,
+      breakdowns,
       otPolicySummary,
       period,
       today,

@@ -18,6 +18,8 @@ import {
   UserCheck,
   Users,
   BarChart3,
+  UserPlus,
+  UserMinus,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -38,11 +40,16 @@ const TILE_TINTS: Record<string, KpiTint> = {
   presentToday: "green",
   onLeaveToday: "amber",
   pendingLeave: "orange",
+  pendingOt: "orange",
   fieldCheckedIn: "sky",
   payrollBlocked: "red",
   payrollExceptions: "amber",
   expiredDocs: "red",
   expiringDocs: "amber",
+  expiringQids: "amber",
+  expiringPassports: "amber",
+  missingCvs: "orange",
+  unattestedEducational: "orange",
   openOnboarding: "slate",
   activeAnnouncements: "slate",
   activeWarnings: "amber",
@@ -56,6 +63,8 @@ const TILE_TINTS: Record<string, KpiTint> = {
   pendingJobRequests: "orange",
   quotaShortage: "amber",
   quotaExcess: "sky",
+  joiningSoon: "sky",
+  leavingSoon: "amber",
 };
 
 export default function HrDashboardPage() {
@@ -75,18 +84,23 @@ export default function HrDashboardPage() {
     { key: "headcount", value: d?.headcount ?? "—", href: "/people", icon: Users },
     { key: "presentToday", value: d?.presentToday ?? "—", href: "/people/attendance/reports", icon: UserCheck },
     { key: "onLeaveToday", value: d?.onLeaveToday ?? "—", href: "/people/leave", icon: Palmtree },
+    { key: "servingNotice", value: d?.servingNotice ?? "—", href: "/people/hr/resignations", icon: Hourglass },
     { key: "pendingLeave", value: d?.pendingLeave ?? "—", href: "/people/leave", icon: ClipboardList },
+    { key: "pendingOt", value: d?.pendingOt ?? "—", href: "/people/hr/ot", icon: Timer },
     { key: "fieldCheckedIn", value: d?.fieldCheckedIn ?? "—", href: "/people/field", icon: MapPinned },
     { key: "payrollBlocked", value: d?.payrollBlocked ?? "—", href: "/people/payroll", icon: Banknote },
     { key: "payrollExceptions", value: d?.payrollExceptions ?? "—", href: "/people/payroll", icon: Banknote },
     { key: "expiredDocs", value: d?.expiredDocs ?? "—", href: "/people/hr/documents", icon: FileText },
     { key: "expiringDocs", value: d?.expiringDocs ?? "—", href: "/people/hr/documents", icon: FileText },
+    { key: "expiringQids", value: d?.expiringQids ?? "—", href: "/people/hr/documents", icon: FileText },
+    { key: "expiringPassports", value: d?.expiringPassports ?? "—", href: "/people/hr/documents", icon: FileText },
+    { key: "missingCvs", value: d?.missingCvs ?? "—", href: "/people/hr/documents", icon: FileText },
+    { key: "unattestedEducational", value: d?.unattestedEducational ?? "—", href: "/people/hr/documents", icon: FileText },
     { key: "openOnboarding", value: d?.openOnboarding ?? "—", href: "/people/hr/onboarding", icon: ClipboardList },
     { key: "activeAnnouncements", value: d?.activeAnnouncements ?? "—", href: "/people/hr/announcements", icon: Megaphone },
     { key: "activeWarnings", value: d?.activeWarnings ?? "—", href: "/people/hr/warnings", icon: AlertTriangle },
     { key: "thirdWarningEscalations", value: d?.thirdWarningEscalations ?? "—", href: "/people/hr/warnings", icon: AlertTriangle },
     { key: "upcomingProbationDecisions", value: d?.upcomingProbationDecisions ?? "—", href: "/people/hr/probation", icon: Hourglass },
-    { key: "servingNotice", value: d?.servingNotice ?? "—", href: "/people/hr/resignations", icon: Hourglass },
     { key: "terminationQueue", value: d?.terminationQueue ?? "—", href: "/people/hr/terminations", icon: AlertTriangle },
     { key: "upcomingAirTickets", value: d?.upcomingAirTickets ?? "—", href: "/people/hr/air-tickets", icon: Plane },
     { key: "overdueAirTickets", value: d?.overdueAirTickets ?? "—", href: "/people/hr/air-tickets", icon: Plane },
@@ -94,6 +108,8 @@ export default function HrDashboardPage() {
     { key: "pendingJobRequests", value: d?.pendingJobRequests ?? "—", href: "/people/recruitment/jobs/admin", icon: Briefcase },
     { key: "quotaShortage", value: d?.quotaShortage ?? "—", href: "/people/hr/quota", icon: BarChart3 },
     { key: "quotaExcess", value: d?.quotaExcess ?? "—", href: "/people/hr/quota", icon: BarChart3 },
+    { key: "joiningSoon", value: d?.joiningSoon ?? "—", href: "/people", icon: UserPlus },
+    { key: "leavingSoon", value: d?.leavingSoon ?? "—", href: "/people/hr/resignations", icon: UserMinus },
   ] as const;
 
   const links = [
@@ -117,6 +133,12 @@ export default function HrDashboardPage() {
     { href: "/people/hr/settings", labelKey: "hr.dashboard.links.settings", icon: Settings2 },
     { href: "/people/hr/reports", labelKey: "hr.dashboard.links.reports", icon: FileText },
   ] as const;
+
+  const breakdowns = [
+    { titleKey: "hr.dashboard.byCategory", rows: d?.breakdowns?.byCategory ?? [] },
+    { titleKey: "hr.dashboard.byDepartment", rows: d?.breakdowns?.byDepartment ?? [] },
+    { titleKey: "hr.dashboard.byLocation", rows: d?.breakdowns?.byLocation ?? [] },
+  ];
 
   return (
     <CapabilityGate
@@ -169,6 +191,28 @@ export default function HrDashboardPage() {
               tint={TILE_TINTS[tile.key] ?? "slate"}
               viewLabel={t("common.view")}
             />
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          {breakdowns.map((block) => (
+            <NeumorphicCard key={block.titleKey} className="p-4 sm:p-5">
+              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                {t(block.titleKey)}
+              </p>
+              {block.rows.length === 0 ? (
+                <p className="mt-2 text-sm text-muted-foreground">{t("hr.dashboard.breakdownEmpty")}</p>
+              ) : (
+                <ul className="mt-3 space-y-1.5">
+                  {block.rows.slice(0, 8).map((row) => (
+                    <li key={row.key} className="flex items-center justify-between gap-2 text-sm">
+                      <span className="truncate text-foreground">{row.label}</span>
+                      <span className="tabular-nums font-semibold">{row.count}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </NeumorphicCard>
           ))}
         </div>
 

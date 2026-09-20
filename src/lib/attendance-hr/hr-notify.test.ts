@@ -39,6 +39,16 @@ describe("mapHrNotifyEvent", () => {
     expect(rejected.severity).toBe("warning");
     expect(rejected.title).toBe("Attendance correction rejected");
   });
+  it("maps leave events to hr_leave category", () => {
+    const payload = mapHrNotifyEvent({
+      kind: "leave_submitted",
+      staffName: "Sara",
+      workDate: "2026-09-01",
+    });
+    expect(payload.category).toBe("hr_leave");
+    expect(payload.sourceType).toBe("hr_leave");
+    expect(payload.actionUrl).toBe("/people/leave");
+  });
 });
 
 describe("shouldSendHrNotify", () => {

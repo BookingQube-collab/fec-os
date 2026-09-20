@@ -6,6 +6,7 @@ import {
   createAuthenticatedAction,
   createAuthenticatedActionNoInput,
 } from "@/lib/server/create-action";
+import { NOTIFICATION_CATEGORIES } from "@/lib/notifications/categories";
 import {
   NOTIFICATION_PROVIDERS,
   providerForChannel,
@@ -36,19 +37,7 @@ export interface NotificationRow {
   location_id: string | null;
 }
 
-const CATEGORIES = [
-  "general",
-  "escalation",
-  "kpi",
-  "sop",
-  "compliance",
-  "snag",
-  "inventory",
-  "procurement",
-  "maintenance",
-  "events",
-  "people",
-] as const;
+const CATEGORIES = NOTIFICATION_CATEGORIES;
 
 /** Legacy escalation bell — unchanged API for top bar. */
 export const listEscalations = createAuthenticatedActionNoInput(

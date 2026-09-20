@@ -90,7 +90,7 @@ export async function runHrProbationReminderSweep(sb: Sb): Promise<{ remindersSe
 
     await notifyUsers({
       userIds: recipients,
-      category: "hr_probation",
+      category: "hr_disciplinary",
       title,
       body,
       severity: milestone <= 7 ? "warning" : "info",

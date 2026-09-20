@@ -834,6 +834,24 @@ export const actOnJobRequestStep = createAuthenticatedAction(
         })
         .eq("id", data.jobRequestId);
       if (error) throw error;
+      try {
+        const { findUsersWithCapability, notifyUsers } = await import("@/lib/notifications/action-notify");
+        const ids = await findUsersWithCapability("recruitment.manage");
+        if (existing.requested_by) ids.push(String(existing.requested_by));
+        await notifyUsers({
+          userIds: ids,
+          excludeUserId: context.userId,
+          category: "hr_recruitment",
+          title: "Job request rejected",
+          body: `${String(existing.job_title ?? "Job request")} was rejected.`,
+          severity: "warning",
+          actionUrl: "/people/recruitment/jobs/admin",
+          sourceType: "hr_job_requests",
+          sourceId: data.jobRequestId,
+        });
+      } catch {
+        /* non-blocking */
+      }
       return { status: "rejected" as const };
     }
 
@@ -850,6 +868,23 @@ export const actOnJobRequestStep = createAuthenticatedAction(
         })
         .eq("id", data.jobRequestId);
       if (error) throw error;
+      try {
+        const { findUsersWithCapability, notifyUsers } = await import("@/lib/notifications/action-notify");
+        const ids = await findUsersWithCapability("recruitment.manage");
+        await notifyUsers({
+          userIds: ids,
+          excludeUserId: context.userId,
+          category: "hr_recruitment",
+          title: "Job request approved",
+          body: `${String(existing.job_title ?? "Job request")} is fully approved.`,
+          severity: "info",
+          actionUrl: "/people/recruitment/jobs/admin",
+          sourceType: "hr_job_requests",
+          sourceId: data.jobRequestId,
+        });
+      } catch {
+        /* non-blocking */
+      }
       return { status: "approved" as const };
     }
 

@@ -347,7 +347,7 @@ export const issueWarning = createAuthenticatedAction(
       const hrIds = await findUsersWithCapability("hr.warnings.decide");
       await notifyUsers({
         userIds: hrIds,
-        category: "hr_warning",
+        category: "hr_disciplinary",
         title: escalation.requiresFormalReview
           ? `Third-warning escalation: ${staff.full_name ?? "employee"}`
           : `Probation warning review: ${staff.full_name ?? "employee"}`,
@@ -362,7 +362,7 @@ export const issueWarning = createAuthenticatedAction(
       if (staff.user_id) {
         await notifyUsers({
           userIds: [String(staff.user_id)],
-          category: "hr_warning",
+          category: "hr_disciplinary",
           title: "Warning issued",
           body: "A disciplinary warning was issued. Please acknowledge in My HR.",
           severity: "warning",
@@ -375,7 +375,7 @@ export const issueWarning = createAuthenticatedAction(
       const { notifyUsers } = await import("@/lib/notifications/action-notify");
       await notifyUsers({
         userIds: [String(staff.user_id)],
-        category: "hr_warning",
+        category: "hr_disciplinary",
         title: "Warning issued",
         body: "A disciplinary warning was issued. Please acknowledge in My HR.",
         severity: "warning",
