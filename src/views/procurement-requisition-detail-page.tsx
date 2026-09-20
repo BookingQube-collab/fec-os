@@ -617,7 +617,6 @@ export default function ProcurementRequisitionDetailPage() {
                 }
                 if ((selected.file_mime ?? "").startsWith("image/")) {
                   return (
-                    // eslint-disable-next-line @next/next/no-img-element
                     <img src={selected.url} alt={selected.file_name} className="mt-3 max-h-72 w-full rounded-xl object-contain" />
                   );
                 }

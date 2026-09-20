@@ -27,7 +27,7 @@ export default function ProcurementCompliancePage() {
   const [search, setSearch] = useState("");
 
   const list = useVendors({ locationId: locationId ?? null, includeInactive: true, page: 1, pageSize: 200 });
-  const vendors = list.data?.items ?? [];
+  const vendors = useMemo(() => list.data?.items ?? [], [list.data?.items]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();

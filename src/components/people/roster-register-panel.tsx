@@ -172,7 +172,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       enabled: Boolean(dateFrom && dateTo),
     });
 
-    const rows = register.data?.rows ?? [];
+    const rows = useMemo(() => register.data?.rows ?? [], [register.data?.rows]);
 
     const staffOptions = useMemo(() => {
       const map = new Map<string, string>();

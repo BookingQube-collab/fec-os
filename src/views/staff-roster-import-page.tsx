@@ -595,7 +595,7 @@ const ShiftPreviewPanel = memo(function ShiftPreviewPanel({
   const [rowsOpen, setRowsOpen] = useState(false);
   const [tableReady, setTableReady] = useState(false);
   const deferredQuery = useDeferredValue(query);
-  const allRows = preview?.rows ?? [];
+  const allRows = useMemo(() => preview?.rows ?? [], [preview?.rows]);
   const batchKey = preview?.batchId ?? "";
   const editable = Boolean(preview && preview.mode !== "commit");
   const rowsRef = useRef(allRows);
@@ -630,10 +630,11 @@ const ShiftPreviewPanel = memo(function ShiftPreviewPanel({
   }, [allRows, filter, deferredQuery, rowsOpen]);
 
   const windowed = useVirtualWindow(filtered.length);
+  const resetWindow = windowed.reset;
 
   useEffect(() => {
-    windowed.reset();
-  }, [filter, deferredQuery, batchKey, windowed.reset]);
+    resetWindow();
+  }, [filter, deferredQuery, batchKey, resetWindow]);
 
   const patchRow = useCallback((row: ShiftPreviewRow, patch: Partial<ShiftPreviewRow>) => {
     const next = rowsRef.current.map((item) => (

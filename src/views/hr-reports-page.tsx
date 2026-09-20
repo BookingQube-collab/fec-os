@@ -92,8 +92,8 @@ export default function HrReportsPage() {
     { key: "expiringDocs", value: report.data?.expiringDocs ?? "—", tone: "mustard" as const, span: "wide" as const },
   ];
 
-  const columns = catalog.data?.columns ?? [];
-  const rows = catalog.data?.rows ?? [];
+  const columns = useMemo(() => catalog.data?.columns ?? [], [catalog.data?.columns]);
+  const rows = useMemo(() => catalog.data?.rows ?? [], [catalog.data?.rows]);
   const tabLabel = t(`hr.reports.catalog.${activeId}`, { defaultValue: activeId });
 
   const exportRows = useMemo(

@@ -196,7 +196,7 @@ export default function HrAtsPipelinePage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const apps = pipeline.data?.applications ?? [];
+  const apps = useMemo(() => pipeline.data?.applications ?? [], [pipeline.data?.applications]);
   const byStage = useMemo(() => {
     const map = Object.fromEntries(BOARD_STAGES.map((s) => [s, [] as typeof apps])) as Record<
       string,
