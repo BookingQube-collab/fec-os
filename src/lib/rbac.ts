@@ -122,6 +122,9 @@ export const CAPABILITIES = {
   ],
   "hr.ot.verify": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "hr"],
   "hr.ot.approve": ["ceo", "coo", "hr"],
+  "hr.warnings.manage": ["ceo", "coo", "hr"],
+  "hr.warnings.decide": ["ceo", "coo", "hr"],
+  "hr.probation.manage": ["ceo", "coo", "hr"],
   "hr.timeline.view": ["ceo", "coo", "regional_ops", "branch_gm", "hr"],
 
   // Compliance

@@ -204,6 +204,8 @@ const HR_WORKFORCE_NAV_GROUP: SidebarNavGroup = {
     { href: "/people/payroll", labelKey: "nav.hrPayroll", capability: "payroll.view" },
     { href: "/people/leave", labelKey: "nav.hrLeave", capability: "hr.leave.manage" },
     { href: "/people/hr/ot", labelKey: "nav.hrOt", capability: "hr.ot.verify" },
+    { href: "/people/hr/warnings", labelKey: "nav.hrWarnings", capability: "hr.warnings.manage" },
+    { href: "/people/hr/probation", labelKey: "nav.hrProbation", capability: "hr.probation.manage" },
     { href: "/people/field", labelKey: "nav.hrField", capability: "attendance.view" },
   ],
 };
@@ -222,6 +224,8 @@ const HR_ADMIN_NAV_GROUP: SidebarNavGroup = {
     { href: "/people/hr/announcements", labelKey: "nav.hrAnnouncements", capability: "hr.manage" },
     { href: "/people/hr/shift-policy", labelKey: "nav.hrShiftPolicy", capability: "hr.manage" },
     { href: "/people/hr/ot", labelKey: "nav.hrOt", capability: "hr.ot.verify" },
+    { href: "/people/hr/warnings", labelKey: "nav.hrWarnings", capability: "hr.warnings.manage" },
+    { href: "/people/hr/probation", labelKey: "nav.hrProbation", capability: "hr.probation.manage" },
     { href: "/people/hr/settings", labelKey: "nav.hrSettings", capability: "hr.policy.configure" },
     { href: "/people/hr/reports", labelKey: "nav.hrReports", capability: "hr.manage" },
     { href: "/people/employee-app", labelKey: "nav.hrEmployeeApp", capability: "attendance.view" },

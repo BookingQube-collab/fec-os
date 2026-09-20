@@ -155,6 +155,40 @@ export const getHrOverview = createAuthenticatedAction(
       }
     }
 
+    let activeWarnings = 0;
+    let thirdWarningEscalations = 0;
+    let upcomingProbationDecisions = 0;
+    if (canUserDo(context.roles ?? [], "hr.warnings.manage") || canUserDo(context.roles ?? [], "hr.manage")) {
+      const { data: warnRows, error: warnErr } = await context.supabase
+        .from("hr_warnings")
+        .select("status, valid_until, requires_formal_review");
+      if (warnErr && !tableMissing(warnErr.message) && !/permission/i.test(warnErr.message ?? "")) {
+        throw warnErr;
+      }
+      for (const w of warnRows ?? []) {
+        if (String(w.status) !== "active") continue;
+        const until = w.valid_until ? String(w.valid_until).slice(0, 10) : null;
+        if (until && until < today) continue;
+        activeWarnings += 1;
+        if (w.requires_formal_review) thirdWarningEscalations += 1;
+      }
+    }
+    if (canUserDo(context.roles ?? [], "hr.probation.manage") || canUserDo(context.roles ?? [], "hr.manage")) {
+      const horizon = new Date(`${today}T00:00:00+03:00`);
+      horizon.setDate(horizon.getDate() + 45);
+      const to = horizon.toISOString().slice(0, 10);
+      const { count: probCount, error: probErr } = await context.supabase
+        .from("staff_profile_ext")
+        .select("staff_id", { count: "exact", head: true })
+        .not("probation_end", "is", null)
+        .gte("probation_end", today)
+        .lte("probation_end", to);
+      if (probErr && !tableMissing(probErr.message) && !/permission/i.test(probErr.message ?? "")) {
+        throw probErr;
+      }
+      upcomingProbationDecisions = probCount ?? 0;
+    }
+
     return {
       headcount: headcount ?? 0,
       presentToday: presentToday ?? 0,
@@ -166,6 +200,9 @@ export const getHrOverview = createAuthenticatedAction(
       expiringDocs: docsMissing ? 0 : expiringDocs ?? 0,
       openOnboarding: onboardMissing ? 0 : openOnboarding ?? 0,
       activeAnnouncements: annMissing ? 0 : activeAnnouncements ?? 0,
+      activeWarnings,
+      thirdWarningEscalations,
+      upcomingProbationDecisions,
       otPolicySummary,
       period,
       today,

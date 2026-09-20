@@ -25,6 +25,11 @@ export type EmployeeEventType =
   | "document_verified"
   | "document_replaced"
   | "document_uploaded"
+  | "warning_issued"
+  | "warning_withdrawn"
+  | "warning_acknowledged"
+  | "probation_decision"
+  | "probation_reminder"
   | string;
 
 export function filterEmployeeTimeline<T extends { eventType: string }>(

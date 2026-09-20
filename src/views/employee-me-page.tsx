@@ -28,6 +28,7 @@ import {
   submitOtClaim,
 } from "@/lib/hr-ot.functions";
 import { HR_OT_RATE_TYPES } from "@/lib/hr-ot";
+import { employeeRespondToWarning, listWarnings } from "@/lib/hr-warnings.functions";
 import { listAnnouncements } from "@/lib/hr-announcements.functions";
 import {
   getEmployeeDocumentUrl,
@@ -75,6 +76,7 @@ export default function EmployeeMePage() {
   const [docFile, setDocFile] = useState<File | null>(null);
   const [otDate, setOtDate] = useState("");
   const [otRateType, setOtRateType] = useState<(typeof HR_OT_RATE_TYPES)[number]>("weekday");
+  const [warningNote, setWarningNote] = useState("");
 
   useEffect(() => {
     const sync = () => setOnline(navigator.onLine);
@@ -137,6 +139,11 @@ export default function EmployeeMePage() {
   const myDocs = useQuery({
     queryKey: queryKeys.people.hrDocs({ mine: true }),
     queryFn: () => listEmployeeDocuments({ mineOnly: true }),
+    staleTime: STALE.people,
+  });
+  const myWarnings = useQuery({
+    queryKey: queryKeys.people.hrWarnings({ mine: true }),
+    queryFn: () => listWarnings({ mineOnly: true, status: "all" }),
     staleTime: STALE.people,
   });
   const notes = useNotifications({ limit: 12 });
@@ -271,6 +278,21 @@ export default function EmployeeMePage() {
     onSuccess: () => {
       toast.success(t("hr.leave.updated"));
       void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const respondWarning = useMutation({
+    mutationFn: (input: { warningId: string; action: "acknowledge" | "appeal" | "explain" }) =>
+      employeeRespondToWarning({
+        warningId: input.warningId,
+        action: input.action,
+        note: warningNote || null,
+      }),
+    onSuccess: () => {
+      toast.success(t("hr.warnings.responded"));
+      setWarningNote("");
+      void qc.invalidateQueries({ queryKey: queryKeys.people.hrWarnings() });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -503,6 +525,59 @@ export default function EmployeeMePage() {
             ) : null}
           </div>
         ))}
+        </div>
+      </section>
+
+      <section className="hr-panel-shell">
+        <div className="hr-panel space-y-3 p-4">
+          <h2 className="text-sm font-semibold tracking-tight">{t("hr.warnings.myTitle")}</h2>
+          <Input
+            placeholder={t("hr.leave.reason")}
+            value={warningNote}
+            onChange={(e) => setWarningNote(e.target.value)}
+          />
+          {(myWarnings.data ?? []).length === 0 ? (
+            <p className="text-xs text-muted-foreground">{t("hr.warnings.myEmpty")}</p>
+          ) : (
+            (myWarnings.data ?? []).slice(0, 8).map((w) => (
+              <div key={w.id} className="space-y-2 rounded-xl border border-[var(--hr-border)] bg-white/70 p-3 text-sm">
+                <div className="flex justify-between gap-2">
+                  <span className="font-medium">
+                    {w.issuedOn} · {t(`hr.warnings.levels.${w.warningLevel}`)}
+                  </span>
+                  <Badge variant="secondary">{t(`hr.warnings.status.${w.status}`)}</Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">{w.description}</p>
+                {w.status === "active" ? (
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      disabled={respondWarning.isPending}
+                      onClick={() => respondWarning.mutate({ warningId: w.id, action: "acknowledge" })}
+                    >
+                      {t("hr.warnings.acknowledge")}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={respondWarning.isPending}
+                      onClick={() => respondWarning.mutate({ warningId: w.id, action: "appeal" })}
+                    >
+                      {t("hr.warnings.appeal")}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={respondWarning.isPending}
+                      onClick={() => respondWarning.mutate({ warningId: w.id, action: "explain" })}
+                    >
+                      {t("hr.warnings.explain")}
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            ))
+          )}
         </div>
       </section>
 

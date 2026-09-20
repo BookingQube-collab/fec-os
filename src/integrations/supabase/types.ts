@@ -3733,6 +3733,97 @@ export type Database = {
       hr_ot_policy: { Row: Record<string, unknown> & { id: string; company_id: string | null; overtime_after_minutes: number; max_daily_ot_minutes: number | null; max_weekly_ot_minutes: number | null; requires_preapproval: boolean; summary_notes: string | null; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       hr_ot_claims: { Row: Record<string, unknown> & { id: string; staff_id: string; location_id: string | null; work_date: string; attendance_daily_id: string | null; scheduled_in: string | null; scheduled_out: string | null; actual_in: string | null; actual_out: string | null; eligible_minutes: number; claimed_minutes: number; approved_minutes: number | null; rate_type: string; rate_multiplier: number; amount_qar: number; status: string; evidence_path: string | null; notes: string | null; submitted_by: string | null; submitted_at: string | null; verified_by: string | null; verified_at: string | null; approved_by: string | null; approved_at: string | null; payroll_posted_by: string | null; payroll_posted_at: string | null; created_by: string | null; created_at: string; updated_at: string; staff?: { full_name?: string; employee_code?: string; user_id?: string; location_id?: string; employment_type?: string; department?: string } | { full_name?: string; employee_code?: string; user_id?: string; location_id?: string; employment_type?: string; department?: string }[] | null; locations?: { id?: string; code?: string; name?: string } | { id?: string; code?: string; name?: string }[] | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       hr_ot_claim_approvals: { Row: Record<string, unknown> & { id: string; claim_id: string; step: string; action: string; actor_id: string | null; note: string | null; acted_at: string; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      hr_warnings: {
+        Row: Record<string, unknown> & {
+          id: string
+          staff_id: string
+          incident_on: string
+          category: string
+          description: string
+          location: string | null
+          reported_by: string | null
+          employee_explanation: string | null
+          witnesses: string | null
+          evidence: string | null
+          warning_level: string
+          issued_on: string
+          valid_until: string | null
+          status: string
+          letter_document_id: string
+          acknowledgement: Json
+          appeal: Json
+          management_decision: Json
+          requires_formal_review: boolean
+          blocks_casual_leave: boolean
+          triggers_probation_review: boolean
+          active_count_at_issue: number
+          created_by: string | null
+          created_at: string
+          updated_at: string
+          staff?: { full_name?: string; employee_code?: string; status?: string; user_id?: string; location_id?: string } | { full_name?: string; employee_code?: string; status?: string; user_id?: string; location_id?: string }[] | null
+        }
+        Insert: Record<string, unknown>
+        Update: Record<string, unknown>
+        Relationships: []
+      }
+      hr_warning_actions: {
+        Row: Record<string, unknown> & {
+          id: string
+          warning_id: string
+          action: string
+          actor_id: string | null
+          note: string | null
+          acted_at: string
+          created_at: string
+        }
+        Insert: Record<string, unknown>
+        Update: Record<string, unknown>
+        Relationships: []
+      }
+      hr_probation_reviews: {
+        Row: Record<string, unknown> & {
+          id: string
+          staff_id: string
+          probation_start: string
+          probation_end: string
+          manager_feedback: string | null
+          performance_rating: string | null
+          performance_evaluation_id: string | null
+          supporting_comments: string | null
+          decision: string | null
+          decision_note: string | null
+          status: string
+          flags_phase6_termination: boolean
+          decided_by: string | null
+          decided_at: string | null
+          approved_by: string | null
+          approved_at: string | null
+          approval_note: string | null
+          created_by: string | null
+          created_at: string
+          updated_at: string
+          staff?: { full_name?: string; employee_code?: string; status?: string } | { full_name?: string; employee_code?: string; status?: string }[] | null
+        }
+        Insert: Record<string, unknown>
+        Update: Record<string, unknown>
+        Relationships: []
+      }
+      hr_probation_reminders: {
+        Row: Record<string, unknown> & {
+          id: string
+          staff_id: string
+          probation_end: string
+          milestone_days: number
+          channel: string
+          sent_at: string
+          acknowledged_at: string | null
+          acknowledged_by: string | null
+          created_at: string
+        }
+        Insert: Record<string, unknown>
+        Update: Record<string, unknown>
+        Relationships: []
+      }
       hr_policy_settings: {
         Row: {
           id: string

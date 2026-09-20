@@ -3,9 +3,11 @@
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   Banknote,
   ClipboardList,
   FileText,
+  Hourglass,
   MapPinned,
   Megaphone,
   Palmtree,
@@ -39,6 +41,9 @@ const TILE_TINTS: Record<string, KpiTint> = {
   expiringDocs: "amber",
   openOnboarding: "slate",
   activeAnnouncements: "slate",
+  activeWarnings: "amber",
+  thirdWarningEscalations: "red",
+  upcomingProbationDecisions: "orange",
 };
 
 export default function HrDashboardPage() {
@@ -65,12 +70,17 @@ export default function HrDashboardPage() {
     { key: "expiringDocs", value: d?.expiringDocs ?? "—", href: "/people/hr/documents", icon: FileText },
     { key: "openOnboarding", value: d?.openOnboarding ?? "—", href: "/people/hr/onboarding", icon: ClipboardList },
     { key: "activeAnnouncements", value: d?.activeAnnouncements ?? "—", href: "/people/hr/announcements", icon: Megaphone },
+    { key: "activeWarnings", value: d?.activeWarnings ?? "—", href: "/people/hr/warnings", icon: AlertTriangle },
+    { key: "thirdWarningEscalations", value: d?.thirdWarningEscalations ?? "—", href: "/people/hr/warnings", icon: AlertTriangle },
+    { key: "upcomingProbationDecisions", value: d?.upcomingProbationDecisions ?? "—", href: "/people/hr/probation", icon: Hourglass },
   ] as const;
 
   const links = [
     { href: "/people/payroll", labelKey: "hr.dashboard.links.payroll", icon: Banknote },
     { href: "/people/leave", labelKey: "hr.dashboard.links.leave", icon: Palmtree },
     { href: "/people/hr/ot", labelKey: "hr.dashboard.links.ot", icon: Timer },
+    { href: "/people/hr/warnings", labelKey: "hr.dashboard.links.warnings", icon: AlertTriangle },
+    { href: "/people/hr/probation", labelKey: "hr.dashboard.links.probation", icon: Hourglass },
     { href: "/people/field", labelKey: "hr.dashboard.links.field", icon: MapPinned },
     { href: "/people/attendance/reports", labelKey: "hr.dashboard.links.attendance", icon: ClipboardList },
     { href: "/people/hr/documents", labelKey: "hr.dashboard.links.documents", icon: FileText },

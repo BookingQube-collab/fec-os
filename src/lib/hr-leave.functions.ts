@@ -547,6 +547,10 @@ export const submitLeaveRequest = createAuthenticatedAction(
       }
     }
 
+    // Phase 5: active-warning escalation blocks casual leave (never auto-terminates).
+    const { assertCasualLeaveAllowedForStaff } = await import("@/lib/hr-warnings-guards");
+    await assertCasualLeaveAllowedForStaff(context, staff.id, data.leaveType);
+
     if (data.leaveType === "comp_off") {
       if (!data.compOffBalanceId) throw new Error("Comp-off leave requires a balance row.");
       const { data: balance, error: balErr } = await context.supabase
@@ -1002,7 +1006,7 @@ export const listStaffForLeaveBalances = createAuthenticatedActionNoInput(async 
     name: s.full_name as string,
     employeeCode: (s.employee_code as string | null) ?? null,
   }));
-}, { auth: { anyCapability: ["hr.leave.manage", "hr.manage"] } });
+}, { auth: { anyCapability: ["hr.leave.manage", "hr.manage", "hr.warnings.manage", "hr.probation.manage"] } });
 
 export const listEmployeeTimeline = createAuthenticatedAction(
   z.object({
