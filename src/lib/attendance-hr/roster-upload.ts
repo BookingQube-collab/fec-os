@@ -1,6 +1,7 @@
 import { parseCsv, parseCsvMatrix } from "@/lib/csv-parse";
 import { isQidShapedCode } from "@/lib/staff-employee-code";
 import { resolveLocationCode, type LocationLookup } from "@/lib/locations/normalize";
+import { isActiveRosterStaff } from "@/lib/staff-status";
 import { decodeHtmlEntities, normalizeName, normalizeQid } from "@/lib/staff-roster/values";
 import type { AttendanceRosterPeriodMode } from "./roster-period";
 
@@ -73,6 +74,8 @@ export type AttendanceRosterStaff = {
   qid: string | null;
   location_id: string;
   work_location_ids?: string[];
+  /** When set, terminated/inactive rows are ignored for matching. */
+  status?: string | null;
 };
 
 /** Location-scoped device/source name → staff, from attendance_biometric_users. */
@@ -578,7 +581,8 @@ export function matchAttendanceRosterStaff(
   staff: AttendanceRosterStaff[],
   nameMaps: AttendanceRosterNameMap[] = [],
 ): { staffId: string | null; matchRule: string; message: string | null; label: string } {
-  const active = staff.filter((s) => s.id);
+  // Terminated twins must not steal / block name+location matches for live staff.
+  const active = staff.filter((s) => s.id && isActiveRosterStaff(s.status));
   if (input.qid) {
     const hits = active.filter((s) => normalizeQid(s.qid) === input.qid || (isQidShapedCode(s.employee_code) && normalizeQid(s.employee_code) === input.qid));
     if (hits.length === 1) {

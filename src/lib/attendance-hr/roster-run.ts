@@ -54,6 +54,7 @@ export async function previewLiveShiftRoster(
     employee_code: row.employee_code,
     qid: row.qid,
     location_id: row.location_id,
+    status: row.status,
     work_location_ids: (workByStaff.get(row.id) ?? []).map((loc) => loc.id),
   }));
   const locations = (locationRows ?? []).map((loc) => ({

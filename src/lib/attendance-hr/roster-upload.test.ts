@@ -187,6 +187,27 @@ describe("matchAttendanceRosterStaff", () => {
     expect(wrongSite.staffId).toBeNull();
     expect(wrongSite.matchRule).toBe("name_unmatched");
   });
+
+  it("ignores terminated duplicates so a live name+location match still wins", () => {
+    const withGhost = [
+      ...staff,
+      {
+        id: "s-hassan-old",
+        full_name: "Hassan Al-Kaabi",
+        employee_code: "KDS-CC-OLD",
+        qid: null,
+        location_id: INF,
+        work_location_ids: [] as string[],
+        status: "terminated",
+      },
+    ];
+    const result = matchAttendanceRosterStaff(
+      { qid: "", employeeCode: "", name: "Hassan Al-Kaabi", locationId: KDS },
+      withGhost,
+    );
+    expect(result.staffId).toBe("s-hassan");
+    expect(result.matchRule).toBe("name_location");
+  });
 });
 
 describe("buildAttendanceRosterPreview", () => {

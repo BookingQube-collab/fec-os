@@ -25,6 +25,7 @@ import {
   rosterFileKind,
   ROSTER_IMPORT_ACCEPT,
 } from "@/lib/staff-roster/select-import-file";
+import { virtualWindowRange } from "@/lib/staff-roster/virtual-window";
 import { cn } from "@/lib/utils";
 import { downloadFileFromApi } from "@/lib/staff-import";
 import { CANONICAL_LOCATION_CODES } from "@/lib/locations/normalize";
@@ -129,6 +130,8 @@ export default function StaffRosterImportPage() {
   const closePreview = useCallback(() => {
     setPreview(null);
     setPreviewError(null);
+    // Allow Preview to rematch the same file against the latest staff list.
+    previewKeyRef.current = null;
   }, []);
 
   const handleShiftRowsChange = useCallback((rows: ShiftPreviewRow[], recount = true) => {
@@ -559,18 +562,13 @@ function useVirtualWindow(count: number, rowHeight = SHIFT_ROW_HEIGHT) {
     setScrollTop(0);
   }, []);
 
-  const start = Math.max(0, Math.floor(scrollTop / rowHeight) - SHIFT_OVERSCAN);
-  const visible = Math.ceil(SHIFT_VIEWPORT_PX / rowHeight) + SHIFT_OVERSCAN * 2;
-  const end = Math.min(count, start + visible);
+  const range = virtualWindowRange(count, scrollTop, rowHeight, SHIFT_VIEWPORT_PX, SHIFT_OVERSCAN);
 
   return {
     scrollerRef,
     onScroll,
     reset,
-    start,
-    end,
-    topPad: start * rowHeight,
-    bottomPad: Math.max(0, (count - end) * rowHeight),
+    ...range,
   };
 }
 
@@ -646,7 +644,10 @@ const ShiftPreviewPanel = memo(function ShiftPreviewPanel({
   if (!preview) return null;
 
   const errorMessages = (preview.errors ?? []).map((err) => (typeof err === "string" ? err : err.message));
-  const slice = filtered.slice(windowed.start, windowed.end);
+  // Small filtered tabs (e.g. 10 unmatched) already fit in the overscan window; drop maxHeight
+  // so tall unmatched rows are not clipped behind a scrollbar that looks like "missing" rows.
+  const virtualize = !windowed.fullyInWindow;
+  const slice = virtualize ? filtered.slice(windowed.start, windowed.end) : filtered;
 
   return (
     <div className="surface-card space-y-4 p-5">
@@ -729,12 +730,12 @@ const ShiftPreviewPanel = memo(function ShiftPreviewPanel({
               </p>
               <div
                 ref={windowed.scrollerRef}
-                onScroll={windowed.onScroll}
+                onScroll={virtualize ? windowed.onScroll : undefined}
                 className="relative w-full overflow-auto rounded-lg border border-border/70"
-                style={{ maxHeight: SHIFT_VIEWPORT_PX }}
+                style={virtualize ? { maxHeight: SHIFT_VIEWPORT_PX } : undefined}
               >
                 <table className="w-full caption-bottom text-sm text-foreground">
-                  <TableHeader className="sticky top-0 z-10 bg-card">
+                  <TableHeader className={virtualize ? "sticky top-0 z-10 bg-card" : "bg-card"}>
                     <TableRow>
                       <TableHead>{t("people.roster.colDate")}</TableHead>
                       <TableHead>{t("people.roster.colStaff")}</TableHead>
@@ -745,20 +746,20 @@ const ShiftPreviewPanel = memo(function ShiftPreviewPanel({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {windowed.topPad > 0 ? (
+                    {virtualize && windowed.topPad > 0 ? (
                       <tr aria-hidden>
                         <td colSpan={6} style={{ height: windowed.topPad, padding: 0, border: 0 }} />
                       </tr>
                     ) : null}
                     {slice.map((row, i) => (
                       <ShiftPreviewRowView
-                        key={`${row.rowNumber}-${row.workDate}-${windowed.start + i}`}
+                        key={`${row.rowNumber}-${row.workDate}-${virtualize ? windowed.start + i : i}`}
                         row={row}
                         editable={editable}
                         onPatch={patchRow}
                       />
                     ))}
-                    {windowed.bottomPad > 0 ? (
+                    {virtualize && windowed.bottomPad > 0 ? (
                       <tr aria-hidden>
                         <td colSpan={6} style={{ height: windowed.bottomPad, padding: 0, border: 0 }} />
                       </tr>
