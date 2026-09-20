@@ -15,23 +15,18 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { StaffAvatar } from "@/components/people/staff-photo-field";
 import { usePermission } from "@/hooks/use-permission";
 import { queryKeys } from "@/lib/query-keys";
+import {
+  computeStaffDirectoryKpis,
+  filterStaffDirectory,
+  type StaffDirectorySort,
+} from "@/lib/staff-directory-kpis";
 import { archiveStaffMember, restoreStaffMember } from "@/lib/staff-roster.functions";
 import type { StaffRow } from "@/lib/queries/module-queries.core";
 import { formatLocationLabel } from "@/lib/locations/normalize";
-import { isActiveStaffStatus } from "@/lib/staff-status";
 import { cn } from "@/lib/utils";
 
 function formatLocation(s: StaffRow): string {
   return formatLocationLabel(s.location_code, s.location_name);
-}
-
-function staffLocationCodes(s: StaffRow): string[] {
-  const codes = new Set<string>();
-  if (s.location_code) codes.add(s.location_code);
-  for (const loc of s.work_locations ?? []) {
-    if (loc.code) codes.add(loc.code);
-  }
-  return [...codes];
 }
 
 export function StaffDirectory({
@@ -57,7 +52,7 @@ export function StaffDirectory({
   const [status, setStatus] = useState("active");
   const [missing, setMissing] = useState(false);
   const [loc, setLoc] = useState("");
-  const [sort, setSort] = useState<"name" | "code" | "location">("name");
+  const [sort, setSort] = useState<StaffDirectorySort>("name");
   const [page, setPage] = useState(1);
   const pageSize = 25;
 
@@ -85,45 +80,18 @@ export function StaffDirectory({
     return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }, [staff]);
 
-  const scoped = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    return staff.filter((s) => {
-      if (needle) {
-        const blob = `${s.full_name} ${s.employee_code} ${s.qid ?? ""} ${s.phone ?? ""}`.toLowerCase();
-        if (!blob.includes(needle)) return false;
-      }
-      if (loc && !staffLocationCodes(s).includes(loc)) return false;
-      if (position && s.job_title !== position) return false;
-      if (e3 === "yes" && s.e3_enrolled !== true) return false;
-      if (e3 === "no" && s.e3_enrolled !== false) return false;
-      if (status === "active" && !isActiveStaffStatus(s.status)) return false;
-      if (status === "inactive" && isActiveStaffStatus(s.status)) return false;
-      if (missing && s.qid && s.phone && s.hire_date) return false;
-      return true;
-    });
-  }, [staff, q, loc, position, e3, status, missing]);
-
-  const filtered = useMemo(() => {
-    const rows = type ? scoped.filter((s) => s.employment_type === type) : scoped;
-    return [...rows].sort((a, b) => {
-      if (sort === "code") return a.employee_code.localeCompare(b.employee_code);
-      if (sort === "location") return formatLocation(a).localeCompare(formatLocation(b));
-      return a.full_name.localeCompare(b.full_name);
-    });
-  }, [scoped, type, sort]);
-
-  // Counts match the table row set (all active filters, including type).
-  const kpis = useMemo(() => {
-    let permanent = 0;
-    let joker = 0;
-    let secondment = 0;
-    for (const s of filtered) {
-      if (s.employment_type === "permanent") permanent += 1;
-      else if (s.employment_type === "joker") joker += 1;
-      else if (s.employment_type === "secondment") secondment += 1;
-    }
-    return { total: filtered.length, permanent, joker, secondment };
-  }, [filtered]);
+  // One filter pass for table + KPIs (no separate memo that can drift from rows).
+  const filtered = filterStaffDirectory(staff, {
+    q,
+    loc,
+    position,
+    type,
+    e3,
+    status,
+    missing,
+    sort,
+  });
+  const kpis = computeStaffDirectoryKpis(filtered);
 
   const pages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
