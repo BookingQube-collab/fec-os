@@ -131,6 +131,7 @@
     "hrProbation": "فترة التجربة",
     "hrResignations": "الاستقالات",
     "hrTerminations": "إنهاء الخدمة",
+    "hrAirTickets": "تذاكر الطيران",
     "hrDocuments": "ملفات الموظفين",
     "hrOnboarding": "التهيئة",
     "hrAnnouncements": "الإعلانات",
@@ -6438,7 +6439,9 @@
         "thirdWarningEscalations": "تصعيد الإنذار الثالث",
         "upcomingProbationDecisions": "قرارات تجربة قادمة",
         "servingNotice": "في فترة الإشعار",
-        "terminationQueue": "قائمة إنهاء الخدمة"
+        "terminationQueue": "قائمة إنهاء الخدمة",
+        "upcomingAirTickets": "تذاكر قادمة",
+        "overdueAirTickets": "تذاكر متأخرة"
       },
       "otPolicy": "سياسة الإضافي",
       "otPolicyHint": "ملخص للموارد البشرية/الرواتب. إضافي الحضور ما زال يعتمد قوالب الورديات.",
@@ -6450,6 +6453,7 @@
         "probation": "فترة التجربة",
         "resignations": "الاستقالات",
         "terminations": "إنهاء الخدمة",
+        "airTickets": "تذاكر الطيران",
         "field": "الميدان",
         "attendance": "الحضور",
         "documents": "المستندات",
@@ -6458,6 +6462,61 @@
         "shiftPolicy": "ساعات العمل حسب الموقع",
         "settings": "إعدادات الإضافي",
         "reports": "التقارير"
+      }
+    },
+    "airTickets": {
+      "kicker": "الموارد البشرية",
+      "title": "تذاكر الطيران",
+      "subtitle": "الاستحقاق من تاريخ التعيين وسياسة الشركة. تتبع الإصدار والسعر (ر.ق) والبدل النقدي والحجز وتواريخ السفر وحالة دفع الرواتب.",
+      "noAccess": "تذاكر الطيران مقصورة على مديري التذاكر.",
+      "createTitle": "إنشاء استحقاق",
+      "staff": "الموظف",
+      "pickStaff": "اختر موظفاً",
+      "destination": "الوجهة",
+      "familyEligible": "يشمل العائلة",
+      "family": "عائلة",
+      "notes": "ملاحظات",
+      "create": "إنشاء استحقاق",
+      "created": "تم إنشاء الاستحقاق",
+      "formRequired": "الموظف والحقول المطلوبة ضرورية.",
+      "preview": "معاينة السياسة: الاستحقاق {{eligibility}} (الدورة {{cycle}}، {{status}})",
+      "eligibility": "تاريخ الاستحقاق",
+      "empty": "لا استحقاقات في هذا التصفية.",
+      "issue": "إصدار تذكرة",
+      "issued": "تم إصدار التذكرة",
+      "priceQar": "سعر التذكرة (ر.ق)",
+      "cashQar": "بدل نقدي (ر.ق)",
+      "booking": "مرجع الحجز",
+      "invoice": "فاتورة / مستند التذكرة",
+      "travelFrom": "السفر من",
+      "travelTo": "السفر إلى",
+      "markPaid": "تعليم كمدفوع للرواتب",
+      "paid": "تم التعليم كمدفوع",
+      "filters": {
+        "upcoming": "قادمة",
+        "overdue": "متأخرة",
+        "all": "الكل"
+      },
+      "status": {
+        "open": "مفتوح",
+        "eligible": "مستحق",
+        "issued": "صادر",
+        "expired": "منتهٍ",
+        "cancelled": "ملغى",
+        "carried_forward": "مرحّل"
+      },
+      "issueStatus": {
+        "draft": "مسودة",
+        "approved": "معتمد",
+        "issued": "صادر",
+        "paid": "مدفوع",
+        "cancelled": "ملغى",
+        "rejected": "مرفوض"
+      },
+      "payroll": {
+        "unpaid": "غير مدفوع",
+        "pending": "بانتظار الرواتب",
+        "paid": "مدفوع"
       }
     },
     "warnings": {
@@ -6778,6 +6837,8 @@
       "announcements": "الإعلانات",
       "myDocuments": "مستنداتي",
       "noDocuments": "لا مستندات بعد.",
+      "myAirTickets": "تذاكري الجوية",
+      "noAirTickets": "لا استحقاقات تذاكر بعد.",
       "uploadDoc": "رفع مستند",
       "uploadHint": "ارفع البطاقة أو الجواز أو التأشيرة أو ملفات أخرى للموارد البشرية.",
       "needFile": "اختر ملفاً للرفع.",

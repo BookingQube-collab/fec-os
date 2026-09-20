@@ -91,6 +91,11 @@ describe("admin sidebar visibility", () => {
       "/people/hr/announcements",
       "/people/hr/shift-policy",
       "/people/hr/ot",
+      "/people/hr/warnings",
+      "/people/hr/probation",
+      "/people/hr/resignations",
+      "/people/hr/terminations",
+      "/people/hr/air-tickets",
       "/people/hr/settings",
       "/people/hr/reports",
       "/people/employee-app",
@@ -99,6 +104,11 @@ describe("admin sidebar visibility", () => {
       "/people/payroll",
       "/people/leave",
       "/people/hr/ot",
+      "/people/hr/warnings",
+      "/people/hr/probation",
+      "/people/hr/resignations",
+      "/people/hr/terminations",
+      "/people/hr/air-tickets",
       "/people/field",
     ]);
     expect(people?.groups.find((g) => g.id === "hr-attendance")?.items.some((i) => i.href === "/people/field")).toBe(

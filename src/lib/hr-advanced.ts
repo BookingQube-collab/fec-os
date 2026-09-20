@@ -231,7 +231,11 @@ export const HR_DOC_SENSITIVE_DISCIPLINARY = new Set<HrDocType>([
   "demotion_letter",
   "termination_letter",
 ]);
-export const HR_DOC_SENSITIVE_SALARY = new Set<HrDocType>(["loan_document", "increment_letter"]);
+export const HR_DOC_SENSITIVE_SALARY = new Set<HrDocType>([
+  "loan_document",
+  "increment_letter",
+  "air_ticket_receipt",
+]);
 
 export const HR_CHECKLIST_KINDS = ["onboarding", "offboarding"] as const;
 export type HrChecklistKind = (typeof HR_CHECKLIST_KINDS)[number];

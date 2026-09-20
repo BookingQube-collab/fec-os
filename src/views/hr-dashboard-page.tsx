@@ -11,6 +11,7 @@ import {
   MapPinned,
   Megaphone,
   Palmtree,
+  Plane,
   Settings2,
   Timer,
   UserCheck,
@@ -46,6 +47,8 @@ const TILE_TINTS: Record<string, KpiTint> = {
   upcomingProbationDecisions: "orange",
   servingNotice: "amber",
   terminationQueue: "red",
+  upcomingAirTickets: "sky",
+  overdueAirTickets: "red",
 };
 
 export default function HrDashboardPage() {
@@ -77,6 +80,8 @@ export default function HrDashboardPage() {
     { key: "upcomingProbationDecisions", value: d?.upcomingProbationDecisions ?? "—", href: "/people/hr/probation", icon: Hourglass },
     { key: "servingNotice", value: d?.servingNotice ?? "—", href: "/people/hr/resignations", icon: Hourglass },
     { key: "terminationQueue", value: d?.terminationQueue ?? "—", href: "/people/hr/terminations", icon: AlertTriangle },
+    { key: "upcomingAirTickets", value: d?.upcomingAirTickets ?? "—", href: "/people/hr/air-tickets", icon: Plane },
+    { key: "overdueAirTickets", value: d?.overdueAirTickets ?? "—", href: "/people/hr/air-tickets", icon: Plane },
   ] as const;
 
   const links = [
@@ -87,6 +92,7 @@ export default function HrDashboardPage() {
     { href: "/people/hr/probation", labelKey: "hr.dashboard.links.probation", icon: Hourglass },
     { href: "/people/hr/resignations", labelKey: "hr.dashboard.links.resignations", icon: Hourglass },
     { href: "/people/hr/terminations", labelKey: "hr.dashboard.links.terminations", icon: AlertTriangle },
+    { href: "/people/hr/air-tickets", labelKey: "hr.dashboard.links.airTickets", icon: Plane },
     { href: "/people/field", labelKey: "hr.dashboard.links.field", icon: MapPinned },
     { href: "/people/attendance/reports", labelKey: "hr.dashboard.links.attendance", icon: ClipboardList },
     { href: "/people/hr/documents", labelKey: "hr.dashboard.links.documents", icon: FileText },

@@ -152,6 +152,7 @@
     "hrProbation": "Probation",
     "hrResignations": "Resignations",
     "hrTerminations": "Terminations",
+    "hrAirTickets": "Air tickets",
     "hrDocuments": "Employee files",
     "hrOnboarding": "Onboarding",
     "hrAnnouncements": "Announcements",
@@ -6526,7 +6527,9 @@
         "thirdWarningEscalations": "3rd-warning escalations",
         "upcomingProbationDecisions": "Upcoming probation",
         "servingNotice": "Serving notice",
-        "terminationQueue": "Termination queue"
+        "terminationQueue": "Termination queue",
+        "upcomingAirTickets": "Upcoming air tickets",
+        "overdueAirTickets": "Overdue air tickets"
       },
       "otPolicy": "OT policy",
       "otPolicyHint": "Policy summary for HR/payroll. Attendance OT still uses shift templates.",
@@ -6538,6 +6541,7 @@
         "probation": "Probation",
         "resignations": "Resignations",
         "terminations": "Terminations",
+        "airTickets": "Air tickets",
         "field": "Field",
         "attendance": "Attendance",
         "documents": "Documents",
@@ -6546,6 +6550,61 @@
         "shiftPolicy": "Site working hours",
         "settings": "OT settings",
         "reports": "Reports"
+      }
+    },
+    "airTickets": {
+      "kicker": "HR",
+      "title": "Air tickets",
+      "subtitle": "Entitlements from hire date + company policy. Track issue, price (QAR), cash allowance, booking, travel dates, and payroll payment status.",
+      "noAccess": "Air tickets are limited to HR air-ticket managers.",
+      "createTitle": "Create entitlement",
+      "staff": "Staff",
+      "pickStaff": "Select staff",
+      "destination": "Destination",
+      "familyEligible": "Family eligible",
+      "family": "Family",
+      "notes": "Notes",
+      "create": "Create entitlement",
+      "created": "Entitlement created",
+      "formRequired": "Staff and required fields are needed.",
+      "preview": "Policy preview: eligible {{eligibility}} (cycle {{cycle}}, {{status}})",
+      "eligibility": "Eligibility",
+      "empty": "No air-ticket entitlements in this filter.",
+      "issue": "Issue ticket",
+      "issued": "Ticket issued",
+      "priceQar": "Ticket price (QAR)",
+      "cashQar": "Cash allowance (QAR)",
+      "booking": "Booking ref",
+      "invoice": "Invoice / ticket doc",
+      "travelFrom": "Travel from",
+      "travelTo": "Travel to",
+      "markPaid": "Mark payroll paid",
+      "paid": "Marked paid",
+      "filters": {
+        "upcoming": "Upcoming",
+        "overdue": "Overdue",
+        "all": "All"
+      },
+      "status": {
+        "open": "Open",
+        "eligible": "Eligible",
+        "issued": "Issued",
+        "expired": "Expired",
+        "cancelled": "Cancelled",
+        "carried_forward": "Carried forward"
+      },
+      "issueStatus": {
+        "draft": "Draft",
+        "approved": "Approved",
+        "issued": "Issued",
+        "paid": "Paid",
+        "cancelled": "Cancelled",
+        "rejected": "Rejected"
+      },
+      "payroll": {
+        "unpaid": "Unpaid",
+        "pending": "Pending payroll",
+        "paid": "Paid"
       }
     },
     "resignations": {
@@ -6950,6 +7009,8 @@
       "announcements": "Announcements",
       "myDocuments": "My documents",
       "noDocuments": "No documents on file yet.",
+      "myAirTickets": "My air tickets",
+      "noAirTickets": "No air-ticket entitlements yet.",
       "uploadDoc": "Upload document",
       "uploadHint": "Upload QID, passport, visa, or other files for HR.",
       "needFile": "Choose a file to upload.",

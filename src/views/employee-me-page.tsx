@@ -29,6 +29,7 @@ import {
 } from "@/lib/hr-ot.functions";
 import { HR_OT_RATE_TYPES } from "@/lib/hr-ot";
 import { employeeRespondToWarning, listWarnings } from "@/lib/hr-warnings.functions";
+import { listAirTicketEntitlements } from "@/lib/hr-air-ticket.functions";
 import { listAnnouncements } from "@/lib/hr-announcements.functions";
 import {
   getEmployeeDocumentUrl,
@@ -144,6 +145,11 @@ export default function EmployeeMePage() {
   const myWarnings = useQuery({
     queryKey: queryKeys.people.hrWarnings({ mine: true }),
     queryFn: () => listWarnings({ mineOnly: true, status: "all" }),
+    staleTime: STALE.people,
+  });
+  const myAirTickets = useQuery({
+    queryKey: queryKeys.people.hrAirTickets({ mine: true }),
+    queryFn: () => listAirTicketEntitlements({ mineOnly: true, status: "all" }),
     staleTime: STALE.people,
   });
   const notes = useNotifications({ limit: 12 });
@@ -577,6 +583,30 @@ export default function EmployeeMePage() {
                 ) : null}
               </div>
             ))
+          )}
+        </div>
+      </section>
+
+      <section className="hr-panel-shell">
+        <div className="hr-panel p-4">
+          <h2 className="text-sm font-semibold tracking-tight">{t("hr.me.myAirTickets")}</h2>
+          {(myAirTickets.data ?? []).length === 0 ? (
+            <p className="mt-2 text-sm text-muted-foreground">{t("hr.me.noAirTickets")}</p>
+          ) : (
+            <ul className="mt-2 space-y-2">
+              {(myAirTickets.data ?? []).slice(0, 8).map((row) => (
+                <li key={row.id} className="hr-list-row text-sm">
+                  <span>
+                    {row.eligibilityOn}
+                    {row.destination ? ` · ${row.destination}` : ""}
+                    {" · "}
+                    {t(`hr.airTickets.status.${row.status}`)}
+                    {row.overdue ? ` · ${t("hr.airTickets.filters.overdue")}` : ""}
+                  </span>
+                  <Badge variant="secondary">{t(`hr.airTickets.status.${row.status}`)}</Badge>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       </section>

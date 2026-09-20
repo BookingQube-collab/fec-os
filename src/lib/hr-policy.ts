@@ -91,6 +91,9 @@ export const HR_POLICY_DEFAULTS: Record<HrPolicySection, Record<string, unknown>
     cycle_months: 12,
     from_hire_date: true,
     family_eligible_default: false,
+    carry_forward_enabled: true,
+    carry_forward_months: 3,
+    upcoming_horizon_days: 60,
   },
   payroll: {
     currency: "QAR",

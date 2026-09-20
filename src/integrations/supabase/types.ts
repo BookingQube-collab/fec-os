@@ -3733,6 +3733,69 @@ export type Database = {
       hr_ot_policy: { Row: Record<string, unknown> & { id: string; company_id: string | null; overtime_after_minutes: number; max_daily_ot_minutes: number | null; max_weekly_ot_minutes: number | null; requires_preapproval: boolean; summary_notes: string | null; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       hr_ot_claims: { Row: Record<string, unknown> & { id: string; staff_id: string; location_id: string | null; work_date: string; attendance_daily_id: string | null; scheduled_in: string | null; scheduled_out: string | null; actual_in: string | null; actual_out: string | null; eligible_minutes: number; claimed_minutes: number; approved_minutes: number | null; rate_type: string; rate_multiplier: number; amount_qar: number; status: string; evidence_path: string | null; notes: string | null; submitted_by: string | null; submitted_at: string | null; verified_by: string | null; verified_at: string | null; approved_by: string | null; approved_at: string | null; payroll_posted_by: string | null; payroll_posted_at: string | null; created_by: string | null; created_at: string; updated_at: string; staff?: { full_name?: string; employee_code?: string; user_id?: string; location_id?: string; employment_type?: string; department?: string } | { full_name?: string; employee_code?: string; user_id?: string; location_id?: string; employment_type?: string; department?: string }[] | null; locations?: { id?: string; code?: string; name?: string } | { id?: string; code?: string; name?: string }[] | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       hr_ot_claim_approvals: { Row: Record<string, unknown> & { id: string; claim_id: string; step: string; action: string; actor_id: string | null; note: string | null; acted_at: string; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      hr_air_ticket_entitlements: {
+        Row: Record<string, unknown> & {
+          id: string
+          staff_id: string
+          cycle_start: string
+          cycle_end: string
+          eligibility_on: string
+          destination: string | null
+          family_eligible: boolean
+          status: string
+          carry_forward: boolean
+          expiry_on: string | null
+          notes: string | null
+          created_by: string | null
+          created_at: string
+          updated_at: string
+          staff?: { full_name?: string; employee_code?: string; hire_date?: string | null; user_id?: string } | { full_name?: string; employee_code?: string; hire_date?: string | null; user_id?: string }[] | null
+          issues?: Record<string, unknown>[] | null
+        }
+        Insert: Record<string, unknown>
+        Update: Record<string, unknown>
+        Relationships: []
+      }
+      hr_air_ticket_issues: {
+        Row: Record<string, unknown> & {
+          id: string
+          entitlement_id: string
+          price_qar: number
+          cash_allowance_qar: number
+          booking_ref: string | null
+          travel_date_from: string | null
+          travel_date_to: string | null
+          invoice_doc_id: string | null
+          payroll_payment_status: string
+          status: string
+          issued_on: string | null
+          notes: string | null
+          created_by: string | null
+          approved_by: string | null
+          approved_at: string | null
+          paid_by: string | null
+          paid_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: Record<string, unknown>
+        Update: Record<string, unknown>
+        Relationships: []
+      }
+      hr_air_ticket_issue_actions: {
+        Row: Record<string, unknown> & {
+          id: string
+          issue_id: string
+          action: string
+          actor_id: string | null
+          note: string | null
+          acted_at: string
+          created_at: string
+        }
+        Insert: Record<string, unknown>
+        Update: Record<string, unknown>
+        Relationships: []
+      }
       hr_warnings: {
         Row: Record<string, unknown> & {
           id: string

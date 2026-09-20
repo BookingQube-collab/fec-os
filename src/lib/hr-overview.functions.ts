@@ -7,6 +7,12 @@ import { canUserDo } from "@/lib/rbac";
 import { defaultPayrollPeriod } from "@/lib/attendance-hr/roster-period";
 import { getPayrollAttendanceSummary } from "@/lib/attendance-hr-field.functions";
 import { formatOtPolicySummary } from "@/lib/hr-advanced";
+import {
+  airTicketPolicyFromSection,
+  isAirTicketOverdue,
+  isAirTicketUpcoming,
+} from "@/lib/hr-air-ticket";
+import { readPolicySection } from "@/lib/hr-policy-read";
 
 function tableMissing(message: string | undefined): boolean {
   return Boolean(message && /does not exist|schema cache|relation/i.test(message));
@@ -239,6 +245,49 @@ export const getHrOverview = createAuthenticatedAction(
       terminationQueue = (termCount ?? 0) + probationFlags;
     }
 
+    let upcomingAirTickets = 0;
+    let overdueAirTickets = 0;
+    if (canUserDo(context.roles ?? [], "hr.air_ticket.manage") || canUserDo(context.roles ?? [], "hr.manage")) {
+      let horizonDays = 60;
+      try {
+        const section = await readPolicySection(context, "air_ticket");
+        horizonDays = airTicketPolicyFromSection(section).upcomingHorizonDays;
+      } catch {
+        horizonDays = 60;
+      }
+      const { data: airRows, error: airErr } = await context.supabase
+        .from("hr_air_ticket_entitlements")
+        .select("status, eligibility_on, expiry_on");
+      if (airErr && !tableMissing(airErr.message) && !/permission/i.test(airErr.message ?? "")) {
+        throw airErr;
+      }
+      for (const row of airRows ?? []) {
+        const status = String(row.status);
+        const eligibilityOn = String(row.eligibility_on).slice(0, 10);
+        const expiryOn = row.expiry_on ? String(row.expiry_on).slice(0, 10) : null;
+        if (
+          isAirTicketUpcoming({
+            eligibilityOn,
+            asOfDate: today,
+            horizonDays,
+            status,
+          })
+        ) {
+          upcomingAirTickets += 1;
+        }
+        if (
+          isAirTicketOverdue({
+            eligibilityOn,
+            asOfDate: today,
+            status,
+            expiryOn,
+          })
+        ) {
+          overdueAirTickets += 1;
+        }
+      }
+    }
+
     return {
       headcount: headcount ?? 0,
       presentToday: presentToday ?? 0,
@@ -255,6 +304,8 @@ export const getHrOverview = createAuthenticatedAction(
       upcomingProbationDecisions,
       servingNotice,
       terminationQueue,
+      upcomingAirTickets,
+      overdueAirTickets,
       otPolicySummary,
       period,
       today,

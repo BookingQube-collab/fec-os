@@ -126,6 +126,7 @@ export const CAPABILITIES = {
   "hr.warnings.decide": ["ceo", "coo", "hr"],
   "hr.probation.manage": ["ceo", "coo", "hr"],
   "hr.resignation.manage": ["ceo", "coo", "hr"],
+  "hr.air_ticket.manage": ["ceo", "coo", "hr"],
   /** Initiate only — floor roles excluded via isFloorSupervisorView in actions. */
   "hr.termination.initiate": ["ceo", "coo", "hr"],
   /** Dual approval (HR Manager + GM/CEO). Highly restricted. */

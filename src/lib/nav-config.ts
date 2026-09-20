@@ -26,6 +26,7 @@ import {
   LineChart,
   ListChecks,
   Package,
+  Plane,
   Presentation,
   Radio,
   Settings,
@@ -208,6 +209,7 @@ const HR_WORKFORCE_NAV_GROUP: SidebarNavGroup = {
     { href: "/people/hr/probation", labelKey: "nav.hrProbation", capability: "hr.probation.manage" },
     { href: "/people/hr/resignations", labelKey: "nav.hrResignations", capability: "hr.resignation.manage" },
     { href: "/people/hr/terminations", labelKey: "nav.hrTerminations", capability: "hr.termination.initiate" },
+    { href: "/people/hr/air-tickets", labelKey: "nav.hrAirTickets", capability: "hr.air_ticket.manage" },
     { href: "/people/field", labelKey: "nav.hrField", capability: "attendance.view" },
   ],
 };
@@ -230,6 +232,7 @@ const HR_ADMIN_NAV_GROUP: SidebarNavGroup = {
     { href: "/people/hr/probation", labelKey: "nav.hrProbation", capability: "hr.probation.manage" },
     { href: "/people/hr/resignations", labelKey: "nav.hrResignations", capability: "hr.resignation.manage" },
     { href: "/people/hr/terminations", labelKey: "nav.hrTerminations", capability: "hr.termination.initiate" },
+    { href: "/people/hr/air-tickets", labelKey: "nav.hrAirTickets", capability: "hr.air_ticket.manage" },
     { href: "/people/hr/settings", labelKey: "nav.hrSettings", capability: "hr.policy.configure" },
     { href: "/people/hr/reports", labelKey: "nav.hrReports", capability: "hr.manage" },
     { href: "/people/employee-app", labelKey: "nav.hrEmployeeApp", capability: "attendance.view" },

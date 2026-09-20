@@ -200,6 +200,7 @@ export const queryKeys = {
     hrResignations: (filters?: object) => [...queryKeys.people.all, "hr-resignations", filters ?? {}] as const,
     hrTerminations: (filters?: object) => [...queryKeys.people.all, "hr-terminations", filters ?? {}] as const,
     hrClearance: (filters?: object) => [...queryKeys.people.all, "hr-clearance", filters ?? {}] as const,
+    hrAirTickets: (filters?: object) => [...queryKeys.people.all, "hr-air-tickets", filters ?? {}] as const,
   },
   performance: {
     all: ["performance"] as const,

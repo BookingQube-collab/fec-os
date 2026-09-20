@@ -32,7 +32,7 @@ describe("hr policy defaults", () => {
     expect(policyNumber("nope", 7)).toBe(7);
   });
 
-  it("includes brief defaults for warning, document, ot, payroll", () => {
+  it("includes brief defaults for warning, document, ot, payroll, air_ticket", () => {
     expect(HR_POLICY_DEFAULTS.warning.active_threshold).toBe(3);
     expect(HR_POLICY_DEFAULTS.warning.probation_threshold).toBe(1);
     expect(HR_POLICY_DEFAULTS.warning.auto_terminate).toBe(false);
@@ -45,6 +45,9 @@ describe("hr policy defaults", () => {
     expect(HR_POLICY_DEFAULTS.ot.rate_eid).toBe(2.5);
     expect(HR_POLICY_DEFAULTS.payroll.currency).toBe("QAR");
     expect(HR_POLICY_DEFAULTS.payroll.timezone).toBe("Asia/Qatar");
+    expect(HR_POLICY_DEFAULTS.air_ticket.cycle_months).toBe(12);
+    expect(HR_POLICY_DEFAULTS.air_ticket.from_hire_date).toBe(true);
+    expect(HR_POLICY_DEFAULTS.air_ticket.carry_forward_months).toBe(3);
   });
 
   it("includes leave carry-forward, hajj, and comp-off policy keys", () => {
