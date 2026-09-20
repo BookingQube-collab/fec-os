@@ -24,17 +24,25 @@ export async function previewLiveShiftRoster(
     selectedLocationId: string | null;
   },
 ): Promise<AttendanceRosterPreview> {
-  const [{ data: staffRows, error: staffErr }, { data: locationRows, error: locErr }, { data: shiftRows }] = await Promise.all([
-    context.supabase
-      .from("staff")
-      .select("id, full_name, employee_code, qid, location_id, status")
-      .is("deleted_at", null)
-      .limit(5000),
-    context.supabase.from("locations").select("id, code, name, region, status").in("code", [...CANONICAL_LOCATION_CODES]),
-    context.supabase.from("attendance_shift_templates").select("id, location_id, start_time, end_time").eq("active", true),
-  ]);
+  const [{ data: staffRows, error: staffErr }, { data: locationRows, error: locErr }, { data: shiftRows }, { data: mapRows, error: mapErr }] =
+    await Promise.all([
+      context.supabase
+        .from("staff")
+        .select("id, full_name, employee_code, qid, location_id, status")
+        .is("deleted_at", null)
+        .limit(5000),
+      context.supabase.from("locations").select("id, code, name, region, status").in("code", [...CANONICAL_LOCATION_CODES]),
+      context.supabase.from("attendance_shift_templates").select("id, location_id, start_time, end_time").eq("active", true),
+      context.supabase
+        .from("attendance_biometric_users")
+        .select("location_id, device_name, staff_id")
+        .not("staff_id", "is", null)
+        .not("device_name", "is", null)
+        .limit(5000),
+    ]);
   if (staffErr) throw staffErr;
   if (locErr) throw locErr;
+  if (mapErr) throw mapErr;
 
   const workByStaff = await fetchWorkLocationsByStaffId(
     context.supabase,
@@ -60,6 +68,13 @@ export async function previewLiveShiftRoster(
     start_time: String(s.start_time ?? ""),
     end_time: String(s.end_time ?? ""),
   }));
+  const nameMaps = (mapRows ?? [])
+    .filter((row) => row.location_id && row.device_name && row.staff_id)
+    .map((row) => ({
+      locationId: String(row.location_id),
+      deviceName: String(row.device_name),
+      staffId: String(row.staff_id),
+    }));
 
   return buildAttendanceRosterPreview({
     records: input.records,
@@ -70,6 +85,7 @@ export async function previewLiveShiftRoster(
     staff,
     locations,
     shifts,
+    nameMaps,
   });
 }
 

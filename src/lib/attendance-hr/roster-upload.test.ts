@@ -159,6 +159,34 @@ describe("matchAttendanceRosterStaff", () => {
     expect(result.staffId).toBe("s-hassan");
     expect(result.matchRule).toBe("name_unique");
   });
+
+  it("resolves attendance mapping aliases at the mapped location", () => {
+    const maps = [
+      { locationId: KDS, deviceName: "Abdulazeem", staffId: "s-hassan" },
+    ];
+    const mapped = matchAttendanceRosterStaff(
+      { qid: "", employeeCode: "", name: "Abdulazeem", locationId: KDS },
+      staff,
+      maps,
+    );
+    expect(mapped.staffId).toBe("s-hassan");
+    expect(mapped.matchRule).toBe("name_map");
+
+    const unmapped = matchAttendanceRosterStaff(
+      { qid: "", employeeCode: "", name: "Abdulazeem", locationId: KDS },
+      staff,
+    );
+    expect(unmapped.staffId).toBeNull();
+    expect(unmapped.matchRule).toBe("name_unmatched");
+
+    const wrongSite = matchAttendanceRosterStaff(
+      { qid: "", employeeCode: "", name: "Abdulazeem", locationId: INF },
+      staff,
+      maps,
+    );
+    expect(wrongSite.staffId).toBeNull();
+    expect(wrongSite.matchRule).toBe("name_unmatched");
+  });
 });
 
 describe("buildAttendanceRosterPreview", () => {

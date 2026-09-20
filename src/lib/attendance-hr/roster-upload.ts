@@ -75,6 +75,13 @@ export type AttendanceRosterStaff = {
   work_location_ids?: string[];
 };
 
+/** Location-scoped device/source name → staff, from attendance_biometric_users. */
+export type AttendanceRosterNameMap = {
+  locationId: string;
+  deviceName: string;
+  staffId: string;
+};
+
 export type AttendanceRosterShift = {
   id: string;
   location_id: string | null;
@@ -569,6 +576,7 @@ export function matchAttendanceRosterStaff(
     locationId: string | null;
   },
   staff: AttendanceRosterStaff[],
+  nameMaps: AttendanceRosterNameMap[] = [],
 ): { staffId: string | null; matchRule: string; message: string | null; label: string } {
   const active = staff.filter((s) => s.id);
   if (input.qid) {
@@ -601,6 +609,23 @@ export function matchAttendanceRosterStaff(
       return { staffId: localHits[0].id, matchRule: "name_location", message: null, label: localHits[0].full_name || input.name };
     }
     if (localHits.length > 1) {
+      return { staffId: null, matchRule: "name_ambiguous", message: "Same name at this location — use QID or employee code.", label: input.name };
+    }
+    // Same source-name → staff map used on /people/attendance/mapping (location-scoped).
+    const mappedIds = [
+      ...new Set(
+        nameMaps
+          .filter((m) => m.locationId === locationId && normalizeName(m.deviceName) === name && m.staffId)
+          .map((m) => m.staffId),
+      ),
+    ];
+    if (mappedIds.length === 1) {
+      const mapped = active.find((s) => s.id === mappedIds[0]);
+      if (mapped) {
+        return { staffId: mapped.id, matchRule: "name_map", message: null, label: mapped.full_name || input.name };
+      }
+    }
+    if (mappedIds.length > 1) {
       return { staffId: null, matchRule: "name_ambiguous", message: "Same name at this location — use QID or employee code.", label: input.name };
     }
     // Unique company-wide name: roster them at the Excel site even if home location differs.
@@ -705,6 +730,7 @@ export function buildAttendanceRosterPreview(input: {
   staff: AttendanceRosterStaff[];
   locations: LocationLookup[];
   shifts: AttendanceRosterShift[];
+  nameMaps?: AttendanceRosterNameMap[];
 }): AttendanceRosterPreview {
   const warnings: string[] = [];
   const errors: string[] = [];
@@ -861,6 +887,7 @@ export function buildAttendanceRosterPreview(input: {
     const matched = matchAttendanceRosterStaff(
       { qid: ids.qid, employeeCode: ids.code, name: ids.name, locationId },
       input.staff,
+      input.nameMaps ?? [],
     );
     const loc = input.locations.find((l) => l.id === locationId);
     rows.push({
