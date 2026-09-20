@@ -3758,7 +3758,15 @@ export type Database = {
         }
         Insert: Record<string, unknown>
         Update: Record<string, unknown>
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "hr_air_ticket_entitlements_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       hr_air_ticket_issues: {
         Row: Record<string, unknown> & {
@@ -3785,7 +3793,22 @@ export type Database = {
         }
         Insert: Record<string, unknown>
         Update: Record<string, unknown>
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "hr_air_ticket_issues_entitlement_id_fkey"
+            columns: ["entitlement_id"]
+            isOneToOne: false
+            referencedRelation: "hr_air_ticket_entitlements"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hr_air_ticket_issues_payroll_period_id_fkey"
+            columns: ["payroll_period_id"]
+            isOneToOne: false
+            referencedRelation: "hr_payroll_periods"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       hr_air_ticket_issue_actions: {
         Row: Record<string, unknown> & {
@@ -3799,7 +3822,15 @@ export type Database = {
         }
         Insert: Record<string, unknown>
         Update: Record<string, unknown>
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "hr_air_ticket_issue_actions_issue_id_fkey"
+            columns: ["issue_id"]
+            isOneToOne: false
+            referencedRelation: "hr_air_ticket_issues"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       hr_warnings: {
         Row: Record<string, unknown> & {
