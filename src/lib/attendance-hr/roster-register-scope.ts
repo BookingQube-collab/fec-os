@@ -1,6 +1,6 @@
 import { enumerateYmd } from "@/lib/attendance-hr/roster-period";
 
-export type RosterRegisterSource = "upload" | "amend" | "manual";
+export type RosterRegisterSource = "upload" | "amend" | "manual" | "copied";
 
 export type RosterRegisterScopeFilters = {
   locationId?: string | null;

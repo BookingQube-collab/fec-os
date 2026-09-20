@@ -5,6 +5,9 @@ import {
   defaultPayrollPeriod,
   filterPunchesForImportPeriod,
   formatPayrollRange,
+  mapRosterPeriodByDayIndex,
+  monthBounds,
+  nextPayrollMonth,
   payrollMonthMatchingBounds,
   payrollMonthOf,
   punchWorkDateInPeriod,
@@ -48,6 +51,33 @@ describe("attendance import period", () => {
       dateFrom: "2026-12-28",
       dateTo: "2027-01-27",
     });
+  });
+
+  it("advances the FEC payroll month label", () => {
+    expect(nextPayrollMonth("2026-08")).toBe("2026-09");
+    expect(nextPayrollMonth("2026-12")).toBe("2027-01");
+  });
+
+  it("maps roster dates by day-of-period index into the next FEC month", () => {
+    const source = monthBounds("2026-08");
+    const target = monthBounds(nextPayrollMonth("2026-08"));
+    const map = mapRosterPeriodByDayIndex(source.dateFrom, source.dateTo, target.dateFrom, target.dateTo);
+    expect(map.get("2026-07-28")).toBe("2026-08-28");
+    expect(map.get("2026-08-01")).toBe("2026-09-01");
+    expect(map.get("2026-08-27")).toBe("2026-09-27");
+    expect(map.size).toBe(31);
+  });
+
+  it("drops trailing source days when the target period is shorter", () => {
+    // Feb FEC month (non-leap): Jan 28–Feb 27 = 31 days; Mar: Feb 28–Mar 27 = 28 days
+    const source = monthBounds("2026-02");
+    const target = monthBounds("2026-03");
+    const map = mapRosterPeriodByDayIndex(source.dateFrom, source.dateTo, target.dateFrom, target.dateTo);
+    expect(source.dateFrom).toBe("2026-01-28");
+    expect(target.dateFrom).toBe("2026-02-28");
+    expect(map.size).toBe(28);
+    expect(map.get("2026-01-28")).toBe("2026-02-28");
+    expect(map.has("2026-02-27")).toBe(false);
   });
 
   it("keeps punches whose Qatar work date falls in the period", () => {

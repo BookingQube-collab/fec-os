@@ -53,7 +53,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { cn } from "@/lib/utils";
 
-export type RosterSourceFilter = "all" | "upload" | "amend" | "manual";
+export type RosterSourceFilter = "all" | "upload" | "amend" | "manual" | "copied";
 
 export type RosterRegisterPanelHandle = {
   openDeleteAll: () => void;
@@ -93,6 +93,7 @@ function sourceLabel(source: string, t: (key: string) => string) {
   if (source === "amend") return t("people.roster.registerSourceAmend");
   if (source === "upload") return t("people.roster.registerSourceUpload");
   if (source === "manual") return t("people.roster.registerSourceManual");
+  if (source === "copied") return t("people.roster.registerSourceCopied");
   return source;
 }
 
@@ -158,7 +159,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
         sourceUploadOnly,
         source:
           !sourceUploadOnly && sourceFilter !== "all"
-            ? (sourceFilter as "upload" | "amend" | "manual")
+            ? (sourceFilter as "upload" | "amend" | "manual" | "copied")
             : null,
       }),
       [locationId, dateFrom, dateTo, sourceUploadOnly, sourceFilter],
@@ -443,6 +444,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
                   { value: "upload", label: t("people.roster.registerSourceUpload") },
                   { value: "amend", label: t("people.roster.registerSourceAmend") },
                   { value: "manual", label: t("people.roster.registerSourceManual") },
+                  { value: "copied", label: t("people.roster.registerSourceCopied") },
                 ]}
               />
             </div>

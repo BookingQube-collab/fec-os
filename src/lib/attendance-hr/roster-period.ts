@@ -31,6 +31,15 @@ export function monthBounds(month: string): { dateFrom: string; dateTo: string }
   return { dateFrom: from.toISOString().slice(0, 10), dateTo: `${ym}-27` };
 }
 
+/** Next FEC payroll month label (YYYY-MM). */
+export function nextPayrollMonth(month: string): string {
+  const ym = month.slice(0, 7);
+  const [year, mo] = ym.split("-").map(Number);
+  if (!year || !mo) return ym;
+  if (mo === 12) return `${year + 1}-01`;
+  return `${year}-${String(mo + 1).padStart(2, "0")}`;
+}
+
 /** FEC month that contains `ymd`: the 28th onward belongs to the next calendar month. */
 export function payrollMonthOf(ymd: string): string {
   const day = ymd.slice(0, 10);
@@ -83,6 +92,27 @@ export function enumerateYmd(from: string, to: string): string[] {
     days.push(new Date(t).toISOString().slice(0, 10));
   }
   return days;
+}
+
+/**
+ * Map each source work date → target date by day-of-period index (not weekday).
+ * Preserves the shift pattern across FEC months; when lengths differ, source days
+ * past the end of the target period are omitted (no invented target dates).
+ */
+export function mapRosterPeriodByDayIndex(
+  sourceFrom: string,
+  sourceTo: string,
+  targetFrom: string,
+  targetTo: string,
+): Map<string, string> {
+  const source = enumerateYmd(sourceFrom, sourceTo);
+  const target = enumerateYmd(targetFrom, targetTo);
+  const map = new Map<string, string>();
+  const n = Math.min(source.length, target.length);
+  for (let i = 0; i < n; i++) {
+    map.set(source[i]!, target[i]!);
+  }
+  return map;
 }
 
 export function qatarWeekBounds(ymd: string): { dateFrom: string; dateTo: string } {

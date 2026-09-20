@@ -17,6 +17,7 @@ import {
   chunkIds,
   rosterRowMatchesSearch,
 } from "@/lib/attendance-hr/roster-register-scope";
+import { mapRosterPeriodByDayIndex, monthBounds, nextPayrollMonth } from "@/lib/attendance-hr/roster-period";
 
 const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
@@ -77,7 +78,7 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
     /** When true, only upload + amend rows (legacy import register). */
     sourceUploadOnly: z.boolean().optional().default(false),
     /** Optional single-source filter. Ignored when sourceUploadOnly is true. */
-    source: z.enum(["upload", "amend", "manual"]).nullable().optional(),
+    source: z.enum(["upload", "amend", "manual", "copied"]).nullable().optional(),
   }),
   async (data, context) => {
     assertCanViewRosterRegister(context.roles);
@@ -292,7 +293,7 @@ const rosterScopeInput = z.object({
   dateFrom: ymd,
   dateTo: ymd,
   sourceUploadOnly: z.boolean().optional().default(false),
-  source: z.enum(["upload", "amend", "manual"]).nullable().optional(),
+  source: z.enum(["upload", "amend", "manual", "copied"]).nullable().optional(),
   search: z.string().nullable().optional(),
 });
 
@@ -432,6 +433,214 @@ export const deleteRosterAssignments = createAuthenticatedAction(
       deleted: toDelete.length,
       dateFrom: data.dateFrom,
       dateTo: data.dateTo,
+    };
+  },
+  { auth: { anyCapability: ["people.import_roster", "people.edit_roster", "daily_ops.roster.upload"] } },
+);
+
+type CopySourceRow = {
+  location_id: string;
+  staff_id: string;
+  work_date: string;
+  shift_template_id: string | null;
+  shift_start: string | null;
+  shift_end: string | null;
+  is_week_off: boolean;
+};
+
+/**
+ * Copy every assignment in the selected FEC month into the next FEC month.
+ * Dates map by day-of-period index (see mapRosterPeriodByDayIndex). Empty cells stay empty.
+ * If the target already has rows, pass replace=true after UI confirm; otherwise returns needsReplace.
+ */
+export const copyRosterToNextMonth = createAuthenticatedAction(
+  z.object({
+    month: z.string().regex(/^\d{4}-\d{2}$/),
+    replace: z.boolean().optional().default(false),
+  }),
+  async (data, context) => {
+    assertCanAmendRoster(context.roles);
+
+    const source = monthBounds(data.month);
+    const targetMonth = nextPayrollMonth(data.month);
+    const target = monthBounds(targetMonth);
+    assertRosterDeletePeriod(source.dateFrom, source.dateTo);
+    assertRosterDeletePeriod(target.dateFrom, target.dateTo);
+
+    const dateMap = mapRosterPeriodByDayIndex(source.dateFrom, source.dateTo, target.dateFrom, target.dateTo);
+
+    const sourceRows: CopySourceRow[] = [];
+    const pageSize = 1000;
+    for (let from = 0; ; from += pageSize) {
+      const { data: page, error } = await context.supabase
+        .from("attendance_roster_assignments")
+        .select("location_id, staff_id, work_date, shift_template_id, shift_start, shift_end, is_week_off")
+        .gte("work_date", source.dateFrom)
+        .lte("work_date", source.dateTo)
+        .order("id", { ascending: true })
+        .range(from, from + pageSize - 1);
+      if (error) throw error;
+      sourceRows.push(...((page ?? []) as CopySourceRow[]));
+      if (!page || page.length < pageSize) break;
+    }
+
+    if (!sourceRows.length) {
+      return {
+        status: "empty" as const,
+        sourceMonth: data.month,
+        targetMonth,
+        copied: 0,
+        skipped: 0,
+        replaced: 0,
+        source: source,
+        target,
+      };
+    }
+
+    let targetCount = 0;
+    {
+      const { count, error } = await context.supabase
+        .from("attendance_roster_assignments")
+        .select("id", { count: "exact", head: true })
+        .gte("work_date", target.dateFrom)
+        .lte("work_date", target.dateTo);
+      if (error) throw error;
+      targetCount = count ?? 0;
+    }
+
+    if (targetCount > 0 && !data.replace) {
+      return {
+        status: "needs_replace" as const,
+        sourceMonth: data.month,
+        targetMonth,
+        sourceCount: sourceRows.length,
+        targetCount,
+        copied: 0,
+        skipped: 0,
+        replaced: 0,
+        source,
+        target,
+      };
+    }
+
+    const locationIds = [...new Set(sourceRows.map((row) => String(row.location_id)))];
+    for (const locationId of locationIds) {
+      await assertAttendanceRosterLocation(context, locationId);
+    }
+
+    let replaced = 0;
+    if (targetCount > 0 && data.replace) {
+      const existing = await fetchRosterAssignmentsInScope(context.supabase, {
+        dateFrom: target.dateFrom,
+        dateTo: target.dateTo,
+        sourceUploadOnly: false,
+      });
+      replaced = existing.length;
+      for (const ids of chunkIds(existing.map((row) => String(row.id)), 200)) {
+        const { error: delErr } = await context.supabase
+          .from("attendance_roster_assignments")
+          .delete()
+          .in("id", ids)
+          .gte("work_date", target.dateFrom)
+          .lte("work_date", target.dateTo);
+        if (delErr) throw delErr;
+      }
+    }
+
+    const payload: {
+      location_id: string;
+      staff_id: string;
+      work_date: string;
+      shift_template_id: string | null;
+      shift_start: string | null;
+      shift_end: string | null;
+      is_week_off: boolean;
+      source: string;
+      created_by: string;
+    }[] = [];
+    let skipped = 0;
+    for (const row of sourceRows) {
+      const workDate = String(row.work_date).slice(0, 10);
+      const mapped = dateMap.get(workDate);
+      if (!mapped) {
+        skipped += 1;
+        continue;
+      }
+      const isWeekOff = Boolean(row.is_week_off);
+      payload.push({
+        location_id: String(row.location_id),
+        staff_id: String(row.staff_id),
+        work_date: mapped,
+        shift_template_id: isWeekOff ? null : ((row.shift_template_id as string | null) ?? null),
+        shift_start: isWeekOff
+          ? null
+          : row.shift_start
+            ? String(row.shift_start).slice(0, 5)
+            : null,
+        shift_end: isWeekOff ? null : row.shift_end ? String(row.shift_end).slice(0, 5) : null,
+        is_week_off: isWeekOff,
+        source: "copied",
+        created_by: context.userId,
+      });
+    }
+
+    for (const chunk of chunkIds(payload, 400)) {
+      const { error } = await context.supabase
+        .from("attendance_roster_assignments")
+        .upsert(chunk, { onConflict: "staff_id,work_date" });
+      if (error) throw error;
+    }
+
+    const byLocation = new Map<string, { staffIds: Set<string>; minDate: string; maxDate: string }>();
+    for (const row of payload) {
+      const current = byLocation.get(row.location_id);
+      if (!current) {
+        byLocation.set(row.location_id, {
+          staffIds: new Set([row.staff_id]),
+          minDate: row.work_date,
+          maxDate: row.work_date,
+        });
+        continue;
+      }
+      current.staffIds.add(row.staff_id);
+      if (row.work_date < current.minDate) current.minDate = row.work_date;
+      if (row.work_date > current.maxDate) current.maxDate = row.work_date;
+    }
+    for (const [locationId, scope] of byLocation) {
+      await recalculateAttendanceRange(context.supabase, locationId, scope.minDate, scope.maxDate, {
+        staffIds: [...scope.staffIds],
+      });
+    }
+
+    await context.supabase.from("attendance_audit_events").insert({
+      actor_id: context.userId,
+      action: "roster.copy_to_next_month",
+      entity_type: "attendance_roster_assignments",
+      entity_id: null,
+      location_id: locationIds[0] ?? null,
+      after: {
+        sourceMonth: data.month,
+        targetMonth,
+        sourceFrom: source.dateFrom,
+        sourceTo: source.dateTo,
+        targetFrom: target.dateFrom,
+        targetTo: target.dateTo,
+        copied: payload.length,
+        skipped,
+        replaced,
+        mapping: "day_of_period_index",
+      },
+    });
+
+    return {
+      status: "ok" as const,
+      sourceMonth: data.month,
+      targetMonth,
+      copied: payload.length,
+      skipped,
+      replaced,
+      source,
+      target,
     };
   },
   { auth: { anyCapability: ["people.import_roster", "people.edit_roster", "daily_ops.roster.upload"] } },
