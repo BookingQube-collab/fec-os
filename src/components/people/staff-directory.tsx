@@ -7,6 +7,7 @@ import { Download, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
+import { TintedKpiCard } from "@/components/dashboard/tinted-kpi-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,9 +19,19 @@ import { archiveStaffMember, restoreStaffMember } from "@/lib/staff-roster.funct
 import type { StaffRow } from "@/lib/queries/module-queries.core";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { isActiveStaffStatus } from "@/lib/staff-status";
+import { cn } from "@/lib/utils";
 
 function formatLocation(s: StaffRow): string {
   return formatLocationLabel(s.location_code, s.location_name);
+}
+
+function staffLocationCodes(s: StaffRow): string[] {
+  const codes = new Set<string>();
+  if (s.location_code) codes.add(s.location_code);
+  for (const loc of s.work_locations ?? []) {
+    if (loc.code) codes.add(loc.code);
+  }
+  return [...codes];
 }
 
 export function StaffDirectory({
@@ -45,6 +56,7 @@ export function StaffDirectory({
   const [e3, setE3] = useState("");
   const [status, setStatus] = useState("active");
   const [missing, setMissing] = useState(false);
+  const [loc, setLoc] = useState("");
   const [sort, setSort] = useState<"name" | "code" | "location">("name");
   const [page, setPage] = useState(1);
   const pageSize = 25;
@@ -62,33 +74,64 @@ export function StaffDirectory({
     () => [...new Set(staff.map((s) => s.job_title).filter(Boolean))] as string[],
     [staff],
   );
+  const locations = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const s of staff) {
+      if (s.location_code) map.set(s.location_code, formatLocationLabel(s.location_code, s.location_name));
+      for (const loc of s.work_locations ?? []) {
+        if (loc.code && !map.has(loc.code)) map.set(loc.code, formatLocationLabel(loc.code, loc.name));
+      }
+    }
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [staff]);
+
+  const scoped = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    return staff.filter((s) => {
+      if (needle) {
+        const blob = `${s.full_name} ${s.employee_code} ${s.qid ?? ""} ${s.phone ?? ""}`.toLowerCase();
+        if (!blob.includes(needle)) return false;
+      }
+      if (loc && !staffLocationCodes(s).includes(loc)) return false;
+      if (position && s.job_title !== position) return false;
+      if (e3 === "yes" && s.e3_enrolled !== true) return false;
+      if (e3 === "no" && s.e3_enrolled !== false) return false;
+      if (status === "active" && !isActiveStaffStatus(s.status)) return false;
+      if (status === "inactive" && isActiveStaffStatus(s.status)) return false;
+      if (missing && s.qid && s.phone && s.hire_date) return false;
+      return true;
+    });
+  }, [staff, q, loc, position, e3, status, missing]);
 
   const filtered = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    return staff
-      .filter((s) => {
-        if (needle) {
-          const blob = `${s.full_name} ${s.employee_code} ${s.qid ?? ""} ${s.phone ?? ""}`.toLowerCase();
-          if (!blob.includes(needle)) return false;
-        }
-        if (position && s.job_title !== position) return false;
-        if (type && s.employment_type !== type) return false;
-        if (e3 === "yes" && s.e3_enrolled !== true) return false;
-        if (e3 === "no" && s.e3_enrolled !== false) return false;
-        if (status === "active" && !isActiveStaffStatus(s.status)) return false;
-        if (status === "inactive" && isActiveStaffStatus(s.status)) return false;
-        if (missing && s.qid && s.phone && s.hire_date) return false;
-        return true;
-      })
-      .sort((a, b) => {
-        if (sort === "code") return a.employee_code.localeCompare(b.employee_code);
-        if (sort === "location") return formatLocation(a).localeCompare(formatLocation(b));
-        return a.full_name.localeCompare(b.full_name);
-      });
-  }, [staff, q, position, type, e3, status, missing, sort]);
+    const rows = type ? scoped.filter((s) => s.employment_type === type) : scoped;
+    return [...rows].sort((a, b) => {
+      if (sort === "code") return a.employee_code.localeCompare(b.employee_code);
+      if (sort === "location") return formatLocation(a).localeCompare(formatLocation(b));
+      return a.full_name.localeCompare(b.full_name);
+    });
+  }, [scoped, type, sort]);
+
+  // Counts match the table row set (all active filters, including type).
+  const kpis = useMemo(() => {
+    let permanent = 0;
+    let joker = 0;
+    let secondment = 0;
+    for (const s of filtered) {
+      if (s.employment_type === "permanent") permanent += 1;
+      else if (s.employment_type === "joker") joker += 1;
+      else if (s.employment_type === "secondment") secondment += 1;
+    }
+    return { total: filtered.length, permanent, joker, secondment };
+  }, [filtered]);
 
   const pages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+
+  function setTypeFilter(next: string) {
+    setType((prev) => (prev === next ? "" : next));
+    setPage(1);
+  }
 
   async function exportRoster(format: "csv" | "xlsx") {
     const res = await fetch(
@@ -127,6 +170,41 @@ export function StaffDirectory({
 
   return (
     <div className="space-y-3">
+      <div
+        className="grid grid-cols-2 gap-3 lg:grid-cols-4"
+        role="region"
+        aria-label={t("people.staff.kpiStrip")}
+      >
+        <button
+          type="button"
+          className={cn("text-start", !type && "ring-2 ring-primary/30 rounded-2xl")}
+          onClick={() => setTypeFilter("")}
+        >
+          <TintedKpiCard title={t("people.staff.kpiTotal")} value={kpis.total} tint="sky" compact />
+        </button>
+        <button
+          type="button"
+          className={cn("text-start", type === "permanent" && "ring-2 ring-primary/30 rounded-2xl")}
+          onClick={() => setTypeFilter("permanent")}
+        >
+          <TintedKpiCard title={t("people.staff.kpiPermanent")} value={kpis.permanent} tint="green" compact />
+        </button>
+        <button
+          type="button"
+          className={cn("text-start", type === "joker" && "ring-2 ring-primary/30 rounded-2xl")}
+          onClick={() => setTypeFilter("joker")}
+        >
+          <TintedKpiCard title={t("people.staff.kpiJoker")} value={kpis.joker} tint="amber" compact />
+        </button>
+        <button
+          type="button"
+          className={cn("text-start", type === "secondment" && "ring-2 ring-primary/30 rounded-2xl")}
+          onClick={() => setTypeFilter("secondment")}
+        >
+          <TintedKpiCard title={t("people.staff.kpiSecondment")} value={kpis.secondment} tint="orange" compact />
+        </button>
+      </div>
+
       <div className="flex flex-wrap items-end gap-2">
         <Input
           className="max-w-xs"
@@ -136,6 +214,15 @@ export function StaffDirectory({
             setQ(e.target.value);
             setPage(1);
           }}
+        />
+        <SearchableSelect
+          value={loc}
+          onValueChange={(next) => { setLoc(next); setPage(1); }}
+          placeholder={t("people.staff.allLocations")}
+          emptyOption={{ value: "", label: t("people.staff.allLocations") }}
+          options={locations.map(([code, label]) => ({ value: code, label, keywords: `${code} ${label}` }))}
+          triggerClassName="h-10 min-h-10 w-auto min-w-[9.5rem] font-normal"
+          className="w-auto"
         />
         <SearchableSelect
           value={position}

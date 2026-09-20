@@ -3082,6 +3082,11 @@
         "joker": "Joker"
       },
       "roleHoursHelp": "Tag each person as Permanent, Secondment, or Joker. Expected daily hours and break are set per location under HR admin → Site working hours.",
+      "kpiStrip": "Staff summary",
+      "kpiTotal": "Total Staff",
+      "kpiPermanent": "Permanent",
+      "kpiJoker": "Joker",
+      "kpiSecondment": "Secondment",
       "photo": "Photo",
       "photoUpload": "Upload photo",
       "photoRemove": "Remove photo",

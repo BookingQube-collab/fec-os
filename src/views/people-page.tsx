@@ -16,7 +16,7 @@ import {
   CalendarDays,
   RefreshCw,
 } from "lucide-react";
-import { useState, useEffect, useMemo, Suspense } from "react";
+import { useState, useEffect, Suspense } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -27,12 +27,6 @@ import { StaffDirectory } from "@/components/people/staff-directory";
 import { StaffPhotoField, type StaffPhotoDraft } from "@/components/people/staff-photo-field";
 import { useStaff } from "@/hooks/queries/usePeople";
 import { useSites } from "@/hooks/queries/useSites";
-import {
-  CANONICAL_LOCATION_CODES,
-  formatLocationLabel,
-  rosterSheetLabel,
-} from "@/lib/locations/normalize";
-import { cn } from "@/lib/utils";
 import {
   createShift,
   updateShift,
@@ -295,7 +289,6 @@ function Empty({ children }: { children: React.ReactNode }) {
 function StaffTab() {
   const { t } = useTranslation();
   const locationId = useLoc();
-  const setCurrentLocationId = useAppStore((s) => s.setCurrentLocationId);
   const canEdit = usePermission("people.edit_roster");
   const qc = useQueryClient();
   const { data, isLoading } = useStaff(locationId ?? null, { includeArchived: true });
@@ -303,28 +296,6 @@ function StaffTab() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editRow, setEditRow] = useState<StaffRow | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
-
-  const locationOptions = useMemo(() => {
-    const byCode = new Map<string, { id: string; code: string; name: string }>();
-    for (const site of sites ?? []) {
-      if (site.status === "active") {
-        byCode.set(site.code, { id: site.id, code: site.code, name: site.name });
-      }
-    }
-    const ordered = CANONICAL_LOCATION_CODES.flatMap((code) => {
-      const loc = byCode.get(code);
-      return loc ? [loc] : [];
-    });
-    if (locationId) {
-      const current =
-        [...byCode.values()].find((loc) => loc.id === locationId) ??
-        (sites ?? []).find((site) => site.id === locationId);
-      if (current && !ordered.some((loc) => loc.id === current.id)) {
-        ordered.push({ id: current.id, code: current.code, name: current.name });
-      }
-    }
-    return ordered;
-  }, [sites, locationId]);
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: queryKeys.people.staff(locationId ?? null, true) });
@@ -342,6 +313,8 @@ function StaffTab() {
     onError: (e) => toast.error((e as Error).message),
   });
 
+  if (isLoading) return <Empty>{t("people.staff.loading")}</Empty>;
+
   return (
     <div className="space-y-3">
       {canEdit && (
@@ -356,34 +329,7 @@ function StaffTab() {
           />
         </div>
       )}
-      <div className="flex flex-wrap gap-2" role="group" aria-label={t("people.staff.location")}>
-        <button
-          type="button"
-          className={cn("filter-chip", !locationId && "filter-chip-active")}
-          aria-pressed={!locationId}
-          onClick={() => setCurrentLocationId(null)}
-        >
-          {t("common.allLocations")}
-        </button>
-        {locationOptions.map((site) => {
-          const label = formatLocationLabel(site.code, rosterSheetLabel(site.code, site.name));
-          return (
-            <button
-              key={site.id}
-              type="button"
-              title={label}
-              className={cn("filter-chip max-w-[18rem] truncate", locationId === site.id && "filter-chip-active")}
-              aria-pressed={locationId === site.id}
-              onClick={() => setCurrentLocationId(site.id)}
-            >
-              {label}
-            </button>
-          );
-        })}
-      </div>
-      {isLoading ? (
-        <Empty>{t("people.staff.loading")}</Empty>
-      ) : !data?.length ? (
+      {!data?.length ? (
         <Empty>{t("people.staff.empty")}</Empty>
       ) : (
         <>
