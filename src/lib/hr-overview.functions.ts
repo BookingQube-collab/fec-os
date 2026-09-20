@@ -96,10 +96,23 @@ export const getHrOverview = createAuthenticatedAction(
       }
     }
 
+    const { count: expiredDocs, error: expiredDocsErr } = await context.supabase
+      .from("hr_employee_documents")
+      .select("id", { count: "exact", head: true })
+      .is("deleted_at", null)
+      .not("expiry_date", "is", null)
+      .lt("expiry_date", today);
+    const expiredDocsMissing = Boolean(
+      expiredDocsErr && (tableMissing(expiredDocsErr.message) || /permission/i.test(expiredDocsErr.message ?? "")),
+    );
+    if (expiredDocsErr && !expiredDocsMissing) throw expiredDocsErr;
+
     const { count: expiringDocs, error: docsErr } = await context.supabase
       .from("hr_employee_documents")
       .select("id", { count: "exact", head: true })
+      .is("deleted_at", null)
       .not("expiry_date", "is", null)
+      .gte("expiry_date", today)
       .lte("expiry_date", expiryTo);
     const docsMissing = Boolean(docsErr && (tableMissing(docsErr.message) || /permission/i.test(docsErr.message ?? "")));
     if (docsErr && !docsMissing) throw docsErr;
@@ -149,6 +162,7 @@ export const getHrOverview = createAuthenticatedAction(
       pendingLeave: leaveMissing ? 0 : pendingLeave ?? 0,
       fieldCheckedIn,
       payrollBlocked,
+      expiredDocs: expiredDocsMissing ? 0 : expiredDocs ?? 0,
       expiringDocs: docsMissing ? 0 : expiringDocs ?? 0,
       openOnboarding: onboardMissing ? 0 : openOnboarding ?? 0,
       activeAnnouncements: annMissing ? 0 : activeAnnouncements ?? 0,

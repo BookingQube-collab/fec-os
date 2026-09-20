@@ -166,8 +166,36 @@ export function sumLeaveDaysInPeriod(
   return total;
 }
 
-export const HR_DOC_TYPES = ["contract", "qid", "passport", "visa", "other"] as const;
+export const HR_DOC_TYPES = [
+  "cv",
+  "qid",
+  "passport",
+  "visa",
+  "secondment",
+  "contract",
+  "educational_certificate",
+  "mofa_attested_certificate",
+  "warning_letter",
+  "increment_letter",
+  "demotion_letter",
+  "resignation_letter",
+  "termination_letter",
+  "medical_certificate",
+  "leave_document",
+  "air_ticket_receipt",
+  "loan_document",
+  "other",
+] as const;
 export type HrDocType = (typeof HR_DOC_TYPES)[number];
+
+/** Identity / disciplinary / salary docs — extra caps when viewing others. */
+export const HR_DOC_SENSITIVE_IDENTITY = new Set<HrDocType>(["qid", "passport"]);
+export const HR_DOC_SENSITIVE_DISCIPLINARY = new Set<HrDocType>([
+  "warning_letter",
+  "demotion_letter",
+  "termination_letter",
+]);
+export const HR_DOC_SENSITIVE_SALARY = new Set<HrDocType>(["loan_document", "increment_letter"]);
 
 export const HR_CHECKLIST_KINDS = ["onboarding", "offboarding"] as const;
 export type HrChecklistKind = (typeof HR_CHECKLIST_KINDS)[number];

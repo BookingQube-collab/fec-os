@@ -101,6 +101,7 @@ export const getHrReportsSummary = createAuthenticatedAction(
     const { count: expiringDocs, error: docsErr } = await context.supabase
       .from("hr_employee_documents")
       .select("id", { count: "exact", head: true })
+      .is("deleted_at", null)
       .not("expiry_date", "is", null)
       .lte("expiry_date", expiryHorizon.toISOString().slice(0, 10));
     if (docsErr && !tableMissing(docsErr.message) && !/permission/i.test(docsErr.message ?? "")) throw docsErr;

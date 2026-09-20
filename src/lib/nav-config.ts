@@ -216,7 +216,7 @@ const HR_ADMIN_NAV_GROUP: SidebarNavGroup = {
   viewCapability: "hr.manage",
   items: [
     { href: "/people/hr", labelKey: "nav.hrDashboard", capability: "people.view_roster" },
-    { href: "/people/hr/documents", labelKey: "nav.hrDocuments", capability: "hr.manage" },
+    { href: "/people/hr/documents", labelKey: "nav.hrDocuments", capability: "hr.docs.manage" },
     { href: "/people/hr/onboarding", labelKey: "nav.hrOnboarding", capability: "hr.manage" },
     { href: "/people/hr/announcements", labelKey: "nav.hrAnnouncements", capability: "hr.manage" },
     { href: "/people/hr/shift-policy", labelKey: "nav.hrShiftPolicy", capability: "hr.manage" },
