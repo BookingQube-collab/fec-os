@@ -3,9 +3,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "npm run generate:api-catalog && next build",
+    "build": "npm run generate:api-catalog && node --max-old-space-size=6144 ./node_modules/next/dist/bin/next build",
     "start": "next start",
     "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.build.json --noEmit",
     "format": "prettier --write .",
     "seed:admin": "node --env-file=.env.local scripts/seed-admin.mjs",
     "seed:supervisors": "node --env-file=.env.local scripts/seed-supervisors.mjs",

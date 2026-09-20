@@ -3,6 +3,17 @@ import { type NextConfig } from "next";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // Build speed (Vercel 2-core): ESLint during `next build` was the long stall after
+  // compile (~63s). Keep typechecking ON (no ignoreBuildErrors). Run `npm run lint`
+  // separately in CI. Expected: deploy fails in ~2–5 min on real TS errors instead of
+  // ~34 min of lint+thrashing; warm cache typecheck should land closer to compile time.
+  // Deploy latest master — stale SHAs (e.g. 7d29789) will not pick this up.
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+  typescript: {
+    tsconfigPath: "tsconfig.build.json",
+  },
   compiler: {
     removeConsole: process.env.NODE_ENV === "production" ? { exclude: ["error", "warn"] } : false,
   },

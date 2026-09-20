@@ -11,7 +11,18 @@ const compat = new FlatCompat({
 
 const eslintConfig = [
   {
-    ignores: [".next/**", "node_modules/**", "scripts/**"],
+    // .mjs avoids MODULE_TYPELESS_PACKAGE_JSON reparse overhead (no package.json "type").
+    ignores: [
+      ".next/**",
+      "node_modules/**",
+      "scripts/**",
+      "supabase/**",
+      "data/**",
+      "skills/**",
+      "agent/**",
+      // Local AI-agent skill mirrors (dotdirs) — not app code
+      ".*/**",
+    ],
   },
   ...compat.extends("next/core-web-vitals", "prettier"),
   {
