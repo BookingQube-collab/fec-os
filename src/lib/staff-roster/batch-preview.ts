@@ -96,6 +96,17 @@ export function mergeShiftPreviewRows(
       shiftStart: edit.shiftStart,
       shiftEnd: edit.shiftEnd,
       isWeekOff: Boolean(edit.isWeekOff),
+      // Inline staff maps from preview (name_map / remap).
+      staffId: edit.staffId !== undefined ? edit.staffId : row.staffId,
+      staffLabel: edit.staffLabel ?? row.staffLabel,
+      sourceName: edit.sourceName ?? row.sourceName,
+      employeeCode: edit.employeeCode !== undefined ? edit.employeeCode : row.employeeCode,
+      qid: edit.qid !== undefined ? edit.qid : row.qid,
+      matchRule: edit.matchRule ?? row.matchRule,
+      status: edit.status ?? row.status,
+      message: edit.message !== undefined ? edit.message : row.message,
+      locationId: edit.locationId !== undefined ? edit.locationId : row.locationId,
+      locationCode: edit.locationCode !== undefined ? edit.locationCode : row.locationCode,
     };
   });
   return {

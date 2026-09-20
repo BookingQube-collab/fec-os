@@ -99,6 +99,8 @@ export type MatchedRosterRow = {
   locationId: string | null;
   staffId: string | null;
   staffLabel: string;
+  /** Original sheet employee name (before directory remap). Used for name-map persist + batch apply. */
+  sourceName?: string | null;
   qid: string | null;
   employeeCode: string | null;
   shiftStart: string | null;
@@ -890,6 +892,7 @@ export function buildAttendanceRosterPreview(input: {
       locationId = input.staff.find((s) => s.id === matched.staffId)?.location_id ?? null;
     }
     const loc = input.locations.find((l) => l.id === locationId);
+    const sourceName = ids.name || ids.code || ids.qid || matched.label;
     rows.push({
       rowNumber: draft.rowNumber,
       workDate,
@@ -897,6 +900,7 @@ export function buildAttendanceRosterPreview(input: {
       locationId,
       staffId: matched.staffId,
       staffLabel: matched.label,
+      sourceName,
       qid: ids.qid || null,
       employeeCode: ids.code || null,
       shiftStart: isWeekOff ? null : draft.shiftStart,

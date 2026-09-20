@@ -9,7 +9,7 @@ import {
   type AuthContext,
 } from "@/lib/server/create-action";
 import { ForbiddenError, assertLocationAccess } from "@/lib/server/authorize";
-import { canUserDo } from "@/lib/rbac";
+import { canUserDo, type AppRole } from "@/lib/rbac";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { ATTENDANCE_FILE_BUCKET, DEFAULT_RULES, DEFAULT_SHIFT, isAdmsDeviceOnline } from "@/lib/attendance-hr/constants";
@@ -41,8 +41,10 @@ import {
   type AttendanceDashboardPunch,
 } from "@/lib/attendance-hr/dashboard";
 import { expectedOnDutyStaffIds, expectedRowsForDay, isWorkDateCovered } from "@/lib/attendance-hr/roster-expected";
+import { BIOMETRIC_USER_CONFLICT } from "@/lib/attendance-hr/mapping-merge";
 import { ATTENDANCE_TALLY_UPLOAD_NOTE } from "@/lib/attendance-hr/roster-upload";
 import { recalculateAttendanceRange } from "@/lib/attendance-hr/process";
+import { normalizeName } from "@/lib/staff-roster/values";
 import {
   normalizeShiftHm,
   resolveListingLateMinutes,
@@ -722,6 +724,140 @@ export const mapAttendanceBiometricUsers = createAuthenticatedAction(
     return { saved, failed };
   },
   { auth: { capability: "attendance.map_users" } },
+);
+
+/**
+ * Persist a sheet-name → staff map for roster import (location-scoped device_name).
+ * Reuses attendance_biometric_users so future imports auto-match via name_map.
+ */
+export const mapAttendanceRosterSheetName = createAuthenticatedAction(
+  z.object({
+    locationId: z.string().uuid(),
+    deviceName: z.string().min(1).max(200),
+    staffId: z.string().uuid(),
+  }),
+  async (data, context) => {
+    const roles = (context.roles ?? []) as AppRole[];
+    if (!canUserDo(roles, "attendance.map_users") && !canUserDo(roles, "people.import_roster")) {
+      throw new ForbiddenError("Roster mapping permission required");
+    }
+    await assertSite(context, data.locationId);
+
+    const deviceName = data.deviceName.trim();
+    if (!deviceName) throw new Error("Sheet name is required");
+
+    const { data: staff, error: sErr } = await context.supabase
+      .from("staff")
+      .select("id, full_name, employee_code, department, job_title, status")
+      .eq("id", data.staffId)
+      .single();
+    if (sErr) throw sErr;
+
+    const { data: existing, error: eErr } = await context.supabase
+      .from("attendance_biometric_users")
+      .select("id, location_id, device_id, biometric_user_id, device_name")
+      .eq("location_id", data.locationId)
+      .limit(5000);
+    if (eErr) throw eErr;
+
+    const key = normalizeName(deviceName);
+    const matches = (existing ?? []).filter((row) => normalizeName(String(row.device_name ?? "")) === key);
+
+    if (matches.length) {
+      for (const mapping of matches) {
+        await applyStaffToBiometricUser(
+          context,
+          {
+            id: mapping.id as string,
+            location_id: mapping.location_id as string,
+            device_id: mapping.device_id as string,
+            biometric_user_id: String(mapping.biometric_user_id),
+          },
+          staff,
+        );
+      }
+      await audit(context, "attendance.map_roster_name", "attendance_biometric_users", matches[0].id as string, data.locationId, {
+        device_name: deviceName,
+        staff_id: staff.id,
+        updated: matches.length,
+      });
+      return { ok: true as const, mappingId: matches[0].id as string, created: false, updated: matches.length };
+    }
+
+    const { data: site } = await context.supabase
+      .from("attendance_site_settings")
+      .select("company_id")
+      .eq("location_id", data.locationId)
+      .maybeSingle();
+    const companyId = site?.company_id as string | null;
+    if (!companyId) throw new Error("Attendance company is not configured for this site.");
+
+    let deviceId: string | null = null;
+    const { data: device } = await context.supabase
+      .from("attendance_devices")
+      .select("id")
+      .eq("location_id", data.locationId)
+      .eq("active", true)
+      .order("device_name")
+      .limit(1)
+      .maybeSingle();
+    if (device?.id) {
+      deviceId = device.id as string;
+    } else {
+      const { data: createdDevice, error: dErr } = await context.supabase
+        .from("attendance_devices")
+        .upsert(
+          {
+            location_id: data.locationId,
+            company_id: companyId,
+            device_code: "roster-name-map",
+            device_name: "Roster name map",
+            vendor: "manual",
+            active: true,
+            timezone: "Asia/Qatar",
+            connection_mode: "file",
+          },
+          { onConflict: "location_id,device_code", ignoreDuplicates: false },
+        )
+        .select("id")
+        .single();
+      if (dErr) throw dErr;
+      deviceId = createdDevice.id as string;
+    }
+
+    const biometricUserId = `roster:${key.replace(/\s+/g, "_")}`.slice(0, 80);
+    const { data: inserted, error: iErr } = await context.supabase
+      .from("attendance_biometric_users")
+      .upsert(
+        {
+          company_id: companyId,
+          location_id: data.locationId,
+          device_id: deviceId,
+          biometric_user_id: biometricUserId,
+          device_name: deviceName,
+          staff_id: staff.id,
+          employee_code: staff.employee_code,
+          full_name: staff.full_name,
+          department: staff.department,
+          job_title: staff.job_title,
+          employment_status: staff.status ?? "unknown",
+          mapped_by: context.userId,
+          mapped_at: new Date().toISOString(),
+        },
+        { onConflict: BIOMETRIC_USER_CONFLICT, ignoreDuplicates: false },
+      )
+      .select("id")
+      .single();
+    if (iErr) throw iErr;
+
+    await audit(context, "attendance.map_roster_name", "attendance_biometric_users", inserted.id, data.locationId, {
+      device_name: deviceName,
+      staff_id: staff.id,
+      created: true,
+    });
+    return { ok: true as const, mappingId: inserted.id as string, created: true, updated: 1 };
+  },
+  { auth: { anyCapability: ["attendance.map_users", "people.import_roster"] } },
 );
 
 async function assertMapUsers(context: AuthContext) {

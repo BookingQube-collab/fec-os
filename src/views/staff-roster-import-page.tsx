@@ -18,6 +18,11 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useUserRoles } from "@/hooks/use-auth";
 import { useSites } from "@/hooks/queries/useSites";
+import { useStaff } from "@/hooks/queries/usePeople";
+import { applyStaffMapToPreviewRows } from "@/lib/attendance-hr/apply-roster-name-map";
+import { mapAttendanceRosterSheetName } from "@/lib/attendance-hr.functions";
+import type { MatchedRosterRow } from "@/lib/attendance-hr/roster-upload";
+import { isActiveRosterStaff } from "@/lib/staff-status";
 import { queryKeys } from "@/lib/query-keys";
 import {
   formatRosterFileSize,
@@ -40,20 +45,7 @@ import { useAppStore } from "@/stores/app-store";
 
 type UploadArg = { mode: "preview" | "commit" };
 
-type ShiftPreviewRow = {
-  rowNumber: number;
-  workDate: string;
-  locationCode: string | null;
-  staffLabel: string;
-  qid: string | null;
-  employeeCode: string | null;
-  shiftStart: string | null;
-  shiftEnd: string | null;
-  isWeekOff: boolean;
-  matchRule: string;
-  status: "matched" | "unmatched" | "skipped";
-  message: string | null;
-};
+type ShiftPreviewRow = MatchedRosterRow;
 
 type PreviewResponse = {
   mode: string;
@@ -75,9 +67,27 @@ type PreviewResponse = {
   error?: string;
 };
 
-const SHIFT_ROW_HEIGHT = 68;
+type MapStaffOption = {
+  id: string;
+  full_name: string;
+  employee_code: string;
+  qid?: string | null;
+  location_id: string;
+  is_roaming?: boolean | null;
+  work_location_ids?: string[] | null;
+  status?: string | null;
+};
+
+const SHIFT_ROW_HEIGHT = 96;
 const SHIFT_VIEWPORT_PX = 520;
 const SHIFT_OVERSCAN = 8;
+
+function staffAvailableAtLocation(s: MapStaffOption, locationId: string | null) {
+  if (!locationId) return true;
+  if (s.location_id === locationId) return true;
+  if (s.is_roaming) return true;
+  return Boolean(s.work_location_ids?.includes(locationId));
+}
 
 function todayYmd() {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" });
@@ -592,18 +602,35 @@ const ShiftPreviewPanel = memo(function ShiftPreviewPanel({
   const [query, setQuery] = useState("");
   const [rowsOpen, setRowsOpen] = useState(false);
   const [tableReady, setTableReady] = useState(false);
+  const [mappingKey, setMappingKey] = useState<string | null>(null);
   const deferredQuery = useDeferredValue(query);
   const allRows = useMemo(() => preview?.rows ?? [], [preview?.rows]);
   const batchKey = preview?.batchId ?? "";
   const editable = Boolean(preview && preview.mode !== "commit");
   const rowsRef = useRef(allRows);
   rowsRef.current = allRows;
+  const staffQuery = useStaff(null, { enabled: rowsOpen && editable });
+  const staffOptions = useMemo((): MapStaffOption[] => {
+    return (staffQuery.data ?? [])
+      .filter((s) => isActiveRosterStaff(s.status))
+      .map((s) => ({
+        id: s.id,
+        full_name: s.full_name,
+        employee_code: s.employee_code,
+        qid: s.qid,
+        location_id: s.location_id,
+        is_roaming: s.is_roaming,
+        work_location_ids: s.work_location_ids,
+        status: s.status,
+      }));
+  }, [staffQuery.data]);
 
   useEffect(() => {
     setRowsOpen(false);
     setTableReady(false);
     setFilter("all");
     setQuery("");
+    setMappingKey(null);
   }, [batchKey]);
 
   useEffect(() => {
@@ -622,7 +649,7 @@ const ShiftPreviewPanel = memo(function ShiftPreviewPanel({
     return allRows.filter((row) => {
       if (filter !== "all" && row.status !== filter) return false;
       if (!q) return true;
-      return [row.staffLabel, row.employeeCode, row.qid, row.locationCode, row.workDate]
+      return [row.staffLabel, row.sourceName, row.employeeCode, row.qid, row.locationCode, row.workDate]
         .some((value) => String(value ?? "").toLowerCase().includes(q));
     });
   }, [allRows, filter, deferredQuery, rowsOpen]);
@@ -640,6 +667,49 @@ const ShiftPreviewPanel = memo(function ShiftPreviewPanel({
     ));
     onRowsChange(next, "isWeekOff" in patch || "status" in patch);
   }, [onRowsChange]);
+
+  const mapStaff = useCallback(async (row: ShiftPreviewRow, staffId: string) => {
+    if (!staffId || !row.locationId) {
+      toast.error(t("people.roster.mapStaffFailed"));
+      return;
+    }
+    const staff = staffOptions.find((s) => s.id === staffId);
+    if (!staff) {
+      toast.error(t("people.roster.mapStaffFailed"));
+      return;
+    }
+    const sourceName = (row.sourceName?.trim() || row.staffLabel).trim();
+    const key = `${row.rowNumber}:${row.workDate}`;
+    setMappingKey(key);
+    try {
+      await mapAttendanceRosterSheetName({
+        locationId: row.locationId,
+        deviceName: sourceName,
+        staffId,
+      });
+      const next = applyStaffMapToPreviewRows(rowsRef.current, {
+        sourceName,
+        locationId: row.locationId,
+        locationCode: row.locationCode,
+        staffId,
+        mappedLabel: staff.full_name,
+        employeeCode: staff.employee_code,
+        qid: staff.qid,
+      });
+      onRowsChange(next, true);
+      toast.success(
+        t("people.roster.mapStaffApplied", {
+          name: sourceName,
+          staff: staff.full_name,
+          location: row.locationCode ?? "",
+        }),
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("people.roster.mapStaffFailed"));
+    } finally {
+      setMappingKey(null);
+    }
+  }, [onRowsChange, staffOptions, t]);
 
   if (!preview) return null;
 
@@ -756,7 +826,10 @@ const ShiftPreviewPanel = memo(function ShiftPreviewPanel({
                         key={`${row.rowNumber}-${row.workDate}-${virtualize ? windowed.start + i : i}`}
                         row={row}
                         editable={editable}
+                        staffOptions={staffOptions}
+                        mappingBusy={mappingKey === `${row.rowNumber}:${row.workDate}`}
                         onPatch={patchRow}
+                        onMapStaff={mapStaff}
                       />
                     ))}
                     {virtualize && windowed.bottomPad > 0 ? (
@@ -780,18 +853,36 @@ const ShiftPreviewPanel = memo(function ShiftPreviewPanel({
 const ShiftPreviewRowView = memo(function ShiftPreviewRowView({
   row,
   editable,
+  staffOptions,
+  mappingBusy,
   onPatch,
+  onMapStaff,
 }: {
   row: ShiftPreviewRow;
   editable: boolean;
+  staffOptions: MapStaffOption[];
+  mappingBusy: boolean;
   onPatch: (row: ShiftPreviewRow, patch: Partial<ShiftPreviewRow>) => void;
+  onMapStaff: (row: ShiftPreviewRow, staffId: string) => void;
 }) {
   const { t } = useTranslation();
+  const canMap = editable && row.status !== "skipped" && Boolean(row.locationId) && row.matchRule !== "outside_period";
+  const locationStaff = useMemo(() => {
+    if (!canMap) return [];
+    const keep = new Set<string>();
+    if (row.staffId) keep.add(row.staffId);
+    return staffOptions.filter((s) => staffAvailableAtLocation(s, row.locationId) || keep.has(s.id));
+  }, [canMap, staffOptions, row.locationId, row.staffId]);
+  const sourceName = row.sourceName?.trim() || row.staffLabel;
+
   return (
     <TableRow>
       <TableCell className="whitespace-nowrap">{row.workDate || "—"}</TableCell>
       <TableCell>
-        <div className="font-medium">{row.staffLabel}</div>
+        <div className="font-medium">{sourceName}</div>
+        {row.status === "matched" && row.staffLabel && row.staffLabel !== sourceName ? (
+          <div className="text-xs text-muted-foreground">{row.staffLabel}</div>
+        ) : null}
         <div className="text-xs text-muted-foreground">{row.employeeCode || row.qid || ""}</div>
       </TableCell>
       <TableCell>{row.locationCode ?? "—"}</TableCell>
@@ -819,11 +910,44 @@ const ShiftPreviewRowView = memo(function ShiftPreviewRowView({
           row.isWeekOff ? t("people.roster.dutyOff") : t("people.roster.dutyYes")
         )}
       </TableCell>
-      <TableCell>
+      <TableCell className="min-w-[14rem]">
         <Badge variant={row.status === "matched" ? "success" : row.status === "skipped" ? "secondary" : "destructive"}>
           {row.status}
         </Badge>
         {row.message ? <p className="mt-1 text-xs text-muted-foreground">{row.message}</p> : null}
+        {canMap ? (
+          <div className="mt-2 space-y-1">
+            <SearchableSelect
+              value={row.staffId ?? ""}
+              disabled={mappingBusy}
+              onValueChange={(value) => {
+                if (!value || value === row.staffId) return;
+                onMapStaff(row, value);
+              }}
+              placeholder={t("people.roster.mapStaffPlaceholder")}
+              emptyOption={
+                row.status === "unmatched"
+                  ? { value: "", label: t("people.roster.mapStaffPlaceholder") }
+                  : undefined
+              }
+              triggerClassName="h-auto min-h-9 min-w-48 max-w-72 px-2 text-left font-normal"
+              options={locationStaff.map((s) => ({
+                value: s.id,
+                label: s.full_name,
+                description: `${s.employee_code}${s.qid ? ` · ${s.qid}` : ""}`,
+                keywords: `${s.full_name} ${s.employee_code} ${s.qid ?? ""}`,
+              }))}
+            />
+            {mappingBusy ? (
+              <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                {t("people.roster.mapStaff")}
+              </p>
+            ) : row.matchRule === "name_map" ? (
+              <p className="text-xs text-muted-foreground">{t("people.roster.mappedViaPicker")}</p>
+            ) : null}
+          </div>
+        ) : null}
       </TableCell>
     </TableRow>
   );

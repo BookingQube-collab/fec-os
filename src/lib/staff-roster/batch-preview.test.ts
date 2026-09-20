@@ -127,4 +127,26 @@ describe("mergeShiftPreviewRows", () => {
     expect(next.matched).toBe(1);
     expect(next.rows[1]?.staffLabel).toBe("Unknown");
   });
+
+  it("applies inline staff maps so confirm writes rematched rows", () => {
+    const next = mergeShiftPreviewRows(shiftPreview, [
+      {
+        ...shiftPreview.rows[1],
+        staffId: "s-2",
+        staffLabel: "Mapped Person",
+        sourceName: "Unknown",
+        matchRule: "name_map",
+        status: "matched",
+        message: null,
+      },
+    ]);
+    expect(next.rows[1]).toMatchObject({
+      staffId: "s-2",
+      status: "matched",
+      matchRule: "name_map",
+      sourceName: "Unknown",
+    });
+    expect(next.matched).toBe(2);
+    expect(next.unmatched).toBe(0);
+  });
 });
