@@ -118,8 +118,22 @@ export const listProbationReviews = createAuthenticatedAction(
 );
 
 export const listProbationDashboard = createAuthenticatedActionNoInput(async (context) => {
+  type UpcomingRow = {
+    staffId: string;
+    staffName: string | null;
+    employeeCode: string | null;
+    staffStatus: string | null;
+    probationStart: string;
+    probationEnd: string;
+    daysRemaining: number;
+    reviewId: string | null;
+    reviewStatus: string | null;
+    decision: string | null;
+    flagsPhase6Termination: boolean;
+    onProbation: boolean;
+  };
   if (!canUserDo(context.roles ?? [], "hr.probation.manage") && !canUserDo(context.roles ?? [], "hr.manage")) {
-    return { upcoming: [] as ReturnType<typeof mapReview>[], upcomingCount: 0 };
+    return { upcoming: [] as UpcomingRow[], upcomingCount: 0 };
   }
   const today = qatarToday();
   const horizon = new Date(`${today}T00:00:00+03:00`);
@@ -136,7 +150,7 @@ export const listProbationDashboard = createAuthenticatedActionNoInput(async (co
     .lte("probation_end", to)
     .limit(200);
   if (error) {
-    if (tableMissing(error.message)) return { upcoming: [], upcomingCount: 0 };
+    if (tableMissing(error.message)) return { upcoming: [] as UpcomingRow[], upcomingCount: 0 };
     throw error;
   }
 
@@ -149,7 +163,7 @@ export const listProbationDashboard = createAuthenticatedActionNoInput(async (co
     (openReviews ?? []).map((r) => [String(r.staff_id), r]),
   );
 
-  const upcoming = [];
+  const upcoming: UpcomingRow[] = [];
   for (const p of profiles ?? []) {
     const staff = Array.isArray(p.staff) ? p.staff[0] : p.staff;
     if ((staff as { deleted_at?: string | null } | null)?.deleted_at) continue;
