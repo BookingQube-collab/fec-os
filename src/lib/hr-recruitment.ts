@@ -1,6 +1,6 @@
 /**
  * Workforce quota + job-request rules (Phase 9). Pure — no Supabase.
- * Full ATS candidates/scoring = Phase 10; selected/not-joined stubbed at 0.
+ * ATS selected/not-joined counts come from Phase 10 applications.
  */
 
 import { HR_EMPLOYMENT_CATEGORIES, type HrEmploymentCategory } from "@/lib/hr-exit";
@@ -81,7 +81,7 @@ export type QuotaHeadcountInput = {
   onLeaveCount: number;
   servingNoticeCount: number;
   openVacanciesCount: number;
-  /** Phase 10 ATS — stub 0 until candidates exist. */
+  /** Phase 10 ATS — selected through ready_to_join (not yet joined). */
   selectedNotJoinedCount?: number;
 };
 

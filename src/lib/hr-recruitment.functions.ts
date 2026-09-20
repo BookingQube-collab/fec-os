@@ -22,6 +22,7 @@ import {
   type HrJobRequestStatus,
   type HrQuotaOverrideStatus,
 } from "@/lib/hr-recruitment";
+import { HR_SELECTED_NOT_JOINED_STAGES, isSelectedNotJoinedStage } from "@/lib/hr-ats";
 import { canUserDo } from "@/lib/rbac";
 import {
   createAuthenticatedAction,
@@ -135,6 +136,40 @@ async function staffHeadcountForScope(
     else if (isActiveStaffStatus(s.status)) active += 1;
   }
   return { active, onLeave, servingNotice, staff: filtered };
+}
+
+/** Count selected-not-joined applications for a vacancy scope (quota occupancy). */
+export async function countSelectedNotJoined(
+  context: AuthContext,
+  scope: {
+    locationId?: string | null;
+    departmentId?: string | null;
+  },
+): Promise<number> {
+  let vacQ = context.supabase
+    .from("hr_vacancies")
+    .select("id, location_id, department_id")
+    .in("status", ["open", "on_hold", "filled"]);
+  if (scope.locationId) vacQ = vacQ.eq("location_id", scope.locationId);
+  if (scope.departmentId) vacQ = vacQ.eq("department_id", scope.departmentId);
+  const { data: vacs, error } = await vacQ;
+  if (error) {
+    if (tableMissing(error.message)) return 0;
+    throw error;
+  }
+  const ids = (vacs ?? []).map((v) => String(v.id));
+  if (!ids.length) return 0;
+
+  const { data: apps, error: appErr } = await context.supabase
+    .from("hr_applications")
+    .select("id, vacancy_id, stage")
+    .in("vacancy_id", ids)
+    .in("stage", [...HR_SELECTED_NOT_JOINED_STAGES]);
+  if (appErr) {
+    if (tableMissing(appErr.message)) return 0;
+    throw appErr;
+  }
+  return (apps ?? []).filter((a) => isSelectedNotJoinedStage(String(a.stage))).length;
 }
 
 async function openVacancyCount(
@@ -393,13 +428,17 @@ export const getQuotaDashboard = createAuthenticatedAction(
     for (const g of groups.values()) {
       const counts = await staffHeadcountForScope(context, g);
       const open = await openVacancyCount(context, g);
+      const selectedNotJoined = await countSelectedNotJoined(context, {
+        locationId: g.locationId,
+        departmentId: g.departmentId,
+      });
       const metrics = computeQuotaMetrics({
         approvedHeadcount: g.approvedHeadcount,
         activeCount: counts.active,
         onLeaveCount: counts.onLeave,
         servingNoticeCount: counts.servingNotice,
         openVacanciesCount: open,
-        selectedNotJoinedCount: 0,
+        selectedNotJoinedCount: selectedNotJoined,
       });
       tiles.push({
         key: g.key,
@@ -988,7 +1027,7 @@ export const listVacancies = createAuthenticatedAction(
       };
     });
   },
-  { auth: { anyCapability: ["recruitment.manage", "quota.view"] } },
+  { auth: { anyCapability: ["recruitment.manage", "recruitment.request", "quota.view"] } },
 );
 
 // silence unused enum import used for zod only in some builds

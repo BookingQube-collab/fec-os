@@ -204,6 +204,9 @@ export const queryKeys = {
     hrQuota: (filters?: object) => [...queryKeys.people.all, "hr-quota", filters ?? {}] as const,
     hrJobRequests: (filters?: object) => [...queryKeys.people.all, "hr-job-requests", filters ?? {}] as const,
     hrVacancies: (filters?: object) => [...queryKeys.people.all, "hr-vacancies", filters ?? {}] as const,
+    hrAts: (filters?: object) => [...queryKeys.people.all, "hr-ats", filters ?? {}] as const,
+    hrAtsCandidate: (id?: string | null) =>
+      [...queryKeys.people.all, "hr-ats-candidate", id ?? null] as const,
     hrPayrollPeriods: (filters?: object) => [...queryKeys.people.all, "hr-payroll-periods", filters ?? {}] as const,
     hrPayrollPeriod: (periodId: string, filters?: object) =>
       [...queryKeys.people.all, "hr-payroll-period", periodId, filters ?? {}] as const,
