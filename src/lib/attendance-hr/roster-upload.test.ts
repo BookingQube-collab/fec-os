@@ -130,16 +130,44 @@ describe("matchAttendanceRosterStaff", () => {
     ).toBe("s-hassan");
   });
 
-  it("never merges similar names and never matches name without location", () => {
+  it("never merges similar names; unique names match without location", () => {
     expect(
       matchAttendanceRosterStaff({ qid: "", employeeCode: "", name: "Hassan Kaabi", locationId: KDS }, staff).matchRule,
     ).toBe("name_unmatched");
-    expect(
-      matchAttendanceRosterStaff({ qid: "", employeeCode: "", name: "Hassan Al-Kaabi", locationId: null }, staff).matchRule,
-    ).toBe("name_needs_location");
+    const uniqueNoLoc = matchAttendanceRosterStaff(
+      { qid: "", employeeCode: "", name: "Hassan Al-Kaabi", locationId: null },
+      staff,
+    );
+    expect(uniqueNoLoc.staffId).toBe("s-hassan");
+    expect(uniqueNoLoc.matchRule).toBe("name_unique");
     expect(matchAttendanceRosterStaff({ qid: "", employeeCode: "", name: "Ahmed Ali", locationId: INF }, staff).staffId).toBe(
       "s-twin-a",
     );
+  });
+
+  it("matches unique directory name with no location and leaves duplicate names ambiguous", () => {
+    const unique = matchAttendanceRosterStaff(
+      { qid: "", employeeCode: "", name: "Sara Khan", locationId: null },
+      staff,
+    );
+    expect(unique).toMatchObject({ staffId: "s-sara", matchRule: "name_unique" });
+
+    const ambiguous = matchAttendanceRosterStaff(
+      { qid: "", employeeCode: "", name: "Ahmed Ali", locationId: null },
+      staff,
+    );
+    expect(ambiguous.staffId).toBeNull();
+    expect(ambiguous.matchRule).toBe("name_ambiguous");
+    expect(ambiguous.message).toMatch(/pick a site|location/i);
+  });
+
+  it("still prefers location-scoped name match when Location is present", () => {
+    expect(
+      matchAttendanceRosterStaff({ qid: "", employeeCode: "", name: "Ahmed Ali", locationId: KDS }, staff),
+    ).toMatchObject({ staffId: "s-twin-b", matchRule: "name_location" });
+    expect(
+      matchAttendanceRosterStaff({ qid: "", employeeCode: "", name: "Hassan Al-Kaabi", locationId: KDS }, staff),
+    ).toMatchObject({ staffId: "s-hassan", matchRule: "name_location" });
   });
 
   it("does not fall through from a wrong QID to name", () => {
@@ -207,6 +235,69 @@ describe("matchAttendanceRosterStaff", () => {
     );
     expect(result.staffId).toBe("s-hassan");
     expect(result.matchRule).toBe("name_location");
+
+    const noLoc = matchAttendanceRosterStaff(
+      { qid: "", employeeCode: "", name: "Hassan Al-Kaabi", locationId: null },
+      withGhost,
+    );
+    expect(noLoc.staffId).toBe("s-hassan");
+    expect(noLoc.matchRule).toBe("name_unique");
+  });
+});
+
+describe("buildAttendanceRosterPreview name without location", () => {
+  it("fills location from unique staff directory match when Location column is empty", () => {
+    const preview = buildAttendanceRosterPreview({
+      records: [
+        {
+          DATE: "16-Aug-2026",
+          EMPLOYEE: "Hassan Al-Kaabi",
+          LOCATION: "",
+          SHIFT: "09:00-17:00",
+        },
+      ],
+      periodMode: "week",
+      dateFrom: "2026-08-16",
+      dateTo: "2026-08-22",
+      selectedLocationId: null,
+      staff,
+      locations,
+      shifts: [],
+    });
+    expect(preview.matched).toBe(1);
+    expect(preview.rows[0]).toMatchObject({
+      status: "matched",
+      staffId: "s-hassan",
+      locationId: KDS,
+      matchRule: "name_unique",
+    });
+  });
+
+  it("leaves duplicate directory names unmatched when Location is empty", () => {
+    const preview = buildAttendanceRosterPreview({
+      records: [
+        {
+          DATE: "16-Aug-2026",
+          EMPLOYEE: "Ahmed Ali",
+          LOCATION: "",
+          SHIFT: "09:00-17:00",
+        },
+      ],
+      periodMode: "week",
+      dateFrom: "2026-08-16",
+      dateTo: "2026-08-22",
+      selectedLocationId: null,
+      staff,
+      locations,
+      shifts: [],
+    });
+    expect(preview.unmatched).toBe(1);
+    expect(preview.rows[0]).toMatchObject({
+      status: "unmatched",
+      staffId: null,
+      matchRule: "name_ambiguous",
+    });
+    expect(preview.rows[0].message).toMatch(/pick a site|location/i);
   });
 });
 

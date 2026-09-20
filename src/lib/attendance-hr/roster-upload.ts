@@ -642,7 +642,20 @@ export function matchAttendanceRosterStaff(
     return { staffId: null, matchRule: "name_unmatched", message: "No exact name match at this location.", label: input.name };
   }
   if (name && !input.locationId) {
-    return { staffId: null, matchRule: "name_needs_location", message: "Name match needs a location. Add Location or pick a site.", label: input.name };
+    // Directory-wide exact name when Excel has no Location / no site picked.
+    const nameHits = active.filter((s) => normalizeName(s.full_name) === name);
+    if (nameHits.length === 1) {
+      return { staffId: nameHits[0].id, matchRule: "name_unique", message: null, label: nameHits[0].full_name || input.name };
+    }
+    if (nameHits.length > 1) {
+      return {
+        staffId: null,
+        matchRule: "name_ambiguous",
+        message: "Same name at more than one location — pick a site or add a Location column.",
+        label: input.name,
+      };
+    }
+    return { staffId: null, matchRule: "name_unmatched", message: "No exact name match in the staff directory.", label: input.name };
   }
   return { staffId: null, matchRule: "missing_id", message: "Provide QID, employee code, or name + location.", label: input.name || "—" };
 }
@@ -865,27 +878,6 @@ export function buildAttendanceRosterPreview(input: {
       });
       continue;
     }
-    if (!locationId) {
-      rows.push({
-        rowNumber: draft.rowNumber,
-        workDate,
-        locationCode,
-        locationId: null,
-        staffId: null,
-        staffLabel: ids.name || ids.code || ids.qid || "—",
-        qid: ids.qid || null,
-        employeeCode: ids.code || null,
-        shiftStart: draft.shiftStart,
-        shiftEnd: draft.shiftEnd,
-        shiftTemplateId: null,
-        isWeekOff: false,
-        matchRule: "missing_location",
-        status: "unmatched",
-        message: "Pick a site or add a Location column.",
-      });
-      continue;
-    }
-
     const duty = parseDutyCell(draft.dutyRaw);
     const isWeekOff = duty.isWeekOff;
     const matched = matchAttendanceRosterStaff(
@@ -893,6 +885,10 @@ export function buildAttendanceRosterPreview(input: {
       input.staff,
       input.nameMaps ?? [],
     );
+    // Unique name / QID / code match with no Excel Location: use the staff home site.
+    if (matched.staffId && !locationId) {
+      locationId = input.staff.find((s) => s.id === matched.staffId)?.location_id ?? null;
+    }
     const loc = input.locations.find((l) => l.id === locationId);
     rows.push({
       rowNumber: draft.rowNumber,
