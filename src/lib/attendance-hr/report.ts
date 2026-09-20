@@ -90,10 +90,13 @@ export function attendanceHrToListingSource(
   unmapped = "Unmapped",
 ): {
   id: string;
+  staffKey: string;
   locationLabel: string;
   userName: string;
   userNameUnmapped: boolean;
   deviceUserId: string | null;
+  employeeCode: string | null;
+  qid: string | null;
   work_date: string;
   actual_in: string | null;
   actual_out: string | null;
@@ -121,10 +124,13 @@ export function attendanceHrToListingSource(
         });
   return {
     id: row.id,
+    staffKey: attendanceHrIdentityKey(row),
     locationLabel: attendanceHrListingLocation(row),
     userName: mappedName || unmapped,
     userNameUnmapped: !mappedName,
     deviceUserId: row.biometric_user_id,
+    employeeCode: row.employee_code,
+    qid: row.qid,
     work_date: row.work_date,
     actual_in: row.actual_in,
     actual_out: row.actual_out,
@@ -156,7 +162,8 @@ export type AttendanceHrReportKpis = {
   unscheduled: number;
 };
 
-function reportIdentityKey(row: AttendanceHrReportRow): string {
+/** Stable staff identity for KPI unique-staff and attendance grid rows. */
+export function attendanceHrIdentityKey(row: AttendanceHrReportRow): string {
   if (row.staff_id) return `staff:${row.staff_id}`;
   if (row.biometric_user_id) return `bio:${row.location_id}:${row.biometric_user_id}`;
   return `row:${row.id}`;
@@ -172,7 +179,7 @@ export function computeAttendanceHrReportKpis(rows: AttendanceHrReportRow[]): At
   let unscheduled = 0;
 
   for (const row of rows) {
-    identities.add(reportIdentityKey(row));
+    identities.add(attendanceHrIdentityKey(row));
     const listing = attendanceHrToListingSource(row);
     const resolved = resolveHoursBasedAttendanceStatus(listing);
     if (resolved === "present" || resolved === "overtime") present += 1;

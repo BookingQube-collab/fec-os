@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import Link from "next/link";
-import { FileBarChart, Loader2, MapPin, Search, Trash2, Upload } from "lucide-react";
+import { FileBarChart, LayoutGrid, LayoutList, Loader2, MapPin, Search, Trash2, Upload } from "lucide-react";
 import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AttendanceRecordsGrid } from "@/components/people/attendance-records-grid";
 import { AttendanceRecordsTable } from "@/components/people/attendance-records-table";
 import { useSites } from "@/hooks/queries/useSites";
 import {
@@ -64,6 +65,7 @@ export default function AttendanceHrReportsPage() {
   const [staffQ, setStaffQ] = useState("");
   const [staffQDebounced, setStaffQDebounced] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const { data: sites } = useSites();
 
   useEffect(() => {
@@ -324,6 +326,30 @@ export default function AttendanceHrReportsPage() {
               {t("attendanceHr.reports.removeAll")}
             </Button>
           </CapabilityGate>
+          <div className="ms-auto inline-flex shrink-0 rounded-lg border border-border/70 p-0.5">
+            <Button
+              type="button"
+              size="sm"
+              variant={viewMode === "grid" ? "secondary" : "ghost"}
+              className="h-8 gap-1.5 px-2.5"
+              onClick={() => setViewMode("grid")}
+              aria-pressed={viewMode === "grid"}
+            >
+              <LayoutGrid className="h-3.5 w-3.5" />
+              {t("attendanceHr.reports.viewGrid")}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={viewMode === "list" ? "secondary" : "ghost"}
+              className="h-8 gap-1.5 px-2.5"
+              onClick={() => setViewMode("list")}
+              aria-pressed={viewMode === "list"}
+            >
+              <LayoutList className="h-3.5 w-3.5" />
+              {t("attendanceHr.reports.viewList")}
+            </Button>
+          </div>
         </div>
       </NeumorphicCard>
 
@@ -339,31 +365,54 @@ export default function AttendanceHrReportsPage() {
           </div>
         ) : null}
         <div className={cn(showSearchBusy && !q.isLoading && "opacity-60 transition-opacity")}>
-          {q.isLoading ? (
-            <AttendanceRecordsTable
-              rows={[]}
-              empty={<p className="text-sm text-muted-foreground">{t("attendanceHr.reports.loading")}</p>}
-            />
-          ) : emptyImport ? (
-            <AttendanceRecordsTable
-              rows={[]}
-              empty={
-                <div className="space-y-3 text-sm">
-                  <p className="text-muted-foreground">{t("attendanceHr.reports.empty")}</p>
-                  <Button asChild size="sm">
-                    <Link href="/people/attendance/import">
-                      <Upload className="h-4 w-4" />
-                      {t("attendanceHr.reports.importCta")}
-                    </Link>
-                  </Button>
-                </div>
-              }
-            />
-          ) : emptyFiltered && !showSearchBusy ? (
-            <AttendanceRecordsTable
-              rows={[]}
-              empty={<p className="text-sm text-muted-foreground">{t("attendanceHr.reports.emptyFiltered")}</p>}
-            />
+          {q.isLoading || emptyImport || (emptyFiltered && !showSearchBusy) ? (
+            viewMode === "grid" ? (
+              <AttendanceRecordsGrid
+                rows={[]}
+                dateFrom={from}
+                dateTo={to}
+                empty={
+                  q.isLoading ? (
+                    <p className="text-sm text-muted-foreground">{t("attendanceHr.reports.loading")}</p>
+                  ) : emptyImport ? (
+                    <div className="space-y-3 text-sm">
+                      <p className="text-muted-foreground">{t("attendanceHr.reports.empty")}</p>
+                      <Button asChild size="sm">
+                        <Link href="/people/attendance/import">
+                          <Upload className="h-4 w-4" />
+                          {t("attendanceHr.reports.importCta")}
+                        </Link>
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">{t("attendanceHr.reports.emptyFiltered")}</p>
+                  )
+                }
+              />
+            ) : (
+              <AttendanceRecordsTable
+                rows={[]}
+                empty={
+                  q.isLoading ? (
+                    <p className="text-sm text-muted-foreground">{t("attendanceHr.reports.loading")}</p>
+                  ) : emptyImport ? (
+                    <div className="space-y-3 text-sm">
+                      <p className="text-muted-foreground">{t("attendanceHr.reports.empty")}</p>
+                      <Button asChild size="sm">
+                        <Link href="/people/attendance/import">
+                          <Upload className="h-4 w-4" />
+                          {t("attendanceHr.reports.importCta")}
+                        </Link>
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">{t("attendanceHr.reports.emptyFiltered")}</p>
+                  )
+                }
+              />
+            )
+          ) : viewMode === "grid" ? (
+            <AttendanceRecordsGrid rows={listingRows} dateFrom={from} dateTo={to} />
           ) : (
             <AttendanceRecordsTable rows={listingRows} />
           )}

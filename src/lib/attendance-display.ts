@@ -516,10 +516,14 @@ export function computeAttendanceKpis(rows: AttendanceSummaryRow[]): AttendanceK
 
 export type AttendanceListingSource = {
   id?: string;
+  /** Stable staff identity for month-grid rows (staff:/bio:/row:). */
+  staffKey?: string;
   locationLabel: string;
   userName: string;
   userNameUnmapped?: boolean;
   deviceUserId?: string | null;
+  employeeCode?: string | null;
+  qid?: string | null;
   work_date: string;
   actual_in: string | null;
   actual_out: string | null;

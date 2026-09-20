@@ -5961,6 +5961,8 @@
       "colStatus": "Status",
       "colLate": "Late",
       "colOt": "OT",
+      "viewGrid": "Grid",
+      "viewList": "List",
       "unmapped": "Unmapped",
       "empty": "No attendance in this view yet. Import biometric or punch files first, then return here. If you already imported, try another location or date range.",
       "emptyFiltered": "No rows match these filters.",
