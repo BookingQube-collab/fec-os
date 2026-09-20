@@ -48,4 +48,27 @@ describe("payroll readiness", () => {
     expect(row.payrollReady).toBe(false);
     expect(row.missedPunches).toBe(1);
   });
+
+  it("counts short_hours as present while still blocking payroll", () => {
+    const [row] = aggregatePayrollRows([
+      {
+        staff_id: "c",
+        staff_name: "Carla",
+        status: "short_hours",
+        worked_minutes: 360,
+        overtime_minutes: 0,
+      },
+      {
+        staff_id: "c",
+        staff_name: "Carla",
+        status: "present",
+        worked_minutes: 480,
+        overtime_minutes: 30,
+      },
+    ]);
+    expect(row.daysPresent).toBe(2);
+    expect(row.overtimeMinutes).toBe(30);
+    expect(row.payrollReady).toBe(false);
+    expect(row.blockingDays).toBe(1);
+  });
 });

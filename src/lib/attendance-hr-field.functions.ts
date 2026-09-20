@@ -548,7 +548,7 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
     if (data.locationId) await assertSite(context, data.locationId);
     let q = context.supabase
       .from("attendance_daily_summary")
-      .select("staff_id, status, late_minutes, missed_punch, overtime_minutes, worked_minutes, punch_count")
+      .select("staff_id, location_id, status, late_minutes, missed_punch, overtime_minutes, worked_minutes, punch_count")
       .gte("work_date", data.dateFrom)
       .lte("work_date", data.dateTo)
       .not("staff_id", "is", null)
@@ -556,32 +556,61 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
     if (data.locationId) q = q.eq("location_id", data.locationId);
     const { data: rows, error } = await q;
     if (error) throw error;
+
     const staffIds = [...new Set((rows ?? []).map((r) => r.staff_id as string).filter(Boolean))];
-    const names = new Map<string, { full_name: string; employee_code: string; locationLabel: string }>();
+    const locationIds = [
+      ...new Set(
+        (rows ?? [])
+          .map((r) => r.location_id as string | null)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+
+    // Service role after payroll.view + site checks: HR can read all attendance via
+    // user_can_access_attendance, but staff RLS uses user_can_access_location (no HR bypass).
+    const staffById = new Map<string, { full_name: string; employee_code: string }>();
     for (let i = 0; i < staffIds.length; i += 200) {
       const chunk = staffIds.slice(i, i + 200);
-      const { data: staffRows } = await context.supabase
+      const { data: staffRows, error: staffErr } = await supabaseAdmin
         .from("staff")
-        .select("id, full_name, employee_code, locations(code, name)")
+        .select("id, full_name, employee_code")
         .in("id", chunk);
+      if (staffErr) throw staffErr;
       for (const s of staffRows ?? []) {
-        const loc = Array.isArray(s.locations) ? s.locations[0] : s.locations;
-        names.set(s.id, {
-          full_name: s.full_name,
-          employee_code: s.employee_code,
-          locationLabel: formatLocationLabel(
-            (loc as { code?: string } | null)?.code,
-            (loc as { name?: string } | null)?.name,
-          ),
+        staffById.set(String(s.id), {
+          full_name: String(s.full_name ?? "").trim(),
+          employee_code: String(s.employee_code ?? ""),
         });
       }
     }
+
+    const locLabelById = new Map<string, string>();
+    for (let i = 0; i < locationIds.length; i += 200) {
+      const chunk = locationIds.slice(i, i + 200);
+      const { data: locRows, error: locErr } = await supabaseAdmin
+        .from("locations")
+        .select("id, code, name")
+        .in("id", chunk);
+      if (locErr) throw locErr;
+      for (const loc of locRows ?? []) {
+        locLabelById.set(String(loc.id), formatLocationLabel(loc.code, loc.name));
+      }
+    }
+
+    const staffLocVotes = new Map<string, Map<string, number>>();
     const days: PayrollDayInput[] = (rows ?? []).map((row) => {
-      const staff = names.get(String(row.staff_id));
+      const staffId = String(row.staff_id);
+      const locationId = row.location_id ? String(row.location_id) : "";
+      if (locationId) {
+        const votes = staffLocVotes.get(staffId) ?? new Map<string, number>();
+        votes.set(locationId, (votes.get(locationId) ?? 0) + 1);
+        staffLocVotes.set(staffId, votes);
+      }
+      const staff = staffById.get(staffId);
       return {
-        staff_id: row.staff_id as string,
-        staff_name: staff?.full_name ?? null,
-        employee_code: staff?.employee_code ?? null,
+        staff_id: staffId,
+        staff_name: staff?.full_name || null,
+        employee_code: staff?.employee_code || null,
         status: String(row.status ?? ""),
         late_minutes: Number(row.late_minutes ?? 0),
         missed_punch: Boolean(row.missed_punch),
@@ -590,10 +619,23 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
         punch_count: Number(row.punch_count ?? 0),
       };
     });
-    const summary = aggregatePayrollRows(days).map((row) => ({
-      ...row,
-      locationLabel: names.get(row.staffId)?.locationLabel ?? "—",
-    }));
+
+    const filterLabel = data.locationId ? (locLabelById.get(data.locationId) ?? "—") : null;
+    const summary = aggregatePayrollRows(days).map((row) => {
+      if (filterLabel) return { ...row, locationLabel: filterLabel };
+      const votes = staffLocVotes.get(row.staffId);
+      let bestId = "";
+      let bestN = -1;
+      if (votes) {
+        for (const [lid, n] of votes) {
+          if (n > bestN) {
+            bestId = lid;
+            bestN = n;
+          }
+        }
+      }
+      return { ...row, locationLabel: (bestId && locLabelById.get(bestId)) || "—" };
+    });
     return {
       dateFrom: data.dateFrom,
       dateTo: data.dateTo,

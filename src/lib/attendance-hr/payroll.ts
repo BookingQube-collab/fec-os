@@ -1,5 +1,15 @@
 export const PAYROLL_BLOCKING_STATUSES = new Set(["missed_punch", "incomplete", "short_hours", "review_required"]);
 
+/** Days the employee was on site — includes late / OT / short hours (still blocking when short). */
+export const PAYROLL_PRESENT_STATUSES = new Set([
+  "present",
+  "late",
+  "overtime",
+  "early_departure",
+  "early_leave",
+  "short_hours",
+]);
+
 export type PayrollDayInput = {
   staff_id: string | null;
   staff_name?: string | null;
@@ -32,6 +42,10 @@ export function isPayrollBlockingDay(row: Pick<PayrollDayInput, "status" | "miss
   return PAYROLL_BLOCKING_STATUSES.has(String(row.status ?? ""));
 }
 
+export function isPayrollPresentDay(row: Pick<PayrollDayInput, "status">): boolean {
+  return PAYROLL_PRESENT_STATUSES.has(String(row.status ?? ""));
+}
+
 export function isPayrollReady(row: Pick<PayrollStaffRow, "blockingDays" | "missedPunches">): boolean {
   return row.blockingDays === 0 && row.missedPunches === 0;
 }
@@ -60,9 +74,7 @@ export function aggregatePayrollRows(days: PayrollDayInput[]): PayrollStaffRow[]
       byStaff.get(day.staff_id) ??
       emptyStaff(day.staff_id, (day.staff_name ?? "").trim() || "Staff", day.employee_code ?? "");
     const status = String(day.status ?? "");
-    if (status === "present" || status === "late" || status === "overtime" || status === "early_departure") {
-      current.daysPresent += 1;
-    }
+    if (isPayrollPresentDay(day)) current.daysPresent += 1;
     if (status === "absent") current.daysAbsent += 1;
     if (status === "late" || Number(day.late_minutes ?? 0) > 0) current.daysLate += 1;
     if (day.missed_punch || status === "missed_punch") current.missedPunches += 1;
