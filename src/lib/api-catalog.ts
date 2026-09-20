@@ -1435,6 +1435,36 @@ export const API_ENDPOINTS: ApiEndpoint[] = [
     "authDetail": "CRON_SECRET (Bearer or x-cron-secret)"
   },
   {
+    "id": "post-api-public-hr-document-expiry-sweep",
+    "method": "POST",
+    "path": "/api/public/hr-document-expiry-sweep",
+    "description": "Secret-guarded daily HR document expiry reminder sweep (QID/passport milestones).",
+    "categoryId": "public",
+    "categoryLabel": "Public & Cron",
+    "authType": "cron_secret",
+    "authDetail": "CRON_SECRET (Bearer or x-cron-secret)",
+    "exampleRequest": {
+      "headers": {
+        "Authorization": "Bearer <CRON_SECRET>"
+      }
+    }
+  },
+  {
+    "id": "post-api-public-hr-probation-reminder-sweep",
+    "method": "POST",
+    "path": "/api/public/hr-probation-reminder-sweep",
+    "description": "Secret-guarded daily HR probation decision reminder sweep.",
+    "categoryId": "public",
+    "categoryLabel": "Public & Cron",
+    "authType": "cron_secret",
+    "authDetail": "CRON_SECRET (Bearer or x-cron-secret)",
+    "exampleRequest": {
+      "headers": {
+        "Authorization": "Bearer <CRON_SECRET>"
+      }
+    }
+  },
+  {
     "id": "get-api-public-iclock-slug",
     "method": "GET",
     "path": "/api/public/iclock/{[...slug]}",

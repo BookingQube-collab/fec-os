@@ -3,11 +3,8 @@
 import { z } from "zod";
 
 import {
-  HR_DOC_SENSITIVE_DISCIPLINARY,
-  HR_DOC_SENSITIVE_IDENTITY,
-  HR_DOC_SENSITIVE_SALARY,
+  assertHrSensitiveDocAccess,
   HR_DOC_TYPES,
-  type HrDocType,
 } from "@/lib/hr-advanced";
 import { appendEmployeeEvent } from "@/lib/hr-employee-events";
 import { createAuthenticatedAction, type AuthContext } from "@/lib/server/create-action";
@@ -43,20 +40,16 @@ function canVerifyDocs(roles: AppRole[] | undefined): boolean {
 }
 
 function assertSensitiveAccess(roles: AppRole[] | undefined, docType: string, isSelf: boolean) {
-  if (isSelf) return;
-  const t = docType as HrDocType;
-  if (HR_DOC_SENSITIVE_IDENTITY.has(t) || HR_DOC_SENSITIVE_DISCIPLINARY.has(t)) {
-    if (
-      !canManageDocs(roles) &&
-      !canUserDo(roles ?? [], "hr.profile.view_sensitive")
-    ) {
-      throw new ForbiddenError("Sensitive identity/disciplinary documents require elevated access.");
-    }
-  }
-  if (HR_DOC_SENSITIVE_SALARY.has(t)) {
-    if (!canManageDocs(roles) && !canUserDo(roles ?? [], "people.view_salary")) {
-      throw new ForbiddenError("Salary-related documents require salary access.");
-    }
+  try {
+    assertHrSensitiveDocAccess({
+      docType,
+      isSelf,
+      canManageDocs: canManageDocs(roles),
+      canViewSensitive: canUserDo(roles ?? [], "hr.profile.view_sensitive"),
+      canViewSalary: canUserDo(roles ?? [], "people.view_salary"),
+    });
+  } catch (e) {
+    throw new ForbiddenError(e instanceof Error ? e.message : "Forbidden");
   }
 }
 

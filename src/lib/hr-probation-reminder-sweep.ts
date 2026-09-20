@@ -1,6 +1,6 @@
 /**
- * Probation end-date reminder sweep (Phase 5).
- * Mirrors document-expiry sweep: in-app notify at 30/15/7 days before probation_end.
+ * Probation end-date reminder sweep (Phase 5 / Phase 12 email fan-out).
+ * Mirrors document-expiry sweep: in-app + optional webhook email at policy milestones.
  */
 
 import "server-only";

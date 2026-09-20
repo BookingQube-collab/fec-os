@@ -1,6 +1,6 @@
 # HR admin guide (FEC-OS)
 
-Short operator guide for People → HR (`/people/hr`). Additive HRMS phases 1–11.
+Short operator guide for People → HR (`/people/hr`). Additive HRMS phases 1–12.
 
 ## Policy settings
 
@@ -12,7 +12,7 @@ Open **People → HR → Settings** (`/people/hr/settings`) and related policy s
 | Site working hours | `/people/hr/shift-policy` | Per-location hours, break, reporting buffer |
 | OT claim rates | HR settings (OT policy) | Claims workflow is separate from attendance OT minutes |
 
-Change policy before running payroll or air-ticket eligibility so entitlement math matches the period.
+Change policy before running payroll or air-ticket eligibility so entitlement math matches the period. Locked payroll lines and historical employee snapshots are **not** rewritten when policy changes (AT#20).
 
 ## Key workflows
 
@@ -33,16 +33,39 @@ Users manage channels under **Inbox → Preferences**. HR categories:
 - `hr_documents`, `hr_leave`, `hr_ot`, `hr_disciplinary`, `hr_payroll`, `hr_recruitment`
 - Attendance field alerts remain under `people`
 
-In-app only for most HR events here; do not put PII into group WhatsApp channels. Email is optional and only when a webhook is configured.
+In-app is always written for HR events. Email is optional:
+
+| Env | Purpose |
+| --- | --- |
+| `NOTIFICATION_EMAIL_WEBHOOK` | When set, HR category notifies (`notifyUsers` + Inbox preference path) POST JSON `{ toUserId, notificationId, subject, title, body, actionUrl, channel }` to this URL. When unset, email is skipped. |
+
+Do not put PII into group WhatsApp channels. SMS/WhatsApp providers remain skipped placeholders.
 
 ## Cron / secret-guarded sweeps
 
-| Sweep | Endpoint pattern | Purpose |
+| Sweep | Endpoint | Purpose |
 | --- | --- | --- |
-| Document expiry | `/api/public/hr-document-expiry-sweep` | Mark expired docs; QID/passport reminder milestones |
-| Probation reminders | `/api/public/hr-probation-reminder-sweep` (or equivalent public cron) | Upcoming probation decision reminders |
+| Document expiry | `POST /api/public/hr-document-expiry-sweep` | Mark expired docs; QID/passport reminder milestones |
+| Probation reminders | `POST /api/public/hr-probation-reminder-sweep` | Upcoming probation decision reminders (policy days, default 30/15/7) |
 
-Protect with the same `CRON_SECRET` / bearer pattern as other public sweeps. Safe to re-run; reminder tables dedupe by document/milestone.
+Both use `validateCronRequest` — same `CRON_SECRET` Bearer or `x-cron-secret` header as other public sweeps. Listed in API Explorer / `api-catalog`. Safe to re-run; reminder tables dedupe by document/milestone.
+
+### Dry-run health list (ops)
+
+Without mutating data, confirm:
+
+1. `CRON_SECRET` is set in the deploy environment.
+2. Routes respond `401` without the secret and `200` with it (empty or quiet days still return `{ ok: true, … }`).
+3. `NOTIFICATION_EMAIL_WEBHOOK` optional — leave unset in staging if you only want in-app.
+4. Vitest pack: `pnpm exec vitest run src/lib/hr-acceptance.test.ts` (AT#1–20).
+
+## Phase 12 ops checklist
+
+- [ ] Cron secrets configured for document-expiry + probation-reminder sweeps
+- [ ] Optional email webhook configured only where outbound email is allowed
+- [ ] Floor roles cannot open payroll salary / sensitive docs / terminations (RBAC AT#19)
+- [ ] Acceptance pack green: `pnpm exec vitest run src/lib/hr-acceptance.test.ts src/lib/hr-*.test.ts src/lib/attendance-hr/hr-notify.test.ts`
+- [ ] Manual UAT: one QID reminder end-to-end; one payroll lock after policy tweak (history unchanged)
 
 ## WPS caveat (Phase 8)
 

@@ -33,7 +33,6 @@ import { assertCanMarkPayrollPosted } from "@/lib/hr-ot";
 import { readPolicySection } from "@/lib/hr-policy-read";
 import { canUserDo } from "@/lib/rbac";
 import { ForbiddenError } from "@/lib/server/authorize";
-import type { Json } from "@/integrations/supabase/types";
 import {
   createAuthenticatedAction,
   type AuthContext,
@@ -55,13 +54,16 @@ async function auditPayroll(
   after: Record<string, unknown>,
 ) {
   try {
-    await context.supabase.rpc("log_audit", {
-      _action: action,
-      _table_name: "hr_payroll_periods",
-      _row_id: rowId,
-      _after: after as unknown as Json,
-      _metadata: {},
-    });
+    const { buildHrAuditRpcArgs } = await import("@/lib/hr-audit");
+    await context.supabase.rpc(
+      "log_audit",
+      buildHrAuditRpcArgs({
+        action,
+        tableName: "hr_payroll_periods",
+        rowId,
+        after,
+      }) as never,
+    );
   } catch {
     /* non-blocking */
   }

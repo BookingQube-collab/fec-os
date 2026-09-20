@@ -1,6 +1,10 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import {
+  dispatchHrEmailIfConfigured,
+  isHrNotificationCategory,
+} from "@/lib/notifications/providers";
 import { CAPABILITIES, type AppRole, type Capability } from "@/lib/rbac";
 import { STEP_CAPABILITY, type ApprovalStepRole } from "@/lib/procurement/routing";
 
@@ -42,6 +46,24 @@ export async function notifyUsers(opts: NotifyInsert): Promise<number> {
     console.warn("[notify] insert failed", error.message);
     return 0;
   }
+
+  // Phase 12: HR categories also POST to NOTIFICATION_EMAIL_WEBHOOK when set.
+  if (isHrNotificationCategory(opts.category)) {
+    for (const userId of ids) {
+      try {
+        await dispatchHrEmailIfConfigured({
+          notificationId: `hr-notify-${opts.sourceType ?? opts.category}-${userId}`,
+          userId,
+          title: opts.title,
+          body: opts.body ?? null,
+          actionUrl: opts.actionUrl ?? null,
+        });
+      } catch (err) {
+        console.warn("[notify] hr email failed", err instanceof Error ? err.message : err);
+      }
+    }
+  }
+
   return rows.length;
 }
 

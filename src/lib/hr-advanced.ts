@@ -237,6 +237,31 @@ export const HR_DOC_SENSITIVE_SALARY = new Set<HrDocType>([
   "air_ticket_receipt",
 ]);
 
+/**
+ * AT#19 — non-self viewers need elevated caps for identity / disciplinary / salary docs.
+ * Pure guard so RBAC can be unit-tested without server actions.
+ */
+export function assertHrSensitiveDocAccess(input: {
+  docType: string;
+  isSelf: boolean;
+  canManageDocs: boolean;
+  canViewSensitive: boolean;
+  canViewSalary: boolean;
+}): void {
+  if (input.isSelf) return;
+  const t = input.docType as HrDocType;
+  if (HR_DOC_SENSITIVE_IDENTITY.has(t) || HR_DOC_SENSITIVE_DISCIPLINARY.has(t)) {
+    if (!input.canManageDocs && !input.canViewSensitive) {
+      throw new Error("Sensitive identity/disciplinary documents require elevated access.");
+    }
+  }
+  if (HR_DOC_SENSITIVE_SALARY.has(t)) {
+    if (!input.canManageDocs && !input.canViewSalary) {
+      throw new Error("Salary-related documents require salary access.");
+    }
+  }
+}
+
 export const HR_CHECKLIST_KINDS = ["onboarding", "offboarding"] as const;
 export type HrChecklistKind = (typeof HR_CHECKLIST_KINDS)[number];
 

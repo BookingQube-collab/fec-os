@@ -11,7 +11,6 @@ import {
   shouldSendExpiryReminder,
 } from "@/lib/hr-document-expiry";
 import { findUsersWithCapability, notifyUsers } from "@/lib/notifications/action-notify";
-import { emailProvider } from "@/lib/notifications/providers";
 import { HR_POLICY_DEFAULTS } from "@/lib/hr-policy";
 
 type Sb = SupabaseClient;
@@ -37,24 +36,10 @@ async function staffUserId(sb: Sb, staffId: string): Promise<string | null> {
   return data?.user_id ? String(data.user_id) : null;
 }
 
-async function maybeEmail(userId: string, title: string, body: string, actionUrl: string) {
-  if (!process.env.NOTIFICATION_EMAIL_WEBHOOK) return;
-  try {
-    await emailProvider.dispatch({
-      notificationId: `hr-doc-expiry-${userId}`,
-      userId,
-      title,
-      body,
-      actionUrl,
-    });
-  } catch (err) {
-    console.warn("[hr-doc-expiry] email failed", err instanceof Error ? err.message : err);
-  }
-}
-
 /**
  * Daily document expiry sweep — marks expired rows and sends QID/passport reminders.
  * Secret-guarded via /api/public/hr-document-expiry-sweep (same pattern as escalation-sweep).
+ * Email fans out via notifyUsers when NOTIFICATION_EMAIL_WEBHOOK is set (hr_documents).
  */
 export async function runHrDocumentExpirySweep(sb: Sb): Promise<{
   expiredMarked: number;
@@ -138,10 +123,6 @@ export async function runHrDocumentExpirySweep(sb: Sb): Promise<{
       sourceType: "hr_employee_documents",
       sourceId: String(doc.id),
     });
-
-    for (const uid of recipients) {
-      await maybeEmail(uid, title, body, actionUrl);
-    }
 
     const { error: remErr } = await sb.from("hr_document_expiry_reminders").insert({
       document_id: doc.id,
