@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Banknote, ClipboardCheck } from "lucide-react";
+import { useMemo, useState, useTransition } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Banknote, ClipboardCheck, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
 import { HrEmptyState } from "@/components/hr/hr-empty-state";
@@ -25,25 +26,37 @@ import {
 } from "@/lib/attendance-hr/roster-period";
 import { formatOtPolicySummary } from "@/lib/hr-advanced";
 import { getOtPolicy } from "@/lib/hr-announcements.functions";
+import { createPayrollPeriod, listPayrollPeriods } from "@/lib/hr-payroll.functions";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { useSites } from "@/hooks/queries/useSites";
+import { usePermission } from "@/hooks/use-permission";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { useAppStore } from "@/stores/app-store";
 
 export default function HrPayrollPage() {
   const { t, i18n } = useTranslation();
+  const qc = useQueryClient();
   const storeLocationId = useAppStore((s) => s.currentLocationId);
   const [locationId, setLocationId] = useState(storeLocationId || "all");
   const [{ month, dateFrom, dateTo }, setPeriod] = useState(() =>
     defaultPayrollPeriod(new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" })),
   );
+  const [createMonth, setCreateMonth] = useState(month);
+  const [pending, startTransition] = useTransition();
+  const canGenerate = usePermission("payroll.generate");
   const { data: sites } = useSites();
   const loc = locationId === "all" ? null : locationId;
 
   const payroll = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "payroll", locationId: loc, dateFrom, dateTo }),
     queryFn: () => getPayrollAttendanceSummary({ locationId: loc, dateFrom, dateTo }),
+    staleTime: STALE.people,
+  });
+
+  const periods = useQuery({
+    queryKey: queryKeys.people.hrPayrollPeriods(),
+    queryFn: () => listPayrollPeriods({ status: "all" }),
     staleTime: STALE.people,
   });
 
@@ -91,9 +104,93 @@ export default function HrPayrollPage() {
           subtitle={t("hr.payroll.subtitle", { range: formatPayrollRange(dateFrom, dateTo, i18n.language) })}
         >
           <HrPanel delay={0}>
+            <div className="space-y-3 p-4 sm:p-5">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <p className="text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    {t("hr.payrollRuns.periodsTitle")}
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">{t("hr.payrollRuns.periodsHint")}</p>
+                </div>
+                {canGenerate ? (
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div>
+                      <Label htmlFor="hr-payroll-create-month">{t("hr.payroll.month")}</Label>
+                      <Input
+                        id="hr-payroll-create-month"
+                        type="month"
+                        value={createMonth}
+                        onChange={(e) => setCreateMonth(e.target.value)}
+                      />
+                    </div>
+                    <Button
+                      disabled={pending || !createMonth}
+                      onClick={() => {
+                        startTransition(async () => {
+                          try {
+                            const created = await createPayrollPeriod({ month: createMonth });
+                            toast.success(t("hr.payrollRuns.created"));
+                            void qc.invalidateQueries({ queryKey: queryKeys.people.hrPayrollPeriods() });
+                            window.location.href = `/people/payroll/${created.id}`;
+                          } catch (e) {
+                            toast.error(e instanceof Error ? e.message : t("hr.payrollRuns.error"));
+                          }
+                        });
+                      }}
+                    >
+                      <Plus className="mr-1 h-4 w-4" />
+                      {t("hr.payrollRuns.create")}
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+              <div className="hr-table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>{t("hr.payroll.month")}</th>
+                      <th>{t("hr.payrollRuns.cycle")}</th>
+                      <th>{t("hr.payroll.colStatus")}</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(periods.data ?? []).length === 0 ? (
+                      <tr>
+                        <td colSpan={4}>
+                          <HrEmptyState message={t("hr.payrollRuns.emptyPeriods")} icon={Banknote} />
+                        </td>
+                      </tr>
+                    ) : (
+                      (periods.data ?? []).map((p) => (
+                        <tr key={p.id}>
+                          <td className="font-medium">{p.month}</td>
+                          <td className="text-xs">
+                            {formatPayrollRange(p.dateFrom, p.dateTo, i18n.language)}
+                          </td>
+                          <td>
+                            <Badge variant={p.status === "locked" ? "secondary" : "outline"}>
+                              {t(`hr.payrollRuns.status.${p.status}`, { defaultValue: p.status })}
+                            </Badge>
+                          </td>
+                          <td className="text-end">
+                            <Button variant="secondary" size="sm" asChild>
+                              <Link href={`/people/payroll/${p.id}`}>{t("common.view")}</Link>
+                            </Button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </HrPanel>
+
+          <HrPanel delay={1}>
             <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-4">
               <div>
-                <Label htmlFor="hr-payroll-month">{t("hr.payroll.month")}</Label>
+                <Label htmlFor="hr-payroll-month">{t("hr.payrollRuns.readinessMonth")}</Label>
                 <Input
                   id="hr-payroll-month"
                   type="month"
@@ -129,6 +226,9 @@ export default function HrPayrollPage() {
                 </Button>
               </div>
             </div>
+            <p className="border-t px-4 py-2 text-xs text-muted-foreground sm:px-5">
+              {t("hr.payrollRuns.readinessHint")}
+            </p>
           </HrPanel>
 
           {otHint ? (

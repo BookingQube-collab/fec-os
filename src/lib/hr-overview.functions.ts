@@ -89,6 +89,7 @@ export const getHrOverview = createAuthenticatedAction(
     }
 
     let payrollBlocked = 0;
+    let payrollExceptions = 0;
     if (canUserDo(context.roles ?? [], "payroll.view")) {
       try {
         const payroll = await getPayrollAttendanceSummary({
@@ -100,6 +101,14 @@ export const getHrOverview = createAuthenticatedAction(
       } catch {
         payrollBlocked = 0;
       }
+      const { count: openPeriods, error: periodErr } = await context.supabase
+        .from("hr_payroll_periods")
+        .select("id", { count: "exact", head: true })
+        .in("status", ["draft", "hr_review", "finance_review", "gm_approved"]);
+      if (periodErr && !tableMissing(periodErr.message) && !/permission/i.test(periodErr.message ?? "")) {
+        throw periodErr;
+      }
+      payrollExceptions = (openPeriods ?? 0) + payrollBlocked;
     }
 
     const { count: expiredDocs, error: expiredDocsErr } = await context.supabase
@@ -295,6 +304,7 @@ export const getHrOverview = createAuthenticatedAction(
       pendingLeave: leaveMissing ? 0 : pendingLeave ?? 0,
       fieldCheckedIn,
       payrollBlocked,
+      payrollExceptions,
       expiredDocs: expiredDocsMissing ? 0 : expiredDocs ?? 0,
       expiringDocs: docsMissing ? 0 : expiringDocs ?? 0,
       openOnboarding: onboardMissing ? 0 : openOnboarding ?? 0,

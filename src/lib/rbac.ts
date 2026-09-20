@@ -104,6 +104,14 @@ export const CAPABILITIES = {
   "people.view_salary": ["ceo", "coo", "cfo", "hr"],
   "people.edit_salary": ["ceo", "coo", "cfo", "hr"],
   "payroll.view": ["ceo", "coo", "cfo", "hr"],
+  /** Create/regenerate draft lines + advance HR review. */
+  "payroll.generate": ["ceo", "coo", "cfo", "hr"],
+  /** Finance review / paid marking. */
+  "payroll.finance": ["ceo", "coo", "cfo"],
+  /** Lock period + approve reopen. */
+  "payroll.lock": ["ceo", "coo", "cfo", "hr"],
+  /** WPS / cheque / bank-transfer exports. */
+  "payroll.export_wps": ["ceo", "coo", "cfo", "hr"],
   "hr.manage": ["ceo", "coo", "hr"],
   "hr.docs.manage": ["ceo", "coo", "hr"],
   "hr.docs.verify": ["ceo", "coo", "hr"],

@@ -30,6 +30,7 @@ import {
 import { HR_OT_RATE_TYPES } from "@/lib/hr-ot";
 import { employeeRespondToWarning, listWarnings } from "@/lib/hr-warnings.functions";
 import { listAirTicketEntitlements } from "@/lib/hr-air-ticket.functions";
+import { listMyPayslips } from "@/lib/hr-payroll.functions";
 import { listAnnouncements } from "@/lib/hr-announcements.functions";
 import {
   getEmployeeDocumentUrl,
@@ -150,6 +151,11 @@ export default function EmployeeMePage() {
   const myAirTickets = useQuery({
     queryKey: queryKeys.people.hrAirTickets({ mine: true }),
     queryFn: () => listAirTicketEntitlements({ mineOnly: true, status: "all" }),
+    staleTime: STALE.people,
+  });
+  const myPayslips = useQuery({
+    queryKey: queryKeys.people.hrMyPayslips(),
+    queryFn: () => listMyPayslips({}),
     staleTime: STALE.people,
   });
   const notes = useNotifications({ limit: 12 });
@@ -604,6 +610,28 @@ export default function EmployeeMePage() {
                     {row.overdue ? ` · ${t("hr.airTickets.filters.overdue")}` : ""}
                   </span>
                   <Badge variant="secondary">{t(`hr.airTickets.status.${row.status}`)}</Badge>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </section>
+
+      <section className="hr-panel-shell">
+        <div className="hr-panel p-4">
+          <h2 className="text-sm font-semibold tracking-tight">{t("hr.me.myPayslips")}</h2>
+          {(myPayslips.data ?? []).length === 0 ? (
+            <p className="mt-2 text-sm text-muted-foreground">{t("hr.me.noPayslips")}</p>
+          ) : (
+            <ul className="mt-2 space-y-2">
+              {(myPayslips.data ?? []).slice(0, 8).map((row) => (
+                <li key={row.lineId} className="hr-list-row text-sm">
+                  <span>
+                    {row.month}
+                    {" · "}
+                    {t("hr.me.netQar", { amount: row.netQar.toFixed(2) })}
+                  </span>
+                  <Badge variant="secondary">{row.paymentMethod}</Badge>
                 </li>
               ))}
             </ul>
