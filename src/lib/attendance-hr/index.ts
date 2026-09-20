@@ -84,6 +84,7 @@ export {
   attendanceHrListingLocation,
   attendanceHrToListingSource,
   computeAttendanceHrReportKpis,
+  isMappedAttendanceHrRow,
 } from "./report";
 export {
   persistOriginalFile,

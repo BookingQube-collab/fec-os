@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Banknote, ClipboardCheck, Plus } from "lucide-react";
@@ -34,14 +35,42 @@ import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { useAppStore } from "@/stores/app-store";
 
+function ymdParam(value: string | null): string | null {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  return value;
+}
+
+function monthParam(value: string | null): string | null {
+  if (!value || !/^\d{4}-\d{2}$/.test(value)) return null;
+  return value;
+}
+
 export default function HrPayrollPage() {
   const { t, i18n } = useTranslation();
   const qc = useQueryClient();
+  const searchParams = useSearchParams();
   const storeLocationId = useAppStore((s) => s.currentLocationId);
-  const [locationId, setLocationId] = useState(storeLocationId || "all");
-  const [{ month, dateFrom, dateTo }, setPeriod] = useState(() =>
-    defaultPayrollPeriod(new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" })),
-  );
+  const [locationId, setLocationId] = useState(() => {
+    const fromUrl = searchParams.get("locationId");
+    if (fromUrl && /^[0-9a-f-]{36}$/i.test(fromUrl)) return fromUrl;
+    return storeLocationId || "all";
+  });
+  const [{ month, dateFrom, dateTo }, setPeriod] = useState(() => {
+    const defaults = defaultPayrollPeriod(
+      new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" }),
+    );
+    const from = ymdParam(searchParams.get("from"));
+    const to = ymdParam(searchParams.get("to"));
+    const m = monthParam(searchParams.get("month"));
+    if (from && to && from <= to) {
+      return { month: m ?? from.slice(0, 7), dateFrom: from, dateTo: to };
+    }
+    if (m) {
+      const bounds = monthBounds(m);
+      return { month: m, dateFrom: bounds.dateFrom, dateTo: bounds.dateTo };
+    }
+    return defaults;
+  });
   const [createMonth, setCreateMonth] = useState(month);
   const [pending, startTransition] = useTransition();
   const canGenerate = usePermission("payroll.generate");

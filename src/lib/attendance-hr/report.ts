@@ -200,9 +200,12 @@ export function attendanceHrIdentityKey(row: AttendanceHrReportRow): string {
   return `row:${row.id}`;
 }
 
-/** Counts for the HR reports KPI strip. Uses the same filtered rows as the table. */
+/**
+ * Counts for the HR reports KPI strip. Uses the same filtered rows as the table.
+ * Staff = distinct mapped employees only — unmapped biometric identities must not inflate this tile.
+ */
 export function computeAttendanceHrReportKpis(rows: AttendanceHrReportRow[]): AttendanceHrReportKpis {
-  const identities = new Set<string>();
+  const mappedStaff = new Set<string>();
   let present = 0;
   let absent = 0;
   let late = 0;
@@ -210,7 +213,7 @@ export function computeAttendanceHrReportKpis(rows: AttendanceHrReportRow[]): At
   let unscheduled = 0;
 
   for (const row of rows) {
-    identities.add(attendanceHrIdentityKey(row));
+    if (row.staff_id) mappedStaff.add(String(row.staff_id));
     const listing = attendanceHrToListingSource(row);
     const resolved = resolveHoursBasedAttendanceStatus(listing);
     if (resolved === "present" || resolved === "overtime") present += 1;
@@ -222,11 +225,16 @@ export function computeAttendanceHrReportKpis(rows: AttendanceHrReportRow[]): At
 
   return {
     total: rows.length,
-    uniqueStaff: identities.size,
+    uniqueStaff: mappedStaff.size,
     present,
     absent,
     late,
     missedPunch,
     unscheduled,
   };
+}
+
+/** True when the daily row is linked to a real staff record (not a bare device user). */
+export function isMappedAttendanceHrRow(row: Pick<AttendanceHrReportRow, "staff_id">): boolean {
+  return Boolean(row.staff_id);
 }

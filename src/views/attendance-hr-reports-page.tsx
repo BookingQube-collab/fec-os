@@ -52,6 +52,7 @@ import {
   attendanceHrToListingSource,
   computeAttendanceHrReportKpis,
   formatAttendanceHrLocation,
+  isMappedAttendanceHrRow,
   type AttendanceHrReportRow,
 } from "@/lib/attendance-hr/report";
 import { CANONICAL_LOCATION_CODES, formatLocationLabel, rosterSheetLabel } from "@/lib/locations/normalize";
@@ -147,6 +148,14 @@ export default function AttendanceHrReportsPage() {
     () => deferredRows.map((row) => attendanceHrToListingSource(row, t("attendanceHr.reports.unmapped"))),
     [deferredRows, t],
   );
+  /** Month grid is a staff roster view — unmapped device users stay on list for mapping only. */
+  const gridListingRows = useMemo(
+    () =>
+      deferredRows
+        .filter(isMappedAttendanceHrRow)
+        .map((row) => attendanceHrToListingSource(row, t("attendanceHr.reports.unmapped"))),
+    [deferredRows, t],
+  );
   const mapStaffOptions = useMemo((): AttendanceMapStaffOption[] => {
     if (!canMapUsers) return [];
     return (bootstrap.data?.staff ?? []) as AttendanceMapStaffOption[];
@@ -170,6 +179,12 @@ export default function AttendanceHrReportsPage() {
     if (staffQDebounced.trim()) p.set("staffQ", staffQDebounced.trim());
     return `/api/people/attendance-hr/export?${p.toString()}`;
   }, [from, to, locationId, status, staffQDebounced]);
+
+  const payrollHref = useMemo(() => {
+    const p = new URLSearchParams({ from, to, month });
+    if (locationId) p.set("locationId", locationId);
+    return `/people/payroll?${p.toString()}`;
+  }, [from, to, month, locationId]);
 
   const invalidate = () => void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
 
@@ -365,7 +380,7 @@ export default function AttendanceHrReportsPage() {
           </Button>
           <CapabilityGate capability="payroll.view">
             <Button variant="secondary" asChild>
-              <Link href="/people/payroll">{t("nav.hrPayroll")}</Link>
+              <Link href={payrollHref}>{t("nav.hrPayroll")}</Link>
             </Button>
           </CapabilityGate>
           <CapabilityGate capability="attendance.import">
@@ -461,7 +476,7 @@ export default function AttendanceHrReportsPage() {
               />
             )
           ) : viewMode === "grid" ? (
-            <AttendanceRecordsGrid rows={listingRows} dateFrom={from} dateTo={to} />
+            <AttendanceRecordsGrid rows={gridListingRows} dateFrom={from} dateTo={to} />
           ) : (
             <AttendanceRecordsTable rows={listingRows} {...listMapProps} />
           )}

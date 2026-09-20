@@ -715,7 +715,8 @@ describe("HR report row helpers", () => {
     ]);
     expect(kpis).toEqual({
       total: 6,
-      uniqueStaff: 5,
+      // Unmapped biometric row must not count toward Staff KPI
+      uniqueStaff: 4,
       present: 3,
       absent: 1,
       late: 1,
