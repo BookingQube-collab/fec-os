@@ -126,6 +126,7 @@
     "hrPayroll": "الرواتب",
     "hrField": "الميدان والموقع",
     "hrLeave": "الإجازات",
+    "hrOt": "طلبات العمل الإضافي",
     "hrDocuments": "ملفات الموظفين",
     "hrOnboarding": "التهيئة",
     "hrAnnouncements": "الإعلانات",
@@ -6357,6 +6358,62 @@
         "other": "أخرى"
       }
     },
+    "ot": {
+      "kicker": "الموارد البشرية",
+      "title": "طلبات العمل الإضافي",
+      "subtitle": "تحقق واعتماد ساعات العمل الإضافي. الدقائق المؤهلة من الحضور؛ الحد الأدنى ساعة كاملة.",
+      "queue": "قائمة الاعتماد",
+      "noAccess": "لا يمكنك مراجعة طلبات العمل الإضافي.",
+      "empty": "لا طلبات في هذا التصفية.",
+      "updated": "تم تحديث الطلب",
+      "verify": "تحقق المدير",
+      "approve": "اعتماد الموارد البشرية",
+      "reject": "رفض",
+      "markPayroll": "تعليم كمرحل للرواتب",
+      "scheduled": "المجدول",
+      "attendance": "الحضور",
+      "eligible": "المؤهل",
+      "claimed": "المطلوب",
+      "approved": "المعتمد",
+      "summariesTitle": "ملخص شهري",
+      "summariesEmpty": "لا طلبات في هذا الشهر.",
+      "month": "الشهر",
+      "groupBy": "تجميع حسب",
+      "claims": "طلبات",
+      "policyHint": "الحد {{min}} دقيقة · الأسعار عادي ×{{weekday}} / راحة ×{{off}} / عطلة ×{{holiday}} / عيد ×{{eid}}",
+      "requestTitle": "طلب عمل إضافي",
+      "workDate": "تاريخ العمل",
+      "rateType": "نوع السعر",
+      "submit": "إرسال الطلب",
+      "submitted": "تم إرسال طلب العمل الإضافي",
+      "history": "طلباتي",
+      "cancel": "إلغاء",
+      "eligibleDays": "أيام مؤهلة",
+      "claimFromDay": "مطالبة",
+      "belowMin": "أقل من ساعة كاملة",
+      "group": {
+        "employee": "الموظف",
+        "department": "القسم",
+        "employment_type": "نوع التوظيف",
+        "location": "الموقع"
+      },
+      "rateTypes": {
+        "weekday": "يوم عمل",
+        "weekly_off": "راحة أسبوعية",
+        "public_holiday": "عطلة رسمية",
+        "eid": "عيد"
+      },
+      "status": {
+        "draft": "مسودة",
+        "submitted": "مُرسل",
+        "manager_verified": "تحقق المدير",
+        "hr_approved": "معتمد من الموارد البشرية",
+        "payroll_posted": "مرحل للرواتب",
+        "rejected": "مرفوض",
+        "cancelled": "ملغى",
+        "all": "الكل"
+      }
+    },
     "dashboard": {
       "kicker": "الموارد البشرية",
       "title": "لوحة الموارد البشرية",
@@ -6379,6 +6436,7 @@
       "links": {
         "payroll": "الرواتب",
         "leave": "الإجازات",
+        "ot": "العمل الإضافي",
         "field": "الميدان",
         "attendance": "الحضور",
         "documents": "المستندات",

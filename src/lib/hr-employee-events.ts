@@ -20,6 +20,8 @@ export type EmployeeEventType =
   | "salary_change"
   | "leave_approved"
   | "leave_rejected"
+  | "ot_approved"
+  | "ot_rejected"
   | "document_verified"
   | "document_replaced"
   | "document_uploaded"

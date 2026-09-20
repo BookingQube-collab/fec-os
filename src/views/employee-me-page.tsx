@@ -21,6 +21,13 @@ import {
   reviewLeaveRequest,
   submitLeaveRequest,
 } from "@/lib/hr-leave.functions";
+import {
+  actOnOtClaim,
+  listMyOtEligibilityDays,
+  listOtClaims,
+  submitOtClaim,
+} from "@/lib/hr-ot.functions";
+import { HR_OT_RATE_TYPES } from "@/lib/hr-ot";
 import { listAnnouncements } from "@/lib/hr-announcements.functions";
 import {
   getEmployeeDocumentUrl,
@@ -66,6 +73,8 @@ export default function EmployeeMePage() {
   const [docType, setDocType] = useState<(typeof HR_DOC_TYPES)[number]>("qid");
   const [docExpiry, setDocExpiry] = useState("");
   const [docFile, setDocFile] = useState<File | null>(null);
+  const [otDate, setOtDate] = useState("");
+  const [otRateType, setOtRateType] = useState<(typeof HR_OT_RATE_TYPES)[number]>("weekday");
 
   useEffect(() => {
     const sync = () => setOnline(navigator.onLine);
@@ -103,6 +112,16 @@ export default function EmployeeMePage() {
   const leave = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "my-leave" }),
     queryFn: () => listLeaveRequests({ mineOnly: true }),
+    staleTime: STALE.people,
+  });
+  const otClaims = useQuery({
+    queryKey: queryKeys.people.attendanceHr({ view: "my-ot" }),
+    queryFn: () => listOtClaims({ mineOnly: true, status: "all" }),
+    staleTime: STALE.people,
+  });
+  const otDays = useQuery({
+    queryKey: queryKeys.people.attendanceHr({ view: "my-ot-days" }),
+    queryFn: () => listMyOtEligibilityDays({}),
     staleTime: STALE.people,
   });
   const balances = useQuery({
@@ -251,6 +270,29 @@ export default function EmployeeMePage() {
     mutationFn: (id: string) => reviewLeaveRequest({ id, status: "cancelled" }),
     onSuccess: () => {
       toast.success(t("hr.leave.updated"));
+      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const askOt = useMutation({
+    mutationFn: (workDate?: string) =>
+      submitOtClaim({
+        workDate: workDate || otDate,
+        rateType: otRateType,
+      }),
+    onSuccess: () => {
+      toast.success(t("hr.ot.submitted"));
+      setOtDate("");
+      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const cancelOt = useMutation({
+    mutationFn: (claimId: string) => actOnOtClaim({ claimId, action: "cancel" }),
+    onSuccess: () => {
+      toast.success(t("hr.ot.updated"));
       void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
     },
     onError: (e: Error) => toast.error(e.message),
@@ -461,6 +503,77 @@ export default function EmployeeMePage() {
             ) : null}
           </div>
         ))}
+        </div>
+      </section>
+
+      <section className="hr-panel-shell">
+        <div className="hr-panel space-y-3 p-4">
+          <h2 className="text-sm font-semibold tracking-tight">{t("hr.ot.requestTitle")}</h2>
+          {(otDays.data ?? []).length > 0 ? (
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-muted-foreground">{t("hr.ot.eligibleDays")}</p>
+              {(otDays.data ?? []).slice(0, 8).map((d) => (
+                <div key={d.workDate} className="flex items-center justify-between gap-2 text-xs">
+                  <span>
+                    {d.workDate} · {Math.floor(d.eligibleMinutes / 60)}h {d.eligibleMinutes % 60}m
+                    {!d.claimable ? ` · ${t("hr.ot.belowMin")}` : ""}
+                  </span>
+                  {d.claimable ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={askOt.isPending}
+                      onClick={() => askOt.mutate(d.workDate)}
+                    >
+                      {t("hr.ot.claimFromDay")}
+                    </Button>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label>{t("hr.ot.workDate")}</Label>
+              <Input type="date" value={otDate} onChange={(e) => setOtDate(e.target.value)} />
+            </div>
+            <div>
+              <Label>{t("hr.ot.rateType")}</Label>
+              <select
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                value={otRateType}
+                onChange={(e) => setOtRateType(e.target.value as (typeof HR_OT_RATE_TYPES)[number])}
+              >
+                {HR_OT_RATE_TYPES.map((r) => (
+                  <option key={r} value={r}>
+                    {t(`hr.ot.rateTypes.${r}`)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <Button disabled={!otDate || askOt.isPending} onClick={() => askOt.mutate(otDate)}>
+            {t("hr.ot.submit")}
+          </Button>
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("hr.ot.history")}</h3>
+          {(otClaims.data ?? []).slice(0, 12).map((row) => (
+            <div key={row.id} className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+              <span>
+                {row.workDate} · {t(`hr.ot.rateTypes.${row.rateType}`)} · {t(`hr.ot.status.${row.status}`)} ·{" "}
+                {row.claimedMinutes}m · {row.amountQar.toFixed(2)} QAR
+              </span>
+              {row.status === "draft" || row.status === "submitted" ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={cancelOt.isPending}
+                  onClick={() => cancelOt.mutate(row.id)}
+                >
+                  {t("hr.ot.cancel")}
+                </Button>
+              ) : null}
+            </div>
+          ))}
         </div>
       </section>
 

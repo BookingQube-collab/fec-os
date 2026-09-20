@@ -40,6 +40,9 @@ describe("hr policy defaults", () => {
     expect(HR_POLICY_DEFAULTS.document.qid_alert_days).toBe(30);
     expect(HR_POLICY_DEFAULTS.ot.min_claimable_minutes).toBe(60);
     expect(HR_POLICY_DEFAULTS.ot.rounding).toBe("down");
+    expect(HR_POLICY_DEFAULTS.ot.eligible_categories).toEqual(["secondment"]);
+    expect(HR_POLICY_DEFAULTS.ot.rate_weekday).toBe(1.25);
+    expect(HR_POLICY_DEFAULTS.ot.rate_eid).toBe(2.5);
     expect(HR_POLICY_DEFAULTS.payroll.currency).toBe("QAR");
     expect(HR_POLICY_DEFAULTS.payroll.timezone).toBe("Asia/Qatar");
   });

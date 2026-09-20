@@ -147,6 +147,7 @@
     "hrPayroll": "Payroll",
     "hrField": "Field & geo",
     "hrLeave": "Leave",
+    "hrOt": "OT claims",
     "hrDocuments": "Employee files",
     "hrOnboarding": "Onboarding",
     "hrAnnouncements": "Announcements",
@@ -6445,6 +6446,62 @@
         "other": "Other"
       }
     },
+    "ot": {
+      "kicker": "HR",
+      "title": "OT claims",
+      "subtitle": "Verify and approve overtime claims. Eligible minutes come from attendance; minimum is one complete hour.",
+      "queue": "Approval queue",
+      "noAccess": "You cannot review OT claims.",
+      "empty": "No OT claims in this filter.",
+      "updated": "OT claim updated",
+      "verify": "Verify",
+      "approve": "HR approve",
+      "reject": "Reject",
+      "markPayroll": "Mark payroll posted",
+      "scheduled": "Scheduled",
+      "attendance": "Attendance",
+      "eligible": "Eligible",
+      "claimed": "Claimed",
+      "approved": "Approved",
+      "summariesTitle": "Monthly OT summary",
+      "summariesEmpty": "No OT claims in this month.",
+      "month": "Month",
+      "groupBy": "Group by",
+      "claims": "claims",
+      "policyHint": "Min {{min}} min · rates weekday ×{{weekday}} / off ×{{off}} / holiday ×{{holiday}} / Eid ×{{eid}}",
+      "requestTitle": "Claim overtime",
+      "workDate": "Work date",
+      "rateType": "Rate type",
+      "submit": "Submit OT claim",
+      "submitted": "OT claim submitted",
+      "history": "My OT claims",
+      "cancel": "Cancel",
+      "eligibleDays": "Days with eligible OT",
+      "claimFromDay": "Claim",
+      "belowMin": "Below 1-hour minimum",
+      "group": {
+        "employee": "Employee",
+        "department": "Department",
+        "employment_type": "Employment type",
+        "location": "Location"
+      },
+      "rateTypes": {
+        "weekday": "Weekday",
+        "weekly_off": "Weekly off",
+        "public_holiday": "Public holiday",
+        "eid": "Eid"
+      },
+      "status": {
+        "draft": "Draft",
+        "submitted": "Submitted",
+        "manager_verified": "Manager verified",
+        "hr_approved": "HR approved",
+        "payroll_posted": "Payroll posted",
+        "rejected": "Rejected",
+        "cancelled": "Cancelled",
+        "all": "All"
+      }
+    },
     "dashboard": {
       "kicker": "HR",
       "title": "HR dashboard",
@@ -6467,6 +6524,7 @@
       "links": {
         "payroll": "Payroll",
         "leave": "Leave",
+        "ot": "OT claims",
         "field": "Field",
         "attendance": "Attendance",
         "documents": "Documents",

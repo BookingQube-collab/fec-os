@@ -70,6 +70,7 @@ export default function HrDashboardPage() {
   const links = [
     { href: "/people/payroll", labelKey: "hr.dashboard.links.payroll", icon: Banknote },
     { href: "/people/leave", labelKey: "hr.dashboard.links.leave", icon: Palmtree },
+    { href: "/people/hr/ot", labelKey: "hr.dashboard.links.ot", icon: Timer },
     { href: "/people/field", labelKey: "hr.dashboard.links.field", icon: MapPinned },
     { href: "/people/attendance/reports", labelKey: "hr.dashboard.links.attendance", icon: ClipboardList },
     { href: "/people/hr/documents", labelKey: "hr.dashboard.links.documents", icon: FileText },

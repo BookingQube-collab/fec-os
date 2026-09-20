@@ -90,6 +90,7 @@ describe("admin sidebar visibility", () => {
       "/people/hr/onboarding",
       "/people/hr/announcements",
       "/people/hr/shift-policy",
+      "/people/hr/ot",
       "/people/hr/settings",
       "/people/hr/reports",
       "/people/employee-app",
@@ -97,6 +98,7 @@ describe("admin sidebar visibility", () => {
     expect(people?.groups.find((g) => g.id === "hr-workforce")?.items.map((i) => i.href)).toEqual([
       "/people/payroll",
       "/people/leave",
+      "/people/hr/ot",
       "/people/field",
     ]);
     expect(people?.groups.find((g) => g.id === "hr-attendance")?.items.some((i) => i.href === "/people/field")).toBe(
