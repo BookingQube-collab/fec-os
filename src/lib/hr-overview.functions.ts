@@ -26,7 +26,7 @@ export const getHrOverview = createAuthenticatedAction(
     const staffFilter = context.supabase
       .from("staff")
       .select("id", { count: "exact", head: true })
-      .in("status", ["active", "on_leave"])
+      .in("status", ["active", "on_leave", "serving_notice"])
       .is("deleted_at", null);
     const { count: headcount, error: staffErr } = data.locationId
       ? await staffFilter.eq("location_id", data.locationId)
@@ -158,6 +158,8 @@ export const getHrOverview = createAuthenticatedAction(
     let activeWarnings = 0;
     let thirdWarningEscalations = 0;
     let upcomingProbationDecisions = 0;
+    let servingNotice = 0;
+    let terminationQueue = 0;
     if (canUserDo(context.roles ?? [], "hr.warnings.manage") || canUserDo(context.roles ?? [], "hr.manage")) {
       const { data: warnRows, error: warnErr } = await context.supabase
         .from("hr_warnings")
@@ -188,6 +190,54 @@ export const getHrOverview = createAuthenticatedAction(
       }
       upcomingProbationDecisions = probCount ?? 0;
     }
+    if (
+      canUserDo(context.roles ?? [], "hr.resignation.manage") ||
+      canUserDo(context.roles ?? [], "hr.manage")
+    ) {
+      const { count: noticeCount, error: noticeErr } = await context.supabase
+        .from("staff")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "serving_notice")
+        .is("deleted_at", null);
+      if (noticeErr && !tableMissing(noticeErr.message) && !/permission/i.test(noticeErr.message ?? "")) {
+        throw noticeErr;
+      }
+      servingNotice = noticeCount ?? 0;
+    }
+    if (
+      canUserDo(context.roles ?? [], "hr.termination.initiate") ||
+      canUserDo(context.roles ?? [], "hr.termination.approve") ||
+      canUserDo(context.roles ?? [], "hr.manage")
+    ) {
+      const { count: termCount, error: termErr } = await context.supabase
+        .from("hr_terminations")
+        .select("id", { count: "exact", head: true })
+        .in("status", ["draft", "pending_hr_approval", "pending_exec_approval", "approved"]);
+      if (termErr && !tableMissing(termErr.message) && !/permission/i.test(termErr.message ?? "")) {
+        throw termErr;
+      }
+      let probationFlags = 0;
+      const { data: flagged, error: flagErr } = await context.supabase
+        .from("hr_probation_reviews")
+        .select("id")
+        .eq("flags_phase6_termination", true)
+        .eq("status", "decided");
+      if (flagErr && !tableMissing(flagErr.message) && !/permission/i.test(flagErr.message ?? "")) {
+        throw flagErr;
+      }
+      if (flagged?.length) {
+        const ids = flagged.map((r) => String(r.id));
+        const { data: linked } = await context.supabase
+          .from("hr_terminations")
+          .select("source_probation_review_id")
+          .in("source_probation_review_id", ids);
+        const linkedSet = new Set(
+          (linked ?? []).map((t) => t.source_probation_review_id).filter(Boolean).map(String),
+        );
+        probationFlags = ids.filter((id) => !linkedSet.has(id)).length;
+      }
+      terminationQueue = (termCount ?? 0) + probationFlags;
+    }
 
     return {
       headcount: headcount ?? 0,
@@ -203,6 +253,8 @@ export const getHrOverview = createAuthenticatedAction(
       activeWarnings,
       thirdWarningEscalations,
       upcomingProbationDecisions,
+      servingNotice,
+      terminationQueue,
       otPolicySummary,
       period,
       today,

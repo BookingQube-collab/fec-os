@@ -44,6 +44,8 @@ const TILE_TINTS: Record<string, KpiTint> = {
   activeWarnings: "amber",
   thirdWarningEscalations: "red",
   upcomingProbationDecisions: "orange",
+  servingNotice: "amber",
+  terminationQueue: "red",
 };
 
 export default function HrDashboardPage() {
@@ -73,6 +75,8 @@ export default function HrDashboardPage() {
     { key: "activeWarnings", value: d?.activeWarnings ?? "—", href: "/people/hr/warnings", icon: AlertTriangle },
     { key: "thirdWarningEscalations", value: d?.thirdWarningEscalations ?? "—", href: "/people/hr/warnings", icon: AlertTriangle },
     { key: "upcomingProbationDecisions", value: d?.upcomingProbationDecisions ?? "—", href: "/people/hr/probation", icon: Hourglass },
+    { key: "servingNotice", value: d?.servingNotice ?? "—", href: "/people/hr/resignations", icon: Hourglass },
+    { key: "terminationQueue", value: d?.terminationQueue ?? "—", href: "/people/hr/terminations", icon: AlertTriangle },
   ] as const;
 
   const links = [
@@ -81,6 +85,8 @@ export default function HrDashboardPage() {
     { href: "/people/hr/ot", labelKey: "hr.dashboard.links.ot", icon: Timer },
     { href: "/people/hr/warnings", labelKey: "hr.dashboard.links.warnings", icon: AlertTriangle },
     { href: "/people/hr/probation", labelKey: "hr.dashboard.links.probation", icon: Hourglass },
+    { href: "/people/hr/resignations", labelKey: "hr.dashboard.links.resignations", icon: Hourglass },
+    { href: "/people/hr/terminations", labelKey: "hr.dashboard.links.terminations", icon: AlertTriangle },
     { href: "/people/field", labelKey: "hr.dashboard.links.field", icon: MapPinned },
     { href: "/people/attendance/reports", labelKey: "hr.dashboard.links.attendance", icon: ClipboardList },
     { href: "/people/hr/documents", labelKey: "hr.dashboard.links.documents", icon: FileText },

@@ -3824,6 +3824,110 @@ export type Database = {
         Update: Record<string, unknown>
         Relationships: []
       }
+      hr_resignations: {
+        Row: Record<string, unknown> & {
+          id: string
+          staff_id: string
+          submitted_on: string
+          letter_document_id: string | null
+          reason: string
+          employment_category: string | null
+          length_of_service_days: number | null
+          suggested_notice_days: number
+          required_notice_days: number
+          notice_override: boolean
+          notice_override_reason: string | null
+          notice_override_approved_by: string | null
+          notice_override_approved_at: string | null
+          proposed_lwd: string | null
+          approved_lwd: string | null
+          notice_waiver: boolean
+          notice_recovery: boolean
+          handover_notes: string | null
+          asset_clearance: boolean
+          dept_clearance: boolean
+          finance_clearance: boolean
+          final_settlement_stub: Json
+          air_ticket_eligible: boolean
+          releasing_date: string | null
+          status: string
+          submitted_by: string | null
+          approved_by: string | null
+          approved_at: string | null
+          approval_note: string | null
+          cancelled_by: string | null
+          cancelled_at: string | null
+          created_by: string | null
+          created_at: string
+          updated_at: string
+          staff?: { full_name?: string; employee_code?: string; status?: string } | { full_name?: string; employee_code?: string; status?: string }[] | null
+        }
+        Insert: Record<string, unknown>
+        Update: Record<string, unknown>
+        Relationships: []
+      }
+      hr_terminations: {
+        Row: Record<string, unknown> & {
+          id: string
+          staff_id: string
+          termination_type: string
+          employment_category: string | null
+          reason: string
+          effective_on: string
+          last_working_date: string
+          notice_treatment: string
+          supporting_document_id: string | null
+          leave_treatment: string | null
+          loan_treatment: string | null
+          air_ticket_eligible: boolean
+          asset_clearance: boolean
+          dept_clearance: boolean
+          finance_clearance: boolean
+          final_settlement_stub: Json
+          releasing_date: string | null
+          status: string
+          hr_approved_by: string | null
+          hr_approved_at: string | null
+          hr_approval_note: string | null
+          exec_approved_by: string | null
+          exec_approved_at: string | null
+          exec_approval_note: string | null
+          source_probation_review_id: string | null
+          initiated_by: string | null
+          cancelled_by: string | null
+          cancelled_at: string | null
+          applied_at: string | null
+          created_by: string | null
+          created_at: string
+          updated_at: string
+          staff?: { full_name?: string; employee_code?: string; status?: string } | { full_name?: string; employee_code?: string; status?: string }[] | null
+        }
+        Insert: Record<string, unknown>
+        Update: Record<string, unknown>
+        Relationships: []
+      }
+      hr_clearance_items: {
+        Row: Record<string, unknown> & {
+          id: string
+          staff_id: string
+          resignation_id: string | null
+          termination_id: string | null
+          item_kind: string
+          label: string
+          department: string | null
+          completed: boolean
+          completed_by: string | null
+          completed_at: string | null
+          notes: string | null
+          sort_order: number
+          created_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: Record<string, unknown>
+        Update: Record<string, unknown>
+        Relationships: []
+      }
       hr_policy_settings: {
         Row: {
           id: string

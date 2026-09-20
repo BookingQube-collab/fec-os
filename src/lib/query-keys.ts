@@ -197,6 +197,9 @@ export const queryKeys = {
     hrEmployeeTimeline: (filters?: object) => [...queryKeys.people.all, "hr-employee-timeline", filters ?? {}] as const,
     hrWarnings: (filters?: object) => [...queryKeys.people.all, "hr-warnings", filters ?? {}] as const,
     hrProbation: (filters?: object) => [...queryKeys.people.all, "hr-probation", filters ?? {}] as const,
+    hrResignations: (filters?: object) => [...queryKeys.people.all, "hr-resignations", filters ?? {}] as const,
+    hrTerminations: (filters?: object) => [...queryKeys.people.all, "hr-terminations", filters ?? {}] as const,
+    hrClearance: (filters?: object) => [...queryKeys.people.all, "hr-clearance", filters ?? {}] as const,
   },
   performance: {
     all: ["performance"] as const,

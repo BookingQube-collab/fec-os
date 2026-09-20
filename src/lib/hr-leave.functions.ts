@@ -996,7 +996,7 @@ export const listStaffForLeaveBalances = createAuthenticatedActionNoInput(async 
   const { data, error } = await context.supabase
     .from("staff")
     .select("id, full_name, employee_code")
-    .in("status", ["active", "on_leave"])
+    .in("status", ["active", "on_leave", "serving_notice"])
     .is("deleted_at", null)
     .order("full_name")
     .limit(500);
@@ -1006,7 +1006,19 @@ export const listStaffForLeaveBalances = createAuthenticatedActionNoInput(async 
     name: s.full_name as string,
     employeeCode: (s.employee_code as string | null) ?? null,
   }));
-}, { auth: { anyCapability: ["hr.leave.manage", "hr.manage", "hr.warnings.manage", "hr.probation.manage"] } });
+}, {
+  auth: {
+    anyCapability: [
+      "hr.leave.manage",
+      "hr.manage",
+      "hr.warnings.manage",
+      "hr.probation.manage",
+      "hr.resignation.manage",
+      "hr.termination.initiate",
+      "hr.termination.approve",
+    ],
+  },
+});
 
 export const listEmployeeTimeline = createAuthenticatedAction(
   z.object({

@@ -129,6 +129,8 @@
     "hrOt": "طلبات العمل الإضافي",
     "hrWarnings": "الإنذارات",
     "hrProbation": "فترة التجربة",
+    "hrResignations": "الاستقالات",
+    "hrTerminations": "إنهاء الخدمة",
     "hrDocuments": "ملفات الموظفين",
     "hrOnboarding": "التهيئة",
     "hrAnnouncements": "الإعلانات",
@@ -6434,7 +6436,9 @@
         "activeAnnouncements": "إعلانات",
         "activeWarnings": "إنذارات نشطة",
         "thirdWarningEscalations": "تصعيد الإنذار الثالث",
-        "upcomingProbationDecisions": "قرارات تجربة قادمة"
+        "upcomingProbationDecisions": "قرارات تجربة قادمة",
+        "servingNotice": "في فترة الإشعار",
+        "terminationQueue": "قائمة إنهاء الخدمة"
       },
       "otPolicy": "سياسة الإضافي",
       "otPolicyHint": "ملخص للموارد البشرية/الرواتب. إضافي الحضور ما زال يعتمد قوالب الورديات.",
@@ -6444,6 +6448,8 @@
         "ot": "العمل الإضافي",
         "warnings": "الإنذارات",
         "probation": "فترة التجربة",
+        "resignations": "الاستقالات",
+        "terminations": "إنهاء الخدمة",
         "field": "الميدان",
         "attendance": "الحضور",
         "documents": "المستندات",

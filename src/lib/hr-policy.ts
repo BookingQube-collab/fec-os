@@ -72,10 +72,14 @@ export const HR_POLICY_DEFAULTS: Record<HrPolicySection, Record<string, unknown>
   },
   notice: {
     permanent_days: 30,
-    secondment_days: 14,
+    secondment_days: 7,
+    secondment_contractual: false,
     joker_days: 7,
     family_visa_days: 30,
     higher_mgmt_days: 60,
+    higher_mgmt_lte_2y_days: 30,
+    higher_mgmt_gt_2_lte_4y_days: 60,
+    higher_mgmt_gt_4y_days: 90,
     operations_days: 30,
   },
   document: {
