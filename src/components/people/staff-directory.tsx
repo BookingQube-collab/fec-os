@@ -23,15 +23,6 @@ function formatLocation(s: StaffRow): string {
   return formatLocationLabel(s.location_code, s.location_name);
 }
 
-function staffLocationCodes(s: StaffRow): string[] {
-  const codes = new Set<string>();
-  if (s.location_code) codes.add(s.location_code);
-  for (const loc of s.work_locations ?? []) {
-    if (loc.code) codes.add(loc.code);
-  }
-  return [...codes];
-}
-
 export function StaffDirectory({
   staff,
   locationId,
@@ -54,7 +45,6 @@ export function StaffDirectory({
   const [e3, setE3] = useState("");
   const [status, setStatus] = useState("active");
   const [missing, setMissing] = useState(false);
-  const [loc, setLoc] = useState("");
   const [sort, setSort] = useState<"name" | "code" | "location">("name");
   const [page, setPage] = useState(1);
   const pageSize = 25;
@@ -72,16 +62,6 @@ export function StaffDirectory({
     () => [...new Set(staff.map((s) => s.job_title).filter(Boolean))] as string[],
     [staff],
   );
-  const locations = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const s of staff) {
-      if (s.location_code) map.set(s.location_code, formatLocationLabel(s.location_code, s.location_name));
-      for (const loc of s.work_locations ?? []) {
-        if (loc.code && !map.has(loc.code)) map.set(loc.code, formatLocationLabel(loc.code, loc.name));
-      }
-    }
-    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [staff]);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -91,7 +71,6 @@ export function StaffDirectory({
           const blob = `${s.full_name} ${s.employee_code} ${s.qid ?? ""} ${s.phone ?? ""}`.toLowerCase();
           if (!blob.includes(needle)) return false;
         }
-                        if (loc && !staffLocationCodes(s).includes(loc)) return false;
         if (position && s.job_title !== position) return false;
         if (type && s.employment_type !== type) return false;
         if (e3 === "yes" && s.e3_enrolled !== true) return false;
@@ -106,7 +85,7 @@ export function StaffDirectory({
         if (sort === "location") return formatLocation(a).localeCompare(formatLocation(b));
         return a.full_name.localeCompare(b.full_name);
       });
-  }, [staff, q, loc, position, type, e3, status, missing, sort]);
+  }, [staff, q, position, type, e3, status, missing, sort]);
 
   const pages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
@@ -157,15 +136,6 @@ export function StaffDirectory({
             setQ(e.target.value);
             setPage(1);
           }}
-        />
-        <SearchableSelect
-          value={loc}
-          onValueChange={(next) => { setLoc(next); setPage(1); }}
-          placeholder={t("people.staff.allLocations")}
-          emptyOption={{ value: "", label: t("people.staff.allLocations") }}
-          options={locations.map(([code, label]) => ({ value: code, label, keywords: `${code} ${label}` }))}
-          triggerClassName="h-10 min-h-10 w-auto min-w-[9.5rem] font-normal"
-          className="w-auto"
         />
         <SearchableSelect
           value={position}
