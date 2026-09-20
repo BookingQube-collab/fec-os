@@ -14,8 +14,9 @@ import {
   Trash2,
   ChevronDown,
   CalendarDays,
+  RefreshCw,
 } from "lucide-react";
-import { useState, Suspense } from "react";
+import { useState, useEffect, Suspense } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -65,6 +66,7 @@ import {
   buildStaffSampleCsv,
   downloadCsvContent,
 } from "@/lib/staff-import";
+import { nextEmployeeCode } from "@/lib/staff-employee-code";
 import type { StaffRow } from "@/lib/queries/module-queries.core";
 import { queryKeys } from "@/lib/query-keys";
 import { usePermission } from "@/hooks/use-permission";
@@ -397,6 +399,10 @@ function StaffFormDialog({
   const [fullName, setFullName] = useState(staff?.full_name ?? "");
   const [jobTitle, setJobTitle] = useState(staff?.job_title ?? "");
   const { data: departments = [] } = useMasterDepartments({ enabled: open });
+  const { data: codeScopeStaff = [] } = useStaff(loc || null, {
+    enabled: open && !isEdit && !!loc,
+    includeArchived: true,
+  });
   const [departmentIds, setDepartmentIds] = useState<string[]>(staff?.department_ids ?? []);
   const [hireDate, setHireDate] = useState(staff?.hire_date ?? "");
   const [status, setStatus] = useState<(typeof STAFF_STATUSES)[number]>(
@@ -406,6 +412,27 @@ function StaffFormDialog({
   const [email, setEmail] = useState(staff?.email ?? "");
   const [employmentType, setEmploymentType] = useState<string>(staff?.employment_type ?? "permanent");
   const [photoDraft, setPhotoDraft] = useState<StaffPhotoDraft>({ dataUrl: null, remove: false });
+  const [codeNonce, setCodeNonce] = useState(0);
+
+  useEffect(() => {
+    if (!open || isEdit) return;
+    if (!loc) {
+      setEmployeeCode("");
+      return;
+    }
+    const site = sites.find((s) => s.id === loc);
+    if (!site?.code) {
+      setEmployeeCode("");
+      return;
+    }
+    setEmployeeCode(
+      nextEmployeeCode(
+        site.code,
+        codeScopeStaff.map((s) => s.employee_code),
+        { jobTitle: jobTitle || null },
+      ),
+    );
+  }, [open, isEdit, loc, jobTitle, codeScopeStaff, sites, codeNonce]);
 
   const m = useMutation({
     mutationFn: async () => {
@@ -501,8 +528,25 @@ function StaffFormDialog({
                 </Select>
               </div>
               <div>
-                <Label>{t("people.staff.code")}</Label>
-                <Input value={employeeCode} onChange={(e) => setEmployeeCode(e.target.value.toUpperCase())} />
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <Label>{t("people.staff.code")}</Label>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+                    onClick={() => setCodeNonce((n) => n + 1)}
+                    disabled={!loc || m.isPending}
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                    {t("people.staff.codeRegenerate")}
+                  </button>
+                </div>
+                <Input
+                  value={employeeCode}
+                  readOnly
+                  className="bg-muted/40 font-mono"
+                  placeholder={loc ? t("people.staff.codeAuto") : t("people.staff.selectBranch")}
+                />
+                <p className="mt-1 text-[11px] text-muted-foreground">{t("people.staff.codeAuto")}</p>
               </div>
             </>
           )}
@@ -572,7 +616,7 @@ function StaffFormDialog({
           <Button variant="ghost" onClick={() => onOpenChange(false)}>{t("common.cancel")}</Button>
           <Button
             onClick={() => m.mutate()}
-            disabled={m.isPending || !fullName || (!isEdit && (!loc || !employeeCode))}
+            disabled={m.isPending || !fullName || (!isEdit && !loc)}
           >
             {m.isPending ? t("common.saving") : t("common.save")}
           </Button>

@@ -3025,6 +3025,8 @@
       "add": "Add staff",
       "edit": "Edit staff",
       "code": "Code",
+      "codeAuto": "Auto-generated from branch",
+      "codeRegenerate": "Regenerate",
       "name": "Name",
       "qid": "QID",
       "e3": "E3",

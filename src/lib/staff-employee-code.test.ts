@@ -5,6 +5,7 @@ import {
   generateEmployeeCode,
   isPreservableEmployeeCode,
   isQidShapedCode,
+  nextEmployeeCode,
   roleTokenKind,
 } from "./staff-employee-code";
 
@@ -40,6 +41,16 @@ describe("generateEmployeeCode", () => {
     const code = generateEmployeeCode("INF-CC", used, { staffRole: "crew" });
     expect(isQidShapedCode(code)).toBe(false);
     expect(code).toBe("INF-CC-STF01");
+  });
+});
+
+describe("nextEmployeeCode", () => {
+  it("picks next free STF for a location short code without mutating input", () => {
+    const existing = ["KDS-CC-STF01", "KDS-CC-STF05", "INF-CC-STF16"];
+    expect(nextEmployeeCode("KDS-CC", existing)).toBe("KDS-CC-STF02");
+    expect(nextEmployeeCode("INF-CC", existing)).toBe("INF-CC-STF01");
+    expect(nextEmployeeCode("KDS-CC", existing)).toBe("KDS-CC-STF02");
+    expect(existing).toEqual(["KDS-CC-STF01", "KDS-CC-STF05", "INF-CC-STF16"]);
   });
 });
 

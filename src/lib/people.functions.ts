@@ -15,7 +15,10 @@ import {
   normalizeDepartmentName,
   splitDepartmentTokens,
 } from "@/lib/staff-departments";
-import { assertInternalEmployeeCode } from "@/lib/staff-employee-code";
+import {
+  assertInternalEmployeeCode,
+  generateEmployeeCode,
+} from "@/lib/staff-employee-code";
 import { fetchStaffIdsWorkingAtLocation } from "@/lib/staff-work-locations";
 import { shiftUuid, staffUuid } from "@/lib/staff-import-ids";
 import { createAuthenticatedAction } from "@/lib/server/create-action";
@@ -393,7 +396,7 @@ const TRAINING_STATUSES = ["enrolled", "in_progress", "completed", "overdue"] as
 export const createStaff = createAuthenticatedAction(
   z.object({
     locationId: z.string().uuid(),
-    employeeCode: z.string().min(1).max(50),
+    employeeCode: z.string().max(50).optional().or(z.literal("")),
     fullName: z.string().min(1).max(200),
     jobTitle: z.string().max(200).optional(),
     departmentIds: z.array(z.string().uuid()).default([]),
@@ -407,15 +410,36 @@ export const createStaff = createAuthenticatedAction(
   }),
   async (data, context) => {
     await assertLocationAccess(context, data.locationId);
-    const employee_code = assertInternalEmployeeCode(data.employeeCode, data.qid);
-    const { data: dup, error: dupErr } = await context.supabase
+
+    const { data: locRow, error: locErr } = await context.supabase
+      .from("locations")
+      .select("code")
+      .eq("id", data.locationId)
+      .single();
+    if (locErr) throw locErr;
+    const locationCode = String(locRow?.code ?? "").trim().toUpperCase();
+    if (!locationCode) throw new Error("Branch code not found");
+
+    const { data: codeRows, error: codesErr } = await context.supabase
       .from("staff")
-      .select("id")
-      .eq("employee_code", employee_code)
-      .is("deleted_at", null)
-      .maybeSingle();
-    if (dupErr) throw dupErr;
-    if (dup) throw new Error(`Employee code "${employee_code}" already exists`);
+      .select("employee_code")
+      .is("deleted_at", null);
+    if (codesErr) throw codesErr;
+    const usedCodes = new Set(
+      (codeRows ?? []).map((r) => String(r.employee_code ?? "").trim().toUpperCase()).filter(Boolean),
+    );
+
+    const hint = { jobTitle: data.jobTitle };
+    let employee_code: string;
+    const preferred = data.employeeCode?.trim();
+    if (preferred) {
+      employee_code = assertInternalEmployeeCode(preferred, data.qid);
+      if (usedCodes.has(employee_code)) {
+        employee_code = generateEmployeeCode(locationCode, usedCodes, hint);
+      }
+    } else {
+      employee_code = generateEmployeeCode(locationCode, usedCodes, hint);
+    }
 
     const names = await departmentNamesForIds(context, data.departmentIds);
     const department = formatDepartmentDisplay(names) || null;

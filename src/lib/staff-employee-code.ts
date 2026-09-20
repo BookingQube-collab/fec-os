@@ -89,6 +89,18 @@ export function generateEmployeeCode(
   throw new Error(`Could not allocate employee code for ${loc}`);
 }
 
+/** Next free `{LOCATION_SHORT}-{ROLE}` code; does not mutate `existing`. */
+export function nextEmployeeCode(
+  locationCode: string,
+  existing: Iterable<string>,
+  hint?: EmployeeCodeHint,
+): string {
+  const used = new Set(
+    [...existing].map((c) => String(c).trim().toUpperCase()).filter(Boolean),
+  );
+  return generateEmployeeCode(locationCode, used, hint);
+}
+
 /** @deprecated Prefer generateEmployeeCode with a role hint. */
 export function generateSyntheticEmployeeCode(
   locationCode: string,
