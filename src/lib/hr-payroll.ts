@@ -170,6 +170,22 @@ function round2(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
+/** True when compensation is day-rate (no positive monthly). Reuses staff_compensation.daily_rate_qar. */
+export function isDailyRateCompensation(input: {
+  monthlySalaryQar?: number | null;
+  dailyRateQar?: number | null;
+}): boolean {
+  const daily = Number(input.dailyRateQar);
+  if (!Number.isFinite(daily) || daily <= 0) return false;
+  const monthly = Number(input.monthlySalaryQar);
+  return !(Number.isFinite(monthly) && monthly > 0);
+}
+
+/** Joker / daily workers: day_rate × countable present (punch) days. */
+export function computeDailyRateBasicQar(dayRateQar: number, presentDays: number): number {
+  return round2(Math.max(0, Number(dayRateQar) || 0) * Math.max(0, Number(presentDays) || 0));
+}
+
 function sumLines(lines: PayrollMoneyLine[]): number {
   return round2(lines.reduce((s, l) => s + (Number(l.amountQar) || 0), 0));
 }

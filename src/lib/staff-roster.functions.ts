@@ -3,7 +3,11 @@
 import { z } from "zod";
 
 import { canUserDo } from "@/lib/rbac";
-import { createAuthenticatedAction, type AuthContext } from "@/lib/server/create-action";
+import {
+  createAuthenticatedAction,
+  createSafeAuthenticatedAction,
+  type AuthContext,
+} from "@/lib/server/create-action";
 import { ForbiddenError } from "@/lib/server/authorize";
 import { rollbackRosterBatch } from "@/lib/staff-roster/apply";
 import { insertSalaryHistoryAndSync, insertStatusHistory } from "@/lib/staff-history";
@@ -129,7 +133,7 @@ export const transferStaffMember = createAuthenticatedAction(
   { auth: { capability: "people.edit_roster" } },
 );
 
-export const updateStaffSalary = createAuthenticatedAction(
+export const updateStaffSalary = createSafeAuthenticatedAction(
   z.object({
     id: z.string().uuid(),
     monthlySalaryQar: z.number().min(0).max(1_000_000).nullable(),
@@ -147,7 +151,7 @@ export const updateStaffSalary = createAuthenticatedAction(
       locationId: existing.location_id,
       reason: "manual_update",
     });
-    return { ok: true };
+    return { ok: true as const };
   },
   { auth: { capability: "people.edit_salary" } },
 );
@@ -206,7 +210,7 @@ export const updateStaffRosterFields = createAuthenticatedAction(
   { auth: { capability: "people.edit_roster" } },
 );
 
-export const updateStaffWorkLocations = createAuthenticatedAction(
+export const updateStaffWorkLocations = createSafeAuthenticatedAction(
   z.object({
     id: z.string().uuid(),
     locationIds: z.array(z.string().uuid()).max(20),
@@ -253,7 +257,7 @@ export const updateStaffWorkLocations = createAuthenticatedAction(
       { location_ids: unique, is_roaming: isRoaming },
       existing.location_id,
     );
-    return { ok: true, isRoaming, locationIds: unique };
+    return { ok: true as const, isRoaming, locationIds: unique };
   },
   { auth: { capability: "people.edit_roster" } },
 );

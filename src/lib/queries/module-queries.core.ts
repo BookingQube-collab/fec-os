@@ -349,6 +349,7 @@ export interface StaffRow {
   employment_type: string | null;
   staff_role: string | null;
   monthly_salary_qar?: number | null;
+  daily_rate_qar?: number | null;
   /** True when photo_updated_at is set (bytea stored on staff row). */
   has_photo: boolean;
   photo_updated_at: string | null;
@@ -450,13 +451,28 @@ export async function fetchStaff(
 
   const { data: comps } = await context.supabase
     .from("staff_compensation")
-    .select("staff_id, monthly_salary_qar")
+    .select("staff_id, monthly_salary_qar, daily_rate_qar")
     .in(
       "staff_id",
       mapped.map((s) => s.id),
     );
-  const byId = new Map((comps ?? []).map((c) => [c.staff_id, c.monthly_salary_qar == null ? null : Number(c.monthly_salary_qar)]));
-  return mapped.map((s) => ({ ...s, monthly_salary_qar: byId.get(s.id) ?? null }));
+  const byId = new Map(
+    (comps ?? []).map((c) => [
+      c.staff_id,
+      {
+        monthly: c.monthly_salary_qar == null ? null : Number(c.monthly_salary_qar),
+        daily: c.daily_rate_qar == null ? null : Number(c.daily_rate_qar),
+      },
+    ]),
+  );
+  return mapped.map((s) => {
+    const comp = byId.get(s.id);
+    return {
+      ...s,
+      monthly_salary_qar: comp?.monthly ?? null,
+      daily_rate_qar: comp?.daily ?? null,
+    };
+  });
 }
 
 // ——— Facility ———

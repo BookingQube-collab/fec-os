@@ -419,9 +419,24 @@ function StaffFormDialog({
     staff?.e3_enrolled == null ? "" : staff.e3_enrolled ? "yes" : "no",
   );
   const [employmentType, setEmploymentType] = useState<string>(staff?.employment_type ?? "permanent");
-  const [salary, setSalary] = useState(
-    staff?.monthly_salary_qar != null ? String(staff.monthly_salary_qar) : "",
-  );
+  const [payBasis, setPayBasis] = useState<"monthly" | "daily">(() => {
+    if (staff?.employment_type !== "joker") return "monthly";
+    const daily = staff?.daily_rate_qar;
+    const monthly = staff?.monthly_salary_qar;
+    if (daily != null && daily > 0 && !(monthly != null && monthly > 0)) return "daily";
+    return "monthly";
+  });
+  const [salary, setSalary] = useState(() => {
+    if (
+      staff?.employment_type === "joker" &&
+      staff.daily_rate_qar != null &&
+      staff.daily_rate_qar > 0 &&
+      !(staff.monthly_salary_qar != null && staff.monthly_salary_qar > 0)
+    ) {
+      return String(staff.daily_rate_qar);
+    }
+    return staff?.monthly_salary_qar != null ? String(staff.monthly_salary_qar) : "";
+  });
   const [workLocationIds, setWorkLocationIds] = useState<string[]>(
     staff?.work_location_ids?.length
       ? staff.work_location_ids
@@ -461,9 +476,10 @@ function StaffFormDialog({
           : (employmentType as "permanent" | "temporary" | "secondment" | "joker");
       const e3Enrolled = e3 === "" ? null : e3 === "yes";
       const qidValue = qid.trim() || null;
+      const jokerDaily = employment === "joker" && payBasis === "daily";
       let staffId = staff?.id;
       if (isEdit) {
-        await updateStaff({
+        const updated = await updateStaff({
           id: staff!.id,
           fullName,
           jobTitle: jobTitle || null,
@@ -476,13 +492,15 @@ function StaffFormDialog({
           e3Enrolled,
           employmentType: employment,
         });
+        if (!updated.ok) throw new Error(updated.error);
         const homeId = staff!.location_id;
         const uniqueSites = [...new Set([homeId, ...workLocationIds.filter(Boolean)])];
-        await updateStaffWorkLocations({
+        const sitesResult = await updateStaffWorkLocations({
           id: staff!.id,
           locationIds: uniqueSites,
           isRoaming,
         });
+        if (!sitesResult.ok) throw new Error(sitesResult.error);
       } else {
         if (!loc) throw new Error(t("people.staff.selectBranch"));
         const created = await createStaff({
@@ -499,17 +517,26 @@ function StaffFormDialog({
           e3Enrolled,
           employmentType: employment,
         });
-        staffId = created.id;
+        if (!created.ok) throw new Error(created.error);
+        staffId = created.data.id;
       }
 
       if (staffId && canEditSalary) {
-        const nextSalary = salary.trim() === "" ? null : Number(salary);
-        const prevSalary = staff?.monthly_salary_qar ?? null;
-        if (nextSalary !== null && Number.isNaN(nextSalary)) {
+        const nextAmount = salary.trim() === "" ? null : Number(salary);
+        if (nextAmount !== null && Number.isNaN(nextAmount)) {
           throw new Error(t("people.staff.salaryPlaceholder"));
         }
-        if (nextSalary !== prevSalary) {
-          await updateStaffSalary({ id: staffId, monthlySalaryQar: nextSalary });
+        const nextMonthly = jokerDaily ? null : nextAmount;
+        const nextDaily = jokerDaily ? nextAmount : null;
+        const prevMonthly = staff?.monthly_salary_qar ?? null;
+        const prevDaily = staff?.daily_rate_qar ?? null;
+        if (nextMonthly !== prevMonthly || nextDaily !== prevDaily) {
+          const salaryResult = await updateStaffSalary({
+            id: staffId,
+            monthlySalaryQar: nextMonthly,
+            dailyRateQar: nextDaily,
+          });
+          if (!salaryResult.ok) throw new Error(salaryResult.error);
         }
       }
 
@@ -673,7 +700,10 @@ function StaffFormDialog({
             </div>
             <div>
               <Label>{t("people.staff.employmentType")}</Label>
-              <Select value={employmentType} onValueChange={setEmploymentType}>
+              <Select value={employmentType} onValueChange={(v) => {
+                setEmploymentType(v);
+                if (v !== "joker") setPayBasis("monthly");
+              }}>
                 <SelectTrigger><SelectValue placeholder={t("people.staff.employmentType")} /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="permanent">{t("people.staff.employmentTypes.permanent")}</SelectItem>
@@ -685,6 +715,19 @@ function StaffFormDialog({
             </div>
           </div>
           <p className="text-xs text-muted-foreground">{t("people.staff.roleHoursHelp")}</p>
+          {employmentType === "joker" ? (
+            <div>
+              <Label>{t("people.staff.payBasis")}</Label>
+              <Select value={payBasis} onValueChange={(v) => setPayBasis(v as "monthly" | "daily")}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="monthly">{t("people.staff.payBasisMonthly")}</SelectItem>
+                  <SelectItem value="daily">{t("people.staff.payBasisDaily")}</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="mt-1 text-[11px] text-muted-foreground">{t("people.staff.payBasisDailyHelp")}</p>
+            </div>
+          ) : null}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>{t("people.staff.phone")}</Label>
@@ -697,11 +740,19 @@ function StaffFormDialog({
           </div>
           {(canEditSalary || (isEdit && canViewSalary)) && (
             <div>
-              <Label>{t("people.staff.salary")}</Label>
+              <Label>
+                {employmentType === "joker" && payBasis === "daily"
+                  ? t("people.staff.dayRate")
+                  : t("people.staff.salary")}
+              </Label>
               <Input
                 value={salary}
                 onChange={(e) => setSalary(e.target.value)}
-                placeholder={t("people.staff.salaryPlaceholder")}
+                placeholder={
+                  employmentType === "joker" && payBasis === "daily"
+                    ? t("people.staff.dayRatePlaceholder")
+                    : t("people.staff.salaryPlaceholder")
+                }
                 inputMode="decimal"
                 readOnly={!canEditSalary}
                 className={canEditSalary ? undefined : "bg-muted/40"}

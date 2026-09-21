@@ -14,6 +14,7 @@ import {
   buildBankTransferExportRows,
   buildChequeExportRows,
   buildWpsExportRows,
+  computeDailyRateBasicQar,
   computePayrollLineAmounts,
   computeProrationFactor,
   earningsToFixedVariable,
@@ -21,6 +22,7 @@ import {
   filterConsumableOtClaims,
   HR_PAYROLL_PAYMENT_METHODS,
   HR_PAYROLL_STATUSES,
+  isDailyRateCompensation,
   nextStatusAfter,
   resolvePaymentMethod,
   sumOtAmounts,
@@ -29,6 +31,7 @@ import {
   type PayrollExportRow,
   type PayrollMoneyLine,
 } from "@/lib/hr-payroll";
+import { isPayrollPresentDay } from "@/lib/attendance-hr/payroll";
 import { assertCanMarkPayrollPosted } from "@/lib/hr-ot";
 import { readPolicySection } from "@/lib/hr-policy-read";
 import { canUserDo } from "@/lib/rbac";
@@ -37,6 +40,7 @@ import {
   createAuthenticatedAction,
   type AuthContext,
 } from "@/lib/server/create-action";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 function tableMissing(message: string | undefined): boolean {
   return Boolean(message && /does not exist|schema cache|relation/i.test(message));
@@ -397,6 +401,26 @@ export const generatePayrollLines = createAuthenticatedAction(
       .lte("date_from", dateTo)
       .gte("date_to", dateFrom);
 
+    // Present (punch) days for daily-rate jokers — same statuses as payroll readiness.
+    const presentDaysByStaff = new Map<string, number>();
+    {
+      let attQ = supabaseAdmin
+        .from("attendance_daily_summary")
+        .select("staff_id, status")
+        .in("staff_id", staffIds)
+        .gte("work_date", dateFrom)
+        .lte("work_date", dateTo)
+        .not("staff_id", "is", null)
+        .limit(50000);
+      if (data.locationId) attQ = attQ.eq("location_id", data.locationId);
+      const { data: attRows } = await attQ;
+      for (const row of attRows ?? []) {
+        const sid = String(row.staff_id);
+        if (!isPayrollPresentDay({ status: String(row.status ?? "") })) continue;
+        presentDaysByStaff.set(sid, (presentDaysByStaff.get(sid) ?? 0) + 1);
+      }
+    }
+
     // Previous period nets for variance
     const prevMonth = (() => {
       const [y, m] = String(periodRow.month).split("-").map(Number);
@@ -442,14 +466,24 @@ export const generatePayrollLines = createAuthenticatedAction(
       });
       const comp = compBy.get(s.id);
       const hist = histBy.get(s.id);
+      const monthlyStored =
+        hist?.monthly_total_qar != null
+          ? Number(hist.monthly_total_qar)
+          : comp?.monthly_salary_qar != null
+            ? Number(comp.monthly_salary_qar)
+            : null;
+      const dailyStored =
+        hist?.daily_rate_qar != null
+          ? Number(hist.daily_rate_qar)
+          : comp?.daily_rate_qar != null
+            ? Number(comp.daily_rate_qar)
+            : null;
       const basic =
         hist?.basic_qar != null
           ? Number(hist.basic_qar)
-          : hist?.monthly_total_qar != null
-            ? Number(hist.monthly_total_qar)
-            : comp?.monthly_salary_qar != null
-              ? Number(comp.monthly_salary_qar)
-              : 0;
+          : monthlyStored != null
+            ? monthlyStored
+            : 0;
       let allowances = 0;
       const allowJson = hist?.allowances;
       if (allowJson && typeof allowJson === "object" && !Array.isArray(allowJson)) {
@@ -458,12 +492,7 @@ export const generatePayrollLines = createAuthenticatedAction(
           0,
         );
       }
-      const dailyRate =
-        hist?.daily_rate_qar != null
-          ? Number(hist.daily_rate_qar)
-          : comp?.daily_rate_qar != null
-            ? Number(comp.daily_rate_qar)
-            : basic / 30;
+      const dailyRate = dailyStored != null ? dailyStored : basic / 30;
 
       const exitDate = ext?.last_working_date ?? ext?.releasing_date ?? null;
       const unpaidDays = unpaidLeaveDaysForStaff(
@@ -472,13 +501,23 @@ export const generatePayrollLines = createAuthenticatedAction(
         dateFrom,
         dateTo,
       );
-      const proration = computeProrationFactor({
-        dateFrom,
-        dateTo,
-        hireDate: s.hire_date,
-        exitDate,
-        unpaidLeaveDays: unpaidDays,
+      const dailyPay = isDailyRateCompensation({
+        monthlySalaryQar: monthlyStored,
+        dailyRateQar: dailyStored,
       });
+      const presentDays = presentDaysByStaff.get(s.id) ?? 0;
+      const proration = dailyPay
+        ? { factor: 1, unpaidLeaveDays: 0, activeDays: presentDays, periodDays: presentDays }
+        : computeProrationFactor({
+            dateFrom,
+            dateTo,
+            hireDate: s.hire_date,
+            exitDate,
+            unpaidLeaveDays: unpaidDays,
+          });
+      const basicForLine = dailyPay
+        ? computeDailyRateBasicQar(dailyStored ?? 0, presentDays)
+        : basic;
 
       const staffOt = otByStaff.get(s.id) ?? [];
       const otQar = sumOtAmounts(staffOt);
@@ -489,11 +528,11 @@ export const generatePayrollLines = createAuthenticatedAction(
       for (const a of staffAir) airToMark.push(a.id);
 
       const computed = computePayrollLineAmounts({
-        basicQar: basic,
-        allowancesQar: allowances,
+        basicQar: basicForLine,
+        allowancesQar: dailyPay ? 0 : allowances,
         otQar,
         airTicketAllowanceQar: airQar,
-        unpaidLeaveDays: unpaidDays,
+        unpaidLeaveDays: dailyPay ? 0 : unpaidDays,
         dailyRateQar: dailyRate,
         proration,
         paymentMethod,
@@ -505,7 +544,15 @@ export const generatePayrollLines = createAuthenticatedAction(
         staff_id: s.id,
         payment_method: computed.paymentMethod,
         earnings: [
-          ...computed.earnings,
+          ...computed.earnings.map((e) =>
+            dailyPay && e.code === "basic"
+              ? {
+                  ...e,
+                  label: "Day rate × present days",
+                  meta: { dayRateQar: dailyRate, presentDays },
+                }
+              : e,
+          ),
           ...(staffOt.length
             ? [{ code: "ot_claim_ids", label: "OT claim ids", amountQar: 0, meta: { ids: staffOt.map((c) => c.id) } }]
             : []),

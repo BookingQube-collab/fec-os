@@ -124,7 +124,11 @@ export default function StaffProfilePage() {
   });
 
   const salaryMut = useMutation({
-    mutationFn: () => updateStaffSalary({ id, monthlySalaryQar: salary ? Number(salary) : null }),
+    mutationFn: async () => {
+      const result = await updateStaffSalary({ id, monthlySalaryQar: salary ? Number(salary) : null });
+      if (!result.ok) throw new Error(result.error);
+      return result.data;
+    },
     onSuccess: () => {
       toast.success(t("people.staff.salary"));
       void qc.invalidateQueries({ queryKey: queryKeys.people.staffProfile(id) });
@@ -163,7 +167,11 @@ export default function StaffProfilePage() {
   });
 
   const workSitesMut = useMutation({
-    mutationFn: () => updateStaffWorkLocations({ id, locationIds: workLocationIds, isRoaming }),
+    mutationFn: async () => {
+      const result = await updateStaffWorkLocations({ id, locationIds: workLocationIds, isRoaming });
+      if (!result.ok) throw new Error(result.error);
+      return result.data;
+    },
     onSuccess: () => {
       toast.success(t("people.staff.workLocationsSaved"));
       void qc.invalidateQueries({ queryKey: queryKeys.people.staffProfile(id) });
@@ -173,11 +181,14 @@ export default function StaffProfilePage() {
   });
 
   const employmentMut = useMutation({
-    mutationFn: () =>
-      updateStaff({
+    mutationFn: async () => {
+      const result = await updateStaff({
         id,
         employmentType: (employmentType || null) as "permanent" | "temporary" | "secondment" | "joker" | null,
-      }),
+      });
+      if (!result.ok) throw new Error(result.error);
+      return result.data;
+    },
     onSuccess: () => {
       toast.success(t("people.staff.updateSuccess"));
       void qc.invalidateQueries({ queryKey: queryKeys.people.staffProfile(id) });

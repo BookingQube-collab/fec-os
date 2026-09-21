@@ -110,6 +110,7 @@ export type ExistingStaffForMatch = {
   staff_role: string | null;
   is_roaming?: boolean | null;
   monthly_salary_qar?: number | null;
+  daily_rate_qar?: number | null;
 };
 
 export type FieldDiff = {

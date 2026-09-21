@@ -21,8 +21,9 @@ import {
 } from "@/lib/staff-employee-code";
 import { fetchStaffIdsWorkingAtLocation } from "@/lib/staff-work-locations";
 import { shiftUuid, staffUuid } from "@/lib/staff-import-ids";
-import { createAuthenticatedAction } from "@/lib/server/create-action";
+import { createAuthenticatedAction, createSafeAuthenticatedAction } from "@/lib/server/create-action";
 import type { AuthContext } from "@/lib/server/create-action";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import {
   decodeImageDataUrl,
 } from "@/lib/staff-photo";
@@ -393,7 +394,8 @@ export const importStaffCsv = createAuthenticatedAction(
 const STAFF_STATUSES = ["active", "on_leave", "terminated"] as const;
 const TRAINING_STATUSES = ["enrolled", "in_progress", "completed", "overdue"] as const;
 
-export const createStaff = createAuthenticatedAction(
+/** Safe so production toasts show DB/Zod text instead of Next RSC digests. */
+export const createStaff = createSafeAuthenticatedAction(
   z.object({
     locationId: z.string().uuid(),
     employeeCode: z.string().max(50).optional().or(z.literal("")),
@@ -420,7 +422,8 @@ export const createStaff = createAuthenticatedAction(
     const locationCode = String(locRow?.code ?? "").trim().toUpperCase();
     if (!locationCode) throw new Error("Branch code not found");
 
-    const { data: codeRows, error: codesErr } = await context.supabase
+    // Service role for code scan + insert: avoids RLS INSERT…RETURNING edge cases and 1k row caps.
+    const { data: codeRows, error: codesErr } = await supabaseAdmin
       .from("staff")
       .select("employee_code")
       .is("deleted_at", null);
@@ -444,7 +447,7 @@ export const createStaff = createAuthenticatedAction(
     const names = await departmentNamesForIds(context, data.departmentIds);
     const department = formatDepartmentDisplay(names) || null;
 
-    const { data: row, error } = await context.supabase
+    const { data: row, error } = await supabaseAdmin
       .from("staff")
       .insert({
         location_id: data.locationId,
@@ -478,7 +481,7 @@ export const createStaff = createAuthenticatedAction(
   { auth: { capability: "people.edit_roster" } },
 );
 
-export const updateStaff = createAuthenticatedAction(
+export const updateStaff = createSafeAuthenticatedAction(
   z.object({
     id: z.string().uuid(),
     fullName: z.string().min(1).max(200).optional(),
@@ -542,7 +545,7 @@ export const updateStaff = createAuthenticatedAction(
       _location_id: existing.location_id,
       _metadata: {},
     });
-    return { ok: true };
+    return { ok: true as const };
   },
   { auth: { capability: "people.edit_roster" } },
 );

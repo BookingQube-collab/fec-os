@@ -5,15 +5,31 @@ import { HR_POLICY_DEFAULTS } from "./hr-policy";
 import {
   assertPeriodEditable,
   buildWpsExportRows,
+  computeDailyRateBasicQar,
   computePayrollLineAmounts,
   computeProrationFactor,
   fecPeriodForMonth,
   filterConsumableOtClaims,
+  isDailyRateCompensation,
   lockedLineResistsPolicyChange,
   partitionByPaymentMethod,
   resolvePaymentMethod,
   sumOtAmounts,
 } from "./hr-payroll";
+
+describe("daily-rate joker pay", () => {
+  it("detects day-rate when monthly is empty", () => {
+    expect(isDailyRateCompensation({ monthlySalaryQar: null, dailyRateQar: 1200 })).toBe(true);
+    expect(isDailyRateCompensation({ monthlySalaryQar: 0, dailyRateQar: 1200 })).toBe(true);
+    expect(isDailyRateCompensation({ monthlySalaryQar: 5000, dailyRateQar: 1200 })).toBe(false);
+    expect(isDailyRateCompensation({ monthlySalaryQar: null, dailyRateQar: null })).toBe(false);
+  });
+
+  it("computes basic as day_rate × present punch days", () => {
+    expect(computeDailyRateBasicQar(1200, 18)).toBe(21600);
+    expect(computeDailyRateBasicQar(1200, 0)).toBe(0);
+  });
+});
 
 describe("AT#11 separates WPS / cheque / bank-transfer employees", () => {
   it("resolves defaults by employment category", () => {

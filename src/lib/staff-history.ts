@@ -4,6 +4,7 @@
  */
 
 import type { Json } from "@/integrations/supabase/types";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { appendEmployeeEvent } from "@/lib/hr-employee-events";
 import type { AuthContext } from "@/lib/server/create-action";
 
@@ -44,7 +45,8 @@ export async function insertSalaryHistoryAndSync(
   },
 ): Promise<{ historyId: string }> {
   const effectiveOn = input.effectiveOn ?? qatarToday();
-  const { data: hist, error: histErr } = await context.supabase
+  // Service role after people.edit_salary: salary RLS has blocked every history write (0 rows in prod).
+  const { data: hist, error: histErr } = await supabaseAdmin
     .from("staff_salary_history")
     .insert({
       staff_id: input.staffId,
@@ -63,7 +65,7 @@ export async function insertSalaryHistoryAndSync(
     .single();
   if (histErr) throw histErr;
 
-  const { error: compErr } = await context.supabase.from("staff_compensation").upsert({
+  const { error: compErr } = await supabaseAdmin.from("staff_compensation").upsert({
     staff_id: input.staffId,
     monthly_salary_qar: input.monthlyTotalQar,
     daily_rate_qar: input.dailyRateQar ?? null,
@@ -72,31 +74,39 @@ export async function insertSalaryHistoryAndSync(
   });
   if (compErr) throw compErr;
 
-  await audit(
-    context,
-    "staff.salary_changed",
-    "staff_salary_history",
-    hist.id,
-    {
-      staff_id: input.staffId,
-      monthly_total_qar: input.monthlyTotalQar,
-      daily_rate_qar: input.dailyRateQar ?? null,
-      effective_on: effectiveOn,
-    },
-    input.locationId,
-  );
-  await appendEmployeeEvent(context, {
-    staffId: input.staffId,
-    eventType: "salary_change",
-    effectiveOn,
-    payload: {
-      monthly_total_qar: input.monthlyTotalQar,
-      daily_rate_qar: input.dailyRateQar ?? null,
-      reason: input.reason ?? null,
-    },
-    sourceTable: "staff_salary_history",
-    sourceId: hist.id,
-  });
+  try {
+    await audit(
+      context,
+      "staff.salary_changed",
+      "staff_salary_history",
+      hist.id,
+      {
+        staff_id: input.staffId,
+        monthly_total_qar: input.monthlyTotalQar,
+        daily_rate_qar: input.dailyRateQar ?? null,
+        effective_on: effectiveOn,
+      },
+      input.locationId,
+    );
+  } catch (e) {
+    console.warn("[staff-history] audit after salary change failed", e instanceof Error ? e.message : e);
+  }
+  try {
+    await appendEmployeeEvent(context, {
+      staffId: input.staffId,
+      eventType: "salary_change",
+      effectiveOn,
+      payload: {
+        monthly_total_qar: input.monthlyTotalQar,
+        daily_rate_qar: input.dailyRateQar ?? null,
+        reason: input.reason ?? null,
+      },
+      sourceTable: "staff_salary_history",
+      sourceId: hist.id,
+    });
+  } catch (e) {
+    console.warn("[staff-history] timeline after salary change failed", e instanceof Error ? e.message : e);
+  }
   return { historyId: hist.id };
 }
 
