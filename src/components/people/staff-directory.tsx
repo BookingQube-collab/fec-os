@@ -274,6 +274,7 @@ export function StaffDirectory({
               <th className="px-3 py-2 text-left">{t("people.staff.type")}</th>
               <th className="px-3 py-2 text-left">{t("people.staff.contact")}</th>
               <th className="px-3 py-2 text-left">{t("people.staff.title")}</th>
+              <th className="px-3 py-2 text-left">{t("people.staff.dept")}</th>
               <th className="px-3 py-2 text-left">{t("people.staff.location")}</th>
               {canSalary ? <th className="px-3 py-2 text-right">{t("people.staff.salary")}</th> : null}
               <th className="px-3 py-2 text-left">{t("people.staff.status")}</th>
@@ -304,6 +305,9 @@ export function StaffDirectory({
                 </td>
                 <td className="px-3 py-2 text-xs">{s.phone ?? "—"}</td>
                 <td className="px-3 py-2 text-xs text-muted-foreground">{s.job_title ?? "—"}</td>
+                <td className="px-3 py-2 text-xs text-muted-foreground">
+                  {s.department || (s.department_names?.length ? s.department_names.join(", ") : "—")}
+                </td>
                 <td className="px-3 py-2 text-xs text-muted-foreground">
                   <div className="flex flex-wrap items-center gap-1">
                     <span>{formatLocation(s)}</span>

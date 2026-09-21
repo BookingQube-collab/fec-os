@@ -46,9 +46,11 @@ import {
   importStaffCsv,
   importRosterCsv,
 } from "@/lib/people.functions";
+import { updateStaffSalary, updateStaffWorkLocations } from "@/lib/staff-roster.functions";
 import { useMasterDepartments } from "@/hooks/queries/useDepartments";
 import { DepartmentMultiSelect } from "@/components/people/department-multi-select";
 import { ManageDepartmentsDialog } from "@/components/people/manage-departments-dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   useShifts,
@@ -387,13 +389,15 @@ function StaffFormDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  sites: { id: string; code: string; name: string }[];
+  sites: { id: string; code: string; name: string; status?: string }[];
   locationId: string | null;
   staff?: StaffRow;
   onSaved: () => void;
 }) {
   const { t } = useTranslation();
   const isEdit = !!staff;
+  const canEditSalary = usePermission("people.edit_salary");
+  const canViewSalary = usePermission("people.view_salary");
   const [loc, setLoc] = useState(staff?.location_id ?? locationId ?? "");
   const [employeeCode, setEmployeeCode] = useState(staff?.employee_code ?? "");
   const [fullName, setFullName] = useState(staff?.full_name ?? "");
@@ -410,7 +414,22 @@ function StaffFormDialog({
   );
   const [phone, setPhone] = useState(staff?.phone ?? "");
   const [email, setEmail] = useState(staff?.email ?? "");
+  const [qid, setQid] = useState(staff?.qid ?? "");
+  const [e3, setE3] = useState(
+    staff?.e3_enrolled == null ? "" : staff.e3_enrolled ? "yes" : "no",
+  );
   const [employmentType, setEmploymentType] = useState<string>(staff?.employment_type ?? "permanent");
+  const [salary, setSalary] = useState(
+    staff?.monthly_salary_qar != null ? String(staff.monthly_salary_qar) : "",
+  );
+  const [workLocationIds, setWorkLocationIds] = useState<string[]>(
+    staff?.work_location_ids?.length
+      ? staff.work_location_ids
+      : staff
+        ? [staff.location_id, ...(staff.work_locations ?? []).map((l) => l.id)]
+        : [],
+  );
+  const [isRoaming, setIsRoaming] = useState(Boolean(staff?.is_roaming));
   const [photoDraft, setPhotoDraft] = useState<StaffPhotoDraft>({ dataUrl: null, remove: false });
   const [codeNonce, setCodeNonce] = useState(0);
 
@@ -440,6 +459,8 @@ function StaffFormDialog({
         employmentType === ""
           ? null
           : (employmentType as "permanent" | "temporary" | "secondment" | "joker");
+      const e3Enrolled = e3 === "" ? null : e3 === "yes";
+      const qidValue = qid.trim() || null;
       let staffId = staff?.id;
       if (isEdit) {
         await updateStaff({
@@ -451,7 +472,16 @@ function StaffFormDialog({
           status,
           phone: phone || null,
           email: email || null,
+          qid: qidValue,
+          e3Enrolled,
           employmentType: employment,
+        });
+        const homeId = staff!.location_id;
+        const uniqueSites = [...new Set([homeId, ...workLocationIds.filter(Boolean)])];
+        await updateStaffWorkLocations({
+          id: staff!.id,
+          locationIds: uniqueSites,
+          isRoaming,
         });
       } else {
         if (!loc) throw new Error(t("people.staff.selectBranch"));
@@ -465,9 +495,22 @@ function StaffFormDialog({
           status,
           phone: phone || undefined,
           email: email || undefined,
+          qid: qidValue || undefined,
+          e3Enrolled,
           employmentType: employment,
         });
         staffId = created.id;
+      }
+
+      if (staffId && canEditSalary) {
+        const nextSalary = salary.trim() === "" ? null : Number(salary);
+        const prevSalary = staff?.monthly_salary_qar ?? null;
+        if (nextSalary !== null && Number.isNaN(nextSalary)) {
+          throw new Error(t("people.staff.salaryPlaceholder"));
+        }
+        if (nextSalary !== prevSalary) {
+          await updateStaffSalary({ id: staffId, monthlySalaryQar: nextSalary });
+        }
       }
 
       if (staffId && photoDraft.dataUrl) {
@@ -485,6 +528,9 @@ function StaffFormDialog({
     onError: (e) => toast.error((e as Error).message),
   });
 
+  const homeLocationId = isEdit ? staff!.location_id : loc;
+  const activeSites = sites.filter((s) => s.status !== "inactive");
+
   return (
     <Dialog
       open={open}
@@ -501,7 +547,7 @@ function StaffFormDialog({
           </Button>
         </DialogTrigger>
       )}
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{isEdit ? t("people.staff.edit") : t("people.staff.add")}</DialogTitle>
         </DialogHeader>
@@ -514,7 +560,7 @@ function StaffFormDialog({
             onChange={setPhotoDraft}
             disabled={m.isPending}
           />
-          {!isEdit && (
+          {!isEdit ? (
             <>
               <div>
                 <Label>{t("people.staff.branch")}</Label>
@@ -549,10 +595,47 @@ function StaffFormDialog({
                 <p className="mt-1 text-[11px] text-muted-foreground">{t("people.staff.codeAuto")}</p>
               </div>
             </>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>{t("people.staff.branch")}</Label>
+                <Input
+                  readOnly
+                  className="bg-muted/40"
+                  value={(() => {
+                    const home = sites.find((s) => s.id === staff!.location_id);
+                    return home
+                      ? `${home.code} — ${home.name}`
+                      : staff!.location_code ?? "—";
+                  })()}
+                />
+              </div>
+              <div>
+                <Label>{t("people.staff.code")}</Label>
+                <Input readOnly className="bg-muted/40 font-mono" value={staff!.employee_code} />
+              </div>
+            </div>
           )}
           <div>
             <Label>{t("people.staff.name")}</Label>
             <Input value={fullName} onChange={(e) => setFullName(e.target.value)} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>{t("people.staff.qid")}</Label>
+              <Input value={qid} onChange={(e) => setQid(e.target.value)} className="font-mono" />
+            </div>
+            <div>
+              <Label>{t("people.staff.e3")}</Label>
+              <Select value={e3 || "__unset"} onValueChange={(v) => setE3(v === "__unset" ? "" : v)}>
+                <SelectTrigger><SelectValue placeholder={t("people.staff.e3Unset")} /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__unset">{t("people.staff.e3Unset")}</SelectItem>
+                  <SelectItem value="yes">{t("people.staff.e3Yes")}</SelectItem>
+                  <SelectItem value="no">{t("people.staff.e3No")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -574,6 +657,7 @@ function StaffFormDialog({
               onChange={setDepartmentIds}
               departments={departments}
             />
+            <p className="mt-1 text-[11px] text-muted-foreground">{t("people.staff.deptFbCafeHint")}</p>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -611,6 +695,62 @@ function StaffFormDialog({
               <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
             </div>
           </div>
+          {(canEditSalary || (isEdit && canViewSalary)) && (
+            <div>
+              <Label>{t("people.staff.salary")}</Label>
+              <Input
+                value={salary}
+                onChange={(e) => setSalary(e.target.value)}
+                placeholder={t("people.staff.salaryPlaceholder")}
+                inputMode="decimal"
+                readOnly={!canEditSalary}
+                className={canEditSalary ? undefined : "bg-muted/40"}
+              />
+            </div>
+          )}
+          {isEdit && homeLocationId ? (
+            <div className="space-y-2 border-t pt-3">
+              <Label>{t("people.staff.workLocations")}</Label>
+              <p className="text-[11px] text-muted-foreground">{t("people.staff.workLocationsHint")}</p>
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={isRoaming}
+                  onCheckedChange={(v) => setIsRoaming(Boolean(v))}
+                  disabled={m.isPending}
+                />
+                {t("people.staff.roaming")}
+              </label>
+              <div className="grid max-h-40 gap-2 overflow-y-auto sm:grid-cols-2">
+                {activeSites.map((site) => {
+                  const home = site.id === homeLocationId;
+                  const checked = workLocationIds.includes(site.id) || home;
+                  return (
+                    <label key={site.id} className="flex items-center gap-2 text-sm">
+                      <Checkbox
+                        checked={checked}
+                        disabled={home || m.isPending}
+                        onCheckedChange={(v) => {
+                          const on = Boolean(v);
+                          setWorkLocationIds((prev) => {
+                            const next = new Set(prev);
+                            if (on) next.add(site.id);
+                            else next.delete(site.id);
+                            next.add(homeLocationId);
+                            return [...next];
+                          });
+                          if (on) setIsRoaming(true);
+                        }}
+                      />
+                      <span className={home ? "font-medium" : undefined}>
+                        {site.code}
+                        {home ? ` (${t("people.staff.primaryLocation")})` : ""}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>{t("common.cancel")}</Button>
