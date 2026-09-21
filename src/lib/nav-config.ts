@@ -190,6 +190,7 @@ const HR_ATTENDANCE_NAV_GROUP: SidebarNavGroup = {
     { href: "/people/attendance/import", labelKey: "nav.attendanceImport", capability: "attendance.import" },
     { href: "/people/attendance/reports", labelKey: "nav.attendanceListing", capability: "attendance.view" },
     { href: "/people/attendance/mapping", labelKey: "nav.attendanceMapping", capability: "attendance.view" },
+    { href: "/people/attendance/device-logs", labelKey: "nav.attendanceDeviceLogs", capability: "attendance.view" },
     { href: "/people/attendance/corrections", labelKey: "nav.attendanceCorrections", capability: "attendance.view" },
     { href: "/people/attendance/settings", labelKey: "nav.attendanceDevices", capability: "attendance.view" },
   ],

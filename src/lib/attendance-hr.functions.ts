@@ -70,6 +70,7 @@ import {
   upcomingPeriod,
 } from "@/lib/attendance-hr/availability";
 import { dispatchHrNotify } from "@/lib/attendance-hr/hr-notify-dispatch";
+import { DEVICE_LOG_CAP, deviceLogPunchRange, deviceLogSearchNeedle, type AttendanceDeviceLogRow } from "@/lib/attendance-hr/device-logs";
 
 async function audit(
   context: AuthContext,
@@ -2048,7 +2049,7 @@ async function matchingStaffIds(context: AuthContext, needle: string): Promise<s
 
 async function loadByIds<T extends { id: string }>(
   context: AuthContext,
-  table: "staff" | "locations",
+  table: "staff" | "locations" | "attendance_devices",
   columns: string,
   ids: string[],
 ): Promise<T[]> {
@@ -2062,3 +2063,89 @@ async function loadByIds<T extends { id: string }>(
   }
   return out;
 }
+
+const DEVICE_LOG_COLUMNS =
+  "id, location_id, device_id, biometric_user_id, device_user_name, punch_at, in_out_status, verify_method, work_code, source";
+
+export const listAttendanceDeviceLogs = createAuthenticatedAction(
+  z.object({
+    locationId: z.string().uuid().nullable().optional(),
+    deviceId: z.string().uuid().nullable().optional(),
+    dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    q: z.string().max(80).optional(),
+  }),
+  async (data, context) => {
+    if (data.locationId) await assertSite(context, data.locationId);
+    const range = deviceLogPunchRange(data.dateFrom, data.dateTo);
+    let q = context.supabase
+      .from("attendance_logs")
+      .select(DEVICE_LOG_COLUMNS, { count: "exact" })
+      .gte("punch_at", range.fromIso)
+      .lte("punch_at", range.toIso)
+      .order("punch_at", { ascending: false })
+      .limit(DEVICE_LOG_CAP);
+    if (data.locationId) q = q.eq("location_id", data.locationId);
+    if (data.deviceId) q = q.eq("device_id", data.deviceId);
+    const needle = deviceLogSearchNeedle(data.q);
+    if (needle) {
+      q = q.or(`biometric_user_id.ilike.%${needle}%,device_user_name.ilike.%${needle}%`);
+    }
+    const { data: rows, error, count } = await q;
+    if (error) throw error;
+    const punches = (rows ?? []) as Array<{
+      id: string;
+      location_id: string;
+      device_id: string | null;
+      biometric_user_id: string | null;
+      device_user_name: string | null;
+      punch_at: string;
+      in_out_status: number | null;
+      verify_method: number | null;
+      work_code: number | null;
+      source: string | null;
+    }>;
+    const deviceIds = [...new Set(punches.map((row) => row.device_id).filter((id): id is string => Boolean(id)))];
+    const locationIds = [...new Set(punches.map((row) => row.location_id))];
+    const [devices, locations] = await Promise.all([
+      loadByIds<{ id: string; device_name: string | null; serial_number: string | null; device_code: string | null }>(
+        context,
+        "attendance_devices",
+        "id, device_name, serial_number, device_code",
+        deviceIds,
+      ),
+      loadByIds<{ id: string; code: string | null; name: string | null }>(
+        context,
+        "locations",
+        "id, code, name",
+        locationIds,
+      ),
+    ]);
+    const deviceById = new Map(devices.map((row) => [row.id, row]));
+    const locationById = new Map(locations.map((row) => [row.id, row]));
+    const listed: AttendanceDeviceLogRow[] = punches.map((row) => {
+      const device = row.device_id ? deviceById.get(row.device_id) : undefined;
+      const location = locationById.get(row.location_id);
+      return {
+        id: row.id,
+        locationId: row.location_id,
+        locationCode: location?.code ?? null,
+        locationName: location?.name ?? null,
+        deviceId: row.device_id,
+        deviceName: device?.device_name ?? null,
+        deviceSerial: device?.serial_number ?? null,
+        deviceCode: device?.device_code ?? null,
+        biometricUserId: row.biometric_user_id,
+        deviceUserName: row.device_user_name,
+        punchAt: row.punch_at,
+        inOutStatus: row.in_out_status,
+        verifyMethod: row.verify_method,
+        workCode: row.work_code,
+        source: row.source,
+      };
+    });
+    const total = count ?? listed.length;
+    return { rows: listed, total, capped: total > listed.length };
+  },
+  { auth: { capability: "attendance.view" } },
+);

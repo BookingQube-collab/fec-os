@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
-import { Clock, Building2, Upload, FileBarChart, Users, ClipboardCheck, Settings } from "lucide-react";
+import { Clock, Building2, Upload, FileBarChart, Users, ClipboardCheck, ScrollText, Settings } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -12,6 +12,7 @@ const TABS = [
   { href: "/people/attendance/import", key: "import", icon: Upload },
   { href: "/people/attendance/reports", key: "reports", icon: FileBarChart },
   { href: "/people/attendance/mapping", key: "mapping", icon: Users },
+  { href: "/people/attendance/device-logs", key: "deviceLogs", icon: ScrollText },
   { href: "/people/attendance/corrections", key: "corrections", icon: ClipboardCheck },
   { href: "/people/attendance/settings", key: "settings", icon: Settings },
 ] as const;

@@ -77,6 +77,7 @@ describe("admin sidebar visibility", () => {
       "/people/attendance/import",
       "/people/attendance/reports",
       "/people/attendance/mapping",
+      "/people/attendance/device-logs",
       "/people/attendance/corrections",
       "/people/attendance/settings",
     ]);
@@ -132,7 +133,7 @@ describe("admin sidebar visibility", () => {
     expect(tree.groups.map((g) => g.id)).toContain("hr-attendance");
     const attendance = tree.groups.find((g) => g.id === "hr-attendance");
     expect(attendance?.labelKey).toBe("nav.hrAttendance");
-    expect(attendance?.items).toHaveLength(6);
+    expect(attendance?.items).toHaveLength(7);
   });
 
   it("surfaces Monthly roster and Shift roster at the top of the People flyout", () => {

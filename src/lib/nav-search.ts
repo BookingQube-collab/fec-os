@@ -33,6 +33,7 @@ const NAV_SEARCH_ALIASES: Record<string, string[]> = {
   "/people/roster": ["monthly roster", "roster register", "view roster"],
   "/people/attendance": ["attendance", "time", "time and attendance"],
   "/people/attendance/reports": ["attendance listing", "attendance records"],
+  "/people/attendance/device-logs": ["device logs", "raw punches", "zkteco", "iclock"],
   "/people/payroll": ["payroll", "salary", "workbook"],
   "/people/field": ["geofence", "gps", "field", "face"],
   "/people/leave": ["leave", "time off"],
