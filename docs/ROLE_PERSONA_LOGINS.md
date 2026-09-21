@@ -12,12 +12,16 @@ Four accounts covering the three requested personas, with site vs ops supervisor
 ## Passwords
 
 Generated uniquely on each seed run and printed to **stdout only**. They are never committed.
+**Re-running the seed rotates passwords** — any earlier chat/terminal password stops working. Use the latest stdout table.
 
 ```bash
 npm run seed:role-personas
+# or: pnpm seed:role-personas
 ```
 
-Requires `.env.local` with `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
+Requires `.env.local` with `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and the same anon/publishable key the Next app uses (seed verifies `signInWithPassword` at the end).
+
+If localhost `/auth` returns “Invalid login credentials”, re-seed and copy the **new** passwords — do not reuse passwords from an older run.
 
 ## Access notes
 

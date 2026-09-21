@@ -92,6 +92,9 @@ const PERSONAS = [
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const anonKey =
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
 if (!url || !serviceKey) {
   console.error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.");
@@ -138,9 +141,16 @@ async function resolveLocationIds(persona, allActive) {
 }
 
 async function findUserIdByEmail(email) {
-  const { data, error } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
-  if (error) throw new Error(`Failed to list users: ${error.message}`);
-  return data.users.find((u) => u.email?.toLowerCase() === email.toLowerCase())?.id ?? null;
+  const target = email.toLowerCase();
+  // Paginate — a single page of 1000 misses users on larger projects.
+  for (let page = 1; page <= 20; page += 1) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 });
+    if (error) throw new Error(`Failed to list users: ${error.message}`);
+    const hit = data.users.find((u) => u.email?.toLowerCase() === target);
+    if (hit) return hit.id;
+    if (!data.users.length || data.users.length < 200) return null;
+  }
+  return null;
 }
 
 async function ensureAuthUser(persona, password) {
@@ -299,7 +309,33 @@ async function ensureHrStaff(userId, persona, homeLocationId) {
   return created.id;
 }
 
+async function verifySignIn(credentials) {
+  if (!anonKey) {
+    console.warn(
+      "Skipping sign-in verify: set NEXT_PUBLIC_SUPABASE_ANON_KEY (or PUBLISHABLE_KEY) in .env.local.",
+    );
+    return;
+  }
+  const browser = createClient(url, anonKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  console.log("\nVerifying signInWithPassword against the same project…");
+  for (const row of credentials) {
+    const { data, error } = await browser.auth.signInWithPassword({
+      email: row.email,
+      password: row.password,
+    });
+    if (error || !data.user) {
+      throw new Error(`Sign-in verify failed for ${row.email}: ${error?.message ?? "no user"}`);
+    }
+    console.log(`  OK ${row.email}`);
+    await browser.auth.signOut();
+  }
+}
+
 async function main() {
+  console.log(`Seeding role personas on ${url}`);
+  console.log("NOTE: every run rotates passwords — prior stdout passwords stop working.");
   console.log("Loading locations…");
   const allActive = await loadAllActiveLocations();
   const credentials = [];
@@ -328,6 +364,8 @@ async function main() {
       access: persona.access,
     });
   }
+
+  await verifySignIn(credentials);
 
   console.log("\n========== ROLE PERSONA CREDENTIALS (stdout only — not saved) ==========");
   console.log("| Login | Email | Password | Role | Locations |");
