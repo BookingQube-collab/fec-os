@@ -8,6 +8,8 @@ export type StaffDirectoryFilters = {
   q: string;
   loc: string;
   position: string;
+  /** master_departments.id; empty = all. Match if it is one of the staff member's departments. */
+  department: string;
   type: string;
   e3: string;
   status: string;
@@ -44,6 +46,7 @@ export function filterStaffDirectory(staff: StaffRow[], f: StaffDirectoryFilters
       if (!blob.includes(needle)) return false;
     }
     if (f.loc && !staffLocationCodes(s).includes(f.loc)) return false;
+    if (f.department && !(s.department_ids ?? []).includes(f.department)) return false;
     if (f.position && s.job_title !== f.position) return false;
     if (f.type && s.employment_type !== f.type) return false;
     if (f.e3 === "yes" && s.e3_enrolled !== true) return false;

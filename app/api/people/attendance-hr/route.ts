@@ -46,6 +46,7 @@ export async function GET(request: Request) {
           status: params.get("status") || null,
           staffId,
           staffQ: params.get("staffQ")?.trim() || undefined,
+          departmentId: params.get("departmentId") || null,
         });
       }
       if (view === "punches") return getAttendanceHrPunches({ locationId, dateFrom, dateTo });

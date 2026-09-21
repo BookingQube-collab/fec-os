@@ -25,6 +25,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AttendanceRecordsGrid } from "@/components/people/attendance-records-grid";
 import {
@@ -32,6 +33,7 @@ import {
   type AttendanceMapStaffOption,
 } from "@/components/people/attendance-records-table";
 import { useSites } from "@/hooks/queries/useSites";
+import { useMasterDepartments } from "@/hooks/queries/useDepartments";
 import { useUserRoles } from "@/hooks/use-auth";
 import { canUserDo } from "@/lib/rbac";
 import {
@@ -73,12 +75,21 @@ export default function AttendanceHrReportsPage() {
     defaultPayrollPeriod(new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" })),
   );
   const [status, setStatus] = useState("");
+  const [departmentId, setDepartmentId] = useState("");
   const [staffQ, setStaffQ] = useState("");
   const [staffQDebounced, setStaffQDebounced] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [mappingBusyIds, setMappingBusyIds] = useState<Record<string, true>>({});
   const { data: sites } = useSites();
+  const { data: departments = [] } = useMasterDepartments();
+  const departmentOptions = useMemo(
+    () =>
+      departments
+        .filter((d) => d.active)
+        .map((d) => ({ value: d.id, label: d.name, keywords: `${d.name} ${d.code ?? ""}` })),
+    [departments],
+  );
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -94,7 +105,7 @@ export default function AttendanceHrReportsPage() {
   });
 
   const q = useQuery({
-    queryKey: queryKeys.people.attendanceHr({ view: "daily", locationId, from, to, status, staffQ: staffQDebounced }),
+    queryKey: queryKeys.people.attendanceHr({ view: "daily", locationId, from, to, status, staffQ: staffQDebounced, departmentId }),
     queryFn: () =>
       getAttendanceHrDaily({
         locationId: locationId || null,
@@ -102,6 +113,7 @@ export default function AttendanceHrReportsPage() {
         dateTo: to,
         status: status || null,
         staffQ: staffQDebounced.trim() || undefined,
+        departmentId: departmentId || null,
       }),
     staleTime: STALE.people,
     placeholderData: keepPreviousData,
@@ -184,8 +196,9 @@ export default function AttendanceHrReportsPage() {
     if (locationId) p.set("locationId", locationId);
     if (status) p.set("status", status);
     if (staffQDebounced.trim()) p.set("staffQ", staffQDebounced.trim());
+    if (departmentId) p.set("departmentId", departmentId);
     return `/api/people/attendance-hr/export?${p.toString()}`;
-  }, [from, to, locationId, status, staffQDebounced]);
+  }, [from, to, locationId, status, staffQDebounced, departmentId]);
 
   const payrollHref = useMemo(() => {
     const p = new URLSearchParams({ from, to, month });
@@ -229,8 +242,9 @@ export default function AttendanceHrReportsPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const emptyImport = !q.isLoading && rows.length === 0 && !staffQDebounced.trim() && !status;
-  const emptyFiltered = !q.isLoading && rows.length === 0 && Boolean(staffQDebounced.trim() || status);
+  const rowFilterOn = Boolean(staffQDebounced.trim() || status || departmentId);
+  const emptyImport = !q.isLoading && rows.length === 0 && !rowFilterOn;
+  const emptyFiltered = !q.isLoading && rows.length === 0 && rowFilterOn;
 
   const listMapProps =
     canMapUsers && mapStaffOptions.length > 0
@@ -372,6 +386,19 @@ export default function AttendanceHrReportsPage() {
                 ))}
               </SelectContent>
             </Select>
+          </div>
+          <div className="min-w-44 space-y-1.5">
+            <Label>{t("attendanceHr.reports.department")}</Label>
+            <SearchableSelect
+              value={departmentId}
+              onValueChange={setDepartmentId}
+              placeholder={t("attendanceHr.reports.allDepartments")}
+              emptyOption={{ value: "", label: t("attendanceHr.reports.allDepartments") }}
+              options={departmentOptions}
+              aria-label={t("attendanceHr.reports.department")}
+              triggerClassName="h-10 min-h-10 w-auto min-w-[11rem] font-normal"
+              className="w-auto"
+            />
           </div>
         </div>
 

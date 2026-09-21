@@ -484,6 +484,7 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
     status: z.string().nullable().optional(),
     staffId: z.string().uuid().nullable().optional(),
     staffQ: z.string().max(120).optional(),
+    departmentId: z.string().uuid().nullable().optional(),
   }),
   async (data, context) => {
     if (data.locationId) await assertSite(context, data.locationId);
@@ -509,6 +510,19 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
           q = q.ilike("biometric_user_id", `%${needle.replace(/[%_,]/g, "")}%`);
         }
       }
+    }
+    if (data.departmentId) {
+      const { data: links, error: deptErr } = await context.supabase
+        .from("staff_departments")
+        .select("staff_id")
+        .eq("department_id", data.departmentId);
+      if (deptErr) throw deptErr;
+      const deptStaffIds = [
+        ...new Set((links ?? []).map((row) => row.staff_id).filter((id): id is string => Boolean(id))),
+      ];
+      // Unmapped punches have no staff_id, so they drop out of a department filter.
+      if (deptStaffIds.length === 0) return [];
+      q = q.in("staff_id", deptStaffIds);
     }
     // Site chip always wins: every listed/KPI row must be for this location_id.
     // Do not widen via home-staff OR or staff-search person rollup (other sites' punches).

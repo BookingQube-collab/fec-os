@@ -43,6 +43,7 @@ export async function GET(request: Request) {
       const staffId = asUuid(params.get("staffId"));
       const status = params.get("status") || null;
       const staffQ = params.get("staffQ")?.trim() || undefined;
+      const departmentId = asUuid(params.get("departmentId"));
       const dateFrom = params.get("from") ?? new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
       const dateTo = params.get("to") ?? new Date().toISOString().slice(0, 10);
 
@@ -78,7 +79,7 @@ export async function GET(request: Request) {
       }
 
       const [daily, punches, unmatched, imports] = await Promise.all([
-        getAttendanceHrDaily({ locationId, dateFrom, dateTo, status, staffId, staffQ }),
+        getAttendanceHrDaily({ locationId, dateFrom, dateTo, status, staffId, staffQ, departmentId }),
         getAttendanceHrPunches({ locationId, dateFrom, dateTo }),
         listAttendanceHrMappings({ locationId, unmatchedOnly: true }),
         listAttendanceImports({ locationId }),

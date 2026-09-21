@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { StaffAvatar } from "@/components/people/staff-photo-field";
+import { useMasterDepartments } from "@/hooks/queries/useDepartments";
 import { usePermission } from "@/hooks/use-permission";
 import { queryKeys } from "@/lib/query-keys";
 import {
@@ -43,6 +44,7 @@ export function StaffDirectory({
   onArchive: (id: string) => void;
 }) {
   const { t } = useTranslation();
+  const { data: departments = [] } = useMasterDepartments();
   const canSalary = usePermission("people.view_salary");
   const qc = useQueryClient();
   const [q, setQ] = useState("");
@@ -52,6 +54,7 @@ export function StaffDirectory({
   const [status, setStatus] = useState("active");
   const [missing, setMissing] = useState(false);
   const [loc, setLoc] = useState("");
+  const [department, setDepartment] = useState("");
   const [sort, setSort] = useState<StaffDirectorySort>("name");
   const [page, setPage] = useState(1);
   const pageSize = 25;
@@ -81,10 +84,19 @@ export function StaffDirectory({
   }, [staff]);
 
   // One filter pass for table + KPIs (no separate memo that can drift from rows).
+  const departmentOptions = useMemo(
+    () =>
+      departments
+        .filter((d) => d.active)
+        .map((d) => ({ value: d.id, label: d.name, keywords: `${d.name} ${d.code ?? ""}` })),
+    [departments],
+  );
+
   const filtered = filterStaffDirectory(staff, {
     q,
     loc,
     position,
+    department,
     type,
     e3,
     status,
@@ -189,6 +201,15 @@ export function StaffDirectory({
           placeholder={t("people.staff.allLocations")}
           emptyOption={{ value: "", label: t("people.staff.allLocations") }}
           options={locations.map(([code, label]) => ({ value: code, label, keywords: `${code} ${label}` }))}
+          triggerClassName="h-10 min-h-10 w-auto min-w-[9.5rem] font-normal"
+          className="w-auto"
+        />
+        <SearchableSelect
+          value={department}
+          onValueChange={(next) => { setDepartment(next); setPage(1); }}
+          placeholder={t("people.staff.allDepartments")}
+          emptyOption={{ value: "", label: t("people.staff.allDepartments") }}
+          options={departmentOptions}
           triggerClassName="h-10 min-h-10 w-auto min-w-[9.5rem] font-normal"
           className="w-auto"
         />

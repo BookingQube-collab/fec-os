@@ -73,6 +73,7 @@ const base = {
   q: "",
   loc: "",
   position: "",
+  department: "",
   type: "",
   e3: "",
   status: "active",
@@ -113,6 +114,42 @@ describe("staff directory KPIs follow filters", () => {
       total: 1,
       permanent: 0,
       joker: 1,
+      secondment: 0,
+    });
+  });
+
+  it("matches when the selected department is one of several on the person", () => {
+    const withDepts: StaffRow[] = [
+      row({
+        id: "a",
+        full_name: "Cafe And Ops",
+        employee_code: "A1",
+        employment_type: "permanent",
+        department_ids: ["fb-cafe", "ops"],
+        department_names: ["F&B Cafe", "Operations"],
+      }),
+      row({
+        id: "b",
+        full_name: "Ops Only",
+        employee_code: "B1",
+        employment_type: "joker",
+        department_ids: ["ops"],
+        department_names: ["Operations"],
+      }),
+      row({
+        id: "c",
+        full_name: "No Dept",
+        employee_code: "C1",
+        employment_type: "secondment",
+        department_ids: [],
+      }),
+    ];
+    const filtered = filterStaffDirectory(withDepts, { ...base, department: "fb-cafe" });
+    expect(filtered.map((s) => s.id)).toEqual(["a"]);
+    expect(computeStaffDirectoryKpis(filtered)).toEqual({
+      total: 1,
+      permanent: 1,
+      joker: 0,
       secondment: 0,
     });
   });
