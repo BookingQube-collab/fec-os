@@ -26,7 +26,6 @@ import {
   getAttendanceStatusDisplay,
   hasLatePunch,
   latePunchCellClass,
-  latePunchRowClass,
   resolveOvertimeMinutes,
   resolveReportingDisplayIso,
   resolveTotalHoursWorked,
@@ -105,7 +104,7 @@ export function AttendanceRecordsTable({
               const otMinutes = resolveOvertimeMinutes(row);
               const ot = otMinutes > 0;
               const late = hasLatePunch(row.late_minutes);
-              const rowTint = statusDisplay.rowClass || latePunchRowClass(row.late_minutes);
+              const rowTint = statusDisplay.rowClass;
               const mappingId = row.biometricMappingId ?? "";
               const showMap =
                 canInlineMap && row.userNameUnmapped && Boolean(mappingId) && Boolean(row.locationId);

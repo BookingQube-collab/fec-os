@@ -108,7 +108,7 @@ export function AttendanceRecordsGrid({
                     key={`wd-${ymd}`}
                     className={cn(
                       "min-w-[4.75rem] border-b border-border/60 px-1 py-1 text-center font-medium",
-                      weekend ? "bg-destructive/10 text-destructive" : "bg-muted/40 text-muted-foreground",
+                      weekend ? "bg-muted/60 text-muted-foreground" : "bg-muted/40 text-muted-foreground",
                     )}
                   >
                     {weekdayShort(ymd, i18n.language)}
@@ -126,7 +126,7 @@ export function AttendanceRecordsGrid({
                     key={`dn-${ymd}`}
                     className={cn(
                       "border-b border-border/60 px-1 py-1 text-center tabular-nums font-semibold",
-                      weekend ? "bg-destructive/5" : "bg-card",
+                      weekend ? "bg-muted/40" : "bg-card",
                     )}
                   >
                     {dayNumber(ymd)}

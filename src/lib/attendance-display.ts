@@ -217,14 +217,9 @@ export function hasLatePunch(lateMinutes: number | null | undefined): boolean {
 }
 
 const LATE_PUNCH_CELL = "font-semibold text-rose-700 dark:text-rose-300";
-const LATE_PUNCH_ROW = "[&>td]:bg-rose-500/10 hover:[&>td]:bg-rose-500/15";
 
 export function latePunchCellClass(lateMinutes: number | null | undefined): string {
   return hasLatePunch(lateMinutes) ? LATE_PUNCH_CELL : "";
-}
-
-export function latePunchRowClass(lateMinutes: number | null | undefined): string {
-  return hasLatePunch(lateMinutes) ? LATE_PUNCH_ROW : "";
 }
 
 const MISSED_PUNCH_BADGE = "border-amber-500/50 bg-amber-500/20 text-amber-800 dark:text-amber-200";
