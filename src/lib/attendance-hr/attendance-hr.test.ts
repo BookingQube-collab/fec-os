@@ -96,13 +96,13 @@ describe("ZKTeco attlog parser", () => {
   });
 
   it("trims spaces around User ID and rejects bad timestamps", () => {
-    const parsed = parseAttlog("  9  \t2026-99-01 10:16:58\t1\t0\t1\t0\n");
+    const parsed = parseAttlog("  9  \t2026-99-01 10:16:58\t0\t1\t1\t0\n");
     expect(parsed.punches).toHaveLength(0);
     expect(parsed.errors[0]?.code).toBe("invalid_timestamp");
   });
 
   it("accepts timestamps without seconds and comma-separated rows", () => {
-    const parsed = parseAttlog("9,2026-08-01 10:16,1,0,1,0\n");
+    const parsed = parseAttlog("9,2026-08-01 10:16,0,1,1,0\n");
     expect(parsed.punches).toHaveLength(1);
     expect(parsed.punches[0].biometricUserId).toBe("9");
     expect(parsed.punches[0].punchAt).toContain("2026-08-01");
@@ -892,9 +892,19 @@ describe("sticky biometric mapping across re-uploads", () => {
 
 describe("ZKTeco ADMS / iClock parse", () => {
   it("parses tab-separated ATTLOG the same way as *_attlog.dat", () => {
-    const punches = parseAdmsAttlog("9\t2026-08-01 10:16:58\t1\t0\t1\t0\n12\t2026-08-01 18:02:11\t1\t1\t1\t0\n");
+    const punches = parseAdmsAttlog("9\t2026-08-01 10:16:58\t0\t1\t1\t0\n12\t2026-08-01 18:02:11\t1\t1\t1\t0\n");
     expect(punches.map((p) => p.biometricUserId)).toEqual(["9", "12"]);
-    expect(punches[0].punchAt).toBe("2026-08-01T07:16:58.000Z");
+    expect(punches[0]).toMatchObject({ punchAt: "2026-08-01T07:16:58.000Z", inOutStatus: 0, verifyMethod: 1 });
+    expect(punches[1]).toMatchObject({ inOutStatus: 1, verifyMethod: 1 });
+  });
+
+  it("parses space-separated ADMS ATTLOG as status then verify (INF-CC style)", () => {
+    const punches = parseAdmsAttlog(
+      "12 2026-09-21 12:52:00 0 1 0 0 0 0 0 0\n18 2026-09-21 19:16:36 1 1 0 0 0 0 0 0\n",
+    );
+    expect(punches).toHaveLength(2);
+    expect(punches[0]).toMatchObject({ biometricUserId: "12", inOutStatus: 0, verifyMethod: 1 });
+    expect(punches[1]).toMatchObject({ biometricUserId: "18", inOutStatus: 1, verifyMethod: 1 });
   });
 
   it("parses PIN= key/value ATTLOG lines", () => {

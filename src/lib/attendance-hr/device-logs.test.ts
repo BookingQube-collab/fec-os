@@ -58,6 +58,7 @@ describe("device log listing", () => {
   });
 
   it("puts each punch in the in or out time column", () => {
+    // ZKTeco status: 0 check-in, 1 check-out (plus break/OT variants).
     expect(deviceLogPunchSide(0)).toBe("in");
     expect(deviceLogPunchSide(3)).toBe("in");
     expect(deviceLogPunchSide(4)).toBe("in");
@@ -66,6 +67,9 @@ describe("device log listing", () => {
     expect(deviceLogPunchSide(5)).toBe("out");
     expect(deviceLogPunchSide(null)).toBeNull();
     expect(deviceLogPunchSide(99)).toBeNull();
+    // Verify-method codes must not be treated as in/out (old swap bug put 1 here).
+    expect(deviceLogInOutKey(15)).toBeNull();
+    expect(deviceLogPunchSide(15)).toBeNull();
   });
 
   it("prefers serial_number over device_code for the raw device id", () => {

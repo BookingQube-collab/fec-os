@@ -155,11 +155,14 @@ export function parseAttlog(text: string): AttlogParseResult {
       continue;
     }
 
+    // ZKTeco ATTLOG positional fields after time: status, verify, workcode, …
+    // (not verify-then-status — that swapped check-in 0 into verify and left every
+    // fingerprint punch as in_out_status=1 / Punch out).
     punches.push({
       biometricUserId,
       punchAt,
-      verifyMethod: toInt(parts[merged.restStart]),
-      inOutStatus: toInt(parts[merged.restStart + 1]),
+      inOutStatus: toInt(parts[merged.restStart]),
+      verifyMethod: toInt(parts[merged.restStart + 1]),
       workCode: toInt(parts[merged.restStart + 2]),
       reservedField: parts[merged.restStart + 3] ?? null,
       raw: clipRaw(line),
