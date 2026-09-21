@@ -56,9 +56,13 @@ function AuthPage() {
     setSubmitting(true);
     try {
       if (mode === "signin") {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const cleanEmail = email.trim();
+        const { error } = await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password,
+        });
         if (error) throw error;
-        rememberSignedInEmail(email);
+        rememberSignedInEmail(cleanEmail);
         toast.success(t("auth.signedIn"));
       } else {
         const { error } = await supabase.auth.resetPasswordForEmail(email, {

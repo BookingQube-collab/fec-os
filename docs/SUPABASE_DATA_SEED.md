@@ -14,6 +14,7 @@ Use **`SESSION_POOLER_DATABASE_URL`** for `npm run db:push` and direct SQL (Sess
 | **seed:supervisors** | Six `branch_gm` test accounts `@fec.test`, password **FecTest2026!**, linked to real staff employee codes. |
 | **seed:maintenance-logistics** | Maintenance/logistics test accounts `@fec.test`, password **FecTest2026!**. |
 | **seed:test-logins** | UAT PR requester, IT department head, HR, and finance approver (`@fec.test`, **FecTest2026!**). Idempotent; does not reset admin or existing supervisor/maintenance passwords. |
+| **seed:role-personas** | Four role demo logins (`site.supervisor` / `ops.supervisor` / `hr.manager` / `employee` `@fec.test`), password **FecTest2026!** by default. Pass `--rotate` for unique passwords; override with `ROLE_PERSONA_PASSWORD`. |
 | **seed:e3-compliance** | ~144 rows in `e3_compliance_items` (idempotent upsert). |
 | **seed:demo** | Synthetic **June 2026** ops data: attractions, assets, shifts, transactions, work orders, tickets, etc. Matches existing location **codes** (not demo UUIDs). Adds 45 fictional staff rows alongside the 61 imported staff. Demo auth password: **Demo@FEC2026!** (`gm@fec.qa`, `ops@fec.qa`, branch managers, etc.). |
 | **import:staff** | Re-import staff/roster from CSV templates (use if migration staff missing after a partial deploy). |
@@ -89,6 +90,10 @@ Expected after full seed (approx.): **61+ demo staff (106 if demo ran)**, **6 ac
 | mary.supervisor@fec.test | FecTest2026! | branch_gm - site supervisor (INF-CC) |
 | lead.maintenance@fec.test | FecTest2026! | tech_supervisor - maintenance lead |
 | hannan.maintenance@fec.test | FecTest2026! | technician - UA-DM maintenance |
+| site.supervisor@fec.test | FecTest2026! | branch_gm - role persona (INF-CC) |
+| ops.supervisor@fec.test | FecTest2026! | duty_manager - role persona (UA-DM) |
+| hr.manager@fec.test | FecTest2026! | hr - role persona (all venues) |
+| employee@fec.test | FecTest2026! | cashier_host - role persona employee app |
 | Demo corporate/branch users | Demo@FEC2026! | various (seed:demo) |
 
 Change passwords in Supabase Auth after first login in production.

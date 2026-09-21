@@ -1,11 +1,13 @@
 /**
  * Provisions the four FEC-OS role demo logins (site supervisor, ops supervisor, HR, employee).
- * Idempotent. Generates a unique strong password per account on each run and prints them
- * to stdout only — never writes passwords to disk or the repo.
+ * Idempotent. By default uses a stable shared UAT password (same family as other @fec.test seeds).
  *
  * Requires SUPABASE_SERVICE_ROLE_KEY, NEXT_PUBLIC_SUPABASE_URL in .env.local.
  *
- * Usage: npm run seed:role-personas
+ * Usage:
+ *   npm run seed:role-personas
+ *   npm run seed:role-personas -- --rotate          # unique random password per account
+ *   ROLE_PERSONA_PASSWORD='CustomPass!' npm run seed:role-personas
  */
 import { createClient } from "@supabase/supabase-js";
 import { randomBytes } from "node:crypto";
@@ -16,6 +18,9 @@ const ROLE_LEVELS = {
   hr: 55,
   cashier_host: 20,
 };
+
+/** Shared with seed:supervisors / seed:test-logins / seed:maintenance-logistics. */
+const DEFAULT_UAT_PASSWORD = "FecTest2026!";
 
 /** Never touch CEO / existing shared-password UAT accounts. */
 const PROTECTED_EMAILS = new Set([
@@ -105,9 +110,22 @@ const admin = createClient(url, serviceKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 
+const rotate = process.argv.includes("--rotate");
+
 function strongPassword() {
   // 24 chars: base64url without padding — unique per account, not stored in repo.
   return randomBytes(18).toString("base64url");
+}
+
+function resolvePassword() {
+  const fromEnv = process.env.ROLE_PERSONA_PASSWORD?.trim();
+  if (rotate) {
+    return { mode: "rotate", shared: null };
+  }
+  if (fromEnv) {
+    return { mode: "env", shared: fromEnv };
+  }
+  return { mode: "default", shared: DEFAULT_UAT_PASSWORD };
 }
 
 async function loadAllActiveLocations() {
@@ -319,7 +337,7 @@ async function verifySignIn(credentials) {
   const browser = createClient(url, anonKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
-  console.log("\nVerifying signInWithPassword against the same project…");
+  console.log(`\nVerifying signInWithPassword (anon key) against ${url}…`);
   for (const row of credentials) {
     const { data, error } = await browser.auth.signInWithPassword({
       email: row.email,
@@ -334,8 +352,17 @@ async function verifySignIn(credentials) {
 }
 
 async function main() {
+  const pw = resolvePassword();
   console.log(`Seeding role personas on ${url}`);
-  console.log("NOTE: every run rotates passwords — prior stdout passwords stop working.");
+  if (pw.mode === "rotate") {
+    console.log("Password mode: --rotate (unique strong password per account; stdout only).");
+  } else if (pw.mode === "env") {
+    console.log("Password mode: ROLE_PERSONA_PASSWORD (shared stable).");
+  } else {
+    console.log(`Password mode: stable shared UAT default (${DEFAULT_UAT_PASSWORD}).`);
+    console.log("Pass --rotate to mint unique passwords, or set ROLE_PERSONA_PASSWORD.");
+  }
+
   console.log("Loading locations…");
   const allActive = await loadAllActiveLocations();
   const credentials = [];
@@ -343,7 +370,7 @@ async function main() {
   for (const persona of PERSONAS) {
     console.log(`\n[${persona.key}] ${persona.displayName} <${persona.email}>`);
     const { locationIds, locationLabel, homeLocationId } = await resolveLocationIds(persona, allActive);
-    const password = strongPassword();
+    const password = pw.shared ?? strongPassword();
 
     const userId = await ensureAuthUser(persona, password);
     await ensureProfile(userId, persona);
@@ -367,7 +394,7 @@ async function main() {
 
   await verifySignIn(credentials);
 
-  console.log("\n========== ROLE PERSONA CREDENTIALS (stdout only — not saved) ==========");
+  console.log("\n========== ROLE PERSONA CREDENTIALS ==========");
   console.log("| Login | Email | Password | Role | Locations |");
   console.log("|-------|-------|----------|------|-----------|");
   for (const row of credentials) {
