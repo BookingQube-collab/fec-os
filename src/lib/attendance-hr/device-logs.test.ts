@@ -4,9 +4,11 @@ import {
   deviceLogInOutKey,
   deviceLogKpis,
   deviceLogPunchRange,
+  deviceLogPunchSide,
   formatDeviceLogDate,
   deviceLogSearchNeedle,
   deviceLogVerifyKey,
+  resolveDeviceLogName,
 } from "./device-logs";
 
 describe("device log listing", () => {
@@ -45,5 +47,23 @@ describe("device log listing", () => {
     expect(deviceLogVerifyKey(1)).toBe("fingerprint");
     expect(deviceLogVerifyKey(15)).toBe("face");
     expect(deviceLogVerifyKey(9)).toBeNull();
+  });
+
+  it("puts each punch in the in or out time column", () => {
+    expect(deviceLogPunchSide(0)).toBe("in");
+    expect(deviceLogPunchSide(3)).toBe("in");
+    expect(deviceLogPunchSide(4)).toBe("in");
+    expect(deviceLogPunchSide(1)).toBe("out");
+    expect(deviceLogPunchSide(2)).toBe("out");
+    expect(deviceLogPunchSide(5)).toBe("out");
+    expect(deviceLogPunchSide(null)).toBeNull();
+    expect(deviceLogPunchSide(99)).toBeNull();
+  });
+
+  it("prefers the punch name, then biometric registry names", () => {
+    expect(resolveDeviceLogName("  Gate Ali  ", { device_name: "Bio", full_name: "Full" })).toBe("Gate Ali");
+    expect(resolveDeviceLogName("  ", { device_name: "Bio", full_name: "Full" })).toBe("Bio");
+    expect(resolveDeviceLogName(null, { device_name: null, full_name: "Full" })).toBe("Full");
+    expect(resolveDeviceLogName(null, null)).toBeNull();
   });
 });

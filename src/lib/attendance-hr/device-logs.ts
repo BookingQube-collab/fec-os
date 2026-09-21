@@ -1,4 +1,4 @@
-/** Raw ZKTeco punch listing. Counts and labels only — no staff mapping. */
+/** Raw ZKTeco punch listing. Device-registry name lookup only — no staff HR mapping. */
 
 export const DEVICE_LOG_CAP = 2000;
 export const DEVICE_LOG_PAGE_SIZE = 100;
@@ -89,4 +89,23 @@ export function deviceLogInOutKey(status: number | null | undefined): DeviceLogI
 export function deviceLogVerifyKey(method: number | null | undefined): DeviceLogVerifyKey | null {
   if (method == null || !Number.isInteger(method)) return null;
   return VERIFY_KEYS[method as keyof typeof VERIFY_KEYS] ?? null;
+}
+
+/** Which punch-time column a raw ZK status belongs in (one row = one punch). */
+export function deviceLogPunchSide(status: number | null | undefined): "in" | "out" | null {
+  const key = deviceLogInOutKey(status);
+  if (key === "in" || key === "breakIn" || key === "otIn") return "in";
+  if (key === "out" || key === "breakOut" || key === "otOut") return "out";
+  return null;
+}
+
+/** Punch-row name first; else biometric registry device_name / full_name (no staff HR join). */
+export function resolveDeviceLogName(
+  punchName: string | null | undefined,
+  bio: { device_name?: string | null; full_name?: string | null } | null | undefined,
+): string | null {
+  const fromPunch = punchName?.trim();
+  if (fromPunch) return fromPunch;
+  if (!bio) return null;
+  return bio.device_name?.trim() || bio.full_name?.trim() || null;
 }

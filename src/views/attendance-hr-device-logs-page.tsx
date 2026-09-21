@@ -19,8 +19,8 @@ import { useSites } from "@/hooks/queries/useSites";
 import { getAttendanceHrBootstrap, listAttendanceDeviceLogs } from "@/lib/attendance-hr.functions";
 import {
   DEVICE_LOG_PAGE_SIZE,
-  deviceLogInOutKey,
   deviceLogKpis,
+  deviceLogPunchSide,
   deviceLogVerifyKey,
   formatDeviceLogDate,
 } from "@/lib/attendance-hr/device-logs";
@@ -153,16 +153,17 @@ export default function AttendanceHrDeviceLogsPage() {
   const rowFilterOn = Boolean(qDebounced.trim() || deviceId);
   const empty = !logs.isLoading && !logs.isError && rows.length === 0;
 
-  function stateLabel(status: number | null): string {
-    if (status == null) return "—";
-    const key = deviceLogInOutKey(status);
-    return key ? `${t(`attendanceHr.deviceLogs.states.${key}`)} (${status})` : String(status);
-  }
-
   function verifyLabel(method: number | null): string {
     if (method == null) return "—";
     const key = deviceLogVerifyKey(method);
     return key ? `${t(`attendanceHr.deviceLogs.verify.${key}`)} (${method})` : String(method);
+  }
+
+  function punchTimeCell(row: (typeof rows)[number], side: "in" | "out"): string {
+    const punchSide = deviceLogPunchSide(row.inOutStatus);
+    // Unclassified punches still show a time so the row is not blank.
+    const show = punchSide === side || (punchSide == null && side === "in");
+    return show ? formatPunchTime12h(row.punchAt) || "—" : "—";
   }
 
   function deviceLabel(row: (typeof rows)[number]): string {
@@ -349,8 +350,9 @@ export default function AttendanceHrDeviceLogsPage() {
               <TableHead className={HEAD_CLASS}>{t("attendanceHr.deviceLogs.colDevice")}</TableHead>
               <TableHead className={HEAD_CLASS}>{t("attendanceHr.deviceLogs.colUserId")}</TableHead>
               <TableHead className={HEAD_CLASS}>{t("attendanceHr.deviceLogs.colName")}</TableHead>
-              <TableHead className={HEAD_CLASS}>{t("attendanceHr.deviceLogs.colWhen")}</TableHead>
-              <TableHead className={HEAD_CLASS}>{t("attendanceHr.deviceLogs.colState")}</TableHead>
+              <TableHead className={HEAD_CLASS}>{t("attendanceHr.deviceLogs.colDate")}</TableHead>
+              <TableHead className={HEAD_CLASS}>{t("attendanceHr.deviceLogs.colPunchIn")}</TableHead>
+              <TableHead className={HEAD_CLASS}>{t("attendanceHr.deviceLogs.colPunchOut")}</TableHead>
               <TableHead className={HEAD_CLASS}>{t("attendanceHr.deviceLogs.colVerify")}</TableHead>
               <TableHead className={HEAD_CLASS}>{t("attendanceHr.deviceLogs.colWorkCode")}</TableHead>
               <TableHead className={HEAD_CLASS}>{t("attendanceHr.deviceLogs.colSource")}</TableHead>
@@ -359,19 +361,19 @@ export default function AttendanceHrDeviceLogsPage() {
           <TableBody>
             {logs.isLoading ? (
               <TableRow>
-                <TableCell colSpan={9} className="text-sm text-muted-foreground">
+                <TableCell colSpan={10} className="text-sm text-muted-foreground">
                   {t("attendanceHr.deviceLogs.loading")}
                 </TableCell>
               </TableRow>
             ) : logs.isError ? (
               <TableRow>
-                <TableCell colSpan={9} className="text-sm text-destructive">
+                <TableCell colSpan={10} className="text-sm text-destructive">
                   {t("attendanceHr.deviceLogs.loadError")}
                 </TableCell>
               </TableRow>
             ) : empty ? (
               <TableRow>
-                <TableCell colSpan={9} className="text-sm text-muted-foreground">
+                <TableCell colSpan={10} className="text-sm text-muted-foreground">
                   {rowFilterOn ? t("attendanceHr.deviceLogs.emptyFiltered") : t("attendanceHr.deviceLogs.empty")}
                 </TableCell>
               </TableRow>
@@ -384,12 +386,9 @@ export default function AttendanceHrDeviceLogsPage() {
                   <TableCell className="whitespace-nowrap">{deviceLabel(row)}</TableCell>
                   <TableCell className="whitespace-nowrap font-mono text-xs">{dash(row.biometricUserId)}</TableCell>
                   <TableCell className="whitespace-nowrap">{dash(row.deviceUserName)}</TableCell>
-                  <TableCell className="whitespace-nowrap">
-                    {formatDeviceLogDate(row.punchAt)}
-                    {" · "}
-                    {formatPunchTime12h(row.punchAt)}
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap">{stateLabel(row.inOutStatus)}</TableCell>
+                  <TableCell className="whitespace-nowrap">{formatDeviceLogDate(row.punchAt) || "—"}</TableCell>
+                  <TableCell className="whitespace-nowrap">{punchTimeCell(row, "in")}</TableCell>
+                  <TableCell className="whitespace-nowrap">{punchTimeCell(row, "out")}</TableCell>
                   <TableCell className="whitespace-nowrap">{verifyLabel(row.verifyMethod)}</TableCell>
                   <TableCell className="whitespace-nowrap">{row.workCode == null ? "—" : row.workCode}</TableCell>
                   <TableCell className="whitespace-nowrap">{dash(row.source)}</TableCell>
