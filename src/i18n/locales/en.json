@@ -5903,7 +5903,7 @@
     "deviceLogs": {
       "kicker": "Time & Attendance",
       "title": "Device logs",
-      "subtitle": "Punches as the ZKTeco terminal sent them. No staff mapping and no attendance status.",
+      "subtitle": "Raw ZKTeco punches only — device id, user id, and name as the terminal sent them.",
       "search": "Device user",
       "searchPlaceholder": "User ID or name on device",
       "device": "Device",
@@ -5916,7 +5916,8 @@
       "capped": "Showing the latest {{shown}} of {{total}}",
       "colLocation": "Location",
       "colDevice": "Device",
-      "colUserId": "Device user ID",
+      "colDeviceId": "Device ID",
+      "colUserId": "User ID",
       "colName": "Name",
       "colDate": "Date",
       "colPunchIn": "Punch in",

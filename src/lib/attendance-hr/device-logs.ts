@@ -1,4 +1,4 @@
-/** Raw ZKTeco punch listing. Device-registry name lookup only — no staff HR mapping. */
+/** Raw ZKTeco punch listing. Counts and labels only — no staff or biometric-registry enrichment. */
 
 export const DEVICE_LOG_CAP = 2000;
 export const DEVICE_LOG_PAGE_SIZE = 100;
@@ -99,13 +99,10 @@ export function deviceLogPunchSide(status: number | null | undefined): "in" | "o
   return null;
 }
 
-/** Punch-row name first; else biometric registry device_name / full_name (no staff HR join). */
-export function resolveDeviceLogName(
-  punchName: string | null | undefined,
-  bio: { device_name?: string | null; full_name?: string | null } | null | undefined,
-): string | null {
-  const fromPunch = punchName?.trim();
-  if (fromPunch) return fromPunch;
-  if (!bio) return null;
-  return bio.device_name?.trim() || bio.full_name?.trim() || null;
+/** Raw device identifier as stored for the terminal (serial, else device_code). */
+export function deviceLogRawDeviceId(row: {
+  deviceSerial?: string | null;
+  deviceCode?: string | null;
+}): string | null {
+  return row.deviceSerial?.trim() || row.deviceCode?.trim() || null;
 }

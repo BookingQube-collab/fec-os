@@ -5,10 +5,10 @@ import {
   deviceLogKpis,
   deviceLogPunchRange,
   deviceLogPunchSide,
+  deviceLogRawDeviceId,
   formatDeviceLogDate,
   deviceLogSearchNeedle,
   deviceLogVerifyKey,
-  resolveDeviceLogName,
 } from "./device-logs";
 
 describe("device log listing", () => {
@@ -60,10 +60,9 @@ describe("device log listing", () => {
     expect(deviceLogPunchSide(99)).toBeNull();
   });
 
-  it("prefers the punch name, then biometric registry names", () => {
-    expect(resolveDeviceLogName("  Gate Ali  ", { device_name: "Bio", full_name: "Full" })).toBe("Gate Ali");
-    expect(resolveDeviceLogName("  ", { device_name: "Bio", full_name: "Full" })).toBe("Bio");
-    expect(resolveDeviceLogName(null, { device_name: null, full_name: "Full" })).toBe("Full");
-    expect(resolveDeviceLogName(null, null)).toBeNull();
+  it("prefers serial_number over device_code for the raw device id", () => {
+    expect(deviceLogRawDeviceId({ deviceSerial: " SN001 ", deviceCode: "CODE" })).toBe("SN001");
+    expect(deviceLogRawDeviceId({ deviceSerial: "  ", deviceCode: " CODE2 " })).toBe("CODE2");
+    expect(deviceLogRawDeviceId({ deviceSerial: null, deviceCode: null })).toBeNull();
   });
 });

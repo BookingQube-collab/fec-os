@@ -74,7 +74,6 @@ import {
   DEVICE_LOG_CAP,
   deviceLogPunchRange,
   deviceLogSearchNeedle,
-  resolveDeviceLogName,
   type AttendanceDeviceLogRow,
 } from "@/lib/attendance-hr/device-logs";
 
@@ -2113,7 +2112,7 @@ export const listAttendanceDeviceLogs = createAuthenticatedAction(
     }>;
     const deviceIds = [...new Set(punches.map((row) => row.device_id).filter((id): id is string => Boolean(id)))];
     const locationIds = [...new Set(punches.map((row) => row.location_id))];
-    const [devices, locations, bioRes] = await Promise.all([
+    const [devices, locations] = await Promise.all([
       loadByIds<{ id: string; device_name: string | null; serial_number: string | null; device_code: string | null }>(
         context,
         "attendance_devices",
@@ -2126,49 +2125,12 @@ export const listAttendanceDeviceLogs = createAuthenticatedAction(
         "id, code, name",
         locationIds,
       ),
-      locationIds.length
-        ? context.supabase
-            .from("attendance_biometric_users")
-            .select("location_id, device_id, biometric_user_id, device_name, full_name")
-            .in("location_id", locationIds)
-            .limit(5000)
-        : Promise.resolve({ data: [] as Array<Record<string, unknown>>, error: null }),
     ]);
-    if (bioRes.error) throw bioRes.error;
     const deviceById = new Map(devices.map((row) => [row.id, row]));
     const locationById = new Map(locations.map((row) => [row.id, row]));
-    type BioLookup = {
-      location_id: string;
-      device_id: string | null;
-      biometric_user_id: string;
-      device_name: string | null;
-      full_name: string | null;
-    };
-    const bioByDeviceKey = new Map<string, BioLookup>();
-    const bioByLocUser = new Map<string, BioLookup>();
-    for (const raw of bioRes.data ?? []) {
-      const bio: BioLookup = {
-        location_id: String(raw.location_id ?? ""),
-        device_id: raw.device_id == null ? null : String(raw.device_id),
-        biometric_user_id: String(raw.biometric_user_id ?? ""),
-        device_name: raw.device_name == null ? null : String(raw.device_name),
-        full_name: raw.full_name == null ? null : String(raw.full_name),
-      };
-      if (!bio.location_id || !bio.biometric_user_id) continue;
-      const locUser = `${bio.location_id}|${bio.biometric_user_id}`;
-      if (!bioByLocUser.has(locUser)) bioByLocUser.set(locUser, bio);
-      if (bio.device_id) bioByDeviceKey.set(`${locUser}|${bio.device_id}`, bio);
-    }
     const listed: AttendanceDeviceLogRow[] = punches.map((row) => {
       const device = row.device_id ? deviceById.get(row.device_id) : undefined;
       const location = locationById.get(row.location_id);
-      const biometricUserId = row.biometric_user_id?.trim() || null;
-      const bio =
-        biometricUserId
-          ? (row.device_id
-              ? bioByDeviceKey.get(`${row.location_id}|${biometricUserId}|${row.device_id}`)
-              : undefined) ?? bioByLocUser.get(`${row.location_id}|${biometricUserId}`)
-          : undefined;
       return {
         id: row.id,
         locationId: row.location_id,
@@ -2179,7 +2141,7 @@ export const listAttendanceDeviceLogs = createAuthenticatedAction(
         deviceSerial: device?.serial_number ?? null,
         deviceCode: device?.device_code ?? null,
         biometricUserId: row.biometric_user_id,
-        deviceUserName: resolveDeviceLogName(row.device_user_name, bio),
+        deviceUserName: row.device_user_name,
         punchAt: row.punch_at,
         inOutStatus: row.in_out_status,
         verifyMethod: row.verify_method,
