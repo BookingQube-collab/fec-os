@@ -1,4 +1,4 @@
-/** Raw ZKTeco punch listing. Counts and labels only — no staff or biometric-registry enrichment. */
+/** Raw ZKTeco punch listing. Names may fall back to the device biometric registry — never staff. */
 
 export const DEVICE_LOG_CAP = 2000;
 export const DEVICE_LOG_PAGE_SIZE = 100;
@@ -107,4 +107,62 @@ export function deviceLogRawDeviceId(row: {
   deviceCode?: string | null;
 }): string | null {
   return row.deviceSerial?.trim() || row.deviceCode?.trim() || null;
+}
+
+/** Name fields from attendance_biometric_users only (device registry, not HR staff). */
+export type DeviceLogBioName = {
+  device_name: string | null;
+  full_name: string | null;
+};
+
+export function indexDeviceLogBioNames(
+  rows: Array<{
+    location_id: string;
+    device_id: string | null;
+    biometric_user_id: string;
+    device_name: string | null;
+    full_name: string | null;
+  }>,
+): { byDevice: Map<string, DeviceLogBioName>; byLocUser: Map<string, DeviceLogBioName> } {
+  const byDevice = new Map<string, DeviceLogBioName>();
+  const byLocUser = new Map<string, DeviceLogBioName>();
+  for (const row of rows) {
+    const loc = row.location_id?.trim();
+    const user = row.biometric_user_id?.trim();
+    if (!loc || !user) continue;
+    const name: DeviceLogBioName = {
+      device_name: row.device_name,
+      full_name: row.full_name,
+    };
+    const locUser = `${loc}|${user}`;
+    if (!byLocUser.has(locUser)) byLocUser.set(locUser, name);
+    if (row.device_id) byDevice.set(`${locUser}|${row.device_id}`, name);
+  }
+  return { byDevice, byLocUser };
+}
+
+export function lookupDeviceLogBioName(
+  index: { byDevice: Map<string, DeviceLogBioName>; byLocUser: Map<string, DeviceLogBioName> },
+  locationId: string,
+  biometricUserId: string | null | undefined,
+  deviceId: string | null | undefined,
+): DeviceLogBioName | undefined {
+  const user = biometricUserId?.trim();
+  if (!locationId || !user) return undefined;
+  const locUser = `${locationId}|${user}`;
+  if (deviceId) {
+    const hit = index.byDevice.get(`${locUser}|${deviceId}`);
+    if (hit) return hit;
+  }
+  return index.byLocUser.get(locUser);
+}
+
+/** Punch device_user_name first; else registry device_name, then registry full_name. */
+export function deviceLogDisplayName(
+  punchName: string | null | undefined,
+  bio: DeviceLogBioName | null | undefined,
+): string | null {
+  const fromPunch = punchName?.trim() || null;
+  if (fromPunch) return fromPunch;
+  return bio?.device_name?.trim() || bio?.full_name?.trim() || null;
 }

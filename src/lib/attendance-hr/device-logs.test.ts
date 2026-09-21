@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEVICE_LOG_PUSH_SOURCE,
+  deviceLogDisplayName,
   deviceLogInOutKey,
   deviceLogKpis,
   deviceLogPunchRange,
@@ -10,6 +11,8 @@ import {
   formatDeviceLogDate,
   deviceLogSearchNeedle,
   deviceLogVerifyKey,
+  indexDeviceLogBioNames,
+  lookupDeviceLogBioName,
 } from "./device-logs";
 
 describe("device log listing", () => {
@@ -69,5 +72,36 @@ describe("device log listing", () => {
     expect(deviceLogRawDeviceId({ deviceSerial: " SN001 ", deviceCode: "CODE" })).toBe("SN001");
     expect(deviceLogRawDeviceId({ deviceSerial: "  ", deviceCode: " CODE2 " })).toBe("CODE2");
     expect(deviceLogRawDeviceId({ deviceSerial: null, deviceCode: null })).toBeNull();
+  });
+
+  it("resolves Name from punch, then biometric device_name, then full_name", () => {
+    expect(deviceLogDisplayName("  Punch Ali  ", { device_name: "Device Ali", full_name: "HR Ali" })).toBe("Punch Ali");
+    expect(deviceLogDisplayName("  ", { device_name: " Device Ali ", full_name: "Full" })).toBe("Device Ali");
+    expect(deviceLogDisplayName(null, { device_name: null, full_name: " Full Ali " })).toBe("Full Ali");
+    expect(deviceLogDisplayName(null, { device_name: "  ", full_name: "  " })).toBeNull();
+    expect(deviceLogDisplayName(null, undefined)).toBeNull();
+  });
+
+  it("looks up biometric registry by location+user, preferring device_id match", () => {
+    const index = indexDeviceLogBioNames([
+      {
+        location_id: "loc1",
+        device_id: null,
+        biometric_user_id: "1001",
+        device_name: "Loc User",
+        full_name: null,
+      },
+      {
+        location_id: "loc1",
+        device_id: "dev1",
+        biometric_user_id: "1001",
+        device_name: "Dev User",
+        full_name: null,
+      },
+    ]);
+    expect(lookupDeviceLogBioName(index, "loc1", "1001", "dev1")?.device_name).toBe("Dev User");
+    expect(lookupDeviceLogBioName(index, "loc1", "1001", "other")?.device_name).toBe("Loc User");
+    expect(lookupDeviceLogBioName(index, "loc1", "1001", null)?.device_name).toBe("Loc User");
+    expect(lookupDeviceLogBioName(index, "loc1", "9999", "dev1")).toBeUndefined();
   });
 });

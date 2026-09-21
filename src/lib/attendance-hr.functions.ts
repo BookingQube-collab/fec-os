@@ -76,6 +76,9 @@ import {
   deviceLogPunchRange,
   deviceLogSearchNeedle,
   type AttendanceDeviceLogRow,
+  deviceLogDisplayName,
+  indexDeviceLogBioNames,
+  lookupDeviceLogBioName,
 } from "@/lib/attendance-hr/device-logs";
 
 async function audit(
@@ -2114,7 +2117,7 @@ export const listAttendanceDeviceLogs = createAuthenticatedAction(
     }>;
     const deviceIds = [...new Set(punches.map((row) => row.device_id).filter((id): id is string => Boolean(id)))];
     const locationIds = [...new Set(punches.map((row) => row.location_id))];
-    const [devices, locations] = await Promise.all([
+    const [devices, locations, bioRes] = await Promise.all([
       loadByIds<{ id: string; device_name: string | null; serial_number: string | null; device_code: string | null }>(
         context,
         "attendance_devices",
@@ -2127,12 +2130,30 @@ export const listAttendanceDeviceLogs = createAuthenticatedAction(
         "id, code, name",
         locationIds,
       ),
+      locationIds.length
+        ? context.supabase
+            .from("attendance_biometric_users")
+            .select("location_id, device_id, biometric_user_id, device_name, full_name")
+            .in("location_id", locationIds)
+            .limit(5000)
+        : Promise.resolve({ data: [] as Array<Record<string, unknown>>, error: null }),
     ]);
+    if (bioRes.error) throw bioRes.error;
+    const bioIndex = indexDeviceLogBioNames(
+      (bioRes.data ?? []).map((raw) => ({
+        location_id: String(raw.location_id ?? ""),
+        device_id: raw.device_id == null ? null : String(raw.device_id),
+        biometric_user_id: String(raw.biometric_user_id ?? ""),
+        device_name: raw.device_name == null ? null : String(raw.device_name),
+        full_name: raw.full_name == null ? null : String(raw.full_name),
+      })),
+    );
     const deviceById = new Map(devices.map((row) => [row.id, row]));
     const locationById = new Map(locations.map((row) => [row.id, row]));
     const listed: AttendanceDeviceLogRow[] = punches.map((row) => {
       const device = row.device_id ? deviceById.get(row.device_id) : undefined;
       const location = locationById.get(row.location_id);
+      const bio = lookupDeviceLogBioName(bioIndex, row.location_id, row.biometric_user_id, row.device_id);
       return {
         id: row.id,
         locationId: row.location_id,
@@ -2143,7 +2164,7 @@ export const listAttendanceDeviceLogs = createAuthenticatedAction(
         deviceSerial: device?.serial_number ?? null,
         deviceCode: device?.device_code ?? null,
         biometricUserId: row.biometric_user_id,
-        deviceUserName: row.device_user_name,
+        deviceUserName: deviceLogDisplayName(row.device_user_name, bio),
         punchAt: row.punch_at,
         inOutStatus: row.in_out_status,
         verifyMethod: row.verify_method,
