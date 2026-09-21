@@ -229,34 +229,34 @@ async function ensureRole(userId, persona, locationIds) {
   const roleLevel = ROLE_LEVELS[persona.role];
   if (roleLevel == null) throw new Error(`Unknown role ${persona.role}`);
 
-  const { data: existing, error: readError } = await admin
+  // Upsert on (user_id, role) — unique constraint. Avoids race / maybeSingle misses.
+  const { error } = await admin.from("user_roles").upsert(
+    {
+      user_id: userId,
+      role: persona.role,
+      role_level: roleLevel,
+      location_ids: locationIds,
+    },
+    { onConflict: "user_id,role" },
+  );
+  if (error) throw new Error(`Failed to upsert role: ${error.message}`);
+
+  const { data: verify, error: verifyError } = await admin
     .from("user_roles")
-    .select("id, location_ids")
+    .select("role, role_level, location_ids")
     .eq("user_id", userId)
     .eq("role", persona.role)
     .maybeSingle();
-  if (readError) throw new Error(`Failed to read user_roles: ${readError.message}`);
-
-  const payload = {
-    user_id: userId,
-    role: persona.role,
-    role_level: roleLevel,
-    location_ids: locationIds,
-  };
-
-  if (existing) {
-    const { error } = await admin
-      .from("user_roles")
-      .update({ role_level: roleLevel, location_ids: locationIds })
-      .eq("id", existing.id);
-    if (error) throw new Error(`Failed to update role: ${error.message}`);
-    console.log(`  Role ${persona.role} scoped (${locationIds.length} location(s))`);
-    return;
+  if (verifyError) throw new Error(`Failed to verify user_roles: ${verifyError.message}`);
+  if (!verify) {
+    throw new Error(`user_roles row missing after upsert for ${persona.email} / ${persona.role}`);
   }
-
-  const { error } = await admin.from("user_roles").insert(payload);
-  if (error) throw new Error(`Failed to grant role: ${error.message}`);
-  console.log(`  Granted ${persona.role} (level ${roleLevel})`);
+  if (!Array.isArray(verify.location_ids) || verify.location_ids.length !== locationIds.length) {
+    throw new Error(
+      `user_roles location_ids mismatch for ${persona.email}: got ${verify.location_ids?.length ?? 0}, expected ${locationIds.length}`,
+    );
+  }
+  console.log(`  Role ${persona.role} ensured (level ${roleLevel}, ${locationIds.length} location(s))`);
 }
 
 async function linkExistingStaff(userId, employeeCode, email, displayName) {
@@ -327,7 +327,7 @@ async function ensureHrStaff(userId, persona, homeLocationId) {
   return created.id;
 }
 
-async function verifySignIn(credentials) {
+async function verifySignInAndRoleGate(credentials) {
   if (!anonKey) {
     console.warn(
       "Skipping sign-in verify: set NEXT_PUBLIC_SUPABASE_ANON_KEY (or PUBLISHABLE_KEY) in .env.local.",
@@ -337,7 +337,7 @@ async function verifySignIn(credentials) {
   const browser = createClient(url, anonKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
-  console.log(`\nVerifying signInWithPassword (anon key) against ${url}…`);
+  console.log(`\nVerifying sign-in + user_roles gate (same tables as /api/auth/session)…`);
   for (const row of credentials) {
     const { data, error } = await browser.auth.signInWithPassword({
       email: row.email,
@@ -346,7 +346,21 @@ async function verifySignIn(credentials) {
     if (error || !data.user) {
       throw new Error(`Sign-in verify failed for ${row.email}: ${error?.message ?? "no user"}`);
     }
-    console.log(`  OK ${row.email}`);
+    const uid = data.user.id;
+    const { data: roles, error: rolesError } = await browser
+      .from("user_roles")
+      .select("role, role_level, location_ids")
+      .eq("user_id", uid);
+    if (rolesError) {
+      throw new Error(`Role gate read failed for ${row.email}: ${rolesError.message}`);
+    }
+    const hit = (roles ?? []).find((r) => r.role === row.role);
+    if (!hit) {
+      throw new Error(
+        `Role gate FAIL for ${row.email}: expected ${row.role}, got [${(roles ?? []).map((r) => r.role).join(", ") || "none"}]`,
+      );
+    }
+    console.log(`  OK ${row.email} → ${hit.role} (locations=${hit.location_ids?.length ?? 0})`);
     await browser.auth.signOut();
   }
 }
@@ -392,7 +406,7 @@ async function main() {
     });
   }
 
-  await verifySignIn(credentials);
+  await verifySignInAndRoleGate(credentials);
 
   console.log("\n========== ROLE PERSONA CREDENTIALS ==========");
   console.log("| Login | Email | Password | Role | Locations |");
