@@ -6,6 +6,7 @@ import { createTimer } from "@/lib/performance/timer";
 import { ForbiddenError } from "@/lib/server/authorize";
 import { getAuthenticatedContext } from "@/lib/server/auth";
 import { enforceActionAuth, type ActionAuthOptions } from "@/lib/server/create-action";
+import { toRouteResponse } from "@/lib/server/route-response";
 
 function routeLabel(request: Request): string {
   try {
@@ -47,7 +48,7 @@ async function runAuthRoute<T>(
     const rows = rowCountFromResult(result);
     handlerTimer.end({ rowCount: rows });
     routeTimer.end({ rowCount: rows });
-    return NextResponse.json(result);
+    return toRouteResponse(result);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Internal error";
     routeTimer.end({ error: msg });

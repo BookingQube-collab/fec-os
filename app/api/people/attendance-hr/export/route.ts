@@ -33,7 +33,9 @@ function listingSources(daily: AttendanceHrReportRow[]) {
 }
 
 export async function GET(request: Request) {
-  const format = searchParams(request).get("format") ?? "xlsx";
+  // Default = Excel workbook when format omitted (UI Excel button has no format=).
+  const rawFormat = searchParams(request).get("format") ?? "xlsx";
+  const format = rawFormat === "excel" ? "xlsx" : rawFormat;
   return withAuthRouteRequest(
     async (_context, req) => {
       const params = searchParams(req);
