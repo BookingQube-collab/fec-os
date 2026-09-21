@@ -7,13 +7,36 @@ import {
   deviceLogKpis,
   deviceLogPunchRange,
   deviceLogPunchSide,
+  deviceLogQatarYmd,
   deviceLogRawDeviceId,
   formatDeviceLogDate,
+  formatDeviceLogYmd,
   deviceLogSearchNeedle,
   deviceLogVerifyKey,
   indexDeviceLogBioNames,
   lookupDeviceLogBioName,
+  rollupDeviceLogDays,
+  type AttendanceDeviceLogRow,
 } from "./device-logs";
+
+function punch(partial: Partial<AttendanceDeviceLogRow> & Pick<AttendanceDeviceLogRow, "id" | "punchAt">): AttendanceDeviceLogRow {
+  return {
+    locationId: "loc1",
+    locationCode: "JJA",
+    locationName: "JJA",
+    deviceId: "dev1",
+    deviceName: "Gate",
+    deviceSerial: "SN1",
+    deviceCode: null,
+    biometricUserId: "1001",
+    deviceUserName: "Ali",
+    inOutStatus: null,
+    verifyMethod: null,
+    workCode: null,
+    source: "adms_push",
+    ...partial,
+  };
+}
 
 describe("device log listing", () => {
   it("lists only ADMS device-push punches", () => {
@@ -22,6 +45,8 @@ describe("device log listing", () => {
 
   it("formats the punch day in Qatar, not UTC", () => {
     expect(formatDeviceLogDate("2026-09-20T22:30:00.000Z")).toBe("21-09-2026");
+    expect(deviceLogQatarYmd("2026-09-20T22:30:00.000Z")).toBe("2026-09-21");
+    expect(formatDeviceLogYmd("2026-09-21")).toBe("21-09-2026");
   });
 
   it("bounds a Qatar civil day on punch_at", () => {
@@ -70,6 +95,55 @@ describe("device log listing", () => {
     // Verify-method codes must not be treated as in/out (old swap bug put 1 here).
     expect(deviceLogInOutKey(15)).toBeNull();
     expect(deviceLogPunchSide(15)).toBeNull();
+  });
+
+  it("rolls two ins and two outs on the same day into one row", () => {
+    const days = rollupDeviceLogDays([
+      punch({ id: "1", punchAt: "2026-09-21T05:00:00.000Z", inOutStatus: 0 }), // 08:00 Qatar in
+      punch({ id: "2", punchAt: "2026-09-21T06:00:00.000Z", inOutStatus: 0 }), // late in
+      punch({ id: "3", punchAt: "2026-09-21T13:00:00.000Z", inOutStatus: 1 }), // out
+      punch({ id: "4", punchAt: "2026-09-21T14:30:00.000Z", inOutStatus: 1 }), // later out
+    ]);
+    expect(days).toHaveLength(1);
+    expect(days[0]?.dateYmd).toBe("2026-09-21");
+    expect(days[0]?.punchInAt).toBe("2026-09-21T05:00:00.000Z");
+    expect(days[0]?.punchOutAt).toBe("2026-09-21T14:30:00.000Z");
+    expect(days[0]?.punchCount).toBe(4);
+    expect(days[0]?.biometricUserId).toBe("1001");
+  });
+
+  it("handles only-ins, only-outs, and unknown-status days", () => {
+    const onlyIns = rollupDeviceLogDays([
+      punch({ id: "a", punchAt: "2026-09-21T05:00:00.000Z", inOutStatus: 0 }),
+      punch({ id: "b", punchAt: "2026-09-21T06:00:00.000Z", inOutStatus: 0 }),
+    ]);
+    expect(onlyIns).toHaveLength(1);
+    expect(onlyIns[0]?.punchInAt).toBe("2026-09-21T05:00:00.000Z");
+    expect(onlyIns[0]?.punchOutAt).toBeNull();
+
+    const onlyOuts = rollupDeviceLogDays([
+      punch({ id: "c", punchAt: "2026-09-22T13:00:00.000Z", inOutStatus: 1, biometricUserId: "1002" }),
+      punch({ id: "d", punchAt: "2026-09-22T15:00:00.000Z", inOutStatus: 1, biometricUserId: "1002" }),
+    ]);
+    expect(onlyOuts).toHaveLength(1);
+    expect(onlyOuts[0]?.punchInAt).toBeNull();
+    expect(onlyOuts[0]?.punchOutAt).toBe("2026-09-22T15:00:00.000Z");
+
+    const unknown = rollupDeviceLogDays([
+      punch({ id: "e", punchAt: "2026-09-23T05:00:00.000Z", inOutStatus: null, biometricUserId: "1003" }),
+      punch({ id: "f", punchAt: "2026-09-23T14:00:00.000Z", inOutStatus: 99, biometricUserId: "1003" }),
+    ]);
+    expect(unknown).toHaveLength(1);
+    expect(unknown[0]?.punchInAt).toBe("2026-09-23T05:00:00.000Z");
+    expect(unknown[0]?.punchOutAt).toBe("2026-09-23T14:00:00.000Z");
+  });
+
+  it("keeps separate rows when the same user punches two devices the same day", () => {
+    const days = rollupDeviceLogDays([
+      punch({ id: "1", punchAt: "2026-09-21T05:00:00.000Z", inOutStatus: 0, deviceId: "dev1" }),
+      punch({ id: "2", punchAt: "2026-09-21T14:00:00.000Z", inOutStatus: 1, deviceId: "dev2", deviceSerial: "SN2" }),
+    ]);
+    expect(days).toHaveLength(2);
   });
 
   it("prefers serial_number over device_code for the raw device id", () => {

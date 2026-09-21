@@ -79,6 +79,7 @@ import {
   deviceLogDisplayName,
   indexDeviceLogBioNames,
   lookupDeviceLogBioName,
+  rollupDeviceLogDays,
 } from "@/lib/attendance-hr/device-logs";
 
 async function audit(
@@ -2172,8 +2173,14 @@ export const listAttendanceDeviceLogs = createAuthenticatedAction(
         source: row.source,
       };
     });
+    const dayRows = rollupDeviceLogDays(listed);
     const total = count ?? listed.length;
-    return { rows: listed, total, capped: total > listed.length };
+    return {
+      rows: dayRows,
+      total,
+      loaded: listed.length,
+      capped: total > listed.length,
+    };
   },
   { auth: { capability: "attendance.view" } },
 );

@@ -20,9 +20,8 @@ import { getAttendanceHrBootstrap, listAttendanceDeviceLogs } from "@/lib/attend
 import {
   DEVICE_LOG_PAGE_SIZE,
   deviceLogKpis,
-  deviceLogPunchSide,
   deviceLogRawDeviceId,
-  formatDeviceLogDate,
+  formatDeviceLogYmd,
 } from "@/lib/attendance-hr/device-logs";
 import {
   defaultPayrollPeriod,
@@ -144,6 +143,7 @@ export default function AttendanceHrDeviceLogsPage() {
 
   const rows = logs.data?.rows ?? [];
   const total = logs.data?.total ?? 0;
+  const loaded = logs.data?.loaded ?? rows.reduce((n, row) => n + (row.punchCount ?? 1), 0);
   const capped = Boolean(logs.data?.capped);
   const kpis = useMemo(() => deviceLogKpis(rows), [rows]);
   const pages = Math.max(1, Math.ceil(rows.length / DEVICE_LOG_PAGE_SIZE));
@@ -151,13 +151,6 @@ export default function AttendanceHrDeviceLogsPage() {
   const searchBusy = qText !== qDebounced || (logs.isFetching && !logs.isLoading);
   const rowFilterOn = Boolean(qDebounced.trim() || deviceId);
   const empty = !logs.isLoading && !logs.isError && rows.length === 0;
-
-  function punchTimeCell(row: (typeof rows)[number], side: "in" | "out"): string {
-    const punchSide = deviceLogPunchSide(row.inOutStatus);
-    // Unclassified punches still show a time so the row is not blank.
-    const show = punchSide === side || (punchSide == null && side === "in");
-    return show ? formatPunchTime12h(row.punchAt) || "—" : "—";
-  }
 
   return (
     <div className="space-y-6">
@@ -307,7 +300,7 @@ export default function AttendanceHrDeviceLogsPage() {
           <TintedKpiCard
             title={t("attendanceHr.deviceLogs.kpiRecords")}
             value={total}
-            hint={capped ? t("attendanceHr.deviceLogs.capped", { shown: rows.length, total }) : undefined}
+            hint={capped ? t("attendanceHr.deviceLogs.capped", { shown: loaded, total }) : undefined}
             tint="sky"
             compact
           />
@@ -367,9 +360,9 @@ export default function AttendanceHrDeviceLogsPage() {
                   </TableCell>
                   <TableCell className="whitespace-nowrap font-mono text-xs">{dash(row.biometricUserId)}</TableCell>
                   <TableCell className="whitespace-nowrap">{dash(row.deviceUserName)}</TableCell>
-                  <TableCell className="whitespace-nowrap">{formatDeviceLogDate(row.punchAt) || "—"}</TableCell>
-                  <TableCell className="whitespace-nowrap">{punchTimeCell(row, "in")}</TableCell>
-                  <TableCell className="whitespace-nowrap">{punchTimeCell(row, "out")}</TableCell>
+                  <TableCell className="whitespace-nowrap">{formatDeviceLogYmd(row.dateYmd) || "—"}</TableCell>
+                  <TableCell className="whitespace-nowrap">{formatPunchTime12h(row.punchInAt) || "—"}</TableCell>
+                  <TableCell className="whitespace-nowrap">{formatPunchTime12h(row.punchOutAt) || "—"}</TableCell>
                 </TableRow>
               ))
             )}
@@ -379,7 +372,9 @@ export default function AttendanceHrDeviceLogsPage() {
           <div className="flex items-center justify-between border-t border-border px-3 py-2 text-xs text-muted-foreground">
             <span>
               {t("common.page", { page, pages })}
-              {capped ? ` · ${t("attendanceHr.deviceLogs.capped", { shown: rows.length, total })}` : ` · ${rows.length}`}
+              {capped
+                ? ` · ${t("attendanceHr.deviceLogs.capped", { shown: loaded, total })}`
+                : ` · ${t("attendanceHr.deviceLogs.dayRows", { count: rows.length })}`}
             </span>
             <div className="flex gap-2">
               <Button size="sm" variant="secondary" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
@@ -392,7 +387,7 @@ export default function AttendanceHrDeviceLogsPage() {
           </div>
         ) : capped && !logs.isLoading ? (
           <p className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
-            {t("attendanceHr.deviceLogs.capped", { shown: rows.length, total })}
+            {t("attendanceHr.deviceLogs.capped", { shown: loaded, total })}
           </p>
         ) : null}
       </div>

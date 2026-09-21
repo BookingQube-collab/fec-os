@@ -23,18 +23,52 @@ export type AttendanceDeviceLogRow = {
   source: string | null;
 };
 
+/** One person-day on one device (rollup of raw punches for the device-logs table). */
+export type AttendanceDeviceLogDayRow = {
+  id: string;
+  locationId: string;
+  locationCode: string | null;
+  locationName: string | null;
+  deviceId: string | null;
+  deviceName: string | null;
+  deviceSerial: string | null;
+  deviceCode: string | null;
+  biometricUserId: string | null;
+  deviceUserName: string | null;
+  /** Qatar civil day YYYY-MM-DD. */
+  dateYmd: string;
+  punchInAt: string | null;
+  punchOutAt: string | null;
+  /** Raw punches folded into this row. */
+  punchCount: number;
+};
+
 export type DeviceLogKpis = {
   records: number;
   deviceUsers: number;
   devices: number;
 };
 
-/** DD-MM-YYYY in Asia/Qatar from a punch timestamp. */
-export function formatDeviceLogDate(iso: string | null | undefined): string {
+/** Qatar civil day as YYYY-MM-DD from a punch timestamp. */
+export function deviceLogQatarYmd(iso: string | null | undefined): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  const ymd = d.toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" });
+  return d.toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" });
+}
+
+/** DD-MM-YYYY in Asia/Qatar from a punch timestamp. */
+export function formatDeviceLogDate(iso: string | null | undefined): string {
+  const ymd = deviceLogQatarYmd(iso);
+  if (!ymd) return "";
+  const [year, month, day] = ymd.split("-");
+  if (!year || !month || !day) return "";
+  return `${day}-${month}-${year}`;
+}
+
+/** DD-MM-YYYY from a Qatar YYYY-MM-DD civil day. */
+export function formatDeviceLogYmd(ymd: string | null | undefined): string {
+  if (!ymd) return "";
   const [year, month, day] = ymd.split("-");
   if (!year || !month || !day) return "";
   return `${day}-${month}-${year}`;
@@ -99,6 +133,88 @@ export function deviceLogPunchSide(status: number | null | undefined): "in" | "o
   if (key === "in" || key === "breakIn" || key === "otIn") return "in";
   if (key === "out" || key === "breakOut" || key === "otOut") return "out";
   return null;
+}
+
+/**
+ * Roll raw punches into one row per (location + device + biometric user + Qatar day).
+ *
+ * Punch in = earliest typed check-in (in / breakIn / otIn).
+ * Punch out = latest typed check-out (out / breakOut / otOut).
+ * Only-ins → out blank; only-outs → in blank.
+ * Unknown status only: earliest → in; latest → out when it differs from earliest.
+ * Same user on two devices the same day → two rows (device is in the key).
+ */
+export function rollupDeviceLogDays(rows: AttendanceDeviceLogRow[]): AttendanceDeviceLogDayRow[] {
+  type Acc = {
+    sample: AttendanceDeviceLogRow;
+    dateYmd: string;
+    punches: AttendanceDeviceLogRow[];
+  };
+  const groups = new Map<string, Acc>();
+  for (const row of rows) {
+    const ymd = deviceLogQatarYmd(row.punchAt);
+    if (!ymd) continue;
+    const user = row.biometricUserId?.trim() || "";
+    const key = `${row.locationId}|${row.deviceId ?? ""}|${user}|${ymd}`;
+    const existing = groups.get(key);
+    if (existing) existing.punches.push(row);
+    else groups.set(key, { sample: row, dateYmd: ymd, punches: [row] });
+  }
+
+  const days: AttendanceDeviceLogDayRow[] = [];
+  for (const [key, group] of groups) {
+    const sorted = [...group.punches].sort(
+      (a, b) => new Date(a.punchAt).getTime() - new Date(b.punchAt).getTime(),
+    );
+    const ins: string[] = [];
+    const outs: string[] = [];
+    for (const punch of sorted) {
+      const side = deviceLogPunchSide(punch.inOutStatus);
+      if (side === "in") ins.push(punch.punchAt);
+      else if (side === "out") outs.push(punch.punchAt);
+    }
+
+    let punchInAt: string | null = null;
+    let punchOutAt: string | null = null;
+    if (ins.length || outs.length) {
+      punchInAt = ins[0] ?? null;
+      punchOutAt = outs.length ? outs[outs.length - 1]! : null;
+    } else {
+      // All unknown/null status: earliest = in; latest = out only when distinct.
+      punchInAt = sorted[0]?.punchAt ?? null;
+      const last = sorted[sorted.length - 1]?.punchAt ?? null;
+      punchOutAt = last && last !== punchInAt ? last : null;
+    }
+
+    const sample = group.sample;
+    const deviceUserName =
+      sorted.find((p) => p.deviceUserName?.trim())?.deviceUserName?.trim() || sample.deviceUserName;
+    days.push({
+      id: key,
+      locationId: sample.locationId,
+      locationCode: sample.locationCode,
+      locationName: sample.locationName,
+      deviceId: sample.deviceId,
+      deviceName: sample.deviceName,
+      deviceSerial: sample.deviceSerial,
+      deviceCode: sample.deviceCode,
+      biometricUserId: sample.biometricUserId,
+      deviceUserName,
+      dateYmd: group.dateYmd,
+      punchInAt,
+      punchOutAt,
+      punchCount: sorted.length,
+    });
+  }
+
+  days.sort((a, b) => {
+    if (a.dateYmd !== b.dateYmd) return a.dateYmd < b.dateYmd ? 1 : -1;
+    const aAt = a.punchInAt ?? a.punchOutAt ?? "";
+    const bAt = b.punchInAt ?? b.punchOutAt ?? "";
+    if (aAt !== bAt) return aAt < bAt ? 1 : -1;
+    return (a.biometricUserId ?? "").localeCompare(b.biometricUserId ?? "");
+  });
+  return days;
 }
 
 /** Raw device identifier as stored for the terminal (serial, else device_code). */
