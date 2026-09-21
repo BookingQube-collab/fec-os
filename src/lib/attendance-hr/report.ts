@@ -238,3 +238,15 @@ export function computeAttendanceHrReportKpis(rows: AttendanceHrReportRow[]): At
 export function isMappedAttendanceHrRow(row: Pick<AttendanceHrReportRow, "staff_id">): boolean {
   return Boolean(row.staff_id);
 }
+
+/**
+ * Reports site chip: every listed/KPI row must match the selected location_id.
+ * Staff search must not pull other sites' punches for the same name.
+ */
+export function attendanceHrRowMatchesLocation(
+  row: Pick<AttendanceHrReportRow, "location_id">,
+  locationId: string | null | undefined,
+): boolean {
+  if (!locationId) return true;
+  return row.location_id === locationId;
+}

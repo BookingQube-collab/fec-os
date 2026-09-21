@@ -40,6 +40,7 @@ import {
 } from "./mapping-merge";
 import {
   attendanceHrDisplayStaffName,
+  attendanceHrRowMatchesLocation,
   attendanceHrStaffMatches,
   attendanceHrToListingSource,
   computeAttendanceHrReportKpis,
@@ -639,6 +640,14 @@ describe("HR report row helpers", () => {
     expect(
       attendanceHrStaffMatches({ staff_name: null, device_name: "WASANTHI", biometric_user_id: "9" }, "wasan"),
     ).toBe(true);
+  });
+
+  it("scopes report rows to the selected site (staff search must not widen)", () => {
+    const inf = { location_id: "inf-cc" };
+    const kds = { location_id: "kds-cc" };
+    expect(attendanceHrRowMatchesLocation(inf, "inf-cc")).toBe(true);
+    expect(attendanceHrRowMatchesLocation(kds, "inf-cc")).toBe(false);
+    expect(attendanceHrRowMatchesLocation(kds, null)).toBe(true);
   });
 
   it("prefers device name over Unmapped label for listing display", () => {

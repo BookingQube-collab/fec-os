@@ -495,7 +495,6 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
       .order("work_date", { ascending: false })
       .limit(2000);
     if (data.status) q = q.eq("status", data.status);
-    let personRollup = Boolean(data.staffId);
     if (data.staffId) {
       q = q.eq("staff_id", data.staffId);
     } else if (data.staffQ?.trim()) {
@@ -506,16 +505,14 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
         const staffIds = (await matchingStaffIds(context, needle)).slice(0, 300);
         if (staffIds.length > 0) {
           q = q.in("staff_id", staffIds);
-          personRollup = true;
         } else {
           q = q.ilike("biometric_user_id", `%${needle.replace(/[%_,]/g, "")}%`);
         }
       }
     }
-    if (data.locationId && !personRollup) {
-      const homeIds = await fetchHomeStaffIdsAtLocation(context.supabase, data.locationId);
-      q = q.or(punchOrHomeStaffOrFilter(data.locationId, homeIds));
-    }
+    // Site chip always wins: every listed/KPI row must be for this location_id.
+    // Do not widen via home-staff OR or staff-search person rollup (other sites' punches).
+    if (data.locationId) q = q.eq("location_id", data.locationId);
     const { data: rows, error } = await q;
     if (error) throw error;
     return enrichAttendanceHrDailyRows(context, (rows ?? []) as Array<Record<string, unknown>>);

@@ -50,6 +50,7 @@ import {
 import type { AttendanceListingSource } from "@/lib/attendance-display";
 import {
   attendanceHrToListingSource,
+  attendanceHrRowMatchesLocation,
   computeAttendanceHrReportKpis,
   formatAttendanceHrLocation,
   isMappedAttendanceHrRow,
@@ -142,7 +143,13 @@ export default function AttendanceHrReportsPage() {
     return ordered;
   }, [sites, bootstrap.data?.sites, locationId]);
 
-  const rows = useMemo(() => (q.data ?? []) as AttendanceHrReportRow[], [q.data]);
+  const rows = useMemo(
+    () =>
+      ((q.data ?? []) as AttendanceHrReportRow[]).filter((row) =>
+        attendanceHrRowMatchesLocation(row, locationId),
+      ),
+    [q.data, locationId],
+  );
   const deferredRows = useDeferredValue(rows);
   const listingRows = useMemo(
     () => deferredRows.map((row) => attendanceHrToListingSource(row, t("attendanceHr.reports.unmapped"))),
