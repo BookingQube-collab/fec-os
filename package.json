@@ -12,6 +12,7 @@
     "seed:supervisors": "node --env-file=.env.local scripts/seed-supervisors.mjs",
     "seed:maintenance-logistics": "node --env-file=.env.local scripts/seed-maintenance-logistics.mjs",
     "seed:test-logins": "node --env-file=.env.local scripts/seed-test-logins.mjs",
+    "seed:role-personas": "node --env-file=.env.local scripts/seed-role-personas.mjs",
     "seed:locations": "node --env-file=.env.local scripts/seed-locations.mjs",
     "seed:demo": "node --env-file=.env.local scripts/seed-demo-data.mjs",
     "seed:e3-compliance": "node --env-file=.env.local scripts/seed-e3-compliance-items.mjs",
