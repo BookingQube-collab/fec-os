@@ -2,6 +2,8 @@
 
 export const DEVICE_LOG_CAP = 2000;
 export const DEVICE_LOG_PAGE_SIZE = 100;
+/** Device-origin push only (iclock/ADMS ATTLOG). Excludes api_ingest, csv/file import, corrections. */
+export const DEVICE_LOG_PUSH_SOURCE = "adms_push";
 
 export type AttendanceDeviceLogRow = {
   id: string;

@@ -72,6 +72,7 @@ import {
 import { dispatchHrNotify } from "@/lib/attendance-hr/hr-notify-dispatch";
 import {
   DEVICE_LOG_CAP,
+  DEVICE_LOG_PUSH_SOURCE,
   deviceLogPunchRange,
   deviceLogSearchNeedle,
   type AttendanceDeviceLogRow,
@@ -2086,6 +2087,7 @@ export const listAttendanceDeviceLogs = createAuthenticatedAction(
     let q = context.supabase
       .from("attendance_logs")
       .select(DEVICE_LOG_COLUMNS, { count: "exact" })
+      .eq("source", DEVICE_LOG_PUSH_SOURCE)
       .gte("punch_at", range.fromIso)
       .lte("punch_at", range.toIso)
       .order("punch_at", { ascending: false })

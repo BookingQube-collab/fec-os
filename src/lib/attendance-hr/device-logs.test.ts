@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DEVICE_LOG_PUSH_SOURCE,
   deviceLogInOutKey,
   deviceLogKpis,
   deviceLogPunchRange,
@@ -12,6 +13,10 @@ import {
 } from "./device-logs";
 
 describe("device log listing", () => {
+  it("lists only ADMS device-push punches", () => {
+    expect(DEVICE_LOG_PUSH_SOURCE).toBe("adms_push");
+  });
+
   it("formats the punch day in Qatar, not UTC", () => {
     expect(formatDeviceLogDate("2026-09-20T22:30:00.000Z")).toBe("21-09-2026");
   });
