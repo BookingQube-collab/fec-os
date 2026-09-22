@@ -148,9 +148,10 @@ function AdminRolesView() {
   }, [pages]);
 
   const toggleMutation = useMutation({
-    mutationFn: setRoleCapabilityGrant,
+    mutationFn: (vars: { role: AppRole; capability: Capability; allowed: boolean }) =>
+      setRoleCapabilityGrant(vars),
     onMutate: (vars) => {
-      setPendingKey(grantKey(vars.role as AppRole, vars.capability));
+      setPendingKey(grantKey(vars.role, vars.capability));
     },
     onSuccess: async (data, vars) => {
       const prev = grantsQuery.data ?? [];
@@ -162,7 +163,7 @@ function AdminRolesView() {
               (r) => r.role === vars.role && r.capability === vars.capability,
             );
             if (idx >= 0) copy[idx] = { ...copy[idx], allowed: vars.allowed };
-            else copy.push({ role: vars.role as AppRole, capability: vars.capability, allowed: vars.allowed });
+            else copy.push({ role: vars.role, capability: vars.capability, allowed: vars.allowed });
             return copy;
           })();
       qc.setQueryData(queryKeys.admin.capabilityGrants(), next);
