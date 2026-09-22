@@ -30,6 +30,7 @@ import {
   Presentation,
   Radio,
   Settings,
+  Shield,
   Smartphone,
   ShieldCheck,
   ShoppingCart,
@@ -411,6 +412,7 @@ export const NAV_DEPARTMENTS: NavDepartment[] = [
     audience: ["executive", "all"],
     items: [
       { href: "/admin", labelKey: "nav.settings", icon: Settings, capability: "admin.view" },
+      { href: "/admin/roles", labelKey: "nav.rolesAccess", icon: Shield, capability: "admin.view" },
       { href: "/admin/ai-integrations", labelKey: "nav.aiIntegrations", icon: Sparkles, capability: "admin.view" },
       { href: "/admin/diagnostics", labelKey: "nav.diagnostics", icon: HeartPulse, capability: "admin.diagnostics" },
       { href: "/admin/api-explorer", labelKey: "nav.apiExplorer", icon: Code2, capability: "admin.view" },
@@ -491,6 +493,36 @@ export function getVisibleDepartments(roles: AppRole[]): VisibleNavDepartment[] 
 
     return [{ ...dept, items, groups }];
   });
+}
+
+/** Full nav catalog (no role filter) — role × page matrix admin UI. */
+export function listCatalogNavPages(): Array<NavItem & { departmentId: NavDepartmentId; departmentLabelKey: string }> {
+  const seen = new Set<string>();
+  const result: Array<NavItem & { departmentId: NavDepartmentId; departmentLabelKey: string }> = [];
+
+  for (const dept of NAV_DEPARTMENTS) {
+    for (const item of dept.items) {
+      if (seen.has(item.href)) continue;
+      seen.add(item.href);
+      result.push({ ...item, departmentId: dept.id, departmentLabelKey: dept.labelKey });
+    }
+    for (const group of dept.groups ?? []) {
+      for (const sub of group.items) {
+        if (seen.has(sub.href)) continue;
+        seen.add(sub.href);
+        result.push({
+          href: sub.href,
+          labelKey: sub.labelKey,
+          icon: group.icon,
+          capability: sub.capability,
+          departmentId: dept.id,
+          departmentLabelKey: dept.labelKey,
+        });
+      }
+    }
+  }
+
+  return result;
 }
 
 /** All nav items flattened from visible departments (for search, mobile grid). */

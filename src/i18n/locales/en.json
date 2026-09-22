@@ -19,6 +19,7 @@
     "e3Tracker": "E3 Tracker",
     "inspections": "Inspections",
     "settings": "Settings",
+    "rolesAccess": "Roles & access",
     "apiExplorer": "API Explorer",
     "diagnostics": "Diagnostics",
     "aiIntegrations": "AI Integrations",
@@ -4926,6 +4927,24 @@
     "auditor": "Auditor",
     "hr": "HR Manager",
     "customer_service": "Customer Service"
+  },
+  "adminRoles": {
+    "kicker": "Administration",
+    "title": "Roles & access",
+    "subtitle": "See which pages and capabilities each role can use.",
+    "forbidden": "You need Administration access to view roles and page assignments.",
+    "codeMapNote": "Page and module access is defined in code (capability map), not a database matrix. To change what a role can open, update the capability map in source and deploy. To give a person a role, use Settings.",
+    "assignUsers": "Assign roles to users",
+    "open": "Open",
+    "selectRole": "Role",
+    "pageCount": "{{count}} pages",
+    "capabilityCount": "{{count}} capabilities",
+    "pagesHeading": "Pages & modules",
+    "capabilitiesHeading": "Capabilities",
+    "allRolesHeading": "All roles",
+    "allowed": "Allowed",
+    "denied": "Not allowed",
+    "noCapabilities": "No capabilities for this role."
   },
   "profile": {
     "kicker": "Account",
