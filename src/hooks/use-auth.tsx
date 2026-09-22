@@ -23,6 +23,8 @@ interface AuthContextValue {
   roles: RoleAssignment[];
   loading: boolean;
   signOut: () => Promise<void>;
+  /** Re-fetch profiles/roles into auth context (e.g. after self-service profile edit). */
+  refreshProfile: () => Promise<Profile | null>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -119,8 +121,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut();
   };
 
+  const refreshProfile = async () => {
+    if (!user) return null;
+    clearAuthSessionCache(queryClient);
+    try {
+      const data = await fetchAuthSession(user.id, queryClient);
+      setProfile(data.profile);
+      setRoles(data.roles);
+      return data.profile;
+    } catch (error) {
+      console.warn("[auth] Failed to refresh profile", error);
+      return profile;
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, session, profile, roles, loading, signOut }}>
+    <AuthContext.Provider
+      value={{ user, session, profile, roles, loading, signOut, refreshProfile }}
+    >
       {children}
     </AuthContext.Provider>
   );

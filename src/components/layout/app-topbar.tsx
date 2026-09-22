@@ -38,6 +38,7 @@ import { formatLocationRecord } from "@/lib/locations/normalize";
 import { queryKeys } from "@/lib/query-keys";
 import { ackEscalation, markAllNotificationsRead, markNotificationRead } from "@/lib/notifications.functions";
 import type { AppRole } from "@/lib/rbac";
+import { usesOpsCommandSubtitle } from "@/lib/topbar-identity";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { SearchableSelect } from "@/components/ui/searchable-select";
@@ -203,6 +204,7 @@ export function AppTopbar() {
     .map((s) => s[0]?.toUpperCase())
     .join("");
   const primaryRole = translateRole(t, roles[0]?.role);
+  const showOpsCommand = usesOpsCommandSubtitle(roles[0]?.role);
 
   const closeBell = () => setBellOpen(false);
 
@@ -366,7 +368,9 @@ export function AppTopbar() {
           <p className="page-subtitle mt-0.5">
             {surgeMode
               ? t("layout.surgeHint")
-              : t("layout.commandCenterWithRole", { role: primaryRole })}
+              : showOpsCommand
+                ? t("layout.commandCenterWithRole", { role: primaryRole })
+                : primaryRole}
           </p>
         </div>
 
@@ -504,6 +508,12 @@ export function AppTopbar() {
                 )}
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <Link href="/profile">
+                  <User className="h-4 w-4" />
+                  {t("common.profile")}
+                </Link>
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={handleSignOut} className="text-destructive">
                 <LogOut className="h-4 w-4" />
                 {t("common.signOut")}

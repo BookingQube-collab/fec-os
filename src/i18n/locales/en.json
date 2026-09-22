@@ -172,6 +172,7 @@
     "language": "Language",
     "notifications": "Notifications",
     "signOut": "Sign out",
+    "profile": "Profile",
     "branch": "Branch",
     "allBranches": "All branches",
     "surgeMode": "Surge mode",
@@ -4923,8 +4924,19 @@
     "technician": "Maintenance Technician",
     "cashier_host": "Cashier / Host",
     "auditor": "Auditor",
-    "hr": "Human Resources",
+    "hr": "HR Manager",
     "customer_service": "Customer Service"
+  },
+  "profile": {
+    "kicker": "Account",
+    "title": "Your profile",
+    "subtitle": "Update the name shown in the header greeting.",
+    "displayName": "Display name",
+    "displayNameHint": "This is the name people see in greetings and activity logs.",
+    "role": "Role",
+    "nameRequired": "Enter a display name.",
+    "saved": "Profile saved",
+    "saveFailed": "Could not save profile"
   },
   "auth": {
     "kicker": "ops command center",
