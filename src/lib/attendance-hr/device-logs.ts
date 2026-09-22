@@ -282,3 +282,97 @@ export function deviceLogDisplayName(
   if (fromPunch) return fromPunch;
   return bio?.device_name?.trim() || bio?.full_name?.trim() || null;
 }
+
+export type AttendanceDeviceLogUserOption = {
+  biometricUserId: string;
+  name: string | null;
+};
+
+/** Distinct device users for the SearchableSelect (name · user id). */
+export function collectDeviceLogUsers(
+  rows: Array<{ biometricUserId: string | null; deviceUserName: string | null }>,
+): AttendanceDeviceLogUserOption[] {
+  const byId = new Map<string, AttendanceDeviceLogUserOption>();
+  for (const row of rows) {
+    const id = row.biometricUserId?.trim();
+    if (!id) continue;
+    const name = row.deviceUserName?.trim() || null;
+    const existing = byId.get(id);
+    if (!existing) byId.set(id, { biometricUserId: id, name });
+    else if (!existing.name && name) existing.name = name;
+  }
+  return [...byId.values()].sort((a, b) => {
+    const an = (a.name ?? "").toLowerCase();
+    const bn = (b.name ?? "").toLowerCase();
+    if (an !== bn) return an.localeCompare(bn);
+    return a.biometricUserId.localeCompare(b.biometricUserId);
+  });
+}
+
+export function deviceLogUserOptionLabel(user: AttendanceDeviceLogUserOption): string {
+  const name = user.name?.trim();
+  return name ? `${name} · ${user.biometricUserId}` : user.biometricUserId;
+}
+
+/** Match after enrichment: user id OR display name (punch / biometric registry). */
+export function deviceLogMatchesNeedle(
+  rawNeedle: string,
+  row: { biometricUserId?: string | null; deviceUserName?: string | null },
+): boolean {
+  const needle = deviceLogSearchNeedle(rawNeedle).toLowerCase();
+  if (!needle) return true;
+  if ((row.biometricUserId ?? "").toLowerCase().includes(needle)) return true;
+  if ((row.deviceUserName ?? "").toLowerCase().includes(needle)) return true;
+  return false;
+}
+
+/**
+ * PostgREST `or` for punch search. Includes biometric_user_ids whose registry
+ * device_name / full_name matched the needle (display names are not on attendance_logs).
+ */
+export function deviceLogSearchOrFilter(needle: string, bioUserIds: string[]): string {
+  const parts = [`biometric_user_id.ilike.%${needle}%`, `device_user_name.ilike.%${needle}%`];
+  const clean = [...new Set(bioUserIds.map((id) => id.trim().replace(/[,()]/g, "")).filter(Boolean))];
+  if (clean.length) parts.push(`biometric_user_id.in.(${clean.join(",")})`);
+  return parts.join(",");
+}
+
+export const DEVICE_LOG_EXPORT_COLUMNS = [
+  "Device ID",
+  "User ID",
+  "Name",
+  "Date",
+  "Punch in",
+  "Punch out",
+] as const;
+
+export function deviceLogDayExportObject(
+  row: AttendanceDeviceLogDayRow,
+  punchIn: string,
+  punchOut: string,
+): Record<(typeof DEVICE_LOG_EXPORT_COLUMNS)[number], string> {
+  return {
+    "Device ID": deviceLogRawDeviceId(row) ?? "",
+    "User ID": row.biometricUserId ?? "",
+    Name: row.deviceUserName ?? "",
+    Date: formatDeviceLogYmd(row.dateYmd),
+    "Punch in": punchIn,
+    "Punch out": punchOut,
+  };
+}
+
+export function buildDeviceLogDaysCsv(
+  rows: AttendanceDeviceLogDayRow[],
+  formatPunch: (iso: string | null | undefined) => string,
+): string {
+  const esc = (value: string) => {
+    if (/[",\n\r]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
+    return value;
+  };
+  const lines = [DEVICE_LOG_EXPORT_COLUMNS.join(",")];
+  for (const row of rows) {
+    const obj = deviceLogDayExportObject(row, formatPunch(row.punchInAt) || "", formatPunch(row.punchOutAt) || "");
+    lines.push(DEVICE_LOG_EXPORT_COLUMNS.map((col) => esc(obj[col])).join(","));
+  }
+  return lines.join("\r\n");
+}

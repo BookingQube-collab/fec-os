@@ -2,13 +2,18 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEVICE_LOG_PUSH_SOURCE,
+  buildDeviceLogDaysCsv,
+  collectDeviceLogUsers,
   deviceLogDisplayName,
   deviceLogInOutKey,
   deviceLogKpis,
+  deviceLogMatchesNeedle,
   deviceLogPunchRange,
   deviceLogPunchSide,
   deviceLogQatarYmd,
   deviceLogRawDeviceId,
+  deviceLogSearchOrFilter,
+  deviceLogUserOptionLabel,
   formatDeviceLogDate,
   formatDeviceLogYmd,
   deviceLogSearchNeedle,
@@ -181,5 +186,44 @@ describe("device log listing", () => {
     expect(lookupDeviceLogBioName(index, "loc1", "1001", "other")?.device_name).toBe("Loc User");
     expect(lookupDeviceLogBioName(index, "loc1", "1001", null)?.device_name).toBe("Loc User");
     expect(lookupDeviceLogBioName(index, "loc1", "9999", "dev1")).toBeUndefined();
+  });
+
+  it("matches search against display name or user id after enrichment", () => {
+    expect(deviceLogMatchesNeedle("Louie", { biometricUserId: "42", deviceUserName: "Louie Pathak" })).toBe(true);
+    expect(deviceLogMatchesNeedle("42", { biometricUserId: "42", deviceUserName: "Louie" })).toBe(true);
+    expect(deviceLogMatchesNeedle("Louie", { biometricUserId: "99", deviceUserName: null })).toBe(false);
+  });
+
+  it("builds PostgREST or filter including registry-matched user ids", () => {
+    expect(deviceLogSearchOrFilter("Louie", [])).toBe(
+      "biometric_user_id.ilike.%Louie%,device_user_name.ilike.%Louie%",
+    );
+    expect(deviceLogSearchOrFilter("Louie", [" 12 ", "12", "3,4"])).toBe(
+      "biometric_user_id.ilike.%Louie%,device_user_name.ilike.%Louie%,biometric_user_id.in.(12,34)",
+    );
+  });
+
+  it("collects distinct device users for the dropdown", () => {
+    const users = collectDeviceLogUsers([
+      { biometricUserId: "2", deviceUserName: null },
+      { biometricUserId: "1", deviceUserName: "Louie" },
+      { biometricUserId: "2", deviceUserName: "Ali" },
+      { biometricUserId: "  ", deviceUserName: "Skip" },
+    ]);
+    expect(users).toEqual([
+      { biometricUserId: "2", name: "Ali" },
+      { biometricUserId: "1", name: "Louie" },
+    ]);
+    expect(deviceLogUserOptionLabel(users[1]!)).toBe("Louie · 1");
+  });
+
+  it("exports rolled-up day rows as CSV", () => {
+    const days = rollupDeviceLogDays([
+      punch({ id: "1", punchAt: "2026-09-21T05:00:00.000Z", inOutStatus: 0, deviceUserName: "Louie" }),
+      punch({ id: "2", punchAt: "2026-09-21T14:00:00.000Z", inOutStatus: 1, deviceUserName: "Louie" }),
+    ]);
+    const csv = buildDeviceLogDaysCsv(days, (iso) => (iso ? "TIME" : ""));
+    expect(csv.split("\r\n")[0]).toBe("Device ID,User ID,Name,Date,Punch in,Punch out");
+    expect(csv).toContain("SN1,1001,Louie,21-09-2026,TIME,TIME");
   });
 });

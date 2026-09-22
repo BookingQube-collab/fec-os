@@ -1,8 +1,8 @@
 "use client";
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { Loader2, MapPin, ScrollText, Search } from "lucide-react";
-import { startTransition, useEffect, useMemo, useState } from "react";
+import { Loader2, MapPin, ScrollText } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { AttendanceHrNav } from "@/components/attendance-hr/attendance-hr-nav";
@@ -12,15 +12,21 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useSites } from "@/hooks/queries/useSites";
-import { getAttendanceHrBootstrap, listAttendanceDeviceLogs } from "@/lib/attendance-hr.functions";
+import {
+  getAttendanceHrBootstrap,
+  listAttendanceDeviceLogUsers,
+  listAttendanceDeviceLogs,
+} from "@/lib/attendance-hr.functions";
 import {
   DEVICE_LOG_PAGE_SIZE,
   deviceLogKpis,
   deviceLogRawDeviceId,
+  deviceLogUserOptionLabel,
   formatDeviceLogYmd,
 } from "@/lib/attendance-hr/device-logs";
 import {
@@ -59,26 +65,37 @@ export default function AttendanceHrDeviceLogsPage() {
     defaultPayrollPeriod(new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" })),
   );
   const [deviceId, setDeviceId] = useState("");
-  const [qText, setQText] = useState("");
-  const [qDebounced, setQDebounced] = useState("");
+  const [biometricUserId, setBiometricUserId] = useState("");
   const [page, setPage] = useState(1);
   const { data: sites } = useSites();
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      startTransition(() => setQDebounced(qText));
-    }, 350);
-    return () => window.clearTimeout(timer);
-  }, [qText]);
-
-  useEffect(() => {
     setPage(1);
-  }, [locationId, deviceId, from, to, qDebounced]);
+  }, [locationId, deviceId, from, to, biometricUserId]);
 
   const bootstrap = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "bootstrap" }),
     queryFn: () => getAttendanceHrBootstrap(),
     staleTime: STALE.people,
+  });
+
+  const deviceUsers = useQuery({
+    queryKey: queryKeys.people.attendanceHr({
+      view: "device-log-users",
+      locationId,
+      deviceId,
+      from,
+      to,
+    }),
+    queryFn: () =>
+      listAttendanceDeviceLogUsers({
+        locationId: locationId || null,
+        deviceId: deviceId || null,
+        dateFrom: from,
+        dateTo: to,
+      }),
+    staleTime: STALE.people,
+    placeholderData: keepPreviousData,
   });
 
   const logs = useQuery({
@@ -88,7 +105,7 @@ export default function AttendanceHrDeviceLogsPage() {
       deviceId,
       from,
       to,
-      q: qDebounced,
+      biometricUserId,
     }),
     queryFn: () =>
       listAttendanceDeviceLogs({
@@ -96,7 +113,7 @@ export default function AttendanceHrDeviceLogsPage() {
         deviceId: deviceId || null,
         dateFrom: from,
         dateTo: to,
-        q: qDebounced.trim() || undefined,
+        biometricUserId: biometricUserId || undefined,
       }),
     staleTime: STALE.people,
     placeholderData: keepPreviousData,
@@ -136,10 +153,33 @@ export default function AttendanceHrDeviceLogsPage() {
     return locationId ? list.filter((device) => device.location_id === locationId) : list;
   }, [bootstrap.data?.devices, locationId]);
 
+  const userOptions = useMemo(
+    () =>
+      (deviceUsers.data?.users ?? []).map((user) => ({
+        value: user.biometricUserId,
+        label: deviceLogUserOptionLabel(user),
+        keywords: `${user.name ?? ""} ${user.biometricUserId}`,
+      })),
+    [deviceUsers.data?.users],
+  );
+
   useEffect(() => {
     if (!deviceId) return;
     if (!deviceOptions.some((device) => device.id === deviceId)) setDeviceId("");
   }, [deviceId, deviceOptions]);
+
+  useEffect(() => {
+    if (!biometricUserId) return;
+    if (!userOptions.some((user) => user.value === biometricUserId)) setBiometricUserId("");
+  }, [biometricUserId, userOptions]);
+
+  const exportHref = useMemo(() => {
+    const p = new URLSearchParams({ view: "device-logs", from, to });
+    if (locationId) p.set("locationId", locationId);
+    if (deviceId) p.set("deviceId", deviceId);
+    if (biometricUserId) p.set("biometricUserId", biometricUserId);
+    return `/api/people/attendance-hr/export?${p.toString()}`;
+  }, [from, to, locationId, deviceId, biometricUserId]);
 
   const rows = logs.data?.rows ?? [];
   const total = logs.data?.total ?? 0;
@@ -148,8 +188,8 @@ export default function AttendanceHrDeviceLogsPage() {
   const kpis = useMemo(() => deviceLogKpis(rows), [rows]);
   const pages = Math.max(1, Math.ceil(rows.length / DEVICE_LOG_PAGE_SIZE));
   const pageRows = rows.slice((page - 1) * DEVICE_LOG_PAGE_SIZE, page * DEVICE_LOG_PAGE_SIZE);
-  const searchBusy = qText !== qDebounced || (logs.isFetching && !logs.isLoading);
-  const rowFilterOn = Boolean(qDebounced.trim() || deviceId);
+  const usersBusy = deviceUsers.isFetching && !deviceUsers.isLoading;
+  const rowFilterOn = Boolean(biometricUserId || deviceId);
   const empty = !logs.isLoading && !logs.isError && rows.length === 0;
 
   return (
@@ -197,21 +237,23 @@ export default function AttendanceHrDeviceLogsPage() {
 
         <div className="flex flex-wrap items-end gap-3">
           <div className="min-w-56 flex-1 space-y-1.5">
-            <Label htmlFor="attendance-device-log-search">{t("attendanceHr.deviceLogs.search")}</Label>
+            <Label htmlFor="attendance-device-log-user">{t("attendanceHr.deviceLogs.search")}</Label>
             <div className="relative">
-              <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                id="attendance-device-log-search"
-                value={qText}
-                onChange={(e) => setQText(e.target.value)}
-                placeholder={t("attendanceHr.deviceLogs.searchPlaceholder")}
-                autoComplete="off"
-                aria-busy={searchBusy}
-                className={cn("ps-9", searchBusy && "pe-9")}
+              <SearchableSelect
+                id="attendance-device-log-user"
+                value={biometricUserId}
+                onValueChange={setBiometricUserId}
+                placeholder={t("attendanceHr.deviceLogs.allUsers")}
+                searchPlaceholder={t("attendanceHr.deviceLogs.searchPlaceholder")}
+                emptyOption={{ value: "", label: t("attendanceHr.deviceLogs.allUsers") }}
+                options={userOptions}
+                aria-label={t("attendanceHr.deviceLogs.search")}
+                triggerClassName="h-10 min-h-10 w-full font-normal"
+                className="w-full"
               />
-              {searchBusy ? (
+              {usersBusy ? (
                 <Loader2
-                  className="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground"
+                  className="pointer-events-none absolute end-10 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground"
                   aria-hidden
                 />
               ) : null}
@@ -286,6 +328,18 @@ export default function AttendanceHrDeviceLogsPage() {
               </Select>
             </div>
           ) : null}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button asChild>
+            <a href={exportHref}>{t("attendanceHr.reports.exportExcel")}</a>
+          </Button>
+          <Button variant="secondary" asChild>
+            <a href={`${exportHref}&format=csv`}>{t("attendanceHr.reports.exportCsv")}</a>
+          </Button>
+          <Button variant="secondary" asChild>
+            <a href={`${exportHref}&format=pdf`}>{t("attendanceHr.reports.exportPdf")}</a>
+          </Button>
         </div>
       </NeumorphicCard>
 

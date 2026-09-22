@@ -4,6 +4,7 @@ import { withAuthRouteRequest, searchParams } from "@/lib/server/api-route";
 import {
   getAttendanceHrDaily,
   getAttendanceHrPunches,
+  listAttendanceDeviceLogs,
   listAttendanceHrMappings,
   listAttendanceImports,
 } from "@/lib/attendance-hr.functions";
@@ -13,6 +14,7 @@ import {
   attendanceListingCells,
   attendanceListingExportObjects,
   buildAttendanceListingCsv,
+  formatPunchTime12h,
 } from "@/lib/attendance-display";
 import {
   attendanceHrExportStaffName,
@@ -20,6 +22,11 @@ import {
   formatAttendanceHrLocation,
   type AttendanceHrReportRow,
 } from "@/lib/attendance-hr/report";
+import {
+  DEVICE_LOG_EXPORT_COLUMNS,
+  buildDeviceLogDaysCsv,
+  deviceLogDayExportObject,
+} from "@/lib/attendance-hr/device-logs";
 
 function asUuid(value: string | null): string | null {
   if (!value) return null;
@@ -46,6 +53,81 @@ export async function GET(request: Request) {
       const departmentId = asUuid(params.get("departmentId"));
       const dateFrom = params.get("from") ?? new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
       const dateTo = params.get("to") ?? new Date().toISOString().slice(0, 10);
+
+      if (params.get("view") === "device-logs") {
+        const deviceId = asUuid(params.get("deviceId"));
+        const biometricUserId = params.get("biometricUserId")?.trim() || undefined;
+        const q = params.get("q")?.trim() || undefined;
+        const logs = await listAttendanceDeviceLogs({
+          locationId,
+          deviceId,
+          dateFrom,
+          dateTo,
+          biometricUserId,
+          q,
+        });
+        const dayRows = logs.rows;
+
+        if (format === "csv") {
+          return new NextResponse(buildDeviceLogDaysCsv(dayRows, formatPunchTime12h), {
+            headers: {
+              "Content-Type": "text/csv; charset=utf-8",
+              "Content-Disposition": `attachment; filename="device-logs-${dateFrom}-${dateTo}.csv"`,
+            },
+          });
+        }
+
+        if (format === "pdf") {
+          const [{ jsPDF }, autoTableMod] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
+          const autoTable = autoTableMod.default;
+          const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
+          doc.setFontSize(14);
+          doc.text(`Device logs ${dateFrom} – ${dateTo}`, 40, 36);
+          autoTable(doc, {
+            startY: 48,
+            head: [[...DEVICE_LOG_EXPORT_COLUMNS]],
+            body: dayRows.map((row) => {
+              const obj = deviceLogDayExportObject(
+                row,
+                formatPunchTime12h(row.punchInAt) || "",
+                formatPunchTime12h(row.punchOutAt) || "",
+              );
+              return DEVICE_LOG_EXPORT_COLUMNS.map((col) => obj[col] || "—");
+            }),
+            styles: { fontSize: 8 },
+          });
+          const buf = Buffer.from(doc.output("arraybuffer"));
+          return new NextResponse(new Uint8Array(buf), {
+            headers: {
+              "Content-Type": "application/pdf",
+              "Content-Disposition": `attachment; filename="device-logs-${dateFrom}-${dateTo}.pdf"`,
+            },
+          });
+        }
+
+        const XLSX = await import("xlsx");
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(
+          wb,
+          XLSX.utils.json_to_sheet(
+            dayRows.map((row) =>
+              deviceLogDayExportObject(
+                row,
+                formatPunchTime12h(row.punchInAt) || "",
+                formatPunchTime12h(row.punchOutAt) || "",
+              ),
+            ),
+          ),
+          "Device logs",
+        );
+        const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+        return new NextResponse(new Uint8Array(buf), {
+          headers: {
+            "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "Content-Disposition": `attachment; filename="device-logs-${dateFrom}-${dateTo}.xlsx"`,
+          },
+        });
+      }
 
       if (format === "payroll") {
         const XLSX = await import("xlsx");

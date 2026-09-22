@@ -73,8 +73,10 @@ import { dispatchHrNotify } from "@/lib/attendance-hr/hr-notify-dispatch";
 import {
   DEVICE_LOG_CAP,
   DEVICE_LOG_PUSH_SOURCE,
+  collectDeviceLogUsers,
   deviceLogPunchRange,
   deviceLogSearchNeedle,
+  deviceLogSearchOrFilter,
   type AttendanceDeviceLogRow,
   deviceLogDisplayName,
   indexDeviceLogBioNames,
@@ -2077,6 +2079,85 @@ async function loadByIds<T extends { id: string }>(
 const DEVICE_LOG_COLUMNS =
   "id, location_id, device_id, biometric_user_id, device_user_name, punch_at, in_out_status, verify_method, work_code, source";
 
+async function resolveDeviceLogBioSearchIds(
+  context: AuthContext,
+  locationId: string | null | undefined,
+  needle: string,
+): Promise<string[]> {
+  let bioQ = context.supabase
+    .from("attendance_biometric_users")
+    .select("biometric_user_id")
+    .or(`device_name.ilike.%${needle}%,full_name.ilike.%${needle}%`)
+    .limit(500);
+  if (locationId) bioQ = bioQ.eq("location_id", locationId);
+  const { data, error } = await bioQ;
+  if (error) throw error;
+  return [
+    ...new Set(
+      (data ?? [])
+        .map((row) => String(row.biometric_user_id ?? "").trim())
+        .filter(Boolean),
+    ),
+  ];
+}
+
+export const listAttendanceDeviceLogUsers = createAuthenticatedAction(
+  z.object({
+    locationId: z.string().uuid().nullable().optional(),
+    deviceId: z.string().uuid().nullable().optional(),
+    dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  }),
+  async (data, context) => {
+    if (data.locationId) await assertSite(context, data.locationId);
+    const range = deviceLogPunchRange(data.dateFrom, data.dateTo);
+    let q = context.supabase
+      .from("attendance_logs")
+      .select("location_id, device_id, biometric_user_id, device_user_name")
+      .eq("source", DEVICE_LOG_PUSH_SOURCE)
+      .gte("punch_at", range.fromIso)
+      .lte("punch_at", range.toIso)
+      .limit(DEVICE_LOG_CAP);
+    if (data.locationId) q = q.eq("location_id", data.locationId);
+    if (data.deviceId) q = q.eq("device_id", data.deviceId);
+    const { data: rows, error } = await q;
+    if (error) throw error;
+    const punches = (rows ?? []) as Array<{
+      location_id: string;
+      device_id: string | null;
+      biometric_user_id: string | null;
+      device_user_name: string | null;
+    }>;
+    const locationIds = [...new Set(punches.map((row) => row.location_id))];
+    const bioRes = locationIds.length
+      ? await context.supabase
+          .from("attendance_biometric_users")
+          .select("location_id, device_id, biometric_user_id, device_name, full_name")
+          .in("location_id", locationIds)
+          .limit(5000)
+      : { data: [] as Array<Record<string, unknown>>, error: null };
+    if (bioRes.error) throw bioRes.error;
+    const bioIndex = indexDeviceLogBioNames(
+      (bioRes.data ?? []).map((raw) => ({
+        location_id: String(raw.location_id ?? ""),
+        device_id: raw.device_id == null ? null : String(raw.device_id),
+        biometric_user_id: String(raw.biometric_user_id ?? ""),
+        device_name: raw.device_name == null ? null : String(raw.device_name),
+        full_name: raw.full_name == null ? null : String(raw.full_name),
+      })),
+    );
+    const enriched = punches.map((row) => {
+      const bio = lookupDeviceLogBioName(bioIndex, row.location_id, row.biometric_user_id, row.device_id);
+      return {
+        biometricUserId: row.biometric_user_id,
+        deviceUserName: deviceLogDisplayName(row.device_user_name, bio),
+      };
+    });
+    return { users: collectDeviceLogUsers(enriched) };
+  },
+  { auth: { capability: "attendance.view" } },
+);
+
 export const listAttendanceDeviceLogs = createAuthenticatedAction(
   z.object({
     locationId: z.string().uuid().nullable().optional(),
@@ -2084,6 +2165,7 @@ export const listAttendanceDeviceLogs = createAuthenticatedAction(
     dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     q: z.string().max(80).optional(),
+    biometricUserId: z.string().max(80).optional(),
   }),
   async (data, context) => {
     if (data.locationId) await assertSite(context, data.locationId);
@@ -2098,9 +2180,13 @@ export const listAttendanceDeviceLogs = createAuthenticatedAction(
       .limit(DEVICE_LOG_CAP);
     if (data.locationId) q = q.eq("location_id", data.locationId);
     if (data.deviceId) q = q.eq("device_id", data.deviceId);
-    const needle = deviceLogSearchNeedle(data.q);
-    if (needle) {
-      q = q.or(`biometric_user_id.ilike.%${needle}%,device_user_name.ilike.%${needle}%`);
+    const exactUser = data.biometricUserId?.trim() || "";
+    const needle = exactUser ? "" : deviceLogSearchNeedle(data.q);
+    if (exactUser) {
+      q = q.eq("biometric_user_id", exactUser);
+    } else if (needle) {
+      const bioIds = await resolveDeviceLogBioSearchIds(context, data.locationId, needle);
+      q = q.or(deviceLogSearchOrFilter(needle, bioIds));
     }
     const { data: rows, error, count } = await q;
     if (error) throw error;
