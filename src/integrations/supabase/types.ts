@@ -2951,6 +2951,30 @@ export type Database = {
         }
         Relationships: []
       }
+      role_capability_grants: {
+        Row: {
+          role: Database["public"]["Enums"]["app_role"]
+          capability: string
+          allowed: boolean
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          role: Database["public"]["Enums"]["app_role"]
+          capability: string
+          allowed: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          role?: Database["public"]["Enums"]["app_role"]
+          capability?: string
+          allowed?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       work_orders: {
         Row: {
           actual_end: string | null

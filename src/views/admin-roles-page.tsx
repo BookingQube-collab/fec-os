@@ -1,9 +1,11 @@
 "use client";
 
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Check, Shield, X } from "lucide-react";
+import { Check, Loader2, Shield, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
 import { PageHeader } from "@/components/layout/page-header";
@@ -12,7 +14,11 @@ import { Button } from "@/components/ui/button";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { usePermission } from "@/hooks/use-permission";
+import { useAuth } from "@/hooks/use-auth";
+import { listCapabilityGrants, setRoleCapabilityGrant } from "@/lib/admin.functions";
 import { listCatalogNavPages } from "@/lib/nav-config";
+import { queryKeys } from "@/lib/query-keys";
 import {
   CAPABILITIES,
   ROLE_LEVELS,
@@ -20,6 +26,7 @@ import {
   type AppRole,
   type Capability,
 } from "@/lib/rbac";
+import { grantKey, toGrantMap, type CapabilityGrantMap } from "@/lib/rbac-grants";
 import { cn } from "@/lib/utils";
 
 const ROLES = Object.keys(ROLE_LEVELS) as AppRole[];
@@ -42,19 +49,91 @@ export default function AdminRolesPage() {
   );
 }
 
+function AccessToggle({
+  allowed,
+  disabled,
+  busy,
+  onToggle,
+  labelAllow,
+  labelDeny,
+}: {
+  allowed: boolean;
+  disabled: boolean;
+  busy: boolean;
+  onToggle: () => void;
+  labelAllow: string;
+  labelDeny: string;
+}) {
+  const label = allowed ? labelAllow : labelDeny;
+  if (disabled) {
+    return (
+      <span
+        className={cn(
+          "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full",
+          allowed ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" : "bg-rose-500/10 text-rose-600 dark:text-rose-400",
+        )}
+        title={label}
+        aria-label={label}
+      >
+        {allowed ? <Check className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      disabled={busy}
+      title={label}
+      aria-label={label}
+      aria-pressed={allowed}
+      className={cn(
+        "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        allowed
+          ? "bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/25 dark:text-emerald-400"
+          : "bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 dark:text-rose-400",
+        busy && "opacity-60",
+      )}
+    >
+      {busy ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+      ) : allowed ? (
+        <Check className="h-3.5 w-3.5" />
+      ) : (
+        <X className="h-3.5 w-3.5" />
+      )}
+    </button>
+  );
+}
+
 function AdminRolesView() {
   const { t } = useTranslation();
+  const canEdit = usePermission("admin.manage_roles");
+  const { refreshCapabilityGrants } = useAuth();
+  const qc = useQueryClient();
   const [role, setRole] = useState<AppRole>("ceo");
+  const [pendingKey, setPendingKey] = useState<string | null>(null);
   const pages = useMemo(() => listCatalogNavPages(), []);
 
+  const grantsQuery = useQuery({
+    queryKey: queryKeys.admin.capabilityGrants(),
+    queryFn: () => listCapabilityGrants(),
+  });
+
+  const grants: CapabilityGrantMap = useMemo(
+    () => toGrantMap(grantsQuery.data ?? []),
+    [grantsQuery.data],
+  );
+
   const pagesForRole = useMemo(
-    () => pages.filter((p) => canUserDo([role], p.capability)),
-    [pages, role],
+    () => pages.filter((p) => canUserDo([role], p.capability, grants)),
+    [pages, role, grants],
   );
 
   const capsForRole = useMemo(
-    () => ALL_CAPABILITIES.filter((c) => canUserDo([role], c)),
-    [role],
+    () => ALL_CAPABILITIES.filter((c) => canUserDo([role], c, grants)),
+    [role, grants],
   );
 
   const byDept = useMemo(() => {
@@ -68,6 +147,43 @@ function AdminRolesView() {
     return [...m.entries()];
   }, [pages]);
 
+  const toggleMutation = useMutation({
+    mutationFn: setRoleCapabilityGrant,
+    onMutate: (vars) => {
+      setPendingKey(grantKey(vars.role as AppRole, vars.capability));
+    },
+    onSuccess: async (data, vars) => {
+      const prev = grantsQuery.data ?? [];
+      const next = data.resetToDefault
+        ? prev.filter((r) => !(r.role === vars.role && r.capability === vars.capability))
+        : (() => {
+            const copy = [...prev];
+            const idx = copy.findIndex(
+              (r) => r.role === vars.role && r.capability === vars.capability,
+            );
+            if (idx >= 0) copy[idx] = { ...copy[idx], allowed: vars.allowed };
+            else copy.push({ role: vars.role as AppRole, capability: vars.capability, allowed: vars.allowed });
+            return copy;
+          })();
+      qc.setQueryData(queryKeys.admin.capabilityGrants(), next);
+      await qc.invalidateQueries({ queryKey: queryKeys.admin.capabilityGrants() });
+      await refreshCapabilityGrants();
+    },
+    onError: (e: Error) => {
+      toast.error(e.message || t("adminRoles.saveFailed"));
+    },
+    onSettled: () => setPendingKey(null),
+  });
+
+  const toggle = (capability: Capability, currentlyAllowed: boolean) => {
+    if (!canEdit) return;
+    toggleMutation.mutate({
+      role,
+      capability,
+      allowed: !currentlyAllowed,
+    });
+  };
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -78,7 +194,7 @@ function AdminRolesView() {
       />
 
       <div className="rounded-2xl border border-border/50 bg-card p-4 text-sm text-muted-foreground shadow-elevated-xs">
-        <p>{t("adminRoles.codeMapNote")}</p>
+        <p>{canEdit ? t("adminRoles.editNote") : t("adminRoles.viewOnlyNote")}</p>
         <Button asChild variant="outline" size="sm" className="mt-3">
           <Link href="/admin">{t("adminRoles.assignUsers")}</Link>
         </Button>
@@ -106,10 +222,14 @@ function AdminRolesView() {
         <Badge variant="outline">
           {t("adminRoles.capabilityCount", { count: capsForRole.length })}
         </Badge>
+        {grantsQuery.isLoading ? (
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        ) : null}
       </div>
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-foreground">{t("adminRoles.pagesHeading")}</h2>
+        <p className="text-xs text-muted-foreground">{t("adminRoles.toggleHint")}</p>
         <div className="space-y-4">
           {byDept.map(([deptKey, items]) => (
             <div key={deptKey} className="overflow-hidden rounded-2xl border border-border/50 bg-card shadow-elevated-xs">
@@ -118,7 +238,8 @@ function AdminRolesView() {
               </div>
               <ul className="divide-y divide-border/40">
                 {items.map((item) => {
-                  const allowed = canUserDo([role], item.capability);
+                  const allowed = canUserDo([role], item.capability, grants);
+                  const key = grantKey(role, item.capability);
                   return (
                     <li
                       key={item.href}
@@ -130,16 +251,14 @@ function AdminRolesView() {
                           {item.href} · {item.capability}
                         </p>
                       </div>
-                      <span
-                        className={cn(
-                          "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full",
-                          allowed ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400" : "bg-muted text-muted-foreground",
-                        )}
-                        title={allowed ? t("adminRoles.allowed") : t("adminRoles.denied")}
-                        aria-label={allowed ? t("adminRoles.allowed") : t("adminRoles.denied")}
-                      >
-                        {allowed ? <Check className="h-3.5 w-3.5" /> : <X className="h-3.5 w-3.5" />}
-                      </span>
+                      <AccessToggle
+                        allowed={allowed}
+                        disabled={!canEdit}
+                        busy={pendingKey === key}
+                        onToggle={() => toggle(item.capability, allowed)}
+                        labelAllow={t("adminRoles.clickToDeny")}
+                        labelDeny={t("adminRoles.clickToAllow")}
+                      />
                     </li>
                   );
                 })}
@@ -151,15 +270,29 @@ function AdminRolesView() {
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-foreground">{t("adminRoles.capabilitiesHeading")}</h2>
-        <div className="flex flex-wrap gap-1.5 rounded-2xl border border-border/50 bg-card p-4 shadow-elevated-xs">
-          {capsForRole.map((cap) => (
-            <Badge key={cap} variant="outline" className="font-mono text-[11px] font-normal">
-              {cap}
-            </Badge>
-          ))}
-          {capsForRole.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t("adminRoles.noCapabilities")}</p>
-          ) : null}
+        <div className="overflow-hidden rounded-2xl border border-border/50 bg-card shadow-elevated-xs">
+          <ul className="max-h-[28rem] divide-y divide-border/40 overflow-y-auto">
+            {ALL_CAPABILITIES.map((cap) => {
+              const allowed = canUserDo([role], cap, grants);
+              const key = grantKey(role, cap);
+              return (
+                <li
+                  key={cap}
+                  className="flex items-center justify-between gap-3 px-4 py-2 text-sm"
+                >
+                  <p className="min-w-0 truncate font-mono text-[11px] text-foreground">{cap}</p>
+                  <AccessToggle
+                    allowed={allowed}
+                    disabled={!canEdit}
+                    busy={pendingKey === key}
+                    onToggle={() => toggle(cap, allowed)}
+                    labelAllow={t("adminRoles.clickToDeny")}
+                    labelDeny={t("adminRoles.clickToAllow")}
+                  />
+                </li>
+              );
+            })}
+          </ul>
         </div>
       </section>
 
@@ -167,7 +300,7 @@ function AdminRolesView() {
         <h2 className="text-sm font-semibold text-foreground">{t("adminRoles.allRolesHeading")}</h2>
         <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {ROLES.map((r) => {
-            const n = pages.filter((p) => canUserDo([r], p.capability)).length;
+            const n = pages.filter((p) => canUserDo([r], p.capability, grants)).length;
             return (
               <li key={r}>
                 <button

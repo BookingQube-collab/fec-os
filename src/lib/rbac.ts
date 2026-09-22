@@ -4,6 +4,14 @@
  * Higher level = more authority. role_level >= 80 = exec/regional access to all locations.
  */
 
+import {
+  getActiveCapabilityGrants,
+  grantKey,
+  type CapabilityGrantMap,
+} from "@/lib/rbac-grants";
+
+export type { CapabilityGrantMap };
+
 export type AppRole =
   | "ceo"
   | "coo"
@@ -322,9 +330,35 @@ export const CAPABILITIES = {
 
 export type Capability = keyof typeof CAPABILITIES;
 
-export function canUserDo(roles: AppRole[], capability: Capability): boolean {
+export function codeDefaultAllowed(role: AppRole, capability: Capability): boolean {
   const allowed = CAPABILITIES[capability];
-  return roles.some((r) => (allowed as readonly AppRole[]).includes(r));
+  return (allowed as readonly AppRole[]).includes(role);
+}
+
+export function resolveRoleCapability(
+  role: AppRole,
+  capability: Capability,
+  grants?: CapabilityGrantMap | null,
+): boolean {
+  const map = grants === undefined ? getActiveCapabilityGrants() : grants;
+  if (map) {
+    const override = map.get(grantKey(role, capability));
+    if (override !== undefined) return override;
+  }
+  return codeDefaultAllowed(role, capability);
+}
+
+/**
+ * True if any of `roles` may exercise `capability`.
+ * Optional `grants` overrides the code CAPABILITIES map (DB rows).
+ * When omitted, uses the process-wide active grant cache (hydrated at auth / server check).
+ */
+export function canUserDo(
+  roles: AppRole[],
+  capability: Capability,
+  grants?: CapabilityGrantMap | null,
+): boolean {
+  return roles.some((r) => resolveRoleCapability(r, capability, grants));
 }
 
 /** API Explorer — CEO, COO, Regional Ops, or admin.view capability. */

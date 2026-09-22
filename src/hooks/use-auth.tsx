@@ -10,6 +10,8 @@ import {
   isAuthSessionHydrated,
   type AuthProfile,
 } from "@/lib/auth-session";
+import { listCapabilityGrants } from "@/lib/admin.functions";
+import { setActiveCapabilityGrants, toGrantMap } from "@/lib/rbac-grants";
 import { supabase } from "@/integrations/supabase/client";
 import { queryKeys } from "@/lib/query-keys";
 import type { AppRole, RoleAssignment } from "@/lib/rbac";
@@ -22,9 +24,13 @@ interface AuthContextValue {
   profile: Profile | null;
   roles: RoleAssignment[];
   loading: boolean;
+  /** Bumps when capability grant overrides hydrate/refresh — consumers re-read canUserDo. */
+  grantsVersion: number;
   signOut: () => Promise<void>;
   /** Re-fetch profiles/roles into auth context (e.g. after self-service profile edit). */
   refreshProfile: () => Promise<Profile | null>;
+  /** Re-fetch DB capability overrides into the active grant cache. */
+  refreshCapabilityGrants: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -43,6 +49,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [roles, setRoles] = useState<RoleAssignment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [grantsVersion, setGrantsVersion] = useState(0);
+
+  const hydrateCapabilityGrants = async () => {
+    try {
+      const rows = await listCapabilityGrants();
+      setActiveCapabilityGrants(toGrantMap(rows));
+      queryClient.setQueryData(queryKeys.admin.capabilityGrants(), rows);
+      setGrantsVersion((v) => v + 1);
+    } catch (error) {
+      console.warn("[auth] Failed to load capability grants", error);
+      setActiveCapabilityGrants(toGrantMap([]));
+      setGrantsVersion((v) => v + 1);
+    }
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -62,6 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (!mounted) return;
         setProfile(data.profile);
         setRoles(data.roles);
+        await hydrateCapabilityGrants();
       } catch (error) {
         console.warn("[auth] Failed to load session profile/roles", error);
         if (!mounted) return;
@@ -84,6 +105,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         clearAuthSessionCache(queryClient);
         setProfile(null);
         setRoles([]);
+        setActiveCapabilityGrants(null);
+        setGrantsVersion((v) => v + 1);
         finishInitialLoad();
         return;
       }
@@ -105,7 +128,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         void loadUserData(uid).finally(finishInitialLoad);
       } else {
         applyUserData(uid);
-        finishInitialLoad();
+        void hydrateCapabilityGrants().finally(finishInitialLoad);
       }
     };
 
@@ -128,6 +151,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearAuthSessionCache(queryClient);
     setProfile(null);
     setRoles([]);
+    setActiveCapabilityGrants(null);
+    setGrantsVersion((v) => v + 1);
     await supabase.auth.signOut({ scope: "local" });
   };
 
@@ -145,9 +170,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const refreshCapabilityGrants = async () => {
+    await hydrateCapabilityGrants();
+  };
+
   return (
     <AuthContext.Provider
-      value={{ user, session, profile, roles, loading, signOut, refreshProfile }}
+      value={{
+        user,
+        session,
+        profile,
+        roles,
+        loading,
+        grantsVersion,
+        signOut,
+        refreshProfile,
+        refreshCapabilityGrants,
+      }}
     >
       {children}
     </AuthContext.Provider>
@@ -161,6 +200,7 @@ export function useAuth(): AuthContextValue {
 }
 
 export function useUserRoles(): AppRole[] {
-  const { roles } = useAuth();
+  const { roles, grantsVersion } = useAuth();
+  void grantsVersion;
   return roles.map((r) => r.role);
 }

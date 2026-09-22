@@ -4931,9 +4931,11 @@
   "adminRoles": {
     "kicker": "Administration",
     "title": "Roles & access",
-    "subtitle": "See which pages and capabilities each role can use.",
+    "subtitle": "Turn page and capability access on or off for each role.",
     "forbidden": "You need Administration access to view roles and page assignments.",
     "codeMapNote": "Page and module access is defined in code (capability map), not a database matrix. To change what a role can open, update the capability map in source and deploy. To give a person a role, use Settings.",
+    "editNote": "Click the green tick or red cross to allow or deny access. Changes save immediately. Defaults come from the code capability map until you override them.",
+    "viewOnlyNote": "You can view role access here. Only CEO (admin.manage_roles) can edit toggles. Assign people to roles in Settings.",
     "assignUsers": "Assign roles to users",
     "open": "Open",
     "selectRole": "Role",
@@ -4944,6 +4946,10 @@
     "allRolesHeading": "All roles",
     "allowed": "Allowed",
     "denied": "Not allowed",
+    "clickToAllow": "Click to allow",
+    "clickToDeny": "Click to deny",
+    "toggleHint": "Green tick = allowed. Red cross = denied. Click to toggle.",
+    "saveFailed": "Could not save access change",
     "noCapabilities": "No capabilities for this role."
   },
   "profile": {

@@ -3,11 +3,15 @@
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { ROLE_LEVELS, type AppRole } from "@/lib/rbac";
+import { ROLE_LEVELS, codeDefaultAllowed, CAPABILITIES, type AppRole, type Capability } from "@/lib/rbac";
 import {
   createAuthenticatedAction,
   createAuthenticatedActionNoInput,
 } from "@/lib/server/create-action";
+import {
+  ensureServerCapabilityGrants,
+  invalidateServerCapabilityGrantsCache,
+} from "@/lib/server/capability-grants";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 const RoleEnum = z.enum([
@@ -89,6 +93,77 @@ export const revokeRole = createAuthenticatedAction(
     const { error } = await supabaseAdmin.from("user_roles").delete().eq("id", data.id);
     if (error) throw error;
     return { ok: true };
+  },
+  { auth: { capability: "admin.manage_roles" } },
+);
+
+const CapabilityKey = z.string().min(1).max(120);
+
+export const listCapabilityGrants = createAuthenticatedActionNoInput(
+  async () => {
+    const { data, error } = await supabaseAdmin
+      .from("role_capability_grants")
+      .select("role, capability, allowed");
+    if (error) throw error;
+    return (data ?? []) as Array<{ role: AppRole; capability: string; allowed: boolean }>;
+  },
+  { auth: { requireRole: true } },
+);
+
+export const setRoleCapabilityGrant = createAuthenticatedAction(
+  z.object({
+    role: RoleEnum,
+    capability: CapabilityKey,
+    allowed: z.boolean(),
+  }),
+  async (data, context) => {
+    const role = data.role as AppRole;
+    const capability = data.capability as Capability;
+
+    if (!(capability in CAPABILITIES)) {
+      throw new Error(`Unknown capability: ${data.capability}`);
+    }
+
+    // Prevent locking every CEO out of role management.
+    if (role === "ceo" && capability === "admin.manage_roles" && data.allowed === false) {
+      throw new Error("Cannot revoke admin.manage_roles from CEO");
+    }
+
+    const matchesDefault = codeDefaultAllowed(role, capability) === data.allowed;
+
+    if (matchesDefault) {
+      const { error } = await supabaseAdmin
+        .from("role_capability_grants")
+        .delete()
+        .eq("role", role)
+        .eq("capability", capability);
+      if (error) throw error;
+    } else {
+      const { error } = await supabaseAdmin.from("role_capability_grants").upsert(
+        {
+          role,
+          capability,
+          allowed: data.allowed,
+          updated_at: new Date().toISOString(),
+          updated_by: context.userId,
+        },
+        { onConflict: "role,capability" },
+      );
+      if (error) throw error;
+    }
+
+    invalidateServerCapabilityGrantsCache();
+    await ensureServerCapabilityGrants();
+
+    await context.supabase.rpc("log_audit", {
+      _action: "admin.capability_grant_set",
+      _table_name: "role_capability_grants",
+      _row_id: null,
+      _after: { role, capability, allowed: data.allowed, reset_to_default: matchesDefault },
+      _metadata: {},
+    });
+
+    return { ok: true as const, resetToDefault: matchesDefault };
   },
   { auth: { capability: "admin.manage_roles" } },
 );

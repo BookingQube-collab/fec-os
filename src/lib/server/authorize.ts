@@ -9,6 +9,7 @@ import { canUserDo, type AppRole, type Capability } from "@/lib/rbac";
 import { createTimer } from "@/lib/performance/timer";
 import { updateAuthRolesCache } from "./auth";
 import type { AuthContext } from "./auth";
+import { ensureServerCapabilityGrants } from "./capability-grants";
 import { writeRolesCookie } from "./roles-cookie";
 
 export class ForbiddenError extends Error {
@@ -91,6 +92,7 @@ export async function requireCapability(
   if (roles.length === 0) {
     throw new ForbiddenError("No role assigned. Contact an administrator.");
   }
+  await ensureServerCapabilityGrants();
   if (!canUserDo(roles, capability)) {
     throw new ForbiddenError(`Forbidden: missing capability ${capability}`);
   }
@@ -105,6 +107,7 @@ export async function requireAnyCapability(
   if (roles.length === 0) {
     throw new ForbiddenError("No role assigned. Contact an administrator.");
   }
+  await ensureServerCapabilityGrants();
   const allowed = capabilities.some((c) => canUserDo(roles, c));
   if (!allowed) {
     throw new ForbiddenError("Forbidden: insufficient permissions");
