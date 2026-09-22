@@ -158,7 +158,7 @@ export const setRoleCapabilityGrant = createAuthenticatedAction(
     await context.supabase.rpc("log_audit", {
       _action: "admin.capability_grant_set",
       _table_name: "role_capability_grants",
-      _row_id: null,
+      _row_id: undefined,
       _after: { role, capability, allowed: data.allowed, reset_to_default: matchesDefault },
       _metadata: {},
     });
