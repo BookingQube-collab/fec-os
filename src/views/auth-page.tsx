@@ -1,5 +1,6 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -11,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { clearAuthSessionCache } from "@/lib/auth-session";
 import { defaultHomeForRoles, type AppRole } from "@/lib/rbac";
 import {
   isSecureWebAuthnContext,
@@ -28,6 +30,7 @@ type Mode = "signin" | "forgot";
 function AuthPage() {
   const { t } = useTranslation();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { user, loading, roles } = useAuth();
   const [mode, setMode] = useState<Mode>("signin");
   const [email, setEmail] = useState("");
@@ -35,21 +38,27 @@ function AuthPage() {
   const [submitting, setSubmitting] = useState(false);
   const [webauthnReady, setWebauthnReady] = useState<boolean | null>(null);
   const [secureContext, setSecureContext] = useState(true);
+  const [hintReady, setHintReady] = useState(false);
 
   useEffect(() => {
     const hint = readPasskeyHint();
     if (hint?.email) setEmail(hint.email);
     setWebauthnReady(isWebAuthnAvailable());
     setSecureContext(isSecureWebAuthnContext());
+    setHintReady(true);
   }, []);
 
+  // Only bounce home when the live session matches the form email (or form empty).
+  // Typing a different email (e.g. admin while HR cookies still exist) must not redirect as HR.
   useEffect(() => {
-    if (!loading && user) {
-      const roleList = roles.map((r) => r.role as AppRole);
-      const hasRoles = roleList.length > 0;
-      router.replace(hasRoles ? defaultHomeForRoles(roleList) : "/");
-    }
-  }, [loading, user, roles, router]);
+    if (!hintReady || loading || submitting || !user) return;
+    const formEmail = email.trim().toLowerCase();
+    const sessionEmail = (user.email ?? "").toLowerCase();
+    if (formEmail && formEmail !== sessionEmail) return;
+    const roleList = roles.map((r) => r.role as AppRole);
+    const hasRoles = roleList.length > 0;
+    router.replace(hasRoles ? defaultHomeForRoles(roleList) : "/");
+  }, [hintReady, loading, submitting, user, roles, router, email]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,12 +66,21 @@ function AuthPage() {
     try {
       if (mode === "signin") {
         const cleanEmail = email.trim();
-        const { error } = await supabase.auth.signInWithPassword({
+        // Replace any prior session completely before the new login.
+        await supabase.auth.signOut({ scope: "local" });
+        clearAuthSessionCache(queryClient);
+        const { data, error } = await supabase.auth.signInWithPassword({
           email: cleanEmail,
           password,
         });
         if (error) throw error;
-        rememberSignedInEmail(cleanEmail);
+        const signedEmail = (data.user?.email ?? "").toLowerCase();
+        if (signedEmail && signedEmail !== cleanEmail.toLowerCase()) {
+          await supabase.auth.signOut({ scope: "local" });
+          clearAuthSessionCache(queryClient);
+          throw new Error(t("auth.failed"));
+        }
+        rememberSignedInEmail(cleanEmail, data.user?.id);
         toast.success(t("auth.signedIn"));
       } else {
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
@@ -100,6 +118,8 @@ function AuthPage() {
       try {
         const hint = readPasskeyHint();
         const result = await authenticateWithPasskey(hint?.credentialIds);
+        await supabase.auth.signOut({ scope: "local" });
+        clearAuthSessionCache(queryClient);
         const { error } = await supabase.auth.setSession({
           access_token: result.access_token,
           refresh_token: result.refresh_token,
@@ -107,6 +127,7 @@ function AuthPage() {
         if (error) throw error;
         markPasskeyJustUsed();
         rememberPasskeyCredential(result.email, result.user_id, result.credential_id);
+        setEmail(result.email);
         toast.success(t("auth.signedIn"));
       } catch (err) {
         if (!isWebAuthnUserCancel(err)) {

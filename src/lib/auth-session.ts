@@ -44,9 +44,9 @@ export function isAuthSessionHydrated(userId: string): boolean {
 }
 
 export function clearAuthSessionCache(queryClient?: QueryClient) {
-  if (hydratedUserId && queryClient) {
-    queryClient.removeQueries({ queryKey: queryKeys.auth.profile(hydratedUserId) });
-    queryClient.removeQueries({ queryKey: queryKeys.auth.roles(hydratedUserId) });
+  // Drop all auth profile/roles entries — switching users must not reuse the prior uid's cache.
+  if (queryClient) {
+    queryClient.removeQueries({ queryKey: queryKeys.auth.all });
   }
   hydratedUserId = null;
 }
@@ -84,7 +84,20 @@ export async function fetchAuthSession(
       if (!res.ok) throw new Error("Auth session fetch failed");
       return (await res.json()) as AuthSessionPayload;
     })
-    .then((data) => {
+    .then(async (data) => {
+      // Cookie session can lag behind a just-switched client user — never attach the wrong profile.
+      if (data.user?.id && data.user.id !== userId) {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        const retry = await fetchSessionResponse(1);
+        if (retry.status === 401) {
+          return { user: null, profile: null, roles: [] } satisfies AuthSessionPayload;
+        }
+        if (!retry.ok) throw new Error("Auth session fetch failed");
+        data = (await retry.json()) as AuthSessionPayload;
+        if (data.user?.id && data.user.id !== userId) {
+          throw new Error("Auth session user mismatch");
+        }
+      }
       if (data.user?.id) writeSessionCache(queryClient, data.user.id, data);
       return data;
     })

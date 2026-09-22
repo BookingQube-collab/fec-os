@@ -38,10 +38,16 @@ export function writePasskeyHint(hint: PasskeyHint): void {
 
 export function rememberSignedInEmail(email: string, userId?: string): void {
   const prev = readPasskeyHint();
+  const nextEmail = email.trim().toLowerCase();
+  const sameUser =
+    Boolean(prev) &&
+    prev!.email.trim().toLowerCase() === nextEmail &&
+    (userId == null || prev!.userId == null || prev!.userId === userId);
+  // Different email = different account — do not keep the previous user's passkey ids.
   writePasskeyHint({
-    email,
-    userId: userId ?? prev?.userId,
-    credentialIds: prev?.credentialIds,
+    email: nextEmail,
+    userId: userId ?? (sameUser ? prev?.userId : undefined),
+    credentialIds: sameUser ? prev?.credentialIds : undefined,
   });
 }
 

@@ -157,7 +157,9 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (isAuthRoute && authenticated) {
+  // Allow /auth while cookies still look valid so users can switch accounts
+  // (password form signs out then signs in). Client redirects when session matches.
+  if (isAuthRoute && authenticated && pathname.startsWith("/reset-password")) {
     const url = request.nextUrl.clone();
     url.pathname = "/";
     return NextResponse.redirect(url);

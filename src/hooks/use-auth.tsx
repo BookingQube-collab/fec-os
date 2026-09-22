@@ -89,6 +89,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       const uid = newSession.user.id;
+      // Account switch: drop prior user's profile/roles before hydrating the new one.
+      if (event === "SIGNED_IN") {
+        clearAuthSessionCache(queryClient);
+        setProfile(null);
+        setRoles([]);
+      }
+
       const shouldFetch =
         event === "SIGNED_IN" ||
         event === "USER_UPDATED" ||
@@ -118,7 +125,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [queryClient]);
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    clearAuthSessionCache(queryClient);
+    setProfile(null);
+    setRoles([]);
+    await supabase.auth.signOut({ scope: "local" });
   };
 
   const refreshProfile = async () => {
