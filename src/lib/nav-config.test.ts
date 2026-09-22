@@ -11,6 +11,7 @@ import {
 
 const ADMIN_HREFS = [
   "/admin",
+  "/admin/roles",
   "/admin/ai-integrations",
   "/admin/diagnostics",
   "/admin/api-explorer",
