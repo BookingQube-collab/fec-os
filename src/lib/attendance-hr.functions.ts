@@ -73,6 +73,7 @@ import { dispatchHrNotify } from "@/lib/attendance-hr/hr-notify-dispatch";
 import {
   DEVICE_LOG_CAP,
   DEVICE_LOG_PUSH_SOURCE,
+  DEVICE_LOG_USERS_PAGE_SIZE,
   collectDeviceLogUsers,
   deviceLogPunchRange,
   deviceLogSearchNeedle,
@@ -2101,6 +2102,44 @@ async function resolveDeviceLogBioSearchIds(
   ];
 }
 
+type DeviceLogUserPunchRow = {
+  location_id: string;
+  device_id: string | null;
+  biometric_user_id: string | null;
+  device_user_name: string | null;
+};
+
+/** All adms_push punches in range for the user dropdown — not limited to DEVICE_LOG_CAP. */
+async function fetchDeviceLogUserPunches(
+  context: AuthContext,
+  data: {
+    locationId?: string | null;
+    deviceId?: string | null;
+    dateFrom: string;
+    dateTo: string;
+  },
+): Promise<DeviceLogUserPunchRow[]> {
+  const range = deviceLogPunchRange(data.dateFrom, data.dateTo);
+  const punches: DeviceLogUserPunchRow[] = [];
+  for (let from = 0; ; from += DEVICE_LOG_USERS_PAGE_SIZE) {
+    let q = context.supabase
+      .from("attendance_logs")
+      .select("location_id, device_id, biometric_user_id, device_user_name")
+      .eq("source", DEVICE_LOG_PUSH_SOURCE)
+      .gte("punch_at", range.fromIso)
+      .lte("punch_at", range.toIso)
+      .order("id", { ascending: true })
+      .range(from, from + DEVICE_LOG_USERS_PAGE_SIZE - 1);
+    if (data.locationId) q = q.eq("location_id", data.locationId);
+    if (data.deviceId) q = q.eq("device_id", data.deviceId);
+    const { data: page, error } = await q;
+    if (error) throw error;
+    punches.push(...((page ?? []) as DeviceLogUserPunchRow[]));
+    if (!page || page.length < DEVICE_LOG_USERS_PAGE_SIZE) break;
+  }
+  return punches;
+}
+
 export const listAttendanceDeviceLogUsers = createAuthenticatedAction(
   z.object({
     locationId: z.string().uuid().nullable().optional(),
@@ -2110,32 +2149,24 @@ export const listAttendanceDeviceLogUsers = createAuthenticatedAction(
   }),
   async (data, context) => {
     if (data.locationId) await assertSite(context, data.locationId);
-    const range = deviceLogPunchRange(data.dateFrom, data.dateTo);
-    let q = context.supabase
-      .from("attendance_logs")
-      .select("location_id, device_id, biometric_user_id, device_user_name")
-      .eq("source", DEVICE_LOG_PUSH_SOURCE)
-      .gte("punch_at", range.fromIso)
-      .lte("punch_at", range.toIso)
-      .limit(DEVICE_LOG_CAP);
-    if (data.locationId) q = q.eq("location_id", data.locationId);
-    if (data.deviceId) q = q.eq("device_id", data.deviceId);
-    const { data: rows, error } = await q;
-    if (error) throw error;
-    const punches = (rows ?? []) as Array<{
-      location_id: string;
-      device_id: string | null;
-      biometric_user_id: string | null;
-      device_user_name: string | null;
-    }>;
+    const punches = await fetchDeviceLogUserPunches(context, data);
     const locationIds = [...new Set(punches.map((row) => row.location_id))];
-    const bioRes = locationIds.length
-      ? await context.supabase
-          .from("attendance_biometric_users")
-          .select("location_id, device_id, biometric_user_id, device_name, full_name")
-          .in("location_id", locationIds)
-          .limit(5000)
-      : { data: [] as Array<Record<string, unknown>>, error: null };
+    const bioUserIds = [
+      ...new Set(
+        punches
+          .map((row) => row.biometric_user_id?.trim())
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const bioRes =
+      locationIds.length && bioUserIds.length
+        ? await context.supabase
+            .from("attendance_biometric_users")
+            .select("location_id, device_id, biometric_user_id, device_name, full_name")
+            .in("location_id", locationIds)
+            .in("biometric_user_id", bioUserIds)
+            .limit(5000)
+        : { data: [] as Array<Record<string, unknown>>, error: null };
     if (bioRes.error) throw bioRes.error;
     const bioIndex = indexDeviceLogBioNames(
       (bioRes.data ?? []).map((raw) => ({

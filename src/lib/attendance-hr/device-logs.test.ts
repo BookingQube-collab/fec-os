@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DEVICE_LOG_CAP,
   DEVICE_LOG_PUSH_SOURCE,
+  DEVICE_LOG_USERS_PAGE_SIZE,
   buildDeviceLogDaysCsv,
   collectDeviceLogUsers,
   deviceLogDisplayName,
@@ -46,6 +48,11 @@ function punch(partial: Partial<AttendanceDeviceLogRow> & Pick<AttendanceDeviceL
 describe("device log listing", () => {
   it("lists only ADMS device-push punches", () => {
     expect(DEVICE_LOG_PUSH_SOURCE).toBe("adms_push");
+  });
+
+  it("pages user-dropdown punches separately from the table cap", () => {
+    expect(DEVICE_LOG_USERS_PAGE_SIZE).toBe(1000);
+    expect(DEVICE_LOG_CAP).toBe(2000);
   });
 
   it("formats the punch day in Qatar, not UTC", () => {

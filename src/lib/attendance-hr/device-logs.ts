@@ -2,6 +2,8 @@
 
 export const DEVICE_LOG_CAP = 2000;
 export const DEVICE_LOG_PAGE_SIZE = 100;
+/** Page size when loading distinct device users for the name filter (not capped by DEVICE_LOG_CAP). */
+export const DEVICE_LOG_USERS_PAGE_SIZE = 1000;
 /** Device-origin push only (iclock/ADMS ATTLOG). Excludes api_ingest, csv/file import, corrections. */
 export const DEVICE_LOG_PUSH_SOURCE = "adms_push";
 
