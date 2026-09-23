@@ -8,6 +8,7 @@ import { rematchPreviewShiftTemplates } from "./roster-amend";
 import { assertAttendanceRosterLocation, replaceAttendanceRosterPeriod } from "./roster-apply";
 import {
   buildAttendanceRosterPreview,
+  groupMatchedRosterRowsByLocation,
   type AttendanceRosterPeriodMode,
   type AttendanceRosterPreview,
   type AttendanceRosterShift,
@@ -99,18 +100,21 @@ export async function commitLiveShiftRoster(
   },
 ) {
   if (!input.preview.matched) {
-    throw new Error(input.preview.errors[0] ?? "No matched roster rows to save.");
+    const first = input.preview.errors[0];
+    throw new Error(
+      typeof first === "string" && first.trim()
+        ? first
+        : "No matched roster rows to save.",
+    );
   }
 
   // Re-resolve templates after preview edits (times / week-off) so saved rows match what the user confirmed.
   const preview = await rematchPreviewShiftTemplates(context, input.preview);
-
-  const byLocation = new Map<string, typeof preview.rows>();
-  for (const row of preview.rows) {
-    if (row.status !== "matched" || !row.locationId) continue;
-    const list = byLocation.get(row.locationId) ?? [];
-    list.push(row);
-    byLocation.set(row.locationId, list);
+  const byLocation = groupMatchedRosterRowsByLocation(preview);
+  if (!byLocation.size) {
+    throw new Error(
+      "Matched rows are missing a site. Use single-location mode and pick a site, or add a LOCATION column (e.g. UA-DM).",
+    );
   }
 
   const results = [];

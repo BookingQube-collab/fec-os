@@ -84,6 +84,8 @@ function buildLocationAliases(): Record<string, string> {
     }
     if (loc.code === "UA-DM") {
       aliases[normalizeLocationKey("Urban Arena - Doha Mall")] = loc.code;
+      aliases[normalizeLocationKey("Urban Arena")] = loc.code;
+      aliases[normalizeLocationKey("Urban Arena Doha Mall")] = loc.code;
     }
     if (loc.code === "CAR-AP") {
       aliases[normalizeLocationKey("Carousel - Aspire Park")] = loc.code;

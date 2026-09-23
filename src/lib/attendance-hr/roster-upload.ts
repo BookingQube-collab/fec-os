@@ -1038,3 +1038,24 @@ export function assignmentsFromPreview(rows: MatchedRosterRow[]): Map<string, Ma
   return byKey;
 }
 
+/**
+ * Group matched preview rows by site for confirm.
+ * Single-location previews may leave row.locationId null when the sheet has no LOCATION
+ * column — fall back to preview.locationId so confirm still writes.
+ */
+export function groupMatchedRosterRowsByLocation(
+  preview: Pick<AttendanceRosterPreview, "locationId" | "rows">,
+): Map<string, MatchedRosterRow[]> {
+  const byLocation = new Map<string, MatchedRosterRow[]>();
+  for (const row of preview.rows) {
+    if (row.status !== "matched") continue;
+    const locationId = row.locationId || preview.locationId;
+    if (!locationId) continue;
+    const next = locationId === row.locationId ? row : { ...row, locationId };
+    const list = byLocation.get(locationId) ?? [];
+    list.push(next);
+    byLocation.set(locationId, list);
+  }
+  return byLocation;
+}
+

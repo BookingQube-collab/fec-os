@@ -3317,6 +3317,7 @@
       "venueSafeOnly": "Venue roles can only run Safe Sync.",
       "previewReady": "Preview ready. Review the counts, then confirm.",
       "previewFailed": "Preview failed",
+      "confirmFailed": "Confirm failed",
       "applied": "Import applied.",
       "rolledBack": "Import rolled back.",
       "keepCsv": "This page registers and amends the approved shift roster only — not employment type or staff master data.",

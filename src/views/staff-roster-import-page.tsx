@@ -251,6 +251,7 @@ export default function StaffRosterImportPage() {
   });
 
   const confirmImport = useCallback(() => {
+    setPreviewError(null);
     uploadMut.mutate({ mode: "commit" });
   }, [uploadMut]);
 
@@ -587,7 +588,11 @@ export default function StaffRosterImportPage() {
 
       {previewError ? (
         <div className="surface-card space-y-2 p-5">
-          <h2 className="text-sm font-semibold">{t("people.roster.previewFailed")}</h2>
+          <h2 className="text-sm font-semibold">
+            {uploadMut.variables?.mode === "commit"
+              ? t("people.roster.confirmFailed")
+              : t("people.roster.previewFailed")}
+          </h2>
           <p className="text-sm text-destructive">{previewError}</p>
         </div>
       ) : null}

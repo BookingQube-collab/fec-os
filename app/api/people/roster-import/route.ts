@@ -152,7 +152,8 @@ export async function POST(request: Request) {
           .select("id, status, summary")
           .eq("id", batchId)
           .single();
-        if (error || !batch) throw error ?? new Error("Import batch not found");
+        if (error) throw new Error(error.message || "Could not load import batch");
+        if (!batch) throw new Error("Import batch not found");
         if (batch.status !== "preview") throw new Error("This batch is no longer awaiting confirmation");
         const summary = batch.summary as ShiftBatchSummary | null;
         const previewPatch = readPreviewPatch(form);
@@ -174,7 +175,10 @@ export async function POST(request: Request) {
               row_count: shiftPreview.rows.length,
             })
             .eq("id", batchId);
-          if (patchErr) throw patchErr;
+          // ponytail: patch is best-effort — confirm still uses in-memory merge if jsonb update fails
+          if (patchErr) {
+            logger.error("api", "Roster import preview patch failed; continuing confirm", patchErr);
+          }
         }
         const committed = await commitLiveShiftRoster(context, {
           preview: shiftPreview,
@@ -190,7 +194,7 @@ export async function POST(request: Request) {
             row_count: shiftPreview.rows.length,
           })
           .eq("id", batchId);
-        if (uErr) throw uErr;
+        if (uErr) throw new Error(uErr.message || "Could not mark import batch as applied");
         return {
           ...shiftPreview,
           ...committed,
@@ -259,7 +263,7 @@ export async function POST(request: Request) {
         })
         .select("id")
         .single();
-      if (bErr || !batch) throw bErr ?? new Error("Could not create import batch");
+      if (bErr || !batch) throw new Error(bErr?.message || "Could not create import batch");
 
       const fileId = crypto.randomUUID();
       const stored = await persistOriginalBestEffort(context, fileId, buffer);

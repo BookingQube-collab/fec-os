@@ -5,6 +5,7 @@ import {
   assignmentsFromPreview,
   attendanceRosterPeriod,
   buildAttendanceRosterPreview,
+  groupMatchedRosterRowsByLocation,
   looksLikeEmployeeRosterHeaders,
   looksLikeShiftRosterHeaders,
   matchAttendanceRosterStaff,
@@ -755,6 +756,57 @@ describe("buildAttendanceRosterPreview", () => {
     expect(preview.rows.filter((r) => r.matchRule === "duplicate_staff_date")).toHaveLength(3);
     expect(preview.warnings.some((w) => /duplicate staff \+ date/i.test(w))).toBe(true);
     expect(assignmentsFromPreview(preview.rows).size).toBe(92);
+  });
+});
+
+describe("groupMatchedRosterRowsByLocation", () => {
+  const baseRow = {
+    rowNumber: 2,
+    workDate: "2026-09-01",
+    locationCode: "UA-DM" as string | null,
+    locationId: null as string | null,
+    staffId: "s-1",
+    staffLabel: "Amna",
+    qid: null,
+    employeeCode: "UA-01",
+    shiftStart: "10:00",
+    shiftEnd: "18:00",
+    shiftTemplateId: null,
+    isWeekOff: false,
+    matchRule: "name_unique",
+    status: "matched" as const,
+    message: null,
+  };
+
+  it("falls back to preview.locationId for single-location confirms", () => {
+    const byLoc = groupMatchedRosterRowsByLocation({
+      locationId: "loc-ua",
+      rows: [baseRow, { ...baseRow, rowNumber: 3, status: "unmatched", staffId: null }],
+    });
+    expect([...byLoc.keys()]).toEqual(["loc-ua"]);
+    expect(byLoc.get("loc-ua")).toHaveLength(1);
+    expect(byLoc.get("loc-ua")![0].locationId).toBe("loc-ua");
+  });
+
+  it("keeps multi-location row sites separate", () => {
+    const byLoc = groupMatchedRosterRowsByLocation({
+      locationId: null,
+      rows: [
+        { ...baseRow, locationId: "loc-a", locationCode: "INF-CC" },
+        { ...baseRow, rowNumber: 3, locationId: "loc-b", locationCode: "KDS-CC", staffId: "s-2" },
+      ],
+    });
+    expect(byLoc.size).toBe(2);
+    expect(byLoc.get("loc-a")).toHaveLength(1);
+    expect(byLoc.get("loc-b")).toHaveLength(1);
+  });
+
+  it("returns empty when matched rows have no site at all", () => {
+    const byLoc = groupMatchedRosterRowsByLocation({
+      locationId: null,
+      rows: [baseRow],
+    });
+    expect(byLoc.size).toBe(0);
   });
 });
 

@@ -27,6 +27,27 @@ function rowCountFromResult(result: unknown): number | undefined {
   return undefined;
 }
 
+/** Postgrest often throws plain `{ message, details, code }` objects — not `Error`. */
+function routeErrorMessage(e: unknown): string {
+  if (e && typeof e === "object" && "message" in e && typeof (e as { message: unknown }).message === "string") {
+    const msg = (e as { message: string }).message.trim();
+    const details =
+      "details" in e && typeof (e as { details: unknown }).details === "string"
+        ? (e as { details: string }).details.trim()
+        : "";
+    const code = "code" in e && typeof (e as { code: unknown }).code === "string" ? (e as { code: string }).code : "";
+    if (!msg) return "Something went wrong";
+    // Avoid leaking connection strings / keys if a driver ever puts them in details.
+    const safeDetails = details && !/(password|secret|apikey|token|bearer)/i.test(details) ? details : "";
+    if (safeDetails && !msg.includes(safeDetails)) {
+      return code ? `${msg} (${code}): ${safeDetails}` : `${msg}: ${safeDetails}`;
+    }
+    return msg;
+  }
+  if (e instanceof Error && e.message.trim()) return e.message;
+  return "Something went wrong";
+}
+
 async function runAuthRoute<T>(
   handler: (context: Awaited<ReturnType<typeof getAuthenticatedContext>>, request: Request) => Promise<T>,
   request: Request,
@@ -50,7 +71,7 @@ async function runAuthRoute<T>(
     routeTimer.end({ rowCount: rows });
     return toRouteResponse(result);
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Internal error";
+    const msg = routeErrorMessage(e);
     routeTimer.end({ error: msg });
     if (msg === "Unauthorized" || (e instanceof Error && e.name === "UnauthorizedError")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

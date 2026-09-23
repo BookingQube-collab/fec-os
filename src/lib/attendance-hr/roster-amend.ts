@@ -21,7 +21,9 @@ function isOvernight(start: string, end: string): boolean {
 
 async function activeCompanyId(supabase: AuthContext["supabase"]): Promise<string> {
   const { data, error } = await supabase.from("hr_companies").select("id").eq("active", true).limit(1).maybeSingle();
-  if (error) throw error;
+  if (error) {
+    throw new Error(error.message || "Could not load HR company for shift templates.");
+  }
   if (!data?.id) throw new Error("No active HR company is configured for shift templates.");
   return data.id as string;
 }
@@ -31,7 +33,7 @@ export async function loadActiveShiftTemplates(supabase: AuthContext["supabase"]
     .from("attendance_shift_templates")
     .select("id, location_id, start_time, end_time")
     .eq("active", true);
-  if (error) throw error;
+  if (error) throw new Error(error.message || "Could not load shift templates.");
   return (data ?? []).map((row) => ({
     id: String(row.id),
     location_id: (row.location_id as string | null) ?? null,
@@ -72,7 +74,9 @@ export async function resolveOrCreateShiftTemplate(
     })
     .select("id, location_id, start_time, end_time")
     .single();
-  if (error) throw error;
+  if (error) {
+    throw new Error(error.message || `Could not create shift template ${name}.`);
+  }
 
   const created: AttendanceRosterShift = {
     id: String(data.id),
@@ -94,14 +98,19 @@ export async function rematchPreviewShiftTemplates(
       rows.push({ ...row, shiftTemplateId: null, shiftStart: row.isWeekOff ? null : row.shiftStart, shiftEnd: row.isWeekOff ? null : row.shiftEnd });
       continue;
     }
+    const locationId = row.locationId || preview.locationId;
     const resolved = await resolveOrCreateShiftTemplate(context.supabase, {
-      locationId: row.locationId,
+      locationId,
       shiftStart: row.shiftStart,
       shiftEnd: row.shiftEnd,
       shifts,
     });
     shifts = resolved.shifts;
-    rows.push({ ...row, shiftTemplateId: resolved.shiftTemplateId });
+    rows.push({
+      ...row,
+      locationId,
+      shiftTemplateId: resolved.shiftTemplateId,
+    });
   }
   return { ...preview, rows };
 }
