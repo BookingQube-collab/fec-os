@@ -331,7 +331,9 @@ export async function recalculateAttendanceRange(
       } satisfies RosterDayRow,
     ]),
   );
-  const leaveByKey = new Map((leaves ?? []).map((r) => [`${r.staff_id}|${r.leave_date}`, r]));
+  const leaveByKey = new Map(
+    (leaves ?? []).map((r) => [`${r.staff_id}|${String(r.leave_date).slice(0, 10)}`, r]),
+  );
   const holidayByDate = new Map(
     (holidays ?? []).filter((h) => !h.location_id || h.location_id === locationId).map((h) => [String(h.holiday_date), String(h.name)]),
   );
@@ -481,6 +483,22 @@ export async function recalculateAttendanceRange(
       // Staff patches do not own location coverage — avoid clearing other staff as unexpected.
       coveredByUpload: staffScope ? false : isWorkDateCovered(workDate, coveragePeriods),
     });
+    // Leave days must still produce summaries when roster coverage omitted the person (common for annual leave).
+    const expectedIds = new Set(expected.map((row) => row.staff_id));
+    for (const leaveKey of leaveByKey.keys()) {
+      const sep = leaveKey.lastIndexOf("|");
+      const leaveStaffId = sep >= 0 ? leaveKey.slice(0, sep) : "";
+      const leaveDate = sep >= 0 ? leaveKey.slice(sep + 1) : "";
+      if (leaveDate !== workDate || !leaveStaffId || expectedIds.has(leaveStaffId)) continue;
+      if (staffScope && !staffScope.includes(leaveStaffId)) continue;
+      expected.push({
+        staff_id: leaveStaffId,
+        work_date: workDate,
+        shift_template_id: null,
+        is_week_off: false,
+      });
+      expectedIds.add(leaveStaffId);
+    }
     for (const rosterRow of expected) {
       const staffId = String(rosterRow.staff_id);
       if (staffScope && !staffScope.includes(staffId)) continue;

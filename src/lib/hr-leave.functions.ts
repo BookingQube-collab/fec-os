@@ -116,6 +116,7 @@ async function syncApprovedLeaveToAttendance(
       leave.locationId,
       leave.dateFrom.slice(0, 10),
       leave.dateTo.slice(0, 10),
+      { staffIds: [leave.staffId] },
     );
   } catch {
     // Leave rows are still stored; recalc can be run later from Attendance.
@@ -915,6 +916,115 @@ export const bulkReviewLeaveRequests = createAuthenticatedAction(
       }
     }
     return { updated, errors };
+  },
+  { auth: { capability: "hr.leave.manage" } },
+);
+
+/**
+ * HR records leave for a staff member and immediately syncs attendance_leave_records + daily summaries.
+ * Use when the employee did not submit via the app (roster/PDF leave, backfill).
+ */
+export const recordLeaveForStaff = createAuthenticatedAction(
+  z.object({
+    staffId: z.string().uuid(),
+    leaveType: z.enum(HR_LEAVE_TYPES).default("annual"),
+    dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    reason: z.string().max(500).optional().nullable(),
+    locationId: z.string().uuid().optional().nullable(),
+    acknowledgeConflicts: z.boolean().optional(),
+    payrollImpact: z.boolean().optional(),
+  }),
+  async (data, context) => {
+    const days = countLeaveDays(data.dateFrom, data.dateTo);
+    if (days < 1) throw new Error("Leave end date must be on or after the start date.");
+
+    const { data: staff, error: staffErr } = await context.supabase
+      .from("staff")
+      .select("id, full_name, user_id, location_id")
+      .eq("id", data.staffId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (staffErr) throw staffErr;
+    if (!staff) throw new Error("Staff not found.");
+
+    const locationId = data.locationId ?? (staff.location_id as string | null) ?? null;
+    if (!locationId) throw new Error("Staff has no home location; pick a location for leave sync.");
+
+    const conflicts = await loadLeaveConflicts(context, staff.id as string, data.dateFrom, data.dateTo);
+    if (hasHardLeaveOverlap(conflicts)) {
+      return {
+        id: null as string | null,
+        days,
+        conflicts,
+        requiresAck: false as const,
+        blocked: true as const,
+        syncedDays: 0,
+      };
+    }
+    if (conflicts.length > 0 && !data.acknowledgeConflicts) {
+      return {
+        id: null as string | null,
+        days,
+        conflicts,
+        requiresAck: true as const,
+        blocked: false as const,
+        syncedDays: 0,
+      };
+    }
+
+    const { data: row, error } = await context.supabase
+      .from("hr_leave_requests")
+      .insert({
+        staff_id: staff.id,
+        leave_type: data.leaveType,
+        date_from: data.dateFrom,
+        date_to: data.dateTo,
+        days,
+        reason: data.reason ?? "HR recorded leave",
+        status: "pending",
+        created_by: context.userId,
+        current_step_role: "hr",
+        payroll_impact: Boolean(data.payrollImpact),
+      })
+      .select("id")
+      .single();
+    if (error) throw error;
+
+    await seedLeaveApprovalSteps(context, row.id as string);
+    // Skip manager/ops — HR recorded leave is final immediately.
+    await context.supabase
+      .from("hr_leave_approvals")
+      .update({
+        status: "approved",
+        acted_by: context.userId,
+        acted_at: new Date().toISOString(),
+        comments: "HR recorded leave",
+      })
+      .eq("leave_id", row.id);
+
+    const result = await finalizeLeaveApproval(
+      context,
+      {
+        id: String(row.id),
+        staff_id: String(staff.id),
+        leave_type: data.leaveType,
+        date_from: data.dateFrom,
+        date_to: data.dateTo,
+        staff: { full_name: staff.full_name, user_id: staff.user_id, location_id: locationId },
+      },
+      data.reason ?? "HR recorded leave",
+      Boolean(data.payrollImpact),
+    );
+
+    return {
+      id: row.id as string,
+      days,
+      conflicts,
+      requiresAck: false as const,
+      blocked: false as const,
+      syncedDays: result.syncedDays,
+    };
   },
   { auth: { capability: "hr.leave.manage" } },
 );

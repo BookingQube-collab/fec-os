@@ -23,6 +23,7 @@ import {
   grantCompOff,
   listLeaveRequests,
   listStaffForLeaveBalances,
+  recordLeaveForStaff,
   reviewLeaveRequest,
   upsertLeaveBalance,
 } from "@/lib/hr-leave.functions";
@@ -44,6 +45,12 @@ export default function HrLeavePage() {
   const [compEarned, setCompEarned] = useState("");
   const [compReason, setCompReason] = useState("");
   const [payrollImpact, setPayrollImpact] = useState(false);
+  const [recordStaffId, setRecordStaffId] = useState("");
+  const [recordType, setRecordType] = useState<(typeof HR_LEAVE_TYPES)[number]>("annual");
+  const [recordFrom, setRecordFrom] = useState("");
+  const [recordTo, setRecordTo] = useState("");
+  const [recordReason, setRecordReason] = useState("");
+  const [recordAck, setRecordAck] = useState(false);
 
   const list = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "leave", status }),
@@ -123,6 +130,28 @@ export default function HrLeavePage() {
     mutationFn: upsertLeaveBalance,
     onSuccess: () => {
       toast.success(t("hr.leave.balanceSaved"));
+      invalidate();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const recordLeave = useMutation({
+    mutationFn: recordLeaveForStaff,
+    onSuccess: (res) => {
+      if (res.blocked) {
+        toast.error(t("hr.leave.overlapBlocked"));
+        return;
+      }
+      if (res.requiresAck) {
+        setRecordAck(true);
+        toast.warning(t("hr.leave.conflictWarn"));
+        return;
+      }
+      toast.success(t("hr.leave.synced", { days: res.syncedDays || res.days }));
+      setRecordAck(false);
+      setRecordFrom("");
+      setRecordTo("");
+      setRecordReason("");
       invalidate();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -271,6 +300,75 @@ export default function HrLeavePage() {
                   </div>
                 ))
               )}
+            </div>
+          </HrPanel>
+
+          <HrPanel delay={1.5}>
+            <div className="space-y-4 p-4 sm:p-5">
+              <h2 className="text-sm font-semibold tracking-tight">{t("hr.leave.recordTitle")}</h2>
+              <p className="text-xs text-muted-foreground">{t("hr.leave.recordHint")}</p>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <div>
+                  <Label>{t("hr.leave.staff")}</Label>
+                  <select
+                    className="flex h-10 w-full rounded-xl border border-input bg-background px-3 text-sm"
+                    value={recordStaffId}
+                    onChange={(e) => setRecordStaffId(e.target.value)}
+                  >
+                    <option value="">{t("hr.leave.pickStaff")}</option>
+                    {(staffOptions.data ?? []).map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                        {s.employeeCode ? ` (${s.employeeCode})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <Label>{t("hr.leave.type")}</Label>
+                  <select
+                    className="flex h-10 w-full rounded-xl border border-input bg-background px-3 text-sm"
+                    value={recordType}
+                    onChange={(e) => setRecordType(e.target.value as (typeof HR_LEAVE_TYPES)[number])}
+                  >
+                    {HR_LEAVE_TYPES.map((value) => (
+                      <option key={value} value={value}>
+                        {t(`hr.leave.types.${value}`)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <Label>{t("hr.leave.from")}</Label>
+                  <Input type="date" value={recordFrom} onChange={(e) => setRecordFrom(e.target.value)} />
+                </div>
+                <div>
+                  <Label>{t("hr.leave.to")}</Label>
+                  <Input type="date" value={recordTo} onChange={(e) => setRecordTo(e.target.value)} />
+                </div>
+                <div className="sm:col-span-2">
+                  <Label>{t("hr.leave.reason")}</Label>
+                  <Input value={recordReason} onChange={(e) => setRecordReason(e.target.value)} />
+                </div>
+                <div className="flex items-end gap-2">
+                  <Button
+                    disabled={!recordStaffId || !recordFrom || !recordTo || recordLeave.isPending}
+                    onClick={() =>
+                      recordLeave.mutate({
+                        staffId: recordStaffId,
+                        leaveType: recordType,
+                        dateFrom: recordFrom,
+                        dateTo: recordTo,
+                        reason: recordReason || null,
+                        acknowledgeConflicts: recordAck,
+                        payrollImpact,
+                      })
+                    }
+                  >
+                    {recordAck ? t("hr.leave.recordAnyway") : t("hr.leave.recordSubmit")}
+                  </Button>
+                </div>
+              </div>
             </div>
           </HrPanel>
 
