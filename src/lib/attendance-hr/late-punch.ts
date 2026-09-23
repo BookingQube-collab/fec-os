@@ -1,4 +1,8 @@
-import { lateGraceMinutesForLocation, reportingTimeMinutesForLocation } from "./shift-policy";
+import {
+  bufferMinutesForLocation,
+  lateGraceMinutesForLocation,
+  reportingTimeMinutesForLocation,
+} from "./shift-policy";
 
 /** Qatar-local HH:MM on workDate → ISO (UTC). */
 export function scheduledIsoFromHm(workDate: string, time: string, addDays = 0): string {
@@ -69,6 +73,10 @@ export function computeLatePunchMinutes(input: {
  * Reports listing late punch: recompute from roster start on read.
  * Never trust stored late_minutes when there is no roster shift start — those
  * values are often stale DEFAULT 08:00 baselines (e.g. 137).
+ *
+ * Flexible staff (`lateFromShiftStart`): on_time_until = roster_start + buffer.
+ * Reporting lead stays display-only (Reporting time column). Site staff keep
+ * on_time_until = roster_start − reporting + buffer.
  */
 export function resolveListingLateMinutes(input: {
   actualIn: string | null | undefined;
@@ -76,8 +84,17 @@ export function resolveListingLateMinutes(input: {
   rosterScheduledIn: string | null | undefined;
   reportingTimeMinutes?: number | null;
   bufferMinutes?: number | null;
+  /** Flexible: late vs shift start + buffer only (not reporting clock). */
+  lateFromShiftStart?: boolean;
 }): number {
   if (!input.rosterScheduledIn) return 0;
+  if (input.lateFromShiftStart) {
+    return computeLatePunchMinutes({
+      actualIn: input.actualIn,
+      scheduledIn: input.rosterScheduledIn,
+      graceMinutes: bufferMinutesForLocation(input.bufferMinutes),
+    });
+  }
   return computeLatePunchMinutes({
     actualIn: input.actualIn,
     scheduledIn: input.rosterScheduledIn,

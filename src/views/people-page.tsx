@@ -763,7 +763,7 @@ function StaffFormDialog({
                       max={180}
                       value={reportingTimeMinutes}
                       onChange={(e) => setReportingTimeMinutes(e.target.value)}
-                      placeholder={t("people.staff.flexibleUseSiteDefault")}
+                      placeholder={t("people.staff.flexibleReportingBlank")}
                     />
                   </div>
                   <div>

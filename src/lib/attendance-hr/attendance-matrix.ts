@@ -66,7 +66,7 @@ export function buildAttendanceMatrix(rows: AttendanceListingSource[], dateFrom:
 
 export function attendanceGridTone(row: AttendanceListingSource): AttendanceGridTone {
   const status = resolveHoursBasedAttendanceStatus(row);
-  if (status === "missed_punch" || row.missed_punch) return "missed_punch";
+  if (status === "missed_punch") return "missed_punch";
   if (status === "weekly_off") return "weekly_off";
   if (LEAVE_KEYS.has(status)) return "leave";
   if (status === "absent") return "absent";

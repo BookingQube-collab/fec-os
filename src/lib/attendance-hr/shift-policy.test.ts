@@ -91,6 +91,26 @@ describe("attendance shift policy", () => {
     expect(overridden.graceMinutes).toBe(-15); // buffer 15 − reporting 30
   });
 
+  it("flexible lateFromShiftStart uses buffer after roster start only", () => {
+    const flex = applyAttendanceShiftPolicy(DEFAULT_SHIFT, {
+      employmentType: "permanent",
+      locationCode: "INF-CC",
+      reportingTimeMinutesOverride: 5,
+      bufferMinutesOverride: 0,
+      lateFromShiftStart: true,
+    });
+    expect(flex.graceMinutes).toBe(0);
+
+    const withBuffer = applyAttendanceShiftPolicy(DEFAULT_SHIFT, {
+      employmentType: "permanent",
+      locationCode: "INF-CC",
+      reportingTimeMinutesOverride: 30,
+      bufferMinutesOverride: 5,
+      lateFromShiftStart: true,
+    });
+    expect(withBuffer.graceMinutes).toBe(5);
+  });
+
   it("prefers staff flexible reporting/buffer over site when enabled", () => {
     expect(
       resolveReportingAndBuffer({
@@ -99,13 +119,14 @@ describe("attendance shift policy", () => {
         staff: { flexibleAttendance: true, reportingTimeMinutes: 30, bufferMinutes: 5 },
       }),
     ).toEqual({ reportingTimeMinutes: 30, bufferMinutes: 5 });
+    // Blank flexible lead → 0 (reporting = roster start); blank buffer → site.
     expect(
       resolveReportingAndBuffer({
         siteReporting: 15,
         siteBuffer: 10,
         staff: { flexibleAttendance: true, reportingTimeMinutes: null, bufferMinutes: null },
       }),
-    ).toEqual({ reportingTimeMinutes: 15, bufferMinutes: 10 });
+    ).toEqual({ reportingTimeMinutes: 0, bufferMinutes: 10 });
     expect(
       resolveReportingAndBuffer({
         siteReporting: 15,

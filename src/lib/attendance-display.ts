@@ -306,6 +306,9 @@ const NAMED_STATUS_DISPLAY: Record<string, AttendanceStatusDisplay> = {
   },
 };
 
+/** Roster/leave statuses that must not be overwritten by punch/hours heuristics.
+ * Absent / missed_punch are NOT protected — stale daily_summary values lose to
+ * live punches (flexible enrichment often keeps both punches + an old status). */
 const PROTECTED_STATUS_KEYS = new Set([
   "weekly_off",
   "public_holiday",
@@ -314,8 +317,6 @@ const PROTECTED_STATUS_KEYS = new Set([
   "unpaid_leave",
   "unscheduled",
   "review_required",
-  "absent",
-  "missed_punch",
 ]);
 
 function normalizeAttendanceStatusKey(status: string): string {
@@ -343,8 +344,9 @@ export function resolveExpectedWorkMinutes(input: {
 
 /**
  * Prefer hours-vs-expected as the primary status when both punches exist.
- * Keeps roster / leave / missed-punch statuses intact. Late alone does not win
- * when clock hours meet the site expected daily length.
+ * Keeps roster / leave statuses intact. Stale absent / missed_punch daily rows
+ * lose to live first/last punches (flexible multi-site enrichment).
+ * Late punch minutes stay in the Late punch column independently.
  */
 export function resolveHoursBasedAttendanceStatus(
   row: {
@@ -364,9 +366,12 @@ export function resolveHoursBasedAttendanceStatus(
 
   const hasIn = Boolean(row.actual_in);
   const hasOut = Boolean(row.actual_out);
-  if (row.missed_punch || hasIn !== hasOut) return "missed_punch";
-  if (!hasIn && !hasOut) {
-    return statusKey === "absent" ? "absent" : statusKey || "absent";
+  // Both punches → never Missed punch / Absent (ignore stale flags + stored status).
+  if (!(hasIn && hasOut)) {
+    if (row.missed_punch || hasIn !== hasOut) return "missed_punch";
+    if (!hasIn && !hasOut) {
+      return statusKey === "absent" ? "absent" : statusKey || "absent";
+    }
   }
 
   const expected = resolveExpectedWorkMinutes(row);
@@ -383,6 +388,9 @@ export function resolveHoursBasedAttendanceStatus(
   }
 
   if (statusKey === "incomplete" && hasIn && hasOut) return "late";
+  if (statusKey === "absent" || statusKey === "missed_punch") {
+    return "present";
+  }
   if (statusKey === "late" || statusKey === "early_leave" || statusKey === "early_departure" || statusKey === "overtime") {
     return statusKey === "early_leave" ? "early_departure" : statusKey;
   }

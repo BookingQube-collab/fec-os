@@ -31,7 +31,7 @@ function AuthPage() {
   const { t } = useTranslation();
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { user, loading, roles } = useAuth();
+  const { user, loading, roles, rolesSettled } = useAuth();
   const [mode, setMode] = useState<Mode>("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -51,14 +51,14 @@ function AuthPage() {
   // Only bounce home when the live session matches the form email (or form empty).
   // Typing a different email (e.g. admin while HR cookies still exist) must not redirect as HR.
   useEffect(() => {
-    if (!hintReady || loading || submitting || !user) return;
+    if (!hintReady || loading || submitting || !user || !rolesSettled) return;
     const formEmail = email.trim().toLowerCase();
     const sessionEmail = (user.email ?? "").toLowerCase();
     if (formEmail && formEmail !== sessionEmail) return;
     const roleList = roles.map((r) => r.role as AppRole);
     const hasRoles = roleList.length > 0;
     router.replace(hasRoles ? defaultHomeForRoles(roleList) : "/");
-  }, [hintReady, loading, submitting, user, roles, router, email]);
+  }, [hintReady, loading, submitting, user, roles, rolesSettled, router, email]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

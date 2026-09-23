@@ -693,6 +693,7 @@ export async function recalculateAttendanceRange(
       permanentHours,
       secondmentHours,
       jokerHours,
+      lateFromShiftStart: Boolean(flex?.flexibleAttendance),
     });
     const shiftForCalc: ShiftTemplateInput = rosterShift
       ? { ...shift, startTime: rosterShift.startTime, endTime: rosterShift.endTime, overnight: rosterShift.overnight }
@@ -882,6 +883,7 @@ export async function recalculateAttendanceRange(
         permanentHours,
         secondmentHours,
         jokerHours,
+        lateFromShiftStart: Boolean(flex?.flexibleAttendance),
       });
       const shiftForCalc: ShiftTemplateInput = rosterShift
         ? { ...shift, startTime: rosterShift.startTime, endTime: rosterShift.endTime, overnight: rosterShift.overnight }

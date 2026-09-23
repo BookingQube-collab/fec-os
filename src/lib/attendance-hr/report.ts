@@ -219,7 +219,6 @@ export function collapseFlexibleAttendanceReportRows(
     let worked = winner.worked_minutes;
     let punchCount = winner.punch_count;
     let overtime = winner.overtime_minutes;
-    let missed = winner.missed_punch;
     // Roster shift times: keep winner's when set, else first sibling with times.
     let scheduledIn = winner.scheduled_in ?? null;
     let scheduledOut = winner.scheduled_out ?? null;
@@ -231,7 +230,6 @@ export function collapseFlexibleAttendanceReportRows(
       }
       punchCount = Math.max(Number(punchCount) || 0, Number(row.punch_count) || 0);
       overtime = Math.max(Number(overtime) || 0, Number(row.overtime_minutes) || 0);
-      missed = missed || row.missed_punch;
       if (!scheduledIn && row.scheduled_in) scheduledIn = row.scheduled_in;
       if (!scheduledOut && row.scheduled_out) scheduledOut = row.scheduled_out;
     }
@@ -242,12 +240,25 @@ export function collapseFlexibleAttendanceReportRows(
       );
       if (Number.isFinite(mins) && mins >= 0) worked = mins;
     }
+    // Missed punch only when a side is actually missing — never OR stale ABSENT siblings.
+    const missed = Boolean(actualIn) !== Boolean(actualOut);
     const late = resolveListingLateMinutes({
       actualIn,
       rosterScheduledIn: scheduledIn,
       reportingTimeMinutes: winner.location_reporting_time_minutes,
       bufferMinutes: winner.location_buffer_minutes,
+      lateFromShiftStart: true,
     });
+    let status = winner.status;
+    if (missed) status = "missed_punch";
+    else if (
+      actualIn &&
+      actualOut &&
+      (status === "absent" || status === "missed_punch" || status === "late" || status === "incomplete")
+    ) {
+      // Late punch minutes stay in late_minutes; status Present when both sides exist.
+      status = "present";
+    }
     // In/out site + device user: prefer the row that owns earliest in / latest out.
     const inOwner =
       [...ranked]
@@ -281,6 +292,7 @@ export function collapseFlexibleAttendanceReportRows(
       null;
     collapsed.push({
       ...winner,
+      status,
       actual_in: actualIn,
       actual_out: actualOut,
       scheduled_in: scheduledIn,
@@ -417,7 +429,7 @@ export function computeAttendanceHrReportKpis(rows: AttendanceHrReportRow[]): At
     if (resolved === "present" || resolved === "overtime") present += 1;
     if (resolved === "absent") absent += 1;
     if (resolved === "late" || Number(row.late_minutes) > 0) late += 1;
-    if (resolved === "missed_punch" || row.missed_punch) missedPunch += 1;
+    if (resolved === "missed_punch") missedPunch += 1;
     if (resolved === "unscheduled") unscheduled += 1;
   }
 

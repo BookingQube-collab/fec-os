@@ -398,7 +398,7 @@ export default function StaffProfilePage() {
                       max={180}
                       value={reportingTimeMinutes}
                       onChange={(e) => setReportingTimeMinutes(e.target.value)}
-                      placeholder={t("people.staff.flexibleUseSiteDefault")}
+                      placeholder={t("people.staff.flexibleReportingBlank")}
                     />
                   </div>
                   <div className="space-y-1">
@@ -424,7 +424,7 @@ export default function StaffProfilePage() {
               <Row label={t("people.staff.flexibleHours")} value={t("people.staff.flexibleHoursOn")} />
               <Row
                 label={t("people.staff.flexibleReportingMinutes")}
-                value={s.reporting_time_minutes == null ? t("people.staff.flexibleUseSiteDefault") : String(s.reporting_time_minutes)}
+                value={s.reporting_time_minutes == null ? t("people.staff.flexibleReportingBlank") : String(s.reporting_time_minutes)}
               />
               <Row
                 label={t("people.staff.flexibleBufferMinutes")}

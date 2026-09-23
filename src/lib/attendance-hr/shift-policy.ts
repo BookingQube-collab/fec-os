@@ -147,7 +147,8 @@ export function lateGraceMinutesForLocation(
  * Override shift template break + OT threshold from employment type and location.
  * Start/end times stay on the template / roster. When reporting and/or buffer
  * overrides are set, graceMinutes = buffer − reporting (offset from roster start
- * to on_time_until).
+ * to on_time_until). Flexible (`lateFromShiftStart`): grace = buffer only —
+ * reporting lead is display-only.
  */
 export function applyAttendanceShiftPolicy(
   base: ShiftTemplateInput,
@@ -160,6 +161,8 @@ export function applyAttendanceShiftPolicy(
     permanentHours?: number | null;
     secondmentHours?: number | null;
     jokerHours?: number | null;
+    /** Flexible staff: late after roster start + buffer (not reporting clock). */
+    lateFromShiftStart?: boolean;
   },
 ): ShiftTemplateInput {
   const role = normalizeAttendanceEmploymentRole(opts.employmentType);
@@ -176,7 +179,9 @@ export function applyAttendanceShiftPolicy(
     Number.isFinite(Number(opts.reportingTimeMinutesOverride));
   const hasBuffer =
     opts.bufferMinutesOverride != null && Number.isFinite(Number(opts.bufferMinutesOverride));
-  if (hasReporting || hasBuffer) {
+  if (opts.lateFromShiftStart) {
+    next.graceMinutes = bufferMinutesForLocation(opts.bufferMinutesOverride);
+  } else if (hasReporting || hasBuffer) {
     next.graceMinutes = lateGraceMinutesForLocation(
       opts.reportingTimeMinutesOverride,
       opts.bufferMinutesOverride,
@@ -215,7 +220,9 @@ export type StaffFlexibleTiming = {
 
 /**
  * Prefer staff flexible reporting/buffer when enabled; otherwise site values.
- * Null staff fields still fall back to site (then defaults via lateGrace helpers).
+ *
+ * Flexible + blank reporting lead → 0 (Reporting time = roster shift start),
+ * never inherit site lead. Flexible + blank late buffer → site buffer.
  */
 export function resolveReportingAndBuffer(opts: {
   siteReporting?: number | null;
@@ -242,7 +249,8 @@ export function resolveReportingAndBuffer(opts: {
       ? Number(opts.staff.bufferMinutes)
       : null;
   return {
-    reportingTimeMinutes: staffReporting ?? siteReporting,
+    // Blank flexible lead = roster start as reporting clock (not site lead).
+    reportingTimeMinutes: staffReporting ?? 0,
     bufferMinutes: staffBuffer ?? siteBuffer,
   };
 }

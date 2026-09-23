@@ -66,6 +66,38 @@ describe("attendance listing display", () => {
     expect(lateButFullHours.badgeClass).toMatch(/emerald/);
     expect(lateButFullHours.rowClass).toBe("");
 
+    // Stale ABSENT / Missed punch with both punches + hours → Present (flexible listing)
+    const staleAbsent = getAttendanceStatusDisplay({
+      status: "absent",
+      missed_punch: false,
+      actual_in: "2026-09-22T07:16:38.000Z",
+      actual_out: "2026-09-22T19:07:17.000Z",
+      worked_minutes: 710,
+      expected_minutes: 540,
+    });
+    expect(staleAbsent.label).toBe("Present");
+
+    const staleMissed = getAttendanceStatusDisplay({
+      status: "missed_punch",
+      missed_punch: true,
+      actual_in: "2026-09-20T07:13:41.000Z",
+      actual_out: "2026-09-20T16:12:22.000Z",
+      worked_minutes: 539,
+      expected_minutes: 540,
+    });
+    // Full punches unlock Missed punch; under expected hours → Late
+    expect(staleMissed.label).toBe("Late");
+
+    const staleMissedFullHours = getAttendanceStatusDisplay({
+      status: "missed_punch",
+      missed_punch: true,
+      actual_in: "2026-09-20T07:13:41.000Z",
+      actual_out: "2026-09-20T16:13:41.000Z",
+      worked_minutes: 540,
+      expected_minutes: 540,
+    });
+    expect(staleMissedFullHours.label).toBe("Present");
+
     const shortHours = getAttendanceStatusDisplay({
       status: "late",
       missed_punch: false,

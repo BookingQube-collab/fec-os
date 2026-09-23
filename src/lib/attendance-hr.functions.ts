@@ -2107,12 +2107,29 @@ async function enrichAttendanceHrDailyRows(
           }
         : null,
     });
+    const isFlexible = Boolean(staff?.flexible_attendance);
     const lateMinutes = resolveListingLateMinutes({
       actualIn,
       rosterScheduledIn: scheduledIn,
       reportingTimeMinutes: reportingMins,
       bufferMinutes: bufferMins,
+      lateFromShiftStart: isFlexible,
     });
+    const actualOut = row.actual_out == null ? null : String(row.actual_out);
+    let status = String(row.status ?? "");
+    let missedPunch = Boolean(row.missed_punch);
+    if (isFlexible) {
+      const missed = Boolean(actualIn) !== Boolean(actualOut);
+      missedPunch = missed;
+      if (missed) status = "missed_punch";
+      else if (
+        actualIn &&
+        actualOut &&
+        (status === "absent" || status === "missed_punch" || status === "late" || status === "incomplete")
+      ) {
+        status = "present";
+      }
+    }
     const biometricUserId = row.biometric_user_id == null ? null : String(row.biometric_user_id);
     const deviceId = row.device_id == null ? null : String(row.device_id);
     const bio =
@@ -2128,15 +2145,15 @@ async function enrichAttendanceHrDailyRows(
       biometric_user_id: biometricUserId,
       device_id: deviceId,
       work_date: String(row.work_date ?? ""),
-      status: String(row.status ?? ""),
+      status,
       actual_in: actualIn,
-      actual_out: row.actual_out == null ? null : String(row.actual_out),
+      actual_out: actualOut,
       scheduled_in: scheduledIn,
       scheduled_out: scheduledOut,
       late_minutes: lateMinutes,
       early_leave_minutes: Number(row.early_leave_minutes ?? 0),
       overtime_minutes: Number(row.overtime_minutes ?? 0),
-      missed_punch: Boolean(row.missed_punch),
+      missed_punch: missedPunch,
       punch_count: Number(row.punch_count ?? 0),
       worked_minutes: row.worked_minutes == null ? null : Number(row.worked_minutes),
       employment_type: employmentType,
@@ -2454,14 +2471,26 @@ async function enrichAttendanceHrDailyRows(
         rosterScheduledIn: row.scheduled_in,
         reportingTimeMinutes: row.location_reporting_time_minutes,
         bufferMinutes: row.location_buffer_minutes,
+        lateFromShiftStart: true,
       });
+      const missed = usableCount === 1 || Boolean(actualIn) !== Boolean(actualOut);
+      let status = row.status;
+      if (missed) status = "missed_punch";
+      else if (
+        actualIn &&
+        actualOut &&
+        (status === "absent" || status === "missed_punch" || status === "late" || status === "incomplete")
+      ) {
+        status = "present";
+      }
       return {
         ...row,
+        status,
         actual_in: actualIn,
         actual_out: actualOut,
         worked_minutes: workedMinutes,
         punch_count: usableCount,
-        missed_punch: usableCount === 1,
+        missed_punch: missed,
         late_minutes: lateMinutes,
         ...siteFields,
       };

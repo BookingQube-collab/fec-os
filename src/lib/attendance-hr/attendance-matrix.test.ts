@@ -27,6 +27,7 @@ function listing(partial: Partial<AttendanceListingSource> & Pick<AttendanceList
     overtime_minutes: partial.overtime_minutes ?? 0,
     late_minutes: partial.late_minutes ?? 0,
     worked_minutes: partial.worked_minutes ?? null,
+    expected_minutes: partial.expected_minutes,
     status: partial.status ?? "present",
     missed_punch: partial.missed_punch ?? false,
   };
@@ -106,6 +107,21 @@ describe("attendance matrix", () => {
         }),
       ),
     ).toBe("missed_punch");
+
+    // Stale missed_punch flag with both punches must not tint Missed (flexible unlock)
+    expect(
+      attendanceGridTone(
+        listing({
+          work_date: "2026-09-20",
+          status: "missed_punch",
+          missed_punch: true,
+          actual_in: "2026-09-20T07:13:41.000Z",
+          actual_out: "2026-09-20T16:13:41.000Z", // exactly 9h → meets permanent expected
+          worked_minutes: 540,
+          expected_minutes: 540,
+        }),
+      ),
+    ).toBe("present");
 
     expect(attendanceGridTone(listing({ work_date: "2026-08-03", status: "weekly_off" }))).toBe("weekly_off");
     expect(attendanceListingStaffKey(listing({ work_date: "2026-08-03", staffKey: "staff:x" }))).toBe("staff:x");

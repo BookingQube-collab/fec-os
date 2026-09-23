@@ -94,6 +94,76 @@ describe("late punch helpers", () => {
     ).toBe(1.5);
   });
 
+  it("flexible late is vs shift start + buffer, not reporting clock", () => {
+    // Russell 14-09: shift 10:00, check-in 10:00:28, reporting lead 5 → must NOT be ~4.5m late
+    expect(
+      resolveListingLateMinutes({
+        actualIn: "2026-09-14T07:00:28.000Z", // 10:00:28 Qatar
+        rosterScheduledIn: "2026-09-14T07:00:00.000Z", // 10:00
+        reportingTimeMinutes: 5,
+        bufferMinutes: 0,
+        lateFromShiftStart: true,
+      }),
+    ).toBe(0.5);
+
+    // 22-09: check-in 38s after shift start → 0.6m, not ~4.5m vs reporting
+    expect(
+      resolveListingLateMinutes({
+        actualIn: "2026-09-22T07:16:38.000Z",
+        rosterScheduledIn: "2026-09-22T07:16:00.000Z",
+        reportingTimeMinutes: 5,
+        bufferMinutes: 0,
+        lateFromShiftStart: true,
+      }),
+    ).toBe(0.6);
+
+    // 18-09: check-in BEFORE shift start → no late
+    expect(
+      resolveListingLateMinutes({
+        actualIn: "2026-09-18T07:08:23.000Z", // 10:08:23
+        rosterScheduledIn: "2026-09-18T07:12:00.000Z", // 10:12
+        reportingTimeMinutes: 5,
+        bufferMinutes: 0,
+        lateFromShiftStart: true,
+      }),
+    ).toBe(0);
+
+    // Within buffer after shift start → still on time
+    expect(
+      resolveListingLateMinutes({
+        actualIn: "2026-09-14T07:04:00.000Z", // 10:04
+        rosterScheduledIn: "2026-09-14T07:00:00.000Z",
+        reportingTimeMinutes: 5,
+        bufferMinutes: 5,
+        lateFromShiftStart: true,
+      }),
+    ).toBe(0);
+  });
+
+  it("flexible blank lead: reporting clock = roster start; late ignores site lead", () => {
+    // Empty flexible lead resolves to 0 → Reporting time === Shift start
+    expect(reportingClockIso("2026-09-22T07:16:00.000Z", 0)).toBe("2026-09-22T07:16:00.000Z");
+    // Site lead 5 must not invent ~4.5m late when lateFromShiftStart
+    expect(
+      resolveListingLateMinutes({
+        actualIn: "2026-09-22T07:16:38.000Z",
+        rosterScheduledIn: "2026-09-22T07:16:00.000Z",
+        reportingTimeMinutes: 0,
+        bufferMinutes: 0,
+        lateFromShiftStart: true,
+      }),
+    ).toBe(0.6);
+    expect(
+      resolveListingLateMinutes({
+        actualIn: "2026-09-14T07:00:28.000Z",
+        rosterScheduledIn: "2026-09-14T07:00:00.000Z",
+        reportingTimeMinutes: 0,
+        bufferMinutes: 0,
+        lateFromShiftStart: true,
+      }),
+    ).toBe(0.5);
+  });
+
   it("resolves roster scheduled_in from shift_start without trusting stored 08:00", () => {
     const roster: RosterShiftLookup = {
       shift_template_id: null,

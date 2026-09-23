@@ -714,6 +714,10 @@ describe("HR report row helpers", () => {
     // Roster shift from sibling when winner lacked scheduled_in; hours from clock span.
     expect(collapsed[0]?.scheduled_in).toBe("2026-09-19T07:00:00.000Z");
     expect(collapsed[0]?.worked_minutes).toBe(534);
+    expect(collapsed[0]?.missed_punch).toBe(false);
+    expect(collapsed[0]?.status).toBe("present");
+    // Flexible late vs shift start (10:00), not reporting (09:55): 4m 38s → 4.6
+    expect(collapsed[0]?.late_minutes).toBe(4.6);
     expect(
       attendanceHrListingLocation({
         location_code: "KDS-CC",

@@ -24,7 +24,7 @@ function AuthShellSkeleton() {
 
 export function ProtectedGate({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation();
-  const { user, loading, roles } = useAuth();
+  const { user, loading, roles, rolesSettled } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const shellReady = useRef(false);
@@ -43,12 +43,13 @@ export function ProtectedGate({ children }: { children: React.ReactNode }) {
     }
   }, [loading, user, router]);
 
-  if (shellReady.current && user) {
+  if (shellReady.current && user && rolesSettled && roles.length > 0) {
     if (employeeApp) return <EmployeeAppShell>{children}</EmployeeAppShell>;
     return <AppShell>{children}</AppShell>;
   }
 
-  if (loading || !user) {
+  // Wait for auth + role hydration. Empty roles before settle is unknown, not "no role".
+  if (loading || !user || !rolesSettled) {
     return <AuthShellSkeleton />;
   }
 

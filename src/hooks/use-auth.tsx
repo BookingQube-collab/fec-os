@@ -24,6 +24,11 @@ interface AuthContextValue {
   profile: Profile | null;
   roles: RoleAssignment[];
   loading: boolean;
+  /**
+   * True after a successful session fetch (or cache hit) for the current user.
+   * False while roles are unknown — must not be treated as "no assigned role".
+   */
+  rolesSettled: boolean;
   /** Bumps when capability grant overrides hydrate/refresh — consumers re-read canUserDo. */
   grantsVersion: number;
   signOut: () => Promise<void>;
@@ -49,6 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [roles, setRoles] = useState<RoleAssignment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [rolesSettled, setRolesSettled] = useState(false);
   const [grantsVersion, setGrantsVersion] = useState(0);
 
   const hydrateCapabilityGrants = async () => {
@@ -67,26 +73,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    const applyUserData = (uid: string) => {
+    const applyUserData = (uid: string): boolean => {
       const cachedProfile = queryClient.getQueryData<Profile | null>(queryKeys.auth.profile(uid));
       const cachedRoles = queryClient.getQueryData<RoleAssignment[]>(queryKeys.auth.roles(uid));
       if (cachedProfile !== undefined && cachedRoles !== undefined) {
         setProfile(cachedProfile);
         setRoles(cachedRoles);
+        setRolesSettled(true);
+        return true;
       }
+      return false;
     };
 
     const loadUserData = async (uid: string) => {
-      try {
-        const data = await fetchAuthSession(uid, queryClient);
-        if (!mounted) return;
-        setProfile(data.profile);
-        setRoles(data.roles);
-        await hydrateCapabilityGrants();
-      } catch (error) {
-        console.warn("[auth] Failed to load session profile/roles", error);
-        if (!mounted) return;
-        applyUserData(uid);
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const data = await fetchAuthSession(uid, queryClient);
+          if (!mounted) return;
+          setProfile(data.profile);
+          setRoles(data.roles);
+          setRolesSettled(true);
+          await hydrateCapabilityGrants();
+          return;
+        } catch (error) {
+          lastError = error;
+          if (attempt < 2) {
+            await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
+          }
+        }
+      }
+      console.warn("[auth] Failed to load session profile/roles", lastError);
+      if (!mounted) return;
+      // Prefer cached roles over a false "no role" settlement.
+      if (!applyUserData(uid)) {
+        setRolesSettled(false);
       }
     };
 
@@ -98,13 +119,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(newSession?.user ?? null);
 
       const finishInitialLoad = () => {
-        if (event === "INITIAL_SESSION") setLoading(false);
+        // Role fetch may finish after SIGNED_IN; always clear the gate spinner
+        // once this event's work completes (not only INITIAL_SESSION).
+        setLoading(false);
       };
 
       if (!newSession?.user) {
         clearAuthSessionCache(queryClient);
         setProfile(null);
         setRoles([]);
+        setRolesSettled(true);
         setActiveCapabilityGrants(null);
         setGrantsVersion((v) => v + 1);
         finishInitialLoad();
@@ -113,22 +137,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const uid = newSession.user.id;
       // Account switch: drop prior user's profile/roles before hydrating the new one.
-      if (event === "SIGNED_IN") {
+      if (event === "SIGNED_IN" || event === "USER_UPDATED") {
         clearAuthSessionCache(queryClient);
         setProfile(null);
         setRoles([]);
+        setRolesSettled(false);
+        setLoading(true);
       }
 
       const shouldFetch =
         event === "SIGNED_IN" ||
         event === "USER_UPDATED" ||
-        !isAuthSessionHydrated(uid);
+        !isAuthSessionHydrated(uid, queryClient);
 
       if (shouldFetch) {
+        setRolesSettled(false);
         void loadUserData(uid).finally(finishInitialLoad);
-      } else {
-        applyUserData(uid);
+      } else if (applyUserData(uid)) {
         void hydrateCapabilityGrants().finally(finishInitialLoad);
+      } else {
+        // Module flag said hydrated but cache miss (HMR / new QueryClient).
+        setRolesSettled(false);
+        void loadUserData(uid).finally(finishInitialLoad);
       }
     };
 
@@ -147,10 +177,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [queryClient]);
 
+  // Soft recovery: user present but roles never settled (cookie lag / transient 401).
+  // Retry a few times; stay on skeleton rather than a false "Access pending".
+  useEffect(() => {
+    if (!user || rolesSettled || loading) return;
+    let cancelled = false;
+    let attempts = 0;
+    const tick = async () => {
+      if (cancelled || !user || attempts >= 5) return;
+      attempts += 1;
+      try {
+        clearAuthSessionCache(queryClient);
+        const data = await fetchAuthSession(user.id, queryClient);
+        if (cancelled) return;
+        setProfile(data.profile);
+        setRoles(data.roles);
+        setRolesSettled(true);
+      } catch (error) {
+        console.warn("[auth] Retry session profile/roles failed", error);
+      }
+    };
+    const timer = window.setInterval(() => void tick(), 1500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [user, rolesSettled, loading, queryClient]);
+
   const signOut = async () => {
     clearAuthSessionCache(queryClient);
     setProfile(null);
     setRoles([]);
+    setRolesSettled(true);
     setActiveCapabilityGrants(null);
     setGrantsVersion((v) => v + 1);
     await supabase.auth.signOut({ scope: "local" });
@@ -159,13 +217,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshProfile = async () => {
     if (!user) return null;
     clearAuthSessionCache(queryClient);
+    setRolesSettled(false);
     try {
       const data = await fetchAuthSession(user.id, queryClient);
       setProfile(data.profile);
       setRoles(data.roles);
+      setRolesSettled(true);
       return data.profile;
     } catch (error) {
       console.warn("[auth] Failed to refresh profile", error);
+      setRolesSettled(false);
       return profile;
     }
   };
@@ -182,6 +243,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         profile,
         roles,
         loading,
+        rolesSettled,
         grantsVersion,
         signOut,
         refreshProfile,

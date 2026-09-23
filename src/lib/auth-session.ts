@@ -39,8 +39,15 @@ function writeSessionCache(queryClient: QueryClient, userId: string, data: AuthS
   hydratedUserId = userId;
 }
 
-export function isAuthSessionHydrated(userId: string): boolean {
-  return hydratedUserId === userId;
+/**
+ * True only when this uid was hydrated AND the React Query cache still holds
+ * profile/roles. Module flag alone is not enough — HMR / new QueryClient can
+ * leave hydratedUserId set with an empty cache (false "Access pending").
+ */
+export function isAuthSessionHydrated(userId: string, queryClient?: QueryClient): boolean {
+  if (hydratedUserId !== userId) return false;
+  if (!queryClient) return true;
+  return readCachedSession(queryClient, userId) !== null;
 }
 
 export function clearAuthSessionCache(queryClient?: QueryClient) {
@@ -66,6 +73,26 @@ async function fetchSessionResponse(retries = 2): Promise<Response> {
   throw lastError instanceof Error ? lastError : new Error("Auth session fetch failed");
 }
 
+/** Parse JSON body; 401 with an expected client uid is cookie lag — retry, don't treat as no roles. */
+async function readSessionPayload(
+  userId: string,
+  res: Response,
+  allowUnauthorizedRetry: boolean,
+): Promise<AuthSessionPayload> {
+  if (res.status === 401) {
+    if (allowUnauthorizedRetry) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const retry = await fetchSessionResponse(1);
+      return readSessionPayload(userId, retry, false);
+    }
+    // Client has a user; server cookies are missing. Do not map to empty roles
+    // (that becomes a sticky "Access pending" false positive).
+    throw new Error("Auth session unauthorized");
+  }
+  if (!res.ok) throw new Error("Auth session fetch failed");
+  return (await res.json()) as AuthSessionPayload;
+}
+
 export async function fetchAuthSession(
   userId: string,
   queryClient: QueryClient,
@@ -77,23 +104,13 @@ export async function fetchAuthSession(
   if (existing) return existing;
 
   const task = fetchSessionResponse()
-    .then(async (res) => {
-      if (res.status === 401) {
-        return { user: null, profile: null, roles: [] } satisfies AuthSessionPayload;
-      }
-      if (!res.ok) throw new Error("Auth session fetch failed");
-      return (await res.json()) as AuthSessionPayload;
-    })
+    .then(async (res) => readSessionPayload(userId, res, true))
     .then(async (data) => {
       // Cookie session can lag behind a just-switched client user — never attach the wrong profile.
       if (data.user?.id && data.user.id !== userId) {
         await new Promise((resolve) => setTimeout(resolve, 200));
         const retry = await fetchSessionResponse(1);
-        if (retry.status === 401) {
-          return { user: null, profile: null, roles: [] } satisfies AuthSessionPayload;
-        }
-        if (!retry.ok) throw new Error("Auth session fetch failed");
-        data = (await retry.json()) as AuthSessionPayload;
+        data = await readSessionPayload(userId, retry, false);
         if (data.user?.id && data.user.id !== userId) {
           throw new Error("Auth session user mismatch");
         }

@@ -126,6 +126,7 @@ describe("flexible cross-site attendance", () => {
         breakMinutesOverride: 60,
         reportingTimeMinutesOverride: timing.reportingTimeMinutes,
         bufferMinutesOverride: timing.bufferMinutes,
+        lateFromShiftStart: true,
       },
     );
 
@@ -143,6 +144,7 @@ describe("flexible cross-site attendance", () => {
     );
 
     expect(calc.status).toBe("present");
+    expect(calc.lateMinutes).toBe(0);
     expect(calc.workedMinutes).toBe(540);
     expect(calc.actualIn).toBe("2026-09-20T05:00:00.000Z");
     expect(calc.actualOut).toBe("2026-09-20T14:00:00.000Z");
