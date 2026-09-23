@@ -215,12 +215,21 @@ export async function POST(request: Request) {
         );
       }
 
+      const locationScope = String(form.get("locationScope") ?? "multi") === "single" ? "single" : "multi";
+      let selectedLocationId: string | null = null;
+      if (locationScope === "single") {
+        selectedLocationId = String(form.get("locationId") ?? "").trim() || null;
+        if (!selectedLocationId) {
+          throw new Error("Select a site for single-location upload.");
+        }
+      }
+
       const shiftPreview = await previewLiveShiftRoster(context, {
         records: attParsed.records,
         periodMode,
         dateFrom: period.dateFrom,
         dateTo: period.dateTo,
-        selectedLocationId: null,
+        selectedLocationId,
       });
       const shiftSummary: ShiftBatchSummary = {
         kind: "shift_roster",

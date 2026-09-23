@@ -579,6 +579,8 @@ export function matchAttendanceRosterStaff(
     employeeCode: string;
     name: string;
     locationId: string | null;
+    /** Site code/label for unmatched messages (e.g. UA-DM). */
+    locationLabel?: string | null;
   },
   staff: AttendanceRosterStaff[],
   nameMaps: AttendanceRosterNameMap[] = [],
@@ -638,10 +640,16 @@ export function matchAttendanceRosterStaff(
     if (nameHits.length === 1) {
       return { staffId: nameHits[0].id, matchRule: "name_unique", message: null, label: nameHits[0].full_name || input.name };
     }
+    const at = input.locationLabel?.trim() || "this location";
     if (nameHits.length > 1) {
-      return { staffId: null, matchRule: "name_unmatched", message: "No exact name match at this location.", label: input.name };
+      return {
+        staffId: null,
+        matchRule: "name_unmatched",
+        message: `No exact name match at ${at}.`,
+        label: input.name,
+      };
     }
-    return { staffId: null, matchRule: "name_unmatched", message: "No exact name match at this location.", label: input.name };
+    return { staffId: null, matchRule: "name_unmatched", message: `No exact name match at ${at}.`, label: input.name };
   }
   if (name && !input.locationId) {
     // Directory-wide exact name when Excel has no Location / no site picked.
@@ -855,12 +863,37 @@ export function buildAttendanceRosterPreview(input: {
       continue;
     }
 
-    const locationCode = resolveLocationCode(draft.locationRaw, input.locations);
+    const locationRaw = draft.locationRaw.trim();
+    const locationCode = resolveLocationCode(locationRaw, input.locations);
     let locationId = input.selectedLocationId;
     if (locationCode) {
       locationId = locByCode.get(locationCode)?.id ?? locationId;
     }
+    // Multi-location: LOCATION present but not resolvable — fail clearly instead of silent null-site match.
+    if (!input.selectedLocationId && locationRaw && !locationCode) {
+      rows.push({
+        rowNumber: draft.rowNumber,
+        workDate,
+        locationCode: null,
+        locationId: null,
+        staffId: null,
+        staffLabel: ids.name || ids.code || ids.qid || "—",
+        sourceName: ids.name || ids.code || ids.qid || null,
+        qid: ids.qid || null,
+        employeeCode: ids.code || null,
+        shiftStart: draft.shiftStart,
+        shiftEnd: draft.shiftEnd,
+        shiftTemplateId: null,
+        isWeekOff: false,
+        matchRule: "location_unresolved",
+        status: "unmatched",
+        message: `Unknown location "${locationRaw}". Use a site code (e.g. UA-DM, CB-VM) or full site name.`,
+      });
+      continue;
+    }
     if (input.selectedLocationId && locationId && locationId !== input.selectedLocationId) {
+      const selectedLabel =
+        input.locations.find((l) => l.id === input.selectedLocationId)?.code ?? "selected site";
       rows.push({
         rowNumber: draft.rowNumber,
         workDate,
@@ -868,6 +901,7 @@ export function buildAttendanceRosterPreview(input: {
         locationId,
         staffId: null,
         staffLabel: ids.name || ids.code || ids.qid || "—",
+        sourceName: ids.name || ids.code || ids.qid || null,
         qid: ids.qid || null,
         employeeCode: ids.code || null,
         shiftStart: draft.shiftStart,
@@ -876,14 +910,22 @@ export function buildAttendanceRosterPreview(input: {
         isWeekOff: false,
         matchRule: "location_mismatch",
         status: "unmatched",
-        message: "Row location does not match the selected site.",
+        message: `Row location (${(locationCode ?? locationRaw) || "—"}) does not match the selected site (${selectedLabel}).`,
       });
       continue;
     }
     const duty = parseDutyCell(draft.dutyRaw);
     const isWeekOff = duty.isWeekOff;
+    const locationLabel =
+      (locationId ? input.locations.find((l) => l.id === locationId)?.code : null) ?? locationCode;
     const matched = matchAttendanceRosterStaff(
-      { qid: ids.qid, employeeCode: ids.code, name: ids.name, locationId },
+      {
+        qid: ids.qid,
+        employeeCode: ids.code,
+        name: ids.name,
+        locationId,
+        locationLabel,
+      },
       input.staff,
       input.nameMaps ?? [],
     );
@@ -893,6 +935,27 @@ export function buildAttendanceRosterPreview(input: {
     }
     const loc = input.locations.find((l) => l.id === locationId);
     const sourceName = ids.name || ids.code || ids.qid || matched.label;
+    let message = matched.message;
+    if (!matched.staffId && matched.matchRule === "name_unmatched" && locationId && ids.name) {
+      const at = loc?.code ?? locationCode ?? "this location";
+      const nameNorm = normalizeName(ids.name);
+      const otherCodes = [
+        ...new Set(
+          input.staff
+            .filter((s) => isActiveRosterStaff(s.status) && normalizeName(s.full_name) === nameNorm)
+            .flatMap((s) => {
+              const home = input.locations.find((l) => l.id === s.location_id)?.code;
+              const work = (s.work_location_ids ?? [])
+                .map((id) => input.locations.find((l) => l.id === id)?.code)
+                .filter(Boolean);
+              return [home, ...work].filter((c): c is string => Boolean(c) && c !== at);
+            }),
+        ),
+      ];
+      message = otherCodes.length
+        ? `No exact name match at ${at} (same name at ${otherCodes.join(", ")}).`
+        : `No exact name match at ${at}.`;
+    }
     rows.push({
       rowNumber: draft.rowNumber,
       workDate,
@@ -910,7 +973,7 @@ export function buildAttendanceRosterPreview(input: {
       isWeekOff,
       matchRule: matched.matchRule,
       status: matched.staffId ? "matched" : "unmatched",
-      message: matched.message,
+      message,
     });
   }
 

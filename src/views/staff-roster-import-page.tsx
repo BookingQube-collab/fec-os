@@ -116,12 +116,22 @@ export default function StaffRosterImportPage() {
   const [periodMode, setPeriodMode] = useState<AttendanceRosterPeriodMode>("week");
   const [weekStart, setWeekStart] = useState(() => qatarWeekBounds(todayYmd()).dateFrom);
   const [month, setMonth] = useState(() => payrollMonthOf(todayYmd()));
+  const [locationScope, setLocationScope] = useState<"single" | "multi">("multi");
+  const [singleLocationId, setSingleLocationId] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [sampleOpen, setSampleOpen] = useState(false);
   const [sampleBusy, setSampleBusy] = useState(false);
   const storeLocationId = useAppStore((s) => s.currentLocationId);
   const sites = useSites();
+
+  useEffect(() => {
+    if (venueSafeOnly) setLocationScope("single");
+  }, [venueSafeOnly]);
+
+  useEffect(() => {
+    if (!singleLocationId && storeLocationId) setSingleLocationId(storeLocationId);
+  }, [storeLocationId, singleLocationId]);
 
   const period = useMemo(() => {
     try {
@@ -186,6 +196,11 @@ export default function StaffRosterImportPage() {
       form.set("month", month);
       form.set("dateFrom", period.dateFrom);
       form.set("dateTo", period.dateTo);
+      form.set("locationScope", locationScope);
+      if (locationScope === "single") {
+        if (!singleLocationId) throw new Error(t("people.roster.locationScopeNeedSite"));
+        form.set("locationId", singleLocationId);
+      }
       if (arg.mode === "preview") {
         if (!file) throw new Error(t("people.roster.chooseFile"));
         form.append("file", file);
@@ -241,12 +256,13 @@ export default function StaffRosterImportPage() {
 
   useEffect(() => {
     if (!file) return;
-    const key = `${file.name}:${file.size}:${file.lastModified}:${periodMode}:${period.dateFrom}:${period.dateTo}`;
+    if (locationScope === "single" && !singleLocationId) return;
+    const key = `${file.name}:${file.size}:${file.lastModified}:${periodMode}:${period.dateFrom}:${period.dateTo}:${locationScope}:${singleLocationId ?? ""}`;
     if (previewKeyRef.current === key) return;
     previewKeyRef.current = key;
     uploadMut.mutate({ mode: "preview" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [file, periodMode, period.dateFrom, period.dateTo]);
+  }, [file, periodMode, period.dateFrom, period.dateTo, locationScope, singleLocationId]);
 
   const readyToConfirm = Boolean(
     preview?.batchId &&
@@ -352,6 +368,50 @@ export default function StaffRosterImportPage() {
             />
             <p className="text-xs text-muted-foreground">{t("people.roster.periodHelp")}</p>
           </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="roster-import-location-scope">{t("people.roster.locationScope")}</Label>
+            <SearchableSelect
+              id="roster-import-location-scope"
+              value={locationScope}
+              onValueChange={(next) => {
+                setLocationScope(next === "single" ? "single" : "multi");
+                previewKeyRef.current = null;
+                setPreview(null);
+              }}
+              options={[
+                { value: "single", label: t("people.roster.locationScopeSingle") },
+                ...(!venueSafeOnly
+                  ? [{ value: "multi", label: t("people.roster.locationScopeMulti") }]
+                  : []),
+              ]}
+            />
+            <p className="text-xs text-muted-foreground">
+              {locationScope === "single"
+                ? t("people.roster.locationScopeHelpSingle")
+                : t("people.roster.locationScopeHelpMulti")}
+            </p>
+          </div>
+          {locationScope === "single" ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="roster-import-site">{t("people.roster.locationScopeSite")}</Label>
+              <SearchableSelect
+                id="roster-import-site"
+                value={singleLocationId ?? ""}
+                onValueChange={(next) => {
+                  setSingleLocationId(next || null);
+                  previewKeyRef.current = null;
+                  setPreview(null);
+                }}
+                placeholder={t("people.roster.sampleSelectLocation")}
+                options={sampleLocations.map((loc) => ({
+                  value: loc.id,
+                  label: loc.code,
+                  description: loc.name,
+                  keywords: `${loc.code} ${loc.name}`,
+                }))}
+              />
+            </div>
+          ) : null}
           {periodMode === "week" ? (
             <div className="space-y-1.5">
               <Label htmlFor="roster-import-week">{t("people.roster.weekStart")}</Label>
@@ -874,6 +934,7 @@ const ShiftPreviewRowView = memo(function ShiftPreviewRowView({
     return staffOptions.filter((s) => staffAvailableAtLocation(s, row.locationId) || keep.has(s.id));
   }, [canMap, staffOptions, row.locationId, row.staffId]);
   const sourceName = row.sourceName?.trim() || row.staffLabel;
+  const locationLabel = row.locationCode?.trim() || null;
 
   return (
     <TableRow>
@@ -885,7 +946,7 @@ const ShiftPreviewRowView = memo(function ShiftPreviewRowView({
         ) : null}
         <div className="text-xs text-muted-foreground">{row.employeeCode || row.qid || ""}</div>
       </TableCell>
-      <TableCell>{row.locationCode ?? "—"}</TableCell>
+      <TableCell>{locationLabel ?? "—"}</TableCell>
       <TableCell>
         <ShiftRangeEditor
           start={row.shiftStart}
@@ -915,6 +976,11 @@ const ShiftPreviewRowView = memo(function ShiftPreviewRowView({
           {row.status}
         </Badge>
         {row.message ? <p className="mt-1 text-xs text-muted-foreground">{row.message}</p> : null}
+        {row.status === "unmatched" && locationLabel && !row.message?.includes(locationLabel) ? (
+          <p className="mt-1 text-xs text-muted-foreground">
+            {t("people.roster.triedAtLocation", { location: locationLabel })}
+          </p>
+        ) : null}
         {canMap ? (
           <div className="mt-2 space-y-1">
             <SearchableSelect
@@ -924,10 +990,19 @@ const ShiftPreviewRowView = memo(function ShiftPreviewRowView({
                 if (!value || value === row.staffId) return;
                 onMapStaff(row, value);
               }}
-              placeholder={t("people.roster.mapStaffPlaceholder")}
+              placeholder={
+                locationLabel
+                  ? t("people.roster.mapStaffAtLocation", { location: locationLabel })
+                  : t("people.roster.mapStaffPlaceholder")
+              }
               emptyOption={
                 row.status === "unmatched"
-                  ? { value: "", label: t("people.roster.mapStaffPlaceholder") }
+                  ? {
+                      value: "",
+                      label: locationLabel
+                        ? t("people.roster.mapStaffAtLocation", { location: locationLabel })
+                        : t("people.roster.mapStaffPlaceholder"),
+                    }
                   : undefined
               }
               triggerClassName="h-auto min-h-9 min-w-48 max-w-72 px-2 text-left font-normal"

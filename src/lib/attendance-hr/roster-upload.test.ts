@@ -617,6 +617,89 @@ describe("buildAttendanceRosterPreview", () => {
     });
   });
 
+  it("multi-location mode matches each row at its LOCATION column site", () => {
+    const preview = buildAttendanceRosterPreview({
+      records: [
+        {
+          DATE: "16-Aug-2026",
+          EMPLOYEE: "Hassan Al-Kaabi",
+          LOCATION: "KDS-CC",
+          SHIFT: "10:00 AM—6:00 PM",
+        },
+        {
+          DATE: "16-Aug-2026",
+          EMPLOYEE: "Sara Khan",
+          LOCATION: "InflataPark - City Center",
+          SHIFT: "10:00 AM—6:00 PM",
+        },
+        {
+          DATE: "16-Aug-2026",
+          EMPLOYEE: "Ahmed Ali",
+          LOCATION: "UA-DM",
+          SHIFT: "10:00 AM—6:00 PM",
+        },
+      ],
+      periodMode: "week",
+      dateFrom: "2026-08-16",
+      dateTo: "2026-08-22",
+      selectedLocationId: null,
+      staff,
+      locations: [
+        ...locations,
+        { id: "33333333-3333-4333-8333-333333333333", code: "UA-DM", name: "Urban Arena", region: "Doha Mall" },
+      ],
+      shifts: [],
+    });
+    expect(preview.matched).toBe(2);
+    expect(preview.unmatched).toBe(1);
+    expect(preview.rows[0]).toMatchObject({
+      staffId: "s-hassan",
+      locationCode: "KDS-CC",
+      matchRule: "name_location",
+      status: "matched",
+    });
+    expect(preview.rows[1]).toMatchObject({
+      staffId: "s-sara",
+      locationCode: "INF-CC",
+      matchRule: "name_location",
+      status: "matched",
+    });
+    expect(preview.rows[2]).toMatchObject({
+      staffId: null,
+      locationCode: "UA-DM",
+      status: "unmatched",
+      matchRule: "name_unmatched",
+    });
+    expect(preview.rows[2].message).toMatch(/UA-DM/);
+    expect(preview.rows[2].message).toMatch(/INF-CC|KDS-CC/);
+  });
+
+  it("flags unknown LOCATION values in multi-location mode", () => {
+    const preview = buildAttendanceRosterPreview({
+      records: [
+        {
+          DATE: "16-Aug-2026",
+          EMPLOYEE: "Hassan Al-Kaabi",
+          LOCATION: "Mystery Mall",
+          SHIFT: "10:00 AM—6:00 PM",
+        },
+      ],
+      periodMode: "week",
+      dateFrom: "2026-08-16",
+      dateTo: "2026-08-22",
+      selectedLocationId: null,
+      staff,
+      locations,
+      shifts: [],
+    });
+    expect(preview.unmatched).toBe(1);
+    expect(preview.rows[0]).toMatchObject({
+      matchRule: "location_unresolved",
+      status: "unmatched",
+    });
+    expect(preview.rows[0].message).toMatch(/Mystery Mall/);
+  });
+
   it("reproduces 95 parsed Excel rows vs 92 saved when 3 are duplicate staff + date", () => {
     const period = attendanceRosterPeriod({ mode: "month", month: "2026-08" });
     const monthDays: string[] = [];
