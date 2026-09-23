@@ -6066,7 +6066,7 @@
       "kicker": "Time & Attendance",
       "title": "Attendance",
       "subtitle": "Daily register after biometric and file import. Staff names appear once User IDs are mapped.",
-      "flexibleHint": "Multi-site flexible staff (People → staff → Flexible hours): in/out across locations merge into one Present day at the first punch site. Shift times come from the roster; reporting lead and buffer are set on the staff profile.",
+      "flexibleHint": "Multi-site flexible staff (People → staff → Flexible hours): in/out across locations merge into one Present day. Location shows check-in → check-out sites when they differ. Shift times come from the roster; reporting lead and buffer are set on the staff profile.",
       "month": "Month",
       "from": "From",
       "to": "To",

@@ -49,9 +49,11 @@ export {
 } from "./shift-policy";
 export {
   flexibleDayAnchorLocationId,
+  flexibleDayFirstLastLocationIds,
   flexibleDayRecalcAction,
   flexibleDayHasQualifyingPunches,
   flexibleDayNonAnchorPunchLocations,
+  formatFlexibleCrossSiteLocationLabel,
 } from "./flexible-cross-site";
 export {
   computeLatePunchMinutes,
@@ -91,8 +93,10 @@ export {
   attendanceHrExportStaffName,
   attendanceHrListingLocation,
   attendanceHrToListingSource,
+  collapseFlexibleAttendanceReportRows,
   computeAttendanceHrReportKpis,
   isMappedAttendanceHrRow,
+  attendanceHrRowMatchesLocation,
 } from "./report";
 export {
   persistOriginalFile,

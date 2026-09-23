@@ -5,9 +5,11 @@ import { DEFAULT_SHIFT } from "./constants";
 import { applyAttendanceShiftPolicy, resolveReportingAndBuffer } from "./shift-policy";
 import {
   flexibleDayAnchorLocationId,
+  flexibleDayFirstLastLocationIds,
   flexibleDayHasQualifyingPunches,
   flexibleDayNonAnchorPunchLocations,
   flexibleDayRecalcAction,
+  formatFlexibleCrossSiteLocationLabel,
 } from "./flexible-cross-site";
 
 describe("flexible cross-site attendance", () => {
@@ -21,6 +23,17 @@ describe("flexible cross-site attendance", () => {
         { locationId: inf, punchAt: "2026-09-20T05:00:00.000Z" },
       ]),
     ).toBe(inf);
+  });
+
+  it("resolves first check-in and last check-out locations", () => {
+    expect(
+      flexibleDayFirstLastLocationIds([
+        { locationId: ua, punchAt: "2026-09-20T14:00:00.000Z" },
+        { locationId: inf, punchAt: "2026-09-20T05:00:00.000Z" },
+      ]),
+    ).toEqual({ checkInLocationId: inf, checkOutLocationId: ua });
+    expect(formatFlexibleCrossSiteLocationLabel("INF-CC", "UA-DM")).toBe("INF-CC → UA-DM");
+    expect(formatFlexibleCrossSiteLocationLabel("INF-CC", "INF-CC")).toBe("INF-CC");
   });
 
   it("write_merged at first-punch site; suppress at roster-only / out-only site", () => {

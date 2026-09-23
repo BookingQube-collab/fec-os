@@ -60,10 +60,19 @@ import {
 } from "@/lib/attendance-hr/late-punch";
 import {
   attendanceHrStaffMatches,
+  collapseFlexibleAttendanceReportRows,
   isAttendanceHrUnmappedSearch,
   type AttendanceHrReportRow,
 } from "@/lib/attendance-hr/report";
-import { CANONICAL_LOCATION_CODES } from "@/lib/locations/normalize";
+import {
+  flexibleDayFirstLastLocationIds,
+  type FlexibleCrossSitePunch,
+} from "@/lib/attendance-hr/flexible-cross-site";
+import {
+  CANONICAL_LOCATION_CODES,
+  formatLocationLabel,
+  formatLocationName,
+} from "@/lib/locations/normalize";
 import {
   fetchHomeStaffIdsAtLocation,
   fetchStaffIdsWorkingAtLocation,
@@ -570,6 +579,53 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
       rows.push(...((page ?? []) as Array<Record<string, unknown>>));
       if (!page || page.length < ATTENDANCE_DAILY_LIST_PAGE_SIZE) break;
     }
+
+    // Flexible staff may keep the day at the first-punch site while this chip is only
+    // check-in or check-out — pull sibling person-days that punched here, then collapse.
+    if (data.locationId) {
+      const flexPunchDays = await flexibleStaffPunchDaysAtLocation(
+        context,
+        data.locationId,
+        data.dateFrom,
+        data.dateTo,
+        staffFilter === "unmapped"
+          ? null
+          : staffFilter !== "none" && "ids" in staffFilter
+            ? staffFilter.ids
+            : null,
+      );
+      const staffIds = [...flexPunchDays.keys()].filter((id) =>
+        deptStaffIds ? deptStaffIds.includes(id) : true,
+      );
+      if (staffIds.length) {
+        const seenIds = new Set(rows.map((r) => String(r.id ?? "")));
+        for (let from = 0; ; from += ATTENDANCE_DAILY_LIST_PAGE_SIZE) {
+          let q = context.supabase
+            .from("attendance_daily_summary")
+            .select("*")
+            .in("staff_id", staffIds)
+            .gte("work_date", data.dateFrom)
+            .lte("work_date", data.dateTo)
+            .order("work_date", { ascending: false })
+            .order("id", { ascending: false })
+            .range(from, from + ATTENDANCE_DAILY_LIST_PAGE_SIZE - 1);
+          if (data.status) q = q.eq("status", data.status);
+          const { data: page, error } = await q;
+          if (error) throw error;
+          for (const row of page ?? []) {
+            const id = String(row.id ?? "");
+            if (id && seenIds.has(id)) continue;
+            const staffId = String(row.staff_id ?? "");
+            const day = String(row.work_date ?? "").slice(0, 10);
+            if (!flexPunchDays.get(staffId)?.has(day)) continue;
+            if (id) seenIds.add(id);
+            rows.push(row as Record<string, unknown>);
+          }
+          if (!page || page.length < ATTENDANCE_DAILY_LIST_PAGE_SIZE) break;
+        }
+      }
+    }
+
     return enrichAttendanceHrDailyRows(context, rows);
   },
   { auth: { capability: "attendance.view" } },
@@ -2007,7 +2063,7 @@ async function enrichAttendanceHrDailyRows(
     }
   }
 
-  return rows.map((row) => {
+  const enriched: AttendanceHrReportRow[] = rows.map((row) => {
     const staff = typeof row.staff_id === "string" ? staffById.get(row.staff_id) : undefined;
     const location = typeof row.location_id === "string" ? locationById.get(row.location_id) : undefined;
     const locationId = typeof row.location_id === "string" ? row.location_id : "";
@@ -2094,8 +2150,135 @@ async function enrichAttendanceHrDailyRows(
       permanent_hours: permanentHours,
       secondment_hours: secondmentHours,
       joker_hours: jokerHours,
+      flexible_attendance: Boolean(staff?.flexible_attendance),
     };
   });
+
+  const flexibleIds = [
+    ...new Set(
+      enriched
+        .filter((row) => row.flexible_attendance && row.staff_id)
+        .map((row) => row.staff_id as string),
+    ),
+  ];
+  if (flexibleIds.length === 0 || !dateFrom || !dateTo) {
+    return collapseFlexibleAttendanceReportRows(enriched);
+  }
+
+  const punchesByStaffDay = new Map<string, FlexibleCrossSitePunch[]>();
+  const punchLocationIds = new Set<string>();
+  for (let from = 0; ; from += ATTENDANCE_DAILY_LIST_PAGE_SIZE) {
+    const { data: page, error: punchErr } = await context.supabase
+      .from("attendance_logs")
+      .select("staff_id, location_id, punch_at, attendance_date, probable_duplicate, excluded_from_calc")
+      .in("staff_id", flexibleIds)
+      .gte("attendance_date", dateFrom)
+      .lte("attendance_date", dateTo)
+      .order("punch_at", { ascending: true })
+      .range(from, from + ATTENDANCE_DAILY_LIST_PAGE_SIZE - 1);
+    if (punchErr) throw punchErr;
+    for (const log of page ?? []) {
+      const staffId = log.staff_id ? String(log.staff_id) : "";
+      const day = String(log.attendance_date ?? "").slice(0, 10);
+      const locationId = String(log.location_id ?? "");
+      if (!staffId || !day || !locationId) continue;
+      punchLocationIds.add(locationId);
+      const key = `${staffId}|${day}`;
+      const list = punchesByStaffDay.get(key) ?? [];
+      list.push({
+        locationId,
+        punchAt: String(log.punch_at),
+        probableDuplicate: Boolean(log.probable_duplicate),
+        excludedFromCalc: Boolean(log.excluded_from_calc),
+      });
+      punchesByStaffDay.set(key, list);
+    }
+    if (!page || page.length < ATTENDANCE_DAILY_LIST_PAGE_SIZE) break;
+  }
+
+  const missingLocIds = [...punchLocationIds].filter((id) => !locationById.has(id));
+  if (missingLocIds.length) {
+    const extraLocs = await loadByIds<LocationLookup>(
+      context,
+      "locations",
+      "id, code, name, region",
+      missingLocIds,
+    );
+    for (const loc of extraLocs) locationById.set(loc.id, loc);
+  }
+
+  const withSites = enriched.map((row) => {
+    if (!row.flexible_attendance || !row.staff_id) return row;
+    const key = `${row.staff_id}|${String(row.work_date).slice(0, 10)}`;
+    const punches = punchesByStaffDay.get(key) ?? [];
+    const { checkInLocationId, checkOutLocationId } = flexibleDayFirstLastLocationIds(punches);
+    const inLoc = checkInLocationId ? locationById.get(checkInLocationId) : undefined;
+    const outLoc = checkOutLocationId ? locationById.get(checkOutLocationId) : undefined;
+    const inLabel = inLoc
+      ? formatLocationLabel(inLoc.code, formatLocationName(inLoc.name, inLoc.region) || inLoc.name)
+      : null;
+    const outLabel = outLoc
+      ? formatLocationLabel(outLoc.code, formatLocationName(outLoc.name, outLoc.region) || outLoc.name)
+      : null;
+    return {
+      ...row,
+      check_in_location_id: checkInLocationId,
+      check_out_location_id: checkOutLocationId,
+      check_in_location_code: inLoc?.code ?? null,
+      check_out_location_code: outLoc?.code ?? null,
+      check_in_location_label: inLabel,
+      check_out_location_label: outLabel,
+    };
+  });
+
+  return collapseFlexibleAttendanceReportRows(withSites);
+}
+
+/** Flexible staff who punched at `locationId` in range → staffId → attendance dates. */
+async function flexibleStaffPunchDaysAtLocation(
+  context: AuthContext,
+  locationId: string,
+  dateFrom: string,
+  dateTo: string,
+  staffIds: string[] | null,
+): Promise<Map<string, Set<string>>> {
+  const out = new Map<string, Set<string>>();
+  let staffQ = context.supabase
+    .from("staff")
+    .select("id")
+    .eq("flexible_attendance", true)
+    .is("deleted_at", null)
+    .limit(5000);
+  if (staffIds?.length) staffQ = staffQ.in("id", staffIds);
+  const { data: flexStaff, error: staffErr } = await staffQ;
+  if (staffErr) throw staffErr;
+  const flexIds = (flexStaff ?? []).map((row) => String(row.id)).filter(Boolean);
+  if (!flexIds.length) return out;
+
+  for (let i = 0; i < flexIds.length; i += 200) {
+    const chunk = flexIds.slice(i, i + 200);
+    for (let from = 0; ; from += ATTENDANCE_DAILY_LIST_PAGE_SIZE) {
+      const { data: page, error } = await context.supabase
+        .from("attendance_logs")
+        .select("staff_id, attendance_date")
+        .eq("location_id", locationId)
+        .in("staff_id", chunk)
+        .gte("attendance_date", dateFrom)
+        .lte("attendance_date", dateTo)
+        .range(from, from + ATTENDANCE_DAILY_LIST_PAGE_SIZE - 1);
+      if (error) throw error;
+      for (const log of page ?? []) {
+        const staffId = log.staff_id ? String(log.staff_id) : "";
+        const day = String(log.attendance_date ?? "").slice(0, 10);
+        if (!staffId || !day) continue;
+        const set = out.get(staffId) ?? new Set<string>();
+        set.add(day);
+        out.set(staffId, set);
+      }
+      if (!page || page.length < ATTENDANCE_DAILY_LIST_PAGE_SIZE) break;
+    }
+  }
+  return out;
 }
 
 async function matchingStaffIds(context: AuthContext, needle: string): Promise<string[]> {

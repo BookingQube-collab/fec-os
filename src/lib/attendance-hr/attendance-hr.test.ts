@@ -40,9 +40,11 @@ import {
 } from "./mapping-merge";
 import {
   attendanceHrDisplayStaffName,
+  attendanceHrListingLocation,
   attendanceHrRowMatchesLocation,
   attendanceHrStaffMatches,
   attendanceHrToListingSource,
+  collapseFlexibleAttendanceReportRows,
   computeAttendanceHrReportKpis,
   formatAttendanceHrLocation,
   type AttendanceHrReportRow,
@@ -648,6 +650,69 @@ describe("HR report row helpers", () => {
     expect(attendanceHrRowMatchesLocation(inf, "inf-cc")).toBe(true);
     expect(attendanceHrRowMatchesLocation(kds, "inf-cc")).toBe(false);
     expect(attendanceHrRowMatchesLocation(kds, null)).toBe(true);
+    expect(
+      attendanceHrRowMatchesLocation(
+        { location_id: "inf-cc", check_in_location_id: "inf-cc", check_out_location_id: "ua-dm" },
+        "ua-dm",
+      ),
+    ).toBe(true);
+  });
+
+  it("collapses flexible multi-site same-day rows into one person-day", () => {
+    const base = {
+      staff_id: "rus",
+      biometric_user_id: "1",
+      work_date: "2026-09-19",
+      late_minutes: 0,
+      early_leave_minutes: 0,
+      overtime_minutes: 0,
+      missed_punch: false,
+      employment_type: "permanent",
+      staff_name: "Russell",
+      employee_code: "FEC-TEC01",
+      qid: null,
+      location_name: null,
+      location_region: null,
+      flexible_attendance: true,
+    } as const;
+    const collapsed = collapseFlexibleAttendanceReportRows([
+      {
+        ...base,
+        id: "absent-inf",
+        location_id: "inf",
+        location_code: "INF-CC",
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        punch_count: 0,
+        worked_minutes: null,
+      },
+      {
+        ...base,
+        id: "late-kds",
+        location_id: "kds",
+        location_code: "KDS-CC",
+        status: "late",
+        actual_in: "2026-09-19T07:04:38.000Z",
+        actual_out: "2026-09-19T15:58:17.000Z",
+        punch_count: 2,
+        worked_minutes: 480,
+        late_minutes: 5,
+      },
+    ]);
+    expect(collapsed).toHaveLength(1);
+    expect(collapsed[0]?.id).toBe("late-kds");
+    expect(collapsed[0]?.actual_in).toBe("2026-09-19T07:04:38.000Z");
+    expect(collapsed[0]?.actual_out).toBe("2026-09-19T15:58:17.000Z");
+    expect(
+      attendanceHrListingLocation({
+        location_code: "KDS-CC",
+        location_name: "Kids",
+        location_region: null,
+        check_in_location_code: "INF-CC",
+        check_out_location_code: "UA-DM",
+      }),
+    ).toBe("INF-CC → UA-DM");
   });
 
   it("prefers device name over Unmapped label for listing display", () => {

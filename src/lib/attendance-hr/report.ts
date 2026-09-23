@@ -1,6 +1,7 @@
 import { formatLocationLabel, formatLocationName, rosterSheetLabel } from "@/lib/locations/normalize";
 import { breakMinutesForLocation, expectedShiftMinutes, normalizeAttendanceEmploymentRole } from "@/lib/attendance-hr/shift-policy";
 import { resolveHoursBasedAttendanceStatus } from "@/lib/attendance-display";
+import { formatFlexibleCrossSiteLocationLabel } from "@/lib/attendance-hr/flexible-cross-site";
 
 export type AttendanceHrReportRow = {
   id: string;
@@ -43,6 +44,15 @@ export type AttendanceHrReportRow = {
   permanent_hours?: number | null;
   secondment_hours?: number | null;
   joker_hours?: number | null;
+  /** staff.flexible_attendance — listing collapses multi-site same-day rows. */
+  flexible_attendance?: boolean;
+  /** Location of the earliest usable punch (check-in site). */
+  check_in_location_id?: string | null;
+  check_out_location_id?: string | null;
+  check_in_location_code?: string | null;
+  check_out_location_code?: string | null;
+  check_in_location_label?: string | null;
+  check_out_location_label?: string | null;
 };
 
 export function isAttendanceHrUnmappedSearch(raw: string): boolean {
@@ -100,13 +110,118 @@ export function attendanceHrExportStaffName(
   return attendanceHrDisplayStaffName(row, unmapped);
 }
 
-/** Site label for the people-style attendance listing: code plus live name. */
+/** Site label for the people-style attendance listing: code plus live name, or in → out codes. */
 export function attendanceHrListingLocation(
-  row: Pick<AttendanceHrReportRow, "location_code" | "location_name" | "location_region">,
+  row: Pick<
+    AttendanceHrReportRow,
+    | "location_code"
+    | "location_name"
+    | "location_region"
+    | "check_in_location_code"
+    | "check_out_location_code"
+  >,
 ): string {
+  const inCode = row.check_in_location_code?.trim() || "";
+  const outCode = row.check_out_location_code?.trim() || "";
+  if (inCode && outCode && inCode !== outCode) {
+    return formatFlexibleCrossSiteLocationLabel(inCode, outCode) ?? inCode;
+  }
   const liveName = formatLocationName(row.location_name, row.location_region);
   const name = liveName || rosterSheetLabel(row.location_code ?? "", row.location_name);
-  return formatLocationLabel(row.location_code, name);
+  return formatLocationLabel(row.location_code || inCode || outCode, name);
+}
+
+function flexibleDayRowScore(row: AttendanceHrReportRow): number {
+  let score = 0;
+  score += Math.min(Number(row.punch_count) || 0, 20) * 100;
+  if (row.actual_in) score += 50;
+  if (row.actual_out) score += 40;
+  if (row.worked_minutes != null && Number(row.worked_minutes) > 0) score += 30;
+  const status = String(row.status ?? "").toLowerCase();
+  if (status && status !== "absent") score += 20;
+  if (status === "present" || status === "late" || status === "overtime") score += 10;
+  return score;
+}
+
+function earlierIso(a: string | null | undefined, b: string | null | undefined): string | null {
+  if (!a) return b ?? null;
+  if (!b) return a;
+  return new Date(a).getTime() <= new Date(b).getTime() ? a : b;
+}
+
+function laterIso(a: string | null | undefined, b: string | null | undefined): string | null {
+  if (!a) return b ?? null;
+  if (!b) return a;
+  return new Date(a).getTime() >= new Date(b).getTime() ? a : b;
+}
+
+/**
+ * Safety net: one row per staff+date for flexible_attendance staff when multi-site
+ * summaries still exist (stale ABSENT fillers). Prefer the punched / timed row;
+ * merge earliest in + latest out across the group.
+ */
+export function collapseFlexibleAttendanceReportRows(
+  rows: AttendanceHrReportRow[],
+): AttendanceHrReportRow[] {
+  const flexibleGroups = new Map<string, AttendanceHrReportRow[]>();
+  const passthrough: AttendanceHrReportRow[] = [];
+
+  for (const row of rows) {
+    if (!row.flexible_attendance || !row.staff_id) {
+      passthrough.push(row);
+      continue;
+    }
+    const key = `${row.staff_id}|${String(row.work_date).slice(0, 10)}`;
+    const list = flexibleGroups.get(key) ?? [];
+    list.push(row);
+    flexibleGroups.set(key, list);
+  }
+
+  const collapsed: AttendanceHrReportRow[] = [];
+  for (const group of flexibleGroups.values()) {
+    if (group.length === 1) {
+      collapsed.push(group[0]!);
+      continue;
+    }
+    const ranked = [...group].sort((a, b) => flexibleDayRowScore(b) - flexibleDayRowScore(a));
+    const winner = ranked[0]!;
+    let actualIn = winner.actual_in;
+    let actualOut = winner.actual_out;
+    let worked = winner.worked_minutes;
+    let punchCount = winner.punch_count;
+    let overtime = winner.overtime_minutes;
+    let late = winner.late_minutes;
+    let missed = winner.missed_punch;
+    for (const row of ranked.slice(1)) {
+      actualIn = earlierIso(actualIn, row.actual_in);
+      actualOut = laterIso(actualOut, row.actual_out);
+      if (row.worked_minutes != null && (worked == null || Number(row.worked_minutes) > Number(worked))) {
+        worked = row.worked_minutes;
+      }
+      punchCount = Math.max(Number(punchCount) || 0, Number(row.punch_count) || 0);
+      overtime = Math.max(Number(overtime) || 0, Number(row.overtime_minutes) || 0);
+      if (Number(row.late_minutes) > Number(late)) late = row.late_minutes;
+      missed = missed || row.missed_punch;
+    }
+    collapsed.push({
+      ...winner,
+      actual_in: actualIn,
+      actual_out: actualOut,
+      worked_minutes: worked,
+      punch_count: punchCount,
+      overtime_minutes: overtime,
+      late_minutes: late,
+      missed_punch: missed,
+    });
+  }
+
+  return [...passthrough, ...collapsed].sort((a, b) => {
+    const dateCmp = String(b.work_date).localeCompare(String(a.work_date));
+    if (dateCmp !== 0) return dateCmp;
+    return String(a.staff_name ?? a.id).localeCompare(String(b.staff_name ?? b.id), undefined, {
+      sensitivity: "base",
+    });
+  });
 }
 
 export function attendanceHrToListingSource(
@@ -240,13 +355,19 @@ export function isMappedAttendanceHrRow(row: Pick<AttendanceHrReportRow, "staff_
 }
 
 /**
- * Reports site chip: every listed/KPI row must match the selected location_id.
- * Staff search must not pull other sites' punches for the same name.
+ * Reports site chip: every listed/KPI row must match the selected location_id,
+ * or (flexible) the check-in / check-out punch site for that day.
  */
 export function attendanceHrRowMatchesLocation(
-  row: Pick<AttendanceHrReportRow, "location_id">,
+  row: Pick<
+    AttendanceHrReportRow,
+    "location_id" | "check_in_location_id" | "check_out_location_id"
+  >,
   locationId: string | null | undefined,
 ): boolean {
   if (!locationId) return true;
-  return row.location_id === locationId;
+  if (row.location_id === locationId) return true;
+  if (row.check_in_location_id === locationId) return true;
+  if (row.check_out_location_id === locationId) return true;
+  return false;
 }
