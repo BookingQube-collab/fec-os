@@ -6,17 +6,17 @@ import { canUserDo, type AppRole } from "@/lib/rbac";
 import { createAuthenticatedAction, type AuthContext } from "@/lib/server/create-action";
 import { ForbiddenError } from "@/lib/server/authorize";
 import { assertAttendanceRosterLocation } from "@/lib/attendance-hr/roster-apply";
-import {
-  loadActiveShiftTemplates,
-  resolveOrCreateShiftTemplate,
-} from "@/lib/attendance-hr/roster-amend";
+import { loadActiveShiftTemplates } from "@/lib/attendance-hr/roster-amend";
 import { recalculateAttendanceRange } from "@/lib/attendance-hr/process";
-import { parseTimeCell } from "@/lib/attendance-hr/roster-upload";
+import { matchShiftTemplate, parseTimeCell } from "@/lib/attendance-hr/roster-upload";
 import {
   assertRosterDeletePeriod,
   chunkIds,
   collectPagedRows,
+  rosterPatchFromDayStatus,
   rosterRowMatchesSearch,
+  type RosterDayStatus,
+  type RosterLeaveType,
 } from "@/lib/attendance-hr/roster-register-scope";
 import { mapRosterPeriodByDayIndex, monthBounds, nextPayrollMonth } from "@/lib/attendance-hr/roster-period";
 import { ATTENDANCE_DAILY_LIST_PAGE_SIZE } from "@/lib/attendance-hr/constants";
@@ -42,8 +42,44 @@ export type RosterRegisterRow = {
   shiftEnd: string | null;
   shiftTemplateId: string | null;
   isWeekOff: boolean;
+  /** From attendance_leave_records when present (annual_leave / sick_leave). */
+  leaveType: RosterLeaveType | null;
   source: string;
 };
+
+async function syncRosterLeaveRecord(
+  supabase: AuthContext["supabase"],
+  input: {
+    locationId: string;
+    staffId: string;
+    workDate: string;
+    leaveType: RosterLeaveType | null;
+    userId: string;
+  },
+) {
+  if (input.leaveType) {
+    const { error } = await supabase.from("attendance_leave_records").upsert(
+      {
+        location_id: input.locationId,
+        staff_id: input.staffId,
+        leave_date: input.workDate,
+        leave_type: input.leaveType,
+        source: "roster_amend",
+        created_by: input.userId,
+      },
+      { onConflict: "staff_id,leave_date" },
+    );
+    if (error) throw error;
+    return;
+  }
+  // Day status left leave — clear the leave row so attendance matches On duty / Week off.
+  const { error } = await supabase
+    .from("attendance_leave_records")
+    .delete()
+    .eq("staff_id", input.staffId)
+    .eq("leave_date", input.workDate);
+  if (error) throw error;
+}
 
 function assertCanAmendRoster(roles: AppRole[] | string[] | undefined) {
   const list = (roles ?? []) as AppRole[];
@@ -156,12 +192,44 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
     const locById = new Map((locRes.data ?? []).map((row) => [String(row.id), row]));
     const shiftById = new Map((shiftRes.data ?? []).map((row) => [String(row.id), row]));
 
+    const leaveByStaffDate = new Map<string, RosterLeaveType>();
+    if (staffIds.length) {
+      for (const staffChunk of chunkIds(staffIds, 200)) {
+        const leaveRows = await collectPagedRows<{
+          staff_id: string;
+          leave_date: string;
+          leave_type: string;
+        }>(async (from, to) => {
+          const { data: page, error } = await context.supabase
+            .from("attendance_leave_records")
+            .select("staff_id, leave_date, leave_type")
+            .gte("leave_date", data.dateFrom)
+            .lte("leave_date", data.dateTo)
+            .in("staff_id", staffChunk)
+            .order("leave_date", { ascending: true })
+            .order("staff_id", { ascending: true })
+            .range(from, to);
+          if (error) throw error;
+          return (page ?? []) as { staff_id: string; leave_date: string; leave_type: string }[];
+        }, ATTENDANCE_DAILY_LIST_PAGE_SIZE);
+        for (const leave of leaveRows) {
+          const leaveType = String(leave.leave_type);
+          if (leaveType !== "annual_leave" && leaveType !== "sick_leave") continue;
+          leaveByStaffDate.set(
+            `${String(leave.staff_id)}|${String(leave.leave_date).slice(0, 10)}`,
+            leaveType,
+          );
+        }
+      }
+    }
+
     const mapped: RosterRegisterRow[] = assignments.map((row) => {
       const staff = staffById.get(String(row.staff_id));
       const loc = locById.get(String(row.location_id));
       const shift = row.shift_template_id ? shiftById.get(String(row.shift_template_id)) : undefined;
       const startFromRow = (row as { shift_start?: string | null }).shift_start;
       const endFromRow = (row as { shift_end?: string | null }).shift_end;
+      const workDate = String(row.work_date).slice(0, 10);
       return {
         id: String(row.id),
         locationId: String(row.location_id),
@@ -171,7 +239,7 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
         staffName: (staff?.full_name as string | null | undefined) ?? null,
         employeeCode: (staff?.employee_code as string | null | undefined) ?? null,
         qid: (staff?.qid as string | null | undefined) ?? null,
-        workDate: String(row.work_date).slice(0, 10),
+        workDate,
         shiftStart: startFromRow
           ? String(startFromRow).slice(0, 5)
           : shift?.start_time
@@ -184,6 +252,7 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
             : null,
         shiftTemplateId: (row.shift_template_id as string | null) ?? null,
         isWeekOff: Boolean(row.is_week_off),
+        leaveType: leaveByStaffDate.get(`${String(row.staff_id)}|${workDate}`) ?? null,
         source: String(row.source ?? "manual"),
       };
     });
@@ -214,56 +283,87 @@ export const updateRosterAssignment = createAuthenticatedAction(
     shiftStart: z.string().nullable().optional(),
     shiftEnd: z.string().nullable().optional(),
     isWeekOff: z.boolean().optional(),
+    /** Preferred over isWeekOff when set — weekly off / leave / on duty. */
+    dayStatus: z.enum(["on_duty", "weekly_off", "annual_leave", "sick_leave"]).optional(),
   }),
   async (data, context) => {
     assertCanAmendRoster(context.roles);
 
     const { data: existing, error: fetchErr } = await context.supabase
       .from("attendance_roster_assignments")
-      .select("id, location_id, staff_id, work_date, shift_template_id, is_week_off, source")
+      .select("id, location_id, staff_id, work_date, shift_template_id, shift_start, shift_end, is_week_off, source")
       .eq("id", data.id)
       .single();
     if (fetchErr || !existing) throw fetchErr ?? new Error("Roster row not found");
 
     await assertAttendanceRosterLocation(context, existing.location_id);
 
-    const isWeekOff = data.isWeekOff ?? Boolean(existing.is_week_off);
+    const dayStatus: RosterDayStatus | null = data.dayStatus ?? null;
+    const patch = dayStatus
+      ? rosterPatchFromDayStatus(dayStatus)
+      : {
+          isWeekOff: data.isWeekOff ?? Boolean(existing.is_week_off),
+          leaveType: null as RosterLeaveType | null,
+          needsShiftTimes: !(data.isWeekOff ?? Boolean(existing.is_week_off)),
+        };
+    // Legacy isWeekOff-only callers: do not clear unrelated leave rows.
+    const syncLeave = dayStatus != null;
+
+    const isWeekOff = patch.isWeekOff;
     let shiftTemplateId: string | null = null;
     let shiftStart: string | null = null;
     let shiftEnd: string | null = null;
 
-    if (!isWeekOff) {
+    if (patch.needsShiftTimes) {
       const shifts = await loadActiveShiftTemplates(context.supabase);
       const current = shifts.find((s) => s.id === existing.shift_template_id);
+      const existingStart = existing.shift_start
+        ? String(existing.shift_start).slice(0, 5)
+        : current
+          ? String(current.start_time).slice(0, 5)
+          : null;
+      const existingEnd = existing.shift_end
+        ? String(existing.shift_end).slice(0, 5)
+        : current
+          ? String(current.end_time).slice(0, 5)
+          : null;
       const incomingStart = data.shiftStart !== undefined ? parseHm(data.shiftStart) : undefined;
       const incomingEnd = data.shiftEnd !== undefined ? parseHm(data.shiftEnd) : undefined;
-      shiftStart = incomingStart !== undefined ? incomingStart : (current ? String(current.start_time).slice(0, 5) : null);
-      shiftEnd = incomingEnd !== undefined ? incomingEnd : (current ? String(current.end_time).slice(0, 5) : null);
+      shiftStart = incomingStart !== undefined ? incomingStart : existingStart;
+      shiftEnd = incomingEnd !== undefined ? incomingEnd : existingEnd;
       if (!shiftStart || !shiftEnd) {
         throw new Error("On-duty rows need both shift start and end times.");
       }
-      const resolved = await resolveOrCreateShiftTemplate(context.supabase, {
-        locationId: existing.location_id,
-        shiftStart,
-        shiftEnd,
-        shifts,
-      });
-      shiftTemplateId = resolved.shiftTemplateId;
+      // Match an existing template when possible; times on the row are enough if none match.
+      // Avoid creating templates on amend (no HR company / RLS create failures).
+      const matched = matchShiftTemplate(shiftStart, shiftEnd, existing.location_id, shifts);
+      const timesUnchanged = shiftStart === existingStart && shiftEnd === existingEnd;
+      shiftTemplateId = matched ?? (timesUnchanged ? ((existing.shift_template_id as string | null) ?? null) : null);
     }
 
     const { error: updErr } = await context.supabase
       .from("attendance_roster_assignments")
       .update({
         is_week_off: isWeekOff,
-        shift_template_id: isWeekOff ? null : shiftTemplateId,
-        shift_start: isWeekOff ? null : shiftStart,
-        shift_end: isWeekOff ? null : shiftEnd,
+        shift_template_id: patch.needsShiftTimes ? shiftTemplateId : null,
+        shift_start: patch.needsShiftTimes ? shiftStart : null,
+        shift_end: patch.needsShiftTimes ? shiftEnd : null,
         source: existing.source === "upload" || existing.source === "amend" ? "amend" : existing.source,
       })
       .eq("id", data.id);
     if (updErr) throw updErr;
 
     const workDate = String(existing.work_date).slice(0, 10);
+    if (syncLeave) {
+      await syncRosterLeaveRecord(context.supabase, {
+        locationId: existing.location_id,
+        staffId: existing.staff_id,
+        workDate,
+        leaveType: patch.leaveType,
+        userId: context.userId,
+      });
+    }
+
     await recalculateAttendanceRange(context.supabase, existing.location_id, workDate, workDate, {
       staffIds: [existing.staff_id],
     });
@@ -271,9 +371,11 @@ export const updateRosterAssignment = createAuthenticatedAction(
     return {
       id: data.id,
       isWeekOff,
-      shiftStart: isWeekOff ? null : shiftStart,
-      shiftEnd: isWeekOff ? null : shiftEnd,
-      shiftTemplateId: isWeekOff ? null : shiftTemplateId,
+      leaveType: patch.leaveType,
+      dayStatus: dayStatus ?? (isWeekOff ? "weekly_off" : "on_duty"),
+      shiftStart: patch.needsShiftTimes ? shiftStart : null,
+      shiftEnd: patch.needsShiftTimes ? shiftEnd : null,
+      shiftTemplateId: patch.needsShiftTimes ? shiftTemplateId : null,
     };
   },
   { auth: { anyCapability: ["people.import_roster", "people.edit_roster", "daily_ops.roster.upload"] } },
@@ -300,6 +402,14 @@ export const deleteRosterAssignment = createAuthenticatedAction(
     if (delErr) throw delErr;
 
     const workDate = String(existing.work_date).slice(0, 10);
+    // Clear roster-amend leave only; HR leave stays if the day was leave outside this UI.
+    await context.supabase
+      .from("attendance_leave_records")
+      .delete()
+      .eq("staff_id", existing.staff_id)
+      .eq("leave_date", workDate)
+      .eq("source", "roster_amend");
+
     await recalculateAttendanceRange(context.supabase, existing.location_id, workDate, workDate, {
       staffIds: [existing.staff_id],
     });

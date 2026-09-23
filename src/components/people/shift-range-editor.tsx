@@ -24,7 +24,7 @@ export function ShiftRangeEditor({
   const { t } = useTranslation();
 
   if (disabled) {
-    return <span className="text-xs text-muted-foreground">{t("people.roster.dutyOff")}</span>;
+    return <span className="text-xs text-muted-foreground">—</span>;
   }
 
   if (readOnly) {

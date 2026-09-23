@@ -139,6 +139,36 @@ export function chunkIds<T>(items: T[], size: number): T[][] {
   return out;
 }
 
+/** Day kinds editable from the monthly roster amend dialog. */
+export const ROSTER_DAY_STATUSES = ["on_duty", "weekly_off", "annual_leave", "sick_leave"] as const;
+export type RosterDayStatus = (typeof ROSTER_DAY_STATUSES)[number];
+export type RosterLeaveType = "annual_leave" | "sick_leave";
+
+/** Leave wins over week-off when both exist (upload often flags leave as is_week_off). */
+export function rosterDayStatusFromRow(row: {
+  isWeekOff: boolean;
+  leaveType?: string | null;
+}): RosterDayStatus {
+  if (row.leaveType === "annual_leave" || row.leaveType === "sick_leave") return row.leaveType;
+  if (row.isWeekOff) return "weekly_off";
+  return "on_duty";
+}
+
+/**
+ * Map amend UI status → roster + leave patch.
+ * Leave days keep is_week_off=false so attendance calc prefers leave_type over weekly_off.
+ */
+export function rosterPatchFromDayStatus(status: RosterDayStatus): {
+  isWeekOff: boolean;
+  leaveType: RosterLeaveType | null;
+  needsShiftTimes: boolean;
+} {
+  if (status === "weekly_off") return { isWeekOff: true, leaveType: null, needsShiftTimes: false };
+  if (status === "annual_leave") return { isWeekOff: false, leaveType: "annual_leave", needsShiftTimes: false };
+  if (status === "sick_leave") return { isWeekOff: false, leaveType: "sick_leave", needsShiftTimes: false };
+  return { isWeekOff: false, leaveType: null, needsShiftTimes: true };
+}
+
 /**
  * Walk PostgREST pages via .range(). A bare .limit(N) still stops at max_rows (~1000),
  * which truncates later FEC-month days when ordered work_date ASC.

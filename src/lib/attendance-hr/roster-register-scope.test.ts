@@ -7,8 +7,10 @@ import {
   collectPagedRows,
   filterRosterRegisterRows,
   isWeekendYmd,
+  rosterDayStatusFromRow,
   rosterMatrixCellKey,
   rosterMonthSpans,
+  rosterPatchFromDayStatus,
   rosterRegisterHasExtraFilters,
   rosterRowMatchesSearch,
 } from "./roster-register-scope";
@@ -118,5 +120,33 @@ describe("roster register bulk-delete scope", () => {
       { monthKey: "2026-07", startIdx: 0, count: 1 },
       { monthKey: "2026-08", startIdx: 1, count: 1 },
     ]);
+  });
+
+  it("maps amend day status to roster + leave patches", () => {
+    expect(rosterDayStatusFromRow({ isWeekOff: false, leaveType: null })).toBe("on_duty");
+    expect(rosterDayStatusFromRow({ isWeekOff: true, leaveType: null })).toBe("weekly_off");
+    expect(rosterDayStatusFromRow({ isWeekOff: true, leaveType: "annual_leave" })).toBe("annual_leave");
+    expect(rosterDayStatusFromRow({ isWeekOff: false, leaveType: "sick_leave" })).toBe("sick_leave");
+
+    expect(rosterPatchFromDayStatus("on_duty")).toEqual({
+      isWeekOff: false,
+      leaveType: null,
+      needsShiftTimes: true,
+    });
+    expect(rosterPatchFromDayStatus("weekly_off")).toEqual({
+      isWeekOff: true,
+      leaveType: null,
+      needsShiftTimes: false,
+    });
+    expect(rosterPatchFromDayStatus("annual_leave")).toEqual({
+      isWeekOff: false,
+      leaveType: "annual_leave",
+      needsShiftTimes: false,
+    });
+    expect(rosterPatchFromDayStatus("sick_leave")).toEqual({
+      isWeekOff: false,
+      leaveType: "sick_leave",
+      needsShiftTimes: false,
+    });
   });
 });

@@ -45,8 +45,11 @@ import {
   buildRosterMatrix,
   filterRosterRegisterRows,
   isWeekendYmd,
+  rosterDayStatusFromRow,
   rosterMatrixCellKey,
+  rosterPatchFromDayStatus,
   rosterRegisterHasExtraFilters,
+  type RosterDayStatus,
 } from "@/lib/attendance-hr/roster-register-scope";
 import { STALE } from "@/lib/query-client";
 import { queryKeys } from "@/lib/query-keys";
@@ -84,8 +87,19 @@ type RosterRegisterPanelProps = {
 type Draft = {
   shiftStart: string | null;
   shiftEnd: string | null;
-  isWeekOff: boolean;
+  dayStatus: RosterDayStatus;
 };
+
+function dayStatusLabel(status: RosterDayStatus, t: (key: string) => string) {
+  if (status === "weekly_off") return t("people.roster.dutyOff");
+  if (status === "annual_leave") return t("people.roster.dutyAnnualLeave");
+  if (status === "sick_leave") return t("people.roster.dutySickLeave");
+  return t("people.roster.dutyYes");
+}
+
+function cellStatusLabel(row: Pick<RosterRegisterRow, "isWeekOff" | "leaveType">, t: (key: string) => string) {
+  return dayStatusLabel(rosterDayStatusFromRow(row), t);
+}
 
 type ViewMode = "grid" | "list";
 
@@ -214,11 +228,12 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     const saveMut = useMutation({
       mutationFn: async (row: RosterRegisterRow) => {
         if (!draft) throw new Error(t("people.roster.registerNothingToSave"));
+        const patch = rosterPatchFromDayStatus(draft.dayStatus);
         return updateRosterAssignment({
           id: row.id,
-          shiftStart: draft.isWeekOff ? null : draft.shiftStart,
-          shiftEnd: draft.isWeekOff ? null : draft.shiftEnd,
-          isWeekOff: draft.isWeekOff,
+          shiftStart: patch.needsShiftTimes ? draft.shiftStart : null,
+          shiftEnd: patch.needsShiftTimes ? draft.shiftEnd : null,
+          dayStatus: draft.dayStatus,
         });
       },
       onSuccess: () => {
@@ -284,7 +299,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       setDraft({
         shiftStart: row.shiftStart,
         shiftEnd: row.shiftEnd,
-        isWeekOff: row.isWeekOff,
+        dayStatus: rosterDayStatusFromRow(row),
       });
     };
 
@@ -316,6 +331,44 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
         {t("people.roster.registerDeleteAll")}
       </Button>
     ) : null;
+
+    const dayStatusOptions = [
+      { value: "on_duty", label: t("people.roster.dutyYes") },
+      { value: "weekly_off", label: t("people.roster.dutyOff") },
+      { value: "annual_leave", label: t("people.roster.dutyAnnualLeave") },
+      { value: "sick_leave", label: t("people.roster.dutySickLeave") },
+    ];
+
+    const renderDayStatusEditor = () => {
+      if (!draft) return null;
+      const needsTimes = rosterPatchFromDayStatus(draft.dayStatus).needsShiftTimes;
+      return (
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label>{t("people.roster.colDuty")}</Label>
+            <SearchableSelect
+              value={draft.dayStatus}
+              onValueChange={(value) =>
+                setDraft((prev) =>
+                  prev ? { ...prev, dayStatus: (value || "on_duty") as RosterDayStatus } : prev,
+                )
+              }
+              options={dayStatusOptions}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>{t("people.roster.colShift")}</Label>
+            <ShiftRangeEditor
+              start={draft.shiftStart}
+              end={draft.shiftEnd}
+              disabled={!needsTimes}
+              onStartChange={(value) => setDraft((prev) => (prev ? { ...prev, shiftStart: value } : prev))}
+              onEndChange={(value) => setDraft((prev) => (prev ? { ...prev, shiftEnd: value } : prev))}
+            />
+          </div>
+        </div>
+      );
+    };
 
     const viewToggle = (
       <div className="inline-flex shrink-0 rounded-lg border border-border/70 p-0.5">
@@ -566,14 +619,18 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
                                   key={entry.id}
                                   className={cn(
                                     "group relative rounded-md px-1 py-1",
-                                    entry.isWeekOff
+                                    rosterDayStatusFromRow(entry) !== "on_duty"
                                       ? "bg-destructive/10 text-destructive"
                                       : "hover:bg-muted/60",
                                   )}
                                 >
-                                  {entry.isWeekOff ? (
+                                  {rosterDayStatusFromRow(entry) !== "on_duty" ? (
                                     <div className="text-center text-[11px] font-semibold uppercase tracking-wide">
-                                      {t("people.roster.registerCellOff")}
+                                      {entry.leaveType === "annual_leave"
+                                        ? t("people.roster.registerCellAnnual")
+                                        : entry.leaveType === "sick_leave"
+                                          ? t("people.roster.registerCellSick")
+                                          : t("people.roster.registerCellOff")}
                                     </div>
                                   ) : (
                                     <div className="text-center leading-tight tabular-nums">
@@ -633,30 +690,32 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
                           <ShiftRangeEditor
                             start={draft.shiftStart}
                             end={draft.shiftEnd}
-                            disabled={draft.isWeekOff}
+                            disabled={!rosterPatchFromDayStatus(draft.dayStatus).needsShiftTimes}
                             onStartChange={(value) => setDraft((prev) => (prev ? { ...prev, shiftStart: value } : prev))}
                             onEndChange={(value) => setDraft((prev) => (prev ? { ...prev, shiftEnd: value } : prev))}
                           />
                         ) : (
-                          <ShiftRangeEditor start={row.shiftStart} end={row.shiftEnd} disabled={row.isWeekOff} readOnly />
+                          <ShiftRangeEditor
+                            start={row.shiftStart}
+                            end={row.shiftEnd}
+                            disabled={rosterDayStatusFromRow(row) !== "on_duty"}
+                            readOnly
+                          />
                         )}
                       </TableCell>
                       <TableCell>
                         {editing ? (
-                          <label className="flex items-center gap-2 text-sm">
-                            <input
-                              type="checkbox"
-                              checked={draft.isWeekOff}
-                              onChange={(e) =>
-                                setDraft((prev) => (prev ? { ...prev, isWeekOff: e.target.checked } : prev))
-                              }
-                            />
-                            {draft.isWeekOff ? t("people.roster.dutyOff") : t("people.roster.dutyYes")}
-                          </label>
-                        ) : row.isWeekOff ? (
-                          t("people.roster.dutyOff")
+                          <SearchableSelect
+                            value={draft.dayStatus}
+                            onValueChange={(value) =>
+                              setDraft((prev) =>
+                                prev ? { ...prev, dayStatus: (value || "on_duty") as RosterDayStatus } : prev,
+                              )
+                            }
+                            options={dayStatusOptions}
+                          />
                         ) : (
-                          t("people.roster.dutyYes")
+                          cellStatusLabel(row, t)
                         )}
                       </TableCell>
                       <TableCell>
@@ -690,24 +749,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
             </DialogHeader>
             {editingRow && draft ? (
               <div className="space-y-4">
-                <div className="space-y-1.5">
-                  <Label>{t("people.roster.colShift")}</Label>
-                  <ShiftRangeEditor
-                    start={draft.shiftStart}
-                    end={draft.shiftEnd}
-                    disabled={draft.isWeekOff}
-                    onStartChange={(value) => setDraft((prev) => (prev ? { ...prev, shiftStart: value } : prev))}
-                    onEndChange={(value) => setDraft((prev) => (prev ? { ...prev, shiftEnd: value } : prev))}
-                  />
-                </div>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={draft.isWeekOff}
-                    onChange={(e) => setDraft((prev) => (prev ? { ...prev, isWeekOff: e.target.checked } : prev))}
-                  />
-                  {draft.isWeekOff ? t("people.roster.dutyOff") : t("people.roster.dutyYes")}
-                </label>
+                {renderDayStatusEditor()}
                 <Badge variant="outline">{sourceLabel(editingRow.source, t)}</Badge>
               </div>
             ) : null}
