@@ -26,6 +26,9 @@ import {
   lookupDeviceLogBioName,
   parseDeviceLogUserOptionKey,
   rollupDeviceLogDays,
+  collapseCrossSiteDeviceLogDays,
+  deviceLogLocationLabel,
+  deviceLogUserIdLabel,
   type AttendanceDeviceLogRow,
 } from "./device-logs";
 
@@ -165,6 +168,78 @@ describe("device log listing", () => {
       punch({ id: "2", punchAt: "2026-09-21T14:00:00.000Z", inOutStatus: 1, deviceId: "dev2", deviceSerial: "SN2" }),
     ]);
     expect(days).toHaveLength(2);
+  });
+
+  it("merges same-name cross-site in/out into one day row", () => {
+    const days = collapseCrossSiteDeviceLogDays(
+      rollupDeviceLogDays([
+        punch({
+          id: "in",
+          locationId: "loc-ua",
+          locationCode: "UA-DM",
+          biometricUserId: "35",
+          deviceUserName: "Russell",
+          deviceId: "dev-ua",
+          deviceSerial: "JJA1254401368",
+          punchAt: "2026-09-20T07:13:41.000Z",
+          inOutStatus: 0,
+        }),
+        punch({
+          id: "out",
+          locationId: "loc-inf",
+          locationCode: "INF-CC",
+          biometricUserId: "24",
+          deviceUserName: "Russell",
+          deviceId: "dev-inf",
+          deviceSerial: "JJA1251800498",
+          punchAt: "2026-09-20T16:12:22.000Z",
+          inOutStatus: 1,
+        }),
+      ]),
+    );
+    expect(days).toHaveLength(1);
+    expect(days[0]?.punchInAt).toBe("2026-09-20T07:13:41.000Z");
+    expect(days[0]?.punchOutAt).toBe("2026-09-20T16:12:22.000Z");
+    expect(deviceLogLocationLabel(days[0]!)).toBe("UA-DM → INF-CC");
+    expect(deviceLogUserIdLabel(days[0]!)).toBe("UA-DM 35 → INF-CC 24");
+    expect(deviceLogRawDeviceId(days[0]!)).toBe("UA-DM JJA1254401368 → INF-CC JJA1251800498");
+  });
+
+  it("merges when only one site has staff_id (mapped) and the other is name-only", () => {
+    const days = collapseCrossSiteDeviceLogDays(
+      rollupDeviceLogDays([
+        punch({
+          id: "in",
+          locationId: "loc-ua",
+          locationCode: "UA-DM",
+          biometricUserId: "35",
+          deviceUserName: "Russell",
+          staffId: null,
+          deviceId: "dev-ua",
+          deviceSerial: "JJA1254401368",
+          punchAt: "2026-09-20T07:13:41.000Z",
+          inOutStatus: 0,
+        }),
+        punch({
+          id: "out",
+          locationId: "loc-inf",
+          locationCode: "INF-CC",
+          biometricUserId: "24",
+          deviceUserName: "Russell",
+          staffId: "staff-russell",
+          deviceId: "dev-inf",
+          deviceSerial: "JJA1251800498",
+          punchAt: "2026-09-20T16:12:22.000Z",
+          inOutStatus: 1,
+        }),
+      ]),
+    );
+    expect(days).toHaveLength(1);
+    expect(days[0]?.staffId).toBe("staff-russell");
+    expect(deviceLogLocationLabel(days[0]!)).toBe("UA-DM → INF-CC");
+    expect(deviceLogUserIdLabel(days[0]!)).toBe("UA-DM 35 → INF-CC 24");
+    expect(days[0]?.punchInAt).toBe("2026-09-20T07:13:41.000Z");
+    expect(days[0]?.punchOutAt).toBe("2026-09-20T16:12:22.000Z");
   });
 
   it("prefers serial_number over device_code for the raw device id", () => {

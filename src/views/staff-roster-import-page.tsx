@@ -30,7 +30,7 @@ import {
   rosterFileKind,
   ROSTER_IMPORT_ACCEPT,
 } from "@/lib/staff-roster/select-import-file";
-import { virtualWindowRange } from "@/lib/staff-roster/virtual-window";
+import { virtualWindowRange, shouldVirtualizePreviewRows } from "@/lib/staff-roster/virtual-window";
 import { cn } from "@/lib/utils";
 import { downloadFileFromApi } from "@/lib/staff-import";
 import { CANONICAL_LOCATION_CODES } from "@/lib/locations/normalize";
@@ -779,9 +779,10 @@ const ShiftPreviewPanel = memo(function ShiftPreviewPanel({
   if (!preview) return null;
 
   const errorMessages = (preview.errors ?? []).map((err) => (typeof err === "string" ? err : err.message));
-  // Small filtered tabs (e.g. 10 unmatched) already fit in the overscan window; drop maxHeight
-  // so tall unmatched rows are not clipped behind a scrollbar that looks like "missing" rows.
-  const virtualize = !windowed.fullyInWindow;
+  // Small lists (monthly single-staff = ~31) must not virtualize: fixed-height pads leave a tall
+  // blank region that looks like missing dates even when matched=31. Also drop maxHeight when the
+  // overscan window already covers every row (e.g. 10 unmatched).
+  const virtualize = shouldVirtualizePreviewRows(filtered.length, windowed.fullyInWindow);
   const slice = virtualize ? filtered.slice(windowed.start, windowed.end) : filtered;
 
   return (

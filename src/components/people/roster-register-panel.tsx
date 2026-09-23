@@ -154,6 +154,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     const filters = useMemo(
       () => ({
         locationId: locationId || null,
+        staffId: staffId || null,
         dateFrom,
         dateTo,
         sourceUploadOnly,
@@ -162,7 +163,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
             ? (sourceFilter as "upload" | "amend" | "manual" | "copied")
             : null,
       }),
-      [locationId, dateFrom, dateTo, sourceUploadOnly, sourceFilter],
+      [locationId, staffId, dateFrom, dateTo, sourceUploadOnly, sourceFilter],
     );
 
     const register = useQuery({

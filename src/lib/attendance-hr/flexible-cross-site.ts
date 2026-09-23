@@ -10,6 +10,8 @@
 export type FlexibleCrossSitePunch = {
   locationId: string;
   punchAt: string;
+  /** Device user id on that terminal (differs per site for flexible staff). */
+  biometricUserId?: string | null;
   excludedFromCalc?: boolean;
   probableDuplicate?: boolean;
 };
@@ -44,6 +46,68 @@ export function flexibleDayFirstLastLocationIds(punches: FlexibleCrossSitePunch[
     checkInLocationId: valid[0]?.locationId ?? null,
     checkOutLocationId: valid[valid.length - 1]?.locationId ?? null,
   };
+}
+
+/**
+ * Same-date device punches for flexible reports: first usable = check-in,
+ * last usable = check-out when 2+ punches (1 punch → in only, out null).
+ */
+export function flexibleDayFirstLastPunchAt(punches: FlexibleCrossSitePunch[]): {
+  firstPunchAt: string | null;
+  lastPunchAt: string | null;
+  usableCount: number;
+} {
+  const valid = sortedUsablePunches(punches);
+  if (!valid.length) return { firstPunchAt: null, lastPunchAt: null, usableCount: 0 };
+  return {
+    firstPunchAt: valid[0]?.punchAt ?? null,
+    lastPunchAt: valid.length > 1 ? (valid[valid.length - 1]?.punchAt ?? null) : null,
+    usableCount: valid.length,
+  };
+}
+
+/** Device user ids on the first check-in punch and last check-out punch. */
+export function flexibleDayFirstLastBiometricUserIds(punches: FlexibleCrossSitePunch[]): {
+  checkInBiometricUserId: string | null;
+  checkOutBiometricUserId: string | null;
+} {
+  const valid = sortedUsablePunches(punches);
+  if (!valid.length) return { checkInBiometricUserId: null, checkOutBiometricUserId: null };
+  const first = valid[0]?.biometricUserId?.trim() || null;
+  const last =
+    valid.length > 1 ? valid[valid.length - 1]?.biometricUserId?.trim() || null : first;
+  return { checkInBiometricUserId: first, checkOutBiometricUserId: last };
+}
+
+/**
+ * Listing label for device user ids across sites: `UA-DM 35 → INF-CC 24`
+ * when in/out sites (or ids) differ; plain id when single-site.
+ */
+export function formatFlexibleCrossSiteDeviceUserLabel(
+  checkInCode: string | null | undefined,
+  checkInUserId: string | null | undefined,
+  checkOutCode: string | null | undefined,
+  checkOutUserId: string | null | undefined,
+): string | null {
+  const inCode = checkInCode?.trim() || "";
+  const outCode = checkOutCode?.trim() || "";
+  const inId = checkInUserId?.trim() || "";
+  const outId = checkOutUserId?.trim() || "";
+  const pair = (code: string, id: string) => {
+    if (code && id) return `${code} ${id}`;
+    return id || code || "";
+  };
+  const a = pair(inCode, inId);
+  const b = pair(outCode, outId);
+  if (!a && !b) return null;
+  if (!a) return b;
+  if (!b || a === b) {
+    // Single site: keep the bare user id when we only have one id (no code clutter).
+    if (inId && (!outId || inId === outId) && (!outCode || inCode === outCode)) return inId;
+    if (outId && !inId) return outId;
+    return a;
+  }
+  return `${a} → ${b}`;
 }
 
 /**
@@ -95,4 +159,63 @@ export function formatFlexibleCrossSiteLocationLabel(
   if (!a) return b;
   if (!b || a === b) return a;
   return `${a} → ${b}`;
+}
+
+export function normalizeFlexiblePersonName(name: string | null | undefined): string {
+  return (name ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+export type FlexibleBioIdentity = {
+  staffId: string | null;
+  locationId: string;
+  biometricUserId: string;
+  deviceName?: string | null;
+};
+
+/**
+ * Expand flexible staff biometric pairs to include unmapped (or already-this-staff)
+ * registry rows that share the same device_name. Lets UA-DM 35 join INF-CC 24 when
+ * both devices show "Russell" but only one site is mapped to staff.
+ */
+export function expandFlexibleBiometricPairsByDeviceName(
+  mappedForStaff: FlexibleBioIdentity[],
+  catalog: FlexibleBioIdentity[],
+): Array<{ staffId: string; locationId: string; biometricUserId: string }> {
+  const out: Array<{ staffId: string; locationId: string; biometricUserId: string }> = [];
+  const seen = new Set<string>();
+  const namesByStaff = new Map<string, Set<string>>();
+
+  const add = (staffId: string, locationId: string, biometricUserId: string) => {
+    const uid = biometricUserId.trim();
+    const loc = locationId.trim();
+    if (!staffId || !loc || !uid) return;
+    const key = `${staffId}|${loc}|${uid}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ staffId, locationId: loc, biometricUserId: uid });
+  };
+
+  for (const row of mappedForStaff) {
+    const staffId = row.staffId?.trim();
+    if (!staffId) continue;
+    add(staffId, row.locationId, row.biometricUserId);
+    const dn = normalizeFlexiblePersonName(row.deviceName);
+    if (!dn) continue;
+    const names = namesByStaff.get(staffId) ?? new Set<string>();
+    names.add(dn);
+    namesByStaff.set(staffId, names);
+  }
+
+  for (const [staffId, names] of namesByStaff) {
+    if (!names.size) continue;
+    for (const row of catalog) {
+      const rowStaff = row.staffId?.trim() || "";
+      if (rowStaff && rowStaff !== staffId) continue;
+      const dn = normalizeFlexiblePersonName(row.deviceName);
+      if (!dn || !names.has(dn)) continue;
+      add(staffId, row.locationId, row.biometricUserId);
+    }
+  }
+
+  return out;
 }

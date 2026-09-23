@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { virtualWindowRange } from "./virtual-window";
+import { virtualWindowRange, shouldVirtualizePreviewRows } from "./virtual-window";
 
 describe("virtualWindowRange", () => {
   const rowHeight = 68;
@@ -28,5 +28,12 @@ describe("virtualWindowRange", () => {
     expect(range.start).toBeGreaterThan(0);
     expect(range.end).toBeGreaterThan(range.start);
     expect(range.topPad).toBe(range.start * rowHeight);
+  });
+
+  it("does not virtualize a complete FEC-month staff preview (~31 rows)", () => {
+    const range = virtualWindowRange(31, 0, 96, 520, 8);
+    expect(range.fullyInWindow).toBe(false);
+    expect(shouldVirtualizePreviewRows(31, range.fullyInWindow)).toBe(false);
+    expect(shouldVirtualizePreviewRows(413, false)).toBe(true);
   });
 });

@@ -4,11 +4,15 @@ import { calculateDailyAttendance } from "./calculate";
 import { DEFAULT_SHIFT } from "./constants";
 import { applyAttendanceShiftPolicy, resolveReportingAndBuffer } from "./shift-policy";
 import {
+  expandFlexibleBiometricPairsByDeviceName,
   flexibleDayAnchorLocationId,
+  flexibleDayFirstLastBiometricUserIds,
   flexibleDayFirstLastLocationIds,
+  flexibleDayFirstLastPunchAt,
   flexibleDayHasQualifyingPunches,
   flexibleDayNonAnchorPunchLocations,
   flexibleDayRecalcAction,
+  formatFlexibleCrossSiteDeviceUserLabel,
   formatFlexibleCrossSiteLocationLabel,
 } from "./flexible-cross-site";
 
@@ -34,6 +38,36 @@ describe("flexible cross-site attendance", () => {
     ).toEqual({ checkInLocationId: inf, checkOutLocationId: ua });
     expect(formatFlexibleCrossSiteLocationLabel("INF-CC", "UA-DM")).toBe("INF-CC → UA-DM");
     expect(formatFlexibleCrossSiteLocationLabel("INF-CC", "INF-CC")).toBe("INF-CC");
+    expect(formatFlexibleCrossSiteDeviceUserLabel("UA-DM", "35", "INF-CC", "24")).toBe(
+      "UA-DM 35 → INF-CC 24",
+    );
+    expect(formatFlexibleCrossSiteDeviceUserLabel("INF-CC", "24", "INF-CC", "24")).toBe("24");
+    expect(flexibleDayFirstLastBiometricUserIds([
+      { locationId: ua, punchAt: "2026-09-20T14:12:00.000Z", biometricUserId: "35" },
+      { locationId: inf, punchAt: "2026-09-20T07:13:00.000Z", biometricUserId: "24" },
+    ])).toEqual({ checkInBiometricUserId: "24", checkOutBiometricUserId: "35" });
+  });
+
+  it("resolves same-date first check-in and last check-out punch times", () => {
+    expect(
+      flexibleDayFirstLastPunchAt([
+        { locationId: ua, punchAt: "2026-09-20T14:12:00.000Z" },
+        { locationId: inf, punchAt: "2026-09-20T07:13:00.000Z" },
+        { locationId: inf, punchAt: "2026-09-20T07:13:05.000Z", probableDuplicate: true },
+      ]),
+    ).toEqual({
+      firstPunchAt: "2026-09-20T07:13:00.000Z",
+      lastPunchAt: "2026-09-20T14:12:00.000Z",
+      usableCount: 2,
+    });
+    // Single punch → check-in only (never invent an orphan check-out).
+    expect(
+      flexibleDayFirstLastPunchAt([{ locationId: ua, punchAt: "2026-09-20T14:12:00.000Z" }]),
+    ).toEqual({
+      firstPunchAt: "2026-09-20T14:12:00.000Z",
+      lastPunchAt: null,
+      usableCount: 1,
+    });
   });
 
   it("write_merged at first-punch site; suppress at roster-only / out-only site", () => {
@@ -119,5 +153,52 @@ describe("flexible cross-site attendance", () => {
       ],
       inf,
     )).toEqual([ua]);
+  });
+
+  it("expands flexible bio pairs to unmapped same device_name identities", () => {
+    const pairs = expandFlexibleBiometricPairsByDeviceName(
+      [
+        {
+          staffId: "staff-r",
+          locationId: "loc-inf",
+          biometricUserId: "24",
+          deviceName: "Russell",
+        },
+        {
+          staffId: "staff-r",
+          locationId: "loc-kds",
+          biometricUserId: "20",
+          deviceName: "Russell",
+        },
+      ],
+      [
+        {
+          staffId: "staff-r",
+          locationId: "loc-inf",
+          biometricUserId: "24",
+          deviceName: "Russell",
+        },
+        {
+          staffId: null,
+          locationId: "loc-ua",
+          biometricUserId: "35",
+          deviceName: "Russell",
+        },
+        {
+          staffId: "other",
+          locationId: "loc-other",
+          biometricUserId: "99",
+          deviceName: "Russell",
+        },
+      ],
+    );
+    expect(pairs).toEqual(
+      expect.arrayContaining([
+        { staffId: "staff-r", locationId: "loc-inf", biometricUserId: "24" },
+        { staffId: "staff-r", locationId: "loc-kds", biometricUserId: "20" },
+        { staffId: "staff-r", locationId: "loc-ua", biometricUserId: "35" },
+      ]),
+    );
+    expect(pairs.some((p) => p.biometricUserId === "99")).toBe(false);
   });
 });

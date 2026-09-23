@@ -4,6 +4,7 @@ import {
   assertRosterDeletePeriod,
   buildRosterMatrix,
   chunkIds,
+  collectPagedRows,
   filterRosterRegisterRows,
   isWeekendYmd,
   rosterMatrixCellKey,
@@ -11,6 +12,7 @@ import {
   rosterRegisterHasExtraFilters,
   rosterRowMatchesSearch,
 } from "./roster-register-scope";
+import { ATTENDANCE_DAILY_LIST_PAGE_SIZE } from "./constants";
 
 const row = {
   staffId: "staff-1",
@@ -64,6 +66,26 @@ describe("roster register bulk-delete scope", () => {
       ["c", "d"],
     ]);
     expect(chunkIds([], 200)).toEqual([]);
+  });
+
+  it("pages past PostgREST max_rows so later FEC-month days are not dropped", async () => {
+    expect(ATTENDANCE_DAILY_LIST_PAGE_SIZE).toBe(1000);
+    const calls: Array<[number, number]> = [];
+    const rows = await collectPagedRows(async (from, to) => {
+      calls.push([from, to]);
+      if (from === 0) {
+        // First page filled to the cap (early work_dates only).
+        return Array.from({ length: ATTENDANCE_DAILY_LIST_PAGE_SIZE }, (_, i) => `early-${i}`);
+      }
+      // Second page holds later dates a bare .limit(5000) never returned.
+      return ["2026-09-15", "2026-09-27"];
+    }, ATTENDANCE_DAILY_LIST_PAGE_SIZE);
+    expect(calls).toEqual([
+      [0, ATTENDANCE_DAILY_LIST_PAGE_SIZE - 1],
+      [ATTENDANCE_DAILY_LIST_PAGE_SIZE, ATTENDANCE_DAILY_LIST_PAGE_SIZE * 2 - 1],
+    ]);
+    expect(rows).toHaveLength(ATTENDANCE_DAILY_LIST_PAGE_SIZE + 2);
+    expect(rows.slice(-2)).toEqual(["2026-09-15", "2026-09-27"]);
   });
 
   it("builds a staff × day matrix and stacks same-day multi-location rows", () => {

@@ -138,3 +138,21 @@ export function chunkIds<T>(items: T[], size: number): T[][] {
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
   return out;
 }
+
+/**
+ * Walk PostgREST pages via .range(). A bare .limit(N) still stops at max_rows (~1000),
+ * which truncates later FEC-month days when ordered work_date ASC.
+ */
+export async function collectPagedRows<T>(
+  fetchPage: (from: number, to: number) => PromiseLike<T[] | null | undefined>,
+  pageSize: number,
+): Promise<T[]> {
+  if (pageSize < 1) throw new Error("pageSize must be >= 1");
+  const out: T[] = [];
+  for (let from = 0; ; from += pageSize) {
+    const page = (await fetchPage(from, from + pageSize - 1)) ?? [];
+    out.push(...page);
+    if (page.length < pageSize) break;
+  }
+  return out;
+}

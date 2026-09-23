@@ -40,6 +40,7 @@ import {
 } from "./mapping-merge";
 import {
   attendanceHrDisplayStaffName,
+  attendanceHrListingDeviceUserId,
   attendanceHrListingLocation,
   attendanceHrRowMatchesLocation,
   attendanceHrStaffMatches,
@@ -686,6 +687,9 @@ describe("HR report row helpers", () => {
         actual_out: null,
         punch_count: 0,
         worked_minutes: null,
+        scheduled_in: "2026-09-19T07:00:00.000Z",
+        location_reporting_time_minutes: 5,
+        location_buffer_minutes: 0,
       },
       {
         ...base,
@@ -696,14 +700,20 @@ describe("HR report row helpers", () => {
         actual_in: "2026-09-19T07:04:38.000Z",
         actual_out: "2026-09-19T15:58:17.000Z",
         punch_count: 2,
-        worked_minutes: 480,
+        worked_minutes: 0,
         late_minutes: 5,
+        scheduled_in: null,
+        location_reporting_time_minutes: 5,
+        location_buffer_minutes: 0,
       },
     ]);
     expect(collapsed).toHaveLength(1);
     expect(collapsed[0]?.id).toBe("late-kds");
     expect(collapsed[0]?.actual_in).toBe("2026-09-19T07:04:38.000Z");
     expect(collapsed[0]?.actual_out).toBe("2026-09-19T15:58:17.000Z");
+    // Roster shift from sibling when winner lacked scheduled_in; hours from clock span.
+    expect(collapsed[0]?.scheduled_in).toBe("2026-09-19T07:00:00.000Z");
+    expect(collapsed[0]?.worked_minutes).toBe(534);
     expect(
       attendanceHrListingLocation({
         location_code: "KDS-CC",
@@ -713,6 +723,33 @@ describe("HR report row helpers", () => {
         check_out_location_code: "UA-DM",
       }),
     ).toBe("INF-CC → UA-DM");
+    expect(
+      attendanceHrListingDeviceUserId({
+        biometric_user_id: "24",
+        check_in_location_code: "UA-DM",
+        check_out_location_code: "INF-CC",
+        check_in_biometric_user_id: "35",
+        check_out_biometric_user_id: "24",
+      }),
+    ).toBe("UA-DM 35 → INF-CC 24");
+    const listing = attendanceHrToListingSource({
+      ...base,
+      id: "merged",
+      location_id: "ua",
+      location_code: "UA-DM",
+      status: "late",
+      actual_in: "2026-09-20T07:13:41.000Z",
+      actual_out: "2026-09-20T16:12:22.000Z",
+      punch_count: 2,
+      worked_minutes: 539,
+      biometric_user_id: "35",
+      check_in_location_code: "UA-DM",
+      check_out_location_code: "INF-CC",
+      check_in_biometric_user_id: "35",
+      check_out_biometric_user_id: "24",
+    });
+    expect(listing.deviceUserId).toBe("UA-DM 35 → INF-CC 24");
+    expect(listing.locationLabel).toBe("UA-DM → INF-CC");
   });
 
   it("prefers device name over Unmapped label for listing display", () => {

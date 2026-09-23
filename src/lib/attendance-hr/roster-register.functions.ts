@@ -15,9 +15,11 @@ import { parseTimeCell } from "@/lib/attendance-hr/roster-upload";
 import {
   assertRosterDeletePeriod,
   chunkIds,
+  collectPagedRows,
   rosterRowMatchesSearch,
 } from "@/lib/attendance-hr/roster-register-scope";
 import { mapRosterPeriodByDayIndex, monthBounds, nextPayrollMonth } from "@/lib/attendance-hr/roster-period";
+import { ATTENDANCE_DAILY_LIST_PAGE_SIZE } from "@/lib/attendance-hr/constants";
 
 const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
@@ -84,23 +86,43 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
     assertCanViewRosterRegister(context.roles);
     if (data.locationId) await assertAttendanceRosterLocation(context, data.locationId);
 
-    let q = context.supabase
-      .from("attendance_roster_assignments")
-      .select("id, location_id, staff_id, work_date, shift_template_id, shift_start, shift_end, is_week_off, source, created_at")
-      .gte("work_date", data.dateFrom)
-      .lte("work_date", data.dateTo)
-      .order("work_date", { ascending: true })
-      .order("staff_id", { ascending: true })
-      .limit(5000);
+    // Page past PostgREST max_rows (~1000). A bare .limit(5000) still returns only ~1000 and
+    // silently drops later FEC-month days (ordered work_date ASC) — then client staff filters
+    // look like "18 rows / empty Sept 15–27" for a complete upload.
+    type AssignmentPageRow = {
+      id: string;
+      location_id: string;
+      staff_id: string;
+      work_date: string;
+      shift_template_id: string | null;
+      shift_start: string | null;
+      shift_end: string | null;
+      is_week_off: boolean | null;
+      source: string | null;
+      created_at: string | null;
+    };
+    const assignments = await collectPagedRows<AssignmentPageRow>(async (from, to) => {
+      let q = context.supabase
+        .from("attendance_roster_assignments")
+        .select(
+          "id, location_id, staff_id, work_date, shift_template_id, shift_start, shift_end, is_week_off, source, created_at",
+        )
+        .gte("work_date", data.dateFrom)
+        .lte("work_date", data.dateTo)
+        .order("work_date", { ascending: true })
+        .order("staff_id", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to);
 
-    if (data.locationId) q = q.eq("location_id", data.locationId);
-    if (data.staffId) q = q.eq("staff_id", data.staffId);
-    if (data.sourceUploadOnly) q = q.in("source", ["upload", "amend"]);
-    else if (data.source) q = q.eq("source", data.source);
+      if (data.locationId) q = q.eq("location_id", data.locationId);
+      if (data.staffId) q = q.eq("staff_id", data.staffId);
+      if (data.sourceUploadOnly) q = q.in("source", ["upload", "amend"]);
+      else if (data.source) q = q.eq("source", data.source);
 
-    const { data: rows, error } = await q;
-    if (error) throw error;
-    const assignments = rows ?? [];
+      const { data: page, error } = await q;
+      if (error) throw error;
+      return (page ?? []) as AssignmentPageRow[];
+    }, ATTENDANCE_DAILY_LIST_PAGE_SIZE);
 
     const staffIds = [...new Set(assignments.map((row) => String(row.staff_id)).filter(Boolean))];
     const locationIds = [...new Set(assignments.map((row) => String(row.location_id)).filter(Boolean))];
@@ -309,16 +331,14 @@ async function fetchRosterAssignmentsInScope(
   supabase: AuthContext["supabase"],
   data: z.infer<typeof rosterScopeInput>,
 ): Promise<RosterScopeAssignment[]> {
-  const pageSize = 1000;
-  const rows: RosterScopeAssignment[] = [];
-  for (let from = 0; ; from += pageSize) {
+  return collectPagedRows<RosterScopeAssignment>(async (from, to) => {
     let q = supabase
       .from("attendance_roster_assignments")
       .select("id, location_id, staff_id, work_date, source")
       .gte("work_date", data.dateFrom)
       .lte("work_date", data.dateTo)
       .order("id", { ascending: true })
-      .range(from, from + pageSize - 1);
+      .range(from, to);
     if (data.locationId) q = q.eq("location_id", data.locationId);
     if (data.staffId) q = q.eq("staff_id", data.staffId);
     if (data.sourceUploadOnly) q = q.in("source", ["upload", "amend"]);
@@ -326,10 +346,8 @@ async function fetchRosterAssignmentsInScope(
 
     const { data: page, error } = await q;
     if (error) throw error;
-    rows.push(...((page ?? []) as RosterScopeAssignment[]));
-    if (!page || page.length < pageSize) break;
-  }
-  return rows;
+    return (page ?? []) as RosterScopeAssignment[];
+  }, ATTENDANCE_DAILY_LIST_PAGE_SIZE);
 }
 
 async function applyRosterSearchFilter(
@@ -469,20 +487,17 @@ export const copyRosterToNextMonth = createAuthenticatedAction(
 
     const dateMap = mapRosterPeriodByDayIndex(source.dateFrom, source.dateTo, target.dateFrom, target.dateTo);
 
-    const sourceRows: CopySourceRow[] = [];
-    const pageSize = 1000;
-    for (let from = 0; ; from += pageSize) {
+    const sourceRows = await collectPagedRows<CopySourceRow>(async (from, to) => {
       const { data: page, error } = await context.supabase
         .from("attendance_roster_assignments")
         .select("location_id, staff_id, work_date, shift_template_id, shift_start, shift_end, is_week_off")
         .gte("work_date", source.dateFrom)
         .lte("work_date", source.dateTo)
         .order("id", { ascending: true })
-        .range(from, from + pageSize - 1);
+        .range(from, to);
       if (error) throw error;
-      sourceRows.push(...((page ?? []) as CopySourceRow[]));
-      if (!page || page.length < pageSize) break;
-    }
+      return (page ?? []) as CopySourceRow[];
+    }, ATTENDANCE_DAILY_LIST_PAGE_SIZE);
 
     if (!sourceRows.length) {
       return {

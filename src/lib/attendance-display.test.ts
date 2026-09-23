@@ -206,7 +206,7 @@ describe("attendance listing display", () => {
     expect(cells.overtime).toBe("Yes");
     expect(cells.overtimeHours).toBe("0.10");
     expect(cells.status).toBe("Present");
-    expect(cells.latePunch).toBe("26");
+    expect(cells.latePunch).toBe("26m");
   });
 
   it("Wasanthi 26-Aug: 9.89h with out 20:08 vs roster 20:00 is 0.15h OT, not 0.88", () => {
@@ -257,7 +257,7 @@ describe("attendance listing display", () => {
     expect(cells.overtimeHours).toBe("—");
   });
 
-  it("formats late punch with one decimal minute when fractional", () => {
+  it("formats late punch as minutes and seconds", () => {
     const cells = attendanceListingCells({
       locationLabel: "INF-CC",
       userName: "Test",
@@ -278,7 +278,7 @@ describe("attendance listing display", () => {
     });
     expect(cells.reportingTime).toBe("10:00 AM");
     expect(cells.shiftStart).toBe("10:30 AM");
-    expect(cells.latePunch).toBe("1.5");
+    expect(cells.latePunch).toBe("1m 30s");
   });
 
   it("live-computes reporting clock from roster start minus site minutes", () => {
@@ -326,6 +326,6 @@ describe("attendance listing display", () => {
     expect(cells.overtime).toBe("Yes");
     expect(cells.overtimeHours).toBe("0.60");
     expect(cells.status).toBe("Present");
-    expect(cells.latePunch).toBe("30");
+    expect(cells.latePunch).toBe("30m");
   });
 });

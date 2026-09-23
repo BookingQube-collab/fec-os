@@ -1,7 +1,11 @@
 import { formatLocationLabel, formatLocationName, rosterSheetLabel } from "@/lib/locations/normalize";
 import { breakMinutesForLocation, expectedShiftMinutes, normalizeAttendanceEmploymentRole } from "@/lib/attendance-hr/shift-policy";
 import { resolveHoursBasedAttendanceStatus } from "@/lib/attendance-display";
-import { formatFlexibleCrossSiteLocationLabel } from "@/lib/attendance-hr/flexible-cross-site";
+import {
+  formatFlexibleCrossSiteDeviceUserLabel,
+  formatFlexibleCrossSiteLocationLabel,
+} from "@/lib/attendance-hr/flexible-cross-site";
+import { resolveListingLateMinutes } from "@/lib/attendance-hr/late-punch";
 
 export type AttendanceHrReportRow = {
   id: string;
@@ -53,6 +57,9 @@ export type AttendanceHrReportRow = {
   check_out_location_code?: string | null;
   check_in_location_label?: string | null;
   check_out_location_label?: string | null;
+  /** Device user id on the check-in / check-out punch (flexible cross-site). */
+  check_in_biometric_user_id?: string | null;
+  check_out_biometric_user_id?: string | null;
 };
 
 export function isAttendanceHrUnmappedSearch(raw: string): boolean {
@@ -131,6 +138,28 @@ export function attendanceHrListingLocation(
   return formatLocationLabel(row.location_code || inCode || outCode, name);
 }
 
+/**
+ * Device User ID cell: `UA-DM 35 → INF-CC 24` for cross-site flexible days;
+ * otherwise the single biometric user id (never blank when either side has an id).
+ */
+export function attendanceHrListingDeviceUserId(
+  row: Pick<
+    AttendanceHrReportRow,
+    | "biometric_user_id"
+    | "check_in_location_code"
+    | "check_out_location_code"
+    | "check_in_biometric_user_id"
+    | "check_out_biometric_user_id"
+  >,
+): string | null {
+  const inId = row.check_in_biometric_user_id?.trim() || row.biometric_user_id?.trim() || "";
+  const outId = row.check_out_biometric_user_id?.trim() || row.biometric_user_id?.trim() || "";
+  const inCode = row.check_in_location_code?.trim() || "";
+  const outCode = row.check_out_location_code?.trim() || "";
+  const formatted = formatFlexibleCrossSiteDeviceUserLabel(inCode, inId, outCode, outId);
+  return formatted || inId || outId || row.biometric_user_id?.trim() || null;
+}
+
 function flexibleDayRowScore(row: AttendanceHrReportRow): number {
   let score = 0;
   score += Math.min(Number(row.punch_count) || 0, 20) * 100;
@@ -190,8 +219,10 @@ export function collapseFlexibleAttendanceReportRows(
     let worked = winner.worked_minutes;
     let punchCount = winner.punch_count;
     let overtime = winner.overtime_minutes;
-    let late = winner.late_minutes;
     let missed = winner.missed_punch;
+    // Roster shift times: keep winner's when set, else first sibling with times.
+    let scheduledIn = winner.scheduled_in ?? null;
+    let scheduledOut = winner.scheduled_out ?? null;
     for (const row of ranked.slice(1)) {
       actualIn = earlierIso(actualIn, row.actual_in);
       actualOut = laterIso(actualOut, row.actual_out);
@@ -200,18 +231,70 @@ export function collapseFlexibleAttendanceReportRows(
       }
       punchCount = Math.max(Number(punchCount) || 0, Number(row.punch_count) || 0);
       overtime = Math.max(Number(overtime) || 0, Number(row.overtime_minutes) || 0);
-      if (Number(row.late_minutes) > Number(late)) late = row.late_minutes;
       missed = missed || row.missed_punch;
+      if (!scheduledIn && row.scheduled_in) scheduledIn = row.scheduled_in;
+      if (!scheduledOut && row.scheduled_out) scheduledOut = row.scheduled_out;
     }
+    // Hours from merged clock span so stale worked_minutes cannot zero-out a real in/out pair.
+    if (actualIn && actualOut) {
+      const mins = Math.round(
+        (new Date(actualOut).getTime() - new Date(actualIn).getTime()) / 60_000,
+      );
+      if (Number.isFinite(mins) && mins >= 0) worked = mins;
+    }
+    const late = resolveListingLateMinutes({
+      actualIn,
+      rosterScheduledIn: scheduledIn,
+      reportingTimeMinutes: winner.location_reporting_time_minutes,
+      bufferMinutes: winner.location_buffer_minutes,
+    });
+    // In/out site + device user: prefer the row that owns earliest in / latest out.
+    const inOwner =
+      [...ranked]
+        .filter((r) => r.actual_in)
+        .sort(
+          (a, b) =>
+            new Date(a.actual_in!).getTime() - new Date(b.actual_in!).getTime(),
+        )[0] ?? winner;
+    const outOwner =
+      [...ranked]
+        .filter((r) => r.actual_out)
+        .sort(
+          (a, b) =>
+            new Date(b.actual_out!).getTime() - new Date(a.actual_out!).getTime(),
+        )[0] ?? inOwner;
+    const checkInCode =
+      inOwner.check_in_location_code ?? inOwner.location_code ?? winner.check_in_location_code ?? null;
+    const checkOutCode =
+      outOwner.check_out_location_code ?? outOwner.location_code ?? winner.check_out_location_code ?? null;
+    const checkInBio =
+      inOwner.check_in_biometric_user_id ??
+      inOwner.biometric_user_id ??
+      winner.check_in_biometric_user_id ??
+      winner.biometric_user_id ??
+      null;
+    const checkOutBio =
+      outOwner.check_out_biometric_user_id ??
+      outOwner.biometric_user_id ??
+      winner.check_out_biometric_user_id ??
+      winner.biometric_user_id ??
+      null;
     collapsed.push({
       ...winner,
       actual_in: actualIn,
       actual_out: actualOut,
+      scheduled_in: scheduledIn,
+      scheduled_out: scheduledOut,
       worked_minutes: worked,
       punch_count: punchCount,
       overtime_minutes: overtime,
       late_minutes: late,
       missed_punch: missed,
+      check_in_location_code: checkInCode,
+      check_out_location_code: checkOutCode,
+      check_in_biometric_user_id: checkInBio,
+      check_out_biometric_user_id: checkOutBio,
+      biometric_user_id: checkInBio ?? checkOutBio ?? winner.biometric_user_id,
     });
   }
 
@@ -272,7 +355,7 @@ export function attendanceHrToListingSource(
     locationLabel: attendanceHrListingLocation(row),
     userName: attendanceHrDisplayStaffName(row, unmapped),
     userNameUnmapped: !mappedName,
-    deviceUserId: row.biometric_user_id,
+    deviceUserId: attendanceHrListingDeviceUserId(row),
     deviceName,
     biometricMappingId: row.biometric_mapping_id ?? null,
     employeeCode: row.employee_code,

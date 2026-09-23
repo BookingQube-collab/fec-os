@@ -2,9 +2,12 @@
 
 import { Check, ChevronsUpDown, Search } from "lucide-react";
 import {
+  startTransition,
   useCallback,
+  useDeferredValue,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -15,10 +18,15 @@ import {
 import { useTranslation } from "react-i18next";
 
 import { buttonVariants } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { matchesSearchQuery } from "@/lib/searchable-select";
+import { matchesSearchQuery, scrollTopForIndex } from "@/lib/searchable-select";
+import { virtualWindowRange } from "@/lib/staff-roster/virtual-window";
 import { cn } from "@/lib/utils";
+
+/** max-h-64. ponytail: fixed row box; labels truncate so they don't wrap. Measure rows if that changes. */
+const OPTION_LIST_PX = 256;
+const OPTION_ROW_PX = 36;
+const OPTION_ROW_WITH_DESCRIPTION_PX = 52;
 
 export type SearchableSelectOption = {
   value: string;
@@ -150,8 +158,21 @@ export function SearchableSelect(props: SearchableSelectSingleProps | Searchable
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
+  const [listOn, setListOn] = useState(false);
+  const [scrollTop, setScrollTop] = useState(0);
+  const listRef = useRef<HTMLUListElement>(null);
+  const deferredQuery = useDeferredValue(query);
+  // Clearing the field must show every option immediately. A deferred empty string
+  // would keep the previous filter for a frame after the menu reopens.
+  const filterQuery = query === "" ? "" : deferredQuery;
 
-  const selectedValues = multiple ? props.values : props.value ? [props.value] : [];
+  const selectedValues = multiple
+    ? props.values
+    : props.value
+      ? [props.value]
+      : emptyOption && props.value === emptyOption.value
+        ? [emptyOption.value]
+        : [];
   const selectedSet = useMemo(() => new Set(selectedValues), [selectedValues]);
 
   const items = useMemo(() => {
@@ -163,9 +184,26 @@ export function SearchableSelect(props: SearchableSelectSingleProps | Searchable
 
   const filtered = useMemo(() => {
     return items.filter((item) =>
-      matchesSearchQuery(query, collectNodeText(item.label), collectNodeText(item.description), item.keywords, item.value),
+      matchesSearchQuery(
+        filterQuery,
+        collectNodeText(item.label),
+        collectNodeText(item.description),
+        item.keywords,
+        item.value,
+      ),
     );
-  }, [items, query]);
+  }, [items, filterQuery]);
+
+  const rowHeight = useMemo(
+    () => (items.some((item) => item.description) ? OPTION_ROW_WITH_DESCRIPTION_PX : OPTION_ROW_PX),
+    [items],
+  );
+  const windowed = useMemo(
+    () => virtualWindowRange(filtered.length, scrollTop, rowHeight, OPTION_LIST_PX, 6),
+    [filtered.length, scrollTop, rowHeight],
+  );
+  const visible = windowed.fullyInWindow ? filtered : filtered.slice(windowed.start, windowed.end);
+  const visibleStart = windowed.fullyInWindow ? 0 : windowed.start;
 
   const selectedLabels = useMemo(
     () =>
@@ -189,10 +227,15 @@ export function SearchableSelect(props: SearchableSelectSingleProps | Searchable
     (next: boolean) => {
       setOpen(next);
       onOpenChange?.(next);
-      if (!next) {
-        setQuery("");
-        setActive(0);
+      if (next) {
+        // Paint the field first. The option list is the long task in the open click.
+        startTransition(() => setListOn(true));
+        return;
       }
+      setListOn(false);
+      setQuery("");
+      setActive(0);
+      setScrollTop(0);
     },
     [onOpenChange],
   );
@@ -202,18 +245,31 @@ export function SearchableSelect(props: SearchableSelectSingleProps | Searchable
       setActive(0);
       return;
     }
-    if (query.trim()) {
-      setActive(0);
+    if (filterQuery.trim()) {
+      setActive((current) => (current === 0 ? current : 0));
       return;
     }
     const selectedIndex = filtered.findIndex((item) => selectedSet.has(item.value));
-    setActive(selectedIndex >= 0 ? selectedIndex : 0);
-  }, [open, query, filtered, selectedSet]);
+    const next = selectedIndex >= 0 ? selectedIndex : 0;
+    setActive((current) => (current === next ? current : next));
+  }, [open, filterQuery, filtered, selectedSet]);
+
+  useLayoutEffect(() => {
+    if (!listOn) return;
+    const node = listRef.current;
+    setScrollTop((current) => {
+      const next = scrollTopForIndex(current, active, rowHeight, OPTION_LIST_PX);
+      if (node && node.scrollTop !== next) node.scrollTop = next;
+      return next === current ? current : next;
+    });
+  }, [active, rowHeight, listOn]);
 
   const chooseSingle = useCallback(
     (next: string) => {
       if (!multiple) {
-        props.onValueChange(next);
+        startTransition(() => {
+          props.onValueChange(next);
+        });
         setOpenState(false);
       }
     },
@@ -291,7 +347,7 @@ export function SearchableSelect(props: SearchableSelectSingleProps | Searchable
   return (
     <div className={cn("min-w-0", className)}>
       {name ? <input type="hidden" name={name} value={hiddenValue} /> : null}
-      <Popover modal open={open} onOpenChange={setOpenState}>
+      <Popover open={open} onOpenChange={setOpenState}>
         <PopoverTrigger asChild>
           <button
             type="button"
@@ -333,51 +389,68 @@ export function SearchableSelect(props: SearchableSelectSingleProps | Searchable
             expanded={open}
             activeId={activeId}
           />
-          <ul id={listId} role="listbox" aria-multiselectable={multiple || undefined} className="mt-1.5 max-h-64 overflow-y-auto p-0">
-            {filtered.length === 0 ? (
+          <ul
+            ref={listRef}
+            id={listId}
+            role="listbox"
+            aria-multiselectable={multiple || undefined}
+            className="mt-1.5 max-h-64 overflow-y-auto overscroll-contain p-0"
+            onScroll={(e) => {
+              const top = e.currentTarget.scrollTop;
+              setScrollTop((prev) => (prev === top ? prev : top));
+            }}
+          >
+            {!listOn ? null : filtered.length === 0 ? (
               <li className="px-3 py-3 text-sm text-muted-foreground">{emptyLabel}</li>
             ) : (
-              filtered.map((item, i) => {
-                const isActive = i === active;
-                const isClear = Boolean(emptyOption && item.value === emptyOption.value);
-                const isSelected = isClear ? selectedValues.length === 0 : selectedSet.has(item.value);
-                return (
-                  <li key={`${item.value}-${i}`} role="presentation">
-                    <button
-                      type="button"
-                      id={`${listId}-${i}`}
-                      role="option"
-                      aria-selected={isSelected}
-                      disabled={item.disabled}
-                      onMouseEnter={() => setActive(i)}
-                      onClick={() => (multiple ? toggleMulti(item.value) : chooseSingle(item.value))}
-                      className={cn(
-                        "flex w-full items-center gap-2 rounded-full px-3 py-2 text-start text-sm",
-                        isActive ? "bg-secondary font-medium text-foreground" : "text-foreground hover:bg-secondary/70",
-                        item.disabled && "pointer-events-none opacity-50",
-                      )}
-                    >
-                      {multiple && !isClear ? (
-                        <Checkbox
-                          checked={isSelected}
-                          tabIndex={-1}
-                          className="pointer-events-none"
-                          aria-hidden
-                        />
-                      ) : (
-                        <Check className={cn("h-3.5 w-3.5 shrink-0", isSelected ? "opacity-100" : "opacity-0")} />
-                      )}
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate">{item.label}</span>
-                        {item.description ? (
-                          <span className="block truncate text-xs font-normal text-muted-foreground">{item.description}</span>
-                        ) : null}
-                      </span>
-                      {item.suffix}
-                    </button>
-                  </li>
-                );
-              })
+              <>
+                {windowed.topPad > 0 ? <li aria-hidden style={{ height: windowed.topPad }} /> : null}
+                {visible.map((item, offset) => {
+                  const i = visibleStart + offset;
+                  const isActive = i === active;
+                  const isClear = Boolean(emptyOption && item.value === emptyOption.value);
+                  const isSelected = isClear ? selectedValues.length === 0 : selectedSet.has(item.value);
+                  return (
+                    <li key={`${item.value}-${i}`} role="presentation" className="overflow-hidden" style={{ height: rowHeight }}>
+                      <button
+                        type="button"
+                        id={`${listId}-${i}`}
+                        role="option"
+                        aria-selected={isSelected}
+                        disabled={item.disabled}
+                        onClick={() => (multiple ? toggleMulti(item.value) : chooseSingle(item.value))}
+                        className={cn(
+                          "flex h-full w-full items-center gap-2 rounded-full px-3 py-2 text-start text-sm",
+                          isActive ? "bg-secondary font-medium text-foreground" : "text-foreground hover:bg-secondary/70",
+                          item.disabled && "pointer-events-none opacity-50",
+                        )}
+                      >
+                        {multiple && !isClear ? (
+                          <span
+                            aria-hidden
+                            className={cn(
+                              "grid h-4 w-4 shrink-0 place-content-center rounded-sm border border-primary shadow",
+                              isSelected && "bg-primary text-primary-foreground",
+                            )}
+                          >
+                            <Check className={cn("h-4 w-4", isSelected ? "opacity-100" : "opacity-0")} />
+                          </span>
+                        ) : (
+                          <Check className={cn("h-3.5 w-3.5 shrink-0", isSelected ? "opacity-100" : "opacity-0")} />
+                        )}
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate">{item.label}</span>
+                          {item.description ? (
+                            <span className="block truncate text-xs font-normal text-muted-foreground">{item.description}</span>
+                          ) : null}
+                        </span>
+                        {item.suffix}
+                      </button>
+                    </li>
+                  );
+                })}
+                {windowed.bottomPad > 0 ? <li aria-hidden style={{ height: windowed.bottomPad }} /> : null}
+              </>
             )}
           </ul>
         </PopoverContent>

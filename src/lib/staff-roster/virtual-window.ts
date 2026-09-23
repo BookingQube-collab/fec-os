@@ -18,3 +18,15 @@ export function virtualWindowRange(
     fullyInWindow: count === 0 || (start === 0 && end >= count),
   };
 }
+
+/**
+ * Virtual pads assume a fixed row height. On short lists (e.g. one staff × FEC month ≈ 31)
+ * those pads read as missing dates — render the full list instead.
+ */
+export function shouldVirtualizePreviewRows(
+  count: number,
+  fullyInWindow: boolean,
+  minRowsToVirtualize = 80,
+) {
+  return count >= minRowsToVirtualize && !fullyInWindow;
+}

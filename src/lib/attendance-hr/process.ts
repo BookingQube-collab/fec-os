@@ -5,6 +5,7 @@ import { isActiveRosterStaff } from "@/lib/staff-status";
 
 import { calculateDailyAttendance, markProbableDuplicates } from "./calculate";
 import {
+  ATTENDANCE_DAILY_LIST_PAGE_SIZE,
   ATTENDANCE_FILE_BUCKET,
   DEFAULT_RULES,
   DEFAULT_SHIFT,
@@ -23,12 +24,28 @@ import {
 } from "./mapping-merge";
 import { previewAttendanceFile } from "./preview";
 import {
+  expandFlexibleBiometricPairsByDeviceName,
   flexibleDayHasQualifyingPunches,
   flexibleDayRecalcAction,
   type FlexibleCrossSitePunch,
 } from "./flexible-cross-site";
+import { deviceLogUserPairsOrFilter } from "./device-logs";
 import { normalizeShiftHm, scheduledIsoFromHm } from "./late-punch";
 import { applyAttendanceShiftPolicy, resolveReportingAndBuffer, type StaffFlexibleTiming } from "./shift-policy";
+
+/** Page past PostgREST max_rows (~1000). Bare selects silently truncate a full site-month. */
+async function fetchAllPaged<T>(
+  run: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let from = 0; ; from += ATTENDANCE_DAILY_LIST_PAGE_SIZE) {
+    const { data, error } = await run(from, from + ATTENDANCE_DAILY_LIST_PAGE_SIZE - 1);
+    if (error) throw error;
+    out.push(...(data ?? []));
+    if (!data || data.length < ATTENDANCE_DAILY_LIST_PAGE_SIZE) break;
+  }
+  return out;
+}
 
 function hasShiftHm(time: string | null | undefined): boolean {
   return Boolean(normalizeShiftHm(time));
@@ -227,36 +244,47 @@ export async function recalculateAttendanceRange(
 ) {
   const staffScope = options?.staffIds?.length ? [...new Set(options.staffIds.filter(Boolean))] : null;
 
-  let logsQuery = supabase
-    .from("attendance_logs")
-    .select("id, staff_id, biometric_user_id, device_id, punch_at, probable_duplicate, excluded_from_calc, attendance_date")
-    .eq("location_id", locationId)
-    .gte("attendance_date", dateFrom)
-    .lte("attendance_date", dateTo);
-  let rosterQuery = supabase
-    .from("attendance_roster_assignments")
-    .select("staff_id, work_date, shift_template_id, shift_start, shift_end, is_week_off")
-    .eq("location_id", locationId)
-    .gte("work_date", dateFrom)
-    .lte("work_date", dateTo);
-  let leaveQuery = supabase
-    .from("attendance_leave_records")
-    .select("staff_id, leave_date, leave_type")
-    .eq("location_id", locationId)
-    .gte("leave_date", dateFrom)
-    .lte("leave_date", dateTo);
-  if (staffScope) {
-    logsQuery = logsQuery.in("staff_id", staffScope);
-    rosterQuery = rosterQuery.in("staff_id", staffScope);
-    leaveQuery = leaveQuery.in("staff_id", staffScope);
-  }
+  const buildLogsQuery = () => {
+    let q = supabase
+      .from("attendance_logs")
+      .select("id, staff_id, biometric_user_id, device_id, punch_at, probable_duplicate, excluded_from_calc, attendance_date")
+      .eq("location_id", locationId)
+      .gte("attendance_date", dateFrom)
+      .lte("attendance_date", dateTo)
+      .order("id", { ascending: true });
+    if (staffScope) q = q.in("staff_id", staffScope);
+    return q;
+  };
+  const buildRosterQuery = () => {
+    let q = supabase
+      .from("attendance_roster_assignments")
+      .select("staff_id, work_date, shift_template_id, shift_start, shift_end, is_week_off")
+      .eq("location_id", locationId)
+      .gte("work_date", dateFrom)
+      .lte("work_date", dateTo)
+      .order("id", { ascending: true });
+    if (staffScope) q = q.in("staff_id", staffScope);
+    return q;
+  };
+  const buildLeaveQuery = () => {
+    let q = supabase
+      .from("attendance_leave_records")
+      .select("staff_id, leave_date, leave_type")
+      .eq("location_id", locationId)
+      .gte("leave_date", dateFrom)
+      .lte("leave_date", dateTo)
+      .order("leave_date", { ascending: true })
+      .order("staff_id", { ascending: true });
+    if (staffScope) q = q.in("staff_id", staffScope);
+    return q;
+  };
 
-  const [{ data: logs, error }, { data: roster }, { data: holidays }, { data: leaves }, { data: shifts }, { data: ruleRows }, { data: staffRows }, { data: locationRow }, { data: siteSetting }] =
+  const [logs, roster, holidaysRes, leaves, shiftsRes, ruleRowsRes, staffRowsRes, locationRowRes, siteSettingRes] =
     await Promise.all([
-      logsQuery,
-      rosterQuery,
+      fetchAllPaged<Record<string, unknown>>((from, to) => buildLogsQuery().range(from, to)),
+      fetchAllPaged<Record<string, unknown>>((from, to) => buildRosterQuery().range(from, to)),
       supabase.from("attendance_holidays").select("holiday_date, name, location_id").gte("holiday_date", dateFrom).lte("holiday_date", dateTo),
-      leaveQuery,
+      fetchAllPaged<Record<string, unknown>>((from, to) => buildLeaveQuery().range(from, to)),
       supabase.from("attendance_shift_templates").select("*").eq("active", true),
       supabase.from("attendance_rule_sets").select("*").order("scope"),
       staffScope
@@ -281,6 +309,16 @@ export async function recalculateAttendanceRange(
         .eq("location_id", locationId)
         .maybeSingle(),
     ]);
+  if (holidaysRes.error) throw holidaysRes.error;
+  if (shiftsRes.error) throw shiftsRes.error;
+  if (ruleRowsRes.error) throw ruleRowsRes.error;
+  if (staffRowsRes.error) throw staffRowsRes.error;
+  const holidays = holidaysRes.data;
+  const shifts = shiftsRes.data;
+  const ruleRows = ruleRowsRes.data;
+  const staffRows = staffRowsRes.data;
+  const locationRow = locationRowRes.data;
+  const siteSetting = siteSettingRes.data;
   const locationCode = locationRow?.code ? String(locationRow.code) : null;
   const sitePolicy = (siteSetting ?? null) as {
     break_minutes?: number | null;
@@ -351,42 +389,137 @@ export async function recalculateAttendanceRange(
   const crossRosterByStaffDay = new Map<string, RosterDayRow>();
 
   if (flexibleStaffIds.length) {
-    let crossLogsQuery = supabase
-      .from("attendance_logs")
-      .select(
-        "id, location_id, staff_id, biometric_user_id, device_id, punch_at, probable_duplicate, excluded_from_calc, attendance_date",
-      )
-      .in("staff_id", flexibleStaffIds)
-      .gte("attendance_date", dateFrom)
-      .lte("attendance_date", dateTo);
-    let crossRosterQuery = supabase
-      .from("attendance_roster_assignments")
-      .select("staff_id, work_date, shift_template_id, shift_start, shift_end, is_week_off, location_id")
-      .in("staff_id", flexibleStaffIds)
-      .gte("work_date", dateFrom)
-      .lte("work_date", dateTo);
-    const [{ data: crossLogs }, { data: crossRoster }] = await Promise.all([
-      crossLogsQuery,
-      crossRosterQuery,
+    const buildCrossLogsQuery = () =>
+      supabase
+        .from("attendance_logs")
+        .select(
+          "id, location_id, staff_id, biometric_user_id, device_id, punch_at, probable_duplicate, excluded_from_calc, attendance_date",
+        )
+        .in("staff_id", flexibleStaffIds)
+        .gte("attendance_date", dateFrom)
+        .lte("attendance_date", dateTo)
+        .order("id", { ascending: true });
+    const buildCrossRosterQuery = () =>
+      supabase
+        .from("attendance_roster_assignments")
+        .select("staff_id, work_date, shift_template_id, shift_start, shift_end, is_week_off, location_id")
+        .in("staff_id", flexibleStaffIds)
+        .gte("work_date", dateFrom)
+        .lte("work_date", dateTo)
+        .order("id", { ascending: true });
+    const [crossLogs, crossRoster] = await Promise.all([
+      fetchAllPaged<Record<string, unknown>>((from, to) => buildCrossLogsQuery().range(from, to)),
+      fetchAllPaged<Record<string, unknown>>((from, to) => buildCrossRosterQuery().range(from, to)),
     ]);
-    for (const log of crossLogs ?? []) {
-      const staffId = log.staff_id ? String(log.staff_id) : "";
+
+    const addCrossPunch = (log: Record<string, unknown>, staffIdOverride?: string) => {
+      const staffId = (staffIdOverride || (log.staff_id ? String(log.staff_id) : "")).trim();
       const day = String(log.attendance_date ?? "").slice(0, 10);
-      if (!staffId || !day) continue;
+      if (!staffId || !day) return;
       const key = `${staffId}|${day}`;
       const list = crossPunchesByStaffDay.get(key) ?? [];
+      const punchId = log.id ? String(log.id) : "";
+      if (punchId && list.some((p) => p.id === punchId)) return;
       list.push({
-        id: log.id as string,
+        id: punchId || undefined,
         locationId: String(log.location_id),
         punchAt: String(log.punch_at),
+        biometricUserId: log.biometric_user_id == null ? null : String(log.biometric_user_id),
         probableDuplicate: Boolean(log.probable_duplicate),
         excludedFromCalc: Boolean(log.excluded_from_calc),
         device_id: (log.device_id as string | null) ?? null,
         biometric_user_id: (log.biometric_user_id as string | null) ?? null,
       });
       crossPunchesByStaffDay.set(key, list);
+    };
+
+    for (const log of crossLogs) addCrossPunch(log);
+
+    // Unmapped / null-staff punches at other sites: resolve via biometric registry + same device_name.
+    const mappedBios: Array<{
+      staffId: string | null;
+      locationId: string;
+      biometricUserId: string;
+      deviceName?: string | null;
+    }> = [];
+    const deviceNames = new Set<string>();
+    for (let i = 0; i < flexibleStaffIds.length; i += 200) {
+      const chunk = flexibleStaffIds.slice(i, i + 200);
+      const { data: maps, error: mapErr } = await supabase
+        .from("attendance_biometric_users")
+        .select("staff_id, location_id, biometric_user_id, device_name")
+        .in("staff_id", chunk)
+        .limit(5000);
+      if (mapErr) throw mapErr;
+      for (const row of maps ?? []) {
+        const staffId = row.staff_id ? String(row.staff_id) : "";
+        const locationId = String(row.location_id ?? "");
+        const biometricUserId = String(row.biometric_user_id ?? "").trim();
+        const deviceName = row.device_name == null ? null : String(row.device_name);
+        if (!staffId || !locationId || !biometricUserId) continue;
+        mappedBios.push({ staffId, locationId, biometricUserId, deviceName });
+        const trimmed = deviceName?.trim();
+        if (trimmed) deviceNames.add(trimmed);
+      }
     }
-    for (const r of crossRoster ?? []) {
+    const catalog = [...mappedBios];
+    if (deviceNames.size) {
+      const nameFilter = [...deviceNames]
+        .map((name) => `device_name.ilike.${name.replace(/[,()%]/g, "")}`)
+        .filter((part) => part.length > "device_name.ilike.".length)
+        .join(",");
+      if (nameFilter) {
+        const { data: aliasRows, error: aliasErr } = await supabase
+          .from("attendance_biometric_users")
+          .select("staff_id, location_id, biometric_user_id, device_name")
+          .or(nameFilter)
+          .limit(5000);
+        if (aliasErr) throw aliasErr;
+        for (const row of aliasRows ?? []) {
+          catalog.push({
+            staffId: row.staff_id ? String(row.staff_id) : null,
+            locationId: String(row.location_id ?? ""),
+            biometricUserId: String(row.biometric_user_id ?? "").trim(),
+            deviceName: row.device_name == null ? null : String(row.device_name),
+          });
+        }
+      }
+    }
+    const expanded = expandFlexibleBiometricPairsByDeviceName(mappedBios, catalog);
+    const staffByLocUser = new Map<string, string>();
+    const bioPairs: Array<{ locationId: string; biometricUserId: string }> = [];
+    for (const pair of expanded) {
+      staffByLocUser.set(`${pair.locationId}|${pair.biometricUserId}`, pair.staffId);
+      bioPairs.push({ locationId: pair.locationId, biometricUserId: pair.biometricUserId });
+    }
+    for (let i = 0; i < bioPairs.length; i += 40) {
+      const chunk = bioPairs.slice(i, i + 40);
+      const pairFilter = deviceLogUserPairsOrFilter(chunk);
+      if (!pairFilter) continue;
+      const aliasLogs = await fetchAllPaged<Record<string, unknown>>((from, to) =>
+        supabase
+          .from("attendance_logs")
+          .select(
+            "id, location_id, staff_id, biometric_user_id, device_id, punch_at, probable_duplicate, excluded_from_calc, attendance_date",
+          )
+          .or(pairFilter)
+          .gte("attendance_date", dateFrom)
+          .lte("attendance_date", dateTo)
+          .order("id", { ascending: true })
+          .range(from, to),
+      );
+      for (const log of aliasLogs) {
+        const locationId = String(log.location_id ?? "");
+        const biometricUserId =
+          log.biometric_user_id == null ? "" : String(log.biometric_user_id).trim();
+        const staffId =
+          (log.staff_id ? String(log.staff_id) : "") ||
+          (biometricUserId ? staffByLocUser.get(`${locationId}|${biometricUserId}`) ?? "" : "");
+        addCrossPunch(log, staffId);
+      }
+    }
+
+    for (const r of crossRoster) {
       const staffId = String(r.staff_id);
       const day = String(r.work_date).slice(0, 10);
       const key = `${staffId}|${day}`;
@@ -438,7 +571,6 @@ export async function recalculateAttendanceRange(
       coveragePeriods = [];
     }
   }
-  if (error) throw error;
 
   const ruleRow = (ruleRows ?? []).find((r) => r.location_id === locationId)
     ?? (ruleRows ?? []).find((r) => r.scope === "global")

@@ -1,5 +1,10 @@
 /** Raw ZKTeco punch listing. Names may fall back to the device biometric registry — never staff. */
 
+import {
+  formatFlexibleCrossSiteDeviceUserLabel,
+  formatFlexibleCrossSiteLocationLabel,
+} from "./flexible-cross-site";
+
 export const DEVICE_LOG_CAP = 2000;
 export const DEVICE_LOG_PAGE_SIZE = 100;
 /** Page size when loading distinct device users for the name filter (not capped by DEVICE_LOG_CAP). */
@@ -18,6 +23,8 @@ export type AttendanceDeviceLogRow = {
   deviceCode: string | null;
   biometricUserId: string | null;
   deviceUserName: string | null;
+  /** Mapped staff when known (log.staff_id or biometric registry). */
+  staffId?: string | null;
   punchAt: string;
   inOutStatus: number | null;
   verifyMethod: number | null;
@@ -37,12 +44,20 @@ export type AttendanceDeviceLogDayRow = {
   deviceCode: string | null;
   biometricUserId: string | null;
   deviceUserName: string | null;
+  staffId?: string | null;
   /** Qatar civil day YYYY-MM-DD. */
   dateYmd: string;
   punchInAt: string | null;
   punchOutAt: string | null;
   /** Raw punches folded into this row. */
   punchCount: number;
+  /** Cross-site merge: check-in / check-out site codes + device user ids. */
+  checkInLocationCode?: string | null;
+  checkOutLocationCode?: string | null;
+  checkInBiometricUserId?: string | null;
+  checkOutBiometricUserId?: string | null;
+  checkInDeviceSerial?: string | null;
+  checkOutDeviceSerial?: string | null;
 };
 
 export type DeviceLogKpis = {
@@ -193,6 +208,8 @@ export function rollupDeviceLogDays(rows: AttendanceDeviceLogRow[]): AttendanceD
     const sample = group.sample;
     const deviceUserName =
       sorted.find((p) => p.deviceUserName?.trim())?.deviceUserName?.trim() || sample.deviceUserName;
+    const staffId =
+      sorted.find((p) => p.staffId?.trim())?.staffId?.trim() || sample.staffId?.trim() || null;
     days.push({
       id: key,
       locationId: sample.locationId,
@@ -204,6 +221,7 @@ export function rollupDeviceLogDays(rows: AttendanceDeviceLogRow[]): AttendanceD
       deviceCode: sample.deviceCode,
       biometricUserId: sample.biometricUserId,
       deviceUserName,
+      staffId,
       dateYmd: group.dateYmd,
       punchInAt,
       punchOutAt,
@@ -221,11 +239,197 @@ export function rollupDeviceLogDays(rows: AttendanceDeviceLogRow[]): AttendanceD
   return days;
 }
 
+function earlierIso(a: string | null | undefined, b: string | null | undefined): string | null {
+  if (!a) return b ?? null;
+  if (!b) return a;
+  return new Date(a).getTime() <= new Date(b).getTime() ? a : b;
+}
+
+function laterIso(a: string | null | undefined, b: string | null | undefined): string | null {
+  if (!a) return b ?? null;
+  if (!b) return a;
+  return new Date(a).getTime() >= new Date(b).getTime() ? a : b;
+}
+
+/** Normalize device display name for cross-site identity matching. */
+export function normalizeDeviceLogPersonName(name: string | null | undefined): string {
+  return (name ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/** Merge key: staff id preferred; else exact device name (ponytail: name collision risk). */
+function deviceLogCrossSiteMergeKey(day: AttendanceDeviceLogDayRow): string | null {
+  const staff = day.staffId?.trim();
+  if (staff) return `staff:${staff}|${day.dateYmd}`;
+  const name = normalizeDeviceLogPersonName(day.deviceUserName);
+  if (name) return `name:${name}|${day.dateYmd}`;
+  return null;
+}
+
+/**
+ * Join unmapped `name:*` groups into a `staff:*` group on the same date when the
+ * device display name matches. Fixes Russell-style days where one site is mapped
+ * (staff id on the log) and another site is not (name-only key) — previously those
+ * stayed as two rows.
+ */
+function joinNameGroupsIntoStaffGroups(
+  groups: Map<string, AttendanceDeviceLogDayRow[]>,
+): void {
+  const nameKeys = [...groups.keys()].filter((key) => key.startsWith("name:"));
+  for (const nameKey of nameKeys) {
+    const nameGroup = groups.get(nameKey);
+    if (!nameGroup?.length) continue;
+    const name = normalizeDeviceLogPersonName(nameGroup[0]?.deviceUserName);
+    const dateYmd = nameGroup[0]?.dateYmd;
+    if (!name || !dateYmd) continue;
+
+    let hostKey: string | null = null;
+    for (const [key, list] of groups) {
+      if (!key.startsWith(`staff:`) || !key.endsWith(`|${dateYmd}`)) continue;
+      if (list.some((row) => normalizeDeviceLogPersonName(row.deviceUserName) === name)) {
+        hostKey = key;
+        break;
+      }
+    }
+    if (!hostKey) continue;
+    groups.set(hostKey, [...(groups.get(hostKey) ?? []), ...nameGroup]);
+    groups.delete(nameKey);
+  }
+}
+
+/**
+ * Collapse same-person punches at 2+ locations on one Qatar day into one row.
+ * Punch in = earliest in; punch out = latest out; location `A → B`.
+ */
+export function collapseCrossSiteDeviceLogDays(
+  days: AttendanceDeviceLogDayRow[],
+): AttendanceDeviceLogDayRow[] {
+  const groups = new Map<string, AttendanceDeviceLogDayRow[]>();
+  const passthrough: AttendanceDeviceLogDayRow[] = [];
+
+  for (const day of days) {
+    const key = deviceLogCrossSiteMergeKey(day);
+    if (!key) {
+      passthrough.push(day);
+      continue;
+    }
+    const list = groups.get(key) ?? [];
+    list.push(day);
+    groups.set(key, list);
+  }
+
+  joinNameGroupsIntoStaffGroups(groups);
+
+  const collapsed: AttendanceDeviceLogDayRow[] = [];
+  for (const group of groups.values()) {
+    const locIds = new Set(group.map((d) => d.locationId));
+    if (group.length === 1 || locIds.size < 2) {
+      collapsed.push(...group);
+      continue;
+    }
+
+    let punchInAt: string | null = null;
+    let punchOutAt: string | null = null;
+    let punchCount = 0;
+    for (const row of group) {
+      punchInAt = earlierIso(punchInAt, row.punchInAt);
+      punchOutAt = laterIso(punchOutAt, row.punchOutAt);
+      punchCount += Number(row.punchCount) || 0;
+    }
+
+    // In site = row that owns the earliest check-in (else earliest activity).
+    const inRow =
+      [...group]
+        .filter((r) => r.punchInAt)
+        .sort(
+          (a, b) =>
+            new Date(a.punchInAt!).getTime() - new Date(b.punchInAt!).getTime(),
+        )[0] ??
+      [...group].sort((a, b) => {
+        const aAt = a.punchInAt ?? a.punchOutAt ?? "";
+        const bAt = b.punchInAt ?? b.punchOutAt ?? "";
+        return new Date(aAt).getTime() - new Date(bAt).getTime();
+      })[0]!;
+    const outRow =
+      [...group]
+        .filter((r) => r.punchOutAt)
+        .sort(
+          (a, b) =>
+            new Date(b.punchOutAt!).getTime() - new Date(a.punchOutAt!).getTime(),
+        )[0] ?? inRow;
+
+    const checkInLocationCode = inRow.locationCode;
+    const checkOutLocationCode = outRow.locationCode;
+    const checkInBiometricUserId = inRow.biometricUserId;
+    const checkOutBiometricUserId = outRow.biometricUserId;
+    const checkInDeviceSerial = deviceLogRawDeviceId(inRow);
+    const checkOutDeviceSerial = deviceLogRawDeviceId(outRow);
+    const locationCode =
+      formatFlexibleCrossSiteLocationLabel(checkInLocationCode, checkOutLocationCode) ??
+      inRow.locationCode;
+    const deviceUserName =
+      group.find((r) => r.deviceUserName?.trim())?.deviceUserName?.trim() || inRow.deviceUserName;
+    const staffId = group.find((r) => r.staffId?.trim())?.staffId ?? inRow.staffId ?? null;
+
+    collapsed.push({
+      id: `cross:${deviceLogCrossSiteMergeKey(inRow)}`,
+      locationId: inRow.locationId,
+      locationCode,
+      locationName: inRow.locationName,
+      deviceId: inRow.deviceId,
+      deviceName: inRow.deviceName,
+      deviceSerial: checkInDeviceSerial,
+      deviceCode: inRow.deviceCode,
+      biometricUserId: checkInBiometricUserId,
+      deviceUserName,
+      staffId,
+      dateYmd: inRow.dateYmd,
+      punchInAt,
+      punchOutAt,
+      punchCount,
+      checkInLocationCode,
+      checkOutLocationCode,
+      checkInBiometricUserId,
+      checkOutBiometricUserId,
+      checkInDeviceSerial,
+      checkOutDeviceSerial,
+    });
+  }
+
+  const out = [...passthrough, ...collapsed];
+  out.sort((a, b) => {
+    if (a.dateYmd !== b.dateYmd) return a.dateYmd < b.dateYmd ? 1 : -1;
+    const aAt = a.punchInAt ?? a.punchOutAt ?? "";
+    const bAt = b.punchInAt ?? b.punchOutAt ?? "";
+    if (aAt !== bAt) return aAt < bAt ? 1 : -1;
+    return (a.biometricUserId ?? "").localeCompare(b.biometricUserId ?? "");
+  });
+  return out;
+}
+
 /** Raw device identifier as stored for the terminal (serial, else device_code). */
 export function deviceLogRawDeviceId(row: {
   deviceSerial?: string | null;
   deviceCode?: string | null;
+  checkInDeviceSerial?: string | null;
+  checkOutDeviceSerial?: string | null;
+  checkInLocationCode?: string | null;
+  checkOutLocationCode?: string | null;
 }): string | null {
+  const inSerial = row.checkInDeviceSerial?.trim() || "";
+  const outSerial = row.checkOutDeviceSerial?.trim() || "";
+  if (inSerial || outSerial) {
+    return (
+      formatFlexibleCrossSiteDeviceUserLabel(
+        row.checkInLocationCode,
+        inSerial || null,
+        row.checkOutLocationCode,
+        outSerial || null,
+      ) ||
+      inSerial ||
+      outSerial ||
+      null
+    );
+  }
   return row.deviceSerial?.trim() || row.deviceCode?.trim() || null;
 }
 
@@ -407,12 +611,41 @@ export const DEVICE_LOG_EXPORT_COLUMNS = [
   "Punch out",
 ] as const;
 
-/** Short site code for listing/export (INF-CC, UA-DM). */
+/** Short site code for listing/export (INF-CC, UA-DM), or `A → B` when cross-site. */
 export function deviceLogLocationLabel(row: {
   locationCode?: string | null;
   locationName?: string | null;
+  checkInLocationCode?: string | null;
+  checkOutLocationCode?: string | null;
 }): string | null {
+  const cross = formatFlexibleCrossSiteLocationLabel(
+    row.checkInLocationCode,
+    row.checkOutLocationCode,
+  );
+  if (cross && row.checkInLocationCode && row.checkOutLocationCode && row.checkInLocationCode !== row.checkOutLocationCode) {
+    return cross;
+  }
   return row.locationCode?.trim() || row.locationName?.trim() || null;
+}
+
+/** User ID cell: `UA-DM 35 → INF-CC 24` when cross-site; else bare id. */
+export function deviceLogUserIdLabel(row: {
+  biometricUserId?: string | null;
+  checkInLocationCode?: string | null;
+  checkOutLocationCode?: string | null;
+  checkInBiometricUserId?: string | null;
+  checkOutBiometricUserId?: string | null;
+}): string | null {
+  return (
+    formatFlexibleCrossSiteDeviceUserLabel(
+      row.checkInLocationCode,
+      row.checkInBiometricUserId ?? row.biometricUserId,
+      row.checkOutLocationCode,
+      row.checkOutBiometricUserId ?? row.biometricUserId,
+    ) ||
+    row.biometricUserId?.trim() ||
+    null
+  );
 }
 
 export function deviceLogDayExportObject(
@@ -423,7 +656,7 @@ export function deviceLogDayExportObject(
   return {
     Location: deviceLogLocationLabel(row) ?? "",
     "Device ID": deviceLogRawDeviceId(row) ?? "",
-    "User ID": row.biometricUserId ?? "",
+    "User ID": deviceLogUserIdLabel(row) ?? "",
     Name: row.deviceUserName ?? "",
     Date: formatDeviceLogYmd(row.dateYmd),
     "Punch in": punchIn,

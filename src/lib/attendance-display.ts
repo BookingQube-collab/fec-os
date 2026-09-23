@@ -203,12 +203,18 @@ export function hasOvertime(row: {
   return resolveOvertimeMinutes(row) > 0;
 }
 
-/** Roster late punch: minutes past reporting_clock + buffer. One decimal when fractional. */
+/**
+ * Roster late punch: minutes past reporting_clock + buffer.
+ * Stored as decimal minutes (e.g. 1.5 = 90s); display as `1m 30s` / `26m`.
+ */
 export function formatLatePunch(lateMinutes: number | null | undefined): string {
   const mins = Number(lateMinutes ?? 0);
   if (!Number.isFinite(mins) || mins <= 0) return "—";
-  const rounded = Math.round(mins * 10) / 10;
-  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+  const totalSeconds = Math.round(mins * 60);
+  if (totalSeconds <= 0) return "—";
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return s === 0 ? `${m}m` : `${m}m ${s}s`;
 }
 
 export function hasLatePunch(lateMinutes: number | null | undefined): boolean {

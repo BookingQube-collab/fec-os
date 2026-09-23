@@ -65,9 +65,30 @@ import {
   type AttendanceHrReportRow,
 } from "@/lib/attendance-hr/report";
 import {
+  expandFlexibleBiometricPairsByDeviceName,
+  flexibleDayFirstLastBiometricUserIds,
   flexibleDayFirstLastLocationIds,
+  flexibleDayFirstLastPunchAt,
   type FlexibleCrossSitePunch,
 } from "@/lib/attendance-hr/flexible-cross-site";
+import {
+  DEVICE_LOG_CAP,
+  DEVICE_LOG_PUSH_SOURCE,
+  DEVICE_LOG_USERS_PAGE_SIZE,
+  collapseCrossSiteDeviceLogDays,
+  collectDeviceLogUsers,
+  deviceLogDisplayName,
+  deviceLogPunchRange,
+  deviceLogQatarYmd,
+  deviceLogSearchNeedle,
+  deviceLogSearchOrFilter,
+  deviceLogUserPairsOrFilter,
+  indexDeviceLogBioNames,
+  lookupDeviceLogBioName,
+  parseDeviceLogUserOptionKey,
+  rollupDeviceLogDays,
+  type AttendanceDeviceLogRow,
+} from "@/lib/attendance-hr/device-logs";
 import {
   CANONICAL_LOCATION_CODES,
   formatLocationLabel,
@@ -86,22 +107,6 @@ import {
   upcomingPeriod,
 } from "@/lib/attendance-hr/availability";
 import { dispatchHrNotify } from "@/lib/attendance-hr/hr-notify-dispatch";
-import {
-  DEVICE_LOG_CAP,
-  DEVICE_LOG_PUSH_SOURCE,
-  DEVICE_LOG_USERS_PAGE_SIZE,
-  collectDeviceLogUsers,
-  deviceLogPunchRange,
-  deviceLogSearchNeedle,
-  deviceLogSearchOrFilter,
-  deviceLogUserPairsOrFilter,
-  parseDeviceLogUserOptionKey,
-  type AttendanceDeviceLogRow,
-  deviceLogDisplayName,
-  indexDeviceLogBioNames,
-  lookupDeviceLogBioName,
-  rollupDeviceLogDays,
-} from "@/lib/attendance-hr/device-logs";
 
 async function audit(
   context: AuthContext,
@@ -2167,10 +2172,109 @@ async function enrichAttendanceHrDailyRows(
 
   const punchesByStaffDay = new Map<string, FlexibleCrossSitePunch[]>();
   const punchLocationIds = new Set<string>();
+  const seenPunchKeys = new Set<string>();
+
+  const addPunch = (
+    staffId: string,
+    day: string,
+    locationId: string,
+    punchAt: string,
+    biometricUserId: string | null,
+    probableDuplicate: boolean,
+    excludedFromCalc: boolean,
+    punchId: string | null,
+  ) => {
+    if (!staffId || !day || !locationId || !punchAt) return;
+    const dedupe = punchId || `${locationId}|${biometricUserId ?? ""}|${punchAt}`;
+    const seenKey = `${staffId}|${day}|${dedupe}`;
+    if (seenPunchKeys.has(seenKey)) return;
+    seenPunchKeys.add(seenKey);
+    punchLocationIds.add(locationId);
+    const key = `${staffId}|${day}`;
+    const list = punchesByStaffDay.get(key) ?? [];
+    list.push({
+      locationId,
+      punchAt,
+      biometricUserId,
+      probableDuplicate,
+      excludedFromCalc,
+    });
+    punchesByStaffDay.set(key, list);
+  };
+
+  // Map every biometric identity for flexible staff so logs with null staff_id still merge.
+  // Also include unmapped registry rows that share the same device_name (UA-DM 35 + INF-CC 24).
+  const staffByLocUser = new Map<string, string>();
+  const bioPairs: Array<{ locationId: string; biometricUserId: string }> = [];
+  const mappedBios: Array<{
+    staffId: string | null;
+    locationId: string;
+    biometricUserId: string;
+    deviceName?: string | null;
+  }> = [];
+  const deviceNames = new Set<string>();
+
+  for (let i = 0; i < flexibleIds.length; i += 200) {
+    const chunk = flexibleIds.slice(i, i + 200);
+    const { data: maps, error: mapErr } = await context.supabase
+      .from("attendance_biometric_users")
+      .select("staff_id, location_id, biometric_user_id, device_name")
+      .in("staff_id", chunk)
+      .limit(5000);
+    if (mapErr) throw mapErr;
+    for (const row of maps ?? []) {
+      const staffId = row.staff_id ? String(row.staff_id) : "";
+      const locationId = String(row.location_id ?? "");
+      const biometricUserId = String(row.biometric_user_id ?? "").trim();
+      const deviceName = row.device_name == null ? null : String(row.device_name);
+      if (!staffId || !locationId || !biometricUserId) continue;
+      mappedBios.push({ staffId, locationId, biometricUserId, deviceName });
+      const trimmedName = deviceName?.trim();
+      if (trimmedName) deviceNames.add(trimmedName);
+    }
+  }
+
+  const catalog = [...mappedBios];
+  if (deviceNames.size) {
+    const nameFilter = [...deviceNames]
+      .map((name) => `device_name.ilike.${name.replace(/[,()%]/g, "")}`)
+      .filter((part) => part.length > "device_name.ilike.".length)
+      .join(",");
+    if (nameFilter) {
+      const { data: aliasRows, error: aliasErr } = await context.supabase
+        .from("attendance_biometric_users")
+        .select("staff_id, location_id, biometric_user_id, device_name")
+        .or(nameFilter)
+        .limit(5000);
+      if (aliasErr) throw aliasErr;
+      for (const row of aliasRows ?? []) {
+        catalog.push({
+          staffId: row.staff_id ? String(row.staff_id) : null,
+          locationId: String(row.location_id ?? ""),
+          biometricUserId: String(row.biometric_user_id ?? "").trim(),
+          deviceName: row.device_name == null ? null : String(row.device_name),
+        });
+      }
+    }
+  }
+
+  for (const pair of expandFlexibleBiometricPairsByDeviceName(mappedBios, catalog)) {
+    staffByLocUser.set(`${pair.locationId}|${pair.biometricUserId}`, pair.staffId);
+    bioPairs.push({ locationId: pair.locationId, biometricUserId: pair.biometricUserId });
+  }
+
+  const punchDay = (attendanceDate: unknown, punchAt: unknown): string => {
+    const dated = String(attendanceDate ?? "").slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dated)) return dated;
+    return deviceLogQatarYmd(punchAt == null ? null : String(punchAt));
+  };
+
   for (let from = 0; ; from += ATTENDANCE_DAILY_LIST_PAGE_SIZE) {
     const { data: page, error: punchErr } = await context.supabase
       .from("attendance_logs")
-      .select("staff_id, location_id, punch_at, attendance_date, probable_duplicate, excluded_from_calc")
+      .select(
+        "id, staff_id, location_id, biometric_user_id, punch_at, attendance_date, probable_duplicate, excluded_from_calc",
+      )
       .in("staff_id", flexibleIds)
       .gte("attendance_date", dateFrom)
       .lte("attendance_date", dateTo)
@@ -2178,22 +2282,119 @@ async function enrichAttendanceHrDailyRows(
       .range(from, from + ATTENDANCE_DAILY_LIST_PAGE_SIZE - 1);
     if (punchErr) throw punchErr;
     for (const log of page ?? []) {
-      const staffId = log.staff_id ? String(log.staff_id) : "";
-      const day = String(log.attendance_date ?? "").slice(0, 10);
-      const locationId = String(log.location_id ?? "");
-      if (!staffId || !day || !locationId) continue;
-      punchLocationIds.add(locationId);
-      const key = `${staffId}|${day}`;
-      const list = punchesByStaffDay.get(key) ?? [];
-      list.push({
-        locationId,
-        punchAt: String(log.punch_at),
-        probableDuplicate: Boolean(log.probable_duplicate),
-        excludedFromCalc: Boolean(log.excluded_from_calc),
-      });
-      punchesByStaffDay.set(key, list);
+      addPunch(
+        log.staff_id ? String(log.staff_id) : "",
+        punchDay(log.attendance_date, log.punch_at),
+        String(log.location_id ?? ""),
+        String(log.punch_at ?? ""),
+        log.biometric_user_id == null ? null : String(log.biometric_user_id),
+        Boolean(log.probable_duplicate),
+        Boolean(log.excluded_from_calc),
+        log.id ? String(log.id) : null,
+      );
     }
     if (!page || page.length < ATTENDANCE_DAILY_LIST_PAGE_SIZE) break;
+  }
+
+  // Also pull punches for mapped + same-device-name biometrics when log.staff_id was never backfilled.
+  for (let i = 0; i < bioPairs.length; i += 40) {
+    const chunk = bioPairs.slice(i, i + 40);
+    const pairFilter = deviceLogUserPairsOrFilter(chunk);
+    if (!pairFilter) continue;
+    for (let from = 0; ; from += ATTENDANCE_DAILY_LIST_PAGE_SIZE) {
+      const { data: page, error: punchErr } = await context.supabase
+        .from("attendance_logs")
+        .select(
+          "id, staff_id, location_id, biometric_user_id, punch_at, attendance_date, probable_duplicate, excluded_from_calc",
+        )
+        .or(pairFilter)
+        .gte("attendance_date", dateFrom)
+        .lte("attendance_date", dateTo)
+        .order("punch_at", { ascending: true })
+        .range(from, from + ATTENDANCE_DAILY_LIST_PAGE_SIZE - 1);
+      if (punchErr) throw punchErr;
+      for (const log of page ?? []) {
+        const locationId = String(log.location_id ?? "");
+        const biometricUserId =
+          log.biometric_user_id == null ? null : String(log.biometric_user_id);
+        const staffId =
+          (log.staff_id ? String(log.staff_id) : "") ||
+          (biometricUserId
+            ? staffByLocUser.get(`${locationId}|${biometricUserId.trim()}`) ?? ""
+            : "");
+        addPunch(
+          staffId,
+          punchDay(log.attendance_date, log.punch_at),
+          locationId,
+          String(log.punch_at ?? ""),
+          biometricUserId,
+          Boolean(log.probable_duplicate),
+          Boolean(log.excluded_from_calc),
+          log.id ? String(log.id) : null,
+        );
+      }
+      if (!page || page.length < ATTENDANCE_DAILY_LIST_PAGE_SIZE) break;
+    }
+  }
+
+  // Last resort: punches whose device_user_name matches a flexible staff device_name, even when
+  // the biometric id was never written to attendance_biometric_users (common for secondary sites).
+  const staffByDeviceName = new Map<string, string>();
+  for (const row of mappedBios) {
+    const staffId = row.staffId?.trim();
+    const name = (row.deviceName ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+    if (!staffId || !name || staffByDeviceName.has(name)) continue;
+    staffByDeviceName.set(name, staffId);
+  }
+  if (staffByDeviceName.size && deviceNames.size) {
+    const nameFilter = [...deviceNames]
+      .map((name) => `device_user_name.ilike.${name.replace(/[,()%]/g, "")}`)
+      .filter((part) => part.length > "device_user_name.ilike.".length)
+      .join(",");
+    if (nameFilter) {
+      for (let from = 0; ; from += ATTENDANCE_DAILY_LIST_PAGE_SIZE) {
+        const { data: page, error: punchErr } = await context.supabase
+          .from("attendance_logs")
+          .select(
+            "id, staff_id, location_id, biometric_user_id, device_user_name, punch_at, attendance_date, probable_duplicate, excluded_from_calc",
+          )
+          .or(nameFilter)
+          .gte("attendance_date", dateFrom)
+          .lte("attendance_date", dateTo)
+          .order("punch_at", { ascending: true })
+          .range(from, from + ATTENDANCE_DAILY_LIST_PAGE_SIZE - 1);
+        if (punchErr) throw punchErr;
+        for (const log of page ?? []) {
+          const locationId = String(log.location_id ?? "");
+          const biometricUserId =
+            log.biometric_user_id == null ? null : String(log.biometric_user_id);
+          const punchName = String(
+            (log as { device_user_name?: string | null }).device_user_name ?? "",
+          )
+            .trim()
+            .toLowerCase()
+            .replace(/\s+/g, " ");
+          const staffId =
+            (log.staff_id ? String(log.staff_id) : "") ||
+            (biometricUserId
+              ? staffByLocUser.get(`${locationId}|${biometricUserId.trim()}`) ?? ""
+              : "") ||
+            (punchName ? staffByDeviceName.get(punchName) ?? "" : "");
+          if (!staffId || !flexibleIds.includes(staffId)) continue;
+          addPunch(
+            staffId,
+            punchDay(log.attendance_date, log.punch_at),
+            locationId,
+            String(log.punch_at ?? ""),
+            biometricUserId,
+            Boolean(log.probable_duplicate),
+            Boolean(log.excluded_from_calc),
+            log.id ? String(log.id) : null,
+          );
+        }
+        if (!page || page.length < ATTENDANCE_DAILY_LIST_PAGE_SIZE) break;
+      }
+    }
   }
 
   const missingLocIds = [...punchLocationIds].filter((id) => !locationById.has(id));
@@ -2212,6 +2413,9 @@ async function enrichAttendanceHrDailyRows(
     const key = `${row.staff_id}|${String(row.work_date).slice(0, 10)}`;
     const punches = punchesByStaffDay.get(key) ?? [];
     const { checkInLocationId, checkOutLocationId } = flexibleDayFirstLastLocationIds(punches);
+    const { firstPunchAt, lastPunchAt, usableCount } = flexibleDayFirstLastPunchAt(punches);
+    const { checkInBiometricUserId, checkOutBiometricUserId } =
+      flexibleDayFirstLastBiometricUserIds(punches);
     const inLoc = checkInLocationId ? locationById.get(checkInLocationId) : undefined;
     const outLoc = checkOutLocationId ? locationById.get(checkOutLocationId) : undefined;
     const inLabel = inLoc
@@ -2220,14 +2424,51 @@ async function enrichAttendanceHrDailyRows(
     const outLabel = outLoc
       ? formatLocationLabel(outLoc.code, formatLocationName(outLoc.name, outLoc.region) || outLoc.name)
       : null;
-    return {
-      ...row,
+    const siteFields = {
       check_in_location_id: checkInLocationId,
       check_out_location_id: checkOutLocationId,
       check_in_location_code: inLoc?.code ?? null,
       check_out_location_code: outLoc?.code ?? null,
       check_in_location_label: inLabel,
       check_out_location_label: outLabel,
+      check_in_biometric_user_id: checkInBiometricUserId,
+      check_out_biometric_user_id: checkOutBiometricUserId,
+      biometric_user_id:
+        checkInBiometricUserId ?? checkOutBiometricUserId ?? row.biometric_user_id,
+    };
+    // Device punches for the same attendance_date win over stale daily_summary in/out.
+    if (usableCount > 0) {
+      const actualIn = firstPunchAt;
+      const actualOut = lastPunchAt;
+      let workedMinutes: number | null = null;
+      if (actualIn && actualOut) {
+        const mins = Math.round(
+          (new Date(actualOut).getTime() - new Date(actualIn).getTime()) / 60_000,
+        );
+        workedMinutes = Number.isFinite(mins) && mins >= 0 ? mins : null;
+      } else {
+        workedMinutes = 0;
+      }
+      const lateMinutes = resolveListingLateMinutes({
+        actualIn,
+        rosterScheduledIn: row.scheduled_in,
+        reportingTimeMinutes: row.location_reporting_time_minutes,
+        bufferMinutes: row.location_buffer_minutes,
+      });
+      return {
+        ...row,
+        actual_in: actualIn,
+        actual_out: actualOut,
+        worked_minutes: workedMinutes,
+        punch_count: usableCount,
+        missed_punch: usableCount === 1,
+        late_minutes: lateMinutes,
+        ...siteFields,
+      };
+    }
+    return {
+      ...row,
+      ...siteFields,
     };
   });
 
@@ -2316,7 +2557,7 @@ async function loadByIds<T extends { id: string }>(
 }
 
 const DEVICE_LOG_COLUMNS =
-  "id, location_id, device_id, biometric_user_id, device_user_name, punch_at, in_out_status, verify_method, work_code, source";
+  "id, location_id, device_id, staff_id, biometric_user_id, device_user_name, punch_at, in_out_status, verify_method, work_code, source";
 
 async function resolveDeviceLogBioSearchIds(
   context: AuthContext,
@@ -2484,6 +2725,7 @@ export const listAttendanceDeviceLogs = createAuthenticatedAction(
       id: string;
       location_id: string;
       device_id: string | null;
+      staff_id: string | null;
       biometric_user_id: string | null;
       device_user_name: string | null;
       punch_at: string;
@@ -2510,7 +2752,7 @@ export const listAttendanceDeviceLogs = createAuthenticatedAction(
       locationIds.length
         ? context.supabase
             .from("attendance_biometric_users")
-            .select("location_id, device_id, biometric_user_id, device_name, full_name")
+            .select("location_id, device_id, biometric_user_id, device_name, full_name, staff_id")
             .in("location_id", locationIds)
             .limit(5000)
         : Promise.resolve({ data: [] as Array<Record<string, unknown>>, error: null }),
@@ -2525,12 +2767,23 @@ export const listAttendanceDeviceLogs = createAuthenticatedAction(
         full_name: raw.full_name == null ? null : String(raw.full_name),
       })),
     );
+    const staffByLocUser = new Map<string, string>();
+    for (const raw of bioRes.data ?? []) {
+      const loc = String(raw.location_id ?? "");
+      const uid = String(raw.biometric_user_id ?? "").trim();
+      const staffId = raw.staff_id == null ? "" : String(raw.staff_id);
+      if (loc && uid && staffId) staffByLocUser.set(`${loc}|${uid}`, staffId);
+    }
     const deviceById = new Map(devices.map((row) => [row.id, row]));
     const locationById = new Map(locations.map((row) => [row.id, row]));
     const listed: AttendanceDeviceLogRow[] = punches.map((row) => {
       const device = row.device_id ? deviceById.get(row.device_id) : undefined;
       const location = locationById.get(row.location_id);
       const bio = lookupDeviceLogBioName(bioIndex, row.location_id, row.biometric_user_id, row.device_id);
+      const bioStaff =
+        row.biometric_user_id?.trim()
+          ? staffByLocUser.get(`${row.location_id}|${row.biometric_user_id.trim()}`)
+          : undefined;
       return {
         id: row.id,
         locationId: row.location_id,
@@ -2542,6 +2795,7 @@ export const listAttendanceDeviceLogs = createAuthenticatedAction(
         deviceCode: device?.device_code ?? null,
         biometricUserId: row.biometric_user_id,
         deviceUserName: deviceLogDisplayName(row.device_user_name, bio),
+        staffId: row.staff_id?.trim() || bioStaff || null,
         punchAt: row.punch_at,
         inOutStatus: row.in_out_status,
         verifyMethod: row.verify_method,
@@ -2549,7 +2803,7 @@ export const listAttendanceDeviceLogs = createAuthenticatedAction(
         source: row.source,
       };
     });
-    const dayRows = rollupDeviceLogDays(listed);
+    const dayRows = collapseCrossSiteDeviceLogDays(rollupDeviceLogDays(listed));
     const total = count ?? listed.length;
     return {
       rows: dayRows,

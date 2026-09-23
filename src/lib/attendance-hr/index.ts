@@ -50,10 +50,13 @@ export {
 export {
   flexibleDayAnchorLocationId,
   flexibleDayFirstLastLocationIds,
+  flexibleDayFirstLastPunchAt,
+  flexibleDayFirstLastBiometricUserIds,
   flexibleDayRecalcAction,
   flexibleDayHasQualifyingPunches,
   flexibleDayNonAnchorPunchLocations,
   formatFlexibleCrossSiteLocationLabel,
+  formatFlexibleCrossSiteDeviceUserLabel,
 } from "./flexible-cross-site";
 export {
   computeLatePunchMinutes,
@@ -92,6 +95,7 @@ export {
   attendanceHrDisplayStaffName,
   attendanceHrExportStaffName,
   attendanceHrListingLocation,
+  attendanceHrListingDeviceUserId,
   attendanceHrToListingSource,
   collapseFlexibleAttendanceReportRows,
   computeAttendanceHrReportKpis,

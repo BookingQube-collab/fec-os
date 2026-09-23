@@ -27,6 +27,7 @@ import {
   deviceLogKpis,
   deviceLogLocationLabel,
   deviceLogRawDeviceId,
+  deviceLogUserIdLabel,
   deviceLogUserOptionLabel,
   formatDeviceLogYmd,
 } from "@/lib/attendance-hr/device-logs";
@@ -433,7 +434,7 @@ export default function AttendanceHrDeviceLogsPage() {
                       <TableCell className="whitespace-nowrap font-mono text-xs">
                         {dash(deviceLogRawDeviceId(row))}
                       </TableCell>
-                      <TableCell className="whitespace-nowrap font-mono text-xs">{dash(row.biometricUserId)}</TableCell>
+                      <TableCell className="whitespace-nowrap font-mono text-xs">{dash(deviceLogUserIdLabel(row))}</TableCell>
                       <TableCell className="whitespace-nowrap">{dash(row.deviceUserName)}</TableCell>
                       <TableCell className="whitespace-nowrap">{formatDeviceLogYmd(row.dateYmd) || "—"}</TableCell>
                       <TableCell className="whitespace-nowrap">{formatPunchTime12h(row.punchInAt) || "—"}</TableCell>
