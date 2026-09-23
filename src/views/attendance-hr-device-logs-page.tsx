@@ -192,6 +192,8 @@ export default function AttendanceHrDeviceLogsPage() {
   const pages = Math.max(1, Math.ceil(rows.length / DEVICE_LOG_PAGE_SIZE));
   const pageRows = rows.slice((page - 1) * DEVICE_LOG_PAGE_SIZE, page * DEVICE_LOG_PAGE_SIZE);
   const usersBusy = deviceUsers.isFetching && !deviceUsers.isLoading;
+  /** Refetch after filter change — keep previous rows visible under overlay (same as reports). */
+  const listingBusy = logs.isFetching && !logs.isLoading;
   const rowFilterOn = Boolean(deviceUserKeys.length || deviceId);
   const empty = !logs.isLoading && !logs.isError && rows.length === 0;
 
@@ -348,111 +350,123 @@ export default function AttendanceHrDeviceLogsPage() {
         </div>
       </NeumorphicCard>
 
-      {logs.isLoading ? (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3" aria-hidden>
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-20 rounded-[1.25rem]" />
-          ))}
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3" role="region" aria-label={t("attendanceHr.deviceLogs.kpiStrip")}>
-          <TintedKpiCard
-            title={t("attendanceHr.deviceLogs.kpiRecords")}
-            value={total}
-            hint={capped ? t("attendanceHr.deviceLogs.capped", { shown: loaded, total }) : undefined}
-            tint="sky"
-            compact
-          />
-          <TintedKpiCard
-            title={t("attendanceHr.deviceLogs.kpiUsers")}
-            value={kpis.deviceUsers}
-            hint={capped ? t("attendanceHr.deviceLogs.kpiLoadedHint") : undefined}
-            tint="sky"
-            compact
-          />
-          <TintedKpiCard
-            title={t("attendanceHr.deviceLogs.kpiDevices")}
-            value={kpis.devices}
-            hint={capped ? t("attendanceHr.deviceLogs.kpiLoadedHint") : undefined}
-            tint="slate"
-            compact
-          />
-        </div>
-      )}
-
-      <div className="overflow-hidden rounded-lg border border-border">
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-surface/60 hover:bg-surface/60">
-              <TableHead className={HEAD_CLASS}>{t("attendanceHr.deviceLogs.colLocation")}</TableHead>
-              <TableHead className={HEAD_CLASS}>{t("attendanceHr.deviceLogs.colDeviceId")}</TableHead>
-              <TableHead className={HEAD_CLASS}>{t("attendanceHr.deviceLogs.colUserId")}</TableHead>
-              <TableHead className={HEAD_CLASS}>{t("attendanceHr.deviceLogs.colName")}</TableHead>
-              <TableHead className={HEAD_CLASS}>{t("attendanceHr.deviceLogs.colDate")}</TableHead>
-              <TableHead className={HEAD_CLASS}>{t("attendanceHr.deviceLogs.colPunchIn")}</TableHead>
-              <TableHead className={HEAD_CLASS}>{t("attendanceHr.deviceLogs.colPunchOut")}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {logs.isLoading ? (
-              <TableRow>
-                <TableCell colSpan={7} className="text-sm text-muted-foreground">
-                  {t("attendanceHr.deviceLogs.loading")}
-                </TableCell>
-              </TableRow>
-            ) : logs.isError ? (
-              <TableRow>
-                <TableCell colSpan={7} className="text-sm text-destructive">
-                  {t("attendanceHr.deviceLogs.loadError")}
-                </TableCell>
-              </TableRow>
-            ) : empty ? (
-              <TableRow>
-                <TableCell colSpan={7} className="text-sm text-muted-foreground">
-                  {rowFilterOn ? t("attendanceHr.deviceLogs.emptyFiltered") : t("attendanceHr.deviceLogs.empty")}
-                </TableCell>
-              </TableRow>
-            ) : (
-              pageRows.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell className="whitespace-nowrap font-mono text-xs">
-                    {dash(deviceLogLocationLabel(row))}
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap font-mono text-xs">
-                    {dash(deviceLogRawDeviceId(row))}
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap font-mono text-xs">{dash(row.biometricUserId)}</TableCell>
-                  <TableCell className="whitespace-nowrap">{dash(row.deviceUserName)}</TableCell>
-                  <TableCell className="whitespace-nowrap">{formatDeviceLogYmd(row.dateYmd) || "—"}</TableCell>
-                  <TableCell className="whitespace-nowrap">{formatPunchTime12h(row.punchInAt) || "—"}</TableCell>
-                  <TableCell className="whitespace-nowrap">{formatPunchTime12h(row.punchOutAt) || "—"}</TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
-        {!logs.isLoading && rows.length > DEVICE_LOG_PAGE_SIZE ? (
-          <div className="flex items-center justify-between border-t border-border px-3 py-2 text-xs text-muted-foreground">
-            <span>
-              {t("common.page", { page, pages })}
-              {capped
-                ? ` · ${t("attendanceHr.deviceLogs.capped", { shown: loaded, total })}`
-                : ` · ${t("attendanceHr.deviceLogs.dayRows", { count: rows.length })}`}
-            </span>
-            <div className="flex gap-2">
-              <Button size="sm" variant="secondary" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-                {t("common.prev")}
-              </Button>
-              <Button size="sm" variant="secondary" disabled={page >= pages} onClick={() => setPage((p) => p + 1)}>
-                {t("common.next")}
-              </Button>
+      <div className="relative space-y-6" aria-busy={listingBusy || logs.isLoading}>
+        {listingBusy ? (
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-start justify-center bg-background/55 pt-16 backdrop-blur-[1px]">
+            <div className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-sm text-muted-foreground shadow-sm">
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              <span>{t("attendanceHr.deviceLogs.loading")}</span>
             </div>
           </div>
-        ) : capped && !logs.isLoading ? (
-          <p className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
-            {t("attendanceHr.deviceLogs.capped", { shown: loaded, total })}
-          </p>
         ) : null}
+        <div className={cn("space-y-6", listingBusy && "opacity-60 transition-opacity")}>
+          {logs.isLoading ? (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3" aria-hidden>
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-20 rounded-[1.25rem]" />
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3" role="region" aria-label={t("attendanceHr.deviceLogs.kpiStrip")}>
+              <TintedKpiCard
+                title={t("attendanceHr.deviceLogs.kpiRecords")}
+                value={total}
+                hint={capped ? t("attendanceHr.deviceLogs.capped", { shown: loaded, total }) : undefined}
+                tint="sky"
+                compact
+              />
+              <TintedKpiCard
+                title={t("attendanceHr.deviceLogs.kpiUsers")}
+                value={kpis.deviceUsers}
+                hint={capped ? t("attendanceHr.deviceLogs.kpiLoadedHint") : undefined}
+                tint="sky"
+                compact
+              />
+              <TintedKpiCard
+                title={t("attendanceHr.deviceLogs.kpiDevices")}
+                value={kpis.devices}
+                hint={capped ? t("attendanceHr.deviceLogs.kpiLoadedHint") : undefined}
+                tint="slate"
+                compact
+              />
+            </div>
+          )}
+
+          <div className="overflow-hidden rounded-lg border border-border">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-surface/60 hover:bg-surface/60">
+                  <TableHead className={HEAD_CLASS}>{t("attendanceHr.deviceLogs.colLocation")}</TableHead>
+                  <TableHead className={HEAD_CLASS}>{t("attendanceHr.deviceLogs.colDeviceId")}</TableHead>
+                  <TableHead className={HEAD_CLASS}>{t("attendanceHr.deviceLogs.colUserId")}</TableHead>
+                  <TableHead className={HEAD_CLASS}>{t("attendanceHr.deviceLogs.colName")}</TableHead>
+                  <TableHead className={HEAD_CLASS}>{t("attendanceHr.deviceLogs.colDate")}</TableHead>
+                  <TableHead className={HEAD_CLASS}>{t("attendanceHr.deviceLogs.colPunchIn")}</TableHead>
+                  <TableHead className={HEAD_CLASS}>{t("attendanceHr.deviceLogs.colPunchOut")}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {logs.isLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-sm text-muted-foreground">
+                      {t("attendanceHr.deviceLogs.loading")}
+                    </TableCell>
+                  </TableRow>
+                ) : logs.isError ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-sm text-destructive">
+                      {t("attendanceHr.deviceLogs.loadError")}
+                    </TableCell>
+                  </TableRow>
+                ) : empty ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-sm text-muted-foreground">
+                      {rowFilterOn ? t("attendanceHr.deviceLogs.emptyFiltered") : t("attendanceHr.deviceLogs.empty")}
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  pageRows.map((row) => (
+                    <TableRow key={row.id}>
+                      <TableCell className="whitespace-nowrap font-mono text-xs">
+                        {dash(deviceLogLocationLabel(row))}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap font-mono text-xs">
+                        {dash(deviceLogRawDeviceId(row))}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap font-mono text-xs">{dash(row.biometricUserId)}</TableCell>
+                      <TableCell className="whitespace-nowrap">{dash(row.deviceUserName)}</TableCell>
+                      <TableCell className="whitespace-nowrap">{formatDeviceLogYmd(row.dateYmd) || "—"}</TableCell>
+                      <TableCell className="whitespace-nowrap">{formatPunchTime12h(row.punchInAt) || "—"}</TableCell>
+                      <TableCell className="whitespace-nowrap">{formatPunchTime12h(row.punchOutAt) || "—"}</TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+            {!logs.isLoading && rows.length > DEVICE_LOG_PAGE_SIZE ? (
+              <div className="flex items-center justify-between border-t border-border px-3 py-2 text-xs text-muted-foreground">
+                <span>
+                  {t("common.page", { page, pages })}
+                  {capped
+                    ? ` · ${t("attendanceHr.deviceLogs.capped", { shown: loaded, total })}`
+                    : ` · ${t("attendanceHr.deviceLogs.dayRows", { count: rows.length })}`}
+                </span>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="secondary" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+                    {t("common.prev")}
+                  </Button>
+                  <Button size="sm" variant="secondary" disabled={page >= pages} onClick={() => setPage((p) => p + 1)}>
+                    {t("common.next")}
+                  </Button>
+                </div>
+              </div>
+            ) : capped && !logs.isLoading ? (
+              <p className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
+                {t("attendanceHr.deviceLogs.capped", { shown: loaded, total })}
+              </p>
+            ) : null}
+          </div>
+        </div>
       </div>
     </div>
   );
