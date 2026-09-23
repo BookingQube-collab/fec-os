@@ -398,6 +398,7 @@ export function deviceLogSearchOrFilter(needle: string, bioUserIds: string[]): s
 }
 
 export const DEVICE_LOG_EXPORT_COLUMNS = [
+  "Location",
   "Device ID",
   "User ID",
   "Name",
@@ -406,12 +407,21 @@ export const DEVICE_LOG_EXPORT_COLUMNS = [
   "Punch out",
 ] as const;
 
+/** Short site code for listing/export (INF-CC, UA-DM). */
+export function deviceLogLocationLabel(row: {
+  locationCode?: string | null;
+  locationName?: string | null;
+}): string | null {
+  return row.locationCode?.trim() || row.locationName?.trim() || null;
+}
+
 export function deviceLogDayExportObject(
   row: AttendanceDeviceLogDayRow,
   punchIn: string,
   punchOut: string,
 ): Record<(typeof DEVICE_LOG_EXPORT_COLUMNS)[number], string> {
   return {
+    Location: deviceLogLocationLabel(row) ?? "",
     "Device ID": deviceLogRawDeviceId(row) ?? "",
     "User ID": row.biometricUserId ?? "",
     Name: row.deviceUserName ?? "",

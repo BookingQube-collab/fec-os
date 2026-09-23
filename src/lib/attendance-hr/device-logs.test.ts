@@ -271,7 +271,7 @@ describe("device log listing", () => {
       punch({ id: "2", punchAt: "2026-09-21T14:00:00.000Z", inOutStatus: 1, deviceUserName: "Louie" }),
     ]);
     const csv = buildDeviceLogDaysCsv(days, (iso) => (iso ? "TIME" : ""));
-    expect(csv.split("\r\n")[0]).toBe("Device ID,User ID,Name,Date,Punch in,Punch out");
-    expect(csv).toContain("SN1,1001,Louie,21-09-2026,TIME,TIME");
+    expect(csv.split("\r\n")[0]).toBe("Location,Device ID,User ID,Name,Date,Punch in,Punch out");
+    expect(csv).toContain("JJA,SN1,1001,Louie,21-09-2026,TIME,TIME");
   });
 });

@@ -25,6 +25,7 @@ import {
 import {
   DEVICE_LOG_PAGE_SIZE,
   deviceLogKpis,
+  deviceLogLocationLabel,
   deviceLogRawDeviceId,
   deviceLogUserOptionLabel,
   formatDeviceLogYmd,
@@ -383,6 +384,7 @@ export default function AttendanceHrDeviceLogsPage() {
         <Table>
           <TableHeader>
             <TableRow className="bg-surface/60 hover:bg-surface/60">
+              <TableHead className={HEAD_CLASS}>{t("attendanceHr.deviceLogs.colLocation")}</TableHead>
               <TableHead className={HEAD_CLASS}>{t("attendanceHr.deviceLogs.colDeviceId")}</TableHead>
               <TableHead className={HEAD_CLASS}>{t("attendanceHr.deviceLogs.colUserId")}</TableHead>
               <TableHead className={HEAD_CLASS}>{t("attendanceHr.deviceLogs.colName")}</TableHead>
@@ -394,25 +396,28 @@ export default function AttendanceHrDeviceLogsPage() {
           <TableBody>
             {logs.isLoading ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-sm text-muted-foreground">
+                <TableCell colSpan={7} className="text-sm text-muted-foreground">
                   {t("attendanceHr.deviceLogs.loading")}
                 </TableCell>
               </TableRow>
             ) : logs.isError ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-sm text-destructive">
+                <TableCell colSpan={7} className="text-sm text-destructive">
                   {t("attendanceHr.deviceLogs.loadError")}
                 </TableCell>
               </TableRow>
             ) : empty ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-sm text-muted-foreground">
+                <TableCell colSpan={7} className="text-sm text-muted-foreground">
                   {rowFilterOn ? t("attendanceHr.deviceLogs.emptyFiltered") : t("attendanceHr.deviceLogs.empty")}
                 </TableCell>
               </TableRow>
             ) : (
               pageRows.map((row) => (
                 <TableRow key={row.id}>
+                  <TableCell className="whitespace-nowrap font-mono text-xs">
+                    {dash(deviceLogLocationLabel(row))}
+                  </TableCell>
                   <TableCell className="whitespace-nowrap font-mono text-xs">
                     {dash(deviceLogRawDeviceId(row))}
                   </TableCell>
