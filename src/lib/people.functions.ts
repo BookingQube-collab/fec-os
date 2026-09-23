@@ -24,6 +24,7 @@ import { shiftUuid, staffUuid } from "@/lib/staff-import-ids";
 import { createAuthenticatedAction, createSafeAuthenticatedAction } from "@/lib/server/create-action";
 import type { AuthContext } from "@/lib/server/create-action";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import type { TablesUpdate } from "@/integrations/supabase/types";
 import {
   decodeImageDataUrl,
 } from "@/lib/staff-photo";
@@ -520,7 +521,7 @@ export const updateStaff = createSafeAuthenticatedAction(
     if (fetchErr) throw fetchErr;
     await assertLocationAccess(context, existing.location_id);
 
-    const patch: Record<string, unknown> = {};
+    const patch: TablesUpdate<"staff"> = {};
     if (data.fullName !== undefined) patch.full_name = data.fullName;
     if (data.jobTitle !== undefined) patch.job_title = data.jobTitle;
     if (data.hireDate !== undefined) patch.hire_date = data.hireDate;
