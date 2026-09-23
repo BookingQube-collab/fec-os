@@ -7,6 +7,7 @@ import {
   expectedShiftHours,
   expectedShiftMinutes,
   normalizeAttendanceEmploymentRole,
+  resolveReportingAndBuffer,
 } from "./shift-policy";
 import { DEFAULT_SHIFT } from "./constants";
 
@@ -88,5 +89,29 @@ describe("attendance shift policy", () => {
     expect(overridden.breakMinutes).toBe(45);
     expect(overridden.overtimeAfterMinutes).toBe(480);
     expect(overridden.graceMinutes).toBe(-15); // buffer 15 − reporting 30
+  });
+
+  it("prefers staff flexible reporting/buffer over site when enabled", () => {
+    expect(
+      resolveReportingAndBuffer({
+        siteReporting: 0,
+        siteBuffer: 10,
+        staff: { flexibleAttendance: true, reportingTimeMinutes: 30, bufferMinutes: 5 },
+      }),
+    ).toEqual({ reportingTimeMinutes: 30, bufferMinutes: 5 });
+    expect(
+      resolveReportingAndBuffer({
+        siteReporting: 15,
+        siteBuffer: 10,
+        staff: { flexibleAttendance: true, reportingTimeMinutes: null, bufferMinutes: null },
+      }),
+    ).toEqual({ reportingTimeMinutes: 15, bufferMinutes: 10 });
+    expect(
+      resolveReportingAndBuffer({
+        siteReporting: 15,
+        siteBuffer: 10,
+        staff: { flexibleAttendance: false, reportingTimeMinutes: 90, bufferMinutes: 0 },
+      }),
+    ).toEqual({ reportingTimeMinutes: 15, bufferMinutes: 10 });
   });
 });

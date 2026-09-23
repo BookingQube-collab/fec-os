@@ -46,6 +46,11 @@ type ProfileResponse = {
     is_roaming?: boolean;
     has_photo?: boolean;
     photo_updated_at?: string | null;
+    flexible_attendance?: boolean;
+    reporting_time_minutes?: number | null;
+    buffer_minutes?: number | null;
+    flexible_shift_start?: string | null;
+    flexible_shift_end?: string | null;
     work_locations?: Array<{ id: string; code: string; name: string }>;
     locations?: { code: string; name: string } | null;
   };
@@ -91,6 +96,11 @@ export default function StaffProfilePage() {
   const [workLocationIds, setWorkLocationIds] = useState<string[]>([]);
   const [isRoaming, setIsRoaming] = useState(false);
   const [employmentType, setEmploymentType] = useState("");
+  const [flexibleAttendance, setFlexibleAttendance] = useState(false);
+  const [reportingTimeMinutes, setReportingTimeMinutes] = useState("");
+  const [bufferMinutes, setBufferMinutes] = useState("");
+  const [flexibleShiftStart, setFlexibleShiftStart] = useState("");
+  const [flexibleShiftEnd, setFlexibleShiftEnd] = useState("");
   const [photoDraft, setPhotoDraft] = useState<StaffPhotoDraft>({ dataUrl: null, remove: false });
   const [timelineFilter, setTimelineFilter] = useState<string>("all");
 
@@ -112,6 +122,17 @@ export default function StaffProfilePage() {
     setWorkLocationIds([...ids]);
     setIsRoaming(Boolean(loaded.is_roaming));
     setEmploymentType(loaded.employment_type ?? "permanent");
+    setFlexibleAttendance(Boolean(loaded.flexible_attendance));
+    setReportingTimeMinutes(
+      loaded.reporting_time_minutes == null ? "" : String(loaded.reporting_time_minutes),
+    );
+    setBufferMinutes(loaded.buffer_minutes == null ? "" : String(loaded.buffer_minutes));
+    setFlexibleShiftStart(
+      loaded.flexible_shift_start ? String(loaded.flexible_shift_start).slice(0, 5) : "",
+    );
+    setFlexibleShiftEnd(
+      loaded.flexible_shift_end ? String(loaded.flexible_shift_end).slice(0, 5) : "",
+    );
   }, [profile.data?.staff]);
 
   const transferMut = useMutation({
@@ -196,6 +217,38 @@ export default function StaffProfilePage() {
     },
     onError: (e: Error) => toast.error(e.message),
   });
+
+  const flexibleMut = useMutation({
+    mutationFn: parseFlexibleAndSave,
+    onSuccess: () => {
+      toast.success(t("people.staff.flexibleHoursSaved"));
+      void qc.invalidateQueries({ queryKey: queryKeys.people.staffProfile(id) });
+      void qc.invalidateQueries({ queryKey: queryKeys.people.all });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  async function parseFlexibleAndSave() {
+    const reporting =
+      reportingTimeMinutes.trim() === "" ? null : Number.parseInt(reportingTimeMinutes, 10);
+    const buffer = bufferMinutes.trim() === "" ? null : Number.parseInt(bufferMinutes, 10);
+    if (reporting != null && (!Number.isFinite(reporting) || reporting < 0 || reporting > 180)) {
+      throw new Error(t("people.staff.flexibleReportingInvalid"));
+    }
+    if (buffer != null && (!Number.isFinite(buffer) || buffer < 0 || buffer > 120)) {
+      throw new Error(t("people.staff.flexibleBufferInvalid"));
+    }
+    const result = await updateStaff({
+      id,
+      flexibleAttendance,
+      reportingTimeMinutes: reporting,
+      bufferMinutes: buffer,
+      flexibleShiftStart: flexibleShiftStart.trim() || null,
+      flexibleShiftEnd: flexibleShiftEnd.trim() || null,
+    });
+    if (!result.ok) throw new Error(result.error);
+    return result.data;
+  }
 
   const photoMut = useMutation({
     mutationFn: async () => {
@@ -335,6 +388,80 @@ export default function StaffProfilePage() {
               }
             />
           )}
+          {canEdit ? (
+            <div className="space-y-2 border-t pt-3">
+              <h3 className="text-xs font-medium">{t("people.staff.flexibleHours")}</h3>
+              <p className="text-xs text-muted-foreground">{t("people.staff.flexibleHoursHint")}</p>
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={flexibleAttendance}
+                  onCheckedChange={(v) => setFlexibleAttendance(Boolean(v))}
+                />
+                {t("people.staff.flexibleHoursEnable")}
+              </label>
+              {flexibleAttendance ? (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="flex-reporting">{t("people.staff.flexibleReportingMinutes")}</Label>
+                    <Input
+                      id="flex-reporting"
+                      type="number"
+                      min={0}
+                      max={180}
+                      value={reportingTimeMinutes}
+                      onChange={(e) => setReportingTimeMinutes(e.target.value)}
+                      placeholder={t("people.staff.flexibleUseSiteDefault")}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="flex-buffer">{t("people.staff.flexibleBufferMinutes")}</Label>
+                    <Input
+                      id="flex-buffer"
+                      type="number"
+                      min={0}
+                      max={120}
+                      value={bufferMinutes}
+                      onChange={(e) => setBufferMinutes(e.target.value)}
+                      placeholder={t("people.staff.flexibleUseSiteDefault")}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="flex-start">{t("people.staff.flexibleShiftStart")}</Label>
+                    <Input
+                      id="flex-start"
+                      type="time"
+                      value={flexibleShiftStart}
+                      onChange={(e) => setFlexibleShiftStart(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="flex-end">{t("people.staff.flexibleShiftEnd")}</Label>
+                    <Input
+                      id="flex-end"
+                      type="time"
+                      value={flexibleShiftEnd}
+                      onChange={(e) => setFlexibleShiftEnd(e.target.value)}
+                    />
+                  </div>
+                </div>
+              ) : null}
+              <Button size="sm" onClick={() => flexibleMut.mutate()} disabled={flexibleMut.isPending}>
+                {flexibleMut.isPending ? t("common.saving") : t("common.save")}
+              </Button>
+            </div>
+          ) : s.flexible_attendance ? (
+            <div className="space-y-1 border-t pt-3 text-sm">
+              <Row label={t("people.staff.flexibleHours")} value={t("people.staff.flexibleHoursOn")} />
+              <Row
+                label={t("people.staff.flexibleReportingMinutes")}
+                value={s.reporting_time_minutes == null ? t("people.staff.flexibleUseSiteDefault") : String(s.reporting_time_minutes)}
+              />
+              <Row
+                label={t("people.staff.flexibleShiftStart")}
+                value={s.flexible_shift_start ? String(s.flexible_shift_start).slice(0, 5) : "—"}
+              />
+            </div>
+          ) : null}
           <Row label={t("people.staff.e3")} value={s.e3_enrolled == null ? null : s.e3_enrolled ? "Yes" : "No"} />
           <Row label={t("people.staff.hireDate")} value={s.hire_date} />
           <Row label={t("people.staff.status")} value={s.status} />

@@ -2028,6 +2028,9 @@ export type Database = {
           email: string | null
           employee_code: string
           employment_type: string | null
+          flexible_attendance: boolean
+          flexible_shift_end: string | null
+          flexible_shift_start: string | null
           full_name: string
           hire_date: string | null
           id: string
@@ -2039,6 +2042,8 @@ export type Database = {
           photo_mime: string | null
           photo_updated_at: string | null
           qid: string | null
+          reporting_time_minutes: number | null
+          buffer_minutes: number | null
           source_row_no: number | null
           staff_role: Database["public"]["Enums"]["staff_role"] | null
           status: string
@@ -2053,6 +2058,9 @@ export type Database = {
           email?: string | null
           employee_code: string
           employment_type?: string | null
+          flexible_attendance?: boolean
+          flexible_shift_end?: string | null
+          flexible_shift_start?: string | null
           full_name: string
           hire_date?: string | null
           id?: string
@@ -2064,6 +2072,8 @@ export type Database = {
           photo_mime?: string | null
           photo_updated_at?: string | null
           qid?: string | null
+          reporting_time_minutes?: number | null
+          buffer_minutes?: number | null
           source_row_no?: number | null
           staff_role?: Database["public"]["Enums"]["staff_role"] | null
           status?: string
@@ -2078,6 +2088,9 @@ export type Database = {
           email?: string | null
           employee_code?: string
           employment_type?: string | null
+          flexible_attendance?: boolean
+          flexible_shift_end?: string | null
+          flexible_shift_start?: string | null
           full_name?: string
           hire_date?: string | null
           id?: string
@@ -2089,6 +2102,8 @@ export type Database = {
           photo_mime?: string | null
           photo_updated_at?: string | null
           qid?: string | null
+          reporting_time_minutes?: number | null
+          buffer_minutes?: number | null
           source_row_no?: number | null
           staff_role?: Database["public"]["Enums"]["staff_role"] | null
           status?: string

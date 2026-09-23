@@ -203,3 +203,46 @@ export function defaultSiteShiftPolicy(locationCode: string | null | undefined):
     jokerHours: EXTENDED_SHIFT_HOURS,
   };
 }
+
+/** Optional per-staff overrides when staff.flexible_attendance is true. */
+export type StaffFlexibleTiming = {
+  flexibleAttendance?: boolean | null;
+  reportingTimeMinutes?: number | null;
+  bufferMinutes?: number | null;
+  shiftStart?: string | null;
+  shiftEnd?: string | null;
+};
+
+/**
+ * Prefer staff flexible reporting/buffer when enabled; otherwise site values.
+ * Null staff fields still fall back to site (then defaults via lateGrace helpers).
+ */
+export function resolveReportingAndBuffer(opts: {
+  siteReporting?: number | null;
+  siteBuffer?: number | null;
+  staff?: StaffFlexibleTiming | null;
+}): { reportingTimeMinutes: number | null; bufferMinutes: number | null } {
+  const siteReporting =
+    opts.siteReporting != null && Number.isFinite(Number(opts.siteReporting))
+      ? Number(opts.siteReporting)
+      : null;
+  const siteBuffer =
+    opts.siteBuffer != null && Number.isFinite(Number(opts.siteBuffer))
+      ? Number(opts.siteBuffer)
+      : null;
+  if (!opts.staff?.flexibleAttendance) {
+    return { reportingTimeMinutes: siteReporting, bufferMinutes: siteBuffer };
+  }
+  const staffReporting =
+    opts.staff.reportingTimeMinutes != null && Number.isFinite(Number(opts.staff.reportingTimeMinutes))
+      ? Number(opts.staff.reportingTimeMinutes)
+      : null;
+  const staffBuffer =
+    opts.staff.bufferMinutes != null && Number.isFinite(Number(opts.staff.bufferMinutes))
+      ? Number(opts.staff.bufferMinutes)
+      : null;
+  return {
+    reportingTimeMinutes: staffReporting ?? siteReporting,
+    bufferMinutes: staffBuffer ?? siteBuffer,
+  };
+}

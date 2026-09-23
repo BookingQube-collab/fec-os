@@ -445,6 +445,19 @@ function StaffFormDialog({
         : [],
   );
   const [isRoaming, setIsRoaming] = useState(Boolean(staff?.is_roaming));
+  const [flexibleAttendance, setFlexibleAttendance] = useState(Boolean(staff?.flexible_attendance));
+  const [reportingTimeMinutes, setReportingTimeMinutes] = useState(
+    staff?.reporting_time_minutes == null ? "" : String(staff.reporting_time_minutes),
+  );
+  const [bufferMinutes, setBufferMinutes] = useState(
+    staff?.buffer_minutes == null ? "" : String(staff.buffer_minutes),
+  );
+  const [flexibleShiftStart, setFlexibleShiftStart] = useState(
+    staff?.flexible_shift_start ? String(staff.flexible_shift_start).slice(0, 5) : "",
+  );
+  const [flexibleShiftEnd, setFlexibleShiftEnd] = useState(
+    staff?.flexible_shift_end ? String(staff.flexible_shift_end).slice(0, 5) : "",
+  );
   const [photoDraft, setPhotoDraft] = useState<StaffPhotoDraft>({ dataUrl: null, remove: false });
   const [codeNonce, setCodeNonce] = useState(0);
 
@@ -479,6 +492,24 @@ function StaffFormDialog({
       const jokerDaily = employment === "joker" && payBasis === "daily";
       let staffId = staff?.id;
       if (isEdit) {
+        const reportingParsed =
+          reportingTimeMinutes.trim() === ""
+            ? null
+            : Number.parseInt(reportingTimeMinutes, 10);
+        const bufferParsed =
+          bufferMinutes.trim() === "" ? null : Number.parseInt(bufferMinutes, 10);
+        if (
+          reportingParsed != null &&
+          (!Number.isFinite(reportingParsed) || reportingParsed < 0 || reportingParsed > 180)
+        ) {
+          throw new Error(t("people.staff.flexibleReportingInvalid"));
+        }
+        if (
+          bufferParsed != null &&
+          (!Number.isFinite(bufferParsed) || bufferParsed < 0 || bufferParsed > 120)
+        ) {
+          throw new Error(t("people.staff.flexibleBufferInvalid"));
+        }
         const updated = await updateStaff({
           id: staff!.id,
           fullName,
@@ -491,6 +522,11 @@ function StaffFormDialog({
           qid: qidValue,
           e3Enrolled,
           employmentType: employment,
+          flexibleAttendance,
+          reportingTimeMinutes: reportingParsed,
+          bufferMinutes: bufferParsed,
+          flexibleShiftStart: flexibleShiftStart.trim() || null,
+          flexibleShiftEnd: flexibleShiftEnd.trim() || null,
         });
         if (!updated.ok) throw new Error(updated.error);
         const homeId = staff!.location_id;
@@ -715,6 +751,60 @@ function StaffFormDialog({
             </div>
           </div>
           <p className="text-xs text-muted-foreground">{t("people.staff.roleHoursHelp")}</p>
+          {isEdit ? (
+            <div className="space-y-2 rounded-md border border-border p-3">
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={flexibleAttendance}
+                  onCheckedChange={(v) => setFlexibleAttendance(Boolean(v))}
+                />
+                {t("people.staff.flexibleHoursEnable")}
+              </label>
+              <p className="text-[11px] text-muted-foreground">{t("people.staff.flexibleHoursHint")}</p>
+              {flexibleAttendance ? (
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label>{t("people.staff.flexibleReportingMinutes")}</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={180}
+                      value={reportingTimeMinutes}
+                      onChange={(e) => setReportingTimeMinutes(e.target.value)}
+                      placeholder={t("people.staff.flexibleUseSiteDefault")}
+                    />
+                  </div>
+                  <div>
+                    <Label>{t("people.staff.flexibleBufferMinutes")}</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={120}
+                      value={bufferMinutes}
+                      onChange={(e) => setBufferMinutes(e.target.value)}
+                      placeholder={t("people.staff.flexibleUseSiteDefault")}
+                    />
+                  </div>
+                  <div>
+                    <Label>{t("people.staff.flexibleShiftStart")}</Label>
+                    <Input
+                      type="time"
+                      value={flexibleShiftStart}
+                      onChange={(e) => setFlexibleShiftStart(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label>{t("people.staff.flexibleShiftEnd")}</Label>
+                    <Input
+                      type="time"
+                      value={flexibleShiftEnd}
+                      onChange={(e) => setFlexibleShiftEnd(e.target.value)}
+                    />
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           {employmentType === "joker" ? (
             <div>
               <Label>{t("people.staff.payBasis")}</Label>

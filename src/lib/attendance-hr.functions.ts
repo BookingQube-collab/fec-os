@@ -23,6 +23,7 @@ import {
   defaultSiteShiftPolicy,
   expectedShiftMinutes,
   normalizeAttendanceEmploymentRole,
+  resolveReportingAndBuffer,
 } from "@/lib/attendance-hr/shift-policy";
 import { queueAdmsAttlogQuery, queueAdmsAttlogQueryRange } from "@/lib/attendance-hr/adms-ingest";
 import {
@@ -55,6 +56,7 @@ import {
   normalizeShiftHm,
   resolveListingLateMinutes,
   resolveRosterScheduledBounds,
+  scheduledIsoFromHm,
   type RosterShiftLookup,
 } from "@/lib/attendance-hr/late-punch";
 import {
@@ -1836,6 +1838,11 @@ type StaffLookup = {
   employee_code: string | null;
   qid: string | null;
   employment_type: string | null;
+  flexible_attendance?: boolean | null;
+  reporting_time_minutes?: number | null;
+  buffer_minutes?: number | null;
+  flexible_shift_start?: string | null;
+  flexible_shift_end?: string | null;
 };
 type LocationLookup = {
   id: string;
@@ -1862,7 +1869,12 @@ async function enrichAttendanceHrDailyRows(
   const dateTo = workDates.length ? workDates.reduce((a, b) => (a > b ? a : b)) : null;
 
   const [staffRows, locationRows, siteSettings, rosterRes, shiftRes, bioRes] = await Promise.all([
-    loadByIds<StaffLookup>(context, "staff", "id, full_name, employee_code, qid, employment_type", staffIds),
+    loadByIds<StaffLookup>(
+      context,
+      "staff",
+      "id, full_name, employee_code, qid, employment_type, flexible_attendance, reporting_time_minutes, buffer_minutes, flexible_shift_start, flexible_shift_end",
+      staffIds,
+    ),
     loadByIds<LocationLookup>(context, "locations", "id, code, name, region", locationIds),
     locationIds.length
       ? context.supabase
@@ -2015,7 +2027,7 @@ async function enrichAttendanceHrDailyRows(
     const workDate = String(row.work_date ?? "").slice(0, 10);
     const staffId = typeof row.staff_id === "string" ? row.staff_id : null;
     // Only roster-derived times — never stored scheduled_in (often stale DEFAULT 08:00).
-    const { scheduledIn, scheduledOut } = resolveRosterScheduledBounds({
+    let { scheduledIn, scheduledOut } = resolveRosterScheduledBounds({
       staffId,
       locationId,
       workDate,
@@ -2024,9 +2036,29 @@ async function enrichAttendanceHrDailyRows(
       shiftStartByTemplateId: shiftStartById,
       fallbackByStaffId,
     });
+    if (staff?.flexible_attendance) {
+      const flexStart = normalizeShiftHm(staff.flexible_shift_start ?? null);
+      const flexEnd = normalizeShiftHm(staff.flexible_shift_end ?? null);
+      if (flexStart) {
+        const overnight = Boolean(flexEnd && flexEnd <= flexStart);
+        scheduledIn = scheduledIsoFromHm(workDate, flexStart);
+        scheduledOut = flexEnd
+          ? scheduledIsoFromHm(workDate, flexEnd, overnight ? 1 : 0)
+          : scheduledOut;
+      }
+    }
     const actualIn = row.actual_in == null ? null : String(row.actual_in);
-    const reportingMins = site?.reporting_time_minutes != null ? Number(site.reporting_time_minutes) : null;
-    const bufferMins = site?.buffer_minutes != null ? Number(site.buffer_minutes) : null;
+    const { reportingTimeMinutes: reportingMins, bufferMinutes: bufferMins } = resolveReportingAndBuffer({
+      siteReporting: site?.reporting_time_minutes != null ? Number(site.reporting_time_minutes) : null,
+      siteBuffer: site?.buffer_minutes != null ? Number(site.buffer_minutes) : null,
+      staff: staff
+        ? {
+            flexibleAttendance: Boolean(staff.flexible_attendance),
+            reportingTimeMinutes: staff.reporting_time_minutes ?? null,
+            bufferMinutes: staff.buffer_minutes ?? null,
+          }
+        : null,
+    });
     const lateMinutes = resolveListingLateMinutes({
       actualIn,
       rosterScheduledIn: scheduledIn,
@@ -2069,8 +2101,8 @@ async function enrichAttendanceHrDailyRows(
       location_name: location?.name ?? null,
       location_region: location?.region ?? null,
       location_break_minutes: site?.break_minutes ?? null,
-      location_reporting_time_minutes: site?.reporting_time_minutes ?? null,
-      location_buffer_minutes: site?.buffer_minutes ?? null,
+      location_reporting_time_minutes: reportingMins,
+      location_buffer_minutes: bufferMins,
       expected_minutes: expectedMinutes,
       permanent_hours: permanentHours,
       secondment_hours: secondmentHours,

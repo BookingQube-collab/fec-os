@@ -494,6 +494,21 @@ export const updateStaff = createSafeAuthenticatedAction(
     qid: z.string().max(32).nullable().optional(),
     e3Enrolled: z.boolean().nullable().optional(),
     employmentType: z.enum(["permanent", "temporary", "secondment", "joker"]).nullable().optional(),
+    flexibleAttendance: z.boolean().optional(),
+    reportingTimeMinutes: z.number().int().min(0).max(180).nullable().optional(),
+    bufferMinutes: z.number().int().min(0).max(120).nullable().optional(),
+    flexibleShiftStart: z
+      .string()
+      .regex(/^\d{2}:\d{2}(:\d{2})?$/)
+      .nullable()
+      .optional()
+      .or(z.literal("")),
+    flexibleShiftEnd: z
+      .string()
+      .regex(/^\d{2}:\d{2}(:\d{2})?$/)
+      .nullable()
+      .optional()
+      .or(z.literal("")),
   }),
   async (data, context) => {
     const { data: existing, error: fetchErr } = await context.supabase
@@ -505,17 +520,7 @@ export const updateStaff = createSafeAuthenticatedAction(
     if (fetchErr) throw fetchErr;
     await assertLocationAccess(context, existing.location_id);
 
-    const patch: {
-      full_name?: string;
-      job_title?: string | null;
-      hire_date?: string | null;
-      status?: (typeof STAFF_STATUSES)[number];
-      phone?: string | null;
-      email?: string | null;
-      qid?: string | null;
-      e3_enrolled?: boolean | null;
-      employment_type?: "permanent" | "temporary" | "secondment" | "joker" | null;
-    } = {};
+    const patch: Record<string, unknown> = {};
     if (data.fullName !== undefined) patch.full_name = data.fullName;
     if (data.jobTitle !== undefined) patch.job_title = data.jobTitle;
     if (data.hireDate !== undefined) patch.hire_date = data.hireDate;
@@ -525,6 +530,17 @@ export const updateStaff = createSafeAuthenticatedAction(
     if (data.qid !== undefined) patch.qid = data.qid;
     if (data.e3Enrolled !== undefined) patch.e3_enrolled = data.e3Enrolled;
     if (data.employmentType !== undefined) patch.employment_type = data.employmentType;
+    if (data.flexibleAttendance !== undefined) patch.flexible_attendance = data.flexibleAttendance;
+    if (data.reportingTimeMinutes !== undefined) patch.reporting_time_minutes = data.reportingTimeMinutes;
+    if (data.bufferMinutes !== undefined) patch.buffer_minutes = data.bufferMinutes;
+    if (data.flexibleShiftStart !== undefined) {
+      const v = data.flexibleShiftStart === "" || data.flexibleShiftStart == null ? null : String(data.flexibleShiftStart).slice(0, 8);
+      patch.flexible_shift_start = v;
+    }
+    if (data.flexibleShiftEnd !== undefined) {
+      const v = data.flexibleShiftEnd === "" || data.flexibleShiftEnd == null ? null : String(data.flexibleShiftEnd).slice(0, 8);
+      patch.flexible_shift_end = v;
+    }
 
     if (Object.keys(patch).length) {
       const { error } = await context.supabase.from("staff").update(patch).eq("id", data.id);

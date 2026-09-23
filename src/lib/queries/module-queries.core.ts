@@ -353,6 +353,11 @@ export interface StaffRow {
   /** True when photo_updated_at is set (bytea stored on staff row). */
   has_photo: boolean;
   photo_updated_at: string | null;
+  flexible_attendance?: boolean;
+  reporting_time_minutes?: number | null;
+  buffer_minutes?: number | null;
+  flexible_shift_start?: string | null;
+  flexible_shift_end?: string | null;
 }
 
 type StaffDeptJoin = {
@@ -397,6 +402,12 @@ function mapStaffRow(
     employment_type: (rest.employment_type as string | null | undefined) ?? null,
     staff_role: (rest.staff_role as string | null | undefined) ?? null,
     is_roaming: Boolean(rest.is_roaming),
+    flexible_attendance: Boolean(rest.flexible_attendance),
+    reporting_time_minutes:
+      rest.reporting_time_minutes == null ? null : Number(rest.reporting_time_minutes),
+    buffer_minutes: rest.buffer_minutes == null ? null : Number(rest.buffer_minutes),
+    flexible_shift_start: (rest.flexible_shift_start as string | null | undefined) ?? null,
+    flexible_shift_end: (rest.flexible_shift_end as string | null | undefined) ?? null,
     work_locations: [],
     work_location_ids: [],
     has_photo: Boolean(rest.photo_updated_at),
@@ -425,7 +436,7 @@ export async function fetchStaff(
   let q = context.supabase
     .from("staff")
     .select(
-      "id, employee_code, full_name, job_title, department, status, location_id, is_roaming, phone, email, hire_date, qid, e3_enrolled, employment_type, staff_role, photo_updated_at, locations!staff_location_id_fkey(code, name), staff_departments(department_id, master_departments(id, name, sort_order))",
+      "id, employee_code, full_name, job_title, department, status, location_id, is_roaming, phone, email, hire_date, qid, e3_enrolled, employment_type, staff_role, photo_updated_at, flexible_attendance, reporting_time_minutes, buffer_minutes, flexible_shift_start, flexible_shift_end, locations!staff_location_id_fkey(code, name), staff_departments(department_id, master_departments(id, name, sort_order))",
     )
     .order("full_name")
     .limit(500);
