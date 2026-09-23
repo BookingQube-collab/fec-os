@@ -319,6 +319,24 @@ const PROTECTED_STATUS_KEYS = new Set([
   "review_required",
 ]);
 
+/**
+ * Roster day wins over a stale daily_summary Absent when the uploaded/amended
+ * roster says week-off or leave (flexible multi-site recalc often left Absent).
+ */
+export function applyRosterDayStatusOverride(input: {
+  status: string;
+  isWeekOff?: boolean | null;
+  leaveType?: string | null;
+}): string {
+  const leave = String(input.leaveType ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+  if (leave === "annual_leave" || leave === "sick_leave" || leave === "unpaid_leave") return leave;
+  if (input.isWeekOff) return "weekly_off";
+  return input.status;
+}
+
 function normalizeAttendanceStatusKey(status: string): string {
   const raw = String(status ?? "")
     .trim()

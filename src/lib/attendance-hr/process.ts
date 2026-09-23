@@ -27,6 +27,7 @@ import {
   expandFlexibleBiometricPairsByDeviceName,
   flexibleDayHasQualifyingPunches,
   flexibleDayRecalcAction,
+  flexibleNoPunchWriteAtLocation,
   type FlexibleCrossSitePunch,
 } from "./flexible-cross-site";
 import { deviceLogUserPairsOrFilter } from "./device-logs";
@@ -533,8 +534,12 @@ export async function recalculateAttendanceRange(
       };
       const existing = crossRosterByStaffDay.get(key);
       const rowLoc = String((r as { location_id?: string }).location_id ?? "");
-      // Prefer roster at the recalc location; otherwise keep the first seen.
-      if (!existing || rowLoc === locationId) {
+      // Prefer this location; otherwise prefer week-off over an on-duty sibling site.
+      if (
+        !existing ||
+        rowLoc === locationId ||
+        (row.is_week_off && !existing.is_week_off)
+      ) {
         crossRosterByStaffDay.set(key, row);
       }
     }
@@ -645,6 +650,19 @@ export async function recalculateAttendanceRange(
     }));
 
     let rosterRow = staffId ? rosterByKey.get(`${staffId}|${workDate}`) : undefined;
+    const crossRosterRow = crossKey ? crossRosterByStaffDay.get(crossKey) : undefined;
+    // Week-off at any site wins — leftover times on an on-duty sibling must not schedule Absent.
+    if (crossRosterRow?.is_week_off && !rosterRow?.is_week_off) {
+      rosterRow = {
+        ...crossRosterRow,
+        shift_template_id: null,
+        shift_start: null,
+        shift_end: null,
+        is_week_off: true,
+      };
+    } else if (!rosterRow && crossRosterRow) {
+      rosterRow = crossRosterRow;
+    }
 
     if (flex?.flexibleAttendance && staffId && workDate) {
       const across =
@@ -671,7 +689,7 @@ export async function recalculateAttendanceRange(
             device_id: p.device_id,
             biometric_user_id: p.biometric_user_id,
           }));
-          rosterRow = rosterRow ?? crossRosterByStaffDay.get(crossKey);
+          if (!rosterRow) rosterRow = crossRosterByStaffDay.get(crossKey);
         }
         // Wipe roster ABSENT fillers at other work sites too — not only punch sites.
         queueFlexibleKeepOnly(staffId, workDate, locationId);
@@ -843,10 +861,36 @@ export async function recalculateAttendanceRange(
       });
       expectedIds.add(leaveStaffId);
     }
+    // Flexible week-off only rostered at another site: emit Weekly off at home when this is home.
+    for (const [crossKey, crossRow] of crossRosterByStaffDay) {
+      if (!crossRow.is_week_off) continue;
+      const sep = crossKey.lastIndexOf("|");
+      const crossStaffId = sep >= 0 ? crossKey.slice(0, sep) : "";
+      const crossDate = sep >= 0 ? crossKey.slice(sep + 1) : "";
+      if (crossDate !== workDate || !crossStaffId || expectedIds.has(crossStaffId)) continue;
+      if (staffScope && !staffScope.includes(crossStaffId)) continue;
+      if (!flexibleByStaffId.get(crossStaffId)?.flexibleAttendance) continue;
+      const homeId = homeLocationByStaffId.get(crossStaffId) || "";
+      if (homeId && homeId !== locationId) continue;
+      expected.push({
+        staff_id: crossStaffId,
+        work_date: workDate,
+        shift_template_id: null,
+        shift_start: null,
+        shift_end: null,
+        is_week_off: true,
+      });
+      expectedIds.add(crossStaffId);
+    }
     for (const rosterRow of expected) {
       const staffId = String(rosterRow.staff_id);
       if (staffScope && !staffScope.includes(staffId)) continue;
       if (covered.has(`${staffId}|${workDate}`)) continue;
+      const leaveRow = leaveByKey.get(`${staffId}|${workDate}`);
+      const crossRosterRow = crossRosterByStaffDay.get(`${staffId}|${workDate}`);
+      const isWeekOff =
+        Boolean(rosterRow.is_week_off) || Boolean(crossRosterRow?.is_week_off);
+      const hasLeave = Boolean(leaveRow?.leave_type);
       const flex = flexibleByStaffId.get(staffId);
       if (flex?.flexibleAttendance) {
         const cross = crossPunchesByStaffDay.get(`${staffId}|${workDate}`) ?? [];
@@ -856,21 +900,31 @@ export async function recalculateAttendanceRange(
           continue;
         }
         const homeId = homeLocationByStaffId.get(staffId) || "";
-        // One ABSENT row at home when multi-site roster expects the person everywhere.
-        if (homeId && locationId !== homeId) {
+        const writeDecision = flexibleNoPunchWriteAtLocation({
+          isHomeLocation: !homeId || homeId === locationId,
+          isWeekOff,
+          hasLeave,
+        });
+        if (writeDecision === "suppress") {
+          // One ABSENT row at home when multi-site roster expects the person everywhere.
           queueSummaryDelete(locationId, staffId, workDate);
           continue;
         }
         queueFlexibleKeepOnly(staffId, workDate, locationId);
       }
-      const leaveRow = leaveByKey.get(`${staffId}|${workDate}`);
       const fullRoster: RosterDayRow = {
         staff_id: staffId,
         work_date: workDate,
-        shift_template_id: (rosterRow.shift_template_id as string | null) ?? null,
-        shift_start: (rosterRow as { shift_start?: string | null }).shift_start ?? null,
-        shift_end: (rosterRow as { shift_end?: string | null }).shift_end ?? null,
-        is_week_off: Boolean(rosterRow.is_week_off),
+        shift_template_id: isWeekOff
+          ? null
+          : ((rosterRow.shift_template_id as string | null) ?? null),
+        shift_start: isWeekOff
+          ? null
+          : ((rosterRow as { shift_start?: string | null }).shift_start ?? null),
+        shift_end: isWeekOff
+          ? null
+          : ((rosterRow as { shift_end?: string | null }).shift_end ?? null),
+        is_week_off: isWeekOff,
       };
       const rosterShift = shiftForRosterDay(fullRoster, shiftById);
       const timing = timingForStaff(staffId);
@@ -890,8 +944,8 @@ export async function recalculateAttendanceRange(
         : { ...shift, startTime: "", endTime: "" };
       const calc = calculateDailyAttendance([], {
         workDate,
-        scheduled: !rosterRow.is_week_off,
-        weekOff: Boolean(rosterRow.is_week_off),
+        scheduled: !isWeekOff,
+        weekOff: isWeekOff,
         holidayName: holidayByDate.get(workDate) ?? null,
         leaveType: (leaveRow?.leave_type as "annual_leave" | "sick_leave" | "unpaid_leave" | null) ?? null,
         shift: shiftForCalc,
@@ -918,7 +972,7 @@ export async function recalculateAttendanceRange(
         exception_reason: calc.exceptionReason,
         biometric_user_id: null,
         device_id: null,
-        shift_template_id: rosterRow.shift_template_id ?? null,
+        shift_template_id: fullRoster.shift_template_id ?? null,
       });
       covered.add(`${staffId}|${workDate}`);
       processed += 1;

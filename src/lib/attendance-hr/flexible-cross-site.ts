@@ -125,6 +125,20 @@ export function flexibleDayRecalcAction(opts: {
   return anchor === opts.locationId ? "write_merged" : "suppress";
 }
 
+/**
+ * No-punch flexible day at a non-home work site:
+ * - Week-off / leave must still write here (roster was amended at this site).
+ * - Plain scheduled days only emit ABSENT at home — suppress fillers elsewhere.
+ */
+export function flexibleNoPunchWriteAtLocation(input: {
+  isHomeLocation: boolean;
+  isWeekOff: boolean;
+  hasLeave: boolean;
+}): "write" | "suppress" {
+  if (input.isWeekOff || input.hasLeave) return "write";
+  return input.isHomeLocation ? "write" : "suppress";
+}
+
 /** True when usable punches exist on any site for the day. */
 export function flexibleDayHasQualifyingPunches(
   punches: FlexibleCrossSitePunch[],

@@ -694,11 +694,13 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
                             onStartChange={(value) => setDraft((prev) => (prev ? { ...prev, shiftStart: value } : prev))}
                             onEndChange={(value) => setDraft((prev) => (prev ? { ...prev, shiftEnd: value } : prev))}
                           />
+                        ) : rosterDayStatusFromRow(row) !== "on_duty" ? (
+                          "—"
                         ) : (
                           <ShiftRangeEditor
                             start={row.shiftStart}
                             end={row.shiftEnd}
-                            disabled={rosterDayStatusFromRow(row) !== "on_duty"}
+                            disabled
                             readOnly
                           />
                         )}

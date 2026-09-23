@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   attendanceDateRange,
   attendanceListingCells,
+  applyRosterDayStatusOverride,
   formatPunchTime12h,
   formatWorkDateDdMmYyyy,
   getAttendanceStatusDisplay,
@@ -192,6 +193,25 @@ describe("attendance listing display", () => {
     });
     expect(aliased.label).toBe("Weekly off");
     expect(aliased.rowClass).toBe(weekly.rowClass);
+  });
+
+  it("roster week-off / leave override stale Absent", () => {
+    expect(
+      applyRosterDayStatusOverride({ status: "absent", isWeekOff: true, leaveType: null }),
+    ).toBe("weekly_off");
+    expect(
+      applyRosterDayStatusOverride({
+        status: "absent",
+        isWeekOff: true,
+        leaveType: "annual_leave",
+      }),
+    ).toBe("annual_leave");
+    expect(
+      applyRosterDayStatusOverride({ status: "absent", isWeekOff: false, leaveType: null }),
+    ).toBe("absent");
+    expect(
+      applyRosterDayStatusOverride({ status: "present", isWeekOff: false, leaveType: null }),
+    ).toBe("present");
   });
 
   it("uses check-out minus check-in for total hours even when stored minutes deducted a break", () => {

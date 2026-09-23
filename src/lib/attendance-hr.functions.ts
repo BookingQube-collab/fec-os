@@ -32,6 +32,7 @@ import {
   resolveResyncWindow,
 } from "@/lib/attendance-hr/gap-check";
 import { defaultPayrollPeriod } from "@/lib/attendance-hr/roster-period";
+import { applyRosterDayStatusOverride } from "@/lib/attendance-display";
 import {
   aggregateDashboardPeriod,
   buildAbsentRowsForPeriod,
@@ -2034,6 +2035,8 @@ async function enrichAttendanceHrDailyRows(
   );
   const rosterByStaffLocationDate = new Map<string, RosterShiftLookup>();
   const rosterByStaffDate = new Map<string, RosterShiftLookup>();
+  /** staffId|workDate → week-off on any site (status override; times may linger on the row). */
+  const weekOffByStaffDate = new Set<string>();
   /** Latest working-day row with usable times per staff (duty-only days fall back to this). */
   const fallbackByStaffId = new Map<string, RosterShiftLookup>();
   const fallbackWorkDateByStaffId = new Map<string, string>();
@@ -2048,8 +2051,10 @@ async function enrichAttendanceHrDailyRows(
       shift_end: (row.shift_end as string | null) ?? null,
       is_week_off: Boolean(row.is_week_off),
     };
+    if (lookup.is_week_off) weekOffByStaffDate.add(`${staffId}|${workDate}`);
     if (locationId) rosterByStaffLocationDate.set(`${staffId}|${locationId}|${workDate}`, lookup);
     // Prefer a row that already has usable shift times when multiple locations exist.
+    // Never let an on-duty sibling overwrite a week-off day for status resolution.
     const dateKey = `${staffId}|${workDate}`;
     const prev = rosterByStaffDate.get(dateKey);
     const hasTimes = Boolean(
@@ -2058,7 +2063,13 @@ async function enrichAttendanceHrDailyRows(
     const prevHasTimes = Boolean(
       prev && (normalizeShiftHm(prev.shift_start) || prev.shift_template_id),
     );
-    if (!prev || (hasTimes && !prevHasTimes)) rosterByStaffDate.set(dateKey, lookup);
+    if (!prev) {
+      rosterByStaffDate.set(dateKey, lookup);
+    } else if (lookup.is_week_off && !prev.is_week_off) {
+      rosterByStaffDate.set(dateKey, lookup);
+    } else if (!lookup.is_week_off && !prev.is_week_off && hasTimes && !prevHasTimes) {
+      rosterByStaffDate.set(dateKey, lookup);
+    }
     if (!lookup.is_week_off && hasTimes) {
       const prevFbDate = fallbackWorkDateByStaffId.get(staffId);
       if (!prevFbDate || workDate >= prevFbDate) {
@@ -2108,6 +2119,19 @@ async function enrichAttendanceHrDailyRows(
         : null,
     });
     const isFlexible = Boolean(staff?.flexible_attendance);
+    const rosterWeekOff =
+      Boolean(staffId && weekOffByStaffDate.has(`${staffId}|${workDate}`)) ||
+      Boolean(
+        (locationId
+          ? rosterByStaffLocationDate.get(`${staffId}|${locationId}|${workDate}`)
+          : undefined
+        )?.is_week_off,
+      ) ||
+      Boolean(staffId && rosterByStaffDate.get(`${staffId}|${workDate}`)?.is_week_off);
+    if (rosterWeekOff) {
+      scheduledIn = null;
+      scheduledOut = null;
+    }
     const lateMinutes = resolveListingLateMinutes({
       actualIn,
       rosterScheduledIn: scheduledIn,
@@ -2116,9 +2140,15 @@ async function enrichAttendanceHrDailyRows(
       lateFromShiftStart: isFlexible,
     });
     const actualOut = row.actual_out == null ? null : String(row.actual_out);
-    let status = String(row.status ?? "");
+    let status = applyRosterDayStatusOverride({
+      status: String(row.status ?? ""),
+      isWeekOff: rosterWeekOff,
+      leaveType: null,
+    });
     let missedPunch = Boolean(row.missed_punch);
-    if (isFlexible) {
+    if (status === "weekly_off") {
+      missedPunch = false;
+    } else if (isFlexible) {
       const missed = Boolean(actualIn) !== Boolean(actualOut);
       missedPunch = missed;
       if (missed) status = "missed_punch";
@@ -2475,13 +2505,22 @@ async function enrichAttendanceHrDailyRows(
       });
       const missed = usableCount === 1 || Boolean(actualIn) !== Boolean(actualOut);
       let status = row.status;
-      if (missed) status = "missed_punch";
-      else if (
-        actualIn &&
-        actualOut &&
-        (status === "absent" || status === "missed_punch" || status === "late" || status === "incomplete")
+      // Roster week-off / leave already applied above — do not clobber with punch heuristics.
+      if (
+        status !== "weekly_off" &&
+        status !== "annual_leave" &&
+        status !== "sick_leave" &&
+        status !== "unpaid_leave" &&
+        status !== "public_holiday"
       ) {
-        status = "present";
+        if (missed) status = "missed_punch";
+        else if (
+          actualIn &&
+          actualOut &&
+          (status === "absent" || status === "missed_punch" || status === "late" || status === "incomplete")
+        ) {
+          status = "present";
+        }
       }
       return {
         ...row,
@@ -2490,8 +2529,8 @@ async function enrichAttendanceHrDailyRows(
         actual_out: actualOut,
         worked_minutes: workedMinutes,
         punch_count: usableCount,
-        missed_punch: missed,
-        late_minutes: lateMinutes,
+        missed_punch: status === "weekly_off" ? false : missed,
+        late_minutes: status === "weekly_off" ? 0 : lateMinutes,
         ...siteFields,
       };
     }

@@ -12,6 +12,7 @@ import {
   flexibleDayHasQualifyingPunches,
   flexibleDayNonAnchorPunchLocations,
   flexibleDayRecalcAction,
+  flexibleNoPunchWriteAtLocation,
   formatFlexibleCrossSiteDeviceUserLabel,
   formatFlexibleCrossSiteLocationLabel,
 } from "./flexible-cross-site";
@@ -108,6 +109,21 @@ describe("flexible cross-site attendance", () => {
         ],
       }),
     ).toBe("no_punches");
+  });
+
+  it("writes week-off / leave at the roster site even when not home", () => {
+    expect(
+      flexibleNoPunchWriteAtLocation({ isHomeLocation: false, isWeekOff: true, hasLeave: false }),
+    ).toBe("write");
+    expect(
+      flexibleNoPunchWriteAtLocation({ isHomeLocation: false, isWeekOff: false, hasLeave: true }),
+    ).toBe("write");
+    expect(
+      flexibleNoPunchWriteAtLocation({ isHomeLocation: false, isWeekOff: false, hasLeave: false }),
+    ).toBe("suppress");
+    expect(
+      flexibleNoPunchWriteAtLocation({ isHomeLocation: true, isWeekOff: false, hasLeave: false }),
+    ).toBe("write");
   });
 
   it("merges cross-site in/out into one present day with hours", () => {
