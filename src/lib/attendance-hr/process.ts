@@ -458,7 +458,7 @@ export async function recalculateAttendanceRange(
   };
 
   const shiftById = new Map((shifts ?? []).map((s) => [String(s.id), toShift(s as Record<string, unknown>)]));
-  const rosterByKey = new Map(
+  const rosterByKey = new Map<string, RosterDayRow>(
     (roster ?? []).map((r) => [
       `${r.staff_id}|${r.work_date}`,
       {
@@ -468,7 +468,7 @@ export async function recalculateAttendanceRange(
         shift_start: (r as { shift_start?: string | null }).shift_start ?? null,
         shift_end: (r as { shift_end?: string | null }).shift_end ?? null,
         is_week_off: Boolean(r.is_week_off),
-      } satisfies RosterDayRow,
+      },
     ]),
   );
   const leaveByKey = new Map(
