@@ -268,6 +268,7 @@ export default function AttendanceHrReportsPage() {
         subtitle={t("attendanceHr.reports.subtitle")}
       />
       <AttendanceHrNav />
+      <p className="text-xs text-muted-foreground">{t("attendanceHr.reports.flexibleHint")}</p>
 
       <NeumorphicCard className="space-y-4 p-4">
         <div className="space-y-1.5">

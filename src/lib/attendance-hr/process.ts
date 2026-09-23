@@ -22,6 +22,12 @@ import {
   type MergedBiometricUser,
 } from "./mapping-merge";
 import { previewAttendanceFile } from "./preview";
+import {
+  flexibleDayHasQualifyingPunches,
+  flexibleDayNonAnchorPunchLocations,
+  flexibleDayRecalcAction,
+  type FlexibleCrossSitePunch,
+} from "./flexible-cross-site";
 import { normalizeShiftHm, scheduledIsoFromHm } from "./late-punch";
 import { applyAttendanceShiftPolicy, resolveReportingAndBuffer, type StaffFlexibleTiming } from "./shift-policy";
 
@@ -347,6 +353,80 @@ export async function recalculateAttendanceRange(
       overnight: endHm ? endHm <= startHm : rosterShift.overnight,
     };
   }
+
+  const flexibleStaffIds = [...flexibleByStaffId.entries()]
+    .filter(([, flex]) => flex.flexibleAttendance)
+    .map(([id]) => id)
+    .filter((id) => !staffScope || staffScope.includes(id));
+
+  /** staffId|workDate → punches from every location (flexible multi-site merge). */
+  const crossPunchesByStaffDay = new Map<string, Array<FlexibleCrossSitePunch & { id?: string; device_id?: string | null; biometric_user_id?: string | null }>>();
+  /** staffId|workDate → roster row from any site (prefer this location). */
+  const crossRosterByStaffDay = new Map<string, RosterDayRow>();
+
+  if (flexibleStaffIds.length) {
+    let crossLogsQuery = supabase
+      .from("attendance_logs")
+      .select(
+        "id, location_id, staff_id, biometric_user_id, device_id, punch_at, probable_duplicate, excluded_from_calc, attendance_date",
+      )
+      .in("staff_id", flexibleStaffIds)
+      .gte("attendance_date", dateFrom)
+      .lte("attendance_date", dateTo);
+    let crossRosterQuery = supabase
+      .from("attendance_roster_assignments")
+      .select("staff_id, work_date, shift_template_id, shift_start, shift_end, is_week_off, location_id")
+      .in("staff_id", flexibleStaffIds)
+      .gte("work_date", dateFrom)
+      .lte("work_date", dateTo);
+    const [{ data: crossLogs }, { data: crossRoster }] = await Promise.all([
+      crossLogsQuery,
+      crossRosterQuery,
+    ]);
+    for (const log of crossLogs ?? []) {
+      const staffId = log.staff_id ? String(log.staff_id) : "";
+      const day = String(log.attendance_date ?? "").slice(0, 10);
+      if (!staffId || !day) continue;
+      const key = `${staffId}|${day}`;
+      const list = crossPunchesByStaffDay.get(key) ?? [];
+      list.push({
+        id: log.id as string,
+        locationId: String(log.location_id),
+        punchAt: String(log.punch_at),
+        probableDuplicate: Boolean(log.probable_duplicate),
+        excludedFromCalc: Boolean(log.excluded_from_calc),
+        device_id: (log.device_id as string | null) ?? null,
+        biometric_user_id: (log.biometric_user_id as string | null) ?? null,
+      });
+      crossPunchesByStaffDay.set(key, list);
+    }
+    for (const r of crossRoster ?? []) {
+      const staffId = String(r.staff_id);
+      const day = String(r.work_date).slice(0, 10);
+      const key = `${staffId}|${day}`;
+      const row: RosterDayRow = {
+        staff_id: staffId,
+        work_date: day,
+        shift_template_id: (r.shift_template_id as string | null) ?? null,
+        shift_start: (r as { shift_start?: string | null }).shift_start ?? null,
+        shift_end: (r as { shift_end?: string | null }).shift_end ?? null,
+        is_week_off: Boolean(r.is_week_off),
+      };
+      const existing = crossRosterByStaffDay.get(key);
+      const rowLoc = String((r as { location_id?: string }).location_id ?? "");
+      // Prefer roster at the recalc location; otherwise keep the first seen.
+      if (!existing || rowLoc === locationId) {
+        crossRosterByStaffDay.set(key, row);
+      }
+    }
+  }
+
+  const summaryDeletes: Array<{ location_id: string; staff_id: string; work_date: string }> = [];
+
+  function queueSummaryDelete(locId: string, staffId: string, workDate: string) {
+    summaryDeletes.push({ location_id: locId, staff_id: staffId, work_date: workDate });
+  }
+
   let coveragePeriods: Array<{ start: string; end: string }> = [];
   if (!staffScope) {
     try {
@@ -411,15 +491,70 @@ export async function recalculateAttendanceRange(
   const summaryRows: Array<Record<string, unknown>> = [];
   let processed = 0;
   for (const [key, punches] of groups) {
-    const [subject, workDate] = key.split("|");
+    const sep = key.lastIndexOf("|");
+    const subject = sep >= 0 ? key.slice(0, sep) : key;
+    const workDate = sep >= 0 ? key.slice(sep + 1) : "";
     const sample = punches[0];
     const staffId = (sample.staff_id as string | null) ?? null;
-    const rosterRow = staffId ? rosterByKey.get(`${staffId}|${workDate}`) : undefined;
+    const flex = staffId ? flexibleByStaffId.get(staffId) : undefined;
+    const crossKey = staffId && workDate ? `${staffId}|${workDate}` : "";
+    const crossPunches = crossKey ? crossPunchesByStaffDay.get(crossKey) ?? [] : [];
+
+    let punchSource: Array<{
+      id?: string;
+      punch_at: string;
+      probable_duplicate?: boolean | null;
+      excluded_from_calc?: boolean | null;
+      device_id?: string | null;
+      biometric_user_id?: string | null;
+    }> = punches.map((p) => ({
+      id: p.id as string,
+      punch_at: p.punch_at as string,
+      probable_duplicate: p.probable_duplicate as boolean | null,
+      excluded_from_calc: p.excluded_from_calc as boolean | null,
+      device_id: p.device_id as string | null,
+      biometric_user_id: p.biometric_user_id as string | null,
+    }));
+
+    let rosterRow = staffId ? rosterByKey.get(`${staffId}|${workDate}`) : undefined;
+
+    if (flex?.flexibleAttendance && staffId && workDate) {
+      const across =
+        crossPunches.length > 0
+          ? crossPunches
+          : punches.map((p) => ({
+              locationId,
+              punchAt: String(p.punch_at),
+              probableDuplicate: Boolean(p.probable_duplicate),
+              excludedFromCalc: Boolean(p.excluded_from_calc),
+            }));
+      const action = flexibleDayRecalcAction({ locationId, punchesAcrossSites: across });
+      if (action === "suppress") {
+        queueSummaryDelete(locationId, staffId, workDate);
+        continue;
+      }
+      if (action === "write_merged" && crossPunches.length > 0) {
+        punchSource = crossPunches.map((p) => ({
+          id: p.id,
+          punch_at: p.punchAt,
+          probable_duplicate: p.probableDuplicate,
+          excluded_from_calc: p.excludedFromCalc,
+          device_id: p.device_id,
+          biometric_user_id: p.biometric_user_id,
+        }));
+        rosterRow = rosterRow ?? crossRosterByStaffDay.get(crossKey);
+        for (const otherLoc of flexibleDayNonAnchorPunchLocations(crossPunches, locationId)) {
+          queueSummaryDelete(otherLoc, staffId, workDate);
+        }
+      }
+    }
+
     const leaveRow = staffId ? leaveByKey.get(`${staffId}|${workDate}`) : undefined;
     const rosterShiftRaw = shiftForRosterDay(rosterRow, shiftById);
     const timing = timingForStaff(staffId);
     const rosterShift = shiftWithFlexibleTimes(rosterShiftRaw, timing.flex);
     // Hours policy always applies; start/end only from real roster (never DEFAULT 08:00).
+    // Break: site of this summary location (anchor). No per-staff flexible_break — reuse site break.
     const shift = applyAttendanceShiftPolicy(rosterShift ?? DEFAULT_SHIFT, {
       employmentType: staffId ? employmentByStaffId.get(staffId) ?? null : null,
       locationCode,
@@ -435,9 +570,9 @@ export async function recalculateAttendanceRange(
       : { ...shift, startTime: "", endTime: "" };
     // Recompute duplicate flags from scratch (ignore stale DB flags from cross-user ingest bugs).
     const marked = markProbableDuplicates(
-      punches.map((p) => ({
-        id: p.id as string,
-        punchAt: p.punch_at as string,
+      punchSource.map((p) => ({
+        id: p.id,
+        punchAt: p.punch_at,
         probableDuplicate: false,
         excludedFromCalc: false,
       })),
@@ -446,7 +581,7 @@ export async function recalculateAttendanceRange(
     const flagUpdates = marked
       .filter((m) => m.id)
       .map((m) => {
-        const original = punches.find((p) => p.id === m.id);
+        const original = punchSource.find((p) => p.id === m.id);
         const nextDup = Boolean(m.probableDuplicate);
         const prevDup = Boolean(original?.probable_duplicate);
         const prevExcl = Boolean(original?.excluded_from_calc);
@@ -478,6 +613,7 @@ export async function recalculateAttendanceRange(
       shift: shiftForCalc,
       rules,
     });
+    const deviceSample = punchSource.find((p) => p.device_id) ?? punchSource[0];
     summaryRows.push({
       location_id: locationId,
       staff_id: staffId,
@@ -497,8 +633,8 @@ export async function recalculateAttendanceRange(
       worked_minutes: calc.workedMinutes,
       regular_minutes: calc.regularMinutes,
       exception_reason: calc.exceptionReason,
-      biometric_user_id: sample.biometric_user_id,
-      device_id: sample.device_id,
+      biometric_user_id: deviceSample?.biometric_user_id ?? sample.biometric_user_id,
+      device_id: deviceSample?.device_id ?? sample.device_id,
       shift_template_id: rosterRow?.shift_template_id ?? null,
     });
     processed += 1;
@@ -525,6 +661,22 @@ export async function recalculateAttendanceRange(
     const workDate = key.split("|").at(-1) ?? "";
     const staffId = (punches[0]?.staff_id as string | null) ?? null;
     if (staffId && workDate) covered.add(`${staffId}|${workDate}`);
+  }
+  // Flexible staff who punched at another site: treat as covered here so we do not emit ABSENT.
+  for (const [crossKey, crossPunches] of crossPunchesByStaffDay) {
+    if (!flexibleDayHasQualifyingPunches(crossPunches)) continue;
+    const action = flexibleDayRecalcAction({ locationId, punchesAcrossSites: crossPunches });
+    if (action === "suppress") {
+      const sep = crossKey.lastIndexOf("|");
+      const staffId = sep >= 0 ? crossKey.slice(0, sep) : "";
+      const workDate = sep >= 0 ? crossKey.slice(sep + 1) : "";
+      if (staffId && workDate) {
+        covered.add(crossKey);
+        queueSummaryDelete(locationId, staffId, workDate);
+      }
+    } else if (action === "write_merged") {
+      covered.add(crossKey);
+    }
   }
 
   for (const workDate of enumerateYmd(dateFrom, dateTo)) {
@@ -632,6 +784,29 @@ export async function recalculateAttendanceRange(
   // blank or different subject_key — INSERT then hits attendance_daily_summary_location_id_staff_id_work_date_key.
   const mapped = summaryRows.filter((row) => row.staff_id);
   const unmapped = summaryRows.filter((row) => !row.staff_id);
+
+  // Drop stale ABSENT / partial rows at non-anchor sites for flexible multi-site days.
+  const deleteSeen = new Set<string>();
+  const uniqueDeletes = summaryDeletes.filter((row) => {
+    const k = `${row.location_id}|${row.staff_id}|${row.work_date}`;
+    if (deleteSeen.has(k)) return false;
+    deleteSeen.add(k);
+    return true;
+  });
+  for (let i = 0; i < uniqueDeletes.length; i += 40) {
+    const chunk = uniqueDeletes.slice(i, i + 40);
+    await Promise.all(
+      chunk.map(async (row) => {
+        const { error: delError } = await supabase
+          .from("attendance_daily_summary")
+          .delete()
+          .eq("location_id", row.location_id)
+          .eq("staff_id", row.staff_id)
+          .eq("work_date", row.work_date);
+        if (delError) throw delError;
+      }),
+    );
+  }
 
   for (let i = 0; i < mapped.length; i += 200) {
     const chunk = mapped.slice(i, i + 200);

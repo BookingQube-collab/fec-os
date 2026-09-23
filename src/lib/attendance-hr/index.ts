@@ -36,6 +36,7 @@ export {
   expectedShiftMinutes,
   isUrbanArenaLocationCode,
   normalizeAttendanceEmploymentRole,
+  resolveReportingAndBuffer,
   ATTENDANCE_EMPLOYMENT_TYPES,
   DEFAULT_BREAK_MINUTES,
   DEFAULT_REPORTING_TIME_MINUTES,
@@ -46,6 +47,12 @@ export {
   PERMANENT_SHIFT_MINUTES,
   EXTENDED_SHIFT_MINUTES,
 } from "./shift-policy";
+export {
+  flexibleDayAnchorLocationId,
+  flexibleDayRecalcAction,
+  flexibleDayHasQualifyingPunches,
+  flexibleDayNonAnchorPunchLocations,
+} from "./flexible-cross-site";
 export {
   computeLatePunchMinutes,
   normalizeShiftHm,
