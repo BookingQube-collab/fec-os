@@ -15,6 +15,7 @@ import {
 import { useTranslation } from "react-i18next";
 
 import { buttonVariants } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { matchesSearchQuery } from "@/lib/searchable-select";
 import { cn } from "@/lib/utils";
@@ -95,23 +96,7 @@ export function SearchableSelectSearchInput({
   );
 }
 
-export function SearchableSelect({
-  value,
-  onValueChange,
-  options,
-  emptyOption,
-  placeholder,
-  searchPlaceholder,
-  disabled,
-  className,
-  triggerClassName,
-  id,
-  name,
-  "aria-label": ariaLabel,
-  onOpenChange,
-}: {
-  value: string;
-  onValueChange: (value: string) => void;
+type SearchableSelectBaseProps = {
   options: SearchableSelectOption[];
   emptyOption?: SearchableSelectEmptyOption;
   placeholder?: string;
@@ -123,13 +108,51 @@ export function SearchableSelect({
   name?: string;
   "aria-label"?: string;
   onOpenChange?: (open: boolean) => void;
-}) {
+  /** Shown when multiple values are selected (e.g. "{{count}} selected"). */
+  selectedCountLabel?: (count: number) => ReactNode;
+};
+
+type SearchableSelectSingleProps = SearchableSelectBaseProps & {
+  multiple?: false;
+  value: string;
+  onValueChange: (value: string) => void;
+  values?: never;
+  onValuesChange?: never;
+};
+
+type SearchableSelectMultipleProps = SearchableSelectBaseProps & {
+  multiple: true;
+  values: string[];
+  onValuesChange: (values: string[]) => void;
+  value?: never;
+  onValueChange?: never;
+};
+
+export function SearchableSelect(props: SearchableSelectSingleProps | SearchableSelectMultipleProps) {
+  const {
+    options,
+    emptyOption,
+    placeholder,
+    searchPlaceholder,
+    disabled,
+    className,
+    triggerClassName,
+    id,
+    name,
+    "aria-label": ariaLabel,
+    onOpenChange,
+    selectedCountLabel,
+  } = props;
+  const multiple = props.multiple === true;
   const { t } = useTranslation();
   const listId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
+
+  const selectedValues = multiple ? props.values : props.value ? [props.value] : [];
+  const selectedSet = useMemo(() => new Set(selectedValues), [selectedValues]);
 
   const items = useMemo(() => {
     const rows: SearchableSelectOption[] = emptyOption
@@ -144,8 +167,21 @@ export function SearchableSelect({
     );
   }, [items, query]);
 
-  const selected = items.find((item) => item.value === value);
-  const selectedLabel = selected?.label;
+  const selectedLabels = useMemo(
+    () =>
+      selectedValues
+        .map((v) => items.find((item) => item.value === v)?.label)
+        .filter((label): label is ReactNode => label != null),
+    [items, selectedValues],
+  );
+
+  const triggerLabel = useMemo(() => {
+    if (selectedLabels.length === 0) return null;
+    if (selectedLabels.length === 1) return selectedLabels[0];
+    if (selectedCountLabel) return selectedCountLabel(selectedLabels.length);
+    return `${selectedLabels.length} selected`;
+  }, [selectedLabels, selectedCountLabel, t]);
+
   const searchPh = searchPlaceholder ?? t("common.searchHere");
   const emptyLabel = t("common.searchNoMatches");
 
@@ -170,16 +206,31 @@ export function SearchableSelect({
       setActive(0);
       return;
     }
-    const selectedIndex = filtered.findIndex((item) => item.value === value);
+    const selectedIndex = filtered.findIndex((item) => selectedSet.has(item.value));
     setActive(selectedIndex >= 0 ? selectedIndex : 0);
-  }, [open, query, filtered, value]);
+  }, [open, query, filtered, selectedSet]);
 
-  const choose = useCallback(
+  const chooseSingle = useCallback(
     (next: string) => {
-      onValueChange(next);
-      setOpenState(false);
+      if (!multiple) {
+        props.onValueChange(next);
+        setOpenState(false);
+      }
     },
-    [onValueChange, setOpenState],
+    [multiple, props, setOpenState],
+  );
+
+  const toggleMulti = useCallback(
+    (next: string) => {
+      if (!multiple) return;
+      if (emptyOption && next === emptyOption.value) {
+        props.onValuesChange([]);
+        return;
+      }
+      const current = props.values;
+      props.onValuesChange(current.includes(next) ? current.filter((v) => v !== next) : [...current, next]);
+    },
+    [emptyOption, multiple, props],
   );
 
   const onSearchKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
@@ -214,7 +265,9 @@ export function SearchableSelect({
     if (e.key === "Enter") {
       e.preventDefault();
       const hit = filtered[active] ?? filtered[0];
-      if (hit && !hit.disabled) choose(hit.value);
+      if (!hit || hit.disabled) return;
+      if (multiple) toggleMulti(hit.value);
+      else chooseSingle(hit.value);
     }
   };
 
@@ -233,10 +286,11 @@ export function SearchableSelect({
 
   const activeItem = filtered[active];
   const activeId = open && activeItem ? `${listId}-${active}` : undefined;
+  const hiddenValue = multiple ? selectedValues.join(",") : (props.value ?? "");
 
   return (
     <div className={cn("min-w-0", className)}>
-      {name ? <input type="hidden" name={name} value={value} /> : null}
+      {name ? <input type="hidden" name={name} value={hiddenValue} /> : null}
       <Popover modal open={open} onOpenChange={setOpenState}>
         <PopoverTrigger asChild>
           <button
@@ -247,16 +301,17 @@ export function SearchableSelect({
             aria-haspopup="listbox"
             aria-expanded={open}
             aria-controls={listId}
-            title={collectNodeText(selectedLabel) || undefined}
+            aria-multiselectable={multiple || undefined}
+            title={selectedLabels.map(collectNodeText).filter(Boolean).join(", ") || undefined}
             onKeyDown={onTriggerKeyDown}
             className={cn(
               buttonVariants({ variant: "outline" }),
               "min-h-11 w-full justify-between gap-2 px-3.5 py-2.5 font-semibold leading-5 [&>span]:line-clamp-1 [&_svg]:size-[1.125rem]",
-              !selected && "text-muted-foreground",
+              !triggerLabel && "text-muted-foreground",
               triggerClassName,
             )}
           >
-            <span className="min-w-0 flex-1 truncate text-start">{selectedLabel ?? placeholder}</span>
+            <span className="min-w-0 flex-1 truncate text-start">{triggerLabel ?? placeholder}</span>
             <ChevronsUpDown className="shrink-0 opacity-70" />
           </button>
         </PopoverTrigger>
@@ -278,13 +333,14 @@ export function SearchableSelect({
             expanded={open}
             activeId={activeId}
           />
-          <ul id={listId} role="listbox" className="mt-1.5 max-h-64 overflow-y-auto p-0">
+          <ul id={listId} role="listbox" aria-multiselectable={multiple || undefined} className="mt-1.5 max-h-64 overflow-y-auto p-0">
             {filtered.length === 0 ? (
               <li className="px-3 py-3 text-sm text-muted-foreground">{emptyLabel}</li>
             ) : (
               filtered.map((item, i) => {
                 const isActive = i === active;
-                const isSelected = item.value === value;
+                const isClear = Boolean(emptyOption && item.value === emptyOption.value);
+                const isSelected = isClear ? selectedValues.length === 0 : selectedSet.has(item.value);
                 return (
                   <li key={`${item.value}-${i}`} role="presentation">
                     <button
@@ -294,14 +350,23 @@ export function SearchableSelect({
                       aria-selected={isSelected}
                       disabled={item.disabled}
                       onMouseEnter={() => setActive(i)}
-                      onClick={() => choose(item.value)}
+                      onClick={() => (multiple ? toggleMulti(item.value) : chooseSingle(item.value))}
                       className={cn(
                         "flex w-full items-center gap-2 rounded-full px-3 py-2 text-start text-sm",
                         isActive ? "bg-secondary font-medium text-foreground" : "text-foreground hover:bg-secondary/70",
                         item.disabled && "pointer-events-none opacity-50",
                       )}
                     >
-                      <Check className={cn("h-3.5 w-3.5 shrink-0", isSelected ? "opacity-100" : "opacity-0")} />
+                      {multiple && !isClear ? (
+                        <Checkbox
+                          checked={isSelected}
+                          tabIndex={-1}
+                          className="pointer-events-none"
+                          aria-hidden
+                        />
+                      ) : (
+                        <Check className={cn("h-3.5 w-3.5 shrink-0", isSelected ? "opacity-100" : "opacity-0")} />
+                      )}
                       <span className="min-w-0 flex-1">
                         <span className="block truncate">{item.label}</span>
                         {item.description ? (

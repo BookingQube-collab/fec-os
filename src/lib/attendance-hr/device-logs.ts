@@ -89,12 +89,14 @@ export function deviceLogSearchNeedle(raw: string | null | undefined): string {
   return (raw ?? "").trim().replace(/[%_,()]/g, "").slice(0, 80);
 }
 
-export function deviceLogKpis(rows: Array<{ biometricUserId: string | null; deviceId: string | null }>): DeviceLogKpis {
+export function deviceLogKpis(
+  rows: Array<{ locationId?: string | null; biometricUserId: string | null; deviceId: string | null }>,
+): DeviceLogKpis {
   const users = new Set<string>();
   const devices = new Set<string>();
   for (const row of rows) {
     const user = row.biometricUserId?.trim();
-    if (user) users.add(user);
+    if (user) users.add(row.locationId ? deviceLogUserOptionKey(row.locationId, user) : user);
     if (row.deviceId) devices.add(row.deviceId);
   }
   return { records: rows.length, deviceUsers: users.size, devices: devices.size };
@@ -286,34 +288,90 @@ export function deviceLogDisplayName(
 }
 
 export type AttendanceDeviceLogUserOption = {
+  /** Stable option id: `locationId|biometricUserId` (user ids repeat across sites). */
+  key: string;
+  locationId: string;
+  locationCode: string | null;
   biometricUserId: string;
   name: string | null;
 };
 
-/** Distinct device users for the SearchableSelect (name · user id). */
+/** Dropdown / filter identity: same numeric user id at two sites stays two options. */
+export function deviceLogUserOptionKey(locationId: string, biometricUserId: string): string {
+  return `${locationId}|${biometricUserId.trim()}`;
+}
+
+export function parseDeviceLogUserOptionKey(
+  key: string,
+): { locationId: string; biometricUserId: string } | null {
+  const pipe = key.indexOf("|");
+  if (pipe <= 0) return null;
+  const locationId = key.slice(0, pipe).trim();
+  const biometricUserId = key.slice(pipe + 1).trim();
+  if (!locationId || !biometricUserId) return null;
+  return { locationId, biometricUserId };
+}
+
+/** Distinct device users for the filter (name · user id · location). */
 export function collectDeviceLogUsers(
-  rows: Array<{ biometricUserId: string | null; deviceUserName: string | null }>,
+  rows: Array<{
+    locationId: string | null;
+    locationCode?: string | null;
+    biometricUserId: string | null;
+    deviceUserName: string | null;
+  }>,
 ): AttendanceDeviceLogUserOption[] {
-  const byId = new Map<string, AttendanceDeviceLogUserOption>();
+  const byKey = new Map<string, AttendanceDeviceLogUserOption>();
   for (const row of rows) {
+    const locationId = row.locationId?.trim();
     const id = row.biometricUserId?.trim();
-    if (!id) continue;
+    if (!locationId || !id) continue;
+    const key = deviceLogUserOptionKey(locationId, id);
     const name = row.deviceUserName?.trim() || null;
-    const existing = byId.get(id);
-    if (!existing) byId.set(id, { biometricUserId: id, name });
-    else if (!existing.name && name) existing.name = name;
+    const code = row.locationCode?.trim() || null;
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, {
+        key,
+        locationId,
+        locationCode: code,
+        biometricUserId: id,
+        name,
+      });
+    } else {
+      if (!existing.name && name) existing.name = name;
+      if (!existing.locationCode && code) existing.locationCode = code;
+    }
   }
-  return [...byId.values()].sort((a, b) => {
+  return [...byKey.values()].sort((a, b) => {
     const an = (a.name ?? "").toLowerCase();
     const bn = (b.name ?? "").toLowerCase();
     if (an !== bn) return an.localeCompare(bn);
-    return a.biometricUserId.localeCompare(b.biometricUserId);
+    const idCmp = a.biometricUserId.localeCompare(b.biometricUserId);
+    if (idCmp !== 0) return idCmp;
+    return (a.locationCode ?? a.locationId).localeCompare(b.locationCode ?? b.locationId);
   });
 }
 
 export function deviceLogUserOptionLabel(user: AttendanceDeviceLogUserOption): string {
   const name = user.name?.trim();
-  return name ? `${name} · ${user.biometricUserId}` : user.biometricUserId;
+  const loc = user.locationCode?.trim();
+  const base = name ? `${name} · ${user.biometricUserId}` : user.biometricUserId;
+  return loc ? `${base} · ${loc}` : base;
+}
+
+/** PostgREST `or` of `and(location_id, biometric_user_id)` pairs (cross-site id collisions). */
+export function deviceLogUserPairsOrFilter(
+  pairs: Array<{ locationId: string; biometricUserId: string }>,
+): string {
+  return pairs
+    .map(({ locationId, biometricUserId }) => {
+      const loc = locationId.trim().replace(/[,()]/g, "");
+      const uid = biometricUserId.trim().replace(/[,()]/g, "");
+      return `and(location_id.eq.${loc},biometric_user_id.eq.${uid})`;
+    })
+    .filter((part) => part.includes("location_id.eq.") && part.includes("biometric_user_id.eq."))
+    .join(",");
 }
 
 /** Match after enrichment: user id OR display name (punch / biometric registry). */

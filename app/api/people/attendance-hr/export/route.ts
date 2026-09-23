@@ -56,13 +56,23 @@ export async function GET(request: Request) {
 
       if (params.get("view") === "device-logs") {
         const deviceId = asUuid(params.get("deviceId"));
-        const biometricUserId = params.get("biometricUserId")?.trim() || undefined;
+        const deviceUserKeys = [
+          ...new Set(
+            [...params.getAll("deviceUserKey"), ...(params.get("deviceUserKeys")?.split(",") ?? [])]
+              .map((key) => key.trim())
+              .filter(Boolean),
+          ),
+        ];
+        const biometricUserId = !deviceUserKeys.length
+          ? params.get("biometricUserId")?.trim() || undefined
+          : undefined;
         const q = params.get("q")?.trim() || undefined;
         const logs = await listAttendanceDeviceLogs({
           locationId,
           deviceId,
           dateFrom,
           dateTo,
+          deviceUserKeys: deviceUserKeys.length ? deviceUserKeys : undefined,
           biometricUserId,
           q,
         });

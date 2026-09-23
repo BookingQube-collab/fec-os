@@ -78,6 +78,8 @@ import {
   deviceLogPunchRange,
   deviceLogSearchNeedle,
   deviceLogSearchOrFilter,
+  deviceLogUserPairsOrFilter,
+  parseDeviceLogUserOptionKey,
   type AttendanceDeviceLogRow,
   deviceLogDisplayName,
   indexDeviceLogBioNames,
@@ -2158,15 +2160,22 @@ export const listAttendanceDeviceLogUsers = createAuthenticatedAction(
           .filter((id): id is string => Boolean(id)),
       ),
     ];
-    const bioRes =
+    const [bioRes, locations] = await Promise.all([
       locationIds.length && bioUserIds.length
-        ? await context.supabase
+        ? context.supabase
             .from("attendance_biometric_users")
             .select("location_id, device_id, biometric_user_id, device_name, full_name")
             .in("location_id", locationIds)
             .in("biometric_user_id", bioUserIds)
             .limit(5000)
-        : { data: [] as Array<Record<string, unknown>>, error: null };
+        : Promise.resolve({ data: [] as Array<Record<string, unknown>>, error: null }),
+      loadByIds<{ id: string; code: string | null; name: string | null }>(
+        context,
+        "locations",
+        "id, code, name",
+        locationIds,
+      ),
+    ]);
     if (bioRes.error) throw bioRes.error;
     const bioIndex = indexDeviceLogBioNames(
       (bioRes.data ?? []).map((raw) => ({
@@ -2177,9 +2186,13 @@ export const listAttendanceDeviceLogUsers = createAuthenticatedAction(
         full_name: raw.full_name == null ? null : String(raw.full_name),
       })),
     );
+    const locationById = new Map(locations.map((row) => [row.id, row]));
     const enriched = punches.map((row) => {
       const bio = lookupDeviceLogBioName(bioIndex, row.location_id, row.biometric_user_id, row.device_id);
+      const location = locationById.get(row.location_id);
       return {
+        locationId: row.location_id,
+        locationCode: location?.code ?? null,
         biometricUserId: row.biometric_user_id,
         deviceUserName: deviceLogDisplayName(row.device_user_name, bio),
       };
@@ -2196,7 +2209,10 @@ export const listAttendanceDeviceLogs = createAuthenticatedAction(
     dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     q: z.string().max(80).optional(),
+    /** @deprecated Prefer deviceUserKeys (`locationId|biometricUserId`) for all-locations. */
     biometricUserId: z.string().max(80).optional(),
+    /** Composite keys from the device-user multi-select (`locationId|biometricUserId`). */
+    deviceUserKeys: z.array(z.string().min(3).max(160)).max(100).optional(),
   }),
   async (data, context) => {
     if (data.locationId) await assertSite(context, data.locationId);
@@ -2211,9 +2227,16 @@ export const listAttendanceDeviceLogs = createAuthenticatedAction(
       .limit(DEVICE_LOG_CAP);
     if (data.locationId) q = q.eq("location_id", data.locationId);
     if (data.deviceId) q = q.eq("device_id", data.deviceId);
-    const exactUser = data.biometricUserId?.trim() || "";
-    const needle = exactUser ? "" : deviceLogSearchNeedle(data.q);
-    if (exactUser) {
+    const userPairs = (data.deviceUserKeys ?? [])
+      .map(parseDeviceLogUserOptionKey)
+      .filter((pair): pair is { locationId: string; biometricUserId: string } => Boolean(pair))
+      .filter((pair) => !data.locationId || pair.locationId === data.locationId);
+    const exactUser = userPairs.length ? "" : data.biometricUserId?.trim() || "";
+    const needle = userPairs.length || exactUser ? "" : deviceLogSearchNeedle(data.q);
+    if (userPairs.length) {
+      const pairFilter = deviceLogUserPairsOrFilter(userPairs);
+      if (pairFilter) q = q.or(pairFilter);
+    } else if (exactUser) {
       q = q.eq("biometric_user_id", exactUser);
     } else if (needle) {
       const bioIds = await resolveDeviceLogBioSearchIds(context, data.locationId, needle);

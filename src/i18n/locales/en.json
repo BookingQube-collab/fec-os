@@ -5949,6 +5949,8 @@
       "subtitle": "Device push only — punches the terminal uploaded (adms_push). Name is the device payload only; not mapped attendance.",
       "search": "Device user",
       "searchPlaceholder": "Search name or user ID",
+      "selectUsers": "Select users",
+      "selectedUsers": "{{count}} users selected",
       "allUsers": "All device users",
       "device": "Device",
       "allDevices": "All devices",

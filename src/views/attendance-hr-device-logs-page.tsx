@@ -65,13 +65,13 @@ export default function AttendanceHrDeviceLogsPage() {
     defaultPayrollPeriod(new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" })),
   );
   const [deviceId, setDeviceId] = useState("");
-  const [biometricUserId, setBiometricUserId] = useState("");
+  const [deviceUserKeys, setDeviceUserKeys] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const { data: sites } = useSites();
 
   useEffect(() => {
     setPage(1);
-  }, [locationId, deviceId, from, to, biometricUserId]);
+  }, [locationId, deviceId, from, to, deviceUserKeys]);
 
   const bootstrap = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "bootstrap" }),
@@ -105,7 +105,7 @@ export default function AttendanceHrDeviceLogsPage() {
       deviceId,
       from,
       to,
-      biometricUserId,
+      deviceUserKeys,
     }),
     queryFn: () =>
       listAttendanceDeviceLogs({
@@ -113,7 +113,7 @@ export default function AttendanceHrDeviceLogsPage() {
         deviceId: deviceId || null,
         dateFrom: from,
         dateTo: to,
-        biometricUserId: biometricUserId || undefined,
+        deviceUserKeys: deviceUserKeys.length ? deviceUserKeys : undefined,
       }),
     staleTime: STALE.people,
     placeholderData: keepPreviousData,
@@ -156,9 +156,9 @@ export default function AttendanceHrDeviceLogsPage() {
   const userOptions = useMemo(
     () =>
       (deviceUsers.data?.users ?? []).map((user) => ({
-        value: user.biometricUserId,
+        value: user.key,
         label: deviceLogUserOptionLabel(user),
-        keywords: `${user.name ?? ""} ${user.biometricUserId}`,
+        keywords: `${user.name ?? ""} ${user.biometricUserId} ${user.locationCode ?? ""}`,
       })),
     [deviceUsers.data?.users],
   );
@@ -169,17 +169,19 @@ export default function AttendanceHrDeviceLogsPage() {
   }, [deviceId, deviceOptions]);
 
   useEffect(() => {
-    if (!biometricUserId) return;
-    if (!userOptions.some((user) => user.value === biometricUserId)) setBiometricUserId("");
-  }, [biometricUserId, userOptions]);
+    if (!deviceUserKeys.length) return;
+    const valid = new Set(userOptions.map((user) => user.value));
+    const next = deviceUserKeys.filter((key) => valid.has(key));
+    if (next.length !== deviceUserKeys.length) setDeviceUserKeys(next);
+  }, [deviceUserKeys, userOptions]);
 
   const exportHref = useMemo(() => {
     const p = new URLSearchParams({ view: "device-logs", from, to });
     if (locationId) p.set("locationId", locationId);
     if (deviceId) p.set("deviceId", deviceId);
-    if (biometricUserId) p.set("biometricUserId", biometricUserId);
+    for (const key of deviceUserKeys) p.append("deviceUserKey", key);
     return `/api/people/attendance-hr/export?${p.toString()}`;
-  }, [from, to, locationId, deviceId, biometricUserId]);
+  }, [from, to, locationId, deviceId, deviceUserKeys]);
 
   const rows = logs.data?.rows ?? [];
   const total = logs.data?.total ?? 0;
@@ -189,7 +191,7 @@ export default function AttendanceHrDeviceLogsPage() {
   const pages = Math.max(1, Math.ceil(rows.length / DEVICE_LOG_PAGE_SIZE));
   const pageRows = rows.slice((page - 1) * DEVICE_LOG_PAGE_SIZE, page * DEVICE_LOG_PAGE_SIZE);
   const usersBusy = deviceUsers.isFetching && !deviceUsers.isLoading;
-  const rowFilterOn = Boolean(biometricUserId || deviceId);
+  const rowFilterOn = Boolean(deviceUserKeys.length || deviceId);
   const empty = !logs.isLoading && !logs.isError && rows.length === 0;
 
   return (
@@ -241,12 +243,14 @@ export default function AttendanceHrDeviceLogsPage() {
             <div className="relative">
               <SearchableSelect
                 id="attendance-device-log-user"
-                value={biometricUserId}
-                onValueChange={setBiometricUserId}
-                placeholder={t("attendanceHr.deviceLogs.allUsers")}
+                multiple
+                values={deviceUserKeys}
+                onValuesChange={setDeviceUserKeys}
+                placeholder={t("attendanceHr.deviceLogs.selectUsers")}
                 searchPlaceholder={t("attendanceHr.deviceLogs.searchPlaceholder")}
                 emptyOption={{ value: "", label: t("attendanceHr.deviceLogs.allUsers") }}
                 options={userOptions}
+                selectedCountLabel={(count) => t("attendanceHr.deviceLogs.selectedUsers", { count })}
                 aria-label={t("attendanceHr.deviceLogs.search")}
                 triggerClassName="h-10 min-h-10 w-full font-normal"
                 className="w-full"

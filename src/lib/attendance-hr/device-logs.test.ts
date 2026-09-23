@@ -15,13 +15,16 @@ import {
   deviceLogQatarYmd,
   deviceLogRawDeviceId,
   deviceLogSearchOrFilter,
+  deviceLogUserOptionKey,
   deviceLogUserOptionLabel,
+  deviceLogUserPairsOrFilter,
   formatDeviceLogDate,
   formatDeviceLogYmd,
   deviceLogSearchNeedle,
   deviceLogVerifyKey,
   indexDeviceLogBioNames,
   lookupDeviceLogBioName,
+  parseDeviceLogUserOptionKey,
   rollupDeviceLogDays,
   type AttendanceDeviceLogRow,
 } from "./device-logs";
@@ -82,6 +85,12 @@ describe("device log listing", () => {
         { biometricUserId: null, deviceId: null },
       ]),
     ).toEqual({ records: 4, deviceUsers: 2, devices: 2 });
+    expect(
+      deviceLogKpis([
+        { locationId: "loc-a", biometricUserId: "18", deviceId: "d1" },
+        { locationId: "loc-b", biometricUserId: "18", deviceId: "d2" },
+      ]),
+    ).toEqual({ records: 2, deviceUsers: 2, devices: 2 });
   });
 
   it("labels only the ZKTeco in/out and verify codes we store", () => {
@@ -210,18 +219,50 @@ describe("device log listing", () => {
     );
   });
 
-  it("collects distinct device users for the dropdown", () => {
+  it("collects distinct device users per location so cross-site id collisions stay visible", () => {
     const users = collectDeviceLogUsers([
-      { biometricUserId: "2", deviceUserName: null },
-      { biometricUserId: "1", deviceUserName: "Louie" },
-      { biometricUserId: "2", deviceUserName: "Ali" },
-      { biometricUserId: "  ", deviceUserName: "Skip" },
+      { locationId: "loc-b", locationCode: "INF-EE", biometricUserId: "18", deviceUserName: "Ali" },
+      { locationId: "loc-a", locationCode: "INF-CC", biometricUserId: "18", deviceUserName: "Louie" },
+      { locationId: "loc-a", locationCode: "INF-CC", biometricUserId: "18", deviceUserName: null },
+      { locationId: "loc-a", locationCode: "INF-CC", biometricUserId: "1", deviceUserName: "Sam" },
+      { locationId: null, locationCode: null, biometricUserId: "9", deviceUserName: "Skip" },
+      { locationId: "loc-a", locationCode: "INF-CC", biometricUserId: "  ", deviceUserName: "Skip" },
     ]);
     expect(users).toEqual([
-      { biometricUserId: "2", name: "Ali" },
-      { biometricUserId: "1", name: "Louie" },
+      {
+        key: "loc-b|18",
+        locationId: "loc-b",
+        locationCode: "INF-EE",
+        biometricUserId: "18",
+        name: "Ali",
+      },
+      {
+        key: "loc-a|18",
+        locationId: "loc-a",
+        locationCode: "INF-CC",
+        biometricUserId: "18",
+        name: "Louie",
+      },
+      {
+        key: "loc-a|1",
+        locationId: "loc-a",
+        locationCode: "INF-CC",
+        biometricUserId: "1",
+        name: "Sam",
+      },
     ]);
-    expect(deviceLogUserOptionLabel(users[1]!)).toBe("Louie · 1");
+    expect(deviceLogUserOptionLabel(users[1]!)).toBe("Louie · 18 · INF-CC");
+    expect(deviceLogUserOptionKey("loc-a", "18")).toBe("loc-a|18");
+    expect(parseDeviceLogUserOptionKey("loc-a|18")).toEqual({
+      locationId: "loc-a",
+      biometricUserId: "18",
+    });
+    expect(deviceLogUserPairsOrFilter([
+      { locationId: "loc-a", biometricUserId: "18" },
+      { locationId: "loc-b", biometricUserId: " 18 " },
+    ])).toBe(
+      "and(location_id.eq.loc-a,biometric_user_id.eq.18),and(location_id.eq.loc-b,biometric_user_id.eq.18)",
+    );
   });
 
   it("exports rolled-up day rows as CSV", () => {
