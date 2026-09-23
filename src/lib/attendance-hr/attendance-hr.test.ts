@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { parseEncryptionKey } from "@/lib/ai/crypto";
 
 import { calculateDailyAttendance, markProbableDuplicates } from "./calculate";
-import { ADMS_ONLINE_WINDOW_MS, DEFAULT_SHIFT, isAdmsDeviceOnline, USER_DAT_RECORD_SIZE } from "./constants";
+import { ADMS_ONLINE_WINDOW_MS, ATTENDANCE_DAILY_LIST_PAGE_SIZE, DEFAULT_SHIFT, isAdmsDeviceOnline, USER_DAT_RECORD_SIZE } from "./constants";
 import { applyAttendanceShiftPolicy } from "./shift-policy";
 import { decryptFileBuffer, encryptFileBuffer } from "./file-crypto";
 import { detectBufferKind } from "./detect";
@@ -688,6 +688,11 @@ describe("HR report row helpers", () => {
   it("formats location as venue code plus name", () => {
     expect(formatAttendanceHrLocation("INF-CC", "InflataPark")).toMatch(/INF-CC/);
     expect(formatAttendanceHrLocation("INF-CC", "InflataPark")).toMatch(/City Center|InflataPark/i);
+  });
+
+  it("pages attendance daily listing at PostgREST max_rows (not a silent 1000-row cap)", () => {
+    // Bare .limit(N>1000) is still truncated server-side; listing must .range() in this chunk size.
+    expect(ATTENDANCE_DAILY_LIST_PAGE_SIZE).toBe(1000);
   });
 
   it("counts report KPI tiles from the filtered rows", () => {

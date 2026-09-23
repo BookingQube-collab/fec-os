@@ -18,6 +18,11 @@ export function isAdmsDeviceOnline(
 export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 export const MAX_IMPORT_ROWS = 50_000;
 export const ATTENDANCE_FILE_BUCKET = "attendance-imports";
+/**
+ * PostgREST max_rows is typically 1000 — a bare `.limit(2000)` still returns only 1000.
+ * Page attendance listing / enrich reads in chunks of this size.
+ */
+export const ATTENDANCE_DAILY_LIST_PAGE_SIZE = 1000;
 
 export const BIOMETRIC_TEMPLATE_WARNING =
   "Biometric template files are unnecessary and sensitive. Do not upload fingerprint or face templates (including template.fp10). Only user lists and punch logs are accepted.";

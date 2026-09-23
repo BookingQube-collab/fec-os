@@ -12,7 +12,13 @@ import { ForbiddenError, assertLocationAccess } from "@/lib/server/authorize";
 import { canUserDo, type AppRole } from "@/lib/rbac";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { ATTENDANCE_FILE_BUCKET, DEFAULT_RULES, DEFAULT_SHIFT, isAdmsDeviceOnline } from "@/lib/attendance-hr/constants";
+import {
+  ATTENDANCE_DAILY_LIST_PAGE_SIZE,
+  ATTENDANCE_FILE_BUCKET,
+  DEFAULT_RULES,
+  DEFAULT_SHIFT,
+  isAdmsDeviceOnline,
+} from "@/lib/attendance-hr/constants";
 import {
   defaultSiteShiftPolicy,
   expectedShiftMinutes,
@@ -504,48 +510,66 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
   }),
   async (data, context) => {
     if (data.locationId) await assertSite(context, data.locationId);
-    let q = context.supabase
-      .from("attendance_daily_summary")
-      .select("*")
-      .gte("work_date", data.dateFrom)
-      .lte("work_date", data.dateTo)
-      .order("work_date", { ascending: false })
-      .limit(2000);
-    if (data.status) q = q.eq("status", data.status);
+
+    let staffFilter: "none" | "unmapped" | { ids: string[] } | { biometricIlike: string } = "none";
     if (data.staffId) {
-      q = q.eq("staff_id", data.staffId);
+      staffFilter = { ids: [data.staffId] };
     } else if (data.staffQ?.trim()) {
       const needle = data.staffQ.trim();
       if (isAttendanceHrUnmappedSearch(needle)) {
-        q = q.is("staff_id", null);
+        staffFilter = "unmapped";
       } else {
         const staffIds = (await matchingStaffIds(context, needle)).slice(0, 300);
-        if (staffIds.length > 0) {
-          q = q.in("staff_id", staffIds);
-        } else {
-          q = q.ilike("biometric_user_id", `%${needle.replace(/[%_,]/g, "")}%`);
-        }
+        staffFilter =
+          staffIds.length > 0
+            ? { ids: staffIds }
+            : { biometricIlike: `%${needle.replace(/[%_,]/g, "")}%` };
       }
     }
+
+    let deptStaffIds: string[] | null = null;
     if (data.departmentId) {
       const { data: links, error: deptErr } = await context.supabase
         .from("staff_departments")
         .select("staff_id")
         .eq("department_id", data.departmentId);
       if (deptErr) throw deptErr;
-      const deptStaffIds = [
+      deptStaffIds = [
         ...new Set((links ?? []).map((row) => row.staff_id).filter((id): id is string => Boolean(id))),
       ];
       // Unmapped punches have no staff_id, so they drop out of a department filter.
       if (deptStaffIds.length === 0) return [];
-      q = q.in("staff_id", deptStaffIds);
     }
-    // Site chip always wins: every listed/KPI row must be for this location_id.
-    // Do not widen via home-staff OR or staff-search person rollup (other sites' punches).
-    if (data.locationId) q = q.eq("location_id", data.locationId);
-    const { data: rows, error } = await q;
-    if (error) throw error;
-    return enrichAttendanceHrDailyRows(context, (rows ?? []) as Array<Record<string, unknown>>);
+
+    // Page past PostgREST max_rows (~1000). A single .limit(2000) still returns only 1000,
+    // and work_date desc then drops the start of the FEC month (e.g. Aug 28–Sep 5).
+    // ponytail: full filtered range in 1k pages — fine for one site-month (~1–3k); if multi-site year exports grow past ~20k, stream/paginate the export path.
+    const rows: Array<Record<string, unknown>> = [];
+    for (let from = 0; ; from += ATTENDANCE_DAILY_LIST_PAGE_SIZE) {
+      let q = context.supabase
+        .from("attendance_daily_summary")
+        .select("*")
+        .gte("work_date", data.dateFrom)
+        .lte("work_date", data.dateTo)
+        .order("work_date", { ascending: false })
+        .order("id", { ascending: false })
+        .range(from, from + ATTENDANCE_DAILY_LIST_PAGE_SIZE - 1);
+      if (data.status) q = q.eq("status", data.status);
+      if (staffFilter === "unmapped") q = q.is("staff_id", null);
+      else if (staffFilter !== "none" && "ids" in staffFilter) q = q.in("staff_id", staffFilter.ids);
+      else if (staffFilter !== "none" && "biometricIlike" in staffFilter) {
+        q = q.ilike("biometric_user_id", staffFilter.biometricIlike);
+      }
+      if (deptStaffIds) q = q.in("staff_id", deptStaffIds);
+      // Site chip always wins: every listed/KPI row must be for this location_id.
+      // Do not widen via home-staff OR or staff-search person rollup (other sites' punches).
+      if (data.locationId) q = q.eq("location_id", data.locationId);
+      const { data: page, error } = await q;
+      if (error) throw error;
+      rows.push(...((page ?? []) as Array<Record<string, unknown>>));
+      if (!page || page.length < ATTENDANCE_DAILY_LIST_PAGE_SIZE) break;
+    }
+    return enrichAttendanceHrDailyRows(context, rows);
   },
   { auth: { capability: "attendance.view" } },
 );
@@ -1859,13 +1883,23 @@ async function enrichAttendanceHrDailyRows(
           }>,
         }),
     staffIds.length && dateFrom && dateTo
-      ? context.supabase
-          .from("attendance_roster_assignments")
-          .select("staff_id, location_id, work_date, shift_template_id, shift_start, shift_end, is_week_off")
-          .in("staff_id", staffIds)
-          .gte("work_date", dateFrom)
-          .lte("work_date", dateTo)
-          .limit(20000)
+      ? (async () => {
+          const rosterRows: Array<Record<string, unknown>> = [];
+          for (let from = 0; ; from += ATTENDANCE_DAILY_LIST_PAGE_SIZE) {
+            const { data: page, error } = await context.supabase
+              .from("attendance_roster_assignments")
+              .select("staff_id, location_id, work_date, shift_template_id, shift_start, shift_end, is_week_off")
+              .in("staff_id", staffIds)
+              .gte("work_date", dateFrom)
+              .lte("work_date", dateTo)
+              .order("id", { ascending: true })
+              .range(from, from + ATTENDANCE_DAILY_LIST_PAGE_SIZE - 1);
+            if (error) throw error;
+            rosterRows.push(...((page ?? []) as Array<Record<string, unknown>>));
+            if (!page || page.length < ATTENDANCE_DAILY_LIST_PAGE_SIZE) break;
+          }
+          return { data: rosterRows };
+        })()
       : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
     context.supabase
       .from("attendance_shift_templates")
