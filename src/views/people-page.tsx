@@ -452,12 +452,6 @@ function StaffFormDialog({
   const [bufferMinutes, setBufferMinutes] = useState(
     staff?.buffer_minutes == null ? "" : String(staff.buffer_minutes),
   );
-  const [flexibleShiftStart, setFlexibleShiftStart] = useState(
-    staff?.flexible_shift_start ? String(staff.flexible_shift_start).slice(0, 5) : "",
-  );
-  const [flexibleShiftEnd, setFlexibleShiftEnd] = useState(
-    staff?.flexible_shift_end ? String(staff.flexible_shift_end).slice(0, 5) : "",
-  );
   const [photoDraft, setPhotoDraft] = useState<StaffPhotoDraft>({ dataUrl: null, remove: false });
   const [codeNonce, setCodeNonce] = useState(0);
 
@@ -525,8 +519,6 @@ function StaffFormDialog({
           flexibleAttendance,
           reportingTimeMinutes: reportingParsed,
           bufferMinutes: bufferParsed,
-          flexibleShiftStart: flexibleShiftStart.trim() || null,
-          flexibleShiftEnd: flexibleShiftEnd.trim() || null,
         });
         if (!updated.ok) throw new Error(updated.error);
         const homeId = staff!.location_id;
@@ -783,22 +775,6 @@ function StaffFormDialog({
                       value={bufferMinutes}
                       onChange={(e) => setBufferMinutes(e.target.value)}
                       placeholder={t("people.staff.flexibleUseSiteDefault")}
-                    />
-                  </div>
-                  <div>
-                    <Label>{t("people.staff.flexibleShiftStart")}</Label>
-                    <Input
-                      type="time"
-                      value={flexibleShiftStart}
-                      onChange={(e) => setFlexibleShiftStart(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <Label>{t("people.staff.flexibleShiftEnd")}</Label>
-                    <Input
-                      type="time"
-                      value={flexibleShiftEnd}
-                      onChange={(e) => setFlexibleShiftEnd(e.target.value)}
                     />
                   </div>
                 </div>

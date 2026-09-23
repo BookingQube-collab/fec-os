@@ -498,18 +498,6 @@ export const updateStaff = createSafeAuthenticatedAction(
     flexibleAttendance: z.boolean().optional(),
     reportingTimeMinutes: z.number().int().min(0).max(180).nullable().optional(),
     bufferMinutes: z.number().int().min(0).max(120).nullable().optional(),
-    flexibleShiftStart: z
-      .string()
-      .regex(/^\d{2}:\d{2}(:\d{2})?$/)
-      .nullable()
-      .optional()
-      .or(z.literal("")),
-    flexibleShiftEnd: z
-      .string()
-      .regex(/^\d{2}:\d{2}(:\d{2})?$/)
-      .nullable()
-      .optional()
-      .or(z.literal("")),
   }),
   async (data, context) => {
     const { data: existing, error: fetchErr } = await context.supabase
@@ -534,14 +522,6 @@ export const updateStaff = createSafeAuthenticatedAction(
     if (data.flexibleAttendance !== undefined) patch.flexible_attendance = data.flexibleAttendance;
     if (data.reportingTimeMinutes !== undefined) patch.reporting_time_minutes = data.reportingTimeMinutes;
     if (data.bufferMinutes !== undefined) patch.buffer_minutes = data.bufferMinutes;
-    if (data.flexibleShiftStart !== undefined) {
-      const v = data.flexibleShiftStart === "" || data.flexibleShiftStart == null ? null : String(data.flexibleShiftStart).slice(0, 8);
-      patch.flexible_shift_start = v;
-    }
-    if (data.flexibleShiftEnd !== undefined) {
-      const v = data.flexibleShiftEnd === "" || data.flexibleShiftEnd == null ? null : String(data.flexibleShiftEnd).slice(0, 8);
-      patch.flexible_shift_end = v;
-    }
 
     if (Object.keys(patch).length) {
       const { error } = await context.supabase.from("staff").update(patch).eq("id", data.id);

@@ -15,7 +15,7 @@ export async function GET(
       const { data: staff, error } = await context.supabase
         .from("staff")
         .select(
-          "id, employee_code, full_name, job_title, department, status, location_id, is_roaming, phone, email, hire_date, qid, e3_enrolled, employment_type, staff_role, source_row_no, deleted_at, photo_updated_at, photo_mime, flexible_attendance, reporting_time_minutes, buffer_minutes, flexible_shift_start, flexible_shift_end, locations!staff_location_id_fkey(code, name), staff_departments(department_id, master_departments(id, name, sort_order))",
+          "id, employee_code, full_name, job_title, department, status, location_id, is_roaming, phone, email, hire_date, qid, e3_enrolled, employment_type, staff_role, source_row_no, deleted_at, photo_updated_at, photo_mime, flexible_attendance, reporting_time_minutes, buffer_minutes, locations!staff_location_id_fkey(code, name), staff_departments(department_id, master_departments(id, name, sort_order))",
         )
         .eq("id", id)
         .maybeSingle();

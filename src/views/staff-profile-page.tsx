@@ -49,8 +49,6 @@ type ProfileResponse = {
     flexible_attendance?: boolean;
     reporting_time_minutes?: number | null;
     buffer_minutes?: number | null;
-    flexible_shift_start?: string | null;
-    flexible_shift_end?: string | null;
     work_locations?: Array<{ id: string; code: string; name: string }>;
     locations?: { code: string; name: string } | null;
   };
@@ -99,8 +97,6 @@ export default function StaffProfilePage() {
   const [flexibleAttendance, setFlexibleAttendance] = useState(false);
   const [reportingTimeMinutes, setReportingTimeMinutes] = useState("");
   const [bufferMinutes, setBufferMinutes] = useState("");
-  const [flexibleShiftStart, setFlexibleShiftStart] = useState("");
-  const [flexibleShiftEnd, setFlexibleShiftEnd] = useState("");
   const [photoDraft, setPhotoDraft] = useState<StaffPhotoDraft>({ dataUrl: null, remove: false });
   const [timelineFilter, setTimelineFilter] = useState<string>("all");
 
@@ -127,12 +123,6 @@ export default function StaffProfilePage() {
       loaded.reporting_time_minutes == null ? "" : String(loaded.reporting_time_minutes),
     );
     setBufferMinutes(loaded.buffer_minutes == null ? "" : String(loaded.buffer_minutes));
-    setFlexibleShiftStart(
-      loaded.flexible_shift_start ? String(loaded.flexible_shift_start).slice(0, 5) : "",
-    );
-    setFlexibleShiftEnd(
-      loaded.flexible_shift_end ? String(loaded.flexible_shift_end).slice(0, 5) : "",
-    );
   }, [profile.data?.staff]);
 
   const transferMut = useMutation({
@@ -243,8 +233,6 @@ export default function StaffProfilePage() {
       flexibleAttendance,
       reportingTimeMinutes: reporting,
       bufferMinutes: buffer,
-      flexibleShiftStart: flexibleShiftStart.trim() || null,
-      flexibleShiftEnd: flexibleShiftEnd.trim() || null,
     });
     if (!result.ok) throw new Error(result.error);
     return result.data;
@@ -425,24 +413,6 @@ export default function StaffProfilePage() {
                       placeholder={t("people.staff.flexibleUseSiteDefault")}
                     />
                   </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="flex-start">{t("people.staff.flexibleShiftStart")}</Label>
-                    <Input
-                      id="flex-start"
-                      type="time"
-                      value={flexibleShiftStart}
-                      onChange={(e) => setFlexibleShiftStart(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="flex-end">{t("people.staff.flexibleShiftEnd")}</Label>
-                    <Input
-                      id="flex-end"
-                      type="time"
-                      value={flexibleShiftEnd}
-                      onChange={(e) => setFlexibleShiftEnd(e.target.value)}
-                    />
-                  </div>
                 </div>
               ) : null}
               <Button size="sm" onClick={() => flexibleMut.mutate()} disabled={flexibleMut.isPending}>
@@ -457,8 +427,8 @@ export default function StaffProfilePage() {
                 value={s.reporting_time_minutes == null ? t("people.staff.flexibleUseSiteDefault") : String(s.reporting_time_minutes)}
               />
               <Row
-                label={t("people.staff.flexibleShiftStart")}
-                value={s.flexible_shift_start ? String(s.flexible_shift_start).slice(0, 5) : "—"}
+                label={t("people.staff.flexibleBufferMinutes")}
+                value={s.buffer_minutes == null ? t("people.staff.flexibleUseSiteDefault") : String(s.buffer_minutes)}
               />
             </div>
           ) : null}

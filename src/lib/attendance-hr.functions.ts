@@ -56,7 +56,6 @@ import {
   normalizeShiftHm,
   resolveListingLateMinutes,
   resolveRosterScheduledBounds,
-  scheduledIsoFromHm,
   type RosterShiftLookup,
 } from "@/lib/attendance-hr/late-punch";
 import {
@@ -1841,8 +1840,6 @@ type StaffLookup = {
   flexible_attendance?: boolean | null;
   reporting_time_minutes?: number | null;
   buffer_minutes?: number | null;
-  flexible_shift_start?: string | null;
-  flexible_shift_end?: string | null;
 };
 type LocationLookup = {
   id: string;
@@ -1872,7 +1869,7 @@ async function enrichAttendanceHrDailyRows(
     loadByIds<StaffLookup>(
       context,
       "staff",
-      "id, full_name, employee_code, qid, employment_type, flexible_attendance, reporting_time_minutes, buffer_minutes, flexible_shift_start, flexible_shift_end",
+      "id, full_name, employee_code, qid, employment_type, flexible_attendance, reporting_time_minutes, buffer_minutes",
       staffIds,
     ),
     loadByIds<LocationLookup>(context, "locations", "id, code, name, region", locationIds),
@@ -2036,17 +2033,7 @@ async function enrichAttendanceHrDailyRows(
       shiftStartByTemplateId: shiftStartById,
       fallbackByStaffId,
     });
-    if (staff?.flexible_attendance) {
-      const flexStart = normalizeShiftHm(staff.flexible_shift_start ?? null);
-      const flexEnd = normalizeShiftHm(staff.flexible_shift_end ?? null);
-      if (flexStart) {
-        const overnight = Boolean(flexEnd && flexEnd <= flexStart);
-        scheduledIn = scheduledIsoFromHm(workDate, flexStart);
-        scheduledOut = flexEnd
-          ? scheduledIsoFromHm(workDate, flexEnd, overnight ? 1 : 0)
-          : scheduledOut;
-      }
-    }
+    // Flexible staff: shift times stay from roster above; only reporting/buffer override below.
     const actualIn = row.actual_in == null ? null : String(row.actual_in);
     const { reportingTimeMinutes: reportingMins, bufferMinutes: bufferMins } = resolveReportingAndBuffer({
       siteReporting: site?.reporting_time_minutes != null ? Number(site.reporting_time_minutes) : null,

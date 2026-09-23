@@ -204,13 +204,13 @@ export function defaultSiteShiftPolicy(locationCode: string | null | undefined):
   };
 }
 
-/** Optional per-staff overrides when staff.flexible_attendance is true. */
+/** Optional per-staff overrides when staff.flexible_attendance is true.
+ * Shift start/end always come from the roster upload — not from the staff profile.
+ */
 export type StaffFlexibleTiming = {
   flexibleAttendance?: boolean | null;
   reportingTimeMinutes?: number | null;
   bufferMinutes?: number | null;
-  shiftStart?: string | null;
-  shiftEnd?: string | null;
 };
 
 /**

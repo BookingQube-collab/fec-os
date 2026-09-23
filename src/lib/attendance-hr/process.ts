@@ -264,14 +264,14 @@ export async function recalculateAttendanceRange(
         ? supabase
             .from("staff")
             .select(
-              "id, location_id, status, employment_type, flexible_attendance, reporting_time_minutes, buffer_minutes, flexible_shift_start, flexible_shift_end",
+              "id, location_id, status, employment_type, flexible_attendance, reporting_time_minutes, buffer_minutes",
             )
             .in("id", staffScope)
             .is("deleted_at", null)
         : supabase
             .from("staff")
             .select(
-              "id, location_id, status, employment_type, flexible_attendance, reporting_time_minutes, buffer_minutes, flexible_shift_start, flexible_shift_end",
+              "id, location_id, status, employment_type, flexible_attendance, reporting_time_minutes, buffer_minutes",
             )
             .is("deleted_at", null)
             .limit(5000),
@@ -311,8 +311,6 @@ export async function recalculateAttendanceRange(
         flexible_attendance?: boolean | null;
         reporting_time_minutes?: number | null;
         buffer_minutes?: number | null;
-        flexible_shift_start?: string | null;
-        flexible_shift_end?: string | null;
       };
       return [
         String(row.id),
@@ -320,8 +318,6 @@ export async function recalculateAttendanceRange(
           flexibleAttendance: Boolean(r.flexible_attendance),
           reportingTimeMinutes: r.reporting_time_minutes ?? null,
           bufferMinutes: r.buffer_minutes ?? null,
-          shiftStart: r.flexible_shift_start ?? null,
-          shiftEnd: r.flexible_shift_end ?? null,
         } satisfies StaffFlexibleTiming,
       ];
     }),
@@ -335,23 +331,6 @@ export async function recalculateAttendanceRange(
       staff: flex,
     });
     return { flex, ...resolved };
-  }
-
-  function shiftWithFlexibleTimes(
-    rosterShift: ShiftTemplateInput | null,
-    flex: StaffFlexibleTiming | undefined,
-  ): ShiftTemplateInput | null {
-    if (!rosterShift) return null;
-    if (!flex?.flexibleAttendance) return rosterShift;
-    const startHm = normalizeShiftHm(flex.shiftStart ?? null);
-    const endHm = normalizeShiftHm(flex.shiftEnd ?? null);
-    if (!startHm) return rosterShift;
-    return {
-      ...rosterShift,
-      startTime: startHm,
-      endTime: endHm ?? rosterShift.endTime,
-      overnight: endHm ? endHm <= startHm : rosterShift.overnight,
-    };
   }
 
   const flexibleStaffIds = [...flexibleByStaffId.entries()]
@@ -550,9 +529,9 @@ export async function recalculateAttendanceRange(
     }
 
     const leaveRow = staffId ? leaveByKey.get(`${staffId}|${workDate}`) : undefined;
-    const rosterShiftRaw = shiftForRosterDay(rosterRow, shiftById);
+    // Shift start/end always from roster upload — never staff.flexible_shift_* profile fields.
+    const rosterShift = shiftForRosterDay(rosterRow, shiftById);
     const timing = timingForStaff(staffId);
-    const rosterShift = shiftWithFlexibleTimes(rosterShiftRaw, timing.flex);
     // Hours policy always applies; start/end only from real roster (never DEFAULT 08:00).
     // Break: site of this summary location (anchor). No per-staff flexible_break — reuse site break.
     const shift = applyAttendanceShiftPolicy(rosterShift ?? DEFAULT_SHIFT, {
@@ -726,9 +705,8 @@ export async function recalculateAttendanceRange(
         shift_end: (rosterRow as { shift_end?: string | null }).shift_end ?? null,
         is_week_off: Boolean(rosterRow.is_week_off),
       };
-      const rosterShiftRaw = shiftForRosterDay(fullRoster, shiftById);
+      const rosterShift = shiftForRosterDay(fullRoster, shiftById);
       const timing = timingForStaff(staffId);
-      const rosterShift = shiftWithFlexibleTimes(rosterShiftRaw, timing.flex);
       const shift = applyAttendanceShiftPolicy(rosterShift ?? DEFAULT_SHIFT, {
         employmentType: employmentByStaffId.get(staffId) ?? null,
         locationCode,
