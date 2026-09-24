@@ -1072,7 +1072,7 @@ export async function recalculateAttendanceRange(
       shift_template_id: rosterRow?.shift_template_id ?? null,
     });
     processed += 1;
-    voidFlexibleKeepOnly(staffId, workDate, locationId);
+    queueFlexibleKeepOnly(staffId, workDate, locationId);
   }
 
   let workStaffIds: string[] = [];
