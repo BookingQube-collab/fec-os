@@ -1139,10 +1139,10 @@ export async function recalculateAttendanceRange(
           hasLeave,
         });
         if (writeDecision === "suppress") {
-          voidSummaryDelete(locationId, staffId, workDate);
+          queueSummaryDelete(locationId, staffId, workDate);
           continue;
         }
-        voidFlexibleKeepOnly(staffId, workDate, locationId);
+        queueFlexibleKeepOnly(staffId, workDate, locationId);
       }
       const fullRoster: RosterDayRow = {
         staff_id: staffId,

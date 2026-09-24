@@ -100,9 +100,12 @@ async function loadExistingBiometricUsers(
   }
   if (locRes.error) throw locRes.error;
 
+  const locRows = (locRes.data ?? []) as unknown as BioRow[];
+  const deviceRows = (deviceRes.data ?? []) as unknown as BioRow[];
+
   const byUser = new Map<string, ExistingBiometricUser & { fullName?: string | null }>();
   // Location-wide first, then overwrite with this device so device-local mapping wins.
-  for (const row of (locRes.data ?? []) as BioRow[]) {
+  for (const row of locRows) {
     const mapped = mapBioRow(row);
     const id = mapped.biometricUserId.trim();
     if (!id) continue;
@@ -117,7 +120,7 @@ async function loadExistingBiometricUsers(
       });
     }
   }
-  for (const row of (deviceRes.data ?? []) as BioRow[]) {
+  for (const row of deviceRows) {
     const mapped = mapBioRow(row);
     const id = mapped.biometricUserId.trim();
     if (!id) continue;

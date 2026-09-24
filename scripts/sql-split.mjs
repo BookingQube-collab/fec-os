@@ -6,6 +6,7 @@ function splitSqlStatements(sql) {
   const statements = [];
   let buf = "";
   let dollarTag = null;
+  let inSingle = false;
 
   for (let i = 0; i < sql.length; i += 1) {
     const ch = sql[i];
@@ -20,6 +21,26 @@ function splitSqlStatements(sql) {
           dollarTag = null;
         }
       }
+      continue;
+    }
+
+    if (inSingle) {
+      buf += ch;
+      if (ch === "'") {
+        // Postgres escapes quotes as ''
+        if (sql[i + 1] === "'") {
+          buf += "'";
+          i += 1;
+        } else {
+          inSingle = false;
+        }
+      }
+      continue;
+    }
+
+    if (ch === "'") {
+      inSingle = true;
+      buf += ch;
       continue;
     }
 
