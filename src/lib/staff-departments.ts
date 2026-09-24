@@ -21,3 +21,17 @@ export function formatDepartmentDisplay(names: string[]): string {
 export function normalizeDepartmentName(name: string): string {
   return name.trim().toLowerCase().replace(/\s+/g, " ");
 }
+
+/** Exact masterfile Department cell → optional parent/child when written as "Parent / Child". */
+export function parseDepartmentHierarchyLabel(raw: string | null | undefined): {
+  parentName: string | null;
+  name: string;
+} | null {
+  const label = (raw ?? "").trim();
+  if (!label) return null;
+  const spaced = label.match(/^(.+?)\s+\/\s+(.+)$/);
+  if (spaced) {
+    return { parentName: spaced[1].trim(), name: spaced[2].trim() };
+  }
+  return { parentName: null, name: label };
+}

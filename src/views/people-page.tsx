@@ -124,7 +124,22 @@ const PeopleDashboardPanel = dynamic(
     ssr: false,
     loading: () => (
       <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-        Loading dashboard…
+        Loading overview…
+      </div>
+    ),
+  },
+);
+
+const PeopleDocumentsExpiryPanel = dynamic(
+  () =>
+    import("@/components/people/people-documents-expiry-panel").then(
+      (m) => m.PeopleDocumentsExpiryPanel,
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+        Loading documents…
       </div>
     ),
   },
@@ -199,12 +214,25 @@ function PeoplePage() {
   );
 }
 
-const PEOPLE_TABS = ["dashboard", "staff", "shifts", "attendance", "training"] as const;
-const PEOPLE_MAIN_TABS = ["dashboard", "staff", "training"] as const;
+const PEOPLE_TABS = ["dashboard", "staff", "documents", "shifts", "attendance", "training"] as const;
+/** Visible People module tabs — route values stay dashboard/staff for URL compatibility. */
+const PEOPLE_MAIN_TABS = ["dashboard", "staff", "documents", "training"] as const;
 type PeopleTab = (typeof PEOPLE_TABS)[number];
+
+const TAB_ALIASES: Record<string, PeopleTab> = {
+  overview: "dashboard",
+  employees: "staff",
+  docs: "documents",
+  "documents-expiry": "documents",
+};
 
 function isPeopleTab(value: string): value is PeopleTab {
   return (PEOPLE_TABS as readonly string[]).includes(value);
+}
+
+function resolvePeopleTab(raw: string): PeopleTab {
+  const aliased = TAB_ALIASES[raw] ?? raw;
+  return isPeopleTab(aliased) ? aliased : "dashboard";
 }
 
 function PeoplePageBody() {
@@ -214,13 +242,19 @@ function PeoplePageBody() {
   const canEdit = usePermission("people.edit_roster");
   const canImport = usePermission("people.import_roster");
   const tabParam = searchParams.get("tab") ?? "dashboard";
-  const tab = isPeopleTab(tabParam) ? tabParam : "dashboard";
+  const tab = resolvePeopleTab(tabParam);
   const hiddenTab = !(PEOPLE_MAIN_TABS as readonly string[]).includes(tab);
 
   const setTab = (next: string) => {
     const params = new URLSearchParams(searchParams.toString());
     if (next === "dashboard") params.delete("tab");
     else params.set("tab", next);
+    // Drop employee filter deep-links when leaving Employees
+    if (next !== "staff") {
+      for (const key of ["q", "loc", "department", "type", "status", "missing", "expiry"]) {
+        params.delete(key);
+      }
+    }
     const qs = params.toString();
     router.replace(qs ? `/people?${qs}` : "/people", { scroll: false });
   };
@@ -250,10 +284,14 @@ function PeoplePageBody() {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           {PEOPLE_MAIN_TABS.map((value) => (
-            <TabsTrigger key={value} value={value}>{t(`people.tabs.${value}`)}</TabsTrigger>
+            <TabsTrigger key={value} value={value}>
+              {t(`people.tabs.${value}`)}
+            </TabsTrigger>
           ))}
           {hiddenTab ? (
-            <TabsTrigger value={tab} className="sr-only">{t(`people.tabs.${tab}`)}</TabsTrigger>
+            <TabsTrigger value={tab} className="sr-only">
+              {t(`people.tabs.${tab}`)}
+            </TabsTrigger>
           ) : null}
         </TabsList>
         {hiddenTab ? (
@@ -264,16 +302,24 @@ function PeoplePageBody() {
             </Link>
           </p>
         ) : null}
-        <TabsContent value="dashboard" className="mt-4">
+        <TabsContent value="dashboard" className="mt-4 data-[state=inactive]:hidden">
           <PeopleDashboardPanel />
         </TabsContent>
-        {/* forceMount: keep StaffDirectory filter state across Dashboard/Training swaps */}
-        <TabsContent value="staff" className="mt-4" forceMount>
+        {/* forceMount: keep StaffDirectory filter state across tab swaps.
+            data-state inactive must stay display:none so force-mounted panels never leak under the active tab. */}
+        <TabsContent value="staff" className="mt-4 data-[state=inactive]:hidden" forceMount>
           <StaffTab />
         </TabsContent>
-        <TabsContent value="shifts" className="mt-4"><ShiftsTab /></TabsContent>
-        <TabsContent value="attendance" className="mt-4"><AttendanceTab /></TabsContent>
-        <TabsContent value="training" className="mt-4" forceMount>
+        <TabsContent value="documents" className="mt-4 data-[state=inactive]:hidden">
+          <PeopleDocumentsExpiryPanel />
+        </TabsContent>
+        <TabsContent value="shifts" className="mt-4 data-[state=inactive]:hidden">
+          <ShiftsTab />
+        </TabsContent>
+        <TabsContent value="attendance" className="mt-4 data-[state=inactive]:hidden">
+          <AttendanceTab />
+        </TabsContent>
+        <TabsContent value="training" className="mt-4 data-[state=inactive]:hidden">
           <TrainingTab />
         </TabsContent>
       </Tabs>
@@ -323,33 +369,44 @@ function StaffTab() {
   if (isLoading) return <Empty>{t("people.staff.loading")}</Empty>;
 
   return (
-    <div className="space-y-3">
-      {canEdit && (
-        <div className="flex justify-end gap-2">
+    <div className="space-y-4">
+      {canEdit ? (
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <ManageDepartmentsDialog />
-          <StaffFormDialog
-            open={createOpen}
-            onOpenChange={setCreateOpen}
-            sites={sites ?? []}
-            locationId={locationId}
-            onSaved={invalidate}
-          />
         </div>
-      )}
+      ) : null}
       {!data?.length ? (
-        <Empty>{t("people.staff.empty")}</Empty>
+        <div className="space-y-3">
+          <Empty>{t("people.staff.empty")}</Empty>
+          {canEdit ? (
+            <div className="flex justify-center">
+              <Button size="sm" onClick={() => setCreateOpen(true)}>
+                <Plus className="mr-1 h-3.5 w-3.5" />
+                {t("people.staff.addEmployee", "Add employee")}
+              </Button>
+            </div>
+          ) : null}
+        </div>
       ) : (
-        <>
-          <p className="text-xs text-muted-foreground">{t("people.staff.roleHoursHelp")}</p>
-          <StaffDirectory
-            staff={data}
-            locationId={locationId ?? null}
-            canEdit={canEdit}
-            onEdit={setEditRow}
-            onArchive={setDeleteId}
-          />
-        </>
+        <StaffDirectory
+          staff={data}
+          locationId={locationId ?? null}
+          canEdit={canEdit}
+          onEdit={setEditRow}
+          onArchive={setDeleteId}
+          onAdd={canEdit ? () => setCreateOpen(true) : undefined}
+        />
       )}
+
+      {canEdit ? (
+        <StaffFormDialog
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          sites={sites ?? []}
+          locationId={locationId}
+          onSaved={invalidate}
+        />
+      ) : null}
 
       {editRow && (
         <StaffFormDialog
@@ -629,14 +686,6 @@ function StaffFormDialog({
         onOpenChange(next);
       }}
     >
-      {!isEdit && (
-        <DialogTrigger asChild>
-          <Button size="sm">
-            <Plus className="h-3.5 w-3.5" />
-            <span className="ml-1.5">{t("people.staff.add")}</span>
-          </Button>
-        </DialogTrigger>
-      )}
       <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{isEdit ? t("people.staff.edit") : t("people.staff.add")}</DialogTitle>

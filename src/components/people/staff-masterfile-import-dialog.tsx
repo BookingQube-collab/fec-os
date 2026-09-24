@@ -112,10 +112,19 @@ export function StaffMasterfileImportDialog({
           <DialogTitle>{t("people.staff.importMasterTitle", "Import E3 Employee Masterfile")}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4 text-sm">
+          <ol className="flex flex-wrap gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            <li className={file ? "text-foreground" : ""}>1. Upload</li>
+            <li aria-hidden>→</li>
+            <li className={preview ? "text-foreground" : ""}>2. Validate / preview</li>
+            <li aria-hidden>→</li>
+            <li className={(preview?.counts?.review ?? 0) > 0 ? "text-amber-700" : ""}>3. Resolve conflicts</li>
+            <li aria-hidden>→</li>
+            <li>4. Confirm</li>
+          </ol>
           <p className="text-muted-foreground">
             Upload <strong>E3_Employee Masterfile</strong> as <strong>.pdf</strong> or <strong>.xlsx</strong>
             (Active / Secondment / Resigned-Terminated / Remote), or a single Employee Roster sheet.
-            Preview reports created / updated / unchanged / conflicts before commit.
+            Nothing is written until you confirm commit. Preview reports created / updated / unchanged / conflicts first.
             Rollback is available from import batch history.
           </p>
           <div>

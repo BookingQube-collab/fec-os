@@ -1,10 +1,11 @@
 import type { StaffRow } from "@/lib/queries/module-queries.core";
 import { formatLocationLabel } from "@/lib/locations/normalize";
-import { isExpiringSoon, qatarTodayYmd } from "@/lib/hr-expiry-bands";
+import { expiryBand, isExpiringSoon, qatarTodayYmd } from "@/lib/hr-expiry-bands";
 import {
   normalizeDepartmentName,
   splitDepartmentTokens,
 } from "@/lib/staff-departments";
+import { isExitingStaff, isNewJoiner } from "@/lib/staff-hr-alerts";
 import {
   isActiveStaffStatus,
   isOnLeaveStaffStatus,
@@ -32,7 +33,11 @@ export type StaffDirectoryFilters = {
   gender: string;
   sponsorship: string;
   missing: boolean;
-  /** KPI quick filter: qid_expiring | passport_expiring */
+  /**
+   * KPI / attention quick filter:
+   * qid_expiring | qid_expired | passport_expiring | passport_expired |
+   * contract_expiring | visa_expiring | new_joiners | exiting
+   */
   expiry: string;
   sort: StaffDirectorySort;
 };
@@ -55,12 +60,16 @@ export type StaffDirectoryKpis = {
   total: number;
   active: number;
   secondment: number;
+  temporary: number;
+  newJoiners: number;
+  exiting: number;
   remote: number;
   onLeave: number;
   resigned: number;
   terminated: number;
   qidExpiringSoon: number;
   passportExpiringSoon: number;
+  missingInfo: number;
 };
 
 function staffLocationCodes(s: StaffRow): string[] {
@@ -110,8 +119,20 @@ export function filterStaffDirectory(staff: StaffRow[], f: StaffDirectoryFilters
     if (f.status && f.status !== "active" && f.status !== "inactive") {
       if (normalizeDirectoryStatus(s.status) !== normalizeDirectoryStatus(f.status)) return false;
     }
-    if (f.expiry === "qid_expiring" && !isExpiringSoon(today, s.qid_expiry)) return false;
-    if (f.expiry === "passport_expiring" && !isExpiringSoon(today, s.passport_expiry)) return false;
+    if (f.expiry === "qid_expiring" && expiryBand(today, s.qid_expiry) !== "0_30") return false;
+    if (f.expiry === "qid_expired" && expiryBand(today, s.qid_expiry) !== "expired") return false;
+    if (f.expiry === "passport_expiring" && expiryBand(today, s.passport_expiry) !== "0_30") return false;
+    if (f.expiry === "passport_expired" && expiryBand(today, s.passport_expiry) !== "expired") return false;
+    if (f.expiry === "contract_expiring") {
+      const b = expiryBand(today, s.contract_end);
+      if (b !== "expired" && b !== "0_30") return false;
+    }
+    if (f.expiry === "visa_expiring") {
+      const b = expiryBand(today, s.visa_expiry);
+      if (b !== "expired" && b !== "0_30") return false;
+    }
+    if (f.expiry === "new_joiners" && !isNewJoiner(s, today)) return false;
+    if (f.expiry === "exiting" && !isExitingStaff(s)) return false;
     if (f.missing && s.qid && s.phone && s.hire_date) return false;
     return true;
   });
@@ -132,12 +153,16 @@ export function computeStaffDirectoryKpis(rows: StaffRow[]): StaffDirectoryKpis 
   const today = qatarTodayYmd();
   let active = 0;
   let secondment = 0;
+  let temporary = 0;
+  let newJoiners = 0;
+  let exiting = 0;
   let remote = 0;
   let onLeave = 0;
   let resigned = 0;
   let terminated = 0;
   let qidExpiringSoon = 0;
   let passportExpiringSoon = 0;
+  let missingInfo = 0;
   for (const s of rows) {
     if (isSecondmentStaffStatus(s.status) || s.employment_type === "secondment") secondment += 1;
     else if (isRemoteStaffStatus(s.status) || s.is_roaming) remote += 1;
@@ -146,6 +171,11 @@ export function computeStaffDirectoryKpis(rows: StaffRow[]): StaffDirectoryKpis 
     else if (isTerminatedStaffStatus(s.status)) terminated += 1;
     else if (isActiveStaffStatus(s.status)) active += 1;
 
+    if (s.employment_type === "temporary" || s.employment_type === "joker") temporary += 1;
+    if (isNewJoiner(s, today)) newJoiners += 1;
+    if (isExitingStaff(s)) exiting += 1;
+    if (!s.qid || !s.phone || !s.hire_date) missingInfo += 1;
+
     if (isExpiringSoon(today, s.qid_expiry)) qidExpiringSoon += 1;
     if (isExpiringSoon(today, s.passport_expiry)) passportExpiringSoon += 1;
   }
@@ -153,11 +183,15 @@ export function computeStaffDirectoryKpis(rows: StaffRow[]): StaffDirectoryKpis 
     total: rows.length,
     active,
     secondment,
+    temporary,
+    newJoiners,
+    exiting,
     remote,
     onLeave,
     resigned,
     terminated,
     qidExpiringSoon,
     passportExpiringSoon,
+    missingInfo,
   };
 }

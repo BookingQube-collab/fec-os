@@ -367,6 +367,8 @@ export interface StaffRow {
   passport_expiry?: string | null;
   qid_expiry?: string | null;
   date_of_birth?: string | null;
+  contract_end?: string | null;
+  visa_expiry?: string | null;
 }
 
 type StaffDeptJoin = {
@@ -475,7 +477,7 @@ export async function fetchStaff(
     const { data: exts } = await context.supabase
       .from("staff_profile_ext")
       .select(
-        "staff_id, nationality, gender, sponsorship_info, passport_number, passport_expiry, qid_expiry, date_of_birth",
+        "staff_id, nationality, gender, sponsorship_info, passport_number, passport_expiry, qid_expiry, date_of_birth, contract_end, visa_expiry",
       )
       .in(
         "staff_id",
@@ -492,6 +494,8 @@ export async function fetchStaff(
       row.passport_expiry = ext.passport_expiry ?? null;
       row.qid_expiry = ext.qid_expiry ?? null;
       row.date_of_birth = ext.date_of_birth ?? null;
+      row.contract_end = ext.contract_end ?? null;
+      row.visa_expiry = ext.visa_expiry ?? null;
     }
   }
 

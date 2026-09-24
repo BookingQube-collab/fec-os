@@ -2,8 +2,8 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState, Suspense } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { User } from "lucide-react";
@@ -125,12 +125,34 @@ type ProfileResponse = {
   canViewSensitive?: boolean;
 };
 
-export default function StaffProfilePage() {
+function StaffProfilePageBody() {
   const { t } = useTranslation();
   const params = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const id = params.id;
+  const PROFILE_TABS = [
+    "overview",
+    "employment",
+    "personal",
+    "documents",
+    "attendance",
+    "payroll",
+    "warnings",
+    "performance",
+    "training",
+    "history",
+    "notes",
+  ] as const;
+  const tabFromUrl = searchParams.get("tab") ?? "overview";
+  const initialTab = (PROFILE_TABS as readonly string[]).includes(tabFromUrl) ? tabFromUrl : "overview";
+  const [profileTab, setProfileTab] = useState(initialTab);
+  useEffect(() => {
+    setProfileTab(initialTab);
+  }, [initialTab]);
   const canEdit = usePermission("people.edit_roster");
   const canSalary = usePermission("people.edit_salary");
+  const canViewSalaryPerm = usePermission("people.view_salary");
   const canConfigure = usePermission("attendance.configure");
   const [enrollOpen, setEnrollOpen] = useState(false);
   const { data: sites } = useSites();
@@ -358,23 +380,36 @@ export default function StaffProfilePage() {
               className="h-12 w-12 border border-border"
             />
             <Button asChild variant="secondary" size="sm">
-              <Link href="/people">{t("nav.people")}</Link>
+              <Link href="/people?tab=staff">{t("people.tabs.staff")}</Link>
             </Button>
           </div>
         }
       />
 
-      <Tabs defaultValue="overview" className="space-y-4">
-        <TabsList>
+      <Tabs
+        value={profileTab}
+        onValueChange={(next) => {
+          setProfileTab(next);
+          const nextParams = new URLSearchParams(searchParams.toString());
+          if (next === "overview") nextParams.delete("tab");
+          else nextParams.set("tab", next);
+          const qs = nextParams.toString();
+          router.replace(qs ? `/people/staff/${id}?${qs}` : `/people/staff/${id}`, { scroll: false });
+        }}
+        className="space-y-4"
+      >
+        <TabsList className="flex h-auto flex-wrap gap-1">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="employment">Employment</TabsTrigger>
           <TabsTrigger value="personal">Personal</TabsTrigger>
           <TabsTrigger value="documents">Documents</TabsTrigger>
           <TabsTrigger value="attendance">Attendance & Leave</TabsTrigger>
-          <TabsTrigger value="payroll">Payroll</TabsTrigger>
-          <TabsTrigger value="warnings">Warnings</TabsTrigger>
+          {profile.data?.canViewSalary || canViewSalaryPerm ? (
+            <TabsTrigger value="payroll">Payroll</TabsTrigger>
+          ) : null}
           <TabsTrigger value="performance">Performance</TabsTrigger>
           <TabsTrigger value="training">Training</TabsTrigger>
+          <TabsTrigger value="warnings">Disciplinary</TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
           <TabsTrigger value="notes">Notes</TabsTrigger>
         </TabsList>
@@ -963,6 +998,14 @@ export default function StaffProfilePage() {
         onCaptured={(result) => enrollMut.mutate({ photoBase64: result.dataUrl, livenessPassed: result.livenessPassed })}
       />
     </div>
+  );
+}
+
+export default function StaffProfilePage() {
+  return (
+    <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}>
+      <StaffProfilePageBody />
+    </Suspense>
   );
 }
 
