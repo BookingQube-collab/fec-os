@@ -7,6 +7,7 @@ import {
   collectPagedRows,
   filterRosterRegisterRows,
   isWeekendYmd,
+  rosterAmendRecalcLocationIds,
   rosterDayStatusFromRow,
   rosterMatrixCellKey,
   rosterMonthSpans,
@@ -148,5 +149,10 @@ describe("roster register bulk-delete scope", () => {
       leaveType: "sick_leave",
       needsShiftTimes: false,
     });
+  });
+
+  it("recalcs both sites when amend moves location", () => {
+    expect(rosterAmendRecalcLocationIds("loc-inf", "loc-inf")).toEqual(["loc-inf"]);
+    expect(rosterAmendRecalcLocationIds("loc-inf", "loc-ua")).toEqual(["loc-inf", "loc-ua"]);
   });
 });

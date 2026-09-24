@@ -146,6 +146,82 @@ export function lateGraceMinutesForLocation(
   return bufferMinutesForLocation(bufferMinutes) - reportingTimeMinutesForLocation(reportingTimeMinutes);
 }
 
+/** Optional per-staff hours / break / standing weekly-off (NULL = use site). */
+export type StaffHoursPolicy = {
+  expectedHours?: number | null;
+  breakMinutes?: number | null;
+  weeklyOffWeekday?: number | null;
+};
+
+/**
+ * Prefer staff expected hours / break when set; otherwise site role hours + site break.
+ * Documented ladder for payroll/attendance: staff override → site default.
+ */
+export function resolveStaffHoursAndBreak(opts: {
+  locationCode?: string | null;
+  employmentType?: string | null;
+  siteBreakMinutes?: number | null;
+  permanentHours?: number | null;
+  secondmentHours?: number | null;
+  jokerHours?: number | null;
+  staff?: StaffHoursPolicy | null;
+}): {
+  breakMinutes: number;
+  expectedMinutes: number;
+  hoursSource: "staff" | "site";
+  breakSource: "staff" | "site";
+} {
+  const role = normalizeAttendanceEmploymentRole(opts.employmentType);
+  const siteExpected = expectedShiftMinutes(role, opts);
+  const staffHours =
+    opts.staff?.expectedHours != null && Number.isFinite(Number(opts.staff.expectedHours))
+      ? Number(opts.staff.expectedHours)
+      : null;
+  const hoursOk = staffHours != null && staffHours >= 1 && staffHours <= 16;
+  const expectedMinutes = hoursOk ? Math.round(staffHours * 60) : siteExpected;
+  const staffBreak =
+    opts.staff?.breakMinutes != null && Number.isFinite(Number(opts.staff.breakMinutes))
+      ? Number(opts.staff.breakMinutes)
+      : null;
+  const breakOk = staffBreak != null && staffBreak >= 0 && staffBreak <= 240;
+  return {
+    breakMinutes: breakMinutesForLocation(
+      opts.locationCode,
+      breakOk ? staffBreak : opts.siteBreakMinutes,
+    ),
+    expectedMinutes,
+    hoursSource: hoursOk ? "staff" : "site",
+    breakSource: breakOk ? "staff" : "site",
+  };
+}
+
+/** Standing weekly-off weekday (0=Sun..6=Sat) vs work_date in Qatar (+03). */
+export function isStandingWeeklyOff(
+  workDate: string,
+  weeklyOffWeekday?: number | null,
+): boolean {
+  if (weeklyOffWeekday == null || !Number.isFinite(Number(weeklyOffWeekday))) return false;
+  const day = Math.round(Number(weeklyOffWeekday));
+  if (day < 0 || day > 6) return false;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(workDate)) return false;
+  const wd = new Date(`${workDate}T12:00:00+03:00`).getUTCDay();
+  return wd === day;
+}
+
+/**
+ * Roster day flag wins when a roster row exists; otherwise standing staff weekday applies.
+ * Explicit roster on-duty on a standing-off weekday keeps the person scheduled.
+ */
+export function resolveWeekOff(opts: {
+  hasRosterRow: boolean;
+  rosterIsWeekOff?: boolean | null;
+  workDate: string;
+  weeklyOffWeekday?: number | null;
+}): boolean {
+  if (opts.hasRosterRow) return Boolean(opts.rosterIsWeekOff);
+  return isStandingWeeklyOff(opts.workDate, opts.weeklyOffWeekday);
+}
+
 /**
  * Override shift template break + OT threshold from employment type and location.
  * Start/end times stay on the template / roster. When reporting and/or buffer
@@ -159,6 +235,8 @@ export function applyAttendanceShiftPolicy(
     employmentType?: string | null;
     locationCode?: string | null;
     breakMinutesOverride?: number | null;
+    /** When set, overrides site role hours for OT + min-work (staff.expected_hours). */
+    expectedHoursOverride?: number | null;
     reportingTimeMinutesOverride?: number | null;
     bufferMinutesOverride?: number | null;
     permanentHours?: number | null;
@@ -169,7 +247,12 @@ export function applyAttendanceShiftPolicy(
   },
 ): ShiftTemplateInput {
   const role = normalizeAttendanceEmploymentRole(opts.employmentType);
-  const expected = expectedShiftMinutes(role, opts);
+  const staffHours =
+    opts.expectedHoursOverride != null && Number.isFinite(Number(opts.expectedHoursOverride))
+      ? Number(opts.expectedHoursOverride)
+      : null;
+  const hoursOk = staffHours != null && staffHours >= 1 && staffHours <= 16;
+  const expected = hoursOk ? Math.round(staffHours * 60) : expectedShiftMinutes(role, opts);
   const breakMin = breakMinutesForLocation(opts.locationCode, opts.breakMinutesOverride);
   const next: ShiftTemplateInput = {
     ...base,
@@ -184,8 +267,8 @@ export function applyAttendanceShiftPolicy(
     opts.bufferMinutesOverride != null && Number.isFinite(Number(opts.bufferMinutesOverride));
   if (opts.lateFromShiftStart) {
     next.graceMinutes = bufferMinutesForLocation(opts.bufferMinutesOverride);
-    // Flexible: short day = < 8h; OT threshold stays site/employment expected.
-    next.minWorkMinutes = FLEXIBLE_MIN_WORK_MINUTES;
+    // Flexible: short day = < 8h unless staff expected_hours override is set.
+    next.minWorkMinutes = hoursOk ? expected : FLEXIBLE_MIN_WORK_MINUTES;
     next.latePunchAffectsStatus = true;
   } else if (hasReporting || hasBuffer) {
     next.graceMinutes = lateGraceMinutesForLocation(

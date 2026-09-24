@@ -47,6 +47,24 @@ export function staffByBiometricFromMappings(
   return map;
 }
 
+/** Prefer device_name, else full_name — used to stamp attendance_logs.device_user_name. */
+export function deviceNameByBiometricFromMappings(
+  rows: Array<{
+    biometricUserId: string;
+    deviceName?: string | null;
+    fullName?: string | null;
+  }>,
+): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const row of rows) {
+    const id = canonicalBiometricUserId(row.biometricUserId);
+    if (!id || map.has(id)) continue;
+    const name = row.deviceName?.trim() || row.fullName?.trim() || "";
+    if (name) map.set(id, name);
+  }
+  return map;
+}
+
 /**
  * Upsert plan keyed only by User ID. Keeps staff_id across re-imports even when
  * the name on the device changed. Never merges two different User IDs by name.
@@ -109,6 +127,8 @@ export function buildPunchRows(input: {
   windowSeconds: number;
   shift: ShiftTemplateInput | null;
   staffByBiometric?: Map<string, string>;
+  /** Registry device_name / full_name stamped onto attendance_logs.device_user_name. */
+  deviceNameByBiometric?: Map<string, string>;
 }) {
   const withDupes = markProbableDuplicates(
     input.punches.map((p) => ({
@@ -122,6 +142,10 @@ export function buildPunchRows(input: {
   );
   return withDupes.map((p) => {
     const biometricUserId = canonicalBiometricUserId(p.biometricUserId);
+    const deviceUserName =
+      input.deviceNameByBiometric?.get(biometricUserId)?.trim() ||
+      input.deviceNameByBiometric?.get(p.biometricUserId)?.trim() ||
+      null;
     return {
       location_id: input.locationId,
       device_id: input.deviceId,
@@ -129,6 +153,7 @@ export function buildPunchRows(input: {
       import_id: input.importId ?? null,
       staff_id: lookupStaffByBiometric(input.staffByBiometric, biometricUserId),
       biometric_user_id: biometricUserId,
+      device_user_name: deviceUserName,
       punch_at: p.punchAt,
       punch_type: "in",
       source: input.source ?? "file_import",

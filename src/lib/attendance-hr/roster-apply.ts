@@ -163,6 +163,40 @@ export async function replaceAttendanceRosterPeriod(
     throwDb(error);
   }
 
+  // Multi-location cafe roster: attach home + upload site as work locations so
+  // cross-site day merge / punch aliasing kicks in (home alone is not enough).
+  if (staffIds.length) {
+    const { data: homeRows, error: homeErr } = await context.supabase
+      .from("staff")
+      .select("id, location_id")
+      .in("id", staffIds);
+    if (homeErr) throwDb(homeErr);
+    const workLinks: Array<{ staff_id: string; location_id: string; created_by: string }> = [];
+    const seen = new Set<string>();
+    const pushLink = (staffId: string, locationId: string | null | undefined) => {
+      const loc = locationId?.trim();
+      if (!staffId || !loc) return;
+      const key = `${staffId}|${loc}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      workLinks.push({ staff_id: staffId, location_id: loc, created_by: context.userId });
+    };
+    for (const row of homeRows ?? []) {
+      pushLink(String(row.id), row.location_id ? String(row.location_id) : null);
+    }
+    for (const staffId of staffIds) {
+      pushLink(staffId, input.locationId);
+    }
+    for (let i = 0; i < workLinks.length; i += 200) {
+      const chunk = workLinks.slice(i, i + 200);
+      const { error: workErr } = await context.supabase
+        .from("staff_work_locations")
+        .upsert(chunk, { onConflict: "staff_id,location_id", ignoreDuplicates: true });
+      // Older DBs without the table should not block roster confirm.
+      if (workErr && !/staff_work_locations|schema cache/i.test(workErr.message)) throwDb(workErr);
+    }
+  }
+
   // Staff-scoped upserts must not mark the whole period as location coverage
   // (that would make other staff "unexpected" on later full recalcs).
   const { data: uploadRow, error: upErr } = await context.supabase

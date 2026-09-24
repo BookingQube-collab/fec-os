@@ -248,12 +248,14 @@ describe("device log listing", () => {
     expect(deviceLogRawDeviceId({ deviceSerial: null, deviceCode: null })).toBeNull();
   });
 
-  it("resolves Name from punch, then biometric device_name, then full_name", () => {
+  it("resolves Name from punch, then biometric device_name, then full_name, then staff", () => {
     expect(deviceLogDisplayName("  Punch Ali  ", { device_name: "Device Ali", full_name: "HR Ali" })).toBe("Punch Ali");
     expect(deviceLogDisplayName("  ", { device_name: " Device Ali ", full_name: "Full" })).toBe("Device Ali");
     expect(deviceLogDisplayName(null, { device_name: null, full_name: " Full Ali " })).toBe("Full Ali");
     expect(deviceLogDisplayName(null, { device_name: "  ", full_name: "  " })).toBeNull();
     expect(deviceLogDisplayName(null, undefined)).toBeNull();
+    expect(deviceLogDisplayName(null, { device_name: null, full_name: null }, "  Staff Ali  ")).toBe("Staff Ali");
+    expect(deviceLogDisplayName(null, { device_name: null, full_name: "Bio" }, "Staff")).toBe("Bio");
   });
 
   it("looks up biometric registry by location+user, preferring device_id match", () => {

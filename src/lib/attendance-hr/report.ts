@@ -495,3 +495,93 @@ export function attendanceHrRowMatchesLocation(
   if (row.check_out_location_id === locationId) return true;
   return false;
 }
+
+export type ListingGapRosterDay = {
+  staff_id: string;
+  location_id: string;
+  work_date: string;
+  is_week_off: boolean;
+};
+
+export type ListingGapPunchDay = {
+  staff_id: string;
+  location_id: string;
+  work_date: string;
+};
+
+/**
+ * Listing reads attendance_daily_summary only. Process can skip a person-day
+ * (flexible cross-site "covered" without a mapped write) so roster / raw-punch
+ * days vanish. Append synthetic shells; enrich attaches shift times + punches.
+ */
+export function appendMissingRosterAndPunchSummaryRows(input: {
+  rows: Array<Record<string, unknown>>;
+  roster: ListingGapRosterDay[];
+  punchDays: ListingGapPunchDay[];
+  locationId?: string | null;
+}): Array<Record<string, unknown>> {
+  const seen = new Set<string>();
+  for (const row of input.rows) {
+    const staffId = typeof row.staff_id === "string" ? row.staff_id : "";
+    const day = String(row.work_date ?? "").slice(0, 10);
+    if (staffId && day) seen.add(`${staffId}|${day}`);
+  }
+
+  const locationId = input.locationId ?? null;
+  const pending = new Map<string, { location_id: string; is_week_off: boolean }>();
+
+  for (const r of input.roster) {
+    const staffId = String(r.staff_id ?? "").trim();
+    const day = String(r.work_date ?? "").slice(0, 10);
+    const loc = String(r.location_id ?? "").trim();
+    if (!staffId || !day || !loc) continue;
+    if (locationId && loc !== locationId) continue;
+    const key = `${staffId}|${day}`;
+    if (seen.has(key)) continue;
+    const prev = pending.get(key);
+    if (!prev) {
+      pending.set(key, { location_id: loc, is_week_off: Boolean(r.is_week_off) });
+    } else if (r.is_week_off && !prev.is_week_off) {
+      pending.set(key, { location_id: loc, is_week_off: true });
+    }
+  }
+
+  for (const p of input.punchDays) {
+    const staffId = String(p.staff_id ?? "").trim();
+    const day = String(p.work_date ?? "").slice(0, 10);
+    const loc = String(p.location_id ?? "").trim();
+    if (!staffId || !day || !loc) continue;
+    if (locationId && loc !== locationId) continue;
+    const key = `${staffId}|${day}`;
+    if (seen.has(key) || pending.has(key)) continue;
+    pending.set(key, { location_id: loc, is_week_off: false });
+  }
+
+  if (pending.size === 0) return input.rows;
+
+  const extras: Array<Record<string, unknown>> = [];
+  for (const [key, meta] of pending) {
+    const sep = key.lastIndexOf("|");
+    const staffId = key.slice(0, sep);
+    const workDate = key.slice(sep + 1);
+    extras.push({
+      id: `gap:${staffId}:${workDate}:${meta.location_id}`,
+      location_id: meta.location_id,
+      staff_id: staffId,
+      work_date: workDate,
+      status: meta.is_week_off ? "weekly_off" : "absent",
+      actual_in: null,
+      actual_out: null,
+      late_minutes: 0,
+      early_leave_minutes: 0,
+      overtime_minutes: 0,
+      missed_punch: false,
+      punch_count: 0,
+      worked_minutes: meta.is_week_off ? 0 : null,
+      biometric_user_id: null,
+      device_id: null,
+      subject_key: `staff:${staffId}`,
+    });
+  }
+  return [...input.rows, ...extras];
+}

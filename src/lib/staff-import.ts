@@ -41,6 +41,28 @@ export interface StaffImportRow {
   email: string | null;
   qid: string | null;
   staff_role: string | null;
+  /** Daily hours override; omit when CSV cell blank. */
+  expected_hours?: number | null;
+  /** Break minutes override; omit when CSV cell blank. */
+  break_minutes?: number | null;
+  /** Standing weekly off 0=Sun..6=Sat; omit when CSV cell blank. */
+  weekly_off_weekday?: number | null;
+}
+
+/** Parse fri / Friday / 5 → 0–6. Empty → null. */
+export function parseWeeklyOffWeekday(raw: string | null | undefined): number | null {
+  const s = String(raw ?? "")
+    .trim()
+    .toLowerCase();
+  if (!s) return null;
+  if (/^\d+$/.test(s)) {
+    const n = Number(s);
+    if (n >= 0 && n <= 6) return n;
+    throw new Error(`weekly_off must be 0–6 or a weekday name, got "${raw}"`);
+  }
+  const day = WEEKDAYS[s];
+  if (day === undefined) throw new Error(`Unknown weekly_off weekday "${raw}"`);
+  return day;
 }
 
 export function parseStaffImportRows(rows: Record<string, string>[]): StaffImportRow[] {
@@ -69,7 +91,7 @@ export function parseStaffImportRows(rows: Record<string, string>[]): StaffImpor
       }
       usedCodes.add(employee_code);
     }
-    return {
+    const row: StaffImportRow = {
       location_code,
       employee_code,
       full_name,
@@ -82,6 +104,31 @@ export function parseStaffImportRows(rows: Record<string, string>[]): StaffImpor
       qid: qidKept,
       staff_role: r.staff_role || null,
     };
+    const hoursRaw = (r.expected_hours ?? r.daily_hours ?? "").trim();
+    if (hoursRaw) {
+      const n = Number(hoursRaw);
+      if (!Number.isFinite(n) || n < 1 || n > 16) {
+        throw new Error(`Row ${i + 2}: expected_hours must be 1–16, got "${hoursRaw}"`);
+      }
+      row.expected_hours = n;
+    }
+    const breakRaw = (r.break_minutes ?? r.break ?? "").trim();
+    if (breakRaw) {
+      const n = Math.round(Number(breakRaw));
+      if (!Number.isFinite(n) || n < 0 || n > 240) {
+        throw new Error(`Row ${i + 2}: break_minutes must be 0–240, got "${breakRaw}"`);
+      }
+      row.break_minutes = n;
+    }
+    const offRaw = (r.weekly_off ?? r.weekly_off_weekday ?? r.week_off ?? "").trim();
+    if (offRaw) {
+      try {
+        row.weekly_off_weekday = parseWeeklyOffWeekday(offRaw);
+      } catch (e) {
+        throw new Error(`Row ${i + 2}: ${(e as Error).message}`);
+      }
+    }
+    return row;
   });
 }
 
@@ -134,6 +181,9 @@ export const STAFF_IMPORT_HEADERS = [
   "phone",
   "email",
   "qid",
+  "expected_hours",
+  "break_minutes",
+  "weekly_off",
 ] as const;
 
 export const ROSTER_DATED_IMPORT_HEADERS = [
@@ -166,6 +216,9 @@ const STAFF_SAMPLE_ROW: Record<(typeof STAFF_IMPORT_HEADERS)[number], string> = 
   phone: "+97430000006",
   email: "kds.cc.bm@fec.qa",
   qid: "",
+  expected_hours: "9",
+  break_minutes: "60",
+  weekly_off: "fri",
 };
 
 const ROSTER_DATED_SAMPLE_ROW: Record<(typeof ROSTER_DATED_IMPORT_HEADERS)[number], string> = {

@@ -372,6 +372,9 @@ export const importStaffCsv = createAuthenticatedAction(
         phone: s.phone,
         email: s.email,
         qid: s.qid,
+        ...(s.expected_hours != null ? { expected_hours: s.expected_hours } : {}),
+        ...(s.break_minutes != null ? { break_minutes: s.break_minutes } : {}),
+        ...(s.weekly_off_weekday != null ? { weekly_off_weekday: s.weekly_off_weekday } : {}),
       });
     }
 
@@ -498,6 +501,9 @@ export const updateStaff = createSafeAuthenticatedAction(
     flexibleAttendance: z.boolean().optional(),
     reportingTimeMinutes: z.number().int().min(0).max(180).nullable().optional(),
     bufferMinutes: z.number().int().min(0).max(120).nullable().optional(),
+    expectedHours: z.number().min(1).max(16).nullable().optional(),
+    breakMinutes: z.number().int().min(0).max(240).nullable().optional(),
+    weeklyOffWeekday: z.number().int().min(0).max(6).nullable().optional(),
   }),
   async (data, context) => {
     const { data: existing, error: fetchErr } = await context.supabase
@@ -522,6 +528,9 @@ export const updateStaff = createSafeAuthenticatedAction(
     if (data.flexibleAttendance !== undefined) patch.flexible_attendance = data.flexibleAttendance;
     if (data.reportingTimeMinutes !== undefined) patch.reporting_time_minutes = data.reportingTimeMinutes;
     if (data.bufferMinutes !== undefined) patch.buffer_minutes = data.bufferMinutes;
+    if (data.expectedHours !== undefined) patch.expected_hours = data.expectedHours;
+    if (data.breakMinutes !== undefined) patch.break_minutes = data.breakMinutes;
+    if (data.weeklyOffWeekday !== undefined) patch.weekly_off_weekday = data.weeklyOffWeekday;
 
     if (Object.keys(patch).length) {
       const { error } = await context.supabase.from("staff").update(patch).eq("id", data.id);

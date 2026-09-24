@@ -33,7 +33,14 @@ import {
 } from "./flexible-cross-site";
 import { deviceLogUserPairsOrFilter } from "./device-logs";
 import { normalizeShiftHm, scheduledIsoFromHm } from "./late-punch";
-import { applyAttendanceShiftPolicy, resolveReportingAndBuffer, type StaffFlexibleTiming } from "./shift-policy";
+import {
+  applyAttendanceShiftPolicy,
+  isStandingWeeklyOff,
+  resolveReportingAndBuffer,
+  resolveWeekOff,
+  type StaffFlexibleTiming,
+  type StaffHoursPolicy,
+} from "./shift-policy";
 
 /** Page past PostgREST max_rows (~1000). Bare selects silently truncate a full site-month. */
 async function fetchAllPaged<T>(
@@ -118,6 +125,7 @@ export {
   BIOMETRIC_USER_CONFLICT,
   buildPunchRows,
   canonicalBiometricUserId,
+  deviceNameByBiometricFromMappings,
   lookupStaffByBiometric,
   mergeBiometricUsersById,
   staffByBiometricFromMappings,
@@ -249,12 +257,18 @@ export async function recalculateAttendanceRange(
   const buildLogsQuery = () => {
     let q = supabase
       .from("attendance_logs")
-      .select("id, staff_id, biometric_user_id, device_id, punch_at, probable_duplicate, excluded_from_calc, attendance_date")
+      .select(
+        "id, staff_id, biometric_user_id, device_id, punch_at, probable_duplicate, excluded_from_calc, attendance_date, device_user_name",
+      )
       .eq("location_id", locationId)
       .gte("attendance_date", dateFrom)
       .lte("attendance_date", dateTo)
       .order("id", { ascending: true });
-    if (staffScope) q = q.in("staff_id", staffScope);
+    // Staff-scoped confirm must still see unmapped punches so bio / device_name
+    // aliasing can attach them to the uploaded cafe staff.
+    if (staffScope) {
+      q = q.or(`staff_id.in.(${staffScope.join(",")}),staff_id.is.null`);
+    }
     return q;
   };
   const buildRosterQuery = () => {
@@ -293,14 +307,14 @@ export async function recalculateAttendanceRange(
         ? supabase
             .from("staff")
             .select(
-              "id, location_id, status, employment_type, is_roaming, flexible_attendance, reporting_time_minutes, buffer_minutes",
+              "id, location_id, status, employment_type, is_roaming, flexible_attendance, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday",
             )
             .in("id", staffScope)
             .is("deleted_at", null)
         : supabase
             .from("staff")
             .select(
-              "id, location_id, status, employment_type, is_roaming, flexible_attendance, reporting_time_minutes, buffer_minutes",
+              "id, location_id, status, employment_type, is_roaming, flexible_attendance, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday",
             )
             .is("deleted_at", null)
             .limit(5000),
@@ -369,6 +383,23 @@ export async function recalculateAttendanceRange(
       ];
     }),
   );
+  const hoursPolicyByStaffId = new Map<string, StaffHoursPolicy>(
+    (staffRows ?? []).map((row) => {
+      const r = row as {
+        expected_hours?: number | null;
+        break_minutes?: number | null;
+        weekly_off_weekday?: number | null;
+      };
+      return [
+        String(row.id),
+        {
+          expectedHours: r.expected_hours == null ? null : Number(r.expected_hours),
+          breakMinutes: r.break_minutes == null ? null : Number(r.break_minutes),
+          weeklyOffWeekday: r.weekly_off_weekday == null ? null : Number(r.weekly_off_weekday),
+        } satisfies StaffHoursPolicy,
+      ];
+    }),
+  );
   const roamingByStaffId = new Map(
     (staffRows ?? []).map((row) => [
       String(row.id),
@@ -413,6 +444,50 @@ export async function recalculateAttendanceRange(
       staff: flex,
     });
     return { flex, ...resolved };
+  }
+
+  function hoursForStaff(staffId: string | null | undefined) {
+    return staffId ? hoursPolicyByStaffId.get(staffId) : undefined;
+  }
+
+  function weekOffForDay(
+    staffId: string | null | undefined,
+    workDate: string,
+    realRoster: RosterDayRow | null | undefined,
+    hasLeave = false,
+  ): boolean {
+    if (hasLeave) return false;
+    const policy = hoursForStaff(staffId);
+    return resolveWeekOff({
+      hasRosterRow: Boolean(realRoster),
+      rosterIsWeekOff: realRoster?.is_week_off,
+      workDate,
+      weeklyOffWeekday: policy?.weeklyOffWeekday,
+    });
+  }
+
+  function shiftPolicyOpts(
+    staffId: string | null | undefined,
+    timing: ReturnType<typeof timingForStaff>,
+  ) {
+    const hours = hoursForStaff(staffId);
+    const staffBreak =
+      hours?.breakMinutes != null && Number.isFinite(Number(hours.breakMinutes))
+        ? Number(hours.breakMinutes)
+        : null;
+    return {
+      employmentType: staffId ? employmentByStaffId.get(staffId) ?? null : null,
+      locationCode,
+      // Staff break → site break → UA/default (via breakMinutesForLocation).
+      breakMinutesOverride: staffBreak ?? breakMinutesOverride,
+      expectedHoursOverride: hours?.expectedHours ?? null,
+      reportingTimeMinutesOverride: timing.reportingTimeMinutes,
+      bufferMinutesOverride: timing.bufferMinutes,
+      permanentHours,
+      secondmentHours,
+      jokerHours,
+      lateFromShiftStart: Boolean(timing.flex?.flexibleAttendance),
+    };
   }
 
   const crossSiteStaffIds = [...crossSiteStaffIdSet];
@@ -534,7 +609,7 @@ export async function recalculateAttendanceRange(
         supabase
           .from("attendance_logs")
           .select(
-            "id, location_id, staff_id, biometric_user_id, device_id, punch_at, probable_duplicate, excluded_from_calc, attendance_date",
+            "id, location_id, staff_id, biometric_user_id, device_id, punch_at, probable_duplicate, excluded_from_calc, attendance_date, device_user_name",
           )
           .or(pairFilter)
           .gte("attendance_date", dateFrom)
@@ -550,6 +625,51 @@ export async function recalculateAttendanceRange(
           (log.staff_id ? String(log.staff_id) : "") ||
           (biometricUserId ? staffByLocUser.get(`${locationId}|${biometricUserId}`) ?? "" : "");
         addCrossPunch(log, staffId);
+      }
+    }
+
+    // Last resort: punches whose device_user_name matches a flexible staff device_name
+    // when the biometric id was never written to attendance_biometric_users.
+    const staffByDeviceName = new Map<string, string>();
+    for (const row of mappedBios) {
+      const staffId = row.staffId?.trim();
+      const name = (row.deviceName ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+      if (!staffId || !name || staffByDeviceName.has(name)) continue;
+      staffByDeviceName.set(name, staffId);
+    }
+    if (staffByDeviceName.size && deviceNames.size) {
+      const nameFilter = [...deviceNames]
+        .map((name) => `device_user_name.ilike.${name.replace(/[,()%]/g, "")}`)
+        .filter((part) => part.length > "device_user_name.ilike.".length)
+        .join(",");
+      if (nameFilter) {
+        const nameLogs = await fetchAllPaged<Record<string, unknown>>((from, to) =>
+          supabase
+            .from("attendance_logs")
+            .select(
+              "id, location_id, staff_id, biometric_user_id, device_id, device_user_name, punch_at, probable_duplicate, excluded_from_calc, attendance_date",
+            )
+            .or(nameFilter)
+            .gte("attendance_date", dateFrom)
+            .lte("attendance_date", dateTo)
+            .order("id", { ascending: true })
+            .range(from, to),
+        );
+        for (const log of nameLogs) {
+          const locationId = String(log.location_id ?? "");
+          const biometricUserId =
+            log.biometric_user_id == null ? "" : String(log.biometric_user_id).trim();
+          const punchName = String(log.device_user_name ?? "")
+            .trim()
+            .toLowerCase()
+            .replace(/\s+/g, " ");
+          const staffId =
+            (log.staff_id ? String(log.staff_id) : "") ||
+            (biometricUserId ? staffByLocUser.get(`${locationId}|${biometricUserId}`) ?? "" : "") ||
+            (punchName ? staffByDeviceName.get(punchName) ?? "" : "");
+          if (!staffId || !crossSiteStaffIdSet.has(staffId)) continue;
+          addCrossPunch(log, staffId);
+        }
       }
     }
 
@@ -645,10 +765,68 @@ export async function recalculateAttendanceRange(
   );
 
   const groups = new Map<string, NonNullable<typeof logs>>();
+  // Resolve null-staff punches via this site's biometric registry before grouping
+  // (ADMS often leaves staff_id null until Mapping is saved).
+  const localStaffByLocUser = new Map<string, string>();
+  {
+    const bioIds = [
+      ...new Set(
+        (logs ?? [])
+          .map((log) => String(log.biometric_user_id ?? "").trim())
+          .filter(Boolean),
+      ),
+    ];
+    if (bioIds.length) {
+      for (let i = 0; i < bioIds.length; i += 200) {
+        const chunk = bioIds.slice(i, i + 200);
+        const { data: maps, error: mapErr } = await supabase
+          .from("attendance_biometric_users")
+          .select("staff_id, biometric_user_id")
+          .eq("location_id", locationId)
+          .in("biometric_user_id", chunk)
+          .not("staff_id", "is", null)
+          .limit(5000);
+        if (mapErr) throw mapErr;
+        for (const row of maps ?? []) {
+          const uid = String(row.biometric_user_id ?? "").trim();
+          const sid = row.staff_id ? String(row.staff_id) : "";
+          if (!uid || !sid) continue;
+          if (!localStaffByLocUser.has(uid)) localStaffByLocUser.set(uid, sid);
+        }
+      }
+    }
+  }
+  // Cross-site alias resolution may attach a staff_id to punches that local bio
+  // mapping missed — stamp those onto local logs so groups write a mapped summary
+  // (otherwise write_merged marks the day covered and roster emit is skipped → gap).
+  const crossStaffByLogId = new Map<string, string>();
+  for (const [crossKey, punches] of crossPunchesByStaffDay) {
+    const sep = crossKey.lastIndexOf("|");
+    const staffId = sep >= 0 ? crossKey.slice(0, sep) : "";
+    if (!staffId) continue;
+    for (const p of punches) {
+      if (p.id && p.locationId === locationId) crossStaffByLogId.set(p.id, staffId);
+    }
+  }
   for (const log of logs ?? []) {
     const day = String(log.attendance_date ?? "").slice(0, 10);
     if (!day) continue;
-    const subject = subjectKey(log.staff_id as string | null, String(log.device_id ?? ""), String(log.biometric_user_id ?? ""));
+    const biometricUserId = String(log.biometric_user_id ?? "").trim();
+    const logId = log.id ? String(log.id) : "";
+    const resolvedStaff =
+      (log.staff_id ? String(log.staff_id) : "") ||
+      (biometricUserId ? localStaffByLocUser.get(biometricUserId) ?? "" : "") ||
+      (logId ? crossStaffByLogId.get(logId) ?? "" : "");
+    if (staffScope && resolvedStaff && !staffScope.includes(resolvedStaff)) continue;
+    if (staffScope && !resolvedStaff) continue;
+    if (resolvedStaff && !log.staff_id) {
+      (log as { staff_id?: string | null }).staff_id = resolvedStaff;
+    }
+    const subject = subjectKey(
+      (log.staff_id as string | null) ?? null,
+      String(log.device_id ?? ""),
+      String(log.biometric_user_id ?? ""),
+    );
     const list = groups.get(`${subject}|${day}`) ?? [];
     list.push(log);
     groups.set(`${subject}|${day}`, list);
@@ -733,22 +911,12 @@ export async function recalculateAttendanceRange(
     // Shift start/end always from roster upload — never staff.flexible_shift_* profile fields.
     const rosterShift = shiftForRosterDay(rosterRow, shiftById);
     const timing = timingForStaff(staffId);
-    // Hours policy always applies; start/end only from real roster (never DEFAULT 08:00).
-    // Break: site of this summary location (anchor). No per-staff flexible_break — reuse site break.
-    const shift = applyAttendanceShiftPolicy(rosterShift ?? DEFAULT_SHIFT, {
-      employmentType: staffId ? employmentByStaffId.get(staffId) ?? null : null,
-      locationCode,
-      breakMinutesOverride,
-      reportingTimeMinutesOverride: timing.reportingTimeMinutes,
-      bufferMinutesOverride: timing.bufferMinutes,
-      permanentHours,
-      secondmentHours,
-      jokerHours,
-      lateFromShiftStart: Boolean(flex?.flexibleAttendance),
-    });
+    // Hours/break: staff override → site default (see resolveStaffHoursAndBreak / applyAttendanceShiftPolicy).
+    const shift = applyAttendanceShiftPolicy(rosterShift ?? DEFAULT_SHIFT, shiftPolicyOpts(staffId, timing));
     const shiftForCalc: ShiftTemplateInput = rosterShift
       ? { ...shift, startTime: rosterShift.startTime, endTime: rosterShift.endTime, overnight: rosterShift.overnight }
       : { ...shift, startTime: "", endTime: "" };
+    const dayWeekOff = weekOffForDay(staffId, workDate, rosterRow ?? null, Boolean(leaveRow?.leave_type));
     // Recompute duplicate flags from scratch (ignore stale DB flags from cross-user ingest bugs).
     const marked = markProbableDuplicates(
       punchSource.map((p) => ({
@@ -787,8 +955,8 @@ export async function recalculateAttendanceRange(
     }
     const calc = calculateDailyAttendance(marked, {
       workDate,
-      scheduled: Boolean(rosterRow) && !rosterRow?.is_week_off,
-      weekOff: Boolean(rosterRow?.is_week_off),
+      scheduled: Boolean(rosterRow) && !dayWeekOff,
+      weekOff: dayWeekOff,
       holidayName: holidayByDate.get(workDate) ?? null,
       leaveType: (leaveRow?.leave_type as "annual_leave" | "sick_leave" | "unpaid_leave" | null) ?? null,
       shift: shiftForCalc,
@@ -894,9 +1062,10 @@ export async function recalculateAttendanceRange(
       });
       expectedIds.add(leaveStaffId);
     }
-    // Cross-site week-off only rostered at another site: emit Weekly off at home when this is home.
+    // Cross-site roster only at another site: emit Weekly off / ABSENT at home.
+    // Without this, multisite cafe staff rostered at a non-home site get blank
+    // grid cells (non-home suppresses ABSENT; home never sees the roster row).
     for (const [crossKey, crossRow] of crossRosterByStaffDay) {
-      if (!crossRow.is_week_off) continue;
       const sep = crossKey.lastIndexOf("|");
       const crossStaffId = sep >= 0 ? crossKey.slice(0, sep) : "";
       const crossDate = sep >= 0 ? crossKey.slice(sep + 1) : "";
@@ -908,12 +1077,33 @@ export async function recalculateAttendanceRange(
       expected.push({
         staff_id: crossStaffId,
         work_date: workDate,
-        shift_template_id: null,
-        shift_start: null,
-        shift_end: null,
-        is_week_off: true,
+        shift_template_id: crossRow.is_week_off
+          ? null
+          : ((crossRow.shift_template_id as string | null) ?? null),
+        shift_start: crossRow.is_week_off
+          ? null
+          : ((crossRow as { shift_start?: string | null }).shift_start ?? null),
+        shift_end: crossRow.is_week_off
+          ? null
+          : ((crossRow as { shift_end?: string | null }).shift_end ?? null),
+        is_week_off: Boolean(crossRow.is_week_off),
       });
       expectedIds.add(crossStaffId);
+    }
+    // Standing weekly-off (staff.weekly_off_weekday) when no roster row for the day.
+    for (const [sid, policy] of hoursPolicyByStaffId) {
+      if (expectedIds.has(sid)) continue;
+      if (staffScope && !staffScope.includes(sid)) continue;
+      if (!isStandingWeeklyOff(workDate, policy.weeklyOffWeekday)) continue;
+      const homeId = homeLocationByStaffId.get(sid) || "";
+      if (homeId && homeId !== locationId) continue;
+      expected.push({
+        staff_id: sid,
+        work_date: workDate,
+        shift_template_id: null,
+        is_week_off: true,
+      });
+      expectedIds.add(sid);
     }
     for (const rosterRow of expected) {
       const staffId = String(rosterRow.staff_id);
@@ -921,14 +1111,24 @@ export async function recalculateAttendanceRange(
       if (covered.has(`${staffId}|${workDate}`)) continue;
       const leaveRow = leaveByKey.get(`${staffId}|${workDate}`);
       const crossRosterRow = crossRosterByStaffDay.get(`${staffId}|${workDate}`);
-      const isWeekOff =
-        Boolean(rosterRow.is_week_off) || Boolean(crossRosterRow?.is_week_off);
       const hasLeave = Boolean(leaveRow?.leave_type);
-      const flex = flexibleByStaffId.get(staffId);
+      const fromUpload = dayRoster.find((r) => String(r.staff_id) === staffId);
+      const realRoster: RosterDayRow | null = fromUpload
+        ? fromUpload
+        : crossRosterRow
+          ? {
+              staff_id: staffId,
+              work_date: workDate,
+              shift_template_id: (crossRosterRow.shift_template_id as string | null) ?? null,
+              shift_start: (crossRosterRow as { shift_start?: string | null }).shift_start ?? null,
+              shift_end: (crossRosterRow as { shift_end?: string | null }).shift_end ?? null,
+              is_week_off: Boolean(crossRosterRow.is_week_off),
+            }
+          : null;
+      const isWeekOff = weekOffForDay(staffId, workDate, realRoster, hasLeave);
       if (crossSiteStaffIdSet.has(staffId)) {
         const cross = crossPunchesByStaffDay.get(`${staffId}|${workDate}`) ?? [];
         if (flexibleDayHasQualifyingPunches(cross)) {
-          // Punch day should already be covered / suppressed; never emit a second ABSENT.
           covered.add(`${staffId}|${workDate}`);
           continue;
         }
@@ -939,11 +1139,10 @@ export async function recalculateAttendanceRange(
           hasLeave,
         });
         if (writeDecision === "suppress") {
-          // One ABSENT row at home when multi-site roster expects the person everywhere.
-          queueSummaryDelete(locationId, staffId, workDate);
+          voidSummaryDelete(locationId, staffId, workDate);
           continue;
         }
-        queueFlexibleKeepOnly(staffId, workDate, locationId);
+        voidFlexibleKeepOnly(staffId, workDate, locationId);
       }
       const fullRoster: RosterDayRow = {
         staff_id: staffId,
@@ -961,17 +1160,7 @@ export async function recalculateAttendanceRange(
       };
       const rosterShift = shiftForRosterDay(fullRoster, shiftById);
       const timing = timingForStaff(staffId);
-      const shift = applyAttendanceShiftPolicy(rosterShift ?? DEFAULT_SHIFT, {
-        employmentType: employmentByStaffId.get(staffId) ?? null,
-        locationCode,
-        breakMinutesOverride,
-        reportingTimeMinutesOverride: timing.reportingTimeMinutes,
-        bufferMinutesOverride: timing.bufferMinutes,
-        permanentHours,
-        secondmentHours,
-        jokerHours,
-        lateFromShiftStart: Boolean(flex?.flexibleAttendance),
-      });
+      const shift = applyAttendanceShiftPolicy(rosterShift ?? DEFAULT_SHIFT, shiftPolicyOpts(staffId, timing));
       const shiftForCalc: ShiftTemplateInput = rosterShift
         ? { ...shift, startTime: rosterShift.startTime, endTime: rosterShift.endTime, overnight: rosterShift.overnight }
         : { ...shift, startTime: "", endTime: "" };

@@ -481,14 +481,23 @@ export function lookupDeviceLogBioName(
   return index.byLocUser.get(locUser);
 }
 
-/** Punch device_user_name first; else registry device_name, then registry full_name. */
+/**
+ * Punch device_user_name first; else registry device_name / full_name;
+ * then mapped staff.full_name when the biometric row is linked.
+ */
 export function deviceLogDisplayName(
   punchName: string | null | undefined,
   bio: DeviceLogBioName | null | undefined,
+  staffName?: string | null,
 ): string | null {
   const fromPunch = punchName?.trim() || null;
   if (fromPunch) return fromPunch;
-  return bio?.device_name?.trim() || bio?.full_name?.trim() || null;
+  return (
+    bio?.device_name?.trim() ||
+    bio?.full_name?.trim() ||
+    staffName?.trim() ||
+    null
+  );
 }
 
 export type AttendanceDeviceLogUserOption = {

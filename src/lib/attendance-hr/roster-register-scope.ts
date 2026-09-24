@@ -169,6 +169,12 @@ export function rosterPatchFromDayStatus(status: RosterDayStatus): {
   return { isWeekOff: false, leaveType: null, needsShiftTimes: true };
 }
 
+/** Recalc old + new site when amend moves a day; otherwise just the current site. */
+export function rosterAmendRecalcLocationIds(existingLocationId: string, nextLocationId: string): string[] {
+  if (existingLocationId === nextLocationId) return [existingLocationId];
+  return [existingLocationId, nextLocationId];
+}
+
 /**
  * Walk PostgREST pages via .range(). A bare .limit(N) still stops at max_rows (~1000),
  * which truncates later FEC-month days when ordered work_date ASC.

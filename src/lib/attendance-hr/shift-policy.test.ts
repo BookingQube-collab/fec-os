@@ -6,8 +6,11 @@ import {
   defaultSiteShiftPolicy,
   expectedShiftHours,
   expectedShiftMinutes,
+  isStandingWeeklyOff,
   normalizeAttendanceEmploymentRole,
   resolveReportingAndBuffer,
+  resolveStaffHoursAndBreak,
+  resolveWeekOff,
 } from "./shift-policy";
 import { DEFAULT_SHIFT } from "./constants";
 
@@ -137,5 +140,71 @@ describe("attendance shift policy", () => {
         staff: { flexibleAttendance: false, reportingTimeMinutes: 90, bufferMinutes: 0 },
       }),
     ).toEqual({ reportingTimeMinutes: 15, bufferMinutes: 10 });
+  });
+
+  it("prefers staff expected hours and break over site defaults", () => {
+    expect(
+      resolveStaffHoursAndBreak({
+        locationCode: "INF-CC",
+        employmentType: "permanent",
+        siteBreakMinutes: 60,
+        permanentHours: 9,
+        staff: { expectedHours: 8, breakMinutes: 45 },
+      }),
+    ).toEqual({
+      breakMinutes: 45,
+      expectedMinutes: 480,
+      hoursSource: "staff",
+      breakSource: "staff",
+    });
+    expect(
+      resolveStaffHoursAndBreak({
+        locationCode: "UA-DM",
+        employmentType: "permanent",
+        siteBreakMinutes: null,
+        staff: { expectedHours: null, breakMinutes: null },
+      }),
+    ).toMatchObject({ breakMinutes: 30, expectedMinutes: 540, hoursSource: "site", breakSource: "site" });
+  });
+
+  it("applies staff expected_hours override including flexible min-work", () => {
+    const overridden = applyAttendanceShiftPolicy(DEFAULT_SHIFT, {
+      employmentType: "permanent",
+      locationCode: "INF-CC",
+      expectedHoursOverride: 8.5,
+      lateFromShiftStart: true,
+      bufferMinutesOverride: 0,
+    });
+    expect(overridden.overtimeAfterMinutes).toBe(510);
+    expect(overridden.minWorkMinutes).toBe(510);
+  });
+
+  it("resolves standing weekly off when no roster row; roster wins when present", () => {
+    // 2026-09-25 is Friday in Qatar
+    expect(isStandingWeeklyOff("2026-09-25", 5)).toBe(true);
+    expect(isStandingWeeklyOff("2026-09-24", 5)).toBe(false);
+    expect(
+      resolveWeekOff({
+        hasRosterRow: false,
+        workDate: "2026-09-25",
+        weeklyOffWeekday: 5,
+      }),
+    ).toBe(true);
+    expect(
+      resolveWeekOff({
+        hasRosterRow: true,
+        rosterIsWeekOff: false,
+        workDate: "2026-09-25",
+        weeklyOffWeekday: 5,
+      }),
+    ).toBe(false);
+    expect(
+      resolveWeekOff({
+        hasRosterRow: true,
+        rosterIsWeekOff: true,
+        workDate: "2026-09-24",
+        weeklyOffWeekday: 5,
+      }),
+    ).toBe(true);
   });
 });

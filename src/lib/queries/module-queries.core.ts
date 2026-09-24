@@ -356,6 +356,9 @@ export interface StaffRow {
   flexible_attendance?: boolean;
   reporting_time_minutes?: number | null;
   buffer_minutes?: number | null;
+  expected_hours?: number | null;
+  break_minutes?: number | null;
+  weekly_off_weekday?: number | null;
 }
 
 type StaffDeptJoin = {
@@ -404,6 +407,10 @@ function mapStaffRow(
     reporting_time_minutes:
       rest.reporting_time_minutes == null ? null : Number(rest.reporting_time_minutes),
     buffer_minutes: rest.buffer_minutes == null ? null : Number(rest.buffer_minutes),
+    expected_hours: rest.expected_hours == null ? null : Number(rest.expected_hours),
+    break_minutes: rest.break_minutes == null ? null : Number(rest.break_minutes),
+    weekly_off_weekday:
+      rest.weekly_off_weekday == null ? null : Number(rest.weekly_off_weekday),
     work_locations: [],
     work_location_ids: [],
     has_photo: Boolean(rest.photo_updated_at),
@@ -432,7 +439,7 @@ export async function fetchStaff(
   let q = context.supabase
     .from("staff")
     .select(
-      "id, employee_code, full_name, job_title, department, status, location_id, is_roaming, phone, email, hire_date, qid, e3_enrolled, employment_type, staff_role, photo_updated_at, flexible_attendance, reporting_time_minutes, buffer_minutes, locations!staff_location_id_fkey(code, name), staff_departments(department_id, master_departments(id, name, sort_order))",
+      "id, employee_code, full_name, job_title, department, status, location_id, is_roaming, phone, email, hire_date, qid, e3_enrolled, employment_type, staff_role, photo_updated_at, flexible_attendance, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday, locations!staff_location_id_fkey(code, name), staff_departments(department_id, master_departments(id, name, sort_order))",
     )
     .order("full_name")
     .limit(500);

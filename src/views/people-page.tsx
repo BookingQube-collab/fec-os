@@ -457,6 +457,15 @@ function StaffFormDialog({
   const [bufferMinutes, setBufferMinutes] = useState(
     staff?.buffer_minutes == null ? "" : String(staff.buffer_minutes),
   );
+  const [expectedHours, setExpectedHours] = useState(
+    staff?.expected_hours == null ? "" : String(staff.expected_hours),
+  );
+  const [staffBreakMinutes, setStaffBreakMinutes] = useState(
+    staff?.break_minutes == null ? "" : String(staff.break_minutes),
+  );
+  const [weeklyOffWeekday, setWeeklyOffWeekday] = useState(
+    staff?.weekly_off_weekday == null ? "" : String(staff.weekly_off_weekday),
+  );
   const [photoDraft, setPhotoDraft] = useState<StaffPhotoDraft>({ dataUrl: null, remove: false });
   const [codeNonce, setCodeNonce] = useState(0);
 
@@ -509,6 +518,24 @@ function StaffFormDialog({
         ) {
           throw new Error(t("people.staff.flexibleBufferInvalid"));
         }
+        const expectedParsed =
+          expectedHours.trim() === "" ? null : Number(expectedHours);
+        const breakParsed =
+          staffBreakMinutes.trim() === "" ? null : Number.parseInt(staffBreakMinutes, 10);
+        const weeklyOffParsed =
+          weeklyOffWeekday.trim() === "" ? null : Number.parseInt(weeklyOffWeekday, 10);
+        if (
+          expectedParsed != null &&
+          (!Number.isFinite(expectedParsed) || expectedParsed < 1 || expectedParsed > 16)
+        ) {
+          throw new Error(t("people.staff.expectedHoursInvalid"));
+        }
+        if (
+          breakParsed != null &&
+          (!Number.isFinite(breakParsed) || breakParsed < 0 || breakParsed > 240)
+        ) {
+          throw new Error(t("people.staff.breakMinutesInvalid"));
+        }
         const updated = await updateStaff({
           id: staff!.id,
           fullName,
@@ -524,6 +551,9 @@ function StaffFormDialog({
           flexibleAttendance,
           reportingTimeMinutes: reportingParsed,
           bufferMinutes: bufferParsed,
+          expectedHours: expectedParsed,
+          breakMinutes: breakParsed,
+          weeklyOffWeekday: weeklyOffParsed,
         });
         if (!updated.ok) throw new Error(updated.error);
         const homeId = staff!.location_id;
@@ -750,6 +780,51 @@ function StaffFormDialog({
           <p className="text-xs text-muted-foreground">{t("people.staff.roleHoursHelp")}</p>
           {isEdit ? (
             <div className="space-y-2 rounded-md border border-border p-3">
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <Label>{t("people.staff.expectedHours")}</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={16}
+                    step={0.5}
+                    value={expectedHours}
+                    onChange={(e) => setExpectedHours(e.target.value)}
+                    placeholder={t("people.staff.flexibleUseSiteDefault")}
+                  />
+                </div>
+                <div>
+                  <Label>{t("people.staff.breakMinutes")}</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={240}
+                    value={staffBreakMinutes}
+                    onChange={(e) => setStaffBreakMinutes(e.target.value)}
+                    placeholder={t("people.staff.flexibleUseSiteDefault")}
+                  />
+                </div>
+                <div>
+                  <Label>{t("people.staff.weeklyOff")}</Label>
+                  <Select
+                    value={weeklyOffWeekday === "" ? "none" : weeklyOffWeekday}
+                    onValueChange={(v) => setWeeklyOffWeekday(v === "none" ? "" : v)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={t("people.staff.weeklyOffNone")} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">{t("people.staff.weeklyOffNone")}</SelectItem>
+                      {["0", "1", "2", "3", "4", "5", "6"].map((d) => (
+                        <SelectItem key={d} value={d}>
+                          {t(`people.staff.weekdays.${d}`)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <p className="text-[11px] text-muted-foreground">{t("people.staff.weeklyOffHint")}</p>
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox
                   checked={flexibleAttendance}

@@ -49,7 +49,10 @@ type ProfileResponse = {
     flexible_attendance?: boolean;
     reporting_time_minutes?: number | null;
     buffer_minutes?: number | null;
-    work_locations?: Array<{ id: string; code: string; name: string }>;
+    expected_hours?: number | null;
+    break_minutes?: number | null;
+    weekly_off_weekday?: number | null;
+    work_locations?: Array<{ id: string; code: string; name: string | null }>;
     locations?: { code: string; name: string } | null;
   };
   compensation: { monthly_salary_qar: number | null; daily_rate_qar: number | null; currency: string } | null;
@@ -97,6 +100,9 @@ export default function StaffProfilePage() {
   const [flexibleAttendance, setFlexibleAttendance] = useState(false);
   const [reportingTimeMinutes, setReportingTimeMinutes] = useState("");
   const [bufferMinutes, setBufferMinutes] = useState("");
+  const [expectedHours, setExpectedHours] = useState("");
+  const [staffBreakMinutes, setStaffBreakMinutes] = useState("");
+  const [weeklyOffWeekday, setWeeklyOffWeekday] = useState("");
   const [photoDraft, setPhotoDraft] = useState<StaffPhotoDraft>({ dataUrl: null, remove: false });
   const [timelineFilter, setTimelineFilter] = useState<string>("all");
 
@@ -123,6 +129,9 @@ export default function StaffProfilePage() {
       loaded.reporting_time_minutes == null ? "" : String(loaded.reporting_time_minutes),
     );
     setBufferMinutes(loaded.buffer_minutes == null ? "" : String(loaded.buffer_minutes));
+    setExpectedHours(loaded.expected_hours == null ? "" : String(loaded.expected_hours));
+    setStaffBreakMinutes(loaded.break_minutes == null ? "" : String(loaded.break_minutes));
+    setWeeklyOffWeekday(loaded.weekly_off_weekday == null ? "" : String(loaded.weekly_off_weekday));
   }, [profile.data?.staff]);
 
   const transferMut = useMutation({
@@ -228,11 +237,25 @@ export default function StaffProfilePage() {
     if (buffer != null && (!Number.isFinite(buffer) || buffer < 0 || buffer > 120)) {
       throw new Error(t("people.staff.flexibleBufferInvalid"));
     }
+    const expected = expectedHours.trim() === "" ? null : Number(expectedHours);
+    const breakMins =
+      staffBreakMinutes.trim() === "" ? null : Number.parseInt(staffBreakMinutes, 10);
+    const weeklyOff =
+      weeklyOffWeekday.trim() === "" ? null : Number.parseInt(weeklyOffWeekday, 10);
+    if (expected != null && (!Number.isFinite(expected) || expected < 1 || expected > 16)) {
+      throw new Error(t("people.staff.expectedHoursInvalid"));
+    }
+    if (breakMins != null && (!Number.isFinite(breakMins) || breakMins < 0 || breakMins > 240)) {
+      throw new Error(t("people.staff.breakMinutesInvalid"));
+    }
     const result = await updateStaff({
       id,
       flexibleAttendance,
       reportingTimeMinutes: reporting,
       bufferMinutes: buffer,
+      expectedHours: expected,
+      breakMinutes: breakMins,
+      weeklyOffWeekday: weeklyOff,
     });
     if (!result.ok) throw new Error(result.error);
     return result.data;
@@ -378,7 +401,50 @@ export default function StaffProfilePage() {
           )}
           {canEdit ? (
             <div className="space-y-2 border-t pt-3">
-              <h3 className="text-xs font-medium">{t("people.staff.flexibleHours")}</h3>
+              <h3 className="text-xs font-medium">{t("people.staff.expectedHours")}</h3>
+              <div className="grid gap-2 sm:grid-cols-3">
+                <div className="space-y-1">
+                  <Label htmlFor="expected-hours">{t("people.staff.expectedHours")}</Label>
+                  <Input
+                    id="expected-hours"
+                    type="number"
+                    min={1}
+                    max={16}
+                    step={0.5}
+                    value={expectedHours}
+                    onChange={(e) => setExpectedHours(e.target.value)}
+                    placeholder={t("people.staff.flexibleUseSiteDefault")}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="staff-break">{t("people.staff.breakMinutes")}</Label>
+                  <Input
+                    id="staff-break"
+                    type="number"
+                    min={0}
+                    max={240}
+                    value={staffBreakMinutes}
+                    onChange={(e) => setStaffBreakMinutes(e.target.value)}
+                    placeholder={t("people.staff.flexibleUseSiteDefault")}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="weekly-off">{t("people.staff.weeklyOff")}</Label>
+                  <SearchableSelect
+                    value={weeklyOffWeekday === "" ? "none" : weeklyOffWeekday}
+                    onValueChange={(v) => setWeeklyOffWeekday(v === "none" ? "" : v)}
+                    options={[
+                      { value: "none", label: t("people.staff.weeklyOffNone") },
+                      ...["0", "1", "2", "3", "4", "5", "6"].map((d) => ({
+                        value: d,
+                        label: t(`people.staff.weekdays.${d}`),
+                      })),
+                    ]}
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">{t("people.staff.weeklyOffHint")}</p>
+              <h3 className="text-xs font-medium pt-2">{t("people.staff.flexibleHours")}</h3>
               <p className="text-xs text-muted-foreground">{t("people.staff.flexibleHoursHint")}</p>
               <label className="flex items-center gap-2 text-sm">
                 <Checkbox
@@ -419,19 +485,55 @@ export default function StaffProfilePage() {
                 {flexibleMut.isPending ? t("common.saving") : t("common.save")}
               </Button>
             </div>
-          ) : s.flexible_attendance ? (
+          ) : (
             <div className="space-y-1 border-t pt-3 text-sm">
-              <Row label={t("people.staff.flexibleHours")} value={t("people.staff.flexibleHoursOn")} />
               <Row
-                label={t("people.staff.flexibleReportingMinutes")}
-                value={s.reporting_time_minutes == null ? t("people.staff.flexibleReportingBlank") : String(s.reporting_time_minutes)}
+                label={t("people.staff.expectedHours")}
+                value={
+                  s.expected_hours == null
+                    ? t("people.staff.flexibleUseSiteDefault")
+                    : String(s.expected_hours)
+                }
               />
               <Row
-                label={t("people.staff.flexibleBufferMinutes")}
-                value={s.buffer_minutes == null ? t("people.staff.flexibleUseSiteDefault") : String(s.buffer_minutes)}
+                label={t("people.staff.breakMinutes")}
+                value={
+                  s.break_minutes == null
+                    ? t("people.staff.flexibleUseSiteDefault")
+                    : String(s.break_minutes)
+                }
               />
+              <Row
+                label={t("people.staff.weeklyOff")}
+                value={
+                  s.weekly_off_weekday == null
+                    ? t("people.staff.weeklyOffNone")
+                    : t(`people.staff.weekdays.${s.weekly_off_weekday}`)
+                }
+              />
+              {s.flexible_attendance ? (
+                <>
+                  <Row label={t("people.staff.flexibleHours")} value={t("people.staff.flexibleHoursOn")} />
+                  <Row
+                    label={t("people.staff.flexibleReportingMinutes")}
+                    value={
+                      s.reporting_time_minutes == null
+                        ? t("people.staff.flexibleReportingBlank")
+                        : String(s.reporting_time_minutes)
+                    }
+                  />
+                  <Row
+                    label={t("people.staff.flexibleBufferMinutes")}
+                    value={
+                      s.buffer_minutes == null
+                        ? t("people.staff.flexibleUseSiteDefault")
+                        : String(s.buffer_minutes)
+                    }
+                  />
+                </>
+              ) : null}
             </div>
-          ) : null}
+          )}
           <Row label={t("people.staff.e3")} value={s.e3_enrolled == null ? null : s.e3_enrolled ? "Yes" : "No"} />
           <Row label={t("people.staff.hireDate")} value={s.hire_date} />
           <Row label={t("people.staff.status")} value={s.status} />

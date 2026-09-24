@@ -135,6 +135,17 @@ describe("flexible cross-site attendance", () => {
     ).toBe("write");
   });
 
+  it("documents home ABSENT when multisite staff are rostered only at a non-home site", () => {
+    // Non-home site suppresses the filler; home must still write (process.ts pulls
+    // on-duty cross-roster into expected at home — Maheraj blank-cell bug).
+    expect(
+      flexibleNoPunchWriteAtLocation({ isHomeLocation: false, isWeekOff: false, hasLeave: false }),
+    ).toBe("suppress");
+    expect(
+      flexibleNoPunchWriteAtLocation({ isHomeLocation: true, isWeekOff: false, hasLeave: false }),
+    ).toBe("write");
+  });
+
   it("merges cross-site in/out into one present day with hours", () => {
     const timing = resolveReportingAndBuffer({
       siteReporting: 0,

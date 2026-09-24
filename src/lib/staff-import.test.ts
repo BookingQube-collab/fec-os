@@ -31,6 +31,22 @@ describe("parseStaffImportRows", () => {
     expect(rows[1]?.qid).toBe("29440401419");
   });
 
+  it("parses expected_hours, break_minutes, and weekly_off columns", () => {
+    const rows = parseStaffImportRows([
+      {
+        location_code: "INF-CC",
+        employee_code: "INF-CC-BM",
+        full_name: "Test Manager",
+        expected_hours: "8.5",
+        break_minutes: "45",
+        weekly_off: "fri",
+      },
+    ]);
+    expect(rows[0]?.expected_hours).toBe(8.5);
+    expect(rows[0]?.break_minutes).toBe(45);
+    expect(rows[0]?.weekly_off_weekday).toBe(5);
+  });
+
   it("promotes a QID-only code column into qid and generates a venue code", () => {
     const rows = parseStaffImportRows([
       {

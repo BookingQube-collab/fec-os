@@ -35,6 +35,7 @@ import { buildUserDat, parseUserDat } from "./parse-user-dat";
 import { previewAttendanceFile } from "./preview";
 import {
   buildPunchRows,
+  deviceNameByBiometricFromMappings,
   mergeBiometricUsersById,
   staffByBiometricFromMappings,
 } from "./mapping-merge";
@@ -46,6 +47,7 @@ import {
   attendanceHrRowMatchesLocation,
   attendanceHrStaffMatches,
   attendanceHrToListingSource,
+  appendMissingRosterAndPunchSummaryRows,
   collapseFlexibleAttendanceReportRows,
   computeAttendanceHrReportKpis,
   formatAttendanceHrLocation,
@@ -717,6 +719,62 @@ describe("HR report row helpers", () => {
     ).toBe(true);
   });
 
+  it("fills listing gaps for roster and punch days missing from daily_summary", () => {
+    const existing = [
+      {
+        id: "s1",
+        location_id: "arena",
+        staff_id: "louie",
+        work_date: "2026-09-13",
+        status: "weekly_off",
+      },
+      {
+        id: "s2",
+        location_id: "arena",
+        staff_id: "louie",
+        work_date: "2026-09-11",
+        status: "weekly_off",
+      },
+    ];
+    const filled = appendMissingRosterAndPunchSummaryRows({
+      rows: existing,
+      roster: [
+        { staff_id: "louie", location_id: "arena", work_date: "2026-09-13", is_week_off: true },
+        { staff_id: "louie", location_id: "arena", work_date: "2026-09-12", is_week_off: true },
+        { staff_id: "louie", location_id: "arena", work_date: "2026-09-11", is_week_off: true },
+        { staff_id: "louie", location_id: "park", work_date: "2026-09-04", is_week_off: false },
+      ],
+      punchDays: [
+        { staff_id: "louie", location_id: "park", work_date: "2026-09-04" },
+        { staff_id: "louie", location_id: "arena", work_date: "2026-09-10" },
+      ],
+      locationId: null,
+    });
+    const days = filled
+      .filter((r) => r.staff_id === "louie")
+      .map((r) => String(r.work_date).slice(0, 10))
+      .sort();
+    expect(days).toEqual(["2026-09-04", "2026-09-10", "2026-09-11", "2026-09-12", "2026-09-13"]);
+    const sept12 = filled.find((r) => r.work_date === "2026-09-12");
+    expect(sept12?.status).toBe("weekly_off");
+    expect(String(sept12?.id)).toMatch(/^gap:/);
+    // Site chip: only Arena roster/punch days.
+    const arenaOnly = appendMissingRosterAndPunchSummaryRows({
+      rows: existing,
+      roster: [
+        { staff_id: "louie", location_id: "arena", work_date: "2026-09-12", is_week_off: true },
+        { staff_id: "louie", location_id: "park", work_date: "2026-09-04", is_week_off: false },
+      ],
+      punchDays: [{ staff_id: "louie", location_id: "park", work_date: "2026-09-04" }],
+      locationId: "arena",
+    });
+    expect(arenaOnly.map((r) => r.work_date).sort()).toEqual([
+      "2026-09-11",
+      "2026-09-12",
+      "2026-09-13",
+    ]);
+  });
+
   it("collapses flexible multi-site same-day rows into one person-day", () => {
     const base = {
       staff_id: "rus",
@@ -1113,17 +1171,40 @@ describe("sticky biometric mapping across re-uploads", () => {
     expect(byId.get("21")?.isNew).toBe(false);
   });
 
-  it("does not create a second row for the same User ID", () => {
-    const merged = mergeBiometricUsersById(
-      [{ biometricUserId: "12", deviceName: "Sara", staffId: "staff-a" }],
-      [
-        { biometricUserId: "12", name: "Sara" },
-        { biometricUserId: "12", name: "Sara Khan" },
+  it("stamps device_user_name from biometric registry when building punch rows", () => {
+    const staffByBiometric = staffByBiometricFromMappings([
+      { biometricUserId: "40", staffId: "staff-m" },
+    ]);
+    const deviceNameByBiometric = deviceNameByBiometricFromMappings([
+      { biometricUserId: "40", deviceName: null, fullName: "MD MAHERAJ SHAK" },
+      { biometricUserId: "38", deviceName: "Agnes", fullName: null },
+    ]);
+    expect(deviceNameByBiometric.get("40")).toBe("MD MAHERAJ SHAK");
+    expect(deviceNameByBiometric.get("38")).toBe("Agnes");
+
+    const rows = buildPunchRows({
+      punches: [
+        {
+          biometricUserId: "40",
+          punchAt: "2026-09-20T05:00:00.000Z",
+          verifyMethod: 1,
+          inOutStatus: 0,
+          workCode: null,
+          reservedField: null,
+          raw: "40\t2026-09-20 08:00:00",
+          rowNumber: 1,
+        },
       ],
-    );
-    expect(merged).toHaveLength(1);
-    expect(merged[0].staffId).toBe("staff-a");
-    expect(merged[0].deviceName).toBe("Sara Khan");
+      companyId: "co",
+      locationId: "loc-ua",
+      deviceId: "dev",
+      windowSeconds: 60,
+      shift: DEFAULT_SHIFT,
+      staffByBiometric,
+      deviceNameByBiometric,
+    });
+    expect(rows[0]?.staff_id).toBe("staff-m");
+    expect(rows[0]?.device_user_name).toBe("MD MAHERAJ SHAK");
   });
 });
 

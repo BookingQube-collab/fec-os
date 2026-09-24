@@ -24,6 +24,7 @@ import {
   expectedShiftMinutes,
   normalizeAttendanceEmploymentRole,
   resolveReportingAndBuffer,
+  resolveWeekOff,
 } from "@/lib/attendance-hr/shift-policy";
 import { queueAdmsAttlogQuery, queueAdmsAttlogQueryRange } from "@/lib/attendance-hr/adms-ingest";
 import {
@@ -60,11 +61,14 @@ import {
   type RosterShiftLookup,
 } from "@/lib/attendance-hr/late-punch";
 import {
+  appendMissingRosterAndPunchSummaryRows,
   attendanceHrIncludesStaffInListing,
   attendanceHrStaffMatches,
   collapseFlexibleAttendanceReportRows,
   isAttendanceHrUnmappedSearch,
   type AttendanceHrReportRow,
+  type ListingGapPunchDay,
+  type ListingGapRosterDay,
 } from "@/lib/attendance-hr/report";
 import {
   expandFlexibleBiometricPairsByDeviceName,
@@ -562,7 +566,7 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
     // Page past PostgREST max_rows (~1000). A single .limit(2000) still returns only 1000,
     // and work_date desc then drops the start of the FEC month (e.g. Aug 28–Sep 5).
     // ponytail: full filtered range in 1k pages — fine for one site-month (~1–3k); if multi-site year exports grow past ~20k, stream/paginate the export path.
-    const rows: Array<Record<string, unknown>> = [];
+    let rows: Array<Record<string, unknown>> = [];
     for (let from = 0; ; from += ATTENDANCE_DAILY_LIST_PAGE_SIZE) {
       let q = context.supabase
         .from("attendance_daily_summary")
@@ -632,6 +636,46 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
           if (!page || page.length < ATTENDANCE_DAILY_LIST_PAGE_SIZE) break;
         }
       }
+    }
+
+    // Fill person-days that have roster or raw punches but no daily_summary row
+    // (flexible cross-site can mark a day "covered" without writing a mapped summary).
+    // Skip when a status chip is active — synthetics would bypass the status query.
+    if (staffFilter !== "unmapped" && !data.status) {
+      const fillStaffIds = new Set<string>();
+      if (staffFilter !== "none" && "ids" in staffFilter) {
+        for (const id of staffFilter.ids) fillStaffIds.add(id);
+      }
+      for (const row of rows) {
+        if (typeof row.staff_id === "string" && row.staff_id) fillStaffIds.add(row.staff_id);
+      }
+      if (deptStaffIds) {
+        for (const id of [...fillStaffIds]) {
+          if (!deptStaffIds.includes(id)) fillStaffIds.delete(id);
+        }
+      }
+      // Staff search → those ids. Site chip with no search → whole-site roster/punches.
+      // All-locations unfiltered → only staff already present in summary rows.
+      const gapStaffIds =
+        staffFilter !== "none" && "ids" in staffFilter
+          ? [...fillStaffIds]
+          : data.locationId
+            ? null
+            : fillStaffIds.size > 0
+              ? [...fillStaffIds]
+              : null;
+      const gapSources = await loadListingGapRosterAndPunchDays(context, {
+        staffIds: gapStaffIds,
+        locationId: data.locationId ?? null,
+        dateFrom: data.dateFrom,
+        dateTo: data.dateTo,
+      });
+      rows = appendMissingRosterAndPunchSummaryRows({
+        rows,
+        roster: gapSources.roster,
+        punchDays: gapSources.punchDays,
+        locationId: data.locationId ?? null,
+      });
     }
 
     return enrichAttendanceHrDailyRows(context, rows);
@@ -1906,6 +1950,9 @@ type StaffLookup = {
   flexible_attendance?: boolean | null;
   reporting_time_minutes?: number | null;
   buffer_minutes?: number | null;
+  expected_hours?: number | null;
+  break_minutes?: number | null;
+  weekly_off_weekday?: number | null;
 };
 type LocationLookup = {
   id: string;
@@ -1935,7 +1982,7 @@ async function enrichAttendanceHrDailyRows(
     loadByIds<StaffLookup>(
       context,
       "staff",
-      "id, full_name, employee_code, qid, employment_type, status, is_roaming, flexible_attendance, reporting_time_minutes, buffer_minutes",
+      "id, full_name, employee_code, qid, employment_type, status, is_roaming, flexible_attendance, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday",
       staffIds,
     ),
     loadByIds<LocationLookup>(context, "locations", "id, code, name, region", locationIds),
@@ -2098,11 +2145,18 @@ async function enrichAttendanceHrDailyRows(
     const secondmentHours = site?.secondment_hours != null ? Number(site.secondment_hours) : null;
     const jokerHours = site?.joker_hours != null ? Number(site.joker_hours) : null;
     const employmentType = staff?.employment_type ?? null;
-    const expectedMinutes = expectedShiftMinutes(normalizeAttendanceEmploymentRole(employmentType), {
-      permanentHours,
-      secondmentHours,
-      jokerHours,
-    });
+    const staffExpectedHours =
+      staff?.expected_hours != null && Number.isFinite(Number(staff.expected_hours))
+        ? Number(staff.expected_hours)
+        : null;
+    const expectedMinutes =
+      staffExpectedHours != null && staffExpectedHours >= 1 && staffExpectedHours <= 16
+        ? Math.round(staffExpectedHours * 60)
+        : expectedShiftMinutes(normalizeAttendanceEmploymentRole(employmentType), {
+            permanentHours,
+            secondmentHours,
+            jokerHours,
+          });
     const workDate = String(row.work_date ?? "").slice(0, 10);
     const staffId = typeof row.staff_id === "string" ? row.staff_id : null;
     // Only roster-derived times — never stored scheduled_in (often stale DEFAULT 08:00).
@@ -2134,15 +2188,24 @@ async function enrichAttendanceHrDailyRows(
       isRoaming: staff?.is_roaming,
       workLocationCount: staffId ? (workByStaffId.get(staffId)?.length ?? 0) : 0,
     });
-    const rosterWeekOff =
+    const rosterAtLocation = locationId
+      ? rosterByStaffLocationDate.get(`${staffId}|${locationId}|${workDate}`)
+      : undefined;
+    const rosterAny = staffId ? rosterByStaffDate.get(`${staffId}|${workDate}`) : undefined;
+    const hasRosterRow =
       Boolean(staffId && weekOffByStaffDate.has(`${staffId}|${workDate}`)) ||
-      Boolean(
-        (locationId
-          ? rosterByStaffLocationDate.get(`${staffId}|${locationId}|${workDate}`)
-          : undefined
-        )?.is_week_off,
-      ) ||
-      Boolean(staffId && rosterByStaffDate.get(`${staffId}|${workDate}`)?.is_week_off);
+      Boolean(rosterAtLocation) ||
+      Boolean(rosterAny);
+    const rosterWeekOffFlag =
+      Boolean(staffId && weekOffByStaffDate.has(`${staffId}|${workDate}`)) ||
+      Boolean(rosterAtLocation?.is_week_off) ||
+      Boolean(rosterAny?.is_week_off);
+    const rosterWeekOff = resolveWeekOff({
+      hasRosterRow,
+      rosterIsWeekOff: rosterWeekOffFlag,
+      workDate,
+      weeklyOffWeekday: staff?.weekly_off_weekday ?? null,
+    });
     if (rosterWeekOff) {
       scheduledIn = null;
       scheduledOut = null;
@@ -2217,7 +2280,10 @@ async function enrichAttendanceHrDailyRows(
       location_code: location?.code ?? null,
       location_name: location?.name ?? null,
       location_region: location?.region ?? null,
-      location_break_minutes: site?.break_minutes ?? null,
+      location_break_minutes:
+        staff?.break_minutes != null && Number.isFinite(Number(staff.break_minutes))
+          ? Number(staff.break_minutes)
+          : (site?.break_minutes ?? null),
       location_reporting_time_minutes: reportingMins,
       location_buffer_minutes: bufferMins,
       expected_minutes: expectedMinutes,
@@ -2577,6 +2643,81 @@ async function enrichAttendanceHrDailyRows(
   return collapseFlexibleAttendanceReportRows(withSites);
 }
 
+/** Roster + mapped punch days for listing gap fill (summary-only days otherwise vanish). */
+async function loadListingGapRosterAndPunchDays(
+  context: AuthContext,
+  opts: {
+    staffIds: string[] | null;
+    locationId: string | null;
+    dateFrom: string;
+    dateTo: string;
+  },
+): Promise<{ roster: ListingGapRosterDay[]; punchDays: ListingGapPunchDay[] }> {
+  const { staffIds, locationId, dateFrom, dateTo } = opts;
+  // Need a staff scope or a site — never scan every roster/punch globally.
+  if ((!staffIds || staffIds.length === 0) && !locationId) {
+    return { roster: [], punchDays: [] };
+  }
+
+  const roster: ListingGapRosterDay[] = [];
+  for (let from = 0; ; from += ATTENDANCE_DAILY_LIST_PAGE_SIZE) {
+    let q = context.supabase
+      .from("attendance_roster_assignments")
+      .select("staff_id, location_id, work_date, is_week_off")
+      .gte("work_date", dateFrom)
+      .lte("work_date", dateTo)
+      .order("id", { ascending: true })
+      .range(from, from + ATTENDANCE_DAILY_LIST_PAGE_SIZE - 1);
+    if (staffIds?.length) q = q.in("staff_id", staffIds);
+    else if (locationId) q = q.eq("location_id", locationId);
+    const { data: page, error } = await q;
+    if (error) throw error;
+    for (const row of page ?? []) {
+      const staffId = String(row.staff_id ?? "");
+      const loc = String(row.location_id ?? "");
+      const day = String(row.work_date ?? "").slice(0, 10);
+      if (!staffId || !loc || !day) continue;
+      roster.push({
+        staff_id: staffId,
+        location_id: loc,
+        work_date: day,
+        is_week_off: Boolean(row.is_week_off),
+      });
+    }
+    if (!page || page.length < ATTENDANCE_DAILY_LIST_PAGE_SIZE) break;
+  }
+
+  const punchSeen = new Set<string>();
+  const punchDays: ListingGapPunchDay[] = [];
+  for (let from = 0; ; from += ATTENDANCE_DAILY_LIST_PAGE_SIZE) {
+    let q = context.supabase
+      .from("attendance_logs")
+      .select("staff_id, location_id, attendance_date")
+      .not("staff_id", "is", null)
+      .gte("attendance_date", dateFrom)
+      .lte("attendance_date", dateTo)
+      .order("id", { ascending: true })
+      .range(from, from + ATTENDANCE_DAILY_LIST_PAGE_SIZE - 1);
+    if (staffIds?.length) q = q.in("staff_id", staffIds);
+    else if (locationId) q = q.eq("location_id", locationId);
+    const { data: page, error } = await q;
+    if (error) throw error;
+    for (const row of page ?? []) {
+      const staffId = String(row.staff_id ?? "");
+      const loc = String(row.location_id ?? "");
+      const day = String(row.attendance_date ?? "").slice(0, 10);
+      if (!staffId || !loc || !day) continue;
+      const key = `${staffId}|${loc}|${day}`;
+      if (punchSeen.has(key)) continue;
+      punchSeen.add(key);
+      punchDays.push({ staff_id: staffId, location_id: loc, work_date: day });
+    }
+    if (!page || page.length < ATTENDANCE_DAILY_LIST_PAGE_SIZE) break;
+  }
+
+  return { roster, punchDays };
+}
+
 /** Flexible / multisite staff who punched at `locationId` in range → staffId → attendance dates. */
 async function flexibleStaffPunchDaysAtLocation(
   context: AuthContext,
@@ -2756,7 +2897,7 @@ export const listAttendanceDeviceLogUsers = createAuthenticatedAction(
       locationIds.length && bioUserIds.length
         ? context.supabase
             .from("attendance_biometric_users")
-            .select("location_id, device_id, biometric_user_id, device_name, full_name")
+            .select("location_id, device_id, biometric_user_id, device_name, full_name, staff_id")
             .in("location_id", locationIds)
             .in("biometric_user_id", bioUserIds)
             .limit(5000)
@@ -2778,15 +2919,44 @@ export const listAttendanceDeviceLogUsers = createAuthenticatedAction(
         full_name: raw.full_name == null ? null : String(raw.full_name),
       })),
     );
+    const staffIdsForName = [
+      ...new Set(
+        (bioRes.data ?? [])
+          .map((raw) => (raw.staff_id == null ? "" : String(raw.staff_id)))
+          .filter(Boolean),
+      ),
+    ];
+    const staffNameRows = await loadByIds<{ id: string; full_name: string | null }>(
+      context,
+      "staff",
+      "id, full_name",
+      staffIdsForName,
+    );
+    const staffNameById = new Map(staffNameRows.map((row) => [row.id, row.full_name]));
+    const staffByLocUser = new Map<string, string>();
+    for (const raw of bioRes.data ?? []) {
+      const loc = String(raw.location_id ?? "");
+      const uid = String(raw.biometric_user_id ?? "").trim();
+      const staffId = raw.staff_id == null ? "" : String(raw.staff_id);
+      if (loc && uid && staffId) staffByLocUser.set(`${loc}|${uid}`, staffId);
+    }
     const locationById = new Map(locations.map((row) => [row.id, row]));
     const enriched = punches.map((row) => {
       const bio = lookupDeviceLogBioName(bioIndex, row.location_id, row.biometric_user_id, row.device_id);
       const location = locationById.get(row.location_id);
+      const staffId =
+        row.biometric_user_id?.trim()
+          ? staffByLocUser.get(`${row.location_id}|${row.biometric_user_id.trim()}`)
+          : undefined;
       return {
         locationId: row.location_id,
         locationCode: location?.code ?? null,
         biometricUserId: row.biometric_user_id,
-        deviceUserName: deviceLogDisplayName(row.device_user_name, bio),
+        deviceUserName: deviceLogDisplayName(
+          row.device_user_name,
+          bio,
+          staffId ? staffNameById.get(staffId) : null,
+        ),
       };
     });
     return { users: collectDeviceLogUsers(enriched) };
@@ -2889,6 +3059,21 @@ export const listAttendanceDeviceLogs = createAuthenticatedAction(
       const staffId = raw.staff_id == null ? "" : String(raw.staff_id);
       if (loc && uid && staffId) staffByLocUser.set(`${loc}|${uid}`, staffId);
     }
+    const staffIdsForName = [
+      ...new Set(
+        [
+          ...punches.map((row) => row.staff_id?.trim()).filter((id): id is string => Boolean(id)),
+          ...staffByLocUser.values(),
+        ],
+      ),
+    ];
+    const staffNameRows = await loadByIds<{ id: string; full_name: string | null }>(
+      context,
+      "staff",
+      "id, full_name",
+      staffIdsForName,
+    );
+    const staffNameById = new Map(staffNameRows.map((row) => [row.id, row.full_name]));
     const deviceById = new Map(devices.map((row) => [row.id, row]));
     const locationById = new Map(locations.map((row) => [row.id, row]));
     const listed: AttendanceDeviceLogRow[] = punches.map((row) => {
@@ -2899,6 +3084,7 @@ export const listAttendanceDeviceLogs = createAuthenticatedAction(
         row.biometric_user_id?.trim()
           ? staffByLocUser.get(`${row.location_id}|${row.biometric_user_id.trim()}`)
           : undefined;
+      const staffId = row.staff_id?.trim() || bioStaff || null;
       return {
         id: row.id,
         locationId: row.location_id,
@@ -2909,8 +3095,12 @@ export const listAttendanceDeviceLogs = createAuthenticatedAction(
         deviceSerial: device?.serial_number ?? null,
         deviceCode: device?.device_code ?? null,
         biometricUserId: row.biometric_user_id,
-        deviceUserName: deviceLogDisplayName(row.device_user_name, bio),
-        staffId: row.staff_id?.trim() || bioStaff || null,
+        deviceUserName: deviceLogDisplayName(
+          row.device_user_name,
+          bio,
+          staffId ? staffNameById.get(staffId) : null,
+        ),
+        staffId,
         punchAt: row.punch_at,
         inOutStatus: row.in_out_status,
         verifyMethod: row.verify_method,

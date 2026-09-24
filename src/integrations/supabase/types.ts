@@ -2028,6 +2028,9 @@ export type Database = {
           email: string | null
           employee_code: string
           employment_type: string | null
+          expected_hours: number | null
+          break_minutes: number | null
+          weekly_off_weekday: number | null
           flexible_attendance: boolean
           flexible_shift_end: string | null
           flexible_shift_start: string | null
@@ -2058,6 +2061,9 @@ export type Database = {
           email?: string | null
           employee_code: string
           employment_type?: string | null
+          expected_hours?: number | null
+          break_minutes?: number | null
+          weekly_off_weekday?: number | null
           flexible_attendance?: boolean
           flexible_shift_end?: string | null
           flexible_shift_start?: string | null
@@ -2088,6 +2094,9 @@ export type Database = {
           email?: string | null
           employee_code?: string
           employment_type?: string | null
+          expected_hours?: number | null
+          break_minutes?: number | null
+          weekly_off_weekday?: number | null
           flexible_attendance?: boolean
           flexible_shift_end?: string | null
           flexible_shift_start?: string | null

@@ -85,6 +85,7 @@ type RosterRegisterPanelProps = {
 };
 
 type Draft = {
+  locationId: string;
   shiftStart: string | null;
   shiftEnd: string | null;
   dayStatus: RosterDayStatus;
@@ -231,6 +232,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
         const patch = rosterPatchFromDayStatus(draft.dayStatus);
         return updateRosterAssignment({
           id: row.id,
+          locationId: draft.locationId,
           shiftStart: patch.needsShiftTimes ? draft.shiftStart : null,
           shiftEnd: patch.needsShiftTimes ? draft.shiftEnd : null,
           dayStatus: draft.dayStatus,
@@ -297,6 +299,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     const startEdit = (row: RosterRegisterRow) => {
       setEditingId(row.id);
       setDraft({
+        locationId: row.locationId,
         shiftStart: row.shiftStart,
         shiftEnd: row.shiftEnd,
         dayStatus: rosterDayStatusFromRow(row),
@@ -339,11 +342,39 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       { value: "sick_leave", label: t("people.roster.dutySickLeave") },
     ];
 
+    const locationOptions = useMemo(
+      () =>
+        (sites.data ?? []).map((loc) => ({
+          value: loc.id,
+          label: formatLocationLabel(loc.code, loc.name),
+          keywords: [loc.code, loc.name].filter(Boolean).join(" "),
+        })),
+      [sites.data],
+    );
+
+    const renderLocationEditor = () => {
+      if (!draft) return null;
+      return (
+        <SearchableSelect
+          value={draft.locationId}
+          onValueChange={(value) =>
+            setDraft((prev) => (prev && value ? { ...prev, locationId: value } : prev))
+          }
+          options={locationOptions}
+          triggerClassName="h-8 min-w-[8rem] text-xs"
+        />
+      );
+    };
+
     const renderDayStatusEditor = () => {
       if (!draft) return null;
       const needsTimes = rosterPatchFromDayStatus(draft.dayStatus).needsShiftTimes;
       return (
         <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label>{t("people.roster.col.location")}</Label>
+            {renderLocationEditor()}
+          </div>
           <div className="space-y-1.5">
             <Label>{t("people.roster.colDuty")}</Label>
             <SearchableSelect
@@ -684,7 +715,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
                         <div className="font-medium">{row.staffName || "—"}</div>
                         <div className="text-xs text-muted-foreground">{row.employeeCode || row.qid || ""}</div>
                       </TableCell>
-                      <TableCell>{row.locationCode ?? "—"}</TableCell>
+                      <TableCell>{editing ? renderLocationEditor() : (row.locationCode ?? "—")}</TableCell>
                       <TableCell>
                         {editing ? (
                           <ShiftRangeEditor
@@ -743,9 +774,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
               <DialogTitle>{t("people.roster.registerAmend")}</DialogTitle>
               <DialogDescription>
                 {editingRow
-                  ? `${editingRow.staffName || editingRow.employeeCode || "—"} · ${editingRow.workDate}${
-                      editingRow.locationCode ? ` · ${editingRow.locationCode}` : ""
-                    }`
+                  ? `${editingRow.staffName || editingRow.employeeCode || "—"} · ${editingRow.workDate}`
                   : null}
               </DialogDescription>
             </DialogHeader>

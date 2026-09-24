@@ -4,6 +4,7 @@ import type { Database } from "@/integrations/supabase/types";
 import { DEFAULT_RULES, DEFAULT_SHIFT } from "./constants";
 import {
   buildPunchRows,
+  deviceNameByBiometricFromMappings,
   mergeBiometricUsersById,
   persistMergedBiometricUsers,
   recalculateAttendanceRange,
@@ -43,39 +44,93 @@ export type AdmsIngestResult = {
   skipped: boolean;
 };
 
+type BioRow = {
+  biometric_user_id: unknown;
+  device_name: unknown;
+  staff_id: unknown;
+  previous_device_name?: unknown;
+  full_name?: unknown;
+  device_id?: unknown;
+};
+
+function mapBioRow(row: BioRow): ExistingBiometricUser & { fullName?: string | null } {
+  return {
+    biometricUserId: String(row.biometric_user_id),
+    deviceName: row.device_name == null ? null : String(row.device_name),
+    staffId: row.staff_id == null ? null : String(row.staff_id),
+    previousDeviceName:
+      row.previous_device_name == null ? null : String(row.previous_device_name),
+    fullName: row.full_name == null ? null : String(row.full_name),
+  };
+}
+
+/**
+ * Prefer this device's registry rows; fill gaps from any device at the same site
+ * so staff_id / device_name still resolve when USERINFO landed on a sibling terminal.
+ */
 async function loadExistingBiometricUsers(
   sb: AdminClient,
   companyId: string,
   locationId: string,
   deviceId: string,
-): Promise<ExistingBiometricUser[]> {
-  const { data, error } = await sb
-    .from("attendance_biometric_users")
-    .select("biometric_user_id, device_name, staff_id, previous_device_name")
-    .eq("company_id", companyId)
-    .eq("location_id", locationId)
-    .eq("device_id", deviceId);
-  if (error) {
-    const fallback = await sb
+): Promise<Array<ExistingBiometricUser & { fullName?: string | null }>> {
+  const selectCols =
+    "biometric_user_id, device_name, staff_id, previous_device_name, full_name, device_id";
+  const fallbackCols = "biometric_user_id, device_name, staff_id, full_name, device_id";
+
+  const load = async (cols: string, withDevice: boolean) => {
+    let q = sb
       .from("attendance_biometric_users")
-      .select("biometric_user_id, device_name, staff_id")
+      .select(cols)
       .eq("company_id", companyId)
-      .eq("location_id", locationId)
-      .eq("device_id", deviceId);
-    if (fallback.error) throw fallback.error;
-    return (fallback.data ?? []).map((row) => ({
-      biometricUserId: String(row.biometric_user_id),
-      deviceName: row.device_name == null ? null : String(row.device_name),
-      staffId: row.staff_id == null ? null : String(row.staff_id),
-      previousDeviceName: null,
-    }));
+      .eq("location_id", locationId);
+    if (withDevice) q = q.eq("device_id", deviceId);
+    return q;
+  };
+
+  let deviceRes = await load(selectCols, true);
+  if (deviceRes.error && /previous_device_name|full_name/i.test(deviceRes.error.message)) {
+    deviceRes = await load(fallbackCols, true);
   }
-  return (data ?? []).map((row) => ({
-    biometricUserId: String(row.biometric_user_id),
-    deviceName: row.device_name == null ? null : String(row.device_name),
-    staffId: row.staff_id == null ? null : String(row.staff_id),
-    previousDeviceName: row.previous_device_name == null ? null : String(row.previous_device_name),
-  }));
+  if (deviceRes.error) throw deviceRes.error;
+
+  let locRes = await load(selectCols, false);
+  if (locRes.error && /previous_device_name|full_name/i.test(locRes.error.message)) {
+    locRes = await load(fallbackCols, false);
+  }
+  if (locRes.error) throw locRes.error;
+
+  const byUser = new Map<string, ExistingBiometricUser & { fullName?: string | null }>();
+  // Location-wide first, then overwrite with this device so device-local mapping wins.
+  for (const row of (locRes.data ?? []) as BioRow[]) {
+    const mapped = mapBioRow(row);
+    const id = mapped.biometricUserId.trim();
+    if (!id) continue;
+    const prev = byUser.get(id);
+    if (!prev || (!prev.staffId && mapped.staffId) || (!prev.deviceName && mapped.deviceName)) {
+      byUser.set(id, {
+        ...prev,
+        ...mapped,
+        staffId: mapped.staffId ?? prev?.staffId ?? null,
+        deviceName: mapped.deviceName ?? prev?.deviceName ?? null,
+        fullName: mapped.fullName ?? prev?.fullName ?? null,
+      });
+    }
+  }
+  for (const row of (deviceRes.data ?? []) as BioRow[]) {
+    const mapped = mapBioRow(row);
+    const id = mapped.biometricUserId.trim();
+    if (!id) continue;
+    const prev = byUser.get(id);
+    byUser.set(id, {
+      ...prev,
+      ...mapped,
+      staffId: mapped.staffId ?? prev?.staffId ?? null,
+      deviceName: mapped.deviceName ?? prev?.deviceName ?? null,
+      fullName: mapped.fullName ?? prev?.fullName ?? null,
+    });
+  }
+  return [...byUser.values()];
 }
 
 function escapeIlike(value: string): string {
@@ -354,6 +409,7 @@ export async function ingestAdmsPayload(
   if (punches.length) {
     const existing = await loadExistingBiometricUsers(sb, companyId, input.device.location_id, input.device.id);
     const staffByBiometric = staffByBiometricFromMappings(existing);
+    const deviceNameByBiometric = deviceNameByBiometricFromMappings(existing);
     const rows = buildPunchRows({
       punches,
       companyId,
@@ -364,6 +420,7 @@ export async function ingestAdmsPayload(
       windowSeconds: DEFAULT_RULES.duplicateWindowSeconds,
       shift: DEFAULT_SHIFT,
       staffByBiometric,
+      deviceNameByBiometric,
     });
     for (const row of rows) {
       const { error } = await sb.from("attendance_logs").insert(row);

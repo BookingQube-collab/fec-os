@@ -101,6 +101,7 @@ export {
   attendanceHrListingDeviceUserId,
   attendanceHrToListingSource,
   collapseFlexibleAttendanceReportRows,
+  appendMissingRosterAndPunchSummaryRows,
   computeAttendanceHrReportKpis,
   isMappedAttendanceHrRow,
   attendanceHrRowMatchesLocation,
@@ -114,6 +115,7 @@ export {
   buildPunchRows,
   mergeBiometricUsersById,
   staffByBiometricFromMappings,
+  deviceNameByBiometricFromMappings,
   lookupStaffByBiometric,
 } from "./process";
 export { expectedRowsForDay, isWorkDateCovered, expectedOnDutyStaffIds } from "./roster-expected";
