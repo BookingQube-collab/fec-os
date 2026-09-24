@@ -71,6 +71,7 @@ import {
   flexibleDayFirstLastBiometricUserIds,
   flexibleDayFirstLastLocationIds,
   flexibleDayFirstLastPunchAt,
+  staffUsesCrossSiteDayMerge,
   type FlexibleCrossSitePunch,
 } from "@/lib/attendance-hr/flexible-cross-site";
 import {
@@ -1901,6 +1902,7 @@ type StaffLookup = {
   qid: string | null;
   employment_type: string | null;
   status?: string | null;
+  is_roaming?: boolean | null;
   flexible_attendance?: boolean | null;
   reporting_time_minutes?: number | null;
   buffer_minutes?: number | null;
@@ -1933,7 +1935,7 @@ async function enrichAttendanceHrDailyRows(
     loadByIds<StaffLookup>(
       context,
       "staff",
-      "id, full_name, employee_code, qid, employment_type, status, flexible_attendance, reporting_time_minutes, buffer_minutes",
+      "id, full_name, employee_code, qid, employment_type, status, is_roaming, flexible_attendance, reporting_time_minutes, buffer_minutes",
       staffIds,
     ),
     loadByIds<LocationLookup>(context, "locations", "id, code, name, region", locationIds),
@@ -1989,6 +1991,7 @@ async function enrichAttendanceHrDailyRows(
   ]);
 
   const staffById = new Map(staffRows.map((row) => [row.id, row]));
+  const workByStaffId = await fetchWorkLocationsByStaffId(context.supabase, staffIds);
   // Hide left staff from listing + KPIs/export (same gate as dashboard roster).
   const listingRows = rows.filter((row) => {
     const id = typeof row.staff_id === "string" ? row.staff_id : null;
@@ -2126,6 +2129,11 @@ async function enrichAttendanceHrDailyRows(
         : null,
     });
     const isFlexible = Boolean(staff?.flexible_attendance);
+    const crossSiteDayMerge = staffUsesCrossSiteDayMerge({
+      flexibleAttendance: staff?.flexible_attendance,
+      isRoaming: staff?.is_roaming,
+      workLocationCount: staffId ? (workByStaffId.get(staffId)?.length ?? 0) : 0,
+    });
     const rosterWeekOff =
       Boolean(staffId && weekOffByStaffDate.has(`${staffId}|${workDate}`)) ||
       Boolean(
@@ -2210,17 +2218,18 @@ async function enrichAttendanceHrDailyRows(
       secondment_hours: secondmentHours,
       joker_hours: jokerHours,
       flexible_attendance: Boolean(staff?.flexible_attendance),
+      cross_site_day_merge: crossSiteDayMerge,
     };
   });
 
-  const flexibleIds = [
+  const crossSiteIds = [
     ...new Set(
       enriched
-        .filter((row) => row.flexible_attendance && row.staff_id)
+        .filter((row) => row.cross_site_day_merge && row.staff_id)
         .map((row) => row.staff_id as string),
     ),
   ];
-  if (flexibleIds.length === 0 || !dateFrom || !dateTo) {
+  if (crossSiteIds.length === 0 || !dateFrom || !dateTo) {
     return collapseFlexibleAttendanceReportRows(enriched);
   }
 
@@ -2256,7 +2265,7 @@ async function enrichAttendanceHrDailyRows(
     punchesByStaffDay.set(key, list);
   };
 
-  // Map every biometric identity for flexible staff so logs with null staff_id still merge.
+  // Map every biometric identity for flexible / multisite staff so logs with null staff_id still merge.
   // Also include unmapped registry rows that share the same device_name (UA-DM 35 + INF-CC 24).
   const staffByLocUser = new Map<string, string>();
   const bioPairs: Array<{ locationId: string; biometricUserId: string }> = [];
@@ -2268,8 +2277,8 @@ async function enrichAttendanceHrDailyRows(
   }> = [];
   const deviceNames = new Set<string>();
 
-  for (let i = 0; i < flexibleIds.length; i += 200) {
-    const chunk = flexibleIds.slice(i, i + 200);
+  for (let i = 0; i < crossSiteIds.length; i += 200) {
+    const chunk = crossSiteIds.slice(i, i + 200);
     const { data: maps, error: mapErr } = await context.supabase
       .from("attendance_biometric_users")
       .select("staff_id, location_id, biometric_user_id, device_name")
@@ -2329,7 +2338,7 @@ async function enrichAttendanceHrDailyRows(
       .select(
         "id, staff_id, location_id, biometric_user_id, punch_at, attendance_date, probable_duplicate, excluded_from_calc",
       )
-      .in("staff_id", flexibleIds)
+      .in("staff_id", crossSiteIds)
       .gte("attendance_date", dateFrom)
       .lte("attendance_date", dateTo)
       .order("punch_at", { ascending: true })
@@ -2434,7 +2443,7 @@ async function enrichAttendanceHrDailyRows(
               ? staffByLocUser.get(`${locationId}|${biometricUserId.trim()}`) ?? ""
               : "") ||
             (punchName ? staffByDeviceName.get(punchName) ?? "" : "");
-          if (!staffId || !flexibleIds.includes(staffId)) continue;
+          if (!staffId || !crossSiteIds.includes(staffId)) continue;
           addPunch(
             staffId,
             punchDay(log.attendance_date, log.punch_at),
@@ -2463,7 +2472,7 @@ async function enrichAttendanceHrDailyRows(
   }
 
   const withSites = enriched.map((row) => {
-    if (!row.flexible_attendance || !row.staff_id) return row;
+    if (!row.cross_site_day_merge || !row.staff_id) return row;
     const key = `${row.staff_id}|${String(row.work_date).slice(0, 10)}`;
     const punches = punchesByStaffDay.get(key) ?? [];
     const { checkInLocationId, checkOutLocationId } = flexibleDayFirstLastLocationIds(punches);
@@ -2508,7 +2517,7 @@ async function enrichAttendanceHrDailyRows(
         rosterScheduledIn: row.scheduled_in,
         reportingTimeMinutes: row.location_reporting_time_minutes,
         bufferMinutes: row.location_buffer_minutes,
-        lateFromShiftStart: true,
+        lateFromShiftStart: Boolean(row.flexible_attendance),
       });
       const missed = usableCount === 1 || Boolean(actualIn) !== Boolean(actualOut);
       let status = row.status;
@@ -2550,7 +2559,7 @@ async function enrichAttendanceHrDailyRows(
   return collapseFlexibleAttendanceReportRows(withSites);
 }
 
-/** Flexible staff who punched at `locationId` in range → staffId → attendance dates. */
+/** Flexible / multisite staff who punched at `locationId` in range → staffId → attendance dates. */
 async function flexibleStaffPunchDaysAtLocation(
   context: AuthContext,
   locationId: string,
@@ -2561,14 +2570,27 @@ async function flexibleStaffPunchDaysAtLocation(
   const out = new Map<string, Set<string>>();
   let staffQ = context.supabase
     .from("staff")
-    .select("id")
-    .eq("flexible_attendance", true)
+    .select("id, is_roaming, flexible_attendance")
     .is("deleted_at", null)
     .limit(5000);
   if (staffIds?.length) staffQ = staffQ.in("id", staffIds);
-  const { data: flexStaff, error: staffErr } = await staffQ;
+  const { data: staffRows, error: staffErr } = await staffQ;
   if (staffErr) throw staffErr;
-  const flexIds = (flexStaff ?? []).map((row) => String(row.id)).filter(Boolean);
+  const candidateIds = (staffRows ?? []).map((row) => String(row.id)).filter(Boolean);
+  if (!candidateIds.length) return out;
+  const workByStaff = await fetchWorkLocationsByStaffId(context.supabase, candidateIds);
+  const flexIds = (staffRows ?? [])
+    .map((row) => {
+      const id = String(row.id);
+      return staffUsesCrossSiteDayMerge({
+        flexibleAttendance: (row as { flexible_attendance?: boolean | null }).flexible_attendance,
+        isRoaming: (row as { is_roaming?: boolean | null }).is_roaming,
+        workLocationCount: workByStaff.get(id)?.length ?? 0,
+      })
+        ? id
+        : null;
+    })
+    .filter((id): id is string => Boolean(id));
   if (!flexIds.length) return out;
 
   for (let i = 0; i < flexIds.length; i += 200) {

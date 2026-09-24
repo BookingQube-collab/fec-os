@@ -1,11 +1,27 @@
 /**
- * Cross-site day merge for staff with flexible_attendance.
+ * Cross-site day merge for flexible_attendance **and** multisite staff
+ * (MULTIPLE SITES badge: is_roaming or 2+ work locations).
  *
  * Choice (documented): the daily summary `location_id` is the location of the
  * earliest valid punch that day (first check-in site). Hours = last out − first
  * in across all sites. Non-anchor sites suppress false ABSENT / partial rows —
  * including roster-only ABSENT fillers at work locations with no punches.
+ *
+ * Flexible-only timing (reporting/buffer, lateFromShiftStart) stays gated on
+ * staff.flexible_attendance — this module only decides same-day site merge.
  */
+
+/** Matches directory MULTIPLE SITES / flexible flag for same-day cross-site merge. */
+export function staffUsesCrossSiteDayMerge(opts: {
+  flexibleAttendance?: boolean | null;
+  isRoaming?: boolean | null;
+  /** Distinct staff_work_locations rows (home is usually included when saved). */
+  workLocationCount?: number | null;
+}): boolean {
+  if (opts.flexibleAttendance) return true;
+  if (opts.isRoaming) return true;
+  return (opts.workLocationCount ?? 0) > 1;
+}
 
 export type FlexibleCrossSitePunch = {
   locationId: string;

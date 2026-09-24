@@ -51,6 +51,8 @@ export type AttendanceHrReportRow = {
   joker_hours?: number | null;
   /** staff.flexible_attendance — listing collapses multi-site same-day rows. */
   flexible_attendance?: boolean;
+  /** Flexible or MULTIPLE SITES — same-day cross-site collapse / punch enrich. */
+  cross_site_day_merge?: boolean;
   /** Location of the earliest usable punch (check-in site). */
   check_in_location_id?: string | null;
   check_out_location_id?: string | null;
@@ -186,7 +188,7 @@ function laterIso(a: string | null | undefined, b: string | null | undefined): s
 }
 
 /**
- * Safety net: one row per staff+date for flexible_attendance staff when multi-site
+ * Safety net: one row per staff+date for flexible / multisite staff when multi-site
  * summaries still exist (stale ABSENT fillers). Prefer the punched / timed row;
  * merge earliest in + latest out across the group.
  */
@@ -197,7 +199,8 @@ export function collapseFlexibleAttendanceReportRows(
   const passthrough: AttendanceHrReportRow[] = [];
 
   for (const row of rows) {
-    if (!row.flexible_attendance || !row.staff_id) {
+    const merge = Boolean(row.flexible_attendance || row.cross_site_day_merge);
+    if (!merge || !row.staff_id) {
       passthrough.push(row);
       continue;
     }
@@ -248,7 +251,7 @@ export function collapseFlexibleAttendanceReportRows(
       rosterScheduledIn: scheduledIn,
       reportingTimeMinutes: winner.location_reporting_time_minutes,
       bufferMinutes: winner.location_buffer_minutes,
-      lateFromShiftStart: true,
+      lateFromShiftStart: Boolean(winner.flexible_attendance),
     });
     let status = winner.status;
     if (missed) status = "missed_punch";

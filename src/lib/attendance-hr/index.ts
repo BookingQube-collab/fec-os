@@ -48,6 +48,7 @@ export {
   EXTENDED_SHIFT_MINUTES,
 } from "./shift-policy";
 export {
+  staffUsesCrossSiteDayMerge,
   flexibleDayAnchorLocationId,
   flexibleDayFirstLastLocationIds,
   flexibleDayFirstLastPunchAt,

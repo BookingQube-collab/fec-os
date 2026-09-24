@@ -15,11 +15,20 @@ import {
   flexibleNoPunchWriteAtLocation,
   formatFlexibleCrossSiteDeviceUserLabel,
   formatFlexibleCrossSiteLocationLabel,
+  staffUsesCrossSiteDayMerge,
 } from "./flexible-cross-site";
 
 describe("flexible cross-site attendance", () => {
   const inf = "loc-inf";
   const ua = "loc-ua";
+
+  it("detects cross-site merge for flexible and MULTIPLE SITES staff", () => {
+    expect(staffUsesCrossSiteDayMerge({ flexibleAttendance: true })).toBe(true);
+    expect(staffUsesCrossSiteDayMerge({ isRoaming: true })).toBe(true);
+    expect(staffUsesCrossSiteDayMerge({ workLocationCount: 2 })).toBe(true);
+    expect(staffUsesCrossSiteDayMerge({ workLocationCount: 1 })).toBe(false);
+    expect(staffUsesCrossSiteDayMerge({})).toBe(false);
+  });
 
   it("anchors the day at the location of the earliest punch", () => {
     expect(

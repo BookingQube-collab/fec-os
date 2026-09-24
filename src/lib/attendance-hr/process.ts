@@ -28,6 +28,7 @@ import {
   flexibleDayHasQualifyingPunches,
   flexibleDayRecalcAction,
   flexibleNoPunchWriteAtLocation,
+  staffUsesCrossSiteDayMerge,
   type FlexibleCrossSitePunch,
 } from "./flexible-cross-site";
 import { deviceLogUserPairsOrFilter } from "./device-logs";
@@ -292,14 +293,14 @@ export async function recalculateAttendanceRange(
         ? supabase
             .from("staff")
             .select(
-              "id, location_id, status, employment_type, flexible_attendance, reporting_time_minutes, buffer_minutes",
+              "id, location_id, status, employment_type, is_roaming, flexible_attendance, reporting_time_minutes, buffer_minutes",
             )
             .in("id", staffScope)
             .is("deleted_at", null)
         : supabase
             .from("staff")
             .select(
-              "id, location_id, status, employment_type, flexible_attendance, reporting_time_minutes, buffer_minutes",
+              "id, location_id, status, employment_type, is_roaming, flexible_attendance, reporting_time_minutes, buffer_minutes",
             )
             .is("deleted_at", null)
             .limit(5000),
@@ -368,6 +369,41 @@ export async function recalculateAttendanceRange(
       ];
     }),
   );
+  const roamingByStaffId = new Map(
+    (staffRows ?? []).map((row) => [
+      String(row.id),
+      Boolean((row as { is_roaming?: boolean | null }).is_roaming),
+    ]),
+  );
+  const workLocationCountByStaffId = new Map<string, number>();
+  {
+    const ids = (staffRows ?? []).map((row) => String(row.id)).filter(Boolean);
+    for (let i = 0; i < ids.length; i += 200) {
+      const chunk = ids.slice(i, i + 200);
+      const { data: links, error: linkErr } = await supabase
+        .from("staff_work_locations")
+        .select("staff_id")
+        .in("staff_id", chunk);
+      if (linkErr) throw linkErr;
+      for (const link of links ?? []) {
+        const sid = String(link.staff_id ?? "");
+        if (!sid) continue;
+        workLocationCountByStaffId.set(sid, (workLocationCountByStaffId.get(sid) ?? 0) + 1);
+      }
+    }
+  }
+  const crossSiteStaffIdSet = new Set(
+    (staffRows ?? [])
+      .map((row) => String(row.id))
+      .filter((id) =>
+        staffUsesCrossSiteDayMerge({
+          flexibleAttendance: flexibleByStaffId.get(id)?.flexibleAttendance,
+          isRoaming: roamingByStaffId.get(id),
+          workLocationCount: workLocationCountByStaffId.get(id) ?? 0,
+        }),
+      )
+      .filter((id) => !staffScope || staffScope.includes(id)),
+  );
 
   function timingForStaff(staffId: string | null | undefined) {
     const flex = staffId ? flexibleByStaffId.get(staffId) : undefined;
@@ -379,24 +415,21 @@ export async function recalculateAttendanceRange(
     return { flex, ...resolved };
   }
 
-  const flexibleStaffIds = [...flexibleByStaffId.entries()]
-    .filter(([, flex]) => flex.flexibleAttendance)
-    .map(([id]) => id)
-    .filter((id) => !staffScope || staffScope.includes(id));
+  const crossSiteStaffIds = [...crossSiteStaffIdSet];
 
-  /** staffId|workDate → punches from every location (flexible multi-site merge). */
+  /** staffId|workDate → punches from every location (flexible / multisite merge). */
   const crossPunchesByStaffDay = new Map<string, Array<FlexibleCrossSitePunch & { id?: string; device_id?: string | null; biometric_user_id?: string | null }>>();
   /** staffId|workDate → roster row from any site (prefer this location). */
   const crossRosterByStaffDay = new Map<string, RosterDayRow>();
 
-  if (flexibleStaffIds.length) {
+  if (crossSiteStaffIds.length) {
     const buildCrossLogsQuery = () =>
       supabase
         .from("attendance_logs")
         .select(
           "id, location_id, staff_id, biometric_user_id, device_id, punch_at, probable_duplicate, excluded_from_calc, attendance_date",
         )
-        .in("staff_id", flexibleStaffIds)
+        .in("staff_id", crossSiteStaffIds)
         .gte("attendance_date", dateFrom)
         .lte("attendance_date", dateTo)
         .order("id", { ascending: true });
@@ -404,7 +437,7 @@ export async function recalculateAttendanceRange(
       supabase
         .from("attendance_roster_assignments")
         .select("staff_id, work_date, shift_template_id, shift_start, shift_end, is_week_off, location_id")
-        .in("staff_id", flexibleStaffIds)
+        .in("staff_id", crossSiteStaffIds)
         .gte("work_date", dateFrom)
         .lte("work_date", dateTo)
         .order("id", { ascending: true });
@@ -444,8 +477,8 @@ export async function recalculateAttendanceRange(
       deviceName?: string | null;
     }> = [];
     const deviceNames = new Set<string>();
-    for (let i = 0; i < flexibleStaffIds.length; i += 200) {
-      const chunk = flexibleStaffIds.slice(i, i + 200);
+    for (let i = 0; i < crossSiteStaffIds.length; i += 200) {
+      const chunk = crossSiteStaffIds.slice(i, i + 200);
       const { data: maps, error: mapErr } = await supabase
         .from("attendance_biometric_users")
         .select("staff_id, location_id, biometric_user_id, device_name")
@@ -664,7 +697,7 @@ export async function recalculateAttendanceRange(
       rosterRow = crossRosterRow;
     }
 
-    if (flex?.flexibleAttendance && staffId && workDate) {
+    if (staffId && workDate && crossSiteStaffIdSet.has(staffId)) {
       const across =
         crossPunches.length > 0
           ? crossPunches
@@ -810,7 +843,7 @@ export async function recalculateAttendanceRange(
     const staffId = (punches[0]?.staff_id as string | null) ?? null;
     if (staffId && workDate) covered.add(`${staffId}|${workDate}`);
   }
-  // Flexible staff who punched at another site: treat as covered here so we do not emit ABSENT.
+  // Flexible / multisite staff who punched at another site: treat as covered here so we do not emit ABSENT.
   for (const [crossKey, crossPunches] of crossPunchesByStaffDay) {
     if (!flexibleDayHasQualifyingPunches(crossPunches)) continue;
     const action = flexibleDayRecalcAction({ locationId, punchesAcrossSites: crossPunches });
@@ -861,7 +894,7 @@ export async function recalculateAttendanceRange(
       });
       expectedIds.add(leaveStaffId);
     }
-    // Flexible week-off only rostered at another site: emit Weekly off at home when this is home.
+    // Cross-site week-off only rostered at another site: emit Weekly off at home when this is home.
     for (const [crossKey, crossRow] of crossRosterByStaffDay) {
       if (!crossRow.is_week_off) continue;
       const sep = crossKey.lastIndexOf("|");
@@ -869,7 +902,7 @@ export async function recalculateAttendanceRange(
       const crossDate = sep >= 0 ? crossKey.slice(sep + 1) : "";
       if (crossDate !== workDate || !crossStaffId || expectedIds.has(crossStaffId)) continue;
       if (staffScope && !staffScope.includes(crossStaffId)) continue;
-      if (!flexibleByStaffId.get(crossStaffId)?.flexibleAttendance) continue;
+      if (!crossSiteStaffIdSet.has(crossStaffId)) continue;
       const homeId = homeLocationByStaffId.get(crossStaffId) || "";
       if (homeId && homeId !== locationId) continue;
       expected.push({
@@ -892,7 +925,7 @@ export async function recalculateAttendanceRange(
         Boolean(rosterRow.is_week_off) || Boolean(crossRosterRow?.is_week_off);
       const hasLeave = Boolean(leaveRow?.leave_type);
       const flex = flexibleByStaffId.get(staffId);
-      if (flex?.flexibleAttendance) {
+      if (crossSiteStaffIdSet.has(staffId)) {
         const cross = crossPunchesByStaffDay.get(`${staffId}|${workDate}`) ?? [];
         if (flexibleDayHasQualifyingPunches(cross)) {
           // Punch day should already be covered / suppressed; never emit a second ABSENT.
@@ -985,7 +1018,7 @@ export async function recalculateAttendanceRange(
   const mapped = summaryRows.filter((row) => row.staff_id);
   const unmapped = summaryRows.filter((row) => !row.staff_id);
 
-  // Drop stale ABSENT / partial rows at non-anchor sites for flexible multi-site days.
+  // Drop stale ABSENT / partial rows at non-anchor sites for flexible / multisite days.
   const deleteSeen = new Set<string>();
   const uniqueDeletes = summaryDeletes.filter((row) => {
     const k = `${row.location_id}|${row.staff_id}|${row.work_date}`;

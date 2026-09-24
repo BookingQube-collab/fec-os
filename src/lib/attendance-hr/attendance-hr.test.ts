@@ -766,6 +766,73 @@ describe("HR report row helpers", () => {
     expect(listing.locationLabel).toBe("UA-DM → INF-CC");
   });
 
+  it("collapses multisite permanent ABSENT siblings without flexible_attendance (Albert Go pattern)", () => {
+    const base = {
+      staff_id: "albert",
+      biometric_user_id: "3",
+      work_date: "2026-08-29",
+      late_minutes: 0,
+      early_leave_minutes: 0,
+      overtime_minutes: 0,
+      missed_punch: false,
+      employment_type: "permanent",
+      staff_name: "ALBERT GO",
+      employee_code: "INF-CC-STF03",
+      qid: null,
+      location_name: null,
+      location_region: null,
+      flexible_attendance: false,
+      cross_site_day_merge: true,
+    } as const;
+    const collapsed = collapseFlexibleAttendanceReportRows([
+      {
+        ...base,
+        id: "absent-kds",
+        location_id: "kds",
+        location_code: "KDS-CC",
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        punch_count: 0,
+        worked_minutes: null,
+      },
+      {
+        ...base,
+        id: "absent-inf",
+        location_id: "inf",
+        location_code: "INF-CC",
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        punch_count: 0,
+        worked_minutes: null,
+      },
+      {
+        ...base,
+        id: "present-ua",
+        location_id: "ua",
+        location_code: "UA-DM",
+        status: "present",
+        actual_in: "2026-08-29T09:56:00.000Z",
+        actual_out: "2026-08-29T19:12:00.000Z",
+        punch_count: 2,
+        worked_minutes: 556,
+        scheduled_in: "2026-08-29T09:00:00.000Z",
+        location_reporting_time_minutes: 0,
+        location_buffer_minutes: 0,
+      },
+    ]);
+    expect(collapsed).toHaveLength(1);
+    expect(collapsed[0]?.id).toBe("present-ua");
+    expect(collapsed[0]?.status).toBe("present");
+    expect(collapsed[0]?.actual_in).toBe("2026-08-29T09:56:00.000Z");
+    expect(collapsed[0]?.actual_out).toBe("2026-08-29T19:12:00.000Z");
+    expect(collapsed[0]?.worked_minutes).toBe(556);
+    expect(collapsed[0]?.location_code).toBe("UA-DM");
+    // Permanent multisite: late vs reporting clock, not shift-start flexible rule.
+    expect(collapsed[0]?.late_minutes).toBe(56);
+  });
+
   it("prefers device name over Unmapped label for listing display", () => {
     expect(attendanceHrDisplayStaffName({ staff_name: null, device_name: "Sara Khan" })).toBe("Sara Khan");
     expect(attendanceHrDisplayStaffName({ staff_name: null, device_name: null }, "Unmapped")).toBe("Unmapped");
