@@ -1,5 +1,5 @@
 -- Payroll Excel / historical import upgrade (additive).
--- Preserves existing periods/lines; adds snapshots, import recon, adjustments, cash.
+-- Preserves existing periods/lines. Adds snapshots, import recon, adjustments, cash.
 
 -- ---------------------------------------------------------------------------
 -- Policy seeds
