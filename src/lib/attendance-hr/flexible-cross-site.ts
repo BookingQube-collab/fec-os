@@ -167,6 +167,25 @@ export function flexibleDayRecalcAction(opts: {
 }
 
 /**
+ * Anchor site must leave a daily_summary when cross-site punches exist.
+ * Alias / staff-scoped grouping can put punches in the cross map without a
+ * groups write — marking "covered" alone blanks the grid (Maheraj / cafe).
+ */
+export function crossSiteAnchorNeedsSummaryWrite(opts: {
+  locationId: string;
+  punchesAcrossSites: FlexibleCrossSitePunch[];
+  alreadyWroteSummary: boolean;
+}): boolean {
+  if (opts.alreadyWroteSummary) return false;
+  return (
+    flexibleDayRecalcAction({
+      locationId: opts.locationId,
+      punchesAcrossSites: opts.punchesAcrossSites,
+    }) === "write_merged"
+  );
+}
+
+/**
  * No-punch flexible day at a non-home work site:
  * - Week-off / leave must still write here (roster was amended at this site).
  * - Plain scheduled days only emit ABSENT at home — suppress fillers elsewhere.

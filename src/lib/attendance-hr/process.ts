@@ -24,6 +24,7 @@ import {
 } from "./mapping-merge";
 import { previewAttendanceFile } from "./preview";
 import {
+  crossSiteAnchorNeedsSummaryWrite,
   expandFlexibleBiometricPairsByDeviceName,
   flexibleDayHasQualifyingPunches,
   flexibleDayRecalcAction,
@@ -991,6 +992,89 @@ export async function recalculateAttendanceRange(
     processed += 1;
   }
 
+  /** Write Present from cross-site punches when groups never emitted a summary for the anchor. */
+  function writeMergedSummaryFromCross(
+    staffId: string,
+    workDate: string,
+    crossPunches: Array<
+      FlexibleCrossSitePunch & { id?: string; device_id?: string | null; biometric_user_id?: string | null }
+    >,
+  ) {
+    let rosterRow = rosterByKey.get(`${staffId}|${workDate}`);
+    const crossRosterRow = crossRosterByStaffDay.get(`${staffId}|${workDate}`);
+    if (crossRosterRow?.is_week_off && !rosterRow?.is_week_off) {
+      rosterRow = {
+        ...crossRosterRow,
+        shift_template_id: null,
+        shift_start: null,
+        shift_end: null,
+        is_week_off: true,
+      };
+    } else if (!rosterRow && crossRosterRow) {
+      rosterRow = crossRosterRow;
+    }
+    const leaveRow = leaveByKey.get(`${staffId}|${workDate}`);
+    const punchSource = crossPunches.map((p) => ({
+      id: p.id,
+      punch_at: p.punchAt,
+      probable_duplicate: p.probableDuplicate,
+      excluded_from_calc: p.excludedFromCalc,
+      device_id: p.device_id,
+      biometric_user_id: p.biometric_user_id,
+    }));
+    const rosterShift = shiftForRosterDay(rosterRow, shiftById);
+    const timing = timingForStaff(staffId);
+    const shift = applyAttendanceShiftPolicy(rosterShift ?? DEFAULT_SHIFT, shiftPolicyOpts(staffId, timing));
+    const shiftForCalc: ShiftTemplateInput = rosterShift
+      ? { ...shift, startTime: rosterShift.startTime, endTime: rosterShift.endTime, overnight: rosterShift.overnight }
+      : { ...shift, startTime: "", endTime: "" };
+    const dayWeekOff = weekOffForDay(staffId, workDate, rosterRow ?? null, Boolean(leaveRow?.leave_type));
+    const marked = markProbableDuplicates(
+      punchSource.map((p) => ({
+        id: p.id,
+        punchAt: p.punch_at,
+        probableDuplicate: false,
+        excludedFromCalc: false,
+      })),
+      rules.duplicateWindowSeconds,
+    );
+    const calc = calculateDailyAttendance(marked, {
+      workDate,
+      scheduled: Boolean(rosterRow) && !dayWeekOff,
+      weekOff: dayWeekOff,
+      holidayName: holidayByDate.get(workDate) ?? null,
+      leaveType: (leaveRow?.leave_type as "annual_leave" | "sick_leave" | "unpaid_leave" | null) ?? null,
+      shift: shiftForCalc,
+      rules,
+    });
+    const deviceSample = punchSource.find((p) => p.device_id) ?? punchSource[0];
+    summaryRows.push({
+      location_id: locationId,
+      staff_id: staffId,
+      work_date: workDate,
+      subject_key: subjectKey(staffId, "", ""),
+      actual_in: calc.actualIn,
+      actual_out: calc.actualOut,
+      ...scheduledBounds(workDate, shiftForCalc),
+      status: calc.status,
+      status_flags: calc.statusFlags,
+      late_minutes: calc.lateMinutes,
+      early_leave_minutes: calc.earlyLeaveMinutes,
+      overtime_minutes: calc.overtimeMinutes,
+      missed_punch: calc.missedPunch,
+      punch_count: calc.validPunchCount,
+      raw_punch_times: calc.rawPunchTimes,
+      worked_minutes: calc.workedMinutes,
+      regular_minutes: calc.regularMinutes,
+      exception_reason: calc.exceptionReason,
+      biometric_user_id: deviceSample?.biometric_user_id ?? null,
+      device_id: deviceSample?.device_id ?? null,
+      shift_template_id: rosterRow?.shift_template_id ?? null,
+    });
+    processed += 1;
+    voidFlexibleKeepOnly(staffId, workDate, locationId);
+  }
+
   let workStaffIds: string[] = [];
   if (!staffScope) {
     try {
@@ -1024,6 +1108,22 @@ export async function recalculateAttendanceRange(
       if (staffId && workDate) {
         covered.add(crossKey);
         queueSummaryDelete(locationId, staffId, workDate);
+      }
+    } else if (
+      crossSiteAnchorNeedsSummaryWrite({
+        locationId,
+        punchesAcrossSites: crossPunches,
+        alreadyWroteSummary: covered.has(crossKey),
+      })
+    ) {
+      // Alias-resolved punches can sit in the cross map while staff-scoped grouping
+      // never wrote — cover-without-write blanked Maheraj / cafe grids.
+      const sep = crossKey.lastIndexOf("|");
+      const staffId = sep >= 0 ? crossKey.slice(0, sep) : "";
+      const workDate = sep >= 0 ? crossKey.slice(sep + 1) : "";
+      if (staffId && workDate) {
+        writeMergedSummaryFromCross(staffId, workDate, crossPunches);
+        covered.add(crossKey);
       }
     } else if (action === "write_merged") {
       covered.add(crossKey);
@@ -1131,6 +1231,15 @@ export async function recalculateAttendanceRange(
       if (crossSiteStaffIdSet.has(staffId)) {
         const cross = crossPunchesByStaffDay.get(`${staffId}|${workDate}`) ?? [];
         if (flexibleDayHasQualifyingPunches(cross)) {
+          if (
+            crossSiteAnchorNeedsSummaryWrite({
+              locationId,
+              punchesAcrossSites: cross,
+              alreadyWroteSummary: covered.has(`${staffId}|${workDate}`),
+            })
+          ) {
+            writeMergedSummaryFromCross(staffId, workDate, cross);
+          }
           covered.add(`${staffId}|${workDate}`);
           continue;
         }

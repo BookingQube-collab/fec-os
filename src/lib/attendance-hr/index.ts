@@ -56,6 +56,7 @@ export {
   flexibleDayFirstLastPunchAt,
   flexibleDayFirstLastBiometricUserIds,
   flexibleDayRecalcAction,
+  crossSiteAnchorNeedsSummaryWrite,
   flexibleDayHasQualifyingPunches,
   flexibleDayNonAnchorPunchLocations,
   formatFlexibleCrossSiteLocationLabel,

@@ -4,6 +4,7 @@ import { calculateDailyAttendance } from "./calculate";
 import { DEFAULT_SHIFT } from "./constants";
 import { applyAttendanceShiftPolicy, resolveReportingAndBuffer } from "./shift-policy";
 import {
+  crossSiteAnchorNeedsSummaryWrite,
   expandFlexibleBiometricPairsByDeviceName,
   flexibleDayAnchorLocationId,
   flexibleDayFirstLastBiometricUserIds,
@@ -161,6 +162,34 @@ describe("flexible cross-site attendance", () => {
     expect(
       flexibleNoPunchWriteAtLocation({ isHomeLocation: true, isWeekOff: false, hasLeave: false }),
     ).toBe("write");
+  });
+
+  it("requires a summary write at the punch-anchor when groups never wrote", () => {
+    const punches = [
+      { locationId: ua, punchAt: "2026-09-20T05:00:00.000Z" },
+      { locationId: ua, punchAt: "2026-09-20T14:00:00.000Z" },
+    ];
+    expect(
+      crossSiteAnchorNeedsSummaryWrite({
+        locationId: ua,
+        punchesAcrossSites: punches,
+        alreadyWroteSummary: false,
+      }),
+    ).toBe(true);
+    expect(
+      crossSiteAnchorNeedsSummaryWrite({
+        locationId: ua,
+        punchesAcrossSites: punches,
+        alreadyWroteSummary: true,
+      }),
+    ).toBe(false);
+    expect(
+      crossSiteAnchorNeedsSummaryWrite({
+        locationId: inf,
+        punchesAcrossSites: punches,
+        alreadyWroteSummary: false,
+      }),
+    ).toBe(false);
   });
 
   it("merges cross-site in/out into one present day with hours", () => {
