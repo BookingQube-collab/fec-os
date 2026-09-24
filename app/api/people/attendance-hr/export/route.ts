@@ -27,6 +27,7 @@ import {
   buildDeviceLogDaysCsv,
   deviceLogDayExportObject,
 } from "@/lib/attendance-hr/device-logs";
+import { buildAttendanceMatrixExcelSheet } from "@/lib/attendance-hr/attendance-matrix";
 
 function asUuid(value: string | null): string | null {
   if (!value) return null;
@@ -234,10 +235,21 @@ export async function GET(request: Request) {
 
       const XLSX = await import("xlsx");
       const wb = XLSX.utils.book_new();
+      const matrixSheet = buildAttendanceMatrixExcelSheet(listing, dateFrom, dateTo);
+      const matrixWs = XLSX.utils.aoa_to_sheet(matrixSheet.aoa);
+      matrixWs["!merges"] = matrixSheet.merges;
+      // Same SheetJS freeze pattern as roster-export; pin No./Staff/Location + header rows.
+      matrixWs["!freeze"] = matrixSheet.freeze;
+      matrixWs["!cols"] = [
+        { wch: 5 },
+        { wch: 22 },
+        { wch: 12 },
+        ...matrixSheet.aoa[1]!.slice(3).map(() => ({ wch: 12 })),
+      ];
+      XLSX.utils.book_append_sheet(wb, matrixWs, "Attendance Matrix");
       const sheet = (name: string, rows: unknown[]) => {
         XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows as Record<string, unknown>[]), name.slice(0, 31));
       };
-      sheet("HR Summary", display);
       sheet("Daily Attendance", display);
       sheet("Raw Punches", punches);
       sheet("Missed Punches", missed.map((r) => ({

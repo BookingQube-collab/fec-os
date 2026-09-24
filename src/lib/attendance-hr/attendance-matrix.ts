@@ -128,4 +128,111 @@ export function attendanceGridCellContent(row: AttendanceListingSource): Attenda
   };
 }
 
+/** Short site code for matrix panels — same split the UI day-cell footer uses. */
+export function attendanceMatrixLocationCode(locationLabel: string | null | undefined): string {
+  if (!locationLabel?.trim()) return "";
+  return locationLabel.split("—")[0]?.trim() || locationLabel.trim();
+}
+
+/** Staff sticky Location: first non-empty day-cell location code for that person. */
+export function attendanceMatrixStaffLocation(
+  staffId: string,
+  dates: string[],
+  byStaffDate: Map<string, AttendanceMatrixRow[]>,
+): string {
+  for (const ymd of dates) {
+    const entries = byStaffDate.get(rosterMatrixCellKey(staffId, ymd));
+    if (!entries?.length) continue;
+    for (const entry of entries) {
+      const code = attendanceMatrixLocationCode(entry.locationLabel);
+      if (code) return code;
+    }
+  }
+  return "";
+}
+
+function monthHeaderLabel(monthKey: string): string {
+  return new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric", timeZone: "UTC" })
+    .format(new Date(`${monthKey}-01T12:00:00.000Z`))
+    .toUpperCase();
+}
+
+function weekdayShortEn(ymd: string): string {
+  return new Intl.DateTimeFormat("en-GB", { weekday: "short", timeZone: "UTC" }).format(
+    new Date(`${ymd.slice(0, 10)}T12:00:00.000Z`),
+  );
+}
+
+function attendanceMatrixExcelCellText(entries: AttendanceMatrixRow[]): string {
+  if (!entries.length) return "";
+  return entries
+    .map((entry) => {
+      const content = attendanceGridCellContent(entry);
+      const loc = attendanceMatrixLocationCode(entry.locationLabel);
+      if (content.secondary == null) {
+        const primary = content.tone === "weekly_off" ? "OFF" : content.primary;
+        return loc ? `${primary}\n${loc}` : primary;
+      }
+      const lines = [content.primary, content.secondary];
+      if (content.meta) lines.push(content.meta);
+      if (loc) lines.push(loc);
+      return lines.join("\n");
+    })
+    .join("\n\n");
+}
+
+export type AttendanceMatrixExcelSheet = {
+  aoa: (string | number)[][];
+  merges: Array<{ s: { r: number; c: number }; e: { r: number; c: number } }>;
+  /** Freeze No. + Staff + Location (cols) and 3 header rows. */
+  freeze: { xSplit: number; ySplit: number };
+};
+
+const MATRIX_LEFT_COLS = 3;
+
+/** AOA + merges + freeze for the Attendance Report panel layout. */
+export function buildAttendanceMatrixExcelSheet(
+  rows: AttendanceListingSource[],
+  dateFrom: string,
+  dateTo: string,
+): AttendanceMatrixExcelSheet {
+  const matrix = buildAttendanceMatrix(rows, dateFrom, dateTo);
+  const { dates, staff, byStaffDate, monthSpans } = matrix;
+
+  const monthRow: (string | number)[] = ["", "", ""];
+  for (const span of monthSpans) {
+    monthRow.push(monthHeaderLabel(span.monthKey));
+    for (let i = 1; i < span.count; i++) monthRow.push("");
+  }
+  const weekdayRow: (string | number)[] = ["No.", "Staff", "Location", ...dates.map(weekdayShortEn)];
+  const dayRow: (string | number)[] = ["", "", "", ...dates.map((ymd) => Number(ymd.slice(8, 10)))];
+
+  const dataRows = staff.map((person, index) => {
+    const staffCell = [person.staffName || "—", person.employeeCode || person.qid || ""]
+      .filter(Boolean)
+      .join("\n");
+    const location = attendanceMatrixStaffLocation(person.staffId, dates, byStaffDate);
+    const dayCells = dates.map((ymd) => {
+      const entries = byStaffDate.get(rosterMatrixCellKey(person.staffId, ymd)) ?? [];
+      return attendanceMatrixExcelCellText(entries);
+    });
+    return [index + 1, staffCell, location, ...dayCells];
+  });
+
+  const merges: AttendanceMatrixExcelSheet["merges"] = [];
+  for (const span of monthSpans) {
+    if (span.count <= 1) continue;
+    merges.push({
+      s: { r: 0, c: MATRIX_LEFT_COLS + span.startIdx },
+      e: { r: 0, c: MATRIX_LEFT_COLS + span.startIdx + span.count - 1 },
+    });
+  }
+
+  return {
+    aoa: [monthRow, weekdayRow, dayRow, ...dataRows],
+    merges,
+    freeze: { xSplit: MATRIX_LEFT_COLS, ySplit: 3 },
+  };
+}
+
 export { isWeekendYmd, rosterMatrixCellKey, rosterMonthSpans };

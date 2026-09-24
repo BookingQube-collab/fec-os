@@ -4,7 +4,10 @@ import {
   attendanceGridCellContent,
   attendanceGridTone,
   attendanceListingStaffKey,
+  attendanceMatrixLocationCode,
+  attendanceMatrixStaffLocation,
   buildAttendanceMatrix,
+  buildAttendanceMatrixExcelSheet,
   rosterMatrixCellKey,
 } from "./attendance-matrix";
 import type { AttendanceListingSource } from "@/lib/attendance-display";
@@ -125,5 +128,44 @@ describe("attendance matrix", () => {
 
     expect(attendanceGridTone(listing({ work_date: "2026-08-03", status: "weekly_off" }))).toBe("weekly_off");
     expect(attendanceListingStaffKey(listing({ work_date: "2026-08-03", staffKey: "staff:x" }))).toBe("staff:x");
+  });
+
+  it("builds Excel matrix with Location column and frozen left panel", () => {
+    expect(attendanceMatrixLocationCode("UA-DM — Urban Arena")).toBe("UA-DM");
+    expect(attendanceMatrixLocationCode("INF-CC → UA-DM")).toBe("INF-CC → UA-DM");
+
+    const rows = [
+      listing({
+        id: "1",
+        staffKey: "staff:a",
+        userName: "Ada",
+        employeeCode: "UA-DM-STF01",
+        locationLabel: "UA-DM — Urban Arena",
+        work_date: "2026-07-28",
+        actual_in: "2026-07-28T07:00:00.000Z",
+        actual_out: "2026-07-28T16:00:00.000Z",
+        worked_minutes: 540,
+      }),
+      listing({
+        id: "2",
+        staffKey: "staff:a",
+        userName: "Ada",
+        employeeCode: "UA-DM-STF01",
+        locationLabel: "UA-DM — Urban Arena",
+        work_date: "2026-07-29",
+        status: "weekly_off",
+      }),
+    ];
+
+    const sheet = buildAttendanceMatrixExcelSheet(rows, "2026-07-28", "2026-07-29");
+    expect(sheet.freeze).toEqual({ xSplit: 3, ySplit: 3 });
+    expect(sheet.aoa[1]!.slice(0, 3)).toEqual(["No.", "Staff", "Location"]);
+    expect(sheet.aoa[3]![0]).toBe(1);
+    expect(String(sheet.aoa[3]![1])).toContain("Ada");
+    expect(sheet.aoa[3]![2]).toBe("UA-DM");
+    expect(String(sheet.aoa[3]![4])).toMatch(/OFF/);
+
+    const matrix = buildAttendanceMatrix(rows, "2026-07-28", "2026-07-29");
+    expect(attendanceMatrixStaffLocation("staff:a", matrix.dates, matrix.byStaffDate)).toBe("UA-DM");
   });
 });
