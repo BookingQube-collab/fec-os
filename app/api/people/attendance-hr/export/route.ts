@@ -12,14 +12,11 @@ import { getPayrollAttendanceSummary } from "@/lib/attendance-hr-field.functions
 import {
   ATTENDANCE_LISTING_COLUMNS,
   attendanceListingCells,
-  attendanceListingExportObjects,
   buildAttendanceListingCsv,
   formatPunchTime12h,
 } from "@/lib/attendance-display";
 import {
-  attendanceHrExportStaffName,
   attendanceHrToListingSource,
-  formatAttendanceHrLocation,
   type AttendanceHrReportRow,
 } from "@/lib/attendance-hr/report";
 import {
@@ -27,7 +24,15 @@ import {
   buildDeviceLogDaysCsv,
   deviceLogDayExportObject,
 } from "@/lib/attendance-hr/device-logs";
-import { buildAttendanceMatrixExcelSheet } from "@/lib/attendance-hr/attendance-matrix";
+import {
+  appendExcelSheets,
+  buildE3AttendanceHrWorkbookSheets,
+  type ExportCorrection,
+  type ExportImportFile,
+  type ExportOtClaim,
+  type ExportPunchRow,
+  type ExportUnmatchedMapping,
+} from "@/lib/attendance-hr/export-workbook";
 
 function asUuid(value: string | null): string | null {
   if (!value) return null;
@@ -45,7 +50,7 @@ export async function GET(request: Request) {
   const rawFormat = searchParams(request).get("format") ?? "xlsx";
   const format = rawFormat === "excel" ? "xlsx" : rawFormat;
   return withAuthRouteRequest(
-    async (_context, req) => {
+    async (context, req) => {
       const params = searchParams(req);
       const locationId = asUuid(params.get("locationId"));
       const staffId = asUuid(params.get("staffId"));
@@ -179,12 +184,6 @@ export async function GET(request: Request) {
       ]);
 
       const listing = listingSources(daily);
-      const display = attendanceListingExportObjects(listing);
-      const missed = daily.filter((r) => r.missed_punch);
-      const late = daily.filter((r) => Number(r.late_minutes) > 0 || Number(r.early_leave_minutes) > 0);
-      const absence = daily.filter((r) =>
-        ["absent", "annual_leave", "sick_leave", "unpaid_leave", "weekly_off", "public_holiday"].includes(String(r.status)),
-      );
 
       if (format === "csv") {
         return new NextResponse(buildAttendanceListingCsv(listing), {
@@ -233,50 +232,76 @@ export async function GET(request: Request) {
         });
       }
 
+      // Optional OT claims + corrections for OT / Audit sheets (best-effort; empty on failure).
+      let otClaims: ExportOtClaim[] = [];
+      let corrections: ExportCorrection[] = [];
+      {
+        let otQ = context.supabase
+          .from("hr_ot_claims")
+          .select("staff_id, work_date, rate_type, eligible_minutes, claimed_minutes, approved_minutes, status, notes")
+          .gte("work_date", dateFrom)
+          .lte("work_date", dateTo)
+          .limit(2000);
+        if (locationId) otQ = otQ.eq("location_id", locationId);
+        const { data: otRows, error: otErr } = await otQ;
+        if (!otErr && otRows) {
+          otClaims = otRows.map((r) => ({
+            staffId: String(r.staff_id ?? ""),
+            workDate: String(r.work_date ?? "").slice(0, 10),
+            rateType: String(r.rate_type ?? "weekday"),
+            calculatedMinutes: Number(r.claimed_minutes ?? r.eligible_minutes ?? 0),
+            approvedMinutes: r.approved_minutes == null ? null : Number(r.approved_minutes),
+            status: String(r.status ?? ""),
+            notes: r.notes == null ? null : String(r.notes),
+          }));
+        }
+      }
+      {
+        let corrQ = context.supabase
+          .from("attendance_corrections")
+          .select(
+            "requested_at, staff_id, work_date, kind, original_value, new_value, reason, requested_by, reviewed_by, status, staff:staff_id(employee_code, full_name)",
+          )
+          .gte("work_date", dateFrom)
+          .lte("work_date", dateTo)
+          .order("requested_at", { ascending: false })
+          .limit(500);
+        if (locationId) corrQ = corrQ.eq("location_id", locationId);
+        const { data: corrRows, error: corrErr } = await corrQ;
+        if (!corrErr && corrRows) {
+          corrections = corrRows.map((r) => {
+            const staff = r.staff as { employee_code?: string | null; full_name?: string | null } | null;
+            return {
+              requestedAt: String(r.requested_at ?? ""),
+              staffId: r.staff_id == null ? null : String(r.staff_id),
+              employeeCode: staff?.employee_code ?? null,
+              employeeName: staff?.full_name ?? null,
+              workDate: r.work_date == null ? null : String(r.work_date).slice(0, 10),
+              kind: String(r.kind ?? ""),
+              originalValue: r.original_value,
+              newValue: r.new_value,
+              reason: String(r.reason ?? ""),
+              requestedBy: r.requested_by == null ? null : String(r.requested_by),
+              reviewedBy: r.reviewed_by == null ? null : String(r.reviewed_by),
+              status: String(r.status ?? ""),
+            };
+          });
+        }
+      }
+
       const XLSX = await import("xlsx");
       const wb = XLSX.utils.book_new();
-      const matrixSheet = buildAttendanceMatrixExcelSheet(listing, dateFrom, dateTo);
-      const matrixWs = XLSX.utils.aoa_to_sheet(matrixSheet.aoa);
-      matrixWs["!merges"] = matrixSheet.merges;
-      // Same SheetJS freeze pattern as roster-export; pin No./Staff/Location + header rows.
-      matrixWs["!freeze"] = matrixSheet.freeze;
-      matrixWs["!cols"] = [
-        { wch: 5 },
-        { wch: 22 },
-        { wch: 12 },
-        ...matrixSheet.aoa[1]!.slice(3).map(() => ({ wch: 12 })),
-      ];
-      XLSX.utils.book_append_sheet(wb, matrixWs, "Attendance Matrix");
-      const sheet = (name: string, rows: unknown[]) => {
-        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows as Record<string, unknown>[]), name.slice(0, 31));
-      };
-      sheet("Daily Attendance", display);
-      sheet("Raw Punches", punches);
-      sheet("Missed Punches", missed.map((r) => ({
-        work_date: r.work_date,
-        staff_name: attendanceHrExportStaffName(r),
-        location: formatAttendanceHrLocation(r.location_code, r.location_name),
-        status: r.status,
-      })));
-      sheet("Late Early Exit", late.map((r) => ({
-        work_date: r.work_date,
-        staff_name: attendanceHrExportStaffName(r),
-        location: formatAttendanceHrLocation(r.location_code, r.location_name),
-        late_minutes: r.late_minutes,
-        early_leave_minutes: r.early_leave_minutes,
-      })));
-      sheet("Absence Leave", absence.map((r) => ({
-        work_date: r.work_date,
-        staff_name: attendanceHrExportStaffName(r),
-        location: formatAttendanceHrLocation(r.location_code, r.location_name),
-        status: r.status,
-      })));
-      sheet("Unmatched Users", unmatched);
-      sheet("Import Errors", imports);
-      sheet(
-        "Audit Trail",
-        imports.map((r) => ({ file: r.original_filename, status: r.status, at: r.created_at })),
-      );
+      const sheets = buildE3AttendanceHrWorkbookSheets({
+        daily,
+        punches: punches as ExportPunchRow[],
+        unmatched: unmatched as ExportUnmatchedMapping[],
+        imports: imports as ExportImportFile[],
+        otClaims,
+        corrections,
+        dateFrom,
+        dateTo,
+      });
+      appendExcelSheets(XLSX, wb, sheets);
 
       const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
       return new NextResponse(new Uint8Array(buf), {

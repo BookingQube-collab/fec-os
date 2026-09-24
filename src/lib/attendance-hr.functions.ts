@@ -1952,6 +1952,8 @@ type StaffLookup = {
   employee_code: string | null;
   qid: string | null;
   employment_type: string | null;
+  department?: string | null;
+  job_title?: string | null;
   status?: string | null;
   is_roaming?: boolean | null;
   flexible_attendance?: boolean | null;
@@ -1997,7 +1999,7 @@ async function enrichAttendanceHrDailyRows(
     loadByIds<StaffLookup>(
       context,
       "staff",
-      "id, full_name, employee_code, qid, employment_type, status, is_roaming, flexible_attendance, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday",
+      "id, full_name, employee_code, qid, employment_type, department, job_title, status, is_roaming, flexible_attendance, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday",
       staffIds,
     ),
     loadByIds<LocationLookup>(context, "locations", "id, code, name, region", locationIds),
@@ -2321,6 +2323,8 @@ async function enrichAttendanceHrDailyRows(
       worked_minutes: row.worked_minutes == null ? null : Number(row.worked_minutes),
       employment_type: employmentType,
       staff_name: staff?.full_name?.trim() || null,
+      department: staff?.department?.trim() || null,
+      job_title: staff?.job_title?.trim() || null,
       device_name: deviceName,
       biometric_mapping_id: bio?.id ?? null,
       employee_code: staff?.employee_code ?? null,

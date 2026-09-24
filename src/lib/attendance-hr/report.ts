@@ -29,6 +29,10 @@ export type AttendanceHrReportRow = {
   worked_minutes: number | null;
   employment_type: string | null;
   staff_name: string | null;
+  /** staff.department when mapped — export / employee summary. */
+  department?: string | null;
+  /** staff.job_title when mapped — export / employee summary. */
+  job_title?: string | null;
   /** Name on device from attendance_biometric_users (mapping page). */
   device_name?: string | null;
   /** attendance_biometric_users.id for inline map; null when no mapping row. */
@@ -463,6 +467,20 @@ export function computeAttendanceHrReportKpis(rows: AttendanceHrReportRow[]): At
 /** True when the daily row is linked to a real staff record (not a bare device user). */
 export function isMappedAttendanceHrRow(row: Pick<AttendanceHrReportRow, "staff_id">): boolean {
   return Boolean(row.staff_id);
+}
+
+/**
+ * Month grid is a mapped-staff roster. When every matching row is unmapped (common for
+ * Status=Unscheduled), fall back to list so KPI totals match visible rows.
+ */
+export function attendanceHrReportsUseListView(
+  viewMode: "grid" | "list",
+  mappedRowCount: number,
+  listingRowCount: number,
+): boolean {
+  if (viewMode === "list") return true;
+  if (mappedRowCount > 0) return false;
+  return listingRowCount > 0;
 }
 
 /**

@@ -151,31 +151,72 @@ export function attendanceMatrixStaffLocation(
   return "";
 }
 
-function monthHeaderLabel(monthKey: string): string {
-  return new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric", timeZone: "UTC" })
-    .format(new Date(`${monthKey}-01T12:00:00.000Z`))
-    .toUpperCase();
+/** HR matrix status codes (legend on Excel sheet). */
+export const ATTENDANCE_MATRIX_STATUS_CODES = [
+  ["P", "Present"],
+  ["A", "Absent"],
+  ["WO", "Weekly Off"],
+  ["AL", "Annual Leave"],
+  ["SL", "Sick Leave"],
+  ["UL", "Unpaid Leave"],
+  ["PH", "Public Holiday"],
+  ["MP", "Missed Punch"],
+  ["HD", "Half Day"],
+  ["US", "Unscheduled"],
+] as const;
+
+export function attendanceMatrixStatusCode(row: AttendanceListingSource): string {
+  const status = resolveHoursBasedAttendanceStatus(row);
+  switch (status) {
+    case "weekly_off":
+      return "WO";
+    case "absent":
+      return "A";
+    case "annual_leave":
+      return "AL";
+    case "sick_leave":
+      return "SL";
+    case "unpaid_leave":
+      return "UL";
+    case "public_holiday":
+      return "PH";
+    case "missed_punch":
+      return "MP";
+    case "unscheduled":
+      return "US";
+    case "short_hours": {
+      const worked = resolveTotalHoursWorked(row);
+      const expected = row.expected_minutes != null ? Number(row.expected_minutes) / 60 : null;
+      if (worked != null && expected != null && expected > 0 && worked <= expected / 2) return "HD";
+      return "P";
+    }
+    default:
+      return "P";
+  }
 }
 
-function weekdayShortEn(ymd: string): string {
-  return new Intl.DateTimeFormat("en-GB", { weekday: "short", timeZone: "UTC" }).format(
+function dayHeaderLabel(ymd: string): string {
+  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "UTC" }).format(
     new Date(`${ymd.slice(0, 10)}T12:00:00.000Z`),
   );
 }
 
-function attendanceMatrixExcelCellText(entries: AttendanceMatrixRow[]): string {
+/** Compact Excel cell: IN – OUT / hours / status code. */
+export function attendanceMatrixExcelCellText(entries: AttendanceMatrixRow[]): string {
   if (!entries.length) return "";
   return entries
     .map((entry) => {
-      const content = attendanceGridCellContent(entry);
-      const loc = attendanceMatrixLocationCode(entry.locationLabel);
-      if (content.secondary == null) {
-        const primary = content.tone === "weekly_off" ? "OFF" : content.primary;
-        return loc ? `${primary}\n${loc}` : primary;
+      const code = attendanceMatrixStatusCode(entry);
+      if (code === "WO" || code === "A" || code === "AL" || code === "SL" || code === "UL" || code === "PH" || code === "US") {
+        return code;
       }
-      const lines = [content.primary, content.secondary];
-      if (content.meta) lines.push(content.meta);
-      if (loc) lines.push(loc);
+      const inn = formatAttendanceGridPunch(entry.actual_in);
+      const out = formatAttendanceGridPunch(entry.actual_out);
+      const hours = resolveTotalHoursWorked(entry);
+      const lines: string[] = [];
+      if (inn || out) lines.push(`${inn || "—"} – ${out || "—"}`);
+      if (hours != null) lines.push(`${formatHoursValue(hours)} H`);
+      lines.push(code);
       return lines.join("\n");
     })
     .join("\n\n");
@@ -184,54 +225,58 @@ function attendanceMatrixExcelCellText(entries: AttendanceMatrixRow[]): string {
 export type AttendanceMatrixExcelSheet = {
   aoa: (string | number)[][];
   merges: Array<{ s: { r: number; c: number }; e: { r: number; c: number } }>;
-  /** Freeze No. + Staff + Location (cols) and 3 header rows. */
+  /** Freeze No./Code/Name/Location + legend + header row. */
   freeze: { xSplit: number; ySplit: number };
 };
 
-const MATRIX_LEFT_COLS = 3;
+const MATRIX_LEFT_COLS = 4;
+const MATRIX_LEGEND_ROWS = 2;
 
-/** AOA + merges + freeze for the Attendance Report panel layout. */
+/** AOA + freeze for HR Attendance Matrix (legend + day columns). */
 export function buildAttendanceMatrixExcelSheet(
   rows: AttendanceListingSource[],
   dateFrom: string,
   dateTo: string,
 ): AttendanceMatrixExcelSheet {
   const matrix = buildAttendanceMatrix(rows, dateFrom, dateTo);
-  const { dates, staff, byStaffDate, monthSpans } = matrix;
+  const { dates, staff, byStaffDate } = matrix;
 
-  const monthRow: (string | number)[] = ["", "", ""];
-  for (const span of monthSpans) {
-    monthRow.push(monthHeaderLabel(span.monthKey));
-    for (let i = 1; i < span.count; i++) monthRow.push("");
-  }
-  const weekdayRow: (string | number)[] = ["No.", "Staff", "Location", ...dates.map(weekdayShortEn)];
-  const dayRow: (string | number)[] = ["", "", "", ...dates.map((ymd) => Number(ymd.slice(8, 10)))];
+  const legend =
+    "Legend: " + ATTENDANCE_MATRIX_STATUS_CODES.map(([c, label]) => `${c} = ${label}`).join("  |  ");
+  const legendRow: (string | number)[] = [legend];
+  const blankRow: (string | number)[] = [];
+  const headerRow: (string | number)[] = [
+    "No.",
+    "Employee Code",
+    "Employee Name",
+    "Location",
+    ...dates.map(dayHeaderLabel),
+  ];
 
   const dataRows = staff.map((person, index) => {
-    const staffCell = [person.staffName || "—", person.employeeCode || person.qid || ""]
-      .filter(Boolean)
-      .join("\n");
     const location = attendanceMatrixStaffLocation(person.staffId, dates, byStaffDate);
     const dayCells = dates.map((ymd) => {
       const entries = byStaffDate.get(rosterMatrixCellKey(person.staffId, ymd)) ?? [];
       return attendanceMatrixExcelCellText(entries);
     });
-    return [index + 1, staffCell, location, ...dayCells];
+    return [
+      index + 1,
+      person.employeeCode || person.qid || "",
+      person.staffName || "",
+      location,
+      ...dayCells,
+    ];
   });
 
-  const merges: AttendanceMatrixExcelSheet["merges"] = [];
-  for (const span of monthSpans) {
-    if (span.count <= 1) continue;
-    merges.push({
-      s: { r: 0, c: MATRIX_LEFT_COLS + span.startIdx },
-      e: { r: 0, c: MATRIX_LEFT_COLS + span.startIdx + span.count - 1 },
-    });
-  }
-
   return {
-    aoa: [monthRow, weekdayRow, dayRow, ...dataRows],
-    merges,
-    freeze: { xSplit: MATRIX_LEFT_COLS, ySplit: 3 },
+    aoa: [legendRow, blankRow, headerRow, ...dataRows],
+    merges: [
+      {
+        s: { r: 0, c: 0 },
+        e: { r: 0, c: Math.max(MATRIX_LEFT_COLS - 1, MATRIX_LEFT_COLS + dates.length - 1) },
+      },
+    ],
+    freeze: { xSplit: MATRIX_LEFT_COLS, ySplit: MATRIX_LEGEND_ROWS + 1 },
   };
 }
 

@@ -130,7 +130,7 @@ describe("attendance matrix", () => {
     expect(attendanceListingStaffKey(listing({ work_date: "2026-08-03", staffKey: "staff:x" }))).toBe("staff:x");
   });
 
-  it("builds Excel matrix with Location column and frozen left panel", () => {
+  it("builds Excel matrix with Employee Code/Name, legend, and frozen left panel", () => {
     expect(attendanceMatrixLocationCode("UA-DM — Urban Arena")).toBe("UA-DM");
     expect(attendanceMatrixLocationCode("INF-CC → UA-DM")).toBe("INF-CC → UA-DM");
 
@@ -158,12 +158,14 @@ describe("attendance matrix", () => {
     ];
 
     const sheet = buildAttendanceMatrixExcelSheet(rows, "2026-07-28", "2026-07-29");
-    expect(sheet.freeze).toEqual({ xSplit: 3, ySplit: 3 });
-    expect(sheet.aoa[1]!.slice(0, 3)).toEqual(["No.", "Staff", "Location"]);
+    expect(sheet.freeze).toEqual({ xSplit: 4, ySplit: 3 });
+    expect(String(sheet.aoa[0]![0])).toMatch(/Legend:/);
+    expect(sheet.aoa[2]!.slice(0, 4)).toEqual(["No.", "Employee Code", "Employee Name", "Location"]);
     expect(sheet.aoa[3]![0]).toBe(1);
-    expect(String(sheet.aoa[3]![1])).toContain("Ada");
-    expect(sheet.aoa[3]![2]).toBe("UA-DM");
-    expect(String(sheet.aoa[3]![4])).toMatch(/OFF/);
+    expect(sheet.aoa[3]![1]).toBe("UA-DM-STF01");
+    expect(sheet.aoa[3]![2]).toBe("Ada");
+    expect(sheet.aoa[3]![3]).toBe("UA-DM");
+    expect(String(sheet.aoa[3]![5])).toBe("WO");
 
     const matrix = buildAttendanceMatrix(rows, "2026-07-28", "2026-07-29");
     expect(attendanceMatrixStaffLocation("staff:a", matrix.dates, matrix.byStaffDate)).toBe("UA-DM");
