@@ -3,18 +3,19 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
-import { Clock, Building2, Upload, FileBarChart, Users, ClipboardCheck, ScrollText, Settings } from "lucide-react";
+import { Building2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
+/** Same destinations as sidebar `hr-attendance` group — path routes, not query tabs. */
 const TABS = [
-  { href: "/people/attendance", key: "dashboard", icon: Clock },
-  { href: "/people/attendance/import", key: "import", icon: Upload },
-  { href: "/people/attendance/reports", key: "reports", icon: FileBarChart },
-  { href: "/people/attendance/mapping", key: "mapping", icon: Users },
-  { href: "/people/attendance/device-logs", key: "deviceLogs", icon: ScrollText },
-  { href: "/people/attendance/corrections", key: "corrections", icon: ClipboardCheck },
-  { href: "/people/attendance/settings", key: "settings", icon: Settings },
+  { href: "/people/attendance", labelKey: "nav.attendanceDashboard" },
+  { href: "/people/attendance/import", labelKey: "nav.attendanceImport" },
+  { href: "/people/attendance/reports", labelKey: "nav.attendanceListing" },
+  { href: "/people/attendance/mapping", labelKey: "nav.attendanceMapping" },
+  { href: "/people/attendance/device-logs", labelKey: "nav.attendanceDeviceLogs" },
+  { href: "/people/attendance/corrections", labelKey: "nav.attendanceCorrections" },
+  { href: "/people/attendance/settings", labelKey: "nav.attendanceDevices" },
 ] as const;
 
 export function AttendanceHrNav() {
@@ -22,23 +23,25 @@ export function AttendanceHrNav() {
   const { t } = useTranslation();
   return (
     <nav
-      className="flex max-w-full flex-nowrap gap-1 overflow-x-auto rounded-full border border-border/70 bg-secondary/40 p-1 md:hidden"
+      className="flex h-11 min-h-11 w-full max-w-full flex-nowrap gap-0.5 overflow-x-auto rounded-full border-0 bg-secondary p-1 text-foreground sm:w-fit"
       aria-label={t("attendanceHr.title")}
     >
       {TABS.map((tab) => {
-        const active = tab.href === "/people/attendance" ? pathname === tab.href : pathname.startsWith(tab.href);
+        const active =
+          tab.href === "/people/attendance" ? pathname === tab.href : pathname.startsWith(tab.href);
         return (
           <Link
-            key={tab.key}
+            key={tab.href}
             href={tab.href}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-semibold tracking-wide",
-              active ? "bg-primary text-primary-foreground shadow-elevated-xs" : "text-muted-foreground hover:text-foreground",
+              "inline-flex min-h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-full px-4 py-2.5 text-sm font-medium leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-2",
+              active
+                ? "bg-primary text-primary-foreground"
+                : "text-foreground hover:bg-transparent hover:text-foreground",
             )}
           >
-            <tab.icon className="h-3.5 w-3.5" strokeWidth={1.75} />
-            {t(`attendanceHr.nav.${tab.key}`, tab.key)}
+            {t(tab.labelKey)}
           </Link>
         );
       })}

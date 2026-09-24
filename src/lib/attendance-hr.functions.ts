@@ -529,21 +529,28 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
     status: z.string().nullable().optional(),
     staffId: z.string().uuid().nullable().optional(),
     staffQ: z.string().max(120).optional(),
+    /** @deprecated Prefer departmentIds — kept so export/API can still send a single id. */
     departmentId: z.string().uuid().nullable().optional(),
+    departmentIds: z.array(z.string().uuid()).optional(),
   }),
   async (data, context) => {
     if (data.locationId) await assertSite(context, data.locationId);
 
+    const departmentIds = [
+      ...new Set(
+        [...(data.departmentIds ?? []), ...(data.departmentId ? [data.departmentId] : [])].filter(Boolean),
+      ),
+    ];
     const needle = data.staffQ?.trim() || "";
     const needStaffSearch = Boolean(!data.staffId && needle && !isAttendanceHrUnmappedSearch(needle));
     const [matchedStaffIds, deptStaffIds] = await Promise.all([
       needStaffSearch ? matchingStaffIds(context, needle) : Promise.resolve([] as string[]),
-      data.departmentId
+      departmentIds.length
         ? (async () => {
             const { data: links, error: deptErr } = await context.supabase
               .from("staff_departments")
               .select("staff_id")
-              .eq("department_id", data.departmentId!);
+              .in("department_id", departmentIds);
             if (deptErr) throw deptErr;
             return [
               ...new Set((links ?? []).map((row) => row.staff_id).filter((id): id is string => Boolean(id))),

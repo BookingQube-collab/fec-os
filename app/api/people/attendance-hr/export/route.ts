@@ -9,6 +9,7 @@ import {
   listAttendanceImports,
 } from "@/lib/attendance-hr.functions";
 import { getPayrollAttendanceSummary } from "@/lib/attendance-hr-field.functions";
+import { formatPayrollBlockReasons } from "@/lib/attendance-hr/payroll";
 import {
   ATTENDANCE_LISTING_COLUMNS,
   attendanceListingCells,
@@ -42,6 +43,20 @@ function asUuid(value: string | null): string | null {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
     ? value
     : null;
+}
+
+/** departmentId=… and/or departmentIds=a,b (same shape as deviceUserKeys). */
+function departmentIdsFromParams(params: URLSearchParams): string[] {
+  return [
+    ...new Set(
+      [
+        ...params.getAll("departmentId"),
+        ...params.getAll("departmentIds").flatMap((value) => value.split(",")),
+      ]
+        .map((value) => asUuid(value.trim()))
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
 }
 
 function listingSources(daily: AttendanceHrReportRow[]) {
@@ -84,7 +99,7 @@ export async function GET(request: Request) {
       const staffId = asUuid(params.get("staffId"));
       const status = params.get("status") || null;
       const staffQ = params.get("staffQ")?.trim() || undefined;
-      const departmentId = asUuid(params.get("departmentId"));
+      const departmentIds = departmentIdsFromParams(params);
       const dateFrom = params.get("from") ?? new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
       const dateTo = params.get("to") ?? new Date().toISOString().slice(0, 10);
       const filters = filterMetaFromParams(params);
@@ -193,6 +208,7 @@ export async function GET(request: Request) {
               "Worked hours": Math.round((r.workedMinutes / 60) * 100) / 100,
               "Overtime hours": Math.round((r.overtimeMinutes / 60) * 100) / 100,
               "Ready for payroll": r.payrollReady ? "Yes" : "No",
+              "Block reasons": formatPayrollBlockReasons(r.blockReasons ?? []).join("; "),
             })),
           ),
           "Payroll",
@@ -208,7 +224,15 @@ export async function GET(request: Request) {
       }
 
       const [daily, punches, unmatched, imports] = await Promise.all([
-        getAttendanceHrDaily({ locationId, dateFrom, dateTo, status, staffId, staffQ, departmentId }),
+        getAttendanceHrDaily({
+          locationId,
+          dateFrom,
+          dateTo,
+          status,
+          staffId,
+          staffQ,
+          departmentIds: departmentIds.length ? departmentIds : undefined,
+        }),
         getAttendanceHrPunches({ locationId, dateFrom, dateTo }),
         listAttendanceHrMappings({ locationId, unmatchedOnly: true }),
         listAttendanceImports({ locationId }),

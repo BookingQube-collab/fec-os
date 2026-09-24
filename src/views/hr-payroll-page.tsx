@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Banknote, ClipboardCheck, Plus } from "lucide-react";
+import { AlertTriangle, Banknote, ClipboardCheck, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -16,10 +16,23 @@ import { HrSection } from "@/components/hr/hr-section";
 import { HrShell } from "@/components/hr/hr-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getPayrollAttendanceSummary } from "@/lib/attendance-hr-field.functions";
+import {
+  formatPayrollBlockReasons,
+  payrollBlockReasonLabel,
+  type PayrollStaffRow,
+} from "@/lib/attendance-hr/payroll";
 import {
   defaultPayrollPeriod,
   formatPayrollRange,
@@ -72,10 +85,13 @@ export default function HrPayrollPage() {
     return defaults;
   });
   const [createMonth, setCreateMonth] = useState(month);
+  const [fixRow, setFixRow] = useState<PayrollStaffRow | null>(null);
   const [pending, startTransition] = useTransition();
   const canGenerate = usePermission("payroll.generate");
   const { data: sites } = useSites();
   const loc = locationId === "all" ? null : locationId;
+  const fixReasons = fixRow ? formatPayrollBlockReasons(fixRow.blockReasons ?? []) : [];
+  const fixDays = (fixRow?.blockDays ?? []).filter((d) => d.workDate).slice(0, 40);
 
   const payroll = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "payroll", locationId: loc, dateFrom, dateTo }),
@@ -353,14 +369,24 @@ export default function HrPayrollPage() {
                         <td className="tabular-nums">{row.missedPunches}</td>
                         <td className="tabular-nums">{Math.round((row.overtimeMinutes / 60) * 100) / 100}</td>
                         <td>
-                          <Badge variant={row.payrollReady ? "success" : "destructive"}>
-                            {row.payrollReady ? t("hr.payroll.readyBadge") : t("hr.payroll.blockedBadge")}
-                          </Badge>
-                          {!row.payrollReady ? (
-                            <Link href="/people/attendance/corrections" className="ms-2 text-xs underline underline-offset-2">
-                              {t("hr.payroll.fix")}
-                            </Link>
-                          ) : null}
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <Badge variant={row.payrollReady ? "success" : "destructive"}>
+                              {row.payrollReady ? t("hr.payroll.readyBadge") : t("hr.payroll.blockedBadge")}
+                            </Badge>
+                            {!row.payrollReady ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 gap-1 px-1.5 text-destructive"
+                                aria-label={t("hr.payroll.fix")}
+                                onClick={() => setFixRow(row)}
+                              >
+                                <AlertTriangle className="h-3.5 w-3.5" />
+                                <span className="text-xs underline underline-offset-2">{t("hr.payroll.fix")}</span>
+                              </Button>
+                            ) : null}
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -370,6 +396,57 @@ export default function HrPayrollPage() {
             </div>
           </HrPanel>
         </HrSection>
+
+        <Dialog open={Boolean(fixRow)} onOpenChange={(open) => !open && setFixRow(null)}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>{t("hr.payroll.fixTitle")}</DialogTitle>
+              <DialogDescription>
+                {fixRow
+                  ? `${fixRow.staffName}${fixRow.employeeCode ? ` · ${fixRow.employeeCode}` : ""}`
+                  : null}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 text-sm">
+              <p className="text-muted-foreground">{t("hr.payroll.fixHint")}</p>
+              {fixReasons.length > 0 ? (
+                <ul className="space-y-1.5">
+                  {fixReasons.map((reason) => (
+                    <li key={reason} className="flex items-start gap-2">
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
+                      <span className="font-medium">{reason}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-muted-foreground">{t("hr.payroll.fixNoReasons")}</p>
+              )}
+              {fixDays.length > 0 ? (
+                <div>
+                  <p className="mb-1 text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    {t("hr.payroll.fixDays")}
+                  </p>
+                  <ul className="max-h-48 space-y-1 overflow-y-auto rounded border p-2 text-xs">
+                    {fixDays.map((d) => (
+                      <li key={`${d.workDate}-${d.code}`} className="flex justify-between gap-2">
+                        <span className="tabular-nums text-muted-foreground">{d.workDate}</span>
+                        <span>{payrollBlockReasonLabel(d.code)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+            <DialogFooter className="gap-2 sm:justify-between">
+              <Button variant="secondary" asChild>
+                <Link href="/people/attendance/corrections">{t("hr.payroll.fixOpenCorrections")}</Link>
+              </Button>
+              <Button type="button" onClick={() => setFixRow(null)}>
+                {t("common.close", { defaultValue: "Close" })}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </HrShell>
     </CapabilityGate>
   );

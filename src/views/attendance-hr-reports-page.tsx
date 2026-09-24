@@ -86,7 +86,7 @@ export default function AttendanceHrReportsPage() {
     defaultPayrollPeriod(new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" })),
   );
   const [status, setStatus] = useState("");
-  const [departmentId, setDepartmentId] = useState("");
+  const [departmentIds, setDepartmentIds] = useState<string[]>([]);
   const [staffQ, setStaffQ] = useState("");
   const [staffQDebounced, setStaffQDebounced] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -116,7 +116,15 @@ export default function AttendanceHrReportsPage() {
   });
 
   const q = useQuery({
-    queryKey: queryKeys.people.attendanceHr({ view: "daily", locationId, from, to, status, staffQ: staffQDebounced, departmentId }),
+    queryKey: queryKeys.people.attendanceHr({
+      view: "daily",
+      locationId,
+      from,
+      to,
+      status,
+      staffQ: staffQDebounced,
+      departmentIds,
+    }),
     queryFn: () =>
       getAttendanceHrDaily({
         locationId: locationId || null,
@@ -124,7 +132,7 @@ export default function AttendanceHrReportsPage() {
         dateTo: to,
         status: status || null,
         staffQ: staffQDebounced.trim() || undefined,
-        departmentId: departmentId || null,
+        departmentIds: departmentIds.length ? departmentIds : undefined,
       }),
     staleTime: STALE.people,
     placeholderData: keepPreviousData,
@@ -205,15 +213,19 @@ export default function AttendanceHrReportsPage() {
   const showListingBusy =
     listingBusy ||
     showSearchBusy ||
-    (isTableDeferred && Boolean(staffQDebounced.trim() || status || departmentId));
+    (isTableDeferred && Boolean(staffQDebounced.trim() || status || departmentIds.length));
 
   const selectedLocation = locationOptions.find((loc) => loc.id === locationId);
   const locationLabel = selectedLocation
     ? formatAttendanceHrLocation(selectedLocation.code, selectedLocation.name)
     : t("common.allLocations");
-  const departmentLabel = departmentId
-    ? (departmentOptions.find((d) => d.value === departmentId)?.label ?? "")
-    : t("attendanceHr.reports.allDepartments");
+  const departmentLabel =
+    departmentIds.length === 0
+      ? t("attendanceHr.reports.allDepartments")
+      : departmentIds
+          .map((id) => departmentOptions.find((d) => d.value === id)?.label)
+          .filter((label): label is string => Boolean(label))
+          .join(", ") || t("attendanceHr.reports.departmentsSelected", { count: departmentIds.length });
   const statusLabel = status
     ? t(`attendanceHr.reports.statuses.${status}`)
     : t("attendanceHr.reports.allStatuses");
@@ -223,12 +235,12 @@ export default function AttendanceHrReportsPage() {
     if (locationId) p.set("locationId", locationId);
     if (status) p.set("status", status);
     if (staffQDebounced.trim()) p.set("staffQ", staffQDebounced.trim());
-    if (departmentId) p.set("departmentId", departmentId);
+    if (departmentIds.length) p.set("departmentIds", departmentIds.join(","));
     p.set("locationLabel", locationLabel);
     p.set("departmentLabel", departmentLabel);
     if (status) p.set("statusLabel", statusLabel);
     return `/api/people/attendance-hr/export?${p.toString()}`;
-  }, [from, to, locationId, status, staffQDebounced, departmentId, locationLabel, departmentLabel, statusLabel]);
+  }, [from, to, locationId, status, staffQDebounced, departmentIds, locationLabel, departmentLabel, statusLabel]);
 
   const payrollHref = useMemo(() => {
     const p = new URLSearchParams({ from, to, month });
@@ -287,7 +299,7 @@ export default function AttendanceHrReportsPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const rowFilterOn = Boolean(staffQDebounced.trim() || status || departmentId);
+  const rowFilterOn = Boolean(staffQDebounced.trim() || status || departmentIds.length);
   const emptyImport = !q.isLoading && rows.length === 0 && !rowFilterOn;
   const emptyFiltered = !q.isLoading && rows.length === 0 && rowFilterOn;
 
@@ -436,10 +448,12 @@ export default function AttendanceHrReportsPage() {
           <div className="min-w-44 space-y-1.5">
             <Label>{t("attendanceHr.reports.department")}</Label>
             <SearchableSelect
-              value={departmentId}
-              onValueChange={setDepartmentId}
+              multiple
+              values={departmentIds}
+              onValuesChange={setDepartmentIds}
               placeholder={t("attendanceHr.reports.allDepartments")}
               emptyOption={{ value: "", label: t("attendanceHr.reports.allDepartments") }}
+              selectedCountLabel={(count) => t("attendanceHr.reports.departmentsSelected", { count })}
               options={departmentOptions}
               aria-label={t("attendanceHr.reports.department")}
               triggerClassName="h-10 min-h-10 w-auto min-w-[11rem] font-normal"

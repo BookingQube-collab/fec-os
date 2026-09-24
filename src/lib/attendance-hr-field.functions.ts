@@ -551,7 +551,7 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
     let q = supabaseAdmin
       .from("attendance_daily_summary")
       .select(
-        "staff_id, location_id, status, late_minutes, missed_punch, overtime_minutes, worked_minutes, punch_count, staff(full_name, employee_code), locations(code, name)",
+        "staff_id, location_id, work_date, status, late_minutes, missed_punch, overtime_minutes, worked_minutes, punch_count, staff(full_name, employee_code), locations(code, name)",
       )
       .gte("work_date", data.dateFrom)
       .lte("work_date", data.dateTo)
@@ -597,6 +597,7 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
         staff_id: staffId,
         staff_name: fullName || null,
         employee_code: employeeCode || null,
+        work_date: row.work_date ? String(row.work_date).slice(0, 10) : null,
         status: String(row.status ?? ""),
         late_minutes: Number(row.late_minutes ?? 0),
         missed_punch: Boolean(row.missed_punch),

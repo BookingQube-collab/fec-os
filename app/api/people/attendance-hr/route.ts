@@ -39,6 +39,16 @@ export async function GET(request: Request) {
       if (view === "site" && locationId) return getAttendanceHrSite({ locationId });
       if (view === "daily") {
         const staffId = params.get("staffId") || null;
+        const departmentIds = [
+          ...new Set(
+            [
+              ...params.getAll("departmentId"),
+              ...params.getAll("departmentIds").flatMap((value) => value.split(",")),
+            ]
+              .map((value) => value.trim())
+              .filter(Boolean),
+          ),
+        ];
         return getAttendanceHrDaily({
           locationId,
           dateFrom,
@@ -46,7 +56,7 @@ export async function GET(request: Request) {
           status: params.get("status") || null,
           staffId,
           staffQ: params.get("staffQ")?.trim() || undefined,
-          departmentId: params.get("departmentId") || null,
+          departmentIds: departmentIds.length ? departmentIds : undefined,
         });
       }
       if (view === "punches") return getAttendanceHrPunches({ locationId, dateFrom, dateTo });
