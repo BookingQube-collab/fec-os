@@ -12,6 +12,7 @@ import {
   Download,
   FileSpreadsheet,
   Lock,
+  Trash2,
   Unlock,
   Upload,
 } from "lucide-react";
@@ -33,6 +34,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   advancePayrollPeriod,
   adjustPayrollLine,
+  deletePayrollPeriod,
   generatePayrollLines,
   generatePayslips,
   getPayrollExportMatrix,
@@ -47,9 +49,20 @@ import {
   previewPayrollExcelImport,
 } from "@/lib/hr-payroll-import.functions";
 import { formatPayrollRange } from "@/lib/attendance-hr/roster-period";
+import { canDeletePayrollPeriod } from "@/lib/hr-payroll";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { usePermission } from "@/hooks/use-permission";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 function qar(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return "—";
@@ -127,6 +140,7 @@ export default function HrPayrollPeriodPage() {
   const [adjustEarn, setAdjustEarn] = useState("");
   const [adjustDed, setAdjustDed] = useState("");
   const [adjustNotes, setAdjustNotes] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [pending, startTransition] = useTransition();
   const canGenerate = usePermission("payroll.generate");
   const canFinance = usePermission("payroll.finance");
@@ -202,6 +216,7 @@ export default function HrPayrollPeriodPage() {
   const exceptions = detail.data?.exceptions ?? [];
   const recon = detail.data?.reconciliation;
   const adjustments = detail.data?.adjustments ?? [];
+  const canDelete = Boolean(canGenerate && period && canDeletePayrollPeriod(period.status));
 
   const pageCount = Math.max(1, Math.ceil(lines.length / PAGE_SIZE));
   const pageLines = lines.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
@@ -361,7 +376,28 @@ export default function HrPayrollPeriodPage() {
                 <Button
                   disabled={pending || period?.status === "locked"}
                   onClick={() =>
-                    run(() => generatePayrollLines({ periodId }), t("hr.payrollRuns.generated"))
+                    startTransition(async () => {
+                      try {
+                        const res = await generatePayrollLines({ periodId });
+                        const parts = [t("hr.payrollRuns.generated")];
+                        if (res.missingCompensation) {
+                          parts.push(
+                            t("hr.payrollRuns.generateMissingComp", { count: res.missingCompensation }),
+                          );
+                        }
+                        if (res.attendanceBlocked) {
+                          parts.push(
+                            t("hr.payrollRuns.generateAttendanceBlocked", {
+                              count: res.attendanceBlocked,
+                            }),
+                          );
+                        }
+                        toast.success(parts.join(" · "));
+                        invalidate();
+                      } catch (e) {
+                        toast.error(e instanceof Error ? e.message : t("hr.payrollRuns.error"));
+                      }
+                    })
                   }
                 >
                   {t("hr.payrollRuns.generate")}
@@ -416,6 +452,17 @@ export default function HrPayrollPeriodPage() {
                 >
                   <Lock className="mr-1 h-4 w-4" />
                   {t("hr.payrollRuns.lock")}
+                </Button>
+              ) : null}
+              {canDelete ? (
+                <Button
+                  variant="outline"
+                  className="border-destructive text-destructive"
+                  disabled={pending}
+                  onClick={() => setConfirmDelete(true)}
+                >
+                  <Trash2 className="mr-1 h-4 w-4" />
+                  {t("hr.payrollRuns.delete")}
                 </Button>
               ) : null}
             </div>
@@ -940,6 +987,41 @@ export default function HrPayrollPeriodPage() {
           ) : null}
         </HrSection>
       </HrShell>
+
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("hr.payrollRuns.deleteTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {period
+                ? t("hr.payrollRuns.deleteConfirm", { month: period.month })
+                : t("hr.payrollRuns.delete")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={pending}>{t("common.cancel", { defaultValue: "Cancel" })}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={pending || !period}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => {
+                e.preventDefault();
+                if (!period) return;
+                startTransition(async () => {
+                  try {
+                    await deletePayrollPeriod({ periodId, confirmMonth: period.month });
+                    toast.success(t("hr.payrollRuns.deleted"));
+                    window.location.href = "/people/payroll";
+                  } catch (err) {
+                    toast.error(err instanceof Error ? err.message : t("hr.payrollRuns.error"));
+                  }
+                });
+              }}
+            >
+              {t("hr.payrollRuns.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </CapabilityGate>
   );
 }

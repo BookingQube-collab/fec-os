@@ -43,7 +43,9 @@ export function ProtectedGate({ children }: { children: React.ReactNode }) {
     }
   }, [loading, user, router]);
 
-  if (shellReady.current && user && rolesSettled && roles.length > 0) {
+  // Once shown, keep the shell mounted. Soft re-auth must not flash skeleton and
+  // remount route trees (attendance matrix refetch / filter state loss).
+  if (shellReady.current && user) {
     if (employeeApp) return <EmployeeAppShell>{children}</EmployeeAppShell>;
     return <AppShell>{children}</AppShell>;
   }

@@ -1,4 +1,5 @@
 import type { AuthContext } from "@/lib/server/auth";
+import { redactStaffIdentityNumbers } from "@/lib/hr-advanced";
 import { canUserDo } from "@/lib/rbac";
 import type { MasterDepartmentRow } from "@/lib/staff-departments";
 import {
@@ -499,14 +500,18 @@ export async function fetchStaff(
     }
   }
 
-  if (!canUserDo(context.roles ?? [], "people.view_salary") || !mapped.length) return mapped;
+  const canSensitive = canUserDo(context.roles ?? [], "hr.profile.view_sensitive");
+  const canSalary = canUserDo(context.roles ?? [], "people.view_salary");
+  const identitySafe = mapped.map((s) => redactStaffIdentityNumbers(s, canSensitive));
+
+  if (!canSalary || !identitySafe.length) return identitySafe;
 
   const { data: comps } = await context.supabase
     .from("staff_compensation")
     .select("staff_id, monthly_salary_qar, daily_rate_qar")
     .in(
       "staff_id",
-      mapped.map((s) => s.id),
+      identitySafe.map((s) => s.id),
     );
   const byId = new Map(
     (comps ?? []).map((c) => [
@@ -517,7 +522,7 @@ export async function fetchStaff(
       },
     ]),
   );
-  return mapped.map((s) => {
+  return identitySafe.map((s) => {
     const comp = byId.get(s.id);
     return {
       ...s,

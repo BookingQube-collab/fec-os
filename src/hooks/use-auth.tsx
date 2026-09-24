@@ -1,13 +1,14 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type { AuthChangeEvent, Session, User } from "@supabase/supabase-js";
 
 import {
   clearAuthSessionCache,
   fetchAuthSession,
   isAuthSessionHydrated,
+  shouldHardResetAuthSession,
   type AuthProfile,
 } from "@/lib/auth-session";
 import { listCapabilityGrants } from "@/lib/admin.functions";
@@ -56,6 +57,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [rolesSettled, setRolesSettled] = useState(false);
   const [grantsVersion, setGrantsVersion] = useState(0);
+  /** Tracks uid across auth events — effect closure must not read stale React state. */
+  const userIdRef = useRef<string | null>(null);
 
   const hydrateCapabilityGrants = async () => {
     try {
@@ -125,6 +128,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       };
 
       if (!newSession?.user) {
+        userIdRef.current = null;
         clearAuthSessionCache(queryClient);
         setProfile(null);
         setRoles([]);
@@ -136,8 +140,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       const uid = newSession.user.id;
-      // Account switch: drop prior user's profile/roles before hydrating the new one.
-      if (event === "SIGNED_IN" || event === "USER_UPDATED") {
+      const hardReset = shouldHardResetAuthSession(event, userIdRef.current, uid);
+      userIdRef.current = uid;
+
+      // Account switch only — same-user SIGNED_IN (tab focus / token recovery) must not
+      // clear roles or ProtectedGate will skeleton-remount heavy pages (attendance matrix).
+      if (hardReset) {
         clearAuthSessionCache(queryClient);
         setProfile(null);
         setRoles([]);
@@ -145,16 +153,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLoading(true);
       }
 
-      const shouldFetch =
-        event === "SIGNED_IN" ||
-        event === "USER_UPDATED" ||
-        !isAuthSessionHydrated(uid, queryClient);
+      const shouldFetch = hardReset || !isAuthSessionHydrated(uid, queryClient);
 
       if (shouldFetch) {
         setRolesSettled(false);
         void loadUserData(uid).finally(finishInitialLoad);
       } else if (applyUserData(uid)) {
-        void hydrateCapabilityGrants().finally(finishInitialLoad);
+        // Same-user SIGNED_IN: keep roles, skip grant churn. INITIAL_SESSION still hydrates grants.
+        if (event === "INITIAL_SESSION") {
+          void hydrateCapabilityGrants().finally(finishInitialLoad);
+        } else {
+          finishInitialLoad();
+        }
       } else {
         // Module flag said hydrated but cache miss (HMR / new QueryClient).
         setRolesSettled(false);
@@ -205,6 +215,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user, rolesSettled, loading, queryClient]);
 
   const signOut = async () => {
+    userIdRef.current = null;
     clearAuthSessionCache(queryClient);
     setProfile(null);
     setRoles([]);

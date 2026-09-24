@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Banknote, ClipboardCheck, Plus } from "lucide-react";
+import { AlertTriangle, Banknote, ClipboardCheck, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -24,6 +24,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -40,7 +50,8 @@ import {
 } from "@/lib/attendance-hr/roster-period";
 import { formatOtPolicySummary } from "@/lib/hr-advanced";
 import { getOtPolicy } from "@/lib/hr-announcements.functions";
-import { createPayrollPeriod, listPayrollPeriods } from "@/lib/hr-payroll.functions";
+import { canDeletePayrollPeriod, type HrPayrollStatus } from "@/lib/hr-payroll";
+import { createPayrollPeriod, deletePayrollPeriod, listPayrollPeriods } from "@/lib/hr-payroll.functions";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { useSites } from "@/hooks/queries/useSites";
 import { usePermission } from "@/hooks/use-permission";
@@ -86,6 +97,9 @@ export default function HrPayrollPage() {
   });
   const [createMonth, setCreateMonth] = useState(month);
   const [fixRow, setFixRow] = useState<PayrollStaffRow | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; month: string; status: HrPayrollStatus } | null>(
+    null,
+  );
   const [pending, startTransition] = useTransition();
   const canGenerate = usePermission("payroll.generate");
   const { data: sites } = useSites();
@@ -251,9 +265,25 @@ export default function HrPayrollPage() {
                             </Badge>
                           </td>
                           <td className="text-end">
-                            <Button variant="secondary" size="sm" asChild>
-                              <Link href={`/people/payroll/${p.id}`}>{t("common.view")}</Link>
-                            </Button>
+                            <div className="flex flex-wrap justify-end gap-1">
+                              <Button variant="secondary" size="sm" asChild>
+                                <Link href={`/people/payroll/${p.id}`}>{t("common.view")}</Link>
+                              </Button>
+                              {canGenerate && canDeletePayrollPeriod(p.status) ? (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-destructive"
+                                  disabled={pending}
+                                  aria-label={t("hr.payrollRuns.delete")}
+                                  onClick={() =>
+                                    setDeleteTarget({ id: p.id, month: p.month, status: p.status })
+                                  }
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              ) : null}
+                            </div>
                           </td>
                         </tr>
                       ))
@@ -296,6 +326,11 @@ export default function HrPayrollPage() {
                   <a href={exportHref}>{t("hr.payroll.export")}</a>
                 </Button>
                 <Button variant="secondary" asChild>
+                  <Link href={`/people/attendance/reports?month=${month}`}>
+                    {t("hr.payroll.attendanceListing", { defaultValue: "Attendance listing" })}
+                  </Link>
+                </Button>
+                <Button variant="secondary" asChild>
                   <Link href="/people/attendance/corrections">
                     <ClipboardCheck className="mr-1 h-4 w-4" />
                     {t("hr.payroll.corrections")}
@@ -305,6 +340,9 @@ export default function HrPayrollPage() {
             </div>
             <p className="border-t px-4 py-2 text-xs text-muted-foreground sm:px-5">
               {t("hr.payrollRuns.readinessHint")}
+            </p>
+            <p className="border-t px-4 py-2 text-xs text-muted-foreground sm:px-5">
+              {t("hr.payrollRuns.readinessVsGenerated")}
             </p>
           </HrPanel>
 
@@ -373,6 +411,11 @@ export default function HrPayrollPage() {
                             <Badge variant={row.payrollReady ? "success" : "destructive"}>
                               {row.payrollReady ? t("hr.payroll.readyBadge") : t("hr.payroll.blockedBadge")}
                             </Badge>
+                            {row.payrollReady && row.daysPresent > 0 ? (
+                              <span className="text-[0.65rem] text-muted-foreground">
+                                {t("hr.payroll.readyNeedsGenerate")}
+                              </span>
+                            ) : null}
                             {!row.payrollReady ? (
                               <Button
                                 type="button"
@@ -396,6 +439,46 @@ export default function HrPayrollPage() {
             </div>
           </HrPanel>
         </HrSection>
+
+        <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t("hr.payrollRuns.deleteTitle")}</AlertDialogTitle>
+              <AlertDialogDescription>
+                {deleteTarget
+                  ? t("hr.payrollRuns.deleteConfirm", { month: deleteTarget.month })
+                  : null}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={pending}>{t("common.cancel", { defaultValue: "Cancel" })}</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={pending || !deleteTarget}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (!deleteTarget) return;
+                  const target = deleteTarget;
+                  startTransition(async () => {
+                    try {
+                      await deletePayrollPeriod({
+                        periodId: target.id,
+                        confirmMonth: target.month,
+                      });
+                      toast.success(t("hr.payrollRuns.deleted"));
+                      setDeleteTarget(null);
+                      void qc.invalidateQueries({ queryKey: queryKeys.people.hrPayrollPeriods() });
+                    } catch (err) {
+                      toast.error(err instanceof Error ? err.message : t("hr.payrollRuns.error"));
+                    }
+                  });
+                }}
+              >
+                {t("hr.payrollRuns.delete")}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         <Dialog open={Boolean(fixRow)} onOpenChange={(open) => !open && setFixRow(null)}>
           <DialogContent className="max-w-md">

@@ -69,6 +69,28 @@ export function assertCanLockPayroll(status: HrPayrollStatus): void {
   }
 }
 
+/** Draft / early-review only — paid/locked runs must reopen (or stay immutable). */
+const DELETABLE_STATUSES: ReadonlySet<HrPayrollStatus> = new Set([
+  "draft",
+  "attendance_validation",
+  "hr_review",
+]);
+
+export function canDeletePayrollPeriod(status: HrPayrollStatus): boolean {
+  return DELETABLE_STATUSES.has(status);
+}
+
+export function assertCanDeletePayrollPeriod(status: HrPayrollStatus): void {
+  if (status === "locked") {
+    throw new Error("Locked payroll cannot be deleted — reopen it first, then delete from HR review.");
+  }
+  if (!canDeletePayrollPeriod(status)) {
+    throw new Error(
+      `Cannot delete payroll in ${status} — only draft, attendance validation, or HR review. Reopen locked periods first.`,
+    );
+  }
+}
+
 /** Default payment method from employment category + policy (overrides allowed per employee). */
 export function resolvePaymentMethod(input: {
   override?: string | null;

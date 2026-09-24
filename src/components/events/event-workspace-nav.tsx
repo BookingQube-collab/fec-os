@@ -24,7 +24,7 @@ export function EventWorkspaceNav({ eventId }: { eventId: string }) {
   const base = `/events/${eventId}`;
 
   return (
-    <nav className="flex max-w-full flex-nowrap gap-1 overflow-x-auto rounded-full border border-border/70 bg-secondary/40 p-1">
+    <nav className="flex max-w-full flex-nowrap gap-1 overflow-x-auto overflow-y-hidden rounded-full border border-border/70 bg-secondary/40 p-1">
       {TABS.map((tab) => {
         const href = `${base}${tab.suffix}`;
         const active = tab.suffix === "" ? pathname === base : pathname.startsWith(href);

@@ -4,7 +4,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { annualAccrualFromHireDate, assertHrSensitiveDocAccess } from "./hr-advanced";
+import { annualAccrualFromHireDate, assertHrSensitiveDocAccess, redactStaffIdentityNumbers } from "./hr-advanced";
 import {
   airTicketPolicyFromSection,
   computeEntitlementDatesFromPolicy,
@@ -370,6 +370,30 @@ describe("HR acceptance AT#1–20 (Phase 12)", () => {
       expect(canUserDo(FLOOR, "hr.termination.initiate")).toBe(false);
       expect(canUserDo(FLOOR, "hr.warnings.manage")).toBe(false);
       expect(canUserDo(HR, "payroll.view")).toBe(true);
+    });
+
+    it("denies site/ops supervisors and employees on salary + sensitive docs", () => {
+      for (const role of ["branch_gm", "duty_manager", "cashier_host"] as const) {
+        expect(canUserDo([role], "people.view_salary")).toBe(false);
+        expect(canUserDo([role], "people.edit_salary")).toBe(false);
+        expect(canUserDo([role], "hr.profile.view_sensitive")).toBe(false);
+        expect(canUserDo([role], "hr.docs.manage")).toBe(false);
+        expect(canUserDo([role], "payroll.view")).toBe(false);
+      }
+      for (const role of ["ceo", "hr"] as const) {
+        expect(canUserDo([role], "people.view_salary")).toBe(true);
+        expect(canUserDo([role], "hr.profile.view_sensitive")).toBe(true);
+      }
+    });
+
+    it("redacts QID/passport numbers without sensitive cap", () => {
+      const raw = { qid: "29440401419", passport_number: "P1234567", name: "Ada" };
+      expect(redactStaffIdentityNumbers(raw, false)).toEqual({
+        qid: "••••••••",
+        passport_number: "••••••••",
+        name: "Ada",
+      });
+      expect(redactStaffIdentityNumbers(raw, true)).toEqual(raw);
     });
 
     it("blocks floor-equivalent flags on passport/QID/disciplinary/salary docs", () => {

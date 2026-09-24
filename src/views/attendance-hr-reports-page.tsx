@@ -135,6 +135,9 @@ export default function AttendanceHrReportsPage() {
         departmentIds: departmentIds.length ? departmentIds : undefined,
       }),
     staleTime: STALE.people,
+    // Heavy matrix — never refetch just because the browser tab regained focus.
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
     placeholderData: keepPreviousData,
   });
 

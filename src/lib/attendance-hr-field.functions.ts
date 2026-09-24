@@ -556,7 +556,7 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
       .gte("work_date", data.dateFrom)
       .lte("work_date", data.dateTo)
       .not("staff_id", "is", null)
-      .limit(20000);
+      .limit(50000);
     if (data.locationId) q = q.eq("location_id", data.locationId);
     const { data: rows, error } = await q;
     if (error) throw error;

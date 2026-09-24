@@ -1,3 +1,4 @@
+import { redactStaffIdentityNumbers } from "@/lib/hr-advanced";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { withAuthRouteRequest } from "@/lib/server/api-route";
 import { canUserDo } from "@/lib/rbac";
@@ -117,6 +118,10 @@ export async function GET(
         .limit(20);
 
       const canSensitive = canUserDo(context.roles ?? [], "hr.profile.view_sensitive");
+      const canDocs =
+        canSensitive ||
+        canUserDo(context.roles ?? [], "hr.docs.manage") ||
+        canUserDo(context.roles ?? [], "hr.manage");
       const { data: profileExt } = await context.supabase
         .from("staff_profile_ext")
         .select(
@@ -132,15 +137,19 @@ export async function GET(
         .order("effective_on", { ascending: false })
         .limit(50);
 
-      const { data: documents } = await context.supabase
-        .from("hr_employee_documents")
-        .select(
-          "id, doc_type, document_number, issue_date, expiry_date, verification_status, status, file_name, notes, verification_remarks, created_at",
-        )
-        .eq("staff_id", id)
-        .is("deleted_at", null)
-        .order("created_at", { ascending: false })
-        .limit(100);
+      let documents: Array<Record<string, unknown>> = [];
+      if (canDocs) {
+        const { data: docRows } = await context.supabase
+          .from("hr_employee_documents")
+          .select(
+            "id, doc_type, document_number, issue_date, expiry_date, verification_status, status, file_name, notes, verification_remarks, created_at",
+          )
+          .eq("staff_id", id)
+          .is("deleted_at", null)
+          .order("created_at", { ascending: false })
+          .limit(100);
+        documents = docRows ?? [];
+      }
 
       let managerName: string | null = null;
       if (profileExt?.reporting_manager_staff_id) {
@@ -165,17 +174,22 @@ export async function GET(
             }
           : null;
 
-      return {
-        staff: {
+      const safeStaff = redactStaffIdentityNumbers(
+        {
           ...staff,
           is_roaming: Boolean(staff.is_roaming),
           has_photo: Boolean(staff.photo_updated_at),
           work_locations: workLocations,
         },
+        canSensitive,
+      );
+
+      return {
+        staff: safeStaff,
         profileExt: sensitiveExt,
         managerName,
         statusHistory: statusHistory ?? [],
-        documents: documents ?? [],
+        documents,
         compensation,
         transfers,
         attendance: (attendance ?? []).map((row) => ({

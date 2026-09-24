@@ -11,7 +11,7 @@ Use **`SESSION_POOLER_DATABASE_URL`** for `npm run db:push` and direct SQL (Sess
 | **SQL migrations** (`npm run db:push`) | Schema + one-time seed rows: Qatar locations patch, inventory sock variants (`20260628120000_inventory_socks_variants.sql`), **61 real staff** + departments (`20260629180000_staff_directory_replace.sql`, `20260629200000_staff_master_departments.sql`), maintenance/inventory DDL, etc. Migrations are tracked in `public.schema_migrations` and are **not re-applied** once recorded. |
 | **seed:locations** | Activates the 6 Qatar FEC venues by code; closes legacy non-Qatar location codes. |
 | **seed:admin** | Auth user **admin@fec.com** / **123456**, `ceo` role (level 100). |
-| **seed:supervisors** | Six `branch_gm` test accounts `@fec.test`, password **FecTest2026!**, linked to real staff employee codes. |
+| **seed:supervisors** | Seven `branch_gm` test accounts `@fec.test` (one per venue incl. WM-VM), password **FecTest2026!**, linked to staff; covers all active venue locations (skips corporate `HO`). |
 | **seed:maintenance-logistics** | Maintenance/logistics test accounts `@fec.test`, password **FecTest2026!**. |
 | **seed:test-logins** | UAT PR requester, IT department head, HR, and finance approver (`@fec.test`, **FecTest2026!**). Idempotent; does not reset admin or existing supervisor/maintenance passwords. |
 | **seed:role-personas** | Four role demo logins (`site.supervisor` / `ops.supervisor` / `hr.manager` / `employee` `@fec.test`), password **FecTest2026!** by default. Pass `--rotate` for unique passwords; override with `ROLE_PERSONA_PASSWORD`. |
@@ -88,6 +88,7 @@ Expected after full seed (approx.): **61+ demo staff (106 if demo ran)**, **6 ac
 | finance.approver@fec.test | FecTest2026! | cfo - PR finance sign-off |
 | waqar.supervisor@fec.test | FecTest2026! | branch_gm - GM PR step + daily ops (UA-DM) |
 | mary.supervisor@fec.test | FecTest2026! | branch_gm - site supervisor (INF-CC) |
+| wm.supervisor@fec.test | FecTest2026! | branch_gm - site supervisor (WM-VM) |
 | lead.maintenance@fec.test | FecTest2026! | tech_supervisor - maintenance lead |
 | hannan.maintenance@fec.test | FecTest2026! | technician - UA-DM maintenance |
 | site.supervisor@fec.test | FecTest2026! | branch_gm - role persona (INF-CC) |

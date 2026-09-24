@@ -153,6 +153,7 @@ function StaffProfilePageBody() {
   const canEdit = usePermission("people.edit_roster");
   const canSalary = usePermission("people.edit_salary");
   const canViewSalaryPerm = usePermission("people.view_salary");
+  const canViewSensitive = usePermission("hr.profile.view_sensitive") || canViewSalaryPerm;
   const canConfigure = usePermission("attendance.configure");
   const [enrollOpen, setEnrollOpen] = useState(false);
   const { data: sites } = useSites();
@@ -495,7 +496,7 @@ function StaffProfilePageBody() {
               <span className="text-xs text-muted-foreground">{t("people.profile.directoryPhoto")}</span>
             </div>
           )}
-          <Row label={t("people.staff.qid")} value={s.qid} />
+          <Row label={t("people.staff.qid")} value={canViewSensitive ? s.qid : s.qid ? "••••••••" : null} />
           <Row label={t("people.staff.contact")} value={s.phone} />
           <Row label={t("people.staff.email")} value={s.email} />
           <div className="space-y-2 border-t pt-3">
@@ -805,10 +806,10 @@ function StaffProfilePageBody() {
             <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Nationality</dt><dd>{ext?.nationality ?? "—"}</dd></div>
             <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Gender</dt><dd>{ext?.gender ?? "—"}</dd></div>
             <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Date of birth</dt><dd>{ext?.date_of_birth ?? "—"}</dd></div>
-            <div className="flex justify-between gap-2"><dt className="text-muted-foreground">QID</dt><dd className="font-mono text-xs">{s.qid ?? "—"}</dd></div>
-            <div className="flex justify-between gap-2"><dt className="text-muted-foreground">QID expiry</dt><dd>{ext?.qid_expiry ?? "—"} <Badge variant="outline" className="ml-1 text-[10px]">{expiryBand(today, ext?.qid_expiry)}</Badge></dd></div>
-            <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Passport</dt><dd className="font-mono text-xs">{ext?.passport_number ?? "—"}</dd></div>
-            <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Passport expiry</dt><dd>{ext?.passport_expiry ?? "—"} <Badge variant="outline" className="ml-1 text-[10px]">{expiryBand(today, ext?.passport_expiry)}</Badge></dd></div>
+            <div className="flex justify-between gap-2"><dt className="text-muted-foreground">QID</dt><dd className="font-mono text-xs">{canViewSensitive ? (s.qid ?? "—") : s.qid ? "••••••••" : "—"}</dd></div>
+            <div className="flex justify-between gap-2"><dt className="text-muted-foreground">QID expiry</dt><dd>{canViewSensitive ? (ext?.qid_expiry ?? "—") : "••••"} {canViewSensitive ? <Badge variant="outline" className="ml-1 text-[10px]">{expiryBand(today, ext?.qid_expiry)}</Badge> : null}</dd></div>
+            <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Passport</dt><dd className="font-mono text-xs">{canViewSensitive ? (ext?.passport_number ?? "—") : ext?.passport_number ? "••••••••" : "—"}</dd></div>
+            <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Passport expiry</dt><dd>{canViewSensitive ? (ext?.passport_expiry ?? "—") : "••••"} {canViewSensitive ? <Badge variant="outline" className="ml-1 text-[10px]">{expiryBand(today, ext?.passport_expiry)}</Badge> : null}</dd></div>
             <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Emergency</dt><dd>{ext?.emergency_contact_name ?? "—"} {ext?.emergency_contact_phone ? `· ${ext.emergency_contact_phone}` : ""}</dd></div>
           </dl>
         </section>
@@ -819,9 +820,13 @@ function StaffProfilePageBody() {
           <section className="surface-card space-y-2 p-5">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold">Documents</h2>
-              <Button asChild size="sm" variant="secondary"><Link href="/people/hr/documents">Open HR Documents</Link></Button>
+              {canViewSensitive ? (
+                <Button asChild size="sm" variant="secondary"><Link href="/people/hr/documents">Open HR Documents</Link></Button>
+              ) : null}
             </div>
-            {!(profile.data?.documents?.length) ? (
+            {!canViewSensitive ? (
+              <p className="text-sm text-muted-foreground">Sensitive HR documents (QID, passport, contracts) are visible to Admin and HR only.</p>
+            ) : !(profile.data?.documents?.length) ? (
               <p className="text-sm text-muted-foreground">No documents on file yet.</p>
             ) : (
               <div className="overflow-x-auto">

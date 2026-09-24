@@ -58,6 +58,20 @@ export function clearAuthSessionCache(queryClient?: QueryClient) {
   hydratedUserId = null;
 }
 
+/**
+ * Supabase often re-emits SIGNED_IN on tab focus / token recovery for the same user.
+ * Hard-reset (clear roles → ProtectedGate skeleton) only on real account switch.
+ */
+export function shouldHardResetAuthSession(
+  event: string,
+  previousUserId: string | null,
+  nextUserId: string | null,
+): boolean {
+  if (event !== "SIGNED_IN" && event !== "USER_UPDATED") return false;
+  if (!nextUserId) return false;
+  return previousUserId !== nextUserId;
+}
+
 async function fetchSessionResponse(retries = 2): Promise<Response> {
   let lastError: unknown;
   for (let attempt = 0; attempt <= retries; attempt++) {

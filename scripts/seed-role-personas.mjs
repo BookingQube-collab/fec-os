@@ -31,6 +31,7 @@ const PROTECTED_EMAILS = new Set([
   "romel.supervisor@fec.test",
   "zaryab.supervisor@fec.test",
   "waqar.supervisor@fec.test",
+  "wm.supervisor@fec.test",
   "hr@fec.test",
   "dept.head@fec.test",
   "pr.requester@fec.test",

@@ -50,6 +50,8 @@ export function createQueryClient() {
         staleTime: QUERY_DEFAULTS.staleTime,
         gcTime: QUERY_DEFAULTS.gcTime,
         refetchOnWindowFocus: false,
+        // Chrome tab freeze/resume can look like reconnect; don't refetch heavy HR matrices.
+        refetchOnReconnect: false,
         retry: 1,
       },
     },

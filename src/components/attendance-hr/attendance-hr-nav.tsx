@@ -23,7 +23,7 @@ export function AttendanceHrNav() {
   const { t } = useTranslation();
   return (
     <nav
-      className="flex h-11 min-h-11 w-full max-w-full flex-nowrap gap-0.5 overflow-x-auto rounded-full border-0 bg-secondary p-1 text-foreground sm:w-fit"
+      className="flex h-11 min-h-11 w-full max-w-full flex-nowrap items-center gap-0.5 overflow-x-auto overflow-y-hidden rounded-full border-0 bg-secondary p-1 text-foreground sm:w-fit"
       aria-label={t("attendanceHr.title")}
     >
       {TABS.map((tab) => {
@@ -35,7 +35,7 @@ export function AttendanceHrNav() {
             href={tab.href}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "inline-flex min-h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-full px-4 py-2.5 text-sm font-medium leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-2",
+              "inline-flex h-full shrink-0 items-center justify-center whitespace-nowrap rounded-full px-4 text-sm font-medium leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-2",
               active
                 ? "bg-primary text-primary-foreground"
                 : "text-foreground hover:bg-transparent hover:text-foreground",

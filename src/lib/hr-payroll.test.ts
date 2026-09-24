@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import { canMarkPayrollPosted } from "./hr-ot";
 import { HR_POLICY_DEFAULTS } from "./hr-policy";
 import {
+  assertCanDeletePayrollPeriod,
   assertPeriodEditable,
   buildWpsExportRows,
+  canDeletePayrollPeriod,
   computeDailyRateBasicQar,
   computePayrollLineAmounts,
   computeProrationFactor,
@@ -157,5 +159,21 @@ describe("FEC cycle helpers", () => {
   it("policy defaults stay QAR / Asia/Qatar", () => {
     expect(HR_POLICY_DEFAULTS.payroll.currency).toBe("QAR");
     expect(HR_POLICY_DEFAULTS.payroll.timezone).toBe("Asia/Qatar");
+  });
+});
+
+describe("payroll period delete gate", () => {
+  it("allows draft / attendance_validation / hr_review only", () => {
+    expect(canDeletePayrollPeriod("draft")).toBe(true);
+    expect(canDeletePayrollPeriod("attendance_validation")).toBe(true);
+    expect(canDeletePayrollPeriod("hr_review")).toBe(true);
+    expect(canDeletePayrollPeriod("finance_review")).toBe(false);
+    expect(canDeletePayrollPeriod("paid")).toBe(false);
+    expect(canDeletePayrollPeriod("locked")).toBe(false);
+  });
+
+  it("tells locked periods to reopen first", () => {
+    expect(() => assertCanDeletePayrollPeriod("locked")).toThrow(/reopen/i);
+    expect(() => assertCanDeletePayrollPeriod("draft")).not.toThrow();
   });
 });

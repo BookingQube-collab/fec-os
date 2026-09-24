@@ -5,8 +5,28 @@ import {
   clearAuthSessionCache,
   fetchAuthSession,
   isAuthSessionHydrated,
+  shouldHardResetAuthSession,
 } from "@/lib/auth-session";
 import { queryKeys } from "@/lib/query-keys";
+
+describe("shouldHardResetAuthSession", () => {
+  it("does not reset on same-user SIGNED_IN (tab focus / token recovery)", () => {
+    expect(shouldHardResetAuthSession("SIGNED_IN", "user-1", "user-1")).toBe(false);
+  });
+
+  it("resets on account switch SIGNED_IN", () => {
+    expect(shouldHardResetAuthSession("SIGNED_IN", "user-1", "user-2")).toBe(true);
+  });
+
+  it("resets on first SIGNED_IN when no prior user", () => {
+    expect(shouldHardResetAuthSession("SIGNED_IN", null, "user-1")).toBe(true);
+  });
+
+  it("ignores TOKEN_REFRESHED and INITIAL_SESSION", () => {
+    expect(shouldHardResetAuthSession("TOKEN_REFRESHED", "user-1", "user-1")).toBe(false);
+    expect(shouldHardResetAuthSession("INITIAL_SESSION", null, "user-1")).toBe(false);
+  });
+});
 
 describe("auth-session hydration", () => {
   afterEach(() => {

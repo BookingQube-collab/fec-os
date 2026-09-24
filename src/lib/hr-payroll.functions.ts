@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import {
   assertAdvancePayrollStatus,
+  assertCanDeletePayrollPeriod,
   assertCanLockPayroll,
   assertPeriodEditable,
   buildBankTransferExportRows,
@@ -31,7 +32,11 @@ import {
   type PayrollExportRow,
   type PayrollMoneyLine,
 } from "@/lib/hr-payroll";
-import { isPayrollPresentDay } from "@/lib/attendance-hr/payroll";
+import {
+  aggregatePayrollRows,
+  isPayrollPresentDay,
+  type PayrollDayInput,
+} from "@/lib/attendance-hr/payroll";
 import { assertCanMarkPayrollPosted } from "@/lib/hr-ot";
 import { readPolicySection } from "@/lib/hr-policy-read";
 import { canUserDo } from "@/lib/rbac";
@@ -344,10 +349,32 @@ export const generatePayrollLines = createAuthenticatedAction(
     const { data: staffRows, error: staffErr } = await staffQ;
     if (staffErr) throw staffErr;
     const staff = (staffRows ?? []) as StaffPayRow[];
-    if (staff.length === 0) return { inserted: 0, periodId: data.periodId };
+    if (staff.length === 0) {
+      return {
+        inserted: 0,
+        periodId: data.periodId,
+        otConsumed: 0,
+        missingCompensation: 0,
+        attendanceBlocked: 0,
+        dateFrom,
+        dateTo,
+      };
+    }
 
     const staffIds = staff.map((s) => s.id);
     const { compBy, histBy, extBy } = await staffPayBundle(context, staffIds);
+
+    // Restore OT already posted to this period so regenerate does not drop OT amounts.
+    await context.supabase
+      .from("hr_ot_claims")
+      .update({
+        status: "hr_approved",
+        payroll_posted_by: null,
+        payroll_posted_at: null,
+        payroll_period_id: null,
+      })
+      .eq("payroll_period_id", data.periodId)
+      .eq("status", "payroll_posted");
 
     const { data: otRows } = await context.supabase
       .from("hr_ot_claims")
@@ -405,12 +432,13 @@ export const generatePayrollLines = createAuthenticatedAction(
       .lte("date_from", dateTo)
       .gte("date_to", dateFrom);
 
-    // Present (punch) days for daily-rate jokers — same statuses as payroll readiness.
+    // Same attendance_daily_summary window as /people/attendance/reports + readiness list.
     const presentDaysByStaff = new Map<string, number>();
+    const readinessByStaff = new Map<string, { payrollReady: boolean; blockingDays: number; missedPunches: number }>();
     {
       let attQ = supabaseAdmin
         .from("attendance_daily_summary")
-        .select("staff_id, status")
+        .select("staff_id, work_date, status, late_minutes, missed_punch, overtime_minutes, worked_minutes, punch_count")
         .in("staff_id", staffIds)
         .gte("work_date", dateFrom)
         .lte("work_date", dateTo)
@@ -418,10 +446,26 @@ export const generatePayrollLines = createAuthenticatedAction(
         .limit(50000);
       if (data.locationId) attQ = attQ.eq("location_id", data.locationId);
       const { data: attRows } = await attQ;
-      for (const row of attRows ?? []) {
-        const sid = String(row.staff_id);
-        if (!isPayrollPresentDay({ status: String(row.status ?? "") })) continue;
-        presentDaysByStaff.set(sid, (presentDaysByStaff.get(sid) ?? 0) + 1);
+      const dayInputs: PayrollDayInput[] = (attRows ?? []).map((row) => ({
+        staff_id: String(row.staff_id),
+        work_date: row.work_date ? String(row.work_date).slice(0, 10) : null,
+        status: String(row.status ?? ""),
+        late_minutes: Number(row.late_minutes ?? 0),
+        missed_punch: Boolean(row.missed_punch),
+        overtime_minutes: Number(row.overtime_minutes ?? 0),
+        worked_minutes: Number(row.worked_minutes ?? 0),
+        punch_count: Number(row.punch_count ?? 0),
+      }));
+      for (const day of dayInputs) {
+        if (!day.staff_id || !isPayrollPresentDay(day)) continue;
+        presentDaysByStaff.set(day.staff_id, (presentDaysByStaff.get(day.staff_id) ?? 0) + 1);
+      }
+      for (const row of aggregatePayrollRows(dayInputs)) {
+        readinessByStaff.set(row.staffId, {
+          payrollReady: row.payrollReady,
+          blockingDays: row.blockingDays,
+          missedPunches: row.missedPunches,
+        });
       }
     }
 
@@ -453,6 +497,8 @@ export const generatePayrollLines = createAuthenticatedAction(
     const inserts: Record<string, unknown>[] = [];
     const otToConsume: string[] = [];
     const airToMark: string[] = [];
+    let missingCompensation = 0;
+    let attendanceBlocked = 0;
 
     for (const s of staff) {
       const ext = extBy.get(s.id) as
@@ -543,6 +589,21 @@ export const generatePayrollLines = createAuthenticatedAction(
         previousNetQar: prevNetByStaff.get(s.id) ?? null,
       });
 
+      const ready = readinessByStaff.get(s.id);
+      const hasComp =
+        (Number.isFinite(monthlyStored) && (monthlyStored as number) > 0) ||
+        (dailyPay && Number.isFinite(dailyStored) && (dailyStored as number) > 0);
+      if (!hasComp && computed.netQar <= 0) missingCompensation += 1;
+      if (ready && !ready.payrollReady) attendanceBlocked += 1;
+
+      const noteParts: string[] = [];
+      if (!hasComp && computed.netQar <= 0) noteParts.push("missing_compensation");
+      if (ready && !ready.payrollReady) {
+        noteParts.push(
+          `attendance_blocked:${ready.blockingDays}d/${ready.missedPunches}missed`,
+        );
+      }
+
       inserts.push({
         period_id: data.periodId,
         staff_id: s.id,
@@ -577,6 +638,16 @@ export const generatePayrollLines = createAuthenticatedAction(
         wps_eligible: computed.wpsEligible,
         variance_vs_prev: computed.varianceVsPrev,
         proration_factor: computed.prorationFactor,
+        working_days: presentDays,
+        notes: noteParts.length ? noteParts.join("; ") : null,
+        snapshot: {
+          presentDays,
+          payrollReady: ready?.payrollReady ?? true,
+          blockingDays: ready?.blockingDays ?? 0,
+          missedPunches: ready?.missedPunches ?? 0,
+          basicSalary: basicForLine,
+          missingCompensation: !hasComp && computed.netQar <= 0,
+        },
       });
     }
 
@@ -631,9 +702,69 @@ export const generatePayrollLines = createAuthenticatedAction(
       inserted: inserts.length,
       otConsumed: otToConsume.length,
       airPending: airToMark.length,
+      missingCompensation,
+      attendanceBlocked,
     });
 
-    return { inserted: inserts.length, periodId: data.periodId, otConsumed: otToConsume.length };
+    return {
+      inserted: inserts.length,
+      periodId: data.periodId,
+      otConsumed: otToConsume.length,
+      missingCompensation,
+      attendanceBlocked,
+      dateFrom,
+      dateTo,
+    };
+  },
+  { auth: { capability: "payroll.generate" } },
+);
+
+export const deletePayrollPeriod = createAuthenticatedAction(
+  z.object({
+    periodId: z.string().uuid(),
+    confirmMonth: z.string().regex(/^\d{4}-\d{2}$/).optional().nullable(),
+  }),
+  async (data, context) => {
+    requireCap(context, "payroll.generate");
+    const period = await loadPeriod(context, data.periodId);
+    const status = asStatus(period.status);
+    assertCanDeletePayrollPeriod(status);
+    if (data.confirmMonth && data.confirmMonth !== period.month) {
+      throw new Error(`Confirm month must match period month ${period.month}.`);
+    }
+
+    // Release OT consumed by this run so regenerate can pick it up again.
+    await context.supabase
+      .from("hr_ot_claims")
+      .update({
+        status: "hr_approved",
+        payroll_posted_by: null,
+        payroll_posted_at: null,
+        payroll_period_id: null,
+      })
+      .eq("payroll_period_id", data.periodId)
+      .eq("status", "payroll_posted");
+
+    await context.supabase
+      .from("hr_air_ticket_issues")
+      .update({
+        payroll_payment_status: "unpaid",
+        payroll_period_id: null,
+      })
+      .eq("payroll_period_id", data.periodId)
+      .in("payroll_payment_status", ["pending", "unpaid"]);
+
+    // Service role after capability gate — periods lack DELETE grant for authenticated.
+    const { error } = await supabaseAdmin.from("hr_payroll_periods").delete().eq("id", data.periodId);
+    if (error) throw error;
+
+    await auditPayroll(context, "hr.payroll.period.delete", data.periodId, {
+      month: period.month,
+      status,
+      dateFrom: period.date_from,
+      dateTo: period.date_to,
+    });
+    return { periodId: data.periodId, month: period.month, deleted: true as const };
   },
   { auth: { capability: "payroll.generate" } },
 );

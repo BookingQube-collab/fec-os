@@ -262,6 +262,28 @@ export function assertHrSensitiveDocAccess(input: {
   }
 }
 
+const SENSITIVE_MASK = "••••••••";
+
+/**
+ * Strip QID / passport numbers for callers without hr.profile.view_sensitive.
+ * Expiry dates stay (ops need “expiring soon”); document files stay gated separately.
+ */
+export function redactStaffIdentityNumbers<T extends {
+  qid?: string | null;
+  passport_number?: string | null;
+}>(row: T, canViewSensitive: boolean): T {
+  if (canViewSensitive) return row;
+  return {
+    ...row,
+    ...(Object.prototype.hasOwnProperty.call(row, "qid")
+      ? { qid: row.qid ? SENSITIVE_MASK : null }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(row, "passport_number")
+      ? { passport_number: row.passport_number ? SENSITIVE_MASK : null }
+      : {}),
+  };
+}
+
 export const HR_CHECKLIST_KINDS = ["onboarding", "offboarding"] as const;
 export type HrChecklistKind = (typeof HR_CHECKLIST_KINDS)[number];
 
