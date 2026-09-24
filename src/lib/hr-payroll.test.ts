@@ -170,6 +170,7 @@ describe("payroll period delete gate", () => {
     expect(canDeletePayrollPeriod("finance_review")).toBe(false);
     expect(canDeletePayrollPeriod("paid")).toBe(false);
     expect(canDeletePayrollPeriod("locked")).toBe(false);
+    expect(canDeletePayrollPeriod("not_a_real_status")).toBe(false);
   });
 
   it("tells locked periods to reopen first", () => {

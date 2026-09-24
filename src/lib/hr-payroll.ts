@@ -70,17 +70,18 @@ export function assertCanLockPayroll(status: HrPayrollStatus): void {
 }
 
 /** Draft / early-review only — paid/locked runs must reopen (or stay immutable). */
-const DELETABLE_STATUSES: ReadonlySet<HrPayrollStatus> = new Set([
+const DELETABLE_STATUSES: ReadonlySet<string> = new Set([
   "draft",
   "attendance_validation",
   "hr_review",
 ]);
 
-export function canDeletePayrollPeriod(status: HrPayrollStatus): boolean {
+/** Accepts raw API/DB strings; unknown statuses are not deletable. */
+export function canDeletePayrollPeriod(status: string): boolean {
   return DELETABLE_STATUSES.has(status);
 }
 
-export function assertCanDeletePayrollPeriod(status: HrPayrollStatus): void {
+export function assertCanDeletePayrollPeriod(status: string): void {
   if (status === "locked") {
     throw new Error("Locked payroll cannot be deleted — reopen it first, then delete from HR review.");
   }

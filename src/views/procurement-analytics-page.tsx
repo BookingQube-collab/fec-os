@@ -110,7 +110,7 @@ export default function ProcurementAnalyticsPage() {
           </button>
         ))}
         <Select value={departmentId || "all"} onValueChange={(v) => setDepartmentId(v === "all" ? "" : v)}>
-          <SelectTrigger className="h-9 w-auto min-w-40 rounded-full">
+          <SelectTrigger className="h-9 w-auto min-w-40">
             <SelectValue placeholder={t("procurement.filters.department")} />
           </SelectTrigger>
           <SelectContent>
@@ -123,7 +123,7 @@ export default function ProcurementAnalyticsPage() {
           </SelectContent>
         </Select>
         <Select value={projectName || "all"} onValueChange={(v) => setProjectName(v === "all" ? "" : v)}>
-          <SelectTrigger className="h-9 w-auto min-w-36 rounded-full">
+          <SelectTrigger className="h-9 w-auto min-w-36">
             <SelectValue placeholder={t("procurement.analytics.projects")} />
           </SelectTrigger>
           <SelectContent>
@@ -136,7 +136,7 @@ export default function ProcurementAnalyticsPage() {
           </SelectContent>
         </Select>
         <Select value={vendorId || "all"} onValueChange={(v) => setVendorId(v === "all" ? "" : v)}>
-          <SelectTrigger className="h-9 w-auto min-w-36 rounded-full">
+          <SelectTrigger className="h-9 w-auto min-w-36">
             <SelectValue placeholder={t("procurement.filters.vendor")} />
           </SelectTrigger>
           <SelectContent>

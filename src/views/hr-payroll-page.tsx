@@ -50,7 +50,7 @@ import {
 } from "@/lib/attendance-hr/roster-period";
 import { formatOtPolicySummary } from "@/lib/hr-advanced";
 import { getOtPolicy } from "@/lib/hr-announcements.functions";
-import { canDeletePayrollPeriod, type HrPayrollStatus } from "@/lib/hr-payroll";
+import { canDeletePayrollPeriod } from "@/lib/hr-payroll";
 import { createPayrollPeriod, deletePayrollPeriod, listPayrollPeriods } from "@/lib/hr-payroll.functions";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { useSites } from "@/hooks/queries/useSites";
@@ -97,7 +97,7 @@ export default function HrPayrollPage() {
   });
   const [createMonth, setCreateMonth] = useState(month);
   const [fixRow, setFixRow] = useState<PayrollStaffRow | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string; month: string; status: HrPayrollStatus } | null>(
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; month: string; status: string } | null>(
     null,
   );
   const [pending, startTransition] = useTransition();

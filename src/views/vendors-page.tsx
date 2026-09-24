@@ -243,7 +243,7 @@ export default function VendorsPage() {
             {tab === "matrix" ? (
               <>
                 <Select value={entityFilter} onValueChange={setEntityFilter}>
-                  <SelectTrigger className="h-9 w-auto min-w-36 rounded-full">
+                  <SelectTrigger className="h-9 w-auto min-w-36">
                     <SelectValue placeholder={t("vendors.ecosystem.allEntityTypes")} />
                   </SelectTrigger>
                   <SelectContent>

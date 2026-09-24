@@ -59,7 +59,7 @@ export function DepartmentMultiSelect({
             role="combobox"
             aria-expanded={open}
             disabled={disabled}
-            className="h-auto min-h-9 w-full justify-between px-2 py-1.5 font-normal"
+            className="h-auto min-h-11 w-full justify-between rounded-lg px-3.5 py-2.5 font-normal"
           >
             <div className="flex flex-1 flex-wrap gap-1 text-left">
               {selected.length ? (

@@ -54,7 +54,7 @@ export function collectNodeText(node: ReactNode): string {
 }
 
 export const searchableSelectInputClassName =
-  "h-10 w-full rounded-full border border-border/70 bg-card ps-10 pe-4 text-sm text-foreground shadow-elevated-xs placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/30";
+  "h-11 w-full rounded-lg border border-input bg-card ps-10 pe-4 text-sm text-foreground shadow-elevated-xs placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/30";
 
 export function SearchableSelectSearchInput({
   value,
@@ -367,7 +367,8 @@ export function SearchableSelect(props: SearchableSelectSingleProps | Searchable
             onKeyDown={onTriggerKeyDown}
             className={cn(
               buttonVariants({ variant: "outline" }),
-              "min-h-11 w-full justify-between gap-2 px-3.5 py-2.5 font-semibold leading-5 [&>span]:line-clamp-1 [&_svg]:size-[1.125rem]",
+              // Match Input: white field, warm border, soft rect — not cream pill.
+              "min-h-11 w-full justify-between gap-2 rounded-lg px-3.5 py-2.5 font-normal leading-5 [&>span]:line-clamp-1 [&_svg]:size-[1.125rem]",
               !triggerLabel && "text-muted-foreground",
               triggerClassName,
             )}

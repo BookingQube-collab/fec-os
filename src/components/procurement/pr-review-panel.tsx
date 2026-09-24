@@ -52,7 +52,7 @@ export function PrReviewPanel({
         </div>
         {stageOptions && stageOptions.length > 1 ? (
           <Select value={stageId} onValueChange={setStageId}>
-            <SelectTrigger className="h-9 w-auto min-w-[12rem] rounded-full text-xs">
+            <SelectTrigger className="h-9 w-auto min-w-[12rem] text-xs">
               <SelectValue placeholder={t("procurement.detail.selectStage")} />
             </SelectTrigger>
             <SelectContent>
