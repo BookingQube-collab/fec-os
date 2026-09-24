@@ -255,13 +255,23 @@ export function collapseFlexibleAttendanceReportRows(
     });
     let status = winner.status;
     if (missed) status = "missed_punch";
-    else if (
-      actualIn &&
-      actualOut &&
-      (status === "absent" || status === "missed_punch" || status === "late" || status === "incomplete")
-    ) {
-      // Late punch minutes stay in late_minutes; status Present when both sides exist.
-      status = "present";
+    else if (actualIn && actualOut) {
+      status = resolveHoursBasedAttendanceStatus({
+        status: winner.status,
+        missed_punch: false,
+        actual_in: actualIn,
+        actual_out: actualOut,
+        worked_minutes: worked,
+        late_minutes: late,
+        expected_minutes: winner.expected_minutes,
+        employment_type: winner.employment_type,
+        flexible_attendance: winner.flexible_attendance,
+        sitePolicy: {
+          permanentHours: winner.permanent_hours,
+          secondmentHours: winner.secondment_hours,
+          jokerHours: winner.joker_hours,
+        },
+      });
     }
     // In/out site + device user: prefer the row that owns earliest in / latest out.
     const inOwner =
@@ -350,6 +360,7 @@ export function attendanceHrToListingSource(
   break_minutes: number;
   expected_minutes: number | null;
   employment_type: string | null;
+  flexible_attendance: boolean;
   status: string;
   missed_punch: boolean;
 } {
@@ -392,6 +403,7 @@ export function attendanceHrToListingSource(
     break_minutes: breakMinutesForLocation(row.location_code, row.location_break_minutes),
     expected_minutes: expected,
     employment_type: row.employment_type,
+    flexible_attendance: Boolean(row.flexible_attendance),
     status: row.status,
     missed_punch: row.missed_punch,
   };

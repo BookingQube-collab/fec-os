@@ -32,7 +32,7 @@ import {
   resolveResyncWindow,
 } from "@/lib/attendance-hr/gap-check";
 import { defaultPayrollPeriod } from "@/lib/attendance-hr/roster-period";
-import { applyRosterDayStatusOverride } from "@/lib/attendance-display";
+import { applyRosterDayStatusOverride, resolveHoursBasedAttendanceStatus } from "@/lib/attendance-display";
 import {
   aggregateDashboardPeriod,
   buildAbsentRowsForPeriod,
@@ -2167,12 +2167,19 @@ async function enrichAttendanceHrDailyRows(
       const missed = Boolean(actualIn) !== Boolean(actualOut);
       missedPunch = missed;
       if (missed) status = "missed_punch";
-      else if (
-        actualIn &&
-        actualOut &&
-        (status === "absent" || status === "missed_punch" || status === "late" || status === "incomplete")
-      ) {
-        status = "present";
+      else if (actualIn && actualOut) {
+        status = resolveHoursBasedAttendanceStatus({
+          status,
+          missed_punch: false,
+          actual_in: actualIn,
+          actual_out: actualOut,
+          worked_minutes: row.worked_minutes == null ? null : Number(row.worked_minutes),
+          late_minutes: lateMinutes,
+          expected_minutes: expectedMinutes,
+          employment_type: employmentType,
+          flexible_attendance: true,
+          sitePolicy: { permanentHours, secondmentHours, jokerHours },
+        });
       }
     }
     const biometricUserId = row.biometric_user_id == null ? null : String(row.biometric_user_id);
@@ -2530,12 +2537,23 @@ async function enrichAttendanceHrDailyRows(
         status !== "public_holiday"
       ) {
         if (missed) status = "missed_punch";
-        else if (
-          actualIn &&
-          actualOut &&
-          (status === "absent" || status === "missed_punch" || status === "late" || status === "incomplete")
-        ) {
-          status = "present";
+        else if (actualIn && actualOut) {
+          status = resolveHoursBasedAttendanceStatus({
+            status: row.status,
+            missed_punch: false,
+            actual_in: actualIn,
+            actual_out: actualOut,
+            worked_minutes: workedMinutes,
+            late_minutes: lateMinutes,
+            expected_minutes: row.expected_minutes,
+            employment_type: row.employment_type,
+            flexible_attendance: row.flexible_attendance,
+            sitePolicy: {
+              permanentHours: row.permanent_hours,
+              secondmentHours: row.secondment_hours,
+              jokerHours: row.joker_hours,
+            },
+          });
         }
       }
       return {

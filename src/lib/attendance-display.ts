@@ -2,6 +2,7 @@ import { defaultPayrollPeriod } from "@/lib/attendance-hr/roster-period";
 import { reportingClockIso } from "@/lib/attendance-hr/late-punch";
 import { computeAttendanceOvertimeMinutes } from "@/lib/attendance-hr/overtime";
 import {
+  FLEXIBLE_MIN_WORK_MINUTES,
   expectedShiftMinutes,
   normalizeAttendanceEmploymentRole,
   type SiteShiftPolicyOverrides,
@@ -364,7 +365,10 @@ export function resolveExpectedWorkMinutes(input: {
  * Prefer hours-vs-expected as the primary status when both punches exist.
  * Keeps roster / leave statuses intact. Stale absent / missed_punch daily rows
  * lose to live first/last punches (flexible multi-site enrichment).
- * Late punch minutes stay in the Late punch column independently.
+ * Late punch minutes stay in the Late punch column independently for roster staff.
+ *
+ * Flexible staff: Late when punch is after shift start + buffer, OR clock hours < 8;
+ * Present when hours ≥ 8 and on time (within buffer).
  */
 export function resolveHoursBasedAttendanceStatus(
   row: {
@@ -377,6 +381,8 @@ export function resolveHoursBasedAttendanceStatus(
     expected_minutes?: number | null;
     employment_type?: string | null;
     sitePolicy?: SiteShiftPolicyOverrides | null;
+    flexible_attendance?: boolean | null;
+    late_minutes?: number | null;
   },
 ): string {
   const statusKey = normalizeAttendanceStatusKey(row.status);
@@ -392,13 +398,22 @@ export function resolveHoursBasedAttendanceStatus(
     }
   }
 
-  const expected = resolveExpectedWorkMinutes(row);
   const workedHours = resolveTotalHoursWorked({
     actual_in: row.actual_in ?? null,
     actual_out: row.actual_out ?? null,
     worked_minutes: row.worked_minutes,
     break_minutes: row.break_minutes,
   });
+
+  if (row.flexible_attendance) {
+    const workedMinutes = workedHours != null ? Math.round(workedHours * 60) : null;
+    const latePunch = Number(row.late_minutes ?? 0) > 0;
+    const shortDay = workedMinutes != null && workedMinutes < FLEXIBLE_MIN_WORK_MINUTES;
+    if (latePunch || shortDay) return "late";
+    if (workedMinutes != null) return "present";
+  }
+
+  const expected = resolveExpectedWorkMinutes(row);
   if (expected != null && workedHours != null) {
     const workedMinutes = Math.round(workedHours * 60);
     // Under expected clock hours → Late (not Short hours)
@@ -423,6 +438,8 @@ export function getAttendanceStatusDisplay(
     expected_minutes?: number | null;
     employment_type?: string | null;
     sitePolicy?: SiteShiftPolicyOverrides | null;
+    flexible_attendance?: boolean | null;
+    late_minutes?: number | null;
   },
 ): AttendanceStatusDisplay {
   const statusKey = resolveHoursBasedAttendanceStatus(row);
@@ -570,6 +587,8 @@ export type AttendanceListingSource = {
   break_minutes?: number | null;
   expected_minutes?: number | null;
   employment_type?: string | null;
+  /** staff.flexible_attendance — Late = late punch OR hours < 8. */
+  flexible_attendance?: boolean | null;
   status: string;
   missed_punch: boolean;
 };

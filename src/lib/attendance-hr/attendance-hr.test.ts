@@ -586,6 +586,54 @@ describe("daily calculation", () => {
     expect(day.statusFlags).toContain("present");
   });
 
+  it("flexible: Late when late punch even if hours ≥ 8; Present when on time ≥ 8h", () => {
+    const flexShift = applyAttendanceShiftPolicy(shift, {
+      employmentType: "permanent",
+      locationCode: "INF-CC",
+      permanentHours: 9,
+      bufferMinutesOverride: 0,
+      lateFromShiftStart: true,
+    });
+    expect(flexShift.minWorkMinutes).toBe(480);
+    expect(flexShift.latePunchAffectsStatus).toBe(true);
+
+    // 08:10 in (10m late), 17:10 out → 9h clock → Late (punch)
+    const lateFull = calculateDailyAttendance(
+      [
+        { punchAt: "2026-08-01T05:10:00.000Z" },
+        { punchAt: "2026-08-01T14:10:00.000Z" },
+      ],
+      { workDate: "2026-08-01", scheduled: true, shift: flexShift },
+    );
+    expect(lateFull.lateMinutes).toBeGreaterThan(0);
+    expect(lateFull.workedMinutes).toBe(540);
+    expect(lateFull.status).toBe("late");
+
+    // 08:00 in, 16:48 out → 8.8h on time → Present (not Late vs 9h site)
+    const onTimeAlmostNine = calculateDailyAttendance(
+      [
+        { punchAt: "2026-08-01T05:00:00.000Z" },
+        { punchAt: "2026-08-01T13:48:00.000Z" },
+      ],
+      { workDate: "2026-08-01", scheduled: true, shift: flexShift },
+    );
+    expect(onTimeAlmostNine.lateMinutes).toBe(0);
+    expect(onTimeAlmostNine.workedMinutes).toBe(528);
+    expect(onTimeAlmostNine.status).toBe("present");
+
+    // 08:00 in, 15:21 out → 7.35h → Late (short day)
+    const shortDay = calculateDailyAttendance(
+      [
+        { punchAt: "2026-08-01T05:00:00.000Z" },
+        { punchAt: "2026-08-01T12:21:00.000Z" },
+      ],
+      { workDate: "2026-08-01", scheduled: true, shift: flexShift },
+    );
+    expect(shortDay.lateMinutes).toBe(0);
+    expect(shortDay.workedMinutes).toBe(441);
+    expect(shortDay.status).toBe("late");
+  });
+
   it("applies joker 10h expected from clock hours at Urban Arena", () => {
     const day = calculateDailyAttendance(
       [
@@ -725,7 +773,8 @@ describe("HR report row helpers", () => {
     expect(collapsed[0]?.scheduled_in).toBe("2026-09-19T07:00:00.000Z");
     expect(collapsed[0]?.worked_minutes).toBe(534);
     expect(collapsed[0]?.missed_punch).toBe(false);
-    expect(collapsed[0]?.status).toBe("present");
+    // Flexible: ≥8h but late vs shift start → Late (late punch column + status)
+    expect(collapsed[0]?.status).toBe("late");
     // Flexible late vs shift start (10:00), not reporting (09:55): 4m 38s → 4.6
     expect(collapsed[0]?.late_minutes).toBe(4.6);
     expect(

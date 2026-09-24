@@ -133,6 +133,60 @@ describe("attendance listing display", () => {
     expect(complete.rowClass).toBe("");
   });
 
+  it("flexible Late only for late punch or hours under 8 (Louie pattern)", () => {
+    // 8.80h on time → Present even when site expected is 9h
+    const fullDay = getAttendanceStatusDisplay({
+      status: "late",
+      missed_punch: false,
+      actual_in: "2026-09-08T08:33:01.000Z",
+      actual_out: "2026-09-08T17:21:04.000Z",
+      worked_minutes: 528,
+      expected_minutes: 540,
+      late_minutes: 0,
+      flexible_attendance: true,
+    });
+    expect(fullDay.label).toBe("Present");
+
+    // 8.40h on time → Present
+    const almostNine = getAttendanceStatusDisplay({
+      status: "late",
+      missed_punch: false,
+      actual_in: "2026-08-30T07:00:00.000Z",
+      actual_out: "2026-08-30T15:24:00.000Z",
+      worked_minutes: 504,
+      expected_minutes: 540,
+      late_minutes: 0,
+      flexible_attendance: true,
+    });
+    expect(almostNine.label).toBe("Present");
+
+    // 7.35h → Late (short day)
+    const shortDay = getAttendanceStatusDisplay({
+      status: "present",
+      missed_punch: false,
+      actual_in: "2026-09-10T07:00:00.000Z",
+      actual_out: "2026-09-10T14:21:00.000Z",
+      worked_minutes: 441,
+      expected_minutes: 540,
+      late_minutes: 0,
+      flexible_attendance: true,
+    });
+    expect(shortDay.label).toBe("Late");
+
+    // ≥8h but late punch → Late
+    const latePunch = getAttendanceStatusDisplay({
+      status: "present",
+      missed_punch: false,
+      actual_in: "2026-09-08T08:33:01.000Z",
+      actual_out: "2026-09-08T17:21:04.000Z",
+      worked_minutes: 528,
+      expected_minutes: 540,
+      late_minutes: 12,
+      flexible_attendance: true,
+    });
+    expect(latePunch.label).toBe("Late");
+  });
+
   it("maps HR rows onto the people listing columns", () => {
     const row: AttendanceHrReportRow = {
       id: "1",

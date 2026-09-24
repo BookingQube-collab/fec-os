@@ -46,6 +46,8 @@ export {
   EXTENDED_SHIFT_HOURS,
   PERMANENT_SHIFT_MINUTES,
   EXTENDED_SHIFT_MINUTES,
+  FLEXIBLE_MIN_WORK_HOURS,
+  FLEXIBLE_MIN_WORK_MINUTES,
 } from "./shift-policy";
 export {
   staffUsesCrossSiteDayMerge,

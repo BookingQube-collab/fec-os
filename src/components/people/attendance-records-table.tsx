@@ -12,6 +12,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
@@ -34,6 +35,19 @@ import {
 import { cn } from "@/lib/utils";
 
 const HEAD_CLASS = "whitespace-nowrap text-xs uppercase tracking-wider";
+const COL_COUNT = 13;
+/** Columns before TOTAL HOURS WORKED (location → last check-out). */
+const HOURS_COL_INDEX = 8;
+
+/** Sum of listing TOTAL HOURS WORKED values (same as column cells). */
+export function sumListingTotalHours(rows: AttendanceListingSource[]): number {
+  let total = 0;
+  for (const row of rows) {
+    const hours = resolveTotalHoursWorked(row);
+    if (hours != null) total += hours;
+  }
+  return Math.round(total * 100) / 100;
+}
 
 export type AttendanceMapStaffOption = {
   id: string;
@@ -69,6 +83,7 @@ export function AttendanceRecordsTable({
   const { t } = useTranslation();
   const [draftByMapping, setDraftByMapping] = useState<Record<string, string>>({});
   const canInlineMap = Boolean(mapStaffOptions && onMapStaff);
+  const totalHoursSum = sumListingTotalHours(rows);
 
   return (
     <div className="overflow-hidden rounded-lg border border-border">
@@ -93,7 +108,7 @@ export function AttendanceRecordsTable({
         <TableBody>
           {rows.length === 0 ? (
             <TableRow>
-              <TableCell className="px-4 py-8" colSpan={13}>
+              <TableCell className="px-4 py-8" colSpan={COL_COUNT}>
                 {empty}
               </TableCell>
             </TableRow>
@@ -223,6 +238,22 @@ export function AttendanceRecordsTable({
             })
           )}
         </TableBody>
+        {rows.length > 0 ? (
+          <TableFooter className="sticky bottom-0 z-[1] bg-muted/95 backdrop-blur-sm">
+            <TableRow className="hover:bg-transparent">
+              <TableCell
+                colSpan={HOURS_COL_INDEX}
+                className="px-4 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+              >
+                {t("people.attendance.widgets.totalHours")}
+              </TableCell>
+              <TableCell className="tabular-nums text-xs font-semibold">
+                {formatHoursValue(totalHoursSum)}
+              </TableCell>
+              <TableCell colSpan={COL_COUNT - HOURS_COL_INDEX - 1} />
+            </TableRow>
+          </TableFooter>
+        ) : null}
       </Table>
     </div>
   );

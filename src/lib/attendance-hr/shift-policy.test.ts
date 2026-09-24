@@ -100,6 +100,9 @@ describe("attendance shift policy", () => {
       lateFromShiftStart: true,
     });
     expect(flex.graceMinutes).toBe(0);
+    expect(flex.minWorkMinutes).toBe(480);
+    expect(flex.overtimeAfterMinutes).toBe(540);
+    expect(flex.latePunchAffectsStatus).toBe(true);
 
     const withBuffer = applyAttendanceShiftPolicy(DEFAULT_SHIFT, {
       employmentType: "permanent",

@@ -17,6 +17,9 @@ export const PERMANENT_SHIFT_HOURS = 9;
 export const EXTENDED_SHIFT_HOURS = 10;
 export const PERMANENT_SHIFT_MINUTES = PERMANENT_SHIFT_HOURS * 60;
 export const EXTENDED_SHIFT_MINUTES = EXTENDED_SHIFT_HOURS * 60;
+/** Flexible staff short-day threshold for Late status (hours < 8 → Late). */
+export const FLEXIBLE_MIN_WORK_HOURS = 8;
+export const FLEXIBLE_MIN_WORK_MINUTES = FLEXIBLE_MIN_WORK_HOURS * 60;
 export const DEFAULT_BREAK_MINUTES = 60;
 export const URBAN_ARENA_BREAK_MINUTES = 30;
 /** Default reporting lead (minutes before roster start) when site has no explicit value. */
@@ -181,6 +184,9 @@ export function applyAttendanceShiftPolicy(
     opts.bufferMinutesOverride != null && Number.isFinite(Number(opts.bufferMinutesOverride));
   if (opts.lateFromShiftStart) {
     next.graceMinutes = bufferMinutesForLocation(opts.bufferMinutesOverride);
+    // Flexible: short day = < 8h; OT threshold stays site/employment expected.
+    next.minWorkMinutes = FLEXIBLE_MIN_WORK_MINUTES;
+    next.latePunchAffectsStatus = true;
   } else if (hasReporting || hasBuffer) {
     next.graceMinutes = lateGraceMinutesForLocation(
       opts.reportingTimeMinutesOverride,

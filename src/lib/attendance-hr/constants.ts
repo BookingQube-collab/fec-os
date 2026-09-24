@@ -134,6 +134,8 @@ export type ShiftTemplateInput = {
   earlyInWindowMinutes: number;
   lateOutWindowMinutes: number;
   dayCutoffTime: string;
+  /** Flexible staff: late punch alone sets status Late even when hours meet minWork. */
+  latePunchAffectsStatus?: boolean;
 };
 
 export type AttendanceRuleInput = {
