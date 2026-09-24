@@ -34,7 +34,6 @@ import {
 } from "@/lib/hr-payroll";
 import {
   aggregatePayrollRows,
-  isPayrollPresentDay,
   type PayrollDayInput,
 } from "@/lib/attendance-hr/payroll";
 import { assertCanMarkPayrollPosted } from "@/lib/hr-ot";
@@ -267,17 +266,19 @@ async function paymentDefaults(context: AuthContext) {
   return undefined;
 }
 
-async function staffPayBundle(context: AuthContext, staffIds: string[]) {
-  const { data: comps } = await context.supabase
+async function staffPayBundle(_context: AuthContext, staffIds: string[]) {
+  // Service role: caller already passed payroll.generate / payroll.view. User-scoped
+  // RLS on staff_compensation can still return empty for some admin JWT shapes.
+  const { data: comps } = await supabaseAdmin
     .from("staff_compensation")
     .select("staff_id, monthly_salary_qar, daily_rate_qar")
     .in("staff_id", staffIds);
-  const { data: hist } = await context.supabase
+  const { data: hist } = await supabaseAdmin
     .from("staff_salary_history")
     .select("staff_id, basic_qar, monthly_total_qar, daily_rate_qar, allowances, effective_on")
     .in("staff_id", staffIds)
     .order("effective_on", { ascending: false });
-  const { data: ext } = await context.supabase
+  const { data: ext } = await supabaseAdmin
     .from("staff_profile_ext")
     .select(
       "staff_id, employment_category, payment_method, bank_name, iban, wps_employee_id, last_working_date, releasing_date",
@@ -332,8 +333,8 @@ export const generatePayrollLines = createAuthenticatedAction(
     const periodRow = await loadPeriod(context, data.periodId);
     const status = asStatus(periodRow.status);
     assertPeriodEditable(status);
-    if (status !== "draft" && status !== "hr_review") {
-      throw new Error("Lines can only be regenerated in draft or HR review.");
+    if (status !== "draft" && status !== "attendance_validation" && status !== "hr_review") {
+      throw new Error("Lines can only be regenerated in draft, attendance validation, or HR review.");
     }
 
     const dateFrom = String(periodRow.date_from).slice(0, 10);
@@ -433,10 +434,12 @@ export const generatePayrollLines = createAuthenticatedAction(
       .gte("date_to", dateFrom);
 
     // Same attendance_daily_summary window as /people/attendance/reports + readiness list.
+    // Do not filter by location_id here: present days are company-wide per staff (cross-site
+    // punches). staffIds already scopes the cohort (home location filter above when set).
     const presentDaysByStaff = new Map<string, number>();
     const readinessByStaff = new Map<string, { payrollReady: boolean; blockingDays: number; missedPunches: number }>();
     {
-      let attQ = supabaseAdmin
+      const { data: attRows } = await supabaseAdmin
         .from("attendance_daily_summary")
         .select("staff_id, work_date, status, late_minutes, missed_punch, overtime_minutes, worked_minutes, punch_count")
         .in("staff_id", staffIds)
@@ -444,8 +447,6 @@ export const generatePayrollLines = createAuthenticatedAction(
         .lte("work_date", dateTo)
         .not("staff_id", "is", null)
         .limit(50000);
-      if (data.locationId) attQ = attQ.eq("location_id", data.locationId);
-      const { data: attRows } = await attQ;
       const dayInputs: PayrollDayInput[] = (attRows ?? []).map((row) => ({
         staff_id: String(row.staff_id),
         work_date: row.work_date ? String(row.work_date).slice(0, 10) : null,
@@ -456,11 +457,8 @@ export const generatePayrollLines = createAuthenticatedAction(
         worked_minutes: Number(row.worked_minutes ?? 0),
         punch_count: Number(row.punch_count ?? 0),
       }));
-      for (const day of dayInputs) {
-        if (!day.staff_id || !isPayrollPresentDay(day)) continue;
-        presentDaysByStaff.set(day.staff_id, (presentDaysByStaff.get(day.staff_id) ?? 0) + 1);
-      }
       for (const row of aggregatePayrollRows(dayInputs)) {
+        presentDaysByStaff.set(row.staffId, row.daysPresent);
         readinessByStaff.set(row.staffId, {
           payrollReady: row.payrollReady,
           blockingDays: row.blockingDays,
@@ -593,11 +591,11 @@ export const generatePayrollLines = createAuthenticatedAction(
       const hasComp =
         (Number.isFinite(monthlyStored) && (monthlyStored as number) > 0) ||
         (dailyPay && Number.isFinite(dailyStored) && (dailyStored as number) > 0);
-      if (!hasComp && computed.netQar <= 0) missingCompensation += 1;
+      if (!hasComp) missingCompensation += 1;
       if (ready && !ready.payrollReady) attendanceBlocked += 1;
 
       const noteParts: string[] = [];
-      if (!hasComp && computed.netQar <= 0) noteParts.push("missing_compensation");
+      if (!hasComp) noteParts.push("missing_compensation");
       if (ready && !ready.payrollReady) {
         noteParts.push(
           `attendance_blocked:${ready.blockingDays}d/${ready.missedPunches}missed`,
@@ -645,8 +643,9 @@ export const generatePayrollLines = createAuthenticatedAction(
           payrollReady: ready?.payrollReady ?? true,
           blockingDays: ready?.blockingDays ?? 0,
           missedPunches: ready?.missedPunches ?? 0,
-          basicSalary: basicForLine,
-          missingCompensation: !hasComp && computed.netQar <= 0,
+          basicSalary: hasComp ? basicForLine : null,
+          allowances: dailyPay ? 0 : allowances,
+          missingCompensation: !hasComp,
         },
       });
     }

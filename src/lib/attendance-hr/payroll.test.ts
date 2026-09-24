@@ -133,4 +133,62 @@ describe("payroll readiness", () => {
       "Review required",
     ]);
   });
+
+  it("collapses multisite ABSENT fillers so Present matches listing", () => {
+    const [row] = aggregatePayrollRows([
+      {
+        staff_id: "osman",
+        staff_name: "Abdallah Osman",
+        employee_code: "UA-DM-CSH01",
+        work_date: "2026-09-01",
+        status: "absent",
+        punch_count: 0,
+        worked_minutes: 0,
+      },
+      {
+        staff_id: "osman",
+        staff_name: "Abdallah Osman",
+        employee_code: "UA-DM-CSH01",
+        work_date: "2026-09-01",
+        status: "present",
+        punch_count: 2,
+        worked_minutes: 480,
+      },
+      {
+        staff_id: "osman",
+        staff_name: "Abdallah Osman",
+        employee_code: "UA-DM-CSH01",
+        work_date: "2026-09-02",
+        status: "late",
+        late_minutes: 10,
+        punch_count: 2,
+        worked_minutes: 470,
+      },
+    ]);
+    expect(row.daysPresent).toBe(2);
+    expect(row.daysAbsent).toBe(0);
+    expect(row.payrollReady).toBe(true);
+  });
+
+  it("does not double-count the same staff day across locations", () => {
+    const [row] = aggregatePayrollRows([
+      {
+        staff_id: "a",
+        staff_name: "A",
+        work_date: "2026-09-10",
+        status: "present",
+        punch_count: 2,
+        worked_minutes: 400,
+      },
+      {
+        staff_id: "a",
+        staff_name: "A",
+        work_date: "2026-09-10",
+        status: "present",
+        punch_count: 2,
+        worked_minutes: 420,
+      },
+    ]);
+    expect(row.daysPresent).toBe(1);
+  });
 });

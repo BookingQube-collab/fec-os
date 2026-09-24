@@ -69,6 +69,17 @@ function qar(n: number | null | undefined): string {
   return n.toLocaleString("en-QA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+/** Basic / salary cell: authorized payroll viewers see amount or an explicit missing label. */
+function payrollBasicCell(snap: Record<string, unknown>, netQar: number): string {
+  if (snap.missingCompensation === true) return "No salary set";
+  const basic = snap.basicSalary == null ? null : Number(snap.basicSalary);
+  if (basic == null || !Number.isFinite(basic)) {
+    return netQar <= 0 ? "No salary set" : "—";
+  }
+  if (basic <= 0 && netQar <= 0) return "No salary set";
+  return qar(basic);
+}
+
 function matrixToCsv(matrix: string[][]): string {
   return matrix
     .map((row) =>
@@ -328,6 +339,12 @@ export default function HrPayrollPeriodPage() {
             {statusBadge}
             {period?.reconciledAt ? <Badge variant="success">Reconciled</Badge> : null}
           </div>
+
+          {detail.isError ? (
+            <p className="mb-3 text-sm text-destructive" role="alert">
+              {detail.error instanceof Error ? detail.error.message : t("hr.payrollRuns.error")}
+            </p>
+          ) : null}
 
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
             <HrKpiTile label="Employees" value={kpis?.employees ?? "—"} delay={0} />
@@ -757,8 +774,12 @@ export default function HrPayrollPeriodPage() {
                             <td className="text-xs">
                               {line.employmentCategory ?? line.employmentType ?? "—"}
                             </td>
-                            <td className="tabular-nums">{qar(Number(snap.basicSalary) || 0)}</td>
-                            <td className="tabular-nums">{qar(Number(snap.allowances) || 0)}</td>
+                            <td className="tabular-nums">{payrollBasicCell(snap, line.netQar)}</td>
+                            <td className="tabular-nums">
+                              {snap.missingCompensation === true
+                                ? "—"
+                                : qar(Number(snap.allowances) || 0)}
+                            </td>
                             <td className="tabular-nums">{qar(Number(snap.earnedGross) || line.grossQar)}</td>
                             <td className="tabular-nums">{qar(Number(snap.otPayReg) || 0)}</td>
                             <td className="tabular-nums">{qar(Number(snap.otPayPh) || 0)}</td>

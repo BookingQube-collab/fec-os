@@ -33,7 +33,8 @@ import {
 } from "@/lib/server/create-action";
 
 function tableMissing(message: string | undefined): boolean {
-  return Boolean(message && /does not exist|schema cache|relation/i.test(message));
+  // Do not match "relationship" (PGRST201 ambiguous embed) — that is a real query bug.
+  return Boolean(message && /does not exist|schema cache/i.test(message));
 }
 
 function requireCap(context: AuthContext, cap: Parameters<typeof canUserDo>[1]) {
@@ -476,7 +477,8 @@ export const getPayrollPeriodWorkspace = createAuthenticatedAction(
     let q = context.supabase
       .from("hr_payroll_lines")
       .select(
-        "*, staff(full_name, employee_code, qid, location_id, department, employment_type, locations(name, code))",
+        // Disambiguate staff→locations: home site FK vs staff_work_locations M2M (PGRST201).
+        "*, staff(full_name, employee_code, qid, location_id, department, employment_type, locations!staff_location_id_fkey(name, code))",
       )
       .eq("period_id", data.periodId)
       .order("created_at", { ascending: true });

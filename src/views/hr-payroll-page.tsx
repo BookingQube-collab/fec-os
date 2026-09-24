@@ -520,10 +520,15 @@ export default function HrPayrollPage() {
                 </div>
               ) : null}
             </div>
-            <DialogFooter className="gap-2 sm:justify-between">
-              <Button variant="secondary" asChild>
-                <Link href="/people/attendance/corrections">{t("hr.payroll.fixOpenCorrections")}</Link>
-              </Button>
+            <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-between">
+              <div className="flex flex-wrap gap-2">
+                <Button variant="default" asChild>
+                  <Link href="/people/attendance/reports">{t("hr.payroll.fixOpenListing")}</Link>
+                </Button>
+                <Button variant="secondary" asChild>
+                  <Link href="/people/attendance/corrections">{t("hr.payroll.fixOpenCorrections")}</Link>
+                </Button>
+              </div>
               <Button type="button" onClick={() => setFixRow(null)}>
                 {t("common.close", { defaultValue: "Close" })}
               </Button>

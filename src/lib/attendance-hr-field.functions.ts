@@ -548,7 +548,9 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
     if (data.locationId) await assertSite(context, data.locationId);
     // Service role after payroll.view + site checks: HR attendance access does not imply
     // staff RLS (user_can_access_location has no HR bypass). Join staff/locations here.
-    let q = supabaseAdmin
+    // Always load all sites in the cycle, then collapse staff+date (listing does the same).
+    // Location filter = which staff appear, not "only count punches at this site".
+    const { data: rows, error } = await supabaseAdmin
       .from("attendance_daily_summary")
       .select(
         "staff_id, location_id, work_date, status, late_minutes, missed_punch, overtime_minutes, worked_minutes, punch_count, staff(full_name, employee_code), locations(code, name)",
@@ -557,8 +559,6 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
       .lte("work_date", data.dateTo)
       .not("staff_id", "is", null)
       .limit(50000);
-    if (data.locationId) q = q.eq("location_id", data.locationId);
-    const { data: rows, error } = await q;
     if (error) throw error;
 
     const locLabelById = new Map<string, string>();
@@ -571,10 +571,12 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
       if (locRow) locLabelById.set(String(locRow.id), formatLocationLabel(locRow.code, locRow.name));
     }
 
+    const staffAtFilterLoc = new Set<string>();
     const staffLocVotes = new Map<string, Map<string, number>>();
     const days: PayrollDayInput[] = (rows ?? []).map((row) => {
       const staffId = String(row.staff_id);
       const locationId = row.location_id ? String(row.location_id) : "";
+      if (data.locationId && locationId === data.locationId) staffAtFilterLoc.add(staffId);
       if (locationId) {
         const votes = staffLocVotes.get(staffId) ?? new Map<string, number>();
         votes.set(locationId, (votes.get(locationId) ?? 0) + 1);
@@ -608,7 +610,7 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
     });
 
     const filterLabel = data.locationId ? (locLabelById.get(data.locationId) ?? "—") : null;
-    const summary = aggregatePayrollRows(days).map((row) => {
+    let summary = aggregatePayrollRows(days).map((row) => {
       if (filterLabel) return { ...row, locationLabel: filterLabel };
       const votes = staffLocVotes.get(row.staffId);
       let bestId = "";
@@ -623,6 +625,9 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
       }
       return { ...row, locationLabel: (bestId && locLabelById.get(bestId)) || "—" };
     });
+    if (data.locationId) {
+      summary = summary.filter((row) => staffAtFilterLoc.has(row.staffId));
+    }
     return {
       dateFrom: data.dateFrom,
       dateTo: data.dateTo,

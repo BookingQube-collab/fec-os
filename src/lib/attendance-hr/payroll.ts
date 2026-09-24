@@ -72,6 +72,44 @@ export function isPayrollReady(row: Pick<PayrollStaffRow, "blockingDays" | "miss
   return row.blockingDays === 0 && row.missedPunches === 0;
 }
 
+/**
+ * Score a daily summary row so multisite ABSENT fillers lose to the punched site
+ * (same preference as attendance listing collapse).
+ */
+export function payrollDayRowScore(row: PayrollDayInput): number {
+  let score = 0;
+  score += Math.min(Number(row.punch_count) || 0, 20) * 100;
+  if (row.worked_minutes != null && Number(row.worked_minutes) > 0) score += 30;
+  const status = String(row.status ?? "").toLowerCase();
+  if (status && status !== "absent") score += 20;
+  if (isPayrollPresentDay(row)) score += 10;
+  if (row.missed_punch || status === "missed_punch") score -= 5;
+  return score;
+}
+
+/**
+ * One row per staff+work_date. Listing collapses cross-site siblings; payroll must
+ * too or Present undercounts when a site filter (or home ABSENT fillers) hide punches.
+ */
+export function collapsePayrollDayInputs(days: PayrollDayInput[]): PayrollDayInput[] {
+  const byKey = new Map<string, PayrollDayInput>();
+  const undated: PayrollDayInput[] = [];
+  for (const day of days) {
+    if (!day.staff_id) continue;
+    const workDate = String(day.work_date ?? "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(workDate)) {
+      undated.push(day);
+      continue;
+    }
+    const key = `${day.staff_id}|${workDate}`;
+    const prev = byKey.get(key);
+    if (!prev || payrollDayRowScore(day) > payrollDayRowScore(prev)) {
+      byKey.set(key, { ...day, work_date: workDate });
+    }
+  }
+  return [...byKey.values(), ...undated];
+}
+
 /** Canonical block code for a day — shared by aggregate + Fix UI. */
 export function payrollBlockReasonCode(
   day: Pick<PayrollDayInput, "status" | "missed_punch">,
@@ -123,7 +161,7 @@ function emptyStaff(id: string, name: string, code: string): PayrollStaffRow {
 
 export function aggregatePayrollRows(days: PayrollDayInput[]): PayrollStaffRow[] {
   const byStaff = new Map<string, PayrollStaffRow>();
-  for (const day of days) {
+  for (const day of collapsePayrollDayInputs(days)) {
     if (!day.staff_id) continue;
     const current =
       byStaff.get(day.staff_id) ??
