@@ -17,7 +17,7 @@ export const PERMANENT_SHIFT_HOURS = 9;
 export const EXTENDED_SHIFT_HOURS = 10;
 export const PERMANENT_SHIFT_MINUTES = PERMANENT_SHIFT_HOURS * 60;
 export const EXTENDED_SHIFT_MINUTES = EXTENDED_SHIFT_HOURS * 60;
-/** Flexible staff short-day threshold for Late status (hours < 8 → Late). */
+/** Fallback short-day floor when expected minutes cannot be resolved. */
 export const FLEXIBLE_MIN_WORK_HOURS = 8;
 export const FLEXIBLE_MIN_WORK_MINUTES = FLEXIBLE_MIN_WORK_HOURS * 60;
 export const DEFAULT_BREAK_MINUTES = 60;
@@ -267,8 +267,8 @@ export function applyAttendanceShiftPolicy(
     opts.bufferMinutesOverride != null && Number.isFinite(Number(opts.bufferMinutesOverride));
   if (opts.lateFromShiftStart) {
     next.graceMinutes = bufferMinutesForLocation(opts.bufferMinutesOverride);
-    // Flexible: short day = < 8h unless staff expected_hours override is set.
-    next.minWorkMinutes = hoursOk ? expected : FLEXIBLE_MIN_WORK_MINUTES;
+    // Flexible: staff expected_hours → else site role hours (same ladder as non-flex).
+    next.minWorkMinutes = expected > 0 ? expected : FLEXIBLE_MIN_WORK_MINUTES;
     next.latePunchAffectsStatus = true;
   } else if (hasReporting || hasBuffer) {
     next.graceMinutes = lateGraceMinutesForLocation(

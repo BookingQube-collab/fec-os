@@ -8,6 +8,7 @@ import {
   markAdmsCommandDelivered,
   pendingAdmsCommandLine,
   touchAdmsDevice,
+  type AdmsDeviceRow,
 } from "@/lib/attendance-hr/adms-ingest";
 import {
   admsOk,
@@ -17,7 +18,40 @@ import {
   parseAdmsQuery,
 } from "@/lib/attendance-hr/parse-adms";
 import { decodeAttendanceText } from "@/lib/attendance-hr/parse-attlog";
+import { shouldTouchAdmsHeartbeat } from "@/lib/attendance-hr/constants";
 import { validateAdmsCommKey, validateAdmsIp } from "@/lib/server/adms-auth";
+
+/** Identity cache for idle polls. Pending commands wait at most this long on a warm instance. */
+const DEVICE_CACHE_MS = 60_000;
+const deviceCache = new Map<string, { at: number; device: AdmsDeviceRow | null }>();
+const lastHeartbeatTouch = new Map<string, number>();
+
+function serialKey(sn: string) {
+  return sn.trim().toLowerCase();
+}
+
+function cachedDevice(sn: string): AdmsDeviceRow | null | undefined {
+  const hit = deviceCache.get(serialKey(sn));
+  if (!hit || Date.now() - hit.at >= DEVICE_CACHE_MS) return undefined;
+  return hit.device;
+}
+
+function rememberDevice(sn: string, device: AdmsDeviceRow | null) {
+  deviceCache.set(serialKey(sn), { at: Date.now(), device });
+}
+
+async function touchHeartbeat(deviceId: string) {
+  const now = Date.now();
+  const prev = lastHeartbeatTouch.get(deviceId) ?? 0;
+  if (!shouldTouchAdmsHeartbeat(prev, now)) return;
+  lastHeartbeatTouch.set(deviceId, now);
+  try {
+    await touchAdmsDevice(supabaseAdmin, deviceId, { error: null });
+  } catch (e) {
+    lastHeartbeatTouch.delete(deviceId);
+    throw e;
+  }
+}
 
 function admsText(body: string, status = 200) {
   return new NextResponse(body, {
@@ -62,7 +96,13 @@ async function authorize(request: Request, sn: string, queryKey: string | null) 
   const keyErr = validateAdmsCommKey(request, queryKey);
   if (keyErr) return { error: admsText(keyErr.body, keyErr.status), device: null };
   if (!sn) return { error: admsText("AUTH_ERROR", 403), device: null };
+  const cached = cachedDevice(sn);
+  if (cached !== undefined) {
+    if (!cached) return { error: admsText("AUTH_ERROR", 403), device: null };
+    return { error: null, device: cached };
+  }
   const device = await findAdmsDeviceBySerial(supabaseAdmin, sn);
+  rememberDevice(sn, device);
   if (!device) return { error: admsText("AUTH_ERROR", 403), device: null };
   return { error: null, device };
 }
@@ -71,7 +111,7 @@ async function handleGetRequest(request: Request, sn: string, queryKey: string |
   const auth = await authorize(request, sn, queryKey);
   if (auth.error) return auth.error;
   try {
-    await touchAdmsDevice(supabaseAdmin, auth.device.id, { error: null });
+    await touchHeartbeat(auth.device.id);
   } catch (e) {
     console.error("adms getrequest touch failed:", e);
   }
@@ -79,6 +119,7 @@ async function handleGetRequest(request: Request, sn: string, queryKey: string |
   if (!command) return admsText("OK");
   try {
     await markAdmsCommandDelivered(supabaseAdmin, auth.device.id, auth.device.adms_cmd_id || 1);
+    rememberDevice(sn, { ...auth.device, adms_pending_cmd: null });
   } catch (e) {
     console.error("adms getrequest consume failed:", e);
   }
@@ -98,7 +139,7 @@ export async function handleAdmsGet(request: Request, slug?: string[]) {
     const auth = await authorize(request, q.sn, q.pushcommkey);
     if (auth.error) return auth.error;
     try {
-      await touchAdmsDevice(supabaseAdmin, auth.device.id, { error: null });
+      await touchHeartbeat(auth.device.id);
     } catch (e) {
       console.error("adms handshake touch failed:", e);
     }
@@ -151,6 +192,11 @@ export async function handleAdmsPost(request: Request, slug?: string[]) {
       body,
       stamp: q.stamp,
     });
+    if (q.stamp && table === "ATTLOG") {
+      rememberDevice(q.sn, { ...auth.device, adms_attlog_stamp: q.stamp });
+    } else if (q.stamp && (table === "OPERLOG" || table === "USERINFO" || table === "USER")) {
+      rememberDevice(q.sn, { ...auth.device, adms_operlog_stamp: q.stamp });
+    }
     return admsText(admsOk(result.users + result.punches + result.duplicates));
   } catch (e) {
     console.error("adms ingest failed:", e);

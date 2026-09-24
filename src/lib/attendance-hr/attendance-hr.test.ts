@@ -7,7 +7,15 @@ import { describe, expect, it } from "vitest";
 import { parseEncryptionKey } from "@/lib/ai/crypto";
 
 import { calculateDailyAttendance, markProbableDuplicates } from "./calculate";
-import { ADMS_ONLINE_WINDOW_MS, ATTENDANCE_DAILY_LIST_PAGE_SIZE, DEFAULT_SHIFT, isAdmsDeviceOnline, USER_DAT_RECORD_SIZE } from "./constants";
+import {
+  ADMS_HEARTBEAT_TOUCH_MS,
+  ADMS_ONLINE_WINDOW_MS,
+  ATTENDANCE_DAILY_LIST_PAGE_SIZE,
+  DEFAULT_SHIFT,
+  isAdmsDeviceOnline,
+  shouldTouchAdmsHeartbeat,
+  USER_DAT_RECORD_SIZE,
+} from "./constants";
 import { applyAttendanceShiftPolicy } from "./shift-policy";
 import { decryptFileBuffer, encryptFileBuffer } from "./file-crypto";
 import { detectBufferKind } from "./detect";
@@ -588,7 +596,7 @@ describe("daily calculation", () => {
     expect(day.statusFlags).toContain("present");
   });
 
-  it("flexible: Late when late punch even if hours ≥ 8; Present when on time ≥ 8h", () => {
+  it("flexible: Late when late punch; Undertime when on time under expected (staff→site)", () => {
     const flexShift = applyAttendanceShiftPolicy(shift, {
       employmentType: "permanent",
       locationCode: "INF-CC",
@@ -596,7 +604,8 @@ describe("daily calculation", () => {
       bufferMinutesOverride: 0,
       lateFromShiftStart: true,
     });
-    expect(flexShift.minWorkMinutes).toBe(480);
+    // Blank staff expected_hours → site permanent 9h
+    expect(flexShift.minWorkMinutes).toBe(540);
     expect(flexShift.latePunchAffectsStatus).toBe(true);
 
     // 08:10 in (10m late), 17:10 out → 9h clock → Late (punch)
@@ -611,19 +620,19 @@ describe("daily calculation", () => {
     expect(lateFull.workedMinutes).toBe(540);
     expect(lateFull.status).toBe("late");
 
-    // 08:00 in, 16:48 out → 8.8h on time → Present (not Late vs 9h site)
-    const onTimeAlmostNine = calculateDailyAttendance(
+    // 08:00 in, 17:00 out → 9h on time → Present
+    const onTimeFull = calculateDailyAttendance(
       [
         { punchAt: "2026-08-01T05:00:00.000Z" },
-        { punchAt: "2026-08-01T13:48:00.000Z" },
+        { punchAt: "2026-08-01T14:00:00.000Z" },
       ],
       { workDate: "2026-08-01", scheduled: true, shift: flexShift },
     );
-    expect(onTimeAlmostNine.lateMinutes).toBe(0);
-    expect(onTimeAlmostNine.workedMinutes).toBe(528);
-    expect(onTimeAlmostNine.status).toBe("present");
+    expect(onTimeFull.lateMinutes).toBe(0);
+    expect(onTimeFull.workedMinutes).toBe(540);
+    expect(onTimeFull.status).toBe("present");
 
-    // 08:00 in, 15:21 out → 7.35h → Late (short day)
+    // 08:00 in, 15:21 out → 7.35h on time → Undertime (short_hours), not Late
     const shortDay = calculateDailyAttendance(
       [
         { punchAt: "2026-08-01T05:00:00.000Z" },
@@ -633,7 +642,48 @@ describe("daily calculation", () => {
     );
     expect(shortDay.lateMinutes).toBe(0);
     expect(shortDay.workedMinutes).toBe(441);
-    expect(shortDay.status).toBe("late");
+    expect(shortDay.status).toBe("short_hours");
+
+    // Staff expected_hours = 8 → 8.8h Present even when site is 9h
+    const staffEight = applyAttendanceShiftPolicy(shift, {
+      employmentType: "permanent",
+      locationCode: "INF-CC",
+      permanentHours: 9,
+      expectedHoursOverride: 8,
+      bufferMinutesOverride: 0,
+      lateFromShiftStart: true,
+    });
+    expect(staffEight.minWorkMinutes).toBe(480);
+    const staffOk = calculateDailyAttendance(
+      [
+        { punchAt: "2026-08-01T05:00:00.000Z" },
+        { punchAt: "2026-08-01T13:48:00.000Z" },
+      ],
+      { workDate: "2026-08-01", scheduled: true, shift: staffEight },
+    );
+    expect(staffOk.lateMinutes).toBe(0);
+    expect(staffOk.workedMinutes).toBe(528);
+    expect(staffOk.status).toBe("present");
+
+    // Louie-style: in at shift start, 7.73h vs site 9h → Undertime
+    const louie = calculateDailyAttendance(
+      [
+        { punchAt: "2026-09-21T08:32:00.000Z" },
+        { punchAt: "2026-09-21T16:16:00.000Z" },
+      ],
+      {
+        workDate: "2026-09-21",
+        scheduled: true,
+        shift: {
+          ...flexShift,
+          startTime: "11:32",
+          endTime: "20:32",
+        },
+      },
+    );
+    expect(louie.lateMinutes).toBe(0);
+    expect(louie.workedMinutes).toBe(464);
+    expect(louie.status).toBe("short_hours");
   });
 
   it("applies joker 10h expected from clock hours at Urban Arena", () => {
@@ -1266,6 +1316,8 @@ describe("ZKTeco ADMS / iClock parse", () => {
     const body = buildAdmsHandshake({ sn: "JJA1251800498", attlogStamp: "26" });
     expect(body).toContain("GET OPTION FROM: JJA1251800498");
     expect(body).toContain("ATTLOGStamp=26");
+    expect(body).toContain("Delay=30");
+    expect(body).toContain("Realtime=1");
     expect(body).toContain("TransFlag=TransData AttLog OpLog EnrollUser ChgUser");
     expect(admsOk(3)).toBe("OK: 3");
     const firstSync = buildAdmsHandshake({ sn: "JJA1251600498" });
@@ -1310,6 +1362,12 @@ describe("isAdmsDeviceOnline", () => {
 
   it("is false after the freshness window", () => {
     expect(isAdmsDeviceOnline(new Date(now.getTime() - ADMS_ONLINE_WINDOW_MS - 1).toISOString(), now)).toBe(false);
+  });
+
+  it("throttles idle heartbeat writes inside the online window", () => {
+    expect(ADMS_HEARTBEAT_TOUCH_MS).toBeLessThan(ADMS_ONLINE_WINDOW_MS);
+    expect(shouldTouchAdmsHeartbeat(0, ADMS_HEARTBEAT_TOUCH_MS)).toBe(true);
+    expect(shouldTouchAdmsHeartbeat(1_000, 1_000 + ADMS_HEARTBEAT_TOUCH_MS - 1)).toBe(false);
   });
 
   it("treats a slightly future last_adms_at as online and invalid stamps as offline", () => {

@@ -103,7 +103,7 @@ describe("attendance shift policy", () => {
       lateFromShiftStart: true,
     });
     expect(flex.graceMinutes).toBe(0);
-    expect(flex.minWorkMinutes).toBe(480);
+    expect(flex.minWorkMinutes).toBe(540);
     expect(flex.overtimeAfterMinutes).toBe(540);
     expect(flex.latePunchAffectsStatus).toBe(true);
 

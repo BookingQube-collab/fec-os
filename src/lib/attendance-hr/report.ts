@@ -171,7 +171,7 @@ function flexibleDayRowScore(row: AttendanceHrReportRow): number {
   if (row.worked_minutes != null && Number(row.worked_minutes) > 0) score += 30;
   const status = String(row.status ?? "").toLowerCase();
   if (status && status !== "absent") score += 20;
-  if (status === "present" || status === "late" || status === "overtime") score += 10;
+  if (status === "present" || status === "late" || status === "overtime" || status === "short_hours") score += 10;
   return score;
 }
 
@@ -442,7 +442,7 @@ export function computeAttendanceHrReportKpis(rows: AttendanceHrReportRow[]): At
     if (row.staff_id) mappedStaff.add(String(row.staff_id));
     const listing = attendanceHrToListingSource(row);
     const resolved = resolveHoursBasedAttendanceStatus(listing);
-    if (resolved === "present" || resolved === "overtime") present += 1;
+    if (resolved === "present" || resolved === "overtime" || resolved === "short_hours") present += 1;
     if (resolved === "absent") absent += 1;
     if (resolved === "late" || Number(row.late_minutes) > 0) late += 1;
     if (resolved === "missed_punch") missedPunch += 1;

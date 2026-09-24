@@ -6152,7 +6152,7 @@
         "late": "Late",
         "early_departure": "Early departure",
         "missed_punch": "Missed punch",
-        "short_hours": "Short hours",
+        "short_hours": "Undertime",
         "incomplete": "Incomplete",
         "overtime": "Overtime",
         "review_required": "Review required",

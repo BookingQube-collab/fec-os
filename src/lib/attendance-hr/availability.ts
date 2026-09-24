@@ -60,7 +60,7 @@ export function tallyAvailability(rows: DayStatusRow[], visits = 0): Availabilit
   let late = 0;
   for (const row of rows) {
     const status = String(row.status ?? "");
-    if (status === "present" || status === "late" || status === "overtime" || status === "early_departure") present += 1;
+    if (status === "present" || status === "late" || status === "overtime" || status === "early_departure" || status === "short_hours") present += 1;
     if (status === "absent") absent += 1;
     if (status === "late" || Number(row.late_minutes ?? 0) > 0) late += 1;
   }

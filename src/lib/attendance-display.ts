@@ -232,6 +232,7 @@ export function latePunchCellClass(lateMinutes: number | null | undefined): stri
 const MISSED_PUNCH_BADGE = "border-amber-500/50 bg-amber-500/20 text-amber-800 dark:text-amber-200";
 const MISSING_PUNCH_BADGE = "border-rose-500/40 bg-rose-500/15 text-rose-600 dark:text-rose-300";
 const LATE_BADGE = "border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text-amber-300";
+const UNDERTIME_BADGE = "border-orange-500/40 bg-orange-500/15 text-orange-800 dark:text-orange-200";
 const COMPLETE_BADGE = "border-emerald-500/40 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
 const WEEKLY_OFF_BADGE = "border-sky-500/50 bg-sky-500/15 text-sky-800 dark:text-sky-200";
 
@@ -246,12 +247,12 @@ const STATUS_ALIASES: Record<string, string> = {
   off: "weekly_off",
   misspunch: "missed_punch",
   missedpunch: "missed_punch",
-  // Under-expected hours → Late (product: keep Late, do not show Short hours)
-  short_hours: "late",
-  short_hour: "late",
-  shorthours: "late",
-  hours_missed: "late",
-  incomplete_hours: "late",
+  // On-time under-expected hours → Undertime (short_hours), not Late
+  undertime: "short_hours",
+  short_hour: "short_hours",
+  shorthours: "short_hours",
+  hours_missed: "short_hours",
+  incomplete_hours: "short_hours",
 };
 
 const NAMED_STATUS_DISPLAY: Record<string, AttendanceStatusDisplay> = {
@@ -268,6 +269,11 @@ const NAMED_STATUS_DISPLAY: Record<string, AttendanceStatusDisplay> = {
   late: {
     label: "Late",
     badgeClass: LATE_BADGE,
+    rowClass: NO_ROW_TINT,
+  },
+  short_hours: {
+    label: "Undertime",
+    badgeClass: UNDERTIME_BADGE,
     rowClass: NO_ROW_TINT,
   },
   public_holiday: {
@@ -367,8 +373,9 @@ export function resolveExpectedWorkMinutes(input: {
  * lose to live first/last punches (flexible multi-site enrichment).
  * Late punch minutes stay in the Late punch column independently for roster staff.
  *
- * Flexible staff: Late when punch is after shift start + buffer, OR clock hours < 8;
- * Present when hours ≥ 8 and on time (within buffer).
+ * Threshold ladder: staff expected_minutes → site role hours → 8h fallback.
+ * Late when punch is after on-time window; Undertime when on time but under expected;
+ * Present when on time and hours ≥ expected.
  */
 export function resolveHoursBasedAttendanceStatus(
   row: {
@@ -405,26 +412,37 @@ export function resolveHoursBasedAttendanceStatus(
     break_minutes: row.break_minutes,
   });
 
+  const expected =
+    resolveExpectedWorkMinutes(row) ??
+    (row.flexible_attendance ? FLEXIBLE_MIN_WORK_MINUTES : null);
+
   if (row.flexible_attendance) {
     const workedMinutes = workedHours != null ? Math.round(workedHours * 60) : null;
     const latePunch = Number(row.late_minutes ?? 0) > 0;
-    const shortDay = workedMinutes != null && workedMinutes < FLEXIBLE_MIN_WORK_MINUTES;
-    if (latePunch || shortDay) return "late";
+    const shortDay =
+      expected != null && workedMinutes != null && workedMinutes < expected;
+    if (latePunch) return "late";
+    if (shortDay) return "short_hours";
     if (workedMinutes != null) return "present";
   }
 
-  const expected = resolveExpectedWorkMinutes(row);
   if (expected != null && workedHours != null) {
     const workedMinutes = Math.round(workedHours * 60);
-    // Under expected clock hours → Late (not Short hours)
-    return workedMinutes >= expected ? "present" : "late";
+    // Under expected clock hours → Undertime (not Late)
+    return workedMinutes >= expected ? "present" : "short_hours";
   }
 
-  if (statusKey === "incomplete" && hasIn && hasOut) return "late";
+  if (statusKey === "incomplete" && hasIn && hasOut) return "short_hours";
   if (statusKey === "absent" || statusKey === "missed_punch") {
     return "present";
   }
-  if (statusKey === "late" || statusKey === "early_leave" || statusKey === "early_departure" || statusKey === "overtime") {
+  if (
+    statusKey === "late" ||
+    statusKey === "early_leave" ||
+    statusKey === "early_departure" ||
+    statusKey === "overtime" ||
+    statusKey === "short_hours"
+  ) {
     return statusKey === "early_leave" ? "early_departure" : statusKey;
   }
   if (statusKey === "present" || statusKey === "complete") return "present";
@@ -466,7 +484,7 @@ export function getAttendanceStatusDisplay(
   }
 
   if (statusKey === "incomplete") {
-    return hasIn && hasOut ? NAMED_STATUS_DISPLAY.late : NAMED_STATUS_DISPLAY.missed_punch;
+    return hasIn && hasOut ? NAMED_STATUS_DISPLAY.short_hours : NAMED_STATUS_DISPLAY.missed_punch;
   }
 
   return NAMED_STATUS_DISPLAY.present;
@@ -532,7 +550,7 @@ export function computeAttendanceKpis(rows: AttendanceSummaryRow[]): AttendanceK
     if (row.staff_id) staffIds.add(row.staff_id);
 
     const display = getAttendanceStatusDisplay(row);
-    if (display.label === "Present" || display.label === "Complete") complete++;
+    if (display.label === "Present" || display.label === "Complete" || display.label === "Undertime") complete++;
     else if (display.label === "Incomplete" || display.label === "Missed punch") {
       incomplete++;
     } else if (display.label === "Missing Punch" || display.label === "Absent") missingPunch++;
@@ -587,7 +605,7 @@ export type AttendanceListingSource = {
   break_minutes?: number | null;
   expected_minutes?: number | null;
   employment_type?: string | null;
-  /** staff.flexible_attendance — Late = late punch OR hours < 8. */
+  /** staff.flexible_attendance — Late = late punch; Undertime = on time under expected. */
   flexible_attendance?: boolean | null;
   status: string;
   missed_punch: boolean;

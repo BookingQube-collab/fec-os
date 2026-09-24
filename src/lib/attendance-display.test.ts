@@ -86,8 +86,8 @@ describe("attendance listing display", () => {
       worked_minutes: 539,
       expected_minutes: 540,
     });
-    // Full punches unlock Missed punch; under expected hours → Late
-    expect(staleMissed.label).toBe("Late");
+    // Full punches unlock Missed punch; under expected hours → Undertime
+    expect(staleMissed.label).toBe("Undertime");
 
     const staleMissedFullHours = getAttendanceStatusDisplay({
       status: "missed_punch",
@@ -107,8 +107,8 @@ describe("attendance listing display", () => {
       worked_minutes: 480,
       expected_minutes: 540,
     });
-    expect(shortHours.label).toBe("Late");
-    expect(shortHours.badgeClass).toMatch(/amber/);
+    expect(shortHours.label).toBe("Undertime");
+    expect(shortHours.badgeClass).toMatch(/orange/);
     expect(shortHours.rowClass).toBe("");
 
     const legacyShortHoursStatus = getAttendanceStatusDisplay({
@@ -119,7 +119,7 @@ describe("attendance listing display", () => {
       worked_minutes: 480,
       expected_minutes: 540,
     });
-    expect(legacyShortHoursStatus.label).toBe("Late");
+    expect(legacyShortHoursStatus.label).toBe("Undertime");
 
     const complete = getAttendanceStatusDisplay({
       status: "present",
@@ -133,9 +133,9 @@ describe("attendance listing display", () => {
     expect(complete.rowClass).toBe("");
   });
 
-  it("flexible Late only for late punch or hours under 8 (Louie pattern)", () => {
-    // 8.80h on time → Present even when site expected is 9h
-    const fullDay = getAttendanceStatusDisplay({
+  it("flexible: Late only for late punch; Undertime when on time under expected (Louie + staff override)", () => {
+    // Site default 9h: 8.80h on time → Undertime (not the old hard 8h floor)
+    const underSiteNine = getAttendanceStatusDisplay({
       status: "late",
       missed_punch: false,
       actual_in: "2026-09-08T08:33:01.000Z",
@@ -145,22 +145,22 @@ describe("attendance listing display", () => {
       late_minutes: 0,
       flexible_attendance: true,
     });
-    expect(fullDay.label).toBe("Present");
+    expect(underSiteNine.label).toBe("Undertime");
 
-    // 8.40h on time → Present
-    const almostNine = getAttendanceStatusDisplay({
+    // Staff expected_hours = 8 (480m): same 8.80h → Present
+    const staffEightPresent = getAttendanceStatusDisplay({
       status: "late",
       missed_punch: false,
-      actual_in: "2026-08-30T07:00:00.000Z",
-      actual_out: "2026-08-30T15:24:00.000Z",
-      worked_minutes: 504,
-      expected_minutes: 540,
+      actual_in: "2026-09-08T08:33:01.000Z",
+      actual_out: "2026-09-08T17:21:04.000Z",
+      worked_minutes: 528,
+      expected_minutes: 480,
       late_minutes: 0,
       flexible_attendance: true,
     });
-    expect(almostNine.label).toBe("Present");
+    expect(staffEightPresent.label).toBe("Present");
 
-    // 7.35h → Late (short day)
+    // 7.35h on time vs site 9h → Undertime (not Late)
     const shortDay = getAttendanceStatusDisplay({
       status: "present",
       missed_punch: false,
@@ -171,16 +171,42 @@ describe("attendance listing display", () => {
       late_minutes: 0,
       flexible_attendance: true,
     });
-    expect(shortDay.label).toBe("Late");
+    expect(shortDay.label).toBe("Undertime");
 
-    // ≥8h but late punch → Late
+    // Louie 21-09 style: Late Punch No, 7.73h vs 9h → Undertime
+    const louieShort = getAttendanceStatusDisplay({
+      status: "late",
+      missed_punch: false,
+      actual_in: "2026-09-21T08:32:33.000Z",
+      actual_out: "2026-09-21T16:16:00.000Z",
+      worked_minutes: 464,
+      expected_minutes: 540,
+      late_minutes: 0,
+      flexible_attendance: true,
+    });
+    expect(louieShort.label).toBe("Undertime");
+
+    // Louie 22-09 style: on time, 9.07h → Present
+    const louieFull = getAttendanceStatusDisplay({
+      status: "late",
+      missed_punch: false,
+      actual_in: "2026-09-22T07:27:40.000Z",
+      actual_out: "2026-09-22T16:32:00.000Z",
+      worked_minutes: 544,
+      expected_minutes: 540,
+      late_minutes: 0,
+      flexible_attendance: true,
+    });
+    expect(louieFull.label).toBe("Present");
+
+    // ≥ expected but late punch → Late
     const latePunch = getAttendanceStatusDisplay({
       status: "present",
       missed_punch: false,
       actual_in: "2026-09-08T08:33:01.000Z",
       actual_out: "2026-09-08T17:21:04.000Z",
       worked_minutes: 528,
-      expected_minutes: 540,
+      expected_minutes: 480,
       late_minutes: 12,
       flexible_attendance: true,
     });

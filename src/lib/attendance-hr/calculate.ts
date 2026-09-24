@@ -226,9 +226,9 @@ export function calculateDailyAttendance(punches: CalcPunch[], ctx: DayContext):
     });
     if (overtimeMinutes > 0) flags.push("overtime");
 
-    // Clock hours vs minWork are the primary status. Under-min → Late (not Short hours).
+    // Clock hours vs minWork are the primary status.
+    // Late punch (flexible) → Late; on-time short day → Undertime (short_hours).
     // Non-flexible: roster lateness stays in lateMinutes / Late punch column independently.
-    // Flexible (`latePunchAffectsStatus`): late punch OR short day → Late.
     const punchIssue = status === "missed_punch" || status === "review_required";
     if (!punchIssue) {
       const expectedMinutes = Math.max(0, Number.isFinite(siteExpected) ? siteExpected : 0);
@@ -236,16 +236,21 @@ export function calculateDailyAttendance(punches: CalcPunch[], ctx: DayContext):
       if (minWork > 0) {
         const shortDay = workedMinutes < minWork;
         const lateStatus = Boolean(shift?.latePunchAffectsStatus) && lateMinutes > 0;
-        if (!shortDay && !lateStatus) {
-          status = "present";
-          flags.push("present");
-        } else {
+        if (lateStatus) {
           status = "late";
           flags.push("late");
           if (shortDay) {
             flags.push("incomplete");
             exceptionReason = exceptionReason ?? `Net hours below expected (${minWork} min)`;
           }
+        } else if (shortDay) {
+          status = "short_hours";
+          flags.push("short_hours");
+          flags.push("incomplete");
+          exceptionReason = exceptionReason ?? `Net hours below expected (${minWork} min)`;
+        } else {
+          status = "present";
+          flags.push("present");
         }
       } else if (lateMinutes > 0) {
         status = "late";
