@@ -116,6 +116,55 @@ export async function GET(
         .order("due_on", { ascending: true, nullsFirst: false })
         .limit(20);
 
+      const canSensitive = canUserDo(context.roles ?? [], "hr.profile.view_sensitive");
+      const { data: profileExt } = await context.supabase
+        .from("staff_profile_ext")
+        .select(
+          "nationality, gender, date_of_birth, emergency_contact_name, emergency_contact_phone, emergency_contact_relation, reporting_manager_staff_id, employment_category, probation_start, probation_end, passport_number, passport_expiry, visa_number, visa_expiry, sponsorship_info, qid_expiry, ticket_eligibility, ticket_eligibility_months, ticket_amount, contract_start, contract_end, notes, payment_method, bank_name, iban, last_working_date, releasing_date, exit_reason",
+        )
+        .eq("staff_id", id)
+        .maybeSingle();
+
+      const { data: statusHistory } = await context.supabase
+        .from("staff_status_history")
+        .select("id, from_status, to_status, effective_on, reason, created_at, created_by")
+        .eq("staff_id", id)
+        .order("effective_on", { ascending: false })
+        .limit(50);
+
+      const { data: documents } = await context.supabase
+        .from("hr_employee_documents")
+        .select(
+          "id, doc_type, document_number, issue_date, expiry_date, verification_status, status, file_name, notes, verification_remarks, created_at",
+        )
+        .eq("staff_id", id)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false })
+        .limit(100);
+
+      let managerName: string | null = null;
+      if (profileExt?.reporting_manager_staff_id) {
+        const { data: mgr } = await context.supabase
+          .from("staff")
+          .select("full_name, employee_code")
+          .eq("id", profileExt.reporting_manager_staff_id)
+          .maybeSingle();
+        managerName = mgr ? `${mgr.full_name} (${mgr.employee_code})` : null;
+      }
+
+      const sensitiveExt = canSensitive
+        ? profileExt
+        : profileExt
+          ? {
+              ...profileExt,
+              passport_number: profileExt.passport_number ? "••••••••" : null,
+              qid_expiry: profileExt.qid_expiry,
+              bank_name: null,
+              iban: null,
+              wps_employee_id: null,
+            }
+          : null;
+
       return {
         staff: {
           ...staff,
@@ -123,6 +172,10 @@ export async function GET(
           has_photo: Boolean(staff.photo_updated_at),
           work_locations: workLocations,
         },
+        profileExt: sensitiveExt,
+        managerName,
+        statusHistory: statusHistory ?? [],
+        documents: documents ?? [],
         compensation,
         transfers,
         attendance: (attendance ?? []).map((row) => ({
@@ -132,6 +185,7 @@ export async function GET(
         punches: punches ?? [],
         training: training ?? [],
         canViewSalary: includeSalary,
+        canViewSensitive: canSensitive,
       };
     },
     request,

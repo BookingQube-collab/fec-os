@@ -4,6 +4,15 @@ Realistic demo/test dataset for the **FEC Operations Management Platform** (Qata
 
 **Bulk staff + roster import:** see [STAFF_IMPORT_GUIDE.md](./STAFF_IMPORT_GUIDE.md) and templates in `templates/`.
 
+## Payroll workbook (August 2026)
+
+| File | Notes |
+|------|--------|
+| `August_2026.xlsx` | Source payroll workbook (main, Project Staff, WPS, Pending Eid OT, prior months) |
+| `august-2026-payroll.json` | Extracted reference totals for import/reconciliation |
+
+Import path in app: **People → Payroll → open/create August 2026 period → Import Excel**. Preview shows Excel vs system net; commit stores historical figures without auto-overwriting generated production lines.
+
 ## Branches (6)
 
 | Code | Name | Mall |

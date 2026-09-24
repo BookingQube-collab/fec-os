@@ -15,39 +15,105 @@ import {
   normalizeQid,
   parseE3Flag,
   parseEmploymentType,
+  parseGender,
   parseHireDate,
   parseRosterStatus,
   parseSalaryQar,
+  parseTicketMonths,
+  statusFromE3Sheet,
 } from "./values";
 
 const HEADER_ALIASES: Record<RosterColumnKey, string[]> = {
   source_row_no: ["#", "no", "row", "row no", "source row"],
-  location: ["location", "location_code", "branch", "venue", "site", "location name", "branch name", "venue name"],
-  full_name: ["employee name", "emp name", "staff name", "staff member", "full name", "name", "employee"],
+  location: [
+    "location",
+    "location of work",
+    "location_code",
+    "branch",
+    "venue",
+    "site",
+    "location name",
+    "branch name",
+    "venue name",
+  ],
+  // E3 masterfile uses E.Name / E.Code / DOJ abbreviations on Active / Secondment / Remote sheets.
+  full_name: [
+    "e.name",
+    "e name",
+    "ename",
+    "employee name",
+    "emp name",
+    "staff name",
+    "staff member",
+    "full name",
+    "name",
+    "employee",
+  ],
+  employee_code: [
+    "e.code",
+    "e code",
+    "ecode",
+    "employee code",
+    "emp code",
+    "staff code",
+    "code",
+    "employee_code",
+    "emp no",
+    "emp id",
+  ],
   e3: ["e3", "e3 enrolled"],
   employment_type: ["employee type", "employment type", "type"],
-  salary: ["salary", "monthly salary", "salary qar"],
+  salary: ["gross salary", "salary", "monthly salary", "salary qar"],
   qid: ["qid", "qatar id", "qid no", "qid number", "national id", "civil id"],
+  qid_expiry: ["qid ex.date", "qid ex date", "qid expiry", "qid expiry date", "qid exp"],
   activity: ["activity", "department", "dept"],
-  position: ["position", "job title", "title", "role"],
+  position: ["position", "job title", "title", "role", "position/designation", "designation"],
   contact: ["contact number", "contact no", "contact", "phone number", "phone", "mobile number", "mobile"],
-  joining_date: ["joining date", "hire date", "joined", "start date"],
-  status: ["status"],
+  joining_date: ["doj", "joining date", "date of joining", "hire date", "joined", "start date"],
+  status: ["status", "employment status"],
+  sponsorship: ["sponsorship", "sponsor"],
+  nationality: ["nationality", "nation"],
+  gender: ["gender", "sex"],
+  date_of_birth: ["date of birth", "dob", "birth date", "birthdate"],
+  passport_number: ["passport number", "passport no", "passport", "passport #"],
+  passport_expiry: ["passport ex.date", "passport ex date", "passport expiry", "passport expiry date", "passport exp"],
+  ticket_eligibility: ["ticket eligibility", "air ticket eligibility", "ticket eligible"],
+  ticket_months: [
+    "no.of mos (ticket eligibility)",
+    "no of mos ticket eligibility",
+    "ticket eligibility months",
+    "ticket months",
+    "ticket cycle months",
+  ],
+  ticket_amount: ["ticket amount", "air ticket amount"],
+  notes: ["note", "notes", "remarks", "comment", "comments"],
 };
 
 export const ROSTER_COLUMN_KEYS: RosterColumnKey[] = [
   "source_row_no",
   "location",
   "full_name",
+  "employee_code",
   "e3",
   "employment_type",
   "salary",
   "qid",
+  "qid_expiry",
   "activity",
   "position",
   "contact",
   "joining_date",
   "status",
+  "sponsorship",
+  "nationality",
+  "gender",
+  "date_of_birth",
+  "passport_number",
+  "passport_expiry",
+  "ticket_eligibility",
+  "ticket_months",
+  "ticket_amount",
+  "notes",
 ];
 
 export type RosterParseOptions = {
@@ -133,7 +199,7 @@ function incompleteMappingResult(
       {
         rowNumber: 0,
         code: "missing_headers",
-        message: "Employee Roster is missing Location or Employee Name columns.",
+        message: "Sheet is missing Employee Name (and preferably Location / Employee Code) columns.",
       },
     ],
   };
@@ -167,9 +233,11 @@ function toRosterRow(
   raw: Record<string, string>,
   mapping: Partial<Record<RosterColumnKey, string>>,
   rowNumber: number,
+  sheetSource: ParsedRosterRow["sheetSource"] = null,
 ): ParsedRosterRow {
   const locationLabel = locationLabelFromRaw(raw, mapping);
   const fullName = cell(raw, mapping.full_name ?? null);
+  const employeeCodeRaw = cell(raw, mapping.employee_code ?? null);
   const e3Raw = cell(raw, mapping.e3 ?? null);
   const typeRaw = cell(raw, mapping.employment_type ?? null);
   const salaryRaw = cell(raw, mapping.salary ?? null);
@@ -180,12 +248,24 @@ function toRosterRow(
   const joiningRaw = cell(raw, mapping.joining_date ?? null);
   const statusRaw = cell(raw, mapping.status ?? null);
   const sourceRaw = cell(raw, mapping.source_row_no ?? null);
+  const sponsorship = cell(raw, mapping.sponsorship ?? null) || null;
+  const nationality = cell(raw, mapping.nationality ?? null) || null;
+  const genderRaw = cell(raw, mapping.gender ?? null);
+  const dobRaw = cell(raw, mapping.date_of_birth ?? null);
+  const qidExpiryRaw = cell(raw, mapping.qid_expiry ?? null);
+  const passportNumber = cell(raw, mapping.passport_number ?? null) || null;
+  const passportExpiryRaw = cell(raw, mapping.passport_expiry ?? null);
+  const ticketEligRaw = cell(raw, mapping.ticket_eligibility ?? null);
+  const ticketMonthsRaw = cell(raw, mapping.ticket_months ?? null);
+  const ticketAmountRaw = cell(raw, mapping.ticket_amount ?? null);
+  const notes = cell(raw, mapping.notes ?? null) || null;
 
-  const emptyTemplate = !fullName && !qidRaw && !contactRaw && !locationLabel;
+  const emptyTemplate = !fullName && !qidRaw && !contactRaw && !locationLabel && !employeeCodeRaw;
   const warnings: string[] = [];
   const errors: string[] = [];
 
   const qid = normalizeQid(qidRaw);
+  const employeeCode = employeeCodeRaw.trim() || null;
   const locationCode = resolveLocationCode(locationLabel);
   if (locationLabel && !locationCode) {
     warnings.push(`Unmapped location "${locationLabel}"`);
@@ -199,12 +279,32 @@ function toRosterRow(
   const dateParsed = parseHireDate(joiningRaw);
   if (dateParsed.warning) warnings.push(dateParsed.warning);
 
+  const dobParsed = parseHireDate(dobRaw);
+  if (dobParsed.warning && dobRaw) warnings.push(dobParsed.warning.replace(/joining/gi, "date of birth"));
+
+  const qidExpParsed = parseHireDate(qidExpiryRaw);
+  if (qidExpParsed.warning && qidExpiryRaw) warnings.push(qidExpParsed.warning.replace(/joining/gi, "QID expiry"));
+
+  const passportExpParsed = parseHireDate(passportExpiryRaw);
+  if (passportExpParsed.warning && passportExpiryRaw) {
+    warnings.push(passportExpParsed.warning.replace(/joining/gi, "passport expiry"));
+  }
+
   const statusParsed = parseRosterStatus(statusRaw);
-  if (statusParsed.blank && fullName) {
+  const sheetDefaults = sheetSource && sheetSource !== "Employee Roster" ? statusFromE3Sheet(sheetSource) : null;
+  let status = statusParsed.status;
+  if (!status && sheetDefaults) {
+    status = sheetDefaults.status;
+  }
+  if (statusParsed.blank && fullName && !sheetDefaults) {
     warnings.push("Status is blank");
   } else if (!statusParsed.blank && !statusParsed.status && statusRaw) {
     warnings.push(`Unknown status "${statusRaw}"`);
   }
+
+  const employmentType =
+    typeParsed.type ??
+    (sheetDefaults?.employmentType ?? null);
 
   const sourceRowNo = sourceRaw && /^\d+$/.test(sourceRaw) ? Number(sourceRaw) : null;
 
@@ -214,10 +314,11 @@ function toRosterRow(
     locationLabel,
     locationCode,
     fullName,
+    employeeCode,
     e3Raw,
     e3Enrolled: parseE3Flag(e3Raw),
     employmentTypeRaw: typeRaw,
-    employmentType: typeParsed.type,
+    employmentType,
     salaryRaw,
     monthlySalaryQar: parseSalaryQar(salaryRaw),
     qidRaw,
@@ -231,17 +332,37 @@ function toRosterRow(
     joiningDateRaw: joiningRaw,
     hireDate: dateParsed.iso,
     statusRaw,
-    status: statusParsed.status,
+    status,
+    sheetSource,
+    sponsorship,
+    nationality,
+    gender: parseGender(genderRaw),
+    dateOfBirthRaw: dobRaw,
+    dateOfBirth: dobParsed.iso,
+    qidExpiryRaw,
+    qidExpiry: qidExpParsed.iso,
+    passportNumber,
+    passportIssueDate: null,
+    passportExpiryRaw,
+    passportExpiry: passportExpParsed.iso,
+    ticketEligibility: parseE3Flag(ticketEligRaw),
+    ticketEligibilityMonths: parseTicketMonths(ticketMonthsRaw),
+    ticketAmount: parseSalaryQar(ticketAmountRaw),
+    notes,
     warnings,
     errors,
     emptyTemplate,
   };
 }
 
+function hasUsableIdentityMapping(mapping: Partial<Record<RosterColumnKey, string>>): boolean {
+  return Boolean(mapping.full_name && (mapping.location || mapping.employee_code || mapping.qid));
+}
+
 function findHeaderRowIndex(matrix: string[][], options?: RosterParseOptions): number {
   const exact = matrix.findIndex((r) => {
     const mapping = mapRosterColumns(r, options?.columnMap, options?.preferHint);
-    return Boolean(mapping.full_name && mapping.location);
+    return hasUsableIdentityMapping(mapping);
   });
   if (exact >= 0) return exact;
   let best = -1;
@@ -261,6 +382,7 @@ function parseObjectRows(
   worksheetName: string | null,
   headerOffset = 1,
   options?: RosterParseOptions,
+  sheetSource: ParsedRosterRow["sheetSource"] = null,
 ): RosterParseResult {
   if (!rows.length) {
     return {
@@ -269,19 +391,19 @@ function parseObjectRows(
       mapping: {},
       rows: [],
       skippedEmpty: 0,
-      errors: [{ rowNumber: 0, code: "empty", message: "No data rows found on Employee Roster." }],
+      errors: [{ rowNumber: 0, code: "empty", message: "No data rows found on sheet." }],
     };
   }
   const headers = Object.keys(rows[0] ?? {});
   const mapping = mapRosterColumns(headers, options?.columnMap, options?.preferHint);
-  if (!mapping.full_name || !mapping.location) {
+  if (!hasUsableIdentityMapping(mapping)) {
     return incompleteMappingResult(worksheetName, headers, mapping);
   }
 
   const parsed: ParsedRosterRow[] = [];
   let skippedEmpty = 0;
   rows.forEach((raw, i) => {
-    const row = toRosterRow(raw, mapping, i + headerOffset + 1);
+    const row = toRosterRow(raw, mapping, i + headerOffset + 1, sheetSource);
     if (row.emptyTemplate) {
       skippedEmpty += 1;
       return;
@@ -347,7 +469,7 @@ export function parseHtmlRoster(html: string, options?: RosterParseOptions): Ros
     headers = headers.slice(1);
   }
   const mapping = mapRosterColumns(headers, options?.columnMap, options?.preferHint);
-  if (!mapping.full_name || !mapping.location) {
+  if (!hasUsableIdentityMapping(mapping)) {
     return incompleteMappingResult(ROSTER_WORKSHEET_TITLE, headers, mapping);
   }
   const parsed: ParsedRosterRow[] = [];
@@ -362,7 +484,7 @@ export function parseHtmlRoster(html: string, options?: RosterParseOptions): Ros
     headers.forEach((h, col) => {
       raw[h] = cells[col] ?? "";
     });
-    const row = toRosterRow(raw, mapping, i + 1);
+    const row = toRosterRow(raw, mapping, i + 1, "Employee Roster");
     if (row.emptyTemplate || !row.fullName) {
       skippedEmpty += 1;
       continue;
@@ -428,7 +550,7 @@ export async function parseXlsxRoster(buffer: Buffer, options?: RosterParseOptio
   }
   const headers = asStrings[headerIdx] ?? [];
   const mapping = mapRosterColumns(headers, options?.columnMap, options?.preferHint);
-  if (!mapping.full_name || !mapping.location) {
+  if (!hasUsableIdentityMapping(mapping)) {
     return incompleteMappingResult(sheetName, headers, mapping);
   }
   const parsed: ParsedRosterRow[] = [];
@@ -439,7 +561,7 @@ export async function parseXlsxRoster(buffer: Buffer, options?: RosterParseOptio
     headers.forEach((h, col) => {
       raw[h] = cells[col] ?? "";
     });
-    const row = toRosterRow(raw, mapping, i + 1);
+    const row = toRosterRow(raw, mapping, i + 1, "Employee Roster");
     if (row.emptyTemplate || !row.fullName) {
       skippedEmpty += 1;
       continue;
@@ -476,4 +598,37 @@ export async function parseRosterWorkbook(
     return parseCsvRoster(text, options);
   }
   return parseXlsxRoster(buffer, options);
+}
+
+/** Shared matrix→rows path for Employee Roster and E3 masterfile sheets. */
+export function parseSheetFromMatrix(
+  asStrings: string[][],
+  headerIdx: number,
+  headers: string[],
+  mapping: Partial<Record<RosterColumnKey, string>>,
+  sheetSource: ParsedRosterRow["sheetSource"],
+): RosterParseResult {
+  const parsed: ParsedRosterRow[] = [];
+  let skippedEmpty = 0;
+  for (let i = headerIdx + 1; i < asStrings.length; i++) {
+    const cells = asStrings[i] ?? [];
+    const raw: Record<string, string> = {};
+    headers.forEach((h, col) => {
+      raw[h] = cells[col] ?? "";
+    });
+    const row = toRosterRow(raw, mapping, i + 1, sheetSource);
+    if (row.emptyTemplate || !row.fullName) {
+      skippedEmpty += 1;
+      continue;
+    }
+    parsed.push(row);
+  }
+  return {
+    worksheetName: sheetSource,
+    headers,
+    mapping,
+    rows: parsed,
+    skippedEmpty,
+    errors: [],
+  };
 }

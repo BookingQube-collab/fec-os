@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { HR_DOC_TYPES } from "@/lib/hr-advanced";
 import {
   approveEmployeeDocument,
@@ -201,19 +202,17 @@ export default function HrDocumentsPage() {
             <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-5">
               <div className="lg:col-span-2">
                 <Label>{t("hr.docs.staff")}</Label>
-                <select
-                  className="flex h-10 w-full rounded-xl border border-input bg-background px-3 text-sm"
+                <SearchableSelect
                   value={staffId}
-                  onChange={(e) => setStaffId(e.target.value)}
-                >
-                  <option value="">{t("hr.docs.allStaff")}</option>
-                  {(staff.data ?? []).map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                      {s.employeeCode ? ` (${s.employeeCode})` : ""}
-                    </option>
-                  ))}
-                </select>
+                  onValueChange={setStaffId}
+                  placeholder={t("hr.docs.allStaff")}
+                  emptyOption={{ value: "", label: t("hr.docs.allStaff") }}
+                  options={(staff.data ?? []).map((s) => ({
+                    value: s.id,
+                    label: s.employeeCode ? `${s.name} (${s.employeeCode})` : s.name,
+                    keywords: `${s.name} ${s.employeeCode ?? ""}`,
+                  }))}
+                />
               </div>
               <div>
                 <Label>{t("hr.docs.type")}</Label>

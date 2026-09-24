@@ -114,6 +114,8 @@ export {
   BIOMETRIC_USER_CONFLICT,
   buildPunchRows,
   mergeBiometricUsersById,
+  missingPunchBiometricIds,
+  stubBiometricUsersForIds,
   staffByBiometricFromMappings,
   deviceNameByBiometricFromMappings,
   lookupStaffByBiometric,

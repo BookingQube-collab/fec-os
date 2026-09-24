@@ -23,6 +23,31 @@ export function staffUsesCrossSiteDayMerge(opts: {
   return (opts.workLocationCount ?? 0) > 1;
 }
 
+/**
+ * Sites to recalc after a staff-scoped roster upsert.
+ * Upload site first (may suppress), then home / work sites so cross-site
+ * write_merged can land at the punch-anchor (cafe staff often punch at home
+ * while rostered at another venue).
+ */
+export function attendanceRecalcLocationsAfterRosterUpsert(opts: {
+  uploadLocationId: string;
+  staffHomeLocationIds: Iterable<string | null | undefined>;
+  staffWorkLocationIds?: Iterable<string | null | undefined>;
+}): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (id: string | null | undefined) => {
+    const loc = id?.trim();
+    if (!loc || seen.has(loc)) return;
+    seen.add(loc);
+    out.push(loc);
+  };
+  push(opts.uploadLocationId);
+  for (const id of opts.staffHomeLocationIds) push(id);
+  for (const id of opts.staffWorkLocationIds ?? []) push(id);
+  return out;
+}
+
 export type FlexibleCrossSitePunch = {
   locationId: string;
   punchAt: string;

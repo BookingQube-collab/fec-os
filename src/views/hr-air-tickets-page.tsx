@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   createAirTicketEntitlement,
@@ -191,19 +192,17 @@ export default function HrAirTicketsPage() {
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <div className="space-y-1">
                 <Label>{t("hr.airTickets.staff")}</Label>
-                <select
-                  className="h-10 w-full rounded-xl border bg-background px-3 text-sm"
+                <SearchableSelect
                   value={staffId}
-                  onChange={(e) => setStaffId(e.target.value)}
-                >
-                  <option value="">{t("hr.airTickets.pickStaff")}</option>
-                  {(staffOptions.data ?? []).map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                      {s.employeeCode ? ` (${s.employeeCode})` : ""}
-                    </option>
-                  ))}
-                </select>
+                  onValueChange={setStaffId}
+                  placeholder={t("hr.airTickets.pickStaff")}
+                  emptyOption={{ value: "", label: t("hr.airTickets.pickStaff") }}
+                  options={(staffOptions.data ?? []).map((s) => ({
+                    value: s.id,
+                    label: s.employeeCode ? `${s.name} (${s.employeeCode})` : s.name,
+                    keywords: `${s.name} ${s.employeeCode ?? ""}`,
+                  }))}
+                />
               </div>
               <div className="space-y-1">
                 <Label>{t("hr.airTickets.destination")}</Label>

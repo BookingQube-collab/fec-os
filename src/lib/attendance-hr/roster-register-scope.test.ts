@@ -34,9 +34,10 @@ describe("roster register bulk-delete scope", () => {
     expect(rosterRegisterHasExtraFilters({ sourceUploadOnly: true, source: "upload" })).toBe(false);
   });
 
-  it("treats location, staff, source, and search as extra filters", () => {
+  it("treats location, staff, department, source, and search as extra filters", () => {
     expect(rosterRegisterHasExtraFilters({ locationId: "loc-1" })).toBe(true);
     expect(rosterRegisterHasExtraFilters({ staffId: "staff-1" })).toBe(true);
+    expect(rosterRegisterHasExtraFilters({ departmentId: "dept-1" })).toBe(true);
     expect(rosterRegisterHasExtraFilters({ search: "wasanthi" })).toBe(true);
     expect(rosterRegisterHasExtraFilters({ source: "upload" })).toBe(true);
   });

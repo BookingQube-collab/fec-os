@@ -1,7 +1,7 @@
 export const STAFF_ROSTER_BUCKET = "staff-roster-imports";
 export const MAX_ROSTER_UPLOAD_BYTES = 15 * 1024 * 1024;
 
-export type RosterFileType = "xlsx" | "xls" | "csv" | "html";
+export type RosterFileType = "xlsx" | "xls" | "csv" | "html" | "pdf";
 
 export type RosterFileGuard =
   | { ok: true; fileType: RosterFileType; filename: string; byteSize: number }
@@ -13,6 +13,7 @@ export function detectRosterUploadType(filename: string): RosterFileType | "unkn
   if (base.endsWith(".xls")) return "xls";
   if (base.endsWith(".csv")) return "csv";
   if (base.endsWith(".html") || base.endsWith(".htm")) return "html";
+  if (base.endsWith(".pdf")) return "pdf";
   return "unknown";
 }
 
@@ -33,7 +34,7 @@ export function guardRosterUpload(filename: string, byteSize: number): RosterFil
     return {
       ok: false,
       code: "unsupported",
-      message: "Unsupported file. Upload .xlsx, .xls, .csv, or the Employee Roster HTML export.",
+      message: "Unsupported file. Upload .xlsx, .xls, .csv, .pdf, or the Employee Roster HTML export.",
       filename: name,
     };
   }

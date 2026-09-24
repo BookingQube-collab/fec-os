@@ -102,13 +102,16 @@ function mapPeriod(row: Record<string, unknown>) {
     id: String(row.id),
     companyId: (row.company_id as string | null) ?? null,
     month: String(row.month),
+    displayName: (row.display_name as string | null) ?? null,
     dateFrom: String(row.date_from).slice(0, 10),
     dateTo: String(row.date_to).slice(0, 10),
     status: asStatus(String(row.status)),
     currency: String(row.currency ?? "QAR"),
+    source: String(row.source ?? "generated"),
     notes: (row.notes as string | null) ?? null,
     createdAt: String(row.created_at ?? ""),
     updatedAt: String(row.updated_at ?? ""),
+    reconciledAt: (row.reconciled_at as string | null) ?? null,
   };
 }
 
@@ -227,6 +230,7 @@ export const getPayrollPeriodDetail = createAuthenticatedAction(
         wps: mapped.filter((l) => l.paymentMethod === "wps").length,
         cheque: mapped.filter((l) => l.paymentMethod === "cheque").length,
         bank_transfer: mapped.filter((l) => l.paymentMethod === "bank_transfer").length,
+        cash: mapped.filter((l) => l.paymentMethod === "cash").length,
       },
     };
 
@@ -647,7 +651,7 @@ export const advancePayrollPeriod = createAuthenticatedAction(
     if (!to) throw new Error(`No forward step from ${from}.`);
     assertAdvancePayrollStatus(from, to);
 
-    if (to === "hr_review" || from === "draft") requireCap(context, "payroll.generate");
+    if (to === "attendance_validation" || to === "hr_review" || from === "draft") requireCap(context, "payroll.generate");
     if (to === "finance_review") requireCap(context, "payroll.generate");
     if (to === "gm_approved") {
       if (!canUserDo(context.roles ?? [], "payroll.finance") && !canUserDo(context.roles ?? [], "payroll.generate")) {

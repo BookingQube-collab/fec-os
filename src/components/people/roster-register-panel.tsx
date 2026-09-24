@@ -32,6 +32,7 @@ import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { usePermission } from "@/hooks/use-permission";
+import { useMasterDepartments } from "@/hooks/queries/useDepartments";
 import { useSites } from "@/hooks/queries/useSites";
 import {
   deleteRosterAssignment,
@@ -152,9 +153,11 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     const canUploadRoster = usePermission("daily_ops.roster.upload");
     const canAmend = canImportRoster || canEditRoster || canUploadRoster;
     const sites = useSites();
+    const { data: departments = [] } = useMasterDepartments();
 
     const [locationId, setLocationId] = useState(defaultLocationId ?? "");
     const [staffId, setStaffId] = useState("");
+    const [departmentId, setDepartmentId] = useState("");
     const [sourceFilter, setSourceFilter] = useState<RosterSourceFilter>("all");
     const [query, setQuery] = useState("");
     const [viewMode, setViewMode] = useState<ViewMode>("grid");
@@ -170,6 +173,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       () => ({
         locationId: locationId || null,
         staffId: staffId || null,
+        departmentId: departmentId || null,
         dateFrom,
         dateTo,
         sourceUploadOnly,
@@ -178,7 +182,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
             ? (sourceFilter as "upload" | "amend" | "manual" | "copied")
             : null,
       }),
-      [locationId, staffId, dateFrom, dateTo, sourceUploadOnly, sourceFilter],
+      [locationId, staffId, departmentId, dateFrom, dateTo, sourceUploadOnly, sourceFilter],
     );
 
     const register = useQuery({
@@ -220,6 +224,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     const hasExtraFilters = rosterRegisterHasExtraFilters({
       locationId,
       staffId,
+      departmentId,
       sourceUploadOnly,
       source: !sourceUploadOnly && sourceFilter !== "all" ? sourceFilter : null,
       search: query,
@@ -263,6 +268,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
         deleteRosterAssignments({
           locationId: locationId || null,
           staffId: staffId || null,
+          departmentId: departmentId || null,
           dateFrom,
           dateTo,
           sourceUploadOnly,
@@ -351,6 +357,16 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
         })),
       [sites.data],
     );
+
+    const departmentOptions = useMemo(
+      () =>
+        departments
+          .filter((d) => d.active)
+          .map((d) => ({ value: d.id, label: d.name, keywords: `${d.name} ${d.code ?? ""}` })),
+      [departments],
+    );
+
+    const showSource = showSourceFilter && !sourceUploadOnly;
 
     const renderLocationEditor = () => {
       if (!draft) return null;
@@ -496,7 +512,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
           ) : null}
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className={`grid gap-3 sm:grid-cols-2 ${showSource ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}>
           <div className="space-y-1.5">
             <Label>{t("people.roster.registerFilterLocation")}</Label>
             <SearchableSelect
@@ -518,7 +534,16 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
               options={staffOptions}
             />
           </div>
-          {showSourceFilter && !sourceUploadOnly ? (
+          <div className="space-y-1.5">
+            <Label>{t("people.roster.registerFilterDepartment")}</Label>
+            <SearchableSelect
+              value={departmentId}
+              onValueChange={setDepartmentId}
+              emptyOption={{ value: "", label: t("people.roster.registerAllDepartments") }}
+              options={departmentOptions}
+            />
+          </div>
+          {showSource ? (
             <div className="space-y-1.5">
               <Label>{t("people.roster.registerFilterSource")}</Label>
               <SearchableSelect
@@ -534,7 +559,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
               />
             </div>
           ) : null}
-          <div className={`space-y-1.5 ${showSourceFilter && !sourceUploadOnly ? "" : "sm:col-span-2"}`}>
+          <div className={`space-y-1.5 ${showSource ? "" : "sm:col-span-2"}`}>
             <Label htmlFor="roster-register-search">{t("people.roster.searchRows")}</Label>
             <Input
               id="roster-register-search"
@@ -731,7 +756,6 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
                           <ShiftRangeEditor
                             start={row.shiftStart}
                             end={row.shiftEnd}
-                            disabled
                             readOnly
                           />
                         )}

@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   actOnLeaveApproval,
   bulkReviewLeaveRequests,
@@ -310,19 +311,17 @@ export default function HrLeavePage() {
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 <div>
                   <Label>{t("hr.leave.staff")}</Label>
-                  <select
-                    className="flex h-10 w-full rounded-xl border border-input bg-background px-3 text-sm"
+                  <SearchableSelect
                     value={recordStaffId}
-                    onChange={(e) => setRecordStaffId(e.target.value)}
-                  >
-                    <option value="">{t("hr.leave.pickStaff")}</option>
-                    {(staffOptions.data ?? []).map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                        {s.employeeCode ? ` (${s.employeeCode})` : ""}
-                      </option>
-                    ))}
-                  </select>
+                    onValueChange={setRecordStaffId}
+                    placeholder={t("hr.leave.pickStaff")}
+                    emptyOption={{ value: "", label: t("hr.leave.pickStaff") }}
+                    options={(staffOptions.data ?? []).map((s) => ({
+                      value: s.id,
+                      label: s.employeeCode ? `${s.name} (${s.employeeCode})` : s.name,
+                      keywords: `${s.name} ${s.employeeCode ?? ""}`,
+                    }))}
+                  />
                 </div>
                 <div>
                   <Label>{t("hr.leave.type")}</Label>
@@ -378,19 +377,17 @@ export default function HrLeavePage() {
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <div>
                   <Label>{t("hr.leave.staff")}</Label>
-                  <select
-                    className="flex h-10 w-full rounded-xl border border-input bg-background px-3 text-sm"
+                  <SearchableSelect
                     value={balanceStaffId}
-                    onChange={(e) => setBalanceStaffId(e.target.value)}
-                  >
-                    <option value="">{t("hr.leave.pickStaff")}</option>
-                    {(staffOptions.data ?? []).map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                        {s.employeeCode ? ` (${s.employeeCode})` : ""}
-                      </option>
-                    ))}
-                  </select>
+                    onValueChange={setBalanceStaffId}
+                    placeholder={t("hr.leave.pickStaff")}
+                    emptyOption={{ value: "", label: t("hr.leave.pickStaff") }}
+                    options={(staffOptions.data ?? []).map((s) => ({
+                      value: s.id,
+                      label: s.employeeCode ? `${s.name} (${s.employeeCode})` : s.name,
+                      keywords: `${s.name} ${s.employeeCode ?? ""}`,
+                    }))}
+                  />
                 </div>
                 <div>
                   <Label>{t("hr.leave.type")}</Label>

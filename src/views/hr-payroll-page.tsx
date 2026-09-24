@@ -170,6 +170,33 @@ export default function HrPayrollPage() {
                       <Plus className="mr-1 h-4 w-4" />
                       {t("hr.payrollRuns.create")}
                     </Button>
+                    <Button
+                      variant="outline"
+                      disabled={pending}
+                      onClick={() => {
+                        startTransition(async () => {
+                          try {
+                            const month = "2026-08";
+                            const existing = (periods.data ?? []).find((p) => p.month === month);
+                            if (existing) {
+                              window.location.href = `/people/payroll/${existing.id}`;
+                              return;
+                            }
+                            const created = await createPayrollPeriod({
+                              month,
+                              notes: "August 2026 — open period then use Import Excel for historical workbook",
+                            });
+                            toast.success("August 2026 period ready — use Import Excel on the period page");
+                            void qc.invalidateQueries({ queryKey: queryKeys.people.hrPayrollPeriods() });
+                            window.location.href = `/people/payroll/${created.id}`;
+                          } catch (e) {
+                            toast.error(e instanceof Error ? e.message : t("hr.payrollRuns.error"));
+                          }
+                        });
+                      }}
+                    >
+                      August 2026 import…
+                    </Button>
                   </div>
                 ) : null}
               </div>
@@ -193,7 +220,12 @@ export default function HrPayrollPage() {
                     ) : (
                       (periods.data ?? []).map((p) => (
                         <tr key={p.id}>
-                          <td className="font-medium">{p.month}</td>
+                          <td className="font-medium">
+                            {p.displayName ?? p.month}
+                            {p.source && p.source !== "generated" ? (
+                              <span className="ml-2 text-xs text-muted-foreground">({p.source})</span>
+                            ) : null}
+                          </td>
                           <td className="text-xs">
                             {formatPayrollRange(p.dateFrom, p.dateTo, i18n.language)}
                           </td>

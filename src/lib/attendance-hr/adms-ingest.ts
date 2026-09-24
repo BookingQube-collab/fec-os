@@ -6,13 +6,16 @@ import {
   buildPunchRows,
   deviceNameByBiometricFromMappings,
   mergeBiometricUsersById,
+  missingPunchBiometricIds,
   persistMergedBiometricUsers,
   recalculateAttendanceRange,
   staffByBiometricFromMappings,
+  stubBiometricUsersForIds,
   type ExistingBiometricUser,
 } from "./process";
 import {
   buildAdmsAttlogQueryCommand,
+  buildAdmsUserInfoQueryCommand,
   formatAdmsGetRequestCommand,
   parseAdmsAttlog,
   parseAdmsUsers,
@@ -279,6 +282,49 @@ export async function queueAdmsAttlogQueryRange(
   return { cmdId, command, from, to };
 }
 
+/** Queue DATA QUERY USERINFO so the terminal re-pushes enrolled names. */
+export async function queueAdmsUserInfoQuery(
+  sb: AdminClient,
+  deviceId: string,
+  options?: { force?: boolean },
+): Promise<{ cmdId: number; command: string }> {
+  const command = buildAdmsUserInfoQueryCommand();
+  const { data: row, error: readError } = await sb
+    .from("attendance_devices")
+    .select("adms_cmd_id, adms_pending_cmd")
+    .eq("id", deviceId)
+    .maybeSingle();
+  if (readError) {
+    throw new Error(
+      readError.code === "PGRST204"
+        ? "Fetch is not ready on the database yet. Apply the ADMS command migration, then try again."
+        : readError.message,
+    );
+  }
+  const pending = String(row?.adms_pending_cmd ?? "").trim();
+  // Don't clobber an in-flight ATTLOG fetch unless the caller forces a user re-sync.
+  if (pending && !options?.force) {
+    return { cmdId: Number(row?.adms_cmd_id) || 0, command: pending };
+  }
+  const cmdId = (Number(row?.adms_cmd_id) || 0) + 1;
+  const { error } = await sb
+    .from("attendance_devices")
+    .update({
+      adms_pending_cmd: command,
+      adms_cmd_id: cmdId,
+      adms_cmd_queued_at: new Date().toISOString(),
+    })
+    .eq("id", deviceId);
+  if (error) {
+    throw new Error(
+      error.code === "PGRST204"
+        ? "Fetch is not ready on the database yet. Apply the ADMS command migration, then try again."
+        : error.message,
+    );
+  }
+  return { cmdId, command };
+}
+
 export async function queueAdmsAttlogQueryForAll(
   sb: AdminClient,
   hours = 3,
@@ -410,7 +456,29 @@ export async function ingestAdmsPayload(
   let maxDate: string | null = null;
 
   if (punches.length) {
-    const existing = await loadExistingBiometricUsers(sb, companyId, input.device.location_id, input.device.id);
+    let existing = await loadExistingBiometricUsers(sb, companyId, input.device.location_id, input.device.id);
+    const missingIds = missingPunchBiometricIds(
+      existing,
+      punches.map((p) => p.biometricUserId),
+    );
+    if (missingIds.length) {
+      // ATTLOG can arrive before EnrollUser/USERINFO — stub the registry then ask for names.
+      await persistMergedBiometricUsers(sb, {
+        companyId,
+        locationId: input.device.location_id,
+        deviceId: input.device.id,
+        merged: stubBiometricUsersForIds(missingIds),
+      });
+      existing = await loadExistingBiometricUsers(sb, companyId, input.device.location_id, input.device.id);
+      try {
+        await queueAdmsUserInfoQuery(sb, input.device.id, { force: true });
+      } catch (e) {
+        console.warn(
+          "[adms-ingest] USERINFO query queue failed",
+          e instanceof Error ? e.message : e,
+        );
+      }
+    }
     const staffByBiometric = staffByBiometricFromMappings(existing);
     const deviceNameByBiometric = deviceNameByBiometricFromMappings(existing);
     const rows = buildPunchRows({

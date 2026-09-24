@@ -3,7 +3,7 @@ import { canUserDo, type AppRole } from "@/lib/rbac";
 import type { AuthContext } from "@/lib/server/create-action";
 import { ForbiddenError, assertLocationAccess } from "@/lib/server/authorize";
 import { rosterMissingStaffMutation } from "@/lib/hr-policy";
-import { insertSalaryHistoryAndSync } from "@/lib/staff-history";
+import { insertSalaryHistoryAndSync, insertStatusHistory } from "@/lib/staff-history";
 import { staffUuid } from "@/lib/staff-import-ids";
 
 import { diffStaffFields, matchRosterRow, proposeStaffValues, resolveRowAction, salaryWouldWipe } from "./match";
@@ -111,9 +111,27 @@ function publicNewValues(proposed: ProposedStaffValues, includeSalary: boolean):
     employment_type: proposed.employment_type,
     staff_role: proposed.staff_role,
     source_row_no: proposed.source_row_no,
+    is_roaming: proposed.is_roaming,
   };
   if (includeSalary) base.monthly_salary_qar = proposed.monthly_salary_qar;
+  if (proposed.profile_ext) base.profile_ext = proposed.profile_ext;
   return base;
+}
+
+async function upsertProfileExt(
+  context: AuthContext,
+  staffId: string,
+  ext: ProposedStaffValues["profile_ext"],
+) {
+  if (!ext) return;
+  const payload: Record<string, unknown> = { staff_id: staffId, updated_by: context.userId };
+  for (const [key, value] of Object.entries(ext)) {
+    if (value == null || value === "") continue;
+    payload[key] = value;
+  }
+  if (Object.keys(payload).length <= 2) return;
+  const { error } = await context.supabase.from("staff_profile_ext").upsert(payload, { onConflict: "staff_id" });
+  if (error) throw error;
 }
 
 export async function buildRosterPreview(
@@ -215,6 +233,8 @@ export async function buildRosterPreview(
               staff_role: existing.staff_role as ProposedStaffValues["staff_role"],
               source_row_no: null,
               monthly_salary_qar: existing.monthly_salary_qar ?? null,
+              is_roaming: existing.is_roaming ?? null,
+              profile_ext: null,
             },
             includeSalary,
           )
@@ -371,6 +391,7 @@ export async function applyRosterPreview(
           employment_type: (next.employment_type as string | null) ?? null,
           staff_role: (next.staff_role as ProposedStaffValues["staff_role"]) ?? null,
           source_row_no: (next.source_row_no as number | null) ?? null,
+          is_roaming: (next.is_roaming as boolean | null) ?? false,
         });
         if (error) throw error;
         const { error: snapErr } = await context.supabase.from("staff_import_snapshots").upsert(
@@ -383,6 +404,7 @@ export async function applyRosterPreview(
         );
         if (snapErr) throw snapErr;
         await writeSalary(context, id, (next.monthly_salary_qar as number | null) ?? null);
+        await upsertProfileExt(context, id, (next.profile_ext as ProposedStaffValues["profile_ext"]) ?? null);
         await audit(context, "staff.created", id, next, locationId);
       } else if (line.action === "update" && line.matchStaffId) {
         await snapshotStaff(context, batchId, line.matchStaffId);
@@ -409,11 +431,28 @@ export async function applyRosterPreview(
             staff_role: (next.staff_role as ProposedStaffValues["staff_role"]) ?? undefined,
             source_row_no: (next.source_row_no as number | null) ?? undefined,
             location_id: (next.location_id as string | null) ?? undefined,
+            is_roaming: (next.is_roaming as boolean | null) ?? undefined,
             ...(rewriteCode ? { employee_code: nextCode } : {}),
           })
           .eq("id", line.matchStaffId);
         if (error) throw error;
+        const prevStatus = String(line.oldValues.status ?? "");
+        const nextStatus = String(next.status ?? "active");
+        if (prevStatus && nextStatus && prevStatus !== nextStatus) {
+          await insertStatusHistory(context, {
+            staffId: line.matchStaffId,
+            fromStatus: prevStatus,
+            toStatus: nextStatus,
+            reason: "directory_import",
+            locationId: (next.location_id as string | null) ?? undefined,
+          });
+        }
         await writeSalary(context, line.matchStaffId, (next.monthly_salary_qar as number | null) ?? null);
+        await upsertProfileExt(
+          context,
+          line.matchStaffId,
+          (next.profile_ext as ProposedStaffValues["profile_ext"]) ?? null,
+        );
         await audit(context, "staff.updated", line.matchStaffId, next, next.location_id as string | undefined);
       } else if (line.action === "archive" && line.matchStaffId) {
         // ponytail: roster missing ≠ termination. Flag for HR review only;

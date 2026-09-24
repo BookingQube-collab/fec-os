@@ -359,6 +359,14 @@ export interface StaffRow {
   expected_hours?: number | null;
   break_minutes?: number | null;
   weekly_off_weekday?: number | null;
+  /** From staff_profile_ext (optional join). */
+  nationality?: string | null;
+  gender?: string | null;
+  sponsorship_info?: string | null;
+  passport_number?: string | null;
+  passport_expiry?: string | null;
+  qid_expiry?: string | null;
+  date_of_birth?: string | null;
 }
 
 type StaffDeptJoin = {
@@ -461,6 +469,32 @@ export async function fetchStaff(
     row.work_locations = workByStaff.get(row.id) ?? [];
     row.work_location_ids = row.work_locations.map((loc) => loc.id);
   }
+
+  // Enrich with profile_ext for directory search / expiry KPIs (best-effort).
+  if (mapped.length) {
+    const { data: exts } = await context.supabase
+      .from("staff_profile_ext")
+      .select(
+        "staff_id, nationality, gender, sponsorship_info, passport_number, passport_expiry, qid_expiry, date_of_birth",
+      )
+      .in(
+        "staff_id",
+        mapped.map((s) => s.id),
+      );
+    const extById = new Map((exts ?? []).map((e) => [e.staff_id, e]));
+    for (const row of mapped) {
+      const ext = extById.get(row.id);
+      if (!ext) continue;
+      row.nationality = ext.nationality ?? null;
+      row.gender = ext.gender ?? null;
+      row.sponsorship_info = ext.sponsorship_info ?? null;
+      row.passport_number = ext.passport_number ?? null;
+      row.passport_expiry = ext.passport_expiry ?? null;
+      row.qid_expiry = ext.qid_expiry ?? null;
+      row.date_of_birth = ext.date_of_birth ?? null;
+    }
+  }
+
   if (!canUserDo(context.roles ?? [], "people.view_salary") || !mapped.length) return mapped;
 
   const { data: comps } = await context.supabase

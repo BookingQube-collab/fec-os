@@ -128,7 +128,9 @@ export {
   deviceNameByBiometricFromMappings,
   lookupStaffByBiometric,
   mergeBiometricUsersById,
+  missingPunchBiometricIds,
   staffByBiometricFromMappings,
+  stubBiometricUsersForIds,
 } from "./mapping-merge";
 export type { ExistingBiometricUser, IncomingBiometricUser, MergedBiometricUser } from "./mapping-merge";
 

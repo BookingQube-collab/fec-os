@@ -51,10 +51,12 @@ describe("AT#11 separates WPS / cheque / bank-transfer employees", () => {
       { paymentMethod: "cheque" as const, id: "2" },
       { paymentMethod: "bank_transfer" as const, id: "3" },
       { paymentMethod: "wps" as const, id: "4" },
+      { paymentMethod: "cash" as const, id: "5" },
     ]);
     expect(parts.wps).toHaveLength(2);
     expect(parts.cheque).toHaveLength(1);
     expect(parts.bank_transfer).toHaveLength(1);
+    expect(parts.cash).toHaveLength(1);
   });
 
   it("builds WPS export with SIF-like headers", () => {

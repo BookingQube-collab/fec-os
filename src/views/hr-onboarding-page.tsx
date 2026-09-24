@@ -14,6 +14,7 @@ import { HrShell } from "@/components/hr/hr-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { checklistProgress } from "@/lib/hr-advanced";
 import {
   listChecklistTemplates,
@@ -93,18 +94,17 @@ export default function HrOnboardingPage() {
             <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-5">
               <div>
                 <Label>{t("hr.onboarding.staff")}</Label>
-                <select
-                  className="flex h-10 w-full rounded-xl border border-input bg-background px-3 text-sm"
+                <SearchableSelect
                   value={staffId}
-                  onChange={(e) => setStaffId(e.target.value)}
-                >
-                  <option value="">{t("hr.onboarding.pickStaff")}</option>
-                  {(staff.data ?? []).map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
+                  onValueChange={setStaffId}
+                  placeholder={t("hr.onboarding.pickStaff")}
+                  emptyOption={{ value: "", label: t("hr.onboarding.pickStaff") }}
+                  options={(staff.data ?? []).map((s) => ({
+                    value: s.id,
+                    label: s.employeeCode ? `${s.name} (${s.employeeCode})` : s.name,
+                    keywords: `${s.name} ${s.employeeCode ?? ""}`,
+                  }))}
+                />
               </div>
               <div>
                 <Label>{t("hr.onboarding.template")}</Label>

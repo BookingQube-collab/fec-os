@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Textarea } from "@/components/ui/textarea";
 import { useUserRoles } from "@/hooks/use-auth";
 import { canUserDo } from "@/lib/rbac";
@@ -25,6 +26,7 @@ import {
   listRecruitmentLookups,
   submitJobRequest,
 } from "@/lib/hr-recruitment.functions";
+import { listStaffForLeaveBalances } from "@/lib/hr-leave.functions";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 
@@ -57,6 +59,13 @@ export default function HrJobRequestsPage() {
     queryKey: queryKeys.people.hrJobRequests({ view: "lookups" }),
     queryFn: () => listRecruitmentLookups(),
     staleTime: STALE.people,
+  });
+
+  const staffOptions = useQuery({
+    queryKey: queryKeys.people.hrLeaveBalances({ view: "staff" }),
+    queryFn: () => listStaffForLeaveBalances(),
+    staleTime: STALE.people,
+    enabled: requestType === "replacement",
   });
 
   const list = useQuery({
@@ -221,12 +230,19 @@ export default function HrJobRequestsPage() {
             {requestType === "replacement" ? (
               <div>
                 <Label>{t("hr.jobs.replacedStaff")}</Label>
-                <Input
-                  className="mt-1"
-                  placeholder="staff uuid"
-                  value={replacedStaffId}
-                  onChange={(e) => setReplacedStaffId(e.target.value)}
-                />
+                <div className="mt-1">
+                  <SearchableSelect
+                    value={replacedStaffId}
+                    onValueChange={setReplacedStaffId}
+                    placeholder={t("hr.leave.pickStaff")}
+                    emptyOption={{ value: "", label: t("hr.leave.pickStaff") }}
+                    options={(staffOptions.data ?? []).map((s) => ({
+                      value: s.id,
+                      label: s.employeeCode ? `${s.name} (${s.employeeCode})` : s.name,
+                      keywords: `${s.name} ${s.employeeCode ?? ""}`,
+                    }))}
+                  />
+                </div>
               </div>
             ) : null}
             <div>

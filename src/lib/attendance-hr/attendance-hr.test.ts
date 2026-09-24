@@ -30,6 +30,7 @@ import {
   admsOk,
   buildAdmsAttlogQueryCommand,
   buildAdmsHandshake,
+  buildAdmsUserInfoQueryCommand,
   formatAdmsDateTime,
   formatAdmsGetRequestCommand,
   parseAdmsAttlog,
@@ -45,7 +46,9 @@ import {
   buildPunchRows,
   deviceNameByBiometricFromMappings,
   mergeBiometricUsersById,
+  missingPunchBiometricIds,
   staffByBiometricFromMappings,
+  stubBiometricUsersForIds,
 } from "./mapping-merge";
 import {
   attendanceHrIncludesStaffInListing,
@@ -1256,6 +1259,25 @@ describe("sticky biometric mapping across re-uploads", () => {
     expect(rows[0]?.staff_id).toBe("staff-m");
     expect(rows[0]?.device_user_name).toBe("MD MAHERAJ SHAK");
   });
+
+  it("stubs punch-only biometric ids missing from the registry (UA-DM 40)", () => {
+    expect(
+      missingPunchBiometricIds(
+        [{ biometricUserId: "38" }, { biometricUserId: "39" }],
+        ["38", "40", "40", " 39 "],
+      ),
+    ).toEqual(["40"]);
+    expect(stubBiometricUsersForIds(["40", "40", ""])).toEqual([
+      {
+        biometricUserId: "40",
+        deviceName: null,
+        staffId: null,
+        previousDeviceName: null,
+        nameChanged: false,
+        isNew: true,
+      },
+    ]);
+  });
 });
 
 describe("ZKTeco ADMS / iClock parse", () => {
@@ -1336,9 +1358,10 @@ describe("ZKTeco ADMS / iClock parse", () => {
     const from = new Date("2026-08-24T00:00:00+03:00");
     const to = new Date("2026-08-24T12:00:00+03:00");
     const command = buildAdmsAttlogQueryCommand(from, to);
-    expect(command).toContain("DATA QUERY ATTLOG");
-    expect(command).toContain("StartTime=2026-08-24 00:00:00");
-    expect(command).toContain("EndTime=2026-08-24 12:00:00");
+    expect(buildAdmsAttlogQueryCommand(from, to)).toContain("DATA QUERY ATTLOG");
+    expect(buildAdmsAttlogQueryCommand(from, to)).toContain("StartTime=2026-08-24 00:00:00");
+    expect(buildAdmsAttlogQueryCommand(from, to)).toContain("EndTime=2026-08-24 12:00:00");
+    expect(buildAdmsUserInfoQueryCommand()).toBe("DATA QUERY USERINFO");
     expect(formatAdmsGetRequestCommand(7, command)).toBe(`C:7:${command}`);
     expect(formatAdmsDateTime(from)).toBe("2026-08-24 00:00:00");
     expect(parseAdmsDeviceCmdAck("ID=7&Return=0")).toEqual({ id: 7, returnCode: 0 });

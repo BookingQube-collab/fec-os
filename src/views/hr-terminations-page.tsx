@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Textarea } from "@/components/ui/textarea";
 import { useUserRoles } from "@/hooks/use-auth";
 import { usePermission } from "@/hooks/use-permission";
@@ -230,18 +231,17 @@ export default function HrTerminationsPage() {
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1">
                   <Label>{t("hr.terminations.staff")}</Label>
-                  <select
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  <SearchableSelect
                     value={staffId}
-                    onChange={(e) => setStaffId(e.target.value)}
-                  >
-                    <option value="">{t("hr.terminations.pickStaff")}</option>
-                    {(staffOptions.data ?? []).map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name} ({s.employeeCode})
-                      </option>
-                    ))}
-                  </select>
+                    onValueChange={setStaffId}
+                    placeholder={t("hr.terminations.pickStaff")}
+                    emptyOption={{ value: "", label: t("hr.terminations.pickStaff") }}
+                    options={(staffOptions.data ?? []).map((s) => ({
+                      value: s.id,
+                      label: s.employeeCode ? `${s.name} (${s.employeeCode})` : s.name,
+                      keywords: `${s.name} ${s.employeeCode ?? ""}`,
+                    }))}
+                  />
                 </div>
                 <div className="space-y-1">
                   <Label>{t("hr.terminations.type")}</Label>

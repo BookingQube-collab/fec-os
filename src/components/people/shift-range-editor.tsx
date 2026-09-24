@@ -23,13 +23,14 @@ export function ShiftRangeEditor({
 }: ShiftRangeEditorProps) {
   const { t } = useTranslation();
 
-  if (disabled) {
-    return <span className="text-xs text-muted-foreground">—</span>;
-  }
-
+  // readOnly must win over disabled — List view passes both and still needs times visible.
   if (readOnly) {
     const text = [start, end].filter(Boolean).join(` ${t("people.roster.shiftTo")} `);
     return <span className="whitespace-nowrap tabular-nums">{text || "—"}</span>;
+  }
+
+  if (disabled) {
+    return <span className="text-xs text-muted-foreground">—</span>;
   }
 
   return (

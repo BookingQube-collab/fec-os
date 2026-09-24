@@ -439,6 +439,22 @@ export type DeviceLogBioName = {
   full_name: string | null;
 };
 
+function deviceLogBioHasName(bio: DeviceLogBioName | null | undefined): boolean {
+  return Boolean(bio?.device_name?.trim() || bio?.full_name?.trim());
+}
+
+/** Drop empty / PIN-echo names so labels stay `40 · UA-DM` instead of `40 · 40 · UA-DM`. */
+export function deviceLogMeaningfulName(
+  name: string | null | undefined,
+  biometricUserId?: string | null,
+): string | null {
+  const text = name?.trim() || null;
+  if (!text) return null;
+  const id = biometricUserId?.trim();
+  if (id && text === id) return null;
+  return text;
+}
+
 export function indexDeviceLogBioNames(
   rows: Array<{
     location_id: string;
@@ -459,8 +475,17 @@ export function indexDeviceLogBioNames(
       full_name: row.full_name,
     };
     const locUser = `${loc}|${user}`;
-    if (!byLocUser.has(locUser)) byLocUser.set(locUser, name);
-    if (row.device_id) byDevice.set(`${locUser}|${row.device_id}`, name);
+    const prevLoc = byLocUser.get(locUser);
+    if (!prevLoc || (!deviceLogBioHasName(prevLoc) && deviceLogBioHasName(name))) {
+      byLocUser.set(locUser, name);
+    }
+    if (row.device_id) {
+      const key = `${locUser}|${row.device_id}`;
+      const prevDev = byDevice.get(key);
+      if (!prevDev || (!deviceLogBioHasName(prevDev) && deviceLogBioHasName(name))) {
+        byDevice.set(key, name);
+      }
+    }
   }
   return { byDevice, byLocUser };
 }
@@ -476,9 +501,15 @@ export function lookupDeviceLogBioName(
   const locUser = `${locationId}|${user}`;
   if (deviceId) {
     const hit = index.byDevice.get(`${locUser}|${deviceId}`);
+    if (hit && deviceLogBioHasName(hit)) return hit;
+  }
+  const locHit = index.byLocUser.get(locUser);
+  if (locHit && deviceLogBioHasName(locHit)) return locHit;
+  if (deviceId) {
+    const hit = index.byDevice.get(`${locUser}|${deviceId}`);
     if (hit) return hit;
   }
-  return index.byLocUser.get(locUser);
+  return locHit;
 }
 
 /**
@@ -489,13 +520,14 @@ export function deviceLogDisplayName(
   punchName: string | null | undefined,
   bio: DeviceLogBioName | null | undefined,
   staffName?: string | null,
+  biometricUserId?: string | null,
 ): string | null {
-  const fromPunch = punchName?.trim() || null;
+  const fromPunch = deviceLogMeaningfulName(punchName, biometricUserId);
   if (fromPunch) return fromPunch;
   return (
-    bio?.device_name?.trim() ||
-    bio?.full_name?.trim() ||
-    staffName?.trim() ||
+    deviceLogMeaningfulName(bio?.device_name, biometricUserId) ||
+    deviceLogMeaningfulName(bio?.full_name, biometricUserId) ||
+    deviceLogMeaningfulName(staffName, biometricUserId) ||
     null
   );
 }
@@ -540,7 +572,7 @@ export function collectDeviceLogUsers(
     const id = row.biometricUserId?.trim();
     if (!locationId || !id) continue;
     const key = deviceLogUserOptionKey(locationId, id);
-    const name = row.deviceUserName?.trim() || null;
+    const name = deviceLogMeaningfulName(row.deviceUserName, id);
     const code = row.locationCode?.trim() || null;
     const existing = byKey.get(key);
     if (!existing) {
@@ -567,7 +599,7 @@ export function collectDeviceLogUsers(
 }
 
 export function deviceLogUserOptionLabel(user: AttendanceDeviceLogUserOption): string {
-  const name = user.name?.trim();
+  const name = deviceLogMeaningfulName(user.name, user.biometricUserId);
   const loc = user.locationCode?.trim();
   const base = name ? `${name} · ${user.biometricUserId}` : user.biometricUserId;
   return loc ? `${base} · ${loc}` : base;

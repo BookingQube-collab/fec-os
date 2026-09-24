@@ -249,16 +249,25 @@ describe("device log listing", () => {
   });
 
   it("resolves Name from punch, then biometric device_name, then full_name, then staff", () => {
-    expect(deviceLogDisplayName("  Punch Ali  ", { device_name: "Device Ali", full_name: "HR Ali" })).toBe("Punch Ali");
-    expect(deviceLogDisplayName("  ", { device_name: " Device Ali ", full_name: "Full" })).toBe("Device Ali");
-    expect(deviceLogDisplayName(null, { device_name: null, full_name: " Full Ali " })).toBe("Full Ali");
+    expect(deviceLogDisplayName("  Punch Ali  ", { device_name: "Device Ali", full_name: "HR Ali" }, null, "12")).toBe("Punch Ali");
+    expect(deviceLogDisplayName("  ", { device_name: " Device Ali ", full_name: "Full" }, null, "12")).toBe("Device Ali");
+    expect(deviceLogDisplayName(null, { device_name: null, full_name: " Full Ali " }, null, "12")).toBe("Full Ali");
     expect(deviceLogDisplayName(null, { device_name: "  ", full_name: "  " })).toBeNull();
     expect(deviceLogDisplayName(null, undefined)).toBeNull();
     expect(deviceLogDisplayName(null, { device_name: null, full_name: null }, "  Staff Ali  ")).toBe("Staff Ali");
     expect(deviceLogDisplayName(null, { device_name: null, full_name: "Bio" }, "Staff")).toBe("Bio");
+    // ZKTeco empty Name= falls back to PIN in USERINFO — treat as unnamed for labels.
+    expect(deviceLogDisplayName("40", { device_name: "40", full_name: null }, null, "40")).toBeNull();
+    expect(deviceLogUserOptionLabel({
+      key: "loc|40",
+      locationId: "loc",
+      locationCode: "UA-DM",
+      biometricUserId: "40",
+      name: "40",
+    })).toBe("40 · UA-DM");
   });
 
-  it("looks up biometric registry by location+user, preferring device_id match", () => {
+  it("looks up biometric registry by location+user, preferring named rows over empty device hits", () => {
     const index = indexDeviceLogBioNames([
       {
         location_id: "loc1",
@@ -274,10 +283,18 @@ describe("device log listing", () => {
         device_name: "Dev User",
         full_name: null,
       },
+      {
+        location_id: "loc1",
+        device_id: "dev-empty",
+        biometric_user_id: "1001",
+        device_name: null,
+        full_name: null,
+      },
     ]);
     expect(lookupDeviceLogBioName(index, "loc1", "1001", "dev1")?.device_name).toBe("Dev User");
     expect(lookupDeviceLogBioName(index, "loc1", "1001", "other")?.device_name).toBe("Loc User");
     expect(lookupDeviceLogBioName(index, "loc1", "1001", null)?.device_name).toBe("Loc User");
+    expect(lookupDeviceLogBioName(index, "loc1", "1001", "dev-empty")?.device_name).toBe("Loc User");
     expect(lookupDeviceLogBioName(index, "loc1", "9999", "dev1")).toBeUndefined();
   });
 

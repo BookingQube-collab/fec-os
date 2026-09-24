@@ -178,7 +178,23 @@ export const updateStaffRosterFields = createAuthenticatedAction(
     e3Enrolled: z.boolean().nullable().optional(),
     employmentType: z.enum(["permanent", "temporary", "secondment", "joker"]).nullable().optional(),
     phone: z.string().max(40).nullable().optional(),
-    status: z.enum(["active", "on_leave", "terminated", "inactive"]).optional(),
+    status: z
+      .enum([
+        "active",
+        "probation",
+        "secondment",
+        "remote",
+        "vacation",
+        "sick_leave",
+        "unpaid_leave",
+        "on_leave",
+        "resigned",
+        "terminated",
+        "released",
+        "serving_notice",
+        "inactive",
+      ])
+      .optional(),
   }),
   async (data, context) => {
     const existing = await assertStaffLocation(context, data.id);

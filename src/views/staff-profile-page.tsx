@@ -14,9 +14,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useSites } from "@/hooks/queries/useSites";
 import { usePermission } from "@/hooks/use-permission";
 import { formatLocationLabel } from "@/lib/locations/normalize";
+import { expiryBand, qatarTodayYmd } from "@/lib/hr-expiry-bands";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { FaceCaptureDialog } from "@/components/attendance-hr/face-capture-dialog";
@@ -26,6 +28,27 @@ import { listEmployeeTimeline } from "@/lib/hr-leave.functions";
 import { transferStaffMember, updateStaffSalary, updateStaffWorkLocations } from "@/lib/staff-roster.functions";
 import { removeStaffPhoto, saveStaffPhoto, updateStaff } from "@/lib/people.functions";
 import { Checkbox } from "@/components/ui/checkbox";
+
+type ProfileExt = {
+  nationality: string | null;
+  gender: string | null;
+  date_of_birth: string | null;
+  passport_number: string | null;
+  passport_expiry: string | null;
+  qid_expiry: string | null;
+  sponsorship_info: string | null;
+  probation_start: string | null;
+  probation_end: string | null;
+  ticket_eligibility: boolean | null;
+  ticket_eligibility_months: number | null;
+  ticket_amount: number | null;
+  contract_start: string | null;
+  contract_end: string | null;
+  notes: string | null;
+  emergency_contact_name: string | null;
+  emergency_contact_phone: string | null;
+  employment_category: string | null;
+};
 
 type ProfileResponse = {
   staff: {
@@ -55,6 +78,27 @@ type ProfileResponse = {
     work_locations?: Array<{ id: string; code: string; name: string | null }>;
     locations?: { code: string; name: string } | null;
   };
+  profileExt?: ProfileExt | null;
+  managerName?: string | null;
+  statusHistory?: Array<{
+    id: string;
+    from_status: string | null;
+    to_status: string;
+    effective_on: string;
+    reason: string | null;
+    created_at: string;
+  }>;
+  documents?: Array<{
+    id: string;
+    doc_type: string;
+    document_number: string | null;
+    issue_date: string | null;
+    expiry_date: string | null;
+    verification_status: string;
+    status: string;
+    file_name: string | null;
+    notes: string | null;
+  }>;
   compensation: { monthly_salary_qar: number | null; daily_rate_qar: number | null; currency: string } | null;
   transfers: Array<{
     id: string;
@@ -78,6 +122,7 @@ type ProfileResponse = {
   punches: Array<{ id: string; punch_at: string; punch_type: string; source: string }>;
   training: Array<{ id: string; course_name: string; status: string; due_on: string | null }>;
   canViewSalary: boolean;
+  canViewSensitive?: boolean;
 };
 
 export default function StaffProfilePage() {
@@ -283,12 +328,18 @@ export default function StaffProfilePage() {
   });
 
   const s = profile.data?.staff;
+  const ext = profile.data?.profileExt;
+  const today = qatarTodayYmd();
   if (profile.isLoading) {
     return <p className="text-sm text-muted-foreground">{t("people.staff.loading")}</p>;
   }
   if (!s) {
     return <p className="text-sm text-muted-foreground">{t("people.staff.empty")}</p>;
   }
+
+  const serviceDays = s.hire_date
+    ? Math.max(0, Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${s.hire_date}T00:00:00Z`)) / 86_400_000))
+    : null;
 
   return (
     <div className="space-y-6">
@@ -313,6 +364,68 @@ export default function StaffProfilePage() {
         }
       />
 
+      <Tabs defaultValue="overview" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="employment">Employment</TabsTrigger>
+          <TabsTrigger value="personal">Personal</TabsTrigger>
+          <TabsTrigger value="documents">Documents</TabsTrigger>
+          <TabsTrigger value="attendance">Attendance & Leave</TabsTrigger>
+          <TabsTrigger value="payroll">Payroll</TabsTrigger>
+          <TabsTrigger value="warnings">Warnings</TabsTrigger>
+          <TabsTrigger value="performance">Performance</TabsTrigger>
+          <TabsTrigger value="training">Training</TabsTrigger>
+          <TabsTrigger value="history">History</TabsTrigger>
+          <TabsTrigger value="notes">Notes</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="overview" className="space-y-4">
+          <section className="surface-card grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="flex items-center gap-3 sm:col-span-2 lg:col-span-1">
+              <StaffAvatar staffId={s.id} name={s.full_name} hasPhoto={Boolean(s.has_photo)} photoUpdatedAt={s.photo_updated_at} className="h-16 w-16" />
+              <div>
+                <p className="font-semibold">{s.full_name}</p>
+                <p className="font-mono text-xs text-muted-foreground">{s.employee_code}</p>
+                <Badge variant="outline" className="mt-1 uppercase text-[10px]">{s.status}</Badge>
+              </div>
+            </div>
+            <dl className="space-y-1 text-sm">
+              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Position</dt><dd>{s.job_title ?? "—"}</dd></div>
+              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Department</dt><dd>{s.department ?? "—"}</dd></div>
+              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Location</dt><dd>{formatLocationLabel(s.locations?.code, s.locations?.name)}</dd></div>
+              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Manager</dt><dd>{profile.data?.managerName ?? "—"}</dd></div>
+            </dl>
+            <dl className="space-y-1 text-sm">
+              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Type</dt><dd>{s.employment_type ?? "—"}</dd></div>
+              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Joined</dt><dd>{s.hire_date ?? "—"}</dd></div>
+              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Service</dt><dd>{serviceDays != null ? `${Math.floor(serviceDays / 365)}y ${Math.floor((serviceDays % 365) / 30)}m` : "—"}</dd></div>
+              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Contact</dt><dd>{s.phone ?? s.email ?? "—"}</dd></div>
+            </dl>
+          </section>
+        </TabsContent>
+
+        <TabsContent value="employment" className="space-y-4">
+          <section className="surface-card space-y-2 p-5 text-sm">
+            <h2 className="text-sm font-semibold">Employment</h2>
+            <dl className="grid gap-2 sm:grid-cols-2">
+              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Position</dt><dd>{s.job_title ?? "—"}</dd></div>
+              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Department</dt><dd>{s.department ?? "—"}</dd></div>
+              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Sponsorship</dt><dd>{ext?.sponsorship_info ?? "—"}</dd></div>
+              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Category</dt><dd>{ext?.employment_category ?? s.employment_type ?? "—"}</dd></div>
+              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Probation</dt><dd>{ext?.probation_start ?? "—"} → {ext?.probation_end ?? "—"}</dd></div>
+              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Contract</dt><dd>{ext?.contract_start ?? "—"} → {ext?.contract_end ?? "—"}</dd></div>
+              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Expected hours</dt><dd>{s.expected_hours ?? "—"}</dd></div>
+              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Weekly off</dt><dd>{s.weekly_off_weekday == null ? "—" : ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][s.weekly_off_weekday]}</dd></div>
+              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Ticket eligibility</dt><dd>{ext?.ticket_eligibility == null ? "—" : ext.ticket_eligibility ? "Yes" : "No"}</dd></div>
+              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Ticket cycle / amount</dt><dd>{ext?.ticket_eligibility_months ?? "—"} mo · {profile.data?.canViewSalary ? (ext?.ticket_amount ?? "—") : "••••"}</dd></div>
+              {profile.data?.canViewSalary ? (
+                <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Salary</dt><dd>{profile.data.compensation?.monthly_salary_qar?.toLocaleString() ?? "—"} QAR</dd></div>
+              ) : null}
+            </dl>
+          </section>
+        </TabsContent>
+
+        <TabsContent value="personal" className="space-y-4">
       <div className="grid gap-4 lg:grid-cols-2">
         <section className="surface-card space-y-2 p-5">
           <h2 className="text-sm font-semibold">{t("people.profile.personal")}</h2>
@@ -652,6 +765,150 @@ export default function StaffProfilePage() {
           ) : null}
         </section>
         <section className="surface-card space-y-2 p-5">
+          <h2 className="text-sm font-semibold">Identity & contacts</h2>
+          <dl className="space-y-1 text-sm">
+            <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Nationality</dt><dd>{ext?.nationality ?? "—"}</dd></div>
+            <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Gender</dt><dd>{ext?.gender ?? "—"}</dd></div>
+            <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Date of birth</dt><dd>{ext?.date_of_birth ?? "—"}</dd></div>
+            <div className="flex justify-between gap-2"><dt className="text-muted-foreground">QID</dt><dd className="font-mono text-xs">{s.qid ?? "—"}</dd></div>
+            <div className="flex justify-between gap-2"><dt className="text-muted-foreground">QID expiry</dt><dd>{ext?.qid_expiry ?? "—"} <Badge variant="outline" className="ml-1 text-[10px]">{expiryBand(today, ext?.qid_expiry)}</Badge></dd></div>
+            <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Passport</dt><dd className="font-mono text-xs">{ext?.passport_number ?? "—"}</dd></div>
+            <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Passport expiry</dt><dd>{ext?.passport_expiry ?? "—"} <Badge variant="outline" className="ml-1 text-[10px]">{expiryBand(today, ext?.passport_expiry)}</Badge></dd></div>
+            <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Emergency</dt><dd>{ext?.emergency_contact_name ?? "—"} {ext?.emergency_contact_phone ? `· ${ext.emergency_contact_phone}` : ""}</dd></div>
+          </dl>
+        </section>
+      </div>
+        </TabsContent>
+
+        <TabsContent value="documents" className="space-y-4">
+          <section className="surface-card space-y-2 p-5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold">Documents</h2>
+              <Button asChild size="sm" variant="secondary"><Link href="/people/hr/documents">Open HR Documents</Link></Button>
+            </div>
+            {!(profile.data?.documents?.length) ? (
+              <p className="text-sm text-muted-foreground">No documents on file yet.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="text-xs uppercase text-muted-foreground">
+                    <tr>
+                      <th className="px-2 py-1 text-left">Type</th>
+                      <th className="px-2 py-1 text-left">Number</th>
+                      <th className="px-2 py-1 text-left">Issue</th>
+                      <th className="px-2 py-1 text-left">Expiry</th>
+                      <th className="px-2 py-1 text-left">Band</th>
+                      <th className="px-2 py-1 text-left">Verification</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {profile.data!.documents!.map((doc) => (
+                      <tr key={doc.id} className="border-t">
+                        <td className="px-2 py-1">{doc.doc_type}</td>
+                        <td className="px-2 py-1 font-mono text-xs">{doc.document_number ?? "—"}</td>
+                        <td className="px-2 py-1">{doc.issue_date ?? "—"}</td>
+                        <td className="px-2 py-1">{doc.expiry_date ?? "—"}</td>
+                        <td className="px-2 py-1"><Badge variant="outline" className="text-[10px]">{expiryBand(today, doc.expiry_date)}</Badge></td>
+                        <td className="px-2 py-1">{doc.verification_status}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </TabsContent>
+
+        <TabsContent value="attendance" className="space-y-4">
+      <section className="surface-card space-y-2 p-5">
+        <h2 className="text-sm font-semibold">{t("people.profile.attendance")}</h2>
+        {!profile.data?.attendance.length ? (
+          <p className="text-sm text-muted-foreground">{t("people.profile.noAttendance")}</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-xs uppercase text-muted-foreground">
+                <tr>
+                  <th className="px-2 py-1 text-left">{t("people.attendance.date")}</th>
+                  <th className="px-2 py-1 text-left">{t("people.staff.location")}</th>
+                  <th className="px-2 py-1 text-left">{t("people.staff.status")}</th>
+                  <th className="px-2 py-1 text-left">{t("people.attendance.firstCheckIn")}</th>
+                  <th className="px-2 py-1 text-left">{t("people.attendance.lastCheckOut")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {profile.data.attendance.map((row) => (
+                  <tr key={row.id} className="border-t">
+                    <td className="px-2 py-1">{row.work_date}</td>
+                    <td className="px-2 py-1 text-xs text-muted-foreground">{row.location_label ?? "—"}</td>
+                    <td className="px-2 py-1"><Badge variant="outline">{row.status}</Badge></td>
+                    <td className="px-2 py-1 text-xs">{row.actual_in ?? "—"}</td>
+                    <td className="px-2 py-1 text-xs">{row.actual_out ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <Button asChild size="sm" variant="secondary"><Link href="/people/leave">Leave module</Link></Button>
+      </section>
+        </TabsContent>
+
+        <TabsContent value="payroll" className="space-y-4">
+          <section className="surface-card space-y-2 p-5 text-sm">
+            <h2 className="text-sm font-semibold">Payroll</h2>
+            {profile.data?.canViewSalary ? (
+              <p>Monthly: {profile.data.compensation?.monthly_salary_qar?.toLocaleString() ?? "—"} {profile.data.compensation?.currency ?? "QAR"}</p>
+            ) : (
+              <p className="text-muted-foreground">Salary is permission-gated.</p>
+            )}
+            <Button asChild size="sm" variant="secondary"><Link href="/people/payroll">Open payroll</Link></Button>
+          </section>
+        </TabsContent>
+
+        <TabsContent value="warnings" className="space-y-4">
+          <section className="surface-card p-5 text-sm text-muted-foreground">
+            Warnings & disciplinary letters live in HR documents (`warning_letter`).{" "}
+            <Link className="underline" href="/people/hr/documents">Open documents</Link>
+          </section>
+        </TabsContent>
+
+        <TabsContent value="performance" className="space-y-4">
+          <section className="surface-card p-5">
+            <Button asChild><Link href={`/people/performance/staff/${s.id}`}>{t("people.profile.openPerformance")}</Link></Button>
+          </section>
+        </TabsContent>
+
+        <TabsContent value="training" className="space-y-4">
+        <section className="surface-card space-y-2 p-5">
+          <h2 className="text-sm font-semibold">{t("people.profile.training")}</h2>
+          {!profile.data?.training.length ? (
+            <p className="text-sm text-muted-foreground">{t("people.profile.noTraining")}</p>
+          ) : (
+            profile.data.training.map((tr) => (
+              <p key={tr.id} className="text-sm">{tr.course_name} · {tr.status}</p>
+            ))
+          )}
+        </section>
+        </TabsContent>
+
+        <TabsContent value="history" className="space-y-4">
+          <section className="surface-card space-y-2 p-5">
+            <h2 className="text-sm font-semibold">Status history</h2>
+            {!(profile.data?.statusHistory?.length) ? (
+              <p className="text-sm text-muted-foreground">No status changes recorded yet.</p>
+            ) : (
+              <ul className="space-y-2 text-sm">
+                {profile.data!.statusHistory!.map((h) => (
+                  <li key={h.id} className="border-b border-border/60 pb-2">
+                    {h.effective_on}: {h.from_status ?? "—"} → <strong>{h.to_status}</strong>
+                    {h.reason ? ` · ${h.reason}` : ""}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        <section className="surface-card space-y-2 p-5">
           <h2 className="text-sm font-semibold">{t("people.profile.timeline")}</h2>
           <div className="flex flex-wrap gap-2">
             {(
@@ -689,52 +946,15 @@ export default function StaffProfilePage() {
             </ul>
           )}
         </section>
-        <section className="surface-card space-y-2 p-5">
-          <h2 className="text-sm font-semibold">{t("people.profile.training")}</h2>
-          {!profile.data?.training.length ? (
-            <p className="text-sm text-muted-foreground">{t("people.profile.noTraining")}</p>
-          ) : (
-            profile.data.training.map((tr) => (
-              <p key={tr.id} className="text-sm">{tr.course_name} · {tr.status}</p>
-            ))
-          )}
-          <Button asChild variant="secondary" size="sm">
-            <Link href={`/people/performance/staff/${s.id}`}>{t("people.profile.openPerformance")}</Link>
-          </Button>
-        </section>
-      </div>
+        </TabsContent>
 
-      <section className="surface-card space-y-2 p-5">
-        <h2 className="text-sm font-semibold">{t("people.profile.attendance")}</h2>
-        {!profile.data?.attendance.length ? (
-          <p className="text-sm text-muted-foreground">{t("people.profile.noAttendance")}</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-xs uppercase text-muted-foreground">
-                <tr>
-                  <th className="px-2 py-1 text-left">{t("people.attendance.date")}</th>
-                  <th className="px-2 py-1 text-left">{t("people.staff.location")}</th>
-                  <th className="px-2 py-1 text-left">{t("people.staff.status")}</th>
-                  <th className="px-2 py-1 text-left">{t("people.attendance.firstCheckIn")}</th>
-                  <th className="px-2 py-1 text-left">{t("people.attendance.lastCheckOut")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {profile.data.attendance.map((row) => (
-                  <tr key={row.id} className="border-t">
-                    <td className="px-2 py-1">{row.work_date}</td>
-                    <td className="px-2 py-1 text-xs text-muted-foreground">{row.location_label ?? "—"}</td>
-                    <td className="px-2 py-1"><Badge variant="outline">{row.status}</Badge></td>
-                    <td className="px-2 py-1 text-xs">{row.actual_in ?? "—"}</td>
-                    <td className="px-2 py-1 text-xs">{row.actual_out ?? "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+        <TabsContent value="notes" className="space-y-4">
+          <section className="surface-card p-5 text-sm whitespace-pre-wrap">
+            {ext?.notes?.trim() || <span className="text-muted-foreground">No HR notes on file.</span>}
+          </section>
+        </TabsContent>
+      </Tabs>
+
       <FaceCaptureDialog
         open={enrollOpen}
         onOpenChange={setEnrollOpen}

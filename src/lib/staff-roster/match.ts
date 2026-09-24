@@ -3,6 +3,7 @@ import type {
   FieldDiff,
   MatchResult,
   ParsedRosterRow,
+  ProposedProfileExt,
   ProposedStaffValues,
 } from "./types";
 import {
@@ -14,6 +15,7 @@ import {
   normalizePhoneMatch,
   normalizeQid,
   pickNonBlank,
+  statusFromE3Sheet,
 } from "./values";
 
 function activeStaff(staff: ExistingStaffForMatch[]): ExistingStaffForMatch[] {
@@ -26,32 +28,61 @@ function fuzzyCandidates(name: string, staff: ExistingStaffForMatch[]): Existing
   return activeStaff(staff).filter((s) => namesAreFuzzyMatch(name, s.full_name));
 }
 
+function normalizeCode(value: string | null | undefined): string | null {
+  const s = (value ?? "").trim().toLowerCase();
+  return s || null;
+}
+
+/**
+ * Match priority: Employee Code → QID → contact+name → name+location → fuzzy review.
+ * Blank Excel cells never wipe existing values (see proposeStaffValues / pickNonBlank).
+ */
 export function matchRosterRow(
   row: ParsedRosterRow,
   staff: ExistingStaffForMatch[],
   locationId: string | null,
 ): MatchResult {
   const warnings = [...row.warnings];
+  const hasStrongId = Boolean(row.employeeCode || row.qid);
 
   if (!row.locationCode || !locationId) {
-    return {
-      action: "review",
-      matchRule: "unmapped_location",
-      staffId: null,
-      candidates: [],
-      warnings,
-    };
+    if (!hasStrongId) {
+      return {
+        action: "review",
+        matchRule: "unmapped_location",
+        staffId: null,
+        candidates: [],
+        warnings,
+      };
+    }
+    warnings.push("Location unmapped — matching by employee code / QID only");
   }
 
   if (!row.status) {
-    warnings.push("Status is blank — defaulting to active");
+    warnings.push("Status is blank — defaulting from sheet or active");
+  }
+
+  const code = normalizeCode(row.employeeCode);
+  if (code) {
+    const hits = activeStaff(staff).filter((s) => normalizeCode(s.employee_code) === code);
+    if (hits.length === 1) {
+      return { action: "update", matchRule: "employee_code", staffId: hits[0].id, candidates: hits, warnings };
+    }
+    if (hits.length > 1) {
+      return {
+        action: "review",
+        matchRule: "employee_code_ambiguous",
+        staffId: null,
+        candidates: hits,
+        warnings,
+      };
+    }
   }
 
   const qid = row.qid;
   if (qid) {
     const hits = activeStaff(staff).filter((s) => {
       if (normalizeQid(s.qid) === qid) return true;
-      // Dirty rows that stored QID in employee_code before backfill.
       return isQidShapedCode(s.employee_code) && normalizeQid(s.employee_code) === qid;
     });
     if (hits.length === 1) {
@@ -113,6 +144,44 @@ export function matchRosterRow(
   return { action: "create", matchRule: "create", staffId: null, candidates: [], warnings };
 }
 
+function mapStatus(row: ParsedRosterRow, existing: ExistingStaffForMatch | null): string {
+  if (row.status === "inactive") return "terminated";
+  if (row.status) return row.status;
+  if (row.sheetSource && row.sheetSource !== "Employee Roster") {
+    return statusFromE3Sheet(row.sheetSource).status;
+  }
+  return existing?.status ?? "active";
+}
+
+function buildProfileExt(row: ParsedRosterRow): ProposedProfileExt | null {
+  const hasAny =
+    row.nationality ||
+    row.gender ||
+    row.dateOfBirth ||
+    row.qidExpiry ||
+    row.passportNumber ||
+    row.passportExpiry ||
+    row.sponsorship ||
+    row.ticketEligibility != null ||
+    row.ticketEligibilityMonths != null ||
+    row.ticketAmount != null ||
+    row.notes;
+  if (!hasAny) return null;
+  return {
+    nationality: row.nationality,
+    gender: row.gender,
+    date_of_birth: row.dateOfBirth,
+    qid_expiry: row.qidExpiry,
+    passport_number: row.passportNumber,
+    passport_expiry: row.passportExpiry,
+    sponsorship_info: row.sponsorship,
+    ticket_eligibility: row.ticketEligibility,
+    ticket_eligibility_months: row.ticketEligibilityMonths,
+    ticket_amount: row.ticketAmount,
+    notes: row.notes,
+  };
+}
+
 export function proposeStaffValues(
   row: ParsedRosterRow,
   existing: ExistingStaffForMatch | null,
@@ -120,19 +189,32 @@ export function proposeStaffValues(
   usedCodes: Set<string>,
 ): ProposedStaffValues {
   const qid = pickNonBlank(row.qid, existing?.qid ?? null);
+  const incomingCode = row.employeeCode?.trim() || "";
   const existingCode = existing?.employee_code ?? "";
-  let employeeCode = isPreservableEmployeeCode(existingCode, qid) ? existingCode : "";
-  if (!employeeCode) {
+  let employeeCode = "";
+  if (incomingCode && !isQidShapedCode(incomingCode) && incomingCode !== (qid ?? "")) {
+    employeeCode = incomingCode;
+    usedCodes.add(employeeCode);
+  } else if (isPreservableEmployeeCode(existingCode, qid)) {
+    employeeCode = existingCode;
+    usedCodes.add(employeeCode);
+  } else {
     employeeCode = generateEmployeeCode(row.locationCode ?? existing?.location_code ?? "UNK", usedCodes, {
       staffRole: row.staffRole ?? existing?.staff_role,
       jobTitle: row.position ?? existing?.job_title,
     });
-  } else {
-    usedCodes.add(employeeCode);
   }
 
-  const mappedStatus =
-    row.status === "inactive" ? "terminated" : row.status === "on_leave" ? "on_leave" : row.status === "active" ? "active" : existing?.status ?? "active";
+  const sheetDefaults =
+    row.sheetSource && row.sheetSource !== "Employee Roster" ? statusFromE3Sheet(row.sheetSource) : null;
+  const employmentType =
+    row.employmentType ??
+    sheetDefaults?.employmentType ??
+    (existing?.employment_type as ProposedStaffValues["employment_type"]) ??
+    null;
+
+  let isRoaming: boolean | null = sheetDefaults?.isRoaming ?? null;
+  if (isRoaming == null && existing?.is_roaming != null) isRoaming = existing.is_roaming;
 
   return {
     employee_code: employeeCode,
@@ -144,12 +226,14 @@ export function proposeStaffValues(
     job_title: pickNonBlank(row.position, existing?.job_title ?? null),
     department: pickNonBlank(row.activity, existing?.department ?? null),
     hire_date: pickNonBlank(row.hireDate, existing?.hire_date ?? null),
-    status: mappedStatus,
+    status: mapStatus(row, existing),
     e3_enrolled: row.e3Enrolled === null ? (existing?.e3_enrolled ?? null) : row.e3Enrolled,
-    employment_type: row.employmentType ?? (existing?.employment_type as ProposedStaffValues["employment_type"]) ?? null,
+    employment_type: employmentType,
     staff_role: row.staffRole ?? (existing?.staff_role as ProposedStaffValues["staff_role"]) ?? null,
     source_row_no: row.sourceRowNo,
     monthly_salary_qar: row.monthlySalaryQar,
+    is_roaming: isRoaming,
+    profile_ext: buildProfileExt(row),
   };
 }
 
@@ -177,6 +261,7 @@ export function diffStaffFields(
     ["employment_type", existing?.employment_type, proposed.employment_type],
     ["staff_role", existing?.staff_role, proposed.staff_role],
     ["location_id", existing?.location_id, proposed.location_id],
+    ["is_roaming", existing?.is_roaming, proposed.is_roaming],
   ];
   if (includeSalary) {
     pairs.push(["monthly_salary_qar", existing?.monthly_salary_qar, proposed.monthly_salary_qar]);
@@ -185,6 +270,13 @@ export function diffStaffFields(
     const oldS = scalar(oldValue as string | number | boolean | null);
     const newS = scalar(newValue as string | number | boolean | null);
     if (oldS !== newS) diffs.push({ field, oldValue: oldS, newValue: newS });
+  }
+  if (proposed.profile_ext) {
+    diffs.push({
+      field: "profile_ext",
+      oldValue: null,
+      newValue: "updated",
+    });
   }
   return diffs;
 }

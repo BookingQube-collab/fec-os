@@ -25,6 +25,7 @@ import { createAuthenticatedAction, createSafeAuthenticatedAction } from "@/lib/
 import type { AuthContext } from "@/lib/server/create-action";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { TablesUpdate } from "@/integrations/supabase/types";
+import { insertStatusHistory } from "@/lib/staff-history";
 import {
   decodeImageDataUrl,
 } from "@/lib/staff-photo";
@@ -395,7 +396,20 @@ export const importStaffCsv = createAuthenticatedAction(
   { auth: { capability: "people.edit_roster" } },
 );
 
-const STAFF_STATUSES = ["active", "on_leave", "terminated"] as const;
+const STAFF_STATUSES = [
+  "active",
+  "probation",
+  "secondment",
+  "remote",
+  "vacation",
+  "sick_leave",
+  "unpaid_leave",
+  "on_leave",
+  "resigned",
+  "terminated",
+  "released",
+  "serving_notice",
+] as const;
 const TRAINING_STATUSES = ["enrolled", "in_progress", "completed", "overdue"] as const;
 
 /** Safe so production toasts show DB/Zod text instead of Next RSC digests. */
@@ -508,7 +522,7 @@ export const updateStaff = createSafeAuthenticatedAction(
   async (data, context) => {
     const { data: existing, error: fetchErr } = await context.supabase
       .from("staff")
-      .select("location_id")
+      .select("location_id, status")
       .eq("id", data.id)
       .is("deleted_at", null)
       .single();
@@ -531,6 +545,16 @@ export const updateStaff = createSafeAuthenticatedAction(
     if (data.expectedHours !== undefined) patch.expected_hours = data.expectedHours;
     if (data.breakMinutes !== undefined) patch.break_minutes = data.breakMinutes;
     if (data.weeklyOffWeekday !== undefined) patch.weekly_off_weekday = data.weeklyOffWeekday;
+
+    if (data.status !== undefined && data.status !== existing.status) {
+      await insertStatusHistory(context, {
+        staffId: data.id,
+        fromStatus: existing.status,
+        toStatus: data.status,
+        reason: "profile_update",
+        locationId: existing.location_id,
+      });
+    }
 
     if (Object.keys(patch).length) {
       const { error } = await context.supabase.from("staff").update(patch).eq("id", data.id);

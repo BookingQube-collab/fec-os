@@ -999,6 +999,8 @@
   .hr-table-wrap table {
     width: 100%;
     font-size: 0.875rem;
+    border-collapse: separate;
+    border-spacing: 0;
   }
 
   .hr-table-wrap thead {
@@ -1010,20 +1012,62 @@
     background: color-mix(in oklab, var(--background) 65%, #fff);
   }
 
+  .hr-table-wrap thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: color-mix(in oklab, var(--background) 92%, #fff);
+  }
+
   .hr-table-wrap th {
     padding: 0.75rem 1rem;
     text-align: start;
     font-weight: 600;
+    white-space: nowrap;
   }
 
   .hr-table-wrap td {
     padding: 0.8rem 1rem;
     border-top: 1px solid color-mix(in oklab, var(--color-border) 55%, transparent);
     vertical-align: middle;
+    white-space: nowrap;
   }
 
   .hr-table-wrap tbody tr:hover {
     background: color-mix(in oklab, var(--secondary) 55%, transparent);
+  }
+
+  .hr-table-wrap th.hr-sticky-col,
+  .hr-table-wrap td.hr-sticky-col {
+    position: sticky;
+    left: 0;
+    z-index: 3;
+    background: color-mix(in oklab, var(--background) 96%, #fff);
+    box-shadow: 1px 0 0 color-mix(in oklab, var(--color-border) 55%, transparent);
+    min-width: 11rem;
+  }
+
+  .hr-table-wrap thead th.hr-sticky-col {
+    z-index: 4;
+  }
+
+  .hr-table-wrap td.hr-sticky-col-2,
+  .hr-table-wrap th.hr-sticky-col-2 {
+    position: sticky;
+    left: 11rem;
+    z-index: 3;
+    background: color-mix(in oklab, var(--background) 96%, #fff);
+    box-shadow: 1px 0 0 color-mix(in oklab, var(--color-border) 55%, transparent);
+    min-width: 5.5rem;
+  }
+
+  .hr-table-wrap thead th.hr-sticky-col-2 {
+    z-index: 4;
+  }
+
+  .hr-payroll-grid-wrap {
+    max-height: min(70vh, 42rem);
+    overflow: auto;
   }
 
   .hr-filter-bar {

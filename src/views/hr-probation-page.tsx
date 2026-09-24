@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Textarea } from "@/components/ui/textarea";
 import { listStaffForLeaveBalances } from "@/lib/hr-leave.functions";
 import {
@@ -184,23 +185,21 @@ export default function HrProbationPage() {
           <HrPanel className="space-y-3">
             <div className="space-y-1">
               <Label>{t("hr.probation.staff")}</Label>
-              <select
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+              <SearchableSelect
                 value={selectedStaffId ?? ""}
-                onChange={(e) => {
-                  const id = e.target.value || null;
-                  setSelectedStaffId(id);
+                onValueChange={(next) => {
+                  setSelectedStaffId(next || null);
                   setProbationStart("");
                   setProbationEnd("");
                 }}
-              >
-                <option value="">{t("hr.probation.pickStaff")}</option>
-                {(staffOptions.data ?? []).map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name} ({s.employeeCode})
-                  </option>
-                ))}
-              </select>
+                placeholder={t("hr.probation.pickStaff")}
+                emptyOption={{ value: "", label: t("hr.probation.pickStaff") }}
+                options={(staffOptions.data ?? []).map((s) => ({
+                  value: s.id,
+                  label: s.employeeCode ? `${s.name} (${s.employeeCode})` : s.name,
+                  keywords: `${s.name} ${s.employeeCode ?? ""}`,
+                }))}
+              />
             </div>
 
             {selectedStaffId ? (

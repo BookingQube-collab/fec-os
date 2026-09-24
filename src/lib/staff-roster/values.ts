@@ -96,16 +96,62 @@ export function parseEmploymentType(raw: string | null | undefined): {
 }
 
 export function parseRosterStatus(raw: string | null | undefined): {
-  status: "active" | "inactive" | "on_leave" | null;
+  status: import("./types").StaffDirectoryStatus | null;
   blank: boolean;
 } {
   if (raw == null || !String(raw).trim()) return { status: null, blank: true };
-  const s = String(raw).trim().toLowerCase().replace(/\s+/g, "_");
+  const s = String(raw).trim().toLowerCase().replace(/[\s-]+/g, "_");
   if (s === "active") return { status: "active", blank: false };
+  if (s === "probation") return { status: "probation", blank: false };
+  if (s === "secondment" || s === "seconded") return { status: "secondment", blank: false };
+  if (s === "remote") return { status: "remote", blank: false };
+  if (s === "vacation" || s === "annual_leave") return { status: "vacation", blank: false };
+  if (s === "sick_leave" || s === "sick") return { status: "sick_leave", blank: false };
+  if (s === "unpaid_leave") return { status: "unpaid_leave", blank: false };
+  if (s === "on_leave" || s === "leave") return { status: "on_leave", blank: false };
+  if (s === "resigned" || s === "resignation") return { status: "resigned", blank: false };
+  if (s === "terminated" || s === "termination") return { status: "terminated", blank: false };
+  if (s === "released" || s === "release") return { status: "released", blank: false };
+  if (s === "serving_notice") return { status: "serving_notice", blank: false };
   if (s === "inactive") return { status: "inactive", blank: false };
-  if (s === "on_leave" || s === "leave" || s === "vacation") return { status: "on_leave", blank: false };
-  if (s === "terminated") return { status: "inactive", blank: false };
   return { status: null, blank: false };
+}
+
+/** Map E3 sheet membership → default status / employment type / roaming. */
+export function statusFromE3Sheet(
+  sheet: string | null | undefined,
+): {
+  status: import("./types").StaffDirectoryStatus;
+  employmentType: import("./types").EmploymentType | null;
+  isRoaming: boolean | null;
+} {
+  const n = (sheet ?? "").toLowerCase();
+  if (n.includes("secondment")) {
+    return { status: "secondment", employmentType: "secondment", isRoaming: null };
+  }
+  if (n.includes("remote")) {
+    return { status: "remote", employmentType: null, isRoaming: true };
+  }
+  if (n.includes("resigned") || n.includes("terminated")) {
+    return { status: "terminated", employmentType: null, isRoaming: null };
+  }
+  return { status: "active", employmentType: null, isRoaming: null };
+}
+
+export function parseGender(raw: string | null | undefined): string | null {
+  if (raw == null || !String(raw).trim()) return null;
+  const s = String(raw).trim().toLowerCase();
+  if (s === "m" || s === "male") return "male";
+  if (s === "f" || s === "female") return "female";
+  if (s === "other") return "other";
+  return s;
+}
+
+export function parseTicketMonths(raw: string | null | undefined): number | null {
+  if (raw == null || !String(raw).trim()) return null;
+  const n = Number.parseInt(String(raw).replace(/\D/g, ""), 10);
+  if (!Number.isFinite(n) || n < 1 || n > 120) return null;
+  return n;
 }
 
 export function mapPositionToStaffRole(position: string | null | undefined): StaffRoleValue | null {
@@ -152,12 +198,27 @@ export function parseHireDate(raw: string | null | undefined): ParsedHireDate {
     day = Number(dmy[1]);
     month = Number(dmy[2]);
     year = Number(dmy[3]);
+    // E3 Excel sometimes has US M/D/YY (e.g. 7/21/27). Qatar sheets use D/M/Y.
+    // If the second number can't be a month, treat as M/D/Y.
+    if (month > 12 && day >= 1 && day <= 12) {
+      const swap = day;
+      day = month;
+      month = swap;
+    }
   } else {
     const mon = trimmed.match(/^(\d{1,2})[/-]([A-Za-z]{3,9})[/-](\d{2,4})$/);
     if (mon) {
       day = Number(mon[1]);
       month = MONTHS[mon[2].toLowerCase()] ?? null;
       year = Number(mon[3]);
+    } else {
+      // PDF / Excel print: "29 January 2023" or "25 April 1976"
+      const long = trimmed.match(/^(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{2,4})$/);
+      if (long) {
+        day = Number(long[1]);
+        month = MONTHS[long[2].toLowerCase()] ?? null;
+        year = Number(long[3]);
+      }
     }
   }
 
@@ -167,8 +228,9 @@ export function parseHireDate(raw: string | null | undefined): ParsedHireDate {
   }
 
   const iso = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-  if (year < 1990 || year > 2100) {
-    return { iso, warning: `Joining date year ${year} is outside 1990–2100`, invalid: false };
+  // Shared by hire date + DOB + document expiry — allow mid-century birth years.
+  if (year < 1940 || year > 2100) {
+    return { iso, warning: `Joining date year ${year} is outside 1940–2100`, invalid: false };
   }
   return { iso, warning: null, invalid: false };
 }

@@ -1,6 +1,6 @@
-export const ROSTER_IMPORT_ACCEPT = ".xlsx,.xls,.csv,.html,.htm";
+export const ROSTER_IMPORT_ACCEPT = ".xlsx,.xls,.csv,.html,.htm,.pdf";
 
-const ALLOWED_EXT = /\.(xlsx|xls|csv|html|htm)$/i;
+const ALLOWED_EXT = /\.(xlsx|xls|csv|html|htm|pdf)$/i;
 
 export function normalizeRosterFilename(filename: string): string {
   return filename.replace(/\\/g, "/").split("/").pop()?.trim() || filename;
@@ -17,11 +17,12 @@ export function formatRosterFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function rosterFileKind(filename: string): "excel" | "csv" | "html" | "unknown" {
+export function rosterFileKind(filename: string): "excel" | "csv" | "html" | "pdf" | "unknown" {
   const base = normalizeRosterFilename(filename).toLowerCase();
   if (base.endsWith(".xlsx") || base.endsWith(".xls")) return "excel";
   if (base.endsWith(".csv")) return "csv";
   if (base.endsWith(".html") || base.endsWith(".htm")) return "html";
+  if (base.endsWith(".pdf")) return "pdf";
   return "unknown";
 }
 

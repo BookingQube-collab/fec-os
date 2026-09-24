@@ -10,6 +10,7 @@ import { HR_POLICY_DEFAULTS } from "@/lib/hr-policy";
 
 export const HR_PAYROLL_STATUSES = [
   "draft",
+  "attendance_validation",
   "hr_review",
   "finance_review",
   "gm_approved",
@@ -19,7 +20,7 @@ export const HR_PAYROLL_STATUSES = [
 ] as const;
 export type HrPayrollStatus = (typeof HR_PAYROLL_STATUSES)[number];
 
-export const HR_PAYROLL_PAYMENT_METHODS = ["wps", "cheque", "bank_transfer"] as const;
+export const HR_PAYROLL_PAYMENT_METHODS = ["wps", "cheque", "bank_transfer", "cash"] as const;
 export type HrPayrollPaymentMethod = (typeof HR_PAYROLL_PAYMENT_METHODS)[number];
 
 export const HR_PAYROLL_CURRENCY = "QAR" as const;
@@ -27,6 +28,7 @@ export const HR_PAYROLL_CURRENCY = "QAR" as const;
 /** Forward workflow only (lock is separate). */
 const STATUS_FLOW: HrPayrollStatus[] = [
   "draft",
+  "attendance_validation",
   "hr_review",
   "finance_review",
   "gm_approved",
@@ -96,6 +98,7 @@ export function partitionByPaymentMethod<T extends { paymentMethod: HrPayrollPay
     wps: [],
     cheque: [],
     bank_transfer: [],
+    cash: [],
   };
   for (const line of lines) out[line.paymentMethod].push(line);
   return out;

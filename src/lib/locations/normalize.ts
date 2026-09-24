@@ -78,9 +78,12 @@ function buildLocationAliases(): Record<string, string> {
       aliases[normalizeLocationKey("Inflatapark - City Center")] = loc.code;
       aliases[normalizeLocationKey("Inflatapark City Center")] = loc.code;
       aliases[normalizeLocationKey("InflataPark - City Center")] = loc.code;
+      aliases[normalizeLocationKey("Inflata - City Center")] = loc.code;
+      aliases[normalizeLocationKey("Inflata Cafe - City Center")] = loc.code;
     }
     if (loc.code === "KDS-CC") {
       aliases[normalizeLocationKey("Kids Driving School - City Center")] = loc.code;
+      aliases[normalizeLocationKey("KDS - City Center")] = loc.code;
     }
     if (loc.code === "UA-DM") {
       aliases[normalizeLocationKey("Urban Arena - Doha Mall")] = loc.code;
@@ -89,6 +92,7 @@ function buildLocationAliases(): Record<string, string> {
     }
     if (loc.code === "CAR-AP") {
       aliases[normalizeLocationKey("Carousel - Aspire Park")] = loc.code;
+      aliases[normalizeLocationKey("Aspire Park")] = loc.code;
     }
     if (loc.code === "KDS-DM") {
       aliases[normalizeLocationKey("Kids Driving School Mini - Doha Mall")] = loc.code;

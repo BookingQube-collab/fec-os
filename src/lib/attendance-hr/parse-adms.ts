@@ -220,6 +220,11 @@ export function buildAdmsAttlogQueryCommand(from: Date, to: Date, timeZone = "As
   return `DATA QUERY ATTLOG StartTime=${formatAdmsDateTime(from, timeZone)}\tEndTime=${formatAdmsDateTime(to, timeZone)}`;
 }
 
+/** Force the terminal to re-push enrolled users (names) after ATTLOG-only enrollments. */
+export function buildAdmsUserInfoQueryCommand(): string {
+  return "DATA QUERY USERINFO";
+}
+
 export function formatAdmsGetRequestCommand(cmdId: number, command: string): string {
   return `C:${cmdId}:${command}`;
 }

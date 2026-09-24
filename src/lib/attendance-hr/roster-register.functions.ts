@@ -108,10 +108,24 @@ function assertCanViewRosterRegister(roles: AppRole[] | string[] | undefined) {
   throw new ForbiddenError("Forbidden: missing capability to view the shift roster.");
 }
 
+/** Staff linked to a master department via staff_departments (same as attendance HR reports). */
+async function staffIdsForDepartment(
+  supabase: AuthContext["supabase"],
+  departmentId: string,
+): Promise<string[]> {
+  const { data: links, error } = await supabase
+    .from("staff_departments")
+    .select("staff_id")
+    .eq("department_id", departmentId);
+  if (error) throw error;
+  return [...new Set((links ?? []).map((row) => row.staff_id).filter((id): id is string => Boolean(id)))];
+}
+
 export const listUploadedRosterAssignments = createAuthenticatedAction(
   z.object({
     locationId: z.string().uuid().nullable().optional(),
     staffId: z.string().uuid().nullable().optional(),
+    departmentId: z.string().uuid().nullable().optional(),
     dateFrom: ymd,
     dateTo: ymd,
     /** When true, only upload + amend rows (legacy import register). */
@@ -122,6 +136,14 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
   async (data, context) => {
     assertCanViewRosterRegister(context.roles);
     if (data.locationId) await assertAttendanceRosterLocation(context, data.locationId);
+
+    let deptStaffIds: string[] | null = null;
+    if (data.departmentId) {
+      deptStaffIds = await staffIdsForDepartment(context.supabase, data.departmentId);
+      if (deptStaffIds.length === 0) {
+        return { dateFrom: data.dateFrom, dateTo: data.dateTo, count: 0, rows: [] as RosterRegisterRow[] };
+      }
+    }
 
     // Page past PostgREST max_rows (~1000). A bare .limit(5000) still returns only ~1000 and
     // silently drops later FEC-month days (ordered work_date ASC) — then client staff filters
@@ -153,6 +175,7 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
 
       if (data.locationId) q = q.eq("location_id", data.locationId);
       if (data.staffId) q = q.eq("staff_id", data.staffId);
+      if (deptStaffIds) q = q.in("staff_id", deptStaffIds);
       if (data.sourceUploadOnly) q = q.in("source", ["upload", "amend"]);
       else if (data.source) q = q.eq("source", data.source);
 
@@ -443,6 +466,7 @@ export const deleteRosterAssignment = createAuthenticatedAction(
 const rosterScopeInput = z.object({
   locationId: z.string().uuid().nullable().optional(),
   staffId: z.string().uuid().nullable().optional(),
+  departmentId: z.string().uuid().nullable().optional(),
   dateFrom: ymd,
   dateTo: ymd,
   sourceUploadOnly: z.boolean().optional().default(false),
@@ -462,6 +486,12 @@ async function fetchRosterAssignmentsInScope(
   supabase: AuthContext["supabase"],
   data: z.infer<typeof rosterScopeInput>,
 ): Promise<RosterScopeAssignment[]> {
+  let deptStaffIds: string[] | null = null;
+  if (data.departmentId) {
+    deptStaffIds = await staffIdsForDepartment(supabase, data.departmentId);
+    if (deptStaffIds.length === 0) return [];
+  }
+
   return collectPagedRows<RosterScopeAssignment>(async (from, to) => {
     let q = supabase
       .from("attendance_roster_assignments")
@@ -472,6 +502,7 @@ async function fetchRosterAssignmentsInScope(
       .range(from, to);
     if (data.locationId) q = q.eq("location_id", data.locationId);
     if (data.staffId) q = q.eq("staff_id", data.staffId);
+    if (deptStaffIds) q = q.in("staff_id", deptStaffIds);
     if (data.sourceUploadOnly) q = q.in("source", ["upload", "amend"]);
     else if (data.source) q = q.eq("source", data.source);
 

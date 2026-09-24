@@ -25,6 +25,12 @@ describe("location normalize", () => {
     expect(resolveLocationCode("wm-vm")).toBe("WM-VM");
   });
 
+  it("maps E3 masterfile Location of Work abbreviations", () => {
+    expect(resolveLocationCode("Inflata - City Center")).toBe("INF-CC");
+    expect(resolveLocationCode("KDS - City Center")).toBe("KDS-CC");
+    expect(resolveLocationCode("Aspire Park")).toBe("CAR-AP");
+  });
+
   it("returns the Employee Roster sheet label for a venue code", () => {
     expect(rosterSheetLabel("KDS-CC")).toBe("Kids Driving School - City Center");
     expect(rosterSheetLabel("WM-VM")).toBe("Winter Mirage - Vendome Mall");

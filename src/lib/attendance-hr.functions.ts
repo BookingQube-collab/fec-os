@@ -2956,6 +2956,7 @@ export const listAttendanceDeviceLogUsers = createAuthenticatedAction(
           row.device_user_name,
           bio,
           staffId ? staffNameById.get(staffId) : null,
+          row.biometric_user_id,
         ),
       };
     });
@@ -3099,6 +3100,7 @@ export const listAttendanceDeviceLogs = createAuthenticatedAction(
           row.device_user_name,
           bio,
           staffId ? staffNameById.get(staffId) : null,
+          row.biometric_user_id,
         ),
         staffId,
         punchAt: row.punch_at,

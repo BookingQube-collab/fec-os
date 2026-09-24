@@ -5,6 +5,7 @@ export type RosterRegisterSource = "upload" | "amend" | "manual" | "copied";
 export type RosterRegisterScopeFilters = {
   locationId?: string | null;
   staffId?: string | null;
+  departmentId?: string | null;
   sourceUploadOnly?: boolean;
   source?: RosterRegisterSource | null;
   search?: string | null;
@@ -100,6 +101,7 @@ export function buildRosterMatrix<
 export function rosterRegisterHasExtraFilters(filters: RosterRegisterScopeFilters): boolean {
   if (filters.locationId) return true;
   if (filters.staffId) return true;
+  if (filters.departmentId) return true;
   if (filters.search?.trim()) return true;
   if (!filters.sourceUploadOnly && filters.source) return true;
   return false;

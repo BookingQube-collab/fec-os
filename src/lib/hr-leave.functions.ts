@@ -1121,11 +1121,14 @@ export const listStaffForLeaveBalances = createAuthenticatedActionNoInput(async 
     anyCapability: [
       "hr.leave.manage",
       "hr.manage",
+      "hr.docs.manage",
+      "hr.air_ticket.manage",
       "hr.warnings.manage",
       "hr.probation.manage",
       "hr.resignation.manage",
       "hr.termination.initiate",
       "hr.termination.approve",
+      "recruitment.request",
     ],
   },
 });

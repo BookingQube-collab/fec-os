@@ -65,6 +65,37 @@ export function deviceNameByBiometricFromMappings(
   return map;
 }
 
+/** Punch PINs that never landed in the biometric registry (ATTLOG without USERINFO). */
+export function missingPunchBiometricIds(
+  existing: Array<{ biometricUserId: string }>,
+  punchBiometricIds: Iterable<string>,
+): string[] {
+  const known = new Set(
+    existing.map((row) => canonicalBiometricUserId(row.biometricUserId)).filter(Boolean),
+  );
+  const missing: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of punchBiometricIds) {
+    const id = canonicalBiometricUserId(raw);
+    if (!id || known.has(id) || seen.has(id)) continue;
+    seen.add(id);
+    missing.push(id);
+  }
+  return missing;
+}
+
+/** Registry stubs so Mapping + device-log enrichment can see punch-only user ids. */
+export function stubBiometricUsersForIds(ids: string[]): MergedBiometricUser[] {
+  return missingPunchBiometricIds([], ids).map((biometricUserId) => ({
+    biometricUserId,
+    deviceName: null,
+    staffId: null,
+    previousDeviceName: null,
+    nameChanged: false,
+    isNew: true,
+  }));
+}
+
 /**
  * Upsert plan keyed only by User ID. Keeps staff_id across re-imports even when
  * the name on the device changed. Never merges two different User IDs by name.

@@ -4255,6 +4255,15 @@ export type Database = {
           last_working_date: string | null
           releasing_date: string | null
           exit_reason: string | null
+          gender: string | null
+          date_of_birth: string | null
+          qid_expiry: string | null
+          ticket_eligibility: boolean | null
+          ticket_eligibility_months: number | null
+          ticket_amount: number | null
+          contract_start: string | null
+          contract_end: string | null
+          notes: string | null
           updated_by: string | null
           created_at: string
           updated_at: string

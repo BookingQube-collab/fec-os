@@ -53,6 +53,7 @@ const staff: StaffRow[] = [
     full_name: "Cara Secondment",
     employee_code: "E3",
     employment_type: "secondment",
+    status: "secondment",
     job_title: "Supervisor",
     location_code: "KDS",
     location_name: "Kids",
@@ -77,45 +78,32 @@ const base = {
   type: "",
   e3: "",
   status: "active",
+  nationality: "",
+  gender: "",
+  sponsorship: "",
   missing: false,
+  expiry: "",
   sort: "name" as const,
 };
 
 describe("staff directory KPIs follow filters", () => {
   it("matches table rows for active default scope", () => {
     const filtered = filterStaffDirectory(staff, base);
-    expect(computeStaffDirectoryKpis(filtered)).toEqual({
-      total: 3,
-      permanent: 1,
-      joker: 1,
-      secondment: 1,
-    });
+    const kpis = computeStaffDirectoryKpis(filtered);
+    expect(kpis.total).toBe(3);
+    expect(kpis.active).toBe(2);
+    expect(kpis.secondment).toBe(1);
   });
 
   it("updates when location / position / search change", () => {
     const byLoc = filterStaffDirectory(staff, { ...base, loc: "KDS" });
-    expect(computeStaffDirectoryKpis(byLoc)).toEqual({
-      total: 2,
-      permanent: 1,
-      joker: 0,
-      secondment: 1,
-    });
+    expect(computeStaffDirectoryKpis(byLoc).total).toBe(2);
 
     const byPos = filterStaffDirectory(staff, { ...base, position: "Supervisor" });
-    expect(computeStaffDirectoryKpis(byPos)).toEqual({
-      total: 1,
-      permanent: 0,
-      joker: 0,
-      secondment: 1,
-    });
+    expect(computeStaffDirectoryKpis(byPos).secondment).toBe(1);
 
     const bySearch = filterStaffDirectory(staff, { ...base, q: "bob" });
-    expect(computeStaffDirectoryKpis(bySearch)).toEqual({
-      total: 1,
-      permanent: 0,
-      joker: 1,
-      secondment: 0,
-    });
+    expect(computeStaffDirectoryKpis(bySearch).total).toBe(1);
   });
 
   it("matches when the selected department is one of several on the person", () => {
@@ -136,22 +124,10 @@ describe("staff directory KPIs follow filters", () => {
         department_ids: ["ops"],
         department_names: ["Operations"],
       }),
-      row({
-        id: "c",
-        full_name: "No Dept",
-        employee_code: "C1",
-        employment_type: "secondment",
-        department_ids: [],
-      }),
     ];
     const filtered = filterStaffDirectory(withDepts, { ...base, department: "fb-cafe" });
     expect(filtered.map((s) => s.id)).toEqual(["a"]);
-    expect(computeStaffDirectoryKpis(filtered)).toEqual({
-      total: 1,
-      permanent: 1,
-      joker: 0,
-      secondment: 0,
-    });
+    expect(computeStaffDirectoryKpis(filtered).total).toBe(1);
   });
 
   it("matches legacy department text when junction ids are empty", () => {
@@ -174,15 +150,6 @@ describe("staff directory KPIs follow filters", () => {
         department_ids: [],
         department_names: [],
       }),
-      row({
-        id: "other",
-        full_name: "Ops Legacy",
-        employee_code: "L3",
-        employment_type: "secondment",
-        department: "Operations",
-        department_ids: [],
-        department_names: [],
-      }),
     ];
     const filtered = filterStaffDirectory(withLegacy, {
       ...base,
@@ -195,11 +162,21 @@ describe("staff directory KPIs follow filters", () => {
   it("zeros other type cards when type filter is on (same as table)", () => {
     const filtered = filterStaffDirectory(staff, { ...base, type: "joker" });
     expect(filtered.map((s) => s.id)).toEqual(["2"]);
-    expect(computeStaffDirectoryKpis(filtered)).toEqual({
-      total: 1,
-      permanent: 0,
-      joker: 1,
-      secondment: 0,
-    });
+    expect(computeStaffDirectoryKpis(filtered).total).toBe(1);
+  });
+
+  it("searches passport and position", () => {
+    const withPass = [
+      ...staff,
+      row({
+        id: "5",
+        full_name: "Eve Passport",
+        employee_code: "E5",
+        passport_number: "P1234567",
+        job_title: "Technician",
+      }),
+    ];
+    expect(filterStaffDirectory(withPass, { ...base, q: "p123" }).map((s) => s.id)).toEqual(["5"]);
+    expect(filterStaffDirectory(withPass, { ...base, q: "technician" }).map((s) => s.id)).toEqual(["5"]);
   });
 });

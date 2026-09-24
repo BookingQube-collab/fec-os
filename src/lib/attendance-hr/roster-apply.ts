@@ -5,6 +5,7 @@ import { ForbiddenError, assertLocationAccess } from "@/lib/server/authorize";
 import { canUserDo } from "@/lib/rbac";
 import { recalculateAttendanceRange } from "./process";
 import { enumerateYmd } from "./dashboard";
+import { attendanceRecalcLocationsAfterRosterUpsert } from "./flexible-cross-site";
 import { chunkIds } from "./roster-register-scope";
 import {
   ATTENDANCE_TALLY_UPLOAD_NOTE,
@@ -165,6 +166,8 @@ export async function replaceAttendanceRosterPeriod(
 
   // Multi-location cafe roster: attach home + upload site as work locations so
   // cross-site day merge / punch aliasing kicks in (home alone is not enough).
+  const homeLocationIds: string[] = [];
+  const workLocationIds: string[] = [];
   if (staffIds.length) {
     const { data: homeRows, error: homeErr } = await context.supabase
       .from("staff")
@@ -182,7 +185,9 @@ export async function replaceAttendanceRosterPeriod(
       workLinks.push({ staff_id: staffId, location_id: loc, created_by: context.userId });
     };
     for (const row of homeRows ?? []) {
-      pushLink(String(row.id), row.location_id ? String(row.location_id) : null);
+      const homeId = row.location_id ? String(row.location_id) : null;
+      if (homeId) homeLocationIds.push(homeId);
+      pushLink(String(row.id), homeId);
     }
     for (const staffId of staffIds) {
       pushLink(staffId, input.locationId);
@@ -194,6 +199,16 @@ export async function replaceAttendanceRosterPeriod(
         .upsert(chunk, { onConflict: "staff_id,location_id", ignoreDuplicates: true });
       // Older DBs without the table should not block roster confirm.
       if (workErr && !/staff_work_locations|schema cache/i.test(workErr.message)) throwDb(workErr);
+    }
+    for (const ids of chunkIds(staffIds, STAFF_IN_CHUNK)) {
+      const { data: links, error: linkErr } = await context.supabase
+        .from("staff_work_locations")
+        .select("location_id")
+        .in("staff_id", ids);
+      if (linkErr && !/staff_work_locations|schema cache/i.test(linkErr.message)) throwDb(linkErr);
+      for (const link of links ?? []) {
+        if (link.location_id) workLocationIds.push(String(link.location_id));
+      }
     }
   }
 
@@ -215,16 +230,23 @@ export async function replaceAttendanceRosterPeriod(
     .single();
   throwDb(upErr);
 
+  const recalcLocations = attendanceRecalcLocationsAfterRosterUpsert({
+    uploadLocationId: input.locationId,
+    staffHomeLocationIds: homeLocationIds,
+    staffWorkLocationIds: workLocationIds,
+  });
   let processed = 0;
-  for (const ids of chunkIds(staffIds, STAFF_IN_CHUNK)) {
-    const recalc = await recalculateAttendanceRange(
-      context.supabase,
-      input.locationId,
-      input.dateFrom,
-      input.dateTo,
-      { staffIds: ids },
-    );
-    processed += recalc.processed;
+  for (const locationId of recalcLocations) {
+    for (const ids of chunkIds(staffIds, STAFF_IN_CHUNK)) {
+      const recalc = await recalculateAttendanceRange(
+        context.supabase,
+        locationId,
+        input.dateFrom,
+        input.dateTo,
+        { staffIds: ids },
+      );
+      processed += recalc.processed;
+    }
   }
   await cleanupStaleAbsents(
     context.supabase,

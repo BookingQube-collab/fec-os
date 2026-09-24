@@ -15,6 +15,7 @@ import {
   flexibleNoPunchWriteAtLocation,
   formatFlexibleCrossSiteDeviceUserLabel,
   formatFlexibleCrossSiteLocationLabel,
+  attendanceRecalcLocationsAfterRosterUpsert,
   staffUsesCrossSiteDayMerge,
 } from "./flexible-cross-site";
 
@@ -28,6 +29,22 @@ describe("flexible cross-site attendance", () => {
     expect(staffUsesCrossSiteDayMerge({ workLocationCount: 2 })).toBe(true);
     expect(staffUsesCrossSiteDayMerge({ workLocationCount: 1 })).toBe(false);
     expect(staffUsesCrossSiteDayMerge({})).toBe(false);
+  });
+
+  it("recalcs upload site first then home/work so punch-anchor can write_merged", () => {
+    expect(
+      attendanceRecalcLocationsAfterRosterUpsert({
+        uploadLocationId: ua,
+        staffHomeLocationIds: [inf, ua, ""],
+        staffWorkLocationIds: [inf, "loc-cb", null],
+      }),
+    ).toEqual([ua, inf, "loc-cb"]);
+    expect(
+      attendanceRecalcLocationsAfterRosterUpsert({
+        uploadLocationId: ua,
+        staffHomeLocationIds: [],
+      }),
+    ).toEqual([ua]);
   });
 
   it("anchors the day at the location of the earliest punch", () => {

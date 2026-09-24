@@ -45,7 +45,7 @@ describe("parseHtmlRoster", () => {
     expect(jorene?.employmentType).toBe("permanent");
     expect(jorene?.monthlySalaryQar).toBe(3405);
     expect(jorene?.hireDate).toBe("0202-02-25");
-    expect(jorene?.warnings.some((w) => /0202|1990/.test(w))).toBe(true);
+    expect(jorene?.warnings.some((w) => /0202|1940|2100/.test(w))).toBe(true);
     expect(jorene?.staffRole).toBe("cashier");
   });
 
@@ -129,6 +129,39 @@ describe("mapRosterColumns", () => {
     expect(mapping.full_name).toBe("Name");
     expect(mapping.qid).toBe("QID");
     expect(mapping.contact).toBe("Contact Number");
+  });
+
+  it("maps E3 Employee Masterfile 2026 abbreviated headers", () => {
+    const mapping = mapRosterColumns([
+      "Department",
+      "E.Code",
+      "E.Name",
+      "Sponsorship",
+      "Position",
+      "Location of Work",
+      "QID",
+      "QID Ex.Date",
+      "DOJ",
+      "Birth Date",
+      "Contact Number",
+      "Nationality",
+      "Passport Number",
+      "Passport Ex.Date",
+      "Gender",
+      "Ticket Eligibility",
+      "No.of Mos (ticket eligibility)",
+      "Ticket Amount",
+      "Note",
+    ]);
+    expect(mapping.employee_code).toBe("E.Code");
+    expect(mapping.full_name).toBe("E.Name");
+    expect(mapping.joining_date).toBe("DOJ");
+    expect(mapping.qid_expiry).toBe("QID Ex.Date");
+    expect(mapping.passport_expiry).toBe("Passport Ex.Date");
+    expect(mapping.ticket_months).toBe("No.of Mos (ticket eligibility)");
+    expect(mapping.notes).toBe("Note");
+    expect(mapping.activity).toBe("Department");
+    expect(mapping.location).toBe("Location of Work");
   });
 
   it("fills gaps from a remembered map when headers are not aliases", () => {
