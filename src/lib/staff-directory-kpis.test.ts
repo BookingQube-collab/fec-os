@@ -154,6 +154,44 @@ describe("staff directory KPIs follow filters", () => {
     });
   });
 
+  it("matches legacy department text when junction ids are empty", () => {
+    const withLegacy: StaffRow[] = [
+      row({
+        id: "legacy",
+        full_name: "Cafe Legacy",
+        employee_code: "L1",
+        employment_type: "permanent",
+        department: "F&B Cafe",
+        department_ids: [],
+        department_names: [],
+      }),
+      row({
+        id: "compound",
+        full_name: "Cafe Plus Ops",
+        employee_code: "L2",
+        employment_type: "joker",
+        department: "F&B Cafe + Operations",
+        department_ids: [],
+        department_names: [],
+      }),
+      row({
+        id: "other",
+        full_name: "Ops Legacy",
+        employee_code: "L3",
+        employment_type: "secondment",
+        department: "Operations",
+        department_ids: [],
+        department_names: [],
+      }),
+    ];
+    const filtered = filterStaffDirectory(withLegacy, {
+      ...base,
+      department: "fb-cafe",
+      departmentName: "F&B Cafe",
+    });
+    expect(filtered.map((s) => s.id)).toEqual(["legacy", "compound"]);
+  });
+
   it("zeros other type cards when type filter is on (same as table)", () => {
     const filtered = filterStaffDirectory(staff, { ...base, type: "joker" });
     expect(filtered.map((s) => s.id)).toEqual(["2"]);

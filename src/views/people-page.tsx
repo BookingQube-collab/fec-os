@@ -267,10 +267,15 @@ function PeoplePageBody() {
         <TabsContent value="dashboard" className="mt-4">
           <PeopleDashboardPanel />
         </TabsContent>
-        <TabsContent value="staff" className="mt-4"><StaffTab /></TabsContent>
+        {/* forceMount: keep StaffDirectory filter state across Dashboard/Training swaps */}
+        <TabsContent value="staff" className="mt-4" forceMount>
+          <StaffTab />
+        </TabsContent>
         <TabsContent value="shifts" className="mt-4"><ShiftsTab /></TabsContent>
         <TabsContent value="attendance" className="mt-4"><AttendanceTab /></TabsContent>
-        <TabsContent value="training" className="mt-4"><TrainingTab /></TabsContent>
+        <TabsContent value="training" className="mt-4" forceMount>
+          <TrainingTab />
+        </TabsContent>
       </Tabs>
     </div>
   );

@@ -1,5 +1,9 @@
 import type { StaffRow } from "@/lib/queries/module-queries.core";
 import { formatLocationLabel } from "@/lib/locations/normalize";
+import {
+  normalizeDepartmentName,
+  splitDepartmentTokens,
+} from "@/lib/staff-departments";
 import { isActiveStaffStatus } from "@/lib/staff-status";
 
 export type StaffDirectorySort = "name" | "code" | "location";
@@ -8,14 +12,30 @@ export type StaffDirectoryFilters = {
   q: string;
   loc: string;
   position: string;
-  /** master_departments.id; empty = all. Match if it is one of the staff member's departments. */
+  /** master_departments.id; empty = all. Match junction ids, linked names, or legacy department text. */
   department: string;
+  /** Resolved master_departments.name for `department` — used when staff only have legacy text. */
+  departmentName?: string;
   type: string;
   e3: string;
   status: string;
   missing: boolean;
   sort: StaffDirectorySort;
 };
+
+/** Match master dept id and/or name against junction links + legacy `staff.department` text. */
+export function staffMatchesDepartment(
+  s: Pick<StaffRow, "department" | "department_ids" | "department_names">,
+  departmentId: string,
+  departmentName?: string,
+): boolean {
+  if (!departmentId) return true;
+  if ((s.department_ids ?? []).includes(departmentId)) return true;
+  const needle = normalizeDepartmentName(departmentName ?? "");
+  if (!needle) return false;
+  if ((s.department_names ?? []).some((n) => normalizeDepartmentName(n) === needle)) return true;
+  return splitDepartmentTokens(s.department).some((t) => normalizeDepartmentName(t) === needle);
+}
 
 export type StaffDirectoryKpis = {
   total: number;
@@ -46,7 +66,7 @@ export function filterStaffDirectory(staff: StaffRow[], f: StaffDirectoryFilters
       if (!blob.includes(needle)) return false;
     }
     if (f.loc && !staffLocationCodes(s).includes(f.loc)) return false;
-    if (f.department && !(s.department_ids ?? []).includes(f.department)) return false;
+    if (f.department && !staffMatchesDepartment(s, f.department, f.departmentName)) return false;
     if (f.position && s.job_title !== f.position) return false;
     if (f.type && s.employment_type !== f.type) return false;
     if (f.e3 === "yes" && s.e3_enrolled !== true) return false;

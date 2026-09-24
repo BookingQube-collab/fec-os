@@ -6,6 +6,7 @@ import {
   formatFlexibleCrossSiteLocationLabel,
 } from "@/lib/attendance-hr/flexible-cross-site";
 import { resolveListingLateMinutes } from "@/lib/attendance-hr/late-punch";
+import { isActiveRosterStaff } from "@/lib/staff-status";
 
 export type AttendanceHrReportRow = {
   id: string;
@@ -447,6 +448,19 @@ export function computeAttendanceHrReportKpis(rows: AttendanceHrReportRow[]): At
 /** True when the daily row is linked to a real staff record (not a bare device user). */
 export function isMappedAttendanceHrRow(row: Pick<AttendanceHrReportRow, "staff_id">): boolean {
   return Boolean(row.staff_id);
+}
+
+/**
+ * Default attendance listing hides staff who left (`terminated` / `inactive`).
+ * Unmapped punches (no staff_id) stay visible. Matches dashboard roster via isActiveRosterStaff
+ * (active, on_leave, serving_notice still show).
+ */
+export function attendanceHrIncludesStaffInListing(
+  staffId: string | null | undefined,
+  staffStatus: string | null | undefined,
+): boolean {
+  if (!staffId) return true;
+  return isActiveRosterStaff(staffStatus);
 }
 
 /**

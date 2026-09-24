@@ -39,6 +39,7 @@ import {
   staffByBiometricFromMappings,
 } from "./mapping-merge";
 import {
+  attendanceHrIncludesStaffInListing,
   attendanceHrDisplayStaffName,
   attendanceHrListingDeviceUserId,
   attendanceHrListingLocation,
@@ -637,6 +638,15 @@ describe("HR report row helpers", () => {
   it("treats unmapped keyword as unmatched staff", () => {
     expect(attendanceHrStaffMatches({ staff_name: null, biometric_user_id: "9" }, "Unmapped")).toBe(true);
     expect(attendanceHrStaffMatches({ staff_name: "Ahmed Ali" }, "Unmapped")).toBe(false);
+  });
+
+  it("hides terminated/inactive staff from the default attendance listing", () => {
+    expect(attendanceHrIncludesStaffInListing(null, "terminated")).toBe(true);
+    expect(attendanceHrIncludesStaffInListing("s1", "active")).toBe(true);
+    expect(attendanceHrIncludesStaffInListing("s1", "on_leave")).toBe(true);
+    expect(attendanceHrIncludesStaffInListing("s1", "serving_notice")).toBe(true);
+    expect(attendanceHrIncludesStaffInListing("s1", "terminated")).toBe(false);
+    expect(attendanceHrIncludesStaffInListing("s1", "inactive")).toBe(false);
   });
 
   it("matches search against name-on-device for unmapped rows", () => {

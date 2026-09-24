@@ -60,6 +60,7 @@ import {
   type RosterShiftLookup,
 } from "@/lib/attendance-hr/late-punch";
 import {
+  attendanceHrIncludesStaffInListing,
   attendanceHrStaffMatches,
   collapseFlexibleAttendanceReportRows,
   isAttendanceHrUnmappedSearch,
@@ -1899,6 +1900,7 @@ type StaffLookup = {
   employee_code: string | null;
   qid: string | null;
   employment_type: string | null;
+  status?: string | null;
   flexible_attendance?: boolean | null;
   reporting_time_minutes?: number | null;
   buffer_minutes?: number | null;
@@ -1931,7 +1933,7 @@ async function enrichAttendanceHrDailyRows(
     loadByIds<StaffLookup>(
       context,
       "staff",
-      "id, full_name, employee_code, qid, employment_type, flexible_attendance, reporting_time_minutes, buffer_minutes",
+      "id, full_name, employee_code, qid, employment_type, status, flexible_attendance, reporting_time_minutes, buffer_minutes",
       staffIds,
     ),
     loadByIds<LocationLookup>(context, "locations", "id, code, name, region", locationIds),
@@ -1987,6 +1989,11 @@ async function enrichAttendanceHrDailyRows(
   ]);
 
   const staffById = new Map(staffRows.map((row) => [row.id, row]));
+  // Hide left staff from listing + KPIs/export (same gate as dashboard roster).
+  const listingRows = rows.filter((row) => {
+    const id = typeof row.staff_id === "string" ? row.staff_id : null;
+    return attendanceHrIncludesStaffInListing(id, id ? staffById.get(id)?.status : null);
+  });
   const locationById = new Map(locationRows.map((row) => [row.id, row]));
   type BioLookup = {
     id: string;
@@ -2079,7 +2086,7 @@ async function enrichAttendanceHrDailyRows(
     }
   }
 
-  const enriched: AttendanceHrReportRow[] = rows.map((row) => {
+  const enriched: AttendanceHrReportRow[] = listingRows.map((row) => {
     const staff = typeof row.staff_id === "string" ? staffById.get(row.staff_id) : undefined;
     const location = typeof row.location_id === "string" ? locationById.get(row.location_id) : undefined;
     const locationId = typeof row.location_id === "string" ? row.location_id : "";

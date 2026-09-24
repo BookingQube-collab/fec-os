@@ -92,11 +92,17 @@ export function StaffDirectory({
     [departments],
   );
 
+  const departmentName = useMemo(
+    () => departments.find((d) => d.id === department)?.name ?? "",
+    [departments, department],
+  );
+
   const filtered = filterStaffDirectory(staff, {
     q,
     loc,
     position,
     department,
+    departmentName,
     type,
     e3,
     status,
