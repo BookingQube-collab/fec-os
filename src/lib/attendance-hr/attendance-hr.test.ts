@@ -1338,7 +1338,7 @@ describe("ZKTeco ADMS / iClock parse", () => {
     const body = buildAdmsHandshake({ sn: "JJA1251800498", attlogStamp: "26" });
     expect(body).toContain("GET OPTION FROM: JJA1251800498");
     expect(body).toContain("ATTLOGStamp=26");
-    expect(body).toContain("Delay=30");
+    expect(body).toContain("Delay=120");
     expect(body).toContain("Realtime=1");
     expect(body).toContain("TransFlag=TransData AttLog OpLog EnrollUser ChgUser");
     expect(admsOk(3)).toBe("OK: 3");

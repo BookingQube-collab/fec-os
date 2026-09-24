@@ -170,6 +170,12 @@ export function admsStampOrStart(stamp?: string | null): string {
   return value;
 }
 
+/**
+ * ADMS options handshake (GET /iclock/cdata without table upload).
+ * Idle ZKTeco command polling = Delay=120s (reduces Fluid CPU idle getrequest volume).
+ * Attendance punches remain real-time because Realtime=1 (independent of Delay).
+ * Keep ADMS_ONLINE_WINDOW_MS > 2× Delay so devices stay Online between polls.
+ */
 export function buildAdmsHandshake(input: {
   sn: string;
   attlogStamp?: string | null;
@@ -185,7 +191,7 @@ export function buildAdmsHandshake(input: {
     `OPERLOGStamp=${oper}`,
     "ATTPHOTOStamp=None",
     "ErrorDelay=60",
-    "Delay=30",
+    "Delay=120",
     "TransTimes=00:00;14:00",
     "TransInterval=1",
     "TransFlag=TransData AttLog OpLog EnrollUser ChgUser",

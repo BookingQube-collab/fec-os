@@ -3,10 +3,11 @@ export const DEFAULT_DUPLICATE_WINDOW_SECONDS = 60;
 export const DEFAULT_TIMEZONE = "Asia/Qatar";
 /**
  * Online if the terminal contacted ADMS within this window.
- * Idle getrequest is Delay=30s; heartbeat DB writes are throttled to 60s, so 120s still shows Online.
- * Realtime=1 pushes punches immediately and is independent of Delay.
+ * Idle ZKTeco command polling = Delay=120s (see buildAdmsHandshake).
+ * Online window must remain > 2× the polling interval (120s → 300s).
+ * Realtime=1 pushes attendance punches immediately and is independent of Delay.
  */
-export const ADMS_ONLINE_WINDOW_MS = 120_000;
+export const ADMS_ONLINE_WINDOW_MS = 300_000;
 /** Skip last_adms_at writes on idle polls. Must stay under ADMS_ONLINE_WINDOW_MS. */
 export const ADMS_HEARTBEAT_TOUCH_MS = 60_000;
 
