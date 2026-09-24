@@ -10,6 +10,7 @@ import { calculateDailyAttendance, markProbableDuplicates } from "./calculate";
 import {
   ADMS_HEARTBEAT_TOUCH_MS,
   ADMS_ONLINE_WINDOW_MS,
+  ATTENDANCE_DAILY_LIST_COLUMNS,
   ATTENDANCE_DAILY_LIST_PAGE_SIZE,
   DEFAULT_SHIFT,
   isAdmsDeviceOnline,
@@ -49,6 +50,7 @@ import {
   missingPunchBiometricIds,
   staffByBiometricFromMappings,
   stubBiometricUsersForIds,
+  suggestStaffIdForDeviceName,
 } from "./mapping-merge";
 import {
   attendanceHrIncludesStaffInListing,
@@ -1038,6 +1040,13 @@ describe("HR report row helpers", () => {
     expect(ATTENDANCE_DAILY_LIST_PAGE_SIZE).toBe(1000);
   });
 
+  it("lists daily summaries without raw_punch_times jsonb (All-locations payload)", () => {
+    expect(ATTENDANCE_DAILY_LIST_COLUMNS).toContain("work_date");
+    expect(ATTENDANCE_DAILY_LIST_COLUMNS).toContain("worked_minutes");
+    expect(ATTENDANCE_DAILY_LIST_COLUMNS).not.toContain("raw_punch_times");
+    expect(ATTENDANCE_DAILY_LIST_COLUMNS).not.toBe("*");
+  });
+
   it("counts report KPI tiles from the filtered rows", () => {
     const row = (partial: Partial<AttendanceHrReportRow> & Pick<AttendanceHrReportRow, "id" | "status">): AttendanceHrReportRow => ({
       location_id: "loc-1",
@@ -1143,6 +1152,31 @@ describe("HR report row helpers", () => {
     ]);
     expect(kpis.present).toBe(1);
     expect(kpis.late).toBe(1);
+  });
+});
+
+describe("suggestStaffIdForDeviceName", () => {
+  const staff = [
+    { id: "a", full_name: "Apurba", location_id: "inf", work_location_ids: [] as string[] },
+    { id: "b", full_name: "Apurba", location_id: "kds", work_location_ids: [] as string[] },
+    { id: "c", full_name: "Salam Khan", location_id: "inf", work_location_ids: ["kds"] },
+  ];
+
+  it("suggests the unique exact name at the row location", () => {
+    expect(suggestStaffIdForDeviceName("Apurba", "inf", staff)).toBe("a");
+    expect(suggestStaffIdForDeviceName("Apurba", "kds", staff)).toBe("b");
+  });
+
+  it("returns null when the same name is ambiguous at a site", () => {
+    const twins = [
+      ...staff,
+      { id: "a2", full_name: "Apurba", location_id: "inf", work_location_ids: [] as string[] },
+    ];
+    expect(suggestStaffIdForDeviceName("Apurba", "inf", twins)).toBeNull();
+  });
+
+  it("falls back to a unique company-wide exact name", () => {
+    expect(suggestStaffIdForDeviceName("Salam Khan", "ua", staff)).toBe("c");
   });
 });
 

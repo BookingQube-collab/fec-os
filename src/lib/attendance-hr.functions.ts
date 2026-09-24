@@ -13,6 +13,7 @@ import { canUserDo, type AppRole } from "@/lib/rbac";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import {
+  ATTENDANCE_DAILY_LIST_COLUMNS,
   ATTENDANCE_DAILY_LIST_PAGE_SIZE,
   ATTENDANCE_FILE_BUCKET,
   DEFAULT_RULES,
@@ -533,15 +534,32 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
   async (data, context) => {
     if (data.locationId) await assertSite(context, data.locationId);
 
+    const needle = data.staffQ?.trim() || "";
+    const needStaffSearch = Boolean(!data.staffId && needle && !isAttendanceHrUnmappedSearch(needle));
+    const [matchedStaffIds, deptStaffIds] = await Promise.all([
+      needStaffSearch ? matchingStaffIds(context, needle) : Promise.resolve([] as string[]),
+      data.departmentId
+        ? (async () => {
+            const { data: links, error: deptErr } = await context.supabase
+              .from("staff_departments")
+              .select("staff_id")
+              .eq("department_id", data.departmentId!);
+            if (deptErr) throw deptErr;
+            return [
+              ...new Set((links ?? []).map((row) => row.staff_id).filter((id): id is string => Boolean(id))),
+            ];
+          })()
+        : Promise.resolve(null as string[] | null),
+    ]);
+
     let staffFilter: "none" | "unmapped" | { ids: string[] } | { biometricIlike: string } = "none";
     if (data.staffId) {
       staffFilter = { ids: [data.staffId] };
-    } else if (data.staffQ?.trim()) {
-      const needle = data.staffQ.trim();
+    } else if (needle) {
       if (isAttendanceHrUnmappedSearch(needle)) {
         staffFilter = "unmapped";
       } else {
-        const staffIds = (await matchingStaffIds(context, needle)).slice(0, 300);
+        const staffIds = matchedStaffIds.slice(0, 300);
         staffFilter =
           staffIds.length > 0
             ? { ids: staffIds }
@@ -549,19 +567,8 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
       }
     }
 
-    let deptStaffIds: string[] | null = null;
-    if (data.departmentId) {
-      const { data: links, error: deptErr } = await context.supabase
-        .from("staff_departments")
-        .select("staff_id")
-        .eq("department_id", data.departmentId);
-      if (deptErr) throw deptErr;
-      deptStaffIds = [
-        ...new Set((links ?? []).map((row) => row.staff_id).filter((id): id is string => Boolean(id))),
-      ];
-      // Unmapped punches have no staff_id, so they drop out of a department filter.
-      if (deptStaffIds.length === 0) return [];
-    }
+    // Unmapped punches have no staff_id, so they drop out of a department filter.
+    if (deptStaffIds && deptStaffIds.length === 0) return [];
 
     // Page past PostgREST max_rows (~1000). A single .limit(2000) still returns only 1000,
     // and work_date desc then drops the start of the FEC month (e.g. Aug 28–Sep 5).
@@ -570,7 +577,7 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
     for (let from = 0; ; from += ATTENDANCE_DAILY_LIST_PAGE_SIZE) {
       let q = context.supabase
         .from("attendance_daily_summary")
-        .select("*")
+        .select(ATTENDANCE_DAILY_LIST_COLUMNS)
         .gte("work_date", data.dateFrom)
         .lte("work_date", data.dateTo)
         .order("work_date", { ascending: false })
@@ -614,7 +621,7 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
         for (let from = 0; ; from += ATTENDANCE_DAILY_LIST_PAGE_SIZE) {
           let q = context.supabase
             .from("attendance_daily_summary")
-            .select("*")
+            .select(ATTENDANCE_DAILY_LIST_COLUMNS)
             .in("staff_id", staffIds)
             .gte("work_date", data.dateFrom)
             .lte("work_date", data.dateTo)
@@ -1978,7 +1985,15 @@ async function enrichAttendanceHrDailyRows(
   const dateFrom = workDates.length ? workDates.reduce((a, b) => (a < b ? a : b)) : null;
   const dateTo = workDates.length ? workDates.reduce((a, b) => (a > b ? a : b)) : null;
 
-  const [staffRows, locationRows, siteSettings, rosterRes, shiftRes, bioRes] = await Promise.all([
+  const bioUserIds = [
+    ...new Set(
+      rows
+        .map((row) => (row.biometric_user_id == null ? "" : String(row.biometric_user_id).trim()))
+        .filter(Boolean),
+    ),
+  ];
+
+  const [staffRows, locationRows, siteSettings, rosterRes, shiftRes, bioRes, workByStaffId] = await Promise.all([
     loadByIds<StaffLookup>(
       context,
       "staff",
@@ -2028,17 +2043,50 @@ async function enrichAttendanceHrDailyRows(
       .select("id, start_time, end_time")
       .eq("active", true)
       .limit(5000),
-    locationIds.length
-      ? context.supabase
-          .from("attendance_biometric_users")
-          .select("id, location_id, device_id, biometric_user_id, device_name, full_name")
-          .in("location_id", locationIds)
-          .limit(5000)
+    // Scope bios to staff / user ids on the page — never all users at every listed site.
+    staffIds.length || bioUserIds.length
+      ? (async () => {
+          const out: Array<Record<string, unknown>> = [];
+          const seen = new Set<string>();
+          const push = (raw: Record<string, unknown> | null | undefined) => {
+            if (!raw?.id) return;
+            const id = String(raw.id);
+            if (seen.has(id)) return;
+            seen.add(id);
+            out.push(raw);
+          };
+          if (staffIds.length) {
+            for (let i = 0; i < staffIds.length; i += 200) {
+              const chunk = staffIds.slice(i, i + 200);
+              const { data, error } = await context.supabase
+                .from("attendance_biometric_users")
+                .select("id, location_id, device_id, biometric_user_id, device_name, full_name")
+                .in("staff_id", chunk)
+                .limit(5000);
+              if (error) throw error;
+              for (const row of data ?? []) push(row as Record<string, unknown>);
+            }
+          }
+          if (bioUserIds.length && locationIds.length) {
+            for (let i = 0; i < bioUserIds.length; i += 100) {
+              const chunk = bioUserIds.slice(i, i + 100);
+              const { data, error } = await context.supabase
+                .from("attendance_biometric_users")
+                .select("id, location_id, device_id, biometric_user_id, device_name, full_name")
+                .in("location_id", locationIds)
+                .in("biometric_user_id", chunk)
+                .limit(5000);
+              if (error) throw error;
+              for (const row of data ?? []) push(row as Record<string, unknown>);
+            }
+          }
+          return { data: out };
+        })()
       : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
+    fetchWorkLocationsByStaffId(context.supabase, staffIds),
   ]);
 
   const staffById = new Map(staffRows.map((row) => [row.id, row]));
-  const workByStaffId = await fetchWorkLocationsByStaffId(context.supabase, staffIds);
   // Hide left staff from listing + KPIs/export (same gate as dashboard roster).
   const listingRows = rows.filter((row) => {
     const id = typeof row.staff_id === "string" ? row.staff_id : null;
@@ -2475,6 +2523,7 @@ async function enrichAttendanceHrDailyRows(
 
   // Last resort: punches whose device_user_name matches a flexible staff device_name, even when
   // the biometric id was never written to attendance_biometric_users (common for secondary sites).
+  // Skip when staff_id / bio-pair passes already covered every cross-site person-day on the page.
   const staffByDeviceName = new Map<string, string>();
   for (const row of mappedBios) {
     const staffId = row.staffId?.trim();
@@ -2482,7 +2531,15 @@ async function enrichAttendanceHrDailyRows(
     if (!staffId || !name || staffByDeviceName.has(name)) continue;
     staffByDeviceName.set(name, staffId);
   }
-  if (staffByDeviceName.size && deviceNames.size) {
+  const needsDeviceNameScan =
+    staffByDeviceName.size > 0 &&
+    deviceNames.size > 0 &&
+    enriched.some((row) => {
+      if (!row.cross_site_day_merge || !row.staff_id) return false;
+      const key = `${row.staff_id}|${String(row.work_date).slice(0, 10)}`;
+      return !(punchesByStaffDay.get(key)?.length);
+    });
+  if (needsDeviceNameScan) {
     const nameFilter = [...deviceNames]
       .map((name) => `device_user_name.ilike.${name.replace(/[,()%]/g, "")}`)
       .filter((part) => part.length > "device_user_name.ilike.".length)
@@ -2659,62 +2716,69 @@ async function loadListingGapRosterAndPunchDays(
     return { roster: [], punchDays: [] };
   }
 
-  const roster: ListingGapRosterDay[] = [];
-  for (let from = 0; ; from += ATTENDANCE_DAILY_LIST_PAGE_SIZE) {
-    let q = context.supabase
-      .from("attendance_roster_assignments")
-      .select("staff_id, location_id, work_date, is_week_off")
-      .gte("work_date", dateFrom)
-      .lte("work_date", dateTo)
-      .order("id", { ascending: true })
-      .range(from, from + ATTENDANCE_DAILY_LIST_PAGE_SIZE - 1);
-    if (staffIds?.length) q = q.in("staff_id", staffIds);
-    else if (locationId) q = q.eq("location_id", locationId);
-    const { data: page, error } = await q;
-    if (error) throw error;
-    for (const row of page ?? []) {
-      const staffId = String(row.staff_id ?? "");
-      const loc = String(row.location_id ?? "");
-      const day = String(row.work_date ?? "").slice(0, 10);
-      if (!staffId || !loc || !day) continue;
-      roster.push({
-        staff_id: staffId,
-        location_id: loc,
-        work_date: day,
-        is_week_off: Boolean(row.is_week_off),
-      });
+  const loadRoster = async (): Promise<ListingGapRosterDay[]> => {
+    const roster: ListingGapRosterDay[] = [];
+    for (let from = 0; ; from += ATTENDANCE_DAILY_LIST_PAGE_SIZE) {
+      let q = context.supabase
+        .from("attendance_roster_assignments")
+        .select("staff_id, location_id, work_date, is_week_off")
+        .gte("work_date", dateFrom)
+        .lte("work_date", dateTo)
+        .order("id", { ascending: true })
+        .range(from, from + ATTENDANCE_DAILY_LIST_PAGE_SIZE - 1);
+      if (staffIds?.length) q = q.in("staff_id", staffIds);
+      else if (locationId) q = q.eq("location_id", locationId);
+      const { data: page, error } = await q;
+      if (error) throw error;
+      for (const row of page ?? []) {
+        const staffId = String(row.staff_id ?? "");
+        const loc = String(row.location_id ?? "");
+        const day = String(row.work_date ?? "").slice(0, 10);
+        if (!staffId || !loc || !day) continue;
+        roster.push({
+          staff_id: staffId,
+          location_id: loc,
+          work_date: day,
+          is_week_off: Boolean(row.is_week_off),
+        });
+      }
+      if (!page || page.length < ATTENDANCE_DAILY_LIST_PAGE_SIZE) break;
     }
-    if (!page || page.length < ATTENDANCE_DAILY_LIST_PAGE_SIZE) break;
-  }
+    return roster;
+  };
 
-  const punchSeen = new Set<string>();
-  const punchDays: ListingGapPunchDay[] = [];
-  for (let from = 0; ; from += ATTENDANCE_DAILY_LIST_PAGE_SIZE) {
-    let q = context.supabase
-      .from("attendance_logs")
-      .select("staff_id, location_id, attendance_date")
-      .not("staff_id", "is", null)
-      .gte("attendance_date", dateFrom)
-      .lte("attendance_date", dateTo)
-      .order("id", { ascending: true })
-      .range(from, from + ATTENDANCE_DAILY_LIST_PAGE_SIZE - 1);
-    if (staffIds?.length) q = q.in("staff_id", staffIds);
-    else if (locationId) q = q.eq("location_id", locationId);
-    const { data: page, error } = await q;
-    if (error) throw error;
-    for (const row of page ?? []) {
-      const staffId = String(row.staff_id ?? "");
-      const loc = String(row.location_id ?? "");
-      const day = String(row.attendance_date ?? "").slice(0, 10);
-      if (!staffId || !loc || !day) continue;
-      const key = `${staffId}|${loc}|${day}`;
-      if (punchSeen.has(key)) continue;
-      punchSeen.add(key);
-      punchDays.push({ staff_id: staffId, location_id: loc, work_date: day });
+  const loadPunchDays = async (): Promise<ListingGapPunchDay[]> => {
+    const punchSeen = new Set<string>();
+    const punchDays: ListingGapPunchDay[] = [];
+    for (let from = 0; ; from += ATTENDANCE_DAILY_LIST_PAGE_SIZE) {
+      let q = context.supabase
+        .from("attendance_logs")
+        .select("staff_id, location_id, attendance_date")
+        .not("staff_id", "is", null)
+        .gte("attendance_date", dateFrom)
+        .lte("attendance_date", dateTo)
+        .order("id", { ascending: true })
+        .range(from, from + ATTENDANCE_DAILY_LIST_PAGE_SIZE - 1);
+      if (staffIds?.length) q = q.in("staff_id", staffIds);
+      else if (locationId) q = q.eq("location_id", locationId);
+      const { data: page, error } = await q;
+      if (error) throw error;
+      for (const row of page ?? []) {
+        const staffId = String(row.staff_id ?? "");
+        const loc = String(row.location_id ?? "");
+        const day = String(row.attendance_date ?? "").slice(0, 10);
+        if (!staffId || !loc || !day) continue;
+        const key = `${staffId}|${loc}|${day}`;
+        if (punchSeen.has(key)) continue;
+        punchSeen.add(key);
+        punchDays.push({ staff_id: staffId, location_id: loc, work_date: day });
+      }
+      if (!page || page.length < ATTENDANCE_DAILY_LIST_PAGE_SIZE) break;
     }
-    if (!page || page.length < ATTENDANCE_DAILY_LIST_PAGE_SIZE) break;
-  }
+    return punchDays;
+  };
 
+  const [roster, punchDays] = await Promise.all([loadRoster(), loadPunchDays()]);
   return { roster, punchDays };
 }
 
@@ -2732,7 +2796,12 @@ async function flexibleStaffPunchDaysAtLocation(
     .select("id, is_roaming, flexible_attendance")
     .is("deleted_at", null)
     .limit(5000);
-  if (staffIds?.length) staffQ = staffQ.in("id", staffIds);
+  if (staffIds?.length) {
+    staffQ = staffQ.in("id", staffIds);
+  } else {
+    // Site chip with no staff filter: only candidates that can merge across sites.
+    staffQ = staffQ.or("flexible_attendance.eq.true,is_roaming.eq.true");
+  }
   const { data: staffRows, error: staffErr } = await staffQ;
   if (staffErr) throw staffErr;
   const candidateIds = (staffRows ?? []).map((row) => String(row.id)).filter(Boolean);
@@ -2779,11 +2848,17 @@ async function flexibleStaffPunchDaysAtLocation(
 }
 
 async function matchingStaffIds(context: AuthContext, needle: string): Promise<string[]> {
+  const safe = needle.replace(/[%_,()"]/g, "").trim();
+  if (!safe) return [];
+  const pattern = `%${safe}%`;
+  // DB prefilter — was loading up to 2000 staff and filtering in JS every keystroke.
+  // Quote patterns so spaces in names don't break PostgREST `.or()` parsing.
   const { data, error } = await context.supabase
     .from("staff")
     .select("id, full_name, employee_code, qid")
-    .eq("status", "active")
-    .limit(2000);
+    .in("status", ["active", "on_leave", "serving_notice"])
+    .or(`full_name.ilike."${pattern}",employee_code.ilike."${pattern}",qid.ilike."${pattern}"`)
+    .limit(500);
   if (error) throw error;
   return (data ?? [])
     .filter((row) =>

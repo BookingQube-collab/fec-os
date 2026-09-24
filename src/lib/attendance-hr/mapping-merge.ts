@@ -1,9 +1,48 @@
+import { normalizeName } from "@/lib/staff-roster/values";
+
 import { markProbableDuplicates, assignAttendanceDate } from "./calculate";
 import type { ShiftTemplateInput } from "./constants";
 import { punchHash } from "./hash";
 
 /** Identity key is company + site + device + User ID — never the display name. */
 export const BIOMETRIC_USER_CONFLICT = "company_id,location_id,device_id,biometric_user_id";
+
+export type SuggestableStaff = {
+  id: string;
+  full_name: string;
+  location_id?: string | null;
+  is_roaming?: boolean | null;
+  work_location_ids?: string[] | null;
+};
+
+export function staffAvailableAtLocation(s: SuggestableStaff, locationId: string | null) {
+  if (!locationId) return true;
+  if (s.location_id === locationId) return true;
+  if (s.is_roaming) return true;
+  return Boolean(s.work_location_ids?.includes(locationId));
+}
+
+/**
+ * Unique exact device-name → staff match for mapping drafts.
+ * Ambiguous names (same name at the site, or multiple company-wide) return null.
+ */
+export function suggestStaffIdForDeviceName(
+  deviceName: string | null | undefined,
+  locationId: string | null | undefined,
+  staff: SuggestableStaff[],
+): string | null {
+  const name = normalizeName(deviceName);
+  if (!name) return null;
+  const loc = locationId ?? null;
+  const local = staff.filter(
+    (s) => staffAvailableAtLocation(s, loc) && normalizeName(s.full_name) === name,
+  );
+  if (local.length === 1) return local[0]!.id;
+  if (local.length > 1) return null;
+  if (!loc) return null;
+  const global = staff.filter((s) => normalizeName(s.full_name) === name);
+  return global.length === 1 ? global[0]!.id : null;
+}
 
 export type ExistingBiometricUser = {
   biometricUserId: string;

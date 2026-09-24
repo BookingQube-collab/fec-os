@@ -39,6 +39,13 @@ export const ATTENDANCE_FILE_BUCKET = "attendance-imports";
  */
 export const ATTENDANCE_DAILY_LIST_PAGE_SIZE = 1000;
 
+/**
+ * Listing columns only — never `select(*)`.
+ * `raw_punch_times` jsonb alone can dominate All-locations × month payloads.
+ */
+export const ATTENDANCE_DAILY_LIST_COLUMNS =
+  "id, location_id, staff_id, biometric_user_id, device_id, work_date, status, actual_in, actual_out, late_minutes, early_leave_minutes, overtime_minutes, missed_punch, punch_count, worked_minutes";
+
 export const BIOMETRIC_TEMPLATE_WARNING =
   "Biometric template files are unnecessary and sensitive. Do not upload fingerprint or face templates (including template.fp10). Only user lists and punch logs are accepted.";
 

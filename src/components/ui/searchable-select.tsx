@@ -109,6 +109,8 @@ type SearchableSelectBaseProps = {
   emptyOption?: SearchableSelectEmptyOption;
   placeholder?: string;
   searchPlaceholder?: string;
+  /** When the menu opens, seed the search box (e.g. device name on mapping). */
+  openSearchSeed?: string | null;
   disabled?: boolean;
   className?: string;
   triggerClassName?: string;
@@ -142,6 +144,7 @@ export function SearchableSelect(props: SearchableSelectSingleProps | Searchable
     emptyOption,
     placeholder,
     searchPlaceholder,
+    openSearchSeed,
     disabled,
     className,
     triggerClassName,
@@ -228,6 +231,8 @@ export function SearchableSelect(props: SearchableSelectSingleProps | Searchable
       setOpen(next);
       onOpenChange?.(next);
       if (next) {
+        const seed = openSearchSeed?.trim() ?? "";
+        setQuery(seed);
         // Paint the field first. The option list is the long task in the open click.
         startTransition(() => setListOn(true));
         return;
@@ -237,7 +242,7 @@ export function SearchableSelect(props: SearchableSelectSingleProps | Searchable
       setActive(0);
       setScrollTop(0);
     },
-    [onOpenChange],
+    [onOpenChange, openSearchSeed],
   );
 
   useEffect(() => {

@@ -119,11 +119,10 @@ export default function AttendanceHrReportsPage() {
     placeholderData: keepPreviousData,
   });
 
+  const listingBusy = q.isFetching && !q.isLoading;
   const staffSearchDebouncing = staffQ !== staffQDebounced;
   const staffSearchFetching =
-    q.isFetching &&
-    !q.isLoading &&
-    (staffQ.trim().length > 0 || staffQDebounced.trim().length > 0);
+    listingBusy && (staffQ.trim().length > 0 || staffQDebounced.trim().length > 0);
   const isStaffSearchPending = staffSearchDebouncing || staffSearchFetching;
 
   const locationOptions = useMemo(() => {
@@ -185,6 +184,10 @@ export default function AttendanceHrReportsPage() {
   const showSearchBusy =
     isStaffSearchPending ||
     (isTableDeferred && (staffQ.trim().length > 0 || staffQDebounced.trim().length > 0));
+  const showListingBusy =
+    listingBusy ||
+    showSearchBusy ||
+    (isTableDeferred && Boolean(staffQDebounced.trim() || status || departmentId));
 
   const selectedLocation = locationOptions.find((loc) => loc.id === locationId);
   const locationLabel = selectedLocation
@@ -453,17 +456,19 @@ export default function AttendanceHrReportsPage() {
 
       <AttendanceHrReportsKpiStrip kpis={kpis} isLoading={q.isLoading} />
 
-      <div className="relative" aria-busy={showSearchBusy}>
-        {showSearchBusy && !q.isLoading ? (
+      <div className="relative" aria-busy={showListingBusy}>
+        {showListingBusy && !q.isLoading ? (
           <div className="pointer-events-none absolute inset-0 z-10 flex items-start justify-center bg-background/55 pt-16 backdrop-blur-[1px]">
             <div className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-sm text-muted-foreground shadow-sm">
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-              <span>{t("attendanceHr.reports.searching")}</span>
+              <span>
+                {showSearchBusy ? t("attendanceHr.reports.searching") : t("attendanceHr.reports.loading")}
+              </span>
             </div>
           </div>
         ) : null}
-        <div className={cn(showSearchBusy && !q.isLoading && "opacity-60 transition-opacity")}>
-          {q.isLoading || emptyImport || (emptyFiltered && !showSearchBusy) ? (
+        <div className={cn(showListingBusy && !q.isLoading && "opacity-60 transition-opacity")}>
+          {q.isLoading || emptyImport || (emptyFiltered && !showListingBusy) ? (
             viewMode === "grid" ? (
               <AttendanceRecordsGrid
                 rows={[]}

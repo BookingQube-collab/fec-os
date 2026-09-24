@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, MapPin, Search, Users } from "lucide-react";
-import { useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -23,7 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { SearchableSelect } from "@/components/ui/searchable-select";
+import { SearchableSelect, type SearchableSelectOption } from "@/components/ui/searchable-select";
 import { useSites } from "@/hooks/queries/useSites";
 import {
   getAttendanceHrBootstrap,
@@ -33,6 +33,10 @@ import {
   removeAttendanceBiometricUser,
   unmapAttendanceBiometricUser,
 } from "@/lib/attendance-hr.functions";
+import {
+  staffAvailableAtLocation,
+  suggestStaffIdForDeviceName,
+} from "@/lib/attendance-hr/mapping-merge";
 import { CANONICAL_LOCATION_CODES, formatLocationLabel, rosterSheetLabel } from "@/lib/locations/normalize";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
@@ -61,12 +65,7 @@ type StaffOption = {
   work_location_ids?: string[] | null;
 };
 
-function staffAvailableAtLocation(s: StaffOption, locationId: string | null) {
-  if (!locationId) return true;
-  if (s.location_id === locationId) return true;
-  if (s.is_roaming) return true;
-  return Boolean(s.work_location_ids?.includes(locationId));
-}
+const EMPTY_STAFF_OPTIONS: SearchableSelectOption[] = [];
 
 function isMultiSiteStaff(s: StaffOption) {
   return Boolean(s.is_roaming) || (s.work_location_ids?.length ?? 0) > 1;
@@ -94,16 +93,20 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, timeoutMessage: s
   }
 }
 
-function StaffSearchSelect({
+const StaffSearchSelect = memo(function StaffSearchSelect({
   value,
-  staff,
+  options,
+  openSearchSeed,
   disabled,
   onChange,
+  onOpenChange,
 }: {
   value: string;
-  staff: StaffOption[];
+  options: SearchableSelectOption[];
+  openSearchSeed?: string | null;
   disabled?: boolean;
   onChange: (staffId: string) => void;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const { t } = useTranslation();
 
@@ -112,23 +115,15 @@ function StaffSearchSelect({
       value={value}
       onValueChange={onChange}
       disabled={disabled}
+      openSearchSeed={openSearchSeed}
+      onOpenChange={onOpenChange}
       placeholder={t("attendanceHr.mapping.unmapped")}
       emptyOption={{ value: "", label: t("attendanceHr.mapping.unmapped") }}
       triggerClassName="h-auto min-h-10 min-w-56 max-w-80 px-3 font-normal"
-      options={staff.map((s) => ({
-        value: s.id,
-        label: s.full_name,
-        description: `${s.employee_code}${s.qid ? ` · ${s.qid}` : ""}`,
-        keywords: `${s.full_name} ${s.employee_code} ${s.qid ?? ""}`,
-        suffix: isMultiSiteStaff(s) ? (
-          <span className="shrink-0 rounded-full bg-secondary px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-            {t("attendanceHr.mapping.multiSite")}
-          </span>
-        ) : null,
-      }))}
+      options={options}
     />
   );
-}
+});
 
 export default function AttendanceHrMappingPage() {
   const { t } = useTranslation();
@@ -140,6 +135,8 @@ export default function AttendanceHrMappingPage() {
   const [busyIds, setBusyIds] = useState<Record<string, true>>({});
   const [mergeFilter, setMergeFilter] = useState<MergeFilter>("all");
   const [searchQ, setSearchQ] = useState("");
+  /** Only the open row builds the full staff option list (closed rows keep the selected label). */
+  const [openRowId, setOpenRowId] = useState<string | null>(null);
   const { data: sites } = useSites();
   const mappingQueryKey = queryKeys.people.attendanceHr({ view: "map", locationId });
   const attendanceHrRootKey = [...queryKeys.people.all, "attendance-hr"] as const;
@@ -194,13 +191,87 @@ export default function AttendanceHrMappingPage() {
   const rows = useMemo(() => (q.data ?? []) as unknown as MappingRow[], [q.data]);
   const mappedCount = rows.filter((row) => Boolean(row.staff_id)).length;
   const unmappedCount = rows.length - mappedCount;
+  const allStaff = useMemo(() => (bootstrap.data?.staff ?? []) as StaffOption[], [bootstrap.data?.staff]);
   const staffNameById = useMemo(() => {
     const map = new Map<string, string>();
-    for (const s of (bootstrap.data?.staff ?? []) as StaffOption[]) {
+    for (const s of allStaff) {
       map.set(s.id, s.full_name);
     }
     return map;
-  }, [bootstrap.data?.staff]);
+  }, [allStaff]);
+  const staffOptionById = useMemo(() => {
+    const multiSiteLabel = t("attendanceHr.mapping.multiSite");
+    const map = new Map<string, SearchableSelectOption>();
+    for (const s of allStaff) {
+      map.set(s.id, {
+        value: s.id,
+        label: s.full_name,
+        description: `${s.employee_code}${s.qid ? ` · ${s.qid}` : ""}`,
+        keywords: `${s.full_name} ${s.employee_code} ${s.qid ?? ""}`,
+        suffix: isMultiSiteStaff(s) ? (
+          <span className="shrink-0 rounded-full bg-secondary px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+            {multiSiteLabel}
+          </span>
+        ) : null,
+      });
+    }
+    return map;
+  }, [allStaff, t]);
+  /** Stable [selected] arrays so closed-row SearchableSelects can skip re-renders. */
+  const closedOptionsByStaffId = useMemo(() => {
+    const map = new Map<string, SearchableSelectOption[]>();
+    for (const [id, opt] of staffOptionById) {
+      map.set(id, [opt]);
+    }
+    return map;
+  }, [staffOptionById]);
+  const optionsByLocationId = useMemo(() => {
+    const map = new Map<string, SearchableSelectOption[]>();
+    const locIds = new Set<string>();
+    for (const row of rows) {
+      if (row.location_id) locIds.add(row.location_id);
+    }
+    if (locationId) locIds.add(locationId);
+
+    const build = (loc: string | null): SearchableSelectOption[] => {
+      const out: SearchableSelectOption[] = [];
+      for (const s of allStaff) {
+        if (!staffAvailableAtLocation(s, loc)) continue;
+        const opt = staffOptionById.get(s.id);
+        if (opt) out.push(opt);
+      }
+      return out;
+    };
+
+    map.set("", build(null));
+    for (const loc of locIds) {
+      map.set(loc, build(loc));
+    }
+    return map;
+  }, [allStaff, staffOptionById, rows, locationId]);
+
+  // Unique exact name matches → draft selections so Save all can finish the queue.
+  useEffect(() => {
+    if (!allStaff.length || !rows.length) return;
+    setStaffByRow((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const row of rows) {
+        if (row.staff_id) continue;
+        if (Object.prototype.hasOwnProperty.call(next, row.id)) continue;
+        const suggested = suggestStaffIdForDeviceName(
+          row.device_name ?? row.full_name,
+          row.location_id ?? locationId ?? null,
+          allStaff,
+        );
+        if (!suggested) continue;
+        next[row.id] = suggested;
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [allStaff, rows, locationId]);
+
   const visibleRows = useMemo(() => {
     const qText = searchQ.trim().toLowerCase();
     return rows.filter((row) => {
@@ -221,15 +292,6 @@ export default function AttendanceHrMappingPage() {
       return hay.includes(qText);
     });
   }, [rows, mergeFilter, searchQ, staffByRow, staffNameById]);
-  const staff = useMemo(() => {
-    const all = (bootstrap.data?.staff ?? []) as StaffOption[];
-    const keepIds = new Set<string>();
-    for (const row of rows) {
-      const selected = staffByRow[row.id] ?? String(row.staff_id ?? "");
-      if (selected) keepIds.add(selected);
-    }
-    return all.filter((s) => staffAvailableAtLocation(s, locationId || null) || keepIds.has(s.id));
-  }, [bootstrap.data?.staff, locationId, rows, staffByRow]);
   const pendingMaps = useMemo(
     () =>
       rows
@@ -242,6 +304,19 @@ export default function AttendanceHrMappingPage() {
         .map(({ mappingId, staffId }) => ({ mappingId, staffId })),
     [rows, staffByRow],
   );
+
+  const optionsForRow = (row: MappingRow, selectedStaff: string, open: boolean): SearchableSelectOption[] => {
+    if (!open) {
+      if (!selectedStaff) return EMPTY_STAFF_OPTIONS;
+      return closedOptionsByStaffId.get(selectedStaff) ?? EMPTY_STAFF_OPTIONS;
+    }
+    const locKey = row.location_id || locationId || "";
+    const base = optionsByLocationId.get(locKey) ?? optionsByLocationId.get("") ?? EMPTY_STAFF_OPTIONS;
+    if (!selectedStaff) return base;
+    if (base.some((opt) => opt.value === selectedStaff)) return base;
+    const selected = staffOptionById.get(selectedStaff);
+    return selected ? [selected, ...base] : base;
+  };
 
   const patchMappings = (updater: (current: MappingRow[]) => MappingRow[]) => {
     qc.setQueryData<MappingRow[]>(mappingQueryKey, (old) => (old ? updater(old) : old));
@@ -578,6 +653,8 @@ export default function AttendanceHrMappingPage() {
                 const mapped = Boolean(row.staff_id);
                 const busy = Boolean(busyIds[id]);
                 const site = row.location_id ? siteById.get(row.location_id) : undefined;
+                const deviceName = String(row.device_name ?? row.full_name ?? "").trim();
+                const open = openRowId === id;
                 return (
                   <tr key={id} aria-busy={busy} className="border-t border-border/50">
                     <td className="px-4 py-2 font-mono">{String(row.biometric_user_id)}</td>
@@ -605,8 +682,10 @@ export default function AttendanceHrMappingPage() {
                     <td className="py-2 pr-2">
                       <StaffSearchSelect
                         value={selectedStaff}
-                        staff={staff}
+                        options={optionsForRow(row, selectedStaff, open)}
+                        openSearchSeed={!mapped && deviceName ? deviceName : null}
                         disabled={busy}
+                        onOpenChange={(next) => setOpenRowId(next ? id : null)}
                         onChange={(staffId) => applyStaffChoice(row, staffId)}
                       />
                     </td>
