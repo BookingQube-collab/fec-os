@@ -9,6 +9,7 @@ export const CANONICAL_LOCATION_CODES = [
   "CB-DSM",
   "CAR-AP",
   "WM-VM",
+  "HO",
 ] as const;
 
 export type CanonicalLocationCode = (typeof CANONICAL_LOCATION_CODES)[number];
@@ -109,6 +110,13 @@ function buildLocationAliases(): Record<string, string> {
   aliases[normalizeLocationKey("Winter Mirage - Vendome Mall")] = "WM-VM";
   aliases[normalizeLocationKey("Winter Mirage Vendome Mall")] = "WM-VM";
   aliases[normalizeLocationKey("WM-VM")] = "WM-VM";
+
+  // E3 masterfile corporate / multi-site labels (HO row must exist in locations).
+  aliases[normalizeLocationKey("Head Office")] = "HO";
+  aliases[normalizeLocationKey("HO")] = "HO";
+  aliases[normalizeLocationKey("All Sites")] = "HO";
+  aliases[normalizeLocationKey("Urban Café")] = "UA-DM";
+  aliases[normalizeLocationKey("Urban Cafe")] = "UA-DM";
 
   return aliases;
 }

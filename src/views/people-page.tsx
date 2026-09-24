@@ -282,9 +282,13 @@ function PeoplePageBody() {
         }
       />
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList>
+        <TabsList className="h-11 min-h-11 w-full max-w-full flex-nowrap gap-0.5 overflow-x-auto rounded-full border-0 bg-secondary p-1 text-foreground sm:w-fit">
           {PEOPLE_MAIN_TABS.map((value) => (
-            <TabsTrigger key={value} value={value}>
+            <TabsTrigger
+              key={value}
+              value={value}
+              className="shrink-0 data-[state=active]:shadow-none data-[state=inactive]:text-foreground data-[state=inactive]:hover:bg-transparent data-[state=inactive]:hover:text-foreground"
+            >
               {t(`people.tabs.${value}`)}
             </TabsTrigger>
           ))}

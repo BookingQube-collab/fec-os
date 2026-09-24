@@ -15,6 +15,7 @@ import {
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
+import { TintedKpiCard, type KpiTint } from "@/components/dashboard/tinted-kpi-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -35,6 +36,7 @@ import { useMasterDepartments } from "@/hooks/queries/useDepartments";
 import { usePermission } from "@/hooks/use-permission";
 import { queryKeys } from "@/lib/query-keys";
 import {
+  computeStaffDirectoryKpis,
   filterStaffDirectory,
   type StaffDirectorySort,
 } from "@/lib/staff-directory-kpis";
@@ -49,6 +51,28 @@ import type { StaffRow } from "@/lib/queries/module-queries.core";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { STAFF_DIRECTORY_STATUSES } from "@/lib/staff-status";
 import { cn } from "@/lib/utils";
+
+type DirectoryKpiKey = "total" | "active" | "secondment" | "temporary" | "new_joiners" | "exiting";
+
+const DIRECTORY_KPI_EXPIRY = new Set(["temporary_project", "new_joiners", "exiting"]);
+
+function expiryChipLabel(expiry: string): string {
+  if (expiry === "temporary_project") return "Temporary / Project";
+  if (expiry === "new_joiners") return "New joiners (90d)";
+  if (expiry === "exiting") return "Exiting";
+  return `Attention: ${expiry.replace(/_/g, " ")}`;
+}
+
+function selectedDirectoryKpi(status: string, type: string, expiry: string): DirectoryKpiKey | null {
+  if (expiry === "temporary_project" && !type) return "temporary";
+  if (expiry === "new_joiners" && !type) return "new_joiners";
+  if (expiry === "exiting" && !type) return "exiting";
+  if (DIRECTORY_KPI_EXPIRY.has(expiry) || type) return null;
+  if (status === "secondment") return "secondment";
+  if (status === "active") return "active";
+  if (status === "") return "total";
+  return null;
+}
 
 function formatLocation(s: StaffRow): string {
   return formatLocationLabel(s.location_code, s.location_name);
@@ -302,6 +326,49 @@ export function StaffDirectory({
     sort,
   });
 
+  // Full-roster KPI counts (same defs as Overview) — not scoped to the active KPI filter.
+  const rosterKpis = useMemo(() => computeStaffDirectoryKpis(staff), [staff]);
+  const selectedKpi = selectedDirectoryKpi(status, type, expiry);
+
+  function applyDirectoryKpi(key: DirectoryKpiKey) {
+    if (selectedKpi === key) {
+      // Toggle off → clear employment-status KPI filters (show all)
+      setStatus("");
+      setType("");
+      setExpiry("");
+      setPage(1);
+      return;
+    }
+    setType("");
+    switch (key) {
+      case "total":
+        setStatus("");
+        setExpiry("");
+        break;
+      case "active":
+        setStatus("active");
+        setExpiry("");
+        break;
+      case "secondment":
+        setStatus("secondment");
+        setExpiry("");
+        break;
+      case "temporary":
+        setStatus("");
+        setExpiry("temporary_project");
+        break;
+      case "new_joiners":
+        setStatus("");
+        setExpiry("new_joiners");
+        break;
+      case "exiting":
+        setStatus("");
+        setExpiry("exiting");
+        break;
+    }
+    setPage(1);
+  }
+
   const pages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, pages);
   const from = filtered.length ? (safePage - 1) * pageSize + 1 : 0;
@@ -329,7 +396,7 @@ export function StaffDirectory({
     if (gender) chips.push({ key: "gen", label: `Gender: ${gender}`, clear: () => setGender("") });
     if (sponsorship) chips.push({ key: "spon", label: `Sponsorship: ${sponsorship}`, clear: () => setSponsorship("") });
     if (missing) chips.push({ key: "miss", label: "Missing info", clear: () => setMissing(false) });
-    if (expiry) chips.push({ key: "exp", label: `Attention: ${expiry.replace(/_/g, " ")}`, clear: () => setExpiry("") });
+    if (expiry) chips.push({ key: "exp", label: expiryChipLabel(expiry), clear: () => setExpiry("") });
     if (e3) chips.push({ key: "e3", label: `E3: ${e3}`, clear: () => setE3("") });
     return chips;
   }, [q, loc, locations, department, departmentName, type, status, position, nationality, gender, sponsorship, missing, expiry, e3]);
@@ -421,6 +488,72 @@ export function StaffDirectory({
 
   return (
     <div className="space-y-4">
+      {/* Headcount KPI quick filters */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+        {(
+          [
+            {
+              key: "total" as const,
+              label: t("people.dashboard.kpiTotal", "Total"),
+              value: rosterKpis.total,
+              tint: "sky" as KpiTint,
+            },
+            {
+              key: "active" as const,
+              label: t("people.dashboard.kpiActive", "Active"),
+              value: rosterKpis.active,
+              tint: "green" as KpiTint,
+            },
+            {
+              key: "secondment" as const,
+              label: t("people.dashboard.kpiSecondment", "Secondment"),
+              value: rosterKpis.secondment,
+              tint: "orange" as KpiTint,
+            },
+            {
+              key: "temporary" as const,
+              label: t("people.dashboard.kpiTemporary", "Temporary / Project"),
+              value: rosterKpis.temporary,
+              tint: "amber" as KpiTint,
+            },
+            {
+              key: "new_joiners" as const,
+              label: t("people.dashboard.kpiNewJoiners", "New Joiners (90d)"),
+              value: rosterKpis.newJoiners,
+              tint: "sky" as KpiTint,
+            },
+            {
+              key: "exiting" as const,
+              label: t("people.dashboard.kpiExiting", "Exiting"),
+              value: rosterKpis.exiting,
+              tint: "orange" as KpiTint,
+            },
+          ] as const
+        ).map((item) => {
+          const selected = selectedKpi === item.key;
+          return (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => applyDirectoryKpi(item.key)}
+              aria-pressed={selected}
+              className="h-full text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 rounded-2xl"
+            >
+              <TintedKpiCard
+                title={item.label}
+                value={item.value}
+                tint={item.tint}
+                compact
+                className={cn(
+                  "h-full transition-all hover:opacity-90",
+                  selected && "ring-2 ring-foreground/25 border-foreground/25 shadow-[0_4px_20px_rgba(0,0,0,0.08)]",
+                )}
+              />
+            </button>
+          );
+        })}
+      </div>
+
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2">
         <Input

@@ -36,7 +36,8 @@ export type StaffDirectoryFilters = {
   /**
    * KPI / attention quick filter:
    * qid_expiring | qid_expired | passport_expiring | passport_expired |
-   * contract_expiring | visa_expiring | new_joiners | exiting
+   * contract_expiring | visa_expiring | new_joiners | exiting |
+   * temporary_project (active temporary + joker / project staff)
    */
   expiry: string;
   sort: StaffDirectorySort;
@@ -133,6 +134,11 @@ export function filterStaffDirectory(staff: StaffRow[], f: StaffDirectoryFilters
     }
     if (f.expiry === "new_joiners" && !isNewJoiner(s, today)) return false;
     if (f.expiry === "exiting" && !isExitingStaff(s)) return false;
+    if (f.expiry === "temporary_project") {
+      const isTemp =
+        s.employment_type === "temporary" || s.employment_type === "joker";
+      if (!isTemp || !isActiveStaffStatus(s.status)) return false;
+    }
     if (f.missing && s.qid && s.phone && s.hire_date) return false;
     return true;
   });
@@ -171,7 +177,13 @@ export function computeStaffDirectoryKpis(rows: StaffRow[]): StaffDirectoryKpis 
     else if (isTerminatedStaffStatus(s.status)) terminated += 1;
     else if (isActiveStaffStatus(s.status)) active += 1;
 
-    if (s.employment_type === "temporary" || s.employment_type === "joker") temporary += 1;
+    // Temporary / project KPI = active roster on temporary or joker (project) type
+    if (
+      (s.employment_type === "temporary" || s.employment_type === "joker") &&
+      isActiveStaffStatus(s.status)
+    ) {
+      temporary += 1;
+    }
     if (isNewJoiner(s, today)) newJoiners += 1;
     if (isExitingStaff(s)) exiting += 1;
     if (!s.qid || !s.phone || !s.hire_date) missingInfo += 1;

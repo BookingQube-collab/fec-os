@@ -5,9 +5,14 @@ import {
   getAttendanceStatusDisplay,
   hasLatePunch,
   resolveHoursBasedAttendanceStatus,
+  resolveOvertimeMinutes,
   resolveTotalHoursWorked,
   type AttendanceListingSource,
 } from "@/lib/attendance-display";
+import {
+  EXCEL_THEME,
+  matrixCodeFillRgb,
+} from "@/lib/attendance-hr/excel-theme";
 import {
   buildRosterMatrix,
   isWeekendYmd,
@@ -227,22 +232,60 @@ export type AttendanceMatrixExcelSheet = {
   merges: Array<{ s: { r: number; c: number }; e: { r: number; c: number } }>;
   /** Freeze No./Code/Name/Location + legend + header row. */
   freeze: { xSplit: number; ySplit: number };
+  /** 0-based header row index (after optional title block). */
+  filterHeaderRow: number;
+  titleRowCount: number;
+  /** Day-cell fills keyed `"r,c"` → RGB. */
+  cellFills: Record<string, string>;
 };
 
 const MATRIX_LEFT_COLS = 4;
-const MATRIX_LEGEND_ROWS = 2;
+
+/**
+ * Fill for a matrix day cell — status code base, with Late / OT overlays when Present-like.
+ * Pure mapping; does not change attendance calculations.
+ */
+export function attendanceMatrixCellFillRgb(entries: AttendanceMatrixRow[]): string | null {
+  if (!entries.length) return null;
+  const entry = entries[0]!;
+  const code = attendanceMatrixStatusCode(entry);
+  if (code === "MP") return EXCEL_THEME.missedPunch;
+  if (code === "A") return EXCEL_THEME.absent;
+  if (code === "WO") return EXCEL_THEME.weeklyOff;
+  if (code === "AL" || code === "SL") return EXCEL_THEME.leave;
+  if (code === "UL") return EXCEL_THEME.unpaidLeave;
+  if (code === "PH") return EXCEL_THEME.publicHoliday;
+  if (code === "HD") return EXCEL_THEME.halfDay;
+  if (code === "US") return EXCEL_THEME.unscheduled;
+  if (hasLatePunch(entry.late_minutes) || resolveHoursBasedAttendanceStatus(entry) === "late") {
+    return EXCEL_THEME.late;
+  }
+  if (resolveOvertimeMinutes(entry) > 0) return EXCEL_THEME.overtime;
+  return matrixCodeFillRgb(code);
+}
+
+export type AttendanceMatrixExcelOptions = {
+  titleRows?: (string | number)[][];
+};
 
 /** AOA + freeze for HR Attendance Matrix (legend + day columns). */
 export function buildAttendanceMatrixExcelSheet(
   rows: AttendanceListingSource[],
   dateFrom: string,
   dateTo: string,
+  options?: AttendanceMatrixExcelOptions,
 ): AttendanceMatrixExcelSheet {
   const matrix = buildAttendanceMatrix(rows, dateFrom, dateTo);
   const { dates, staff, byStaffDate } = matrix;
+  const titleRows = options?.titleRows ?? [];
+  const titleRowCount = titleRows.length;
+  const legendRowIndex = titleRowCount;
+  const headerRowIndex = titleRowCount + 2;
 
   const legend =
-    "Legend: " + ATTENDANCE_MATRIX_STATUS_CODES.map(([c, label]) => `${c} = ${label}`).join("  |  ");
+    "Legend: " +
+    ATTENDANCE_MATRIX_STATUS_CODES.map(([c, label]) => `${c} = ${label}`).join("  |  ") +
+    "  |  Late = yellow  |  OT = orange";
   const legendRow: (string | number)[] = [legend];
   const blankRow: (string | number)[] = [];
   const headerRow: (string | number)[] = [
@@ -253,10 +296,15 @@ export function buildAttendanceMatrixExcelSheet(
     ...dates.map(dayHeaderLabel),
   ];
 
+  const cellFills: Record<string, string> = {};
   const dataRows = staff.map((person, index) => {
     const location = attendanceMatrixStaffLocation(person.staffId, dates, byStaffDate);
-    const dayCells = dates.map((ymd) => {
+    const dayCells = dates.map((ymd, dayIdx) => {
       const entries = byStaffDate.get(rosterMatrixCellKey(person.staffId, ymd)) ?? [];
+      const fill = attendanceMatrixCellFillRgb(entries);
+      if (fill) {
+        cellFills[`${headerRowIndex + 1 + index},${MATRIX_LEFT_COLS + dayIdx}`] = fill;
+      }
       return attendanceMatrixExcelCellText(entries);
     });
     return [
@@ -268,15 +316,26 @@ export function buildAttendanceMatrixExcelSheet(
     ];
   });
 
+  const lastCol = Math.max(MATRIX_LEFT_COLS - 1, MATRIX_LEFT_COLS + dates.length - 1);
+
   return {
-    aoa: [legendRow, blankRow, headerRow, ...dataRows],
+    aoa: [...titleRows, legendRow, blankRow, headerRow, ...dataRows],
     merges: [
       {
-        s: { r: 0, c: 0 },
-        e: { r: 0, c: Math.max(MATRIX_LEFT_COLS - 1, MATRIX_LEFT_COLS + dates.length - 1) },
+        s: { r: legendRowIndex, c: 0 },
+        e: { r: legendRowIndex, c: lastCol },
       },
+      ...(titleRowCount > 0
+        ? titleRows.map((_, i) => ({
+            s: { r: i, c: 0 },
+            e: { r: i, c: lastCol },
+          }))
+        : []),
     ],
-    freeze: { xSplit: MATRIX_LEFT_COLS, ySplit: MATRIX_LEGEND_ROWS + 1 },
+    freeze: { xSplit: MATRIX_LEFT_COLS, ySplit: headerRowIndex + 1 },
+    filterHeaderRow: headerRowIndex,
+    titleRowCount,
+    cellFills,
   };
 }
 

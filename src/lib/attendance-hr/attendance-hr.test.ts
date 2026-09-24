@@ -63,6 +63,7 @@ import {
   appendMissingRosterAndPunchSummaryRows,
   collapseFlexibleAttendanceReportRows,
   computeAttendanceHrReportKpis,
+  attendanceHrReportsUseListView,
   formatAttendanceHrLocation,
   type AttendanceHrReportRow,
 } from "./report";
@@ -1089,6 +1090,14 @@ describe("HR report row helpers", () => {
       missedPunch: 1,
       unscheduled: 1,
     });
+  });
+
+  it("falls back to list when grid would hide unmapped-only status matches", () => {
+    // Mirrors Status=Unscheduled with Staff KPI 0: KPIs count rows the mapped-only grid drops.
+    expect(attendanceHrReportsUseListView("grid", 0, 201)).toBe(true);
+    expect(attendanceHrReportsUseListView("grid", 12, 201)).toBe(false);
+    expect(attendanceHrReportsUseListView("list", 0, 201)).toBe(true);
+    expect(attendanceHrReportsUseListView("grid", 0, 0)).toBe(false);
   });
 
   it("counts late from late minutes even when status is present", () => {

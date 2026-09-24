@@ -4,12 +4,16 @@ import {
   attendanceGridCellContent,
   attendanceGridTone,
   attendanceListingStaffKey,
+  attendanceMatrixCellFillRgb,
   attendanceMatrixLocationCode,
   attendanceMatrixStaffLocation,
+  attendanceMatrixStatusCode,
   buildAttendanceMatrix,
   buildAttendanceMatrixExcelSheet,
   rosterMatrixCellKey,
+  toAttendanceMatrixRow,
 } from "./attendance-matrix";
+import { EXCEL_THEME } from "./excel-theme";
 import type { AttendanceListingSource } from "@/lib/attendance-display";
 
 function listing(partial: Partial<AttendanceListingSource> & Pick<AttendanceListingSource, "work_date">): AttendanceListingSource {
@@ -166,8 +170,31 @@ describe("attendance matrix", () => {
     expect(sheet.aoa[3]![2]).toBe("Ada");
     expect(sheet.aoa[3]![3]).toBe("UA-DM");
     expect(String(sheet.aoa[3]![5])).toBe("WO");
+    expect(sheet.cellFills["3,5"]).toBe(EXCEL_THEME.weeklyOff);
 
     const matrix = buildAttendanceMatrix(rows, "2026-07-28", "2026-07-29");
     expect(attendanceMatrixStaffLocation("staff:a", matrix.dates, matrix.byStaffDate)).toBe("UA-DM");
+  });
+
+  it("maps status codes to matrix theme fills", () => {
+    expect(attendanceMatrixStatusCode(listing({ work_date: "2026-07-28", status: "absent" }))).toBe("A");
+    expect(
+      attendanceMatrixCellFillRgb([
+        toAttendanceMatrixRow(listing({ work_date: "2026-07-28", status: "absent" })),
+      ]),
+    ).toBe(EXCEL_THEME.absent);
+    expect(
+      attendanceMatrixCellFillRgb([
+        toAttendanceMatrixRow(
+          listing({
+            work_date: "2026-07-28",
+            status: "present",
+            late_minutes: 15,
+            actual_in: "2026-07-28T07:20:00.000Z",
+            actual_out: "2026-07-28T16:00:00.000Z",
+          }),
+        ),
+      ]),
+    ).toBe(EXCEL_THEME.late);
   });
 });

@@ -29,6 +29,9 @@ describe("location normalize", () => {
     expect(resolveLocationCode("Inflata - City Center")).toBe("INF-CC");
     expect(resolveLocationCode("KDS - City Center")).toBe("KDS-CC");
     expect(resolveLocationCode("Aspire Park")).toBe("CAR-AP");
+    expect(resolveLocationCode("Head Office")).toBe("HO");
+    expect(resolveLocationCode("All Sites")).toBe("HO");
+    expect(resolveLocationCode("Urban Café")).toBe("UA-DM");
   });
 
   it("returns the Employee Roster sheet label for a venue code", () => {

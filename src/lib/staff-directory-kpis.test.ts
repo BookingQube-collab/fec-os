@@ -165,6 +165,34 @@ describe("staff directory KPIs follow filters", () => {
     expect(computeStaffDirectoryKpis(filtered).total).toBe(1);
   });
 
+  it("temporary_project KPI matches active temporary + joker", () => {
+    const withTemp = [
+      ...staff,
+      row({
+        id: "6",
+        full_name: "Temp Active",
+        employee_code: "E6",
+        employment_type: "temporary",
+        status: "active",
+      }),
+      row({
+        id: "7",
+        full_name: "Temp Gone",
+        employee_code: "E7",
+        employment_type: "temporary",
+        status: "terminated",
+      }),
+    ];
+    const kpis = computeStaffDirectoryKpis(withTemp);
+    expect(kpis.temporary).toBe(2); // Bob joker + Temp Active
+    const filtered = filterStaffDirectory(withTemp, {
+      ...base,
+      status: "",
+      expiry: "temporary_project",
+    });
+    expect(filtered.map((s) => s.id).sort()).toEqual(["2", "6"]);
+  });
+
   it("searches passport and position", () => {
     const withPass = [
       ...staff,

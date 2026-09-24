@@ -27,7 +27,10 @@ import {
 import {
   appendExcelSheets,
   buildE3AttendanceHrWorkbookSheets,
+  e3AttendanceExportFilename,
+  sheetsForExportFocus,
   type ExportCorrection,
+  type ExportFilterMeta,
   type ExportImportFile,
   type ExportOtClaim,
   type ExportPunchRow,
@@ -45,6 +48,31 @@ function listingSources(daily: AttendanceHrReportRow[]) {
   return daily.map((r) => attendanceHrToListingSource(r));
 }
 
+function filterMetaFromParams(params: URLSearchParams): ExportFilterMeta {
+  return {
+    locationLabel: params.get("locationLabel")?.trim() || undefined,
+    departmentLabel: params.get("departmentLabel")?.trim() || undefined,
+    statusLabel: params.get("statusLabel")?.trim() || params.get("status")?.trim() || undefined,
+  };
+}
+
+function focusFilenameKind(
+  focus: string | null,
+): "xlsx" | "employee" | "matrix" | "payroll-input" {
+  switch ((focus ?? "").toLowerCase()) {
+    case "employee":
+    case "employee-summary":
+      return "employee";
+    case "matrix":
+      return "matrix";
+    case "payroll":
+    case "payroll-input":
+      return "payroll-input";
+    default:
+      return "xlsx";
+  }
+}
+
 export async function GET(request: Request) {
   // Default = Excel workbook when format omitted (UI Excel button has no format=).
   const rawFormat = searchParams(request).get("format") ?? "xlsx";
@@ -59,6 +87,8 @@ export async function GET(request: Request) {
       const departmentId = asUuid(params.get("departmentId"));
       const dateFrom = params.get("from") ?? new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
       const dateTo = params.get("to") ?? new Date().toISOString().slice(0, 10);
+      const filters = filterMetaFromParams(params);
+      const focus = params.get("focus");
 
       if (params.get("view") === "device-logs") {
         const deviceId = asUuid(params.get("deviceId"));
@@ -88,7 +118,7 @@ export async function GET(request: Request) {
           return new NextResponse(buildDeviceLogDaysCsv(dayRows, formatPunchTime12h), {
             headers: {
               "Content-Type": "text/csv; charset=utf-8",
-              "Content-Disposition": `attachment; filename="device-logs-${dateFrom}-${dateTo}.csv"`,
+              "Content-Disposition": `attachment; filename="E3_Device_Logs_${dateFrom}_to_${dateTo}.csv"`,
             },
           });
         }
@@ -116,7 +146,7 @@ export async function GET(request: Request) {
           return new NextResponse(new Uint8Array(buf), {
             headers: {
               "Content-Type": "application/pdf",
-              "Content-Disposition": `attachment; filename="device-logs-${dateFrom}-${dateTo}.pdf"`,
+              "Content-Disposition": `attachment; filename="E3_Device_Logs_${dateFrom}_to_${dateTo}.pdf"`,
             },
           });
         }
@@ -140,7 +170,7 @@ export async function GET(request: Request) {
         return new NextResponse(new Uint8Array(buf), {
           headers: {
             "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            "Content-Disposition": `attachment; filename="device-logs-${dateFrom}-${dateTo}.xlsx"`,
+            "Content-Disposition": `attachment; filename="E3_Device_Logs_${dateFrom}_to_${dateTo}.xlsx"`,
           },
         });
       }
@@ -168,10 +198,11 @@ export async function GET(request: Request) {
           "Payroll",
         );
         const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+        const filename = e3AttendanceExportFilename(dateFrom, dateTo, "payroll");
         return new NextResponse(new Uint8Array(buf), {
           headers: {
             "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            "Content-Disposition": `attachment; filename="attendance-payroll-${dateFrom}-${dateTo}.xlsx"`,
+            "Content-Disposition": `attachment; filename="${filename}"`,
           },
         });
       }
@@ -186,10 +217,11 @@ export async function GET(request: Request) {
       const listing = listingSources(daily);
 
       if (format === "csv") {
+        const filename = e3AttendanceExportFilename(dateFrom, dateTo, "csv");
         return new NextResponse(buildAttendanceListingCsv(listing), {
           headers: {
             "Content-Type": "text/csv; charset=utf-8",
-            "Content-Disposition": `attachment; filename="attendance-${dateFrom}-${dateTo}.csv"`,
+            "Content-Disposition": `attachment; filename="${filename}"`,
           },
         });
       }
@@ -199,9 +231,22 @@ export async function GET(request: Request) {
         const autoTable = autoTableMod.default;
         const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
         doc.setFontSize(14);
-        doc.text(`Attendance ${dateFrom} – ${dateTo}`, 40, 36);
+        doc.text(`E3 HR Attendance ${dateFrom} – ${dateTo}`, 40, 36);
+        if (filters.locationLabel || filters.departmentLabel) {
+          doc.setFontSize(9);
+          doc.text(
+            [
+              filters.locationLabel ? `Location: ${filters.locationLabel}` : "Location: All Locations",
+              filters.departmentLabel ? `Department: ${filters.departmentLabel}` : null,
+            ]
+              .filter(Boolean)
+              .join("  |  "),
+            40,
+            48,
+          );
+        }
         autoTable(doc, {
-          startY: 48,
+          startY: filters.locationLabel || filters.departmentLabel ? 56 : 48,
           head: [[...ATTENDANCE_LISTING_COLUMNS]],
           body: listing.slice(0, 200).map((r) => {
             const cells = attendanceListingCells(r);
@@ -224,10 +269,11 @@ export async function GET(request: Request) {
           styles: { fontSize: 8 },
         });
         const buf = Buffer.from(doc.output("arraybuffer"));
+        const filename = e3AttendanceExportFilename(dateFrom, dateTo, "pdf");
         return new NextResponse(new Uint8Array(buf), {
           headers: {
             "Content-Type": "application/pdf",
-            "Content-Disposition": `attachment; filename="attendance-hr-${dateFrom}-${dateTo}.pdf"`,
+            "Content-Disposition": `attachment; filename="${filename}"`,
           },
         });
       }
@@ -289,7 +335,8 @@ export async function GET(request: Request) {
         }
       }
 
-      const XLSX = await import("xlsx");
+      // xlsx-js-style: drop-in SheetJS with cell fills (community xlsx ignores styles).
+      const XLSX = await import("xlsx-js-style");
       const wb = XLSX.utils.book_new();
       const sheets = buildE3AttendanceHrWorkbookSheets({
         daily,
@@ -300,14 +347,17 @@ export async function GET(request: Request) {
         corrections,
         dateFrom,
         dateTo,
+        filters,
+        sheetNames: sheetsForExportFocus(focus),
       });
-      appendExcelSheets(XLSX, wb, sheets);
+      appendExcelSheets(XLSX as unknown as typeof import("xlsx"), wb, sheets);
 
       const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+      const filename = e3AttendanceExportFilename(dateFrom, dateTo, focusFilenameKind(focus));
       return new NextResponse(new Uint8Array(buf), {
         headers: {
           "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-          "Content-Disposition": `attachment; filename="attendance-hr-${dateFrom}-${dateTo}.xlsx"`,
+          "Content-Disposition": `attachment; filename="${filename}"`,
         },
       });
     },

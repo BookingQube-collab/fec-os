@@ -106,6 +106,7 @@ export {
   appendMissingRosterAndPunchSummaryRows,
   computeAttendanceHrReportKpis,
   isMappedAttendanceHrRow,
+  attendanceHrReportsUseListView,
   attendanceHrRowMatchesLocation,
 } from "./report";
 export {

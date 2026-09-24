@@ -20,7 +20,7 @@ const nextConfig: NextConfig = {
   images: {
     formats: ["image/avif", "image/webp"],
   },
-  serverExternalPackages: ["xlsx", "jspdf", "jspdf-autotable"],
+  serverExternalPackages: ["xlsx", "xlsx-js-style", "jspdf", "jspdf-autotable"],
   experimental: {
     serverActions: {
       bodySizeLimit: "25mb",

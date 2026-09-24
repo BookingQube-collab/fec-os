@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import Link from "next/link";
-import { FileBarChart, LayoutGrid, LayoutList, Loader2, MapPin, Search, Trash2, Upload } from "lucide-react";
+import { ChevronDown, FileBarChart, LayoutGrid, LayoutList, Loader2, MapPin, Search, Trash2, Upload } from "lucide-react";
 import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { AttendanceHrNav } from "@/components/attendance-hr/attendance-hr-nav";
 import { AttendanceHrReportsKpiStrip } from "@/components/attendance-hr/attendance-hr-reports-kpi-strip";
 import { CapabilityGate } from "@/components/auth/capability-gate";
+import { ExportButton } from "@/components/export/export-button";
 import { PageHeader } from "@/components/layout/page-header";
 import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
 import {
@@ -23,6 +24,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
@@ -32,6 +40,7 @@ import {
   AttendanceRecordsTable,
   type AttendanceMapStaffOption,
 } from "@/components/people/attendance-records-table";
+import { useFileExport } from "@/hooks/use-file-export";
 import { useSites } from "@/hooks/queries/useSites";
 import { useMasterDepartments } from "@/hooks/queries/useDepartments";
 import { useUserRoles } from "@/hooks/use-auth";
@@ -43,6 +52,7 @@ import {
   purgeAttendanceHrImportedData,
 } from "@/lib/attendance-hr.functions";
 import { ATTENDANCE_STATUSES } from "@/lib/attendance-hr/constants";
+import { e3AttendanceExportFilename } from "@/lib/attendance-hr/export-workbook";
 import {
   defaultPayrollPeriod,
   formatPayrollRange,
@@ -51,6 +61,7 @@ import {
 } from "@/lib/attendance-hr/roster-period";
 import type { AttendanceListingSource } from "@/lib/attendance-display";
 import {
+  attendanceHrReportsUseListView,
   attendanceHrToListingSource,
   attendanceHrRowMatchesLocation,
   computeAttendanceHrReportKpis,
@@ -174,6 +185,13 @@ export default function AttendanceHrReportsPage() {
         .map((row) => attendanceHrToListingSource(row, t("attendanceHr.reports.unmapped"))),
     [deferredRows, t],
   );
+  // Status=Unscheduled is often 100% unmapped (Staff KPI 0). Grid would show the import-empty
+  // shell while KPIs still count those rows — fall back to list so table matches the strip.
+  const showListView = attendanceHrReportsUseListView(
+    viewMode,
+    gridListingRows.length,
+    listingRows.length,
+  );
   const mapStaffOptions = useMemo((): AttendanceMapStaffOption[] => {
     if (!canMapUsers) return [];
     return (bootstrap.data?.staff ?? []) as AttendanceMapStaffOption[];
@@ -193,6 +211,12 @@ export default function AttendanceHrReportsPage() {
   const locationLabel = selectedLocation
     ? formatAttendanceHrLocation(selectedLocation.code, selectedLocation.name)
     : t("common.allLocations");
+  const departmentLabel = departmentId
+    ? (departmentOptions.find((d) => d.value === departmentId)?.label ?? "")
+    : t("attendanceHr.reports.allDepartments");
+  const statusLabel = status
+    ? t(`attendanceHr.reports.statuses.${status}`)
+    : t("attendanceHr.reports.allStatuses");
 
   const exportHref = useMemo(() => {
     const p = new URLSearchParams({ from, to });
@@ -200,14 +224,32 @@ export default function AttendanceHrReportsPage() {
     if (status) p.set("status", status);
     if (staffQDebounced.trim()) p.set("staffQ", staffQDebounced.trim());
     if (departmentId) p.set("departmentId", departmentId);
+    p.set("locationLabel", locationLabel);
+    p.set("departmentLabel", departmentLabel);
+    if (status) p.set("statusLabel", statusLabel);
     return `/api/people/attendance-hr/export?${p.toString()}`;
-  }, [from, to, locationId, status, staffQDebounced, departmentId]);
+  }, [from, to, locationId, status, staffQDebounced, departmentId, locationLabel, departmentLabel, statusLabel]);
 
   const payrollHref = useMemo(() => {
     const p = new URLSearchParams({ from, to, month });
     if (locationId) p.set("locationId", locationId);
     return `/people/payroll?${p.toString()}`;
   }, [from, to, month, locationId]);
+
+  const fileExport = useFileExport();
+
+  const runExport = (
+    url: string,
+    kind: "excel" | "pdf" | "csv" | "payroll",
+    filename: string,
+    successMessage: string,
+  ) => {
+    if (fileExport.stage === "error") {
+      fileExport.retry();
+      return;
+    }
+    void fileExport.download({ url, kind, filename, successMessage });
+  };
 
   const invalidate = () => void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
 
@@ -407,15 +449,136 @@ export default function AttendanceHrReportsPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Button asChild>
-            <a href={exportHref}>{t("attendanceHr.reports.exportExcel")}</a>
-          </Button>
-          <Button variant="secondary" asChild>
-            <a href={`${exportHref}&format=csv`}>{t("attendanceHr.reports.exportCsv")}</a>
-          </Button>
-          <Button variant="secondary" asChild>
-            <a href={`${exportHref}&format=pdf`}>{t("attendanceHr.reports.exportPdf")}</a>
-          </Button>
+          {fileExport.stage === "error" ? (
+            <Button type="button" variant="destructive" onClick={() => fileExport.retry()}>
+              {t("attendanceHr.reports.exportRetry")}
+            </Button>
+          ) : (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" disabled={fileExport.isBusy}>
+                  {fileExport.isBusy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+                  {fileExport.isBusy ? fileExport.stageLabel : t("attendanceHr.reports.exportMenu")}
+                  {!fileExport.isBusy ? <ChevronDown className="h-4 w-4 opacity-70" aria-hidden /> : null}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="min-w-[16rem]">
+                <DropdownMenuItem
+                  disabled={fileExport.isBusy}
+                  onClick={() =>
+                    runExport(
+                      exportHref,
+                      "excel",
+                      e3AttendanceExportFilename(from, to, "xlsx"),
+                      t("attendanceHr.reports.exportSuccessExcel"),
+                    )
+                  }
+                >
+                  {t("attendanceHr.reports.exportFullHr")}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={fileExport.isBusy}
+                  onClick={() =>
+                    runExport(
+                      `${exportHref}&focus=employee`,
+                      "excel",
+                      e3AttendanceExportFilename(from, to, "employee"),
+                      t("attendanceHr.reports.exportSuccessExcel"),
+                    )
+                  }
+                >
+                  {t("attendanceHr.reports.exportEmployeeSummary")}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={fileExport.isBusy}
+                  onClick={() =>
+                    runExport(
+                      `${exportHref}&focus=matrix`,
+                      "excel",
+                      e3AttendanceExportFilename(from, to, "matrix"),
+                      t("attendanceHr.reports.exportSuccessExcel"),
+                    )
+                  }
+                >
+                  {t("attendanceHr.reports.exportMatrix")}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={fileExport.isBusy}
+                  onClick={() =>
+                    runExport(
+                      `${exportHref}&focus=payroll-input`,
+                      "excel",
+                      e3AttendanceExportFilename(from, to, "payroll-input"),
+                      t("attendanceHr.reports.exportSuccessExcel"),
+                    )
+                  }
+                >
+                  {t("attendanceHr.reports.exportPayrollInput")}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  disabled={fileExport.isBusy}
+                  onClick={() =>
+                    runExport(
+                      `${exportHref}&format=pdf`,
+                      "pdf",
+                      e3AttendanceExportFilename(from, to, "pdf"),
+                      t("attendanceHr.reports.exportSuccessPdf"),
+                    )
+                  }
+                >
+                  {t("attendanceHr.reports.exportPdfHr")}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={fileExport.isBusy}
+                  onClick={() =>
+                    runExport(
+                      `${exportHref}&format=csv`,
+                      "csv",
+                      e3AttendanceExportFilename(from, to, "csv"),
+                      t("attendanceHr.reports.exportSuccessCsv"),
+                    )
+                  }
+                >
+                  {t("attendanceHr.reports.exportCsvRaw")}
+                </DropdownMenuItem>
+                <CapabilityGate capability="payroll.view">
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    disabled={fileExport.isBusy}
+                    onClick={() =>
+                      runExport(
+                        `${exportHref}&format=payroll`,
+                        "payroll",
+                        e3AttendanceExportFilename(from, to, "payroll"),
+                        t("attendanceHr.reports.exportSuccessPayroll"),
+                      )
+                    }
+                  >
+                    {t("attendanceHr.reports.exportPayroll")}
+                  </DropdownMenuItem>
+                </CapabilityGate>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          <ExportButton
+            variant="secondary"
+            href={`${exportHref}&format=csv`}
+            kind="csv"
+            filename={e3AttendanceExportFilename(from, to, "csv")}
+            idleLabel={t("attendanceHr.reports.exportCsv")}
+            successMessage={t("attendanceHr.reports.exportSuccessCsv")}
+            exportState={fileExport}
+          />
+          <ExportButton
+            variant="secondary"
+            href={`${exportHref}&format=pdf`}
+            kind="pdf"
+            filename={e3AttendanceExportFilename(from, to, "pdf")}
+            idleLabel={t("attendanceHr.reports.exportPdf")}
+            successMessage={t("attendanceHr.reports.exportSuccessPdf")}
+            exportState={fileExport}
+          />
           <CapabilityGate capability="payroll.view">
             <Button variant="secondary" asChild>
               <Link href={payrollHref}>{t("nav.hrPayroll")}</Link>
@@ -515,10 +678,10 @@ export default function AttendanceHrReportsPage() {
                 }
               />
             )
-          ) : viewMode === "grid" ? (
-            <AttendanceRecordsGrid rows={gridListingRows} dateFrom={from} dateTo={to} />
-          ) : (
+          ) : showListView ? (
             <AttendanceRecordsTable rows={listingRows} {...listMapProps} />
+          ) : (
+            <AttendanceRecordsGrid rows={gridListingRows} dateFrom={from} dateTo={to} />
           )}
         </div>
       </div>

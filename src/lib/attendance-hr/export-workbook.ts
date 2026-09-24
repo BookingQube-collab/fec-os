@@ -1,6 +1,7 @@
 /**
  * E3 HR Attendance & Payroll Input Report — multi-sheet Excel composition.
  * Pure builders over attendance daily rows + optional OT claims / corrections.
+ * Styling applied at write time via xlsx-js-style (community SheetJS has no fills).
  */
 
 import {
@@ -13,6 +14,12 @@ import {
 } from "@/lib/attendance-display";
 import { buildAttendanceMatrixExcelSheet } from "@/lib/attendance-hr/attendance-matrix";
 import { FEC_ATTENDANCE_SITES } from "@/lib/attendance-hr/constants";
+import { applyE3SheetStyles } from "@/lib/attendance-hr/excel-style";
+import {
+  ATTENDANCE_PCT_GREEN_THRESHOLD,
+  E3_SHEET_TAB_COLORS,
+  EXCEL_THEME,
+} from "@/lib/attendance-hr/excel-theme";
 import {
   attendanceHrExportStaffName,
   attendanceHrIdentityKey,
@@ -44,6 +51,17 @@ export type ExcelSheetSpec = {
   cols?: Array<{ wch: number }>;
   /** 0-based header row for auto-filter (omit when no table). */
   filterHeaderRow?: number;
+  titleRowCount?: number;
+  sectionHeaderRows?: number[];
+  cellFills?: Record<string, string>;
+  alternatingRows?: boolean;
+  tabColor?: string;
+};
+
+export type ExportFilterMeta = {
+  locationLabel?: string;
+  departmentLabel?: string;
+  statusLabel?: string;
 };
 
 export type ExportOtClaim = {
@@ -117,6 +135,9 @@ export type BuildE3AttendanceHrWorkbookInput = {
   dateFrom: string;
   dateTo: string;
   generatedAt?: Date;
+  filters?: ExportFilterMeta;
+  /** When set, only include matching sheet names (same calc dataset). */
+  sheetNames?: string[];
 };
 
 const LEAVE_STATUSES = new Set(["annual_leave", "sick_leave", "unpaid_leave"]);
@@ -149,6 +170,85 @@ export function formatHrExportDate(ymd: string | null | undefined): string {
 
 export function formatHrExportPeriod(dateFrom: string, dateTo: string): string {
   return `${formatHrExportDate(dateFrom)} – ${formatHrExportDate(dateTo)}`;
+}
+
+export function formatHrExportGeneratedAt(at: Date): string {
+  return at.toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: "Asia/Qatar",
+  });
+}
+
+export function formatExportFilterLine(filters?: ExportFilterMeta): string {
+  const location = blank(filters?.locationLabel) || "All Locations";
+  const department = blank(filters?.departmentLabel) || "All Departments";
+  const status = blank(filters?.statusLabel);
+  const parts = [`Location: ${location}`, `Department: ${department}`];
+  if (status && status !== "All statuses" && status !== "all") parts.push(`Status: ${status}`);
+  return `Filters: ${parts.join("  |  ")}`;
+}
+
+/** Shared E3 title block for every HR-facing sheet. */
+export function buildE3ExportTitleRows(
+  dateFrom: string,
+  dateTo: string,
+  generatedAt: Date,
+  filters?: ExportFilterMeta,
+  title = "E3 – HR Attendance Report",
+): (string | number | boolean | null)[][] {
+  return [
+    [title],
+    [`Reporting Period: ${formatHrExportPeriod(dateFrom, dateTo)}`],
+    [`Generated On: ${formatHrExportGeneratedAt(generatedAt)}`],
+    [formatExportFilterLine(filters)],
+    [],
+  ];
+}
+
+export function e3AttendanceExportFilename(
+  dateFrom: string,
+  dateTo: string,
+  kind: "xlsx" | "csv" | "pdf" | "payroll" | "employee" | "matrix" | "payroll-input" = "xlsx",
+): string {
+  const from = dateFrom.slice(0, 10);
+  const to = dateTo.slice(0, 10);
+  switch (kind) {
+    case "csv":
+      return `E3_HR_Attendance_${from}_to_${to}.csv`;
+    case "pdf":
+      return `E3_HR_Attendance_${from}_to_${to}.pdf`;
+    case "payroll":
+      return `E3_HR_Payroll_${from}_to_${to}.xlsx`;
+    case "employee":
+      return `E3_Employee_Summary_${from}_to_${to}.xlsx`;
+    case "matrix":
+      return `E3_Attendance_Matrix_${from}_to_${to}.xlsx`;
+    case "payroll-input":
+      return `E3_Payroll_Input_${from}_to_${to}.xlsx`;
+    default:
+      return `E3_HR_Attendance_${from}_to_${to}.xlsx`;
+  }
+}
+
+/** Map UI focus query → sheet name filter (no second calc engine). */
+export function sheetsForExportFocus(focus: string | null | undefined): string[] | undefined {
+  switch ((focus ?? "").toLowerCase()) {
+    case "employee":
+    case "employee-summary":
+      return ["02 Employee Summary"];
+    case "matrix":
+      return ["03 Attendance Matrix"];
+    case "payroll":
+    case "payroll-input":
+      return ["09 Payroll Input"];
+    default:
+      return undefined;
+  }
 }
 
 function hoursFromMinutes(mins: number | null | undefined): number {
@@ -431,11 +531,19 @@ function colsFor(headers: string[], min = 10, max = 28): Array<{ wch: number }> 
   return headers.map((h) => ({ wch: Math.max(min, Math.min(max, h.length + 2)) }));
 }
 
+type TableSheetOpts = {
+  titleRows?: (string | number | boolean | null)[][];
+  freezeCols?: number;
+  cellFills?: Record<string, string>;
+  alternatingRows?: boolean;
+  tabColor?: string;
+};
+
 function tableSheet(
   name: string,
   headers: string[],
   rows: (string | number | boolean | null)[][],
-  opts?: { titleRows?: (string | number | boolean | null)[][]; freezeCols?: number },
+  opts?: TableSheetOpts,
 ): ExcelSheetSpec {
   const titleRows = opts?.titleRows ?? [];
   const aoa = [...titleRows, headers, ...rows];
@@ -445,17 +553,31 @@ function tableSheet(
     aoa,
     freeze: { xSplit: opts?.freezeCols ?? 0, ySplit: headerRow + 1 },
     cols: colsFor(headers),
-    filterHeaderRow: rows.length ? headerRow : undefined,
+    filterHeaderRow: rows.length || headers.length ? headerRow : undefined,
+    titleRowCount: titleRows.length,
+    cellFills: opts?.cellFills,
+    alternatingRows: opts?.alternatingRows,
+    tabColor: opts?.tabColor ?? E3_SHEET_TAB_COLORS[name],
   };
+}
+
+type SheetContext = {
+  dateFrom: string;
+  dateTo: string;
+  generatedAt: Date;
+  filters?: ExportFilterMeta;
+};
+
+function titleRowsFor(ctx: SheetContext, title?: string) {
+  return buildE3ExportTitleRows(ctx.dateFrom, ctx.dateTo, ctx.generatedAt, ctx.filters, title);
 }
 
 function buildHrSummary(
   daily: AttendanceHrReportRow[],
   employees: EmpAgg[],
-  dateFrom: string,
-  dateTo: string,
-  generatedAt: Date,
+  ctx: SheetContext,
 ): ExcelSheetSpec {
+  const { dateFrom, dateTo, generatedAt } = ctx;
   const mapped = daily.filter((r) => r.staff_id);
   const locationCodes = new Set(mapped.map((r) => locationCodeOf(r)).filter(Boolean));
   const withAttendance = new Set<string>();
@@ -548,21 +670,9 @@ function buildHrSummary(
     ...[...locStats.keys()].filter((c) => !preferred.includes(c)).sort(),
   ];
 
+  const title = titleRowsFor(ctx, "E3 – Monthly Attendance Report");
   const aoa: (string | number | boolean | null)[][] = [
-    ["E3 – Monthly Attendance Report"],
-    [`Reporting Period: ${formatHrExportPeriod(dateFrom, dateTo)}`],
-    [
-      `Generated On: ${generatedAt.toLocaleString("en-GB", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-        hour12: true,
-        timeZone: "Asia/Qatar",
-      })}`,
-    ],
-    [],
+    ...title,
     ["Workforce Summary"],
     ["Metric", "Value"],
     ["Total Employees", employees.length],
@@ -572,7 +682,7 @@ function buildHrSummary(
     ["Employees With Attendance", withAttendance.size],
     ["Employees With Exceptions", withExceptions.size],
     [],
-    ["Attendance KPIs"],
+    ["Attendance Summary"],
     ["Metric", "Value"],
     ["Total Scheduled Days", scheduledDays],
     ["Total Present Days", presentDays],
@@ -601,6 +711,37 @@ function buildHrSummary(
     ],
   ];
 
+  const cellFills: Record<string, string> = {};
+  const sectionHeaderRows: number[] = [];
+  // Find section headers by scanning aoa after build of static part
+  for (let i = 0; i < aoa.length; i++) {
+    const v = aoa[i]![0];
+    if (v === "Workforce Summary" || v === "Attendance Summary" || v === "Location Summary") {
+      sectionHeaderRows.push(i);
+    }
+  }
+
+  // KPI value coloring for Attendance Summary metrics
+  const kpiFills: Record<string, string> = {
+    "Total Present Days": EXCEL_THEME.present,
+    "Total Absent Days": EXCEL_THEME.absent,
+    "Total Late Instances": EXCEL_THEME.late,
+    "Total Late Hours": EXCEL_THEME.late,
+    "Total Missed Punches": EXCEL_THEME.missedPunch,
+    "Total Leave Days": EXCEL_THEME.leave,
+    "Total Weekly Off Days": EXCEL_THEME.weeklyOff,
+    "Total Approved OT Hours": EXCEL_THEME.overtime,
+    "Employees With Attendance": EXCEL_THEME.present,
+    "Employees With Exceptions": EXCEL_THEME.warning,
+  };
+  for (let r = 0; r < aoa.length; r++) {
+    const label = String(aoa[r]?.[0] ?? "");
+    if (kpiFills[label] && aoa[r]!.length > 1) {
+      cellFills[`${r},1`] = kpiFills[label]!;
+    }
+  }
+
+  const locHeaderRow = aoa.length - 1;
   for (const code of locOrder) {
     const s = locStats.get(code)!;
     const denom = s.present + s.absent;
@@ -617,48 +758,120 @@ function buildHrSummary(
     ]);
   }
 
+  // Alternating location data rows
+  for (let i = 0; i < locOrder.length; i++) {
+    const r = locHeaderRow + 1 + i;
+    if (i % 2 === 1) {
+      for (let c = 0; c < 9; c++) {
+        if (!cellFills[`${r},${c}`]) cellFills[`${r},${c}`] = EXCEL_THEME.altRow;
+      }
+    }
+  }
+
   return {
     name: "01 HR Summary",
     aoa,
-    freeze: { xSplit: 0, ySplit: 3 },
-    cols: [{ wch: 28 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 12 }],
+    freeze: { xSplit: 0, ySplit: title.length },
+    cols: [
+      { wch: 28 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 14 },
+      { wch: 12 },
+      { wch: 12 },
+      { wch: 14 },
+      { wch: 12 },
+      { wch: 12 },
+    ],
+    titleRowCount: title.length,
+    sectionHeaderRows,
+    cellFills,
+    tabColor: E3_SHEET_TAB_COLORS["01 HR Summary"],
   };
 }
 
-function buildEmployeeSummary(employees: EmpAgg[]): ExcelSheetSpec {
-  const headers = [
-    "Sr. No.",
-    "Employee Code",
-    "Employee Name",
-    "Department",
-    "Designation",
-    "Location",
-    "Employment Type",
-    "Reporting Manager",
-    "Scheduled Days",
-    "Present Days",
-    "Absent Days",
-    "Paid Leave",
-    "Sick Leave",
-    "Unpaid Leave",
-    "Weekly Off",
-    "Public Holiday",
-    "Scheduled Hours",
-    "Worked Hours",
-    "Late Instances",
-    "Late Minutes",
-    "Early Exit Instances",
-    "Early Exit Minutes",
-    "Missed Punches",
-    "Regular OT Hours",
-    "Rest Day OT Hours",
-    "Public Holiday OT Hours",
-    "Total OT Hours",
-    "Attendance %",
-    "Payroll Payable Days",
-    "HR Remarks",
-    "HR Review Status",
-  ];
+export const EMPLOYEE_SUMMARY_HEADERS = [
+  "Sr. No.",
+  "Employee Code",
+  "Employee Name",
+  "Department",
+  "Designation",
+  "Location",
+  "Employment Type",
+  "Reporting Manager",
+  "Scheduled Days",
+  "Present Days",
+  "Absent Days",
+  "Paid Leave",
+  "Sick Leave",
+  "Unpaid Leave",
+  "Weekly Off",
+  "Public Holiday",
+  "Scheduled Hours",
+  "Worked Hours",
+  "Late Instances",
+  "Late Minutes",
+  "Early Exit Instances",
+  "Early Exit Minutes",
+  "Missed Punches",
+  "Regular OT Hours",
+  "Rest Day OT Hours",
+  "Public Holiday OT Hours",
+  "Total OT Hours",
+  "Attendance %",
+  "Payroll Payable Days",
+  "HR Remarks",
+  "HR Review Status",
+] as const;
+
+/** Exception / threshold fills for Employee Summary — does not recolor every cell. */
+export function employeeSummaryCellFills(
+  dataRows: (string | number | boolean | null)[][],
+  headerRow: number,
+): Record<string, string> {
+  const fills: Record<string, string> = {};
+  const col = {
+    present: EMPLOYEE_SUMMARY_HEADERS.indexOf("Present Days"),
+    absent: EMPLOYEE_SUMMARY_HEADERS.indexOf("Absent Days"),
+    paidLeave: EMPLOYEE_SUMMARY_HEADERS.indexOf("Paid Leave"),
+    sickLeave: EMPLOYEE_SUMMARY_HEADERS.indexOf("Sick Leave"),
+    unpaidLeave: EMPLOYEE_SUMMARY_HEADERS.indexOf("Unpaid Leave"),
+    late: EMPLOYEE_SUMMARY_HEADERS.indexOf("Late Instances"),
+    missed: EMPLOYEE_SUMMARY_HEADERS.indexOf("Missed Punches"),
+    regularOt: EMPLOYEE_SUMMARY_HEADERS.indexOf("Regular OT Hours"),
+    restOt: EMPLOYEE_SUMMARY_HEADERS.indexOf("Rest Day OT Hours"),
+    phOt: EMPLOYEE_SUMMARY_HEADERS.indexOf("Public Holiday OT Hours"),
+    totalOt: EMPLOYEE_SUMMARY_HEADERS.indexOf("Total OT Hours"),
+    pct: EMPLOYEE_SUMMARY_HEADERS.indexOf("Attendance %"),
+    review: EMPLOYEE_SUMMARY_HEADERS.indexOf("HR Review Status"),
+  };
+
+  dataRows.forEach((row, i) => {
+    const r = headerRow + 1 + i;
+    if (Number(row[col.present]) > 0) fills[`${r},${col.present}`] = EXCEL_THEME.present;
+    if (Number(row[col.absent]) > 0) fills[`${r},${col.absent}`] = EXCEL_THEME.absent;
+    if (Number(row[col.paidLeave]) > 0) fills[`${r},${col.paidLeave}`] = EXCEL_THEME.leave;
+    if (Number(row[col.sickLeave]) > 0) fills[`${r},${col.sickLeave}`] = EXCEL_THEME.leave;
+    if (Number(row[col.unpaidLeave]) > 0) fills[`${r},${col.unpaidLeave}`] = EXCEL_THEME.unpaidLeave;
+    if (Number(row[col.late]) > 0) fills[`${r},${col.late}`] = EXCEL_THEME.late;
+    if (Number(row[col.missed]) > 0) fills[`${r},${col.missed}`] = EXCEL_THEME.missedPunch;
+    for (const c of [col.regularOt, col.restOt, col.phOt, col.totalOt]) {
+      if (Number(row[c]) > 0) fills[`${r},${c}`] = EXCEL_THEME.overtime;
+    }
+    const pct = Number(row[col.pct]);
+    if (Number.isFinite(pct) && pct >= ATTENDANCE_PCT_GREEN_THRESHOLD) {
+      fills[`${r},${col.pct}`] = EXCEL_THEME.present;
+    }
+    const review = String(row[col.review] ?? "");
+    if (/^approved$/i.test(review)) fills[`${r},${col.review}`] = EXCEL_THEME.approved;
+    else if (/correction/i.test(review)) fills[`${r},${col.review}`] = EXCEL_THEME.critical;
+    else if (/pending/i.test(review)) fills[`${r},${col.review}`] = EXCEL_THEME.warning;
+  });
+  return fills;
+}
+
+function buildEmployeeSummary(employees: EmpAgg[], ctx: SheetContext): ExcelSheetSpec {
+  const headers = [...EMPLOYEE_SUMMARY_HEADERS];
   const rows = employees.map((e, i) => {
     const totalOt = e.regularOtMinutes + e.restOtMinutes + e.phOtMinutes;
     return [
@@ -695,10 +908,16 @@ function buildEmployeeSummary(employees: EmpAgg[]): ExcelSheetSpec {
       "Pending",
     ];
   });
-  return tableSheet("02 Employee Summary", headers, rows, { freezeCols: 3 });
+  const titleRows = titleRowsFor(ctx, "E3 – Employee Summary");
+  const headerRow = titleRows.length;
+  return tableSheet("02 Employee Summary", headers, rows, {
+    titleRows,
+    freezeCols: 3,
+    cellFills: employeeSummaryCellFills(rows, headerRow),
+  });
 }
 
-function buildDailyAttendance(daily: AttendanceHrReportRow[]): ExcelSheetSpec {
+function buildDailyAttendance(daily: AttendanceHrReportRow[], ctx: SheetContext): ExcelSheetSpec {
   const headers = [
     "Date",
     "Employee Code",
@@ -759,10 +978,14 @@ function buildDailyAttendance(daily: AttendanceHrReportRow[]): ExcelSheetSpec {
       remarks,
     ];
   });
-  return tableSheet("04 Daily Attendance", headers, rows, { freezeCols: 3 });
+  return tableSheet("04 Daily Attendance", headers, rows, {
+    titleRows: titleRowsFor(ctx),
+    freezeCols: 3,
+    alternatingRows: true,
+  });
 }
 
-function buildLateEarly(daily: AttendanceHrReportRow[]): ExcelSheetSpec {
+function buildLateEarly(daily: AttendanceHrReportRow[], ctx: SheetContext): ExcelSheetSpec {
   const headers = [
     "Date",
     "Employee Code",
@@ -803,10 +1026,13 @@ function buildLateEarly(daily: AttendanceHrReportRow[]): ExcelSheetSpec {
         "",
       ];
     });
-  return tableSheet("05 Late & Early Exit", headers, rows, { freezeCols: 3 });
+  return tableSheet("05 Late & Early Exit", headers, rows, {
+    titleRows: titleRowsFor(ctx),
+    freezeCols: 3,
+  });
 }
 
-function buildAbsenceLeave(daily: AttendanceHrReportRow[]): ExcelSheetSpec {
+function buildAbsenceLeave(daily: AttendanceHrReportRow[], ctx: SheetContext): ExcelSheetSpec {
   const headers = [
     "Date",
     "Employee Code",
@@ -841,10 +1067,13 @@ function buildAbsenceLeave(daily: AttendanceHrReportRow[]): ExcelSheetSpec {
         "",
       ];
     });
-  return tableSheet("06 Absence & Leave", headers, rows, { freezeCols: 3 });
+  return tableSheet("06 Absence & Leave", headers, rows, {
+    titleRows: titleRowsFor(ctx),
+    freezeCols: 3,
+  });
 }
 
-function buildMissedPunches(daily: AttendanceHrReportRow[]): ExcelSheetSpec {
+function buildMissedPunches(daily: AttendanceHrReportRow[], ctx: SheetContext): ExcelSheetSpec {
   const headers = [
     "Date",
     "Employee Code",
@@ -869,7 +1098,6 @@ function buildMissedPunches(daily: AttendanceHrReportRow[]): ExcelSheetSpec {
     })
     .filter((r) => {
       const status = resolveHoursBasedAttendanceStatus(listingOf(r));
-      // Skip pure offs / leave with no punch expectation noise when both missing and off
       if (
         (status === "weekly_off" || status === "public_holiday" || LEAVE_STATUSES.has(status)) &&
         !r.actual_in &&
@@ -907,10 +1135,13 @@ function buildMissedPunches(daily: AttendanceHrReportRow[]): ExcelSheetSpec {
         "Pending",
       ];
     });
-  return tableSheet("07 Missed Punches", headers, rows, { freezeCols: 3 });
+  return tableSheet("07 Missed Punches", headers, rows, {
+    titleRows: titleRowsFor(ctx),
+    freezeCols: 3,
+  });
 }
 
-function buildOvertime(daily: AttendanceHrReportRow[], otClaims: ExportOtClaim[], dateFrom: string): ExcelSheetSpec {
+function buildOvertime(daily: AttendanceHrReportRow[], otClaims: ExportOtClaim[], ctx: SheetContext): ExcelSheetSpec {
   const headers = [
     "Date",
     "Employee Code",
@@ -932,7 +1163,7 @@ function buildOvertime(daily: AttendanceHrReportRow[], otClaims: ExportOtClaim[]
   for (const c of otClaims) {
     claimByKey.set(`${c.staffId}|${c.workDate.slice(0, 10)}`, c);
   }
-  const payrollMonth = dateFrom.slice(0, 7);
+  const payrollMonth = ctx.dateFrom.slice(0, 7);
   const rows: (string | number | boolean | null)[][] = [];
 
   for (const row of daily) {
@@ -964,7 +1195,10 @@ function buildOvertime(daily: AttendanceHrReportRow[], otClaims: ExportOtClaim[]
       approved > 0 ? "Approved for payroll" : "Pending approval — not for payroll",
     ]);
   }
-  return tableSheet("08 Overtime", headers, rows, { freezeCols: 3 });
+  return tableSheet("08 Overtime", headers, rows, {
+    titleRows: titleRowsFor(ctx),
+    freezeCols: 3,
+  });
 }
 
 function otRateLabel(rateType: string): string {
@@ -975,7 +1209,8 @@ function otRateLabel(rateType: string): string {
   return "Regular OT";
 }
 
-function buildPayrollInput(employees: EmpAgg[], dateFrom: string, dateTo: string): ExcelSheetSpec {
+function buildPayrollInput(employees: EmpAgg[], ctx: SheetContext): ExcelSheetSpec {
+  const { dateFrom, dateTo } = ctx;
   const calendarDays = Math.max(
     1,
     Math.round(
@@ -1041,7 +1276,10 @@ function buildPayrollInput(employees: EmpAgg[], dateFrom: string, dateTo: string
       "",
     ];
   });
-  return tableSheet("09 Payroll Input", headers, rows, { freezeCols: 2 });
+  return tableSheet("09 Payroll Input", headers, rows, {
+    titleRows: titleRowsFor(ctx, "E3 – Payroll Input"),
+    freezeCols: 2,
+  });
 }
 
 function buildDataIssues(
@@ -1049,6 +1287,7 @@ function buildDataIssues(
   punches: ExportPunchRow[],
   imports: ExportImportFile[],
   daily: AttendanceHrReportRow[],
+  ctx: SheetContext,
 ): ExcelSheetSpec {
   const headers = [
     "Issue Type",
@@ -1149,12 +1388,16 @@ function buildDataIssues(
     ]);
   }
 
-  return tableSheet("10 Data Issues", headers, rows, { freezeCols: 1 });
+  return tableSheet("10 Data Issues", headers, rows, {
+    titleRows: titleRowsFor(ctx),
+    freezeCols: 1,
+  });
 }
 
 function buildRawPunches(
   punches: ExportPunchRow[],
   staffMeta: Map<string, { code: string; name: string }>,
+  ctx: SheetContext,
 ): ExcelSheetSpec {
   const headers = [
     "Punch ID",
@@ -1181,7 +1424,11 @@ function buildRawPunches(
       blank(p.biometric_user_id),
       meta?.code ?? "",
       meta?.name ?? blank(p.device_user_name),
-      p.punch_at ? formatReportingTime12h(p.punch_at) ? `${formatHrExportDate(p.punch_at.slice(0, 10))} ${formatReportingTime12h(p.punch_at)}` : blank(p.punch_at) : "",
+      p.punch_at
+        ? formatReportingTime12h(p.punch_at)
+          ? `${formatHrExportDate(p.punch_at.slice(0, 10))} ${formatReportingTime12h(p.punch_at)}`
+          : blank(p.punch_at)
+        : "",
       blank(p.punch_type),
       blank(p.source),
       p.probable_duplicate ? "Yes" : "No",
@@ -1189,7 +1436,10 @@ function buildRawPunches(
       formatHrExportDate(p.attendance_date),
     ];
   });
-  return tableSheet("11 Raw Punches", headers, rows, { freezeCols: 1 });
+  return tableSheet("11 Raw Punches", headers, rows, {
+    titleRows: titleRowsFor(ctx),
+    freezeCols: 1,
+  });
 }
 
 function correctionActionLabel(kind: string): string {
@@ -1213,7 +1463,7 @@ function correctionActionLabel(kind: string): string {
   }
 }
 
-function buildAuditTrail(corrections: ExportCorrection[]): ExcelSheetSpec {
+function buildAuditTrail(corrections: ExportCorrection[], ctx: SheetContext): ExcelSheetSpec {
   const headers = [
     "Date/Time",
     "Employee Code",
@@ -1254,7 +1504,10 @@ function buildAuditTrail(corrections: ExportCorrection[]): ExcelSheetSpec {
       "",
     ]);
   }
-  return tableSheet("12 Audit Trail", headers, rows, { freezeCols: 1 });
+  return tableSheet("12 Audit Trail", headers, rows, {
+    titleRows: titleRowsFor(ctx),
+    freezeCols: 1,
+  });
 }
 
 /** Compose all 12 sheets in order. */
@@ -1264,6 +1517,12 @@ export function buildE3AttendanceHrWorkbookSheets(input: BuildE3AttendanceHrWork
   const corrections = input.corrections ?? [];
   const listing = input.daily.map((r) => attendanceHrToListingSource(r));
   const employees = aggregateEmployees(input.daily, otClaims);
+  const ctx: SheetContext = {
+    dateFrom: input.dateFrom,
+    dateTo: input.dateTo,
+    generatedAt,
+    filters: input.filters,
+  };
 
   const staffMeta = new Map<string, { code: string; name: string }>();
   for (const row of input.daily) {
@@ -1274,7 +1533,9 @@ export function buildE3AttendanceHrWorkbookSheets(input: BuildE3AttendanceHrWork
     });
   }
 
-  const matrix = buildAttendanceMatrixExcelSheet(listing, input.dateFrom, input.dateTo);
+  const matrix = buildAttendanceMatrixExcelSheet(listing, input.dateFrom, input.dateTo, {
+    titleRows: titleRowsFor(ctx, "E3 – Attendance Matrix") as (string | number)[][],
+  });
   const matrixSheet: ExcelSheetSpec = {
     name: "03 Attendance Matrix",
     aoa: matrix.aoa,
@@ -1285,28 +1546,37 @@ export function buildE3AttendanceHrWorkbookSheets(input: BuildE3AttendanceHrWork
       { wch: 14 },
       { wch: 22 },
       { wch: 10 },
-      ...matrix.aoa[2]!.slice(4).map(() => ({ wch: 14 })),
+      ...matrix.aoa[matrix.filterHeaderRow]!.slice(4).map(() => ({ wch: 14 })),
     ],
-    filterHeaderRow: 2,
+    filterHeaderRow: matrix.filterHeaderRow,
+    titleRowCount: matrix.titleRowCount,
+    cellFills: matrix.cellFills,
+    tabColor: E3_SHEET_TAB_COLORS["03 Attendance Matrix"],
   };
 
-  return [
-    buildHrSummary(input.daily, employees, input.dateFrom, input.dateTo, generatedAt),
-    buildEmployeeSummary(employees),
+  const all = [
+    buildHrSummary(input.daily, employees, ctx),
+    buildEmployeeSummary(employees, ctx),
     matrixSheet,
-    buildDailyAttendance(input.daily),
-    buildLateEarly(input.daily),
-    buildAbsenceLeave(input.daily),
-    buildMissedPunches(input.daily),
-    buildOvertime(input.daily, otClaims, input.dateFrom),
-    buildPayrollInput(employees, input.dateFrom, input.dateTo),
-    buildDataIssues(input.unmatched, input.punches, input.imports, input.daily),
-    buildRawPunches(input.punches, staffMeta),
-    buildAuditTrail(corrections),
+    buildDailyAttendance(input.daily, ctx),
+    buildLateEarly(input.daily, ctx),
+    buildAbsenceLeave(input.daily, ctx),
+    buildMissedPunches(input.daily, ctx),
+    buildOvertime(input.daily, otClaims, ctx),
+    buildPayrollInput(employees, ctx),
+    buildDataIssues(input.unmatched, input.punches, input.imports, input.daily, ctx),
+    buildRawPunches(input.punches, staffMeta, ctx),
+    buildAuditTrail(corrections, ctx),
   ];
+
+  if (input.sheetNames?.length) {
+    const allow = new Set(input.sheetNames);
+    return all.filter((s) => allow.has(s.name));
+  }
+  return all;
 }
 
-/** Append sheet specs onto a SheetJS workbook. */
+/** Append sheet specs onto a SheetJS / xlsx-js-style workbook (styles require xlsx-js-style). */
 export function appendExcelSheets(
   XLSX: typeof import("xlsx"),
   wb: import("xlsx").WorkBook,
@@ -1328,6 +1598,7 @@ export function appendExcelSheets(
         }),
       };
     }
+    applyE3SheetStyles(ws, sheet);
     XLSX.utils.book_append_sheet(wb, ws, sheet.name.slice(0, 31));
   }
 }
