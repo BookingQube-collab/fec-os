@@ -122,9 +122,9 @@ function shiftForRosterDay(
   return null;
 }
 
+export { buildPunchRows } from "./build-punch-rows";
 export {
   BIOMETRIC_USER_CONFLICT,
-  buildPunchRows,
   canonicalBiometricUserId,
   deviceNameByBiometricFromMappings,
   lookupStaffByBiometric,

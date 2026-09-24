@@ -43,8 +43,8 @@ import {
 import { parseDelimitedAttendance } from "./parse-spreadsheet";
 import { buildUserDat, parseUserDat } from "./parse-user-dat";
 import { previewAttendanceFile } from "./preview";
+import { buildPunchRows } from "./build-punch-rows";
 import {
-  buildPunchRows,
   deviceNameByBiometricFromMappings,
   mergeBiometricUsersById,
   missingPunchBiometricIds,
