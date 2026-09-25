@@ -3,7 +3,7 @@
 import { BarChart3, Clock, FileText, TrendingUp } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { TintedKpiCard, type KpiTint } from "@/components/dashboard/tinted-kpi-card";
+import { FecSkeleton, FecStatCard, type KpiTint } from "@/components/fec";
 import { fmtQar } from "@/lib/currency";
 
 export type PrKpiStripValues = {
@@ -29,7 +29,7 @@ export function PrKpiStrip({ values, loading }: { values: PrKpiStripValues; load
     return (
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="h-[7.25rem] animate-pulse rounded-2xl bg-muted/70" />
+          <FecSkeleton key={i} className="h-[7.25rem] rounded-2xl" />
         ))}
       </div>
     );
@@ -37,7 +37,7 @@ export function PrKpiStrip({ values, loading }: { values: PrKpiStripValues; load
 
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      <TintedKpiCard
+      <FecStatCard
         title={t("procurement.kpi.totalApproved")}
         value={fmtQar(values.approvedAmount)}
         hint={t("procurement.kpi.approvedRequests", { n: values.approvedCount })}
@@ -45,7 +45,7 @@ export function PrKpiStrip({ values, loading }: { values: PrKpiStripValues; load
         tint={PR_TINT.green}
         empty={values.approvedCount === 0}
       />
-      <TintedKpiCard
+      <FecStatCard
         title={t("procurement.kpi.pendingDecisions")}
         value={fmtQar(values.pendingAmount)}
         hint={t("procurement.kpi.pendingRequests", { n: values.pendingCount })}
@@ -53,7 +53,7 @@ export function PrKpiStrip({ values, loading }: { values: PrKpiStripValues; load
         tint={PR_TINT.amber}
         empty={values.pendingCount === 0}
       />
-      <TintedKpiCard
+      <FecStatCard
         title={t("procurement.kpi.activeRequests")}
         value={t("procurement.kpi.reqCount", { n: values.activeCount })}
         hint={t("procurement.kpi.activeWorkflow", { n: values.activeCount })}
@@ -61,7 +61,7 @@ export function PrKpiStrip({ values, loading }: { values: PrKpiStripValues; load
         tint={PR_TINT.slate}
         empty={values.activeCount === 0}
       />
-      <TintedKpiCard
+      <FecStatCard
         title={t("procurement.kpi.awaitingSignoffs")}
         value={t("procurement.kpi.reqCount", { n: values.awaitingCount })}
         hint={t("procurement.kpi.awaitingDecision", { n: values.awaitingCount })}

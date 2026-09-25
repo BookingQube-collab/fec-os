@@ -8,7 +8,7 @@ import { ClipboardList, Fingerprint } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { PasswordField } from "@/components/auth/password-field";
-import { Button } from "@/components/ui/button";
+import { FecButton as Button } from "@/components/fec";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";

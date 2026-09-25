@@ -3,7 +3,7 @@
 import { useTranslation } from "react-i18next";
 
 import type { ComplianceKpis } from "@/lib/compliance-tracker/aggregations";
-import { TintedKpiCard, type KpiTint } from "@/components/dashboard/tinted-kpi-card";
+import { FecStatCard, type KpiTint } from "@/components/fec";
 
 type KpiCard = {
   label: string;
@@ -33,7 +33,7 @@ export function KpiStrip({ kpis, extra }: KpiStripProps) {
       className={`grid grid-cols-2 gap-2.5 ${cards.length === 4 ? "md:grid-cols-4" : "md:grid-cols-5"}`}
     >
       {cards.map((card) => (
-        <TintedKpiCard
+        <FecStatCard
           key={card.label}
           title={card.label}
           value={card.value}

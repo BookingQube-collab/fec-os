@@ -5,9 +5,8 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
-import { PageHeader } from "@/components/layout/page-header";
+import { FecButton as Button, FecPageHeader } from "@/components/fec";
 import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/use-auth";
@@ -52,7 +51,7 @@ export default function ProfilePage() {
 
   return (
     <div className="mx-auto w-full max-w-lg space-y-6">
-      <PageHeader
+      <FecPageHeader
         icon={UserRound}
         kicker={t("profile.kicker")}
         title={t("profile.title")}

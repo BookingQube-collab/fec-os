@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 
 import { KpiSkeletonStrip } from "@/components/loading/page-skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
+import { FecEmptyState, FecSkeleton, FecStatCard, type KpiTint } from "@/components/fec";
 import { useInventoryDashboard } from "@/hooks/queries/useInventoryDashboard";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { useAppStore } from "@/stores/app-store";
@@ -18,25 +18,16 @@ const InventoryDashboardCharts = dynamic(
     loading: () => (
       <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
         {Array.from({ length: 3 }).map((_, i) => (
-          <Skeleton key={i} className="h-72 rounded-lg" />
+          <FecSkeleton key={i} className="h-72 rounded-lg" />
         ))}
       </div>
     ),
   },
 );
 
-function KpiCard({ label, value, tone }: { label: string; value: string | number; tone?: string }) {
-  return (
-    <div className="rounded-lg border border-border bg-card p-3">
-      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className={`mt-1 text-lg font-semibold ${tone ?? ""}`}>{value}</div>
-    </div>
-  );
-}
-
-function toneForCount(value: number): string {
-  if (value === 0) return "text-emerald-600";
-  return value <= 3 ? "text-amber-600" : "text-red-600";
+function tintForCount(value: number): KpiTint {
+  if (value === 0) return "green";
+  return value <= 3 ? "amber" : "red";
 }
 
 export function InventoryDashboardPanel() {
@@ -52,7 +43,7 @@ export function InventoryDashboardPanel() {
         <KpiSkeletonStrip count={4} />
         <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
           {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-72 rounded-lg" />
+            <FecSkeleton key={i} className="h-72 rounded-lg" />
           ))}
         </div>
       </div>
@@ -60,20 +51,16 @@ export function InventoryDashboardPanel() {
   }
 
   if (!data) {
-    return (
-      <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-        {t("inventory.dashboard.unable")}
-      </div>
-    );
+    return <FecEmptyState message={t("inventory.dashboard.unable")} />;
   }
 
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <KpiCard label={t("inventory.kpis.totalSkus")} value={k?.total_skus ?? 0} />
-        <KpiCard label={t("inventory.kpis.lowStock")} value={k?.low_stock ?? 0} tone={toneForCount(k?.low_stock ?? 0)} />
-        <KpiCard label={t("inventory.kpis.outOfStock")} value={k?.out_of_stock ?? 0} tone={toneForCount(k?.out_of_stock ?? 0)} />
-        <KpiCard label={t("inventory.kpis.unitsOnHand")} value={k?.total_units ?? 0} />
+        <FecStatCard title={t("inventory.kpis.totalSkus")} value={k?.total_skus ?? 0} tint="slate" compact />
+        <FecStatCard title={t("inventory.kpis.lowStock")} value={k?.low_stock ?? 0} tint={tintForCount(k?.low_stock ?? 0)} compact />
+        <FecStatCard title={t("inventory.kpis.outOfStock")} value={k?.out_of_stock ?? 0} tint={tintForCount(k?.out_of_stock ?? 0)} compact />
+        <FecStatCard title={t("inventory.kpis.unitsOnHand")} value={k?.total_units ?? 0} tint="sky" compact />
       </div>
 
       <InventoryDashboardCharts

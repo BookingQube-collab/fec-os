@@ -24,10 +24,14 @@ import {
 import { useTranslation } from "react-i18next";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
-import { TintedKpiCard, type KpiTint } from "@/components/dashboard/tinted-kpi-card";
 import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
-import { PageHeader } from "@/components/layout/page-header";
-import { Button } from "@/components/ui/button";
+import {
+  FecButton as Button,
+  FecEmptyState,
+  FecPageHeader,
+  FecStatCard,
+  type KpiTint,
+} from "@/components/fec";
 import { formatPayrollRange } from "@/lib/attendance-hr/roster-period";
 import { getHrOverview } from "@/lib/hr-overview.functions";
 import { FILTER_CHIP } from "@/lib/ui/command-surface";
@@ -145,7 +149,7 @@ export default function HrDashboardPage() {
       capability="people.view_roster"
       fallback={
         <div className="space-y-6">
-          <PageHeader
+          <FecPageHeader
             icon={Users}
             kicker={t("hr.dashboard.kicker")}
             title={t("hr.dashboard.title")}
@@ -155,7 +159,7 @@ export default function HrDashboardPage() {
       }
     >
       <div className="space-y-6">
-        <PageHeader
+        <FecPageHeader
           icon={Users}
           kicker={t("hr.dashboard.kicker")}
           title={t("hr.dashboard.title")}
@@ -182,7 +186,7 @@ export default function HrDashboardPage() {
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {tiles.map((tile) => (
-            <TintedKpiCard
+            <FecStatCard
               key={tile.key}
               title={t(`hr.dashboard.tiles.${tile.key}`)}
               value={tile.value}
@@ -201,7 +205,7 @@ export default function HrDashboardPage() {
                 {t(block.titleKey)}
               </p>
               {block.rows.length === 0 ? (
-                <p className="mt-2 text-sm text-muted-foreground">{t("hr.dashboard.breakdownEmpty")}</p>
+                <FecEmptyState message={t("hr.dashboard.breakdownEmpty")} className="mt-2 border-0 bg-transparent" />
               ) : (
                 <ul className="mt-3 space-y-1.5">
                   {block.rows.slice(0, 8).map((row) => (

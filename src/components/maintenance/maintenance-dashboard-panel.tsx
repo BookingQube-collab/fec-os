@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import { TintedKpiCard, type KpiTint } from "@/components/dashboard/tinted-kpi-card";
 import { KpiSkeletonStrip } from "@/components/loading/page-skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
+import { FecEmptyState, FecSkeleton, FecStatCard } from "@/components/fec";
 import { useMaintenanceDashboard } from "@/hooks/queries/useMaintenanceDashboard";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { useAppStore } from "@/stores/app-store";
@@ -20,7 +20,7 @@ const MaintenanceDashboardCharts = dynamic(
     loading: () => (
       <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
         {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-72 rounded-lg" />
+          <FecSkeleton key={i} className="h-72 rounded-lg" />
         ))}
       </div>
     ),
@@ -28,7 +28,7 @@ const MaintenanceDashboardCharts = dynamic(
 );
 
 function KpiCard({ label, value, tint }: { label: string; value: string | number; tint: KpiTint }) {
-  return <TintedKpiCard title={label} value={value} tint={tint} compact />;
+  return <FecStatCard title={label} value={value} tint={tint} compact />;
 }
 
 function tintForCount(value: number, warnAbove = 0): KpiTint {
@@ -49,7 +49,7 @@ export function MaintenanceDashboardPanel() {
         <KpiSkeletonStrip count={8} />
         <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
           {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-72 rounded-lg" />
+            <FecSkeleton key={i} className="h-72 rounded-lg" />
           ))}
         </div>
       </div>
@@ -57,11 +57,7 @@ export function MaintenanceDashboardPanel() {
   }
 
   if (!data) {
-    return (
-      <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-        Unable to load maintenance dashboard.
-      </div>
-    );
+    return <FecEmptyState message="Unable to load maintenance dashboard." />;
   }
 
   return (

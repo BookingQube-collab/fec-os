@@ -13,12 +13,11 @@ import { useSites } from "@/hooks/queries/useSites";
 import { canUserDo, ROLE_LEVELS, type AppRole } from "@/lib/rbac";
 import { useAuth } from "@/hooks/use-auth";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { FecButton as Button, FecPageHeader } from "@/components/fec";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { PageHeader } from "@/components/layout/page-header";
 import { InstallAppAdminCard } from "@/components/pwa/install-app-control";
 
 const ROLES = Object.keys(ROLE_LEVELS) as AppRole[];
@@ -31,7 +30,7 @@ function AdminPage() {
   const canDiagnostics = canUserDo(roles.map((r) => r.role), "admin.diagnostics") && maxLevel >= 80;
   return (
     <div className="space-y-5">
-      <PageHeader
+      <FecPageHeader
         icon={Settings}
         kicker="Administration"
         title="Administration"

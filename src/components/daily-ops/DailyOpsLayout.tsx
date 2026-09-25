@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
+import { ClipboardList } from "lucide-react";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
+import { FecPageHeader, FecSection } from "@/components/fec";
 import { DAILY_OPS_NAV_ITEMS } from "@/lib/daily-ops/constants";
 import { cn } from "@/lib/utils";
 
@@ -19,10 +21,11 @@ export function DailyOpsLayout({ children }: { children: React.ReactNode }) {
       </div>
     }>
     <div className="space-y-5">
-      <div>
-        <h1 className="page-title">{t("dailyOps.title")}</h1>
-        <p className="page-subtitle">{t("dailyOps.subtitle")}</p>
-      </div>
+      <FecPageHeader
+        icon={ClipboardList}
+        title={t("dailyOps.title")}
+        subtitle={t("dailyOps.subtitle")}
+      />
       <nav className="flex flex-wrap gap-2 border-b border-border pb-3">
         {DAILY_OPS_NAV_ITEMS.map((item) => {
           const active =
@@ -58,15 +61,9 @@ export function DailyOpsPageShell({
   actions?: React.ReactNode;
 }) {
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-semibold text-foreground">{title}</h2>
-          {subtitle ? <p className="page-subtitle mt-1">{subtitle}</p> : null}
-        </div>
-        {actions}
-      </div>
+    <FecSection title={title} actions={actions}>
+      {subtitle ? <p className="page-subtitle -mt-1">{subtitle}</p> : null}
       {children}
-    </div>
+    </FecSection>
   );
 }

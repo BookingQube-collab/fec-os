@@ -8,10 +8,16 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { AmcContractCard } from "@/components/amc/amc-contract-card";
-import { TintedKpiCard, type KpiTint } from "@/components/dashboard/tinted-kpi-card";
+import type { KpiTint } from "@/components/fec";
+import {
+  FecButton as Button,
+  FecEmptyState,
+  FecPageHeader,
+  FecSkeleton,
+  FecStatCard,
+} from "@/components/fec";
 import { KpiSkeletonStrip } from "@/components/loading/page-skeleton";
 import { DownloadReportButton } from "@/components/reports/download-report-button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { exportAmcDashboardCsv } from "@/lib/amc.functions";
 import { useAmcDashboardSummary, useAmcDashboardContracts } from "@/hooks/queries/useAmcDashboardSummary";
 import { useDocumentExpiryKpis } from "@/hooks/queries/useExpiryAlerts";
@@ -20,7 +26,6 @@ import { AMC_CATEGORIES, FEC_BRANCH_CODES, translateAmcCategory } from "@/lib/am
 import { useReportExport } from "@/hooks/use-report-export";
 import { useSites } from "@/hooks/queries/useSites";
 import { useStoreHydrated } from "@/hooks/use-store-hydrated";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -31,7 +36,7 @@ import {
 } from "@/components/ui/select";
 
 function KpiCard({ label, value, tint }: { label: string; value: string | number; tint: KpiTint }) {
-  return <TintedKpiCard title={label} value={value} tint={tint} compact />;
+  return <FecStatCard title={label} value={value} tint={tint} compact />;
 }
 
 export function AmcDashboardPage({ embedded = false }: { embedded?: boolean }) {
@@ -136,17 +141,11 @@ export function AmcDashboardPage({ embedded = false }: { embedded?: boolean }) {
   return (
     <div className="space-y-5">
       {!embedded ? (
-      <div className="rounded-[var(--radius-xl)] border border-border/80 bg-card px-5 py-4 shadow-elevated-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-[var(--radius)] bg-primary text-primary-foreground">
-              <ShieldCheck className="h-5 w-5" />
-            </div>
-            <div>
-              <h1 className="text-lg font-semibold text-foreground">{t("amc.brandTitle")}</h1>
-              <p className="text-xs text-muted-foreground">{t("amc.subtitle")}</p>
-            </div>
-          </div>
+      <FecPageHeader
+        icon={ShieldCheck}
+        title={t("amc.brandTitle")}
+        subtitle={t("amc.subtitle")}
+        actions={
           <div className="flex flex-wrap gap-2">
             <DownloadReportButton onPdf={exportPdf} onExcel={exportExcel} />
             <Button variant="secondary" size="sm" onClick={() => exportMut.mutate()} disabled={exportMut.isPending}>
@@ -156,8 +155,8 @@ export function AmcDashboardPage({ embedded = false }: { embedded?: boolean }) {
               <Link href="/compliance/amc-contracts/new"><Plus className="mr-1 h-4 w-4" />{t("amc.addContract")}</Link>
             </Button>
           </div>
-        </div>
-      </div>
+        }
+      />
       ) : (
         <div className="flex flex-wrap justify-end gap-2">
           <DownloadReportButton onPdf={exportPdf} onExcel={exportExcel} />
@@ -246,11 +245,11 @@ export function AmcDashboardPage({ embedded = false }: { embedded?: boolean }) {
       {booting || summaryLoading || contractsLoading ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="h-48 rounded-lg" />
+            <FecSkeleton key={i} className="h-48 rounded-lg" />
           ))}
         </div>
       ) : !contracts?.length ? (
-        <p className="text-sm text-muted-foreground">{t("amc.empty")}</p>
+        <FecEmptyState message={t("amc.empty")} />
       ) : (
         contracts.map((group) => (
           <section key={group.region} className="space-y-4">

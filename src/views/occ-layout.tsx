@@ -5,8 +5,7 @@ import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, LayoutGrid, ShieldAlert } from "lucide-react";
 
-import { PageHeader } from "@/components/layout/page-header";
-import { Button } from "@/components/ui/button";
+import { FecButton as Button, FecPageHeader } from "@/components/fec";
 
 const TABS = [
   { href: "/occ", labelKey: "command.tabs.estate", icon: LayoutGrid, exact: true },
@@ -21,7 +20,7 @@ function OccLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="w-full">
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-        <PageHeader
+        <FecPageHeader
           kicker={t("command.kicker")}
           title={t("command.title")}
           subtitle={t("command.subtitle")}

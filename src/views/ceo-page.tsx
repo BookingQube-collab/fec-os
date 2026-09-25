@@ -12,10 +12,8 @@ import { generateDailyBrief, generatePnLCommentary } from "@/lib/ceo.functions";
 import { useCeoOverview } from "@/hooks/queries/useCeo";
 import { usePermission } from "@/hooks/use-permission";
 import { queryKeys } from "@/lib/query-keys";
-import { Button } from "@/components/ui/button";
+import { FecButton as Button, FecPageHeader, FecStatCard, type KpiTint } from "@/components/fec";
 import { fmtQar } from "@/lib/currency";
-import { TintedKpiCard, type KpiTint } from "@/components/dashboard/tinted-kpi-card";
-import { PageHeader } from "@/components/layout/page-header";
 import { cn } from "@/lib/utils";
 
 function Page() {
@@ -54,7 +52,7 @@ function Page() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      <FecPageHeader
         icon={Briefcase}
         kicker={t("ceo.kicker")}
         title={t("ceo.title")}
@@ -198,7 +196,7 @@ function Kpi({
   ariaLabel?: string;
 }) {
   return (
-    <TintedKpiCard
+    <FecStatCard
       title={label}
       value={value}
       tint={tint}

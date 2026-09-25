@@ -10,7 +10,7 @@ import { getBranchLeague } from "@/lib/branches.functions";
 import { listPurchaseOrders } from "@/lib/pos.functions";
 import { listLeakageCases } from "@/lib/revenue.functions";
 import { askKnowledgeRag, deleteKbDocument, ingestKbDocument, listKbDocuments, type RagSource } from "@/lib/kb.functions";
-import { Button } from "@/components/ui/button";
+import { FecButton as Button, FecCard, FecPageHeader } from "@/components/fec";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { jsPDF } from "jspdf";
@@ -98,10 +98,11 @@ function Page() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-foreground">Reports</h1>
-        <p className="text-sm text-muted-foreground">Download branded PDF reports and ask the FEC-OS co-pilot.</p>
-      </div>
+      <FecPageHeader
+        icon={FileText}
+        title="Reports"
+        subtitle="Download branded PDF reports and ask the FEC-OS co-pilot."
+      />
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
         <ReportCard title="Board Pack" desc="Estate KPIs, branch league, AI brief, leakage, incidents, complaints, POs." busy={busy === "board"} onClick={downloadBoardPack} highlight />
@@ -118,7 +119,7 @@ function Page() {
 
 function ReportCard({ title, desc, busy, onClick, highlight }: { title: string; desc: string; busy: boolean; onClick: () => void; highlight?: boolean }) {
   return (
-    <div className={`rounded-lg border p-5 ${highlight ? "border-primary/40 bg-primary/5" : "border-border bg-card"}`}>
+    <FecCard className={highlight ? "border-primary/40 bg-primary/5" : undefined}>
       <div className="flex items-center gap-2">
         <FileText className="h-4 w-4 text-primary" />
         <h3 className="text-sm font-semibold text-foreground">{title}</h3>
@@ -128,7 +129,7 @@ function ReportCard({ title, desc, busy, onClick, highlight }: { title: string; 
         {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
         Download PDF
       </Button>
-    </div>
+    </FecCard>
   );
 }
 

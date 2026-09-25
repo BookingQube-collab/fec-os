@@ -12,10 +12,13 @@ import {
   runKpiAutoScoring,
 } from "@/lib/kpi.functions";
 import { CapabilityGate } from "@/components/auth/capability-gate";
-import { TintedKpiCard } from "@/components/dashboard/tinted-kpi-card";
+import {
+  FecButton as Button,
+  FecEmptyState,
+  FecPageHeader,
+  FecStatCard,
+} from "@/components/fec";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { PageHeader } from "@/components/layout/page-header";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 function ratingTone(rating: string | null) {
@@ -58,7 +61,7 @@ function KpiPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      <FecPageHeader
         kicker="Performance"
         title="Performance scorecards"
         subtitle="Role-based scorecards, monthly periods, and drill-down scores."
@@ -79,9 +82,9 @@ function KpiPage() {
       />
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <TintedKpiCard title="Active templates" value={templatesQ.data?.length ?? "—"} tint="sky" compact />
-        <TintedKpiCard title="Scores recorded" value={scoresQ.data?.length ?? "—"} tint="green" compact />
-        <TintedKpiCard title="Current period" value={periodsQ.data?.[0]?.label ?? "—"} tint="amber" compact />
+        <FecStatCard title="Active templates" value={templatesQ.data?.length ?? "—"} tint="sky" compact />
+        <FecStatCard title="Scores recorded" value={scoresQ.data?.length ?? "—"} tint="green" compact />
+        <FecStatCard title="Current period" value={periodsQ.data?.[0]?.label ?? "—"} tint="amber" compact />
       </div>
 
       <div className="surface-card">
@@ -115,8 +118,8 @@ function KpiPage() {
           <TableBody>
             {(scoresQ.data ?? []).length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center text-muted-foreground">
-                  No scores yet. Assign templates and enter scores to begin.
+                <TableCell colSpan={5} className="p-0">
+                  <FecEmptyState message="No scores yet. Assign templates and enter scores to begin." className="border-0 bg-transparent" />
                 </TableCell>
               </TableRow>
             ) : (

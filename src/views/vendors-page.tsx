@@ -15,7 +15,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
-import { PageHeader } from "@/components/layout/page-header";
+import { FecButton as Button, FecPageHeader } from "@/components/fec";
 import { PrModuleShell } from "@/components/procurement/pr-module-shell";
 import {
   VendorComplianceMatrixTable,
@@ -29,7 +29,6 @@ import {
   VendorRuleMatrixDialog,
 } from "@/components/vendors/vendor-ecosystem-dialogs";
 import { VendorDetailDialog } from "@/components/vendors/vendor-detail-dialog";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -132,7 +131,7 @@ export default function VendorsPage() {
   return (
     <PrModuleShell>
       <div className="space-y-6">
-        <PageHeader
+        <FecPageHeader
           title={t("vendors.pageTitle")}
           subtitle={t("vendors.ecosystem.subtitle")}
           actions={
