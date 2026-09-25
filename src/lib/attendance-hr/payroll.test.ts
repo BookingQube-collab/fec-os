@@ -171,6 +171,34 @@ describe("payroll readiness", () => {
     expect(row.payrollReady).toBe(true);
   });
 
+  it("counts unpaid_leave days separately from absences", () => {
+    const [row] = aggregatePayrollRows([
+      {
+        staff_id: "u",
+        staff_name: "Uma",
+        work_date: "2026-08-01",
+        status: "absent",
+      },
+      {
+        staff_id: "u",
+        staff_name: "Uma",
+        work_date: "2026-08-02",
+        status: "unpaid_leave",
+      },
+      {
+        staff_id: "u",
+        staff_name: "Uma",
+        work_date: "2026-08-03",
+        status: "present",
+        punch_count: 2,
+        worked_minutes: 480,
+      },
+    ]);
+    expect(row.daysAbsent).toBe(1);
+    expect(row.daysUnpaidLeave).toBe(1);
+    expect(row.daysPresent).toBe(1);
+  });
+
   it("does not double-count the same staff day across locations", () => {
     const [row] = aggregatePayrollRows([
       {

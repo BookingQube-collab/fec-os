@@ -248,6 +248,22 @@ export function computeDailyRateBasicQar(dayRateQar: number, presentDays: number
   return round2(Math.max(0, Number(dayRateQar) || 0) * Math.max(0, Number(presentDays) || 0));
 }
 
+/**
+ * AT#12 unpaid days for monthly staff.
+ * Absences always deduct. Leave-request unpaid and attendance unpaid_leave often
+ * describe the same days (leave sync) — take max so we do not double-cut.
+ */
+export function mergeUnpaidDaysForPayroll(input: {
+  leaveUnpaidDays: number;
+  attendanceAbsentDays: number;
+  attendanceUnpaidLeaveDays?: number;
+}): number {
+  const leave = Math.max(0, Number(input.leaveUnpaidDays) || 0);
+  const absent = Math.max(0, Number(input.attendanceAbsentDays) || 0);
+  const attUnpaid = Math.max(0, Number(input.attendanceUnpaidLeaveDays) || 0);
+  return absent + Math.max(leave, attUnpaid);
+}
+
 function sumLines(lines: PayrollMoneyLine[]): number {
   return round2(lines.reduce((s, l) => s + (Number(l.amountQar) || 0), 0));
 }

@@ -23,6 +23,7 @@ import {
   filterConsumableOtClaims,
   HR_PAYROLL_PAYMENT_METHODS,
   HR_PAYROLL_STATUSES,
+  mergeUnpaidDaysForPayroll,
   nextStatusAfter,
   resolveDailyRatePayroll,
   resolvePaymentMethod,
@@ -437,6 +438,7 @@ export const generatePayrollLines = createAuthenticatedAction(
     // Do not filter by location_id here: present days are company-wide per staff (cross-site
     // punches). staffIds already scopes the cohort (home location filter above when set).
     const presentDaysByStaff = new Map<string, number>();
+    const unpaidAttendanceByStaff = new Map<string, { absent: number; unpaidLeave: number }>();
     const readinessByStaff = new Map<string, { payrollReady: boolean; blockingDays: number; missedPunches: number }>();
     {
       const { data: attRows } = await supabaseAdmin
@@ -459,6 +461,10 @@ export const generatePayrollLines = createAuthenticatedAction(
       }));
       for (const row of aggregatePayrollRows(dayInputs)) {
         presentDaysByStaff.set(row.staffId, row.daysPresent);
+        unpaidAttendanceByStaff.set(row.staffId, {
+          absent: row.daysAbsent,
+          unpaidLeave: row.daysUnpaidLeave,
+        });
         readinessByStaff.set(row.staffId, {
           payrollReady: row.payrollReady,
           blockingDays: row.blockingDays,
@@ -541,7 +547,7 @@ export const generatePayrollLines = createAuthenticatedAction(
         );
       }
       const exitDate = ext?.last_working_date ?? ext?.releasing_date ?? null;
-      const unpaidDays = unpaidLeaveDaysForStaff(
+      const leaveUnpaid = unpaidLeaveDaysForStaff(
         (leaveRows ?? []) as Parameters<typeof unpaidLeaveDaysForStaff>[0],
         s.id,
         dateFrom,
@@ -556,6 +562,16 @@ export const generatePayrollLines = createAuthenticatedAction(
       });
       const dailyRate = dayRateQar ?? (basic > 0 ? basic / 30 : null);
       const presentDays = presentDaysByStaff.get(s.id) ?? 0;
+      const attUnpaid = unpaidAttendanceByStaff.get(s.id) ?? { absent: 0, unpaidLeave: 0 };
+      // Monthly: full basic (hire/exit proration) minus unpaid absences (AT#12).
+      // Joker/daily: day_rate × present — unpaid days do not also deduct.
+      const unpaidDays = dailyPay
+        ? 0
+        : mergeUnpaidDaysForPayroll({
+            leaveUnpaidDays: leaveUnpaid,
+            attendanceAbsentDays: attUnpaid.absent,
+            attendanceUnpaidLeaveDays: attUnpaid.unpaidLeave,
+          });
       const proration = dailyPay
         ? { factor: 1, unpaidLeaveDays: 0, activeDays: presentDays, periodDays: presentDays }
         : computeProrationFactor({
@@ -582,7 +598,7 @@ export const generatePayrollLines = createAuthenticatedAction(
         allowancesQar: dailyPay ? 0 : allowances,
         otQar,
         airTicketAllowanceQar: airQar,
-        unpaidLeaveDays: dailyPay ? 0 : unpaidDays,
+        unpaidLeaveDays: unpaidDays,
         dailyRateQar: dailyRate,
         proration,
         paymentMethod,
@@ -604,10 +620,16 @@ export const generatePayrollLines = createAuthenticatedAction(
         );
       }
 
+      const deductionTotal = computed.deductions.reduce(
+        (sum, d) => sum + (Number(d.amountQar) || 0),
+        0,
+      );
+
       inserts.push({
         period_id: data.periodId,
         staff_id: s.id,
         payment_method: computed.paymentMethod,
+        employment_category: employmentCategory ?? null,
         earnings: [
           ...computed.earnings.map((e) =>
             dailyPay && e.code === "basic"
@@ -642,12 +664,18 @@ export const generatePayrollLines = createAuthenticatedAction(
         notes: noteParts.length ? noteParts.join("; ") : null,
         snapshot: {
           presentDays,
+          absentDays: attUnpaid.absent,
+          unpaidLeaveDays: unpaidDays,
           dayRateQar: dailyPay ? dayRateQar : null,
           payrollReady: ready?.payrollReady ?? true,
           blockingDays: ready?.blockingDays ?? 0,
           missedPunches: ready?.missedPunches ?? 0,
-          basicSalary: hasComp ? basicForLine : null,
+          // Contract/authorized basic for monthly; day_rate×present for jokers.
+          basicSalary: hasComp ? (dailyPay ? basicForLine : basic) : null,
           allowances: dailyPay ? 0 : allowances,
+          earnedGross: computed.grossQar,
+          deduction: Math.round((deductionTotal + Number.EPSILON) * 100) / 100,
+          workingDays: presentDays,
           missingCompensation: !hasComp,
         },
       });

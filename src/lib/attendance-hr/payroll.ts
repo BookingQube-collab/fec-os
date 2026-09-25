@@ -51,6 +51,8 @@ export type PayrollStaffRow = {
   employeeCode: string;
   daysPresent: number;
   daysAbsent: number;
+  /** Days marked unpaid_leave in attendance (export treats these as Unpaid). */
+  daysUnpaidLeave: number;
   daysLate: number;
   missedPunches: number;
   workedMinutes: number;
@@ -153,6 +155,7 @@ function emptyStaff(id: string, name: string, code: string): PayrollStaffRow {
     employeeCode: code,
     daysPresent: 0,
     daysAbsent: 0,
+    daysUnpaidLeave: 0,
     daysLate: 0,
     missedPunches: 0,
     workedMinutes: 0,
@@ -174,6 +177,7 @@ export function aggregatePayrollRows(days: PayrollDayInput[]): PayrollStaffRow[]
     const status = String(day.status ?? "");
     if (isPayrollPresentDay(day)) current.daysPresent += 1;
     if (status === "absent") current.daysAbsent += 1;
+    if (status === "unpaid_leave") current.daysUnpaidLeave += 1;
     if (status === "late" || Number(day.late_minutes ?? 0) > 0) current.daysLate += 1;
     if (day.missed_punch || status === "missed_punch") current.missedPunches += 1;
     const blockCode = payrollBlockReasonCode(day);

@@ -784,7 +784,19 @@ export default function HrPayrollPeriodPage() {
                             <td className="tabular-nums">{qar(Number(snap.otPayReg) || 0)}</td>
                             <td className="tabular-nums">{qar(Number(snap.otPayPh) || 0)}</td>
                             <td className="tabular-nums">{qar(Number(snap.extraPay) || 0)}</td>
-                            <td className="tabular-nums">{qar(Number(snap.deduction) || 0)}</td>
+                            <td className="tabular-nums">
+                              {qar(
+                                Number(snap.deduction) ||
+                                  (Array.isArray(line.deductions)
+                                    ? line.deductions.reduce(
+                                        (sum, d) =>
+                                          sum +
+                                          (Number((d as { amountQar?: number }).amountQar) || 0),
+                                        0,
+                                      )
+                                    : 0),
+                              )}
+                            </td>
                             <td className="tabular-nums font-medium">{qar(line.netQar)}</td>
                             <td className="text-xs uppercase">{line.paymentMethod}</td>
                             <td className="tabular-nums">{qar(line.importedNetQar)}</td>

@@ -14,6 +14,7 @@ import {
   filterConsumableOtClaims,
   isDailyRateCompensation,
   lockedLineResistsPolicyChange,
+  mergeUnpaidDaysForPayroll,
   partitionByPaymentMethod,
   resolveDailyRatePayroll,
   resolvePaymentMethod,
@@ -129,6 +130,58 @@ describe("AT#12 unpaid leave / absence affects net", () => {
     });
     expect(withLeave.netQar).toBe(full.netQar - 300);
     expect(withLeave.deductions.some((d) => d.code === "unpaid_leave")).toBe(true);
+  });
+
+  it("merges attendance absences with leave unpaid without double-counting synced leave", () => {
+    expect(
+      mergeUnpaidDaysForPayroll({
+        leaveUnpaidDays: 2,
+        attendanceAbsentDays: 3,
+        attendanceUnpaidLeaveDays: 2,
+      }),
+    ).toBe(5);
+    expect(
+      mergeUnpaidDaysForPayroll({
+        leaveUnpaidDays: 0,
+        attendanceAbsentDays: 4,
+        attendanceUnpaidLeaveDays: 1,
+      }),
+    ).toBe(5);
+    expect(
+      mergeUnpaidDaysForPayroll({
+        leaveUnpaidDays: 3,
+        attendanceAbsentDays: 0,
+        attendanceUnpaidLeaveDays: 0,
+      }),
+    ).toBe(3);
+  });
+
+  it("deducts attendance absences from monthly net at daily rate", () => {
+    const proration = computeProrationFactor({
+      dateFrom: "2026-07-28",
+      dateTo: "2026-08-27",
+    });
+    const unpaidDays = mergeUnpaidDaysForPayroll({
+      leaveUnpaidDays: 0,
+      attendanceAbsentDays: 2,
+      attendanceUnpaidLeaveDays: 0,
+    });
+    const full = computePayrollLineAmounts({
+      basicQar: 3000,
+      proration,
+      paymentMethod: "wps",
+      unpaidLeaveDays: 0,
+      dailyRateQar: 100,
+    });
+    const withAbsent = computePayrollLineAmounts({
+      basicQar: 3000,
+      proration: { ...proration, unpaidLeaveDays: unpaidDays },
+      paymentMethod: "wps",
+      unpaidLeaveDays: unpaidDays,
+      dailyRateQar: 100,
+    });
+    expect(withAbsent.netQar).toBe(full.netQar - 200);
+    expect(withAbsent.deductions.some((d) => d.code === "unpaid_leave")).toBe(true);
   });
 
   it("prorates when hire mid-cycle", () => {
