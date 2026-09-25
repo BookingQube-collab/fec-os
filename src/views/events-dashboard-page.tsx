@@ -7,9 +7,13 @@ import { useTranslation } from "react-i18next";
 import { CapabilityGate } from "@/components/auth/capability-gate";
 import { EventHealthBadge } from "@/components/events/event-health-badge";
 import { EventSourceBanner } from "@/components/events/event-source-banner";
-import { PageHeader } from "@/components/layout/page-header";
+import {
+  FecButton as Button,
+  FecEmptyState,
+  FecPageHeader,
+  FecSkeleton,
+} from "@/components/fec";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { useEventsDashboard } from "@/hooks/queries/useEvents";
 import { TintedKpiCard, type KpiTint } from "@/components/dashboard/tinted-kpi-card";
 import { fmtQar } from "@/lib/currency";
@@ -42,10 +46,11 @@ export default function EventsDashboardPage() {
   const d = dash.data;
   const saved = d?.savedVsBudget ?? 0;
   const savedPct = d ? savedVsBudgetPct(d.budgetRevised, d.budgetActual) : null;
+  const loading = dash.isLoading && !d;
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      <FecPageHeader
         icon={CalendarDays}
         kicker={t("events.kicker")}
         title={t("events.dashboard.title")}
@@ -69,6 +74,13 @@ export default function EventsDashboardPage() {
 
       <EventSourceBanner />
 
+      {loading ? (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <FecSkeleton key={i} className="h-20 rounded-2xl" />
+          ))}
+        </div>
+      ) : (
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Kpi label={t("events.dashboard.total")} value={String(d?.total ?? "—")} hint={t("events.dashboard.upcomingHint", { n: d?.upcoming ?? 0 })} tint="sky" />
         <Kpi label={t("events.dashboard.live")} value={String(d?.live ?? "—")} hint={t("events.dashboard.readinessHint", { n: d?.avgReadiness ?? 0 })} tint="green" />
@@ -85,6 +97,7 @@ export default function EventsDashboardPage() {
           hint={t("events.dashboard.blockedHint", { n: d?.blockedTasks ?? 0 })}
         />
       </div>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Kpi label={t("events.dashboard.contracted")} value={d ? fmtQar(d.contractedValue) : "—"} tint="green" />
@@ -115,7 +128,7 @@ export default function EventsDashboardPage() {
         </div>
         <div className="divide-y divide-border/40">
           {(d?.events ?? []).length === 0 ? (
-            <p className="px-4 py-8 text-sm text-muted-foreground">{t("events.list.empty")}</p>
+            <FecEmptyState message={t("events.list.empty")} className="border-0 bg-transparent" />
           ) : (
             d?.events.map((event) => (
               <Link

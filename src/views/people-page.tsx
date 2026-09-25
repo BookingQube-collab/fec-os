@@ -73,12 +73,17 @@ import type { StaffRow } from "@/lib/queries/module-queries.core";
 import { queryKeys } from "@/lib/query-keys";
 import { usePermission } from "@/hooks/use-permission";
 import { useAppStore } from "@/stores/app-store";
-import { PageHeader } from "@/components/layout/page-header";
+import {
+  FecButton as Button,
+  FecPageHeader,
+  FecTabs as Tabs,
+  FecTabsContent as TabsContent,
+  FecTabsList as TabsList,
+  FecTabsTrigger as TabsTrigger,
+} from "@/components/fec";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -261,7 +266,7 @@ function PeoplePageBody() {
 
   return (
     <div className="space-y-5">
-      <PageHeader
+      <FecPageHeader
         icon={Users}
         title={t("people.title")}
         subtitle={t("people.subtitle")}

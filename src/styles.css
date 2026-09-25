@@ -437,6 +437,17 @@
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
   }
 
+  .surface-card-flat { box-shadow: none; }
+  .surface-card-raised { box-shadow: 0 8px 28px rgba(0, 0, 0, 0.08); }
+  .surface-card-interactive { transition: box-shadow 160ms ease, transform 160ms ease; }
+  .surface-card-interactive:hover { box-shadow: 0 8px 28px rgba(0, 0, 0, 0.08); }
+  .page-stack { display: flex; flex-direction: column; gap: var(--page-gap, 1rem); }
+  @media (min-width: 768px) { .page-stack { gap: var(--page-gap-md, 1.5rem); } }
+  .state-error {
+    border-color: color-mix(in oklab, var(--color-danger, #dc2626) 25%, transparent);
+    background-color: color-mix(in oklab, var(--color-danger, #dc2626) 5%, transparent);
+  }
+
   .kpi-tint-green {
     border-color: var(--kpi-green-border);
     background-color: var(--kpi-green-bg);

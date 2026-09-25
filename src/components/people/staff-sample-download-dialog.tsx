@@ -5,15 +5,16 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Download } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  FecButton as Button,
+  FecFormSection,
+  FecModal as Dialog,
+  FecModalContent as DialogContent,
+  FecModalDescription as DialogDescription,
+  FecModalFooter as DialogFooter,
+  FecModalHeader as DialogHeader,
+  FecModalTitle as DialogTitle,
+} from "@/components/fec";
 import { Label } from "@/components/ui/label";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { SearchableSelect } from "@/components/ui/searchable-select";
@@ -70,7 +71,7 @@ export function StaffSampleDownloadDialog({
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
-        <div className="space-y-3">
+        <FecFormSection>
           <div className="space-y-1.5">
             <Label htmlFor="staff-sample-scope">{t("people.roster.sampleScope")}</Label>
             <SearchableSelect
@@ -103,7 +104,7 @@ export function StaffSampleDownloadDialog({
               />
             </div>
           ) : null}
-        </div>
+        </FecFormSection>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={downloading}>
             {t("common.cancel")}

@@ -6,10 +6,18 @@ import { useTranslation } from "react-i18next";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
 import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
-import { PageHeader } from "@/components/layout/page-header";
+import {
+  FecButton as Button,
+  FecEmptyState,
+  FecPageHeader,
+  FecTable as Table,
+  FecTableBody as TableBody,
+  FecTableCell as TableCell,
+  FecTableHead as TableHead,
+  FecTableHeader as TableHeader,
+  FecTableRow as TableRow,
+} from "@/components/fec";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { HR_EXTRA_PAGES } from "@/lib/people/hr-extras";
 
 export default function PeopleExtrasPage() {
@@ -19,12 +27,10 @@ export default function PeopleExtrasPage() {
   return (
     <CapabilityGate
       capability="people.view_roster"
-      fallback={
-        <p className="text-sm text-muted-foreground">{t("people.extras.noAccess")}</p>
-      }
+      fallback={<p className="text-sm text-muted-foreground">{t("people.extras.noAccess")}</p>}
     >
       <div className="space-y-6">
-        <PageHeader
+        <FecPageHeader
           icon={Archive}
           kicker={t("nav.departments.people")}
           title={t("people.extras.title")}
@@ -32,7 +38,7 @@ export default function PeopleExtrasPage() {
         />
         <NeumorphicCard className="space-y-3 p-5">
           {rows.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t("people.extras.empty")}</p>
+            <FecEmptyState message={t("people.extras.empty")} />
           ) : (
             <div className="overflow-x-auto">
               <Table>
@@ -51,9 +57,7 @@ export default function PeopleExtrasPage() {
                       <TableCell className="align-top">
                         <p className="font-medium">{t(row.titleKey)}</p>
                         <Badge variant={row.visibility === "hidden" ? "warning" : "outline"} className="mt-1">
-                          {row.visibility === "hidden"
-                            ? t("people.extras.hidden")
-                            : t("people.extras.visibleElsewhere")}
+                          {row.visibility === "hidden" ? t("people.extras.hidden") : t("people.extras.visibleElsewhere")}
                         </Badge>
                       </TableCell>
                       <TableCell className="align-top font-mono text-xs">{row.path}</TableCell>

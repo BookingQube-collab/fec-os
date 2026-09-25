@@ -7,8 +7,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronDown,
   Columns3,
-  Download,
-  Loader2,
+  Download,
   MoreHorizontal,
   Plus,
   Upload,
@@ -17,20 +16,27 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
 import { TintedKpiCard, type KpiTint } from "@/components/dashboard/tinted-kpi-card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  FecButton as Button,
+  FecDrawer as Sheet,
+  FecDrawerContent as SheetContent,
+  FecDrawerHeader as SheetHeader,
+  FecDrawerTitle as SheetTitle,
+  FecDropdown as DropdownMenu,
+  FecDropdownCheckboxItem as DropdownMenuCheckboxItem,
+  FecDropdownContent as DropdownMenuContent,
+  FecDropdownItem as DropdownMenuItem,
+  FecDropdownSeparator as DropdownMenuSeparator,
+  FecDropdownTrigger as DropdownMenuTrigger,
+  FecFilter,
+  FecFilterGroup,
+  FecLoader,
+  FecSearch,
+} from "@/components/fec";
+import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { MobileListCard } from "@/components/layout/mobile-list-card";
 import { ResponsiveDataView } from "@/components/layout/responsive-data-view";
 import { StaffAvatar } from "@/components/people/staff-photo-field";
@@ -517,14 +523,7 @@ export function StaffDirectory({
   return (
     <div className="space-y-4">
       {isRefreshing ? (
-        <div
-          className="flex items-center gap-2 text-xs text-muted-foreground"
-          role="status"
-          aria-live="polite"
-        >
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          {t("people.staff.refreshing", "Updating…")}
-        </div>
+        <FecLoader size="sm" className="min-h-0 justify-start text-xs" label={t("people.staff.refreshing", "Updating…")} />
       ) : null}
       {/* Headcount KPI quick filters — keep essential counts on phone */}
       <div className={cn("grid grid-cols-2 gap-2 md:grid-cols-3 md:gap-3 lg:grid-cols-6", isRefreshing && "opacity-90")}>
@@ -604,15 +603,7 @@ export function StaffDirectory({
       {/* Toolbar — sticky search/filters on phone */}
       <div className="sticky top-0 z-20 -mx-1 space-y-2 bg-background/95 px-1 py-2 backdrop-blur md:static md:z-auto md:mx-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
       <div className="flex flex-wrap items-center gap-2">
-        <Input
-          className="h-10 min-w-0 flex-1 md:min-w-[14rem] sm:max-w-md"
-          placeholder={t("people.staff.search", "Search staff…")}
-          value={q}
-          onChange={(e) => {
-            setQ(e.target.value);
-            setPage(1);
-          }}
-        />
+        <FecSearch containerClassName="min-w-0 flex-1 md:min-w-[14rem] sm:max-w-md" className="h-10" placeholder={t("people.staff.search", "Search staff…")} value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} />
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {canEdit && onAdd ? (
             <Button size="sm" onClick={onAdd} className="max-md:h-10 max-md:w-10 max-md:px-0" aria-label={t("people.staff.addEmployee", "Add employee")}>
@@ -834,36 +825,22 @@ export function StaffDirectory({
         ) : null}
 
         {activeChips.length ? (
-          <div className="flex flex-wrap items-center gap-1.5 border-t border-border/60 pt-3">
+          <FecFilterGroup className="border-t border-border/60 pt-3">
             {activeChips.map((chip) => (
-              <button
-                key={chip.key}
-                type="button"
-                onClick={() => {
-                  chip.clear();
-                  setPage(1);
-                }}
-                className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2.5 py-1 text-[11px] text-foreground hover:bg-muted/60"
-              >
-                {chip.label}
-                <span aria-hidden className="text-muted-foreground">
-                  ×
-                </span>
-              </button>
+              <FecFilter key={chip.key} active onClick={() => { chip.clear(); setPage(1); }}>
+                {chip.label}<span aria-hidden className="ms-1 text-muted-foreground">×</span>
+              </FecFilter>
             ))}
-            <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={clearAllFilters}>
-              {t("people.staff.clearAll", "Clear all")}
-            </Button>
-          </div>
+            <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={clearAllFilters}>{t("people.staff.clearAll", "Clear all")}</Button>
+          </FecFilterGroup>
         ) : null}
       </div>
 
       {/* Table / mobile cards */}
       <div className={cn("relative", isRefreshing && "opacity-70 transition-opacity")}>
       {isInitialLoading ? (
-        <div className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-border px-4 py-16 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          {t("people.staff.loading")}
+        <div className="flex items-center justify-center rounded-xl border border-dashed border-border px-4 py-16">
+          <FecLoader size="sm" label={t("people.staff.loading")} />
         </div>
       ) : (
       <ResponsiveDataView

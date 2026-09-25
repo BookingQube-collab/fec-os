@@ -26,6 +26,11 @@ export const KPI_ICON_CLASS: Record<KpiTint, string> = {
 export const SURFACE_CARD = "surface-card";
 export const FILTER_CHIP = "filter-chip";
 export const FILTER_CHIP_ACTIVE = "filter-chip filter-chip-active";
+export const SURFACE_CARD_FLAT = "surface-card surface-card-flat";
+export const SURFACE_CARD_RAISED = "surface-card surface-card-raised";
+export const SURFACE_CARD_INTERACTIVE = "surface-card surface-card-interactive";
+export const PAGE_STACK = "page-stack";
+export const STATE_ERROR = "state-error";
 
 const WIDGET_ACCENT_TO_TINT = {
   blue: "sky",

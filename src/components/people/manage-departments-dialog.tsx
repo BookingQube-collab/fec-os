@@ -16,16 +16,18 @@ import { departmentBudgetYear } from "@/lib/procurement/department-budget";
 import { sortDepartmentsTree } from "@/lib/departments";
 import { useMasterDepartments } from "@/hooks/queries/useDepartments";
 import { queryKeys } from "@/lib/query-keys";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+  FecButton as Button,
+  FecFormSection,
+  FecLoader,
+  FecModal as Dialog,
+  FecModalContent as DialogContent,
+  FecModalFooter as DialogFooter,
+  FecModalHeader as DialogHeader,
+  FecModalTitle as DialogTitle,
+  FecModalTrigger as DialogTrigger,
+} from "@/components/fec";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -126,7 +128,8 @@ export function ManageDepartmentsDialog({ trigger }: { trigger?: React.ReactNode
           <DialogTitle>{t("people.departments.title")}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
-          <div className="grid grid-cols-[1fr_auto_1fr_auto] items-end gap-2">
+          <FecFormSection description={t("people.departments.budgetHint", { year })}>
+            <div className="grid grid-cols-[1fr_auto_1fr_auto] items-end gap-2">
             <div className="space-y-2">
               <Label className="text-xs">{t("people.departments.newName")}</Label>
               <Input
@@ -169,8 +172,8 @@ export function ManageDepartmentsDialog({ trigger }: { trigger?: React.ReactNode
             >
               <Plus />
             </Button>
-          </div>
-          <p className="text-xs text-muted-foreground">{t("people.departments.budgetHint", { year })}</p>
+            </div>
+          </FecFormSection>
 
           <div className="max-h-80 overflow-y-auto rounded-md border border-border">
             <table className="w-full text-sm">
@@ -186,9 +189,7 @@ export function ManageDepartmentsDialog({ trigger }: { trigger?: React.ReactNode
               <tbody>
                 {isLoading ? (
                   <tr>
-                    <td colSpan={5} className="px-3 py-4 text-center text-xs text-muted-foreground">
-                      {t("common.loading")}
-                    </td>
+                    <td colSpan={5} className="px-3 py-4 text-center"><FecLoader size="sm" label={t("common.loading")} /></td>
                   </tr>
                 ) : (
                   tree.map((d) => (

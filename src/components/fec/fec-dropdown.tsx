@@ -1,0 +1,17 @@
+export {
+  DropdownMenu as FecDropdown,
+  DropdownMenuTrigger as FecDropdownTrigger,
+  DropdownMenuContent as FecDropdownContent,
+  DropdownMenuItem as FecDropdownItem,
+  DropdownMenuCheckboxItem as FecDropdownCheckboxItem,
+  DropdownMenuRadioItem as FecDropdownRadioItem,
+  DropdownMenuLabel as FecDropdownLabel,
+  DropdownMenuSeparator as FecDropdownSeparator,
+  DropdownMenuShortcut as FecDropdownShortcut,
+  DropdownMenuGroup as FecDropdownGroup,
+  DropdownMenuPortal as FecDropdownPortal,
+  DropdownMenuSub as FecDropdownSub,
+  DropdownMenuSubContent as FecDropdownSubContent,
+  DropdownMenuSubTrigger as FecDropdownSubTrigger,
+  DropdownMenuRadioGroup as FecDropdownRadioGroup,
+} from "@/components/ui/dropdown-menu";
