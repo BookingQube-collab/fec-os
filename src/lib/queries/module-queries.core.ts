@@ -539,9 +539,11 @@ export async function fetchStaff(
   });
 }
 
-/** Directory list columns only — no attendance/payroll/training blobs. */
+/** Directory list columns only — no attendance/payroll/training blobs.
+ * Hint both embeds: locations (home vs work M2M) and staff_profile_ext
+ * (staff_id vs reporting_manager_staff_id) — otherwise PostgREST PGRST201. */
 const STAFF_DIRECTORY_SELECT =
-  "id, employee_code, full_name, job_title, department, status, location_id, is_roaming, phone, email, hire_date, qid, e3_enrolled, employment_type, staff_role, photo_updated_at, flexible_attendance, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday, locations!staff_location_id_fkey(code, name), staff_departments(department_id, master_departments(id, name, sort_order)), staff_profile_ext(nationality, gender, sponsorship_info, passport_number, passport_expiry, qid_expiry, date_of_birth, contract_end, visa_expiry)";
+  "id, employee_code, full_name, job_title, department, status, location_id, is_roaming, phone, email, hire_date, qid, e3_enrolled, employment_type, staff_role, photo_updated_at, flexible_attendance, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday, locations!staff_location_id_fkey(code, name), staff_departments(department_id, master_departments(id, name, sort_order)), staff_profile_ext!staff_profile_ext_staff_id_fkey(nationality, gender, sponsorship_info, passport_number, passport_expiry, qid_expiry, date_of_birth, contract_end, visa_expiry)";
 
 export type StaffDirectoryListFilters = {
   locationId?: string | null;
