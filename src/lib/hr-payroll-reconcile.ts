@@ -240,9 +240,10 @@ export function detectPayrollExceptions(input: {
   const otCap = input.excessiveOtHours ?? 40;
   for (const line of input.lines) {
     const snap = line.snapshot ?? {};
+    const missingComp = snap.missingCompensation === true;
     const basic = Number(snap.basicSalary) || 0;
     const otH = (Number(snap.otHoursReg) || 0) + (Number(snap.otHoursPh) || 0);
-    if (basic <= 0 && line.netQar <= 0) {
+    if (missingComp || (basic <= 0 && line.netQar <= 0 && snap.dayRateQar == null)) {
       out.push({
         kind: "missing_salary",
         staffId: line.staffId,

@@ -207,6 +207,42 @@ export function isDailyRateCompensation(input: {
   return !(Number.isFinite(monthly) && monthly > 0);
 }
 
+function positiveRate(v: number | null | undefined): number | null {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function isJokerEmployment(employmentType?: string | null, employmentCategory?: string | null): boolean {
+  const cat = String(employmentCategory ?? employmentType ?? "")
+    .trim()
+    .toLowerCase();
+  return cat === "joker";
+}
+
+/**
+ * Resolve whether this staff line is paid day_rate × present days, and which rate to use.
+ * Jokers are always day-rate workers; rate prefers daily_rate_qar, then monthly_salary_qar
+ * when HR filed the per-day amount in the monthly field.
+ */
+export function resolveDailyRatePayroll(input: {
+  employmentType?: string | null;
+  employmentCategory?: string | null;
+  monthlySalaryQar?: number | null;
+  dailyRateQar?: number | null;
+}): { dailyPay: boolean; dayRateQar: number | null } {
+  const daily = positiveRate(input.dailyRateQar);
+  const monthly = positiveRate(input.monthlySalaryQar);
+  if (isJokerEmployment(input.employmentType, input.employmentCategory)) {
+    // ponytail: joker pay-basis UI defaulted to monthly, so many day rates live in monthly_salary_qar.
+    // Ceiling: a true joker monthly salary (rare) is indistinguishable — use daily_rate_qar going forward.
+    return { dailyPay: Boolean(daily ?? monthly), dayRateQar: daily ?? monthly };
+  }
+  if (isDailyRateCompensation(input)) {
+    return { dailyPay: true, dayRateQar: daily };
+  }
+  return { dailyPay: false, dayRateQar: daily };
+}
+
 /** Joker / daily workers: day_rate × countable present (punch) days. */
 export function computeDailyRateBasicQar(dayRateQar: number, presentDays: number): number {
   return round2(Math.max(0, Number(dayRateQar) || 0) * Math.max(0, Number(presentDays) || 0));

@@ -1,6 +1,9 @@
 export const PAYROLL_BLOCKING_STATUSES = new Set(["missed_punch", "incomplete", "short_hours", "review_required"]);
 
-/** Days the employee was on site — includes late / OT / short hours (still blocking when short). */
+/**
+ * Days the employee was on site — includes late / OT / short hours / single-punch
+ * (still blocking when incomplete). Used for joker day_rate × present days.
+ */
 export const PAYROLL_PRESENT_STATUSES = new Set([
   "present",
   "late",
@@ -8,6 +11,8 @@ export const PAYROLL_PRESENT_STATUSES = new Set([
   "early_departure",
   "early_leave",
   "short_hours",
+  "missed_punch",
+  "review_required",
 ]);
 
 export const PAYROLL_BLOCK_REASON_LABELS: Record<string, string> = {

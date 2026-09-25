@@ -23,8 +23,8 @@ import {
   filterConsumableOtClaims,
   HR_PAYROLL_PAYMENT_METHODS,
   HR_PAYROLL_STATUSES,
-  isDailyRateCompensation,
   nextStatusAfter,
+  resolveDailyRatePayroll,
   resolvePaymentMethod,
   sumOtAmounts,
   type HrPayrollPaymentMethod,
@@ -540,8 +540,6 @@ export const generatePayrollLines = createAuthenticatedAction(
           0,
         );
       }
-      const dailyRate = dailyStored != null ? dailyStored : basic / 30;
-
       const exitDate = ext?.last_working_date ?? ext?.releasing_date ?? null;
       const unpaidDays = unpaidLeaveDaysForStaff(
         (leaveRows ?? []) as Parameters<typeof unpaidLeaveDaysForStaff>[0],
@@ -549,10 +547,14 @@ export const generatePayrollLines = createAuthenticatedAction(
         dateFrom,
         dateTo,
       );
-      const dailyPay = isDailyRateCompensation({
+      const employmentCategory = ext?.employment_category ?? s.employment_type;
+      const { dailyPay, dayRateQar } = resolveDailyRatePayroll({
+        employmentType: s.employment_type,
+        employmentCategory,
         monthlySalaryQar: monthlyStored,
         dailyRateQar: dailyStored,
       });
+      const dailyRate = dayRateQar ?? (basic > 0 ? basic / 30 : null);
       const presentDays = presentDaysByStaff.get(s.id) ?? 0;
       const proration = dailyPay
         ? { factor: 1, unpaidLeaveDays: 0, activeDays: presentDays, periodDays: presentDays }
@@ -564,7 +566,7 @@ export const generatePayrollLines = createAuthenticatedAction(
             unpaidLeaveDays: unpaidDays,
           });
       const basicForLine = dailyPay
-        ? computeDailyRateBasicQar(dailyStored ?? 0, presentDays)
+        ? computeDailyRateBasicQar(dayRateQar ?? 0, presentDays)
         : basic;
 
       const staffOt = otByStaff.get(s.id) ?? [];
@@ -588,9 +590,9 @@ export const generatePayrollLines = createAuthenticatedAction(
       });
 
       const ready = readinessByStaff.get(s.id);
-      const hasComp =
-        (Number.isFinite(monthlyStored) && (monthlyStored as number) > 0) ||
-        (dailyPay && Number.isFinite(dailyStored) && (dailyStored as number) > 0);
+      const hasComp = dailyPay
+        ? dayRateQar != null && dayRateQar > 0
+        : (Number.isFinite(monthlyStored) && (monthlyStored as number) > 0) || basic > 0;
       if (!hasComp) missingCompensation += 1;
       if (ready && !ready.payrollReady) attendanceBlocked += 1;
 
@@ -612,7 +614,7 @@ export const generatePayrollLines = createAuthenticatedAction(
               ? {
                   ...e,
                   label: "Day rate × present days",
-                  meta: { dayRateQar: dailyRate, presentDays },
+                  meta: { dayRateQar: dayRateQar ?? dailyRate, presentDays },
                 }
               : e,
           ),
@@ -640,6 +642,7 @@ export const generatePayrollLines = createAuthenticatedAction(
         notes: noteParts.length ? noteParts.join("; ") : null,
         snapshot: {
           presentDays,
+          dayRateQar: dailyPay ? dayRateQar : null,
           payrollReady: ready?.payrollReady ?? true,
           blockingDays: ready?.blockingDays ?? 0,
           missedPunches: ready?.missedPunches ?? 0,

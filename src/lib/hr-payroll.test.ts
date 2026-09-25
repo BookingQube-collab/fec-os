@@ -15,6 +15,7 @@ import {
   isDailyRateCompensation,
   lockedLineResistsPolicyChange,
   partitionByPaymentMethod,
+  resolveDailyRatePayroll,
   resolvePaymentMethod,
   sumOtAmounts,
 } from "./hr-payroll";
@@ -30,6 +31,31 @@ describe("daily-rate joker pay", () => {
   it("computes basic as day_rate × present punch days", () => {
     expect(computeDailyRateBasicQar(1200, 18)).toBe(21600);
     expect(computeDailyRateBasicQar(1200, 0)).toBe(0);
+  });
+
+  it("treats joker monthly-filed amount as day rate", () => {
+    expect(
+      resolveDailyRatePayroll({
+        employmentType: "joker",
+        monthlySalaryQar: 150,
+        dailyRateQar: null,
+      }),
+    ).toEqual({ dailyPay: true, dayRateQar: 150 });
+    expect(
+      resolveDailyRatePayroll({
+        employmentType: "joker",
+        monthlySalaryQar: 150,
+        dailyRateQar: 120,
+      }),
+    ).toEqual({ dailyPay: true, dayRateQar: 120 });
+    expect(
+      resolveDailyRatePayroll({
+        employmentType: "permanent",
+        monthlySalaryQar: 4000,
+        dailyRateQar: null,
+      }),
+    ).toEqual({ dailyPay: false, dayRateQar: null });
+    expect(computeDailyRateBasicQar(150, 12)).toBe(1800);
   });
 });
 

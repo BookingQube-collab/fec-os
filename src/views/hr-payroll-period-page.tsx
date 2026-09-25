@@ -76,7 +76,7 @@ function payrollBasicCell(snap: Record<string, unknown>, netQar: number): string
   if (basic == null || !Number.isFinite(basic)) {
     return netQar <= 0 ? "No salary set" : "—";
   }
-  if (basic <= 0 && netQar <= 0) return "No salary set";
+  // Day-rate with 0 present days is earned 0, not missing salary.
   return qar(basic);
 }
 

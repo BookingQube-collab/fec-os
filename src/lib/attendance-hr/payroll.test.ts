@@ -51,7 +51,7 @@ describe("payroll readiness", () => {
     expect(isPayrollReady(rows[0])).toBe(true);
   });
 
-  it("marks a missed punch as not payroll-ready", () => {
+  it("marks a missed punch as not payroll-ready but still present for day-rate pay", () => {
     const [row] = aggregatePayrollRows([
       {
         staff_id: "b",
@@ -62,6 +62,7 @@ describe("payroll readiness", () => {
         worked_minutes: 240,
       },
     ]);
+    expect(row.daysPresent).toBe(1);
     expect(row.payrollReady).toBe(false);
     expect(row.missedPunches).toBe(1);
     expect(row.blockReasons).toEqual([{ code: "missed_punch", count: 1 }]);
