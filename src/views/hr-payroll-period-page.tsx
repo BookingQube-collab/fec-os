@@ -788,11 +788,13 @@ export default function HrPayrollPeriodPage() {
                               {qar(
                                 Number(snap.deduction) ||
                                   (Array.isArray(line.deductions)
-                                    ? line.deductions.reduce(
-                                        (sum: number, d) =>
-                                          sum +
-                                          (Number((d as { amountQar?: number }).amountQar) || 0),
-                                        0,
+                                    ? Number(
+                                        line.deductions.reduce(
+                                          (sum: number, d) =>
+                                            sum +
+                                            (Number((d as { amountQar?: number }).amountQar) || 0),
+                                          0,
+                                        ),
                                       )
                                     : 0),
                               )}
