@@ -8,6 +8,7 @@ import {
   ChevronDown,
   Columns3,
   Download,
+  Loader2,
   MoreHorizontal,
   Plus,
   Upload,
@@ -30,14 +31,16 @@ import {
 import { Input } from "@/components/ui/input";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { MobileListCard } from "@/components/layout/mobile-list-card";
+import { ResponsiveDataView } from "@/components/layout/responsive-data-view";
 import { StaffAvatar } from "@/components/people/staff-photo-field";
 import { StaffMasterfileImportDialog } from "@/components/people/staff-masterfile-import-dialog";
 import { useMasterDepartments } from "@/hooks/queries/useDepartments";
+import { useStaffDirectory } from "@/hooks/queries/usePeople";
 import { usePermission } from "@/hooks/use-permission";
 import { queryKeys } from "@/lib/query-keys";
 import {
-  computeStaffDirectoryKpis,
-  filterStaffDirectory,
+  type StaffDirectoryKpis,
   type StaffDirectorySort,
 } from "@/lib/staff-directory-kpis";
 import {
@@ -189,14 +192,12 @@ function HrAlertBadges({ alerts }: { alerts: StaffHrAlert[] }) {
 }
 
 export function StaffDirectory({
-  staff,
   locationId,
   canEdit,
   onEdit,
   onArchive,
   onAdd,
 }: {
-  staff: StaffRow[];
   locationId: string | null;
   canEdit: boolean;
   onEdit: (row: StaffRow) => void;
@@ -213,6 +214,7 @@ export function StaffDirectory({
   const qc = useQueryClient();
 
   const [q, setQ] = useState(() => searchParams.get("q") ?? "");
+  const [debouncedQ, setDebouncedQ] = useState(q);
   const [position, setPosition] = useState("");
   const [type, setType] = useState(() => searchParams.get("type") ?? "");
   const [e3, setE3] = useState("");
@@ -233,6 +235,14 @@ export function StaffDirectory({
   const [moreFilters, setMoreFilters] = useState(false);
   const [visibleCols, setVisibleCols] = useState<Set<ColKey>>(loadCols);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedQ(q);
+      setPage(1);
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [q]);
+
   // Sync deep-link filters from Overview attention links
   useEffect(() => {
     const nextExpiry = searchParams.get("expiry") ?? "";
@@ -248,7 +258,10 @@ export function StaffDirectory({
     if (nextType) setType(nextType);
     if (nextLoc) setLoc(nextLoc);
     if (nextDept) setDepartment(nextDept);
-    if (nextQ) setQ(nextQ);
+    if (nextQ) {
+      setQ(nextQ);
+      setDebouncedQ(nextQ);
+    }
     setPage(1);
   }, [searchParams]);
 
@@ -268,33 +281,70 @@ export function StaffDirectory({
     }
   }, [pageSize]);
 
+  const departmentName = useMemo(
+    () => departments.find((d) => d.id === department)?.name ?? "",
+    [departments, department],
+  );
+
+  const directory = useStaffDirectory({
+    locationId,
+    includeArchived: true,
+    page,
+    pageSize,
+    q: debouncedQ,
+    loc,
+    department,
+    departmentName,
+    position,
+    employmentType: type,
+    status,
+    nationality,
+    gender,
+    sponsorship,
+    e3,
+    missing,
+    expiry,
+    sort,
+  });
+
+  const staff = directory.data?.data ?? [];
+  const pagination = directory.data?.pagination;
+  const rosterKpis: StaffDirectoryKpis = directory.data?.kpis ?? {
+    total: 0,
+    active: 0,
+    secondment: 0,
+    temporary: 0,
+    newJoiners: 0,
+    exiting: 0,
+    remote: 0,
+    onLeave: 0,
+    resigned: 0,
+    terminated: 0,
+    qidExpiringSoon: 0,
+    passportExpiringSoon: 0,
+    missingInfo: 0,
+  };
+  const positions = directory.data?.facets.positions ?? [];
+  const nationalities = directory.data?.facets.nationalities ?? [];
+  const locations = useMemo(
+    () => (directory.data?.facets.locations ?? []).map((l) => [l.code, l.label] as [string, string]),
+    [directory.data?.facets.locations],
+  );
+
+  const invalidateDirectory = () => {
+    void qc.invalidateQueries({ queryKey: queryKeys.people.staffDirectory() });
+    void qc.invalidateQueries({ queryKey: queryKeys.people.staff(locationId, true) });
+    void qc.invalidateQueries({ queryKey: queryKeys.people.staff(locationId, false) });
+  };
+
   const restoreMut = useMutation({
     mutationFn: (id: string) => restoreStaffMember({ id }),
     onSuccess: () => {
       toast.success(t("people.staff.restore"));
-      void qc.invalidateQueries({ queryKey: queryKeys.people.staff(locationId, true) });
+      invalidateDirectory();
     },
     onError: (e: Error) => toast.error(e.message),
   });
-
-  const positions = useMemo(
-    () => [...new Set(staff.map((s) => s.job_title).filter(Boolean))] as string[],
-    [staff],
-  );
-  const nationalities = useMemo(
-    () => [...new Set(staff.map((s) => s.nationality).filter(Boolean))] as string[],
-    [staff],
-  );
-  const locations = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const s of staff) {
-      if (s.location_code) map.set(s.location_code, formatLocationLabel(s.location_code, s.location_name));
-      for (const wl of s.work_locations ?? []) {
-        if (wl.code && !map.has(wl.code)) map.set(wl.code, formatLocationLabel(wl.code, wl.name));
-      }
-    }
-    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [staff]);
 
   const departmentOptions = useMemo(
     () =>
@@ -304,35 +354,10 @@ export function StaffDirectory({
     [departments],
   );
 
-  const departmentName = useMemo(
-    () => departments.find((d) => d.id === department)?.name ?? "",
-    [departments, department],
-  );
-
-  const filtered = filterStaffDirectory(staff, {
-    q,
-    loc,
-    position,
-    department,
-    departmentName,
-    type,
-    e3,
-    status,
-    nationality,
-    gender,
-    sponsorship,
-    missing,
-    expiry,
-    sort,
-  });
-
-  // Full-roster KPI counts (same defs as Overview) — not scoped to the active KPI filter.
-  const rosterKpis = useMemo(() => computeStaffDirectoryKpis(staff), [staff]);
   const selectedKpi = selectedDirectoryKpi(status, type, expiry);
 
   function applyDirectoryKpi(key: DirectoryKpiKey) {
     if (selectedKpi === key) {
-      // Toggle off → clear employment-status KPI filters (show all)
       setStatus("");
       setType("");
       setExpiry("");
@@ -369,11 +394,14 @@ export function StaffDirectory({
     setPage(1);
   }
 
-  const pages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const safePage = Math.min(page, pages);
-  const from = filtered.length ? (safePage - 1) * pageSize + 1 : 0;
-  const to = Math.min(safePage * pageSize, filtered.length);
-  const pageRows = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const pages = pagination?.totalPages ?? 1;
+  const safePage = pagination?.page ?? page;
+  const filteredTotal = pagination?.total ?? 0;
+  const from = filteredTotal ? (safePage - 1) * pageSize + 1 : 0;
+  const to = Math.min(safePage * pageSize, filteredTotal);
+  const pageRows = staff;
+  const isInitialLoading = directory.isLoading && !directory.data;
+  const isRefreshing = directory.isFetching && Boolean(directory.data);
 
   const activeChips = useMemo(() => {
     const chips: { key: string; label: string; clear: () => void }[] = [];
@@ -488,8 +516,18 @@ export function StaffDirectory({
 
   return (
     <div className="space-y-4">
-      {/* Headcount KPI quick filters */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+      {isRefreshing ? (
+        <div
+          className="flex items-center gap-2 text-xs text-muted-foreground"
+          role="status"
+          aria-live="polite"
+        >
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          {t("people.staff.refreshing", "Updating…")}
+        </div>
+      ) : null}
+      {/* Headcount KPI quick filters — keep essential counts on phone */}
+      <div className={cn("grid grid-cols-2 gap-2 md:grid-cols-3 md:gap-3 lg:grid-cols-6", isRefreshing && "opacity-90")}>
         {(
           [
             {
@@ -497,36 +535,42 @@ export function StaffDirectory({
               label: t("people.dashboard.kpiTotal", "Total"),
               value: rosterKpis.total,
               tint: "sky" as KpiTint,
+              mobile: true,
             },
             {
               key: "active" as const,
               label: t("people.dashboard.kpiActive", "Active"),
               value: rosterKpis.active,
               tint: "green" as KpiTint,
+              mobile: true,
             },
             {
               key: "secondment" as const,
               label: t("people.dashboard.kpiSecondment", "Secondment"),
               value: rosterKpis.secondment,
               tint: "orange" as KpiTint,
+              mobile: true,
             },
             {
               key: "temporary" as const,
               label: t("people.dashboard.kpiTemporary", "Temporary / Project"),
               value: rosterKpis.temporary,
               tint: "amber" as KpiTint,
+              mobile: false,
             },
             {
               key: "new_joiners" as const,
               label: t("people.dashboard.kpiNewJoiners", "New Joiners (90d)"),
               value: rosterKpis.newJoiners,
               tint: "sky" as KpiTint,
+              mobile: false,
             },
             {
               key: "exiting" as const,
               label: t("people.dashboard.kpiExiting", "Exiting"),
               value: rosterKpis.exiting,
               tint: "orange" as KpiTint,
+              mobile: true,
             },
           ] as const
         ).map((item) => {
@@ -537,7 +581,10 @@ export function StaffDirectory({
               type="button"
               onClick={() => applyDirectoryKpi(item.key)}
               aria-pressed={selected}
-              className="h-full text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 rounded-2xl"
+              className={cn(
+                "h-full text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 rounded-2xl",
+                !item.mobile && "max-md:hidden",
+              )}
             >
               <TintedKpiCard
                 title={item.label}
@@ -554,11 +601,12 @@ export function StaffDirectory({
         })}
       </div>
 
-      {/* Toolbar */}
+      {/* Toolbar — sticky search/filters on phone */}
+      <div className="sticky top-0 z-20 -mx-1 space-y-2 bg-background/95 px-1 py-2 backdrop-blur md:static md:z-auto md:mx-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
       <div className="flex flex-wrap items-center gap-2">
         <Input
-          className="h-10 min-w-[14rem] flex-1 sm:max-w-md"
-          placeholder={t("people.staff.searchWide", "Search code, name, QID, passport, mobile…")}
+          className="h-10 min-w-0 flex-1 md:min-w-[14rem] sm:max-w-md"
+          placeholder={t("people.staff.search", "Search staff…")}
           value={q}
           onChange={(e) => {
             setQ(e.target.value);
@@ -567,9 +615,9 @@ export function StaffDirectory({
         />
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {canEdit && onAdd ? (
-            <Button size="sm" onClick={onAdd}>
-              <Plus className="mr-1 h-3.5 w-3.5" />
-              {t("people.staff.addEmployee", "Add employee")}
+            <Button size="sm" onClick={onAdd} className="max-md:h-10 max-md:w-10 max-md:px-0" aria-label={t("people.staff.addEmployee", "Add employee")}>
+              <Plus className="h-4 w-4 md:mr-1 md:h-3.5 md:w-3.5" />
+              <span className="max-md:hidden">{t("people.staff.addEmployee", "Add employee")}</span>
             </Button>
           ) : null}
           <DropdownMenu>
@@ -609,6 +657,7 @@ export function StaffDirectory({
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
+      </div>
       </div>
 
       {/* Smart filters */}
@@ -678,7 +727,7 @@ export function StaffDirectory({
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button size="sm" variant="secondary">
+              <Button size="sm" variant="secondary" className="max-md:hidden">
                 <Columns3 className="mr-1 h-3.5 w-3.5" /> {t("people.staff.columns", "Columns")}
               </Button>
             </DropdownMenuTrigger>
@@ -809,259 +858,304 @@ export function StaffDirectory({
         ) : null}
       </div>
 
-      {/* Table */}
-      <div className="overflow-x-auto rounded-lg border border-border">
-        <table className="w-full min-w-[56rem] text-sm">
-          <thead className="sticky top-0 z-10 bg-surface/95 text-xs font-medium uppercase tracking-wide text-muted-foreground backdrop-blur">
-            <tr>
-              <th className="px-3 py-2.5 text-left">
-                <Checkbox
-                  checked={pageRows.length > 0 && pageRows.every((r) => selected.has(r.id))}
-                  onCheckedChange={(checked) => {
-                    setSelected((prev) => {
-                      const next = new Set(prev);
-                      for (const r of pageRows) {
-                        if (checked) next.add(r.id);
-                        else next.delete(r.id);
-                      }
-                      return next;
-                    });
-                  }}
-                />
-              </th>
-              {col("employee") ? <th className="min-w-[12rem] px-3 py-2.5 text-left">{colLabel.employee}</th> : null}
-              {col("code") ? <th className="min-w-[5.5rem] px-3 py-2.5 text-left">{colLabel.code}</th> : null}
-              {col("position") ? <th className="min-w-[9rem] px-3 py-2.5 text-left">{colLabel.position}</th> : null}
-              {col("dept") ? <th className="min-w-[7rem] px-3 py-2.5 text-left">{colLabel.dept}</th> : null}
-              {col("location") ? <th className="min-w-[9rem] px-3 py-2.5 text-left">{colLabel.location}</th> : null}
-              {col("type") ? <th className="px-3 py-2.5 text-left">{colLabel.type}</th> : null}
-              {col("sponsorship") ? <th className="px-3 py-2.5 text-left">{colLabel.sponsorship}</th> : null}
-              {col("nationality") ? <th className="px-3 py-2.5 text-left">{colLabel.nationality}</th> : null}
-              {col("mobile") ? <th className="min-w-[7rem] px-3 py-2.5 text-left">{colLabel.mobile}</th> : null}
-              {col("joining") ? <th className="whitespace-nowrap px-3 py-2.5 text-left">{colLabel.joining}</th> : null}
-              {col("qid_expiry") ? <th className="whitespace-nowrap px-3 py-2.5 text-left">{colLabel.qid_expiry}</th> : null}
-              {col("passport_expiry") ? (
-                <th className="whitespace-nowrap px-3 py-2.5 text-left">{colLabel.passport_expiry}</th>
-              ) : null}
-              {col("status") ? <th className="px-3 py-2.5 text-left">{colLabel.status}</th> : null}
-              {col("alerts") ? <th className="min-w-[10rem] px-3 py-2.5 text-left">{colLabel.alerts}</th> : null}
-              <th className="px-3 py-2.5 text-right">{t("people.actions")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {pageRows.map((s) => {
-              const multiSite = s.is_roaming || (s.work_locations?.length ?? 0) > 1;
-              const displayName = formatStaffDisplayName(s.full_name);
-              const alerts = staffHrAlerts(s);
-              const deptLabel =
-                s.department || (s.department_names?.length ? s.department_names.join(", ") : null);
-              return (
-                <tr
-                  key={s.id}
-                  className="cursor-pointer border-t border-border hover:bg-surface/40"
-                  onClick={(e) => {
-                    const target = e.target as HTMLElement;
-                    if (target.closest("a,button,input,[role='checkbox'],[data-radix-collection-item]")) return;
-                    setQuickView(s);
-                  }}
-                >
-                  <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
-                    <Checkbox
-                      checked={selected.has(s.id)}
-                      onCheckedChange={(checked) => {
-                        setSelected((prev) => {
-                          const next = new Set(prev);
-                          if (checked) next.add(s.id);
-                          else next.delete(s.id);
-                          return next;
-                        });
-                      }}
-                    />
-                  </td>
-                  {col("employee") ? (
-                    <td className="px-3 py-2.5">
-                      <div className="flex items-center gap-2.5">
-                        <StaffAvatar
-                          staffId={s.id}
-                          name={displayName}
-                          hasPhoto={s.has_photo}
-                          photoUpdatedAt={s.photo_updated_at}
-                        />
-                        <div className="min-w-0 leading-snug">
-                          <Link
-                            className="font-medium text-foreground hover:underline"
-                            href={`/people/staff/${s.id}`}
-                            onClick={(e) => e.stopPropagation()}
+      {/* Table / mobile cards */}
+      <div className={cn("relative", isRefreshing && "opacity-70 transition-opacity")}>
+      {isInitialLoading ? (
+        <div className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-border px-4 py-16 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          {t("people.staff.loading")}
+        </div>
+      ) : (
+      <ResponsiveDataView
+        mobile={
+          <div className="space-y-2">
+            {pageRows.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+                {t("common.empty")}
+              </p>
+            ) : (
+              pageRows.map((s) => {
+                const displayName = formatStaffDisplayName(s.full_name);
+                return (
+                  <MobileListCard
+                    key={s.id}
+                    href={`/people/staff/${s.id}`}
+                    title={displayName}
+                    subtitle={[s.job_title, formatLocation(s)].filter(Boolean).join(" · ") || s.employee_code}
+                    meta={
+                      <Badge variant={staffStatusBadgeVariant(s.status)}>{s.status}</Badge>
+                    }
+                    trailing={
+                      <StaffAvatar
+                        staffId={s.id}
+                        name={displayName}
+                        hasPhoto={s.has_photo}
+                        photoUpdatedAt={s.photo_updated_at}
+                      />
+                    }
+                  />
+                );
+              })
+            )}
+          </div>
+        }
+        desktop={
+                <div className="overflow-x-auto rounded-lg border border-border">
+                  <table className="w-full min-w-[56rem] text-sm">
+                    <thead className="sticky top-0 z-10 bg-surface/95 text-xs font-medium uppercase tracking-wide text-muted-foreground backdrop-blur">
+                      <tr>
+                        <th className="px-3 py-2.5 text-left">
+                          <Checkbox
+                            checked={pageRows.length > 0 && pageRows.every((r) => selected.has(r.id))}
+                            onCheckedChange={(checked) => {
+                              setSelected((prev) => {
+                                const next = new Set(prev);
+                                for (const r of pageRows) {
+                                  if (checked) next.add(r.id);
+                                  else next.delete(r.id);
+                                }
+                                return next;
+                              });
+                            }}
+                          />
+                        </th>
+                        {col("employee") ? <th className="min-w-[12rem] px-3 py-2.5 text-left">{colLabel.employee}</th> : null}
+                        {col("code") ? <th className="min-w-[5.5rem] px-3 py-2.5 text-left">{colLabel.code}</th> : null}
+                        {col("position") ? <th className="min-w-[9rem] px-3 py-2.5 text-left">{colLabel.position}</th> : null}
+                        {col("dept") ? <th className="min-w-[7rem] px-3 py-2.5 text-left">{colLabel.dept}</th> : null}
+                        {col("location") ? <th className="min-w-[9rem] px-3 py-2.5 text-left">{colLabel.location}</th> : null}
+                        {col("type") ? <th className="px-3 py-2.5 text-left">{colLabel.type}</th> : null}
+                        {col("sponsorship") ? <th className="px-3 py-2.5 text-left">{colLabel.sponsorship}</th> : null}
+                        {col("nationality") ? <th className="px-3 py-2.5 text-left">{colLabel.nationality}</th> : null}
+                        {col("mobile") ? <th className="min-w-[7rem] px-3 py-2.5 text-left">{colLabel.mobile}</th> : null}
+                        {col("joining") ? <th className="whitespace-nowrap px-3 py-2.5 text-left">{colLabel.joining}</th> : null}
+                        {col("qid_expiry") ? <th className="whitespace-nowrap px-3 py-2.5 text-left">{colLabel.qid_expiry}</th> : null}
+                        {col("passport_expiry") ? (
+                          <th className="whitespace-nowrap px-3 py-2.5 text-left">{colLabel.passport_expiry}</th>
+                        ) : null}
+                        {col("status") ? <th className="px-3 py-2.5 text-left">{colLabel.status}</th> : null}
+                        {col("alerts") ? <th className="min-w-[10rem] px-3 py-2.5 text-left">{colLabel.alerts}</th> : null}
+                        <th className="px-3 py-2.5 text-right">{t("people.actions")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pageRows.map((s) => {
+                        const multiSite = s.is_roaming || (s.work_locations?.length ?? 0) > 1;
+                        const displayName = formatStaffDisplayName(s.full_name);
+                        const alerts = staffHrAlerts(s);
+                        const deptLabel =
+                          s.department || (s.department_names?.length ? s.department_names.join(", ") : null);
+                        return (
+                          <tr
+                            key={s.id}
+                            className="cursor-pointer border-t border-border hover:bg-surface/40"
+                            onClick={(e) => {
+                              const target = e.target as HTMLElement;
+                              if (target.closest("a,button,input,[role='checkbox'],[data-radix-collection-item]")) return;
+                              setQuickView(s);
+                            }}
                           >
-                            {displayName}
-                          </Link>
-                          <div className="text-xs tabular-nums text-muted-foreground">{s.phone ?? "—"}</div>
-                        </div>
-                      </div>
-                    </td>
-                  ) : null}
-                  {col("code") ? (
-                    <td className="px-3 py-2.5 font-mono text-xs tabular-nums">{s.employee_code}</td>
-                  ) : null}
-                  {col("position") ? (
-                    <td className="px-3 py-2.5">
-                      <div className="leading-snug">
-                        <div className="text-sm text-foreground">{s.job_title ?? "—"}</div>
-                        {deptLabel ? (
-                          <div className="mt-0.5 text-[11px] text-muted-foreground">{deptLabel}</div>
-                        ) : null}
-                      </div>
-                    </td>
-                  ) : null}
-                  {col("dept") ? (
-                    <td className="px-3 py-2.5 text-sm text-muted-foreground">{deptLabel ?? "—"}</td>
-                  ) : null}
-                  {col("location") ? (
-                    <td className="px-3 py-2.5">
-                      <div className="leading-snug">
-                        {s.location_code ? (
-                          <div className="font-mono text-[11px] text-muted-foreground">{s.location_code}</div>
-                        ) : null}
-                        <div className="text-sm text-foreground">{s.location_name ?? formatLocation(s)}</div>
-                        {multiSite ? (
-                          <div className="mt-0.5 text-[11px] text-muted-foreground">
-                            {t("people.staff.multiSite")}
-                          </div>
-                        ) : null}
-                      </div>
-                    </td>
-                  ) : null}
-                  {col("type") ? (
-                    <td className="px-3 py-2.5 text-sm">
-                      {s.employment_type
-                        ? t(`people.staff.employmentTypes.${s.employment_type}`, s.employment_type)
-                        : "—"}
-                    </td>
-                  ) : null}
-                  {col("sponsorship") ? (
-                    <td className="px-3 py-2.5 text-sm">{s.sponsorship_info ?? "—"}</td>
-                  ) : null}
-                  {col("nationality") ? (
-                    <td className="px-3 py-2.5 text-sm">{s.nationality ?? "—"}</td>
-                  ) : null}
-                  {col("mobile") ? (
-                    <td className="px-3 py-2.5 text-sm tabular-nums">{s.phone ?? "—"}</td>
-                  ) : null}
-                  {col("joining") ? (
-                    <td className="px-3 py-2.5 text-sm tabular-nums">{s.hire_date ?? "—"}</td>
-                  ) : null}
-                  {col("qid_expiry") ? (
-                    <td className="px-3 py-2.5 text-sm tabular-nums">
-                      {canSensitive ? (s.qid_expiry ?? "—") : "••••"}
-                    </td>
-                  ) : null}
-                  {col("passport_expiry") ? (
-                    <td className="px-3 py-2.5 text-sm tabular-nums">
-                      {canSensitive ? (s.passport_expiry ?? "—") : "••••"}
-                    </td>
-                  ) : null}
-                  {col("status") ? (
-                    <td className="px-3 py-2.5">
-                      <Badge variant={staffStatusBadgeVariant(s.status)} className="uppercase tracking-wide">
-                        {s.status.replace(/_/g, " ")}
-                      </Badge>
-                    </td>
-                  ) : null}
-                  {col("alerts") ? (
-                    <td className="px-3 py-2.5">
-                      <HrAlertBadges alerts={alerts} />
-                    </td>
-                  ) : null}
-                  <td className="px-3 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button size="sm" variant="ghost" aria-label={t("people.actions")}>
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="min-w-[12rem]">
-                        <DropdownMenuItem onClick={() => setQuickView(s)}>
-                          {t("people.staff.quickView", "Quick view")}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                          <Link href={`/people/staff/${s.id}`}>
-                            {t("people.staff.viewProfile", "View profile")}
-                          </Link>
-                        </DropdownMenuItem>
-                        {canEdit ? (
-                          <DropdownMenuItem onClick={() => onEdit(s)}>
-                            {t("people.staff.editEmployee", "Edit")}
-                          </DropdownMenuItem>
-                        ) : null}
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem asChild>
-                          <Link href={`/people/staff/${s.id}?tab=documents`}>
-                            {t("people.staff.menuDocuments", "Documents")}
-                          </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                          <Link href={`/people/staff/${s.id}?tab=attendance`}>
-                            {t("people.staff.menuAttendance", "Attendance")}
-                          </Link>
-                        </DropdownMenuItem>
-                        {canSalary ? (
-                          <DropdownMenuItem asChild>
-                            <Link href={`/people/staff/${s.id}?tab=payroll`}>
-                              {t("people.staff.menuPayroll", "Payroll")}
-                            </Link>
-                          </DropdownMenuItem>
-                        ) : null}
-                        <DropdownMenuItem asChild>
-                          <Link href={`/people/staff/${s.id}?tab=training`}>
-                            {t("people.staff.menuTraining", "Training")}
-                          </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                          <Link href={`/people/staff/${s.id}?tab=employment`}>
-                            {t("people.staff.menuTransfer", "Transfer location")}
-                          </Link>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem asChild>
-                          <Link href={`/people/staff/${s.id}?tab=history`}>
-                            {t("people.staff.menuHistory", "Employment history")}
-                          </Link>
-                        </DropdownMenuItem>
-                        {canEdit ? (
-                          <>
-                            <DropdownMenuSeparator />
-                            {s.status === "terminated" ||
-                            s.status === "resigned" ||
-                            s.status === "released" ? (
-                              <DropdownMenuItem onClick={() => restoreMut.mutate(s.id)}>
-                                {t("people.staff.restore")}
-                              </DropdownMenuItem>
-                            ) : (
-                              <DropdownMenuItem
-                                className="text-amber-800 focus:text-amber-900"
-                                onClick={() => onArchive(s.id)}
-                              >
-                                {t("people.staff.archiveExit", "Archive / exit")}
-                              </DropdownMenuItem>
-                            )}
-                          </>
-                        ) : null}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+                            <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
+                              <Checkbox
+                                checked={selected.has(s.id)}
+                                onCheckedChange={(checked) => {
+                                  setSelected((prev) => {
+                                    const next = new Set(prev);
+                                    if (checked) next.add(s.id);
+                                    else next.delete(s.id);
+                                    return next;
+                                  });
+                                }}
+                              />
+                            </td>
+                            {col("employee") ? (
+                              <td className="px-3 py-2.5">
+                                <div className="flex items-center gap-2.5">
+                                  <StaffAvatar
+                                    staffId={s.id}
+                                    name={displayName}
+                                    hasPhoto={s.has_photo}
+                                    photoUpdatedAt={s.photo_updated_at}
+                                  />
+                                  <div className="min-w-0 leading-snug">
+                                    <Link
+                                      className="font-medium text-foreground hover:underline"
+                                      href={`/people/staff/${s.id}`}
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      {displayName}
+                                    </Link>
+                                    <div className="text-xs tabular-nums text-muted-foreground">{s.phone ?? "—"}</div>
+                                  </div>
+                                </div>
+                              </td>
+                            ) : null}
+                            {col("code") ? (
+                              <td className="px-3 py-2.5 font-mono text-xs tabular-nums">{s.employee_code}</td>
+                            ) : null}
+                            {col("position") ? (
+                              <td className="px-3 py-2.5">
+                                <div className="leading-snug">
+                                  <div className="text-sm text-foreground">{s.job_title ?? "—"}</div>
+                                  {deptLabel ? (
+                                    <div className="mt-0.5 text-[11px] text-muted-foreground">{deptLabel}</div>
+                                  ) : null}
+                                </div>
+                              </td>
+                            ) : null}
+                            {col("dept") ? (
+                              <td className="px-3 py-2.5 text-sm text-muted-foreground">{deptLabel ?? "—"}</td>
+                            ) : null}
+                            {col("location") ? (
+                              <td className="px-3 py-2.5">
+                                <div className="leading-snug">
+                                  {s.location_code ? (
+                                    <div className="font-mono text-[11px] text-muted-foreground">{s.location_code}</div>
+                                  ) : null}
+                                  <div className="text-sm text-foreground">{s.location_name ?? formatLocation(s)}</div>
+                                  {multiSite ? (
+                                    <div className="mt-0.5 text-[11px] text-muted-foreground">
+                                      {t("people.staff.multiSite")}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              </td>
+                            ) : null}
+                            {col("type") ? (
+                              <td className="px-3 py-2.5 text-sm">
+                                {s.employment_type
+                                  ? t(`people.staff.employmentTypes.${s.employment_type}`, s.employment_type)
+                                  : "—"}
+                              </td>
+                            ) : null}
+                            {col("sponsorship") ? (
+                              <td className="px-3 py-2.5 text-sm">{s.sponsorship_info ?? "—"}</td>
+                            ) : null}
+                            {col("nationality") ? (
+                              <td className="px-3 py-2.5 text-sm">{s.nationality ?? "—"}</td>
+                            ) : null}
+                            {col("mobile") ? (
+                              <td className="px-3 py-2.5 text-sm tabular-nums">{s.phone ?? "—"}</td>
+                            ) : null}
+                            {col("joining") ? (
+                              <td className="px-3 py-2.5 text-sm tabular-nums">{s.hire_date ?? "—"}</td>
+                            ) : null}
+                            {col("qid_expiry") ? (
+                              <td className="px-3 py-2.5 text-sm tabular-nums">
+                                {canSensitive ? (s.qid_expiry ?? "—") : "••••"}
+                              </td>
+                            ) : null}
+                            {col("passport_expiry") ? (
+                              <td className="px-3 py-2.5 text-sm tabular-nums">
+                                {canSensitive ? (s.passport_expiry ?? "—") : "••••"}
+                              </td>
+                            ) : null}
+                            {col("status") ? (
+                              <td className="px-3 py-2.5">
+                                <Badge variant={staffStatusBadgeVariant(s.status)} className="uppercase tracking-wide">
+                                  {s.status.replace(/_/g, " ")}
+                                </Badge>
+                              </td>
+                            ) : null}
+                            {col("alerts") ? (
+                              <td className="px-3 py-2.5">
+                                <HrAlertBadges alerts={alerts} />
+                              </td>
+                            ) : null}
+                            <td className="px-3 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button size="sm" variant="ghost" aria-label={t("people.actions")}>
+                                    <MoreHorizontal className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="min-w-[12rem]">
+                                  <DropdownMenuItem onClick={() => setQuickView(s)}>
+                                    {t("people.staff.quickView", "Quick view")}
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem asChild>
+                                    <Link href={`/people/staff/${s.id}`}>
+                                      {t("people.staff.viewProfile", "View profile")}
+                                    </Link>
+                                  </DropdownMenuItem>
+                                  {canEdit ? (
+                                    <DropdownMenuItem onClick={() => onEdit(s)}>
+                                      {t("people.staff.editEmployee", "Edit")}
+                                    </DropdownMenuItem>
+                                  ) : null}
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem asChild>
+                                    <Link href={`/people/staff/${s.id}?tab=documents`}>
+                                      {t("people.staff.menuDocuments", "Documents")}
+                                    </Link>
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem asChild>
+                                    <Link href={`/people/staff/${s.id}?tab=attendance`}>
+                                      {t("people.staff.menuAttendance", "Attendance")}
+                                    </Link>
+                                  </DropdownMenuItem>
+                                  {canSalary ? (
+                                    <DropdownMenuItem asChild>
+                                      <Link href={`/people/staff/${s.id}?tab=payroll`}>
+                                        {t("people.staff.menuPayroll", "Payroll")}
+                                      </Link>
+                                    </DropdownMenuItem>
+                                  ) : null}
+                                  <DropdownMenuItem asChild>
+                                    <Link href={`/people/staff/${s.id}?tab=training`}>
+                                      {t("people.staff.menuTraining", "Training")}
+                                    </Link>
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem asChild>
+                                    <Link href={`/people/staff/${s.id}?tab=employment`}>
+                                      {t("people.staff.menuTransfer", "Transfer location")}
+                                    </Link>
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem asChild>
+                                    <Link href={`/people/staff/${s.id}?tab=history`}>
+                                      {t("people.staff.menuHistory", "Employment history")}
+                                    </Link>
+                                  </DropdownMenuItem>
+                                  {canEdit ? (
+                                    <>
+                                      <DropdownMenuSeparator />
+                                      {s.status === "terminated" ||
+                                      s.status === "resigned" ||
+                                      s.status === "released" ? (
+                                        <DropdownMenuItem onClick={() => restoreMut.mutate(s.id)}>
+                                          {t("people.staff.restore")}
+                                        </DropdownMenuItem>
+                                      ) : (
+                                        <DropdownMenuItem
+                                          className="text-amber-800 focus:text-amber-900"
+                                          onClick={() => onArchive(s.id)}
+                                        >
+                                          {t("people.staff.archiveExit", "Archive / exit")}
+                                        </DropdownMenuItem>
+                                      )}
+                                    </>
+                                  ) : null}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
 
+        }
+      />
+      )}
+      </div>
       {/* Pagination */}
       <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
         <span>
           {t("people.staff.showingRange", "Showing {{from}}–{{to}} of {{total}}", {
             from,
             to,
-            total: filtered.length,
+            total: filteredTotal,
           })}
         </span>
         <div className="flex flex-wrap items-center gap-2">

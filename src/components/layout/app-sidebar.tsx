@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ChevronDown, Menu, MoreHorizontal, PanelLeft, PanelLeftClose, Search } from "lucide-react";
+import { ChevronDown, MoreHorizontal, PanelLeft, PanelLeftClose, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -29,6 +29,17 @@ import {
 } from "@/lib/nav-config";
 import { useAppStore } from "@/stores/app-store";
 import { cn } from "@/lib/utils";
+
+/** Heavy route chunks — never auto-prefetch; hover/focus also skipped. */
+const SIDEBAR_HEAVY_ROUTES = new Set([
+  "/people/attendance/reports",
+  "/people/payroll",
+  "/operations/weekly-review",
+  "/operations/corporate-deals",
+]);
+
+/** Lightweight high-frequency rail targets only (not every primary module). */
+const SIDEBAR_WARM_PREFETCH = ["/", "/people", "/events", "/maintenance", "/procurement"] as const;
 
 const FLYOUT_CLOSE_MS = 180;
 const FLYOUT_Z = "z-[80]";
@@ -655,7 +666,7 @@ export function AppSidebar() {
   const isRtl = i18n.dir() === "rtl";
   const [moreOpen, setMoreOpen] = useState(false);
   const [flyoutId, setFlyoutId] = useState<string | null>(null);
-  const [mobileModuleHref, setMobileModuleHref] = useState<string | null>(null);
+  const [tabletSheetId, setTabletSheetId] = useState<string | null>(null);
   const sidebarExpanded = useAppStore((s) => s.sidebarExpanded);
   const setSidebarExpanded = useAppStore((s) => s.setSidebarExpanded);
   const surgeMode = useAppStore((s) => s.surgeMode);
@@ -664,6 +675,9 @@ export function AppSidebar() {
 
   const prefetchRoute = useCallback(
     (href: string) => {
+      if (SIDEBAR_HEAVY_ROUTES.has(href) || SIDEBAR_HEAVY_ROUTES.has(href.split("?")[0] ?? href)) {
+        return;
+      }
       router.prefetch(href);
     },
     [router],
@@ -692,78 +706,77 @@ export function AppSidebar() {
     [departments],
   );
   const hasOverflow = overflowItemCount > primary.length;
-
-  const mobileRail = useMemo(() => {
-    const first = primary.slice(0, 4);
-    const admin = primary.find((item) => item.departmentId === "admin");
-    if (!admin || first.some((item) => item.departmentId === "admin")) return first;
-    return [...first.slice(0, 3), admin];
-  }, [primary]);
-  const mobileModule = useMemo(
-    () => primary.find((item) => item.departmentId === mobileModuleHref) ?? null,
-    [primary, mobileModuleHref],
+  const tabletSheetItem = useMemo(
+    () => primary.find((item) => item.departmentId === tabletSheetId) ?? null,
+    [primary, tabletSheetId],
   );
 
   useEffect(() => {
     setFlyoutId(null);
-    setMobileModuleHref(null);
+    setTabletSheetId(null);
     setMoreOpen(false);
     setSidebarExpanded(false);
   }, [pathname, setSidebarExpanded]);
 
   useEffect(() => {
     if (primary.length === 0) return;
-    const prefetchAll = () => {
+    const warm = () => {
       const connection = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } })
         .connection;
       if (connection?.saveData) return;
       if (connection?.effectiveType === "slow-2g" || connection?.effectiveType === "2g") return;
-      for (const item of primary) router.prefetch(item.href);
+      const allowed = new Set(primary.map((item) => item.href));
+      for (const href of SIDEBAR_WARM_PREFETCH) {
+        if (!allowed.has(href) || SIDEBAR_HEAVY_ROUTES.has(href)) continue;
+        router.prefetch(href);
+      }
     };
     if (typeof requestIdleCallback !== "undefined") {
-      const id = requestIdleCallback(prefetchAll, { timeout: 4000 });
+      const id = requestIdleCallback(warm, { timeout: 6000 });
       return () => cancelIdleCallback(id);
     }
-    const id = window.setTimeout(prefetchAll, 2000);
+    const id = window.setTimeout(warm, 4000);
     return () => window.clearTimeout(id);
   }, [primary, router]);
 
   return (
     <>
-      {/* Desktop compact icon rail + module flyouts */}
+      {/* Tablet (md–lg) icon rail + desktop (lg+) expandable rail */}
       <aside
         className={cn(
-          "fixed z-40 hidden max-h-[calc(100vh-1.5rem)] md:flex flex-col overflow-hidden",
-          sidebarExpanded ? "items-stretch" : "items-center",
+          "fixed z-40 hidden max-h-[calc(100dvh-1.5rem)] flex-col overflow-hidden md:flex",
+          "w-[4.25rem] items-center",
+          sidebarExpanded ? "lg:w-[14rem] lg:items-stretch" : "lg:w-[3.75rem] lg:items-center",
         )}
         style={{
           top: surgeMode ? "0.4rem" : "0.75rem",
           insetInlineStart: surgeMode ? "0.4rem" : "0.75rem",
-          width: sidebarExpanded ? (surgeMode ? "13.25rem" : "14rem") : "3.75rem",
         }}
       >
         <div
           className={cn(
             "flex w-full max-h-full flex-col overflow-x-hidden overflow-y-auto rounded-[1.75rem] border border-border/60 bg-sidebar shadow-elevated-sm",
             surgeMode ? "py-2" : "py-3",
-            sidebarExpanded ? "items-stretch px-2" : "items-center",
+            "items-center px-1.5",
+            sidebarExpanded && "lg:items-stretch lg:px-2",
           )}
         >
           <Button
             asChild
             variant="default"
-            size={sidebarExpanded ? "default" : "icon"}
-            className={cn("mb-2 font-bold", sidebarExpanded && "w-full")}
+            size="icon"
+            className={cn("mb-2 font-bold", sidebarExpanded && "lg:h-10 lg:w-full")}
           >
             <Link href="/" prefetch title="FEC OS">
-              {sidebarExpanded ? "FEC OS" : "F"}
+              <span className={cn(sidebarExpanded && "lg:hidden")}>F</span>
+              {sidebarExpanded ? <span className="hidden lg:inline">FEC OS</span> : null}
             </Link>
           </Button>
           <Button
             type="button"
             variant="outline"
             size={sidebarExpanded ? "sm" : "icon"}
-            className={cn("mb-3", sidebarExpanded && "w-full justify-start")}
+            className={cn("mb-3 hidden lg:inline-flex", sidebarExpanded && "w-full justify-start")}
             title={expandLabel}
             aria-label={expandLabel}
             aria-pressed={sidebarExpanded}
@@ -776,20 +789,49 @@ export function AppSidebar() {
               <span className="sr-only">{t("nav.expandMenu")}</span>
             )}
           </Button>
-          <nav className={cn("flex flex-col", surgeMode ? "gap-0.5" : "gap-1", sidebarExpanded ? "px-0" : "items-center px-1.5")}>
-            {primary.map((item) => (
-              <RailIconWithFlyout
-                key={item.departmentId}
-                item={item}
-                pathname={pathname}
-                department={departmentsById.get(item.departmentId) ?? null}
-                t={t}
-                prefetchRoute={prefetchRoute}
-                openId={flyoutId}
-                setOpenId={setFlyoutId}
-                expanded={sidebarExpanded}
-              />
-            ))}
+          <nav
+            className={cn(
+              "flex flex-col items-center",
+              surgeMode ? "gap-0.5" : "gap-1",
+              sidebarExpanded && "lg:items-stretch lg:px-0",
+            )}
+          >
+            {primary.map((item) => {
+              const department = departmentsById.get(item.departmentId) ?? null;
+              const moduleActive = department ? isDepartmentActive(department, pathname) : false;
+              const groupLabel = department ? t(department.labelKey) : t(item.labelKey);
+              const Icon = item.icon;
+              return (
+                <div key={item.departmentId} className="w-full">
+                  <div className="lg:hidden">
+                    <Button
+                      type="button"
+                      variant={moduleActive ? "default" : "ghost"}
+                      size="icon"
+                      title={groupLabel}
+                      aria-label={groupLabel}
+                      aria-haspopup="dialog"
+                      onClick={() => setTabletSheetId(item.departmentId)}
+                      className="h-11 w-11"
+                    >
+                      <Icon className="h-[18px] w-[18px] stroke-[1.5]" />
+                    </Button>
+                  </div>
+                  <div className="hidden lg:block">
+                    <RailIconWithFlyout
+                      item={item}
+                      pathname={pathname}
+                      department={department}
+                      t={t}
+                      prefetchRoute={prefetchRoute}
+                      openId={flyoutId}
+                      setOpenId={setFlyoutId}
+                      expanded={sidebarExpanded}
+                    />
+                  </div>
+                </div>
+              );
+            })}
           </nav>
           {hasOverflow && (
             <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
@@ -800,10 +842,15 @@ export function AppSidebar() {
                   size={sidebarExpanded ? "default" : "icon"}
                   title={t("nav.moreModules")}
                   aria-label={t("nav.moreModules")}
-                  className={cn("mt-1.5", sidebarExpanded && "h-10 w-full justify-start px-2.5")}
+                  className={cn(
+                    "mt-1.5 h-11 w-11 lg:h-auto lg:w-auto",
+                    sidebarExpanded && "lg:h-10 lg:w-full lg:justify-start lg:px-2.5",
+                  )}
                 >
                   <MoreHorizontal className="h-[18px] w-[18px] stroke-[1.5]" />
-                  {sidebarExpanded ? <span className="truncate">{t("nav.moreModules")}</span> : null}
+                  {sidebarExpanded ? (
+                    <span className="hidden truncate lg:inline">{t("nav.moreModules")}</span>
+                  ) : null}
                 </Button>
               </SheetTrigger>
               <SheetContent side={isRtl ? "right" : "left"} className="flex w-80 flex-col border-border bg-background">
@@ -825,81 +872,16 @@ export function AppSidebar() {
         </div>
       </aside>
 
-      {/* Mobile bottom nav — tap module → sub-features sheet */}
-      <nav className="fixed inset-x-0 bottom-0 z-40 flex border-t border-border/80 bg-card/95 px-2 py-1.5 shadow-elevated-md backdrop-blur-sm md:hidden">
-        {mobileRail.map((item) => {
-          const Icon = item.icon;
-          const department = departmentsById.get(item.departmentId);
-          const active = department ? isDepartmentActive(department, pathname) : false;
-          const groupLabel = department ? t(department.labelKey) : t(item.labelKey);
-          const shortLabel = groupLabel.split(/[\s&]/)[0];
-          return (
-            <button
-              key={item.departmentId}
-              type="button"
-              title={groupLabel}
-              aria-label={groupLabel}
-              onClick={() => setMobileModuleHref(item.departmentId)}
-              className={cn(
-                "flex flex-1 flex-col items-center gap-0.5 rounded-full py-1.5 text-xs font-medium",
-                active ? "text-foreground" : "text-muted-foreground",
-              )}
-            >
-              <span
-                className={cn(
-                  "grid h-8 w-8 place-items-center rounded-full",
-                  active && "bg-primary text-primary-foreground",
-                )}
-              >
-                <Icon className={cn("h-5 w-5 stroke-[1.5]", active && "text-primary-foreground")} />
-              </span>
-              <span className="truncate">{shortLabel}</span>
-            </button>
-          );
-        })}
-        <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
-          <SheetTrigger asChild>
-            <button
-              type="button"
-              title={t("nav.more")}
-              aria-label={t("nav.more")}
-              className="flex flex-1 flex-col items-center gap-0.5 py-1.5 text-xs font-medium text-muted-foreground"
-            >
-              <Menu className="h-5 w-5 stroke-[1.5]" />
-              {t("nav.more")}
-            </button>
-          </SheetTrigger>
-          <SheetContent
-            side="bottom"
-            className="flex h-[75vh] flex-col rounded-t-[var(--radius-2xl)] border-border bg-background"
-          >
-            <SheetHeader className="shrink-0">
-              <SheetTitle>{t("nav.navigation")}</SheetTitle>
-            </SheetHeader>
-            <div className="mt-4 flex min-h-0 flex-1 flex-col pb-4">
-              <OverflowNavPanel
-                pathname={pathname}
-                departments={departments}
-                t={t}
-                prefetchRoute={prefetchRoute}
-                onNavigate={() => setMoreOpen(false)}
-                compact
-              />
-            </div>
-          </SheetContent>
-        </Sheet>
-      </nav>
-
-      {mobileModule && (
+      {tabletSheetItem && (
         <ModuleSubsSheet
-          item={mobileModule}
+          item={tabletSheetItem}
           pathname={pathname}
-          department={departmentsById.get(mobileModule.departmentId) ?? null}
+          department={departmentsById.get(tabletSheetItem.departmentId) ?? null}
           t={t}
           prefetchRoute={prefetchRoute}
-          open={Boolean(mobileModuleHref)}
+          open={Boolean(tabletSheetId)}
           onOpenChange={(next) => {
-            if (!next) setMobileModuleHref(null);
+            if (!next) setTabletSheetId(null);
           }}
         />
       )}

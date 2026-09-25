@@ -1,23 +1,11 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
+import dynamic from "next/dynamic";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { FileBarChart, Loader2, Plus, Trash2 } from "lucide-react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 
-import { ChartCard, ChartEmpty } from "@/components/charts/chart-card";
 import { TintedKpiCard } from "@/components/dashboard/tinted-kpi-card";
 import { PageHeader } from "@/components/layout/page-header";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -33,6 +21,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Skeleton } from "@/components/ui/skeleton";
 import { usePermission } from "@/hooks/use-permission";
 import {
   useCorporateDealCodes,
@@ -45,10 +34,37 @@ import {
 } from "@/hooks/queries/useCorporateDeals";
 import { DEAL_CATEGORIES, DEAL_VENUES, PARTNER_MASTER } from "@/lib/corporate-deals/constants";
 import { ACTION_STATUSES } from "@/lib/weekly-review/constants";
-import { CHART, chartGridProps, chartTick, chartTooltipStyle, CHART_MARGIN } from "@/lib/chart-theme";
+import { retryImport } from "@/lib/retry-import";
 import { cn } from "@/lib/utils";
 
-const TREND_MARGIN = { top: 12, right: 16, left: 8, bottom: 16 } as const;
+const CorporateDealsTop10Chart = dynamic(
+  () =>
+    retryImport(() =>
+      import("@/components/corporate-deals/corporate-deals-charts").then((m) => m.CorporateDealsTop10Chart),
+    ),
+  { ssr: false, loading: () => <Skeleton className="h-72 w-full rounded-xl" /> },
+);
+const CorporateDealsCorpVsAggChart = dynamic(
+  () =>
+    retryImport(() =>
+      import("@/components/corporate-deals/corporate-deals-charts").then((m) => m.CorporateDealsCorpVsAggChart),
+    ),
+  { ssr: false, loading: () => <Skeleton className="h-72 w-full rounded-xl" /> },
+);
+const CorporateDealsWeeklyTrendChart = dynamic(
+  () =>
+    retryImport(() =>
+      import("@/components/corporate-deals/corporate-deals-charts").then((m) => m.CorporateDealsWeeklyTrendChart),
+    ),
+  { ssr: false, loading: () => <Skeleton className="h-64 w-full rounded-xl" /> },
+);
+const CorporateDealsMonthlyTrendChart = dynamic(
+  () =>
+    retryImport(() =>
+      import("@/components/corporate-deals/corporate-deals-charts").then((m) => m.CorporateDealsMonthlyTrendChart),
+    ),
+  { ssr: false, loading: () => <Skeleton className="h-72 w-full rounded-xl" /> },
+);
 
 function money(n: number) {
   return `QAR ${n.toLocaleString("en-QA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -428,57 +444,8 @@ export default function CorporateDealsPage() {
               </div>
 
               <div className="grid gap-4 lg:grid-cols-2">
-                <ChartCard title={t("corporateDeals.charts.top10")}>
-                  {top10.length === 0 ? (
-                    <ChartEmpty label={t("corporateDeals.charts.empty")} />
-                  ) : (
-                    <div className="h-72">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={top10} margin={CHART_MARGIN}>
-                          <CartesianGrid {...chartGridProps} />
-                          <XAxis dataKey="partner_name" tick={chartTick} interval={0} angle={-25} textAnchor="end" height={70} />
-                          <YAxis tick={chartTick} />
-                          <Tooltip contentStyle={chartTooltipStyle} />
-                          <Bar dataKey="redemptions" fill={CHART.info} name={t("corporateDeals.kpi.redemptions")} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  )}
-                </ChartCard>
-
-                <ChartCard title={t("corporateDeals.charts.corpVsAgg")}>
-                  {!split ? (
-                    <ChartEmpty label={t("corporateDeals.charts.empty")} />
-                  ) : (
-                    <div className="h-72">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart
-                          data={[
-                            {
-                              name: t("corporateDeals.category.corporate"),
-                              discount: split.corporate.discount,
-                              redemptions: split.corporate.redemptions,
-                            },
-                            {
-                              name: t("corporateDeals.category.aggregator"),
-                              discount: split.aggregator.discount,
-                              redemptions: split.aggregator.redemptions,
-                            },
-                          ]}
-                          margin={CHART_MARGIN}
-                        >
-                          <CartesianGrid {...chartGridProps} />
-                          <XAxis dataKey="name" tick={chartTick} />
-                          <YAxis tick={chartTick} />
-                          <Tooltip contentStyle={chartTooltipStyle} />
-                          <Legend wrapperStyle={{ fontSize: 12 }} />
-                          <Bar dataKey="discount" fill={CHART.teal} name={t("corporateDeals.kpi.discount")} />
-                          <Bar dataKey="redemptions" fill={CHART.amber} name={t("corporateDeals.kpi.redemptions")} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  )}
-                </ChartCard>
+                <CorporateDealsTop10Chart top10={top10} />
+                <CorporateDealsCorpVsAggChart split={split ?? null} />
               </div>
 
               <div className="grid gap-4 lg:grid-cols-2">
@@ -729,25 +696,7 @@ export default function CorporateDealsPage() {
                 </div>
               ) : null}
 
-              <ChartCard title={t("corporateDeals.charts.weeklyTrend")}>
-                {weeklyTrend.length === 0 ? (
-                  <ChartEmpty label={t("corporateDeals.charts.empty")} className="h-64" />
-                ) : (
-                  <div className="h-64">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={weeklyTrend} margin={TREND_MARGIN}>
-                        <CartesianGrid {...chartGridProps} />
-                        <XAxis dataKey="iso_week" tick={chartTick} />
-                        <YAxis tick={chartTick} width={56} />
-                        <Tooltip contentStyle={chartTooltipStyle} />
-                        <Legend wrapperStyle={{ fontSize: 12 }} />
-                        <Line type="monotone" dataKey="corporate_discount" stroke={CHART.info} name={t("corporateDeals.category.corporate")} dot={false} strokeWidth={2} />
-                        <Line type="monotone" dataKey="aggregator_discount" stroke={CHART.amber} name={t("corporateDeals.category.aggregator")} dot={false} strokeWidth={2} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-              </ChartCard>
+              <CorporateDealsWeeklyTrendChart weeklyTrend={weeklyTrend} />
             </>
           )}
         </TabsContent>
@@ -870,25 +819,7 @@ export default function CorporateDealsPage() {
                 </div>
               </SectionCard>
 
-              <ChartCard title={t("corporateDeals.charts.monthlyTrend")}>
-                {monthlyTrend.length === 0 ? (
-                  <ChartEmpty label={t("corporateDeals.charts.empty")} className="h-72" />
-                ) : (
-                  <div className="h-72">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={monthlyTrend} margin={TREND_MARGIN}>
-                        <CartesianGrid {...chartGridProps} />
-                        <XAxis dataKey="period_month" tick={chartTick} />
-                        <YAxis tick={chartTick} width={64} />
-                        <Tooltip contentStyle={chartTooltipStyle} />
-                        <Legend wrapperStyle={{ fontSize: 12 }} />
-                        <Line type="monotone" dataKey="corporate_discount" stroke={CHART.info} name={t("corporateDeals.category.corporate")} strokeWidth={2} dot={false} />
-                        <Line type="monotone" dataKey="aggregator_discount" stroke={CHART.amber} name={t("corporateDeals.category.aggregator")} strokeWidth={2} dot={false} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-              </ChartCard>
+              <CorporateDealsMonthlyTrendChart monthlyTrend={monthlyTrend} />
             </>
           )}
         </TabsContent>

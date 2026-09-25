@@ -1,15 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 
 import { EnterDataPanel } from "@/components/weekly-review/enter-data-panel";
-import { InfographicsPanel } from "@/components/weekly-review/infographics-panel";
-import { PresentPanel } from "@/components/weekly-review/present-panel";
 import { WeeklyReviewDataTools } from "@/components/weekly-review/data-tools";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -26,9 +26,24 @@ import {
   useWeeklyReviewList,
   useWeeklyReviewPack,
 } from "@/hooks/queries/useWeeklyReview";
+import { retryImport } from "@/lib/retry-import";
 import type { ReviewPack } from "@/lib/weekly-review/model";
 import { summarizePack } from "@/lib/weekly-review/model";
 import { formatReviewDates } from "@/lib/weekly-review/constants";
+
+const InfographicsPanel = dynamic(
+  () =>
+    retryImport(() =>
+      import("@/components/weekly-review/infographics-panel").then((m) => m.InfographicsPanel),
+    ),
+  { ssr: false, loading: () => <Skeleton className="h-72 w-full rounded-xl" /> },
+);
+
+const PresentPanel = dynamic(
+  () =>
+    retryImport(() => import("@/components/weekly-review/present-panel").then((m) => m.PresentPanel)),
+  { ssr: false, loading: () => <Skeleton className="h-72 w-full rounded-xl" /> },
+);
 
 type Mode = "present" | "enter" | "infographics";
 

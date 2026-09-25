@@ -6,7 +6,8 @@ import type { EscalationRow, NotificationRow } from "@/lib/queries/module-querie
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 
-const INBOX_POLL_MS = 45_000;
+/** Topbar inbox + escalations share one poll cadence; pause while tab hidden. */
+const INBOX_POLL_MS = 120_000;
 
 export function useEscalations(options?: { enabled?: boolean }) {
   return useQuery({
@@ -15,7 +16,9 @@ export function useEscalations(options?: { enabled?: boolean }) {
     staleTime: STALE.notifications,
     enabled: options?.enabled ?? true,
     refetchOnMount: false,
+    refetchOnWindowFocus: true,
     refetchInterval: options?.enabled === false ? false : INBOX_POLL_MS,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -41,11 +44,12 @@ export function useActionInbox(userId?: string | null, options?: { enabled?: boo
   return useQuery({
     queryKey: queryKeys.notifications.inbox(userId),
     queryFn: () => apiGet<ActionInboxPayload>("/api/notifications", { kind: "inbox" }),
-    staleTime: 15_000,
+    staleTime: STALE.notifications,
     enabled,
     refetchOnMount: false,
     refetchOnWindowFocus: true,
     refetchInterval: enabled ? INBOX_POLL_MS : false,
+    refetchIntervalInBackground: false,
     retry: 2,
   });
 }

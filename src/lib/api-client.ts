@@ -4,7 +4,7 @@ type ApiGetInit = Pick<RequestInit, "priority">;
 export async function apiGet<T>(
   path: string,
   params?: Record<string, string | number | boolean | null | undefined>,
-  init?: ApiGetInit,
+  init?: ApiGetInit & { signal?: AbortSignal },
 ): Promise<T> {
   const url = new URL(path, window.location.origin);
   if (params) {
@@ -12,7 +12,11 @@ export async function apiGet<T>(
       if (value != null && value !== "") url.searchParams.set(key, String(value));
     }
   }
-  const res = await fetch(url.toString(), { credentials: "include", ...init });
+  const res = await fetch(url.toString(), {
+    credentials: "include",
+    priority: init?.priority,
+    signal: init?.signal,
+  });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(body.error ?? `Request failed (${res.status})`);

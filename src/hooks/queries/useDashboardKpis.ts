@@ -26,7 +26,9 @@ export function useDashboardKpis(options: {
         { priority: "high" },
       ),
     staleTime: STALE.dashboardKpis,
-    refetchInterval: 60_000,
+    refetchInterval: 120_000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
     enabled,
   });
 }

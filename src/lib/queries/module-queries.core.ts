@@ -1,7 +1,14 @@
 import type { AuthContext } from "@/lib/server/auth";
 import { redactStaffIdentityNumbers } from "@/lib/hr-advanced";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { canUserDo } from "@/lib/rbac";
 import type { MasterDepartmentRow } from "@/lib/staff-departments";
+import {
+  computeStaffDirectoryKpis,
+  filterStaffDirectory,
+  type StaffDirectoryKpis,
+  type StaffDirectorySort,
+} from "@/lib/staff-directory-kpis";
 import {
   fetchStaffIdsWorkingAtLocation,
   fetchWorkLocationsByStaffId,
@@ -530,6 +537,240 @@ export async function fetchStaff(
       daily_rate_qar: comp?.daily ?? null,
     };
   });
+}
+
+/** Directory list columns only — no attendance/payroll/training blobs. */
+const STAFF_DIRECTORY_SELECT =
+  "id, employee_code, full_name, job_title, department, status, location_id, is_roaming, phone, email, hire_date, qid, e3_enrolled, employment_type, staff_role, photo_updated_at, flexible_attendance, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday, locations!staff_location_id_fkey(code, name), staff_departments(department_id, master_departments(id, name, sort_order)), staff_profile_ext(nationality, gender, sponsorship_info, passport_number, passport_expiry, qid_expiry, date_of_birth, contract_end, visa_expiry)";
+
+export type StaffDirectoryListFilters = {
+  locationId?: string | null;
+  includeArchived?: boolean;
+  page?: number;
+  pageSize?: number;
+  q?: string;
+  loc?: string;
+  department?: string;
+  departmentName?: string;
+  position?: string;
+  employmentType?: string;
+  status?: string;
+  nationality?: string;
+  gender?: string;
+  sponsorship?: string;
+  e3?: string;
+  missing?: boolean;
+  expiry?: string;
+  sort?: StaffDirectorySort;
+};
+
+export type StaffDirectoryListPayload = {
+  data: StaffRow[];
+  pagination: { page: number; pageSize: number; total: number; totalPages: number };
+  kpis: StaffDirectoryKpis;
+  facets: {
+    positions: string[];
+    nationalities: string[];
+    locations: Array<{ code: string; label: string }>;
+  };
+};
+
+function applyStaffProfileExt(
+  row: StaffRow,
+  ext:
+    | {
+        nationality?: string | null;
+        gender?: string | null;
+        sponsorship_info?: string | null;
+        passport_number?: string | null;
+        passport_expiry?: string | null;
+        qid_expiry?: string | null;
+        date_of_birth?: string | null;
+        contract_end?: string | null;
+        visa_expiry?: string | null;
+      }
+    | null
+    | undefined,
+): StaffRow {
+  if (!ext) return row;
+  return {
+    ...row,
+    nationality: ext.nationality ?? null,
+    gender: ext.gender ?? null,
+    sponsorship_info: ext.sponsorship_info ?? null,
+    passport_number: ext.passport_number ?? null,
+    passport_expiry: ext.passport_expiry ?? null,
+    qid_expiry: ext.qid_expiry ?? null,
+    date_of_birth: ext.date_of_birth ?? null,
+    contract_end: ext.contract_end ?? null,
+    visa_expiry: ext.visa_expiry ?? null,
+  };
+}
+
+/**
+ * Paginated People directory. Filters applied before the page slice.
+ * KPIs are roster-scoped (location / archive), not search-scoped — same as prior UI.
+ * Client receives only the current page of lean rows (not the full roster).
+ */
+export async function fetchStaffDirectory(
+  context: AuthContext,
+  filters: StaffDirectoryListFilters = {},
+): Promise<StaffDirectoryListPayload> {
+  const pageSizeRaw = filters.pageSize ?? 25;
+  const pageSize = pageSizeRaw === 50 || pageSizeRaw === 100 ? pageSizeRaw : 25;
+  const page = Math.max(1, filters.page ?? 1);
+
+  let q = context.supabase
+    .from("staff")
+    .select(STAFF_DIRECTORY_SELECT)
+    .order("full_name")
+    .limit(2000);
+  if (!filters.includeArchived) q = q.is("deleted_at", null);
+  if (filters.locationId) {
+    const extraIds = await fetchStaffIdsWorkingAtLocation(context.supabase, filters.locationId);
+    q = extraIds.length
+      ? q.or(`location_id.eq.${filters.locationId},id.in.(${extraIds.join(",")})`)
+      : q.eq("location_id", filters.locationId);
+  }
+
+  const { data: rows, error } = await q;
+  if (error) throw error;
+
+  const mapped = (rows ?? []).map((row) => {
+    const raw = row as Record<string, unknown> & {
+      locations?: { code: string; name: string } | null;
+      staff_departments?: StaffDeptJoin[] | null;
+      staff_profile_ext?:
+        | {
+            nationality?: string | null;
+            gender?: string | null;
+            sponsorship_info?: string | null;
+            passport_number?: string | null;
+            passport_expiry?: string | null;
+            qid_expiry?: string | null;
+            date_of_birth?: string | null;
+            contract_end?: string | null;
+            visa_expiry?: string | null;
+          }
+        | Array<{
+            nationality?: string | null;
+            gender?: string | null;
+            sponsorship_info?: string | null;
+            passport_number?: string | null;
+            passport_expiry?: string | null;
+            qid_expiry?: string | null;
+            date_of_birth?: string | null;
+            contract_end?: string | null;
+            visa_expiry?: string | null;
+          }>
+        | null;
+    };
+    const ext = Array.isArray(raw.staff_profile_ext)
+      ? (raw.staff_profile_ext[0] ?? null)
+      : (raw.staff_profile_ext ?? null);
+    const { staff_profile_ext: _ext, ...rest } = raw;
+    return applyStaffProfileExt(mapStaffRow(rest), ext);
+  });
+
+  const workByStaff = await fetchWorkLocationsByStaffId(
+    context.supabase,
+    mapped.map((s) => s.id),
+  );
+  for (const row of mapped) {
+    row.work_locations = workByStaff.get(row.id) ?? [];
+    row.work_location_ids = row.work_locations.map((loc) => loc.id);
+  }
+
+  const canSensitive = canUserDo(context.roles ?? [], "hr.profile.view_sensitive");
+  const identitySafe = mapped.map((s) => redactStaffIdentityNumbers(s, canSensitive));
+
+  // Roster KPIs (location-scoped) — independent of search/filter chips.
+  const kpis = computeStaffDirectoryKpis(identitySafe);
+
+  const positions = [...new Set(identitySafe.map((s) => s.job_title).filter(Boolean))] as string[];
+  positions.sort((a, b) => a.localeCompare(b));
+  const nationalities = [
+    ...new Set(identitySafe.map((s) => s.nationality).filter(Boolean)),
+  ] as string[];
+  nationalities.sort((a, b) => a.localeCompare(b));
+  const locationMap = new Map<string, string>();
+  for (const s of identitySafe) {
+    if (s.location_code) {
+      locationMap.set(s.location_code, formatLocationLabel(s.location_code, s.location_name));
+    }
+    for (const wl of s.work_locations ?? []) {
+      if (wl.code && !locationMap.has(wl.code)) {
+        locationMap.set(wl.code, formatLocationLabel(wl.code, wl.name));
+      }
+    }
+  }
+  const locationFacets = [...locationMap.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([code, label]) => ({ code, label }));
+
+  const filtered = filterStaffDirectory(identitySafe, {
+    q: filters.q ?? "",
+    loc: filters.loc ?? "",
+    position: filters.position ?? "",
+    department: filters.department ?? "",
+    departmentName: filters.departmentName ?? "",
+    type: filters.employmentType ?? "",
+    e3: filters.e3 ?? "",
+    status: filters.status ?? "",
+    nationality: filters.nationality ?? "",
+    gender: filters.gender ?? "",
+    sponsorship: filters.sponsorship ?? "",
+    missing: Boolean(filters.missing),
+    expiry: filters.expiry ?? "",
+    sort: filters.sort ?? "name",
+  });
+
+  const total = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const from = (safePage - 1) * pageSize;
+  const pageRows = filtered.slice(from, from + pageSize);
+
+  // Compensation only for the visible page (edit dialog), not the full roster.
+  const canSalary = canUserDo(context.roles ?? [], "people.view_salary");
+  let data = pageRows;
+  if (canSalary && pageRows.length) {
+    const { data: comps } = await context.supabase
+      .from("staff_compensation")
+      .select("staff_id, monthly_salary_qar, daily_rate_qar")
+      .in(
+        "staff_id",
+        pageRows.map((s) => s.id),
+      );
+    const byId = new Map(
+      (comps ?? []).map((c) => [
+        c.staff_id,
+        {
+          monthly: c.monthly_salary_qar == null ? null : Number(c.monthly_salary_qar),
+          daily: c.daily_rate_qar == null ? null : Number(c.daily_rate_qar),
+        },
+      ]),
+    );
+    data = pageRows.map((s) => {
+      const comp = byId.get(s.id);
+      return {
+        ...s,
+        monthly_salary_qar: comp?.monthly ?? null,
+        daily_rate_qar: comp?.daily ?? null,
+      };
+    });
+  }
+
+  return {
+    data,
+    pagination: { page: safePage, pageSize, total, totalPages },
+    kpis,
+    facets: {
+      positions,
+      nationalities,
+      locations: locationFacets,
+    },
+  };
 }
 
 // ——— Facility ———

@@ -177,13 +177,40 @@ function StaffProfilePageBody() {
   const profile = useQuery({
     queryKey: queryKeys.people.staffProfile(id),
     queryFn: async () => {
-      const res = await fetch(`/api/people/staff/${id}`, { credentials: "include" });
+      const res = await fetch(`/api/people/staff/${id}?sections=overview`, { credentials: "include" });
       const body = (await res.json()) as ProfileResponse & { error?: string };
       if (!res.ok) throw new Error(body.error ?? "Failed to load profile");
       return body;
     },
     staleTime: STALE.people,
   });
+
+  const attendanceSection = useQuery({
+    queryKey: queryKeys.people.staffProfileSection(id, "attendance"),
+    queryFn: async () => {
+      const res = await fetch(`/api/people/staff/${id}?sections=attendance`, { credentials: "include" });
+      const body = (await res.json()) as ProfileResponse & { error?: string };
+      if (!res.ok) throw new Error(body.error ?? "Failed to load attendance");
+      return { attendance: body.attendance ?? [], punches: body.punches ?? [] };
+    },
+    staleTime: STALE.people,
+    enabled: Boolean(id) && profileTab === "attendance",
+  });
+
+  const trainingSection = useQuery({
+    queryKey: queryKeys.people.staffProfileSection(id, "training"),
+    queryFn: async () => {
+      const res = await fetch(`/api/people/staff/${id}?sections=training`, { credentials: "include" });
+      const body = (await res.json()) as ProfileResponse & { error?: string };
+      if (!res.ok) throw new Error(body.error ?? "Failed to load training");
+      return { training: body.training ?? [] };
+    },
+    staleTime: STALE.people,
+    enabled: Boolean(id) && profileTab === "training",
+  });
+
+  const attendanceRows = attendanceSection.data?.attendance ?? profile.data?.attendance ?? [];
+  const trainingRows = trainingSection.data?.training ?? profile.data?.training ?? [];
 
   useEffect(() => {
     const loaded = profile.data?.staff;
@@ -213,7 +240,14 @@ function StaffProfilePageBody() {
 
   const salaryMut = useMutation({
     mutationFn: async () => {
-      const result = await updateStaffSalary({ id, monthlySalaryQar: salary ? Number(salary) : null });
+      const amount = salary.trim() === "" ? null : Number(salary);
+      if (amount !== null && Number.isNaN(amount)) throw new Error(t("people.staff.salaryPlaceholder"));
+      const isJoker = employmentType === "joker" || profile.data?.staff?.employment_type === "joker";
+      const result = await updateStaffSalary(
+        isJoker
+          ? { id, monthlySalaryQar: null, dailyRateQar: amount }
+          : { id, monthlySalaryQar: amount, dailyRateQar: null },
+      );
       if (!result.ok) throw new Error(result.error);
       return result.data;
     },
@@ -238,7 +272,7 @@ function StaffProfilePageBody() {
         eventType: timelineFilter === "all" ? null : timelineFilter,
       }),
     staleTime: STALE.people,
-    enabled: Boolean(id),
+    enabled: Boolean(id) && profileTab === "history",
   });
 
   const enrollMut = useMutation({
@@ -688,19 +722,40 @@ function StaffProfilePageBody() {
           <Row label={t("people.staff.status")} value={s.status} />
           {profile.data?.canViewSalary ? (
             <Row
-              label={t("people.staff.salary")}
-              value={
-                profile.data.compensation?.monthly_salary_qar != null
-                  ? `${profile.data.compensation.monthly_salary_qar} ${profile.data.compensation.currency}`
-                  : "—"
+              label={
+                (employmentType === "joker" || s.employment_type === "joker") &&
+                profile.data.compensation?.daily_rate_qar != null
+                  ? t("people.staff.dayRate")
+                  : t("people.staff.salary")
               }
+              value={(() => {
+                const c = profile.data.compensation;
+                const cur = c?.currency ?? "QAR";
+                if (c?.daily_rate_qar != null && c.daily_rate_qar > 0) {
+                  return `${c.daily_rate_qar} ${cur}/day`;
+                }
+                if (c?.monthly_salary_qar != null) return `${c.monthly_salary_qar} ${cur}`;
+                return "—";
+              })()}
             />
           ) : null}
           {canSalary ? (
             <div className="flex items-end gap-2 pt-2">
               <div className="space-y-1">
-                <Label>{t("people.staff.salary")}</Label>
-                <Input value={salary} onChange={(e) => setSalary(e.target.value)} placeholder="QAR" />
+                <Label>
+                  {employmentType === "joker" || s.employment_type === "joker"
+                    ? t("people.staff.dayRate")
+                    : t("people.staff.salary")}
+                </Label>
+                <Input
+                  value={salary}
+                  onChange={(e) => setSalary(e.target.value)}
+                  placeholder={
+                    employmentType === "joker" || s.employment_type === "joker"
+                      ? t("people.staff.dayRatePlaceholder")
+                      : "QAR"
+                  }
+                />
               </div>
               <Button size="sm" onClick={() => salaryMut.mutate()} disabled={salaryMut.isPending}>
                 {t("common.save")}
@@ -862,7 +917,9 @@ function StaffProfilePageBody() {
         <TabsContent value="attendance" className="space-y-4">
       <section className="surface-card space-y-2 p-5">
         <h2 className="text-sm font-semibold">{t("people.profile.attendance")}</h2>
-        {!profile.data?.attendance.length ? (
+        {attendanceSection.isLoading ? (
+          <p className="text-sm text-muted-foreground">{t("people.staff.loading")}</p>
+        ) : !attendanceRows.length ? (
           <p className="text-sm text-muted-foreground">{t("people.profile.noAttendance")}</p>
         ) : (
           <div className="overflow-x-auto">
@@ -877,7 +934,7 @@ function StaffProfilePageBody() {
                 </tr>
               </thead>
               <tbody>
-                {profile.data.attendance.map((row) => (
+                {attendanceRows.map((row) => (
                   <tr key={row.id} className="border-t">
                     <td className="px-2 py-1">{row.work_date}</td>
                     <td className="px-2 py-1 text-xs text-muted-foreground">{row.location_label ?? "—"}</td>
@@ -922,10 +979,12 @@ function StaffProfilePageBody() {
         <TabsContent value="training" className="space-y-4">
         <section className="surface-card space-y-2 p-5">
           <h2 className="text-sm font-semibold">{t("people.profile.training")}</h2>
-          {!profile.data?.training.length ? (
+          {trainingSection.isLoading ? (
+            <p className="text-sm text-muted-foreground">{t("people.staff.loading")}</p>
+          ) : !trainingRows.length ? (
             <p className="text-sm text-muted-foreground">{t("people.profile.noTraining")}</p>
           ) : (
-            profile.data.training.map((tr) => (
+            trainingRows.map((tr) => (
               <p key={tr.id} className="text-sm">{tr.course_name} · {tr.status}</p>
             ))
           )}

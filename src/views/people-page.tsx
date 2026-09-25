@@ -73,10 +73,15 @@ import type { StaffRow } from "@/lib/queries/module-queries.core";
 import { queryKeys } from "@/lib/query-keys";
 import { usePermission } from "@/hooks/use-permission";
 import { useAppStore } from "@/stores/app-store";
-import { PageHeader } from "@/components/layout/page-header";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  FecButton as Button,
+  FecPageHeader,
+  FecTabs as Tabs,
+  FecTabsContent as TabsContent,
+  FecTabsList as TabsList,
+  FecTabsTrigger as TabsTrigger,
+} from "@/components/fec";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -260,27 +265,29 @@ function PeoplePageBody() {
   };
 
   return (
-    <div className="space-y-5">
-      <PageHeader
-        icon={Users}
-        title={t("people.title")}
-        subtitle={t("people.subtitle")}
-        actions={
-          <div className="flex flex-wrap gap-2">
-            {canEdit ? (
-              <>
-                <PeopleSampleDownloadMenu />
-                <ImportCsvDialog />
-              </>
-            ) : null}
-            {canImport ? (
-              <Button asChild variant="secondary" size="sm">
-                <Link href="/people/import">{t("nav.importRoster")}</Link>
-              </Button>
-            ) : null}
-          </div>
-        }
-      />
+    <div className="space-y-4 md:space-y-5">
+      <div className="hidden md:block">
+        <FecPageHeader
+          icon={Users}
+          title={t("people.title")}
+          subtitle={t("people.subtitle")}
+          actions={
+            <div className="flex flex-wrap gap-2">
+              {canEdit ? (
+                <>
+                  <PeopleSampleDownloadMenu />
+                  <ImportCsvDialog />
+                </>
+              ) : null}
+              {canImport ? (
+                <Button asChild variant="secondary" size="sm">
+                  <Link href="/people/import">{t("nav.importRoster")}</Link>
+                </Button>
+              ) : null}
+            </div>
+          }
+        />
+      </div>
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="h-11 min-h-11 w-full max-w-full flex-nowrap items-center gap-0.5 overflow-x-auto overflow-y-hidden rounded-full border-0 bg-secondary p-1 text-foreground sm:w-fit">
           {PEOPLE_MAIN_TABS.map((value) => (
@@ -299,7 +306,7 @@ function PeoplePageBody() {
           ) : null}
         </TabsList>
         {hiddenTab ? (
-          <p className="mt-3 text-xs text-muted-foreground">
+          <p className="mt-3 hidden text-xs text-muted-foreground md:block">
             {t("people.extras.hiddenTabHint")}{" "}
             <Link href="/people/extras" className="font-medium underline-offset-4 hover:underline">
               {t("people.extras.openExtras")}
@@ -348,14 +355,15 @@ function StaffTab() {
   const locationId = useLoc();
   const canEdit = usePermission("people.edit_roster");
   const qc = useQueryClient();
-  const { data, isLoading } = useStaff(locationId ?? null, { includeArchived: true });
   const { data: sites } = useSites();
   const [createOpen, setCreateOpen] = useState(false);
   const [editRow, setEditRow] = useState<StaffRow | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const invalidate = () => {
+    void qc.invalidateQueries({ queryKey: queryKeys.people.staffDirectory() });
     void qc.invalidateQueries({ queryKey: queryKeys.people.staff(locationId ?? null, true) });
+    void qc.invalidateQueries({ queryKey: queryKeys.people.staff(locationId ?? null, false) });
     void qc.invalidateQueries({ queryKey: queryKeys.people.departments() });
     void qc.invalidateQueries({ queryKey: queryKeys.people.dashboard({ locationId: locationId ?? null }) });
   };
@@ -370,8 +378,6 @@ function StaffTab() {
     onError: (e) => toast.error((e as Error).message),
   });
 
-  if (isLoading) return <Empty>{t("people.staff.loading")}</Empty>;
-
   return (
     <div className="space-y-4">
       {canEdit ? (
@@ -379,28 +385,13 @@ function StaffTab() {
           <ManageDepartmentsDialog />
         </div>
       ) : null}
-      {!data?.length ? (
-        <div className="space-y-3">
-          <Empty>{t("people.staff.empty")}</Empty>
-          {canEdit ? (
-            <div className="flex justify-center">
-              <Button size="sm" onClick={() => setCreateOpen(true)}>
-                <Plus className="mr-1 h-3.5 w-3.5" />
-                {t("people.staff.addEmployee", "Add employee")}
-              </Button>
-            </div>
-          ) : null}
-        </div>
-      ) : (
-        <StaffDirectory
-          staff={data}
-          locationId={locationId ?? null}
-          canEdit={canEdit}
-          onEdit={setEditRow}
-          onArchive={setDeleteId}
-          onAdd={canEdit ? () => setCreateOpen(true) : undefined}
-        />
-      )}
+      <StaffDirectory
+        locationId={locationId ?? null}
+        canEdit={canEdit}
+        onEdit={setEditRow}
+        onArchive={setDeleteId}
+        onAdd={canEdit ? () => setCreateOpen(true) : undefined}
+      />
 
       {canEdit ? (
         <StaffFormDialog
@@ -489,17 +480,17 @@ function StaffFormDialog({
     if (staff?.employment_type !== "joker") return "monthly";
     const daily = staff?.daily_rate_qar;
     const monthly = staff?.monthly_salary_qar;
-    if (daily != null && daily > 0 && !(monthly != null && monthly > 0)) return "daily";
-    return "monthly";
+    // Jokers default to per-day; only keep monthly when that field alone is populated.
+    if (monthly != null && monthly > 0 && !(daily != null && daily > 0)) return "monthly";
+    return "daily";
   });
   const [salary, setSalary] = useState(() => {
-    if (
-      staff?.employment_type === "joker" &&
-      staff.daily_rate_qar != null &&
-      staff.daily_rate_qar > 0 &&
-      !(staff.monthly_salary_qar != null && staff.monthly_salary_qar > 0)
-    ) {
-      return String(staff.daily_rate_qar);
+    if (staff?.employment_type === "joker") {
+      const daily = staff.daily_rate_qar;
+      const monthly = staff.monthly_salary_qar;
+      if (daily != null && daily > 0) return String(daily);
+      if (monthly != null && monthly > 0) return String(monthly);
+      return "";
     }
     return staff?.monthly_salary_qar != null ? String(staff.monthly_salary_qar) : "";
   });
@@ -558,7 +549,8 @@ function StaffFormDialog({
           : (employmentType as "permanent" | "temporary" | "secondment" | "joker");
       const e3Enrolled = e3 === "" ? null : e3 === "yes";
       const qidValue = qid.trim() || null;
-      const jokerDaily = employment === "joker" && payBasis === "daily";
+      // Jokers always store the amount as daily_rate_qar (pay basis UI is day-rate-first).
+      const jokerDaily = employment === "joker";
       let staffId = staff?.id;
       if (isEdit) {
         const reportingParsed =
@@ -1840,7 +1832,9 @@ function ImportCsvDialog() {
     onSuccess: (res) => {
       toast.success(t("people.importSuccess", { count: res.imported }));
       setOpen(false);
+      void qc.invalidateQueries({ queryKey: queryKeys.people.staffDirectory() });
       void qc.invalidateQueries({ queryKey: queryKeys.people.staff(locationId ?? null, true) });
+      void qc.invalidateQueries({ queryKey: queryKeys.people.staff(locationId ?? null, false) });
       void qc.invalidateQueries({ queryKey: queryKeys.people.dashboard({ locationId: locationId ?? null }) });
       void qc.invalidateQueries({ queryKey: queryKeys.people.shifts(locationId ?? null) });
     },
