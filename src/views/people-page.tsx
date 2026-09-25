@@ -73,17 +73,12 @@ import type { StaffRow } from "@/lib/queries/module-queries.core";
 import { queryKeys } from "@/lib/query-keys";
 import { usePermission } from "@/hooks/use-permission";
 import { useAppStore } from "@/stores/app-store";
-import {
-  FecButton as Button,
-  FecPageHeader,
-  FecTabs as Tabs,
-  FecTabsContent as TabsContent,
-  FecTabsList as TabsList,
-  FecTabsTrigger as TabsTrigger,
-} from "@/components/fec";
+import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -265,29 +260,27 @@ function PeoplePageBody() {
   };
 
   return (
-    <div className="space-y-4 md:space-y-5">
-      <div className="hidden md:block">
-        <FecPageHeader
-          icon={Users}
-          title={t("people.title")}
-          subtitle={t("people.subtitle")}
-          actions={
-            <div className="flex flex-wrap gap-2">
-              {canEdit ? (
-                <>
-                  <PeopleSampleDownloadMenu />
-                  <ImportCsvDialog />
-                </>
-              ) : null}
-              {canImport ? (
-                <Button asChild variant="secondary" size="sm">
-                  <Link href="/people/import">{t("nav.importRoster")}</Link>
-                </Button>
-              ) : null}
-            </div>
-          }
-        />
-      </div>
+    <div className="space-y-5">
+      <PageHeader
+        icon={Users}
+        title={t("people.title")}
+        subtitle={t("people.subtitle")}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            {canEdit ? (
+              <>
+                <PeopleSampleDownloadMenu />
+                <ImportCsvDialog />
+              </>
+            ) : null}
+            {canImport ? (
+              <Button asChild variant="secondary" size="sm">
+                <Link href="/people/import">{t("nav.importRoster")}</Link>
+              </Button>
+            ) : null}
+          </div>
+        }
+      />
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="h-11 min-h-11 w-full max-w-full flex-nowrap items-center gap-0.5 overflow-x-auto overflow-y-hidden rounded-full border-0 bg-secondary p-1 text-foreground sm:w-fit">
           {PEOPLE_MAIN_TABS.map((value) => (
