@@ -1,5 +1,7 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -36,7 +38,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { PageHeader } from "@/components/layout/page-header";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { retryImport } from "@/lib/retry-import";
@@ -125,7 +126,7 @@ function Page() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      <FecPageHeader
         kicker="Commercial"
         title="Revenue intelligence"
         subtitle="Pace, forecast, leakage, and asset return across the estate."

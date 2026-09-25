@@ -1,5 +1,7 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -8,7 +10,6 @@ import { toast } from "sonner";
 
 import { EventAiAssist } from "@/components/events/event-ai-assist";
 import { EventSetupStepper } from "@/components/events/event-setup-stepper";
-import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -379,7 +380,7 @@ export function EventBuilder({
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
-      <PageHeader
+      <FecPageHeader
         kicker={ev?.event_number ?? t("events.kicker")}
         title={eventId ? t("events.builder.continueTitle") : t("events.builder.title")}
         subtitle={t("events.builder.subtitle")}

@@ -1,10 +1,10 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import { BookOpen, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
-
-import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 
 const SECTIONS = [
@@ -29,7 +29,7 @@ export default function ProcurementGuidePage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      <FecPageHeader
         icon={BookOpen}
         kicker={t("procurement.kicker")}
         title={t("procurement.guide.title")}

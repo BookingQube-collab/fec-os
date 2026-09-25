@@ -1,5 +1,7 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
@@ -22,7 +24,6 @@ import {
   EventPayablesPanel,
 } from "@/components/events/event-ops-panels";
 import { EventWorkspaceNav } from "@/components/events/event-workspace-nav";
-import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -166,7 +167,7 @@ export default function EventOverviewPage() {
 
   return (
     <div className="min-w-0 max-w-full space-y-5">
-      <PageHeader
+      <FecPageHeader
         kicker={ev.event_number ?? t("events.kicker")}
         title={displayName}
         subtitle={

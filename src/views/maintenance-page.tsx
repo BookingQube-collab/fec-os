@@ -1,5 +1,7 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ClipboardList, FileBarChart, LayoutDashboard, Loader2, Pencil, Sparkles, Trash2, Truck, Wrench } from "lucide-react";
@@ -38,7 +40,6 @@ import type { WorkOrderListRow } from "@/lib/queries/module-queries.core";
 import { useAppStore } from "@/stores/app-store";
 import { useFloorSupervisorView } from "@/hooks/use-floor-supervisor-view";
 import { cn } from "@/lib/utils";
-import { PageHeader } from "@/components/layout/page-header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
@@ -104,7 +105,7 @@ function MaintenancePage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader
+      <FecPageHeader
         icon={Wrench}
         title={t("maintenancePage.title")}
         subtitle={t("maintenancePage.subtitle")}

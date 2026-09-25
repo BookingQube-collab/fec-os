@@ -17,7 +17,7 @@ export interface FecSectionProps {
   kicker?: ReactNode;
   icon?: LucideIcon;
   actions?: ReactNode;
-  /** Soft entrance on phone only; respects reduced-motion via FadeContent. */
+  /** Soft once-on-view fade; respects reduced-motion via FadeContent. On by default. */
   fade?: boolean;
 }
 
@@ -29,7 +29,7 @@ export function FecSection({
   kicker,
   icon: Icon,
   actions,
-  fade = false,
+  fade = true,
 }: FecSectionProps) {
   const head =
     title || kicker || actions ? (

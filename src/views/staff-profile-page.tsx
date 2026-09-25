@@ -1,5 +1,7 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -7,8 +9,6 @@ import { useEffect, useState, Suspense } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { User } from "lucide-react";
-
-import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -400,7 +400,7 @@ function StaffProfilePageBody() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      <FecPageHeader
         icon={User}
         kicker={t("people.profile.title")}
         title={s.full_name}

@@ -1,7 +1,10 @@
+"use client";
+
 import Link from "next/link";
 import type { CSSProperties } from "react";
 import type { LucideIcon } from "lucide-react";
 
+import { KpiAnimatedValue } from "@/components/react-bits/kpi-animated-value";
 import { cn } from "@/lib/utils";
 
 export type HrKpiTone = "charcoal" | "mustard" | "cream" | "alert" | "ok" | "info";
@@ -52,7 +55,7 @@ export function HrKpiTile({
     >
       <div className="hr-kpi__meta">
         <p className="hr-kpi__label">{label}</p>
-        <p className="hr-kpi__value">{value}</p>
+        <KpiAnimatedValue value={value} className="hr-kpi__value block" />
       </div>
       {Icon ? (
         <span className="hr-kpi__icon" aria-hidden>

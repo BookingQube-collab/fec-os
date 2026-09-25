@@ -1,5 +1,7 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Loader2, ShieldCheck } from "lucide-react";
@@ -22,13 +24,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { PageHeader } from "@/components/layout/page-header";
 
 function CompliancePage() {
   const { t } = useTranslation();
   return (
     <div className="space-y-5">
-      <PageHeader
+      <FecPageHeader
         icon={ShieldCheck}
         kicker={t("complianceHub.kicker")}
         title={t("complianceHub.title")}

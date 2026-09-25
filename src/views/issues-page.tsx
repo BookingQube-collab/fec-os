@@ -1,5 +1,7 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -33,7 +35,6 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { PageHeader } from "@/components/layout/page-header";
 import { cn } from "@/lib/utils";
 
 const STATUSES = ["open", "assigned", "in_progress", "blocked", "resolved", "closed"] as const;
@@ -78,7 +79,7 @@ function IssuesPage() {
   const canCreate = usePermission("issues.create");
   return (
     <div className="space-y-5">
-      <PageHeader
+      <FecPageHeader
         kicker="Operations"
         title="Issue tracker"
         subtitle="Front-line and back-office tickets across the estate."

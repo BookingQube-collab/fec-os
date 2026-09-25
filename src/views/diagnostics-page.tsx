@@ -1,5 +1,7 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
@@ -19,7 +21,6 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
-import { PageHeader } from "@/components/layout/page-header";
 import { KPIWidget } from "@/components/dashboard/kpi-widget";
 import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
 import { Badge } from "@/components/ui/badge";
@@ -198,7 +199,7 @@ function DiagnosticsHubView() {
 
   return (
     <div className="space-y-5">
-      <PageHeader
+      <FecPageHeader
         icon={Activity}
         kicker={t("diagnostics.kicker")}
         title={t("diagnostics.title")}

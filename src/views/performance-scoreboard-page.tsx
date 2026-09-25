@@ -1,5 +1,7 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useMemo, useState } from "react";
@@ -10,7 +12,6 @@ import { CapabilityGate } from "@/components/auth/capability-gate";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { PageHeader } from "@/components/layout/page-header";
 import {
   Table,
   TableBody,
@@ -57,7 +58,7 @@ export default function PerformanceScoreboardPage() {
       fallback={<p className="text-sm text-muted-foreground">{t("performance.scoreboard.noAccess")}</p>}
     >
       <div className="space-y-6">
-        <PageHeader
+        <FecPageHeader
           icon={Trophy}
           kicker="People & HR"
           title={t("performance.scoreboard.title")}

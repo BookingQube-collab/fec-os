@@ -1,5 +1,7 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useMemo, useState } from "react";
@@ -16,7 +18,6 @@ import { EventSourceBanner } from "@/components/events/event-source-banner";
 import { EventTaskDialog, type TaskDraft } from "@/components/events/event-task-dialog";
 import { EventWbsTree } from "@/components/events/event-wbs-tree";
 import { EventWorkspaceNav } from "@/components/events/event-workspace-nav";
-import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -358,7 +359,7 @@ export default function EventPlanPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader
+      <FecPageHeader
         kicker={eventQ.data?.event.event_number ?? undefined}
         title={t("events.plan.title")}
         subtitle={t("events.plan.subtitle")}

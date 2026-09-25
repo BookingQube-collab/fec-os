@@ -1,5 +1,7 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import Link from "next/link";
 import { AlertOctagon, ChevronLeft } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -8,7 +10,6 @@ import { useCeoIncidents24h } from "@/hooks/queries/useCeo";
 import { usePermission } from "@/hooks/use-permission";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { incidentTypeLabel } from "@/lib/daily-ops/constants";
-import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { TintedKpiCard } from "@/components/dashboard/tinted-kpi-card";
@@ -34,7 +35,7 @@ function Page() {
         </Link>
       </Button>
 
-      <PageHeader
+      <FecPageHeader
         icon={AlertOctagon}
         kicker={t("ceo.kicker")}
         title={t("ceo.incidentsTitle")}

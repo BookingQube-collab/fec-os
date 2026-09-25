@@ -1,5 +1,7 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
@@ -9,7 +11,6 @@ import { toast } from "sonner";
 import { EventAiAssist } from "@/components/events/event-ai-assist";
 import { EventDocumentsPanel } from "@/components/events/event-documents-panel";
 import { EventWorkspaceNav } from "@/components/events/event-workspace-nav";
-import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -199,7 +200,7 @@ export default function EventScopePage() {
 
   return (
     <div className="min-w-0 max-w-full space-y-5">
-      <PageHeader
+      <FecPageHeader
         kicker={eventQ.data?.event.event_number ?? undefined}
         title={t("events.scope.title")}
         subtitle={

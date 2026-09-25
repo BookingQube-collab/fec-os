@@ -1,5 +1,7 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderOpen, Trash2, Upload, X } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -9,7 +11,6 @@ import { toast } from "sonner";
 
 import { AttendanceHrNav } from "@/components/attendance-hr/attendance-hr-nav";
 import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
-import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -245,7 +246,7 @@ export default function AttendanceHrImportPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      <FecPageHeader
         icon={Upload}
         kicker={t("attendanceHr.import.kicker")}
         title={t("attendanceHr.import.title")}

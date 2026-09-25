@@ -1,5 +1,7 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { UserRound } from "lucide-react";
 import Link from "next/link";
@@ -13,7 +15,6 @@ import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { HrPanel } from "@/components/hr/hr-panel";
 import { HrSection } from "@/components/hr/hr-section";
 import { HrShell } from "@/components/hr/hr-shell";
-import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -157,7 +158,7 @@ export default function HrAtsCandidateDetailPage() {
     <CapabilityGate
       capability="recruitment.request"
       fallback={
-        <PageHeader
+        <FecPageHeader
           icon={UserRound}
           kicker={t("hr.ats.kicker")}
           title={t("hr.ats.candidateTitle")}
@@ -166,7 +167,7 @@ export default function HrAtsCandidateDetailPage() {
       }
     >
       <HrShell>
-        <PageHeader
+        <FecPageHeader
           icon={UserRound}
           kicker={t("hr.ats.kicker")}
           title={c?.fullName ?? t("hr.ats.candidateTitle")}

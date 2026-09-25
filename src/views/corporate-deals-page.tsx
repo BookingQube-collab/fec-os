@@ -1,5 +1,7 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import { useMemo, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { useTranslation } from "react-i18next";
@@ -7,7 +9,6 @@ import { toast } from "sonner";
 import { FileBarChart, Loader2, Plus, Trash2 } from "lucide-react";
 
 import { TintedKpiCard } from "@/components/dashboard/tinted-kpi-card";
-import { PageHeader } from "@/components/layout/page-header";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -330,7 +331,7 @@ export default function CorporateDealsPage() {
 
   return (
     <div className="corporate-deals-page space-y-6">
-      <PageHeader
+      <FecPageHeader
         className="print:hidden"
         icon={FileBarChart}
         title={t("corporateDeals.title")}

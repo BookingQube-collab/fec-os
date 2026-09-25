@@ -1,5 +1,7 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle2,
@@ -15,8 +17,6 @@ import {
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-
-import { PageHeader } from "@/components/layout/page-header";
 import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
 import {
   AlertDialog,
@@ -216,7 +216,7 @@ function AiIntegrationsPage() {
   if (!canManage) {
     return (
       <div className="space-y-5">
-        <PageHeader icon={Sparkles} kicker={t("aiIntegrations.kicker")} title={t("aiIntegrations.title")} />
+        <FecPageHeader icon={Sparkles} kicker={t("aiIntegrations.kicker")} title={t("aiIntegrations.title")} />
         <p className="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
           {t("aiIntegrations.forbidden")}
         </p>
@@ -236,7 +236,7 @@ function AiIntegrationsPage() {
   if (query.isError || !data) {
     return (
       <div className="space-y-5">
-        <PageHeader icon={Sparkles} kicker={t("aiIntegrations.kicker")} title={t("aiIntegrations.title")} />
+        <FecPageHeader icon={Sparkles} kicker={t("aiIntegrations.kicker")} title={t("aiIntegrations.title")} />
         <p className="text-sm text-destructive">{(query.error as Error | undefined)?.message ?? t("aiIntegrations.loadError")}</p>
       </div>
     );
@@ -246,7 +246,7 @@ function AiIntegrationsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      <FecPageHeader
         icon={Sparkles}
         kicker={t("aiIntegrations.kicker")}
         title={t("aiIntegrations.title")}

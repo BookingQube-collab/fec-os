@@ -13,12 +13,12 @@ const FadeContent = dynamic(() => import("@/components/react-bits/fade-content")
 export interface FecPageProps {
   children: ReactNode;
   className?: string;
-  /** Soft once-on-view fade (React Bits FadeContent). Off by default. */
+  /** Soft once-on-view fade (React Bits FadeContent). On by default. */
   fade?: boolean;
 }
 
-/** Page stack spacing. Optional FadeContent — keep React Bits here, not in every view. */
-export function FecPage({ children, className, fade = false }: FecPageProps) {
+/** Page stack spacing. FadeContent by default — keep React Bits here, not in every view. */
+export function FecPage({ children, className, fade = true }: FecPageProps) {
   const stack = cn(PAGE_STACK, "min-w-0", className);
   if (!fade) return <div className={stack}>{children}</div>;
   return (

@@ -1,5 +1,7 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, MapPin, Search, Users } from "lucide-react";
 import { memo, useEffect, useMemo, useState } from "react";
@@ -8,7 +10,6 @@ import { toast } from "sonner";
 
 import { AttendanceHrNav } from "@/components/attendance-hr/attendance-hr-nav";
 import { CapabilityGate } from "@/components/auth/capability-gate";
-import { PageHeader } from "@/components/layout/page-header";
 import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
 import {
   AlertDialog,
@@ -514,7 +515,7 @@ export default function AttendanceHrMappingPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      <FecPageHeader
         icon={Users}
         kicker={t("attendanceHr.mapping.kicker")}
         title={t("attendanceHr.mapping.title")}

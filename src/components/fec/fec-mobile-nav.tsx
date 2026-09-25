@@ -1,4 +1,1 @@
-/** Stub until mobile-bottom-nav is available under a stable path. */
-export function FecMobileNav() {
-  return null;
-}
+export { MobileBottomNav as FecMobileNav } from "@/components/layout/mobile-bottom-nav";

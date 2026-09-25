@@ -1,6 +1,9 @@
+"use client";
+
 import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
 
+import { KpiAnimatedValue } from "@/components/react-bits/kpi-animated-value";
 import { CircularProgressBadge } from "./circular-progress-badge";
 import { KPI_ICON_CLASS, KPI_TINT_CLASS, widgetAccentToTint } from "@/lib/ui/command-surface";
 import { cn } from "@/lib/utils";
@@ -45,7 +48,7 @@ export function KPIWidget({
       <div className="mt-3 flex items-end justify-between gap-2">
         <div className="min-w-0">
           <div className="flex flex-wrap items-baseline gap-2">
-            <span className="text-kpi text-foreground">{value}</span>
+            <KpiAnimatedValue value={value} className="text-kpi text-foreground" />
             {secondary && <span className="text-xs text-muted-foreground">{secondary}</span>}
           </div>
           {subtitle && <p className="mt-1 text-xs text-muted-foreground">{subtitle}</p>}

@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { PageHeader } from "@/components/layout/page-header";
+import { FecPageHeader } from "@/components/fec";
 import { E3_NAV_ITEMS } from "@/lib/compliance-tracker/constants";
 import { cn } from "@/lib/utils";
 
@@ -15,7 +15,7 @@ export function E3TrackerLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="space-y-5">
-      <PageHeader
+      <FecPageHeader
         icon={ShieldCheck}
         kicker={t("e3Tracker.layout.kicker")}
         title={t("e3Tracker.layout.title")}

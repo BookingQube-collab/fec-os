@@ -1,5 +1,7 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -25,7 +27,6 @@ import {
 } from "@/lib/maintenance-requests.functions";
 import { queryKeys } from "@/lib/query-keys";
 import { useAppStore } from "@/stores/app-store";
-import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -175,7 +176,7 @@ function MaintenanceRequestsPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader
+      <FecPageHeader
         title={t("maintenanceRequests.title")}
         subtitle={t("maintenanceRequests.subtitle")}
         actions={

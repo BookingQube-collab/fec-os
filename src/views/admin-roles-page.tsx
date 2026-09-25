@@ -1,5 +1,7 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import Link from "next/link";
@@ -8,7 +10,6 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
-import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -187,7 +188,7 @@ function AdminRolesView() {
 
   return (
     <div className="space-y-5">
-      <PageHeader
+      <FecPageHeader
         icon={Shield}
         kicker={t("adminRoles.kicker")}
         title={t("adminRoles.title")}

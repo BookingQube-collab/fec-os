@@ -1,5 +1,7 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import { useQuery } from "@tanstack/react-query";
 import {
   Bar,
@@ -16,8 +18,6 @@ import {
 import { Clock, Filter, Target, TrendingUp, Zap } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-
-import { PageHeader } from "@/components/layout/page-header";
 import { ChartCard, ChartEmpty } from "@/components/charts/chart-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -86,7 +86,7 @@ export default function ProcurementAnalyticsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      <FecPageHeader
         title={t("procurement.analytics.consoleTitle")}
         subtitle={t("procurement.analytics.consoleSubtitle")}
       />

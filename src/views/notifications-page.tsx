@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, CheckCheck } from "lucide-react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -21,6 +22,10 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const CATEGORIES = NOTIFICATION_CATEGORIES;
+
+const AnimatedList = dynamic(() => import("@/components/react-bits/animated-list"), {
+  ssr: false,
+});
 
 function NotificationsPage() {
   const { t } = useTranslation();
@@ -73,35 +78,37 @@ function NotificationsPage() {
           <TabsTrigger value="preferences">{t("inbox.tabPreferences")}</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="inbox" className="rounded-lg border border-border bg-card divide-y divide-border">
+        <TabsContent value="inbox" className="rounded-lg border border-border bg-card">
           {isLoading ? (
             <p className="p-4 text-sm text-muted-foreground">{t("inbox.loading")}</p>
           ) : !items.length ? (
             <p className="p-4 text-sm text-muted-foreground">{t("inbox.empty")}</p>
           ) : (
-            items.map((n) => (
-              <div key={n.id} className="flex items-start gap-3 p-4">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium">
-                      {n.titleKey ? t(n.titleKey, n.titleParams) : n.title}
-                    </span>
-                    {!n.readAt && <span className="h-2 w-2 rounded-full bg-primary" />}
+            <AnimatedList className="divide-y divide-border">
+              {items.map((n) => (
+                <div key={n.id} className="flex items-start gap-3 p-4">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium">
+                        {n.titleKey ? t(n.titleKey, n.titleParams) : n.title}
+                      </span>
+                      {!n.readAt && <span className="h-2 w-2 rounded-full bg-primary" />}
+                    </div>
+                    {n.body && <p className="mt-1 text-xs text-muted-foreground">{n.body}</p>}
+                    {n.actionUrl && (
+                      <Link href={n.actionUrl} className="mt-1 inline-block text-xs text-primary hover:underline">
+                        {t("inbox.open")}
+                      </Link>
+                    )}
                   </div>
-                  {n.body && <p className="mt-1 text-xs text-muted-foreground">{n.body}</p>}
-                  {n.actionUrl && (
-                    <Link href={n.actionUrl} className="mt-1 inline-block text-xs text-primary hover:underline">
-                      {t("inbox.open")}
-                    </Link>
+                  {n.persisted && !n.readAt && n.id.startsWith("notif:") && (
+                    <Button variant="ghost" size="sm" onClick={() => markRead.mutate(n.id.slice(6))}>
+                      {t("inbox.markRead")}
+                    </Button>
                   )}
                 </div>
-                {n.persisted && !n.readAt && n.id.startsWith("notif:") && (
-                  <Button variant="ghost" size="sm" onClick={() => markRead.mutate(n.id.slice(6))}>
-                    {t("inbox.markRead")}
-                  </Button>
-                )}
-              </div>
-            ))
+              ))}
+            </AnimatedList>
           )}
         </TabsContent>
 

@@ -351,7 +351,11 @@ export function AppTopbar() {
   return (
     <header
       ref={headerRef}
-      className={cn("flex flex-col gap-3 px-0.5 pt-0.5", surgeMode ? "pb-2" : "pb-4")}
+      className={cn(
+        // Desktop/tablet chrome only — phone uses MobileAppHeader (CSS, not matchMedia).
+        "hidden flex-col gap-3 px-0.5 pt-0.5 md:flex",
+        surgeMode ? "pb-2" : "pb-4",
+      )}
     >
       <div className="flex flex-wrap items-center gap-3 md:gap-4">
         <div className="min-w-0 flex-1">

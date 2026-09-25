@@ -1,5 +1,7 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -34,7 +36,6 @@ import {
   type PrActionTarget,
 } from "@/components/procurement/pr-row-actions";
 import { PrStatusPill } from "@/components/procurement/pr-status-pill";
-import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -372,7 +373,7 @@ function ProcurementRequisitionsInner({
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      <FecPageHeader
         title={
           <span className="inline-flex flex-wrap items-center gap-2.5">
             {t("procurement.pageTitle")}

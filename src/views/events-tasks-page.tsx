@@ -1,9 +1,9 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
-
-import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -24,7 +24,7 @@ export default function EventsTasksPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      <FecPageHeader
         kicker={t("events.kicker")}
         title={t("events.myTasks.title")}
         subtitle={t("events.myTasks.subtitle")}

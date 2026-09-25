@@ -1,5 +1,7 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Loader2, MapPin, ScrollText } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -8,7 +10,6 @@ import { useTranslation } from "react-i18next";
 import { AttendanceHrNav } from "@/components/attendance-hr/attendance-hr-nav";
 import { TintedKpiCard } from "@/components/dashboard/tinted-kpi-card";
 import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
-import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -200,7 +201,7 @@ export default function AttendanceHrDeviceLogsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      <FecPageHeader
         icon={ScrollText}
         kicker={t("attendanceHr.deviceLogs.kicker")}
         title={t("attendanceHr.deviceLogs.title")}

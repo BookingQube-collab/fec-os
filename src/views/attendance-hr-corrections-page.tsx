@@ -1,12 +1,13 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ClipboardCheck } from "lucide-react";
 
 import { AttendanceHrNav } from "@/components/attendance-hr/attendance-hr-nav";
-import { PageHeader } from "@/components/layout/page-header";
 import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -34,7 +35,7 @@ export default function AttendanceHrCorrectionsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      <FecPageHeader
         icon={ClipboardCheck}
         kicker="Time & Attendance"
         title="Corrections"

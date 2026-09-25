@@ -1,5 +1,7 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, Download, Loader2, RefreshCw, Search, Settings, Wifi } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -7,7 +9,6 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { AttendanceHrNav } from "@/components/attendance-hr/attendance-hr-nav";
-import { PageHeader } from "@/components/layout/page-header";
 import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -317,7 +318,7 @@ export default function AttendanceHrSettingsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      <FecPageHeader
         icon={Settings}
         kicker={t("attendanceHr.settings.kicker")}
         title={t("attendanceHr.settings.title")}

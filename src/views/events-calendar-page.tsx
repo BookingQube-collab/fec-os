@@ -1,11 +1,12 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { EventHealthBadge } from "@/components/events/event-health-badge";
-import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { useEventsCalendar } from "@/hooks/queries/useEvents";
 import { useAppStore } from "@/stores/app-store";
@@ -45,7 +46,7 @@ export default function EventsCalendarPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      <FecPageHeader
         kicker={t("events.kicker")}
         title={t("events.calendar.title")}
         subtitle={t("events.calendar.subtitle")}

@@ -1,12 +1,13 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
-import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -72,7 +73,7 @@ export default function ProcurementConfigPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      <FecPageHeader
         kicker={t("procurement.kicker")}
         title={t("procurement.config.title")}
         subtitle={t("procurement.config.subtitle")}

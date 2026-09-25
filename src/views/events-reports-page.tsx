@@ -1,5 +1,7 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useTranslation } from "react-i18next";
@@ -7,7 +9,6 @@ import { useTranslation } from "react-i18next";
 import { EventReportAiBrief } from "@/components/events/event-report-ai-brief";
 import { EventReportsDetailTable, formatReportCell } from "@/components/events/event-reports-detail-table";
 import { EventSourceBanner } from "@/components/events/event-source-banner";
-import { PageHeader } from "@/components/layout/page-header";
 import { DownloadReportButton } from "@/components/reports/download-report-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -134,7 +135,7 @@ export default function EventsReportsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      <FecPageHeader
         kicker={t("events.kicker")}
         title={t("events.reports.title")}
         subtitle={t("events.reports.subtitle")}

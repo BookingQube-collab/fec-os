@@ -1,5 +1,7 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarRange, Download, Upload } from "lucide-react";
 import Link from "next/link";
@@ -9,7 +11,6 @@ import { toast } from "sonner";
 
 import { AttendanceHrNav } from "@/components/attendance-hr/attendance-hr-nav";
 import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
-import { PageHeader } from "@/components/layout/page-header";
 import { StaffSampleDownloadDialog } from "@/components/people/staff-sample-download-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -182,7 +183,7 @@ export default function AttendanceHrRosterPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      <FecPageHeader
         icon={CalendarRange}
         kicker={t("nav.departments.people")}
         title={t("attendanceHr.roster.title")}

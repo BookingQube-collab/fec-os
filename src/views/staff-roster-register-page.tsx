@@ -1,13 +1,13 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CalendarDays, Copy, Loader2, Trash2, Upload } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-
-import { PageHeader } from "@/components/layout/page-header";
 import {
   RosterRegisterPanel,
   type RosterDeleteAllState,
@@ -116,7 +116,7 @@ export default function StaffRosterRegisterPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      <FecPageHeader
         icon={CalendarDays}
         kicker={t("people.roster.viewKicker")}
         title={t("people.roster.viewTitle")}

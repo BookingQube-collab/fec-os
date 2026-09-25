@@ -1,5 +1,7 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -11,7 +13,6 @@ import { toast } from "sonner";
 import { CollapsibleSection } from "@/components/dashboard/collapsible-section";
 import { EventFinanceKpis, EventFinanceMoreFigures } from "@/components/events/event-finance-kpis";
 import { EventWorkspaceNav } from "@/components/events/event-workspace-nav";
-import { PageHeader } from "@/components/layout/page-header";
 import { PrStatusPill } from "@/components/procurement/pr-status-pill";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -477,7 +478,7 @@ export default function EventBudgetPage() {
 
   return (
     <div className="min-w-0 max-w-full space-y-5">
-      <PageHeader
+      <FecPageHeader
         kicker={ev?.event_number ?? undefined}
         title={t("events.budget.title")}
         subtitle={t("events.budget.purpose")}

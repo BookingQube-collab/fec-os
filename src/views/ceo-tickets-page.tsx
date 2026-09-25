@@ -1,5 +1,7 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import Link from "next/link";
 import { AlertTriangle, ChevronLeft } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -7,7 +9,6 @@ import { useTranslation } from "react-i18next";
 import { useCeoUrgentTickets } from "@/hooks/queries/useCeo";
 import { usePermission } from "@/hooks/use-permission";
 import { formatLocationLabel } from "@/lib/locations/normalize";
-import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { TintedKpiCard } from "@/components/dashboard/tinted-kpi-card";
@@ -27,7 +28,7 @@ function Page() {
         </Link>
       </Button>
 
-      <PageHeader
+      <FecPageHeader
         icon={AlertTriangle}
         kicker={t("ceo.kicker")}
         title={t("ceo.ticketsTitle")}

@@ -1,5 +1,7 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import Link from "next/link";
 import { ChevronDown, FileBarChart, LayoutGrid, LayoutList, Loader2, MapPin, Search, Trash2, Upload } from "lucide-react";
@@ -11,7 +13,6 @@ import { AttendanceHrNav } from "@/components/attendance-hr/attendance-hr-nav";
 import { AttendanceHrReportsKpiStrip } from "@/components/attendance-hr/attendance-hr-reports-kpi-strip";
 import { CapabilityGate } from "@/components/auth/capability-gate";
 import { ExportButton } from "@/components/export/export-button";
-import { PageHeader } from "@/components/layout/page-header";
 import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
 import {
   AlertDialog,
@@ -321,7 +322,7 @@ export default function AttendanceHrReportsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      <FecPageHeader
         icon={FileBarChart}
         kicker={t("attendanceHr.reports.kicker")}
         title={t("attendanceHr.reports.title")}

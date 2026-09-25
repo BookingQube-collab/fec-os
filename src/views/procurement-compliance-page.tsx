@@ -1,12 +1,12 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Download, Search, Shield, ShieldCheck } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-
-import { PageHeader } from "@/components/layout/page-header";
 import { PrModuleShell } from "@/components/procurement/pr-module-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -82,7 +82,7 @@ export default function ProcurementCompliancePage() {
   return (
     <PrModuleShell>
       <div className="space-y-6">
-        <PageHeader
+        <FecPageHeader
           icon={Shield}
           title={t("procurement.compliance.title")}
           subtitle={t("procurement.compliance.subtitle")}

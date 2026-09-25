@@ -1,12 +1,13 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
 import { EventHealthBadge } from "@/components/events/event-health-badge";
-import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,7 +51,7 @@ export default function EventsListPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      <FecPageHeader
         kicker={t("events.kicker")}
         title={t("events.list.title")}
         subtitle={t("events.list.subtitle")}

@@ -6,6 +6,8 @@ import type { ReactNode } from "react";
 import { GlobalComplianceExpiryBanner } from "@/components/compliance/global-compliance-expiry-banner";
 import { AppSidebar } from "./app-sidebar";
 import { AppTopbar } from "./app-topbar";
+import { MobileAppHeader } from "./mobile-app-header";
+import { MobileBottomNav } from "./mobile-bottom-nav";
 import { DashboardPanel } from "@/components/dashboard/dashboard-panel";
 import { SitesPrefetch } from "@/components/providers/data-providers";
 import { useNavigationPerf } from "@/hooks/use-navigation-perf";
@@ -40,6 +42,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             surgeMode ? "md:pt-3" : "md:pt-5",
           )}
         >
+          <MobileAppHeader />
           <AppTopbar />
           <GlobalComplianceExpiryBanner />
           <DashboardPanel
@@ -52,6 +55,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </DashboardPanel>
         </div>
       </div>
+      <MobileBottomNav />
     </div>
   );
 }

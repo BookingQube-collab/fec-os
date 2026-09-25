@@ -1,13 +1,13 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CalendarDays, FolderOpen, Loader2, Upload, X, Download } from "lucide-react";
 import Link from "next/link";
 import { type DragEvent, type UIEvent, memo, startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-
-import { PageHeader } from "@/components/layout/page-header";
 import { ShiftRangeEditor } from "@/components/people/shift-range-editor";
 import { StaffSampleDownloadDialog } from "@/components/people/staff-sample-download-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -322,7 +322,7 @@ export default function StaffRosterImportPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      <FecPageHeader
         icon={Upload}
         kicker={t("people.roster.kicker")}
         title={t("people.roster.title")}

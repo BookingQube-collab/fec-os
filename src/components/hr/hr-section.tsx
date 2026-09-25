@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 
-import { PageHeader } from "@/components/layout/page-header";
+import { FecPageHeader } from "@/components/fec";
 import { cn } from "@/lib/utils";
 
 interface HrSectionProps {
@@ -19,7 +19,7 @@ export function HrSection({ icon, kicker, title, subtitle, actions, children, cl
   return (
     <div className={cn("hr-section space-y-6", className)}>
       <div className="hr-header hr-enter">
-        <PageHeader icon={icon} kicker={kicker} title={title} subtitle={subtitle} actions={actions} />
+        <FecPageHeader icon={icon} kicker={kicker} title={title} subtitle={subtitle} actions={actions} />
       </div>
       {children}
     </div>

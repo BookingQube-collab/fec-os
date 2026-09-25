@@ -1,12 +1,13 @@
 "use client";
 
+import { FecPageHeader } from "@/components/fec";
+
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Building2, Upload } from "lucide-react";
 
 import { AttendanceHrNav } from "@/components/attendance-hr/attendance-hr-nav";
-import { PageHeader } from "@/components/layout/page-header";
 import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,7 +27,7 @@ export default function AttendanceHrSitePage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      <FecPageHeader
         icon={Building2}
         kicker="Time & Attendance"
         title="Site attendance"

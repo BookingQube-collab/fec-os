@@ -1,6 +1,9 @@
+"use client";
+
 import Link from "next/link";
 import { ChevronRight, type LucideIcon } from "lucide-react";
 
+import { KpiAnimatedValue } from "@/components/react-bits/kpi-animated-value";
 import {
   KPI_ICON_CLASS,
   KPI_TINT_CLASS,
@@ -49,14 +52,13 @@ export function TintedKpiCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-medium text-muted-foreground">{title}</p>
-          <p
+          <KpiAnimatedValue
+            value={value}
             className={cn(
-              "mt-1.5 font-bold tracking-tight text-foreground tabular-nums",
+              "mt-1.5 block font-bold tracking-tight text-foreground",
               compact ? "text-xl" : "text-2xl",
             )}
-          >
-            {value}
-          </p>
+          />
           {hint ? <p className="mt-1 text-xs text-muted-foreground">{hint}</p> : null}
           {href ? (
             <p className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground">
