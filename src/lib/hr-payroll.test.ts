@@ -62,20 +62,37 @@ describe("daily-rate joker pay", () => {
 
   it("pays monthly staff from listing worked days, not the full basic", () => {
     const contract = 7800;
+    // FEC payroll window 28 Jul–27 Aug is 31 calendar days, not a fixed 30.
+    const periodDays = 31;
+    const workedDays = 10;
     const earned = resolveEarnedBasicQar({
       dailyPay: false,
       contractBasicQar: contract,
       dailyRateQar: null,
-      workedDays: 10,
+      workedDays,
+      periodDays,
     });
-    expect(earned).toBe(2600);
+    const expected = Math.round(((contract / periodDays) * workedDays + Number.EPSILON) * 100) / 100;
+    expect(earned).toBe(expected);
+    expect(earned).toBe(2516.13);
     expect(earned).not.toBe(contract);
+    // ÷30 paid the full contract at exactly 30 worked days even when the period is 31.
+    const thirtyOfThirtyOne = resolveEarnedBasicQar({
+      dailyPay: false,
+      contractBasicQar: contract,
+      dailyRateQar: contract / 30,
+      workedDays: 30,
+      periodDays,
+    });
+    expect(thirtyOfThirtyOne).toBe(7548.39);
+    expect(thirtyOfThirtyOne).not.toBe(contract);
     expect(
       resolveEarnedBasicQar({
         dailyPay: false,
         contractBasicQar: contract,
         dailyRateQar: null,
         workedDays: 0,
+        periodDays,
       }),
     ).toBe(0);
     expect(
@@ -84,6 +101,7 @@ describe("daily-rate joker pay", () => {
         contractBasicQar: contract,
         dailyRateQar: 150,
         workedDays: 10,
+        periodDays,
       }),
     ).toBe(1500);
   });

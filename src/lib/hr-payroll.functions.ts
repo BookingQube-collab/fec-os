@@ -32,11 +32,13 @@ import {
   type PayrollExportRow,
   type PayrollMoneyLine,
 } from "@/lib/hr-payroll";
+import { ATTENDANCE_DAILY_LIST_PAGE_SIZE } from "@/lib/attendance-hr/constants";
 import {
   aggregatePayrollRows,
   countListingWorkedDays,
   type PayrollDayInput,
 } from "@/lib/attendance-hr/payroll";
+import { collectPagedRows } from "@/lib/attendance-hr/roster-register-scope";
 import { assertCanMarkPayrollPosted } from "@/lib/hr-ot";
 import { readPolicySection } from "@/lib/hr-policy-read";
 import { canUserDo } from "@/lib/rbac";
@@ -297,6 +299,56 @@ async function staffPayBundle(_context: AuthContext, staffIds: string[]) {
   return { compBy, histBy, extBy };
 }
 
+type PayrollAttendanceRow = {
+  staff_id: string | null;
+  work_date: string | null;
+  status: string | null;
+  late_minutes: number | null;
+  missed_punch: boolean | null;
+  overtime_minutes: number | null;
+  worked_minutes: number | null;
+  punch_count: number | null;
+  actual_in: string | null;
+  actual_out: string | null;
+  scheduled_in: string | null;
+  scheduled_out: string | null;
+};
+
+const PAYROLL_ATTENDANCE_COLUMNS =
+  "staff_id, work_date, status, late_minutes, missed_punch, overtime_minutes, worked_minutes, punch_count, actual_in, actual_out, scheduled_in, scheduled_out";
+
+/**
+ * Every attendance_daily_summary row in [dateFrom, dateTo] for these staff.
+ * Pages past PostgREST max_rows (~1000). A single .limit() drops the rest of the FEC window.
+ */
+async function loadPayrollAttendanceRows(
+  staffIds: string[],
+  dateFrom: string,
+  dateTo: string,
+): Promise<PayrollAttendanceRow[]> {
+  const chunkSize = 80;
+  const rows: PayrollAttendanceRow[] = [];
+  for (let i = 0; i < staffIds.length; i += chunkSize) {
+    const chunk = staffIds.slice(i, i + chunkSize);
+    const page = await collectPagedRows(async (from, to) => {
+      const { data, error } = await supabaseAdmin
+        .from("attendance_daily_summary")
+        .select(PAYROLL_ATTENDANCE_COLUMNS)
+        .in("staff_id", chunk)
+        .gte("work_date", dateFrom)
+        .lte("work_date", dateTo)
+        .not("staff_id", "is", null)
+        .order("work_date", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to);
+      if (error) throw error;
+      return (data ?? []) as PayrollAttendanceRow[];
+    }, ATTENDANCE_DAILY_LIST_PAGE_SIZE);
+    rows.push(...page);
+  }
+  return rows;
+}
+
 export const generatePayrollLines = createAuthenticatedAction(
   z.object({
     periodId: z.string().uuid(),
@@ -402,22 +454,15 @@ export const generatePayrollLines = createAuthenticatedAction(
     // Same attendance_daily_summary window as /people/attendance/reports.
     // Worked days use isAttendanceListingWorkedDay (Present or Late), not raw status.
     // Do not filter by location_id: punches are company-wide per staff.
+    // PostgREST max_rows is ~1000. .limit(50000) still returns one page and drops
+    // most of a 109-person FEC month (28–27), so page with .range() like the listing.
     const unpaidAttendanceByStaff = new Map<string, { absent: number; unpaidLeave: number }>();
     const readinessByStaff = new Map<string, { payrollReady: boolean; blockingDays: number; missedPunches: number }>();
     const staffById = new Map(staff.map((s) => [s.id, s]));
     let dayInputs: PayrollDayInput[] = [];
     {
-      const { data: attRows } = await supabaseAdmin
-        .from("attendance_daily_summary")
-        .select(
-          "staff_id, work_date, status, late_minutes, missed_punch, overtime_minutes, worked_minutes, punch_count, actual_in, actual_out, scheduled_in, scheduled_out",
-        )
-        .in("staff_id", staffIds)
-        .gte("work_date", dateFrom)
-        .lte("work_date", dateTo)
-        .not("staff_id", "is", null)
-        .limit(50000);
-      dayInputs = (attRows ?? []).map((row) => {
+      const attRows = await loadPayrollAttendanceRows(staffIds, dateFrom, dateTo);
+      dayInputs = attRows.map((row) => {
         const staffId = String(row.staff_id);
         const meta = staffById.get(staffId);
         return {
@@ -531,7 +576,6 @@ export const generatePayrollLines = createAuthenticatedAction(
         monthlySalaryQar: monthlyStored,
         dailyRateQar: dailyStored,
       });
-      const dailyRate = dayRateQar ?? (basic > 0 ? basic / 30 : null);
       const attUnpaid = unpaidAttendanceByStaff.get(s.id) ?? { absent: 0, unpaidLeave: 0 };
       // Hire/exit clips which listing days count. Earned pay is daily rate × those worked days
       // for every employment type — not full monthly basic minus absences.
@@ -541,6 +585,11 @@ export const generatePayrollLines = createAuthenticatedAction(
         hireDate: s.hire_date,
         exitDate,
       });
+      const dailyRate = dailyPay
+        ? dayRateQar
+        : basic > 0
+          ? basic / activeWindow.periodDays
+          : null;
       const workedDays = countListingWorkedDays(dayInputs, s.id, {
         from: activeWindow.activeFrom,
         to: activeWindow.activeTo,
@@ -550,6 +599,7 @@ export const generatePayrollLines = createAuthenticatedAction(
         contractBasicQar: basic,
         dailyRateQar: dayRateQar,
         workedDays,
+        periodDays: activeWindow.periodDays,
       });
       const allowanceRatio = dailyPay || !(basic > 0) ? 0 : basicForLine / basic;
       const allowancesForLine = Math.round((allowances * allowanceRatio + Number.EPSILON) * 100) / 100;
@@ -645,9 +695,11 @@ export const generatePayrollLines = createAuthenticatedAction(
           payrollReady: ready?.payrollReady ?? true,
           blockingDays: ready?.blockingDays ?? 0,
           missedPunches: ready?.missedPunches ?? 0,
+          contractBasicQar: hasComp && !dailyPay ? basic : null,
           basicSalary: hasComp ? basicForLine : null,
           allowances: allowancesForLine,
-          earnedGross: computed.grossQar,
+          earnedGross: basicForLine,
+          grossSalary: computed.grossQar,
           deduction: Math.round((deductionTotal + Number.EPSILON) * 100) / 100,
           workingDays: workedDays,
           missingCompensation: !hasComp,

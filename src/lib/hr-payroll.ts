@@ -258,23 +258,24 @@ export function computeDailyRateBasicQar(dayRateQar: number, presentDays: number
 
 /**
  * Earned basic from the attendance listing worked-day count.
- * Joker / day-rate: stored day rate × worked days.
- * Monthly (permanent / secondment): existing daily rate (daily_rate_qar, else contract ÷ 30) × worked days.
- * This is not full monthly basic with a zero absence deduction.
+ * Joker / day-rate: stored day rate × worked days (monthly_salary_qar is the legacy day rate).
+ * Monthly (permanent / secondment): contract ÷ calendar days in the payroll window × worked days.
+ * A fixed ÷30 rate pays the full contract at 30 worked days even when the window is longer
+ * (FEC 28–27 is 31 days). Do not also deduct absences — days not worked are already unpaid.
  */
 export function resolveEarnedBasicQar(input: {
   dailyPay: boolean;
   contractBasicQar: number;
   dailyRateQar: number | null;
   workedDays: number;
+  /** Inclusive calendar days in the payroll window. Monthly divisor. Defaults to 30 only when omitted. */
+  periodDays?: number;
 }): number {
-  const storedDaily =
-    input.dailyRateQar != null && Number.isFinite(Number(input.dailyRateQar)) && Number(input.dailyRateQar) > 0
-      ? Number(input.dailyRateQar)
-      : null;
-  const rate = input.dailyPay
-    ? Number(input.dailyRateQar) || 0
-    : (storedDaily ?? (Number(input.contractBasicQar) || 0) / 30);
+  if (input.dailyPay) {
+    return computeDailyRateBasicQar(Number(input.dailyRateQar) || 0, input.workedDays);
+  }
+  const periodDays = Math.max(1, Math.round(Number(input.periodDays) || 0) || 30);
+  const rate = (Number(input.contractBasicQar) || 0) / periodDays;
   return computeDailyRateBasicQar(rate, input.workedDays);
 }
 

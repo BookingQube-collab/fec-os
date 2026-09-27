@@ -264,13 +264,15 @@ describe("payroll readiness", () => {
     expect(countListingWorkedDays(days, "s")).toBe(1);
     const [row] = aggregatePayrollRows(days);
     expect(row.daysPresent).toBe(1);
+    const periodDays = 31;
     const earned = resolveEarnedBasicQar({
       dailyPay: false,
       contractBasicQar: 7800,
       dailyRateQar: null,
       workedDays: 10,
+      periodDays,
     });
     expect(earned).not.toBe(7800);
-    expect(earned).toBe(2600);
+    expect(earned).toBe(Math.round(((7800 / periodDays) * 10 + Number.EPSILON) * 100) / 100);
   });
 });

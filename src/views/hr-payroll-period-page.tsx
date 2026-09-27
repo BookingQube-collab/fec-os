@@ -80,6 +80,15 @@ function payrollBasicCell(snap: Record<string, unknown>, netQar: number): string
   return qar(basic);
 }
 
+/** Earned column is attendance pay. Zero is a real amount — do not fall through to gross. */
+function payrollEarnedCell(snap: Record<string, unknown>, grossQar: number): string {
+  if (snap.earnedGross != null && snap.earnedGross !== "") {
+    const earned = Number(snap.earnedGross);
+    if (Number.isFinite(earned)) return qar(earned);
+  }
+  return qar(grossQar);
+}
+
 function matrixToCsv(matrix: string[][]): string {
   return matrix
     .map((row) =>
@@ -780,7 +789,7 @@ export default function HrPayrollPeriodPage() {
                                 ? "—"
                                 : qar(Number(snap.allowances) || 0)}
                             </td>
-                            <td className="tabular-nums">{qar(Number(snap.earnedGross) || line.grossQar)}</td>
+                            <td className="tabular-nums">{payrollEarnedCell(snap, line.grossQar)}</td>
                             <td className="tabular-nums">{qar(Number(snap.otPayReg) || 0)}</td>
                             <td className="tabular-nums">{qar(Number(snap.otPayPh) || 0)}</td>
                             <td className="tabular-nums">{qar(Number(snap.extraPay) || 0)}</td>
