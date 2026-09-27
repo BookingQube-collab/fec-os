@@ -52,6 +52,7 @@ import {
 } from "@/lib/attendance-hr/dashboard";
 import { expectedOnDutyStaffIds, expectedRowsForDay, isWorkDateCovered } from "@/lib/attendance-hr/roster-expected";
 import { BIOMETRIC_USER_CONFLICT } from "@/lib/attendance-hr/mapping-merge";
+import { collectPagedRows } from "@/lib/attendance-hr/roster-register-scope";
 import { ATTENDANCE_TALLY_UPLOAD_NOTE } from "@/lib/attendance-hr/roster-upload";
 import { recalculateAttendanceRange } from "@/lib/attendance-hr/process";
 import { normalizeName } from "@/lib/staff-roster/values";
@@ -141,7 +142,7 @@ async function assertSite(context: AuthContext, locationId: string) {
 
 export const getAttendanceHrBootstrap = createAuthenticatedActionNoInput(
   async (context) => {
-    const [{ data: companies }, { data: sites }, { data: rosterLocations }, { data: devices }, { data: shifts }, { data: rules }, { data: staff }] =
+    const [{ data: companies }, { data: sites }, { data: rosterLocations }, { data: devices }, { data: shifts }, { data: rules }, staff] =
       await Promise.all([
         context.supabase.from("hr_companies").select("id, code, name, active").eq("active", true).order("name"),
         context.supabase
@@ -175,12 +176,19 @@ export const getAttendanceHrBootstrap = createAuthenticatedActionNoInput(
           .from("attendance_rule_sets")
           .select("id, scope, company_id, location_id, duplicate_window_seconds, auto_map_employee_code, absent_requires_roster, file_retention_days")
           .order("scope"),
-        context.supabase
-          .from("staff")
-          .select("id, full_name, employee_code, qid, department, job_title, location_id, status, is_roaming")
-          .eq("status", "active")
-          .order("full_name")
-          .limit(2000),
+        // PostgREST max_rows is ~1000, so .limit(2000) drops everyone after the first page.
+        // Head Office names sort with the rest of the directory and were missing from the mapper.
+        collectPagedRows(async (from, to) => {
+          const { data, error } = await context.supabase
+            .from("staff")
+            .select("id, full_name, employee_code, qid, department, job_title, location_id, status, is_roaming")
+            .eq("status", "active")
+            .order("full_name", { ascending: true })
+            .order("id", { ascending: true })
+            .range(from, to);
+          if (error) throw error;
+          return data ?? [];
+        }, ATTENDANCE_DAILY_LIST_PAGE_SIZE),
       ]);
     const staffRows = staff ?? [];
     const workByStaff = await fetchWorkLocationsByStaffId(

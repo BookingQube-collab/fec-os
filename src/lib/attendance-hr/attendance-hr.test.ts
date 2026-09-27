@@ -49,6 +49,7 @@ import {
   mergeBiometricUsersById,
   missingPunchBiometricIds,
   staffByBiometricFromMappings,
+  staffEligibleForBiometricMap,
   stubBiometricUsersForIds,
   suggestStaffIdForDeviceName,
 } from "./mapping-merge";
@@ -1186,6 +1187,40 @@ describe("suggestStaffIdForDeviceName", () => {
 
   it("falls back to a unique company-wide exact name", () => {
     expect(suggestStaffIdForDeviceName("Salam Khan", "ua", staff)).toBe("c");
+  });
+});
+
+describe("staffEligibleForBiometricMap", () => {
+  const ho = "loc-ho";
+  const kds = "loc-kds";
+  const inf = "loc-inf";
+  const venue = { id: "venue", full_name: "Site Person", location_id: kds, work_location_ids: [] as string[] };
+  const otherSite = { id: "other", full_name: "Other Site", location_id: inf, work_location_ids: [] as string[] };
+  const headOffice = { id: "ho", full_name: "Shah Head Office", location_id: ho, work_location_ids: [] as string[] };
+  const hoWork = { id: "ho-work", full_name: "Works At HO", location_id: inf, work_location_ids: [ho] };
+  const roaming = { id: "roam", full_name: "Roaming Tech", location_id: inf, is_roaming: true, work_location_ids: [] as string[] };
+
+  it("includes the device site and Head Office, and leaves other venues out", () => {
+    expect(staffEligibleForBiometricMap(venue, kds, ho)).toBe(true);
+    expect(staffEligibleForBiometricMap(headOffice, kds, ho)).toBe(true);
+    expect(staffEligibleForBiometricMap(hoWork, kds, ho)).toBe(true);
+    expect(staffEligibleForBiometricMap(roaming, kds, ho)).toBe(true);
+    expect(staffEligibleForBiometricMap(otherSite, kds, ho)).toBe(false);
+  });
+
+  it("includes Head Office staff when the device row is Head Office", () => {
+    expect(staffEligibleForBiometricMap(headOffice, ho, ho)).toBe(true);
+    expect(staffEligibleForBiometricMap(otherSite, ho, ho)).toBe(false);
+  });
+
+  it("keeps every active staff member when the row has no site", () => {
+    expect(staffEligibleForBiometricMap(headOffice, null, ho)).toBe(true);
+    expect(staffEligibleForBiometricMap(otherSite, null, ho)).toBe(true);
+  });
+
+  it("does not widen a venue picker when Head Office is unknown", () => {
+    expect(staffEligibleForBiometricMap(headOffice, kds, null)).toBe(false);
+    expect(staffEligibleForBiometricMap(venue, kds, null)).toBe(true);
   });
 });
 

@@ -19,6 +19,21 @@ export function staffAvailableAtLocation(s: SuggestableStaff, locationId: string
 }
 
 /**
+ * Mapping picker: staff who work at the device site, plus Head Office employees.
+ * HO home/work location is included for every site so corporate names stay searchable
+ * under All locations and when the HO pill is selected. Other venues stay site-scoped.
+ */
+export function staffEligibleForBiometricMap(
+  staff: SuggestableStaff,
+  deviceLocationId: string | null,
+  headOfficeLocationId: string | null,
+): boolean {
+  if (staffAvailableAtLocation(staff, deviceLocationId)) return true;
+  if (!headOfficeLocationId || headOfficeLocationId === deviceLocationId) return false;
+  return staff.location_id === headOfficeLocationId || Boolean(staff.work_location_ids?.includes(headOfficeLocationId));
+}
+
+/**
  * Unique exact device-name → staff match for mapping drafts.
  * Ambiguous names (same name at the site, or multiple company-wide) return null.
  */

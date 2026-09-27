@@ -35,7 +35,7 @@ import {
   unmapAttendanceBiometricUser,
 } from "@/lib/attendance-hr.functions";
 import {
-  staffAvailableAtLocation,
+  staffEligibleForBiometricMap,
   suggestStaffIdForDeviceName,
 } from "@/lib/attendance-hr/mapping-merge";
 import { CANONICAL_LOCATION_CODES, formatLocationLabel, rosterSheetLabel } from "@/lib/locations/normalize";
@@ -179,6 +179,10 @@ export default function AttendanceHrMappingPage() {
     }
     return ordered;
   }, [sites, bootstrap.data?.sites, locationId]);
+  const headOfficeLocationId = useMemo(
+    () => locationOptions.find((loc) => loc.code === "HO")?.id ?? null,
+    [locationOptions],
+  );
   const siteById = useMemo(() => {
     const map = new Map<string, { code: string; name: string }>();
     for (const site of sites ?? []) {
@@ -237,7 +241,7 @@ export default function AttendanceHrMappingPage() {
     const build = (loc: string | null): SearchableSelectOption[] => {
       const out: SearchableSelectOption[] = [];
       for (const s of allStaff) {
-        if (!staffAvailableAtLocation(s, loc)) continue;
+        if (!staffEligibleForBiometricMap(s, loc, headOfficeLocationId)) continue;
         const opt = staffOptionById.get(s.id);
         if (opt) out.push(opt);
       }
@@ -249,7 +253,7 @@ export default function AttendanceHrMappingPage() {
       map.set(loc, build(loc));
     }
     return map;
-  }, [allStaff, staffOptionById, rows, locationId]);
+  }, [allStaff, staffOptionById, rows, locationId, headOfficeLocationId]);
 
   // Unique exact name matches → draft selections so Save all can finish the queue.
   useEffect(() => {
