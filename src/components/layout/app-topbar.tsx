@@ -36,6 +36,7 @@ import { canViewComplianceExpiryAlerts } from "@/lib/compliance/compliance-expir
 import type { InboxItemKind } from "@/lib/notifications/inbox";
 import { formatLocationRecord } from "@/lib/locations/normalize";
 import { queryKeys } from "@/lib/query-keys";
+import FadeContent from "@/components/react-bits/fade-content";
 import { ackEscalation, markAllNotificationsRead, markNotificationRead } from "@/lib/notifications.functions";
 import type { AppRole } from "@/lib/rbac";
 import { usesOpsCommandSubtitle } from "@/lib/topbar-identity";
@@ -360,9 +361,11 @@ export function AppTopbar() {
       <div className="flex flex-wrap items-center gap-3 md:gap-4">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className={cn("page-title truncate", surgeMode && "text-[1.35rem]")}>
-              {language === "ar" ? `${t(greetingKey())}، ${displayName}` : `${t(greetingKey())}, ${displayName}`}
-            </h1>
+            <FadeContent blur duration={0.6} threshold={0.01} className="min-w-0 max-w-full">
+              <h1 className={cn("page-title truncate", surgeMode && "text-[1.35rem]")}>
+                {language === "ar" ? `${t(greetingKey())}، ${displayName}` : `${t(greetingKey())}, ${displayName}`}
+              </h1>
+            </FadeContent>
             {surgeMode ? (
               <span className="rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
                 {t("layout.surgeOn")}

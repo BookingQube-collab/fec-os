@@ -1,7 +1,13 @@
 "use client";
 
-import { useInView, useMotionValue, useReducedMotion, useSpring } from "motion/react";
-import { useCallback, useEffect, useRef } from "react";
+/**
+ * Official React Bits CountUp-TS-TW (https://reactbits.dev/r/CountUp-TS-TW.json).
+ * Reduced motion shows the final value. Starts when the figure is actually on screen.
+ */
+import { useInView, useMotionValue, useSpring } from "motion/react";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import { usePrefersReducedMotion } from "@/hooks/use-prefers-reduced-motion";
 
 export interface CountUpProps {
   to: number;
@@ -16,7 +22,6 @@ export interface CountUpProps {
   onEnd?: () => void;
 }
 
-/** React Bits CountUp (TS-TW), with prefers-reduced-motion → final value, no spring. */
 export default function CountUp({
   to,
   from = 0,
@@ -30,8 +35,13 @@ export default function CountUp({
   onEnd,
 }: CountUpProps) {
   const ref = useRef<HTMLSpanElement>(null);
-  const reducedMotion = useReducedMotion();
+  const onStartRef = useRef(onStart);
+  const onEndRef = useRef(onEnd);
+  onStartRef.current = onStart;
+  onEndRef.current = onEnd;
+  const reducedMotion = usePrefersReducedMotion();
   const motionValue = useMotionValue(direction === "down" ? to : from);
+  const [onScreen, setOnScreen] = useState(false);
 
   const damping = 20 + 40 * (1 / duration);
   const stiffness = 100 * (1 / duration);
@@ -73,37 +83,45 @@ export default function CountUp({
     [maxDecimals, separator],
   );
 
+  const startValue = reducedMotion || direction === "down" ? to : from;
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const check = () => {
+      const rect = el.getBoundingClientRect();
+      if (rect.width > 0 && rect.bottom > 0 && rect.top < window.innerHeight) {
+        setOnScreen(true);
+      }
+    };
+    check();
+    const id = window.setTimeout(check, 60);
+    return () => window.clearTimeout(id);
+  }, [to, from]);
+
   useEffect(() => {
     if (!ref.current) return;
-    if (reducedMotion) {
-      ref.current.textContent = formatValue(to);
-      return;
-    }
-    ref.current.textContent = formatValue(direction === "down" ? to : from);
+    ref.current.textContent = formatValue(reducedMotion ? to : direction === "down" ? to : from);
   }, [from, to, direction, formatValue, reducedMotion]);
 
   useEffect(() => {
-    if (reducedMotion) return;
-    if (!isInView || !startWhen) return;
+    if (reducedMotion || !startWhen || !(isInView || onScreen)) return;
 
-    onStart?.();
+    onStartRef.current?.();
 
-    const timeoutId = setTimeout(() => {
+    const timeoutId = window.setTimeout(() => {
       motionValue.set(direction === "down" ? from : to);
     }, delay * 1000);
 
-    const durationTimeoutId = setTimeout(
-      () => {
-        onEnd?.();
-      },
-      delay * 1000 + duration * 1000,
-    );
+    const durationTimeoutId = window.setTimeout(() => {
+      onEndRef.current?.();
+    }, delay * 1000 + duration * 1000);
 
     return () => {
-      clearTimeout(timeoutId);
-      clearTimeout(durationTimeoutId);
+      window.clearTimeout(timeoutId);
+      window.clearTimeout(durationTimeoutId);
     };
-  }, [isInView, startWhen, motionValue, direction, from, to, delay, onStart, onEnd, duration, reducedMotion]);
+  }, [isInView, onScreen, startWhen, motionValue, direction, from, to, delay, duration, reducedMotion]);
 
   useEffect(() => {
     if (reducedMotion) return;
@@ -117,5 +135,9 @@ export default function CountUp({
     return () => unsubscribe();
   }, [springValue, formatValue, reducedMotion]);
 
-  return <span className={className} ref={ref} />;
+  return (
+    <span className={className} ref={ref}>
+      {formatValue(startValue)}
+    </span>
+  );
 }

@@ -1,25 +1,25 @@
 "use client";
 
-import { useReducedMotion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 
 import CountUp from "@/components/react-bits/count-up";
 import { parseKpiNumeric, type ParsedKpiNumeric } from "@/components/react-bits/parse-kpi-numeric";
+import { usePrefersReducedMotion } from "@/hooks/use-prefers-reduced-motion";
 import { cn } from "@/lib/utils";
 
 interface KpiAnimatedValueProps {
   value: string | number;
   className?: string;
-  /** CountUp duration in seconds (default ~1s, subtler than React Bits 2s). */
+  /** CountUp duration in seconds. */
   duration?: number;
 }
 
 /**
- * Animates KPI figures once on mount. Non-numeric / reduced-motion → plain text.
- * After the first count finishes, live refreshes update instantly (no re-spring).
+ * Counts a KPI figure once. Non-numeric values and reduced motion stay static.
+ * Later live refreshes swap in the new text without replaying the spring.
  */
-export function KpiAnimatedValue({ value, className, duration = 1 }: KpiAnimatedValueProps) {
-  const reducedMotion = useReducedMotion();
+export function KpiAnimatedValue({ value, className, duration = 1.35 }: KpiAnimatedValueProps) {
+  const reducedMotion = usePrefersReducedMotion();
   const parsed = parseKpiNumeric(value);
   const first = useRef<ParsedKpiNumeric | null>(null);
   const [settled, setSettled] = useState(false);
@@ -29,8 +29,10 @@ export function KpiAnimatedValue({ value, className, duration = 1 }: KpiAnimated
   }
 
   useEffect(() => {
-    if (!parsed || reducedMotion) setSettled(true);
-  }, [parsed, reducedMotion]);
+    if (!parseKpiNumeric(value) || reducedMotion || settled) return;
+    const id = window.setTimeout(() => setSettled(true), (duration + 0.45) * 1000);
+    return () => window.clearTimeout(id);
+  }, [value, reducedMotion, settled, duration]);
 
   if (!parsed || reducedMotion || settled || !first.current) {
     return <span className={cn("tabular-nums", className)}>{value}</span>;
@@ -39,15 +41,17 @@ export function KpiAnimatedValue({ value, className, duration = 1 }: KpiAnimated
   const target = first.current;
 
   return (
-    <span className={cn("tabular-nums", className)}>
-      {target.prefix}
-      <CountUp
-        to={target.to}
-        separator={target.separator}
-        duration={duration}
-        onEnd={() => setSettled(true)}
-      />
-      {target.suffix}
+    <span className={cn("tabular-nums", className)} aria-label={String(value)}>
+      <span aria-hidden>
+        {target.prefix}
+        <CountUp
+          to={target.to}
+          separator={target.separator}
+          duration={duration}
+          onEnd={() => setSettled(true)}
+        />
+        {target.suffix}
+      </span>
     </span>
   );
 }
