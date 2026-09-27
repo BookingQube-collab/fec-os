@@ -1,19 +1,17 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, Radio, ScanFace, Share, WifiOff } from "lucide-react";
+import { Share } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
-import { FaceCaptureDialog } from "@/components/attendance-hr/face-capture-dialog";
-import { queueOrSubmitFieldCheckIn } from "@/components/attendance-hr/hr-field-sync";
 import { HrShell } from "@/components/hr/hr-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { getFieldCheckInContext, saveStaffFaceEnrollment } from "@/lib/attendance-hr-field.functions";
+import { getFieldCheckInContext } from "@/lib/attendance-hr-field.functions";
 import { getMyAttendance } from "@/lib/hr-employee.functions";
 import {
   getLeaveBalanceSummary,
@@ -22,7 +20,6 @@ import {
   submitLeaveRequest,
 } from "@/lib/hr-leave.functions";
 import { listAnnouncements } from "@/lib/hr-announcements.functions";
-import { listFieldCheckInQueue, removeFieldCheckIn } from "@/lib/attendance-hr/offline-queue";
 import { formatWorkDateDdMmYyyy, formatPunchTime12h, formatHoursValue, computeHoursWorked } from "@/lib/attendance-display";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
@@ -48,11 +45,6 @@ function isStandalonePwa() {
 export default function EmployeeMePage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
-  const [online, setOnline] = useState(true);
-  const [selfieOpen, setSelfieOpen] = useState(false);
-  const [enrollOpen, setEnrollOpen] = useState(false);
-  const [pendingSelfie, setPendingSelfie] = useState<{ dataUrl: string; livenessPassed: boolean } | null>(null);
-  const [queue, setQueue] = useState<Awaited<ReturnType<typeof listFieldCheckInQueue>>>([]);
   const [leaveType, setLeaveType] = useState<(typeof HR_LEAVE_TYPES)[number]>("annual");
   const [leaveFrom, setLeaveFrom] = useState("");
   const [leaveTo, setLeaveTo] = useState("");
@@ -60,18 +52,6 @@ export default function EmployeeMePage() {
   const [compassionateScope, setCompassionateScope] = useState<"inside_qatar" | "outside_qatar">("inside_qatar");
   const [leaveConflicts, setLeaveConflicts] = useState<LeaveConflict[]>([]);
   const [installDismissed, setInstallDismissed] = useState(true);
-  const [moreOpen, setMoreOpen] = useState(false);
-
-  useEffect(() => {
-    const sync = () => setOnline(navigator.onLine);
-    sync();
-    window.addEventListener("online", sync);
-    window.addEventListener("offline", sync);
-    return () => {
-      window.removeEventListener("online", sync);
-      window.removeEventListener("offline", sync);
-    };
-  }, []);
 
   useEffect(() => {
     try {
@@ -81,18 +61,6 @@ export default function EmployeeMePage() {
       setInstallDismissed(isStandalonePwa());
     }
   }, []);
-
-  const refreshQueue = async () => {
-    try {
-      setQueue(await listFieldCheckInQueue());
-    } catch {
-      setQueue([]);
-    }
-  };
-
-  useEffect(() => {
-    void refreshQueue();
-  }, [online]);
 
   const ctx = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "field-context" }),
@@ -128,71 +96,6 @@ export default function EmployeeMePage() {
 
   const lastDay = attendance.data?.rows[0];
   const ios = useMemo(() => isIos(), []);
-  const needSelfie = Boolean(ctx.data?.settings?.requireFaceOnCheckin);
-
-  const invalidate = () => {
-    void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
-    void refreshQueue();
-  };
-
-  const checkIn = useMutation({
-    mutationFn: async (eventType: "check_in" | "check_out" | "ping") => {
-      const settings = ctx.data?.settings;
-      if (settings?.requireFaceOnCheckin && eventType !== "ping" && !pendingSelfie) {
-        setSelfieOpen(true);
-        throw new Error(t("attendanceHr.field.needSelfie"));
-      }
-      const coords = await new Promise<GeolocationPosition>((resolve, reject) => {
-        if (!navigator.geolocation) {
-          reject(new Error(t("attendanceHr.field.noGps")));
-          return;
-        }
-        navigator.geolocation.getCurrentPosition(resolve, () => reject(new Error(t("attendanceHr.field.gpsDenied"))), {
-          enableHighAccuracy: true,
-          timeout: 12_000,
-        });
-      });
-      return queueOrSubmitFieldCheckIn({
-        latitude: coords.coords.latitude,
-        longitude: coords.coords.longitude,
-        accuracyMeters: coords.coords.accuracy,
-        eventType,
-        locationId: ctx.data?.staff?.locationId || null,
-        faceLivenessPassed: pendingSelfie?.livenessPassed ?? null,
-        photoBase64: pendingSelfie?.dataUrl ?? null,
-        recordedAt: new Date().toISOString(),
-      });
-    },
-    onSuccess: (result) => {
-      setPendingSelfie(null);
-      toast.success(result.queued ? t("attendanceHr.field.queued") : t("attendanceHr.field.checkedIn"));
-      invalidate();
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  const enroll = useMutation({
-    mutationFn: async (payload: { photoBase64: string; livenessPassed: boolean }) => {
-      const result = await saveStaffFaceEnrollment(payload);
-      if (!result.ok) throw new Error(result.error);
-      return result.data;
-    },
-    onSuccess: () => {
-      toast.success(t("attendanceHr.field.enrolled"));
-      invalidate();
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  const canEnrollSelf = Boolean(ctx.data?.staff?.id);
-
-  function openEnroll() {
-    if (!canEnrollSelf) {
-      toast.error(t("attendanceHr.field.enrollNeedStaff"));
-      return;
-    }
-    setEnrollOpen(true);
-  }
 
   const askLeave = useMutation({
     mutationFn: (acknowledgeConflicts?: boolean) =>
@@ -270,13 +173,6 @@ export default function EmployeeMePage() {
           </section>
         ) : null}
 
-        {!online ? (
-          <p className="flex items-center gap-2 rounded-[1.25rem] border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
-            <WifiOff className="h-4 w-4" />
-            {t("attendanceHr.field.offlineBanner")}
-          </p>
-        ) : null}
-
         {unlinked ? (
           <section className="hr-panel-shell hr-enter">
             <div className="hr-panel space-y-2 p-5 text-center">
@@ -301,101 +197,9 @@ export default function EmployeeMePage() {
                 ) : linked && !attendance.isLoading ? (
                   <p className="mt-2 text-sm text-muted-foreground">{t("hr.me.noStatus")}</p>
                 ) : null}
-
-                <div className="mt-4 grid grid-cols-2 gap-2">
-                  <Button
-                    className="min-h-12"
-                    disabled={!linked || checkIn.isPending}
-                    onClick={() => checkIn.mutate("check_in")}
-                  >
-                    {t("attendanceHr.field.checkInBtn")}
-                  </Button>
-                  <Button
-                    className="min-h-12"
-                    variant="secondary"
-                    disabled={!linked || checkIn.isPending}
-                    onClick={() => checkIn.mutate("check_out")}
-                  >
-                    {t("attendanceHr.field.checkOutBtn")}
-                  </Button>
-                </div>
-
-                {needSelfie && !pendingSelfie ? (
-                  <Button className="mt-2 w-full" variant="outline" onClick={() => setSelfieOpen(true)}>
-                    <ScanFace className="mr-1 h-4 w-4" />
-                    {t("attendanceHr.field.needSelfie")}
-                  </Button>
-                ) : null}
-                {pendingSelfie ? (
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    {pendingSelfie.livenessPassed
-                      ? t("attendanceHr.field.livenessOk")
-                      : t("attendanceHr.field.livenessFail")}
-                  </p>
-                ) : null}
-
-                <button
-                  type="button"
-                  className="mt-3 flex w-full items-center justify-between rounded-xl px-1 py-1.5 text-left text-xs text-muted-foreground"
-                  onClick={() => setMoreOpen((v) => !v)}
-                  aria-expanded={moreOpen}
-                >
-                  <span>{t("hr.me.moreActions")}</span>
-                  <ChevronDown className={`h-3.5 w-3.5 transition-transform ${moreOpen ? "rotate-180" : ""}`} />
-                </button>
-                {moreOpen ? (
-                  <div className="mt-1 space-y-2 border-t border-[var(--hr-border)] pt-3">
-                    <div className="grid grid-cols-2 gap-2">
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        disabled={!linked || checkIn.isPending}
-                        onClick={() => checkIn.mutate("ping")}
-                      >
-                        <Radio className="mr-1 h-3.5 w-3.5" />
-                        {t("attendanceHr.field.ping")}
-                      </Button>
-                      <Button size="sm" variant="secondary" onClick={() => setSelfieOpen(true)}>
-                        <ScanFace className="mr-1 h-3.5 w-3.5" />
-                        {t("attendanceHr.field.selfie")}
-                      </Button>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <Badge variant={ctx.data?.enrollment?.status === "enrolled" ? "success" : "muted"}>
-                        {ctx.data?.enrollment?.status === "enrolled"
-                          ? t("attendanceHr.field.enrolledBadge")
-                          : t("attendanceHr.field.notEnrolled")}
-                      </Badge>
-                      <Button size="sm" variant="ghost" disabled={!canEnrollSelf || enroll.isPending} onClick={openEnroll}>
-                        {t("attendanceHr.field.enrollFace")}
-                      </Button>
-                    </div>
-                  </div>
-                ) : null}
+                <p className="mt-3 text-sm text-muted-foreground">{t("hr.me.biometricNote")}</p>
               </div>
             </section>
-
-            {queue.length > 0 ? (
-              <section className="hr-panel-shell">
-                <div className="hr-panel space-y-2 p-4">
-                  <h2 className="text-sm font-semibold tracking-tight">{t("attendanceHr.field.pendingSync")}</h2>
-                  {queue.map((item) => (
-                    <div key={item.clientEventId} className="flex items-center justify-between text-sm">
-                      <span>
-                        {item.payload.eventType} · {new Date(item.queuedAt).toLocaleString()}
-                      </span>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => void removeFieldCheckIn(item.clientEventId).then(refreshQueue)}
-                      >
-                        {t("attendanceHr.field.discard")}
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            ) : null}
 
             <section className="hr-panel-shell">
               <div className="hr-panel p-4">
@@ -556,26 +360,6 @@ export default function EmployeeMePage() {
             ) : null}
           </>
         )}
-
-        <FaceCaptureDialog
-          open={selfieOpen}
-          onOpenChange={setSelfieOpen}
-          onCaptured={(result) => {
-            setPendingSelfie(result);
-            toast.message(
-              result.livenessPassed ? t("attendanceHr.field.livenessOk") : t("attendanceHr.field.livenessFail"),
-            );
-          }}
-        />
-        <FaceCaptureDialog
-          open={enrollOpen}
-          onOpenChange={setEnrollOpen}
-          title={t("attendanceHr.field.enrollFace")}
-          description={t("attendanceHr.field.faceHint")}
-          onCaptured={(result) => {
-            enroll.mutate({ photoBase64: result.dataUrl, livenessPassed: result.livenessPassed });
-          }}
-        />
       </div>
     </HrShell>
   );

@@ -13,6 +13,7 @@ import {
   invalidateServerCapabilityGrantsCache,
 } from "@/lib/server/capability-grants";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { resolveStaffLoginEmail, STAFF_LOGIN_DEFAULT_PASSWORD, STAFF_LOGIN_ROLE } from "@/lib/staff-login";
 
 const RoleEnum = z.enum([
   "ceo",
@@ -168,6 +169,67 @@ export const setRoleCapabilityGrant = createAuthenticatedAction(
   { auth: { capability: "admin.manage_roles" } },
 );
 
+async function createProvisionedAuthUser(input: {
+  email: string;
+  password: string;
+  displayName: string;
+  employeeCode?: string | null;
+  role: AppRole;
+  locationIds: string[];
+}): Promise<{ userId: string }> {
+  const role_level = ROLE_LEVELS[input.role];
+  const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
+    email: input.email,
+    password: input.password,
+    email_confirm: true,
+    user_metadata: { display_name: input.displayName },
+  });
+  if (createErr) throw createErr;
+  if (!created.user) throw new Error("User creation failed");
+
+  const { error: profileErr } = await supabaseAdmin.from("profiles").upsert({
+    id: created.user.id,
+    display_name: input.displayName,
+    employee_code: input.employeeCode ?? null,
+  });
+  if (profileErr) throw profileErr;
+
+  const { error: roleErr } = await supabaseAdmin.from("user_roles").insert({
+    user_id: created.user.id,
+    role: input.role,
+    role_level,
+    location_ids: input.locationIds,
+  });
+  if (roleErr) throw roleErr;
+
+  return { userId: created.user.id };
+}
+
+function isDuplicateAuthEmail(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const code = "code" in error && typeof error.code === "string" ? error.code : "";
+  const message = "message" in error && typeof error.message === "string" ? error.message : "";
+  return code === "email_exists" || /already been registered/i.test(message);
+}
+
+async function findAuthUserIdByEmail(email: string): Promise<string | null> {
+  const target = email.trim().toLowerCase();
+  for (let page = 1; page <= 20; page += 1) {
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage: 200 });
+    if (error) throw error;
+    const hit = data.users.find((user) => (user.email ?? "").toLowerCase() === target);
+    if (hit) return hit.id;
+    if (data.users.length < 200) return null;
+  }
+  return null;
+}
+
+async function authEmailForUser(userId: string): Promise<string | null> {
+  const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId);
+  if (error) return null;
+  return data.user?.email ?? null;
+}
+
 export const provisionUser = createAuthenticatedAction(
   z.object({
     email: z.string().email(),
@@ -180,41 +242,167 @@ export const provisionUser = createAuthenticatedAction(
   async (data, context) => {
     await requireExec(context.supabase, 95);
     const role = data.role as AppRole;
-    const role_level = ROLE_LEVELS[role];
-
-    const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
+    const { userId } = await createProvisionedAuthUser({
       email: data.email,
       password: data.password,
-      email_confirm: true,
-      user_metadata: { display_name: data.display_name },
-    });
-    if (createErr) throw createErr;
-    if (!created.user) throw new Error("User creation failed");
-
-    const { error: profileErr } = await supabaseAdmin.from("profiles").upsert({
-      id: created.user.id,
-      display_name: data.display_name,
-      employee_code: data.employee_code ?? null,
-    });
-    if (profileErr) throw profileErr;
-
-    const { error: roleErr } = await supabaseAdmin.from("user_roles").insert({
-      user_id: created.user.id,
+      displayName: data.display_name,
+      employeeCode: data.employee_code,
       role,
-      role_level,
-      location_ids: data.location_ids,
+      locationIds: data.location_ids,
     });
-    if (roleErr) throw roleErr;
 
     await context.supabase.rpc("log_audit", {
       _action: "admin.user_provisioned",
       _table_name: "profiles",
-      _row_id: created.user.id,
-      _after: { email: data.email, role, role_level },
+      _row_id: userId,
+      _after: { email: data.email, role, role_level: ROLE_LEVELS[role] },
       _metadata: {},
     });
 
-    return { ok: true, user_id: created.user.id };
+    return { ok: true, user_id: userId };
+  },
+  { auth: { capability: "admin.provision_users" } },
+);
+
+/** Create (or link) an email/password login and set staff.user_id so /hr/me resolves. */
+export const provisionStaffLogin = createAuthenticatedAction(
+  z.object({
+    staffId: z.string().uuid(),
+  }),
+  async (data, context) => {
+    await requireExec(context.supabase, 95);
+
+    const { data: staff, error: staffErr } = await supabaseAdmin
+      .from("staff")
+      .select("id, user_id, email, full_name, employee_code, location_id, deleted_at")
+      .eq("id", data.staffId)
+      .maybeSingle();
+    if (staffErr) throw staffErr;
+    if (!staff || staff.deleted_at) throw new Error("Staff member not found");
+
+    if (staff.user_id) {
+      return {
+        ok: true as const,
+        created: false,
+        linkedExisting: false,
+        alreadyLinked: true,
+        userId: staff.user_id,
+        email: await authEmailForUser(staff.user_id),
+        password: null,
+        role: STAFF_LOGIN_ROLE,
+      };
+    }
+
+    if (!staff.location_id) throw new Error("Staff member has no branch");
+
+    const email = resolveStaffLoginEmail(staff.email, staff.employee_code);
+    const locationIds = [staff.location_id];
+    let userId: string;
+    let created = false;
+    let linkedExisting = false;
+
+    try {
+      const createdUser = await createProvisionedAuthUser({
+        email,
+        password: STAFF_LOGIN_DEFAULT_PASSWORD,
+        displayName: staff.full_name,
+        employeeCode: staff.employee_code,
+        role: STAFF_LOGIN_ROLE,
+        locationIds,
+      });
+      userId = createdUser.userId;
+      created = true;
+    } catch (error) {
+      if (!isDuplicateAuthEmail(error)) throw error;
+      const existingId = await findAuthUserIdByEmail(email);
+      if (!existingId) {
+        throw new Error("A login with this email already exists, but it could not be found to link");
+      }
+      userId = existingId;
+      linkedExisting = true;
+    }
+
+    const { data: takenRows, error: takenErr } = await supabaseAdmin
+      .from("staff")
+      .select("id, full_name, employee_code")
+      .eq("user_id", userId)
+      .neq("id", staff.id)
+      .is("deleted_at", null)
+      .limit(1);
+    if (takenErr) throw takenErr;
+    const taken = takenRows?.[0];
+    if (taken) {
+      throw new Error(`This login is already linked to ${taken.full_name} (${taken.employee_code})`);
+    }
+
+    if (linkedExisting) {
+      const { data: existingRoles, error: rolesErr } = await supabaseAdmin
+        .from("user_roles")
+        .select("id, role")
+        .eq("user_id", userId);
+      if (rolesErr) throw rolesErr;
+      const elevated = (existingRoles ?? []).some((row) => row.role !== STAFF_LOGIN_ROLE);
+      if (elevated) {
+        throw new Error(
+          `A login for ${email} already exists with another role. Clear the staff email to create a separate login from the employee code.`,
+        );
+      }
+
+      const { data: profile } = await supabaseAdmin.from("profiles").select("id").eq("id", userId).maybeSingle();
+      if (!profile) {
+        const { error: profileErr } = await supabaseAdmin.from("profiles").insert({
+          id: userId,
+          display_name: staff.full_name,
+          employee_code: staff.employee_code,
+        });
+        if (profileErr) throw profileErr;
+      }
+
+      if (!existingRoles?.length) {
+        const { error: roleErr } = await supabaseAdmin.from("user_roles").insert({
+          user_id: userId,
+          role: STAFF_LOGIN_ROLE,
+          role_level: ROLE_LEVELS[STAFF_LOGIN_ROLE],
+          location_ids: locationIds,
+        });
+        if (roleErr) throw roleErr;
+      }
+    }
+
+    const { data: linked, error: linkErr } = await supabaseAdmin
+      .from("staff")
+      .update({ user_id: userId })
+      .eq("id", staff.id)
+      .is("user_id", null)
+      .select("id")
+      .maybeSingle();
+    if (linkErr) throw linkErr;
+    if (!linked) throw new Error("Staff login was already linked");
+
+    await context.supabase.rpc("log_audit", {
+      _action: "admin.staff_login_provisioned",
+      _table_name: "staff",
+      _row_id: staff.id,
+      _after: {
+        user_id: userId,
+        email,
+        role: STAFF_LOGIN_ROLE,
+        created,
+        linked_existing: linkedExisting,
+      },
+      _metadata: {},
+    });
+
+    return {
+      ok: true as const,
+      created,
+      linkedExisting,
+      alreadyLinked: false,
+      userId,
+      email,
+      password: created ? STAFF_LOGIN_DEFAULT_PASSWORD : null,
+      role: STAFF_LOGIN_ROLE,
+    };
   },
   { auth: { capability: "admin.provision_users" } },
 );

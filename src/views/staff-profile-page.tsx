@@ -28,6 +28,7 @@ import { StaffAvatar, StaffPhotoField, type StaffPhotoDraft } from "@/components
 import { getStaffFaceEnrollment, saveStaffFaceEnrollment } from "@/lib/attendance-hr-field.functions";
 import { listEmployeeTimeline } from "@/lib/hr-leave.functions";
 import { transferStaffMember, updateStaffSalary, updateStaffWorkLocations } from "@/lib/staff-roster.functions";
+import { provisionStaffLogin } from "@/lib/admin.functions";
 import { removeStaffPhoto, saveStaffPhoto, updateStaff } from "@/lib/people.functions";
 import { Checkbox } from "@/components/ui/checkbox";
 
@@ -139,6 +140,11 @@ type ProfileResponse = {
   training: Array<{ id: string; course_name: string; status: string; due_on: string | null }>;
   canViewSalary: boolean;
   canViewSensitive?: boolean;
+  login?: {
+    linked: boolean;
+    email: string | null;
+    defaultPassword: string | null;
+  };
 };
 
 function StaffProfilePageBody() {
@@ -167,6 +173,7 @@ function StaffProfilePageBody() {
     setProfileTab(initialTab);
   }, [initialTab]);
   const canEdit = usePermission("people.edit_roster");
+  const canProvisionLogin = usePermission("admin.provision_users");
   const canSalary = usePermission("people.edit_salary");
   const canViewSalaryPerm = usePermission("people.view_salary");
   const canViewSensitive = usePermission("hr.profile.view_sensitive") || canViewSalaryPerm;
@@ -189,6 +196,7 @@ function StaffProfilePageBody() {
   const [weeklyOffWeekday, setWeeklyOffWeekday] = useState("");
   const [photoDraft, setPhotoDraft] = useState<StaffPhotoDraft>({ dataUrl: null, remove: false });
   const [timelineFilter, setTimelineFilter] = useState<string>("all");
+  const [issuedLogin, setIssuedLogin] = useState<{ email: string; password: string } | null>(null);
 
   const profile = useQuery({
     queryKey: queryKeys.people.staffProfile(id),
@@ -379,6 +387,22 @@ function StaffProfilePageBody() {
     return result.data;
   }
 
+  const createLogin = useMutation({
+    mutationFn: () => provisionStaffLogin({ staffId: id }),
+    onSuccess: (result) => {
+      if (result.password && result.email) {
+        setIssuedLogin({ email: result.email, password: result.password });
+        toast.success(t("people.profile.login.created"));
+      } else if (result.linkedExisting) {
+        toast.success(t("people.profile.login.linkedExisting"));
+      } else {
+        toast.success(t("people.profile.login.exists"));
+      }
+      void qc.invalidateQueries({ queryKey: queryKeys.people.staffProfile(id) });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const photoMut = useMutation({
     mutationFn: async () => {
       if (photoDraft.dataUrl) {
@@ -453,6 +477,9 @@ function StaffProfilePageBody() {
   const emergencyContact = [ext?.emergency_contact_name, ext?.emergency_contact_phone].filter(Boolean).join(" · ");
   const contractSpan = [ext?.contract_start, ext?.contract_end].filter(Boolean).join(" → ");
   const probationSpan = [ext?.probation_start, ext?.probation_end].filter(Boolean).join(" → ");
+  const loginLinked = Boolean(profile.data?.login?.linked) || Boolean(issuedLogin);
+  const loginEmail = issuedLogin?.email ?? profile.data?.login?.email ?? null;
+  const defaultPassword = canProvisionLogin ? profile.data?.login?.defaultPassword ?? issuedLogin?.password ?? null : null;
 
   return (
     <div className="min-w-0 space-y-4">
@@ -479,6 +506,49 @@ function StaffProfilePageBody() {
           </div>
         }
       />
+
+      <section className="surface-card p-4 sm:p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 space-y-2">
+            <h2 className={SECTION_LABEL}>{t("people.profile.login.title")}</h2>
+            <Badge variant={loginLinked ? "success" : "muted"}>
+              {loginLinked ? t("people.profile.login.exists") : t("people.profile.login.missing")}
+            </Badge>
+            {loginLinked ? (
+              <p className="text-sm">
+                <span className="text-muted-foreground">{t("people.profile.login.email")}: </span>
+                <span className="font-medium">{loginEmail ?? t("people.profile.login.emailUnavailable")}</span>
+              </p>
+            ) : null}
+            {issuedLogin ? (
+              <div className="space-y-1 rounded-xl border border-border bg-secondary/60 px-3 py-2">
+                <p className="text-sm font-medium">{t("people.profile.login.created")}</p>
+                <p className="text-sm">
+                  {t("people.profile.login.email")}: <span className="font-medium">{issuedLogin.email}</span>
+                </p>
+                <p className="text-sm">
+                  {t("people.profile.login.issuedPassword")}:{" "}
+                  <span className="font-mono font-semibold">{issuedLogin.password}</span>
+                </p>
+                <p className="text-xs text-muted-foreground">{t("people.profile.login.shareHint")}</p>
+              </div>
+            ) : null}
+            {defaultPassword ? (
+              <p className="text-sm text-muted-foreground">
+                {t("people.profile.login.defaultPassword", { password: defaultPassword })}
+              </p>
+            ) : null}
+            {!loginLinked && !canProvisionLogin ? (
+              <p className="text-sm text-muted-foreground">{t("people.profile.login.ceoOnly")}</p>
+            ) : null}
+          </div>
+          {!loginLinked && canProvisionLogin ? (
+            <Button size="sm" disabled={createLogin.isPending} onClick={() => createLogin.mutate()}>
+              {createLogin.isPending ? t("people.profile.login.creating") : t("people.profile.login.create")}
+            </Button>
+          ) : null}
+        </div>
+      </section>
 
       <Tabs
         value={profileTab}

@@ -1,8 +1,10 @@
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { redactStaffIdentityNumbers } from "@/lib/hr-advanced";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { withAuthRouteRequest, searchParams } from "@/lib/server/api-route";
 import { canUserDo } from "@/lib/rbac";
 import { ForbiddenError } from "@/lib/server/authorize";
+import { STAFF_LOGIN_DEFAULT_PASSWORD } from "@/lib/staff-login";
 import { fetchWorkLocationsByStaffId } from "@/lib/staff-work-locations";
 
 type ProfileSection = "overview" | "attendance" | "training" | "all";
@@ -36,7 +38,7 @@ export async function GET(
       const { data: staff, error } = await context.supabase
         .from("staff")
         .select(
-          "id, employee_code, full_name, job_title, department, status, location_id, is_roaming, phone, email, hire_date, qid, e3_enrolled, employment_type, staff_role, source_row_no, deleted_at, photo_updated_at, photo_mime, flexible_attendance, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday, locations!staff_location_id_fkey(code, name), staff_departments(department_id, master_departments(id, name, sort_order))",
+          "id, user_id, employee_code, full_name, job_title, department, status, location_id, is_roaming, phone, email, hire_date, qid, e3_enrolled, employment_type, staff_role, source_row_no, deleted_at, photo_updated_at, photo_mime, flexible_attendance, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday, locations!staff_location_id_fkey(code, name), staff_departments(department_id, master_departments(id, name, sort_order))",
         )
         .eq("id", id)
         .maybeSingle();
@@ -211,6 +213,14 @@ export async function GET(
         }
       }
 
+      const canProvision = canUserDo(context.roles ?? [], "admin.provision_users");
+      let loginEmail: string | null = null;
+      if (staff.user_id) {
+        const { data: authUser, error: authErr } = await supabaseAdmin.auth.admin.getUserById(staff.user_id);
+        if (!authErr) loginEmail = authUser.user?.email ?? null;
+      }
+      const { user_id: linkedUserId, ...staffPublic } = staff;
+
       const sensitiveExt = canSensitive
         ? profileExt
         : profileExt
@@ -226,7 +236,7 @@ export async function GET(
 
       const safeStaff = redactStaffIdentityNumbers(
         {
-          ...staff,
+          ...staffPublic,
           is_roaming: Boolean(staff.is_roaming),
           has_photo: Boolean(staff.photo_updated_at),
           work_locations: workLocations,
@@ -236,6 +246,11 @@ export async function GET(
 
       return {
         staff: safeStaff,
+        login: {
+          linked: Boolean(linkedUserId),
+          email: loginEmail,
+          defaultPassword: canProvision ? STAFF_LOGIN_DEFAULT_PASSWORD : null,
+        },
         profileExt: sensitiveExt,
         managerName,
         statusHistory,

@@ -3604,6 +3604,21 @@
         "document_verified": "Document verified",
         "document_replaced": "Document replaced",
         "document_uploaded": "Document uploaded"
+      },
+      "login": {
+        "title": "Login",
+        "exists": "Login exists",
+        "missing": "No login yet",
+        "email": "Login email",
+        "emailUnavailable": "Login is linked, but the email could not be read",
+        "create": "Create login",
+        "creating": "Creating…",
+        "created": "Login created",
+        "linkedExisting": "Linked an existing login. The password was not changed.",
+        "defaultPassword": "Logins created here use password {{password}}. It stays the same unless the employee changes it.",
+        "issuedPassword": "Password",
+        "shareHint": "Give the employee this email and password. They can change it after signing in.",
+        "ceoOnly": "Only the CEO or COO can create a login."
       }
     }
   },
@@ -7514,7 +7529,8 @@
       "title": "My day",
       "opsConsole": "Ops",
       "unlinked": "Account not linked to staff",
-      "unlinkedHint": "Ask HR to link this login to your staff record. Check-in and leave stay unavailable until then.",
+      "unlinkedHint": "Ask HR to link this login to your staff record. Leave and the rest of this app stay unavailable until then.",
+      "biometricNote": "Attendance is recorded on the biometric device. This app does not check in or check out.",
       "lastStatus": "Last attendance",
       "noStatus": "No attendance in this FEC month yet.",
       "myAttendance": "My attendance",
