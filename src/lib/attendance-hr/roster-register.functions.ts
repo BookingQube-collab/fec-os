@@ -14,6 +14,7 @@ import {
   chunkIds,
   collectPagedRows,
   rosterAmendRecalcLocationIds,
+  isRosterLeaveType,
   rosterPatchFromDayStatus,
   rosterRowMatchesSearch,
   type RosterDayStatus,
@@ -23,6 +24,10 @@ import { mapRosterPeriodByDayIndex, monthBounds, nextPayrollMonth } from "@/lib/
 import { ATTENDANCE_DAILY_LIST_PAGE_SIZE } from "@/lib/attendance-hr/constants";
 
 const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+function missingCompOffColumn(error: { message?: string } | null | undefined): boolean {
+  return /comp_off_for_date/i.test(error?.message ?? "");
+}
 
 function parseHm(value: string | null | undefined): string | null {
   if (value == null || value === "") return null;
@@ -43,8 +48,12 @@ export type RosterRegisterRow = {
   shiftEnd: string | null;
   shiftTemplateId: string | null;
   isWeekOff: boolean;
-  /** From attendance_leave_records when present (annual_leave / sick_leave). */
+  /** From attendance_leave_records when present (annual_leave / sick_leave / comp_off). */
   leaveType: RosterLeaveType | null;
+  /** Worked day a comp-off compensates. Null unless leaveType is comp_off. */
+  compOffForDate: string | null;
+  /** Short explanation stored on attendance_leave_records.notes for comp-off. */
+  compOffNote: string | null;
   source: string;
 };
 
@@ -55,10 +64,26 @@ async function syncRosterLeaveRecord(
     staffId: string;
     workDate: string;
     leaveType: RosterLeaveType | null;
+    compOffForDate?: string | null;
+    compOffNote?: string | null;
     userId: string;
   },
 ) {
   if (input.leaveType) {
+    const { data: existingLeave, error: existingErr } = await supabase
+      .from("attendance_leave_records")
+      .select("leave_type, notes")
+      .eq("staff_id", input.staffId)
+      .eq("leave_date", input.workDate)
+      .maybeSingle();
+    if (existingErr) throw existingErr;
+
+    const isCompOff = input.leaveType === "comp_off";
+    const previousWasCompOff = existingLeave?.leave_type === "comp_off";
+    let notes: string | null = (existingLeave?.notes as string | null | undefined) ?? null;
+    if (isCompOff) notes = input.compOffNote?.trim() || null;
+    else if (previousWasCompOff) notes = null;
+
     const { error } = await supabase.from("attendance_leave_records").upsert(
       {
         location_id: input.locationId,
@@ -66,10 +91,15 @@ async function syncRosterLeaveRecord(
         leave_date: input.workDate,
         leave_type: input.leaveType,
         source: "roster_amend",
+        notes,
+        comp_off_for_date: isCompOff ? input.compOffForDate : null,
         created_by: input.userId,
       },
       { onConflict: "staff_id,leave_date" },
     );
+    if (error && missingCompOffColumn(error)) {
+      throw new Error("Comp off date cannot be saved until the leave migration is applied.");
+    }
     if (error) throw error;
     return;
   }
@@ -216,33 +246,66 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
     const locById = new Map((locRes.data ?? []).map((row) => [String(row.id), row]));
     const shiftById = new Map((shiftRes.data ?? []).map((row) => [String(row.id), row]));
 
-    const leaveByStaffDate = new Map<string, RosterLeaveType>();
+    const leaveByStaffDate = new Map<
+      string,
+      { leaveType: RosterLeaveType; compOffForDate: string | null; compOffNote: string | null }
+    >();
     if (staffIds.length) {
       for (const staffChunk of chunkIds(staffIds, 200)) {
         const leaveRows = await collectPagedRows<{
           staff_id: string;
           leave_date: string;
           leave_type: string;
+          notes: string | null;
+          comp_off_for_date: string | null;
         }>(async (from, to) => {
-          const { data: page, error } = await context.supabase
-            .from("attendance_leave_records")
-            .select("staff_id, leave_date, leave_type")
-            .gte("leave_date", data.dateFrom)
-            .lte("leave_date", data.dateTo)
-            .in("staff_id", staffChunk)
-            .order("leave_date", { ascending: true })
-            .order("staff_id", { ascending: true })
-            .range(from, to);
-          if (error) throw error;
-          return (page ?? []) as { staff_id: string; leave_date: string; leave_type: string }[];
+          type LeavePageRow = {
+            staff_id: string;
+            leave_date: string;
+            leave_type: string;
+            notes: string | null;
+            comp_off_for_date: string | null;
+          };
+          const filters = <Q extends { gte: Function; lte: Function; in: Function; order: Function; range: Function }>(
+            query: Q,
+          ) =>
+            query
+              .gte("leave_date", data.dateFrom)
+              .lte("leave_date", data.dateTo)
+              .in("staff_id", staffChunk)
+              .order("leave_date", { ascending: true })
+              .order("staff_id", { ascending: true })
+              .range(from, to);
+          const withDate = await filters(
+            context.supabase
+              .from("attendance_leave_records")
+              .select("staff_id, leave_date, leave_type, notes, comp_off_for_date"),
+          );
+          if (withDate.error && missingCompOffColumn(withDate.error)) {
+            const legacy = await filters(
+              context.supabase.from("attendance_leave_records").select("staff_id, leave_date, leave_type, notes"),
+            );
+            if (legacy.error) throw legacy.error;
+            return ((legacy.data ?? []) as Array<Omit<LeavePageRow, "comp_off_for_date">>).map((row) => ({
+              staff_id: String(row.staff_id),
+              leave_date: String(row.leave_date),
+              leave_type: String(row.leave_type),
+              notes: row.notes ?? null,
+              comp_off_for_date: null,
+            }));
+          }
+          if (withDate.error) throw withDate.error;
+          return (withDate.data ?? []) as unknown as LeavePageRow[];
         }, ATTENDANCE_DAILY_LIST_PAGE_SIZE);
         for (const leave of leaveRows) {
           const leaveType = String(leave.leave_type);
-          if (leaveType !== "annual_leave" && leaveType !== "sick_leave") continue;
-          leaveByStaffDate.set(
-            `${String(leave.staff_id)}|${String(leave.leave_date).slice(0, 10)}`,
+          if (!isRosterLeaveType(leaveType)) continue;
+          const forDate = leave.comp_off_for_date ? String(leave.comp_off_for_date).slice(0, 10) : null;
+          leaveByStaffDate.set(`${String(leave.staff_id)}|${String(leave.leave_date).slice(0, 10)}`, {
             leaveType,
-          );
+            compOffForDate: leaveType === "comp_off" ? forDate : null,
+            compOffNote: leaveType === "comp_off" ? (leave.notes?.trim() || null) : null,
+          });
         }
       }
     }
@@ -254,6 +317,7 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
       const startFromRow = (row as { shift_start?: string | null }).shift_start;
       const endFromRow = (row as { shift_end?: string | null }).shift_end;
       const workDate = String(row.work_date).slice(0, 10);
+      const leave = leaveByStaffDate.get(`${String(row.staff_id)}|${workDate}`) ?? null;
       return {
         id: String(row.id),
         locationId: String(row.location_id),
@@ -276,7 +340,9 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
             : null,
         shiftTemplateId: (row.shift_template_id as string | null) ?? null,
         isWeekOff: Boolean(row.is_week_off),
-        leaveType: leaveByStaffDate.get(`${String(row.staff_id)}|${workDate}`) ?? null,
+        leaveType: leave?.leaveType ?? null,
+        compOffForDate: leave?.compOffForDate ?? null,
+        compOffNote: leave?.compOffNote ?? null,
         source: String(row.source ?? "manual"),
       };
     });
@@ -308,8 +374,12 @@ export const updateRosterAssignment = createAuthenticatedAction(
     shiftStart: z.string().nullable().optional(),
     shiftEnd: z.string().nullable().optional(),
     isWeekOff: z.boolean().optional(),
-    /** Preferred over isWeekOff when set — weekly off / leave / on duty. */
-    dayStatus: z.enum(["on_duty", "weekly_off", "annual_leave", "sick_leave"]).optional(),
+    /** Preferred over isWeekOff when set — weekly off / leave / comp off / on duty. */
+    dayStatus: z.enum(["on_duty", "weekly_off", "annual_leave", "sick_leave", "comp_off"]).optional(),
+    /** Worked day this comp-off is taken for. Required when dayStatus is comp_off. */
+    compOffForDate: ymd.nullable().optional(),
+    /** Short explanation. Required when dayStatus is comp_off. Stored on leave notes. */
+    compOffNote: z.string().max(500).nullable().optional(),
   }),
   async (data, context) => {
     assertCanAmendRoster(context.roles);
@@ -339,6 +409,12 @@ export const updateRosterAssignment = createAuthenticatedAction(
         };
     // Legacy isWeekOff-only callers: do not clear unrelated leave rows.
     const syncLeave = dayStatus != null;
+    const compOffForDate = dayStatus === "comp_off" ? (data.compOffForDate ?? null) : null;
+    const compOffNote = dayStatus === "comp_off" ? (data.compOffNote ?? "").trim() : null;
+    if (dayStatus === "comp_off") {
+      if (!compOffForDate) throw new Error("Comp off requires the date it is taken for.");
+      if (!compOffNote) throw new Error("Comp off requires a short note.");
+    }
 
     const isWeekOff = patch.isWeekOff;
     let shiftTemplateId: string | null = null;
@@ -393,6 +469,8 @@ export const updateRosterAssignment = createAuthenticatedAction(
         staffId: existing.staff_id,
         workDate,
         leaveType: patch.leaveType,
+        compOffForDate,
+        compOffNote,
         userId: context.userId,
       });
     } else if (nextLocationId !== existingLocationId) {

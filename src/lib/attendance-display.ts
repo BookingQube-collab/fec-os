@@ -136,6 +136,7 @@ const NO_OVERTIME_STATUS_KEYS = new Set([
   "annual_leave",
   "sick_leave",
   "unpaid_leave",
+  "comp_off",
 ]);
 
 /** OT minutes past roster end when scheduled_out exists; otherwise clock − site hours. Never hours−9 against a longer roster. */
@@ -291,6 +292,11 @@ const NAMED_STATUS_DISPLAY: Record<string, AttendanceStatusDisplay> = {
     badgeClass: "border-violet-500/40 bg-violet-500/15 text-violet-700 dark:text-violet-300",
     rowClass: NO_ROW_TINT,
   },
+  comp_off: {
+    label: "Comp off",
+    badgeClass: "border-amber-500/40 bg-amber-500/15 text-amber-800 dark:text-amber-200",
+    rowClass: NO_ROW_TINT,
+  },
   unpaid_leave: {
     label: "Unpaid leave",
     badgeClass: "border-slate-400/50 bg-slate-500/10 text-slate-600 dark:text-slate-300",
@@ -322,6 +328,7 @@ const PROTECTED_STATUS_KEYS = new Set([
   "annual_leave",
   "sick_leave",
   "unpaid_leave",
+  "comp_off",
   "unscheduled",
   "review_required",
 ]);
@@ -339,7 +346,9 @@ export function applyRosterDayStatusOverride(input: {
     .trim()
     .toLowerCase()
     .replace(/[\s-]+/g, "_");
-  if (leave === "annual_leave" || leave === "sick_leave" || leave === "unpaid_leave") return leave;
+  if (leave === "annual_leave" || leave === "sick_leave" || leave === "unpaid_leave" || leave === "comp_off") {
+    return leave;
+  }
   if (input.isWeekOff) return "weekly_off";
   return input.status;
 }

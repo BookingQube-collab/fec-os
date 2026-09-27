@@ -129,6 +129,7 @@ describe("roster register bulk-delete scope", () => {
     expect(rosterDayStatusFromRow({ isWeekOff: true, leaveType: null })).toBe("weekly_off");
     expect(rosterDayStatusFromRow({ isWeekOff: true, leaveType: "annual_leave" })).toBe("annual_leave");
     expect(rosterDayStatusFromRow({ isWeekOff: false, leaveType: "sick_leave" })).toBe("sick_leave");
+    expect(rosterDayStatusFromRow({ isWeekOff: false, leaveType: "comp_off" })).toBe("comp_off");
 
     expect(rosterPatchFromDayStatus("on_duty")).toEqual({
       isWeekOff: false,
@@ -148,6 +149,11 @@ describe("roster register bulk-delete scope", () => {
     expect(rosterPatchFromDayStatus("sick_leave")).toEqual({
       isWeekOff: false,
       leaveType: "sick_leave",
+      needsShiftTimes: false,
+    });
+    expect(rosterPatchFromDayStatus("comp_off")).toEqual({
+      isWeekOff: false,
+      leaveType: "comp_off",
       needsShiftTimes: false,
     });
   });

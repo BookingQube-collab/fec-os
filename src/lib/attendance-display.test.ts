@@ -292,6 +292,9 @@ describe("attendance listing display", () => {
     expect(
       applyRosterDayStatusOverride({ status: "present", isWeekOff: false, leaveType: null }),
     ).toBe("present");
+    expect(
+      applyRosterDayStatusOverride({ status: "absent", isWeekOff: false, leaveType: "comp_off" }),
+    ).toBe("comp_off");
   });
 
   it("uses check-out minus check-in for total hours even when stored minutes deducted a break", () => {

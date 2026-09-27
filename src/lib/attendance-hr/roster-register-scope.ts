@@ -142,16 +142,20 @@ export function chunkIds<T>(items: T[], size: number): T[][] {
 }
 
 /** Day kinds editable from the monthly roster amend dialog. */
-export const ROSTER_DAY_STATUSES = ["on_duty", "weekly_off", "annual_leave", "sick_leave"] as const;
+export const ROSTER_DAY_STATUSES = ["on_duty", "weekly_off", "annual_leave", "sick_leave", "comp_off"] as const;
 export type RosterDayStatus = (typeof ROSTER_DAY_STATUSES)[number];
-export type RosterLeaveType = "annual_leave" | "sick_leave";
+export type RosterLeaveType = "annual_leave" | "sick_leave" | "comp_off";
+
+export function isRosterLeaveType(value: string | null | undefined): value is RosterLeaveType {
+  return value === "annual_leave" || value === "sick_leave" || value === "comp_off";
+}
 
 /** Leave wins over week-off when both exist (upload often flags leave as is_week_off). */
 export function rosterDayStatusFromRow(row: {
   isWeekOff: boolean;
   leaveType?: string | null;
 }): RosterDayStatus {
-  if (row.leaveType === "annual_leave" || row.leaveType === "sick_leave") return row.leaveType;
+  if (isRosterLeaveType(row.leaveType)) return row.leaveType;
   if (row.isWeekOff) return "weekly_off";
   return "on_duty";
 }
@@ -168,6 +172,7 @@ export function rosterPatchFromDayStatus(status: RosterDayStatus): {
   if (status === "weekly_off") return { isWeekOff: true, leaveType: null, needsShiftTimes: false };
   if (status === "annual_leave") return { isWeekOff: false, leaveType: "annual_leave", needsShiftTimes: false };
   if (status === "sick_leave") return { isWeekOff: false, leaveType: "sick_leave", needsShiftTimes: false };
+  if (status === "comp_off") return { isWeekOff: false, leaveType: "comp_off", needsShiftTimes: false };
   return { isWeekOff: false, leaveType: null, needsShiftTimes: true };
 }
 

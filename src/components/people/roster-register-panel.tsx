@@ -30,6 +30,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { usePermission } from "@/hooks/use-permission";
 import { useMasterDepartments } from "@/hooks/queries/useDepartments";
@@ -90,12 +91,15 @@ type Draft = {
   shiftStart: string | null;
   shiftEnd: string | null;
   dayStatus: RosterDayStatus;
+  compOffForDate: string;
+  compOffNote: string;
 };
 
 function dayStatusLabel(status: RosterDayStatus, t: (key: string) => string) {
   if (status === "weekly_off") return t("people.roster.dutyOff");
   if (status === "annual_leave") return t("people.roster.dutyAnnualLeave");
   if (status === "sick_leave") return t("people.roster.dutySickLeave");
+  if (status === "comp_off") return t("people.roster.dutyCompOff");
   return t("people.roster.dutyYes");
 }
 
@@ -235,12 +239,22 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       mutationFn: async (row: RosterRegisterRow) => {
         if (!draft) throw new Error(t("people.roster.registerNothingToSave"));
         const patch = rosterPatchFromDayStatus(draft.dayStatus);
+        if (draft.dayStatus === "comp_off") {
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.compOffForDate)) {
+            throw new Error(t("people.roster.compOffDateRequired"));
+          }
+          if (!draft.compOffNote.trim()) {
+            throw new Error(t("people.roster.compOffNoteRequired"));
+          }
+        }
         return updateRosterAssignment({
           id: row.id,
           locationId: draft.locationId,
           shiftStart: patch.needsShiftTimes ? draft.shiftStart : null,
           shiftEnd: patch.needsShiftTimes ? draft.shiftEnd : null,
           dayStatus: draft.dayStatus,
+          compOffForDate: draft.dayStatus === "comp_off" ? draft.compOffForDate : null,
+          compOffNote: draft.dayStatus === "comp_off" ? draft.compOffNote.trim() : null,
         });
       },
       onSuccess: () => {
@@ -309,6 +323,8 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
         shiftStart: row.shiftStart,
         shiftEnd: row.shiftEnd,
         dayStatus: rosterDayStatusFromRow(row),
+        compOffForDate: row.compOffForDate ?? "",
+        compOffNote: row.compOffNote ?? "",
       });
     };
 
@@ -346,6 +362,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       { value: "weekly_off", label: t("people.roster.dutyOff") },
       { value: "annual_leave", label: t("people.roster.dutyAnnualLeave") },
       { value: "sick_leave", label: t("people.roster.dutySickLeave") },
+      { value: "comp_off", label: t("people.roster.dutyCompOff") },
     ];
 
     const locationOptions = useMemo(
@@ -382,6 +399,42 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       );
     };
 
+    const renderCompOffFields = (idPrefix: string) => {
+      if (!draft || draft.dayStatus !== "comp_off") return null;
+      const dateId = `${idPrefix}-comp-off-date`;
+      const noteId = `${idPrefix}-comp-off-note`;
+      return (
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label htmlFor={dateId}>{t("people.roster.compOffForDate")}</Label>
+            <Input
+              id={dateId}
+              type="date"
+              required
+              value={draft.compOffForDate}
+              onChange={(event) =>
+                setDraft((prev) => (prev ? { ...prev, compOffForDate: event.target.value } : prev))
+              }
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor={noteId}>{t("people.roster.compOffNote")}</Label>
+            <Textarea
+              id={noteId}
+              required
+              rows={2}
+              maxLength={500}
+              value={draft.compOffNote}
+              placeholder={t("people.roster.compOffNotePlaceholder")}
+              onChange={(event) =>
+                setDraft((prev) => (prev ? { ...prev, compOffNote: event.target.value } : prev))
+              }
+            />
+          </div>
+        </div>
+      );
+    };
+
     const renderDayStatusEditor = () => {
       if (!draft) return null;
       const needsTimes = rosterPatchFromDayStatus(draft.dayStatus).needsShiftTimes;
@@ -403,6 +456,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
               options={dayStatusOptions}
             />
           </div>
+          {renderCompOffFields("amend-dialog")}
           <div className="space-y-1.5">
             <Label>{t("people.roster.colShift")}</Label>
             <ShiftRangeEditor
@@ -686,7 +740,9 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
                                         ? t("people.roster.registerCellAnnual")
                                         : entry.leaveType === "sick_leave"
                                           ? t("people.roster.registerCellSick")
-                                          : t("people.roster.registerCellOff")}
+                                          : entry.leaveType === "comp_off"
+                                            ? t("people.roster.registerCellCompOff")
+                                            : t("people.roster.registerCellOff")}
                                     </div>
                                   ) : (
                                     <div className="text-center leading-tight tabular-nums">
@@ -762,15 +818,18 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
                       </TableCell>
                       <TableCell>
                         {editing ? (
-                          <SearchableSelect
-                            value={draft.dayStatus}
-                            onValueChange={(value) =>
-                              setDraft((prev) =>
-                                prev ? { ...prev, dayStatus: (value || "on_duty") as RosterDayStatus } : prev,
-                              )
-                            }
-                            options={dayStatusOptions}
-                          />
+                          <div className="min-w-[14rem] space-y-2">
+                            <SearchableSelect
+                              value={draft.dayStatus}
+                              onValueChange={(value) =>
+                                setDraft((prev) =>
+                                  prev ? { ...prev, dayStatus: (value || "on_duty") as RosterDayStatus } : prev,
+                                )
+                              }
+                              options={dayStatusOptions}
+                            />
+                            {renderCompOffFields("amend-list")}
+                          </div>
                         ) : (
                           cellStatusLabel(row, t)
                         )}
