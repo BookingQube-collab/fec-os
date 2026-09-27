@@ -5,7 +5,7 @@ import { FecPageHeader } from "@/components/fec";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState, Suspense } from "react";
+import { useEffect, useState, Suspense, type ReactNode } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { User } from "lucide-react";
@@ -19,6 +19,8 @@ import { useSites } from "@/hooks/queries/useSites";
 import { usePermission } from "@/hooks/use-permission";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { expiryBand, qatarTodayYmd } from "@/lib/hr-expiry-bands";
+import type { StaffRow } from "@/lib/queries/module-queries.core";
+import { hrAlertSeverityLabel, staffHrAlerts, type HrAlertSeverity } from "@/lib/staff-hr-alerts";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { FaceCaptureDialog } from "@/components/attendance-hr/face-capture-dialog";
@@ -28,6 +30,15 @@ import { listEmployeeTimeline } from "@/lib/hr-leave.functions";
 import { transferStaffMember, updateStaffSalary, updateStaffWorkLocations } from "@/lib/staff-roster.functions";
 import { removeStaffPhoto, saveStaffPhoto, updateStaff } from "@/lib/people.functions";
 import { Checkbox } from "@/components/ui/checkbox";
+
+/** People pill switcher (cream track, black active). ponytail: full-width scroll — ~11 tabs; People uses sm:w-fit for four. */
+const PROFILE_TAB_LIST =
+  "h-11 min-h-11 w-full max-w-full flex-nowrap items-center gap-0.5 overflow-x-auto overflow-y-hidden rounded-full border-0 bg-secondary p-1 text-foreground [scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
+const PROFILE_TAB_TRIGGER =
+  "h-full min-h-0 shrink-0 data-[state=active]:shadow-none data-[state=inactive]:text-foreground data-[state=inactive]:hover:bg-transparent data-[state=inactive]:hover:text-foreground";
+const SECTION_LABEL = "text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground";
+const PANEL = "surface-card min-w-0 space-y-3 p-4";
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
 type ProfileExt = {
   nationality: string | null;
@@ -47,7 +58,12 @@ type ProfileExt = {
   notes: string | null;
   emergency_contact_name: string | null;
   emergency_contact_phone: string | null;
+  emergency_contact_relation?: string | null;
   employment_category: string | null;
+  visa_expiry?: string | null;
+  payment_method?: string | null;
+  bank_name?: string | null;
+  iban?: string | null;
 };
 
 type ProfileResponse = {
@@ -397,9 +413,49 @@ function StaffProfilePageBody() {
   const serviceDays = s.hire_date
     ? Math.max(0, Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${s.hire_date}T00:00:00Z`)) / 86_400_000))
     : null;
+  const serviceLabel =
+    serviceDays == null ? null : `${Math.floor(serviceDays / 365)}y ${Math.floor((serviceDays % 365) / 30)}m`;
+  const docs = profile.data?.documents ?? [];
+  const docExpired = docs.filter((doc) => expiryBand(today, doc.expiry_date) === "expired").length;
+  const docSoon = docs.filter((doc) => {
+    const band = expiryBand(today, doc.expiry_date);
+    return band === "0_30" || band === "31_60" || band === "61_90";
+  }).length;
+  const warningLetters = docs.filter((doc) => doc.doc_type === "warning_letter");
+  // ponytail: staffHrAlerts only reads expiry, contact, and status — not a directory StaffRow.
+  const alerts = staffHrAlerts(
+    {
+      status: s.status,
+      qid: s.qid,
+      phone: s.phone,
+      hire_date: s.hire_date,
+      qid_expiry: canViewSensitive ? ext?.qid_expiry : null,
+      passport_expiry: canViewSensitive ? ext?.passport_expiry : null,
+      contract_end: ext?.contract_end,
+      visa_expiry: canViewSensitive ? ext?.visa_expiry : null,
+    } as StaffRow,
+    today,
+  );
+  const showPayroll = Boolean(profile.data?.canViewSalary || canViewSalaryPerm);
+  const profileTabs: Array<{ value: string; label: string }> = [
+    { value: "overview", label: "Overview" },
+    { value: "employment", label: "Employment" },
+    { value: "personal", label: "Personal" },
+    { value: "documents", label: "Documents" },
+    { value: "attendance", label: "Attendance & Leave" },
+    ...(showPayroll ? [{ value: "payroll", label: "Payroll" }] : []),
+    { value: "performance", label: "Performance" },
+    { value: "training", label: "Training" },
+    { value: "warnings", label: "Disciplinary" },
+    { value: "history", label: "History" },
+    { value: "notes", label: "Notes" },
+  ];
+  const emergencyContact = [ext?.emergency_contact_name, ext?.emergency_contact_phone].filter(Boolean).join(" · ");
+  const contractSpan = [ext?.contract_start, ext?.contract_end].filter(Boolean).join(" → ");
+  const probationSpan = [ext?.probation_start, ext?.probation_end].filter(Boolean).join(" → ");
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-4">
       <FecPageHeader
         icon={User}
         kicker={t("people.profile.title")}
@@ -414,6 +470,9 @@ function StaffProfilePageBody() {
               photoUpdatedAt={s.photo_updated_at}
               className="h-12 w-12 border border-border"
             />
+            <Badge variant="outline" className="uppercase">
+              {s.status.replace(/_/g, " ")}
+            </Badge>
             <Button asChild variant="secondary" size="sm">
               <Link href="/people?tab=staff">{t("people.tabs.staff")}</Link>
             </Button>
@@ -431,74 +490,164 @@ function StaffProfilePageBody() {
           const qs = nextParams.toString();
           router.replace(qs ? `/people/staff/${id}?${qs}` : `/people/staff/${id}`, { scroll: false });
         }}
-        className="space-y-4"
+        className="space-y-3"
       >
-        <TabsList className="flex h-auto flex-wrap gap-1">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="employment">Employment</TabsTrigger>
-          <TabsTrigger value="personal">Personal</TabsTrigger>
-          <TabsTrigger value="documents">Documents</TabsTrigger>
-          <TabsTrigger value="attendance">Attendance & Leave</TabsTrigger>
-          {profile.data?.canViewSalary || canViewSalaryPerm ? (
-            <TabsTrigger value="payroll">Payroll</TabsTrigger>
-          ) : null}
-          <TabsTrigger value="performance">Performance</TabsTrigger>
-          <TabsTrigger value="training">Training</TabsTrigger>
-          <TabsTrigger value="warnings">Disciplinary</TabsTrigger>
-          <TabsTrigger value="history">History</TabsTrigger>
-          <TabsTrigger value="notes">Notes</TabsTrigger>
+        <TabsList className={PROFILE_TAB_LIST}>
+          {profileTabs.map((tab) => (
+            <TabsTrigger key={tab.value} value={tab.value} className={PROFILE_TAB_TRIGGER}>
+              {tab.label}
+            </TabsTrigger>
+          ))}
         </TabsList>
 
-        <TabsContent value="overview" className="space-y-4">
-          <section className="surface-card grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3">
-            <div className="flex items-center gap-3 sm:col-span-2 lg:col-span-1">
-              <StaffAvatar staffId={s.id} name={s.full_name} hasPhoto={Boolean(s.has_photo)} photoUpdatedAt={s.photo_updated_at} className="h-16 w-16" />
-              <div>
-                <p className="font-semibold">{s.full_name}</p>
-                <p className="font-mono text-xs text-muted-foreground">{s.employee_code}</p>
-                <Badge variant="outline" className="mt-1 uppercase text-[10px]">{s.status}</Badge>
+        <TabsContent value="overview" className="mt-3">
+          <section className="surface-card p-4 sm:p-5">
+            <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="min-w-0 space-y-3">
+                <h2 className={SECTION_LABEL}>Employment</h2>
+                <FactGrid
+                  cols="grid-cols-2 xl:grid-cols-1"
+                  items={[
+                    fact("Position", s.job_title),
+                    fact("Department", s.department),
+                    fact("Location", formatLocationLabel(s.locations?.code, s.locations?.name)),
+                    fact("Manager", profile.data?.managerName),
+                    fact(
+                      "Type",
+                      s.employment_type
+                        ? t(`people.staff.employmentTypes.${s.employment_type}`, s.employment_type)
+                        : null,
+                    ),
+                    fact("Category", ext?.employment_category),
+                    fact("Joined", s.hire_date),
+                    fact("Service", serviceLabel),
+                    fact("Contract", contractSpan),
+                    fact("Probation", probationSpan),
+                  ]}
+                />
+                {s.is_roaming || (s.work_locations?.length ?? 0) > 1 ? (
+                  <div className="flex flex-wrap gap-1">
+                    {s.is_roaming ? <Badge variant="outline">{t("people.staff.roaming")}</Badge> : null}
+                    {(s.work_locations ?? []).map((loc) => (
+                      <Badge key={loc.id} variant="secondary">
+                        {formatLocationLabel(loc.code, loc.name)}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+              <div className="min-w-0 space-y-3">
+                <h2 className={SECTION_LABEL}>Contact</h2>
+                <FactGrid
+                  cols="grid-cols-2 xl:grid-cols-1"
+                  items={[
+                    fact("Phone", s.phone),
+                    fact("Email", s.email),
+                    fact("Emergency", emergencyContact),
+                    fact("Relation", ext?.emergency_contact_relation),
+                  ]}
+                />
+              </div>
+              <div className="min-w-0 space-y-3">
+                <h2 className={SECTION_LABEL}>Documents</h2>
+                {!canViewSensitive ? (
+                  <p className="text-sm text-muted-foreground">
+                    Sensitive HR documents (QID, passport, contracts) are visible to Admin and HR only.
+                  </p>
+                ) : docs.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No documents on file yet.</p>
+                ) : (
+                  <FactGrid
+                    items={[
+                      fact("On file", String(docs.length)),
+                      fact("Expired", String(docExpired)),
+                      fact("Expiring ≤90d", String(docSoon)),
+                    ]}
+                  />
+                )}
+                {canViewSensitive ? (
+                  <Link href="/people/hr/documents" className="text-xs font-medium underline-offset-4 hover:underline">
+                    Open HR Documents
+                  </Link>
+                ) : null}
+              </div>
+              <div className="min-w-0 space-y-3">
+                <h2 className={SECTION_LABEL}>Alerts</h2>
+                {alerts.length ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {alerts.map((alert) => (
+                      <Badge
+                        key={`${alert.kind}-${alert.severity}`}
+                        variant={alertBadgeVariant(alert.severity)}
+                        className="font-medium normal-case tracking-normal"
+                      >
+                        {alert.label}
+                        <span className="font-normal opacity-80">{hrAlertSeverityLabel(alert.severity)}</span>
+                      </Badge>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No open alerts.</p>
+                )}
               </div>
             </div>
-            <dl className="space-y-1 text-sm">
-              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Position</dt><dd>{s.job_title ?? "—"}</dd></div>
-              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Department</dt><dd>{s.department ?? "—"}</dd></div>
-              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Location</dt><dd>{formatLocationLabel(s.locations?.code, s.locations?.name)}</dd></div>
-              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Manager</dt><dd>{profile.data?.managerName ?? "—"}</dd></div>
-            </dl>
-            <dl className="space-y-1 text-sm">
-              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Type</dt><dd>{s.employment_type ?? "—"}</dd></div>
-              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Joined</dt><dd>{s.hire_date ?? "—"}</dd></div>
-              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Service</dt><dd>{serviceDays != null ? `${Math.floor(serviceDays / 365)}y ${Math.floor((serviceDays % 365) / 30)}m` : "—"}</dd></div>
-              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Contact</dt><dd>{s.phone ?? s.email ?? "—"}</dd></div>
-            </dl>
           </section>
         </TabsContent>
 
-        <TabsContent value="employment" className="space-y-4">
-          <section className="surface-card space-y-2 p-5 text-sm">
-            <h2 className="text-sm font-semibold">Employment</h2>
-            <dl className="grid gap-2 sm:grid-cols-2">
-              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Position</dt><dd>{s.job_title ?? "—"}</dd></div>
-              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Department</dt><dd>{s.department ?? "—"}</dd></div>
-              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Sponsorship</dt><dd>{ext?.sponsorship_info ?? "—"}</dd></div>
-              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Category</dt><dd>{ext?.employment_category ?? s.employment_type ?? "—"}</dd></div>
-              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Probation</dt><dd>{ext?.probation_start ?? "—"} → {ext?.probation_end ?? "—"}</dd></div>
-              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Contract</dt><dd>{ext?.contract_start ?? "—"} → {ext?.contract_end ?? "—"}</dd></div>
-              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Expected hours</dt><dd>{s.expected_hours ?? "—"}</dd></div>
-              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Weekly off</dt><dd>{s.weekly_off_weekday == null ? "—" : ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][s.weekly_off_weekday]}</dd></div>
-              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Ticket eligibility</dt><dd>{ext?.ticket_eligibility == null ? "—" : ext.ticket_eligibility ? "Yes" : "No"}</dd></div>
-              <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Ticket cycle / amount</dt><dd>{ext?.ticket_eligibility_months ?? "—"} mo · {profile.data?.canViewSalary ? (ext?.ticket_amount ?? "—") : "••••"}</dd></div>
-              {profile.data?.canViewSalary ? (
-                <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Salary</dt><dd>{profile.data.compensation?.monthly_salary_qar?.toLocaleString() ?? "—"} QAR</dd></div>
-              ) : null}
-            </dl>
+        <TabsContent value="employment" className="mt-3">
+          <section className={PANEL}>
+            <h2 className={SECTION_LABEL}>Employment</h2>
+            <FactGrid
+              cols="grid-cols-2 lg:grid-cols-3"
+              items={[
+                fact("Position", s.job_title),
+                fact("Department", s.department),
+                fact("Sponsorship", ext?.sponsorship_info),
+                fact(
+                  "Category",
+                  ext?.employment_category ??
+                    (s.employment_type
+                      ? t(`people.staff.employmentTypes.${s.employment_type}`, s.employment_type)
+                      : null),
+                ),
+                fact("Probation", probationSpan),
+                fact("Contract", contractSpan),
+                fact("Expected hours", s.expected_hours == null ? null : String(s.expected_hours)),
+                fact(
+                  "Weekly off",
+                  s.weekly_off_weekday == null ? null : WEEKDAYS[s.weekly_off_weekday],
+                ),
+                fact(
+                  "Ticket eligibility",
+                  ext?.ticket_eligibility == null ? null : ext.ticket_eligibility ? "Yes" : "No",
+                ),
+                fact(
+                  "Ticket cycle",
+                  ext?.ticket_eligibility_months == null ? null : `${ext.ticket_eligibility_months} mo`,
+                ),
+                fact(
+                  "Ticket amount",
+                  profile.data?.canViewSalary
+                    ? ext?.ticket_amount == null
+                      ? null
+                      : String(ext.ticket_amount)
+                    : "••••",
+                ),
+                fact(
+                  "Salary",
+                  profile.data?.canViewSalary && profile.data.compensation?.monthly_salary_qar != null
+                    ? `${profile.data.compensation.monthly_salary_qar.toLocaleString()} ${profile.data.compensation.currency ?? "QAR"}`
+                    : null,
+                ),
+              ]}
+            />
           </section>
         </TabsContent>
 
-        <TabsContent value="personal" className="space-y-4">
-      <div className="grid gap-4 lg:grid-cols-2">
-        <section className="surface-card space-y-2 p-5">
-          <h2 className="text-sm font-semibold">{t("people.profile.personal")}</h2>
+        <TabsContent value="personal" className="mt-3">
+      <div className="grid gap-3 lg:grid-cols-2">
+        <section className={PANEL}>
+          <h2 className={SECTION_LABEL}>{t("people.profile.personal")}</h2>
           {canEdit ? (
             <div className="space-y-2 border-b pb-3">
               <h3 className="text-xs font-medium">{t("people.profile.directoryPhoto")}</h3>
@@ -546,8 +695,8 @@ function StaffProfilePageBody() {
             ) : null}
           </div>
         </section>
-        <section className="surface-card space-y-2 p-5">
-          <h2 className="text-sm font-semibold">{t("people.profile.employment")}</h2>
+        <section className={PANEL}>
+          <h2 className={SECTION_LABEL}>{t("people.profile.employment")}</h2>
           <Row label={t("people.staff.title")} value={s.job_title} />
           {canEdit ? (
             <div className="space-y-2">
@@ -763,8 +912,8 @@ function StaffProfilePageBody() {
             </div>
           ) : null}
         </section>
-        <section className="surface-card space-y-2 p-5">
-          <h2 className="text-sm font-semibold">{t("people.profile.location")}</h2>
+        <section className={PANEL}>
+          <h2 className={SECTION_LABEL}>{t("people.profile.location")}</h2>
           <Row label={t("people.staff.location")} value={formatLocationLabel(s.locations?.code, s.locations?.name)} />
           <Row label={t("people.staff.dept")} value={s.department} />
           {!canEdit && (s.work_locations?.length || s.is_roaming) ? (
@@ -855,145 +1004,267 @@ function StaffProfilePageBody() {
             </ul>
           ) : null}
         </section>
-        <section className="surface-card space-y-2 p-5">
-          <h2 className="text-sm font-semibold">Identity & contacts</h2>
-          <dl className="space-y-1 text-sm">
-            <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Nationality</dt><dd>{ext?.nationality ?? "—"}</dd></div>
-            <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Gender</dt><dd>{ext?.gender ?? "—"}</dd></div>
-            <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Date of birth</dt><dd>{ext?.date_of_birth ?? "—"}</dd></div>
-            <div className="flex justify-between gap-2"><dt className="text-muted-foreground">QID</dt><dd className="font-mono text-xs">{canViewSensitive ? (s.qid ?? "—") : s.qid ? "••••••••" : "—"}</dd></div>
-            <div className="flex justify-between gap-2"><dt className="text-muted-foreground">QID expiry</dt><dd>{canViewSensitive ? (ext?.qid_expiry ?? "—") : "••••"} {canViewSensitive ? <Badge variant="outline" className="ml-1 text-[10px]">{expiryBand(today, ext?.qid_expiry)}</Badge> : null}</dd></div>
-            <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Passport</dt><dd className="font-mono text-xs">{canViewSensitive ? (ext?.passport_number ?? "—") : ext?.passport_number ? "••••••••" : "—"}</dd></div>
-            <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Passport expiry</dt><dd>{canViewSensitive ? (ext?.passport_expiry ?? "—") : "••••"} {canViewSensitive ? <Badge variant="outline" className="ml-1 text-[10px]">{expiryBand(today, ext?.passport_expiry)}</Badge> : null}</dd></div>
-            <div className="flex justify-between gap-2"><dt className="text-muted-foreground">Emergency</dt><dd>{ext?.emergency_contact_name ?? "—"} {ext?.emergency_contact_phone ? `· ${ext.emergency_contact_phone}` : ""}</dd></div>
-          </dl>
+        <section className={PANEL}>
+          <h2 className={SECTION_LABEL}>Identity & contacts</h2>
+          <FactGrid
+            cols="grid-cols-2 lg:grid-cols-3"
+            items={[
+              fact("Nationality", ext?.nationality),
+              fact("Gender", ext?.gender),
+              fact("Date of birth", ext?.date_of_birth),
+              fact("QID", canViewSensitive ? s.qid : s.qid ? "••••••••" : null),
+              fact(
+                "QID expiry",
+                canViewSensitive
+                  ? ext?.qid_expiry
+                    ? (
+                      <span className="inline-flex flex-wrap items-center gap-1.5">
+                        {ext.qid_expiry}
+                        <Badge variant="outline" className="text-[10px]">{expiryBand(today, ext.qid_expiry)}</Badge>
+                      </span>
+                    )
+                    : null
+                  : ext?.qid_expiry
+                    ? "••••"
+                    : null,
+              ),
+              fact(
+                "Passport",
+                canViewSensitive ? ext?.passport_number : ext?.passport_number ? "••••••••" : null,
+              ),
+              fact(
+                "Passport expiry",
+                canViewSensitive
+                  ? ext?.passport_expiry
+                    ? (
+                      <span className="inline-flex flex-wrap items-center gap-1.5">
+                        {ext.passport_expiry}
+                        <Badge variant="outline" className="text-[10px]">{expiryBand(today, ext.passport_expiry)}</Badge>
+                      </span>
+                    )
+                    : null
+                  : ext?.passport_expiry
+                    ? "••••"
+                    : null,
+              ),
+              fact("Emergency", emergencyContact),
+              fact("Relation", ext?.emergency_contact_relation),
+            ]}
+          />
         </section>
       </div>
         </TabsContent>
 
-        <TabsContent value="documents" className="space-y-4">
-          <section className="surface-card space-y-2 p-5">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold">Documents</h2>
+        <TabsContent value="documents" className="mt-3">
+          <section className={PANEL}>
+            <div className="flex items-center justify-between gap-3">
+              <h2 className={SECTION_LABEL}>Documents</h2>
               {canViewSensitive ? (
                 <Button asChild size="sm" variant="secondary"><Link href="/people/hr/documents">Open HR Documents</Link></Button>
               ) : null}
             </div>
             {!canViewSensitive ? (
               <p className="text-sm text-muted-foreground">Sensitive HR documents (QID, passport, contracts) are visible to Admin and HR only.</p>
-            ) : !(profile.data?.documents?.length) ? (
+            ) : docs.length === 0 ? (
               <p className="text-sm text-muted-foreground">No documents on file yet.</p>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="text-xs uppercase text-muted-foreground">
-                    <tr>
-                      <th className="px-2 py-1 text-left">Type</th>
-                      <th className="px-2 py-1 text-left">Number</th>
-                      <th className="px-2 py-1 text-left">Issue</th>
-                      <th className="px-2 py-1 text-left">Expiry</th>
-                      <th className="px-2 py-1 text-left">Band</th>
-                      <th className="px-2 py-1 text-left">Verification</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {profile.data!.documents!.map((doc) => (
-                      <tr key={doc.id} className="border-t">
-                        <td className="px-2 py-1">{doc.doc_type}</td>
-                        <td className="px-2 py-1 font-mono text-xs">{doc.document_number ?? "—"}</td>
-                        <td className="px-2 py-1">{doc.issue_date ?? "—"}</td>
-                        <td className="px-2 py-1">{doc.expiry_date ?? "—"}</td>
-                        <td className="px-2 py-1"><Badge variant="outline" className="text-[10px]">{expiryBand(today, doc.expiry_date)}</Badge></td>
-                        <td className="px-2 py-1">{doc.verification_status}</td>
+              <>
+                <FactGrid
+                  cols="grid-cols-3"
+                  items={[
+                    fact("On file", String(docs.length)),
+                    fact("Expired", String(docExpired)),
+                    fact("Expiring ≤90d", String(docSoon)),
+                  ]}
+                />
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="text-[11px] uppercase tracking-[0.06em] text-muted-foreground">
+                      <tr>
+                        <th className="px-2 py-1.5 text-left font-medium">Type</th>
+                        <th className="px-2 py-1.5 text-left font-medium">Number</th>
+                        <th className="px-2 py-1.5 text-left font-medium">Issue</th>
+                        <th className="px-2 py-1.5 text-left font-medium">Expiry</th>
+                        <th className="px-2 py-1.5 text-left font-medium">Band</th>
+                        <th className="px-2 py-1.5 text-left font-medium">Verification</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {docs.map((doc) => (
+                        <tr key={doc.id} className="border-t border-border/60">
+                          <td className="px-2 py-1.5">{doc.doc_type}</td>
+                          <td className="px-2 py-1.5 font-mono text-xs">{doc.document_number ?? "—"}</td>
+                          <td className="px-2 py-1.5">{doc.issue_date ?? "—"}</td>
+                          <td className="px-2 py-1.5">{doc.expiry_date ?? "—"}</td>
+                          <td className="px-2 py-1.5"><Badge variant="outline" className="text-[10px]">{expiryBand(today, doc.expiry_date)}</Badge></td>
+                          <td className="px-2 py-1.5">{doc.verification_status}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </section>
         </TabsContent>
 
-        <TabsContent value="attendance" className="space-y-4">
-      <section className="surface-card space-y-2 p-5">
-        <h2 className="text-sm font-semibold">{t("people.profile.attendance")}</h2>
+        <TabsContent value="attendance" className="mt-3">
+      <section className={PANEL}>
+        <div className="flex items-center justify-between gap-3">
+          <h2 className={SECTION_LABEL}>{t("people.profile.attendance")}</h2>
+          <Button asChild size="sm" variant="secondary"><Link href="/people/leave">Leave module</Link></Button>
+        </div>
         {attendanceSection.isLoading ? (
           <p className="text-sm text-muted-foreground">{t("people.staff.loading")}</p>
         ) : !attendanceRows.length ? (
           <p className="text-sm text-muted-foreground">{t("people.profile.noAttendance")}</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-xs uppercase text-muted-foreground">
-                <tr>
-                  <th className="px-2 py-1 text-left">{t("people.attendance.date")}</th>
-                  <th className="px-2 py-1 text-left">{t("people.staff.location")}</th>
-                  <th className="px-2 py-1 text-left">{t("people.staff.status")}</th>
-                  <th className="px-2 py-1 text-left">{t("people.attendance.firstCheckIn")}</th>
-                  <th className="px-2 py-1 text-left">{t("people.attendance.lastCheckOut")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {attendanceRows.map((row) => (
-                  <tr key={row.id} className="border-t">
-                    <td className="px-2 py-1">{row.work_date}</td>
-                    <td className="px-2 py-1 text-xs text-muted-foreground">{row.location_label ?? "—"}</td>
-                    <td className="px-2 py-1"><Badge variant="outline">{row.status}</Badge></td>
-                    <td className="px-2 py-1 text-xs">{row.actual_in ?? "—"}</td>
-                    <td className="px-2 py-1 text-xs">{row.actual_out ?? "—"}</td>
+          <>
+            <FactGrid
+              cols="grid-cols-3"
+              items={[
+                fact("Records", String(attendanceRows.length)),
+                fact("Missed punches", String(attendanceRows.filter((row) => row.missed_punch).length)),
+                fact("Latest", attendanceRows[0]?.work_date),
+              ]}
+            />
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-[11px] uppercase tracking-[0.06em] text-muted-foreground">
+                  <tr>
+                    <th className="px-2 py-1.5 text-left font-medium">{t("people.attendance.date")}</th>
+                    <th className="px-2 py-1.5 text-left font-medium">{t("people.staff.location")}</th>
+                    <th className="px-2 py-1.5 text-left font-medium">{t("people.staff.status")}</th>
+                    <th className="px-2 py-1.5 text-left font-medium">{t("people.attendance.firstCheckIn")}</th>
+                    <th className="px-2 py-1.5 text-left font-medium">{t("people.attendance.lastCheckOut")}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {attendanceRows.map((row) => (
+                    <tr key={row.id} className="border-t border-border/60">
+                      <td className="px-2 py-1.5">{row.work_date}</td>
+                      <td className="px-2 py-1.5 text-xs text-muted-foreground">{row.location_label ?? "—"}</td>
+                      <td className="px-2 py-1.5"><Badge variant="outline">{row.status}</Badge></td>
+                      <td className="px-2 py-1.5 text-xs">{row.actual_in ?? "—"}</td>
+                      <td className="px-2 py-1.5 text-xs">{row.actual_out ?? "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
-        <Button asChild size="sm" variant="secondary"><Link href="/people/leave">Leave module</Link></Button>
       </section>
         </TabsContent>
 
-        <TabsContent value="payroll" className="space-y-4">
-          <section className="surface-card space-y-2 p-5 text-sm">
-            <h2 className="text-sm font-semibold">Payroll</h2>
+        <TabsContent value="payroll" className="mt-3">
+          <section className={PANEL}>
+            <div className="flex items-center justify-between gap-3">
+              <h2 className={SECTION_LABEL}>Payroll</h2>
+              <Button asChild size="sm" variant="secondary"><Link href="/people/payroll">Open payroll</Link></Button>
+            </div>
             {profile.data?.canViewSalary ? (
-              <p>Monthly: {profile.data.compensation?.monthly_salary_qar?.toLocaleString() ?? "—"} {profile.data.compensation?.currency ?? "QAR"}</p>
+              <FactGrid
+                items={[
+                  fact(
+                    "Monthly",
+                    profile.data.compensation?.monthly_salary_qar == null
+                      ? null
+                      : `${profile.data.compensation.monthly_salary_qar.toLocaleString()} ${profile.data.compensation.currency ?? "QAR"}`,
+                  ),
+                  fact(
+                    "Day rate",
+                    profile.data.compensation?.daily_rate_qar == null
+                      ? null
+                      : `${profile.data.compensation.daily_rate_qar.toLocaleString()} ${profile.data.compensation.currency ?? "QAR"}`,
+                  ),
+                  fact(
+                    "Ticket amount",
+                    ext?.ticket_amount == null ? null : String(ext.ticket_amount),
+                  ),
+                  fact("Payment method", ext?.payment_method),
+                  fact("Bank", canViewSensitive ? ext?.bank_name : null),
+                  fact("IBAN", canViewSensitive ? ext?.iban : null),
+                ]}
+              />
             ) : (
-              <p className="text-muted-foreground">Salary is permission-gated.</p>
+              <p className="text-sm text-muted-foreground">Salary is permission-gated.</p>
             )}
-            <Button asChild size="sm" variant="secondary"><Link href="/people/payroll">Open payroll</Link></Button>
           </section>
         </TabsContent>
 
-        <TabsContent value="warnings" className="space-y-4">
-          <section className="surface-card p-5 text-sm text-muted-foreground">
-            Warnings & disciplinary letters live in HR documents (`warning_letter`).{" "}
-            <Link className="underline" href="/people/hr/documents">Open documents</Link>
+        <TabsContent value="warnings" className="mt-3">
+          <section className={PANEL}>
+            <div className="flex items-center justify-between gap-3">
+              <h2 className={SECTION_LABEL}>Disciplinary</h2>
+              <Button asChild size="sm" variant="secondary"><Link href="/people/hr/documents">Open documents</Link></Button>
+            </div>
+            {!canViewSensitive ? (
+              <p className="text-sm text-muted-foreground">
+                Warnings and disciplinary letters live in HR documents (warning letter). Visible to Admin and HR only.
+              </p>
+            ) : warningLetters.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No warning letters on file.</p>
+            ) : (
+              <ul className="grid gap-2 sm:grid-cols-2">
+                {warningLetters.map((doc) => (
+                  <li key={doc.id} className="rounded-xl border border-border/60 bg-secondary/40 px-3 py-2 text-sm">
+                    <p className="font-medium">{doc.document_number ?? doc.file_name ?? "Warning letter"}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {doc.issue_date ?? "No issue date"} · {doc.verification_status}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
         </TabsContent>
 
-        <TabsContent value="performance" className="space-y-4">
-          <section className="surface-card p-5">
-            <Button asChild><Link href={`/people/performance/staff/${s.id}`}>{t("people.profile.openPerformance")}</Link></Button>
+        <TabsContent value="performance" className="mt-3">
+          <section className={PANEL}>
+            <div className="flex items-center justify-between gap-3">
+              <h2 className={SECTION_LABEL}>Performance</h2>
+              <Button asChild size="sm">
+                <Link href={`/people/performance/staff/${s.id}`}>{t("people.profile.openPerformance")}</Link>
+              </Button>
+            </div>
+            <FactGrid
+              items={[
+                fact("Position", s.job_title),
+                fact("Department", s.department),
+                fact("Status", s.status.replace(/_/g, " ")),
+              ]}
+            />
           </section>
         </TabsContent>
 
-        <TabsContent value="training" className="space-y-4">
-        <section className="surface-card space-y-2 p-5">
-          <h2 className="text-sm font-semibold">{t("people.profile.training")}</h2>
+        <TabsContent value="training" className="mt-3">
+        <section className={PANEL}>
+          <h2 className={SECTION_LABEL}>{t("people.profile.training")}</h2>
           {trainingSection.isLoading ? (
             <p className="text-sm text-muted-foreground">{t("people.staff.loading")}</p>
           ) : !trainingRows.length ? (
             <p className="text-sm text-muted-foreground">{t("people.profile.noTraining")}</p>
           ) : (
-            trainingRows.map((tr) => (
-              <p key={tr.id} className="text-sm">{tr.course_name} · {tr.status}</p>
-            ))
+            <ul className="grid gap-2 sm:grid-cols-2">
+              {trainingRows.map((tr) => (
+                <li key={tr.id} className="rounded-xl border border-border/60 bg-secondary/40 px-3 py-2">
+                  <p className="text-sm font-medium">{tr.course_name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {tr.status}
+                    {tr.due_on ? ` · due ${tr.due_on}` : ""}
+                  </p>
+                </li>
+              ))}
+            </ul>
           )}
         </section>
         </TabsContent>
 
-        <TabsContent value="history" className="space-y-4">
-          <section className="surface-card space-y-2 p-5">
-            <h2 className="text-sm font-semibold">Status history</h2>
+        <TabsContent value="history" className="mt-3">
+          <div className="grid gap-3 lg:grid-cols-2">
+          <section className={PANEL}>
+            <h2 className={SECTION_LABEL}>Status history</h2>
             {!(profile.data?.statusHistory?.length) ? (
               <p className="text-sm text-muted-foreground">No status changes recorded yet.</p>
             ) : (
@@ -1007,17 +1278,17 @@ function StaffProfilePageBody() {
               </ul>
             )}
           </section>
-        <section className="surface-card space-y-2 p-5">
-          <h2 className="text-sm font-semibold">{t("people.profile.timeline")}</h2>
-          <div className="flex flex-wrap gap-2">
+        <section className={PANEL}>
+          <h2 className={SECTION_LABEL}>{t("people.profile.timeline")}</h2>
+          <div className="flex gap-1 overflow-x-auto">
             {(
               ["all", "status_change", "salary_change", "leave_approved", "document_verified", "document_replaced"] as const
             ).map((value) => (
               <button
                 key={value}
                 type="button"
-                className={`rounded-md border px-2 py-1 text-xs ${
-                  timelineFilter === value ? "border-foreground bg-foreground text-background" : "border-border"
+                className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${
+                  timelineFilter === value ? "bg-primary text-primary-foreground" : "bg-secondary text-foreground"
                 }`}
                 onClick={() => setTimelineFilter(value)}
               >
@@ -1045,11 +1316,17 @@ function StaffProfilePageBody() {
             </ul>
           )}
         </section>
+          </div>
         </TabsContent>
 
-        <TabsContent value="notes" className="space-y-4">
-          <section className="surface-card p-5 text-sm whitespace-pre-wrap">
-            {ext?.notes?.trim() || <span className="text-muted-foreground">No HR notes on file.</span>}
+        <TabsContent value="notes" className="mt-3">
+          <section className={PANEL}>
+            <h2 className={SECTION_LABEL}>Notes</h2>
+            {ext?.notes?.trim() ? (
+              <p className="whitespace-pre-wrap text-sm">{ext.notes}</p>
+            ) : (
+              <p className="text-sm text-muted-foreground">No HR notes on file.</p>
+            )}
           </section>
         </TabsContent>
       </Tabs>
@@ -1073,11 +1350,47 @@ export default function StaffProfilePage() {
   );
 }
 
-function Row({ label, value }: { label: string; value?: string | null }) {
+function alertBadgeVariant(severity: HrAlertSeverity): "destructive" | "warning" | "muted" {
+  if (severity === "expired" || severity === "critical") return "destructive";
+  if (severity === "urgent" || severity === "watch") return "warning";
+  return "muted";
+}
+
+function fact(label: string, value: ReactNode | null | undefined): { label: string; value: ReactNode } | null {
+  if (value == null || value === false) return null;
+  if (typeof value === "string" && (!value.trim() || value.trim() === "—")) return null;
+  return { label, value };
+}
+
+function FactGrid({
+  items,
+  cols = "grid-cols-1",
+}: {
+  items: Array<{ label: string; value: ReactNode } | null>;
+  cols?: string;
+}) {
+  const rows = items.filter((item): item is { label: string; value: ReactNode } => item != null);
+  if (!rows.length) return <p className="text-sm text-muted-foreground">Nothing on file.</p>;
   return (
-    <div className="flex justify-between gap-4 text-sm">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-medium">{value || "—"}</span>
+    <dl className={`grid gap-x-4 gap-y-3 ${cols}`}>
+      {rows.map((row) => (
+        <div key={row.label} className="min-w-0">
+          <dt className={SECTION_LABEL}>{row.label}</dt>
+          <dd className="mt-0.5 text-sm font-medium text-foreground">{row.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function Row({ label, value, mono }: { label: string; value?: ReactNode | null; mono?: boolean }) {
+  const empty = value == null || value === false || value === "" || value === "—";
+  return (
+    <div className="min-w-0">
+      <p className={SECTION_LABEL}>{label}</p>
+      <div className={empty ? "mt-0.5 text-sm text-muted-foreground" : `mt-0.5 text-sm font-medium text-foreground ${mono ? "font-mono text-xs" : ""}`}>
+        {empty ? "Not on file" : value}
+      </div>
     </div>
   );
 }
