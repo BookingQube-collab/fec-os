@@ -18,7 +18,7 @@ interface KpiAnimatedValueProps {
  * Counts a KPI figure once. Non-numeric values and reduced motion stay static.
  * Later live refreshes swap in the new text without replaying the spring.
  */
-export function KpiAnimatedValue({ value, className, duration = 1.35 }: KpiAnimatedValueProps) {
+export function KpiAnimatedValue({ value, className, duration = 1.8 }: KpiAnimatedValueProps) {
   const reducedMotion = usePrefersReducedMotion();
   const parsed = parseKpiNumeric(value);
   const first = useRef<ParsedKpiNumeric | null>(null);

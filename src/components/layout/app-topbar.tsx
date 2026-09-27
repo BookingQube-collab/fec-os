@@ -361,7 +361,7 @@ export function AppTopbar() {
       <div className="flex flex-wrap items-center gap-3 md:gap-4">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <FadeContent blur duration={0.6} threshold={0.01} className="min-w-0 max-w-full">
+            <FadeContent blur duration={1.25} threshold={0.01} className="min-w-0 max-w-full">
               <h1 className={cn("page-title truncate", surgeMode && "text-[1.35rem]")}>
                 {language === "ar" ? `${t(greetingKey())}، ${displayName}` : `${t(greetingKey())}, ${displayName}`}
               </h1>

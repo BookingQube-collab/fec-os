@@ -1,8 +1,7 @@
 "use client";
 
-import dynamic from "next/dynamic";
-
 import { Badge } from "@/components/ui/badge";
+import AnimatedList from "@/components/react-bits/animated-list";
 import { NeumorphicCard } from "./neumorphic-card";
 
 export interface ActivityRow {
@@ -22,10 +21,6 @@ const toneVariant = {
   danger: "destructive",
   neutral: "muted",
 } as const;
-
-const AnimatedList = dynamic(() => import("@/components/react-bits/animated-list"), {
-  ssr: false,
-});
 
 function initials(name: string) {
   return name

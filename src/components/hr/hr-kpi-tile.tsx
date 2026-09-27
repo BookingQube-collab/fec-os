@@ -43,7 +43,7 @@ export function HrKpiTile({
 }: HrKpiTileProps) {
   const body = (
     <SpotlightCard
-      spotlightColor="rgba(245, 197, 24, 0.34)"
+      spotlightColor="rgba(255, 186, 0, 0.95)"
       className={cn(
         "hr-kpi hr-enter",
         TONE_CLASS[tone],
@@ -55,15 +55,17 @@ export function HrKpiTile({
         delay != null ? ({ ["--hr-delay" as string]: `${delay * 45}ms` } as CSSProperties) : undefined
       }
     >
-      <div className="hr-kpi__meta">
-        <p className="hr-kpi__label">{label}</p>
-        <KpiAnimatedValue value={value} className="hr-kpi__value block" />
+      <div className="flex w-full items-start justify-between gap-3">
+        <div className="hr-kpi__meta min-w-0">
+          <p className="hr-kpi__label">{label}</p>
+          <KpiAnimatedValue value={value} className="hr-kpi__value block" />
+        </div>
+        {Icon ? (
+          <span className="hr-kpi__icon" aria-hidden>
+            <Icon strokeWidth={1.5} />
+          </span>
+        ) : null}
       </div>
-      {Icon ? (
-        <span className="hr-kpi__icon" aria-hidden>
-          <Icon strokeWidth={1.5} />
-        </span>
-      ) : null}
     </SpotlightCard>
   );
 

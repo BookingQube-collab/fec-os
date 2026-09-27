@@ -17,9 +17,7 @@ export function parseKpiNumeric(value: string | number): ParsedKpiNumeric | null
   // Dates / ISO-ish
   if (/^\d{4}[-/]\d{1,2}/.test(s)) return null;
 
-  const m = s.match(
-    /^([^\d+\-]*?)([+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?|[+-]?\d+(?:\.\d+)?)([^\d]*)$/,
-  );
+  const m = s.match(/^([^\d+\-]*?)([+-]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)([\s\S]*)$/);
   if (!m) return null;
 
   const raw = m[2].replace(/,/g, "");

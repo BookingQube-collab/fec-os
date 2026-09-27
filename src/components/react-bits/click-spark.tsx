@@ -139,8 +139,12 @@ export default function ClickSpark({
 
   return (
     <div className={`relative w-full ${className}`} onClick={handleClick}>
-      <canvas ref={canvasRef} className="pointer-events-none absolute inset-0" aria-hidden />
       {children}
+      <canvas
+        ref={canvasRef}
+        className="pointer-events-none absolute inset-0 z-20 h-full w-full"
+        aria-hidden
+      />
     </div>
   );
 }

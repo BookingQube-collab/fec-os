@@ -41,7 +41,7 @@ export function TintedKpiCard({
 }) {
   const card = (
     <SpotlightCard
-      spotlightColor="rgba(245, 197, 24, 0.34)"
+      spotlightColor="rgba(255, 186, 0, 0.95)"
       className={cn(
         "rounded-2xl border shadow-[0_4px_20px_rgba(0,0,0,0.05)]",
         compact ? "px-4 py-3" : "px-5 py-4",

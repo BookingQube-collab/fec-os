@@ -2,10 +2,11 @@
 
 /**
  * Official React Bits CountUp-TS-TW (https://reactbits.dev/r/CountUp-TS-TW.json).
- * Reduced motion shows the final value. Starts when the figure is actually on screen.
+ * A timed ease replaces the stock spring, which snapped small KPI integers
+ * to the final value before the eye could see a count.
+ * The markup always holds the final figure. Reduced motion leaves it there.
  */
-import { useInView, useMotionValue, useSpring } from "motion/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef } from "react";
 
 import { usePrefersReducedMotion } from "@/hooks/use-prefers-reduced-motion";
 
@@ -20,6 +21,10 @@ export interface CountUpProps {
   separator?: string;
   onStart?: () => void;
   onEnd?: () => void;
+}
+
+function easeOutCubic(t: number) {
+  return 1 - Math.pow(1 - t, 3);
 }
 
 export default function CountUp({
@@ -40,104 +45,100 @@ export default function CountUp({
   onStartRef.current = onStart;
   onEndRef.current = onEnd;
   const reducedMotion = usePrefersReducedMotion();
-  const motionValue = useMotionValue(direction === "down" ? to : from);
-  const [onScreen, setOnScreen] = useState(false);
 
-  const damping = 20 + 40 * (1 / duration);
-  const stiffness = 100 * (1 / duration);
-
-  const springValue = useSpring(motionValue, {
-    damping,
-    stiffness,
-  });
-
-  const isInView = useInView(ref, { once: true, margin: "0px" });
-
-  const getDecimalPlaces = (num: number): number => {
-    const str = num.toString();
-    if (str.includes(".")) {
+  const formatValue = (latest: number) => {
+    const places = (n: number) => {
+      const str = n.toString();
+      if (!str.includes(".")) return 0;
       const decimals = str.split(".")[1];
-      if (parseInt(decimals, 10) !== 0) {
-        return decimals.length;
-      }
-    }
-    return 0;
+      return parseInt(decimals, 10) !== 0 ? decimals.length : 0;
+    };
+    const maxDecimals = Math.max(places(from), places(to));
+    const formatted = Intl.NumberFormat("en-US", {
+      useGrouping: !!separator,
+      minimumFractionDigits: maxDecimals > 0 ? maxDecimals : 0,
+      maximumFractionDigits: maxDecimals > 0 ? maxDecimals : 0,
+    }).format(latest);
+    return separator ? formatted.replace(/,/g, separator) : formatted;
   };
 
-  const maxDecimals = Math.max(getDecimalPlaces(from), getDecimalPlaces(to));
+  const endValue = direction === "down" ? from : to;
 
-  const formatValue = useCallback(
-    (latest: number) => {
-      const hasDecimals = maxDecimals > 0;
-
-      const options: Intl.NumberFormatOptions = {
-        useGrouping: !!separator,
-        minimumFractionDigits: hasDecimals ? maxDecimals : 0,
-        maximumFractionDigits: hasDecimals ? maxDecimals : 0,
-      };
-
-      const formattedNumber = Intl.NumberFormat("en-US", options).format(latest);
-
-      return separator ? formattedNumber.replace(/,/g, separator) : formattedNumber;
-    },
-    [maxDecimals, separator],
-  );
-
-  const startValue = reducedMotion || direction === "down" ? to : from;
-
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const check = () => {
-      const rect = el.getBoundingClientRect();
-      if (rect.width > 0 && rect.bottom > 0 && rect.top < window.innerHeight) {
-        setOnScreen(true);
-      }
+
+    const paint = (n: number) => {
+      el.textContent = formatValue(n);
     };
-    check();
-    const id = window.setTimeout(check, 60);
-    return () => window.clearTimeout(id);
-  }, [to, from]);
 
-  useEffect(() => {
-    if (!ref.current) return;
-    ref.current.textContent = formatValue(reducedMotion ? to : direction === "down" ? to : from);
-  }, [from, to, direction, formatValue, reducedMotion]);
+    if (reducedMotion || !startWhen) {
+      paint(endValue);
+      return;
+    }
 
-  useEffect(() => {
-    if (reducedMotion || !startWhen || !(isInView || onScreen)) return;
+    let raf = 0;
+    let cancelled = false;
+    let io: IntersectionObserver | undefined;
+    let arm = 0;
 
-    onStartRef.current?.();
+    const run = () => {
+      if (cancelled) return;
+      onStartRef.current?.();
+      const begin = direction === "down" ? to : from;
+      const finish = endValue;
+      const delayMs = Math.max(0, delay) * 1000;
+      const durationMs = Math.max(0.35, duration) * 1000;
+      let origin = 0;
+      paint(begin);
 
-    const timeoutId = window.setTimeout(() => {
-      motionValue.set(direction === "down" ? from : to);
-    }, delay * 1000);
+      const frame = (now: number) => {
+        if (cancelled) return;
+        if (!origin) origin = now + delayMs;
+        const t = Math.min(1, Math.max(0, (now - origin) / durationMs));
+        paint(begin + (finish - begin) * easeOutCubic(t));
+        if (t < 1) {
+          raf = window.requestAnimationFrame(frame);
+        } else {
+          paint(finish);
+          onEndRef.current?.();
+        }
+      };
+      raf = window.requestAnimationFrame(frame);
+    };
 
-    const durationTimeoutId = window.setTimeout(() => {
-      onEndRef.current?.();
-    }, delay * 1000 + duration * 1000);
+    const rect = el.getBoundingClientRect();
+    const onScreen = rect.width > 0 && rect.bottom > 0 && rect.top < window.innerHeight;
+    if (onScreen) {
+      run();
+    } else {
+      io = new IntersectionObserver(
+        ([entry]) => {
+          if (!entry?.isIntersecting) return;
+          io?.disconnect();
+          run();
+        },
+        { threshold: 0.2 },
+      );
+      io.observe(el);
+      arm = window.setTimeout(() => {
+        io?.disconnect();
+        run();
+      }, 900);
+    }
 
     return () => {
-      window.clearTimeout(timeoutId);
-      window.clearTimeout(durationTimeoutId);
+      cancelled = true;
+      io?.disconnect();
+      window.clearTimeout(arm);
+      window.cancelAnimationFrame(raf);
+      paint(endValue);
     };
-  }, [isInView, onScreen, startWhen, motionValue, direction, from, to, delay, duration, reducedMotion]);
-
-  useEffect(() => {
-    if (reducedMotion) return;
-
-    const unsubscribe = springValue.on("change", (latest: number) => {
-      if (ref.current) {
-        ref.current.textContent = formatValue(latest);
-      }
-    });
-
-    return () => unsubscribe();
-  }, [springValue, formatValue, reducedMotion]);
+  }, [from, to, direction, delay, duration, startWhen, separator, reducedMotion, endValue]);
 
   return (
     <span className={className} ref={ref}>
-      {formatValue(startValue)}
+      {formatValue(endValue)}
     </span>
   );
 }

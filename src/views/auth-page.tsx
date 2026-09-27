@@ -146,7 +146,7 @@ function AuthPage() {
 
   return (
     <div className="auth-stage flex min-h-dvh items-center justify-center px-4 py-10">
-      <Noise patternSize={220} patternRefreshInterval={10} patternAlpha={40} />
+      <Noise patternSize={160} patternRefreshInterval={2} patternAlpha={96} />
       <div className="relative z-[1] w-full max-w-[26rem]">
         <div className="mb-8 flex items-center gap-3.5">
           <div className="grid h-12 w-12 place-items-center rounded-2xl bg-primary text-primary-foreground shadow-elevated-xs">
@@ -166,10 +166,8 @@ function AuthPage() {
             text={mode === "signin" ? t("auth.signIn") : t("auth.resetPassword")}
             animateBy="words"
             direction="bottom"
-            delay={40}
-            stepDuration={0.36}
-            animationFrom={{ filter: "blur(8px)", opacity: 0, y: 8 }}
-            animationTo={[{ filter: "blur(0px)", opacity: 1, y: 0 }]}
+            delay={140}
+            stepDuration={0.75}
             className="text-2xl font-semibold tracking-tight text-foreground"
           />
           <p className="mt-2 text-sm leading-6 text-muted-foreground">
@@ -209,7 +207,7 @@ function AuthPage() {
               </div>
             )}
 
-            <ClickSpark sparkColor="#ffffff" sparkCount={6} sparkSize={8} sparkRadius={16} duration={320}>
+            <ClickSpark sparkColor="#f5c518" sparkCount={10} sparkSize={12} sparkRadius={28} duration={560}>
               <Button type="submit" disabled={submitting} className="auth-submit h-11 w-full">
                 {submitting ? t("common.pleaseWait") : mode === "signin" ? t("auth.submit") : t("auth.sendReset")}
               </Button>

@@ -35,7 +35,7 @@ export function KPIWidget({
   const tint = widgetAccentToTint(accent);
   const inner = (
     <SpotlightCard
-      spotlightColor="rgba(245, 197, 24, 0.34)"
+      spotlightColor="rgba(255, 186, 0, 0.95)"
       className={cn(
         "h-full rounded-2xl border px-5 py-4 shadow-[0_4px_20px_rgba(0,0,0,0.05)] transition-shadow hover:shadow-elevated-sm",
         KPI_TINT_CLASS[tint],

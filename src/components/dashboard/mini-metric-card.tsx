@@ -16,7 +16,7 @@ export function MiniMetricCard({ label, value, hint, accent = "blue" }: MiniMetr
   const tint = widgetAccentToTint(accent);
   return (
     <SpotlightCard
-      spotlightColor="rgba(245, 197, 24, 0.34)"
+      spotlightColor="rgba(255, 186, 0, 0.95)"
       className={cn("rounded-2xl border p-3.5 shadow-[0_4px_20px_rgba(0,0,0,0.05)]", KPI_TINT_CLASS[tint])}
     >
       <p className="text-label">{label}</p>

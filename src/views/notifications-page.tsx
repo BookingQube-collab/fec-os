@@ -2,8 +2,8 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, CheckCheck } from "lucide-react";
-import dynamic from "next/dynamic";
 import Link from "next/link";
+import AnimatedList from "@/components/react-bits/animated-list";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -22,10 +22,6 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const CATEGORIES = NOTIFICATION_CATEGORIES;
-
-const AnimatedList = dynamic(() => import("@/components/react-bits/animated-list"), {
-  ssr: false,
-});
 
 function NotificationsPage() {
   const { t } = useTranslation();

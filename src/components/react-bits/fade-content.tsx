@@ -2,7 +2,9 @@
 
 /**
  * Official React Bits FadeContent-TS-TW (https://reactbits.dev/r/FadeContent-TS-TW.json).
- * GSAP + ScrollTrigger. Reduced motion renders static content and never hides it.
+ * GSAP + ScrollTrigger. Content stays visible until the tween actually starts,
+ * and a failsafe restores opacity and visibility if GSAP never finishes.
+ * Reduced motion renders static content and never hides it.
  */
 import { useEffect, useRef, type HTMLAttributes, type ReactNode } from "react";
 
@@ -28,6 +30,12 @@ function toSeconds(val: number) {
   return val > 10 ? val / 1000 : val;
 }
 
+function reveal(el: HTMLElement) {
+  el.style.opacity = "1";
+  el.style.visibility = "visible";
+  el.style.filter = "none";
+}
+
 export default function FadeContent({
   children,
   container,
@@ -50,90 +58,128 @@ export default function FadeContent({
 
   useEffect(() => {
     const el = ref.current;
-    if (!el || reducedMotion) return;
+    if (!el) return;
+    if (reducedMotion) {
+      reveal(el);
+      return;
+    }
 
     let alive = true;
+    let played = false;
     let cleanup = () => {};
     const failSafe = window.setTimeout(() => {
-      if (!el.isConnected) return;
-      el.style.opacity = "1";
-      el.style.filter = "none";
-    }, 1600);
+      if (el.isConnected) reveal(el);
+    }, 2800);
+
+    const play = (tl: { progress: () => number; play: () => void }) => {
+      if (!alive || played || tl.progress() > 0) return;
+      played = true;
+      tl.play();
+    };
 
     void (async () => {
-      const { gsap } = await import("gsap");
-      const { ScrollTrigger } = await import("gsap/ScrollTrigger");
-      if (!alive || !ref.current) return;
+      try {
+        const { gsap } = await import("gsap");
+        const { ScrollTrigger } = await import("gsap/ScrollTrigger");
+        if (!alive || !ref.current) return;
 
-      gsap.registerPlugin(ScrollTrigger);
+        gsap.registerPlugin(ScrollTrigger);
 
-      let scrollerTarget: Element | string | null =
-        container || document.getElementById("snap-main-container") || null;
+        let scroller: Element | Window = window;
+        if (container) {
+          const found = typeof container === "string" ? document.querySelector(container) : container;
+          if (found) scroller = found;
+        }
 
-      if (typeof scrollerTarget === "string") {
-        scrollerTarget = document.querySelector(scrollerTarget);
-      }
+        const startPct = (1 - threshold) * 100;
+        const fromFilter = blur ? "blur(18px)" : "blur(0px)";
 
-      const startPct = (1 - threshold) * 100;
-
-      gsap.set(el, {
-        autoAlpha: initialOpacity,
-        filter: blur ? "blur(10px)" : "blur(0px)",
-        willChange: "opacity, filter, transform",
-      });
-
-      const tl = gsap.timeline({
-        paused: true,
-        delay: toSeconds(delay),
-        onComplete: () => {
-          if (onComplete) onComplete();
-          if (disappearAfter > 0) {
-            gsap.to(el, {
+        const tl = gsap.timeline({
+          paused: true,
+          delay: toSeconds(delay),
+          onStart: () => {
+            gsap.set(el, {
               autoAlpha: initialOpacity,
-              filter: blur ? "blur(10px)" : "blur(0px)",
-              delay: toSeconds(disappearAfter),
-              duration: toSeconds(disappearDuration),
-              ease: disappearEase,
-              onComplete: () => onDisappearanceComplete?.(),
+              filter: fromFilter,
+              willChange: "opacity, filter",
             });
-          }
-        },
-      });
+          },
+          onComplete: () => {
+            reveal(el);
+            onComplete?.();
+            if (disappearAfter > 0) {
+              gsap.to(el, {
+                autoAlpha: initialOpacity,
+                filter: fromFilter,
+                delay: toSeconds(disappearAfter),
+                duration: toSeconds(disappearDuration),
+                ease: disappearEase,
+                onComplete: () => onDisappearanceComplete?.(),
+              });
+            }
+          },
+        });
 
-      tl.to(el, {
-        autoAlpha: 1,
-        filter: "blur(0px)",
-        duration: toSeconds(duration),
-        ease,
-      });
+        tl.to(el, {
+          autoAlpha: 1,
+          filter: "blur(0px)",
+          duration: Math.max(0.9, toSeconds(duration)),
+          ease,
+        });
 
-      const st = ScrollTrigger.create({
-        trigger: el,
-        scroller: scrollerTarget || window,
-        start: `top ${startPct}%`,
-        once: true,
-        onEnter: () => tl.play(),
-      });
+        const inView = () => {
+          const rect = el.getBoundingClientRect();
+          const viewH = window.innerHeight || 1;
+          return rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top <= (startPct / 100) * viewH;
+        };
 
-      const kick = window.requestAnimationFrame(() => {
-        if (!alive || tl.progress() > 0) return;
-        const rect = el.getBoundingClientRect();
-        const viewH = window.innerHeight || 1;
-        if (rect.top <= (startPct / 100) * viewH && rect.bottom >= 0) tl.play();
-      });
+        const tryPlay = () => {
+          if (inView()) play(tl);
+        };
 
-      cleanup = () => {
-        window.cancelAnimationFrame(kick);
-        st.kill();
-        tl.kill();
-        gsap.killTweensOf(el);
-      };
+        const st = ScrollTrigger.create({
+          trigger: el,
+          scroller,
+          start: `top ${startPct}%`,
+          once: true,
+          onEnter: () => play(tl),
+        });
+
+        const io = new IntersectionObserver(
+          ([entry]) => {
+            if (entry?.isIntersecting) tryPlay();
+          },
+          { threshold: Math.min(0.25, Math.max(0.01, threshold)) },
+        );
+        io.observe(el);
+
+        const kick = window.requestAnimationFrame(tryPlay);
+        const kickLater = window.setTimeout(tryPlay, 80);
+        const stuck = window.setInterval(() => {
+          if (!played || tl.progress() > 0) return;
+          reveal(el);
+        }, 700);
+
+        cleanup = () => {
+          window.cancelAnimationFrame(kick);
+          window.clearTimeout(kickLater);
+          window.clearInterval(stuck);
+          io.disconnect();
+          st.kill();
+          tl.kill();
+          gsap.killTweensOf(el);
+          if (el.isConnected) reveal(el);
+        };
+      } catch {
+        if (el.isConnected) reveal(el);
+      }
     })();
 
     return () => {
       alive = false;
       window.clearTimeout(failSafe);
       cleanup();
+      if (ref.current) reveal(ref.current);
     };
   }, [
     reducedMotion,

@@ -2,12 +2,10 @@
 
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
-import dynamic from "next/dynamic";
 
 import BlurText from "@/components/react-bits/blur-text";
+import FadeContent from "@/components/react-bits/fade-content";
 import { cn } from "@/lib/utils";
-
-const FadeContent = dynamic(() => import("@/components/react-bits/fade-content"));
 
 interface PageHeaderProps {
   icon?: LucideIcon;
@@ -35,14 +33,12 @@ export function PageHeader({ icon: Icon, kicker, title, subtitle, actions, class
               text={title}
               animateBy="words"
               direction="bottom"
-              delay={45}
-              stepDuration={0.38}
-              animationFrom={{ filter: "blur(8px)", opacity: 0, y: 10 }}
-              animationTo={[{ filter: "blur(0px)", opacity: 1, y: 0 }]}
+              delay={140}
+              stepDuration={0.75}
               className="page-title break-words"
             />
           ) : (
-            <FadeContent blur duration={0.65} threshold={0.01}>
+            <FadeContent blur duration={1.15} threshold={0.01}>
               <h1 className="page-title break-words">{title}</h1>
             </FadeContent>
           )}

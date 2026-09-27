@@ -2,7 +2,9 @@
 
 /**
  * Official React Bits BlurText-TS-TW (https://reactbits.dev/r/BlurText-TS-TW.json).
- * `as` lets page titles stay headings. Reduced motion renders static text.
+ * The first paint is the finished string so a failed Motion runtime cannot leave
+ * the title at opacity 0. The blur runs after mount, then the static string returns.
+ * Reduced motion renders static text.
  */
 import { motion, type Easing, type Transition } from "motion/react";
 import { useEffect, useMemo, useRef, useState, type ElementType } from "react";
@@ -40,7 +42,7 @@ const buildKeyframes = (
 
 export default function BlurText({
   text = "",
-  delay = 200,
+  delay = 120,
   className = "",
   animateBy = "words",
   direction = "top",
@@ -48,50 +50,30 @@ export default function BlurText({
   rootMargin = "0px",
   animationFrom,
   animationTo,
-  easing = (t: number) => t,
+  easing = [0.22, 1, 0.36, 1],
   onAnimationComplete,
-  stepDuration = 0.35,
+  stepDuration = 0.72,
   as: Tag = "p",
 }: BlurTextProps) {
   const elements = animateBy === "words" ? text.split(" ") : text.split("");
-  const [inView, setInView] = useState(false);
   const ref = useRef<HTMLElement>(null);
   const reducedMotion = usePrefersReducedMotion();
-
-  useEffect(() => {
-    if (reducedMotion || !ref.current) return;
-    const node = ref.current;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting) {
-          setInView(true);
-          observer.unobserve(node);
-        }
-      },
-      { threshold, rootMargin },
-    );
-    observer.observe(node);
-    const fail = window.setTimeout(() => setInView(true), 450);
-    return () => {
-      observer.disconnect();
-      window.clearTimeout(fail);
-    };
-  }, [threshold, rootMargin, reducedMotion]);
+  const [phase, setPhase] = useState<"hold" | "play" | "done">("hold");
 
   const defaultFrom = useMemo(
     () =>
       direction === "top"
-        ? { filter: "blur(10px)", opacity: 0, y: -50 }
-        : { filter: "blur(10px)", opacity: 0, y: 50 },
+        ? { filter: "blur(18px)", opacity: 0, y: -28 }
+        : { filter: "blur(18px)", opacity: 0, y: 28 },
     [direction],
   );
 
   const defaultTo = useMemo(
     () => [
       {
-        filter: "blur(5px)",
-        opacity: 0.5,
-        y: direction === "top" ? 5 : -5,
+        filter: "blur(8px)",
+        opacity: 0.45,
+        y: direction === "top" ? 8 : -8,
       },
       { filter: "blur(0px)", opacity: 1, y: 0 },
     ],
@@ -100,13 +82,57 @@ export default function BlurText({
 
   const fromSnapshot = animationFrom ?? defaultFrom;
   const toSnapshots = animationTo ?? defaultTo;
-
   const stepCount = toSnapshots.length + 1;
   const totalDuration = stepDuration * (stepCount - 1);
   const times = Array.from({ length: stepCount }, (_, i) => (stepCount === 1 ? 0 : i / (stepCount - 1)));
 
-  if (reducedMotion) {
-    return <Tag className={className}>{text}</Tag>;
+  useEffect(() => {
+    if (reducedMotion) return;
+    const node = ref.current;
+    let io: IntersectionObserver | undefined;
+    let started = false;
+
+    const start = () => {
+      if (started) return;
+      started = true;
+      setPhase("play");
+    };
+
+    const visible = () => {
+      if (!node) return true;
+      const rect = node.getBoundingClientRect();
+      return rect.width > 0 && rect.bottom > 0 && rect.top < window.innerHeight;
+    };
+
+    if (visible()) start();
+    else if (node) {
+      io = new IntersectionObserver(
+        ([entry]) => {
+          if (entry?.isIntersecting) start();
+        },
+        { threshold, rootMargin },
+      );
+      io.observe(node);
+    }
+
+    const arm = window.setTimeout(start, 400);
+    const wordCount = Math.max(elements.length, 1);
+    const totalMs = (wordCount - 1) * delay + totalDuration * 1000 + 180;
+    const done = window.setTimeout(() => setPhase("done"), Math.max(1400, totalMs));
+
+    return () => {
+      io?.disconnect();
+      window.clearTimeout(arm);
+      window.clearTimeout(done);
+    };
+  }, [reducedMotion, text, delay, threshold, rootMargin, totalDuration, elements.length]);
+
+  if (reducedMotion || phase !== "play") {
+    return (
+      <Tag ref={ref} className={className}>
+        {text}
+      </Tag>
+    );
   }
 
   return (
@@ -123,9 +149,9 @@ export default function BlurText({
 
         return (
           <motion.span
-            key={index}
+            key={`${text}-${index}`}
             initial={fromSnapshot}
-            animate={inView ? animateKeyframes : fromSnapshot}
+            animate={animateKeyframes}
             transition={spanTransition}
             onAnimationComplete={index === elements.length - 1 ? onAnimationComplete : undefined}
             style={{
