@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   getDepartmentFlyoutLinks,
   getDepartmentFlyoutTree,
+  getEmployeeSectionNav,
   getPrimaryRailNav,
   getVisibleDepartments,
   isSidebarNavGroupActive,
@@ -163,6 +164,25 @@ describe("admin sidebar visibility", () => {
     const people = getVisibleDepartments(["cfo"]).find((dept) => dept.id === "people");
     const hrefs = new Set(people?.groups.flatMap((g) => g.items.map((i) => i.href)) ?? []);
     expect(hrefs.has("/people/payroll")).toBe(true);
+  });
+
+  it("lists own My day sections for cashiers and hides other people's attendance", () => {
+    const sections = getEmployeeSectionNav(["cashier_host"]).map((item) => item.href);
+    expect(sections).toEqual([
+      "/hr/me",
+      "/hr/me#me-attendance",
+      "/hr/me#me-roster",
+      "/hr/me#me-leave",
+      "/hr/me#me-issues",
+      "/hr/me#me-documents",
+      "/hr/me#me-payslips",
+    ]);
+    const people = getVisibleDepartments(["cashier_host"]).find((dept) => dept.id === "people");
+    const hrefs = new Set(people?.groups.flatMap((group) => group.items.map((item) => item.href)) ?? []);
+    expect(hrefs.has("/hr/me#me-attendance")).toBe(true);
+    expect(hrefs.has("/people/payroll")).toBe(false);
+    expect(hrefs.has("/people/attendance")).toBe(false);
+    expect(getEmployeeSectionNav(["customer_service"]).some((item) => item.href === "/hr/me#me-issues")).toBe(false);
   });
 
   it("hides payroll from technicians", () => {

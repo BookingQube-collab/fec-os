@@ -14,6 +14,8 @@ import { DashboardPanel } from "@/components/dashboard/dashboard-panel";
 import { SitesPrefetch } from "@/components/providers/data-providers";
 import { useNavigationPerf } from "@/hooks/use-navigation-perf";
 import { AppErrorBoundary } from "@/components/diagnostics/error-boundary";
+import { useUserRoles } from "@/hooks/use-auth";
+import { isEmployeeHomeAudience } from "@/lib/rbac";
 import { useAppStore } from "@/stores/app-store";
 import { cn } from "@/lib/utils";
 
@@ -30,7 +32,9 @@ function isEmployeeHome(pathname: string) {
 export function AppShell({ children }: { children: ReactNode }) {
   useNavigationPerf();
   const pathname = usePathname();
-  const employeeHome = isEmployeeHome(pathname);
+  const employeeRoute = isEmployeeHome(pathname);
+  const employeeAudience = isEmployeeHomeAudience(useUserRoles());
+  const employeeChrome = employeeRoute || (employeeAudience && pathname === "/");
   const sidebarExpanded = useAppStore((s) => s.sidebarExpanded);
   const surgeMode = useAppStore((s) => s.surgeMode);
   return (
@@ -41,8 +45,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div
         className={cn(
           "relative z-0 flex min-h-screen min-w-0 max-w-full flex-col overflow-x-hidden md:pe-5",
-          employeeHome ? "pb-[max(1.25rem,env(safe-area-inset-bottom))]" : "pb-20",
-          sidebarExpanded ? "md:ms-[15.5rem]" : "md:ms-[5.25rem]",
+          employeeChrome ? "pb-[max(1.25rem,env(safe-area-inset-bottom))]" : "pb-20",
+          employeeAudience || sidebarExpanded ? "md:ms-[16.25rem]" : "md:ms-[5.25rem]",
           surgeMode ? "md:pb-3" : "md:pb-6",
         )}
       >
@@ -52,7 +56,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             surgeMode ? "md:pt-3" : "md:pt-5",
           )}
         >
-          {employeeHome ? <EmployeeMobileHeader /> : <MobileAppHeader />}
+          {employeeChrome ? <EmployeeMobileHeader /> : <MobileAppHeader />}
           <AppTopbar />
           <GlobalComplianceExpiryBanner />
           <DashboardPanel
@@ -65,7 +69,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </DashboardPanel>
         </div>
       </div>
-      {employeeHome ? null : <MobileBottomNav />}
+      {employeeChrome ? null : <MobileBottomNav />}
     </div>
   );
 }

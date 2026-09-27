@@ -116,6 +116,12 @@ import {
   upcomingPeriod,
 } from "@/lib/attendance-hr/availability";
 import { dispatchHrNotify } from "@/lib/attendance-hr/hr-notify-dispatch";
+import {
+  countVisiblePendingCorrections,
+  listMissedPunchCorrections,
+  reviewMissedPunchChain,
+  submitMissedPunchRequest as insertMissedPunchRequest,
+} from "@/lib/attendance-hr/missed-punch-approval.server";
 
 async function audit(
   context: AuthContext,
@@ -465,7 +471,17 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
         late: agg.late,
         missedPunches: agg.missedPunches,
         unmatched: unmatchedRes.count ?? 0,
-        pendingCorrections: pendingRes.count ?? 0,
+        pendingCorrections: await (async () => {
+          try {
+            return await countVisiblePendingCorrections(context.userId, data.locationId ?? null);
+          } catch (error) {
+            console.warn(
+              "[missed-punch] pending count fallback",
+              error instanceof Error ? error.message : error,
+            );
+            return pendingRes.count ?? 0;
+          }
+        })(),
       },
       sites: agg.bySite,
       bySite: agg.bySite.map((site) => ({
@@ -1711,6 +1727,31 @@ export const submitAttendanceCorrection = createAuthenticatedAction(
   { auth: { capability: "attendance.correct" } },
 );
 
+/** Employee missed-punch request. First approver is the site supervisor, then Head of Operations, then HR. */
+export const submitMissedPunchRequest = createAuthenticatedAction(
+  z.object({
+    summaryId: z.string().uuid(),
+    punchType: z.enum(["in", "out"]),
+    punchTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+    reason: z.string().max(1000).optional(),
+  }),
+  async (data, context) => {
+    const created = await insertMissedPunchRequest({
+      userId: context.userId,
+      summaryId: data.summaryId,
+      punchType: data.punchType,
+      punchTime: data.punchTime,
+      reason: data.reason?.trim() ?? "",
+    });
+    await audit(context, "attendance.correction_submitted", "attendance_corrections", created.id, created.locationId, {
+      missed_punch_request: true,
+      approverCount: created.approverCount,
+    });
+    return { id: created.id, approverCount: created.approverCount };
+  },
+  { auth: { capability: "hr.employee_app" } },
+);
+
 export const reviewAttendanceCorrection = createAuthenticatedAction(
   z.object({
     id: z.string().uuid(),
@@ -1718,12 +1759,43 @@ export const reviewAttendanceCorrection = createAuthenticatedAction(
     reviewNote: z.string().max(500).optional(),
   }),
   async (data, context) => {
+    const { data: existing, error: readErr } = await supabaseAdmin
+      .from("attendance_corrections")
+      .select("id, current_step_role, location_id")
+      .eq("id", data.id)
+      .maybeSingle();
+    if (readErr) throw readErr;
+    if (!existing) throw new Error("Correction not found.");
+    if (existing.current_step_role) {
+      const result = await reviewMissedPunchChain({
+        userId: context.userId,
+        correctionId: data.id,
+        decision: data.decision,
+        reviewNote: data.reviewNote,
+        applyFinal: async (row) => {
+          await applyCorrection(context, row as unknown as Record<string, unknown>);
+        },
+      });
+      await audit(
+        context,
+        `attendance.correction_${data.decision}`,
+        "attendance_corrections",
+        data.id,
+        result.locationId,
+        { step: String(existing.current_step_role), final: result.final, nextStep: result.nextStep },
+      );
+      return { ok: true as const };
+    }
+
     const { data: row, error } = await context.supabase
       .from("attendance_corrections")
       .select("*")
       .eq("id", data.id)
       .single();
     if (error) throw error;
+    if (!canUserDo(context.roles ?? [], "attendance.approve")) {
+      throw new ForbiddenError("You cannot approve this correction.");
+    }
     await assertSite(context, row.location_id as string);
     if (row.requested_by === context.userId) {
       throw new ForbiddenError("You cannot approve your own correction.");
@@ -1755,7 +1827,7 @@ export const reviewAttendanceCorrection = createAuthenticatedAction(
     );
     return { ok: true };
   },
-  { auth: { capability: "attendance.approve" } },
+  { auth: { anyCapability: ["attendance.approve", "attendance.view", "hr.employee_app"] } },
 );
 
 async function applyCorrection(context: AuthContext, row: Record<string, unknown>) {
@@ -1803,21 +1875,20 @@ async function applyCorrection(context: AuthContext, row: Record<string, unknown
 }
 
 export const listAttendanceCorrections = createAuthenticatedAction(
-  z.object({ locationId: z.string().uuid().nullable().optional(), status: z.string().optional() }),
+  z.object({
+    locationId: z.string().uuid().nullable().optional(),
+    status: z.string().optional(),
+    queue: z.enum(["waiting", "mine"]).optional(),
+  }),
   async (data, context) => {
-    if (data.locationId) await assertSite(context, data.locationId);
-    let q = context.supabase
-      .from("attendance_corrections")
-      .select("*")
-      .order("requested_at", { ascending: false })
-      .limit(200);
-    if (data.locationId) q = q.eq("location_id", data.locationId);
-    if (data.status) q = q.eq("status", data.status);
-    const { data: rows, error } = await q;
-    if (error) throw error;
-    return rows ?? [];
+    return listMissedPunchCorrections({
+      userId: context.userId,
+      queue: data.queue ?? "waiting",
+      locationId: data.locationId ?? null,
+      status: data.status ?? null,
+    });
   },
-  { auth: { capability: "attendance.view" } },
+  { auth: { anyCapability: ["attendance.view", "attendance.approve", "hr.employee_app"] } },
 );
 
 export const listAttendanceImports = createAuthenticatedAction(

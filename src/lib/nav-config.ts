@@ -10,6 +10,7 @@ import {
   Building2,
   Calendar,
   CalendarDays,
+  CalendarRange,
   ClipboardCheck,
   ClipboardList,
   Clock,
@@ -18,6 +19,7 @@ import {
   FileBarChart,
   FileText,
   FolderKanban,
+  Palmtree,
   Gavel,
   Gauge,
   Hammer,
@@ -37,6 +39,7 @@ import {
   Sparkles,
   TicketCheck,
   TrendingUp,
+  UserRound,
   Users,
   Wallet,
   Wrench,
@@ -249,15 +252,28 @@ const HR_ADMIN_NAV_GROUP: SidebarNavGroup = {
   ],
 };
 
+/** Own My day sections. Same capability as the employee app — never other people's attendance or payroll. */
+export const EMPLOYEE_SECTION_NAV: Array<NavItem> = [
+  { href: "/hr/me", labelKey: "nav.hrMyDay", icon: UserRound, capability: "hr.employee_app" },
+  { href: "/hr/me#me-attendance", labelKey: "nav.hrMyAttendance", icon: Clock, capability: "hr.employee_app" },
+  { href: "/hr/me#me-roster", labelKey: "nav.hrMyRoster", icon: CalendarRange, capability: "hr.employee_app" },
+  { href: "/hr/me#me-leave", labelKey: "nav.hrMyLeave", icon: Palmtree, capability: "hr.employee_app" },
+  { href: "/hr/me#me-issues", labelKey: "nav.hrMyIssues", icon: TicketCheck, capability: "issues.view" },
+  { href: "/hr/me#me-documents", labelKey: "nav.hrMyDocuments", icon: FileText, capability: "hr.employee_app" },
+  { href: "/hr/me#me-payslips", labelKey: "nav.hrMyPayslips", icon: Wallet, capability: "hr.employee_app" },
+];
+
+export function getEmployeeSectionNav(roles: AppRole[]): NavItem[] {
+  return EMPLOYEE_SECTION_NAV.filter((item) => canUserDo(roles, item.capability));
+}
+
 const HR_EMPLOYEE_NAV_GROUP: SidebarNavGroup = {
   id: "hr-employee",
-  labelKey: "nav.hrEmployee",
+  labelKey: "nav.hrMyDay",
   icon: Smartphone,
   pathPrefix: "/hr/me",
   viewCapability: "hr.employee_app",
-  items: [
-    { href: "/hr/me", labelKey: "nav.hrMyApp", capability: "hr.employee_app" },
-  ],
+  items: EMPLOYEE_SECTION_NAV.map(({ href, labelKey, capability }) => ({ href, labelKey, capability })),
 };
 
 const HR_MORE_NAV_GROUP: SidebarNavGroup = {

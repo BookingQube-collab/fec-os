@@ -15,6 +15,7 @@ import { useUserRoles } from "@/hooks/use-auth";
 import {
   getDepartmentFlyoutLinks,
   getDepartmentFlyoutTree,
+  getEmployeeSectionNav,
   getPrimaryRailNav,
   getVisibleDepartments,
   isDepartmentActive,
@@ -27,6 +28,7 @@ import {
   type SidebarNavGroup,
   type VisibleNavDepartment,
 } from "@/lib/nav-config";
+import { isEmployeeHomeAudience } from "@/lib/rbac";
 import { useAppStore } from "@/stores/app-store";
 import { cn } from "@/lib/utils";
 
@@ -658,10 +660,71 @@ function ModuleSubsSheet({
   );
 }
 
+function EmployeeSectionRail({
+  roles,
+  pathname,
+  t,
+}: {
+  roles: ReturnType<typeof useUserRoles>;
+  pathname: string;
+  t: (key: string) => string;
+}) {
+  const sections = useMemo(() => getEmployeeSectionNav(roles), [roles]);
+  const [hash, setHash] = useState("");
+
+  useEffect(() => {
+    const read = () => setHash(window.location.hash);
+    read();
+    window.addEventListener("hashchange", read);
+    return () => window.removeEventListener("hashchange", read);
+  }, [pathname]);
+
+  return (
+    <div className="mb-2 flex w-full flex-col gap-0.5">
+      <p className="px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {t("nav.hrMyDay")}
+      </p>
+      {sections.map((item) => {
+        const Icon = item.icon;
+        const id = item.href.split("#")[1] ?? "";
+        const onThisPage = pathname === "/hr/me" || pathname === "/";
+        const active = id ? onThisPage && hash === `#${id}` : onThisPage && hash === "";
+        return (
+          <Link
+            key={item.href}
+            href={item.href}
+            className={cn(
+              "flex min-h-11 items-center gap-2.5 rounded-full px-2.5 text-sm",
+              active
+                ? "bg-primary font-semibold text-primary-foreground shadow-elevated-xs"
+                : "text-muted-foreground hover:bg-secondary/80 hover:text-foreground",
+            )}
+            onClick={(event) => {
+              if (!onThisPage) return;
+              const targetId = id || "me-profile";
+              const el = document.getElementById(targetId);
+              if (!el) return;
+              event.preventDefault();
+              el.scrollIntoView({ behavior: "smooth", block: "start" });
+              const nextHash = id ? `#${id}` : "";
+              window.history.pushState(null, "", `${pathname}${nextHash}`);
+              setHash(nextHash);
+            }}
+          >
+            <Icon className="h-4 w-4 shrink-0 stroke-[1.5]" />
+            <span className="truncate">{t(item.labelKey)}</span>
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
 export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const roles = useUserRoles();
+  const employeeHome = isEmployeeHomeAudience(roles);
   const { t, i18n } = useTranslation();
   const isRtl = i18n.dir() === "rtl";
   const [moreOpen, setMoreOpen] = useState(false);
@@ -715,8 +778,8 @@ export function AppSidebar() {
     setFlyoutId(null);
     setTabletSheetId(null);
     setMoreOpen(false);
-    setSidebarExpanded(false);
-  }, [pathname, setSidebarExpanded]);
+    setSidebarExpanded(employeeHome);
+  }, [pathname, employeeHome, setSidebarExpanded]);
 
   useEffect(() => {
     if (primary.length === 0) return;
@@ -745,8 +808,9 @@ export function AppSidebar() {
       <aside
         className={cn(
           "fixed z-40 hidden max-h-[calc(100dvh-1.5rem)] flex-col overflow-hidden md:flex",
-          "w-[4.25rem] items-center",
-          sidebarExpanded ? "lg:w-[14rem] lg:items-stretch" : "lg:w-[3.75rem] lg:items-center",
+            employeeHome
+            ? "w-[4.25rem] md:w-[15.5rem] md:items-stretch"
+            : cn("w-[4.25rem] items-center", sidebarExpanded ? "lg:w-[14rem] lg:items-stretch" : "lg:w-[3.75rem] lg:items-center"),
         )}
         style={{
           top: surgeMode ? "0.4rem" : "0.75rem",
@@ -757,26 +821,31 @@ export function AppSidebar() {
           className={cn(
             "flex w-full max-h-full flex-col overflow-x-hidden overflow-y-auto rounded-[1.75rem] border border-border/60 bg-sidebar shadow-elevated-sm",
             surgeMode ? "py-2" : "py-3",
-            "items-center px-1.5",
-            sidebarExpanded && "lg:items-stretch lg:px-2",
+            employeeHome ? "items-stretch px-2" : "items-center px-1.5",
+            !employeeHome && sidebarExpanded && "lg:items-stretch lg:px-2",
           )}
         >
           <Button
             asChild
             variant="default"
             size="icon"
-            className={cn("mb-2 font-bold", sidebarExpanded && "lg:h-10 lg:w-full")}
+            className={cn(
+              "mb-2 font-bold",
+              employeeHome && "md:h-10 md:w-full",
+              !employeeHome && sidebarExpanded && "lg:h-10 lg:w-full",
+            )}
           >
             <Link href="/" prefetch title="FEC OS">
-              <span className={cn(sidebarExpanded && "lg:hidden")}>F</span>
-              {sidebarExpanded ? <span className="hidden lg:inline">FEC OS</span> : null}
+              <span className={cn(employeeHome ? "md:hidden" : sidebarExpanded && "lg:hidden")}>F</span>
+              {employeeHome ? <span className="hidden md:inline">FEC OS</span> : null}
+              {!employeeHome && sidebarExpanded ? <span className="hidden lg:inline">FEC OS</span> : null}
             </Link>
           </Button>
           <Button
             type="button"
             variant="outline"
             size={sidebarExpanded ? "sm" : "icon"}
-            className={cn("mb-3 hidden lg:inline-flex", sidebarExpanded && "w-full justify-start")}
+            className={cn("mb-3 hidden lg:inline-flex", employeeHome && "lg:hidden", sidebarExpanded && "w-full justify-start")}
             title={expandLabel}
             aria-label={expandLabel}
             aria-pressed={sidebarExpanded}
@@ -793,9 +862,11 @@ export function AppSidebar() {
             className={cn(
               "flex flex-col items-center",
               surgeMode ? "gap-0.5" : "gap-1",
-              sidebarExpanded && "lg:items-stretch lg:px-0",
+              (employeeHome || sidebarExpanded) && "lg:items-stretch lg:px-0",
+              employeeHome && "md:items-stretch",
             )}
           >
+            {employeeHome ? <EmployeeSectionRail roles={roles} pathname={pathname} t={t} /> : null}
             {primary.map((item) => {
               const department = departmentsById.get(item.departmentId) ?? null;
               const moduleActive = department ? isDepartmentActive(department, pathname) : false;

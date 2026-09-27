@@ -1,12 +1,29 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Share, UserRound } from "lucide-react";
+import {
+  CalendarRange,
+  Clock,
+  FileText,
+  Megaphone,
+  Palmtree,
+  Plane,
+  Share,
+  TicketCheck,
+  UserRound,
+  Wallet,
+  type LucideIcon,
+} from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { FecPageHeader } from "@/components/fec";
+import {
+  MissedPunchApprovalQueue,
+  MissedPunchRequestButton,
+  MyMissedPunchRequests,
+} from "@/components/attendance-hr/missed-punch-approval-queue";
 import { EmployeeIssuesList, EmployeeRosterList } from "@/components/hr/employee-self-dashboard";
 import { HrPanel } from "@/components/hr/hr-panel";
 import { HrShell } from "@/components/hr/hr-shell";
@@ -65,22 +82,40 @@ function MeSection({
   hint,
   children,
   className,
+  icon: Icon,
 }: {
   id: string;
   title: string;
   hint?: string | null;
   children: ReactNode;
   className?: string;
+  icon?: LucideIcon;
 }) {
   return (
-    <section id={id} className={cn("scroll-mt-24", className)}>
-      <HrPanel className="h-full p-4 md:p-5">
-        <h2 className="text-sm font-semibold tracking-tight">{title}</h2>
-        {hint ? <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p> : null}
+    <section id={id} className={cn("scroll-mt-28", className)}>
+      <HrPanel className="h-full border-t-2 border-t-primary/70 p-4 shadow-elevated-sm md:p-5">
+        <div className="flex items-start gap-3">
+          {Icon ? (
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <Icon className="h-4 w-4" strokeWidth={1.75} />
+            </span>
+          ) : null}
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold tracking-tight">{title}</h2>
+            {hint ? <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p> : null}
+          </div>
+        </div>
         <div className="mt-3">{children}</div>
       </HrPanel>
     </section>
   );
+}
+
+function attendanceTone(status: string, missedPunch: boolean): "destructive" | "warning" | "success" | "muted" {
+  if (missedPunch || status === "absent" || status === "missed_punch") return "destructive";
+  if (status === "late" || status === "early_leave" || status === "early_departure") return "warning";
+  if (status === "present" || status === "overtime") return "success";
+  return "muted";
 }
 
 function Fact({ label, value }: { label: string; value: string | null | undefined }) {
@@ -256,7 +291,7 @@ export default function EmployeeMePage() {
     <HrShell>
       <div className="space-y-4 md:space-y-6">
         <FecPageHeader
-          className="hidden md:flex"
+          className="sr-only"
           icon={UserRound}
           kicker={t("hr.me.brand")}
           title={t("hr.me.title")}
@@ -300,12 +335,12 @@ export default function EmployeeMePage() {
 
         {selfReady && (person || profile.isError) ? (
           <>
-            <nav className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 md:hidden" aria-label={t("hr.me.jumpTo")}>
+            <nav className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1" aria-label={t("hr.me.jumpTo")}>
               {jumps.map((item) => (
                 <button
                   key={item.id}
                   type="button"
-                  className="shrink-0 rounded-full border border-border/70 bg-card px-3 py-1.5 text-xs font-medium touch-manipulation"
+                  className="min-h-11 shrink-0 rounded-full border border-border/70 bg-card px-4 text-sm font-medium shadow-elevated-xs touch-manipulation hover:border-primary/40 hover:bg-primary/5"
                   onClick={() => document.getElementById(item.id)?.scrollIntoView({ behavior: "smooth", block: "start" })}
                 >
                   {item.label}
@@ -318,31 +353,46 @@ export default function EmployeeMePage() {
               <HrPanel className="p-5 text-sm text-muted-foreground lg:col-span-2">{t("hr.me.profileUnavailable")}</HrPanel>
             ) : null}
             {person ? (
-            <section id="me-profile" className="scroll-mt-24 lg:col-span-2">
-              <HrPanel className="p-4 md:p-5">
-                <div className="flex items-start gap-3">
+            <section id="me-profile" className="scroll-mt-28 lg:col-span-2">
+              <HrPanel className="relative overflow-hidden border-t-4 border-t-primary p-4 shadow-elevated-sm md:p-6">
+                <div
+                  className="pointer-events-none absolute -end-10 -top-12 h-36 w-36 rounded-full bg-primary/15 blur-2xl"
+                  aria-hidden
+                />
+                <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start">
                   <div
-                    className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary text-sm font-semibold text-primary-foreground"
+                    className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-primary text-lg font-semibold text-primary-foreground shadow-elevated-xs"
                     aria-hidden
                   >
                     {initials(displayName)}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <h1 className="truncate text-lg font-semibold tracking-tight">{person.fullName}</h1>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {[person.employeeCode, person.jobTitle].filter(Boolean).join(" · ") || t("hr.me.profile")}
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                      {t("hr.me.brand")} · {t("hr.me.title")}
                     </p>
-                    {lastDay ? (
-                      <p className="mt-2 text-sm">
-                        {t("hr.me.lastStatus")}: {labelOrRaw(`attendanceHr.reports.statuses.${lastDay.status}`, lastDay.status)} ·{" "}
-                        {formatWorkDateDdMmYyyy(lastDay.workDate)}
-                      </p>
-                    ) : !attendance.isLoading ? (
-                      <p className="mt-2 text-sm text-muted-foreground">{t("hr.me.noStatus")}</p>
-                    ) : null}
+                    <h1 className="mt-1 truncate text-2xl font-semibold tracking-tight">{person.fullName}</h1>
+                    <p className="mt-1 truncate text-sm text-muted-foreground">
+                      {[person.jobTitle, person.locationLabel].filter(Boolean).join(" · ") || t("hr.me.profile")}
+                    </p>
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      {person.employeeCode ? <Badge variant="outline">{person.employeeCode}</Badge> : null}
+                      {person.status ? (
+                        <Badge variant={person.status === "active" ? "success" : "muted"}>
+                          {labelOrRaw(`hr.me.staffStatus.${person.status}`, person.status)}
+                        </Badge>
+                      ) : null}
+                      {lastDay ? (
+                        <Badge variant={attendanceTone(lastDay.status, lastDay.missedPunch)}>
+                          {t("hr.me.lastStatus")}: {labelOrRaw(`attendanceHr.reports.statuses.${lastDay.status}`, lastDay.status)} ·{" "}
+                          {formatWorkDateDdMmYyyy(lastDay.workDate)}
+                        </Badge>
+                      ) : !attendance.isLoading ? (
+                        <span className="text-sm text-muted-foreground">{t("hr.me.noStatus")}</span>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
-                <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 md:grid-cols-3 xl:grid-cols-4">
+                <dl className="relative mt-5 grid grid-cols-2 gap-x-4 gap-y-3 md:grid-cols-3 xl:grid-cols-4">
                   <Fact label={t("hr.me.jobTitle")} value={person.jobTitle} />
                   <Fact label={t("hr.me.department")} value={person.department} />
                   <Fact label={t("hr.me.location")} value={person.locationLabel} />
@@ -365,13 +415,14 @@ export default function EmployeeMePage() {
                     value={person.hireDate ? formatWorkDateDdMmYyyy(person.hireDate) : null}
                   />
                 </dl>
-                <p className="mt-4 text-sm text-muted-foreground">{t("hr.me.biometricNote")}</p>
+                <p className="relative mt-4 text-sm text-muted-foreground">{t("hr.me.biometricNote")}</p>
               </HrPanel>
             </section>
             ) : null}
 
               <MeSection
                 id="me-attendance"
+                icon={Clock}
                 title={t("hr.me.myAttendance")}
                 hint={
                   attendance.isLoading
@@ -383,29 +434,55 @@ export default function EmployeeMePage() {
                         : null
                 }
               >
+                <div id="me-punch-approvals">
+                  <MissedPunchApprovalQueue hideWhenEmpty />
+                </div>
                 {!attendance.isLoading && !attendance.isError && (attendance.data?.rows ?? []).length === 0 ? (
                   <p className="text-sm text-muted-foreground">{t("hr.me.noStatus")}</p>
                 ) : null}
-                <div className="max-h-[28rem] space-y-2 overflow-y-auto">
-                  {(attendance.data?.rows ?? []).map((row) => (
-                    <div key={row.id} className="flex items-start justify-between gap-3 border-b border-border/50 py-2 text-sm last:border-0">
-                      <div className="min-w-0">
-                        <p className="font-medium">{formatWorkDateDdMmYyyy(row.workDate)}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {row.locationLabel} · {formatPunchTime12h(row.actualIn) || "—"} – {formatPunchTime12h(row.actualOut) || "—"} ·{" "}
-                          {formatHoursValue(computeHoursWorked(row.actualIn, row.actualOut))}h
-                        </p>
+                <div className="max-h-[32rem] space-y-2 overflow-y-auto">
+                  {(attendance.data?.rows ?? []).map((row) => {
+                    const needsPunch =
+                      row.missedPunch ||
+                      row.status === "missed_punch" ||
+                      Boolean(row.actualIn) !== Boolean(row.actualOut);
+                    return (
+                      <div
+                        key={row.id}
+                        className={cn(
+                          "rounded-2xl border px-3 py-2.5 text-sm",
+                          needsPunch ? "border-amber-500/40 bg-amber-500/10" : "border-border/60 bg-background/50",
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="font-medium">{formatWorkDateDdMmYyyy(row.workDate)}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {row.locationLabel} · {formatPunchTime12h(row.actualIn) || "—"} – {formatPunchTime12h(row.actualOut) || "—"} ·{" "}
+                              {formatHoursValue(computeHoursWorked(row.actualIn, row.actualOut))}h
+                            </p>
+                          </div>
+                          <Badge variant={attendanceTone(row.status, row.missedPunch)}>
+                            {labelOrRaw(`attendanceHr.reports.statuses.${row.status}`, row.status)}
+                          </Badge>
+                        </div>
+                        <MissedPunchRequestButton
+                          summaryId={row.id}
+                          missedPunch={row.missedPunch}
+                          status={row.status}
+                          actualIn={row.actualIn}
+                          actualOut={row.actualOut}
+                        />
                       </div>
-                      <Badge variant={row.missedPunch ? "destructive" : "muted"}>
-                        {labelOrRaw(`attendanceHr.reports.statuses.${row.status}`, row.status)}
-                      </Badge>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
+                <MyMissedPunchRequests />
               </MeSection>
 
               <MeSection
                 id="me-roster"
+                icon={CalendarRange}
                 title={t("hr.me.myRoster")}
                 hint={
                   roster.isLoading
@@ -420,7 +497,7 @@ export default function EmployeeMePage() {
 
               {person ? (
               <>
-              <MeSection id="me-leave" title={t("hr.leave.requestTitle")}>
+              <MeSection id="me-leave" icon={Palmtree} title={t("hr.leave.requestTitle")}>
                 {(balances.data?.balances ?? []).length > 0 ? (
                   <div className="mb-3 grid grid-cols-2 gap-2 text-xs">
                     {balances.data!.balances.slice(0, 4).map((b) => (
@@ -495,7 +572,7 @@ export default function EmployeeMePage() {
                     ) : null}
                   </div>
                 ) : null}
-                <Button className="mt-3" disabled={!leaveFrom || askLeave.isPending} onClick={() => askLeave.mutate(false)}>
+                <Button className="mt-3 min-h-11" disabled={!leaveFrom || askLeave.isPending} onClick={() => askLeave.mutate(false)}>
                   {t("hr.leave.submit")}
                 </Button>
 
@@ -522,12 +599,12 @@ export default function EmployeeMePage() {
               </MeSection>
 
               {canIssues ? (
-                <MeSection id="me-issues" title={t("hr.me.myIssues")} hint={t("hr.me.issuesHint")}>
+                <MeSection id="me-issues" icon={TicketCheck} title={t("hr.me.myIssues")} hint={t("hr.me.issuesHint")}>
                   <EmployeeIssuesList compact />
                 </MeSection>
               ) : null}
 
-              <MeSection id="me-documents" title={t("hr.me.myDocuments")} hint={t("hr.me.uploadHint")}>
+              <MeSection id="me-documents" icon={FileText} title={t("hr.me.myDocuments")} hint={t("hr.me.uploadHint")}>
                 <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto] sm:items-end">
                   <div>
                     <Label>{t("hr.me.docType")}</Label>
@@ -552,7 +629,7 @@ export default function EmployeeMePage() {
                       onChange={(e) => setDocFile(e.target.files?.[0] ?? null)}
                     />
                   </div>
-                  <Button disabled={!docFile || uploadDoc.isPending} onClick={() => uploadDoc.mutate()}>
+                  <Button className="min-h-11" disabled={!docFile || uploadDoc.isPending} onClick={() => uploadDoc.mutate()}>
                     {t("hr.me.uploadDoc")}
                   </Button>
                 </div>
@@ -580,7 +657,7 @@ export default function EmployeeMePage() {
                 </div>
               </MeSection>
 
-              <MeSection id="me-announcements" title={t("hr.me.announcements")}>
+              <MeSection id="me-announcements" icon={Megaphone} title={t("hr.me.announcements")}>
                 {(announcements.data ?? []).length === 0 && !announcements.isLoading && !announcements.isError ? (
                   <p className="text-sm text-muted-foreground">{t("hr.me.announcementsEmpty")}</p>
                 ) : null}
@@ -594,7 +671,7 @@ export default function EmployeeMePage() {
                 </ul>
               </MeSection>
 
-              <MeSection id="me-tickets" title={t("hr.me.myAirTickets")}>
+              <MeSection id="me-tickets" icon={Plane} title={t("hr.me.myAirTickets")}>
                 {(airTickets.data ?? []).length === 0 && !airTickets.isLoading && !airTickets.isError ? (
                   <p className="text-sm text-muted-foreground">{t("hr.me.noAirTickets")}</p>
                 ) : null}
@@ -613,7 +690,7 @@ export default function EmployeeMePage() {
                 </div>
               </MeSection>
 
-              <MeSection id="me-payslips" title={t("hr.me.myPayslips")}>
+              <MeSection id="me-payslips" icon={Wallet} title={t("hr.me.myPayslips")}>
                 {(payslips.data ?? []).length === 0 && !payslips.isLoading && !payslips.isError ? (
                   <p className="text-sm text-muted-foreground">{t("hr.me.noPayslips")}</p>
                 ) : null}

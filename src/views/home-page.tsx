@@ -20,7 +20,7 @@ import { useTranslation } from "react-i18next";
 
 import { CircularProgressBadge } from "@/components/dashboard/circular-progress-badge";
 import { TintedKpiCard, type KpiTint } from "@/components/dashboard/tinted-kpi-card";
-import { EmployeeSelfDashboard } from "@/components/hr/employee-self-dashboard";
+import EmployeeMePage from "@/views/employee-me-page";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -627,6 +627,6 @@ export default function HomePage() {
       </div>
     );
   }
-  if (isEmployeeHomeAudience(roleList)) return <EmployeeSelfDashboard />;
+  if (isEmployeeHomeAudience(roleList)) return <EmployeeMePage />;
   return <OpsCommandHome />;
 }

@@ -19,6 +19,7 @@ import {
   useMyLeaveRequests,
   useMyRoster,
 } from "@/hooks/queries/use-employee-self";
+import { MissedPunchRequestButton } from "@/components/attendance-hr/missed-punch-approval-queue";
 import { usePermission } from "@/hooks/use-permission";
 import { computeHoursWorked, formatHoursValue, formatPunchTime12h, formatWorkDateDdMmYyyy } from "@/lib/attendance-display";
 import { rosterDayStatusFromRow } from "@/lib/attendance-hr/roster-register-scope";
@@ -219,6 +220,13 @@ function AttendancePanel() {
                   {row.locationLabel} · {formatPunchTime12h(row.actualIn) || "—"} – {formatPunchTime12h(row.actualOut) || "—"} ·{" "}
                   {formatHoursValue(computeHoursWorked(row.actualIn, row.actualOut))}h
                 </p>
+                <MissedPunchRequestButton
+                  summaryId={row.id}
+                  missedPunch={row.missedPunch}
+                  status={row.status}
+                  actualIn={row.actualIn}
+                  actualOut={row.actualOut}
+                />
               </div>
               <Badge variant={attendanceBadgeVariant(row.status, row.missedPunch)}>
                 {labelOrRaw(t, `attendanceHr.reports.statuses.${row.status}`, row.status)}
