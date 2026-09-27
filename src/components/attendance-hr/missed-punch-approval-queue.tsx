@@ -165,7 +165,9 @@ export function MissedPunchRequestButton({
     staleTime: STALE.people,
     enabled: side !== null,
   });
-  const pending = (mine.data ?? []).find((row) => row.summaryId === summaryId && row.status === "pending");
+  const pendingRows = (mine.data ?? []).filter((row) => row.summaryId === summaryId && row.status === "pending");
+  const pendingFor = (choice: "in" | "out") =>
+    pendingRows.some((row) => row.punchType === choice || row.punchType == null);
   const rejected = (mine.data ?? []).find((row) => row.summaryId === summaryId && row.status === "rejected");
   const [openSide, setOpenSide] = useState<"in" | "out" | null>(null);
   const [punchTime, setPunchTime] = useState("");
@@ -186,22 +188,17 @@ export function MissedPunchRequestButton({
 
   if (!side) return null;
 
-  if (pending) {
-    return (
-      <div className="mt-2">
-        <Badge variant="warning">
+  const choices: Array<"in" | "out"> = (["in", "out"] as const).filter((choice) => !pendingFor(choice));
+
+  return (
+    <div className="mt-2 space-y-2">
+      {pendingRows.map((pending) => (
+        <Badge key={pending.id} variant="warning">
           {pending.punchType === "out" ? t("hr.me.punchOut") : t("hr.me.punchIn")}
           {" · "}
           {t("hr.me.waitingFor", { who: stepLabel(pending.currentStepRole) })}
         </Badge>
-      </div>
-    );
-  }
-
-  const choices: Array<"in" | "out"> = side === "either" ? ["in", "out"] : [side];
-
-  return (
-    <div className="mt-2 space-y-2">
+      ))}
       {rejected && !openSide ? (
         <Badge variant="destructive">
           {t("hr.me.punchRejected")}
@@ -241,15 +238,30 @@ export function MissedPunchRequestButton({
             </Button>
           </div>
         </div>
-      ) : (
+      ) : null}
+      {choices.some((choice) => choice !== openSide) ? (
         <div className="flex flex-wrap gap-2">
-          {choices.map((choice) => (
-            <Button key={choice} size="sm" variant="outline" className="min-h-11" onClick={() => setOpenSide(choice)}>
-              {choice === "in" ? t("hr.me.requestPunchIn") : t("hr.me.requestPunchOut")}
-            </Button>
-          ))}
+          {choices
+            .filter((choice) => choice !== openSide)
+            .map((choice) => (
+              <Button
+                key={choice}
+                size="sm"
+                variant="outline"
+                className="min-h-11"
+                onClick={() => {
+                  if (openSide !== choice) {
+                    setPunchTime("");
+                    setReason("");
+                  }
+                  setOpenSide(choice);
+                }}
+              >
+                {choice === "in" ? t("hr.me.requestPunchIn") : t("hr.me.requestPunchOut")}
+              </Button>
+            ))}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

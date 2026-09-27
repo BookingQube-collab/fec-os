@@ -46,7 +46,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         className={cn(
           "relative z-0 flex min-h-screen min-w-0 max-w-full flex-col overflow-x-hidden md:pe-5",
           employeeChrome ? "pb-[max(1.25rem,env(safe-area-inset-bottom))]" : "pb-20",
-          employeeAudience || sidebarExpanded ? "md:ms-[16.25rem]" : "md:ms-[5.25rem]",
+          sidebarExpanded ? "md:ms-[16.25rem]" : "md:ms-[5.25rem]",
           surgeMode ? "md:pb-3" : "md:pb-6",
         )}
       >

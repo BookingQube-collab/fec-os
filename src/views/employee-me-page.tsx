@@ -33,6 +33,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { getEmployeeDocumentUrl, listEmployeeDocuments, uploadEmployeeDocument } from "@/lib/hr-documents.functions";
 import { reviewLeaveRequest, submitLeaveRequest } from "@/lib/hr-leave.functions";
 import { listAnnouncements } from "@/lib/hr-announcements.functions";
@@ -524,26 +525,27 @@ export default function EmployeeMePage() {
                     <Input type="date" value={leaveTo} onChange={(e) => setLeaveTo(e.target.value)} />
                   </div>
                 </div>
-                <select
-                  className="mt-2 h-10 w-full rounded-xl border bg-background px-3 text-sm"
+                <SearchableSelect
+                  className="mt-2"
                   value={leaveType}
-                  onChange={(e) => setLeaveType(e.target.value as (typeof HR_LEAVE_TYPES)[number])}
-                >
-                  {HR_LEAVE_TYPES.map((value) => (
-                    <option key={value} value={value}>
-                      {t(`hr.leave.types.${value}`)}
-                    </option>
-                  ))}
-                </select>
+                  onValueChange={(value) => setLeaveType(value as (typeof HR_LEAVE_TYPES)[number])}
+                  aria-label={t("hr.leave.type")}
+                  options={HR_LEAVE_TYPES.map((value) => ({
+                    value,
+                    label: t(`hr.leave.types.${value}`),
+                  }))}
+                />
                 {leaveType === "compassionate" ? (
-                  <select
-                    className="mt-2 h-10 w-full rounded-xl border bg-background px-3 text-sm"
+                  <SearchableSelect
+                    className="mt-2"
                     value={compassionateScope}
-                    onChange={(e) => setCompassionateScope(e.target.value as "inside_qatar" | "outside_qatar")}
-                  >
-                    <option value="inside_qatar">{t("hr.leave.compassionateInside")}</option>
-                    <option value="outside_qatar">{t("hr.leave.compassionateOutside")}</option>
-                  </select>
+                    onValueChange={(value) => setCompassionateScope(value as "inside_qatar" | "outside_qatar")}
+                    aria-label={t("hr.leave.types.compassionate")}
+                    options={[
+                      { value: "inside_qatar", label: t("hr.leave.compassionateInside") },
+                      { value: "outside_qatar", label: t("hr.leave.compassionateOutside") },
+                    ]}
+                  />
                 ) : null}
                 <Input
                   className="mt-2"
@@ -608,17 +610,15 @@ export default function EmployeeMePage() {
                 <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto] sm:items-end">
                   <div>
                     <Label>{t("hr.me.docType")}</Label>
-                    <select
-                      className="h-10 w-full rounded-xl border bg-background px-3 text-sm"
+                    <SearchableSelect
                       value={docType}
-                      onChange={(e) => setDocType(e.target.value as (typeof EMPLOYEE_DOC_TYPES)[number])}
-                    >
-                      {EMPLOYEE_DOC_TYPES.map((value) => (
-                        <option key={value} value={value}>
-                          {t(`hr.docs.types.${value}`)}
-                        </option>
-                      ))}
-                    </select>
+                      onValueChange={(value) => setDocType(value as (typeof EMPLOYEE_DOC_TYPES)[number])}
+                      aria-label={t("hr.me.docType")}
+                      options={EMPLOYEE_DOC_TYPES.map((value) => ({
+                        value,
+                        label: t(`hr.docs.types.${value}`),
+                      }))}
+                    />
                   </div>
                   <div>
                     <Label>{t("hr.me.chooseFile")}</Label>

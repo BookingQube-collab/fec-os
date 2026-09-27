@@ -371,18 +371,24 @@ export async function submitMissedPunchRequest(args: {
     hasOut,
   });
   if (!side) throw new Error("This day is not a missed punch.");
-  if (side !== "either" && args.punchType !== side) {
-    throw new Error(side === "in" ? "Clock-in is already recorded for this day." : "Clock-out is already recorded for this day.");
-  }
 
   const { data: existing, error: existingErr } = await supabaseAdmin
     .from("attendance_corrections")
-    .select("id")
+    .select("id, new_value")
     .eq("summary_id", summary.id)
-    .eq("status", "pending")
-    .limit(1);
+    .eq("status", "pending");
   if (existingErr) throw existingErr;
-  if ((existing ?? []).length) throw new Error("A correction for this day is already waiting for approval.");
+  const sameSidePending = (existing ?? []).some((row) => {
+    const pendingType = punchTypeOf(row.new_value as Record<string, unknown> | null);
+    return pendingType === args.punchType || pendingType == null;
+  });
+  if (sameSidePending) {
+    throw new Error(
+      args.punchType === "in"
+        ? "A punch-in request for this day is already waiting for approval."
+        : "A punch-out request for this day is already waiting for approval.",
+    );
+  }
 
   const workDate = String(summary.work_date).slice(0, 10);
   const punchAt = `${workDate}T${args.punchTime}:00+03:00`;

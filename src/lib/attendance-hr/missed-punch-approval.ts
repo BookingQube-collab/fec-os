@@ -41,7 +41,11 @@ const SCHEDULED_OFF = new Set([
   "unpaid_leave",
 ]);
 
-/** Which punch an employee may request. Scheduled off days are not a request. */
+/**
+ * A correctable day offers both punch in and punch out.
+ * An existing check-in does not hide punch-in — the employee may correct that time and add the missing punch-out.
+ * Scheduled off days and days that already have both punches are not a request.
+ */
 export function missedPunchRequestSide(summary: {
   missedPunch: boolean;
   status: string;
@@ -58,8 +62,6 @@ export function missedPunchRequestSide(summary: {
     summary.status === "incomplete";
   const oneSided = summary.hasIn !== summary.hasOut;
   if (!missing || (!flagged && !oneSided)) return null;
-  if (!summary.hasIn && summary.hasOut) return "in";
-  if (summary.hasIn && !summary.hasOut) return "out";
   return "either";
 }
 

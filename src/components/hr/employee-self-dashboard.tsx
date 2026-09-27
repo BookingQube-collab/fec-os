@@ -4,6 +4,7 @@ import Link from "next/link";
 import { CalendarDays, CalendarRange, Clock, Palmtree, TicketCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { EmployeeRosterCalendar } from "@/components/hr/employee-roster-calendar";
 import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { HrPanel } from "@/components/hr/hr-panel";
 import { HrSection } from "@/components/hr/hr-section";
@@ -22,7 +23,6 @@ import {
 import { MissedPunchRequestButton } from "@/components/attendance-hr/missed-punch-approval-queue";
 import { usePermission } from "@/hooks/use-permission";
 import { computeHoursWorked, formatHoursValue, formatPunchTime12h, formatWorkDateDdMmYyyy } from "@/lib/attendance-display";
-import { rosterDayStatusFromRow } from "@/lib/attendance-hr/roster-register-scope";
 import { cn } from "@/lib/utils";
 
 function labelOrRaw(t: (key: string) => string, key: string, raw: string) {
@@ -37,20 +37,6 @@ function attendanceBadgeVariant(status: string, missedPunch: boolean): "destruct
   }
   if (status === "present" || status === "overtime") return "success";
   return "muted";
-}
-
-function rosterShiftLabel(
-  row: { isWeekOff: boolean; leaveType: string | null; shiftStart: string | null; shiftEnd: string | null },
-  t: (key: string) => string,
-) {
-  const status = rosterDayStatusFromRow(row);
-  if (status === "weekly_off") return t("people.roster.dutyOff");
-  if (status === "annual_leave") return t("people.roster.dutyAnnualLeave");
-  if (status === "sick_leave") return t("people.roster.dutySickLeave");
-  if (status === "comp_off") return t("people.roster.dutyCompOff");
-  if (row.shiftStart && row.shiftEnd) return `${row.shiftStart} – ${row.shiftEnd}`;
-  if (row.shiftStart) return row.shiftStart;
-  return t("people.roster.dutyYes");
 }
 
 function issueBadgeVariant(status: string): "destructive" | "warning" | "success" | "muted" | "outline" {
@@ -245,31 +231,12 @@ export function EmployeeRosterList() {
   const roster = useMyRoster(true);
   const rows = roster.data?.rows ?? [];
 
-  if (roster.isLoading) return <Skeleton className="h-16 rounded-2xl" />;
+  if (roster.isLoading) return <Skeleton className="h-64 rounded-2xl" />;
   if (roster.isError) return <p className="text-sm text-muted-foreground">{t("hr.me.rosterUnavailable")}</p>;
+  if (rows.length === 0) return <p className="text-sm text-muted-foreground">{t("hr.me.rosterEmpty")}</p>;
 
   return (
-    <div>
-      {rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t("hr.me.rosterEmpty")}</p>
-      ) : (
-        <div className="max-h-[28rem] space-y-2 overflow-y-auto">
-          {rows.map((row) => {
-            const shift = rosterShiftLabel(row, t);
-            const off = rosterDayStatusFromRow(row) !== "on_duty";
-            return (
-              <div key={row.id} className="hr-list-row !items-start">
-                <div className="min-w-0">
-                  <p className="font-medium">{formatWorkDateDdMmYyyy(row.workDate)}</p>
-                  <p className="text-xs text-muted-foreground">{row.locationLabel}</p>
-                </div>
-                <Badge variant={off ? "muted" : "outline"}>{shift}</Badge>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
+    <EmployeeRosterCalendar rows={rows} dateFrom={roster.data?.dateFrom} dateTo={roster.data?.dateTo} />
   );
 }
 

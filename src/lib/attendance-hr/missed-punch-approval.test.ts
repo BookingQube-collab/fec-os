@@ -60,14 +60,14 @@ describe("missed punch approval chain", () => {
     expect(nextMissedPunchStep("hr")).toBeNull();
   });
 
-  it("offers punch in or punch out only on a missed or one-sided day", () => {
+  it("offers both punch in and punch out on a correctable day, including when one punch exists", () => {
     expect(missedPunchRequestSide({ missedPunch: true, status: "missed_punch", hasIn: false, hasOut: false })).toBe(
       "either",
     );
     expect(missedPunchRequestSide({ missedPunch: true, status: "missed_punch", hasIn: true, hasOut: false })).toBe(
-      "out",
+      "either",
     );
-    expect(missedPunchRequestSide({ missedPunch: false, status: "present", hasIn: false, hasOut: true })).toBe("in");
+    expect(missedPunchRequestSide({ missedPunch: false, status: "present", hasIn: false, hasOut: true })).toBe("either");
     expect(missedPunchRequestSide({ missedPunch: false, status: "absent", hasIn: false, hasOut: false })).toBe("either");
     expect(missedPunchRequestSide({ missedPunch: false, status: "weekly_off", hasIn: false, hasOut: false })).toBeNull();
     expect(missedPunchRequestSide({ missedPunch: false, status: "annual_leave", hasIn: false, hasOut: false })).toBeNull();
