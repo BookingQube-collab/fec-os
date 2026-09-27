@@ -113,7 +113,7 @@ export function HeaderSearch({ className }: { className?: string }) {
         }}
         onFocus={() => setOpen(true)}
         onKeyDown={onKeyDown}
-        className="h-11 w-full rounded-lg border border-input bg-card ps-10 pe-4 text-sm text-foreground shadow-elevated-xs placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/30"
+        className="fec-star-border h-11 w-full rounded-lg border border-input bg-card ps-10 pe-4 text-sm text-foreground shadow-elevated-xs placeholder:text-muted-foreground focus:outline-none"
         placeholder={t("common.searchHere")}
         autoComplete="off"
         spellCheck={false}

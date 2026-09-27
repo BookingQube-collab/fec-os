@@ -58,6 +58,30 @@
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
   --color-electric: var(--electric);
+
+  --animate-star-movement-bottom: star-movement-bottom 6s linear infinite alternate;
+  --animate-star-movement-top: star-movement-top 6s linear infinite alternate;
+
+  @keyframes star-movement-bottom {
+    from {
+      transform: translate(0%, 0%);
+      opacity: 1;
+    }
+    to {
+      transform: translate(-100%, 0%);
+      opacity: 0;
+    }
+  }
+  @keyframes star-movement-top {
+    from {
+      transform: translate(0%, 0%);
+      opacity: 1;
+    }
+    to {
+      transform: translate(100%, 0%);
+      opacity: 0;
+    }
+  }
 }
 
 :root {
@@ -1096,6 +1120,97 @@
     .hr-kpi:hover {
       transform: none;
     }
+  }
+}
+
+/* StarBorder focus — traveling gold edge on the control itself (no wrapper, no canvas). */
+@keyframes fec-star-border {
+  0% {
+    box-shadow:
+      0 0 0 2px var(--fec-star),
+      0 -8px 14px -8px color-mix(in oklab, var(--fec-star) 80%, transparent);
+  }
+  25% {
+    box-shadow:
+      0 0 0 2px var(--fec-star),
+      8px 0 14px -8px color-mix(in oklab, var(--fec-star) 80%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px var(--fec-star),
+      0 8px 14px -8px color-mix(in oklab, var(--fec-star) 80%, transparent);
+  }
+  75% {
+    box-shadow:
+      0 0 0 2px var(--fec-star),
+      -8px 0 14px -8px color-mix(in oklab, var(--fec-star) 80%, transparent);
+  }
+  100% {
+    box-shadow:
+      0 0 0 2px var(--fec-star),
+      0 -8px 14px -8px color-mix(in oklab, var(--fec-star) 80%, transparent);
+  }
+}
+
+.fec-star-border {
+  /* Darkened mustard so the ring clears 3:1 on white and cream. */
+  --fec-star: #9a6208;
+}
+
+.fec-star-border[aria-invalid="true"] {
+  --fec-star: var(--destructive);
+}
+
+.fec-star-border:focus:not(:disabled) {
+  outline: none;
+  animation: fec-star-border 2.4s linear infinite;
+}
+
+/* GlareHover sweep on primary buttons. ::after sits under the label. */
+.fec-glare {
+  position: relative;
+  isolation: isolate;
+}
+
+.fec-glare::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    115deg,
+    transparent 40%,
+    rgb(255 255 255 / 0.22) 50%,
+    transparent 60%
+  );
+  background-repeat: no-repeat;
+  background-size: 240% 240%;
+  background-position: -130% -130%;
+  opacity: 0;
+  transition:
+    background-position 650ms ease,
+    opacity 160ms ease;
+}
+
+.fec-glare:hover:not(:disabled)::after,
+.fec-glare:focus-visible:not(:disabled)::after {
+  opacity: 1;
+  background-position: 130% 130%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fec-star-border:focus:not(:disabled) {
+    animation: none;
+    box-shadow: 0 0 0 3px var(--fec-star);
+  }
+
+  .animate-star-movement-bottom,
+  .animate-star-movement-top,
+  .fec-glare::after {
+    animation: none !important;
+    display: none;
   }
 }
 
