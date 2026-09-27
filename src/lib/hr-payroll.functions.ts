@@ -15,7 +15,6 @@ import {
   buildBankTransferExportRows,
   buildChequeExportRows,
   buildWpsExportRows,
-  computeDailyRateBasicQar,
   computePayrollLineAmounts,
   computeProrationFactor,
   earningsToFixedVariable,
@@ -23,9 +22,9 @@ import {
   filterConsumableOtClaims,
   HR_PAYROLL_PAYMENT_METHODS,
   HR_PAYROLL_STATUSES,
-  mergeUnpaidDaysForPayroll,
   nextStatusAfter,
   resolveDailyRatePayroll,
+  resolveEarnedBasicQar,
   resolvePaymentMethod,
   sumOtAmounts,
   type HrPayrollPaymentMethod,
@@ -35,6 +34,7 @@ import {
 } from "@/lib/hr-payroll";
 import {
   aggregatePayrollRows,
+  countListingWorkedDays,
   type PayrollDayInput,
 } from "@/lib/attendance-hr/payroll";
 import { assertCanMarkPayrollPosted } from "@/lib/hr-ot";
@@ -258,6 +258,7 @@ type StaffPayRow = {
   hire_date: string | null;
   status: string;
   employment_type: string | null;
+  flexible_attendance?: boolean | null;
 };
 
 async function paymentDefaults(context: AuthContext) {
@@ -296,34 +297,6 @@ async function staffPayBundle(_context: AuthContext, staffIds: string[]) {
   return { compBy, histBy, extBy };
 }
 
-function unpaidLeaveDaysForStaff(
-  leaves: Array<{
-    staff_id: string;
-    leave_type: string;
-    days: number;
-    payroll_impact?: boolean | null;
-    emergency_treatment?: string | null;
-    date_from: string;
-    date_to: string;
-  }>,
-  staffId: string,
-  dateFrom: string,
-  dateTo: string,
-): number {
-  let days = 0;
-  for (const lv of leaves) {
-    if (lv.staff_id !== staffId) continue;
-    if (lv.date_to < dateFrom || lv.date_from > dateTo) continue;
-    const unpaid =
-      lv.leave_type === "unpaid" ||
-      lv.emergency_treatment === "unpaid" ||
-      Boolean(lv.payroll_impact);
-    if (!unpaid) continue;
-    days += Number(lv.days) || 0;
-  }
-  return days;
-}
-
 export const generatePayrollLines = createAuthenticatedAction(
   z.object({
     periodId: z.string().uuid(),
@@ -344,7 +317,7 @@ export const generatePayrollLines = createAuthenticatedAction(
 
     let staffQ = context.supabase
       .from("staff")
-      .select("id, full_name, employee_code, qid, hire_date, status, employment_type")
+      .select("id, full_name, employee_code, qid, hire_date, status, employment_type, flexible_attendance")
       .is("deleted_at", null)
       .in("status", ["active", "on_leave", "serving_notice"]);
     if (data.locationId) staffQ = staffQ.eq("location_id", data.locationId);
@@ -426,41 +399,45 @@ export const generatePayrollLines = createAuthenticatedAction(
       airByStaff.set(staffId, list);
     }
 
-    const { data: leaveRows } = await context.supabase
-      .from("hr_leave_requests")
-      .select("staff_id, leave_type, days, payroll_impact, emergency_treatment, date_from, date_to")
-      .eq("status", "approved")
-      .in("staff_id", staffIds)
-      .lte("date_from", dateTo)
-      .gte("date_to", dateFrom);
-
-    // Same attendance_daily_summary window as /people/attendance/reports + readiness list.
-    // Do not filter by location_id here: present days are company-wide per staff (cross-site
-    // punches). staffIds already scopes the cohort (home location filter above when set).
-    const presentDaysByStaff = new Map<string, number>();
+    // Same attendance_daily_summary window as /people/attendance/reports.
+    // Worked days use isAttendanceListingWorkedDay (Present or Late), not raw status.
+    // Do not filter by location_id: punches are company-wide per staff.
     const unpaidAttendanceByStaff = new Map<string, { absent: number; unpaidLeave: number }>();
     const readinessByStaff = new Map<string, { payrollReady: boolean; blockingDays: number; missedPunches: number }>();
+    const staffById = new Map(staff.map((s) => [s.id, s]));
+    let dayInputs: PayrollDayInput[] = [];
     {
       const { data: attRows } = await supabaseAdmin
         .from("attendance_daily_summary")
-        .select("staff_id, work_date, status, late_minutes, missed_punch, overtime_minutes, worked_minutes, punch_count")
+        .select(
+          "staff_id, work_date, status, late_minutes, missed_punch, overtime_minutes, worked_minutes, punch_count, actual_in, actual_out, scheduled_in, scheduled_out",
+        )
         .in("staff_id", staffIds)
         .gte("work_date", dateFrom)
         .lte("work_date", dateTo)
         .not("staff_id", "is", null)
         .limit(50000);
-      const dayInputs: PayrollDayInput[] = (attRows ?? []).map((row) => ({
-        staff_id: String(row.staff_id),
-        work_date: row.work_date ? String(row.work_date).slice(0, 10) : null,
-        status: String(row.status ?? ""),
-        late_minutes: Number(row.late_minutes ?? 0),
-        missed_punch: Boolean(row.missed_punch),
-        overtime_minutes: Number(row.overtime_minutes ?? 0),
-        worked_minutes: Number(row.worked_minutes ?? 0),
-        punch_count: Number(row.punch_count ?? 0),
-      }));
+      dayInputs = (attRows ?? []).map((row) => {
+        const staffId = String(row.staff_id);
+        const meta = staffById.get(staffId);
+        return {
+          staff_id: staffId,
+          work_date: row.work_date ? String(row.work_date).slice(0, 10) : null,
+          status: String(row.status ?? ""),
+          late_minutes: Number(row.late_minutes ?? 0),
+          missed_punch: Boolean(row.missed_punch),
+          overtime_minutes: Number(row.overtime_minutes ?? 0),
+          worked_minutes: Number(row.worked_minutes ?? 0),
+          punch_count: Number(row.punch_count ?? 0),
+          actual_in: row.actual_in ? String(row.actual_in) : null,
+          actual_out: row.actual_out ? String(row.actual_out) : null,
+          scheduled_in: row.scheduled_in ? String(row.scheduled_in) : null,
+          scheduled_out: row.scheduled_out ? String(row.scheduled_out) : null,
+          employment_type: meta?.employment_type ?? null,
+          flexible_attendance: Boolean(meta?.flexible_attendance),
+        };
+      });
       for (const row of aggregatePayrollRows(dayInputs)) {
-        presentDaysByStaff.set(row.staffId, row.daysPresent);
         unpaidAttendanceByStaff.set(row.staffId, {
           absent: row.daysAbsent,
           unpaidLeave: row.daysUnpaidLeave,
@@ -547,12 +524,6 @@ export const generatePayrollLines = createAuthenticatedAction(
         );
       }
       const exitDate = ext?.last_working_date ?? ext?.releasing_date ?? null;
-      const leaveUnpaid = unpaidLeaveDaysForStaff(
-        (leaveRows ?? []) as Parameters<typeof unpaidLeaveDaysForStaff>[0],
-        s.id,
-        dateFrom,
-        dateTo,
-      );
       const employmentCategory = ext?.employment_category ?? s.employment_type;
       const { dailyPay, dayRateQar } = resolveDailyRatePayroll({
         employmentType: s.employment_type,
@@ -561,29 +532,33 @@ export const generatePayrollLines = createAuthenticatedAction(
         dailyRateQar: dailyStored,
       });
       const dailyRate = dayRateQar ?? (basic > 0 ? basic / 30 : null);
-      const presentDays = presentDaysByStaff.get(s.id) ?? 0;
       const attUnpaid = unpaidAttendanceByStaff.get(s.id) ?? { absent: 0, unpaidLeave: 0 };
-      // Monthly: full basic (hire/exit proration) minus unpaid absences (AT#12).
-      // Joker/daily: day_rate × present — unpaid days do not also deduct.
-      const unpaidDays = dailyPay
-        ? 0
-        : mergeUnpaidDaysForPayroll({
-            leaveUnpaidDays: leaveUnpaid,
-            attendanceAbsentDays: attUnpaid.absent,
-            attendanceUnpaidLeaveDays: attUnpaid.unpaidLeave,
-          });
-      const proration = dailyPay
-        ? { factor: 1, unpaidLeaveDays: 0, activeDays: presentDays, periodDays: presentDays }
-        : computeProrationFactor({
-            dateFrom,
-            dateTo,
-            hireDate: s.hire_date,
-            exitDate,
-            unpaidLeaveDays: unpaidDays,
-          });
-      const basicForLine = dailyPay
-        ? computeDailyRateBasicQar(dayRateQar ?? 0, presentDays)
-        : basic;
+      // Hire/exit clips which listing days count. Earned pay is daily rate × those worked days
+      // for every employment type — not full monthly basic minus absences.
+      const activeWindow = computeProrationFactor({
+        dateFrom,
+        dateTo,
+        hireDate: s.hire_date,
+        exitDate,
+      });
+      const workedDays = countListingWorkedDays(dayInputs, s.id, {
+        from: activeWindow.activeFrom,
+        to: activeWindow.activeTo,
+      });
+      const basicForLine = resolveEarnedBasicQar({
+        dailyPay,
+        contractBasicQar: basic,
+        dailyRateQar: dayRateQar,
+        workedDays,
+      });
+      const allowanceRatio = dailyPay || !(basic > 0) ? 0 : basicForLine / basic;
+      const allowancesForLine = Math.round((allowances * allowanceRatio + Number.EPSILON) * 100) / 100;
+      const proration = {
+        factor: 1,
+        unpaidLeaveDays: 0,
+        activeDays: workedDays,
+        periodDays: activeWindow.periodDays,
+      };
 
       const staffOt = otByStaff.get(s.id) ?? [];
       const otQar = sumOtAmounts(staffOt);
@@ -595,10 +570,10 @@ export const generatePayrollLines = createAuthenticatedAction(
 
       const computed = computePayrollLineAmounts({
         basicQar: basicForLine,
-        allowancesQar: dailyPay ? 0 : allowances,
+        allowancesQar: allowancesForLine,
         otQar,
         airTicketAllowanceQar: airQar,
-        unpaidLeaveDays: unpaidDays,
+        unpaidLeaveDays: 0,
         dailyRateQar: dailyRate,
         proration,
         paymentMethod,
@@ -632,11 +607,11 @@ export const generatePayrollLines = createAuthenticatedAction(
         employment_category: employmentCategory ?? null,
         earnings: [
           ...computed.earnings.map((e) =>
-            dailyPay && e.code === "basic"
+            e.code === "basic"
               ? {
                   ...e,
-                  label: "Day rate × present days",
-                  meta: { dayRateQar: dayRateQar ?? dailyRate, presentDays },
+                  label: "Daily rate × worked days",
+                  meta: { dayRateQar: dailyRate, workedDays, dailyPay },
                 }
               : e,
           ),
@@ -660,22 +635,21 @@ export const generatePayrollLines = createAuthenticatedAction(
         wps_eligible: computed.wpsEligible,
         variance_vs_prev: computed.varianceVsPrev,
         proration_factor: computed.prorationFactor,
-        working_days: presentDays,
+        working_days: workedDays,
         notes: noteParts.length ? noteParts.join("; ") : null,
         snapshot: {
-          presentDays,
+          presentDays: workedDays,
           absentDays: attUnpaid.absent,
-          unpaidLeaveDays: unpaidDays,
-          dayRateQar: dailyPay ? dayRateQar : null,
+          unpaidLeaveDays: 0,
+          dayRateQar: dailyRate,
           payrollReady: ready?.payrollReady ?? true,
           blockingDays: ready?.blockingDays ?? 0,
           missedPunches: ready?.missedPunches ?? 0,
-          // Contract/authorized basic for monthly; day_rate×present for jokers.
-          basicSalary: hasComp ? (dailyPay ? basicForLine : basic) : null,
-          allowances: dailyPay ? 0 : allowances,
+          basicSalary: hasComp ? basicForLine : null,
+          allowances: allowancesForLine,
           earnedGross: computed.grossQar,
           deduction: Math.round((deductionTotal + Number.EPSILON) * 100) / 100,
-          workingDays: presentDays,
+          workingDays: workedDays,
           missingCompensation: !hasComp,
         },
       });

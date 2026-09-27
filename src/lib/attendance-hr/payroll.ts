@@ -1,19 +1,7 @@
-export const PAYROLL_BLOCKING_STATUSES = new Set(["missed_punch", "incomplete", "short_hours", "review_required"]);
+import { isAttendanceListingWorkedDay } from "@/lib/attendance-hr/export-workbook";
+import type { AttendanceHrReportRow } from "@/lib/attendance-hr/report";
 
-/**
- * Days the employee was on site — includes late / OT / short hours / single-punch
- * (still blocking when incomplete). Used for joker day_rate × present days.
- */
-export const PAYROLL_PRESENT_STATUSES = new Set([
-  "present",
-  "late",
-  "overtime",
-  "early_departure",
-  "early_leave",
-  "short_hours",
-  "missed_punch",
-  "review_required",
-]);
+export const PAYROLL_BLOCKING_STATUSES = new Set(["missed_punch", "incomplete", "short_hours", "review_required"]);
 
 export const PAYROLL_BLOCK_REASON_LABELS: Record<string, string> = {
   missed_punch: "Missed punch",
@@ -33,6 +21,14 @@ export type PayrollDayInput = {
   overtime_minutes?: number | null;
   worked_minutes?: number | null;
   punch_count?: number | null;
+  /** Listing resolver uses punches, not the stored status alone. */
+  actual_in?: string | null;
+  actual_out?: string | null;
+  scheduled_in?: string | null;
+  scheduled_out?: string | null;
+  expected_minutes?: number | null;
+  employment_type?: string | null;
+  flexible_attendance?: boolean | null;
 };
 
 export type PayrollBlockReason = {
@@ -71,8 +67,60 @@ export function isPayrollBlockingDay(row: Pick<PayrollDayInput, "status" | "miss
   return PAYROLL_BLOCKING_STATUSES.has(String(row.status ?? ""));
 }
 
-export function isPayrollPresentDay(row: Pick<PayrollDayInput, "status">): boolean {
-  return PAYROLL_PRESENT_STATUSES.has(String(row.status ?? ""));
+/** Same Present/Late day the attendance listing counts as a worked day. */
+export function payrollDayToListingRow(day: PayrollDayInput): AttendanceHrReportRow {
+  return {
+    id: `${day.staff_id ?? ""}:${String(day.work_date ?? "").slice(0, 10)}`,
+    location_id: "",
+    staff_id: day.staff_id,
+    biometric_user_id: null,
+    work_date: String(day.work_date ?? "").slice(0, 10),
+    status: String(day.status ?? ""),
+    actual_in: day.actual_in ?? null,
+    actual_out: day.actual_out ?? null,
+    scheduled_in: day.scheduled_in ?? null,
+    scheduled_out: day.scheduled_out ?? null,
+    late_minutes: Number(day.late_minutes ?? 0),
+    early_leave_minutes: 0,
+    overtime_minutes: Number(day.overtime_minutes ?? 0),
+    missed_punch: Boolean(day.missed_punch),
+    punch_count: Number(day.punch_count ?? 0),
+    worked_minutes: day.worked_minutes ?? null,
+    employment_type: day.employment_type ?? null,
+    staff_name: day.staff_name ?? null,
+    employee_code: day.employee_code ?? null,
+    qid: null,
+    location_code: null,
+    location_name: null,
+    location_region: null,
+    expected_minutes: day.expected_minutes ?? null,
+    flexible_attendance: Boolean(day.flexible_attendance),
+  };
+}
+
+export function isPayrollPresentDay(row: PayrollDayInput): boolean {
+  return isAttendanceListingWorkedDay(payrollDayToListingRow(row));
+}
+
+/** Worked days inside an optional hire/exit window. One row per staff+date after listing collapse. */
+export function countListingWorkedDays(
+  days: PayrollDayInput[],
+  staffId: string,
+  bounds?: { from?: string | null; to?: string | null },
+): number {
+  const from = bounds?.from?.slice(0, 10) ?? "";
+  const to = bounds?.to?.slice(0, 10) ?? "";
+  if (from && to && from > to) return 0;
+  let count = 0;
+  for (const day of collapsePayrollDayInputs(days)) {
+    if (day.staff_id !== staffId) continue;
+    const ymd = String(day.work_date ?? "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) continue;
+    if (from && ymd < from) continue;
+    if (to && ymd > to) continue;
+    if (isPayrollPresentDay(day)) count += 1;
+  }
+  return count;
 }
 
 export function isPayrollReady(row: Pick<PayrollStaffRow, "blockingDays" | "missedPunches">): boolean {

@@ -10,6 +10,7 @@ import {
   computeDailyRateBasicQar,
   computePayrollLineAmounts,
   computeProrationFactor,
+  resolveEarnedBasicQar,
   fecPeriodForMonth,
   filterConsumableOtClaims,
   isDailyRateCompensation,
@@ -57,6 +58,34 @@ describe("daily-rate joker pay", () => {
       }),
     ).toEqual({ dailyPay: false, dayRateQar: null });
     expect(computeDailyRateBasicQar(150, 12)).toBe(1800);
+  });
+
+  it("pays monthly staff from listing worked days, not the full basic", () => {
+    const contract = 7800;
+    const earned = resolveEarnedBasicQar({
+      dailyPay: false,
+      contractBasicQar: contract,
+      dailyRateQar: null,
+      workedDays: 10,
+    });
+    expect(earned).toBe(2600);
+    expect(earned).not.toBe(contract);
+    expect(
+      resolveEarnedBasicQar({
+        dailyPay: false,
+        contractBasicQar: contract,
+        dailyRateQar: null,
+        workedDays: 0,
+      }),
+    ).toBe(0);
+    expect(
+      resolveEarnedBasicQar({
+        dailyPay: true,
+        contractBasicQar: contract,
+        dailyRateQar: 150,
+        workedDays: 10,
+      }),
+    ).toBe(1500);
   });
 });
 

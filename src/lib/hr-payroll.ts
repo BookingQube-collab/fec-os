@@ -147,7 +147,15 @@ export function computeProrationFactor(input: {
   exitDate?: string | null;
   unpaidLeaveDays?: number;
   daysPerMonth?: number;
-}): { factor: number; activeDays: number; periodDays: number; unpaidLeaveDays: number } {
+}): {
+  factor: number;
+  activeDays: number;
+  periodDays: number;
+  unpaidLeaveDays: number;
+  /** Inclusive hire/exit clip of the period. Worked-day pay counts only inside this window. */
+  activeFrom: string;
+  activeTo: string;
+} {
   const from = input.dateFrom.slice(0, 10);
   const to = input.dateTo.slice(0, 10);
   const periodDays = Math.max(1, daysBetweenInclusive(from, to));
@@ -164,7 +172,7 @@ export function computeProrationFactor(input: {
   const denom = Math.max(1, input.daysPerMonth ?? 30);
   const base = Math.min(periodDays, denom);
   const factor = Math.min(1, activeDays / base);
-  return { factor, activeDays, periodDays, unpaidLeaveDays: unpaid };
+  return { factor, activeDays, periodDays, unpaidLeaveDays: unpaid, activeFrom, activeTo };
 }
 
 function daysBetweenInclusive(from: string, to: string): number {
@@ -243,9 +251,31 @@ export function resolveDailyRatePayroll(input: {
   return { dailyPay: false, dayRateQar: daily };
 }
 
-/** Joker / daily workers: day_rate × countable present (punch) days. */
+/** Day rate × attendance-listing worked days. */
 export function computeDailyRateBasicQar(dayRateQar: number, presentDays: number): number {
   return round2(Math.max(0, Number(dayRateQar) || 0) * Math.max(0, Number(presentDays) || 0));
+}
+
+/**
+ * Earned basic from the attendance listing worked-day count.
+ * Joker / day-rate: stored day rate × worked days.
+ * Monthly (permanent / secondment): existing daily rate (daily_rate_qar, else contract ÷ 30) × worked days.
+ * This is not full monthly basic with a zero absence deduction.
+ */
+export function resolveEarnedBasicQar(input: {
+  dailyPay: boolean;
+  contractBasicQar: number;
+  dailyRateQar: number | null;
+  workedDays: number;
+}): number {
+  const storedDaily =
+    input.dailyRateQar != null && Number.isFinite(Number(input.dailyRateQar)) && Number(input.dailyRateQar) > 0
+      ? Number(input.dailyRateQar)
+      : null;
+  const rate = input.dailyPay
+    ? Number(input.dailyRateQar) || 0
+    : (storedDaily ?? (Number(input.contractBasicQar) || 0) / 30);
+  return computeDailyRateBasicQar(rate, input.workedDays);
 }
 
 /**

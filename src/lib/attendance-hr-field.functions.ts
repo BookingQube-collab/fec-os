@@ -553,7 +553,7 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
     const { data: rows, error } = await supabaseAdmin
       .from("attendance_daily_summary")
       .select(
-        "staff_id, location_id, work_date, status, late_minutes, missed_punch, overtime_minutes, worked_minutes, punch_count, staff(full_name, employee_code), locations(code, name)",
+        "staff_id, location_id, work_date, status, late_minutes, missed_punch, overtime_minutes, worked_minutes, punch_count, actual_in, actual_out, scheduled_in, scheduled_out, staff(full_name, employee_code, employment_type, flexible_attendance), locations(code, name)",
       )
       .gte("work_date", data.dateFrom)
       .lte("work_date", data.dateTo)
@@ -595,6 +595,8 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
       }
       const fullName = String((staffJoin as { full_name?: string } | null)?.full_name ?? "").trim();
       const employeeCode = String((staffJoin as { employee_code?: string } | null)?.employee_code ?? "");
+      const employmentType = (staffJoin as { employment_type?: string | null } | null)?.employment_type ?? null;
+      const flexible = Boolean((staffJoin as { flexible_attendance?: boolean | null } | null)?.flexible_attendance);
       return {
         staff_id: staffId,
         staff_name: fullName || null,
@@ -606,6 +608,12 @@ export const getPayrollAttendanceSummary = createAuthenticatedAction(
         overtime_minutes: Number(row.overtime_minutes ?? 0),
         worked_minutes: Number(row.worked_minutes ?? 0),
         punch_count: Number(row.punch_count ?? 0),
+        actual_in: row.actual_in ? String(row.actual_in) : null,
+        actual_out: row.actual_out ? String(row.actual_out) : null,
+        scheduled_in: row.scheduled_in ? String(row.scheduled_in) : null,
+        scheduled_out: row.scheduled_out ? String(row.scheduled_out) : null,
+        employment_type: employmentType,
+        flexible_attendance: flexible,
       };
     });
 

@@ -310,6 +310,16 @@ export function resolveHrAttendanceStatus(row: AttendanceHrReportRow): string {
   return getAttendanceLabelFallback(resolved);
 }
 
+/**
+ * Attendance listing worked day (employee-summary "Present Days").
+ * Checked-in / worked: Attendance Status Present or Late, including a single punch.
+ * Weekly off, leave, absent, and punchless missed punch are not worked days.
+ */
+export function isAttendanceListingWorkedDay(row: AttendanceHrReportRow): boolean {
+  const att = resolveHrAttendanceStatus(row);
+  return att === "Present" || att === "Late";
+}
+
 function getAttendanceLabelFallback(key: string): string {
   if (!key) return "Pending Review";
   return key
@@ -449,7 +459,6 @@ function aggregateEmployees(
     const cur = byStaff.get(key) ?? emptyAgg(row);
     const listing = listingOf(row);
     const status = resolveHoursBasedAttendanceStatus(listing);
-    const att = resolveHrAttendanceStatus(row);
     const punch = resolveHrPunchStatus(row);
     if (!cur.code && blank(row.employee_code)) cur.code = blank(row.employee_code);
     if (blank(row.staff_name)) cur.name = attendanceHrExportStaffName(row);
@@ -459,7 +468,7 @@ function aggregateEmployees(
     if (!cur.employmentType && blank(row.employment_type)) cur.employmentType = blank(row.employment_type);
 
     cur.scheduledDays += 1;
-    if (att === "Present" || att === "Late") cur.presentDays += 1;
+    if (isAttendanceListingWorkedDay(row)) cur.presentDays += 1;
     if (status === "absent") cur.absentDays += 1;
     if (status === "annual_leave") cur.paidLeave += 1;
     if (status === "sick_leave") cur.sickLeave += 1;
@@ -606,8 +615,7 @@ function buildHrSummary(
     if (isScheduledDay(status) || LEAVE_STATUSES.has(status) || status === "weekly_off" || status === "public_holiday") {
       scheduledDays += 1;
     }
-    const att = resolveHrAttendanceStatus(row);
-    if (att === "Present" || att === "Late") presentDays += 1;
+    if (isAttendanceListingWorkedDay(row)) presentDays += 1;
     if (status === "absent") absentDays += 1;
     if (status === "weekly_off") weeklyOff += 1;
     if (LEAVE_STATUSES.has(status)) leaveDays += 1;
@@ -649,8 +657,7 @@ function buildHrSummary(
     const code = locationCodeOf(row) || "OTHER";
     const s = ensureLoc(code);
     if (row.staff_id) s.employees.add(row.staff_id);
-    const att = resolveHrAttendanceStatus(row);
-    if (att === "Present" || att === "Late") s.present += 1;
+    if (isAttendanceListingWorkedDay(row)) s.present += 1;
     if (resolveHoursBasedAttendanceStatus(listingOf(row)) === "absent") s.absent += 1;
     if (Number(row.late_minutes) > 0) s.late += 1;
     if (Number(row.early_leave_minutes) > 0) s.early += 1;

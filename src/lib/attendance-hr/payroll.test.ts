@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
+import { resolveEarnedBasicQar } from "@/lib/hr-payroll";
+
 import {
   aggregatePayrollRows,
+  countListingWorkedDays,
   formatPayrollBlockReasons,
   isPayrollBlockingDay,
   isPayrollReady,
@@ -51,7 +54,7 @@ describe("payroll readiness", () => {
     expect(isPayrollReady(rows[0])).toBe(true);
   });
 
-  it("marks a missed punch as not payroll-ready but still present for day-rate pay", () => {
+  it("marks a checked-in missed punch as not payroll-ready but still a listing worked day", () => {
     const [row] = aggregatePayrollRows([
       {
         staff_id: "b",
@@ -59,6 +62,8 @@ describe("payroll readiness", () => {
         work_date: "2026-08-03",
         status: "missed_punch",
         missed_punch: true,
+        actual_in: "2026-08-03T04:00:00.000Z",
+        actual_out: null,
         worked_minutes: 240,
       },
     ]);
@@ -219,5 +224,53 @@ describe("payroll readiness", () => {
       },
     ]);
     expect(row.daysPresent).toBe(1);
+  });
+
+  it("counts listing worked days, including a stale absent row that has punches", () => {
+    const days = [
+      {
+        staff_id: "s",
+        staff_name: "Sara",
+        work_date: "2026-09-01",
+        status: "absent",
+        actual_in: "2026-09-01T05:00:00.000Z",
+        actual_out: "2026-09-01T14:00:00.000Z",
+        worked_minutes: 540,
+        punch_count: 2,
+      },
+      {
+        staff_id: "s",
+        staff_name: "Sara",
+        work_date: "2026-09-02",
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        punch_count: 0,
+      },
+      {
+        staff_id: "s",
+        staff_name: "Sara",
+        work_date: "2026-09-03",
+        status: "weekly_off",
+      },
+      {
+        staff_id: "s",
+        staff_name: "Sara",
+        work_date: "2026-09-04",
+        status: "missed_punch",
+        missed_punch: true,
+      },
+    ];
+    expect(countListingWorkedDays(days, "s")).toBe(1);
+    const [row] = aggregatePayrollRows(days);
+    expect(row.daysPresent).toBe(1);
+    const earned = resolveEarnedBasicQar({
+      dailyPay: false,
+      contractBasicQar: 7800,
+      dailyRateQar: null,
+      workedDays: 10,
+    });
+    expect(earned).not.toBe(7800);
+    expect(earned).toBe(2600);
   });
 });
