@@ -161,7 +161,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
 
     const [locationId, setLocationId] = useState(defaultLocationId ?? "");
     const [staffId, setStaffId] = useState("");
-    const [departmentId, setDepartmentId] = useState("");
+    const [excludedDepartmentIds, setExcludedDepartmentIds] = useState<string[]>([]);
     const [sourceFilter, setSourceFilter] = useState<RosterSourceFilter>("all");
     const [query, setQuery] = useState("");
     const [viewMode, setViewMode] = useState<ViewMode>("grid");
@@ -177,7 +177,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       () => ({
         locationId: locationId || null,
         staffId: staffId || null,
-        departmentId: departmentId || null,
+        excludedDepartmentIds: excludedDepartmentIds.length ? excludedDepartmentIds : undefined,
         dateFrom,
         dateTo,
         sourceUploadOnly,
@@ -186,7 +186,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
             ? (sourceFilter as "upload" | "amend" | "manual" | "copied")
             : null,
       }),
-      [locationId, staffId, departmentId, dateFrom, dateTo, sourceUploadOnly, sourceFilter],
+      [locationId, staffId, excludedDepartmentIds, dateFrom, dateTo, sourceUploadOnly, sourceFilter],
     );
 
     const register = useQuery({
@@ -228,7 +228,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     const hasExtraFilters = rosterRegisterHasExtraFilters({
       locationId,
       staffId,
-      departmentId,
+      excludedDepartmentIds,
       sourceUploadOnly,
       source: !sourceUploadOnly && sourceFilter !== "all" ? sourceFilter : null,
       search: query,
@@ -282,7 +282,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
         deleteRosterAssignments({
           locationId: locationId || null,
           staffId: staffId || null,
-          departmentId: departmentId || null,
+          excludedDepartmentIds: excludedDepartmentIds.length ? excludedDepartmentIds : undefined,
           dateFrom,
           dateTo,
           sourceUploadOnly,
@@ -591,10 +591,15 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
           <div className="space-y-1.5">
             <Label>{t("people.roster.registerFilterDepartment")}</Label>
             <SearchableSelect
-              value={departmentId}
-              onValueChange={setDepartmentId}
+              multiple
+              exclude
+              values={excludedDepartmentIds}
+              onValuesChange={setExcludedDepartmentIds}
+              placeholder={t("people.roster.registerAllDepartments")}
               emptyOption={{ value: "", label: t("people.roster.registerAllDepartments") }}
+              selectedCountLabel={(count) => t("people.roster.registerDepartmentsExcluding", { count })}
               options={departmentOptions}
+              aria-label={t("people.roster.registerFilterDepartment")}
             />
           </div>
           {showSource ? (

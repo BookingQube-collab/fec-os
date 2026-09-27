@@ -12,6 +12,7 @@ import {
   rosterMatrixCellKey,
   rosterMonthSpans,
   rosterPatchFromDayStatus,
+  rosterHiddenStaffIds,
   rosterRegisterHasExtraFilters,
   rosterRowMatchesSearch,
 } from "./roster-register-scope";
@@ -38,6 +39,8 @@ describe("roster register bulk-delete scope", () => {
     expect(rosterRegisterHasExtraFilters({ locationId: "loc-1" })).toBe(true);
     expect(rosterRegisterHasExtraFilters({ staffId: "staff-1" })).toBe(true);
     expect(rosterRegisterHasExtraFilters({ departmentId: "dept-1" })).toBe(true);
+    expect(rosterRegisterHasExtraFilters({ excludedDepartmentIds: [] })).toBe(false);
+    expect(rosterRegisterHasExtraFilters({ excludedDepartmentIds: ["fb"] })).toBe(true);
     expect(rosterRegisterHasExtraFilters({ search: "wasanthi" })).toBe(true);
     expect(rosterRegisterHasExtraFilters({ source: "upload" })).toBe(true);
   });
@@ -49,6 +52,19 @@ describe("roster register bulk-delete scope", () => {
     expect(rosterRowMatchesSearch(row, "upload")).toBe(true);
     expect(rosterRowMatchesSearch(row, "other-site")).toBe(false);
     expect(rosterRowMatchesSearch(row, "")).toBe(true);
+  });
+
+  it("hides staff only when every one of their departments is unchecked", () => {
+    const links = [
+      { staffId: "cafe", departmentId: "fb" },
+      { staffId: "both", departmentId: "fb" },
+      { staffId: "both", departmentId: "sec" },
+      { staffId: "sec", departmentId: "sec" },
+    ];
+    expect(rosterHiddenStaffIds(links, [])).toEqual(new Set());
+    expect(rosterHiddenStaffIds(links, ["fb"])).toEqual(new Set(["cafe"]));
+    expect(rosterHiddenStaffIds(links, ["fb", "sec"])).toEqual(new Set(["cafe", "both", "sec"]));
+    expect(rosterHiddenStaffIds([], ["fb"])).toEqual(new Set());
   });
 
   it("narrows client rows by staff and search without leaving the period set", () => {

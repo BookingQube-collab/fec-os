@@ -15,6 +15,7 @@ import {
   collectPagedRows,
   rosterAmendRecalcLocationIds,
   isRosterLeaveType,
+  rosterHiddenStaffIds,
   rosterPatchFromDayStatus,
   rosterRowMatchesSearch,
   type RosterDayStatus,
@@ -151,11 +152,47 @@ async function staffIdsForDepartment(
   return [...new Set((links ?? []).map((row) => row.staff_id).filter((id): id is string => Boolean(id)))];
 }
 
+/** Staff to drop when departments are unchecked. Empty exclusion set skips the lookup. */
+async function hiddenStaffIdsForExcludedDepartments(
+  supabase: AuthContext["supabase"],
+  excludedDepartmentIds: readonly string[] | null | undefined,
+): Promise<Set<string>> {
+  const excluded = [...new Set((excludedDepartmentIds ?? []).filter(Boolean))];
+  if (excluded.length === 0) return new Set();
+
+  const candidateIds = new Set<string>();
+  for (const ids of chunkIds(excluded, 200)) {
+    const { data, error } = await supabase.from("staff_departments").select("staff_id").in("department_id", ids);
+    if (error) throw error;
+    for (const row of data ?? []) {
+      if (row.staff_id) candidateIds.add(String(row.staff_id));
+    }
+  }
+  if (candidateIds.size === 0) return new Set();
+
+  const links: { staffId: string; departmentId: string }[] = [];
+  for (const ids of chunkIds([...candidateIds], 200)) {
+    const { data, error } = await supabase
+      .from("staff_departments")
+      .select("staff_id, department_id")
+      .in("staff_id", ids);
+    if (error) throw error;
+    for (const row of data ?? []) {
+      if (row.staff_id && row.department_id) {
+        links.push({ staffId: String(row.staff_id), departmentId: String(row.department_id) });
+      }
+    }
+  }
+  return rosterHiddenStaffIds(links, excluded);
+}
+
 export const listUploadedRosterAssignments = createAuthenticatedAction(
   z.object({
     locationId: z.string().uuid().nullable().optional(),
     staffId: z.string().uuid().nullable().optional(),
     departmentId: z.string().uuid().nullable().optional(),
+    /** Unchecked departments. Empty keeps every department on the roster. */
+    excludedDepartmentIds: z.array(z.string().uuid()).optional(),
     dateFrom: ymd,
     dateTo: ymd,
     /** When true, only upload + amend rows (legacy import register). */
@@ -190,7 +227,7 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
       source: string | null;
       created_at: string | null;
     };
-    const assignments = await collectPagedRows<AssignmentPageRow>(async (from, to) => {
+    let assignments = await collectPagedRows<AssignmentPageRow>(async (from, to) => {
       let q = context.supabase
         .from("attendance_roster_assignments")
         .select(
@@ -213,6 +250,13 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
       if (error) throw error;
       return (page ?? []) as AssignmentPageRow[];
     }, ATTENDANCE_DAILY_LIST_PAGE_SIZE);
+
+    if (data.excludedDepartmentIds?.length) {
+      const hiddenStaff = await hiddenStaffIdsForExcludedDepartments(context.supabase, data.excludedDepartmentIds);
+      if (hiddenStaff.size > 0) {
+        assignments = assignments.filter((row) => !hiddenStaff.has(String(row.staff_id)));
+      }
+    }
 
     const staffIds = [...new Set(assignments.map((row) => String(row.staff_id)).filter(Boolean))];
     const locationIds = [...new Set(assignments.map((row) => String(row.location_id)).filter(Boolean))];
@@ -545,6 +589,7 @@ const rosterScopeInput = z.object({
   locationId: z.string().uuid().nullable().optional(),
   staffId: z.string().uuid().nullable().optional(),
   departmentId: z.string().uuid().nullable().optional(),
+  excludedDepartmentIds: z.array(z.string().uuid()).optional(),
   dateFrom: ymd,
   dateTo: ymd,
   sourceUploadOnly: z.boolean().optional().default(false),
@@ -570,7 +615,7 @@ async function fetchRosterAssignmentsInScope(
     if (deptStaffIds.length === 0) return [];
   }
 
-  return collectPagedRows<RosterScopeAssignment>(async (from, to) => {
+  const assignments = await collectPagedRows<RosterScopeAssignment>(async (from, to) => {
     let q = supabase
       .from("attendance_roster_assignments")
       .select("id, location_id, staff_id, work_date, source")
@@ -588,6 +633,11 @@ async function fetchRosterAssignmentsInScope(
     if (error) throw error;
     return (page ?? []) as RosterScopeAssignment[];
   }, ATTENDANCE_DAILY_LIST_PAGE_SIZE);
+
+  if (!data.excludedDepartmentIds?.length) return assignments;
+  const hiddenStaff = await hiddenStaffIdsForExcludedDepartments(supabase, data.excludedDepartmentIds);
+  if (hiddenStaff.size === 0) return assignments;
+  return assignments.filter((row) => !hiddenStaff.has(String(row.staff_id)));
 }
 
 async function applyRosterSearchFilter(

@@ -3410,6 +3410,7 @@
       "registerAllLocations": "كل المواقع",
       "registerAllStaff": "كل الموظفين",
       "registerAllDepartments": "كل الأقسام",
+      "registerDepartmentsExcluding": "باستثناء {{count}}",
       "registerAllSources": "كل المصادر",
       "registerLoading": "جارٍ تحميل الكشف…",
       "registerLoadFailed": "تعذر تحميل سجل الورديات.",

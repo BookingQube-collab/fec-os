@@ -54,7 +54,7 @@ export function collectNodeText(node: ReactNode): string {
 }
 
 export const searchableSelectInputClassName =
-  "fec-star-border h-11 w-full rounded-lg border border-input bg-card ps-10 pe-4 text-sm text-foreground shadow-elevated-xs placeholder:text-muted-foreground focus:outline-none";
+  "h-11 w-full rounded-lg border border-input bg-card ps-10 pe-4 text-sm text-foreground shadow-elevated-xs placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/30";
 
 export function SearchableSelectSearchInput({
   value,
@@ -132,6 +132,11 @@ type SearchableSelectSingleProps = SearchableSelectBaseProps & {
 
 type SearchableSelectMultipleProps = SearchableSelectBaseProps & {
   multiple: true;
+  /**
+   * `values` are ids to hide. An empty list keeps every option checked
+   * (same default as "all included").
+   */
+  exclude?: boolean;
   values: string[];
   onValuesChange: (values: string[]) => void;
   value?: never;
@@ -155,6 +160,7 @@ export function SearchableSelect(props: SearchableSelectSingleProps | Searchable
     selectedCountLabel,
   } = props;
   const multiple = props.multiple === true;
+  const exclude = props.multiple === true && props.exclude === true;
   const { t } = useTranslation();
   const listId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -217,11 +223,16 @@ export function SearchableSelect(props: SearchableSelectSingleProps | Searchable
   );
 
   const triggerLabel = useMemo(() => {
+    if (exclude) {
+      if (selectedValues.length === 0) return emptyOption?.label ?? null;
+      if (selectedCountLabel) return selectedCountLabel(selectedValues.length);
+      return `${selectedValues.length} excluded`;
+    }
     if (selectedLabels.length === 0) return null;
     if (selectedLabels.length === 1) return selectedLabels[0];
     if (selectedCountLabel) return selectedCountLabel(selectedLabels.length);
     return `${selectedLabels.length} selected`;
-  }, [selectedLabels, selectedCountLabel, t]);
+  }, [emptyOption?.label, exclude, selectedCountLabel, selectedLabels, selectedValues.length, t]);
 
   const searchPh = searchPlaceholder ?? t("common.searchHere");
   const emptyLabel = t("common.searchNoMatches");
@@ -415,7 +426,11 @@ export function SearchableSelect(props: SearchableSelectSingleProps | Searchable
                   const i = visibleStart + offset;
                   const isActive = i === active;
                   const isClear = Boolean(emptyOption && item.value === emptyOption.value);
-                  const isSelected = isClear ? selectedValues.length === 0 : selectedSet.has(item.value);
+                  const isSelected = isClear
+                    ? selectedValues.length === 0
+                    : exclude
+                      ? !selectedSet.has(item.value)
+                      : selectedSet.has(item.value);
                   return (
                     <li key={`${item.value}-${i}`} role="presentation" className="overflow-hidden" style={{ height: rowHeight }}>
                       <button

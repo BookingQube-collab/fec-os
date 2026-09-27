@@ -3492,6 +3492,7 @@
       "registerAllLocations": "All locations",
       "registerAllStaff": "All staff",
       "registerAllDepartments": "All departments",
+      "registerDepartmentsExcluding": "Excluding {{count}}",
       "registerAllSources": "All sources",
       "registerLoading": "Loading roster…",
       "registerLoadFailed": "Could not load the roster register.",

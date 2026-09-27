@@ -6,9 +6,16 @@ export type RosterRegisterScopeFilters = {
   locationId?: string | null;
   staffId?: string | null;
   departmentId?: string | null;
+  /** Departments to hide. Empty means every department stays on the roster. */
+  excludedDepartmentIds?: readonly string[] | null;
   sourceUploadOnly?: boolean;
   source?: RosterRegisterSource | null;
   search?: string | null;
+};
+
+export type RosterStaffDepartmentLink = {
+  staffId: string;
+  departmentId: string;
 };
 
 export type RosterRegisterSearchRow = {
@@ -97,11 +104,44 @@ export function buildRosterMatrix<
   return { dates, staff, byStaffDate, monthSpans: rosterMonthSpans(dates) };
 }
 
+/**
+ * Staff who disappear when departments are unchecked.
+ * A person stays if they still belong to a checked department, or if they have no department.
+ * `links` must include every department for each candidate, not only the excluded ones.
+ */
+export function rosterHiddenStaffIds(
+  links: readonly RosterStaffDepartmentLink[],
+  excludedDepartmentIds: readonly string[] | null | undefined,
+): Set<string> {
+  const excluded = new Set((excludedDepartmentIds ?? []).filter(Boolean));
+  if (excluded.size === 0) return new Set();
+  const byStaff = new Map<string, Set<string>>();
+  for (const link of links) {
+    if (!link.staffId || !link.departmentId) continue;
+    const departments = byStaff.get(link.staffId);
+    if (departments) departments.add(link.departmentId);
+    else byStaff.set(link.staffId, new Set([link.departmentId]));
+  }
+  const hidden = new Set<string>();
+  for (const [staffId, departmentIds] of byStaff) {
+    let onlyExcluded = departmentIds.size > 0;
+    for (const departmentId of departmentIds) {
+      if (!excluded.has(departmentId)) {
+        onlyExcluded = false;
+        break;
+      }
+    }
+    if (onlyExcluded) hidden.add(staffId);
+  }
+  return hidden;
+}
+
 /** True when anything besides the selected period narrows the register. */
 export function rosterRegisterHasExtraFilters(filters: RosterRegisterScopeFilters): boolean {
   if (filters.locationId) return true;
   if (filters.staffId) return true;
   if (filters.departmentId) return true;
+  if (filters.excludedDepartmentIds?.some(Boolean)) return true;
   if (filters.search?.trim()) return true;
   if (!filters.sourceUploadOnly && filters.source) return true;
   return false;
