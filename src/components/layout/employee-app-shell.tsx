@@ -1,6 +1,5 @@
 "use client";
 
-import type { ReactNode } from "react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 
@@ -8,10 +7,12 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { applyLanguageToDocument, type SupportedLanguage } from "@/i18n";
 import { useAppStore } from "@/stores/app-store";
-import { AppErrorBoundary } from "@/components/diagnostics/error-boundary";
-import { HrFieldSync } from "@/components/attendance-hr/hr-field-sync";
 
-export function EmployeeAppShell({ children }: { children: ReactNode }) {
+/**
+ * Phone chrome for /hr/me. Hidden from `md` up — desktop uses AppSidebar + AppTopbar.
+ * CSS only (`md:hidden`); do not gate on matchMedia.
+ */
+export function EmployeeMobileHeader() {
   const { t, i18n } = useTranslation();
   const { signOut } = useAuth();
   const language = useAppStore((s) => s.language);
@@ -25,30 +26,26 @@ export function EmployeeAppShell({ children }: { children: ReactNode }) {
   };
 
   return (
-    <div className="min-h-dvh bg-background text-foreground">
-      <HrFieldSync />
-      <header className="sticky top-0 z-30 border-b border-border/70 bg-background/95 px-4 py-3 backdrop-blur">
-        <div className="mx-auto flex max-w-lg items-center justify-between gap-2">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("hr.me.brand")}</p>
-            <p className="text-sm font-semibold">{t("hr.me.title")}</p>
-          </div>
-          <div className="flex items-center gap-1">
-            <Button type="button" size="sm" variant="ghost" onClick={toggleLanguage}>
-              {language === "en" ? "AR" : "EN"}
-            </Button>
-            <Button type="button" size="sm" variant="ghost" asChild>
-              <Link href="/">{t("hr.me.opsConsole")}</Link>
-            </Button>
-            <Button type="button" size="sm" variant="secondary" onClick={() => void signOut()}>
-              {t("common.signOut")}
-            </Button>
-          </div>
+    <header className="sticky top-0 z-30 -mx-4 mb-2 border-b border-border/70 bg-background/95 px-4 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2 backdrop-blur md:hidden">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <p className="truncate text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            {t("hr.me.brand")}
+          </p>
+          <p className="truncate text-sm font-bold tracking-tight">{t("hr.me.title")}</p>
         </div>
-      </header>
-      <main className="mx-auto max-w-lg px-4 py-4 pb-10">
-        <AppErrorBoundary>{children}</AppErrorBoundary>
-      </main>
-    </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button type="button" size="sm" variant="ghost" className="h-9 px-2" onClick={toggleLanguage}>
+            {language === "en" ? "AR" : "EN"}
+          </Button>
+          <Button type="button" size="sm" variant="ghost" className="h-9 px-2" asChild>
+            <Link href="/">{t("hr.me.opsConsole")}</Link>
+          </Button>
+          <Button type="button" size="sm" variant="secondary" className="h-9 px-2" onClick={() => void signOut()}>
+            {t("common.signOut")}
+          </Button>
+        </div>
+      </div>
+    </header>
   );
 }

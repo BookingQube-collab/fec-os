@@ -4,39 +4,67 @@
 
 import { HR_PAYROLL_CURRENCY, type HrPayrollPaymentMethod } from "@/lib/hr-payroll";
 
-export const PAYROLL_FULL_EXPORT_HEADERS = [
-  "Sr No",
-  "Employee Code",
-  "Employee",
-  "Position",
-  "Workplace",
-  "Employment Type",
-  "Basic Salary",
-  "Allowances",
-  "Gross Salary",
-  "Working Days",
-  "Working Hours",
-  "Earned Gross",
-  "Bonus",
-  "Regular OT Hours",
-  "Regular OT Pay",
-  "Public Holiday OT Hours",
-  "Public Holiday OT Pay",
-  "Extra Pay",
-  "Advance Pay",
-  "Deduction",
-  "Net Payable",
-  "WPS",
-  "Cash",
-  "Bank Transfer",
-  "Cheque",
-  "Payment Method",
-  "Review Status",
-  "Excel Net",
-  "System Net",
-  "Variance",
-  "Notes",
+const MONTH_NAMES = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
 ] as const;
+
+/** "2026-08" → "August 2026" (August workbook sheet title). */
+export function payrollMonthSheetLabel(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  const name = MONTH_NAMES[(m ?? 1) - 1] ?? "Payroll";
+  return `${name} ${y || ""}`.trim();
+}
+
+/** August sheet earned column: "Gross Salary-August2026". */
+export function payrollEarnedHeader(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  const name = MONTH_NAMES[(m ?? 1) - 1] ?? "Period";
+  return `Gross Salary-${name}${y || ""}`;
+}
+
+/** Column order of the August 2026 monthly sheet (blank code header named Employee Code). */
+export function augustPayrollHeaders(month = "2026-08"): string[] {
+  return [
+    "Sr No.",
+    "Employee Code",
+    "Name Of Staff",
+    "Position",
+    "Workplace",
+    "Basic Salary",
+    "Allowances",
+    "Gross Salary",
+    "Working Days",
+    "Working Hours",
+    payrollEarnedHeader(month),
+    "Bonus",
+    "OT Hours (REG)",
+    "OT Pay (REG)",
+    "OT HRS(PUB.HOL)",
+    "OT Pay (PUB.HOL)",
+    "Extra Pay",
+    "Advance Pay",
+    "Deduction",
+    "Net Payable",
+    "WPS",
+    "Cash",
+    "Bank Transfer",
+    "Cheq",
+    "NOTES",
+  ];
+}
+
+export const PAYROLL_FULL_EXPORT_HEADERS = augustPayrollHeaders("2026-08");
 
 export type PayrollExportLineInput = {
   srNo?: number | null;
@@ -63,27 +91,49 @@ function money(v: number): string {
   return (Math.round((v + Number.EPSILON) * 100) / 100).toFixed(2);
 }
 
-export function buildFullPayrollExportMatrix(lines: PayrollExportLineInput[]): string[][] {
-  const header = [...PAYROLL_FULL_EXPORT_HEADERS];
+function numOr(snap: Record<string, unknown>, key: string, fallbackKey?: string): number {
+  if (snap[key] != null && snap[key] !== "") return Number(snap[key]) || 0;
+  if (fallbackKey) return Number(snap[fallbackKey]) || 0;
+  return 0;
+}
+
+function payBuckets(pm: string, net: number, snap: Record<string, unknown>) {
+  const wps = n(snap, "wps");
+  const cash = n(snap, "cash");
+  const bank = n(snap, "bankTransfer");
+  const cheq = n(snap, "cheque");
+  if (wps + cash + bank + cheq > 0) return { wps, cash, bank, cheq };
+  return {
+    wps: pm === "wps" ? net : 0,
+    cash: pm === "cash" ? net : 0,
+    bank: pm === "bank_transfer" ? net : 0,
+    cheq: pm === "cheque" ? net : 0,
+  };
+}
+
+/** Full payroll sheet in the August 2026 monthly column order. */
+export function buildFullPayrollExportMatrix(
+  lines: PayrollExportLineInput[],
+  opts?: { month?: string | null },
+): string[][] {
+  const month = opts?.month ?? "2026-08";
+  const header = augustPayrollHeaders(month);
   const rows = lines.map((line, idx) => {
     const snap = line.snapshot ?? {};
     const net = line.netQar;
     const pm = String(line.paymentMethod);
-    const wps = pm === "wps" ? net : n(snap, "wps");
-    const cash = pm === "cash" ? net : n(snap, "cash");
-    const bank = pm === "bank_transfer" ? net : n(snap, "bankTransfer");
-    const cheq = pm === "cheque" ? net : n(snap, "cheque");
+    const pay = payBuckets(pm, net, snap);
+    const days = snap.workingDays != null ? n(snap, "workingDays") : 0;
     return [
       String(line.srNo ?? idx + 1),
       line.employeeCode,
       line.employeeName,
       line.position ?? String(snap.position ?? ""),
       line.workplace ?? String(snap.workplace ?? ""),
-      line.employmentCategory ?? String(snap.category ?? ""),
-      money(n(snap, "basicSalary")),
-      money(n(snap, "allowances")),
-      money(n(snap, "grossSalary")),
-      money(n(snap, "workingDays")),
+      money(numOr(snap, "contractBasicQar", "basicSalary")),
+      money(numOr(snap, "contractAllowancesQar", "allowances")),
+      money(numOr(snap, "contractGrossQar", "grossSalary")),
+      money(days),
       money(n(snap, "workingHours")),
       money(n(snap, "earnedGross")),
       money(n(snap, "bonus")),
@@ -95,15 +145,62 @@ export function buildFullPayrollExportMatrix(lines: PayrollExportLineInput[]): s
       money(n(snap, "advancePay")),
       money(n(snap, "deduction")),
       money(net),
-      money(wps),
-      money(cash),
-      money(bank),
-      money(cheq),
-      pm,
-      line.reviewStatus ?? "",
-      money(line.importedNetQar ?? n(snap, "netPayable")),
-      money(line.systemNetQar ?? 0),
-      money(line.varianceImportQar ?? 0),
+      money(pay.wps),
+      money(pay.cash),
+      money(pay.bank),
+      money(pay.cheq),
+      line.notes ?? String(snap.notes ?? ""),
+    ];
+  });
+  return [header, ...rows];
+}
+
+/** Project Staff sheet from the August workbook (different columns from the monthly sheet). */
+export function buildProjectStaffExportMatrix(
+  lines: PayrollExportLineInput[],
+  opts?: { month?: string | null },
+): string[][] {
+  const month = opts?.month ?? "2026-08";
+  const header = [
+    "Sr No.",
+    "Name Of Staff",
+    "Position",
+    "Workplace/Project",
+    "Per Day",
+    "Gross Salary",
+    "Working Days",
+    "Working Hours",
+    payrollEarnedHeader(month),
+    "Deductions",
+    "Extra Pay",
+    "Net Payable",
+    "WPS",
+    "Cash",
+    "Bank Transfer",
+    "Cheq",
+    "Remarks",
+  ];
+  const rows = lines.map((line, idx) => {
+    const snap = line.snapshot ?? {};
+    const net = line.netQar;
+    const pay = payBuckets(String(line.paymentMethod), net, snap);
+    return [
+      String(line.srNo ?? idx + 1),
+      line.employeeName,
+      line.position ?? String(snap.position ?? ""),
+      line.workplace ?? String(snap.workplace ?? ""),
+      money(n(snap, "perDayRate") || n(snap, "dayRateQar")),
+      money(numOr(snap, "contractGrossQar", "grossSalary")),
+      money(n(snap, "workingDays")),
+      money(n(snap, "workingHours")),
+      money(n(snap, "earnedGross")),
+      money(n(snap, "deduction")),
+      money(n(snap, "extraPay")),
+      money(net),
+      money(pay.wps),
+      money(pay.cash),
+      money(pay.bank),
+      money(pay.cheq),
       line.notes ?? String(snap.notes ?? ""),
     ];
   });

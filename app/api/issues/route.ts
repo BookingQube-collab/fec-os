@@ -9,6 +9,7 @@ export async function GET(request: Request) {
         locationId: params.get("locationId") || null,
         status: params.get("status") || null,
         priority: params.get("priority") || null,
+        mine: params.get("mine") === "true",
         page: params.get("page") ? Number(params.get("page")) : 1,
         pageSize: params.get("pageSize") ? Number(params.get("pageSize")) : 50,
       });

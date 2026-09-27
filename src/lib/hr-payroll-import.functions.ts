@@ -10,7 +10,9 @@ import { z } from "zod";
 import {
   buildFullPayrollExportMatrix,
   buildPayrollSummaryMatrix,
+  buildProjectStaffExportMatrix,
   buildReconciliationExportMatrix,
+  payrollMonthSheetLabel,
 } from "@/lib/hr-payroll-export";
 import {
   buildPayrollSnapshot,
@@ -720,24 +722,30 @@ export const exportPayrollExcelMatrix = createAuthenticatedAction(
       };
     }
 
-    const matrix = buildFullPayrollExportMatrix(
-      lines.map((l, i) => ({
-        srNo: i + 1,
-        employeeCode: l.employeeCode,
-        employeeName: l.staffName,
-        position: l.position,
-        workplace: l.workplace ?? l.locationName,
-        employmentCategory: l.employmentCategory ?? l.employmentType,
-        paymentMethod: l.paymentMethod,
-        snapshot: l.snapshot,
-        netQar: l.netQar,
-        importedNetQar: l.importedNetQar,
-        systemNetQar: l.systemNetQar,
-        varianceImportQar: l.varianceImportQar,
-        reviewStatus: l.reviewStatus,
-        notes: l.notes,
-      })),
-    );
+    const exportLines = lines.map((l, i) => ({
+      srNo: i + 1,
+      employeeCode: l.employeeCode,
+      employeeName: l.staffName,
+      position: l.position,
+      workplace: l.workplace ?? l.locationName,
+      employmentCategory: l.employmentCategory ?? l.employmentType,
+      paymentMethod: l.paymentMethod,
+      snapshot: {
+        ...l.snapshot,
+        workingDays: l.snapshot.workingDays ?? l.workingDays,
+        workingHours: l.snapshot.workingHours ?? l.workingHours,
+      },
+      netQar: l.netQar,
+      importedNetQar: l.importedNetQar,
+      systemNetQar: l.systemNetQar,
+      varianceImportQar: l.varianceImportQar,
+      reviewStatus: l.reviewStatus,
+      notes: l.notes,
+    }));
+    const matrix =
+      data.format === "project_staff"
+        ? buildProjectStaffExportMatrix(exportLines, { month: workspace.period.month })
+        : buildFullPayrollExportMatrix(exportLines, { month: workspace.period.month });
 
     await auditPayroll(context, `hr.payroll.export.excel.${data.format}`, data.periodId, {
       rows: lines.length,
@@ -749,10 +757,10 @@ export const exportPayrollExcelMatrix = createAuthenticatedAction(
       matrix,
       sheetName:
         data.format === "project_staff"
-          ? "Project Staff"
+          ? `Project Staff ${payrollMonthSheetLabel(workspace.period.month)}`
           : data.format === "wps"
             ? "WPS"
-            : "Payroll",
+            : payrollMonthSheetLabel(workspace.period.month),
     };
   },
   { auth: { capability: "payroll.export_wps" } },

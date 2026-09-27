@@ -242,8 +242,14 @@ export function detectPayrollExceptions(input: {
     const snap = line.snapshot ?? {};
     const missingComp = snap.missingCompensation === true;
     const basic = Number(snap.basicSalary) || 0;
+    const configuredSalary =
+      Number(snap.contractBasicQar) > 0 ||
+      basic > 0 ||
+      Number(snap.dayRateQar) > 0 ||
+      Number(snap.perDayRate) > 0;
     const otH = (Number(snap.otHoursReg) || 0) + (Number(snap.otHoursPh) || 0);
-    if (missingComp || (basic <= 0 && line.netQar <= 0 && snap.dayRateQar == null)) {
+    // Zero earned pay with a known rate (no attendance days) is not a missing salary.
+    if (!configuredSalary && (missingComp || line.netQar <= 0)) {
       out.push({
         kind: "missing_salary",
         staffId: line.staffId,

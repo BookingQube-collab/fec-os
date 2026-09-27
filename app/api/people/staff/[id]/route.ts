@@ -216,8 +216,12 @@ export async function GET(
       const canProvision = canUserDo(context.roles ?? [], "admin.provision_users");
       let loginEmail: string | null = null;
       if (staff.user_id) {
-        const { data: authUser, error: authErr } = await supabaseAdmin.auth.admin.getUserById(staff.user_id);
-        if (!authErr) loginEmail = authUser.user?.email ?? null;
+        try {
+          const { data: authUser, error: authErr } = await supabaseAdmin.auth.admin.getUserById(staff.user_id);
+          if (!authErr) loginEmail = authUser.user?.email ?? null;
+        } catch {
+          console.error("[staff profile] login email lookup failed");
+        }
       }
       const { user_id: linkedUserId, ...staffPublic } = staff;
 

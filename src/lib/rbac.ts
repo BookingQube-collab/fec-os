@@ -386,6 +386,24 @@ export function isFloorSupervisorView(roles: AppRole[]): boolean {
   );
 }
 
+/**
+ * Home dashboard audience for floor and front-line staff.
+ * Cashiers, technicians, tech supervisors, and customer service see their own
+ * leave, attendance, and issues. Executives, GMs, HR, and auditors keep the ops wall.
+ * A mixed assignment that includes an elevated role stays on the ops dashboard.
+ */
+const EMPLOYEE_HOME_ROLES: readonly AppRole[] = [
+  "cashier_host",
+  "technician",
+  "tech_supervisor",
+  "customer_service",
+];
+
+export function isEmployeeHomeAudience(roles: AppRole[]): boolean {
+  if (roles.some((r) => ELEVATED_OPERATIONAL_ROLES.includes(r))) return false;
+  return roles.some((r) => EMPLOYEE_HOME_ROLES.includes(r));
+}
+
 export function canViewRevenue(roles: AppRole[]): boolean {
   return canUserDo(roles, "revenue.view");
 }

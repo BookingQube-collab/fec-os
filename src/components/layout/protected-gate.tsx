@@ -1,12 +1,11 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useRouter, usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 
 import { useTranslation } from "react-i18next";
 
 import { AppShell } from "@/components/layout/app-shell";
-import { EmployeeAppShell } from "@/components/layout/employee-app-shell";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -26,9 +25,7 @@ export function ProtectedGate({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation();
   const { user, loading, roles, rolesSettled } = useAuth();
   const router = useRouter();
-  const pathname = usePathname();
   const shellReady = useRef(false);
-  const employeeApp = pathname === "/hr/me" || pathname.startsWith("/hr/me/");
 
   if (user && roles.length > 0) {
     shellReady.current = true;
@@ -46,7 +43,6 @@ export function ProtectedGate({ children }: { children: React.ReactNode }) {
   // Once shown, keep the shell mounted. Soft re-auth must not flash skeleton and
   // remount route trees (attendance matrix refetch / filter state loss).
   if (shellReady.current && user) {
-    if (employeeApp) return <EmployeeAppShell>{children}</EmployeeAppShell>;
     return <AppShell>{children}</AppShell>;
   }
 
@@ -66,5 +62,5 @@ export function ProtectedGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  return employeeApp ? <EmployeeAppShell>{children}</EmployeeAppShell> : <AppShell>{children}</AppShell>;
+  return <AppShell>{children}</AppShell>;
 }

@@ -50,6 +50,7 @@ import {
 } from "@/lib/hr-payroll-import.functions";
 import { formatPayrollRange } from "@/lib/attendance-hr/roster-period";
 import { canDeletePayrollPeriod } from "@/lib/hr-payroll";
+import { augustPayrollHeaders } from "@/lib/hr-payroll-export";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { usePermission } from "@/hooks/use-permission";
@@ -64,20 +65,56 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
+function formatCount(value: unknown): string {
+  if (value == null || value === "") return "—";
+  const n = Number(value);
+  return Number.isFinite(n) ? String(n) : "—";
+}
+
 function qar(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return "—";
   return n.toLocaleString("en-QA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 /** Basic / salary cell: authorized payroll viewers see amount or an explicit missing label. */
-function payrollBasicCell(snap: Record<string, unknown>, netQar: number): string {
-  if (snap.missingCompensation === true) return "No salary set";
-  const basic = snap.basicSalary == null ? null : Number(snap.basicSalary);
-  if (basic == null || !Number.isFinite(basic)) {
-    return netQar <= 0 ? "No salary set" : "—";
+function snapDisplay(value: unknown): string {
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (typeof value === "string" && value.trim()) return value;
+  return "—";
+}
+
+function snapNum(snap: Record<string, unknown>, key: string, fallback?: string): number {
+  const raw = snap[key];
+  if (raw != null && raw !== "") {
+    const n = Number(raw);
+    if (Number.isFinite(n)) return n;
   }
-  // Day-rate with 0 present days is earned 0, not missing salary.
-  return qar(basic);
+  if (fallback) return snapNum(snap, fallback);
+  return 0;
+}
+
+function paySplit(method: string, net: number, snap: Record<string, unknown>) {
+  const wps = snapNum(snap, "wps");
+  const cash = snapNum(snap, "cash");
+  const bank = snapNum(snap, "bankTransfer");
+  const cheq = snapNum(snap, "cheque");
+  if (wps + cash + bank + cheq > 0) return { wps, cash, bank, cheq };
+  return {
+    wps: method === "wps" ? net : 0,
+    cash: method === "cash" ? net : 0,
+    bank: method === "bank_transfer" ? net : 0,
+    cheq: method === "cheque" ? net : 0,
+  };
+}
+
+function basicSalaryCell(snap: Record<string, unknown>): string {
+  if (snap.contractBasicQar != null && snap.contractBasicQar !== "") {
+    return qar(Number(snap.contractBasicQar) || 0);
+  }
+  const hasRate = Number(snap.dayRateQar) > 0 || Number(snap.perDayRate) > 0 || Number(snap.basicSalary) > 0;
+  if (snap.missingCompensation === true && !hasRate) return "No salary set";
+  if (snap.basicSalary == null || snap.basicSalary === "") return snap.missingCompensation === true ? "No salary set" : "—";
+  return qar(Number(snap.basicSalary) || 0);
 }
 
 /** Earned column is attendance pay. Zero is a real amount — do not fall through to gross. */
@@ -232,6 +269,8 @@ export default function HrPayrollPeriodPage() {
 
   const period = detail.data?.period;
   const lines = detail.data?.lines ?? [];
+  const gridHeaders = augustPayrollHeaders(detail.data?.period?.month ?? "2026-08");
+  const gridCols = gridHeaders.length + 1;
   const kpis = detail.data?.kpis;
   const exceptions = detail.data?.exceptions ?? [];
   const recon = detail.data?.reconciliation;
@@ -727,40 +766,43 @@ export default function HrPayrollPeriodPage() {
               <table>
                 <thead>
                   <tr>
-                    <th className="hr-sticky-col">Employee</th>
-                    <th className="hr-sticky-col-2">Code</th>
-                    <th>Position</th>
-                    <th>Workplace</th>
-                    <th>Type</th>
-                    <th>Basic</th>
-                    <th>Allow.</th>
-                    <th>Earned</th>
-                    <th>OT Reg</th>
-                    <th>OT PH</th>
-                    <th>Extra</th>
-                    <th>Deduct</th>
-                    <th>Net</th>
-                    <th>Pay</th>
-                    <th>Excel</th>
-                    <th>System</th>
-                    <th>Var</th>
+                    {gridHeaders.map((label, index) => (
+                      <th
+                        key={label}
+                        className={index === 2 ? "hr-sticky-col" : undefined}
+                      >
+                        {label}
+                      </th>
+                    ))}
                     <th>Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {pageLines.length === 0 ? (
                     <tr>
-                      <td colSpan={18}>
+                      <td colSpan={gridCols}>
                         <HrEmptyState message={t("hr.payrollRuns.emptyLines")} icon={Banknote} />
                       </td>
                     </tr>
                   ) : (
-                    pageLines.map((line) => {
+                    pageLines.map((line, lineIndex) => {
                       const open = expanded === line.id;
                       const snap = line.snapshot ?? {};
+                      const pay = paySplit(line.paymentMethod, line.netQar, snap);
+                      const deduction =
+                        Number(snap.deduction) ||
+                        (Array.isArray(line.deductions)
+                          ? line.deductions.reduce(
+                              (sum: number, d) =>
+                                sum + (Number((d as { amountQar?: number }).amountQar) || 0),
+                              0,
+                            )
+                          : 0);
                       return (
                         <Fragment key={line.id}>
                           <tr>
+                            <td className="tabular-nums">{page * PAGE_SIZE + lineIndex + 1}</td>
+                            <td className="text-xs text-muted-foreground">{line.employeeCode}</td>
                             <td className="hr-sticky-col">
                               <button
                                 type="button"
@@ -775,49 +817,45 @@ export default function HrPayrollPeriodPage() {
                                 {line.staffName}
                               </button>
                             </td>
-                            <td className="hr-sticky-col-2 text-xs text-muted-foreground">
-                              {line.employeeCode}
-                            </td>
                             <td className="text-xs">{line.position ?? "—"}</td>
                             <td className="text-xs">{line.workplace ?? line.locationName ?? "—"}</td>
-                            <td className="text-xs">
-                              {line.employmentCategory ?? line.employmentType ?? "—"}
-                            </td>
-                            <td className="tabular-nums">{payrollBasicCell(snap, line.netQar)}</td>
+                            <td className="tabular-nums">{basicSalaryCell(snap)}</td>
                             <td className="tabular-nums">
-                              {snap.missingCompensation === true
+                              {snap.missingCompensation === true && snap.contractAllowancesQar == null
                                 ? "—"
-                                : qar(Number(snap.allowances) || 0)}
+                                : qar(snapNum(snap, "contractAllowancesQar", "allowances"))}
+                            </td>
+                            <td className="tabular-nums">
+                              {qar(snapNum(snap, "contractGrossQar", "grossSalary"))}
+                            </td>
+                            <td className="tabular-nums">
+                              {line.workingDays != null ? String(line.workingDays) : snapDisplay(snap.workingDays)}
+                            </td>
+                            <td className="tabular-nums">
+                              {line.workingHours != null ? String(line.workingHours) : snapDisplay(snap.workingHours)}
                             </td>
                             <td className="tabular-nums">{payrollEarnedCell(snap, line.grossQar)}</td>
-                            <td className="tabular-nums">{qar(Number(snap.otPayReg) || 0)}</td>
-                            <td className="tabular-nums">{qar(Number(snap.otPayPh) || 0)}</td>
-                            <td className="tabular-nums">{qar(Number(snap.extraPay) || 0)}</td>
-                            <td className="tabular-nums">
-                              {qar(
-                                Number(snap.deduction) ||
-                                  (Array.isArray(line.deductions)
-                                    ? Number(
-                                        line.deductions.reduce(
-                                          (sum: number, d) =>
-                                            sum +
-                                            (Number((d as { amountQar?: number }).amountQar) || 0),
-                                          0,
-                                        ),
-                                      )
-                                    : 0),
-                              )}
-                            </td>
+                            <td className="tabular-nums">{qar(snapNum(snap, "bonus"))}</td>
+                            <td className="tabular-nums">{qar(snapNum(snap, "otHoursReg"))}</td>
+                            <td className="tabular-nums">{qar(snapNum(snap, "otPayReg"))}</td>
+                            <td className="tabular-nums">{qar(snapNum(snap, "otHoursPh"))}</td>
+                            <td className="tabular-nums">{qar(snapNum(snap, "otPayPh"))}</td>
+                            <td className="tabular-nums">{qar(snapNum(snap, "extraPay"))}</td>
+                            <td className="tabular-nums">{qar(snapNum(snap, "advancePay"))}</td>
+                            <td className="tabular-nums">{qar(deduction)}</td>
                             <td className="tabular-nums font-medium">{qar(line.netQar)}</td>
-                            <td className="text-xs uppercase">{line.paymentMethod}</td>
-                            <td className="tabular-nums">{qar(line.importedNetQar)}</td>
-                            <td className="tabular-nums">{qar(line.systemNetQar)}</td>
-                            <td className="tabular-nums">{qar(line.varianceImportQar)}</td>
+                            <td className="tabular-nums">{qar(pay.wps)}</td>
+                            <td className="tabular-nums">{qar(pay.cash)}</td>
+                            <td className="tabular-nums">{qar(pay.bank)}</td>
+                            <td className="tabular-nums">{qar(pay.cheq)}</td>
+                            <td className="max-w-48 truncate text-xs" title={line.notes ?? ""}>
+                              {line.notes ?? "—"}
+                            </td>
                             <td>{reviewBadge(line.reviewStatus)}</td>
                           </tr>
                           {open ? (
                             <tr>
-                              <td colSpan={18} className="bg-muted/30 whitespace-normal">
+                              <td colSpan={gridCols} className="bg-muted/30 whitespace-normal">
                                 <div className="grid gap-3 p-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
                                   <div>
                                     <p className="text-xs text-muted-foreground">Notes</p>
@@ -826,7 +864,7 @@ export default function HrPayrollPeriodPage() {
                                   <div>
                                     <p className="text-xs text-muted-foreground">Working days / hours</p>
                                     <p>
-                                      {line.workingDays ?? "—"} / {line.workingHours ?? "—"}
+                                      {formatCount(line.workingDays)} / {formatCount(line.workingHours)}
                                     </p>
                                   </div>
                                   <div>

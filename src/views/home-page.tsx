@@ -20,6 +20,7 @@ import { useTranslation } from "react-i18next";
 
 import { CircularProgressBadge } from "@/components/dashboard/circular-progress-badge";
 import { TintedKpiCard, type KpiTint } from "@/components/dashboard/tinted-kpi-card";
+import { EmployeeSelfDashboard } from "@/components/hr/employee-self-dashboard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,7 +41,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useBranchesSummary } from "@/hooks/queries/useOperationsDashboard";
 import { useSites } from "@/hooks/queries/useSites";
 import type { DashboardPeriod } from "@/lib/dashboard.functions";
-import { dashboardViewForRoles, canViewRevenue, type AppRole } from "@/lib/rbac";
+import { dashboardViewForRoles, canViewRevenue, isEmployeeHomeAudience, type AppRole } from "@/lib/rbac";
 import { fmtQar } from "@/lib/currency";
 import { retryImport } from "@/lib/retry-import";
 import { cn } from "@/lib/utils";
@@ -123,7 +124,7 @@ function pickAttentionItems(rows: ComplianceRenewalRow[] | undefined, limit = 5)
   };
 }
 
-function HomePage() {
+function OpsCommandHome() {
   const { t } = useTranslation();
   const { roles } = useAuth();
   const roleList = roles.map((r) => r.role as AppRole);
@@ -614,4 +615,18 @@ function tierLabel(t: (key: string) => string, tier: string) {
   return tier;
 }
 
-export default HomePage;
+export default function HomePage() {
+  const { t } = useTranslation();
+  const { roles } = useAuth();
+  const roleList = roles.map((r) => r.role as AppRole);
+  if (roleList.length === 0) {
+    return (
+      <div className="mx-auto max-w-lg rounded-[var(--radius-xl)] border border-dashed border-border bg-card p-8 text-center">
+        <h2 className="text-lg font-semibold text-foreground">{t("home.pendingTitle")}</h2>
+        <p className="mt-2 text-sm text-muted-foreground">{t("home.pendingBody")}</p>
+      </div>
+    );
+  }
+  if (isEmployeeHomeAudience(roleList)) return <EmployeeSelfDashboard />;
+  return <OpsCommandHome />;
+}

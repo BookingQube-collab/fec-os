@@ -130,6 +130,8 @@ export interface IssueFilters {
   locationId?: string | null;
   status?: string | null;
   priority?: string | null;
+  /** Reported by or assigned to the signed-in user. */
+  mine?: boolean;
   page?: number;
   pageSize?: number;
 }
@@ -155,6 +157,9 @@ export async function fetchIssues(
   if (filters.locationId) q = q.eq("location_id", filters.locationId);
   if (filters.status) q = q.eq("status", filters.status as "open" | "assigned" | "in_progress" | "blocked" | "resolved" | "closed" | "cancelled");
   if (filters.priority) q = q.eq("priority", filters.priority as "low" | "normal" | "high" | "urgent");
+  if (filters.mine) {
+    q = q.or(`reported_by.eq.${context.userId},assigned_to.eq.${context.userId}`);
+  }
   const { data: rows, error, count } = await q;
   if (error) throw error;
   return { items: rows ?? [], total: count ?? 0 };

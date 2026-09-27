@@ -10,7 +10,9 @@ export function useIssues(filters: IssueFilters = {}, options?: { enabled?: bool
     locationId: filters.locationId ?? null,
     status: filters.status ?? null,
     priority: filters.priority ?? null,
+    mine: filters.mine ?? false,
     page: filters.page ?? 1,
+    pageSize: filters.pageSize ?? 50,
   };
   return useQuery({
     queryKey: queryKeys.issues.list(key),
@@ -19,6 +21,7 @@ export function useIssues(filters: IssueFilters = {}, options?: { enabled?: bool
         locationId: filters.locationId,
         status: filters.status,
         priority: filters.priority,
+        mine: filters.mine ? true : undefined,
         page: filters.page ?? 1,
         pageSize: filters.pageSize ?? 50,
       }),

@@ -649,6 +649,11 @@ export const generatePayrollLines = createAuthenticatedAction(
         (sum, d) => sum + (Number(d.amountQar) || 0),
         0,
       );
+      const earnedGross = Math.round((basicForLine + allowancesForLine + Number.EPSILON) * 100) / 100;
+      const contractGross = dailyPay
+        ? Math.round(((Number(dayRateQar) || 0) * 30 + Number.EPSILON) * 100) / 100
+        : Math.round((basic + allowances + Number.EPSILON) * 100) / 100;
+      const payNet = computed.netQar;
 
       inserts.push({
         period_id: data.periodId,
@@ -696,12 +701,27 @@ export const generatePayrollLines = createAuthenticatedAction(
           blockingDays: ready?.blockingDays ?? 0,
           missedPunches: ready?.missedPunches ?? 0,
           contractBasicQar: hasComp && !dailyPay ? basic : null,
-          basicSalary: hasComp ? basicForLine : null,
-          allowances: allowancesForLine,
-          earnedGross: basicForLine,
-          grossSalary: computed.grossQar,
+          contractAllowancesQar: hasComp && !dailyPay ? allowances : 0,
+          contractGrossQar: hasComp ? contractGross : null,
+          perDayRate: dailyPay ? dayRateQar : null,
+          basicSalary: !hasComp ? null : dailyPay ? 0 : basic,
+          allowances: !hasComp || dailyPay ? 0 : allowances,
+          earnedGross,
+          grossSalary: hasComp ? contractGross : 0,
+          bonus: 0,
+          otHoursReg: 0,
+          otPayReg: otQar,
+          otHoursPh: 0,
+          otPayPh: 0,
+          extraPay: airQar,
+          advancePay: 0,
           deduction: Math.round((deductionTotal + Number.EPSILON) * 100) / 100,
           workingDays: workedDays,
+          workingHours: null,
+          wps: paymentMethod === "wps" ? payNet : 0,
+          cash: paymentMethod === "cash" ? payNet : 0,
+          bankTransfer: paymentMethod === "bank_transfer" ? payNet : 0,
+          cheque: paymentMethod === "cheque" ? payNet : 0,
           missingCompensation: !hasComp,
         },
       });

@@ -7,6 +7,7 @@ import { ROLE_LEVELS, codeDefaultAllowed, CAPABILITIES, type AppRole, type Capab
 import {
   createAuthenticatedAction,
   createAuthenticatedActionNoInput,
+  createSafeAuthenticatedAction,
 } from "@/lib/server/create-action";
 import {
   ensureServerCapabilityGrants,
@@ -187,12 +188,11 @@ async function createProvisionedAuthUser(input: {
   if (createErr) throw createErr;
   if (!created.user) throw new Error("User creation failed");
 
-  const { error: profileErr } = await supabaseAdmin.from("profiles").upsert({
-    id: created.user.id,
-    display_name: input.displayName,
-    employee_code: input.employeeCode ?? null,
+  await saveLoginProfile({
+    userId: created.user.id,
+    displayName: input.displayName,
+    employeeCode: input.employeeCode,
   });
-  if (profileErr) throw profileErr;
 
   const { error: roleErr } = await supabaseAdmin.from("user_roles").insert({
     user_id: created.user.id,
@@ -200,9 +200,45 @@ async function createProvisionedAuthUser(input: {
     role_level,
     location_ids: input.locationIds,
   });
-  if (roleErr) throw roleErr;
+  if (roleErr && !isUniqueViolation(roleErr)) throw roleErr;
 
   return { userId: created.user.id };
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const code = "code" in error && typeof error.code === "string" ? error.code : "";
+  return code === "23505";
+}
+
+/**
+ * profiles.employee_code is unique and is often already owned by a supervisor
+ * or role-persona login that is not linked on staff.user_id. Keep the auth
+ * user; skip the code instead of failing the whole provision.
+ */
+async function saveLoginProfile(input: {
+  userId: string;
+  displayName: string;
+  employeeCode?: string | null;
+}) {
+  const employeeCode = input.employeeCode?.trim() || null;
+  const { error } = employeeCode
+    ? await supabaseAdmin.from("profiles").upsert({
+        id: input.userId,
+        display_name: input.displayName,
+        employee_code: employeeCode,
+      })
+    : await supabaseAdmin.from("profiles").upsert({
+        id: input.userId,
+        display_name: input.displayName,
+      });
+  if (!error) return;
+  if (!employeeCode || !isUniqueViolation(error)) throw error;
+
+  const { error: retryErr } = await supabaseAdmin
+    .from("profiles")
+    .upsert({ id: input.userId, display_name: input.displayName });
+  if (retryErr) throw retryErr;
 }
 
 function isDuplicateAuthEmail(error: unknown): boolean {
@@ -265,7 +301,7 @@ export const provisionUser = createAuthenticatedAction(
 );
 
 /** Create (or link) an email/password login and set staff.user_id so /hr/me resolves. */
-export const provisionStaffLogin = createAuthenticatedAction(
+export const provisionStaffLogin = createSafeAuthenticatedAction(
   z.object({
     staffId: z.string().uuid(),
   }),
@@ -282,7 +318,6 @@ export const provisionStaffLogin = createAuthenticatedAction(
 
     if (staff.user_id) {
       return {
-        ok: true as const,
         created: false,
         linkedExisting: false,
         alreadyLinked: true,
@@ -300,6 +335,7 @@ export const provisionStaffLogin = createAuthenticatedAction(
     let userId: string;
     let created = false;
     let linkedExisting = false;
+    let issuedPassword: string | null = null;
 
     try {
       const createdUser = await createProvisionedAuthUser({
@@ -312,6 +348,7 @@ export const provisionStaffLogin = createAuthenticatedAction(
       });
       userId = createdUser.userId;
       created = true;
+      issuedPassword = STAFF_LOGIN_DEFAULT_PASSWORD;
     } catch (error) {
       if (!isDuplicateAuthEmail(error)) throw error;
       const existingId = await findAuthUserIdByEmail(email);
@@ -348,15 +385,17 @@ export const provisionStaffLogin = createAuthenticatedAction(
         );
       }
 
-      const { data: profile } = await supabaseAdmin.from("profiles").select("id").eq("id", userId).maybeSingle();
-      if (!profile) {
-        const { error: profileErr } = await supabaseAdmin.from("profiles").insert({
-          id: userId,
-          display_name: staff.full_name,
-          employee_code: staff.employee_code,
-        });
-        if (profileErr) throw profileErr;
-      }
+      const { data: profile, error: profileReadErr } = await supabaseAdmin
+        .from("profiles")
+        .select("id, employee_code")
+        .eq("id", userId)
+        .maybeSingle();
+      if (profileReadErr) throw profileReadErr;
+      await saveLoginProfile({
+        userId,
+        displayName: staff.full_name,
+        employeeCode: profile?.employee_code ? null : staff.employee_code,
+      });
 
       if (!existingRoles?.length) {
         const { error: roleErr } = await supabaseAdmin.from("user_roles").insert({
@@ -365,7 +404,13 @@ export const provisionStaffLogin = createAuthenticatedAction(
           role_level: ROLE_LEVELS[STAFF_LOGIN_ROLE],
           location_ids: locationIds,
         });
-        if (roleErr) throw roleErr;
+        if (roleErr && !isUniqueViolation(roleErr)) throw roleErr;
+        const { error: pwErr } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+          password: STAFF_LOGIN_DEFAULT_PASSWORD,
+          email_confirm: true,
+        });
+        if (pwErr) throw pwErr;
+        issuedPassword = STAFF_LOGIN_DEFAULT_PASSWORD;
       }
     }
 
@@ -379,7 +424,7 @@ export const provisionStaffLogin = createAuthenticatedAction(
     if (linkErr) throw linkErr;
     if (!linked) throw new Error("Staff login was already linked");
 
-    await context.supabase.rpc("log_audit", {
+    const { error: auditErr } = await context.supabase.rpc("log_audit", {
       _action: "admin.staff_login_provisioned",
       _table_name: "staff",
       _row_id: staff.id,
@@ -392,15 +437,15 @@ export const provisionStaffLogin = createAuthenticatedAction(
       },
       _metadata: {},
     });
+    if (auditErr) console.error("[provisionStaffLogin] audit log failed");
 
     return {
-      ok: true as const,
       created,
       linkedExisting,
       alreadyLinked: false,
       userId,
       email,
-      password: created ? STAFF_LOGIN_DEFAULT_PASSWORD : null,
+      password: issuedPassword,
       role: STAFF_LOGIN_ROLE,
     };
   },

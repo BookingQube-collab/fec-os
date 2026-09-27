@@ -388,7 +388,11 @@ function StaffProfilePageBody() {
   }
 
   const createLogin = useMutation({
-    mutationFn: () => provisionStaffLogin({ staffId: id }),
+    mutationFn: async () => {
+      const result = await provisionStaffLogin({ staffId: id });
+      if (!result.ok) throw new Error(result.error);
+      return result.data;
+    },
     onSuccess: (result) => {
       if (result.password && result.email) {
         setIssuedLogin({ email: result.email, password: result.password });
@@ -543,9 +547,19 @@ function StaffProfilePageBody() {
             ) : null}
           </div>
           {!loginLinked && canProvisionLogin ? (
-            <Button size="sm" disabled={createLogin.isPending} onClick={() => createLogin.mutate()}>
-              {createLogin.isPending ? t("people.profile.login.creating") : t("people.profile.login.create")}
-            </Button>
+            <div className="flex flex-col items-end gap-2">
+              <Button
+                type="button"
+                size="sm"
+                disabled={createLogin.isPending}
+                onClick={() => createLogin.mutate()}
+              >
+                {createLogin.isPending ? t("people.profile.login.creating") : t("people.profile.login.create")}
+              </Button>
+              {createLogin.isError ? (
+                <p className="max-w-xs text-right text-sm text-destructive">{createLogin.error.message}</p>
+              ) : null}
+            </div>
           ) : null}
         </div>
       </section>
