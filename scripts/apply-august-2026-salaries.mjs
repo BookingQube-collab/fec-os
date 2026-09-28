@@ -446,6 +446,7 @@ for (const row of august.rows) {
     willWriteComp: setMonthly != null || setDaily != null,
     willRecalc:
       Boolean(line) &&
+      line.snapshot?.excelBreakdown !== true &&
       hasPay &&
       (lineIsMissing(line) ||
         (positive(line.snapshot?.grossSalary) > 0 &&

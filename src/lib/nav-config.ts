@@ -27,6 +27,7 @@ import {
   LayoutDashboard,
   LineChart,
   ListChecks,
+  Network,
   Package,
   Plane,
   Presentation,
@@ -429,6 +430,7 @@ export const NAV_DEPARTMENTS: NavDepartment[] = [
     items: [
       { href: "/admin", labelKey: "nav.settings", icon: Settings, capability: "admin.view" },
       { href: "/admin/roles", labelKey: "nav.rolesAccess", icon: Shield, capability: "admin.view" },
+      { href: "/admin/hierarchy", labelKey: "nav.operationsHierarchy", icon: Network, capability: "admin.view" },
       { href: "/admin/ai-integrations", labelKey: "nav.aiIntegrations", icon: Sparkles, capability: "admin.view" },
       { href: "/admin/diagnostics", labelKey: "nav.diagnostics", icon: HeartPulse, capability: "admin.diagnostics" },
       { href: "/admin/api-explorer", labelKey: "nav.apiExplorer", icon: Code2, capability: "admin.view" },

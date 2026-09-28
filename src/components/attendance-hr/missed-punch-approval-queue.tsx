@@ -76,7 +76,7 @@ export function MissedPunchApprovalQueue({ hideWhenEmpty = false }: { hideWhenEm
           </div>
           <div className="flex items-center gap-2">
             <Badge variant="warning">{stepLabel(row.currentStepRole)}</Badge>
-            {row.status === "pending" ? (
+            {row.status === "pending" && row.canAct ? (
               <>
                 <Button
                   size="sm"

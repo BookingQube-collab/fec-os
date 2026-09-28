@@ -17,7 +17,7 @@ export default function AttendanceHrCorrectionsPage() {
         icon={ClipboardCheck}
         kicker="Time & Attendance"
         title="Corrections"
-        subtitle="Missed punch requests wait on the site supervisor, then Head of Operations, then HR. You only see the step that is waiting for you."
+        subtitle="Missed punch requests wait on the site supervisor, then Head of Operations, then HR. Approvers see the step waiting for them. Admin also sees the supervisor and operations steps."
       />
       <AttendanceHrNav />
       <NeumorphicCard className="space-y-3 p-5">

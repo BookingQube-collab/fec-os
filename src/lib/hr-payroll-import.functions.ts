@@ -556,6 +556,8 @@ export const getPayrollPeriodWorkspace = createAuthenticatedAction(
         (l) =>
           l.staffName.toLowerCase().includes(s) ||
           l.employeeCode.toLowerCase().includes(s) ||
+          String(l.snapshot.employeeName ?? "").toLowerCase().includes(s) ||
+          String(l.snapshot.employeeCode ?? "").toLowerCase().includes(s) ||
           (l.qid ?? "").toLowerCase().includes(s),
       );
     }

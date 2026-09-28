@@ -302,6 +302,7 @@ export const queryKeys = {
   admin: {
     all: ["admin"] as const,
     users: () => [...queryKeys.admin.all, "users"] as const,
+    hierarchy: () => [...queryKeys.admin.all, "hierarchy"] as const,
     capabilityGrants: () => [...queryKeys.admin.all, "capability-grants"] as const,
     translations: (locale: string) =>
       [...queryKeys.admin.all, "translations", locale] as const,

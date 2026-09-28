@@ -9,6 +9,7 @@ import {
   isSiteSupervisorTitle,
   lineManagerUserIds,
   missedPunchApprovalSteps,
+  missedPunchCopiesExecutives,
   missedPunchRequestSide,
   nextMissedPunchStep,
   type ApprovalDirectory,
@@ -60,6 +61,7 @@ export type MissedPunchQueueRow = {
     actedByName: string | null;
     actedAt: string | null;
   }>;
+  canAct: boolean;
 };
 
 function punchTypeOf(value: Record<string, unknown> | null | undefined): "in" | "out" | null {
@@ -89,7 +91,7 @@ export async function loadMissedPunchDirectory(staffIds: string[]): Promise<Appr
     supabaseAdmin.from("user_roles").select("user_id, role, location_ids").in("role", ["branch_gm", "regional_ops", "hr"]),
     supabaseAdmin
       .from("staff")
-      .select("user_id, location_id, job_title, staff_role, status")
+      .select("id, user_id, location_id, job_title, staff_role, status")
       .eq("status", "active")
       .is("deleted_at", null)
       .or("staff_role.eq.venue_supervisor,job_title.ilike.%supervisor%,job_title.ilike.%head%of%operations%"),
@@ -119,22 +121,39 @@ export async function loadMissedPunchDirectory(staffIds: string[]): Promise<Appr
   }
 
   const siteSupervisorUserIdsByLocationId = new Map<string, string[]>();
+  const supervisorLocationByStaffId = new Map<string, string>();
   for (const staff of supervisorsRes.data ?? []) {
+    const staffId = staff.id as string;
     const userId = (staff.user_id as string | null) ?? null;
-    if (!userId) continue;
-    if (isHeadOfOperationsTitle(staff.job_title as string | null)) head.add(userId);
-    if (!isSiteSupervisorTitle(staff.job_title as string | null, staff.staff_role as string | null)) continue;
+    const title = staff.job_title as string | null;
+    const staffRole = staff.staff_role as string | null;
+    if (userId && isHeadOfOperationsTitle(title)) head.add(userId);
+    if (!isSiteSupervisorTitle(title, staffRole)) continue;
     const locationId = staff.location_id as string | null;
     if (!locationId) continue;
+    supervisorLocationByStaffId.set(staffId, locationId);
+    if (!userId) continue;
     const list = siteSupervisorUserIdsByLocationId.get(locationId) ?? [];
     list.push(userId);
     siteSupervisorUserIdsByLocationId.set(locationId, list);
   }
 
+  const supervisorStaffIds = [...supervisorLocationByStaffId.keys()];
+  const supervisorReportingRes = supervisorStaffIds.length
+    ? await supabaseAdmin
+        .from("staff_profile_ext")
+        .select("staff_id, reporting_manager_staff_id")
+        .in("staff_id", supervisorStaffIds)
+    : { data: [] as Array<{ staff_id: string; reporting_manager_staff_id: string | null }>, error: null };
+  if (supervisorReportingRes.error && !/does not exist|schema cache/i.test(supervisorReportingRes.error.message)) {
+    throw supervisorReportingRes.error;
+  }
+
   const reportingManagerUserIdByStaffId = new Map<string, string>();
+  const hierarchyRows = [...(reportingRes.data ?? []), ...(supervisorReportingRes.data ?? [])];
   const managerStaffIds = [
     ...new Set(
-      (reportingRes.data ?? [])
+      hierarchyRows
         .map((row) => row.reporting_manager_staff_id)
         .filter((id): id is string => Boolean(id)),
     ),
@@ -152,11 +171,20 @@ export async function loadMissedPunchDirectory(staffIds: string[]): Promise<Appr
         .filter((row) => row.user_id)
         .map((row) => [row.id as string, row.user_id as string]),
     );
-    for (const row of reportingRes.data ?? []) {
+    for (const row of hierarchyRows) {
       const managerId = row.reporting_manager_staff_id;
       const userId = managerId ? userByStaff.get(managerId) : undefined;
       if (managerId && userId) reportingManagerUserIdByStaffId.set(row.staff_id, userId);
     }
+  }
+
+  const opsManagerUserIdsByLocationId = new Map<string, string[]>();
+  for (const [staffId, locationId] of supervisorLocationByStaffId) {
+    const managerUserId = reportingManagerUserIdByStaffId.get(staffId);
+    if (!managerUserId) continue;
+    const list = opsManagerUserIdsByLocationId.get(locationId) ?? [];
+    if (!list.includes(managerUserId)) list.push(managerUserId);
+    opsManagerUserIdsByLocationId.set(locationId, list);
   }
 
   return {
@@ -164,6 +192,7 @@ export async function loadMissedPunchDirectory(staffIds: string[]): Promise<Appr
     branchGmUserIdsByLocationId,
     siteSupervisorUserIdsByLocationId,
     headOfOperationsUserIds: [...head],
+    opsManagerUserIdsByLocationId,
     hrUserIds: [...hr],
   };
 }
@@ -178,12 +207,14 @@ async function loadCallerAccess(userId: string) {
   const viewAll = (data ?? []).some(
     (row) => Number(row.role_level) >= 80 || row.role === "hr" || row.role === "auditor",
   );
+  const observeExecutiveSteps = roles.includes("ceo");
   const locations = new Set((data ?? []).flatMap((row) => (row.location_ids as string[] | null) ?? []));
   return {
     roles,
     canFinalApprove: canUserDo(roles, "attendance.approve"),
     viewAll,
     canSeeLocation: (locationId: string) => viewAll || locations.has(locationId),
+    observeExecutiveSteps,
   };
 }
 
@@ -223,6 +254,7 @@ function mapQueueRow(
   steps: Array<{ correction_id: string; step_role: string; status: string; acted_by: string | null; acted_at: string | null; step_order: number }>,
   staffById: Map<string, { full_name: string | null; employee_code: string | null }>,
   actorNames: Map<string, string>,
+  canAct: boolean,
 ): MissedPunchQueueRow {
   const staff = row.staff_id ? staffById.get(row.staff_id) : undefined;
   return {
@@ -250,6 +282,7 @@ function mapQueueRow(
         actedByName: step.acted_by ? actorNames.get(step.acted_by) ?? null : null,
         actedAt: step.acted_at,
       })),
+    canAct,
   };
 }
 
@@ -282,6 +315,7 @@ export async function listMissedPunchCorrections(args: {
       canSeeLocation: access.canSeeLocation,
       directory,
       row: toView(row),
+      observeExecutiveSteps: access.observeExecutiveSteps,
     }),
   );
   const steps = await loadSteps(visible.map((row) => row.id));
@@ -299,7 +333,9 @@ export async function listMissedPunchCorrections(args: {
       { full_name: (row.full_name as string | null) ?? null, employee_code: (row.employee_code as string | null) ?? null },
     ]),
   );
-  return visible.map((row) => mapQueueRow(row, steps, staffById, actorNames));
+  return visible.map((row) =>
+    mapQueueRow(row, steps, staffById, actorNames, canUserActOnCorrection(directory, args.userId, toView(row))),
+  );
 }
 
 export async function countVisiblePendingCorrections(userId: string, locationId?: string | null): Promise<number> {
@@ -310,6 +346,28 @@ export async function countVisiblePendingCorrections(userId: string, locationId?
     status: "pending",
   });
   return rows.length;
+}
+
+const EXECUTIVE_NOTICE_SOURCE = "attendance_corrections";
+
+async function loadCeoUserIds(): Promise<string[]> {
+  const { data, error } = await supabaseAdmin.from("user_roles").select("user_id").eq("role", "ceo");
+  if (error) {
+    console.warn("[missed-punch] ceo lookup failed", error.message);
+    return [];
+  }
+  return [...new Set((data ?? []).map((row) => row.user_id as string).filter(Boolean))];
+}
+
+async function dismissExecutiveMissedPunchNotices(correctionId: string) {
+  const { error } = await supabaseAdmin
+    .from("notifications")
+    .update({ dismissed_at: new Date().toISOString() })
+    .eq("source_type", EXECUTIVE_NOTICE_SOURCE)
+    .eq("source_id", correctionId)
+    .eq("category", "people")
+    .is("dismissed_at", null);
+  if (error) console.warn("[missed-punch] dismiss executive notices failed", error.message);
 }
 
 async function notifyApprovers(args: {
@@ -327,12 +385,48 @@ async function notifyApprovers(args: {
       title: args.title,
       body: args.body,
       severity: "warning",
-            actionUrl: "/hr/me#me-punch-approvals",
+      actionUrl: "/hr/me#me-punch-approvals",
       sourceType: "attendance_correction_approval",
       sourceId: args.sourceId,
     });
   } catch (error) {
     console.warn("[missed-punch] notify failed", error instanceof Error ? error.message : error);
+  }
+}
+
+/** Same panel item for Admin/CEO. The HR step does not copy. */
+async function notifyExecutiveObservers(args: {
+  step: MissedPunchStepRole;
+  approverIds: string[];
+  locationId: string;
+  title: string;
+  body: string;
+  correctionId: string;
+  excludeUserId?: string | null;
+}) {
+  try {
+    if (!missedPunchCopiesExecutives(args.step)) {
+      await dismissExecutiveMissedPunchNotices(args.correctionId);
+      return;
+    }
+    const userIds = (await loadCeoUserIds()).filter(
+      (id) => !args.approverIds.includes(id) && id !== args.excludeUserId,
+    );
+    await dismissExecutiveMissedPunchNotices(args.correctionId);
+    if (userIds.length === 0) return;
+    await notifyUsers({
+      userIds,
+      locationId: args.locationId,
+      category: "people",
+      title: args.title,
+      body: args.body,
+      severity: "warning",
+      actionUrl: "/people/attendance/corrections",
+      sourceType: EXECUTIVE_NOTICE_SOURCE,
+      sourceId: args.correctionId,
+    });
+  } catch (error) {
+    console.warn("[missed-punch] executive notify failed", error instanceof Error ? error.message : error);
   }
 }
 
@@ -437,12 +531,23 @@ export async function submitMissedPunchRequest(args: {
     (id) => id !== args.userId,
   );
   const managerStepId = stepRows?.find((step) => step.step_role === "manager")?.id ?? created.id;
+  const managerTitle = "Missed punch request";
+  const managerBody = `${staff.full_name} submitted a missed punch for ${workDate}. It is waiting for the site supervisor.`;
   await notifyApprovers({
     userIds: managers,
     locationId: summary.location_id as string,
-    title: "Missed punch request",
-    body: `${staff.full_name} submitted a missed punch for ${workDate}. It is waiting for the site supervisor.`,
+    title: managerTitle,
+    body: managerBody,
     sourceId: managerStepId,
+  });
+  await notifyExecutiveObservers({
+    step: "manager",
+    approverIds: managers,
+    locationId: summary.location_id as string,
+    title: managerTitle,
+    body: managerBody,
+    correctionId: created.id as string,
+    excludeUserId: args.userId,
   });
   return { id: created.id as string, approverCount: managers.length, locationId: summary.location_id as string };
 }
@@ -511,6 +616,7 @@ export async function reviewMissedPunchChain(args: {
         .eq("id", pending.id)
         .eq("status", "pending");
     }
+    await dismissExecutiveMissedPunchNotices(row.id);
     await notifyApprovers({
       userIds: [String(row.requested_by)],
       locationId: String(row.location_id),
@@ -552,6 +658,7 @@ export async function reviewMissedPunchChain(args: {
         .eq("status", "pending");
     }
     await args.applyFinal(row);
+    await dismissExecutiveMissedPunchNotices(row.id);
     await notifyApprovers({
       userIds: [String(row.requested_by)],
       locationId: String(row.location_id),
@@ -594,15 +701,26 @@ export async function reviewMissedPunchChain(args: {
     : { data: null };
   const who = (person?.full_name as string | null) ?? "Staff";
   const when = row.work_date ? ` on ${String(row.work_date).slice(0, 10)}` : "";
+  const nextTitle = next === "ops" ? "Missed punch waiting for Head of Operations" : "Missed punch waiting for HR";
+  const nextBody =
+    next === "ops"
+      ? `${who}'s missed punch${when} was approved by the site supervisor.`
+      : `${who}'s missed punch${when} was approved by Head of Operations.`;
   await notifyApprovers({
     userIds: nextIds,
     locationId: String(row.location_id),
-    title: next === "ops" ? "Missed punch waiting for Head of Operations" : "Missed punch waiting for HR",
-    body:
-      next === "ops"
-        ? `${who}'s missed punch${when} was approved by the site supervisor.`
-        : `${who}'s missed punch${when} was approved by Head of Operations.`,
+    title: nextTitle,
+    body: nextBody,
     sourceId: nextStep?.id ?? row.id,
+  });
+  await notifyExecutiveObservers({
+    step: next,
+    approverIds: nextIds,
+    locationId: String(row.location_id),
+    title: nextTitle,
+    body: nextBody,
+    correctionId: row.id,
+    excludeUserId: String(row.requested_by),
   });
   return { ok: true, final: false, nextStep: next, locationId: String(row.location_id) };
 }

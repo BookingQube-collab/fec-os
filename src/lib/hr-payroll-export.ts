@@ -111,6 +111,45 @@ function payBuckets(pm: string, net: number, snap: Record<string, unknown>) {
   };
 }
 
+function isExcelBreakdown(snap: Record<string, unknown>): boolean {
+  return snap.excelBreakdown === true;
+}
+
+/** Blank workbook cells stay blank. Numeric 0 stays 0.00. */
+function excelCell(v: unknown): string {
+  if (v == null || v === "") return "";
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "";
+  return money(n);
+}
+
+/**
+ * Project Staff sheet column order.
+ * August 2026 workbook labels the earned column "Gross Salary-July 26".
+ */
+export function projectStaffPayrollHeaders(month = "2026-08"): string[] {
+  const earned = month === "2026-08" ? "Gross Salary-July 26" : payrollEarnedHeader(month);
+  return [
+    "Sr No.",
+    "Name Of Staff",
+    "Position",
+    "Workplace/Project",
+    "Per Day",
+    "Gross Salary",
+    "Working Days",
+    "Working Hours",
+    earned,
+    "Deductions",
+    "Extra Pay",
+    "Net Payable",
+    "WPS",
+    "Cash",
+    "Bank Transfer",
+    "Cheq",
+    "Remarks",
+  ];
+}
+
 /** Full payroll sheet in the August 2026 monthly column order. */
 export function buildFullPayrollExportMatrix(
   lines: PayrollExportLineInput[],
@@ -120,6 +159,39 @@ export function buildFullPayrollExportMatrix(
   const header = augustPayrollHeaders(month);
   const rows = lines.map((line, idx) => {
     const snap = line.snapshot ?? {};
+    if (isExcelBreakdown(snap)) {
+      const net =
+        snap.netPayable != null && snap.netPayable !== "" ? Number(snap.netPayable) : line.netQar;
+      return [
+        snap.srNo != null && snap.srNo !== "" ? String(snap.srNo) : String(line.srNo ?? idx + 1),
+        snap.employeeCode != null && String(snap.employeeCode).trim()
+          ? String(snap.employeeCode)
+          : line.employeeCode,
+        snap.employeeName ? String(snap.employeeName) : line.employeeName,
+        snap.position != null ? String(snap.position) : (line.position ?? ""),
+        snap.workplace != null ? String(snap.workplace) : (line.workplace ?? ""),
+        excelCell(snap.basicSalary),
+        excelCell(snap.allowances),
+        excelCell(snap.grossSalary),
+        excelCell(snap.workingDays),
+        excelCell(snap.workingHours),
+        excelCell(snap.earnedGross),
+        excelCell(snap.bonus),
+        excelCell(snap.otHoursReg),
+        excelCell(snap.otPayReg),
+        excelCell(snap.otHoursPh),
+        excelCell(snap.otPayPh),
+        excelCell(snap.extraPay),
+        excelCell(snap.advancePay),
+        excelCell(snap.deduction),
+        excelCell(net),
+        excelCell(snap.wps),
+        excelCell(snap.cash),
+        excelCell(snap.bankTransfer),
+        excelCell(snap.cheque),
+        snap.notes != null ? String(snap.notes) : (line.notes ?? ""),
+      ];
+    }
     const net = line.netQar;
     const pm = String(line.paymentMethod);
     const pay = payBuckets(pm, net, snap);
@@ -161,27 +233,32 @@ export function buildProjectStaffExportMatrix(
   opts?: { month?: string | null },
 ): string[][] {
   const month = opts?.month ?? "2026-08";
-  const header = [
-    "Sr No.",
-    "Name Of Staff",
-    "Position",
-    "Workplace/Project",
-    "Per Day",
-    "Gross Salary",
-    "Working Days",
-    "Working Hours",
-    payrollEarnedHeader(month),
-    "Deductions",
-    "Extra Pay",
-    "Net Payable",
-    "WPS",
-    "Cash",
-    "Bank Transfer",
-    "Cheq",
-    "Remarks",
-  ];
+  const header = projectStaffPayrollHeaders(month);
   const rows = lines.map((line, idx) => {
     const snap = line.snapshot ?? {};
+    if (isExcelBreakdown(snap)) {
+      const net =
+        snap.netPayable != null && snap.netPayable !== "" ? Number(snap.netPayable) : line.netQar;
+      return [
+        snap.srNo != null && snap.srNo !== "" ? String(snap.srNo) : String(line.srNo ?? idx + 1),
+        snap.employeeName ? String(snap.employeeName) : line.employeeName,
+        snap.position != null ? String(snap.position) : (line.position ?? ""),
+        snap.workplace != null ? String(snap.workplace) : (line.workplace ?? ""),
+        excelCell(snap.perDayRate),
+        excelCell(snap.grossSalary),
+        excelCell(snap.workingDays),
+        excelCell(snap.workingHours),
+        excelCell(snap.earnedGross),
+        excelCell(snap.deduction),
+        excelCell(snap.extraPay),
+        excelCell(net),
+        excelCell(snap.wps),
+        excelCell(snap.cash),
+        excelCell(snap.bankTransfer),
+        excelCell(snap.cheque),
+        snap.notes != null ? String(snap.notes) : (line.notes ?? ""),
+      ];
+    }
     const net = line.netQar;
     const pay = payBuckets(String(line.paymentMethod), net, snap);
     return [

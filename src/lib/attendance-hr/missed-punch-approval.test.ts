@@ -5,6 +5,7 @@ import {
   canUserActOnCorrection,
   correctionVisibleToUser,
   isHeadOfOperationsTitle,
+  missedPunchCopiesExecutives,
   isSiteSupervisorTitle,
   lineManagerUserIds,
   missedPunchApprovalSteps,
@@ -36,6 +37,7 @@ function directory(partial?: Partial<ApprovalDirectory>): ApprovalDirectory {
       [KDS, [ASHFAQ]],
     ]),
     headOfOperationsUserIds: [RAJAN],
+    opsManagerUserIdsByLocationId: new Map(),
     hrUserIds: [HR],
     ...partial,
   };
@@ -99,6 +101,16 @@ describe("missed punch approval chain", () => {
     expect(lineManagerUserIds(dir, INF, STAFF)).toEqual([MARY]);
   });
 
+  it("routes the operations step through the supervisor's reporting manager", () => {
+    const dir = directory({
+      headOfOperationsUserIds: [],
+      opsManagerUserIdsByLocationId: new Map([[INF, [RAJAN]]]),
+    });
+    expect(approverUserIdsForStep(dir, "ops", INF, STAFF)).toEqual([RAJAN]);
+    expect(canUserActOnCorrection(dir, RAJAN, row({ currentStepRole: "ops" }))).toBe(true);
+    expect(canUserActOnCorrection(dir, MARY, row({ currentStepRole: "ops" }))).toBe(false);
+  });
+
   it("shows a new request only to the site supervisor, then HoO, then HR", () => {
     const dir = directory();
     const fresh = row();
@@ -117,6 +129,52 @@ describe("missed punch approval chain", () => {
     expect(canUserActOnCorrection(dir, RAJAN, afterOps)).toBe(false);
     expect(canUserActOnCorrection(dir, HR, afterOps)).toBe(true);
     expect(approverUserIdsForStep(dir, "hr", INF, STAFF)).toEqual([HR]);
+  });
+
+  it("copies supervisor and operations steps to Admin, and leaves HR with HR", () => {
+    expect(missedPunchCopiesExecutives("manager")).toBe(true);
+    expect(missedPunchCopiesExecutives("ops")).toBe(true);
+    expect(missedPunchCopiesExecutives("hr")).toBe(false);
+    const dir = directory();
+    const ceo = "ceo-user";
+    expect(
+      correctionVisibleToUser({
+        queue: "waiting",
+        userId: ceo,
+        canFinalApprove: true,
+        viewAll: true,
+        canSeeLocation: () => true,
+        directory: dir,
+        row: row(),
+        observeExecutiveSteps: true,
+      }),
+    ).toBe(true);
+    expect(
+      correctionVisibleToUser({
+        queue: "waiting",
+        userId: ceo,
+        canFinalApprove: true,
+        viewAll: true,
+        canSeeLocation: () => true,
+        directory: dir,
+        row: row({ currentStepRole: "ops" }),
+        observeExecutiveSteps: true,
+      }),
+    ).toBe(true);
+    expect(
+      correctionVisibleToUser({
+        queue: "waiting",
+        userId: ceo,
+        canFinalApprove: true,
+        viewAll: true,
+        canSeeLocation: () => true,
+        directory: dir,
+        row: row({ currentStepRole: "hr" }),
+        observeExecutiveSteps: true,
+      }),
+    ).toBe(false);
+    expect(canUserActOnCorrection(dir, ceo, row())).toBe(false);
+    expect(canUserActOnCorrection(dir, ceo, row({ currentStepRole: "ops" }))).toBe(false);
   });
 
   it("stops the chain on reject and blocks self-approval", () => {

@@ -24,7 +24,7 @@ const HrFieldSync = dynamic(
   { ssr: false },
 );
 
-/** /hr/me keeps this shell on desktop. Phone swaps ops chrome for the employee header. */
+/** Employee home and /hr/me use the employee phone header. Footer stays the shared bottom nav. */
 function isEmployeeHome(pathname: string) {
   return pathname === "/hr/me" || pathname.startsWith("/hr/me/");
 }
@@ -44,8 +44,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <AppSidebar />
       <div
         className={cn(
-          "relative z-0 flex min-h-screen min-w-0 max-w-full flex-col overflow-x-hidden md:pe-5",
-          employeeChrome ? "pb-[max(1.25rem,env(safe-area-inset-bottom))]" : "pb-20",
+          "relative z-0 flex min-h-screen min-w-0 max-w-full flex-col overflow-x-hidden pb-20 md:pe-5",
           sidebarExpanded ? "md:ms-[16.25rem]" : "md:ms-[5.25rem]",
           surgeMode ? "md:pb-3" : "md:pb-6",
         )}
@@ -69,7 +68,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </DashboardPanel>
         </div>
       </div>
-      {employeeChrome ? null : <MobileBottomNav />}
+      <MobileBottomNav />
     </div>
   );
 }

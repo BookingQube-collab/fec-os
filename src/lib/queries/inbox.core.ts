@@ -310,6 +310,49 @@ async function fetchWeeklyReportItems(context: AuthContext, roles: AppRole[]): P
   );
 }
 
+async function fetchMissedPunchItems(context: AuthContext, roles: AppRole[]): Promise<InboxItem[]> {
+  if (!roles.includes("ceo")) return [];
+  const { data, error } = await context.supabase
+    .from("attendance_corrections")
+    .select("id, staff_id, work_date, current_step_role, requested_at")
+    .eq("status", "pending")
+    .in("current_step_role", ["manager", "ops"])
+    .order("requested_at", { ascending: false })
+    .limit(20);
+  if (error) throw error;
+  const rows = data ?? [];
+  const staffIds = [...new Set(rows.map((row) => row.staff_id).filter((id): id is string => Boolean(id)))];
+  const names = new Map<string, string>();
+  if (staffIds.length) {
+    const { data: staff } = await context.supabase.from("staff").select("id, full_name").in("id", staffIds);
+    for (const person of staff ?? []) {
+      if (person.full_name) names.set(person.id as string, String(person.full_name));
+    }
+  }
+  return rows.slice(0, 12).map((row) => {
+    const ops = row.current_step_role === "ops";
+    const who = (row.staff_id && names.get(row.staff_id)) || "Staff";
+    const date = row.work_date ? String(row.work_date).slice(0, 10) : "";
+    return item({
+      id: `punch:${row.id}`,
+      kind: "notification",
+      category: "people",
+      title: ops ? "Missed punch waiting for Head of Operations" : "Missed punch request",
+      titleKey: null,
+      body: ops
+        ? `${who}'s missed punch${date ? ` on ${date}` : ""} was approved by the site supervisor.`
+        : `${who} submitted a missed punch${date ? ` for ${date}` : ""}. It is waiting for the site supervisor.`,
+      severity: "warning",
+      actionUrl: "/people/attendance/corrections",
+      readAt: null,
+      createdAt: asIso(row.requested_at),
+      sourceType: "attendance_corrections",
+      sourceId: row.id,
+      persisted: false,
+    });
+  });
+}
+
 async function fetchEvaluationItems(
   context: AuthContext,
   roles: AppRole[],
@@ -356,7 +399,7 @@ export async function fetchActionInbox(context: AuthContext): Promise<ActionInbo
   const roles = (context.roles ?? []) as AppRole[];
   const staffId = await settled(currentStaffId(context), null);
 
-  const [persisted, prs, maint, wos, events, snags, weekly, evals] = await Promise.all([
+  const [persisted, prs, maint, wos, events, snags, weekly, evals, punches] = await Promise.all([
     settled(fetchPersisted(context), []),
     settled(fetchPrItems(context, roles), []),
     settled(fetchMaintenanceItems(context, roles), []),
@@ -365,9 +408,10 @@ export async function fetchActionInbox(context: AuthContext): Promise<ActionInbo
     settled(fetchSnagItems(context, roles), []),
     settled(fetchWeeklyReportItems(context, roles), []),
     settled(fetchEvaluationItems(context, roles, staffId), []),
+    settled(fetchMissedPunchItems(context, roles), []),
   ]);
 
-  const items = mergeInboxItems(persisted, [...prs, ...maint, ...wos, ...events, ...snags, ...weekly, ...evals]);
+  const items = mergeInboxItems(persisted, [...prs, ...maint, ...wos, ...events, ...snags, ...weekly, ...evals, ...punches]);
   return {
     items,
     unreadCount: inboxUnreadCount(items),

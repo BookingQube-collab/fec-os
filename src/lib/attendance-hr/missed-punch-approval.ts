@@ -19,6 +19,11 @@ export type ApprovalDirectory = {
   branchGmUserIdsByLocationId: ReadonlyMap<string, readonly string[]>;
   siteSupervisorUserIdsByLocationId: ReadonlyMap<string, readonly string[]>;
   headOfOperationsUserIds: readonly string[];
+  /**
+   * Logins of the people site supervisors at a location report to.
+   * The operations step uses this hierarchy together with Head of Operations.
+   */
+  opsManagerUserIdsByLocationId: ReadonlyMap<string, readonly string[]>;
   hrUserIds: readonly string[];
 };
 
@@ -101,8 +106,19 @@ export function approverUserIdsForStep(
   staffId: string | null,
 ): string[] {
   if (step === "manager") return lineManagerUserIds(directory, locationId, staffId);
-  if (step === "ops") return [...directory.headOfOperationsUserIds];
+  if (step === "ops") {
+    const fromHierarchy = directory.opsManagerUserIdsByLocationId.get(locationId) ?? [];
+    return [...new Set([...directory.headOfOperationsUserIds, ...fromHierarchy])];
+  }
   return [...directory.hrUserIds];
+}
+
+/**
+ * Admin/CEO is copied on the site-supervisor and Head of Operations steps.
+ * The HR step stays with HR only.
+ */
+export function missedPunchCopiesExecutives(step: MissedPunchStepRole): boolean {
+  return step === "manager" || step === "ops";
 }
 
 export function canUserActOnCorrection(
@@ -123,9 +139,20 @@ export function correctionVisibleToUser(args: {
   canSeeLocation: (locationId: string) => boolean;
   directory: ApprovalDirectory;
   row: CorrectionApprovalView;
+  /** CEO may open supervisor and operations steps without becoming the approver. */
+  observeExecutiveSteps?: boolean;
 }): boolean {
   if (args.queue === "mine") return args.row.requestedBy === args.userId;
   if (canUserActOnCorrection(args.directory, args.userId, args.row)) return true;
+  if (
+    args.observeExecutiveSteps &&
+    args.row.status === "pending" &&
+    args.row.currentStepRole &&
+    missedPunchCopiesExecutives(args.row.currentStepRole) &&
+    args.row.requestedBy !== args.userId
+  ) {
+    return true;
+  }
   const legacy = args.row.status === "pending" && !args.row.currentStepRole;
   if (!legacy) return false;
   if (!args.canSeeLocation(args.row.locationId)) return false;

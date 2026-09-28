@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   Clock,
   Home,
   LayoutDashboard,
+  LogOut,
   MoreHorizontal,
   Users,
   type LucideIcon,
@@ -15,18 +16,14 @@ import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { useUserRoles } from "@/hooks/use-auth";
+import { useAuth, useUserRoles } from "@/hooks/use-auth";
 import {
   getVisibleDepartments,
   isNavItemActive,
   isSidebarNavGroupItemActive,
   type VisibleNavDepartment,
 } from "@/lib/nav-config";
-import {
-  MOBILE_TABS,
-  isMobileTabActive,
-  type MobileTabId,
-} from "@/lib/mobile-nav";
+import { MOBILE_TABS, isMobileTabActive, type MobileTabId } from "@/lib/mobile-nav";
 import { canUserDo } from "@/lib/rbac";
 import { cn } from "@/lib/utils";
 
@@ -119,13 +116,20 @@ function MoreModulesList({
  */
 export function MobileBottomNav() {
   const pathname = usePathname();
+  const router = useRouter();
   const roles = useUserRoles();
+  const { signOut } = useAuth();
   const { t } = useTranslation();
   const [moreOpen, setMoreOpen] = useState(false);
 
+  const handleSignOut = async () => {
+    setMoreOpen(false);
+    await signOut();
+    router.replace("/auth");
+  };
+
   const tabs = useMemo(
-    () =>
-      MOBILE_TABS.filter((tab) => tab.capability === null || canUserDo(roles, tab.capability)),
+    () => MOBILE_TABS.filter((tab) => tab.capability === null || canUserDo(roles, tab.capability)),
     [roles],
   );
 
@@ -214,6 +218,17 @@ export function MobileBottomNav() {
               t={t}
               onNavigate={() => setMoreOpen(false)}
             />
+          </div>
+          <div className="shrink-0 border-t border-border/70 pt-3">
+            <Button
+              type="button"
+              variant="secondary"
+              className="h-11 w-full"
+              onClick={() => void handleSignOut()}
+            >
+              <LogOut className="h-4 w-4" />
+              {t("common.signOut")}
+            </Button>
           </div>
         </SheetContent>
       </Sheet>

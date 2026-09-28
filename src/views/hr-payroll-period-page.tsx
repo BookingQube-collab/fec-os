@@ -50,7 +50,7 @@ import {
 } from "@/lib/hr-payroll-import.functions";
 import { formatPayrollRange } from "@/lib/attendance-hr/roster-period";
 import { canDeletePayrollPeriod } from "@/lib/hr-payroll";
-import { augustPayrollHeaders } from "@/lib/hr-payroll-export";
+import { augustPayrollHeaders, projectStaffPayrollHeaders } from "@/lib/hr-payroll-export";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { usePermission } from "@/hooks/use-permission";
@@ -124,6 +124,168 @@ function payrollEarnedCell(snap: Record<string, unknown>, grossQar: number): str
     if (Number.isFinite(earned)) return qar(earned);
   }
   return qar(grossQar);
+}
+
+function isExcelBreakdown(snap: Record<string, unknown>): boolean {
+  return snap.excelBreakdown === true;
+}
+
+function moneyText(value: unknown): string {
+  if (value == null || value === "") return "—";
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "—";
+  return qar(n);
+}
+
+function qtyText(value: unknown): string {
+  if (value == null || value === "") return "—";
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "—";
+  if (Number.isInteger(n)) return String(n);
+  return String(Math.round((n + Number.EPSILON) * 100) / 100);
+}
+
+function textOrDash(value: unknown): string {
+  if (value == null) return "—";
+  const s = String(value).trim();
+  return s || "—";
+}
+
+function headerSlot(label: string): string {
+  if (label.startsWith("Gross Salary-")) return "earned";
+  if (label === "Workplace" || label === "Workplace/Project") return "workplace";
+  if (label === "Deduction" || label === "Deductions") return "deduction";
+  if (label === "NOTES" || label === "Remarks") return "notes";
+  if (label === "Per Day") return "perDay";
+  if (label === "WPS" || label === "WPS2") return "wps";
+  if (label === "Bank Transfer") return "bank";
+  if (label === "Cheq") return "cheq";
+  if (label === "Cash") return "cash";
+  return label;
+}
+
+type PayrollGridLine = {
+  employeeCode: string;
+  staffName: string;
+  position: string | null;
+  workplace: string | null;
+  locationName: string | null;
+  paymentMethod: string;
+  netQar: number;
+  grossQar: number;
+  workingDays: number | null;
+  workingHours: number | null;
+  notes: string | null;
+  deductions: unknown;
+  snapshot: Record<string, unknown> | null;
+  employmentCategory: string | null;
+  lineSource: string;
+};
+
+function isProjectPayrollLine(line: PayrollGridLine, snap: Record<string, unknown>): boolean {
+  return (
+    snap.category === "project_staff" ||
+    line.employmentCategory === "project_staff" ||
+    line.lineSource === "project_staff"
+  );
+}
+
+function deductionAmount(line: PayrollGridLine, snap: Record<string, unknown>): number {
+  const fromSnap = Number(snap.deduction);
+  if (Number.isFinite(fromSnap) && fromSnap > 0) return fromSnap;
+  if (Array.isArray(line.deductions)) {
+    return line.deductions.reduce(
+      (sum: number, d) => sum + (Number((d as { amountQar?: number }).amountQar) || 0),
+      0,
+    );
+  }
+  return Number.isFinite(fromSnap) ? fromSnap : 0;
+}
+
+/** Column values for the payroll grid. Excel-locked lines use the workbook snapshot. */
+function payrollSlots(line: PayrollGridLine, serial: number): Record<string, string> {
+  const snap = line.snapshot ?? {};
+  if (!isExcelBreakdown(snap)) {
+    const pay = paySplit(line.paymentMethod, line.netQar, snap);
+    const project = isProjectPayrollLine(line, snap);
+    return {
+      "Sr No.": String(serial),
+      "Employee Code": line.employeeCode || "—",
+      "Name Of Staff": line.staffName,
+      Position: line.position ?? "—",
+      workplace: line.workplace ?? line.locationName ?? "—",
+      "Basic Salary": project ? "—" : basicSalaryCell(snap),
+      Allowances:
+        project
+          ? "—"
+          : snap.missingCompensation === true && snap.contractAllowancesQar == null
+            ? "—"
+            : qar(snapNum(snap, "contractAllowancesQar", "allowances")),
+      "Gross Salary": qar(snapNum(snap, "contractGrossQar", "grossSalary")),
+      "Working Days": line.workingDays != null ? qtyText(line.workingDays) : snapDisplay(snap.workingDays),
+      "Working Hours":
+        line.workingHours != null ? qtyText(line.workingHours) : snapDisplay(snap.workingHours),
+      earned: payrollEarnedCell(snap, line.grossQar),
+      Bonus: qar(snapNum(snap, "bonus")),
+      "OT Hours (REG)": qar(snapNum(snap, "otHoursReg")),
+      "OT Pay (REG)": qar(snapNum(snap, "otPayReg")),
+      "OT HRS(PUB.HOL)": qar(snapNum(snap, "otHoursPh")),
+      "OT Pay (PUB.HOL)": qar(snapNum(snap, "otPayPh")),
+      "Extra Pay": qar(snapNum(snap, "extraPay")),
+      "Advance Pay": qar(snapNum(snap, "advancePay")),
+      deduction: qar(deductionAmount(line, snap)),
+      "Net Payable": qar(line.netQar),
+      wps: qar(pay.wps),
+      cash: qar(pay.cash),
+      bank: qar(pay.bank),
+      cheq: qar(pay.cheq),
+      notes: line.notes ?? "—",
+      perDay: moneyText(snap.perDayRate ?? snap.dayRateQar),
+    };
+  }
+
+  const project = isProjectPayrollLine(line, snap);
+  const net =
+    snap.netPayable != null && snap.netPayable !== "" ? snap.netPayable : line.netQar;
+  return {
+    "Sr No.": snap.srNo == null || snap.srNo === "" ? "—" : String(snap.srNo),
+    "Employee Code":
+      snap.employeeCode != null && String(snap.employeeCode).trim()
+        ? String(snap.employeeCode)
+        : line.employeeCode || "—",
+    "Name Of Staff": snap.employeeName ? String(snap.employeeName) : line.staffName,
+    Position: textOrDash(snap.position ?? line.position),
+    workplace: textOrDash(snap.workplace ?? line.workplace),
+    "Basic Salary": project ? "—" : moneyText(snap.basicSalary),
+    Allowances: project ? "—" : moneyText(snap.allowances),
+    "Gross Salary": moneyText(snap.grossSalary),
+    "Working Days": qtyText(snap.workingDays),
+    "Working Hours": qtyText(snap.workingHours),
+    earned: moneyText(snap.earnedGross),
+    Bonus: project ? "—" : moneyText(snap.bonus),
+    "OT Hours (REG)": project ? "—" : qtyText(snap.otHoursReg),
+    "OT Pay (REG)": project ? "—" : moneyText(snap.otPayReg),
+    "OT HRS(PUB.HOL)": project ? "—" : qtyText(snap.otHoursPh),
+    "OT Pay (PUB.HOL)": project ? "—" : moneyText(snap.otPayPh),
+    "Extra Pay": moneyText(snap.extraPay),
+    "Advance Pay": project ? "—" : moneyText(snap.advancePay),
+    deduction: moneyText(snap.deduction),
+    "Net Payable": moneyText(net),
+    wps: moneyText(snap.wps),
+    cash: moneyText(snap.cash),
+    bank: moneyText(snap.bankTransfer),
+    cheq: moneyText(snap.cheque),
+    notes: textOrDash(snap.notes ?? line.notes),
+    perDay: moneyText(snap.perDayRate),
+  };
+}
+
+function excelLineRank(line: PayrollGridLine): number {
+  const snap = line.snapshot ?? {};
+  const project = isProjectPayrollLine(line, snap) ? 100000 : 0;
+  const sr = Number(snap.srNo);
+  const srRank = Number.isFinite(sr) && sr > 0 ? sr : 10000;
+  return project + srRank;
 }
 
 function matrixToCsv(matrix: string[][]): string {
@@ -268,8 +430,18 @@ export default function HrPayrollPeriodPage() {
   });
 
   const period = detail.data?.period;
-  const lines = detail.data?.lines ?? [];
-  const gridHeaders = augustPayrollHeaders(detail.data?.period?.month ?? "2026-08");
+  const lines = useMemo(() => {
+    const raw = detail.data?.lines ?? [];
+    if (detail.data?.period?.month !== "2026-08") return raw;
+    if (!raw.some((line) => isExcelBreakdown(line.snapshot ?? {}))) return raw;
+    return [...raw].sort(
+      (a, b) => excelLineRank(a) - excelLineRank(b) || a.staffName.localeCompare(b.staffName),
+    );
+  }, [detail.data]);
+  const projectLayout = category === "project_staff";
+  const gridHeaders = projectLayout
+    ? projectStaffPayrollHeaders(detail.data?.period?.month ?? "2026-08")
+    : augustPayrollHeaders(detail.data?.period?.month ?? "2026-08");
   const gridCols = gridHeaders.length + 1;
   const kpis = detail.data?.kpis;
   const exceptions = detail.data?.exceptions ?? [];
@@ -766,10 +938,10 @@ export default function HrPayrollPeriodPage() {
               <table>
                 <thead>
                   <tr>
-                    {gridHeaders.map((label, index) => (
+                    {gridHeaders.map((label) => (
                       <th
                         key={label}
-                        className={index === 2 ? "hr-sticky-col" : undefined}
+                        className={label === "Name Of Staff" ? "hr-sticky-col" : undefined}
                       >
                         {label}
                       </th>
@@ -788,69 +960,57 @@ export default function HrPayrollPeriodPage() {
                     pageLines.map((line, lineIndex) => {
                       const open = expanded === line.id;
                       const snap = line.snapshot ?? {};
-                      const pay = paySplit(line.paymentMethod, line.netQar, snap);
-                      const deduction =
-                        Number(snap.deduction) ||
-                        (Array.isArray(line.deductions)
-                          ? line.deductions.reduce(
-                              (sum: number, d) =>
-                                sum + (Number((d as { amountQar?: number }).amountQar) || 0),
-                              0,
-                            )
-                          : 0);
+                      const slots = payrollSlots(line, page * PAGE_SIZE + lineIndex + 1);
+                      const excel = isExcelBreakdown(snap);
                       return (
                         <Fragment key={line.id}>
                           <tr>
-                            <td className="tabular-nums">{page * PAGE_SIZE + lineIndex + 1}</td>
-                            <td className="text-xs text-muted-foreground">{line.employeeCode}</td>
-                            <td className="hr-sticky-col">
-                              <button
-                                type="button"
-                                className="flex items-center gap-1 text-left font-medium"
-                                onClick={() => setExpanded(open ? null : line.id)}
-                              >
-                                {open ? (
-                                  <ChevronDown className="h-3.5 w-3.5" />
-                                ) : (
-                                  <ChevronRight className="h-3.5 w-3.5" />
-                                )}
-                                {line.staffName}
-                              </button>
-                            </td>
-                            <td className="text-xs">{line.position ?? "—"}</td>
-                            <td className="text-xs">{line.workplace ?? line.locationName ?? "—"}</td>
-                            <td className="tabular-nums">{basicSalaryCell(snap)}</td>
-                            <td className="tabular-nums">
-                              {snap.missingCompensation === true && snap.contractAllowancesQar == null
-                                ? "—"
-                                : qar(snapNum(snap, "contractAllowancesQar", "allowances"))}
-                            </td>
-                            <td className="tabular-nums">
-                              {qar(snapNum(snap, "contractGrossQar", "grossSalary"))}
-                            </td>
-                            <td className="tabular-nums">
-                              {line.workingDays != null ? String(line.workingDays) : snapDisplay(snap.workingDays)}
-                            </td>
-                            <td className="tabular-nums">
-                              {line.workingHours != null ? String(line.workingHours) : snapDisplay(snap.workingHours)}
-                            </td>
-                            <td className="tabular-nums">{payrollEarnedCell(snap, line.grossQar)}</td>
-                            <td className="tabular-nums">{qar(snapNum(snap, "bonus"))}</td>
-                            <td className="tabular-nums">{qar(snapNum(snap, "otHoursReg"))}</td>
-                            <td className="tabular-nums">{qar(snapNum(snap, "otPayReg"))}</td>
-                            <td className="tabular-nums">{qar(snapNum(snap, "otHoursPh"))}</td>
-                            <td className="tabular-nums">{qar(snapNum(snap, "otPayPh"))}</td>
-                            <td className="tabular-nums">{qar(snapNum(snap, "extraPay"))}</td>
-                            <td className="tabular-nums">{qar(snapNum(snap, "advancePay"))}</td>
-                            <td className="tabular-nums">{qar(deduction)}</td>
-                            <td className="tabular-nums font-medium">{qar(line.netQar)}</td>
-                            <td className="tabular-nums">{qar(pay.wps)}</td>
-                            <td className="tabular-nums">{qar(pay.cash)}</td>
-                            <td className="tabular-nums">{qar(pay.bank)}</td>
-                            <td className="tabular-nums">{qar(pay.cheq)}</td>
-                            <td className="max-w-48 truncate text-xs" title={line.notes ?? ""}>
-                              {line.notes ?? "—"}
-                            </td>
+                            {gridHeaders.map((label) => {
+                              const slot = headerSlot(label);
+                              const value = slots[slot] ?? "—";
+                              const textCol =
+                                label === "Name Of Staff" ||
+                                label === "Position" ||
+                                label === "Workplace" ||
+                                label === "Workplace/Project" ||
+                                label === "NOTES" ||
+                                label === "Remarks";
+                              if (label === "Name Of Staff") {
+                                return (
+                                  <td key={label} className="hr-sticky-col">
+                                    <button
+                                      type="button"
+                                      className="flex items-center gap-1 text-left font-medium"
+                                      onClick={() => setExpanded(open ? null : line.id)}
+                                    >
+                                      {open ? (
+                                        <ChevronDown className="h-3.5 w-3.5" />
+                                      ) : (
+                                        <ChevronRight className="h-3.5 w-3.5" />
+                                      )}
+                                      {value}
+                                    </button>
+                                  </td>
+                                );
+                              }
+                              return (
+                                <td
+                                  key={label}
+                                  className={
+                                    textCol
+                                      ? label === "NOTES" || label === "Remarks"
+                                        ? "max-w-48 truncate text-xs"
+                                        : "text-xs"
+                                      : label === "Net Payable"
+                                        ? "tabular-nums font-medium"
+                                        : "tabular-nums"
+                                  }
+                                  title={label === "NOTES" || label === "Remarks" ? value : undefined}
+                                >
+                                  {value}
+                                </td>
+                              );
+                            })}
                             <td>{reviewBadge(line.reviewStatus)}</td>
                           </tr>
                           {open ? (
@@ -859,12 +1019,14 @@ export default function HrPayrollPeriodPage() {
                                 <div className="grid gap-3 p-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
                                   <div>
                                     <p className="text-xs text-muted-foreground">Notes</p>
-                                    <p>{line.notes ?? "—"}</p>
+                                    <p>{excel ? textOrDash(snap.notes ?? line.notes) : (line.notes ?? "—")}</p>
                                   </div>
                                   <div>
                                     <p className="text-xs text-muted-foreground">Working days / hours</p>
                                     <p>
-                                      {formatCount(line.workingDays)} / {formatCount(line.workingHours)}
+                                      {excel
+                                        ? `${qtyText(snap.workingDays)} / ${qtyText(snap.workingHours)}`
+                                        : `${formatCount(line.workingDays)} / ${formatCount(line.workingHours)}`}
                                     </p>
                                   </div>
                                   <div>
@@ -957,13 +1119,13 @@ export default function HrPayrollPeriodPage() {
                                   >
                                     <p className="font-medium">Payslip — {period?.month}</p>
                                     <p className="text-xs text-muted-foreground">
-                                      {line.staffName} · {line.employeeCode} · QAR
+                                      {slots["Name Of Staff"]} · {slots["Employee Code"]} · QAR
                                     </p>
                                     <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
-                                      <span>Gross</span>
-                                      <span className="tabular-nums text-end">{qar(line.grossQar)}</span>
+                                      <span>Earned gross</span>
+                                      <span className="tabular-nums text-end">{slots.earned}</span>
                                       <span>Net payable</span>
-                                      <span className="tabular-nums text-end font-medium">{qar(line.netQar)}</span>
+                                      <span className="tabular-nums text-end font-medium">{slots["Net Payable"]}</span>
                                     </div>
                                     <Button
                                       className="mt-2"
