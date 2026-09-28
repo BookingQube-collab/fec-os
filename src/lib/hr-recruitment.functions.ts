@@ -246,7 +246,7 @@ export const listRecruitmentLookups = createAuthenticatedActionNoInput(
       context.supabase.from("locations").select("id, code, name").order("name").limit(200),
       context.supabase
         .from("master_departments")
-        .select("id, name, code")
+        .select("id, name, code, audience")
         .eq("active", true)
         .order("sort_order")
         .limit(300),
@@ -263,6 +263,7 @@ export const listRecruitmentLookups = createAuthenticatedActionNoInput(
         id: String(d.id),
         name: String(d.name),
         code: (d.code as string | null) ?? null,
+        audience: (d.audience as string | null) ?? null,
       })),
       categories: [...HR_EMPLOYMENT_CATEGORIES],
     };

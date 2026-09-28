@@ -154,7 +154,158 @@ export function correctionVisibleToUser(args: {
     return true;
   }
   const legacy = args.row.status === "pending" && !args.row.currentStepRole;
-  if (!legacy) return false;
-  if (!args.canSeeLocation(args.row.locationId)) return false;
-  return args.canFinalApprove || args.viewAll;
+  if (legacy) {
+    if (!args.canSeeLocation(args.row.locationId)) return false;
+    return args.canFinalApprove || args.viewAll;
+  }
+  if (!userFollowsCorrection(args.directory, args.userId, args.row, args.canSeeLocation)) return false;
+  if (args.row.status === "rejected" || args.row.status === "approved" || args.row.status === "change_required") {
+    return true;
+  }
+  // Earlier approvers keep a read-only view after their step, so the row can show Approved.
+  if (args.row.status === "pending" && args.row.currentStepRole === "ops") {
+    return lineManagerUserIds(args.directory, args.row.locationId, args.row.staffId).includes(args.userId);
+  }
+  if (args.row.status === "pending" && args.row.currentStepRole === "hr") {
+    return (
+      lineManagerUserIds(args.directory, args.row.locationId, args.row.staffId).includes(args.userId) ||
+      approverUserIdsForStep(args.directory, "ops", args.row.locationId, args.row.staffId).includes(args.userId)
+    );
+  }
+  return false;
+}
+
+function userFollowsCorrection(
+  directory: ApprovalDirectory,
+  userId: string,
+  row: CorrectionApprovalView,
+  canSeeLocation: (locationId: string) => boolean,
+): boolean {
+  if (canSeeLocation(row.locationId)) return true;
+  return (
+    lineManagerUserIds(directory, row.locationId, row.staffId).includes(userId) ||
+    approverUserIdsForStep(directory, "ops", row.locationId, row.staffId).includes(userId) ||
+    approverUserIdsForStep(directory, "hr", row.locationId, row.staffId).includes(userId)
+  );
+}
+
+export type CorrectionReviewLine = {
+  id: string;
+};
+
+/**
+ * One click reviews one correction id.
+ * A second punch-in or punch-out for the same employee and day is a different id and stays untouched.
+ */
+export function correctionIdsForReview(rows: readonly CorrectionReviewLine[], correctionId: string): string[] {
+  const target = correctionId.trim();
+  if (!target) return [];
+  return rows.filter((row) => row.id === target).map((row) => row.id);
+}
+
+export function punchTypeFromCorrectionValue(
+  value: Record<string, unknown> | null | undefined,
+): "in" | "out" | null {
+  const raw = value && typeof value === "object" ? value.punch_type ?? value.punchType : null;
+  if (raw === "in" || raw === "out") return raw;
+  return null;
+}
+
+/** Clock time the employee submitted. Missing stored time stays empty — never invent one. */
+export function punchAtFromCorrectionValue(value: Record<string, unknown> | null | undefined): string | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value.punch_at ?? value.punchAt ?? value.time ?? value.punch_time;
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  return trimmed.length ? trimmed : null;
+}
+
+/**
+ * Times to print on one correction card.
+ * The other side stays empty so a sibling request's clock is not copied onto this card.
+ */
+export function correctionCardClocks(
+  punchType: "in" | "out" | null,
+  punchAt: string | null,
+): { punchIn: string | null; punchOut: string | null } {
+  return {
+    punchIn: punchType === "in" ? punchAt : null,
+    punchOut: punchType === "out" ? punchAt : null,
+  };
+}
+
+export type AcceptedCorrectionPunch = {
+  id: string;
+  staffId: string | null;
+  workDate: string | null;
+  status: string;
+  currentStepRole: MissedPunchStepRole | null;
+  punchType: "in" | "out" | null;
+  punchAt: string | null;
+  requestedAt?: string | null;
+};
+
+/**
+ * The punch counts once the current step has accepted it.
+ * Still waiting on the site supervisor does not. Rejected and change-required do not.
+ */
+export function correctionPunchAccepted(row: {
+  status: string;
+  currentStepRole: MissedPunchStepRole | null;
+}): boolean {
+  if (row.status === "approved") return true;
+  if (row.status !== "pending") return false;
+  return row.currentStepRole === "ops" || row.currentStepRole === "hr";
+}
+
+export function applyAcceptedCorrectionTimes<
+  T extends {
+    staff_id: string | null;
+    work_date: string;
+    actual_in: string | null;
+    actual_out: string | null;
+  },
+>(rows: readonly T[], corrections: readonly AcceptedCorrectionPunch[]): T[] {
+  const accepted = corrections
+    .filter((row) => correctionPunchAccepted(row) && row.punchAt && row.staffId && row.workDate)
+    .slice()
+    .sort((a, b) => String(a.requestedAt ?? "").localeCompare(String(b.requestedAt ?? "")));
+  return rows.map((row) => {
+    const staffId = row.staff_id;
+    const workDate = String(row.work_date ?? "").slice(0, 10);
+    if (!staffId || !workDate) return row;
+    let actualIn = row.actual_in;
+    let actualOut = row.actual_out;
+    for (const correction of accepted) {
+      if (correction.staffId !== staffId) continue;
+      if (String(correction.workDate).slice(0, 10) !== workDate) continue;
+      const punchAt = correction.punchAt;
+      if (!punchAt) continue;
+      if (correction.punchType === "in") actualIn = punchAt;
+      else if (correction.punchType === "out") actualOut = punchAt;
+      else if (!actualIn) actualIn = punchAt;
+      else if (!actualOut) actualOut = punchAt;
+    }
+    if (actualIn === row.actual_in && actualOut === row.actual_out) return row;
+    return { ...row, actual_in: actualIn, actual_out: actualOut };
+  });
+}
+
+/** Qatar HH:mm for the employee time input. */
+export function punchTimeInputValue(punchAt: string | null | undefined): string {
+  if (!punchAt) return "";
+  const match = punchAt.match(/T(\d{2}):(\d{2})/);
+  if (match && /[+-]\d{2}:\d{2}$/.test(punchAt)) return `${match[1]}:${match[2]}`;
+  const parsed = new Date(punchAt);
+  if (Number.isNaN(parsed.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Qatar",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(parsed);
+  const hour = parts.find((part) => part.type === "hour")?.value ?? "";
+  const minute = parts.find((part) => part.type === "minute")?.value ?? "";
+  if (!hour || !minute) return "";
+  return `${hour.padStart(2, "0")}:${minute.padStart(2, "0")}`;
 }

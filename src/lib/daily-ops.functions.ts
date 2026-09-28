@@ -389,7 +389,7 @@ export const aiGenerateLocationRoster = createAuthenticatedAction(
           .order("full_name"),
         context.supabase
           .from("master_departments")
-          .select("name")
+          .select("name, audience")
           .eq("active", true)
           .order("sort_order"),
       ]);
@@ -432,7 +432,10 @@ export const aiGenerateLocationRoster = createAuthenticatedAction(
         end_time: String(s.ends_at).slice(11, 16),
       }));
 
-    const master_departments = (deptRows ?? []).map((d) => d.name as string);
+    const siteAudience = location.code === "HO" ? "ho" : "fec";
+    const master_departments = (deptRows ?? [])
+      .filter((d) => (d.audience as string | null) === siteAudience)
+      .map((d) => d.name as string);
 
     const result = await generateLocationRosterWithAi({
       location_code: location.code,

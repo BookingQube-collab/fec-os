@@ -28,6 +28,10 @@ import {
   resolveWeekOff,
 } from "@/lib/attendance-hr/shift-policy";
 import { queueAdmsAttlogQuery, queueAdmsAttlogQueryRange } from "@/lib/attendance-hr/adms-ingest";
+import { assessAdmsHandlerHealth } from "@/lib/attendance-hr/adms-connection-test";
+import { readAdmsConnectionTest, startAdmsConnectionTest } from "@/lib/attendance-hr/adms-connection-test.server";
+import { handleAdmsGet, handleAdmsHead, handleAdmsOptions, handleAdmsPost } from "@/lib/attendance-hr/adms-http";
+import { parseAdmsEndpoint } from "@/lib/attendance-hr/parse-adms";
 import {
   findAttendanceGaps,
   qatarRangeToFetchWindow,
@@ -117,8 +121,16 @@ import {
 } from "@/lib/attendance-hr/availability";
 import { dispatchHrNotify } from "@/lib/attendance-hr/hr-notify-dispatch";
 import {
+  applyAcceptedCorrectionTimes,
+  punchAtFromCorrectionValue,
+  punchTypeFromCorrectionValue,
+  type AcceptedCorrectionPunch,
+  type MissedPunchStepRole,
+} from "@/lib/attendance-hr/missed-punch-approval";
+import {
   countVisiblePendingCorrections,
   listMissedPunchCorrections,
+  resubmitMissedPunchRequest as updateMissedPunchRequest,
   reviewMissedPunchChain,
   submitMissedPunchRequest as insertMissedPunchRequest,
 } from "@/lib/attendance-hr/missed-punch-approval.server";
@@ -160,7 +172,7 @@ export const getAttendanceHrBootstrap = createAuthenticatedActionNoInput(
           .in("code", [...CANONICAL_LOCATION_CODES]),
         (async () => {
           const full =
-            "id, location_id, company_id, device_code, device_name, vendor, active, last_sync_at, last_user_sync_at, last_adms_at, last_adms_error, timezone, serial_number, connection_mode, adms_pending_cmd, adms_cmd_queued_at, adms_attlog_stamp";
+            "id, location_id, company_id, device_code, device_name, vendor, active, last_sync_at, last_user_sync_at, last_adms_at, last_adms_error, last_adms_endpoint, last_adms_source_ip, last_adms_pushver, timezone, serial_number, connection_mode, adms_pending_cmd, adms_cmd_queued_at, adms_attlog_stamp";
           const lite =
             "id, location_id, company_id, device_code, device_name, vendor, active, last_sync_at, last_user_sync_at, last_adms_at, timezone, serial_number, connection_mode";
           const first = await context.supabase
@@ -168,7 +180,7 @@ export const getAttendanceHrBootstrap = createAuthenticatedActionNoInput(
             .select(full)
             .eq("active", true)
             .order("device_name");
-          if (first.error && /adms_pending_cmd|adms_cmd_queued_at|last_adms_error|adms_attlog_stamp/i.test(first.error.message)) {
+          if (first.error && /adms_pending_cmd|adms_cmd_queued_at|last_adms_error|adms_attlog_stamp|last_adms_endpoint|last_adms_source_ip|last_adms_pushver/i.test(first.error.message)) {
             return context.supabase.from("attendance_devices").select(lite).eq("active", true).order("device_name");
           }
           return first;
@@ -1252,6 +1264,71 @@ export const requestAttendanceDeviceFetch = createAuthenticatedAction(
   { auth: { capability: "attendance.manage_devices" } },
 );
 
+function inspectAdmsServerHealth(): { ok: boolean; detail: string | null } {
+  const resolved = {
+    cdata: parseAdmsEndpoint(["cdata"]),
+    getrequest: parseAdmsEndpoint(["getrequest"]),
+    devicecmd: parseAdmsEndpoint(["devicecmd"]),
+    registry: parseAdmsEndpoint(["registry"]),
+  };
+  const health = assessAdmsHandlerHealth(resolved);
+  const handlersOk = [handleAdmsGet, handleAdmsPost, handleAdmsHead, handleAdmsOptions].every((fn) => typeof fn === "function");
+  if (!handlersOk) return { ok: false, detail: "ADMS HTTP handlers are not registered." };
+  if (!health.ok) return { ok: false, detail: `Missing ADMS endpoints: ${health.missing.join(", ")}` };
+  return { ok: true, detail: null };
+}
+
+export const startAttendanceDeviceConnectionTest = createAuthenticatedAction(
+  z.object({
+    deviceId: z.string().uuid(),
+  }),
+  async (data, context) => {
+    const { data: device, error } = await context.supabase
+      .from("attendance_devices")
+      .select("id, location_id")
+      .eq("id", data.deviceId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!device) throw new Error("Device not found");
+    await assertLocationAccess(context, device.location_id as string);
+    const health = inspectAdmsServerHealth();
+    const result = await startAdmsConnectionTest(supabaseAdmin, {
+      deviceId: device.id as string,
+      actorId: context.userId,
+      serverHealthy: health.ok,
+      serverDetail: health.detail,
+    });
+    await audit(context, "adms_connection_test", "attendance_device", device.id as string, device.location_id as string, {
+      testId: result.testId,
+      status: result.status,
+      diagnosis: result.diagnosis?.code ?? null,
+    });
+    return result;
+  },
+  { auth: { capability: "attendance.manage_devices" } },
+);
+
+export const getAttendanceDeviceConnectionTest = createAuthenticatedAction(
+  z.object({
+    testId: z.string().uuid(),
+  }),
+  async (data, context) => {
+    const { data: row, error } = await supabaseAdmin
+      .from("attendance_adms_connection_tests")
+      .select("id, location_id")
+      .eq("id", data.testId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!row?.location_id) throw new Error("Connection test not found");
+    await assertLocationAccess(context, String(row.location_id));
+    const health = inspectAdmsServerHealth();
+    const result = await readAdmsConnectionTest(supabaseAdmin, data.testId, health.ok);
+    if (!result) throw new Error("Connection test not found");
+    return result;
+  },
+  { auth: { capability: "attendance.manage_devices" } },
+);
+
 const resyncWindowSchema = z.object({
   locationId: z.string().uuid(),
   mode: z.enum(["dates", "fec_month"]),
@@ -1755,7 +1832,7 @@ export const submitMissedPunchRequest = createAuthenticatedAction(
 export const reviewAttendanceCorrection = createAuthenticatedAction(
   z.object({
     id: z.string().uuid(),
-    decision: z.enum(["approved", "rejected"]),
+    decision: z.enum(["approved", "rejected", "change_required"]),
     reviewNote: z.string().max(500).optional(),
   }),
   async (data, context) => {
@@ -1815,19 +1892,43 @@ export const reviewAttendanceCorrection = createAuthenticatedAction(
       await applyCorrection(context, row);
     }
     await audit(context, `attendance.correction_${data.decision}`, "attendance_corrections", data.id, row.location_id as string);
-    const requester = typeof row.requested_by === "string" ? row.requested_by : null;
-    await dispatchHrNotify(
-      {
-        kind: data.decision === "approved" ? "correction_approved" : "correction_rejected",
-        workDate: row.work_date ? String(row.work_date).slice(0, 10) : null,
-        locationId: row.location_id as string,
-        sourceId: data.id,
-      },
-      requester ? [requester] : undefined,
-    );
+    if (data.decision !== "change_required") {
+      const requester = typeof row.requested_by === "string" ? row.requested_by : null;
+      await dispatchHrNotify(
+        {
+          kind: data.decision === "approved" ? "correction_approved" : "correction_rejected",
+          workDate: row.work_date ? String(row.work_date).slice(0, 10) : null,
+          locationId: row.location_id as string,
+          sourceId: data.id,
+        },
+        requester ? [requester] : undefined,
+      );
+    }
     return { ok: true };
   },
   { auth: { anyCapability: ["attendance.approve", "attendance.view", "hr.employee_app"] } },
+);
+
+export const resubmitMissedPunchRequest = createAuthenticatedAction(
+  z.object({
+    correctionId: z.string().uuid(),
+    punchTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+    reason: z.string().max(1000).optional(),
+  }),
+  async (data, context) => {
+    const updated = await updateMissedPunchRequest({
+      userId: context.userId,
+      correctionId: data.correctionId,
+      punchTime: data.punchTime,
+      reason: data.reason?.trim() ?? "",
+    });
+    await audit(context, "attendance.correction_submitted", "attendance_corrections", updated.id, updated.locationId, {
+      missed_punch_resubmit: true,
+      approverCount: updated.approverCount,
+    });
+    return { id: updated.id, approverCount: updated.approverCount };
+  },
+  { auth: { capability: "hr.employee_app" } },
 );
 
 async function applyCorrection(context: AuthContext, row: Record<string, unknown>) {
@@ -1839,17 +1940,26 @@ async function applyCorrection(context: AuthContext, row: Record<string, unknown
       .update({ excluded_from_calc: true, probable_duplicate: true })
       .eq("id", String(row.punch_id));
   }
-  if (kind === "add_punch" && next.punch_at) {
-    await context.supabase.from("attendance_logs").insert({
-      location_id: row.location_id,
-      staff_id: row.staff_id ?? null,
-      biometric_user_id: next.biometric_user_id ?? null,
-      punch_at: next.punch_at,
-      punch_type: next.punch_type ?? "in",
-      source: "correction",
-      attendance_date: row.work_date ?? String(next.punch_at).slice(0, 10),
-      raw_payload: { correction_id: row.id, reason: row.reason },
-    });
+  if (kind === "add_punch" && next.punch_at && row.id) {
+    const correctionId = String(row.id);
+    const { data: existingLogs } = await context.supabase
+      .from("attendance_logs")
+      .select("id")
+      .eq("source", "correction")
+      .filter("raw_payload->>correction_id", "eq", correctionId)
+      .limit(1);
+    if (!existingLogs?.length) {
+      await context.supabase.from("attendance_logs").insert({
+        location_id: row.location_id,
+        staff_id: row.staff_id ?? null,
+        biometric_user_id: next.biometric_user_id ?? null,
+        punch_at: next.punch_at,
+        punch_type: next.punch_type ?? "in",
+        source: "correction",
+        attendance_date: row.work_date ?? String(next.punch_at).slice(0, 10),
+        raw_payload: { correction_id: row.id, reason: row.reason },
+      });
+    }
   }
   if (kind === "mark_leave" && row.staff_id && row.work_date) {
     await context.supabase.from("attendance_leave_records").upsert({
@@ -2056,6 +2166,43 @@ type LocationLookup = {
   region: string | null;
   break_minutes?: number | null;
 };
+
+function asStepRole(value: unknown): MissedPunchStepRole | null {
+  if (value === "manager" || value === "ops" || value === "hr") return value;
+  return null;
+}
+
+async function loadAcceptedCorrectionPunches(
+  staffIds: string[],
+  dateFrom: string | null,
+  dateTo: string | null,
+): Promise<AcceptedCorrectionPunch[]> {
+  if (!staffIds.length || !dateFrom || !dateTo) return [];
+  const { data, error } = await supabaseAdmin
+    .from("attendance_corrections")
+    .select("id, staff_id, work_date, status, current_step_role, new_value, requested_at")
+    .in("staff_id", staffIds)
+    .gte("work_date", dateFrom)
+    .lte("work_date", dateTo)
+    .in("status", ["pending", "approved"]);
+  if (error) {
+    if (/does not exist|schema cache|column/i.test(error.message)) return [];
+    throw error;
+  }
+  return (data ?? []).map((row) => {
+    const value = (row.new_value ?? null) as Record<string, unknown> | null;
+    return {
+      id: String(row.id),
+      staffId: row.staff_id ? String(row.staff_id) : null,
+      workDate: row.work_date ? String(row.work_date).slice(0, 10) : null,
+      status: String(row.status ?? ""),
+      currentStepRole: asStepRole(row.current_step_role),
+      punchType: punchTypeFromCorrectionValue(value),
+      punchAt: punchAtFromCorrectionValue(value),
+      requestedAt: row.requested_at ? String(row.requested_at) : null,
+    };
+  });
+}
 
 async function enrichAttendanceHrDailyRows(
   context: AuthContext,
@@ -2433,6 +2580,20 @@ async function enrichAttendanceHrDailyRows(
     };
   });
 
+  const acceptedPunches = await loadAcceptedCorrectionPunches(staffIds, dateFrom, dateTo);
+  const finishRows = (rows: AttendanceHrReportRow[]) =>
+    applyAcceptedCorrectionTimes(collapseFlexibleAttendanceReportRows(rows), acceptedPunches).map((row) => {
+      const lateMinutes = resolveListingLateMinutes({
+        actualIn: row.actual_in,
+        rosterScheduledIn: row.scheduled_in,
+        reportingTimeMinutes: row.location_reporting_time_minutes,
+        bufferMinutes: row.location_buffer_minutes,
+        lateFromShiftStart: Boolean(row.flexible_attendance),
+      });
+      if (lateMinutes === row.late_minutes) return row;
+      return { ...row, late_minutes: lateMinutes };
+    });
+
   const crossSiteIds = [
     ...new Set(
       enriched
@@ -2441,7 +2602,7 @@ async function enrichAttendanceHrDailyRows(
     ),
   ];
   if (crossSiteIds.length === 0 || !dateFrom || !dateTo) {
-    return collapseFlexibleAttendanceReportRows(enriched);
+    return finishRows(enriched);
   }
 
   const punchesByStaffDay = new Map<string, FlexibleCrossSitePunch[]>();
@@ -2787,7 +2948,7 @@ async function enrichAttendanceHrDailyRows(
     };
   });
 
-  return collapseFlexibleAttendanceReportRows(withSites);
+  return finishRows(withSites);
 }
 
 /** Roster + mapped punch days for listing gap fill (summary-only days otherwise vanish). */

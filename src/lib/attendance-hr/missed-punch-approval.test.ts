@@ -3,10 +3,16 @@ import { describe, expect, it } from "vitest";
 import {
   approverUserIdsForStep,
   canUserActOnCorrection,
+  applyAcceptedCorrectionTimes,
+  correctionCardClocks,
+  correctionIdsForReview,
+  correctionPunchAccepted,
   correctionVisibleToUser,
   isHeadOfOperationsTitle,
   missedPunchCopiesExecutives,
   isSiteSupervisorTitle,
+  punchAtFromCorrectionValue,
+  punchTimeInputValue,
   lineManagerUserIds,
   missedPunchApprovalSteps,
   missedPunchRequestSide,
@@ -181,6 +187,100 @@ describe("missed punch approval chain", () => {
     const dir = directory();
     expect(canUserActOnCorrection(dir, MARY, row({ status: "rejected" }))).toBe(false);
     expect(canUserActOnCorrection(dir, MARY, row({ requestedBy: MARY }))).toBe(false);
+  });
+
+  it("approves only the clicked correction when punch in and punch out share an employee day", () => {
+    const lines = [
+      { id: "punch-in", staffId: ASHFAQ, workDate: "2026-09-24", punchType: "in" as const },
+      { id: "punch-out", staffId: ASHFAQ, workDate: "2026-09-24", punchType: "out" as const },
+    ];
+    expect(correctionIdsForReview(lines, "punch-out")).toEqual(["punch-out"]);
+    expect(correctionIdsForReview(lines, "punch-in")).toEqual(["punch-in"]);
+    expect(correctionIdsForReview(lines, "missing")).toEqual([]);
+  });
+
+  it("puts an accepted punch on that side of the day and leaves the pending sibling off", () => {
+    const day = {
+      staff_id: ASHFAQ,
+      work_date: "2026-09-24",
+      actual_in: "2026-09-24T22:59:31+03:00",
+      actual_out: null as string | null,
+    };
+    const [next] = applyAcceptedCorrectionTimes(
+      [day],
+      [
+        {
+          id: "punch-out",
+          staffId: ASHFAQ,
+          workDate: "2026-09-24",
+          status: "pending",
+          currentStepRole: "ops",
+          punchType: "out",
+          punchAt: "2026-09-24T23:40:00+03:00",
+          requestedAt: "2026-09-24T18:00:00Z",
+        },
+        {
+          id: "punch-in",
+          staffId: ASHFAQ,
+          workDate: "2026-09-24",
+          status: "pending",
+          currentStepRole: "manager",
+          punchType: "in",
+          punchAt: "2026-09-24T14:05:00+03:00",
+          requestedAt: "2026-09-24T18:01:00Z",
+        },
+      ],
+    );
+    expect(next?.actual_in).toBe("2026-09-24T22:59:31+03:00");
+    expect(next?.actual_out).toBe("2026-09-24T23:40:00+03:00");
+    expect(correctionPunchAccepted({ status: "pending", currentStepRole: "manager" })).toBe(false);
+    expect(correctionPunchAccepted({ status: "change_required", currentStepRole: null })).toBe(false);
+    expect(correctionPunchAccepted({ status: "rejected", currentStepRole: null })).toBe(false);
+  });
+
+  it("shows only this request's clock on the correction card", () => {
+    expect(correctionCardClocks("in", "2026-09-24T22:59:31+03:00")).toEqual({
+      punchIn: "2026-09-24T22:59:31+03:00",
+      punchOut: null,
+    });
+    expect(correctionCardClocks("out", "2026-09-24T23:40:00+03:00")).toEqual({
+      punchIn: null,
+      punchOut: "2026-09-24T23:40:00+03:00",
+    });
+    expect(punchAtFromCorrectionValue({ punch_at: "2026-09-24T22:59:31+03:00", punch_type: "in" })).toBe(
+      "2026-09-24T22:59:31+03:00",
+    );
+    expect(punchAtFromCorrectionValue({})).toBeNull();
+    expect(punchTimeInputValue("2026-09-24T22:59:00+03:00")).toBe("22:59");
+  });
+
+  it("lets the site supervisor see a row after their step without letting them act again", () => {
+    const dir = directory();
+    const movedOn = row({ currentStepRole: "ops" });
+    expect(canUserActOnCorrection(dir, MARY, movedOn)).toBe(false);
+    expect(canUserActOnCorrection(dir, MARY, row({ status: "change_required", currentStepRole: null }))).toBe(false);
+    expect(
+      correctionVisibleToUser({
+        queue: "waiting",
+        userId: MARY,
+        canFinalApprove: false,
+        viewAll: false,
+        canSeeLocation: () => false,
+        directory: dir,
+        row: movedOn,
+      }),
+    ).toBe(true);
+    expect(
+      correctionVisibleToUser({
+        queue: "waiting",
+        userId: MARY,
+        canFinalApprove: false,
+        viewAll: false,
+        canSeeLocation: (id) => id === INF,
+        directory: dir,
+        row: row({ status: "rejected", currentStepRole: null }),
+      }),
+    ).toBe(true);
   });
 
   it("lets an employee see their own request and hides other sites’ manager queue", () => {

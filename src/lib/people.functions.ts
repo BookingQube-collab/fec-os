@@ -10,6 +10,7 @@ import {
   parseStaffImportRows,
   toQatarIso,
 } from "@/lib/staff-import";
+import { departmentAudienceForLocationCode, type DepartmentAudience } from "@/lib/department-audience";
 import {
   formatDepartmentDisplay,
   normalizeDepartmentName,
@@ -50,10 +51,10 @@ async function assertLocationAccess(context: AuthContext, locationId: string) {
   if (!data) throw new Error("Forbidden: cannot access this branch");
 }
 
-type MasterDeptRow = { id: string; name: string };
+type MasterDeptRow = { id: string; name: string; audience?: string | null };
 
 async function loadMasterDepartments(context: AuthContext, activeOnly = false): Promise<MasterDeptRow[]> {
-  let q = context.supabase.from("master_departments").select("id, name");
+  let q = context.supabase.from("master_departments").select("id, name, audience");
   if (activeOnly) q = q.eq("active", true);
   const { data, error } = await q;
   if (error) throw error;
@@ -75,11 +76,16 @@ async function departmentNamesForIds(
     .map((d) => d.name);
 }
 
-function matchDepartmentId(name: string, catalog: MasterDeptRow[]): string | null {
+function matchDepartmentId(
+  name: string,
+  catalog: MasterDeptRow[],
+  audience?: DepartmentAudience | null,
+): string | null {
   const target = normalizeDepartmentName(name);
-  const exact = catalog.find((d) => normalizeDepartmentName(d.name) === target);
+  const pool = audience ? catalog.filter((row) => row.audience === audience) : catalog;
+  const exact = pool.find((d) => normalizeDepartmentName(d.name) === target);
   if (exact) return exact.id;
-  const compact = catalog.find(
+  const compact = pool.find(
     (d) => normalizeDepartmentName(d.name).replace(/\s/g, "") === target.replace(/\s/g, ""),
   );
   return compact?.id ?? null;
@@ -89,6 +95,7 @@ async function resolveDepartmentIds(
   context: AuthContext,
   raw: string | null | undefined,
   catalog?: MasterDeptRow[],
+  audience?: DepartmentAudience | null,
 ): Promise<{ ids: string[]; names: string[] }> {
   const tokens = splitDepartmentTokens(raw);
   if (!tokens.length) return { ids: [], names: [] };
@@ -98,34 +105,14 @@ async function resolveDepartmentIds(
   const names: string[] = [];
 
   for (const token of tokens) {
-    let id = matchDepartmentId(token, list);
+    const id = matchDepartmentId(token, list, audience);
     if (!id) {
-      const { data: created, error } = await context.supabase
-        .from("master_departments")
-        .insert({ name: token.trim(), sort_order: 900 })
-        .select("id, name")
-        .single();
-      if (error) {
-        const { data: existing } = await context.supabase
-          .from("master_departments")
-          .select("id, name")
-          .ilike("name", token.trim())
-          .maybeSingle();
-        if (!existing) throw error;
-        id = existing.id;
-        list.push(existing);
-        names.push(existing.name);
-        ids.push(existing.id);
-        continue;
-      }
-      id = created.id;
-      list.push(created);
-      names.push(created.name);
-    } else {
-      const row = list.find((d) => d.id === id);
-      names.push(row?.name ?? token);
+      names.push(token.trim());
+      continue;
     }
-    if (id && !ids.includes(id)) ids.push(id);
+    const row = list.find((d) => d.id === id);
+    names.push(row?.name ?? token);
+    if (!ids.includes(id)) ids.push(id);
   }
 
   return { ids, names };
@@ -361,7 +348,12 @@ export const importStaffCsv = createAuthenticatedAction(
       if (!location_id) throw new Error(`Branch "${s.location_code}" not found`);
       await assertLocationAccess(context, location_id);
       const staffId = staffUuid(s.employee_code);
-      const resolved = await resolveDepartmentIds(context, s.department, catalog);
+      const resolved = await resolveDepartmentIds(
+        context,
+        s.department,
+        catalog,
+        departmentAudienceForLocationCode(s.location_code),
+      );
       deptByStaffId.set(staffId, {
         ids: resolved.ids,
         label: formatDepartmentDisplay(resolved.names) || null,
@@ -692,7 +684,7 @@ export const listMasterDepartments = createAuthenticatedAction(
   async (_data, context) => {
     const { data, error } = await context.supabase
       .from("master_departments")
-      .select("id, name, code, active, sort_order, parent_id")
+      .select("id, name, code, active, sort_order, parent_id, audience")
       .order("sort_order")
       .order("name");
     if (error) throw error;
@@ -704,17 +696,35 @@ export const listMasterDepartments = createAuthenticatedAction(
   { defaultInput: {}, auth: { capability: "people.view_roster" } },
 );
 
-async function assertDepartmentParent(context: AuthContext, parentId: string | null, selfId?: string) {
+async function assertDepartmentParent(
+  context: AuthContext,
+  parentId: string | null,
+  selfId?: string,
+  audience?: DepartmentAudience | null,
+) {
   if (!parentId) return;
   if (selfId && parentId === selfId) throw new Error("A department cannot be its own parent");
   const { data: parent, error } = await context.supabase
     .from("master_departments")
-    .select("id, parent_id")
+    .select("id, parent_id, audience")
     .eq("id", parentId)
     .maybeSingle();
   if (error) throw error;
   if (!parent) throw new Error("Parent department not found");
   if (parent.parent_id) throw new Error("Sub-departments cannot have children — pick a top-level parent");
+  let childAudience = audience ?? null;
+  if (!childAudience && selfId) {
+    const { data: self, error: selfErr } = await context.supabase
+      .from("master_departments")
+      .select("audience")
+      .eq("id", selfId)
+      .maybeSingle();
+    if (selfErr) throw selfErr;
+    childAudience = (self?.audience as DepartmentAudience | null) ?? null;
+  }
+  if (childAudience && parent.audience !== childAudience) {
+    throw new Error("Parent department belongs to a different office");
+  }
   if (selfId) {
     const { data: kids } = await context.supabase
       .from("master_departments")
@@ -731,10 +741,12 @@ export const createMasterDepartment = createAuthenticatedAction(
     code: z.string().max(40).optional(),
     sortOrder: z.number().int().min(0).max(9999).optional(),
     parentId: z.string().uuid().nullable().optional(),
+    audience: z.enum(["ho", "fec"]).optional(),
   }),
   async (data, context) => {
     const parentId = data.parentId ?? null;
-    await assertDepartmentParent(context, parentId);
+    const audience = data.audience ?? "fec";
+    await assertDepartmentParent(context, parentId, undefined, audience);
     const { data: row, error } = await context.supabase
       .from("master_departments")
       .insert({
@@ -742,6 +754,7 @@ export const createMasterDepartment = createAuthenticatedAction(
         code: data.code?.trim().toUpperCase() || null,
         sort_order: data.sortOrder ?? 500,
         parent_id: parentId,
+        audience,
       })
       .select("id")
       .single();

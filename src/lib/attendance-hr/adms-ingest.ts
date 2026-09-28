@@ -393,6 +393,9 @@ export async function touchAdmsDevice(
     error?: string | null;
     /** True only after ATTLOG/USER ingest — handshake/getrequest must not look like a punch sync. */
     sync?: boolean;
+    endpoint?: string | null;
+    sourceIp?: string | null;
+    pushver?: string | null;
   },
 ) {
   const update: Record<string, unknown> = {
@@ -404,7 +407,20 @@ export async function touchAdmsDevice(
   if (patch.operlogStamp) update.adms_operlog_stamp = patch.operlogStamp;
   if (patch.users) update.last_user_sync_at = new Date().toISOString();
   if (patch.sync) update.last_sync_at = new Date().toISOString();
+  if (patch.endpoint) update.last_adms_endpoint = patch.endpoint;
+  if (patch.sourceIp) update.last_adms_source_ip = patch.sourceIp;
+  if (patch.pushver) update.last_adms_pushver = patch.pushver;
   const { error } = await sb.from("attendance_devices").update(update).eq("id", deviceId);
+  if (error && /last_adms_endpoint|last_adms_source_ip|last_adms_pushver/i.test(error.message)) {
+    delete update.last_adms_endpoint;
+    delete update.last_adms_source_ip;
+    delete update.last_adms_pushver;
+    const retry = await sb.from("attendance_devices").update(update).eq("id", deviceId);
+    if (retry.error && /adms_|connection_mode/i.test(retry.error.message)) {
+      await sb.from("attendance_devices").update({ last_sync_at: new Date().toISOString() }).eq("id", deviceId);
+    }
+    return;
+  }
   if (error && /adms_|connection_mode/i.test(error.message)) {
     await sb.from("attendance_devices").update({ last_sync_at: new Date().toISOString() }).eq("id", deviceId);
   }
@@ -417,6 +433,9 @@ export async function ingestAdmsPayload(
     table: AdmsTable;
     body: string;
     stamp: string | null;
+    endpoint?: string | null;
+    sourceIp?: string | null;
+    pushver?: string | null;
   },
 ): Promise<AdmsIngestResult> {
   const empty: AdmsIngestResult = { accepted: 0, users: 0, punches: 0, duplicates: 0, skipped: true };
@@ -516,6 +535,9 @@ export async function ingestAdmsPayload(
     users: users.length > 0,
     error: null,
     sync: input.table === "ATTLOG" || users.length > 0,
+    endpoint: input.endpoint,
+    sourceIp: input.sourceIp,
+    pushver: input.pushver,
   });
 
   const accepted = users.length + punchCount;

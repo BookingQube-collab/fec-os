@@ -4,7 +4,7 @@ import { FecPageHeader } from "@/components/fec";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Briefcase } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -28,6 +28,7 @@ import {
   submitJobRequest,
 } from "@/lib/hr-recruitment.functions";
 import { listStaffForLeaveBalances } from "@/lib/hr-leave.functions";
+import { filterDepartmentsForLocation } from "@/lib/department-audience";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 
@@ -61,6 +62,12 @@ export default function HrJobRequestsPage() {
     queryFn: () => listRecruitmentLookups(),
     staleTime: STALE.people,
   });
+  const departmentChoices = useMemo(() => {
+    const code = (lookups.data?.locations ?? []).find((location) => location.id === locationId)?.code ?? null;
+    return filterDepartmentsForLocation(lookups.data?.departments ?? [], locationId ? code : null, [
+      departmentId,
+    ]).filter((department) => department.id);
+  }, [lookups.data, locationId, departmentId]);
 
   const staffOptions = useQuery({
     queryKey: queryKeys.people.hrLeaveBalances({ view: "staff" }),
@@ -200,7 +207,7 @@ export default function HrJobRequestsPage() {
                 onChange={(e) => setDepartmentId(e.target.value)}
               >
                 <option value="">{t("hr.jobs.pick")}</option>
-                {(lookups.data?.departments ?? []).map((d) => (
+                {departmentChoices.map((d) => (
                   <option key={d.id} value={d.id}>
                     {d.name}
                   </option>

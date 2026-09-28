@@ -37,6 +37,7 @@ import { HrDocumentsWorkspace } from "@/views/hr-documents-page";
 import { HrLeaveWorkspace } from "@/views/hr-leave-page";
 import { HrWarningsWorkspace } from "@/views/hr-warnings-page";
 import { PerformanceStaffProfilePanel } from "@/views/performance-staff-profile-page";
+import { StaffKraScorecards } from "@/components/people/staff-kra-scorecards";
 import { Checkbox } from "@/components/ui/checkbox";
 
 /** People pill switcher (cream track, black active). ponytail: full-width scroll — ~11 tabs; People uses sm:w-fit for four. */
@@ -1354,7 +1355,10 @@ function StaffProfilePageBody() {
 
         <TabsContent value="performance" className="mt-3">
           {canPerformance ? (
-            <PerformanceStaffProfilePanel staffId={s.id} embedded />
+            <div className="space-y-4">
+              <StaffKraScorecards staffId={s.id} />
+              <PerformanceStaffProfilePanel staffId={s.id} embedded />
+            </div>
           ) : (
             <section className={PANEL}>
               <h2 className={SECTION_LABEL}>Performance</h2>

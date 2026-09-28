@@ -32,6 +32,7 @@ import {
   listWorkforceQuotas,
   upsertWorkforceQuota,
 } from "@/lib/hr-recruitment.functions";
+import { filterDepartmentsForLocation } from "@/lib/department-audience";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { useUserRoles } from "@/hooks/use-auth";
@@ -69,6 +70,12 @@ export default function HrQuotaPage() {
     queryFn: () => listRecruitmentLookups(),
     staleTime: STALE.people,
   });
+  const departmentChoices = useMemo(() => {
+    const code = (lookups.data?.locations ?? []).find((location) => location.id === locationId)?.code ?? null;
+    return filterDepartmentsForLocation(lookups.data?.departments ?? [], locationId ? code : null, [
+      departmentId,
+    ]);
+  }, [lookups.data, locationId, departmentId]);
 
   const dashboard = useQuery({
     queryKey: queryKeys.people.hrQuota({ groupBy }),
@@ -263,7 +270,7 @@ export default function HrQuotaPage() {
                   onChange={(e) => setDepartmentId(e.target.value)}
                 >
                   <option value="">{t("hr.quota.any")}</option>
-                  {(lookups.data?.departments ?? []).map((d) => (
+                  {departmentChoices.map((d) => (
                     <option key={d.id} value={d.id}>
                       {d.name}
                     </option>

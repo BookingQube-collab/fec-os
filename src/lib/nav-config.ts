@@ -262,6 +262,7 @@ export const EMPLOYEE_SECTION_NAV: Array<NavItem> = [
   { href: "/hr/me#me-issues", labelKey: "nav.hrMyIssues", icon: TicketCheck, capability: "issues.view" },
   { href: "/hr/me#me-documents", labelKey: "nav.hrMyDocuments", icon: FileText, capability: "hr.employee_app" },
   { href: "/hr/me#me-payslips", labelKey: "nav.hrMyPayslips", icon: Wallet, capability: "hr.employee_app" },
+  { href: "/hr/me#me-kra", labelKey: "nav.hrMyKra", icon: ClipboardList, capability: "hr.employee_app" },
 ];
 
 export function getEmployeeSectionNav(roles: AppRole[]): NavItem[] {
@@ -285,6 +286,7 @@ const HR_MORE_NAV_GROUP: SidebarNavGroup = {
   viewCapability: "performance.view",
   items: [
     { href: "/people/performance", labelKey: "nav.performance", capability: "performance.view" },
+    { href: "/people/kra", labelKey: "nav.kraScorecard", capability: "performance.view" },
     { href: "/leaderboard", labelKey: "nav.leaderboard", capability: "leaderboard.view" },
     { href: "/sop", labelKey: "nav.sop", capability: "sop.view" },
     { href: "/people/extras", labelKey: "nav.peopleExtras", capability: "people.view_roster" },

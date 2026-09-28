@@ -16,7 +16,7 @@ import {
   CalendarDays,
   RefreshCw,
 } from "lucide-react";
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -47,6 +47,7 @@ import {
   importRosterCsv,
 } from "@/lib/people.functions";
 import { updateStaffSalary, updateStaffWorkLocations } from "@/lib/staff-roster.functions";
+import { departmentAudienceForLocationCode, filterDepartmentsForLocation } from "@/lib/department-audience";
 import { useMasterDepartments } from "@/hooks/queries/useDepartments";
 import { DepartmentMultiSelect } from "@/components/people/department-multi-select";
 import { ManageDepartmentsDialog } from "@/components/people/manage-departments-dialog";
@@ -671,6 +672,12 @@ function StaffFormDialog({
 
   const homeLocationId = isEdit ? staff!.location_id : loc;
   const activeSites = sites.filter((s) => s.status !== "inactive");
+  const formLocationCode = sites.find((site) => site.id === homeLocationId)?.code ?? null;
+  const formAudience = departmentAudienceForLocationCode(formLocationCode);
+  const formDepartments = useMemo(
+    () => filterDepartmentsForLocation(departments, formLocationCode, departmentIds),
+    [departments, formLocationCode, departmentIds],
+  );
 
   return (
     <Dialog
@@ -783,12 +790,12 @@ function StaffFormDialog({
           <div>
             <div className="mb-1 flex items-center justify-between gap-2">
               <Label>{t("people.staff.dept")}</Label>
-              <ManageDepartmentsDialog />
+              <ManageDepartmentsDialog audience={formAudience ?? undefined} />
             </div>
             <DepartmentMultiSelect
               value={departmentIds}
               onChange={setDepartmentIds}
-              departments={departments}
+              departments={formDepartments}
             />
             <p className="mt-1 text-[11px] text-muted-foreground">{t("people.staff.deptFbCafeHint")}</p>
           </div>

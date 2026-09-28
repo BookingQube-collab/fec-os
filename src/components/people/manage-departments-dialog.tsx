@@ -13,6 +13,7 @@ import {
   upsertDepartmentBudget,
 } from "@/lib/people.functions";
 import { departmentBudgetYear } from "@/lib/procurement/department-budget";
+import type { DepartmentAudience } from "@/lib/department-audience";
 import { sortDepartmentsTree } from "@/lib/departments";
 import { useMasterDepartments } from "@/hooks/queries/useDepartments";
 import { queryKeys } from "@/lib/query-keys";
@@ -40,7 +41,14 @@ import {
 
 const NONE = "__none__";
 
-export function ManageDepartmentsDialog({ trigger }: { trigger?: React.ReactNode }) {
+export function ManageDepartmentsDialog({
+  trigger,
+  audience,
+}: {
+  trigger?: React.ReactNode;
+  /** When set, the dialog only edits that office. Head office stays separate from FEC sites. */
+  audience?: DepartmentAudience;
+}) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const { data: departments = [], isLoading } = useMasterDepartments();
@@ -48,6 +56,8 @@ export function ManageDepartmentsDialog({ trigger }: { trigger?: React.ReactNode
   const [newName, setNewName] = useState("");
   const [newCode, setNewCode] = useState("");
   const [newParentId, setNewParentId] = useState<string>(NONE);
+  const [newAudience, setNewAudience] = useState<DepartmentAudience>(audience ?? "fec");
+  const [audienceFilter, setAudienceFilter] = useState<"all" | DepartmentAudience>(audience ?? "all");
   const year = departmentBudgetYear();
   const budgetsQuery = useQuery({
     queryKey: [...queryKeys.people.departments(), "budgets", year],
@@ -55,14 +65,21 @@ export function ManageDepartmentsDialog({ trigger }: { trigger?: React.ReactNode
     enabled: open,
   });
 
-  const tree = useMemo(() => sortDepartmentsTree(departments), [departments]);
+  const visibleDepartments = useMemo(
+    () => departments.filter((department) => audienceFilter === "all" || department.audience === audienceFilter),
+    [departments, audienceFilter],
+  );
+  const tree = useMemo(() => sortDepartmentsTree(visibleDepartments), [visibleDepartments]);
   const budgetByDept = useMemo(
     () => new Map((budgetsQuery.data ?? []).map((row) => [row.department_id, row.amount])),
     [budgetsQuery.data],
   );
   const parents = useMemo(
-    () => departments.filter((d) => d.active && !d.parent_id).sort((a, b) => a.name.localeCompare(b.name)),
-    [departments],
+    () =>
+      visibleDepartments
+        .filter((d) => d.active && !d.parent_id && (d.audience ?? newAudience) === newAudience)
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [visibleDepartments, newAudience],
   );
 
   const invalidate = () => {
@@ -73,11 +90,12 @@ export function ManageDepartmentsDialog({ trigger }: { trigger?: React.ReactNode
 
   const createMut = useMutation({
     mutationFn: () =>
-      createMasterDepartment({
-        name: newName.trim(),
-        code: newCode.trim() || undefined,
-        parentId: newParentId === NONE ? null : newParentId,
-      }),
+        createMasterDepartment({
+          name: newName.trim(),
+          code: newCode.trim() || undefined,
+          parentId: newParentId === NONE ? null : newParentId,
+          audience: audience ?? newAudience,
+        }),
     onSuccess: () => {
       toast.success(t("people.departments.added"));
       setNewName("");
@@ -129,7 +147,35 @@ export function ManageDepartmentsDialog({ trigger }: { trigger?: React.ReactNode
         </DialogHeader>
         <div className="space-y-4">
           <FecFormSection description={t("people.departments.budgetHint", { year })}>
-            <div className="grid grid-cols-[1fr_auto_1fr_auto] items-end gap-2">
+            {audience ? (
+              <p className="mb-2 text-xs text-muted-foreground">
+                {audience === "ho" ? t("people.departments.audienceHo") : t("people.departments.audienceFec")}
+              </p>
+            ) : (
+              <div className="mb-2 flex flex-wrap gap-2">
+                {(["all", "ho", "fec"] as const).map((value) => (
+                  <Button
+                    key={value}
+                    type="button"
+                    size="sm"
+                    variant={audienceFilter === value ? "default" : "secondary"}
+                    onClick={() => {
+                      setAudienceFilter(value);
+                      if (value !== "all") setNewAudience(value);
+                    }}
+                  >
+                    {t(
+                      value === "all"
+                        ? "people.departments.audienceAll"
+                        : value === "ho"
+                          ? "people.departments.audienceHo"
+                          : "people.departments.audienceFec",
+                    )}
+                  </Button>
+                ))}
+              </div>
+            )}
+            <div className="grid items-end gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.2fr)_6rem_9rem_minmax(0,1fr)_auto]">
             <div className="space-y-2">
               <Label className="text-xs">{t("people.departments.newName")}</Label>
               <Input
@@ -147,6 +193,20 @@ export function ManageDepartmentsDialog({ trigger }: { trigger?: React.ReactNode
                 className="w-24"
               />
             </div>
+            {audience ? null : (
+              <div className="space-y-2">
+                <Label className="text-xs">{t("people.departments.audience")}</Label>
+                <Select value={newAudience} onValueChange={(value) => setNewAudience(value as DepartmentAudience)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ho">{t("people.departments.audienceHo")}</SelectItem>
+                    <SelectItem value="fec">{t("people.departments.audienceFec")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="space-y-2">
               <Label className="text-xs">{t("people.departments.parent")}</Label>
               <Select value={newParentId} onValueChange={setNewParentId}>
@@ -204,6 +264,13 @@ export function ManageDepartmentsDialog({ trigger }: { trigger?: React.ReactNode
                             if (name && name !== d.name) updateMut.mutate({ id: d.id, name });
                           }}
                         />
+                        {audienceFilter === "all" ? (
+                          <p className="mt-1 text-[10px] text-muted-foreground">
+                            {d.audience === "ho"
+                              ? t("people.departments.audienceHo")
+                              : t("people.departments.audienceFec")}
+                          </p>
+                        ) : null}
                       </td>
                       <td className="px-3 py-2">
                         <Input
@@ -248,6 +315,7 @@ export function ManageDepartmentsDialog({ trigger }: { trigger?: React.ReactNode
                             onClick={() => {
                               setNewParentId(d.id);
                               setNewName("");
+                              if (d.audience === "ho" || d.audience === "fec") setNewAudience(d.audience);
                             }}
                           >
                             {t("people.departments.addChild")}

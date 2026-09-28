@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { acknowledgeSop, getSopDocument } from "@/lib/sop.functions";
+import { acknowledgeSop, getSopDocument, getSopFileUrl } from "@/lib/sop.functions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
@@ -55,12 +55,26 @@ function SopDetailPage() {
             {data.department ?? "All departments"} · Effective {data.effective_date ?? "—"}
           </p>
         </div>
-        {data.mandatory_ack && data.status === "published" && (
-          <Button onClick={() => ackMut.mutate()} disabled={ackMut.isPending}>
-            {ackMut.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Acknowledge SOP
-          </Button>
-        )}
+        <div className="flex flex-wrap gap-2">
+          {data.file_path ? (
+            <Button
+              variant="outline"
+              onClick={() => {
+                void getSopFileUrl({ id }).then((file) => {
+                  if (file.url) window.open(file.url, "_blank", "noopener,noreferrer");
+                }).catch((error: Error) => toast.error(error.message));
+              }}
+            >
+              Download manual
+            </Button>
+          ) : null}
+          {data.mandatory_ack && data.status === "published" && (
+            <Button onClick={() => ackMut.mutate()} disabled={ackMut.isPending}>
+              {ackMut.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Acknowledge SOP
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="space-y-4">

@@ -106,6 +106,23 @@ export const getSopComplianceSummary = createAuthenticatedActionNoInput(
   { auth: { capability: "sop.view" } },
 );
 
+export const getSopFileUrl = createAuthenticatedAction(
+  z.object({ id: z.string().uuid() }),
+  async (data, context) => {
+    const { data: doc, error } = await context.supabase
+      .from("sop_documents")
+      .select("file_path, file_name")
+      .eq("id", data.id)
+      .maybeSingle();
+    if (error) throw error;
+    if (!doc?.file_path) return { url: null as string | null, fileName: null as string | null };
+    const signed = await context.supabase.storage.from("sop-documents").createSignedUrl(doc.file_path, 600);
+    if (signed.error) throw signed.error;
+    return { url: signed.data.signedUrl, fileName: doc.file_name };
+  },
+  { auth: { capability: "sop.view" } },
+);
+
 export const acknowledgeSop = createAuthenticatedAction(
   z.object({ documentId: z.string().uuid(), version: z.number().int().positive() }),
   async (data, context) => {

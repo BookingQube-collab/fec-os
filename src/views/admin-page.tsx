@@ -48,7 +48,7 @@ function AdminPage() {
             <div className="min-w-0">
               <p className="text-sm font-semibold text-foreground">Operations hierarchy</p>
               <p className="text-xs text-muted-foreground">
-                Head of Operations and the site supervisors who report to that seat.
+                Drag staff into a reporting chart. Missed-punch approval uses the same reporting lines.
               </p>
             </div>
           </div>

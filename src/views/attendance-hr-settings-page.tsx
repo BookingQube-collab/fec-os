@@ -9,6 +9,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { AttendanceHrNav } from "@/components/attendance-hr/attendance-hr-nav";
+import { ZktecoConnectionTestDialog } from "@/components/attendance-hr/zkteco-connection-test-dialog";
 import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,7 +18,7 @@ import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { cn } from "@/lib/utils";
 import { formatLocationLabel } from "@/lib/locations/normalize";
-import { isAdmsDeviceOnline } from "@/lib/attendance-hr/constants";
+import { classifyAdmsContact } from "@/lib/attendance-hr/adms-connection-test";
 import { qatarTodayYmd } from "@/lib/attendance-hr/dashboard";
 import type { AttendanceGapReport } from "@/lib/attendance-hr/gap-check";
 import { defaultPayrollPeriod, formatPayrollRange } from "@/lib/attendance-hr/roster-period";
@@ -106,6 +107,8 @@ export default function AttendanceHrSettingsPage() {
   const [locationId, setLocationId] = useState("");
   const [snDrafts, setSnDrafts] = useState<Record<string, string>>({});
   const [nameDrafts, setNameDrafts] = useState<Record<string, string>>({});
+  const [testDevice, setTestDevice] = useState<DeviceRow | null>(null);
+  const [testBusy, setTestBusy] = useState(false);
 
   const defaultMonth = defaultPayrollPeriod(qatarTodayYmd()).month;
   const [resyncLocationId, setResyncLocationId] = useState("");
@@ -635,8 +638,9 @@ export default function AttendanceHrSettingsPage() {
             const lastPunch = d.adms_attlog_stamp ? formatAdmsWhen(d.last_sync_at) : null;
             const fetchPending = Boolean(d.adms_pending_cmd?.trim());
             const fetchDelivered = Boolean(d.adms_cmd_queued_at) && !fetchPending;
-            const online = Boolean(savedSerial) && isAdmsDeviceOnline(d.last_adms_at);
             const hasSn = Boolean(savedSerial);
+            const presence = hasSn ? classifyAdmsContact(d.last_adms_at) : null;
+            const online = presence === "online";
             const fetchDisabled = fetchDev.isPending || !savedSerial || !online;
             const nameDraft = nameDrafts[d.id] ?? d.device_name;
             return (
@@ -646,22 +650,40 @@ export default function AttendanceHrSettingsPage() {
                   "space-y-2 rounded-2xl border px-3 py-3 transition-colors",
                   online
                     ? "border-emerald-500 bg-background shadow-[inset_0_0_0_1px_rgba(16,185,129,0.25)]"
-                    : hasSn
+                    : presence === "stale"
                       ? "border-amber-400/70 bg-amber-50/80 dark:border-amber-500/50 dark:bg-amber-950/30"
                       : "border-border/70 bg-muted/40",
                 )}
               >
-                <div className="flex items-start justify-between gap-2">
+                <div className="flex flex-wrap items-start justify-between gap-2">
                   <p className="text-sm font-medium">
                     {d.device_name} · {d.device_code}
                   </p>
-                  {hasSn ? (
-                    <Badge variant={online ? "success" : "warning"}>
-                      {online ? t("attendanceHr.settings.deviceOnline") : t("attendanceHr.settings.deviceOffline")}
-                    </Badge>
-                  ) : (
-                    <Badge variant="secondary">{t("attendanceHr.settings.deviceNoSerial")}</Badge>
-                  )}
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      disabled={testBusy && testDevice?.id === d.id}
+                      onClick={() => setTestDevice(d)}
+                    >
+                      {testBusy && testDevice?.id === d.id ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : null}
+                      {testBusy && testDevice?.id === d.id
+                        ? t("attendanceHr.settings.testingDevice")
+                        : t("attendanceHr.settings.testConnection")}
+                    </Button>
+                    {presence === "online" ? (
+                      <Badge variant="success">{t("attendanceHr.settings.deviceOnline")}</Badge>
+                    ) : presence === "stale" ? (
+                      <Badge variant="warning">{t("attendanceHr.settings.deviceStale")}</Badge>
+                    ) : presence === "never_connected" ? (
+                      <Badge variant="muted">{t("attendanceHr.settings.deviceNeverConnected")}</Badge>
+                    ) : (
+                      <Badge variant="secondary">{t("attendanceHr.settings.deviceNoSerial")}</Badge>
+                    )}
+                  </div>
                 </div>
                 <p className="text-xs text-muted-foreground">
                   {siteNameById.get(d.location_id) ?? d.location_id}
@@ -799,6 +821,14 @@ export default function AttendanceHrSettingsPage() {
           </p>
         </NeumorphicCard>
       </div>
+      <ZktecoConnectionTestDialog
+        device={testDevice}
+        open={testDevice != null}
+        onOpenChange={(next) => {
+          if (!next) setTestDevice(null);
+        }}
+        onBusyChange={setTestBusy}
+      />
     </div>
   );
 }

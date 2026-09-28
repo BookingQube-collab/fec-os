@@ -33,6 +33,7 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { usePermission } from "@/hooks/use-permission";
+import { filterDepartmentsForLocation } from "@/lib/department-audience";
 import { useMasterDepartments } from "@/hooks/queries/useDepartments";
 import { useSites } from "@/hooks/queries/useSites";
 import {
@@ -375,12 +376,13 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       [sites.data],
     );
 
+    const rosterLocationCode = (sites.data ?? []).find((site) => site.id === locationId)?.code ?? null;
     const departmentOptions = useMemo(
       () =>
-        departments
-          .filter((d) => d.active)
+        filterDepartmentsForLocation(departments, rosterLocationCode, excludedDepartmentIds)
+          .filter((d) => d.active !== false)
           .map((d) => ({ value: d.id, label: d.name, keywords: `${d.name} ${d.code ?? ""}` })),
-      [departments],
+      [departments, rosterLocationCode, excludedDepartmentIds],
     );
 
     const showSource = showSourceFilter && !sourceUploadOnly;

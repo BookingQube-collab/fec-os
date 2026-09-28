@@ -1,9 +1,11 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { recalculateAttendanceRange } from "@/lib/attendance-hr/process";
 import {
   approverUserIdsForStep,
   canUserActOnCorrection,
+  correctionIdsForReview,
   correctionVisibleToUser,
   isHeadOfOperationsTitle,
   isSiteSupervisorTitle,
@@ -12,6 +14,8 @@ import {
   missedPunchCopiesExecutives,
   missedPunchRequestSide,
   nextMissedPunchStep,
+  punchAtFromCorrectionValue,
+  punchTypeFromCorrectionValue,
   type ApprovalDirectory,
   type CorrectionApprovalView,
   type MissedPunchQueue,
@@ -54,6 +58,8 @@ export type MissedPunchQueueRow = {
   requestedBy: string;
   requestedAt: string;
   punchType: "in" | "out" | null;
+  /** Clock time the employee asked to record. Null when the request has no stored time. */
+  punchAt: string | null;
   reviewNote: string | null;
   steps: Array<{
     stepRole: string;
@@ -65,9 +71,7 @@ export type MissedPunchQueueRow = {
 };
 
 function punchTypeOf(value: Record<string, unknown> | null | undefined): "in" | "out" | null {
-  const raw = value && typeof value === "object" ? value.punch_type : null;
-  if (raw === "in" || raw === "out") return raw;
-  return null;
+  return punchTypeFromCorrectionValue(value);
 }
 
 function asStep(value: string | null | undefined): MissedPunchStepRole | null {
@@ -272,6 +276,7 @@ function mapQueueRow(
     requestedBy: String(row.requested_by),
     requestedAt: String(row.requested_at),
     punchType: punchTypeOf(row.new_value),
+    punchAt: punchAtFromCorrectionValue(row.new_value),
     reviewNote: row.review_note ? String(row.review_note) : null,
     steps: steps
       .filter((step) => step.correction_id === row.id)
@@ -294,17 +299,38 @@ export async function listMissedPunchCorrections(args: {
 }): Promise<MissedPunchQueueRow[]> {
   const queue = args.queue ?? "waiting";
   const access = await loadCallerAccess(args.userId);
-  let query = supabaseAdmin
-    .from("attendance_corrections")
-    .select("id, location_id, staff_id, work_date, summary_id, kind, reason, status, requested_by, requested_at, current_step_role, review_note, new_value")
-    .order("requested_at", { ascending: false })
-    .limit(200);
-  if (queue === "mine") query = query.eq("requested_by", args.userId);
-  if (args.status) query = query.eq("status", args.status);
-  if (args.locationId) query = query.eq("location_id", args.locationId);
-  const { data, error } = await query;
-  if (error) throw error;
-  const rows = (data ?? []) as CorrectionRow[];
+  const columns =
+    "id, location_id, staff_id, work_date, summary_id, kind, reason, status, requested_by, requested_at, current_step_role, review_note, new_value";
+  const base = () =>
+    supabaseAdmin
+      .from("attendance_corrections")
+      .select(columns)
+      .order("requested_at", { ascending: false });
+  let rows: CorrectionRow[] = [];
+  if (queue === "waiting" && !args.status) {
+    let pendingQuery = base().eq("status", "pending").limit(200);
+    let decidedQuery = base().in("status", ["approved", "rejected", "change_required"]).limit(80);
+    if (args.locationId) {
+      pendingQuery = pendingQuery.eq("location_id", args.locationId);
+      decidedQuery = decidedQuery.eq("location_id", args.locationId);
+    }
+    const [pendingRes, decidedRes] = await Promise.all([pendingQuery, decidedQuery]);
+    if (pendingRes.error) throw pendingRes.error;
+    if (decidedRes.error) throw decidedRes.error;
+    const merged = new Map<string, CorrectionRow>();
+    for (const row of [...(pendingRes.data ?? []), ...(decidedRes.data ?? [])] as CorrectionRow[]) {
+      merged.set(row.id, row);
+    }
+    rows = [...merged.values()];
+  } else {
+    let query = base().limit(200);
+    if (queue === "mine") query = query.eq("requested_by", args.userId);
+    if (args.status) query = query.eq("status", args.status);
+    if (args.locationId) query = query.eq("location_id", args.locationId);
+    const { data, error } = await query;
+    if (error) throw error;
+    rows = (data ?? []) as CorrectionRow[];
+  }
   const directory = await loadMissedPunchDirectory(rows.map((row) => row.staff_id).filter((id): id is string => Boolean(id)));
   const visible = rows.filter((row) =>
     correctionVisibleToUser({
@@ -468,15 +494,18 @@ export async function submitMissedPunchRequest(args: {
 
   const { data: existing, error: existingErr } = await supabaseAdmin
     .from("attendance_corrections")
-    .select("id, new_value")
+    .select("id, status, new_value")
     .eq("summary_id", summary.id)
-    .eq("status", "pending");
+    .in("status", ["pending", "change_required"]);
   if (existingErr) throw existingErr;
-  const sameSidePending = (existing ?? []).some((row) => {
+  const sameSideOpen = (existing ?? []).find((row) => {
     const pendingType = punchTypeOf(row.new_value as Record<string, unknown> | null);
     return pendingType === args.punchType || pendingType == null;
   });
-  if (sameSidePending) {
+  if (sameSideOpen?.status === "change_required") {
+    throw new Error("This punch was sent back for changes. Update that request and send it again.");
+  }
+  if (sameSideOpen) {
     throw new Error(
       args.punchType === "in"
         ? "A punch-in request for this day is already waiting for approval."
@@ -552,10 +581,97 @@ export async function submitMissedPunchRequest(args: {
   return { id: created.id as string, approverCount: managers.length, locationId: summary.location_id as string };
 }
 
+async function recalculateCorrectionDay(row: CorrectionRow) {
+  const locationId = String(row.location_id ?? "");
+  const workDate = row.work_date ? String(row.work_date).slice(0, 10) : "";
+  if (!locationId || !workDate) return;
+  await recalculateAttendanceRange(
+    supabaseAdmin as unknown as Parameters<typeof recalculateAttendanceRange>[0],
+    locationId,
+    workDate,
+    workDate,
+  );
+}
+
+/** Write this request's stored punch once. A later step must not insert it again. */
+async function writeCorrectionPunch(row: CorrectionRow) {
+  if (String(row.kind) !== "add_punch") return;
+  const punchAt = punchAtFromCorrectionValue(row.new_value);
+  if (!punchAt) return;
+  const correctionId = String(row.id);
+  const { data: existing, error: findErr } = await supabaseAdmin
+    .from("attendance_logs")
+    .select("id")
+    .eq("source", "correction")
+    .filter("raw_payload->>correction_id", "eq", correctionId)
+    .limit(1);
+  if (findErr) throw findErr;
+  if (!existing?.length) {
+    const { error } = await supabaseAdmin.from("attendance_logs").insert({
+      location_id: row.location_id,
+      staff_id: row.staff_id ?? null,
+      punch_at: punchAt,
+      punch_type: punchTypeOf(row.new_value) ?? "in",
+      source: "correction",
+      attendance_date: row.work_date ? String(row.work_date).slice(0, 10) : punchAt.slice(0, 10),
+      raw_payload: { correction_id: correctionId, reason: row.reason },
+    });
+    if (error) throw error;
+  }
+  await recalculateCorrectionDay(row);
+}
+
+async function removeCorrectionPunch(row: CorrectionRow) {
+  const correctionId = String(row.id);
+  const { error } = await supabaseAdmin
+    .from("attendance_logs")
+    .delete()
+    .eq("source", "correction")
+    .filter("raw_payload->>correction_id", "eq", correctionId);
+  if (error) throw error;
+  await recalculateCorrectionDay(row);
+}
+
+async function updateThisCorrectionOnly(
+  correctionId: string,
+  step: MissedPunchStepRole,
+  patch: Record<string, unknown>,
+) {
+  const ids = correctionIdsForReview([{ id: correctionId }], correctionId);
+  if (ids.length !== 1 || ids[0] !== correctionId) {
+    throw new Error("This approval is not scoped to one request.");
+  }
+  const { data: updated, error } = await supabaseAdmin
+    .from("attendance_corrections")
+    .update(patch)
+    .eq("id", correctionId)
+    .eq("status", "pending")
+    .eq("current_step_role", step)
+    .select("id");
+  if (error) throw error;
+  if (!updated || updated.length !== 1 || String(updated[0]?.id) !== correctionId) {
+    throw new Error("This request was already reviewed.");
+  }
+}
+
+async function closeThisStep(
+  stepId: string,
+  correctionId: string,
+  patch: Record<string, unknown>,
+) {
+  const { error } = await supabaseAdmin
+    .from("attendance_correction_approvals")
+    .update(patch)
+    .eq("id", stepId)
+    .eq("correction_id", correctionId)
+    .eq("status", "pending");
+  if (error) throw error;
+}
+
 export async function reviewMissedPunchChain(args: {
   userId: string;
   correctionId: string;
-  decision: "approved" | "rejected";
+  decision: "approved" | "rejected" | "change_required";
   reviewNote?: string | null;
   applyFinal: (row: CorrectionRow) => Promise<void>;
 }): Promise<{ ok: true; final: boolean; nextStep: MissedPunchStepRole | null; locationId: string }> {
@@ -567,6 +683,7 @@ export async function reviewMissedPunchChain(args: {
   if (error) throw error;
   const row = data as CorrectionRow | null;
   if (!row) throw new Error("Correction not found.");
+  if (String(row.id) !== args.correctionId) throw new Error("Correction not found.");
   const step = asStep(row.current_step_role);
   if (!step || row.status !== "pending") throw new Error("This request is not waiting for approval.");
   if (row.requested_by === args.userId) throw new ForbiddenError("You cannot approve your own correction.");
@@ -587,41 +704,40 @@ export async function reviewMissedPunchChain(args: {
     (steps ?? []).find((item) => item.status === "pending");
   const now = new Date().toISOString();
 
-  if (args.decision === "rejected") {
-    const { data: updated, error: updateErr } = await supabaseAdmin
-      .from("attendance_corrections")
-      .update({
-        status: "rejected",
-        current_step_role: null,
-        reviewed_by: args.userId,
-        reviewed_at: now,
-        review_note: args.reviewNote ?? null,
-      })
-      .eq("id", row.id)
-      .eq("status", "pending")
-      .eq("current_step_role", step)
-      .select("id")
-      .maybeSingle();
-    if (updateErr) throw updateErr;
-    if (!updated) throw new Error("This request was already reviewed.");
+  if (args.decision === "rejected" || args.decision === "change_required") {
+    const sendingBack = args.decision === "change_required";
+    await updateThisCorrectionOnly(args.correctionId, step, {
+      status: sendingBack ? "change_required" : "rejected",
+      current_step_role: null,
+      reviewed_by: args.userId,
+      reviewed_at: now,
+      review_note: args.reviewNote ?? null,
+    });
     if (pending) {
-      await supabaseAdmin
-        .from("attendance_correction_approvals")
-        .update({
-          status: "rejected",
-          acted_by: args.userId,
-          acted_at: now,
-          comments: args.reviewNote ?? null,
-        })
-        .eq("id", pending.id)
-        .eq("status", "pending");
+      await closeThisStep(String(pending.id), args.correctionId, {
+        status: "rejected",
+        acted_by: args.userId,
+        acted_at: now,
+        comments: args.reviewNote ?? (sendingBack ? "Change required" : null),
+      });
+    }
+    try {
+      await removeCorrectionPunch(row);
+    } catch (removeError) {
+      console.warn(
+        "[missed-punch] remove punch failed",
+        removeError instanceof Error ? removeError.message : removeError,
+      );
     }
     await dismissExecutiveMissedPunchNotices(row.id);
+    const when = row.work_date ? ` for ${String(row.work_date).slice(0, 10)}` : "";
     await notifyApprovers({
       userIds: [String(row.requested_by)],
       locationId: String(row.location_id),
-      title: "Missed punch request rejected",
-      body: `Your missed punch request${row.work_date ? ` for ${String(row.work_date).slice(0, 10)}` : ""} was rejected.`,
+      title: sendingBack ? "Missed punch change required" : "Missed punch request rejected",
+      body: sendingBack
+        ? `Your missed punch request${when} needs a change. Update it and send it again.`
+        : `Your missed punch request${when} was rejected.`,
       sourceId: pending?.id ?? row.id,
     });
     return { ok: true, final: true, nextStep: null, locationId: String(row.location_id) };
@@ -629,35 +745,23 @@ export async function reviewMissedPunchChain(args: {
 
   const next = nextMissedPunchStep(step);
   if (!next) {
-    const { data: updated, error: updateErr } = await supabaseAdmin
-      .from("attendance_corrections")
-      .update({
-        status: "approved",
-        current_step_role: null,
-        reviewed_by: args.userId,
-        reviewed_at: now,
-        review_note: args.reviewNote ?? null,
-      })
-      .eq("id", row.id)
-      .eq("status", "pending")
-      .eq("current_step_role", step)
-      .select("id")
-      .maybeSingle();
-    if (updateErr) throw updateErr;
-    if (!updated) throw new Error("This request was already reviewed.");
+    await updateThisCorrectionOnly(args.correctionId, step, {
+      status: "approved",
+      current_step_role: null,
+      reviewed_by: args.userId,
+      reviewed_at: now,
+      review_note: args.reviewNote ?? null,
+    });
     if (pending) {
-      await supabaseAdmin
-        .from("attendance_correction_approvals")
-        .update({
-          status: "approved",
-          acted_by: args.userId,
-          acted_at: now,
-          comments: args.reviewNote ?? null,
-        })
-        .eq("id", pending.id)
-        .eq("status", "pending");
+      await closeThisStep(String(pending.id), args.correctionId, {
+        status: "approved",
+        acted_by: args.userId,
+        acted_at: now,
+        comments: args.reviewNote ?? null,
+      });
     }
-    await args.applyFinal(row);
+    if (String(row.kind) === "add_punch") await writeCorrectionPunch(row);
+    else await args.applyFinal(row);
     await dismissExecutiveMissedPunchNotices(row.id);
     await notifyApprovers({
       userIds: [String(row.requested_by)],
@@ -669,27 +773,21 @@ export async function reviewMissedPunchChain(args: {
     return { ok: true, final: true, nextStep: null, locationId: String(row.location_id) };
   }
 
-  const { data: updated, error: updateErr } = await supabaseAdmin
-    .from("attendance_corrections")
-    .update({ current_step_role: next })
-    .eq("id", row.id)
-    .eq("status", "pending")
-    .eq("current_step_role", step)
-    .select("id")
-    .maybeSingle();
-  if (updateErr) throw updateErr;
-  if (!updated) throw new Error("This request was already reviewed.");
+  await updateThisCorrectionOnly(args.correctionId, step, { current_step_role: next });
   if (pending) {
-    await supabaseAdmin
-      .from("attendance_correction_approvals")
-      .update({
-        status: "approved",
-        acted_by: args.userId,
-        acted_at: now,
-        comments: args.reviewNote ?? null,
-      })
-      .eq("id", pending.id)
-      .eq("status", "pending");
+    await closeThisStep(String(pending.id), args.correctionId, {
+      status: "approved",
+      acted_by: args.userId,
+      acted_at: now,
+      comments: args.reviewNote ?? null,
+    });
+  }
+  if (String(row.kind) === "add_punch") {
+    try {
+      await writeCorrectionPunch(row);
+    } catch (applyError) {
+      console.warn("[missed-punch] apply punch failed", applyError instanceof Error ? applyError.message : applyError);
+    }
   }
 
   const nextIds = approverUserIdsForStep(directory, next, String(row.location_id), row.staff_id).filter(
@@ -723,4 +821,91 @@ export async function reviewMissedPunchChain(args: {
     excludeUserId: String(row.requested_by),
   });
   return { ok: true, final: false, nextStep: next, locationId: String(row.location_id) };
+}
+
+/** Employee edits a change-required request and sends that same id back to the site supervisor. */
+export async function resubmitMissedPunchRequest(args: {
+  userId: string;
+  correctionId: string;
+  punchTime: string;
+  reason: string;
+}): Promise<{ id: string; approverCount: number; locationId: string }> {
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(args.punchTime)) throw new Error("Enter a punch time.");
+  const { data, error } = await supabaseAdmin
+    .from("attendance_corrections")
+    .select("*")
+    .eq("id", args.correctionId)
+    .maybeSingle();
+  if (error) throw error;
+  const row = data as CorrectionRow | null;
+  if (!row) throw new Error("Correction not found.");
+  if (String(row.requested_by) !== args.userId) {
+    throw new ForbiddenError("You can only update your own punch request.");
+  }
+  if (row.status !== "change_required") {
+    throw new Error("This request is not waiting for a change.");
+  }
+  const ids = correctionIdsForReview([{ id: String(row.id) }], args.correctionId);
+  if (ids.length !== 1) throw new Error("This update is not scoped to one request.");
+
+  const workDate = row.work_date ? String(row.work_date).slice(0, 10) : "";
+  if (!workDate) throw new Error("This request has no work date.");
+  const punchType = punchTypeOf(row.new_value) ?? "in";
+  const punchAt = `${workDate}T${args.punchTime}:00+03:00`;
+  const previous = (row.new_value ?? {}) as Record<string, unknown>;
+  const reason = args.reason.trim().length >= 3 ? args.reason.trim() : "Missed punch request";
+  const { data: updated, error: updateErr } = await supabaseAdmin
+    .from("attendance_corrections")
+    .update({
+      status: "pending",
+      current_step_role: "manager",
+      reason,
+      new_value: {
+        ...previous,
+        punch_at: punchAt,
+        punch_type: punchType,
+        missed_punch_request: true,
+      },
+      review_note: null,
+      reviewed_by: null,
+      reviewed_at: null,
+    })
+    .eq("id", args.correctionId)
+    .eq("status", "change_required")
+    .eq("requested_by", args.userId)
+    .select("id");
+  if (updateErr) throw updateErr;
+  if (!updated || updated.length !== 1) throw new Error("This request was already sent again.");
+
+  const { error: stepErr } = await supabaseAdmin
+    .from("attendance_correction_approvals")
+    .update({ status: "pending", acted_by: null, acted_at: null, comments: null })
+    .eq("correction_id", args.correctionId);
+  if (stepErr && !/does not exist|schema cache|relation/i.test(stepErr.message)) throw stepErr;
+
+  const { data: staff } = row.staff_id
+    ? await supabaseAdmin.from("staff").select("id, full_name").eq("id", row.staff_id).maybeSingle()
+    : { data: null };
+  const directory = await loadMissedPunchDirectory(row.staff_id ? [row.staff_id] : []);
+  const managers = lineManagerUserIds(directory, String(row.location_id), row.staff_id).filter((id) => id !== args.userId);
+  const who = (staff?.full_name as string | null) ?? "Staff";
+  const managerTitle = "Missed punch request";
+  const managerBody = `${who} updated a missed punch for ${workDate}. It is waiting for the site supervisor.`;
+  await notifyApprovers({
+    userIds: managers,
+    locationId: String(row.location_id),
+    title: managerTitle,
+    body: managerBody,
+    sourceId: args.correctionId,
+  });
+  await notifyExecutiveObservers({
+    step: "manager",
+    approverIds: managers,
+    locationId: String(row.location_id),
+    title: managerTitle,
+    body: managerBody,
+    correctionId: args.correctionId,
+    excludeUserId: args.userId,
+  });
+  return { id: args.correctionId, approverCount: managers.length, locationId: String(row.location_id) };
 }

@@ -43,6 +43,7 @@ import {
 } from "@/components/people/attendance-records-table";
 import { useFileExport } from "@/hooks/use-file-export";
 import { useSites } from "@/hooks/queries/useSites";
+import { filterDepartmentsForLocation } from "@/lib/department-audience";
 import { useMasterDepartments } from "@/hooks/queries/useDepartments";
 import { useUserRoles } from "@/hooks/use-auth";
 import { canUserDo } from "@/lib/rbac";
@@ -95,12 +96,13 @@ export default function AttendanceHrReportsPage() {
   const [mappingBusyIds, setMappingBusyIds] = useState<Record<string, true>>({});
   const { data: sites } = useSites();
   const { data: departments = [] } = useMasterDepartments();
+  const locationCode = (sites ?? []).find((site) => site.id === locationId)?.code ?? null;
   const departmentOptions = useMemo(
     () =>
-      departments
-        .filter((d) => d.active)
+      filterDepartmentsForLocation(departments, locationCode, departmentIds)
+        .filter((d) => d.active !== false)
         .map((d) => ({ value: d.id, label: d.name, keywords: `${d.name} ${d.code ?? ""}` })),
-    [departments],
+    [departments, locationCode, departmentIds],
   );
 
   useEffect(() => {

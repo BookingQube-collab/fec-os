@@ -444,7 +444,7 @@ function mapStaffRow(
 export async function fetchMasterDepartments(context: AuthContext): Promise<MasterDepartmentRow[]> {
   const { data: rows, error } = await context.supabase
     .from("master_departments")
-    .select("id, name, code, active, sort_order, parent_id")
+    .select("id, name, code, active, sort_order, parent_id, audience")
     .order("sort_order")
     .order("name");
   if (error) throw error;

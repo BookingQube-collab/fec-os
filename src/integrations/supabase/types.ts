@@ -2132,6 +2132,7 @@ export type Database = {
       master_departments: {
         Row: {
           active: boolean
+          audience: string
           code: string | null
           created_at: string
           id: string
@@ -2142,6 +2143,7 @@ export type Database = {
         }
         Insert: {
           active?: boolean
+          audience?: string
           code?: string | null
           created_at?: string
           id?: string
@@ -2152,6 +2154,7 @@ export type Database = {
         }
         Update: {
           active?: boolean
+          audience?: string
           code?: string | null
           created_at?: string
           id?: string
@@ -3477,6 +3480,11 @@ export type Database = {
           created_by: string | null
           created_at: string
           updated_at: string
+          kra_template_id: string | null
+          sop_code: string | null
+          file_path: string | null
+          file_name: string | null
+          file_mime: string | null
         }
         Insert: {
           id?: string
@@ -3498,6 +3506,11 @@ export type Database = {
           created_by?: string | null
           created_at?: string
           updated_at?: string
+          kra_template_id?: string | null
+          sop_code?: string | null
+          file_path?: string | null
+          file_name?: string | null
+          file_mime?: string | null
         }
         Update: {
           id?: string
@@ -3519,6 +3532,11 @@ export type Database = {
           created_by?: string | null
           created_at?: string
           updated_at?: string
+          kra_template_id?: string | null
+          sop_code?: string | null
+          file_path?: string | null
+          file_name?: string | null
+          file_mime?: string | null
         }
         Relationships: []
       }
@@ -3742,6 +3760,9 @@ export type Database = {
         Relationships: []
       }
       attendance_devices: { Row: Record<string, unknown> & { id: string; location_id: string; device_code: string; device_name: string; vendor: string; active: boolean; last_sync_at: string | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      attendance_adms_connection_tests: { Row: Record<string, unknown> & { id: string; device_id: string; location_id: string; status: string; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      attendance_adms_diagnostic_events: { Row: Record<string, unknown> & { id: string; event_type: string; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      attendance_adms_unknown_serials: { Row: Record<string, unknown> & { id: string; serial_number: string; seen_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       attendance_logs: { Row: Record<string, unknown> & { id: string; location_id: string; staff_id: string | null; punch_at: string; punch_type: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       attendance_daily_summary: { Row: Record<string, unknown> & { id: string; location_id: string; staff_id: string | null; work_date: string; status: string; late_minutes: number; missed_punch: boolean }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [{ foreignKeyName: "attendance_daily_summary_location_id_fkey"; columns: ["location_id"]; isOneToOne: false; referencedRelation: "locations"; referencedColumns: ["id"] }, { foreignKeyName: "attendance_daily_summary_staff_id_fkey"; columns: ["staff_id"]; isOneToOne: false; referencedRelation: "staff"; referencedColumns: ["id"] }] }
       attendance_exceptions: { Row: Record<string, unknown> & { id: string; summary_id: string; location_id: string; staff_id: string | null; exception_type: string; status: string; correction_in: string | null; correction_out: string | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
@@ -4008,6 +4029,102 @@ export type Database = {
           },
         ]
       }
+      kra_scorecard_templates: {
+        Row: Record<string, unknown> & {
+          id: string
+          code: string
+          brand: string
+          place_name: string
+          sheet_title: string
+          sop_label: string
+          baseline_note: string
+          usage_note: string
+          sort_order: number
+          location_id: string | null
+          active: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: Record<string, unknown>
+        Update: Record<string, unknown>
+        Relationships: []
+      }
+      kra_scorecard_items: {
+        Row: Record<string, unknown> & {
+          id: string
+          template_id: string
+          item_no: number
+          title: string
+          sop_reference: string
+          target_standard: string
+          weight_cashier: number
+          weight_attendant: number
+          weight_supervisor: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: Record<string, unknown>
+        Update: Record<string, unknown>
+        Relationships: []
+      }
+      kra_scorecard_framework_items: {
+        Row: Record<string, unknown> & {
+          id: string
+          role_category: string
+          sort_order: number
+          title: string
+          expected_standard: string
+          master_sheet_mapping: string
+          points: number
+          how_to_rate: string
+          evidence_to_keep: string
+        }
+        Insert: Record<string, unknown>
+        Update: Record<string, unknown>
+        Relationships: []
+      }
+      kra_scorecard_reviews: {
+        Row: Record<string, unknown> & {
+          id: string
+          staff_id: string
+          template_id: string
+          review_period: string
+          reviewer_name: string
+          assigned_post: string
+          role_category: string
+          cashier_share: number
+          critical_status: string
+          critical_evidence: string
+          agreed_action: string
+          follow_up: string
+          employee_ack_note: string | null
+          employee_ack_at: string | null
+          reviewer_approval_note: string
+          reviewer_approved_at: string | null
+          created_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: Record<string, unknown>
+        Update: Record<string, unknown>
+        Relationships: []
+      }
+      kra_scorecard_lines: {
+        Row: Record<string, unknown> & {
+          id: string
+          review_id: string
+          item_id: string
+          line_status: string
+          actual_result: string
+          evidence: string
+          rating: number | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: Record<string, unknown>
+        Update: Record<string, unknown>
+        Relationships: []
+      }
       hr_warnings: {
         Row: Record<string, unknown> & {
           id: string
@@ -4244,6 +4361,7 @@ export type Database = {
           emergency_contact_phone: string | null
           emergency_contact_relation: string | null
           reporting_manager_staff_id: string | null
+          org_chart_placed: boolean
           employment_category: string | null
           probation_start: string | null
           probation_end: string | null

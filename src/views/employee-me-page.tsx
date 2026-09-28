@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CalendarRange,
+  ClipboardList,
   Clock,
   FileText,
   Megaphone,
@@ -39,6 +40,7 @@ import { reviewLeaveRequest, submitLeaveRequest } from "@/lib/hr-leave.functions
 import { listAnnouncements } from "@/lib/hr-announcements.functions";
 import { listAirTicketEntitlements } from "@/lib/hr-air-ticket.functions";
 import { listMyPayslips } from "@/lib/hr-payroll.functions";
+import { MyKraScorecards } from "@/components/people/my-kra-scorecard";
 import { formatWorkDateDdMmYyyy, formatPunchTime12h, formatHoursValue, computeHoursWorked } from "@/lib/attendance-display";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
@@ -286,6 +288,7 @@ export default function EmployeeMePage() {
     { id: "me-announcements", label: t("hr.me.announcements") },
     { id: "me-tickets", label: t("hr.me.myAirTickets") },
     { id: "me-payslips", label: t("hr.me.myPayslips") },
+    { id: "me-kra", label: t("hr.me.myKra") },
   ];
 
   return (
@@ -709,6 +712,10 @@ export default function EmployeeMePage() {
                     </div>
                   ))}
                 </div>
+              </MeSection>
+
+              <MeSection id="me-kra" icon={ClipboardList} title={t("hr.me.myKra")}>
+                <MyKraScorecards />
               </MeSection>
               </>
               ) : null}

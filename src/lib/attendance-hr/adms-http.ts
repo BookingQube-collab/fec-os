@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import {
+  acknowledgeAdmsDiagnosticCommand,
+  claimAdmsDiagnosticDelivery,
+  noteAdmsDeviceRequest,
+  recordUnknownAdmsSerial,
+} from "@/lib/attendance-hr/adms-connection-test.server";
+import {
   ackAdmsCommand,
   findAdmsDeviceBySerial,
   ingestAdmsPayload,
@@ -10,6 +16,7 @@ import {
   touchAdmsDevice,
   type AdmsDeviceRow,
 } from "@/lib/attendance-hr/adms-ingest";
+import { getRequestSourceIp } from "@/lib/attendance-ingest-log";
 import {
   admsOk,
   buildAdmsHandshake,
@@ -40,17 +47,51 @@ function rememberDevice(sn: string, device: AdmsDeviceRow | null) {
   deviceCache.set(serialKey(sn), { at: Date.now(), device });
 }
 
-async function touchHeartbeat(deviceId: string) {
+async function touchHeartbeat(
+  deviceId: string,
+  meta?: { endpoint?: string | null; sourceIp?: string | null; pushver?: string | null },
+) {
   const now = Date.now();
   const prev = lastHeartbeatTouch.get(deviceId) ?? 0;
   if (!shouldTouchAdmsHeartbeat(prev, now)) return;
   lastHeartbeatTouch.set(deviceId, now);
   try {
-    await touchAdmsDevice(supabaseAdmin, deviceId, { error: null });
+    await touchAdmsDevice(supabaseAdmin, deviceId, {
+      error: null,
+      endpoint: meta?.endpoint,
+      sourceIp: meta?.sourceIp,
+      pushver: meta?.pushver,
+    });
   } catch (e) {
     lastHeartbeatTouch.delete(deviceId);
     throw e;
   }
+}
+
+function requestMeta(request: Request, endpoint: string, pushver: string | null) {
+  return { endpoint, sourceIp: getRequestSourceIp(request), pushver };
+}
+
+async function observeDevice(
+  device: AdmsDeviceRow,
+  request: Request,
+  endpoint: string,
+  pushver: string | null,
+) {
+  const meta = requestMeta(request, endpoint, pushver);
+  try {
+    await touchHeartbeat(device.id, meta);
+  } catch (e) {
+    console.error("adms heartbeat touch failed:", e);
+  }
+  await noteAdmsDeviceRequest(supabaseAdmin, {
+    deviceId: device.id,
+    serialNumber: device.serial_number,
+    locationId: device.location_id,
+    endpoint,
+    sourceIp: meta.sourceIp,
+    pushver,
+  });
 }
 
 function admsText(body: string, status = 200) {
@@ -90,7 +131,7 @@ async function readBodyText(request: Request): Promise<string> {
   return decodeAttendanceText(buf);
 }
 
-async function authorize(request: Request, sn: string, queryKey: string | null) {
+async function authorize(request: Request, sn: string, queryKey: string | null, endpoint: string) {
   const ipErr = validateAdmsIp(request);
   if (ipErr) return { error: admsText(ipErr.body, ipErr.status), device: null };
   const keyErr = validateAdmsCommKey(request, queryKey);
@@ -103,18 +144,23 @@ async function authorize(request: Request, sn: string, queryKey: string | null) 
   }
   const device = await findAdmsDeviceBySerial(supabaseAdmin, sn);
   rememberDevice(sn, device);
-  if (!device) return { error: admsText("AUTH_ERROR", 403), device: null };
+  if (!device) {
+    await recordUnknownAdmsSerial(supabaseAdmin, {
+      serialNumber: sn,
+      sourceIp: getRequestSourceIp(request),
+      endpoint,
+    });
+    return { error: admsText("AUTH_ERROR", 403), device: null };
+  }
   return { error: null, device };
 }
 
-async function handleGetRequest(request: Request, sn: string, queryKey: string | null) {
-  const auth = await authorize(request, sn, queryKey);
+async function handleGetRequest(request: Request, sn: string, queryKey: string | null, pushver: string | null) {
+  const auth = await authorize(request, sn, queryKey, "getrequest");
   if (auth.error) return auth.error;
-  try {
-    await touchHeartbeat(auth.device.id);
-  } catch (e) {
-    console.error("adms getrequest touch failed:", e);
-  }
+  await observeDevice(auth.device, request, "getrequest", pushver);
+  const diagnostic = await claimAdmsDiagnosticDelivery(supabaseAdmin, auth.device.id);
+  if (diagnostic) return admsText(`${diagnostic.line}\r\n`);
   const command = pendingAdmsCommandLine(auth.device);
   if (!command) return admsText("OK");
   try {
@@ -132,17 +178,13 @@ export async function handleAdmsGet(request: Request, slug?: string[]) {
   const endpoint = parseAdmsEndpoint(slug);
 
   if (endpoint === "getrequest") {
-    return handleGetRequest(request, q.sn, q.pushcommkey);
+    return handleGetRequest(request, q.sn, q.pushcommkey, q.pushver);
   }
 
   if (endpoint === "cdata" || endpoint === "registry" || endpoint === "root") {
-    const auth = await authorize(request, q.sn, q.pushcommkey);
+    const auth = await authorize(request, q.sn, q.pushcommkey, endpoint);
     if (auth.error) return auth.error;
-    try {
-      await touchHeartbeat(auth.device.id);
-    } catch (e) {
-      console.error("adms handshake touch failed:", e);
-    }
+    await observeDevice(auth.device, request, endpoint, q.pushver);
     return admsText(
       buildAdmsHandshake({
         sn: q.sn,
@@ -152,8 +194,9 @@ export async function handleAdmsGet(request: Request, slug?: string[]) {
     );
   }
 
-  const auth = await authorize(request, q.sn, q.pushcommkey);
+  const auth = await authorize(request, q.sn, q.pushcommkey, endpoint);
   if (auth.error) return auth.error;
+  await observeDevice(auth.device, request, endpoint, q.pushver);
   return admsText("OK");
 }
 
@@ -163,11 +206,12 @@ export async function handleAdmsPost(request: Request, slug?: string[]) {
   const endpoint = parseAdmsEndpoint(slug);
 
   if (endpoint === "getrequest") {
-    return handleGetRequest(request, q.sn, q.pushcommkey);
+    return handleGetRequest(request, q.sn, q.pushcommkey, q.pushver);
   }
 
-  const auth = await authorize(request, q.sn, q.pushcommkey);
+  const auth = await authorize(request, q.sn, q.pushcommkey, endpoint);
   if (auth.error) return auth.error;
+  await observeDevice(auth.device, request, endpoint, q.pushver);
 
   if (endpoint === "devicecmd") {
     const body = await readBodyText(request);
@@ -175,6 +219,12 @@ export async function handleAdmsPost(request: Request, slug?: string[]) {
     if (ack) {
       try {
         await ackAdmsCommand(supabaseAdmin, auth.device.id, ack.id);
+        await acknowledgeAdmsDiagnosticCommand(supabaseAdmin, {
+          deviceId: auth.device.id,
+          serialNumber: auth.device.serial_number ?? q.sn,
+          commandId: ack.id,
+          returnCode: ack.returnCode,
+        });
       } catch (e) {
         console.error("adms command ack failed:", e);
       }
@@ -191,6 +241,9 @@ export async function handleAdmsPost(request: Request, slug?: string[]) {
       table,
       body,
       stamp: q.stamp,
+      endpoint,
+      sourceIp: getRequestSourceIp(request),
+      pushver: q.pushver,
     });
     if (q.stamp && table === "ATTLOG") {
       rememberDevice(q.sn, { ...auth.device, adms_attlog_stamp: q.stamp });

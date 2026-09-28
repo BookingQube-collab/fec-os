@@ -41,6 +41,7 @@ import { MobileListCard } from "@/components/layout/mobile-list-card";
 import { ResponsiveDataView } from "@/components/layout/responsive-data-view";
 import { StaffAvatar } from "@/components/people/staff-photo-field";
 import { StaffMasterfileImportDialog } from "@/components/people/staff-masterfile-import-dialog";
+import { filterDepartmentsForLocation } from "@/lib/department-audience";
 import { useMasterDepartments } from "@/hooks/queries/useDepartments";
 import { useStaffDirectory } from "@/hooks/queries/usePeople";
 import { usePermission } from "@/hooks/use-permission";
@@ -354,10 +355,10 @@ export function StaffDirectory({
 
   const departmentOptions = useMemo(
     () =>
-      departments
-        .filter((d) => d.active)
+      filterDepartmentsForLocation(departments, loc || null, department ? [department] : [])
+        .filter((d) => d.active !== false)
         .map((d) => ({ value: d.id, label: d.name, keywords: `${d.name} ${d.code ?? ""}` })),
-    [departments],
+    [departments, loc, department],
   );
 
   const selectedKpi = selectedDirectoryKpi(status, type, expiry);
