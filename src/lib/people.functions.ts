@@ -302,7 +302,12 @@ export const cancelShift = createAuthenticatedAction(
 );
 
 export const listTraining = createAuthenticatedAction(
-  LocFilter,
+  z
+    .object({
+      locationId: z.string().uuid().nullable().optional(),
+      staffId: z.string().uuid().optional(),
+    })
+    .default({}),
   async (data, context) => {
     let q = context.supabase
       .from("training_enrollments")
@@ -312,6 +317,7 @@ export const listTraining = createAuthenticatedAction(
       .order("due_on", { ascending: true, nullsFirst: false })
       .limit(200);
     if (data.locationId) q = q.eq("location_id", data.locationId);
+    if (data.staffId) q = q.eq("staff_id", data.staffId);
     const { data: rows, error } = await q;
     if (error) throw error;
     return rows ?? [];
@@ -1071,4 +1077,32 @@ export const importRosterCsv = createAuthenticatedAction(
     return { imported: shifts.length };
   },
   { auth: { capability: "people.edit_roster" } },
+);
+
+export const updateStaffProfileNotes = createAuthenticatedAction(
+  z.object({
+    staffId: z.string().uuid(),
+    notes: z.string().max(4000).nullable(),
+  }),
+  async (data, context) => {
+    const { data: existing, error: fetchErr } = await context.supabase
+      .from("staff")
+      .select("location_id")
+      .eq("id", data.staffId)
+      .is("deleted_at", null)
+      .single();
+    if (fetchErr) throw fetchErr;
+    await assertLocationAccess(context, existing.location_id);
+    const { error } = await context.supabase.from("staff_profile_ext").upsert(
+      {
+        staff_id: data.staffId,
+        notes: data.notes?.trim() ? data.notes.trim() : null,
+        updated_by: context.userId,
+      },
+      { onConflict: "staff_id" },
+    );
+    if (error) throw error;
+    return { ok: true };
+  },
+  { auth: { anyCapability: ["people.edit_roster", "hr.manage", "hr.docs.manage"] } },
 );

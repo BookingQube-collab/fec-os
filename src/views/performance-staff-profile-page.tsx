@@ -16,13 +16,18 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { PerformanceEvaluationPanel } from "@/views/performance-evaluation-page";
 import { getEmployeePerformanceProfile } from "@/lib/performance.functions";
 import { queryKeys } from "@/lib/query-keys";
 
-export default function PerformanceStaffProfilePage() {
+export function PerformanceStaffProfilePanel({
+  staffId,
+  embedded = false,
+}: {
+  staffId: string;
+  embedded?: boolean;
+}) {
   const { t } = useTranslation();
-  const params = useParams<{ staffId: string }>();
-  const staffId = params.staffId;
 
   const profileQ = useQuery({
     queryKey: queryKeys.performance.profile(staffId),
@@ -39,21 +44,27 @@ export default function PerformanceStaffProfilePage() {
 
   const { staff, kras, kpis, evaluation, achievements, awards } = profileQ.data;
 
+  const showSummary = !(embedded && evaluation?.id);
+
   return (
     <div className="space-y-6">
-      <Button variant="ghost" size="sm" asChild>
-        <Link href="/people/performance">
-          <ArrowLeft className="mr-1 h-4 w-4" />
-          {t("performance.back")}
-        </Link>
-      </Button>
+      {embedded ? null : (
+        <Button variant="ghost" size="sm" asChild>
+          <Link href="/people/performance">
+            <ArrowLeft className="mr-1 h-4 w-4" />
+            {t("performance.back")}
+          </Link>
+        </Button>
+      )}
 
-      <header>
-        <h1 className="text-xl font-semibold">{staff.full_name}</h1>
-        <p className="text-xs text-muted-foreground">
-          {staff.employee_code} · {staff.job_title ?? "—"} · {staff.department ?? "—"} · {staff.status}
-        </p>
-      </header>
+      {embedded ? null : (
+        <header>
+          <h1 className="text-xl font-semibold">{staff.full_name}</h1>
+          <p className="text-xs text-muted-foreground">
+            {staff.employee_code} · {staff.job_title ?? "—"} · {staff.department ?? "—"} · {staff.status}
+          </p>
+        </header>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="rounded-lg border border-border bg-card p-4">
@@ -72,14 +83,19 @@ export default function PerformanceStaffProfilePage() {
         </div>
       </div>
 
-      {evaluation?.id && (
+      {evaluation?.id && embedded ? (
+        <PerformanceEvaluationPanel evaluationId={evaluation.id} embedded />
+      ) : null}
+      {evaluation?.id && !embedded ? (
         <Button size="sm" asChild>
           <Link href={`/people/performance/evaluations/${evaluation.id}`}>
             {t("performance.evaluations.open")}
           </Link>
         </Button>
-      )}
+      ) : null}
 
+      {showSummary ? (
+      <>
       <section className="rounded-lg border border-border bg-card">
         <div className="border-b border-border px-4 py-3 text-sm font-medium">
           {t("performance.profile.assignedKras")}
@@ -148,6 +164,8 @@ export default function PerformanceStaffProfilePage() {
           </TableBody>
         </Table>
       </section>
+      </>
+      ) : null}
 
       <section className="rounded-lg border border-border bg-card">
         <div className="border-b border-border px-4 py-3 text-sm font-medium">
@@ -188,4 +206,10 @@ export default function PerformanceStaffProfilePage() {
       </section>
     </div>
   );
+}
+
+export default function PerformanceStaffProfilePage() {
+  const params = useParams<{ staffId: string }>();
+  if (!params.staffId) return null;
+  return <PerformanceStaffProfilePanel staffId={params.staffId} />;
 }

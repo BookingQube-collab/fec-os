@@ -300,6 +300,7 @@ export const listLeaveRequests = createAuthenticatedAction(
   z.object({
     status: z.enum(HR_LEAVE_STATUSES).nullable().optional(),
     mineOnly: z.boolean().optional(),
+    staffId: z.string().uuid().nullable().optional(),
   }),
   async (data, context) => {
     const manage =
@@ -316,6 +317,7 @@ export const listLeaveRequests = createAuthenticatedAction(
       .order("created_at", { ascending: false })
       .limit(200)
       .match({
+        ...(!scopedToSelf && data.staffId ? { staff_id: data.staffId } : {}),
         ...(scopedToSelf && staff?.id ? { staff_id: staff.id } : {}),
         ...(data.status ? { status: data.status } : {}),
       });

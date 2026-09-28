@@ -1230,6 +1230,45 @@ export const listMyPayslips = createAuthenticatedAction(
   { auth: { capability: "hr.employee_app" } },
 );
 
+export const listStaffPayrollLines = createAuthenticatedAction(
+  z.object({ staffId: z.string().uuid() }),
+  async (data, context) => {
+    requireCap(context, "payroll.view");
+    const { data: lines, error } = await context.supabase
+      .from("hr_payroll_lines")
+      .select(
+        "id, period_id, gross_qar, net_qar, payment_method, notes, created_at, hr_payroll_periods(month, status, date_from, date_to)",
+      )
+      .eq("staff_id", data.staffId)
+      .order("created_at", { ascending: false })
+      .limit(24);
+    if (error && tableMissing(error.message)) return [];
+    if (error) throw error;
+    return (lines ?? []).map((row) => {
+      const period = row.hr_payroll_periods as
+        | { month?: string; status?: string; date_from?: string; date_to?: string }
+        | { month?: string; status?: string; date_from?: string; date_to?: string }[]
+        | null;
+      const p = Array.isArray(period) ? period[0] : period;
+      const status = String(p?.status ?? "draft");
+      return {
+        lineId: String(row.id),
+        periodId: String(row.period_id),
+        month: String(p?.month ?? ""),
+        dateFrom: String(p?.date_from ?? "").slice(0, 10),
+        dateTo: String(p?.date_to ?? "").slice(0, 10),
+        status,
+        locked: status === "locked",
+        paymentMethod: String(row.payment_method ?? ""),
+        grossQar: Number(row.gross_qar) || 0,
+        netQar: Number(row.net_qar) || 0,
+        notes: (row.notes as string | null) ?? null,
+      };
+    });
+  },
+  { auth: { capability: "payroll.view" } },
+);
+
 export const countOpenPayrollExceptions = createAuthenticatedAction(
   z.object({}),
   async (_data, context) => {

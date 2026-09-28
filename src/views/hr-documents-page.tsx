@@ -7,9 +7,9 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
+import { HrEmbedFrame } from "@/components/hr/hr-embed-frame";
 import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { HrPanel } from "@/components/hr/hr-panel";
-import { HrSection } from "@/components/hr/hr-section";
 import { HrShell } from "@/components/hr/hr-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -42,10 +42,19 @@ async function fileToBase64(file: File): Promise<string> {
 
 const EDUCATION_TYPES = new Set(["educational_certificate", "mofa_attested_certificate"]);
 
-export default function HrDocumentsPage() {
+export function HrDocumentsWorkspace({
+  lockedStaffId,
+  embedded = false,
+  onChanged,
+}: {
+  lockedStaffId?: string;
+  embedded?: boolean;
+  onChanged?: () => void;
+}) {
   const { t } = useTranslation();
   const qc = useQueryClient();
-  const [staffId, setStaffId] = useState("");
+  const [pickedStaffId, setPickedStaffId] = useState("");
+  const staffId = lockedStaffId ?? pickedStaffId;
   const [docType, setDocType] = useState<(typeof HR_DOC_TYPES)[number]>("contract");
   const [expiry, setExpiry] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -60,6 +69,7 @@ export default function HrDocumentsPage() {
     queryKey: queryKeys.people.hrLeaveBalances({ view: "staff" }),
     queryFn: () => listStaffForLeaveBalances(),
     staleTime: STALE.people,
+    enabled: !lockedStaffId,
   });
 
   const docs = useQuery({
@@ -68,7 +78,10 @@ export default function HrDocumentsPage() {
     staleTime: STALE.people,
   });
 
-  const invalidate = () => void qc.invalidateQueries({ queryKey: queryKeys.people.hrDocs() });
+  const invalidate = () => {
+    void qc.invalidateQueries({ queryKey: queryKeys.people.hrDocs() });
+    onChanged?.();
+  };
 
   const upload = useMutation({
     mutationFn: async () => {
@@ -184,27 +197,32 @@ export default function HrDocumentsPage() {
     <CapabilityGate
       capability="hr.docs.manage"
       fallback={
-        <HrShell>
-          <HrPanel>
-            <HrEmptyState message={t("hr.docs.noAccess")} />
-          </HrPanel>
-        </HrShell>
+        embedded ? (
+          <HrEmptyState message={t("hr.docs.noAccess")} />
+        ) : (
+          <HrShell>
+            <HrPanel>
+              <HrEmptyState message={t("hr.docs.noAccess")} />
+            </HrPanel>
+          </HrShell>
+        )
       }
     >
-      <HrShell>
-        <HrSection
-          icon={FileText}
-          kicker={t("hr.docs.kicker")}
-          title={t("hr.docs.title")}
-          subtitle={t("hr.docs.subtitle")}
-        >
+      <HrEmbedFrame
+        embedded={embedded}
+        icon={FileText}
+        kicker={t("hr.docs.kicker")}
+        title={t("hr.docs.title")}
+        subtitle={t("hr.docs.subtitle")}
+      >
           <HrPanel delay={0}>
             <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-5">
+              {lockedStaffId ? null : (
               <div className="lg:col-span-2">
                 <Label>{t("hr.docs.staff")}</Label>
                 <SearchableSelect
                   value={staffId}
-                  onValueChange={setStaffId}
+                  onValueChange={setPickedStaffId}
                   placeholder={t("hr.docs.allStaff")}
                   emptyOption={{ value: "", label: t("hr.docs.allStaff") }}
                   options={(staff.data ?? []).map((s) => ({
@@ -214,6 +232,7 @@ export default function HrDocumentsPage() {
                   }))}
                 />
               </div>
+              )}
               <div>
                 <Label>{t("hr.docs.type")}</Label>
                 <select
@@ -364,8 +383,11 @@ export default function HrDocumentsPage() {
               )}
             </div>
           </HrPanel>
-        </HrSection>
-      </HrShell>
+      </HrEmbedFrame>
     </CapabilityGate>
   );
+}
+
+export default function HrDocumentsPage() {
+  return <HrDocumentsWorkspace />;
 }

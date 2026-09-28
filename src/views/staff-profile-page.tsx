@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useSites } from "@/hooks/queries/useSites";
@@ -29,7 +30,13 @@ import { getStaffFaceEnrollment, saveStaffFaceEnrollment } from "@/lib/attendanc
 import { listEmployeeTimeline } from "@/lib/hr-leave.functions";
 import { transferStaffMember, updateStaffSalary, updateStaffWorkLocations } from "@/lib/staff-roster.functions";
 import { provisionStaffLogin } from "@/lib/admin.functions";
-import { removeStaffPhoto, saveStaffPhoto, updateStaff } from "@/lib/people.functions";
+import { StaffPayrollPanel } from "@/components/people/staff-payroll-panel";
+import { StaffTrainingPanel } from "@/components/people/staff-training-panel";
+import { removeStaffPhoto, saveStaffPhoto, updateStaff, updateStaffProfileNotes } from "@/lib/people.functions";
+import { HrDocumentsWorkspace } from "@/views/hr-documents-page";
+import { HrLeaveWorkspace } from "@/views/hr-leave-page";
+import { HrWarningsWorkspace } from "@/views/hr-warnings-page";
+import { PerformanceStaffProfilePanel } from "@/views/performance-staff-profile-page";
 import { Checkbox } from "@/components/ui/checkbox";
 
 /** People pill switcher (cream track, black active). ponytail: full-width scroll — ~11 tabs; People uses sm:w-fit for four. */
@@ -178,6 +185,13 @@ function StaffProfilePageBody() {
   const canViewSalaryPerm = usePermission("people.view_salary");
   const canViewSensitive = usePermission("hr.profile.view_sensitive") || canViewSalaryPerm;
   const canConfigure = usePermission("attendance.configure");
+  const canManageDocs = usePermission("hr.docs.manage");
+  const canManageLeave = usePermission("hr.leave.manage");
+  const canManageWarnings = usePermission("hr.warnings.manage");
+  const canViewPayrollLines = usePermission("payroll.view");
+  const canPerformance = usePermission("performance.view");
+  const canHrManage = usePermission("hr.manage");
+  const canEditNotes = canEdit || canHrManage || canManageDocs;
   const [enrollOpen, setEnrollOpen] = useState(false);
   const { data: sites } = useSites();
   const qc = useQueryClient();
@@ -197,6 +211,7 @@ function StaffProfilePageBody() {
   const [photoDraft, setPhotoDraft] = useState<StaffPhotoDraft>({ dataUrl: null, remove: false });
   const [timelineFilter, setTimelineFilter] = useState<string>("all");
   const [issuedLogin, setIssuedLogin] = useState<{ email: string; password: string } | null>(null);
+  const [notesDraft, setNotesDraft] = useState<string | null>(null);
 
   const profile = useQuery({
     queryKey: queryKeys.people.staffProfile(id),
@@ -221,20 +236,21 @@ function StaffProfilePageBody() {
     enabled: Boolean(id) && profileTab === "attendance",
   });
 
-  const trainingSection = useQuery({
-    queryKey: queryKeys.people.staffProfileSection(id, "training"),
-    queryFn: async () => {
-      const res = await fetch(`/api/people/staff/${id}?sections=training`, { credentials: "include" });
-      const body = (await res.json()) as ProfileResponse & { error?: string };
-      if (!res.ok) throw new Error(body.error ?? "Failed to load training");
-      return { training: body.training ?? [] };
-    },
-    staleTime: STALE.people,
-    enabled: Boolean(id) && profileTab === "training",
-  });
-
   const attendanceRows = attendanceSection.data?.attendance ?? profile.data?.attendance ?? [];
-  const trainingRows = trainingSection.data?.training ?? profile.data?.training ?? [];
+
+  const refreshProfile = () => {
+    void qc.invalidateQueries({ queryKey: queryKeys.people.staffProfile(id) });
+  };
+
+  const notesMut = useMutation({
+    mutationFn: (notes: string) => updateStaffProfileNotes({ staffId: id, notes: notes.trim() ? notes.trim() : null }),
+    onSuccess: () => {
+      toast.success(t("people.profile.notesSaved"));
+      setNotesDraft(null);
+      refreshProfile();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
 
   useEffect(() => {
     const loaded = profile.data?.staff;
@@ -650,9 +666,18 @@ function StaffProfilePageBody() {
                   />
                 )}
                 {canViewSensitive ? (
-                  <Link href="/people/hr/documents" className="text-xs font-medium underline-offset-4 hover:underline">
-                    Open HR Documents
-                  </Link>
+                  <button
+                    type="button"
+                    className="text-xs font-medium underline-offset-4 hover:underline"
+                    onClick={() => {
+                      setProfileTab("documents");
+                      const nextParams = new URLSearchParams(searchParams.toString());
+                      nextParams.set("tab", "documents");
+                      router.replace(`/people/staff/${id}?${nextParams.toString()}`, { scroll: false });
+                    }}
+                  >
+                    {t("people.profile.viewDocuments")}
+                  </button>
                 ) : null}
               </div>
               <div className="min-w-0 space-y-3">
@@ -1140,13 +1165,11 @@ function StaffProfilePageBody() {
         </TabsContent>
 
         <TabsContent value="documents" className="mt-3">
+          {canManageDocs ? (
+            <HrDocumentsWorkspace lockedStaffId={s.id} embedded onChanged={refreshProfile} />
+          ) : (
           <section className={PANEL}>
-            <div className="flex items-center justify-between gap-3">
-              <h2 className={SECTION_LABEL}>Documents</h2>
-              {canViewSensitive ? (
-                <Button asChild size="sm" variant="secondary"><Link href="/people/hr/documents">Open HR Documents</Link></Button>
-              ) : null}
-            </div>
+            <h2 className={SECTION_LABEL}>Documents</h2>
             {!canViewSensitive ? (
               <p className="text-sm text-muted-foreground">Sensitive HR documents (QID, passport, contracts) are visible to Admin and HR only.</p>
             ) : docs.length === 0 ? (
@@ -1190,13 +1213,13 @@ function StaffProfilePageBody() {
               </>
             )}
           </section>
+          )}
         </TabsContent>
 
-        <TabsContent value="attendance" className="mt-3">
+        <TabsContent value="attendance" className="mt-3 space-y-3">
       <section className={PANEL}>
         <div className="flex items-center justify-between gap-3">
           <h2 className={SECTION_LABEL}>{t("people.profile.attendance")}</h2>
-          <Button asChild size="sm" variant="secondary"><Link href="/people/leave">Leave module</Link></Button>
         </div>
         {attendanceSection.isLoading ? (
           <p className="text-sm text-muted-foreground">{t("people.staff.loading")}</p>
@@ -1239,14 +1262,14 @@ function StaffProfilePageBody() {
           </>
         )}
       </section>
+      {canManageLeave ? (
+        <HrLeaveWorkspace lockedStaffId={s.id} embedded onChanged={refreshProfile} />
+      ) : null}
         </TabsContent>
 
         <TabsContent value="payroll" className="mt-3">
-          <section className={PANEL}>
-            <div className="flex items-center justify-between gap-3">
-              <h2 className={SECTION_LABEL}>Payroll</h2>
-              <Button asChild size="sm" variant="secondary"><Link href="/people/payroll">Open payroll</Link></Button>
-            </div>
+          <section className={`${PANEL} space-y-4`}>
+            <h2 className={SECTION_LABEL}>Payroll</h2>
             {profile.data?.canViewSalary ? (
               <FactGrid
                 items={[
@@ -1274,15 +1297,39 @@ function StaffProfilePageBody() {
             ) : (
               <p className="text-sm text-muted-foreground">Salary is permission-gated.</p>
             )}
+            {canSalary ? (
+              <div className="flex items-end gap-2">
+                <div className="space-y-1">
+                  <Label>
+                    {employmentType === "joker" || s.employment_type === "joker"
+                      ? t("people.staff.dayRate")
+                      : t("people.staff.salary")}
+                  </Label>
+                  <Input
+                    value={salary}
+                    onChange={(e) => setSalary(e.target.value)}
+                    placeholder={
+                      employmentType === "joker" || s.employment_type === "joker"
+                        ? t("people.staff.dayRatePlaceholder")
+                        : "QAR"
+                    }
+                  />
+                </div>
+                <Button size="sm" onClick={() => salaryMut.mutate()} disabled={salaryMut.isPending}>
+                  {t("common.save")}
+                </Button>
+              </div>
+            ) : null}
+            {canViewPayrollLines ? <StaffPayrollPanel staffId={s.id} /> : null}
           </section>
         </TabsContent>
 
         <TabsContent value="warnings" className="mt-3">
+          {canManageWarnings ? (
+            <HrWarningsWorkspace lockedStaffId={s.id} embedded onChanged={refreshProfile} />
+          ) : (
           <section className={PANEL}>
-            <div className="flex items-center justify-between gap-3">
-              <h2 className={SECTION_LABEL}>Disciplinary</h2>
-              <Button asChild size="sm" variant="secondary"><Link href="/people/hr/documents">Open documents</Link></Button>
-            </div>
+            <h2 className={SECTION_LABEL}>Disciplinary</h2>
             {!canViewSensitive ? (
               <p className="text-sm text-muted-foreground">
                 Warnings and disciplinary letters live in HR documents (warning letter). Visible to Admin and HR only.
@@ -1302,46 +1349,30 @@ function StaffProfilePageBody() {
               </ul>
             )}
           </section>
+          )}
         </TabsContent>
 
         <TabsContent value="performance" className="mt-3">
-          <section className={PANEL}>
-            <div className="flex items-center justify-between gap-3">
+          {canPerformance ? (
+            <PerformanceStaffProfilePanel staffId={s.id} embedded />
+          ) : (
+            <section className={PANEL}>
               <h2 className={SECTION_LABEL}>Performance</h2>
-              <Button asChild size="sm">
-                <Link href={`/people/performance/staff/${s.id}`}>{t("people.profile.openPerformance")}</Link>
-              </Button>
-            </div>
-            <FactGrid
-              items={[
-                fact("Position", s.job_title),
-                fact("Department", s.department),
-                fact("Status", s.status.replace(/_/g, " ")),
-              ]}
-            />
-          </section>
+              <FactGrid
+                items={[
+                  fact("Position", s.job_title),
+                  fact("Department", s.department),
+                  fact("Status", s.status.replace(/_/g, " ")),
+                ]}
+              />
+            </section>
+          )}
         </TabsContent>
 
         <TabsContent value="training" className="mt-3">
         <section className={PANEL}>
           <h2 className={SECTION_LABEL}>{t("people.profile.training")}</h2>
-          {trainingSection.isLoading ? (
-            <p className="text-sm text-muted-foreground">{t("people.staff.loading")}</p>
-          ) : !trainingRows.length ? (
-            <p className="text-sm text-muted-foreground">{t("people.profile.noTraining")}</p>
-          ) : (
-            <ul className="grid gap-2 sm:grid-cols-2">
-              {trainingRows.map((tr) => (
-                <li key={tr.id} className="rounded-xl border border-border/60 bg-secondary/40 px-3 py-2">
-                  <p className="text-sm font-medium">{tr.course_name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {tr.status}
-                    {tr.due_on ? ` · due ${tr.due_on}` : ""}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          )}
+          <StaffTrainingPanel staffId={s.id} locationId={s.location_id} onChanged={refreshProfile} />
         </section>
         </TabsContent>
 
@@ -1406,7 +1437,23 @@ function StaffProfilePageBody() {
         <TabsContent value="notes" className="mt-3">
           <section className={PANEL}>
             <h2 className={SECTION_LABEL}>Notes</h2>
-            {ext?.notes?.trim() ? (
+            {canEditNotes ? (
+              <div className="space-y-2">
+                <Textarea
+                  value={notesDraft ?? ext?.notes ?? ""}
+                  onChange={(e) => setNotesDraft(e.target.value)}
+                  placeholder={t("people.profile.notesPlaceholder")}
+                  rows={6}
+                />
+                <Button
+                  size="sm"
+                  disabled={notesMut.isPending}
+                  onClick={() => notesMut.mutate(notesDraft ?? ext?.notes ?? "")}
+                >
+                  {notesMut.isPending ? t("common.saving") : t("common.save")}
+                </Button>
+              </div>
+            ) : ext?.notes?.trim() ? (
               <p className="whitespace-pre-wrap text-sm">{ext.notes}</p>
             ) : (
               <p className="text-sm text-muted-foreground">No HR notes on file.</p>

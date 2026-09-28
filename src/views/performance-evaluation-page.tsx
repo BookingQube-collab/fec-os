@@ -30,10 +30,15 @@ import {
 } from "@/lib/performance.functions";
 import { queryKeys } from "@/lib/query-keys";
 
-export default function PerformanceEvaluationDetailPage() {
+export function PerformanceEvaluationPanel({
+  evaluationId,
+  embedded = false,
+}: {
+  evaluationId: string;
+  embedded?: boolean;
+}) {
   const { t } = useTranslation();
-  const params = useParams<{ id: string }>();
-  const id = params.id;
+  const id = evaluationId;
   const qc = useQueryClient();
   const [comments, setComments] = useState("");
   const [actualDrafts, setActualDrafts] = useState<Record<string, string>>({});
@@ -105,14 +110,16 @@ export default function PerformanceEvaluationDetailPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2">
-        <Button variant="ghost" size="sm" asChild>
-          <Link href="/people/performance">
-            <ArrowLeft className="mr-1 h-4 w-4" />
-            {t("performance.back")}
-          </Link>
-        </Button>
-      </div>
+      {embedded ? null : (
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" asChild>
+            <Link href="/people/performance">
+              <ArrowLeft className="mr-1 h-4 w-4" />
+              {t("performance.back")}
+            </Link>
+          </Button>
+        </div>
+      )}
 
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -319,13 +326,21 @@ export default function PerformanceEvaluationDetailPage() {
         </ul>
       </section>
 
-      <Button variant="outline" size="sm" asChild>
-        <Link href={`/people/performance/staff/${evaluation.staff_id}`}>
-          {t("performance.profile.open")}
-        </Link>
-      </Button>
+      {embedded ? null : (
+        <Button variant="outline" size="sm" asChild>
+          <Link href={`/people/performance/staff/${evaluation.staff_id}`}>
+            {t("performance.profile.open")}
+          </Link>
+        </Button>
+      )}
     </div>
   );
+}
+
+export default function PerformanceEvaluationDetailPage() {
+  const params = useParams<{ id: string }>();
+  if (!params.id) return null;
+  return <PerformanceEvaluationPanel evaluationId={params.id} />;
 }
 
 function ScoreCard({ label, value }: { label: string; value: number | null }) {

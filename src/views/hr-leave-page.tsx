@@ -7,9 +7,9 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
+import { HrEmbedFrame } from "@/components/hr/hr-embed-frame";
 import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { HrPanel } from "@/components/hr/hr-panel";
-import { HrSection } from "@/components/hr/hr-section";
 import { HrShell } from "@/components/hr/hr-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,7 +33,15 @@ import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { cn } from "@/lib/utils";
 
-export default function HrLeavePage() {
+export function HrLeaveWorkspace({
+  lockedStaffId,
+  embedded = false,
+  onChanged,
+}: {
+  lockedStaffId?: string;
+  embedded?: boolean;
+  onChanged?: () => void;
+}) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [status, setStatus] = useState<"pending" | "approved" | "rejected" | "cancelled" | "all">("pending");
@@ -52,10 +60,16 @@ export default function HrLeavePage() {
   const [recordTo, setRecordTo] = useState("");
   const [recordReason, setRecordReason] = useState("");
   const [recordAck, setRecordAck] = useState(false);
+  const effectiveRecordStaffId = lockedStaffId || recordStaffId;
+  const effectiveBalanceStaffId = lockedStaffId || balanceStaffId;
 
   const list = useQuery({
-    queryKey: queryKeys.people.attendanceHr({ view: "leave", status }),
-    queryFn: () => listLeaveRequests({ status: status === "all" ? null : status }),
+    queryKey: queryKeys.people.attendanceHr({ view: "leave", status, staffId: lockedStaffId ?? null }),
+    queryFn: () =>
+      listLeaveRequests({
+        status: status === "all" ? null : status,
+        staffId: lockedStaffId ?? null,
+      }),
     staleTime: STALE.people,
   });
 
@@ -63,12 +77,13 @@ export default function HrLeavePage() {
     queryKey: queryKeys.people.hrLeaveBalances({ view: "staff" }),
     queryFn: () => listStaffForLeaveBalances(),
     staleTime: STALE.people,
+    enabled: !lockedStaffId,
   });
 
   const balances = useQuery({
-    queryKey: queryKeys.people.hrLeaveBalances({ staffId: balanceStaffId || null }),
-    queryFn: () => getLeaveBalanceSummary({ staffId: balanceStaffId || undefined }),
-    enabled: Boolean(balanceStaffId),
+    queryKey: queryKeys.people.hrLeaveBalances({ staffId: effectiveBalanceStaffId || null }),
+    queryFn: () => getLeaveBalanceSummary({ staffId: effectiveBalanceStaffId || undefined }),
+    enabled: Boolean(effectiveBalanceStaffId),
     staleTime: STALE.people,
   });
 
@@ -76,6 +91,7 @@ export default function HrLeavePage() {
     void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
     void qc.invalidateQueries({ queryKey: queryKeys.people.hrLeaveBalances() });
     void qc.invalidateQueries({ queryKey: queryKeys.people.hrOverview() });
+    onChanged?.();
   };
 
   const review = useMutation({
@@ -171,20 +187,24 @@ export default function HrLeavePage() {
     <CapabilityGate
       capability="hr.leave.manage"
       fallback={
-        <HrShell>
-          <HrPanel>
-            <HrEmptyState message={t("hr.leave.noAccess")} />
-          </HrPanel>
-        </HrShell>
+        embedded ? (
+          <HrEmptyState message={t("hr.leave.noAccess")} />
+        ) : (
+          <HrShell>
+            <HrPanel>
+              <HrEmptyState message={t("hr.leave.noAccess")} />
+            </HrPanel>
+          </HrShell>
+        )
       }
     >
-      <HrShell>
-        <HrSection
-          icon={Palmtree}
-          kicker={t("hr.leave.kicker")}
-          title={t("hr.leave.title")}
-          subtitle={t("hr.leave.subtitle")}
-        >
+      <HrEmbedFrame
+        embedded={embedded}
+        icon={Palmtree}
+        kicker={t("hr.leave.kicker")}
+        title={t("hr.leave.title")}
+        subtitle={t("hr.leave.subtitle")}
+      >
           <div className="hr-filter-bar hr-enter">
             {(["pending", "approved", "rejected", "cancelled", "all"] as const).map((value) => (
               <button
@@ -309,6 +329,7 @@ export default function HrLeavePage() {
               <h2 className="text-sm font-semibold tracking-tight">{t("hr.leave.recordTitle")}</h2>
               <p className="text-xs text-muted-foreground">{t("hr.leave.recordHint")}</p>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {lockedStaffId ? null : (
                 <div>
                   <Label>{t("hr.leave.staff")}</Label>
                   <SearchableSelect
@@ -323,6 +344,7 @@ export default function HrLeavePage() {
                     }))}
                   />
                 </div>
+                )}
                 <div>
                   <Label>{t("hr.leave.type")}</Label>
                   <select
@@ -351,10 +373,10 @@ export default function HrLeavePage() {
                 </div>
                 <div className="flex items-end gap-2">
                   <Button
-                    disabled={!recordStaffId || !recordFrom || !recordTo || recordLeave.isPending}
+                    disabled={!effectiveRecordStaffId || !recordFrom || !recordTo || recordLeave.isPending}
                     onClick={() =>
                       recordLeave.mutate({
-                        staffId: recordStaffId,
+                        staffId: effectiveRecordStaffId,
                         leaveType: recordType,
                         dateFrom: recordFrom,
                         dateTo: recordTo,
@@ -375,6 +397,7 @@ export default function HrLeavePage() {
             <div className="space-y-4 p-4 sm:p-5">
               <h2 className="text-sm font-semibold tracking-tight">{t("hr.leave.balancesTitle")}</h2>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {lockedStaffId ? null : (
                 <div>
                   <Label>{t("hr.leave.staff")}</Label>
                   <SearchableSelect
@@ -389,6 +412,7 @@ export default function HrLeavePage() {
                     }))}
                   />
                 </div>
+                )}
                 <div>
                   <Label>{t("hr.leave.type")}</Label>
                   <select
@@ -413,10 +437,10 @@ export default function HrLeavePage() {
                 </div>
                 <div className="flex items-end">
                   <Button
-                    disabled={!balanceStaffId || saveBalance.isPending}
+                    disabled={!effectiveBalanceStaffId || saveBalance.isPending}
                     onClick={() =>
                       saveBalance.mutate({
-                        staffId: balanceStaffId,
+                        staffId: effectiveBalanceStaffId,
                         leaveType: balanceType,
                         year: new Date().getFullYear(),
                         allottedDays: Number(allotted) || 0,
@@ -470,10 +494,10 @@ export default function HrLeavePage() {
                 <div className="flex items-end">
                   <Button
                     variant="outline"
-                    disabled={!balanceStaffId || !compEarned || grantComp.isPending}
+                    disabled={!effectiveBalanceStaffId || !compEarned || grantComp.isPending}
                     onClick={() =>
                       grantComp.mutate({
-                        staffId: balanceStaffId,
+                        staffId: effectiveBalanceStaffId,
                         earnedOn: compEarned,
                         days: Number(compDays) || 1,
                         reason: compReason || null,
@@ -486,8 +510,11 @@ export default function HrLeavePage() {
               </div>
             </div>
           </HrPanel>
-        </HrSection>
-      </HrShell>
+      </HrEmbedFrame>
     </CapabilityGate>
   );
+}
+
+export default function HrLeavePage() {
+  return <HrLeaveWorkspace />;
 }

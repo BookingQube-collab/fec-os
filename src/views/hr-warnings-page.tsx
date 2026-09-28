@@ -7,9 +7,9 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
+import { HrEmbedFrame } from "@/components/hr/hr-embed-frame";
 import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { HrPanel } from "@/components/hr/hr-panel";
-import { HrSection } from "@/components/hr/hr-section";
 import { HrShell } from "@/components/hr/hr-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -37,11 +37,20 @@ async function fileToBase64(file: File): Promise<string> {
   return btoa(binary);
 }
 
-export default function HrWarningsPage() {
+export function HrWarningsWorkspace({
+  lockedStaffId,
+  embedded = false,
+  onChanged,
+}: {
+  lockedStaffId?: string;
+  embedded?: boolean;
+  onChanged?: () => void;
+}) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [status, setStatus] = useState<"active" | "escalations" | "all">("active");
-  const [staffId, setStaffId] = useState("");
+  const [pickedStaffId, setPickedStaffId] = useState("");
+  const staffId = lockedStaffId ?? pickedStaffId;
   const [incidentOn, setIncidentOn] = useState("");
   const [category, setCategory] = useState<(typeof HR_WARNING_CATEGORIES)[number]>("conduct");
   const [level, setLevel] = useState<(typeof HR_WARNING_LEVELS)[number]>("written");
@@ -50,8 +59,8 @@ export default function HrWarningsPage() {
   const [letterFile, setLetterFile] = useState<File | null>(null);
 
   const list = useQuery({
-    queryKey: queryKeys.people.hrWarnings({ status }),
-    queryFn: () => listWarnings({ status }),
+    queryKey: queryKeys.people.hrWarnings({ status, staffId: lockedStaffId ?? null }),
+    queryFn: () => listWarnings({ status, staffId: lockedStaffId ?? null }),
     staleTime: STALE.people,
   });
 
@@ -59,11 +68,13 @@ export default function HrWarningsPage() {
     queryKey: queryKeys.people.hrLeaveBalances({ view: "staff-picker" }),
     queryFn: () => listStaffForLeaveBalances(),
     staleTime: STALE.people,
+    enabled: !lockedStaffId,
   });
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: queryKeys.people.hrWarnings() });
     void qc.invalidateQueries({ queryKey: queryKeys.people.hrOverview() });
+    onChanged?.();
   };
 
   const issue = useMutation({
@@ -129,30 +140,35 @@ export default function HrWarningsPage() {
     <CapabilityGate
       capability="hr.warnings.manage"
       fallback={
-        <HrShell>
-          <HrPanel>
-            <HrEmptyState message={t("hr.warnings.noAccess")} />
-          </HrPanel>
-        </HrShell>
+        embedded ? (
+          <HrEmptyState message={t("hr.warnings.noAccess")} />
+        ) : (
+          <HrShell>
+            <HrPanel>
+              <HrEmptyState message={t("hr.warnings.noAccess")} />
+            </HrPanel>
+          </HrShell>
+        )
       }
     >
-      <HrShell>
-        <HrSection
-          icon={AlertTriangle}
-          kicker={t("hr.warnings.kicker")}
-          title={t("hr.warnings.title")}
-          subtitle={t("hr.warnings.subtitle")}
-        >
+      <HrEmbedFrame
+        embedded={embedded}
+        icon={AlertTriangle}
+        kicker={t("hr.warnings.kicker")}
+        title={t("hr.warnings.title")}
+        subtitle={t("hr.warnings.subtitle")}
+      >
           <HrPanel className="space-y-3">
             <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               {t("hr.warnings.issueTitle")}
             </p>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {lockedStaffId ? null : (
               <div className="space-y-1">
                 <Label>{t("hr.warnings.staff")}</Label>
                 <SearchableSelect
                   value={staffId}
-                  onValueChange={setStaffId}
+                  onValueChange={setPickedStaffId}
                   placeholder={t("hr.warnings.pickStaff")}
                   emptyOption={{ value: "", label: t("hr.warnings.pickStaff") }}
                   options={(staffOptions.data ?? []).map((s) => ({
@@ -162,6 +178,7 @@ export default function HrWarningsPage() {
                   }))}
                 />
               </div>
+              )}
               <div className="space-y-1">
                 <Label>{t("hr.warnings.incidentOn")}</Label>
                 <Input type="date" value={incidentOn} onChange={(e) => setIncidentOn(e.target.value)} />
@@ -308,8 +325,11 @@ export default function HrWarningsPage() {
               ))}
             </div>
           )}
-        </HrSection>
-      </HrShell>
+      </HrEmbedFrame>
     </CapabilityGate>
   );
+}
+
+export default function HrWarningsPage() {
+  return <HrWarningsWorkspace />;
 }

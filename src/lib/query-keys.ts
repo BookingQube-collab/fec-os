@@ -177,6 +177,7 @@ export const queryKeys = {
     departments: () => [...queryKeys.people.all, "departments"] as const,
     shifts: (locationId?: string | null) => [...queryKeys.people.all, "shifts", locationId ?? null] as const,
     training: (locationId?: string | null) => [...queryKeys.people.all, "training", locationId ?? null] as const,
+    staffTraining: (staffId: string) => [...queryKeys.people.all, "training", "staff", staffId] as const,
     attendanceSummary: (filters?: { locationId?: string | null; dateFrom?: string; dateTo?: string }) =>
       [
         ...queryKeys.people.all,
@@ -215,6 +216,8 @@ export const queryKeys = {
     hrPayrollPeriod: (periodId: string, filters?: object) =>
       [...queryKeys.people.all, "hr-payroll-period", periodId, filters ?? {}] as const,
     hrMyPayslips: () => [...queryKeys.people.all, "hr-my-payslips"] as const,
+    hrStaffPayrollLines: (staffId: string) =>
+      [...queryKeys.people.all, "hr-staff-payroll-lines", staffId] as const,
   },
   performance: {
     all: ["performance"] as const,
