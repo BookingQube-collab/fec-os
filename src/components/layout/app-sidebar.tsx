@@ -3,9 +3,18 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ChevronDown, MoreHorizontal, PanelLeft, PanelLeftClose, Search } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import { useTranslation } from "react-i18next";
 
+import { BitsShine } from "@/components/layout/bits-shine";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -204,7 +213,8 @@ function DepartmentSection({
           ...group,
           items: group.items.filter(
             (item) =>
-              t(item.labelKey).toLowerCase().includes(q) || t(group.labelKey).toLowerCase().includes(q),
+              t(item.labelKey).toLowerCase().includes(q) ||
+              t(group.labelKey).toLowerCase().includes(q),
           ),
         }))
         .filter((group) => group.items.length > 0)
@@ -558,10 +568,10 @@ function RailIconWithFlyout({
             )}
           >
             <div className="border-b border-border/70 bg-surface-2/90 px-3.5 py-2.5">
-              <p className="section-kicker uppercase tracking-wide">
-                {t("nav.subFeatures")}
+              <p className="section-kicker uppercase tracking-wide">{t("nav.subFeatures")}</p>
+              <p className="mt-0.5 text-sm font-semibold leading-snug text-foreground">
+                {groupLabel}
               </p>
-              <p className="mt-0.5 text-sm font-semibold leading-snug text-foreground">{groupLabel}</p>
             </div>
             <div className="max-h-[min(70vh,32rem)] overflow-y-auto overscroll-contain">
               {department && hasGroups ? (
@@ -706,7 +716,9 @@ function EmployeeSectionRail({
             aria-label={label}
             className={cn(
               "flex h-11 items-center gap-2.5 rounded-full text-sm",
-              expanded ? "w-11 justify-center lg:w-full lg:justify-start lg:px-2.5" : "w-11 justify-center",
+              expanded
+                ? "w-11 justify-center lg:w-full lg:justify-start lg:px-2.5"
+                : "w-11 justify-center",
               active
                 ? "bg-primary font-semibold text-primary-foreground shadow-elevated-xs"
                 : "text-muted-foreground hover:bg-secondary/80 hover:text-foreground",
@@ -724,7 +736,9 @@ function EmployeeSectionRail({
             }}
           >
             <Icon className="h-4 w-4 shrink-0 stroke-[1.5]" />
-            <span className={cn("truncate", expanded ? "hidden lg:inline" : "sr-only")}>{label}</span>
+            <span className={cn("truncate", expanded ? "hidden lg:inline" : "sr-only")}>
+              {label}
+            </span>
           </Link>
         );
       })}
@@ -795,8 +809,9 @@ export function AppSidebar() {
   useEffect(() => {
     if (primary.length === 0) return;
     const warm = () => {
-      const connection = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } })
-        .connection;
+      const connection = (
+        navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }
+      ).connection;
       if (connection?.saveData) return;
       if (connection?.effectiveType === "slow-2g" || connection?.effectiveType === "2g") return;
       const allowed = new Set(primary.map((item) => item.href));
@@ -843,7 +858,11 @@ export function AppSidebar() {
           >
             <Link href="/" prefetch title="FEC OS">
               <span className={cn(sidebarExpanded && "lg:hidden")}>F</span>
-              {sidebarExpanded ? <span className="hidden lg:inline">FEC OS</span> : null}
+              {sidebarExpanded ? (
+                <span className="hidden lg:inline">
+                  <BitsShine text={t("app.name")} color="#ffffff" shineColor="#f5c518" speed={6} />
+                </span>
+              ) : null}
             </Link>
           </Button>
           <Button
@@ -871,7 +890,12 @@ export function AppSidebar() {
             )}
           >
             {employeeHome ? (
-              <EmployeeSectionRail roles={roles} pathname={pathname} t={t} expanded={sidebarExpanded} />
+              <EmployeeSectionRail
+                roles={roles}
+                pathname={pathname}
+                t={t}
+                expanded={sidebarExpanded}
+              />
             ) : null}
             {primary.map((item) => {
               const department = departmentsById.get(item.departmentId) ?? null;
@@ -930,7 +954,10 @@ export function AppSidebar() {
                   ) : null}
                 </Button>
               </SheetTrigger>
-              <SheetContent side={isRtl ? "right" : "left"} className="flex w-80 flex-col border-border bg-background">
+              <SheetContent
+                side={isRtl ? "right" : "left"}
+                className="flex w-80 flex-col border-border bg-background"
+              >
                 <SheetHeader className="shrink-0">
                   <SheetTitle>{t("nav.allModules")}</SheetTitle>
                 </SheetHeader>

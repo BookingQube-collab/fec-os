@@ -18,7 +18,9 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { BitsShine } from "@/components/layout/bits-shine";
 import { CircularProgressBadge } from "@/components/dashboard/circular-progress-badge";
+import SpotlightCard from "@/components/react-bits/spotlight-panel";
 import { TintedKpiCard, type KpiTint } from "@/components/dashboard/tinted-kpi-card";
 import EmployeeMePage from "@/views/employee-me-page";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -38,10 +40,19 @@ import { useDashboardSecondary } from "@/hooks/queries/useDashboardSecondary";
 import { useComplianceRenewals } from "@/hooks/queries/useInspections";
 import { useAfterLoad, useScrollGatedVisible } from "@/hooks/use-deferred-visible";
 import { useAppStore } from "@/stores/app-store";
+
+const HOME_SPOTLIGHT =
+  "!rounded-2xl !border-border/40 !bg-card !p-0 !text-foreground shadow-[0_4px_20px_rgba(0,0,0,0.05)]";
+const HOME_SPOTLIGHT_COLOR = "rgba(245, 197, 24, 0.22)" as const;
 import { useBranchesSummary } from "@/hooks/queries/useOperationsDashboard";
 import { useSites } from "@/hooks/queries/useSites";
 import type { DashboardPeriod } from "@/lib/dashboard.functions";
-import { dashboardViewForRoles, canViewRevenue, isEmployeeHomeAudience, type AppRole } from "@/lib/rbac";
+import {
+  dashboardViewForRoles,
+  canViewRevenue,
+  isEmployeeHomeAudience,
+  type AppRole,
+} from "@/lib/rbac";
 import { fmtQar } from "@/lib/currency";
 import { retryImport } from "@/lib/retry-import";
 import { cn } from "@/lib/utils";
@@ -100,7 +111,11 @@ function HealthPill({ pct }: { pct: number }) {
   const { t } = useTranslation();
   const variant = pct >= 80 ? "success" : pct >= 60 ? "warning" : "destructive";
   const label =
-    pct >= 80 ? t("home.healthHealthy") : pct >= 60 ? t("home.healthWatch") : t("home.healthAtRisk");
+    pct >= 80
+      ? t("home.healthHealthy")
+      : pct >= 60
+        ? t("home.healthWatch")
+        : t("home.healthAtRisk");
   return (
     <Badge variant={variant} className="tabular-nums">
       {label}
@@ -120,7 +135,8 @@ function pickAttentionItems(rows: ComplianceRenewalRow[] | undefined, limit = 5)
     });
   return {
     top: ranked.slice(0, limit),
-    hiddenExpired: ranked.slice(limit).filter((item) => String(item.alert_tier) === "Expired").length,
+    hiddenExpired: ranked.slice(limit).filter((item) => String(item.alert_tier) === "Expired")
+      .length,
   };
 }
 
@@ -168,10 +184,7 @@ function OpsCommandHome() {
     enabled: chartsEnabled,
   });
 
-  const branchesQ = useBranchesSummary(
-    { period, locationId },
-    { enabled: attentionEnabled },
-  );
+  const branchesQ = useBranchesSummary({ period, locationId }, { enabled: attentionEnabled });
 
   const e = kpisQ.data?.estate;
   const sm = kpisQ.data?.smartmaintain;
@@ -348,117 +361,140 @@ function OpsCommandHome() {
       )}
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <section className="surface-card">
-          <div className="flex items-center justify-between border-b border-border/40 px-4 py-3">
-            <h2 className="section-kicker">
-              <AlertTriangle strokeWidth={1.5} />
-              <span>{t("home.needsAttention")}</span>
-            </h2>
-            <Button variant="ghost" size="sm" asChild>
-              <Link href="/compliance/expiry-alerts">{t("home.viewAll")}</Link>
-            </Button>
-          </div>
-          <div className="divide-y divide-border/40">
-            <AttentionRow
-              href="/maintenance"
-              label={t("home.overdueWoItem", { n: overdueWo })}
-              tone={overdueWo > 0 ? "danger" : "ok"}
-            />
-            <AttentionRow
-              href="/compliance/amc-schedule"
-              label={t("home.pendingInspectItem", { n: pendingVerify })}
-              tone={pendingVerify > 0 ? "warn" : "ok"}
-            />
-            {renewalsQ.isLoading ? (
-              <Skeleton className="m-4 h-24 rounded-xl" />
-            ) : attention.top.length === 0 ? (
-              <p className="px-4 py-6 text-sm text-muted-foreground">{t("home.noItemsDue")}</p>
-            ) : (
-              attention.top.map((item) => (
-                <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm">
-                  <div className="min-w-0">
-                    <p className="font-medium text-foreground">{item.item_name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {item.domain} · {item.venue_scope}
-                    </p>
-                  </div>
-                  <Badge variant={String(item.alert_tier) === "Expired" ? "destructive" : "warning"}>
-                    {tierLabel(t, String(item.alert_tier))}
-                  </Badge>
-                </div>
-              ))
-            )}
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/40 px-4 py-3">
-            <p className="text-xs text-muted-foreground">
-              {attention.hiddenExpired > 0
-                ? t("home.moreExpired", { n: attention.hiddenExpired })
-                : t("home.attentionHint")}
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Button asChild variant="ghost" size="sm">
-                <Link href="/compliance/register">{t("home.viewFullRegister")}</Link>
-              </Button>
-              <Button asChild variant="ghost" size="sm">
-                <Link href="/compliance/expiry-alerts">{t("home.documentExpiryAlerts")}</Link>
+        <section>
+          <SpotlightCard className={HOME_SPOTLIGHT} spotlightColor={HOME_SPOTLIGHT_COLOR}>
+            <div className="flex items-center justify-between border-b border-border/40 px-4 py-3">
+              <h2 className="section-kicker">
+                <AlertTriangle strokeWidth={1.5} />
+                <BitsShine
+                  text={t("home.needsAttention")}
+                  color="#6b6560"
+                  shineColor="#1a1a1a"
+                  speed={6}
+                />
+              </h2>
+              <Button variant="ghost" size="sm" asChild>
+                <Link href="/compliance/expiry-alerts">{t("home.viewAll")}</Link>
               </Button>
             </div>
-          </div>
+            <div className="divide-y divide-border/40">
+              <AttentionRow
+                href="/maintenance"
+                label={t("home.overdueWoItem", { n: overdueWo })}
+                tone={overdueWo > 0 ? "danger" : "ok"}
+              />
+              <AttentionRow
+                href="/compliance/amc-schedule"
+                label={t("home.pendingInspectItem", { n: pendingVerify })}
+                tone={pendingVerify > 0 ? "warn" : "ok"}
+              />
+              {renewalsQ.isLoading ? (
+                <Skeleton className="m-4 h-24 rounded-xl" />
+              ) : attention.top.length === 0 ? (
+                <p className="px-4 py-6 text-sm text-muted-foreground">{t("home.noItemsDue")}</p>
+              ) : (
+                attention.top.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-medium text-foreground">{item.item_name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {item.domain} · {item.venue_scope}
+                      </p>
+                    </div>
+                    <Badge
+                      variant={String(item.alert_tier) === "Expired" ? "destructive" : "warning"}
+                    >
+                      {tierLabel(t, String(item.alert_tier))}
+                    </Badge>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/40 px-4 py-3">
+              <p className="text-xs text-muted-foreground">
+                {attention.hiddenExpired > 0
+                  ? t("home.moreExpired", { n: attention.hiddenExpired })
+                  : t("home.attentionHint")}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button asChild variant="ghost" size="sm">
+                  <Link href="/compliance/register">{t("home.viewFullRegister")}</Link>
+                </Button>
+                <Button asChild variant="ghost" size="sm">
+                  <Link href="/compliance/expiry-alerts">{t("home.documentExpiryAlerts")}</Link>
+                </Button>
+              </div>
+            </div>
+          </SpotlightCard>
         </section>
 
-        <section className="surface-card p-5">
-          <h2 className="section-kicker">
-            <Gauge strokeWidth={1.5} />
-            <span>{t("home.siteReadiness")}</span>
-          </h2>
-          <div className="mt-5 flex justify-center">
-            {kpisQ.isLoading ? (
-              <Skeleton className="h-[120px] w-[120px] rounded-full" />
-            ) : (
-              <CircularProgressBadge value={readiness} size={120} positive={readiness >= 70} />
-            )}
-          </div>
-          <p className="mt-3 text-center text-xs text-muted-foreground">{t("home.readinessGaugeHint")}</p>
-          <ul className="mt-4 space-y-2 text-sm">
-            <li className="flex items-start gap-2">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-              <span>{t("home.highRiskBullet", { n: sm?.high_risk_items ?? 0 })}</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-              <span>
-                {openingPct == null
-                  ? t("home.openingBulletEmpty")
-                  : t("home.openingBullet", { pct: openingPct })}
-              </span>
-            </li>
-            <li className="flex items-start gap-2">
-              <Users className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-              <span>
-                {hasRoster
-                  ? t("home.staffBullet", {
-                      present: e.staff_present,
-                      scheduled: e.staff_scheduled,
-                    })
-                  : t("home.staffBulletEmpty")}
-              </span>
-            </li>
-          </ul>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Button asChild variant="secondary" size="sm">
-              <Link href="/compliance/expiry-alerts">{t("home.viewExpiryAlerts")}</Link>
-            </Button>
-            <Button asChild variant="secondary" size="sm">
-              <Link href="/facility">{t("home.viewFacilityReadiness")}</Link>
-            </Button>
-          </div>
+        <section>
+          <SpotlightCard className={HOME_SPOTLIGHT} spotlightColor={HOME_SPOTLIGHT_COLOR}>
+            <div className="p-5">
+              <h2 className="section-kicker">
+                <Gauge strokeWidth={1.5} />
+                <BitsShine
+                  text={t("home.siteReadiness")}
+                  color="#6b6560"
+                  shineColor="#1a1a1a"
+                  speed={6}
+                />
+              </h2>
+              <div className="mt-5 flex justify-center">
+                {kpisQ.isLoading ? (
+                  <Skeleton className="h-[120px] w-[120px] rounded-full" />
+                ) : (
+                  <CircularProgressBadge value={readiness} size={120} positive={readiness >= 70} />
+                )}
+              </div>
+              <p className="mt-3 text-center text-xs text-muted-foreground">
+                {t("home.readinessGaugeHint")}
+              </p>
+              <ul className="mt-4 space-y-2 text-sm">
+                <li className="flex items-start gap-2">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span>{t("home.highRiskBullet", { n: sm?.high_risk_items ?? 0 })}</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span>
+                    {openingPct == null
+                      ? t("home.openingBulletEmpty")
+                      : t("home.openingBullet", { pct: openingPct })}
+                  </span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <Users className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span>
+                    {hasRoster
+                      ? t("home.staffBullet", {
+                          present: e.staff_present,
+                          scheduled: e.staff_scheduled,
+                        })
+                      : t("home.staffBulletEmpty")}
+                  </span>
+                </li>
+              </ul>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Button asChild variant="secondary" size="sm">
+                  <Link href="/compliance/expiry-alerts">{t("home.viewExpiryAlerts")}</Link>
+                </Button>
+                <Button asChild variant="secondary" size="sm">
+                  <Link href="/facility">{t("home.viewFacilityReadiness")}</Link>
+                </Button>
+              </div>
+            </div>
+          </SpotlightCard>
         </section>
       </div>
 
       <div ref={chartsRef}>
         <h2 className="section-kicker mb-3">
           <BarChart3 strokeWidth={1.5} />
-          <span>{t("home.chartsTitle")}</span>
+          <BitsShine text={t("home.chartsTitle")} color="#6b6560" shineColor="#1a1a1a" speed={6} />
         </h2>
         <Suspense
           fallback={
@@ -488,90 +524,117 @@ function OpsCommandHome() {
       {(view === "tasks" || view === "branch") &&
         kpisQ.data?.assigned_tasks &&
         kpisQ.data.assigned_tasks.length > 0 && (
-          <section className="surface-card p-4">
-            <h2 className="section-kicker mb-3">
-              <CheckCircle2 strokeWidth={1.5} />
-              <span>{t("home.myAssignedTasks")}</span>
-            </h2>
-            <ul className="space-y-2">
-              {kpisQ.data.assigned_tasks.map((task) => (
-                <li key={task.id} className="flex items-center justify-between text-sm">
-                  <Link
-                    href={`/tasks/${task.id}`}
-                    className="font-medium text-foreground underline-offset-2 hover:underline"
-                  >
-                    {task.title}
-                  </Link>
-                  <Badge variant="outline">{task.status}</Badge>
-                </li>
-              ))}
-            </ul>
+          <section>
+            <SpotlightCard className={HOME_SPOTLIGHT} spotlightColor={HOME_SPOTLIGHT_COLOR}>
+              <div className="p-4">
+                <h2 className="section-kicker mb-3">
+                  <CheckCircle2 strokeWidth={1.5} />
+                  <BitsShine
+                    text={t("home.myAssignedTasks")}
+                    color="#6b6560"
+                    shineColor="#1a1a1a"
+                    speed={6}
+                  />
+                </h2>
+                <ul className="space-y-2">
+                  {kpisQ.data.assigned_tasks.map((task) => (
+                    <li key={task.id} className="flex items-center justify-between text-sm">
+                      <Link
+                        href={`/tasks/${task.id}`}
+                        className="font-medium text-foreground underline-offset-2 hover:underline"
+                      >
+                        {task.title}
+                      </Link>
+                      <Badge variant="outline">{task.status}</Badge>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </SpotlightCard>
           </section>
         )}
 
       {showCompliance ? (
-        <section className="surface-card overflow-hidden">
-          <div className="flex items-center justify-between border-b border-border/40 px-4 py-3">
-            <h2 className="section-kicker">
-              <MapPin strokeWidth={1.5} />
-              <span>{t("home.siteReadinessSummary")}</span>
-            </h2>
-          </div>
-          {branchesQ.isLoading ? (
-            <Skeleton className="m-4 h-32 rounded-xl" />
-          ) : branchesQ.data && branchesQ.data.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border/40 text-start text-xs uppercase tracking-wide text-muted-foreground">
-                    <th className="px-4 py-2.5 font-semibold">{t("home.tableSite")}</th>
-                    <th className="px-4 py-2.5 font-semibold">{t("home.tableHealth")}</th>
-                    <th className="px-4 py-2.5 font-semibold">{t("home.tableOpening")}</th>
-                    <th className="px-4 py-2.5 font-semibold">{t("home.tableStaff")}</th>
-                    <th className="px-4 py-2.5 font-semibold">{t("home.tableIssues")}</th>
-                    {showRevenue ? (
-                      <th className="px-4 py-2.5 font-semibold">{t("home.tableRevenue")}</th>
-                    ) : null}
-                  </tr>
-                </thead>
-                <tbody>
-                  {branchesQ.data.map((b) => (
-                    <tr key={b.location_id} className="border-b border-border/30 last:border-0 hover:bg-muted/40">
-                      <td className="px-4 py-2.5 font-medium">
-                        <Link
-                          href={`/occ/branch/${b.location_id}`}
-                          className="text-foreground underline-offset-2 hover:underline"
-                        >
-                          {b.code}
-                        </Link>
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <HealthPill pct={b.health_score} />
-                      </td>
-                      <td className="px-4 py-2.5">
-                        <Badge variant={b.opening_checklist_pct >= 80 ? "success" : b.opening_checklist_pct > 0 ? "warning" : "muted"}>
-                          {b.opening_checklist_pct}%
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-2.5 tabular-nums text-muted-foreground">
-                        {b.staff_scheduled > 0
-                          ? `${b.staff_present}/${b.staff_scheduled}`
-                          : t("home.noStaffShort")}
-                      </td>
-                      <td className="px-4 py-2.5 tabular-nums">{b.open_issues}</td>
+        <section>
+          <SpotlightCard className={HOME_SPOTLIGHT} spotlightColor={HOME_SPOTLIGHT_COLOR}>
+            <div className="flex items-center justify-between border-b border-border/40 px-4 py-3">
+              <h2 className="section-kicker">
+                <MapPin strokeWidth={1.5} />
+                <BitsShine
+                  text={t("home.siteReadinessSummary")}
+                  color="#6b6560"
+                  shineColor="#1a1a1a"
+                  speed={6}
+                />
+              </h2>
+            </div>
+            {branchesQ.isLoading ? (
+              <Skeleton className="m-4 h-32 rounded-xl" />
+            ) : branchesQ.data && branchesQ.data.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border/40 text-start text-xs uppercase tracking-wide text-muted-foreground">
+                      <th className="px-4 py-2.5 font-semibold">{t("home.tableSite")}</th>
+                      <th className="px-4 py-2.5 font-semibold">{t("home.tableHealth")}</th>
+                      <th className="px-4 py-2.5 font-semibold">{t("home.tableOpening")}</th>
+                      <th className="px-4 py-2.5 font-semibold">{t("home.tableStaff")}</th>
+                      <th className="px-4 py-2.5 font-semibold">{t("home.tableIssues")}</th>
                       {showRevenue ? (
-                        <td className="px-4 py-2.5 tabular-nums">
-                          {b.revenue_today > 0 ? fmtQar(b.revenue_today) : "—"}
-                        </td>
+                        <th className="px-4 py-2.5 font-semibold">{t("home.tableRevenue")}</th>
                       ) : null}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <p className="px-4 py-6 text-sm text-muted-foreground">{t("home.noBranchData")}</p>
-          )}
+                  </thead>
+                  <tbody>
+                    {branchesQ.data.map((b) => (
+                      <tr
+                        key={b.location_id}
+                        className="border-b border-border/30 last:border-0 hover:bg-muted/40"
+                      >
+                        <td className="px-4 py-2.5 font-medium">
+                          <Link
+                            href={`/occ/branch/${b.location_id}`}
+                            className="text-foreground underline-offset-2 hover:underline"
+                          >
+                            {b.code}
+                          </Link>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <HealthPill pct={b.health_score} />
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <Badge
+                            variant={
+                              b.opening_checklist_pct >= 80
+                                ? "success"
+                                : b.opening_checklist_pct > 0
+                                  ? "warning"
+                                  : "muted"
+                            }
+                          >
+                            {b.opening_checklist_pct}%
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-2.5 tabular-nums text-muted-foreground">
+                          {b.staff_scheduled > 0
+                            ? `${b.staff_present}/${b.staff_scheduled}`
+                            : t("home.noStaffShort")}
+                        </td>
+                        <td className="px-4 py-2.5 tabular-nums">{b.open_issues}</td>
+                        {showRevenue ? (
+                          <td className="px-4 py-2.5 tabular-nums">
+                            {b.revenue_today > 0 ? fmtQar(b.revenue_today) : "—"}
+                          </td>
+                        ) : null}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="px-4 py-6 text-sm text-muted-foreground">{t("home.noBranchData")}</p>
+            )}
+          </SpotlightCard>
         </section>
       ) : null}
     </div>

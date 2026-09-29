@@ -36,8 +36,13 @@ import { canViewComplianceExpiryAlerts } from "@/lib/compliance/compliance-expir
 import type { InboxItemKind } from "@/lib/notifications/inbox";
 import { formatLocationRecord } from "@/lib/locations/normalize";
 import { queryKeys } from "@/lib/query-keys";
-import FadeContent from "@/components/react-bits/fade-content";
-import { ackEscalation, markAllNotificationsRead, markNotificationRead } from "@/lib/notifications.functions";
+import { BitsShine } from "@/components/layout/bits-shine";
+import BellToggle from "@/components/react-bits/bell-toggle";
+import {
+  ackEscalation,
+  markAllNotificationsRead,
+  markNotificationRead,
+} from "@/lib/notifications.functions";
 import type { AppRole } from "@/lib/rbac";
 import { usesOpsCommandSubtitle } from "@/lib/topbar-identity";
 import { cn } from "@/lib/utils";
@@ -361,11 +366,20 @@ export function AppTopbar() {
       <div className="flex flex-wrap items-center gap-3 md:gap-4">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <FadeContent blur duration={1.25} threshold={0.01} className="min-w-0 max-w-full">
-              <h1 className={cn("page-title truncate", surgeMode && "text-[1.35rem]")}>
-                {language === "ar" ? `${t(greetingKey())}، ${displayName}` : `${t(greetingKey())}, ${displayName}`}
-              </h1>
-            </FadeContent>
+            <h1
+              className={cn(
+                "page-title min-w-0 max-w-full truncate",
+                surgeMode && "text-[1.35rem]",
+              )}
+            >
+              <BitsShine
+                text={
+                  language === "ar"
+                    ? `${t(greetingKey())}، ${displayName}`
+                    : `${t(greetingKey())}, ${displayName}`
+                }
+              />
+            </h1>
             {surgeMode ? (
               <span className="rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
                 {t("layout.surgeOn")}
@@ -411,7 +425,8 @@ export function AppTopbar() {
             size="icon"
             className={cn(
               "hidden sm:inline-flex",
-              surgeMode && "border-rose-600 bg-rose-600 text-white hover:bg-rose-500 hover:text-white",
+              surgeMode &&
+                "border-rose-600 bg-rose-600 text-white hover:bg-rose-500 hover:text-white",
             )}
             onClick={() => setSurgeMode(!surgeMode)}
             title={t("common.surgeMode")}
@@ -441,7 +456,13 @@ export function AppTopbar() {
             }}
           >
             <PopoverTrigger asChild>
-              <Button type="button" variant="outline" size="icon" title={t("common.help")} aria-label={t("common.help")}>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                title={t("common.help")}
+                aria-label={t("common.help")}
+              >
                 <HelpCircle className="h-4 w-4" />
               </Button>
             </PopoverTrigger>
@@ -475,26 +496,25 @@ export function AppTopbar() {
             </PopoverContent>
           </Popover>
 
-          <Button
-            type="button"
-            variant={bellOpen ? "secondary" : "outline"}
-            size="icon"
-            className="relative"
-            aria-label={t("common.notifications")}
-            aria-expanded={bellOpen}
-            aria-pressed={bellOpen}
-            onClick={() => {
+          <BellToggle
+            size="sm"
+            className="shrink-0"
+            label={t("common.notifications")}
+            offLabel={t("common.notifications")}
+            onLabel={t("common.notifications")}
+            count={unread}
+            pressed={bellOpen || unread > 0}
+            onChange={() => {
               setHelpOpen(false);
               setBellOpen((open) => !open);
             }}
-          >
-            <Bell className="h-4 w-4" />
-            {unread > 0 && (
-              <span className="absolute -end-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-destructive px-1 text-xs font-bold text-destructive-foreground">
-                {unread > 9 ? "9+" : unread}
-              </span>
-            )}
-          </Button>
+            color="#1a1a1a"
+            background="#ffffff"
+            onColor="#1a1a1a"
+            onBackground="#fff1c2"
+            badgeColor="#c93c37"
+            badgeTextColor="#ffffff"
+          />
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

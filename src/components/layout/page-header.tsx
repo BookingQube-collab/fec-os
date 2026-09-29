@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 
-import BlurText from "@/components/react-bits/blur-text";
+import { BitsShine } from "@/components/layout/bits-shine";
 import FadeContent from "@/components/react-bits/fade-content";
 import { cn } from "@/lib/utils";
 
@@ -16,9 +16,21 @@ interface PageHeaderProps {
   className?: string;
 }
 
-export function PageHeader({ icon: Icon, kicker, title, subtitle, actions, className }: PageHeaderProps) {
+export function PageHeader({
+  icon: Icon,
+  kicker,
+  title,
+  subtitle,
+  actions,
+  className,
+}: PageHeaderProps) {
   return (
-    <header className={cn("flex min-w-0 max-w-full flex-wrap items-start justify-between gap-4", className)}>
+    <header
+      className={cn(
+        "flex min-w-0 max-w-full flex-wrap items-start justify-between gap-4",
+        className,
+      )}
+    >
       <div className="flex min-w-0 flex-1 items-start gap-3">
         {Icon ? (
           <span className="icon-well icon-well-lg mt-0.5" aria-hidden>
@@ -26,17 +38,15 @@ export function PageHeader({ icon: Icon, kicker, title, subtitle, actions, class
           </span>
         ) : null}
         <div className="min-w-0">
-          {kicker ? <p className="section-kicker mb-1.5">{kicker}</p> : null}
+          {kicker ? (
+            <p className="section-kicker mb-1.5">
+              <BitsShine text={kicker} color="#6b6560" shineColor="#1a1a1a" speed={6} />
+            </p>
+          ) : null}
           {typeof title === "string" ? (
-            <BlurText
-              as="h1"
-              text={title}
-              animateBy="words"
-              direction="bottom"
-              delay={140}
-              stepDuration={0.75}
-              className="page-title break-words"
-            />
+            <h1 className="page-title break-words">
+              <BitsShine text={title} />
+            </h1>
           ) : (
             <FadeContent blur duration={1.15} threshold={0.01}>
               <h1 className="page-title break-words">{title}</h1>
