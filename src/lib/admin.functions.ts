@@ -14,7 +14,17 @@ import {
   invalidateServerCapabilityGrantsCache,
 } from "@/lib/server/capability-grants";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { resolveStaffLoginEmail, STAFF_LOGIN_DEFAULT_PASSWORD, STAFF_LOGIN_ROLE } from "@/lib/staff-login";
+import {
+  chooseStaffLoginEmail,
+  parseStaffLoginEmail,
+  resolveStaffLoginEmail,
+  staffLoginCodeEmails,
+  staffLoginEmailCandidates,
+  STAFF_LOGIN_DEFAULT_PASSWORD,
+  STAFF_LOGIN_PASSWORD_MAX,
+  STAFF_LOGIN_PASSWORD_MIN,
+  STAFF_LOGIN_ROLE,
+} from "@/lib/staff-login";
 
 const RoleEnum = z.enum([
   "ceo",
@@ -248,16 +258,24 @@ function isDuplicateAuthEmail(error: unknown): boolean {
   return code === "email_exists" || /already been registered/i.test(message);
 }
 
-async function findAuthUserIdByEmail(email: string): Promise<string | null> {
-  const target = email.trim().toLowerCase();
+async function listAuthUsersByEmail(): Promise<Map<string, string>> {
+  const byEmail = new Map<string, string>();
   for (let page = 1; page <= 20; page += 1) {
     const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage: 200 });
     if (error) throw error;
-    const hit = data.users.find((user) => (user.email ?? "").toLowerCase() === target);
-    if (hit) return hit.id;
-    if (data.users.length < 200) return null;
+    for (const user of data.users) {
+      const email = (user.email ?? "").trim().toLowerCase();
+      if (email && !byEmail.has(email)) byEmail.set(email, user.id);
+    }
+    if (data.users.length < 200) break;
   }
-  return null;
+  return byEmail;
+}
+
+async function findAuthUserIdByEmail(email: string): Promise<string | null> {
+  const target = email.trim().toLowerCase();
+  const users = await listAuthUsersByEmail();
+  return users.get(target) ?? null;
 }
 
 async function authEmailForUser(userId: string): Promise<string | null> {
@@ -300,10 +318,43 @@ export const provisionUser = createAuthenticatedAction(
   { auth: { capability: "admin.provision_users" } },
 );
 
+/** Suggested sign-in email for the create-login form. Does not create a user. */
+export const previewStaffLogin = createSafeAuthenticatedAction(
+  z.object({
+    staffId: z.string().uuid(),
+  }),
+  async (data, context) => {
+    await requireExec(context.supabase, 95);
+
+    const { data: staff, error: staffErr } = await supabaseAdmin
+      .from("staff")
+      .select("id, user_id, email, full_name, employee_code, deleted_at")
+      .eq("id", data.staffId)
+      .maybeSingle();
+    if (staffErr) throw staffErr;
+    if (!staff || staff.deleted_at) throw new Error("Staff member not found");
+    if (staff.user_id) {
+      return { email: await authEmailForUser(staff.user_id), alreadyLinked: true as const };
+    }
+
+    const takenEmails = (await listAuthUsersByEmail()).keys();
+    return {
+      email: resolveStaffLoginEmail(staff.email, staff.employee_code, {
+        fullName: staff.full_name,
+        takenEmails,
+      }),
+      alreadyLinked: false as const,
+    };
+  },
+  { auth: { capability: "admin.provision_users" } },
+);
+
 /** Create (or link) an email/password login and set staff.user_id so /hr/me resolves. */
 export const provisionStaffLogin = createSafeAuthenticatedAction(
   z.object({
     staffId: z.string().uuid(),
+    email: z.string().trim().email().max(200).optional(),
+    password: z.string().min(STAFF_LOGIN_PASSWORD_MIN).max(STAFF_LOGIN_PASSWORD_MAX).optional(),
   }),
   async (data, context) => {
     await requireExec(context.supabase, 95);
@@ -330,7 +381,45 @@ export const provisionStaffLogin = createSafeAuthenticatedAction(
 
     if (!staff.location_id) throw new Error("Staff member has no branch");
 
-    const email = resolveStaffLoginEmail(staff.email, staff.employee_code);
+    const password = data.password ?? STAFF_LOGIN_DEFAULT_PASSWORD;
+    const authByEmail = await listAuthUsersByEmail();
+    const autoEmails = new Set([
+      ...staffLoginEmailCandidates(staff.full_name),
+      ...staffLoginCodeEmails(staff.employee_code),
+    ]);
+    let email = data.email
+      ? parseStaffLoginEmail(data.email)
+      : resolveStaffLoginEmail(staff.email, staff.employee_code, {
+          fullName: staff.full_name,
+          takenEmails: authByEmail.keys(),
+        });
+    if (!email) throw new Error("Enter a valid email address.");
+
+    const existingForEmail = authByEmail.get(email);
+    if (existingForEmail && autoEmails.has(email)) {
+      const { data: ownerRows, error: ownerErr } = await supabaseAdmin
+        .from("staff")
+        .select("id, full_name, employee_code")
+        .eq("user_id", existingForEmail)
+        .neq("id", staff.id)
+        .is("deleted_at", null)
+        .limit(1);
+      if (ownerErr) throw ownerErr;
+      const owner = ownerRows?.[0];
+      if (owner) {
+        const next = chooseStaffLoginEmail({
+          fullName: staff.full_name,
+          employeeCode: staff.employee_code,
+          takenEmails: authByEmail.keys(),
+          fromEmail: email,
+        });
+        if (!next || next === email) {
+          throw new Error(`This login is already linked to ${owner.full_name} (${owner.employee_code})`);
+        }
+        email = next;
+      }
+    }
+
     const locationIds = [staff.location_id];
     let userId: string;
     let created = false;
@@ -340,7 +429,7 @@ export const provisionStaffLogin = createSafeAuthenticatedAction(
     try {
       const createdUser = await createProvisionedAuthUser({
         email,
-        password: STAFF_LOGIN_DEFAULT_PASSWORD,
+        password,
         displayName: staff.full_name,
         employeeCode: staff.employee_code,
         role: STAFF_LOGIN_ROLE,
@@ -348,7 +437,7 @@ export const provisionStaffLogin = createSafeAuthenticatedAction(
       });
       userId = createdUser.userId;
       created = true;
-      issuedPassword = STAFF_LOGIN_DEFAULT_PASSWORD;
+      issuedPassword = password;
     } catch (error) {
       if (!isDuplicateAuthEmail(error)) throw error;
       const existingId = await findAuthUserIdByEmail(email);
@@ -406,11 +495,11 @@ export const provisionStaffLogin = createSafeAuthenticatedAction(
         });
         if (roleErr && !isUniqueViolation(roleErr)) throw roleErr;
         const { error: pwErr } = await supabaseAdmin.auth.admin.updateUserById(userId, {
-          password: STAFF_LOGIN_DEFAULT_PASSWORD,
+          password,
           email_confirm: true,
         });
         if (pwErr) throw pwErr;
-        issuedPassword = STAFF_LOGIN_DEFAULT_PASSWORD;
+        issuedPassword = password;
       }
     }
 

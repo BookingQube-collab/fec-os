@@ -170,6 +170,7 @@ export const queryKeys = {
     staffDirectory: (filters?: object) =>
       [...queryKeys.people.all, "staff-directory", filters ?? {}] as const,
     staffProfile: (id: string) => [...queryKeys.people.all, "staff-profile", id] as const,
+    staffLoginPreview: (id: string) => [...queryKeys.people.all, "staff-login-preview", id] as const,
     staffProfileSection: (id: string, section: string) =>
       [...queryKeys.people.all, "staff-profile", id, "section", section] as const,
     rosterImports: () => [...queryKeys.people.all, "roster-imports"] as const,

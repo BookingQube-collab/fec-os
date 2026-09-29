@@ -3713,6 +3713,9 @@
         "linkedExisting": "Linked an existing login. The password was not changed.",
         "defaultPassword": "Logins created here use password {{password}}. It stays the same unless the employee changes it.",
         "issuedPassword": "Password",
+        "editHint": "Edit the email or password before creating the login. The employee can change the password after signing in.",
+        "emailInvalid": "Enter a valid email address.",
+        "passwordInvalid": "Password must be 8 to 128 characters.",
         "shareHint": "Give the employee this email and password. They can change it after signing in.",
         "ceoOnly": "Only the CEO or COO can create a login."
       }

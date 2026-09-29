@@ -29,7 +29,8 @@ import { StaffAvatar, StaffPhotoField, type StaffPhotoDraft } from "@/components
 import { getStaffFaceEnrollment, saveStaffFaceEnrollment } from "@/lib/attendance-hr-field.functions";
 import { listEmployeeTimeline } from "@/lib/hr-leave.functions";
 import { transferStaffMember, updateStaffSalary, updateStaffWorkLocations } from "@/lib/staff-roster.functions";
-import { provisionStaffLogin } from "@/lib/admin.functions";
+import { previewStaffLogin, provisionStaffLogin } from "@/lib/admin.functions";
+import { isStaffLoginPassword, parseStaffLoginEmail, resolveStaffLoginEmail } from "@/lib/staff-login";
 import { StaffPayrollPanel } from "@/components/people/staff-payroll-panel";
 import { StaffTrainingPanel } from "@/components/people/staff-training-panel";
 import { removeStaffPhoto, saveStaffPhoto, updateStaff, updateStaffProfileNotes } from "@/lib/people.functions";
@@ -212,6 +213,15 @@ function StaffProfilePageBody() {
   const [photoDraft, setPhotoDraft] = useState<StaffPhotoDraft>({ dataUrl: null, remove: false });
   const [timelineFilter, setTimelineFilter] = useState<string>("all");
   const [issuedLogin, setIssuedLogin] = useState<{ email: string; password: string } | null>(null);
+  const [loginEmailDraft, setLoginEmailDraft] = useState<string | null>(null);
+  const [loginPasswordDraft, setLoginPasswordDraft] = useState<string | null>(null);
+  const [loginDraftStaffId, setLoginDraftStaffId] = useState(id);
+  if (loginDraftStaffId !== id) {
+    setLoginDraftStaffId(id);
+    setLoginEmailDraft(null);
+    setLoginPasswordDraft(null);
+    setIssuedLogin(null);
+  }
   const [notesDraft, setNotesDraft] = useState<string | null>(null);
 
   const profile = useQuery({
@@ -222,6 +232,21 @@ function StaffProfilePageBody() {
       if (!res.ok) throw new Error(body.error ?? "Failed to load profile");
       return body;
     },
+    staleTime: STALE.people,
+  });
+
+  const loginPreview = useQuery({
+    queryKey: queryKeys.people.staffLoginPreview(id),
+    queryFn: async () => {
+      const result = await previewStaffLogin({ staffId: id });
+      if (!result.ok) throw new Error(result.error);
+      return result.data;
+    },
+    enabled:
+      Boolean(id) &&
+      canProvisionLogin &&
+      Boolean(profile.data?.staff) &&
+      !profile.data?.login?.linked,
     staleTime: STALE.people,
   });
 
@@ -405,8 +430,12 @@ function StaffProfilePageBody() {
   }
 
   const createLogin = useMutation({
-    mutationFn: async () => {
-      const result = await provisionStaffLogin({ staffId: id });
+    mutationFn: async (input: { email: string; password: string }) => {
+      const result = await provisionStaffLogin({
+        staffId: id,
+        email: input.email,
+        password: input.password,
+      });
       if (!result.ok) throw new Error(result.error);
       return result.data;
     },
@@ -501,6 +530,17 @@ function StaffProfilePageBody() {
   const loginLinked = Boolean(profile.data?.login?.linked) || Boolean(issuedLogin);
   const loginEmail = issuedLogin?.email ?? profile.data?.login?.email ?? null;
   const defaultPassword = canProvisionLogin ? profile.data?.login?.defaultPassword ?? issuedLogin?.password ?? null : null;
+  let suggestedEmail = "";
+  try {
+    suggestedEmail = resolveStaffLoginEmail(s.email, s.employee_code, { fullName: s.full_name });
+  } catch {
+    suggestedEmail = "";
+  }
+  if (loginPreview.data && !loginPreview.data.alreadyLinked && loginPreview.data.email) {
+    suggestedEmail = loginPreview.data.email;
+  }
+  const loginEmailValue = loginEmailDraft ?? suggestedEmail;
+  const loginPasswordValue = loginPasswordDraft ?? defaultPassword ?? "";
 
   return (
     <div className="min-w-0 space-y-4">
@@ -554,7 +594,7 @@ function StaffProfilePageBody() {
                 <p className="text-xs text-muted-foreground">{t("people.profile.login.shareHint")}</p>
               </div>
             ) : null}
-            {defaultPassword ? (
+            {defaultPassword && loginLinked && !issuedLogin ? (
               <p className="text-sm text-muted-foreground">
                 {t("people.profile.login.defaultPassword", { password: defaultPassword })}
               </p>
@@ -563,22 +603,61 @@ function StaffProfilePageBody() {
               <p className="text-sm text-muted-foreground">{t("people.profile.login.ceoOnly")}</p>
             ) : null}
           </div>
-          {!loginLinked && canProvisionLogin ? (
-            <div className="flex flex-col items-end gap-2">
-              <Button
-                type="button"
-                size="sm"
-                disabled={createLogin.isPending}
-                onClick={() => createLogin.mutate()}
-              >
-                {createLogin.isPending ? t("people.profile.login.creating") : t("people.profile.login.create")}
-              </Button>
-              {createLogin.isError ? (
-                <p className="max-w-xs text-right text-sm text-destructive">{createLogin.error.message}</p>
-              ) : null}
-            </div>
-          ) : null}
         </div>
+        {!loginLinked && canProvisionLogin ? (
+          <form
+            className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const email = parseStaffLoginEmail(loginEmailValue);
+              if (!email) {
+                toast.error(t("people.profile.login.emailInvalid"));
+                return;
+              }
+              if (!isStaffLoginPassword(loginPasswordValue)) {
+                toast.error(t("people.profile.login.passwordInvalid"));
+                return;
+              }
+              createLogin.mutate({ email, password: loginPasswordValue });
+            }}
+          >
+            <div className="min-w-0 space-y-1.5">
+              <Label htmlFor="staff-login-email">{t("people.profile.login.email")}</Label>
+              <Input
+                id="staff-login-email"
+                type="email"
+                autoComplete="off"
+                spellCheck={false}
+                value={loginEmailValue}
+                disabled={createLogin.isPending}
+                onChange={(event) => setLoginEmailDraft(event.target.value)}
+              />
+            </div>
+            <div className="min-w-0 space-y-1.5">
+              <Label htmlFor="staff-login-password">{t("people.profile.login.issuedPassword")}</Label>
+              <Input
+                id="staff-login-password"
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
+                value={loginPasswordValue}
+                disabled={createLogin.isPending}
+                onChange={(event) => setLoginPasswordDraft(event.target.value)}
+              />
+            </div>
+            <Button
+              type="submit"
+              size="sm"
+              disabled={createLogin.isPending || (loginEmailDraft == null && loginPreview.isPending)}
+            >
+              {createLogin.isPending ? t("people.profile.login.creating") : t("people.profile.login.create")}
+            </Button>
+            <p className="text-xs text-muted-foreground sm:col-span-3">{t("people.profile.login.editHint")}</p>
+            {createLogin.isError ? (
+              <p className="text-sm text-destructive sm:col-span-3">{createLogin.error.message}</p>
+            ) : null}
+          </form>
+        ) : null}
       </section>
 
       <Tabs
