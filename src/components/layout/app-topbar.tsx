@@ -16,7 +16,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { useAppStore } from "@/stores/app-store";
-import { applyLanguageToDocument, translateRole, type SupportedLanguage } from "@/i18n";
+import { translateRole, type SupportedLanguage } from "@/i18n";
 import { useAuth } from "@/hooks/use-auth";
 import { useSites } from "@/hooks/queries/useSites";
 import { formatLocationRecord } from "@/lib/locations/normalize";
@@ -45,7 +45,7 @@ function greetingKey() {
 }
 
 export function AppTopbar() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const language = useAppStore((s) => s.language);
   const setLanguage = useAppStore((s) => s.setLanguage);
   const surgeMode = useAppStore((s) => s.surgeMode);
@@ -77,11 +77,6 @@ export function AppTopbar() {
   }, [user]);
 
   const locations = useSites({ enabled: !!user && sitesRequested });
-
-  useEffect(() => {
-    if (i18n.language !== language) void i18n.changeLanguage(language);
-    applyLanguageToDocument(language);
-  }, [language, i18n]);
 
   const toggleLanguage = () => {
     const next: SupportedLanguage = language === "en" ? "ar" : "en";
@@ -190,13 +185,13 @@ export function AppTopbar() {
           <Button
             type="button"
             variant="outline"
-            size="icon"
-            className="hidden sm:inline-flex"
+            className="hidden h-9 gap-1.5 px-2.5 text-xs font-semibold sm:inline-flex"
             onClick={toggleLanguage}
             title={t("common.language")}
             aria-label={t("common.language")}
           >
             <Globe className="h-4 w-4" />
+            {language === "en" ? "العربية" : "English"}
           </Button>
 
           <Popover

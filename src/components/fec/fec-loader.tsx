@@ -1,5 +1,6 @@
-import { Loader2 } from "lucide-react";
+"use client";
 
+import LatticeLoader from "@/components/react-bits/lattice-loader";
 import { cn } from "@/lib/utils";
 
 export interface FecLoaderProps {
@@ -8,23 +9,19 @@ export interface FecLoaderProps {
   size?: "sm" | "md" | "lg";
 }
 
-const SIZE = {
-  sm: "h-4 w-4",
-  md: "h-6 w-6",
-  lg: "h-8 w-8",
-} as const;
+const CELL = { sm: 4, md: 6, lg: 8 } as const;
+const FONT = { sm: 12, md: 14, lg: 16 } as const;
 
-/** Inline spinner (Loader2). Pair with FecSkeleton for page placeholders. */
+/** React Bits Micro Lattice Loader. */
 export function FecLoader({ className, label, size = "md" }: FecLoaderProps) {
   return (
-    <div
-      className={cn("inline-flex items-center justify-center gap-2 text-muted-foreground", className)}
-      role="status"
-      aria-live="polite"
-      aria-label={label ?? "Loading"}
-    >
-      <Loader2 className={cn("animate-spin", SIZE[size])} aria-hidden />
-      {label ? <span className="text-sm">{label}</span> : null}
-    </div>
+    <LatticeLoader
+      label={label ?? "Loading"}
+      showTimer={false}
+      cellSize={CELL[size]}
+      fontSize={FONT[size]}
+      color="currentColor"
+      className={cn("text-muted-foreground", className)}
+    />
   );
 }

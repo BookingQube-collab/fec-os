@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import { useTranslation } from "react-i18next";
 
 import { ArcadeSubnav } from "@/components/arcade/ui";
 import { FecPage } from "@/components/fec";
@@ -42,7 +43,12 @@ function route(slug: string[]) {
   if (a === "history") return <ArcadeHistory />;
   if (a === "reports") return <ArcadeReports />;
   if (a === "search") return <ArcadeSearch />;
-  return <ArcadeKnowledge title="Arcade" body="This section is not available." />;
+  return <UnknownArcade />;
+}
+
+function UnknownArcade() {
+  const { t } = useTranslation();
+  return <ArcadeKnowledge title={t("nav.arcade")} body={t("arcadeOps.unavailable")} />;
 }
 
 export default function ArcadeScreen() {

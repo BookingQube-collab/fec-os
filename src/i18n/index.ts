@@ -46,26 +46,67 @@ export function loadArabicLocale(): Promise<void> {
   return arabicLocaleLoad;
 }
 
-if (!i18n.isInitialized) {
-  void i18n.use(initReactI18next).init({
-    resources: {
-      en: { translation: en },
-    },
-    lng: initialLng === "ar" ? "en" : initialLng,
-    fallbackLng: "en",
-    interpolation: { escapeValue: false },
-    react: { useSuspense: false },
-  });
+/**
+ * One in-flight apply so a click cannot set Arabic before the bundle exists,
+ * and a later English default cannot finish after Arabic and stick.
+ */
+let desiredLanguage: SupportedLanguage | null = null;
+let languageFlush: Promise<void> | null = null;
+
+export function applyAppLanguage(lang: SupportedLanguage): Promise<void> {
+  desiredLanguage = lang;
+  applyLanguageToDocument(lang);
+  if (languageFlush) return languageFlush;
+  languageFlush = (async () => {
+    try {
+      while (desiredLanguage) {
+        const next = desiredLanguage;
+        desiredLanguage = null;
+        await i18nReady;
+        if (desiredLanguage) continue;
+        if (next === "ar") await loadArabicLocale();
+        if (desiredLanguage) continue;
+        await i18n.changeLanguage(next);
+        if (desiredLanguage) continue;
+        applyLanguageToDocument(next);
+      }
+    } finally {
+      languageFlush = null;
+      if (desiredLanguage) void applyAppLanguage(desiredLanguage);
+    }
+  })();
+  return languageFlush;
 }
 
-if (initialLng === "ar") {
-  void loadArabicLocale().then(() => {
-    void i18n.changeLanguage("ar");
-  });
-}
+const i18nReady: Promise<void> = i18n.isInitialized
+  ? Promise.resolve()
+  : i18n
+      .use(initReactI18next)
+      .init({
+        resources: {
+          en: { translation: en },
+        },
+        // Stay on English until the Arabic bundle is in memory. applyAppLanguage switches after.
+        lng: "en",
+        fallbackLng: "en",
+        interpolation: { escapeValue: false },
+        react: {
+          useSuspense: false,
+          bindI18n: "languageChanged",
+          bindI18nStore: "added",
+        },
+      })
+      .then(
+        () => undefined,
+        () => undefined,
+      );
 
 if (typeof document !== "undefined") {
   applyLanguageToDocument(initialLng);
+}
+
+if (initialLng === "ar") {
+  void applyAppLanguage("ar");
 }
 
 const i18nWithFlag = i18n as typeof i18n & { __dirBound?: boolean };

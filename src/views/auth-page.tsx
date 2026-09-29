@@ -24,6 +24,7 @@ import { Input } from "@/components/ui/input";
 import { usePrefersReducedMotion } from "@/hooks/use-prefers-reduced-motion";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { useAppStore } from "@/stores/app-store";
 import { clearAuthSessionCache } from "@/lib/auth-session";
 import { defaultHomeForRoles, type AppRole } from "@/lib/rbac";
 import { isSecureWebAuthnContext, isWebAuthnAvailable } from "@/lib/webauthn/detect";
@@ -38,6 +39,8 @@ type Mode = "signin" | "forgot";
 
 function AuthPage() {
   const { t } = useTranslation();
+  const language = useAppStore((s) => s.language);
+  const setLanguage = useAppStore((s) => s.setLanguage);
   const reducedMotion = usePrefersReducedMotion();
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -157,6 +160,14 @@ function AuthPage() {
 
   return (
     <div className="relative min-h-dvh bg-background">
+      <button
+        type="button"
+        className="absolute end-4 top-4 z-[3] rounded-full border border-border bg-background/90 px-3 py-1.5 text-xs font-semibold shadow-sm"
+        aria-label={t("common.language")}
+        onClick={() => setLanguage(language === "en" ? "ar" : "en")}
+      >
+        {language === "en" ? "العربية" : "English"}
+      </button>
       <AuroraBackdrop className="fixed inset-0 z-0" amplitude={1.05} blend={0.58} speed={0.42} />
       <div className="pointer-events-none fixed inset-0 z-[1]" aria-hidden>
         <Noise patternAlpha={14} patternRefreshInterval={7} patternSize={72} />

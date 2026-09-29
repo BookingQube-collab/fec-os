@@ -8,7 +8,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { MobileNotificationBell } from "@/components/layout/mobile-notification-bell";
 import { useAuth } from "@/hooks/use-auth";
-import { applyLanguageToDocument, type SupportedLanguage } from "@/i18n";
+import type { SupportedLanguage } from "@/i18n";
 import { useAppStore } from "@/stores/app-store";
 
 /**
@@ -18,7 +18,7 @@ import { useAppStore } from "@/stores/app-store";
  * Actions wrap so sign-out stays on screen inside the shell's overflow clip.
  */
 export function EmployeeMobileHeader() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const router = useRouter();
   const { signOut } = useAuth();
   const language = useAppStore((s) => s.language);
@@ -27,8 +27,6 @@ export function EmployeeMobileHeader() {
   const toggleLanguage = () => {
     const next: SupportedLanguage = language === "en" ? "ar" : "en";
     setLanguage(next);
-    void i18n.changeLanguage(next);
-    applyLanguageToDocument(next);
   };
 
   const handleSignOut = async () => {

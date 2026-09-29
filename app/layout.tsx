@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import Script from "next/script";
 
 import { Providers } from "@/components/providers";
 import { fontClassNames } from "@/lib/fonts";
@@ -48,6 +49,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         className={`${fontClassNames} bg-background text-foreground antialiased`}
         suppressHydrationWarning
       >
+        <Script id="fec-locale-boot" strategy="beforeInteractive">
+          {`(function(){try{var raw=localStorage.getItem("fec-os-app");if(!raw)return;var lang=(JSON.parse(raw).state||{}).language;if(lang==="ar"){var el=document.documentElement;el.lang="ar-QA";el.dir="rtl";}}catch(e){}})();`}
+        </Script>
         <Providers>{children}</Providers>
       </body>
     </html>

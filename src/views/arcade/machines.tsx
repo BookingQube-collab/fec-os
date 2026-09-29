@@ -7,7 +7,9 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
-import { ActionButton, Field, KpiTile, MobileActions, Pager, StatusBadge } from "@/components/arcade/ui";
+import { ActionButton, arcadeCategoryName, arcadeStatusName, Field, KpiTile, MobileActions, Pager, StatusBadge } from "@/components/arcade/ui";
+import { ArcadeWorkbookImport } from "@/components/arcade/workbook-import";
+import GlideSelect from "@/components/react-bits/glide-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -20,18 +22,20 @@ import { fmtCurrency } from "@/lib/currency";
 import { queryKeys } from "@/lib/query-keys";
 
 function useSiteLabel() {
+  const { t } = useTranslation();
   const sites = useSites();
-  return (id?: string | null) => sites.data?.find((site) => site.id === id)?.name ?? "Site";
+  return (id?: string | null) => sites.data?.find((site) => site.id === id)?.name ?? t("common.site");
 }
 
 export function ArcadeSites() {
+  const { t } = useTranslation();
   const sites = useSites();
   const dashboard = useQuery({ queryKey: queryKeys.arcade.dashboard("sites"), queryFn: () => getArcadeDashboard({}) });
   const health = new Map((dashboard.data?.sites ?? []).map((site) => [site.location_id, site]));
   return (
     <div className="grid gap-3">
-      <h1 className="text-xl font-semibold">Sites & Games</h1>
-      <p className="text-sm text-muted-foreground">Sites come from the existing location master. Open a site to see its machines.</p>
+      <h1 className="text-xl font-semibold">{t("arcadeScreens.sitesTitle")}</h1>
+      <p className="text-sm text-muted-foreground">{t("arcadeScreens.sitesHint")}</p>
       <div className="grid gap-2">
         {(sites.data ?? []).map((site) => {
           const row = health.get(site.id);
@@ -39,9 +43,9 @@ export function ArcadeSites() {
             <Link key={site.id} href={`/arcade/sites/${site.id}`} className="rounded-lg border p-3">
               <div className="flex items-center justify-between gap-2">
                 <span className="font-medium">{site.name}</span>
-                <span className="tabular-nums">{row ? `${siteAvailability({ working: row.working, active: row.active_machines }) ?? "—"}%` : "No machines"}</span>
+                <span className="tabular-nums">{row ? `${siteAvailability({ working: row.working, active: row.active_machines }) ?? "—"}%` : t("arcadeScreens.noMachines")}</span>
               </div>
-              {row ? <p className="text-sm text-muted-foreground">{row.active_machines} machines · {row.working} working · {row.down} down</p> : null}
+              {row ? <p className="text-sm text-muted-foreground">{t("arcadeScreens.siteLineShort", { machines: row.active_machines, working: row.working, down: row.down })}</p> : null}
             </Link>
           );
         })}
@@ -51,6 +55,7 @@ export function ArcadeSites() {
 }
 
 export function ArcadeSite({ locationId }: { locationId: string }) {
+  const { t } = useTranslation();
   const label = useSiteLabel();
   const dashboard = useQuery({ queryKey: queryKeys.arcade.dashboard(locationId), queryFn: () => getArcadeDashboard({ locationId }) });
   const site = dashboard.data?.sites[0];
@@ -58,18 +63,18 @@ export function ArcadeSite({ locationId }: { locationId: string }) {
     <div className="grid gap-4">
       <div>
         <h1 className="text-xl font-semibold">{label(locationId)}</h1>
-        <p className="text-sm text-muted-foreground">Machine inventory for this site.</p>
+        <p className="text-sm text-muted-foreground">{t("arcadeScreens.siteInventory")}</p>
       </div>
       {site ? (
         <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-          <KpiTile label="Machines" value={site.active_machines} />
-          <KpiTile label="Working" value={site.working} />
-          <KpiTile label="Down" value={site.down} />
-          <KpiTile label="Under repair" value={site.under_repair} />
-          <KpiTile label="Observation" value={site.under_observation} />
-          <KpiTile label="Waiting parts" value={site.waiting_part} />
-          <KpiTile label="PM due" value={site.pm_due + site.pm_overdue} />
-          <KpiTile label="Availability" value={`${site.availability ?? "—"}%`} />
+          <KpiTile label={t("arcadeScreens.machines")} value={site.active_machines} />
+          <KpiTile label={t("arcadeOps.working")} value={site.working} />
+          <KpiTile label={t("arcadeOps.down")} value={site.down} />
+          <KpiTile label={t("arcadeOps.underRepair")} value={site.under_repair} />
+          <KpiTile label={t("arcadeScreens.observation")} value={site.under_observation} />
+          <KpiTile label={t("arcadeOps.waitingParts")} value={site.waiting_part} />
+          <KpiTile label={t("arcadeOps.pmDue")} value={site.pm_due + site.pm_overdue} />
+          <KpiTile label={t("arcadeScreens.availability")} value={`${site.availability ?? "—"}%`} />
         </div>
       ) : null}
       <ArcadeMachines locationId={locationId} />
@@ -86,31 +91,36 @@ export function ArcadeMachines({ locationId }: { locationId?: string }) {
   const canManage = usePermission("arcade.manage");
   const list = useQuery({
     queryKey: queryKeys.arcade.machines({ page, q, status, locationId }),
-    queryFn: () => listArcadeMachines({ page, pageSize: 25, q, status: status || null, locationId: locationId ?? null }),
+    queryFn: () => listArcadeMachines({ page, pageSize: 100, q, status: status || null, locationId: locationId ?? null }),
   });
   return (
     <div className="grid gap-3">
-      {!locationId ? <h1 className="text-xl font-semibold">Machines</h1> : null}
+      {!locationId ? <h1 className="text-xl font-semibold">{t("arcadeScreens.machineList")}</h1> : null}
       <div className="flex flex-wrap gap-2">
-        <Input value={q} onChange={(event) => { setQ(event.target.value); setPage(1); }} placeholder="Search name, asset ID, serial, supplier" className="max-w-xs" />
-        <select className="h-10 rounded-md border bg-background px-2 text-sm" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}>
-          <option value="">All statuses</option>
-          {MACHINE_STATUSES.map((item) => <option key={item} value={item}>{item.replaceAll("_", " ")}</option>)}
-        </select>
-        {canManage ? <Button asChild><Link href={`/arcade/machines/new${locationId ? `?locationId=${locationId}` : ""}`}>Add machine</Link></Button> : null}
+        <Input value={q} onChange={(event) => { setQ(event.target.value); setPage(1); }} placeholder={t("arcadeScreens.searchMachines")} className="max-w-xs" />
+        <GlideSelect
+          ariaLabel={t("arcadeScreens.status")}
+          value={status}
+          placeholder={t("arcadeScreens.allStatuses")}
+          showTags={false}
+          onChange={(value) => { setStatus(value); setPage(1); }}
+          options={[{ value: "", label: t("arcadeScreens.allStatuses") }, ...MACHINE_STATUSES.map((item) => ({ value: item, label: arcadeStatusName(t, item) }))]}
+        />
+        {canManage ? <Button asChild><Link href={`/arcade/machines/new${locationId ? `?locationId=${locationId}` : ""}`}>{t("arcadeScreens.addMachine")}</Link></Button> : null}
+        <ArcadeWorkbookImport />
       </div>
       <div className="hidden overflow-x-auto md:block">
         <table className="w-full text-sm">
           <thead className="text-left text-muted-foreground">
             <tr>
-              <th className="py-2">Asset</th>
-              <th>Machine</th>
-              <th>Site</th>
-              <th>{t("arcadeGames.listSupplier")}</th>
+              <th className="py-2">{t("arcadeScreens.asset")}</th>
+              <th>{t("arcadeScreens.machine")}</th>
+              <th>{t("common.site")}</th>
+              <th>{t("arcadeImport.purchaseInvoice")}</th>
               <th>{t("arcadeGames.listPaid")}</th>
               <th>{t("arcadeGames.listPaidOn")}</th>
               <th>{t("arcadeGames.listFix")}</th>
-              <th>Status</th>
+              <th>{t("arcadeScreens.status")}</th>
             </tr>
           </thead>
           <tbody>
@@ -122,7 +132,7 @@ export function ArcadeMachines({ locationId }: { locationId?: string }) {
                 <td>{row.supplier_name || "—"}</td>
                 <td className="tabular-nums">{formatPaid(row.amount_paid, row.paid_currency)}</td>
                 <td>{row.paid_on || "—"}</td>
-                <td className="max-w-48 truncate">{row.last_fix_status ? `${row.last_fix_status.replaceAll("_", " ")} · ${row.last_fix_summary ?? ""}` : "—"}</td>
+                <td className="max-w-48 truncate">{row.last_fix_status ? `${arcadeStatusName(t, row.last_fix_status)} · ${row.last_fix_summary ?? ""}` : "—"}</td>
                 <td><StatusBadge status={row.status} /></td>
               </tr>
             ))}
@@ -134,12 +144,12 @@ export function ArcadeMachines({ locationId }: { locationId?: string }) {
           <Link key={row.id} href={`/arcade/machines/${row.id}`} className="rounded-lg border p-3">
             <div className="flex items-center justify-between gap-2"><span className="font-medium">{row.name}</span><StatusBadge status={row.status} /></div>
             <p className="text-xs text-muted-foreground">{row.asset_code} · {label(row.location_id)}</p>
-            <p className="text-xs text-muted-foreground">{t("arcadeGames.listSupplier")}: {row.supplier_name || "—"} · {formatPaid(row.amount_paid, row.paid_currency)} · {row.paid_on || "—"}</p>
+            <p className="text-xs text-muted-foreground">{t("arcadeImport.purchaseInvoice")}: {row.supplier_name || "—"} · {formatPaid(row.amount_paid, row.paid_currency)} · {row.paid_on || "—"}</p>
             {row.last_fix_summary ? <p className="text-xs">{t("arcadeGames.listFix")}: {row.last_fix_summary}</p> : null}
           </Link>
         ))}
       </div>
-      <Pager page={page} pageSize={25} total={list.data?.total ?? 0} onPage={setPage} />
+      <Pager page={page} pageSize={100} total={list.data?.total ?? 0} onPage={setPage} />
     </div>
   );
 }
@@ -271,77 +281,96 @@ export function ArcadeMachineForm({ machineId }: { machineId?: string }) {
       notes: form.notes || null,
     }),
     onSuccess: (row) => {
-      toast.success(`Machine ${row.asset_code} saved`);
+      toast.success(t("arcadeScreens.savedMachine", { code: row.asset_code }));
       void qc.invalidateQueries({ queryKey: queryKeys.arcade.all });
       window.location.href = `/arcade/machines/${row.id}`;
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not save machine"),
+    onError: (error) => toast.error(error instanceof Error ? error.message : t("arcadeScreens.saveMachineFailed")),
   });
-  if (machineId && existing.isLoading) return <p className="text-sm text-muted-foreground">Loading machine…</p>;
+  if (machineId && existing.isLoading) return <p className="text-sm text-muted-foreground">{t("arcadeScreens.loadingMachine")}</p>;
   return (
     <form className="grid max-w-3xl gap-3" onSubmit={(event) => { event.preventDefault(); save.mutate(); }}>
-      <h1 className="text-xl font-semibold">{machineId ? t("arcadeGames.editGame") : "Machine master"}</h1>
-      <p className="text-sm text-muted-foreground">Each physical unit is its own asset. RC Car #1 and RC Car #2 are separate records.</p>
+      <h1 className="text-xl font-semibold">{machineId ? t("arcadeGames.editGame") : t("arcadeScreens.machineMaster")}</h1>
+      <p className="text-sm text-muted-foreground">{t("arcadeScreens.machineMasterHint")}</p>
       <div className="grid gap-3 md:grid-cols-2">
-        <Field label="Asset ID"><Input value={form.assetCode} onChange={(event) => setForm({ ...form, assetCode: event.target.value })} placeholder="UA-ARCAR-001" required /></Field>
-        <Field label="Machine name"><Input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></Field>
-        <Field label="Game category"><Input value={form.gameCategory} onChange={(event) => setForm({ ...form, gameCategory: event.target.value })} required /></Field>
-        <Field label="Site">
-          <select className="h-10 rounded-md border bg-background px-2" value={form.locationId} onChange={(event) => setForm({ ...form, locationId: event.target.value })} required>
-            <option value="">Select site</option>
-            {(sites.data ?? []).map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
-          </select>
+        <Field label={t("arcadeScreens.assetId")}><Input value={form.assetCode} onChange={(event) => setForm({ ...form, assetCode: event.target.value })} placeholder="UA-ARCAR-001" required /></Field>
+        <Field label={t("arcadeScreens.machineName")}><Input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /></Field>
+        <Field label={t("arcadeScreens.gameCategory")}><Input value={form.gameCategory} onChange={(event) => setForm({ ...form, gameCategory: event.target.value })} required /></Field>
+        <Field label={t("common.site")}>
+          <GlideSelect
+            ariaLabel={t("common.site")}
+            value={form.locationId}
+            placeholder={t("arcadeScreens.selectSite")}
+            showTags={false}
+            menuWidth={320}
+            onChange={(value) => setForm({ ...form, locationId: value })}
+            options={(sites.data ?? []).map((site) => ({ value: site.id, label: site.name }))}
+          />
         </Field>
-        <Field label="Zone / area"><Input value={form.zone} onChange={(event) => setForm({ ...form, zone: event.target.value })} /></Field>
-        <Field label="Unit number"><Input value={form.unitNumber} onChange={(event) => setForm({ ...form, unitNumber: event.target.value })} /></Field>
-        <Field label="Manufacturer"><Input value={form.manufacturer} onChange={(event) => setForm({ ...form, manufacturer: event.target.value })} /></Field>
+        <Field label={t("arcadeScreens.zone")}><Input value={form.zone} onChange={(event) => setForm({ ...form, zone: event.target.value })} /></Field>
+        <Field label={t("arcadeScreens.unitNumber")}><Input value={form.unitNumber} onChange={(event) => setForm({ ...form, unitNumber: event.target.value })} /></Field>
+        <Field label={t("arcadeScreens.manufacturer")}><Input value={form.manufacturer} onChange={(event) => setForm({ ...form, manufacturer: event.target.value })} /></Field>
         <Field label={t("arcadeGames.supplierRecord")}>
-          <select className="h-10 rounded-md border bg-background px-2" value={form.vendorId} onChange={(event) => {
-            const vendor = (suppliers.data?.rows ?? []).find((item) => item.id === event.target.value);
-            setForm({
-              ...form,
-              vendorId: event.target.value,
-              supplierName: form.supplierName || vendor?.name || "",
-            });
-          }}>
-            <option value="">None</option>
-            {(suppliers.data?.rows ?? []).map((vendor) => <option key={vendor.id} value={vendor.id}>{vendor.name}</option>)}
-          </select>
+          <GlideSelect
+            ariaLabel={t("arcadeGames.supplierRecord")}
+            value={form.vendorId}
+            placeholder={t("arcadeOps.none")}
+            showTags={false}
+            menuWidth={320}
+            onChange={(value) => {
+              const vendor = (suppliers.data?.rows ?? []).find((item) => item.id === value);
+              setForm({
+                ...form,
+                vendorId: value,
+                supplierName: form.supplierName || vendor?.name || "",
+              });
+            }}
+            options={[{ value: "", label: t("arcadeOps.none") }, ...(suppliers.data?.rows ?? []).map((vendor) => ({ value: vendor.id, label: vendor.name }))]}
+          />
         </Field>
         <Field label={t("arcadeGames.supplier")}>
           <Input value={form.supplierName} onChange={(event) => setForm({ ...form, supplierName: event.target.value })} />
         </Field>
-        <Field label="Model"><Input value={form.model} onChange={(event) => setForm({ ...form, model: event.target.value })} /></Field>
-        <Field label="Serial number"><Input value={form.serialNumber} onChange={(event) => setForm({ ...form, serialNumber: event.target.value })} /></Field>
-        <Field label="Installed"><Input type="date" value={form.installedOn} onChange={(event) => setForm({ ...form, installedOn: event.target.value })} /></Field>
-        <Field label="Purchased"><Input type="date" value={form.purchasedOn} onChange={(event) => setForm({ ...form, purchasedOn: event.target.value })} /></Field>
-        <Field label="Warranty start"><Input type="date" value={form.warrantyStart} onChange={(event) => setForm({ ...form, warrantyStart: event.target.value })} /></Field>
-        <Field label="Warranty expiry"><Input type="date" value={form.warrantyExpiresOn} onChange={(event) => setForm({ ...form, warrantyExpiresOn: event.target.value })} /></Field>
-        <Field label="Machine cost"><Input type="number" min={0} value={form.machineCost} onChange={(event) => setForm({ ...form, machineCost: event.target.value })} /></Field>
+        <Field label={t("arcadeScreens.model")}><Input value={form.model} onChange={(event) => setForm({ ...form, model: event.target.value })} /></Field>
+        <Field label={t("arcadeScreens.serial")}><Input value={form.serialNumber} onChange={(event) => setForm({ ...form, serialNumber: event.target.value })} /></Field>
+        <Field label={t("arcadeScreens.installed")}><Input type="date" value={form.installedOn} onChange={(event) => setForm({ ...form, installedOn: event.target.value })} /></Field>
+        <Field label={t("arcadeScreens.purchased")}><Input type="date" value={form.purchasedOn} onChange={(event) => setForm({ ...form, purchasedOn: event.target.value })} /></Field>
+        <Field label={t("arcadeScreens.warrantyStart")}><Input type="date" value={form.warrantyStart} onChange={(event) => setForm({ ...form, warrantyStart: event.target.value })} /></Field>
+        <Field label={t("arcadeScreens.warrantyExpiry")}><Input type="date" value={form.warrantyExpiresOn} onChange={(event) => setForm({ ...form, warrantyExpiresOn: event.target.value })} /></Field>
+        <Field label={t("arcadeScreens.machineCost")}><Input type="number" min={0} value={form.machineCost} onChange={(event) => setForm({ ...form, machineCost: event.target.value })} /></Field>
         <Field label={t("arcadeGames.amountPaid")}><Input type="number" min={0} step="0.01" value={form.amountPaid} onChange={(event) => setForm({ ...form, amountPaid: event.target.value })} /></Field>
         <Field label={t("arcadeGames.currency")}><Input value={form.paidCurrency} maxLength={8} onChange={(event) => setForm({ ...form, paidCurrency: event.target.value.toUpperCase() })} /></Field>
         <Field label={t("arcadeGames.paidOn")}><Input type="date" value={form.paidOn} onChange={(event) => setForm({ ...form, paidOn: event.target.value })} /></Field>
-        <Field label="Power"><Input value={form.powerRequirement} onChange={(event) => setForm({ ...form, powerRequirement: event.target.value })} /></Field>
-        <Field label="Network"><Input value={form.networkRequirement} onChange={(event) => setForm({ ...form, networkRequirement: event.target.value })} /></Field>
-        <Field label="IP"><Input value={form.ipAddress} onChange={(event) => setForm({ ...form, ipAddress: event.target.value })} /></Field>
-        <Field label="Software version"><Input value={form.softwareVersion} onChange={(event) => setForm({ ...form, softwareVersion: event.target.value })} /></Field>
-        <Field label="Controller / PCB"><Input value={form.controllerPcb} onChange={(event) => setForm({ ...form, controllerPcb: event.target.value })} /></Field>
-        <Field label="Card / RFID"><Input value={form.cardRfidInterface} onChange={(event) => setForm({ ...form, cardRfidInterface: event.target.value })} /></Field>
-        <Field label="Next PM"><Input type="date" value={form.nextPmOn} onChange={(event) => setForm({ ...form, nextPmOn: event.target.value })} /></Field>
-        <Field label="Status">
-          <select className="h-10 rounded-md border bg-background px-2" value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}>
-            {MACHINE_STATUSES.map((item) => <option key={item} value={item}>{item.replaceAll("_", " ")}</option>)}
-          </select>
+        <Field label={t("arcadeScreens.power")}><Input value={form.powerRequirement} onChange={(event) => setForm({ ...form, powerRequirement: event.target.value })} /></Field>
+        <Field label={t("arcadeScreens.network")}><Input value={form.networkRequirement} onChange={(event) => setForm({ ...form, networkRequirement: event.target.value })} /></Field>
+        <Field label={t("arcadeScreens.ip")}><Input value={form.ipAddress} onChange={(event) => setForm({ ...form, ipAddress: event.target.value })} /></Field>
+        <Field label={t("arcadeScreens.software")}><Input value={form.softwareVersion} onChange={(event) => setForm({ ...form, softwareVersion: event.target.value })} /></Field>
+        <Field label={t("arcadeScreens.controller")}><Input value={form.controllerPcb} onChange={(event) => setForm({ ...form, controllerPcb: event.target.value })} /></Field>
+        <Field label={t("arcadeScreens.card")}><Input value={form.cardRfidInterface} onChange={(event) => setForm({ ...form, cardRfidInterface: event.target.value })} /></Field>
+        <Field label={t("arcadeScreens.nextPm")}><Input type="date" value={form.nextPmOn} onChange={(event) => setForm({ ...form, nextPmOn: event.target.value })} /></Field>
+        <Field label={t("arcadeScreens.status")}>
+          <GlideSelect
+            ariaLabel={t("arcadeScreens.status")}
+            value={form.status}
+            showTags={false}
+            onChange={(value) => setForm({ ...form, status: value })}
+            options={MACHINE_STATUSES.map((item) => ({ value: item, label: arcadeStatusName(t, item) }))}
+          />
         </Field>
-        <Field label="Technician">
-          <select className="h-10 rounded-md border bg-background px-2" value={form.technicianStaffId} onChange={(event) => setForm({ ...form, technicianStaffId: event.target.value })}>
-            <option value="">Unassigned</option>
-            {(context.data?.technicians ?? []).map((tech) => <option key={tech.id} value={tech.id}>{tech.full_name}{tech.job_title ? ` · ${tech.job_title}` : ""}</option>)}
-          </select>
+        <Field label={t("arcadeScreens.technician")}>
+          <GlideSelect
+            ariaLabel={t("arcadeScreens.technician")}
+            value={form.technicianStaffId}
+            placeholder={t("arcadeScreens.unassigned")}
+            showTags={false}
+            menuWidth={320}
+            onChange={(value) => setForm({ ...form, technicianStaffId: value })}
+            options={[{ value: "", label: t("arcadeScreens.unassigned") }, ...(context.data?.technicians ?? []).map((tech) => ({ value: tech.id, label: `${tech.full_name}${tech.job_title ? ` · ${tech.job_title}` : ""}` }))]}
+          />
         </Field>
       </div>
       <p className="text-xs text-muted-foreground">{t("arcadeGames.supplierHint")}</p>
-      <Field label="Notes"><Textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></Field>
+      <Field label={t("arcadeScreens.notes")}><Textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></Field>
       <Button type="submit" disabled={save.isPending}>{t("arcadeGames.saveGame")}</Button>
     </form>
   );
@@ -357,7 +386,7 @@ export function ArcadeMachineDetail({ id }: { id: string }) {
   const statusSave = useMutation({
     mutationFn: (status: (typeof MACHINE_STATUSES)[number]) => {
       const current = machine.data?.machine;
-      if (!current) throw new Error("Machine not loaded");
+      if (!current) throw new Error(t("arcadeScreens.notFound"));
       return saveArcadeMachine({
         id: current.id,
         assetCode: current.asset_code,
@@ -369,14 +398,14 @@ export function ArcadeMachineDetail({ id }: { id: string }) {
       });
     },
     onSuccess: () => {
-      toast.success("Machine status saved");
+      toast.success(t("arcadeScreens.statusSaved"));
       void qc.invalidateQueries({ queryKey: queryKeys.arcade.machine(id) });
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Status was not saved"),
+    onError: (error) => toast.error(error instanceof Error ? error.message : t("arcadeScreens.statusSaveFailed")),
   });
   const row = machine.data?.machine;
-  if (machine.isLoading) return <p className="text-sm text-muted-foreground">Loading machine…</p>;
-  if (!row) return <p className="text-sm text-destructive">Machine not found</p>;
+  if (machine.isLoading) return <p className="text-sm text-muted-foreground">{t("arcadeScreens.loadingMachine")}</p>;
+  if (!row) return <p className="text-sm text-destructive">{t("arcadeScreens.notFound")}</p>;
   const prefill = `machineId=${row.id}&locationId=${row.location_id}&technicianId=${row.technician_staff_id ?? ""}`;
   const fixer = (context.data?.technicians ?? []).find((tech) => tech.id === row.last_fix_technician_staff_id)?.full_name;
   const fixWhen = row.last_fix_at ? new Date(row.last_fix_at).toLocaleString() : null;
@@ -394,40 +423,40 @@ export function ArcadeMachineDetail({ id }: { id: string }) {
             <Button asChild variant="outline"><Link href={`/arcade/machines/${row.id}/edit`}>{t("arcadeGames.editGame")}</Link></Button>
           ) : null}
           {canManage ? (
-            <select
-              className="h-10 rounded-md border bg-background px-2"
+            <GlideSelect
+              ariaLabel={t("arcadeScreens.machineStatus")}
               value={row.status}
               disabled={statusSave.isPending}
-              onChange={(event) => statusSave.mutate(event.target.value as (typeof MACHINE_STATUSES)[number])}
-            >
-              {MACHINE_STATUSES.map((item) => <option key={item} value={item}>{item.replaceAll("_", " ")}</option>)}
-            </select>
+              showTags={false}
+              onChange={(value) => statusSave.mutate(value as (typeof MACHINE_STATUSES)[number])}
+              options={MACHINE_STATUSES.map((item) => ({ value: item, label: arcadeStatusName(t, item) }))}
+            />
           ) : null}
         </div>
       </div>
       <MobileActions>
-        <ActionButton href={`/arcade/faults/new?${prefill}`}>Report fault</ActionButton>
-        <ActionButton href={`/arcade/faults/new?${prefill}&startRepair=1`}>Start repair</ActionButton>
-        <ActionButton href={`/arcade/pm?machineId=${row.id}`}>Complete PM</ActionButton>
-        <ActionButton href={`/arcade/parts?machineId=${row.id}&locationId=${row.location_id}`}>Request part</ActionButton>
-        <ActionButton href={`/arcade/support/new?${prefill}`}>Contact supplier</ActionButton>
-        <ActionButton href={`/arcade/manuals?machineId=${row.id}`}>View manual</ActionButton>
+        <ActionButton href={`/arcade/faults/new?${prefill}`}>{t("arcadeScreens.reportFault")}</ActionButton>
+        <ActionButton href={`/arcade/faults/new?${prefill}&startRepair=1`}>{t("arcadeScreens.startRepair")}</ActionButton>
+        <ActionButton href={`/arcade/pm?machineId=${row.id}`}>{t("arcadeScreens.completePm")}</ActionButton>
+        <ActionButton href={`/arcade/parts?machineId=${row.id}&locationId=${row.location_id}`}>{t("arcadeScreens.requestPart")}</ActionButton>
+        <ActionButton href={`/arcade/support/new?${prefill}`}>{t("arcadeScreens.contactSupplier")}</ActionButton>
+        <ActionButton href={`/arcade/manuals?machineId=${row.id}`}>{t("arcadeScreens.viewManual")}</ActionButton>
       </MobileActions>
       <PhotoUpload machineId={row.id} locationId={row.location_id} photoPath={row.photo_path} />
       <MachineQr assetCode={row.asset_code} />
       <dl className="grid gap-2 text-sm md:grid-cols-3">
-        <Info label="Category" value={row.game_category} />
-        <Info label="Manufacturer" value={row.manufacturer} />
-        <Info label="Model" value={row.model} />
-        <Info label="Serial" value={row.serial_number} />
-        <Info label="Unit" value={row.unit_number} />
-        <Info label="Warranty expiry" value={row.warranty_expires_on} />
-        <Info label="Last PM" value={row.last_pm_on} />
-        <Info label="Next PM" value={row.next_pm_on} />
-        <Info label="Software" value={row.software_version} />
-        <Info label="Controller / PCB" value={row.controller_pcb} />
-        <Info label="Card / RFID" value={row.card_rfid_interface} />
-        <Info label="IP" value={row.ip_address} />
+        <Info label={t("arcadeScreens.category")} value={row.game_category} />
+        <Info label={t("arcadeScreens.manufacturer")} value={row.manufacturer} />
+        <Info label={t("arcadeScreens.model")} value={row.model} />
+        <Info label={t("arcadeScreens.serial")} value={row.serial_number} />
+        <Info label={t("arcadeScreens.unit")} value={row.unit_number} />
+        <Info label={t("arcadeScreens.warrantyExpiry")} value={row.warranty_expires_on} />
+        <Info label={t("arcadeScreens.lastPm")} value={row.last_pm_on} />
+        <Info label={t("arcadeScreens.nextPm")} value={row.next_pm_on} />
+        <Info label={t("arcadeScreens.software")} value={row.software_version} />
+        <Info label={t("arcadeScreens.controller")} value={row.controller_pcb} />
+        <Info label={t("arcadeScreens.card")} value={row.card_rfid_interface} />
+        <Info label={t("arcadeScreens.ip")} value={row.ip_address} />
         <Info label={t("arcadeGames.supplier")} value={row.supplier_name} />
         <Info label={t("arcadeGames.amountPaid")} value={formatPaid(row.amount_paid, row.paid_currency)} />
         <Info label={t("arcadeGames.paidOn")} value={row.paid_on} />
@@ -438,7 +467,7 @@ export function ArcadeMachineDetail({ id }: { id: string }) {
           <div className="mt-2 grid gap-1 text-sm">
             <p>{row.last_fix_summary}</p>
             <p className="text-muted-foreground">
-              {[row.last_fix_status?.replaceAll("_", " "), fixWhen, fixer].filter(Boolean).join(" · ")}
+              {[row.last_fix_status ? arcadeStatusName(t, row.last_fix_status) : null, fixWhen, fixer].filter(Boolean).join(" · ")}
             </p>
           </div>
         ) : (
@@ -457,8 +486,18 @@ export function ArcadeQrMachine({ assetCode }: { assetCode: string }) {
   });
   const id = machine.data?.machine.id;
   if (id) return <ArcadeMachineDetail id={id} />;
-  if (machine.isLoading) return <p className="text-sm">Opening {assetCode}…</p>;
-  return <p className="text-sm text-destructive">No machine matches {assetCode}</p>;
+  if (machine.isLoading) return <QrOpening assetCode={assetCode} />;
+  return <QrMissing assetCode={assetCode} />;
+}
+
+function QrOpening({ assetCode }: { assetCode: string }) {
+  const { t } = useTranslation();
+  return <p className="text-sm">{t("arcadeScreens.opening", { code: assetCode })}</p>;
+}
+
+function QrMissing({ assetCode }: { assetCode: string }) {
+  const { t } = useTranslation();
+  return <p className="text-sm text-destructive">{t("arcadeScreens.noMatch", { code: assetCode })}</p>;
 }
 
 function Info({ label, value }: { label: string; value: string | number | null | undefined }) {
@@ -466,31 +505,33 @@ function Info({ label, value }: { label: string; value: string | number | null |
 }
 
 function MachineTabs({ data }: { data: Awaited<ReturnType<typeof getArcadeMachine>> | undefined }) {
+  const { t } = useTranslation();
   const [tab, setTab] = useState("Overview");
-  const tabs = ["Overview", "Faults", "PM", "Parts", "Supplier cases", "Documents", "Damage", "Timeline"];
+  const tabs = ["Overview", "Faults", "PM", "Parts", "SupplierCases", "Documents", "Damage", "Timeline"] as const;
   if (!data) return null;
   return (
     <div>
       <div className="flex gap-1 overflow-x-auto">
         {tabs.map((item) => (
-          <button key={item} type="button" className={`rounded-md px-3 py-2 text-sm ${tab === item ? "bg-primary text-primary-foreground" : "bg-muted"}`} onClick={() => setTab(item)}>{item}</button>
+          <button key={item} type="button" className={`rounded-md px-3 py-2 text-sm ${tab === item ? "bg-primary text-primary-foreground" : "bg-muted"}`} onClick={() => setTab(item)}>{t(`arcadeScreens.tab.${item}`)}</button>
         ))}
       </div>
       <div className="mt-3 grid gap-2 text-sm">
-        {tab === "Overview" ? <p>{data.machine.notes || "No notes yet."}</p> : null}
-        {tab === "Faults" ? data.faults.map((row) => <Link key={row.id} href={`/arcade/faults/${row.id}`} className="rounded border p-2">{row.ticket_number} · {row.category} · {row.status}{row.is_repeat ? " · REPEAT" : ""}</Link>) : null}
-        {tab === "PM" ? data.pm.map((row) => <p key={row.id} className="rounded border p-2">{row.performed_on} · next {row.next_pm_on ?? "—"} · {row.issues_found || "No issues"}</p>) : null}
-        {tab === "Parts" ? data.parts.map((row) => <p key={row.id} className="rounded border p-2">{row.used_on} · qty {row.qty}</p>) : null}
-        {tab === "Supplier cases" ? data.cases.map((row) => <Link key={row.id} href={`/arcade/support/${row.id}`} className="rounded border p-2">{row.case_number} · {row.status}</Link>) : null}
+        {tab === "Overview" ? <p>{data.machine.notes || t("arcadeScreens.noNotes")}</p> : null}
+        {tab === "Faults" ? data.faults.map((row) => <Link key={row.id} href={`/arcade/faults/${row.id}`} className="rounded border p-2">{row.ticket_number} · {arcadeCategoryName(t, row.category)} · {arcadeStatusName(t, row.status)}{row.is_repeat ? ` · ${t("arcadeStatus.REPEAT")}` : ""}</Link>) : null}
+        {tab === "PM" ? data.pm.map((row) => <p key={row.id} className="rounded border p-2">{row.performed_on} · {t("arcadeScreens.pmNext", { date: row.next_pm_on ?? "—" })} · {row.issues_found || t("arcadeScreens.noIssues")}</p>) : null}
+        {tab === "Parts" ? data.parts.map((row) => <p key={row.id} className="rounded border p-2">{row.used_on} · {t("arcadeScreens.qty", { qty: row.qty })}</p>) : null}
+        {tab === "SupplierCases" ? data.cases.map((row) => <Link key={row.id} href={`/arcade/support/${row.id}`} className="rounded border p-2">{row.case_number} · {arcadeStatusName(t, row.status)}</Link>) : null}
         {tab === "Documents" ? data.documents.map((row) => <p key={row.id} className="rounded border p-2">{row.title} · {row.doc_type}</p>) : null}
-        {tab === "Damage" ? data.damage.map((row) => <p key={row.id} className="rounded border p-2">{row.reported_on} · {row.damage_type}{row.needs_mapping ? " · Needs mapping" : ""}</p>) : null}
-        {tab === "Timeline" ? data.timeline.map((row) => <p key={row.id} className="rounded border p-2">{new Date(row.created_at).toLocaleString()} · {row.previous_status} → {row.new_status}</p>) : null}
+        {tab === "Damage" ? data.damage.map((row) => <p key={row.id} className="rounded border p-2">{row.reported_on} · {row.damage_type}{row.needs_mapping ? ` · ${t("arcadeScreens.needsMapping")}` : ""}</p>) : null}
+        {tab === "Timeline" ? data.timeline.map((row) => <p key={row.id} className="rounded border p-2">{new Date(row.created_at).toLocaleString()} · {row.previous_status ? arcadeStatusName(t, row.previous_status) : ""} → {row.new_status ? arcadeStatusName(t, row.new_status) : ""}</p>) : null}
       </div>
     </div>
   );
 }
 
 function PhotoUpload({ machineId, locationId, photoPath }: { machineId: string; locationId: string; photoPath: string | null }) {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const photo = useQuery({
     queryKey: ["arcade-photo", photoPath],
@@ -511,16 +552,16 @@ function PhotoUpload({ machineId, locationId, photoPath }: { machineId: string; 
       });
     },
     onSuccess: () => {
-      toast.success("Photo uploaded");
+      toast.success(t("arcadeScreens.photoUploaded"));
       void qc.invalidateQueries({ queryKey: queryKeys.arcade.machine(machineId) });
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Upload failed"),
+    onError: (error) => toast.error(error instanceof Error ? error.message : t("arcadeScreens.uploadFailed")),
   });
   return (
     <div className="flex flex-wrap items-center gap-3">
       {photo.data?.url ? <img src={photo.data.url} alt="" className="h-24 w-24 rounded-md object-cover" /> : null}
       <label className="text-sm font-medium">
-        Add photo
+        {t("arcadeScreens.addPhoto")}
         <input className="mt-1 block text-sm" type="file" accept="image/*,video/*" capture="environment" onChange={(event) => {
           const file = event.target.files?.[0];
           if (file) upload.mutate(file);
@@ -531,6 +572,7 @@ function PhotoUpload({ machineId, locationId, photoPath }: { machineId: string; 
 }
 
 function MachineQr({ assetCode }: { assetCode: string }) {
+  const { t } = useTranslation();
   const url = typeof window === "undefined" ? `/arcade/m/${assetCode}` : `${window.location.origin}/arcade/m/${encodeURIComponent(assetCode)}`;
   const qr = useQuery({
     queryKey: ["arcade-qr", url],
@@ -542,7 +584,7 @@ function MachineQr({ assetCode }: { assetCode: string }) {
   return (
     <div className="flex items-center gap-3">
       {qr.data ? <div className="h-28 w-28" dangerouslySetInnerHTML={{ __html: qr.data }} /> : <div className="h-28 w-28 rounded border" />}
-      <p className="text-xs text-muted-foreground break-all">Scan to open this machine. {url}</p>
+      <p className="text-xs text-muted-foreground break-all">{t("arcadeScreens.scanHint")} {url}</p>
     </div>
   );
 }

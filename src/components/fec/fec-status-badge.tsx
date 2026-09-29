@@ -1,3 +1,4 @@
+import StatusMark, { type StatusMarkStatus } from "@/components/react-bits/status-mark";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -39,12 +40,21 @@ export interface FecStatusBadgeProps extends Omit<BadgeProps, "variant"> {
   tone?: StatusTone;
 }
 
-/** Maps common status strings → Badge success/warning/info/muted/destructive. */
+function markForTone(tone: StatusTone): StatusMarkStatus {
+  if (tone === "success") return "done";
+  if (tone === "destructive") return "failed";
+  if (tone === "warning" || tone === "info") return "running";
+  if (tone === "muted") return "cancelled";
+  return "pending";
+}
+
+/** Maps common status strings → Badge tone plus the React Bits Micro status mark. */
 export function FecStatusBadge({ status, tone, className, children, ...props }: FecStatusBadgeProps) {
   const key = status.trim().toLowerCase().replace(/\s+/g, "_");
   const variant = tone ?? STATUS_TONE[key] ?? STATUS_TONE[status.trim().toLowerCase()] ?? "outline";
   return (
     <Badge variant={variant} className={cn("uppercase tracking-wide", className)} {...props}>
+      <StatusMark status={markForTone(variant)} size={14} />
       {children ?? status}
     </Badge>
   );

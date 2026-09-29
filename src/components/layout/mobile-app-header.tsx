@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { HeaderSearch } from "@/components/layout/header-search";
 import { MobileNotificationBell } from "@/components/layout/mobile-notification-bell";
 import { useAuth } from "@/hooks/use-auth";
-import { applyLanguageToDocument, type SupportedLanguage } from "@/i18n";
+import type { SupportedLanguage } from "@/i18n";
 import { useAppStore } from "@/stores/app-store";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -18,7 +18,7 @@ import { useState } from "react";
  * Phone-only top chrome. Visibility is CSS (`md:hidden`) — never gated on JS breakpoints.
  */
 export function MobileAppHeader({ className }: { className?: string }) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const router = useRouter();
   const { signOut } = useAuth();
   const language = useAppStore((s) => s.language);
@@ -33,8 +33,6 @@ export function MobileAppHeader({ className }: { className?: string }) {
   const toggleLanguage = () => {
     const next: SupportedLanguage = language === "en" ? "ar" : "en";
     setLanguage(next);
-    void i18n.changeLanguage(next);
-    applyLanguageToDocument(next);
   };
 
   return (
@@ -69,12 +67,12 @@ export function MobileAppHeader({ className }: { className?: string }) {
         <Button
           type="button"
           variant="ghost"
-          size="icon"
-          className="h-10 w-10 shrink-0"
+          className="h-10 shrink-0 gap-1 px-2 text-xs font-semibold"
           aria-label={t("common.language")}
           onClick={toggleLanguage}
         >
           <Globe className="h-4 w-4 stroke-[1.5]" />
+          {language === "en" ? "عربي" : "EN"}
         </Button>
 
         <MobileNotificationBell />

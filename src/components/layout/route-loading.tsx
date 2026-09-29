@@ -1,3 +1,4 @@
+import LatticeLoader from "@/components/react-bits/lattice-loader";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export type RouteLoadingVariant =
@@ -25,7 +26,7 @@ function PageHeaderSkeleton({ wideSubtitle = false }: { wideSubtitle?: boolean }
   );
 }
 
-export function RouteLoadingSkeleton({ variant = "dashboard" }: RouteLoadingSkeletonProps) {
+function RouteLoadingBody({ variant = "dashboard" }: RouteLoadingSkeletonProps) {
   switch (variant) {
     case "occ":
       return (
@@ -94,4 +95,13 @@ export function RouteLoadingSkeleton({ variant = "dashboard" }: RouteLoadingSkel
         </div>
       );
   }
+}
+
+export function RouteLoadingSkeleton({ variant = "dashboard" }: RouteLoadingSkeletonProps) {
+  return (
+    <div className="grid gap-4 text-muted-foreground">
+      <LatticeLoader label="Loading" showTimer={false} color="currentColor" />
+      <RouteLoadingBody variant={variant} />
+    </div>
+  );
 }

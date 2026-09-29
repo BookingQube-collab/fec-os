@@ -3,27 +3,29 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 
+import StatusMark, { type StatusMarkStatus } from "@/components/react-bits/status-mark";
 import { Button } from "@/components/ui/button";
 import { usePermission } from "@/hooks/use-permission";
 import { cn } from "@/lib/utils";
 
-const LINKS: { href: string; label: string; exact?: boolean; report?: boolean }[] = [
-  { href: "/arcade", label: "Dashboard", exact: true },
-  { href: "/arcade/week", label: "My Week" },
-  { href: "/arcade/sites", label: "Sites & Games" },
-  { href: "/arcade/faults", label: "Faults" },
-  { href: "/arcade/pm", label: "PM" },
-  { href: "/arcade/observation", label: "Observation" },
-  { href: "/arcade/suppliers", label: "Suppliers" },
-  { href: "/arcade/support", label: "Supplier Support" },
-  { href: "/arcade/parts", label: "Spare Parts" },
-  { href: "/arcade/manuals", label: "Manuals" },
-  { href: "/arcade/installations", label: "Installations" },
-  { href: "/arcade/damage", label: "Damage" },
-  { href: "/arcade/history", label: "History" },
-  { href: "/arcade/reports", label: "Reports", report: true },
-  { href: "/arcade/search", label: "Search" },
+const LINKS: { href: string; labelKey: string; exact?: boolean; report?: boolean }[] = [
+  { href: "/arcade", labelKey: "nav.arcadeDashboard", exact: true },
+  { href: "/arcade/week", labelKey: "nav.arcadeWeek" },
+  { href: "/arcade/sites", labelKey: "nav.arcadeSites" },
+  { href: "/arcade/faults", labelKey: "nav.arcadeFaults" },
+  { href: "/arcade/pm", labelKey: "nav.arcadePm" },
+  { href: "/arcade/observation", labelKey: "nav.arcadeObservation" },
+  { href: "/arcade/suppliers", labelKey: "nav.arcadeSuppliers" },
+  { href: "/arcade/support", labelKey: "nav.arcadeSupport" },
+  { href: "/arcade/parts", labelKey: "nav.arcadeParts" },
+  { href: "/arcade/manuals", labelKey: "nav.arcadeManuals" },
+  { href: "/arcade/installations", labelKey: "nav.arcadeInstallations" },
+  { href: "/arcade/damage", labelKey: "nav.arcadeDamage" },
+  { href: "/arcade/history", labelKey: "nav.arcadeHistory" },
+  { href: "/arcade/reports", labelKey: "nav.arcadeReports", report: true },
+  { href: "/arcade/search", labelKey: "nav.arcadeSearch" },
 ];
 
 const STATUS_CLASS: Record<string, string> = {
@@ -49,10 +51,22 @@ export function statusLabel(status: string) {
   return status.replaceAll("_", " ");
 }
 
+function arcadeMark(status: string): StatusMarkStatus {
+  if (["WORKING", "RESOLVED", "CLOSED", "IN_STOCK", "COMPLETED", "DONE"].includes(status)) return "done";
+  if (["DOWN", "CRITICAL", "HIGH", "OUT_OF_STOCK", "OUT_OF_SERVICE", "DECOMMISSIONED"].includes(status)) return "failed";
+  if (["REPORTED", "UNDER_REPAIR", "WAITING_PART", "WAITING_SUPPLIER", "UNDER_OBSERVATION", "LOW_STOCK"].includes(status)) return "running";
+  return "pending";
+}
+
 export function StatusBadge({ status }: { status: string }) {
+  const { t } = useTranslation();
+  const key = `arcadeStatus.${status}`;
+  const translated = t(key);
+  const label = translated === key ? statusLabel(status) : translated;
   return (
-    <span className={cn("inline-flex items-center rounded px-2 py-0.5 text-xs font-semibold tracking-wide", STATUS_CLASS[status] ?? "bg-muted text-foreground")}>
-      {statusLabel(status)}
+    <span className={cn("inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-semibold tracking-wide", STATUS_CLASS[status] ?? "bg-muted text-foreground")}>
+      <StatusMark status={arcadeMark(status)} size={14} />
+      {label}
     </span>
   );
 }
@@ -60,8 +74,9 @@ export function StatusBadge({ status }: { status: string }) {
 export function ArcadeSubnav() {
   const pathname = usePathname();
   const canReport = usePermission("arcade.reports");
+  const { t } = useTranslation();
   return (
-    <nav className="flex gap-1 overflow-x-auto pb-1" aria-label="Arcade Technical">
+    <nav className="flex gap-1 overflow-x-auto pb-1" aria-label={t("nav.arcade")}>
       {LINKS.filter((link) => !link.report || canReport).map((link) => {
         const active = link.exact ? pathname === link.href : pathname === link.href || pathname.startsWith(`${link.href}/`);
         return (
@@ -73,7 +88,7 @@ export function ArcadeSubnav() {
               active ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
             )}
           >
-            {link.label}
+            {t(link.labelKey)}
           </Link>
         );
       })}
@@ -101,15 +116,29 @@ export function Field({ label, children }: { label: string; children: ReactNode 
   );
 }
 
+export function arcadeStatusName(t: (key: string) => string, code: string) {
+  const key = `arcadeStatus.${code}`;
+  const translated = t(key);
+  return translated === key ? code.replaceAll("_", " ") : translated;
+}
+
+export function arcadeCategoryName(t: (key: string) => string, category: string) {
+  const slug = category.replace(/[^A-Za-z]/g, "");
+  const key = `arcadeScreens.cat.${slug}`;
+  const translated = t(key);
+  return translated === key ? category : translated;
+}
+
 export function Pager({ page, total, pageSize, onPage }: { page: number; total: number; pageSize: number; onPage: (page: number) => void }) {
+  const { t } = useTranslation();
   const pages = Math.max(1, Math.ceil(total / pageSize));
   return (
     <div className="flex items-center justify-between gap-2 text-sm">
-      <span className="text-muted-foreground">{total} records</span>
+      <span className="text-muted-foreground">{t("arcadeScreens.records", { count: total })}</span>
       <div className="flex gap-2">
-        <Button type="button" variant="outline" size="sm" disabled={page <= 1} onClick={() => onPage(page - 1)}>Previous</Button>
+        <Button type="button" variant="outline" size="sm" disabled={page <= 1} onClick={() => onPage(page - 1)}>{t("common.prev")}</Button>
         <span className="self-center">{page} / {pages}</span>
-        <Button type="button" variant="outline" size="sm" disabled={page >= pages} onClick={() => onPage(page + 1)}>Next</Button>
+        <Button type="button" variant="outline" size="sm" disabled={page >= pages} onClick={() => onPage(page + 1)}>{t("common.next")}</Button>
       </div>
     </div>
   );

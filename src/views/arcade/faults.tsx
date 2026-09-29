@@ -7,7 +7,8 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
-import { Field, Pager, StatusBadge } from "@/components/arcade/ui";
+import { arcadeCategoryName, arcadeStatusName, Field, Pager, StatusBadge } from "@/components/arcade/ui";
+import GlideSelect from "@/components/react-bits/glide-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -18,42 +19,44 @@ import { addArcadeFaultNote, getArcadeFault, listArcadeFaults, reportArcadeFault
 import { queryKeys } from "@/lib/query-keys";
 
 export function ArcadeFaults() {
+  const { t } = useTranslation();
   const [page, setPage] = useState(1);
   const [q, setQ] = useState("");
   const list = useQuery({
     queryKey: queryKeys.arcade.faults({ page, q }),
-    queryFn: () => listArcadeFaults({ page, pageSize: 25, q }),
+    queryFn: () => listArcadeFaults({ page, pageSize: 50, q }),
   });
   return (
     <div className="grid gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-xl font-semibold">Faults & Repairs</h1>
-        <Button asChild><Link href="/arcade/faults/new">Report fault</Link></Button>
+        <h1 className="text-xl font-semibold">{t("arcadeScreens.faultsTitle")}</h1>
+        <Button asChild><Link href="/arcade/faults/new">{t("arcadeScreens.reportFault")}</Link></Button>
       </div>
-      <Input value={q} onChange={(event) => { setQ(event.target.value); setPage(1); }} placeholder="Ticket, description, category" className="max-w-sm" />
+      <Input value={q} onChange={(event) => { setQ(event.target.value); setPage(1); }} placeholder={t("arcadeScreens.faultSearch")} className="max-w-sm" />
       <div className="grid gap-2">
         {(list.data?.rows ?? []).map((row) => (
           <Link key={row.id} href={`/arcade/faults/${row.id}`} className="rounded-lg border p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="font-medium">{row.ticket_number}</span>
+              <span className="font-medium">{row.machine_name ? `${row.machine_name} · ` : ""}{row.ticket_number}</span>
               <span className="flex gap-1">{row.is_repeat ? <StatusBadge status="REPEAT" /> : null}<StatusBadge status={row.status} /></span>
             </div>
-            <p className="text-sm text-muted-foreground">{row.category} · {row.severity} · {row.description}</p>
-            {row.is_repeat ? <p className="text-xs">Repeat × {row.repeat_count} · last failure {row.last_failure_at ? new Date(row.last_failure_at).toLocaleDateString() : "—"} · {row.days_since_last_repair ?? "—"} days since last repair</p> : null}
+            <p className="text-sm text-muted-foreground">{arcadeCategoryName(t, row.category)} · {arcadeStatusName(t, row.severity)} · {row.description}</p>
+            {row.is_repeat ? <p className="text-xs">{t("arcadeScreens.repeatLine", { count: row.repeat_count, when: row.last_failure_at ? new Date(row.last_failure_at).toLocaleDateString() : "—", days: row.days_since_last_repair ?? "—" })}</p> : null}
           </Link>
         ))}
       </div>
-      <Pager page={page} total={list.data?.total ?? 0} pageSize={25} onPage={setPage} />
+      <Pager page={page} total={list.data?.total ?? 0} pageSize={50} onPage={setPage} />
     </div>
   );
 }
 
 export function ArcadeFaultForm() {
+  const { t } = useTranslation();
   const search = useSearchParams();
   const context = useQuery({ queryKey: queryKeys.arcade.context(), queryFn: () => getArcadeContext({}) });
   const machines = useQuery({
     queryKey: queryKeys.arcade.machines({ all: search.get("locationId") }),
-    queryFn: () => listArcadeMachines({ page: 1, pageSize: 50, locationId: search.get("locationId") }),
+    queryFn: () => listArcadeMachines({ page: 1, pageSize: 200, locationId: search.get("locationId") }),
   });
   const qc = useQueryClient();
   const [form, setForm] = useState({
@@ -102,58 +105,87 @@ export function ArcadeFaultForm() {
       return row;
     },
     onSuccess: (row) => {
-      toast.success(row.is_repeat ? `${row.ticket_number} opened as a repeat fault` : `${row.ticket_number} reported`);
+      toast.success(row.is_repeat ? t("arcadeScreens.repeatOpened", { ticket: row.ticket_number }) : t("arcadeScreens.faultReported", { ticket: row.ticket_number }));
       void qc.invalidateQueries({ queryKey: queryKeys.arcade.all });
       window.location.href = `/arcade/faults/${row.id}`;
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Could not report fault"),
+    onError: (error) => toast.error(error instanceof Error ? error.message : t("arcadeScreens.faultFailed")),
   });
   const [file, setFile] = useState<File | undefined>();
   return (
     <form className="grid max-w-3xl gap-3" onSubmit={(event) => { event.preventDefault(); save.mutate(file); }}>
-      <h1 className="text-xl font-semibold">Report fault</h1>
+      <h1 className="text-xl font-semibold">{t("arcadeScreens.reportFault")}</h1>
       <div className="grid gap-3 md:grid-cols-2">
-        <Field label="Machine">
-          <select className="h-10 rounded-md border bg-background px-2" value={form.machineId} onChange={(event) => {
-            const machine = machines.data?.rows.find((row) => row.id === event.target.value);
-            setForm({ ...form, machineId: event.target.value, locationId: machine?.location_id ?? form.locationId, technicianStaffId: machine?.technician_staff_id ?? form.technicianStaffId });
-          }} required>
-            <option value="">Select machine</option>
-            {(machines.data?.rows ?? []).map((row) => <option key={row.id} value={row.id}>{row.asset_code} · {row.name}</option>)}
-          </select>
+        <Field label={t("arcadeScreens.machine")}>
+          <GlideSelect
+            ariaLabel={t("arcadeScreens.machine")}
+            value={form.machineId}
+            placeholder={t("arcadeScreens.selectMachine")}
+            showTags={false}
+            menuWidth={360}
+            onChange={(value) => {
+              const machine = machines.data?.rows.find((row) => row.id === value);
+              setForm({ ...form, machineId: value, locationId: machine?.location_id ?? form.locationId, technicianStaffId: machine?.technician_staff_id ?? form.technicianStaffId });
+            }}
+            options={(machines.data?.rows ?? []).map((row) => ({ value: row.id, label: `${row.asset_code} · ${row.name}` }))}
+          />
         </Field>
-        <Field label="Technician">
-          <select className="h-10 rounded-md border bg-background px-2" value={form.technicianStaffId} onChange={(event) => setForm({ ...form, technicianStaffId: event.target.value })}>
-            <option value="">Current technician</option>
-            {(context.data?.technicians ?? []).map((tech) => <option key={tech.id} value={tech.id}>{tech.full_name}</option>)}
-          </select>
+        <Field label={t("arcadeScreens.technician")}>
+          <GlideSelect
+            ariaLabel={t("arcadeScreens.technician")}
+            value={form.technicianStaffId}
+            placeholder={t("arcadeScreens.currentTechnician")}
+            showTags={false}
+            menuWidth={320}
+            onChange={(value) => setForm({ ...form, technicianStaffId: value })}
+            options={[{ value: "", label: t("arcadeScreens.currentTechnician") }, ...(context.data?.technicians ?? []).map((tech) => ({ value: tech.id, label: tech.full_name }))]}
+          />
         </Field>
-        <Field label="Category">
-          <select className="h-10 rounded-md border bg-background px-2" value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value as typeof form.category })}>
-            {FAULT_CATEGORIES.map((item) => <option key={item}>{item}</option>)}
-          </select>
+        <Field label={t("arcadeScreens.category")}>
+          <GlideSelect
+            ariaLabel={t("arcadeScreens.category")}
+            value={form.category}
+            showTags={false}
+            onChange={(value) => setForm({ ...form, category: value as typeof form.category })}
+            options={FAULT_CATEGORIES.map((item) => ({ value: item, label: arcadeCategoryName(t, item) }))}
+          />
         </Field>
-        <Field label="Severity">
-          <select className="h-10 rounded-md border bg-background px-2" value={form.severity} onChange={(event) => setForm({ ...form, severity: event.target.value as typeof form.severity })}>
-            {FAULT_SEVERITIES.map((item) => <option key={item}>{item}</option>)}
-          </select>
+        <Field label={t("arcadeScreens.severity")}>
+          <GlideSelect
+            ariaLabel={t("arcadeScreens.severity")}
+            value={form.severity}
+            showTags={false}
+            onChange={(value) => setForm({ ...form, severity: value as typeof form.severity })}
+            options={FAULT_SEVERITIES.map((item) => ({ value: item, label: arcadeStatusName(t, item) }))}
+          />
         </Field>
-        <Field label="Operational impact">
-          <select className="h-10 rounded-md border bg-background px-2" value={form.operationalImpact} onChange={(event) => setForm({ ...form, operationalImpact: event.target.value as typeof form.operationalImpact })}>
-            {OPERATIONAL_IMPACTS.map((item) => <option key={item}>{item}</option>)}
-          </select>
+        <Field label={t("arcadeScreens.impact")}>
+          <GlideSelect
+            ariaLabel={t("arcadeScreens.impact")}
+            value={form.operationalImpact}
+            showTags={false}
+            menuWidth={280}
+            onChange={(value) => setForm({ ...form, operationalImpact: value as typeof form.operationalImpact })}
+            options={OPERATIONAL_IMPACTS.map((item) => ({ value: item, label: arcadeStatusName(t, item) }))}
+          />
         </Field>
-        <Field label="Machine status">
-          <select className="h-10 rounded-md border bg-background px-2" value={form.machineStatus} onChange={(event) => setForm({ ...form, machineStatus: event.target.value as typeof form.machineStatus })}>
-            <option value="DOWN">DOWN</option>
-            <option value="UNDER_REPAIR">UNDER REPAIR</option>
-            <option value="WORKING">WORKING</option>
-          </select>
+        <Field label={t("arcadeScreens.machineStatus")}>
+          <GlideSelect
+            ariaLabel={t("arcadeScreens.machineStatus")}
+            value={form.machineStatus}
+            showTags={false}
+            onChange={(value) => setForm({ ...form, machineStatus: value as typeof form.machineStatus })}
+            options={[
+              { value: "DOWN", label: arcadeStatusName(t, "DOWN") },
+              { value: "UNDER_REPAIR", label: arcadeStatusName(t, "UNDER_REPAIR") },
+              { value: "WORKING", label: arcadeStatusName(t, "WORKING") },
+            ]}
+          />
         </Field>
       </div>
-      <Field label="Description"><Textarea required minLength={8} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></Field>
-      <Field label="Photo, video, or attachment"><input type="file" accept="image/*,video/*,application/pdf" capture="environment" onChange={(event) => setFile(event.target.files?.[0])} /></Field>
-      <Button type="submit" disabled={save.isPending}>Submit fault</Button>
+      <Field label={t("arcadeScreens.description")}><Textarea required minLength={8} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} /></Field>
+      <Field label={t("arcadeScreens.attachment")}><input type="file" accept="image/*,video/*,application/pdf" capture="environment" onChange={(event) => setFile(event.target.files?.[0])} /></Field>
+      <Button type="submit" disabled={save.isPending}>{t("arcadeScreens.submitFault")}</Button>
     </form>
   );
 }
@@ -176,15 +208,15 @@ export function ArcadeFaultDetail({ id }: { id: string }) {
   const row = fault.data?.fault;
   const act = useMutation({
     mutationFn: (action: "START" | "PAUSE" | "COMPLETE") => setArcadeRepairState({ faultId: id, action, note }),
-    onSuccess: () => { toast.success("Repair updated"); void qc.invalidateQueries({ queryKey: queryKeys.arcade.all }); },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Update failed"),
+    onSuccess: () => { toast.success(t("arcadeScreens.repairUpdated")); void qc.invalidateQueries({ queryKey: queryKeys.arcade.all }); },
+    onError: (error) => toast.error(error instanceof Error ? error.message : t("arcadeScreens.updateFailed")),
   });
   const move = useMutation({
     mutationFn: (status: (typeof FAULT_STATUSES)[number]) => updateArcadeFault({ id, status, note, ...closure }),
-    onSuccess: () => { toast.success("Status updated"); void qc.invalidateQueries({ queryKey: queryKeys.arcade.all }); },
-    onError: (error) => toast.error(error instanceof Error ? error.message : "Status was not changed"),
+    onSuccess: () => { toast.success(t("arcadeScreens.statusUpdated")); void qc.invalidateQueries({ queryKey: queryKeys.arcade.all }); },
+    onError: (error) => toast.error(error instanceof Error ? error.message : t("arcadeScreens.statusUnchanged")),
   });
-  if (!row) return <p className="text-sm text-muted-foreground">Loading ticket…</p>;
+  if (!row) return <p className="text-sm text-muted-foreground">{t("arcadeScreens.loadingTicket")}</p>;
   const filled = {
     problem: closure.problem || row.problem || "",
     diagnosis: closure.diagnosis || row.diagnosis || "",
@@ -199,42 +231,42 @@ export function ArcadeFaultDetail({ id }: { id: string }) {
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h1 className="text-2xl font-semibold">{row.ticket_number}</h1>
-          <p className="text-sm text-muted-foreground">{row.category} · {row.severity}</p>
+          <p className="text-sm text-muted-foreground">{arcadeCategoryName(t, row.category)} · {arcadeStatusName(t, row.severity)}</p>
         </div>
         <div className="flex gap-1">{row.is_repeat ? <StatusBadge status="REPEAT" /> : null}<StatusBadge status={row.status} /></div>
       </div>
-      {row.is_repeat ? <p className="text-sm">Repeat count {row.repeat_count}. Last failure {row.last_failure_at ? new Date(row.last_failure_at).toLocaleString() : "—"}. {row.days_since_last_repair ?? "—"} days since last repair.</p> : null}
+      {row.is_repeat ? <p className="text-sm">{t("arcadeScreens.repeatDetail", { count: row.repeat_count, when: row.last_failure_at ? new Date(row.last_failure_at).toLocaleString() : "—", days: row.days_since_last_repair ?? "—" })}</p> : null}
       <p>{row.description}</p>
       <div className="flex flex-wrap gap-2">
-        <Button type="button" onClick={() => act.mutate("START")}>Start</Button>
-        <Button type="button" variant="outline" onClick={() => act.mutate("PAUSE")}>Pause</Button>
-        <Button type="button" variant="outline" onClick={() => act.mutate("COMPLETE")}>Complete repair session</Button>
+        <Button type="button" onClick={() => act.mutate("START")}>{t("arcadeScreens.start")}</Button>
+        <Button type="button" variant="outline" onClick={() => act.mutate("PAUSE")}>{t("arcadeScreens.pause")}</Button>
+        <Button type="button" variant="outline" onClick={() => act.mutate("COMPLETE")}>{t("arcadeScreens.completeSession")}</Button>
         <Button asChild variant="outline"><Link href={`/arcade/machines/${row.machine_id}`}>{t("arcadeGames.openGame")}</Link></Button>
-        <Button asChild variant="outline"><Link href={`/arcade/parts?machineId=${row.machine_id}&locationId=${row.location_id}&faultId=${row.id}`}>Request part</Link></Button>
-        <Button asChild variant="outline"><Link href={`/arcade/support/new?machineId=${row.machine_id}&locationId=${row.location_id}&faultId=${row.id}&technicianId=${row.technician_staff_id ?? ""}`}>Supplier case</Link></Button>
+        <Button asChild variant="outline"><Link href={`/arcade/parts?machineId=${row.machine_id}&locationId=${row.location_id}&faultId=${row.id}`}>{t("arcadeScreens.requestPart")}</Link></Button>
+        <Button asChild variant="outline"><Link href={`/arcade/support/new?machineId=${row.machine_id}&locationId=${row.location_id}&faultId=${row.id}&technicianId=${row.technician_staff_id ?? ""}`}>{t("arcadeScreens.supplierCase")}</Link></Button>
       </div>
-      <Field label="Note"><Textarea value={note} onChange={(event) => setNote(event.target.value)} /></Field>
-      <Button type="button" variant="secondary" onClick={() => addArcadeFaultNote({ id, body: note }).then(() => { toast.success("Note added"); setNote(""); void qc.invalidateQueries({ queryKey: queryKeys.arcade.fault(id) }); }).catch((error) => toast.error(error instanceof Error ? error.message : "Note failed"))}>Add note</Button>
+      <Field label={t("arcadeScreens.note")}><Textarea value={note} onChange={(event) => setNote(event.target.value)} /></Field>
+      <Button type="button" variant="secondary" onClick={() => addArcadeFaultNote({ id, body: note }).then(() => { toast.success(t("arcadeScreens.noteAdded")); setNote(""); void qc.invalidateQueries({ queryKey: queryKeys.arcade.fault(id) }); }).catch((error) => toast.error(error instanceof Error ? error.message : t("arcadeScreens.noteFailed")))}>{t("arcadeScreens.addNote")}</Button>
       <div className="flex flex-wrap gap-2">
         {FAULT_STATUSES.filter((status) => status !== "CLOSED" || canClose).map((status) => (
-          <Button key={status} type="button" variant="outline" size="sm" onClick={() => move.mutate(status)}>{status.replaceAll("_", " ")}</Button>
+          <Button key={status} type="button" variant="outline" size="sm" onClick={() => move.mutate(status)}>{arcadeStatusName(t, status)}</Button>
         ))}
       </div>
       <div className="grid gap-2 md:grid-cols-2">
         {(["problem", "diagnosis", "actionTaken", "partsUsed", "testingPerformed", "finalResult", "recommendations"] as const).map((key) => (
-          <Field key={key} label={key.replace(/([A-Z])/g, " $1")}>
+          <Field key={key} label={t(`arcadeScreens.${key}`)}>
             <Textarea value={filled[key]} onChange={(event) => setClosure({ ...closure, [key]: event.target.value })} />
           </Field>
         ))}
       </div>
-      <p className="text-xs text-muted-foreground">Resolved and Closed need every field filled with the actual work. The word Resolved alone is rejected.</p>
+      <p className="text-xs text-muted-foreground">{t("arcadeScreens.closureHint")}</p>
       <section className="grid gap-2">
-        <h2 className="font-semibold">History</h2>
+        <h2 className="font-semibold">{t("arcadeScreens.history")}</h2>
         {fault.data?.updates.map((update) => (
           <p key={update.id} className="rounded border p-2 text-sm">{new Date(update.created_at).toLocaleString()} · {update.kind} · {update.previous_status ? `${update.previous_status} → ${update.new_status}` : update.body}</p>
         ))}
         {fault.data?.repairs.map((repair) => (
-          <p key={repair.id} className="rounded border p-2 text-sm">Repair {repair.status} from {new Date(repair.started_at).toLocaleString()}</p>
+          <p key={repair.id} className="rounded border p-2 text-sm">{t("arcadeScreens.repairFrom", { status: arcadeStatusName(t, repair.status), when: new Date(repair.started_at).toLocaleString() })}</p>
         ))}
       </section>
     </div>

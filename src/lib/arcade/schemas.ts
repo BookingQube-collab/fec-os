@@ -23,7 +23,7 @@ export const PageQuery = z
     status: z.string().max(40).optional().nullable(),
     q: z.string().max(80).optional().nullable(),
     page: z.number().int().min(1).default(1),
-    pageSize: z.number().int().min(1).max(50).default(25),
+    pageSize: z.number().int().min(1).max(200).default(25),
     machineId: uuid.optional().nullable(),
   })
   .default({});
@@ -207,6 +207,65 @@ export const DocumentInput = z.object({
   faultCategory: optionalText(80),
   partHint: optionalText(120),
   externalUrl: z.string().url().max(500).optional().nullable(),
+});
+
+export const WorkbookPlanInput = z.object({
+  source: z.string().trim().min(2).max(80),
+  headline: z.object({
+    units: z.number().int().nullable(),
+    repaired: z.number().int().nullable(),
+    pending: z.number().int().nullable(),
+    ongoing: z.number().int().nullable(),
+  }),
+  machines: z.array(z.object({
+    key: z.string().trim().min(3).max(200),
+    name: z.string().trim().min(2).max(160),
+    locationCode: z.string().trim().min(2).max(20),
+    locationText: z.string().max(200),
+    assetCode: z.string().trim().min(3).max(40).regex(/^[A-Za-z0-9-]+$/),
+    status: z.enum(["WORKING", "UNDER_REPAIR", "WAITING_PART"]),
+    notes: z.string().max(500).nullable(),
+    supplierName: z.string().max(160).nullable(),
+  })).max(200),
+  damage: z.array(z.object({
+    externalKey: z.string().trim().min(3).max(80),
+    machineKey: z.string().trim().min(3).max(200),
+    reportedOn: day,
+    damageType: z.string().trim().min(2).max(80),
+    description: z.string().trim().min(2).max(4000),
+    correctiveAction: z.string().max(4000).nullable(),
+    preventiveAction: z.string().max(4000).nullable(),
+    partsRequired: z.string().max(2000).nullable(),
+  })).max(20),
+  maintenance: z.array(z.object({
+    externalKey: z.string().trim().min(3).max(80),
+    machineKey: z.string().trim().min(3).max(200),
+    reportedOn: day,
+    resolvedOn: day.nullable(),
+    status: z.enum(["RESOLVED", "WAITING_PART", "UNDER_REPAIR"]),
+    category: z.enum(FAULT_CATEGORIES),
+    description: z.string().trim().min(2).max(4000),
+    diagnosis: z.string().max(4000).nullable(),
+    actionTaken: z.string().max(4000).nullable(),
+    partsUsed: z.string().max(2000).nullable(),
+    recommendations: z.string().max(4000).nullable(),
+  })).max(200),
+  parts: z.array(z.object({
+    externalKey: z.string().trim().min(3).max(80),
+    machineKey: z.string().max(200).nullable(),
+    locationCode: z.string().max(20).nullable(),
+    item: z.string().trim().min(2).max(200),
+    supplierName: z.string().max(160).nullable(),
+    qty: z.number().positive().max(100000),
+    issue: z.string().max(2000).nullable(),
+    remarks: z.string().max(2000).nullable(),
+    workshopTool: z.boolean(),
+  })).max(80),
+  unmapped: z.array(z.object({
+    name: z.string().max(160),
+    locationText: z.string().max(200),
+    reason: z.string().max(200),
+  })).max(80),
 });
 
 export const ImportInput = z.object({

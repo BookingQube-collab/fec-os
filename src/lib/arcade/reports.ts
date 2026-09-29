@@ -90,6 +90,7 @@ export type MonthlyFault = {
   severity: string;
   reportedAt: string;
   resolvedAt: string | null;
+  summary?: string | null;
   isRepeat: boolean;
   downtimeStartedAt: string | null;
   downtimeEndedAt: string | null;
@@ -120,6 +121,7 @@ export type MonthlyReport = {
   downtimeBySite: { siteName: string; hours: number }[];
   mttrHours: number | null;
   mtbfDays: number | null;
+  activity: { machineName: string; siteName: string; status: string; summary: string; reportedOn: string }[];
 };
 
 function inRange(iso: string | null, start: string, end: string): boolean {
@@ -232,6 +234,13 @@ export function buildMonthlyArcadeReport(input: {
     downtimeBySite: [...downtimeSite.entries()].map(([siteName, hours]) => ({ siteName, hours: Math.round(hours * 10) / 10 })),
     mttrHours: mttr,
     mtbfDays: mtbfDays(current.map((fault) => fault.reportedAt)),
+    activity: current.map((fault) => ({
+      machineName: fault.machineName,
+      siteName: fault.siteName,
+      status: fault.status,
+      summary: fault.summary?.replace(/\s+/g, " ").trim() || fault.category,
+      reportedOn: fault.reportedAt.slice(0, 10),
+    })),
   };
 }
 

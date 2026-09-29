@@ -272,6 +272,7 @@
 
   html[dir="rtl"] body {
     font-feature-settings: normal;
+    font-family: "Segoe UI", "Noto Naskh Arabic", "Noto Sans Arabic", Tahoma, var(--font-sans), ui-sans-serif, sans-serif;
   }
 
   input[type="date"],

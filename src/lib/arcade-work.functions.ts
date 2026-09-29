@@ -124,7 +124,22 @@ export const listArcadeFaults = createAuthenticatedAction(
     const { from, to } = range(data.page, data.pageSize);
     const { data: rows, error, count } = await query.range(from, to);
     if (error) throw error;
-    return { rows: rows ?? [], total: count ?? 0, page: data.page, pageSize: data.pageSize };
+    const list = rows ?? [];
+    const machineIds = [...new Set(list.map((row) => row.machine_id))];
+    const { data: machines } = machineIds.length
+      ? await context.supabase.from("arcade_machines").select("id, name, asset_code").in("id", machineIds)
+      : { data: [] };
+    const names = new Map((machines ?? []).map((machine) => [machine.id, machine]));
+    return {
+      rows: list.map((row) => ({
+        ...row,
+        machine_name: names.get(row.machine_id)?.name ?? null,
+        asset_code: names.get(row.machine_id)?.asset_code ?? null,
+      })),
+      total: count ?? 0,
+      page: data.page,
+      pageSize: data.pageSize,
+    };
   },
   { defaultInput: {}, auth: { capability: "arcade.view" } },
 );

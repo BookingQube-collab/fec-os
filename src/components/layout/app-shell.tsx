@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 
 import { GlobalComplianceExpiryBanner } from "@/components/compliance/global-compliance-expiry-banner";
 import { AuroraBackdrop } from "@/components/layout/aurora-backdrop";
+import ClickSpark from "@/components/react-bits/click-spark";
 import { AppSidebar } from "./app-sidebar";
 import { AppTopbar } from "./app-topbar";
 import { EmployeeMobileHeader } from "./employee-app-shell";
@@ -39,6 +40,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const sidebarExpanded = useAppStore((s) => s.sidebarExpanded);
   const surgeMode = useAppStore((s) => s.surgeMode);
   return (
+    <ClickSpark sparkColor="#1a1a1a" sparkSize={8} sparkRadius={14} sparkCount={8} className="min-h-screen">
     <div
       className="relative min-h-screen text-foreground"
       data-surge-mode={surgeMode ? "true" : "false"}
@@ -75,5 +77,6 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
       <MobileBottomNav />
     </div>
+    </ClickSpark>
   );
 }

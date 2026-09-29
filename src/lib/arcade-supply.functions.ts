@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 
+import { applyArcadeWorkbookPlan, type ArcadeDb } from "@/lib/arcade/apply-workbook";
 import { matchImportMachine, nextPartSupplyStatus, patchSupplierCase, stockStatus, type PartStatus } from "@/lib/arcade/domain";
 import { buildMonthlyArcadeReport, buildSupplierPerformance, buildWeeklyArcadeReport } from "@/lib/arcade/reports";
 import { weekBounds } from "@/lib/arcade/domain";
@@ -14,6 +15,7 @@ import {
   PageQuery,
   PartInput,
   PartSupplyInput,
+  WorkbookPlanInput,
 } from "@/lib/arcade/schemas";
 import { canUserDo } from "@/lib/rbac";
 import { assertLocationAccess } from "@/lib/server/authorize";
@@ -530,7 +532,22 @@ export const listDamageReports = createAuthenticatedAction(
     const { from, to } = range(data.page, data.pageSize);
     const { data: rows, error, count } = await query.range(from, to);
     if (error) throw error;
-    return { rows: rows ?? [], total: count ?? 0, page: data.page, pageSize: data.pageSize };
+    const list = rows ?? [];
+    const machineIds = [...new Set(list.map((row) => row.machine_id).filter((id): id is string => Boolean(id)))];
+    const { data: machines } = machineIds.length
+      ? await context.supabase.from("arcade_machines").select("id, name, asset_code").in("id", machineIds)
+      : { data: [] };
+    const names = new Map((machines ?? []).map((machine) => [machine.id, machine]));
+    return {
+      rows: list.map((row) => ({
+        ...row,
+        machine_name: row.machine_id ? names.get(row.machine_id)?.name ?? null : null,
+        asset_code: row.machine_id ? names.get(row.machine_id)?.asset_code ?? null : null,
+      })),
+      total: count ?? 0,
+      page: data.page,
+      pageSize: data.pageSize,
+    };
   },
   { defaultInput: {}, auth: { capability: "arcade.view" } },
 );
@@ -747,7 +764,7 @@ export const getArcadeMonthlyReport = createAuthenticatedAction(
     const prevEnd = new Date(Date.UTC(year!, mon! - 1, 0)).toISOString().slice(0, 10);
     const [{ data: sites }, { data: faults }, { data: usages }, { data: cases }, pmCompleted, machines] = await Promise.all([
       context.supabase.from("arcade_site_health").select("active_machines, working"),
-      context.supabase.from("arcade_faults").select("id, machine_id, location_id, category, status, severity, reported_at, resolved_at, is_repeat, downtime_started_at, downtime_ended_at").gte("reported_at", `${prevStart}T00:00:00Z`).lte("reported_at", `${end}T23:59:59Z`).limit(500),
+      context.supabase.from("arcade_faults").select("id, machine_id, location_id, category, status, severity, description, reported_at, resolved_at, is_repeat, downtime_started_at, downtime_ended_at").gte("reported_at", `${prevStart}T00:00:00Z`).lte("reported_at", `${end}T23:59:59Z`).limit(500),
       context.supabase.from("arcade_part_usages").select("machine_id, qty, unit_cost, used_on").gte("used_on", start).lte("used_on", end),
       context.supabase.from("arcade_supplier_cases").select("created_at, first_response_at, status").gte("created_at", `${start}T00:00:00Z`),
       context.supabase.from("arcade_pm_records").select("id", { count: "exact", head: true }).eq("confirmed", true).gte("performed_on", start).lte("performed_on", end),
@@ -781,6 +798,7 @@ export const getArcadeMonthlyReport = createAuthenticatedAction(
           severity: fault.severity,
           reportedAt: fault.reported_at,
           resolvedAt: fault.resolved_at,
+          summary: fault.description,
           isRepeat: fault.is_repeat,
           downtimeStartedAt: fault.downtime_started_at,
           downtimeEndedAt: fault.downtime_ended_at,
@@ -811,7 +829,24 @@ export const listPartRequests = createAuthenticatedAction(
     const { from, to } = range(data.page, data.pageSize);
     const { data: rows, error, count } = await query.range(from, to);
     if (error) throw error;
-    return { rows: rows ?? [], total: count ?? 0, page: data.page, pageSize: data.pageSize };
+    const list = rows ?? [];
+    const machineIds = [...new Set(list.map((row) => row.machine_id).filter((id): id is string => Boolean(id)))];
+    const { data: machines } = machineIds.length
+      ? await context.supabase.from("arcade_machines").select("id, name").in("id", machineIds)
+      : { data: [] };
+    const names = new Map((machines ?? []).map((machine) => [machine.id, machine.name]));
+    return {
+      rows: list.map((row) => ({ ...row, machine_name: row.machine_id ? names.get(row.machine_id) ?? null : null })),
+      total: count ?? 0,
+      page: data.page,
+      pageSize: data.pageSize,
+    };
   },
   { defaultInput: {}, auth: { capability: "arcade.view" } },
+);
+
+export const applyArcadeWorkbook = createAuthenticatedAction(
+  WorkbookPlanInput,
+  async (data, context) => applyArcadeWorkbookPlan(context.supabase as unknown as ArcadeDb, data, context.userId),
+  { auth: { capability: "arcade.manage" } },
 );
