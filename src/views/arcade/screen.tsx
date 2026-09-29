@@ -15,12 +15,13 @@ import { ArcadeDamage, ArcadeInstallations, ArcadeManuals, ArcadeParts, ArcadeSu
 import { ArcadeObservation, ArcadePm, ArcadeWeek } from "./work";
 
 function route(slug: string[]) {
-  const [a, b] = slug;
+  const [a, b, c] = slug;
   if (!a) return <ArcadeDashboard />;
   if (a === "week") return <ArcadeWeek />;
   if (a === "sites" && b) return <ArcadeSite locationId={b} />;
   if (a === "sites") return <ArcadeSites />;
   if (a === "machines" && b === "new") return <ArcadeMachineForm />;
+  if (a === "machines" && b && c === "edit") return <ArcadeMachineForm machineId={b} />;
   if (a === "machines" && b) return <ArcadeMachineDetail id={b} />;
   if (a === "machines") return <ArcadeMachines />;
   if (a === "m" && b) return <ArcadeQrMachine assetCode={decodeURIComponent(b)} />;

@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 
-import { operationalPercent, searchToken, siteAvailability } from "@/lib/arcade/domain";
+import { normalizeGamePayment, operationalPercent, searchToken, siteAvailability } from "@/lib/arcade/domain";
 import { buildAlertDrafts } from "@/lib/arcade/domain";
 import { MachineInput, PageQuery, UploadInput } from "@/lib/arcade/schemas";
 import { canUserDo } from "@/lib/rbac";
@@ -24,6 +24,33 @@ const UPLOAD_MIME = new Set([
 function range(page: number, pageSize: number) {
   const from = (page - 1) * pageSize;
   return { from, to: from + pageSize - 1 };
+}
+
+function gamePaymentColumns(data: {
+  id?: string;
+  supplierName?: string | null;
+  amountPaid?: number | null;
+  paidCurrency?: string | null;
+  paidOn?: string | null;
+}) {
+  const touched =
+    data.supplierName !== undefined ||
+    data.amountPaid !== undefined ||
+    data.paidCurrency !== undefined ||
+    data.paidOn !== undefined;
+  if (data.id && !touched) return {};
+  const payment = normalizeGamePayment({
+    supplierName: data.supplierName,
+    amountPaid: data.amountPaid,
+    currency: data.paidCurrency,
+    paidOn: data.paidOn,
+  });
+  return {
+    supplier_name: payment.supplierName,
+    amount_paid: payment.amountPaid,
+    paid_currency: payment.currency,
+    paid_on: payment.paidOn,
+  };
 }
 
 async function staffForUser(context: AuthContext) {
@@ -154,12 +181,12 @@ export const listArcadeMachines = createAuthenticatedAction(
     const token = data.q ? searchToken(data.q) : null;
     let query = context.supabase
       .from("arcade_machines")
-      .select("id, asset_code, name, game_category, location_id, zone, unit_number, manufacturer, model, serial_number, status, technician_staff_id, vendor_id, next_pm_on, last_fault_at, last_repair_at, warranty_expires_on, active", { count: "exact" })
+      .select("id, asset_code, name, game_category, location_id, zone, unit_number, manufacturer, model, serial_number, status, technician_staff_id, vendor_id, supplier_name, amount_paid, paid_currency, paid_on, next_pm_on, last_fault_at, last_repair_at, last_fix_at, last_fix_summary, last_fix_status, last_fix_technician_staff_id, warranty_expires_on, active", { count: "exact" })
       .order("name");
     if (data.locationId) query = query.eq("location_id", data.locationId);
     if (data.status) query = query.eq("status", data.status);
     if (token) {
-      query = query.or(`name.ilike.%${token}%,asset_code.ilike.%${token}%,serial_number.ilike.%${token}%,model.ilike.%${token}%`);
+      query = query.or(`name.ilike.%${token}%,asset_code.ilike.%${token}%,serial_number.ilike.%${token}%,model.ilike.%${token}%,supplier_name.ilike.%${token}%`);
     }
     const { from, to } = range(data.page, data.pageSize);
     const { data: rows, error, count } = await query.range(from, to);
@@ -224,6 +251,7 @@ export const saveArcadeMachine = createAuthenticatedAction(
       warranty_start: data.warrantyStart ?? null,
       warranty_expires_on: data.warrantyExpiresOn ?? null,
       machine_cost: data.machineCost ?? null,
+      ...gamePaymentColumns(data),
       status: data.status,
       technician_staff_id: data.technicianStaffId ?? null,
       power_requirement: data.powerRequirement ?? null,

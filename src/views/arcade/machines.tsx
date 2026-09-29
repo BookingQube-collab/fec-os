@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { ActionButton, Field, KpiTile, MobileActions, Pager, StatusBadge } from "@/components/arcade/ui";
@@ -12,12 +13,11 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useSites } from "@/hooks/queries/useSites";
 import { usePermission } from "@/hooks/use-permission";
-import { MACHINE_STATUSES } from "@/lib/arcade/domain";
-import { getArcadeContext, getArcadeFileUrl, getArcadeMachine, listArcadeMachines, saveArcadeMachine, uploadArcadeFile } from "@/lib/arcade.functions";
+import { MACHINE_STATUSES, siteAvailability } from "@/lib/arcade/domain";
+import { getArcadeContext, getArcadeDashboard, getArcadeFileUrl, getArcadeMachine, listArcadeMachines, saveArcadeMachine, uploadArcadeFile } from "@/lib/arcade.functions";
 import { listArcadeSuppliers } from "@/lib/arcade-supply.functions";
-import { getArcadeDashboard } from "@/lib/arcade.functions";
+import { fmtCurrency } from "@/lib/currency";
 import { queryKeys } from "@/lib/query-keys";
-import { siteAvailability } from "@/lib/arcade/domain";
 
 function useSiteLabel() {
   const sites = useSites();
@@ -78,6 +78,7 @@ export function ArcadeSite({ locationId }: { locationId: string }) {
 }
 
 export function ArcadeMachines({ locationId }: { locationId?: string }) {
+  const { t } = useTranslation();
   const [page, setPage] = useState(1);
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
@@ -91,22 +92,37 @@ export function ArcadeMachines({ locationId }: { locationId?: string }) {
     <div className="grid gap-3">
       {!locationId ? <h1 className="text-xl font-semibold">Machines</h1> : null}
       <div className="flex flex-wrap gap-2">
-        <Input value={q} onChange={(event) => { setQ(event.target.value); setPage(1); }} placeholder="Search name, asset ID, serial" className="max-w-xs" />
+        <Input value={q} onChange={(event) => { setQ(event.target.value); setPage(1); }} placeholder="Search name, asset ID, serial, supplier" className="max-w-xs" />
         <select className="h-10 rounded-md border bg-background px-2 text-sm" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}>
           <option value="">All statuses</option>
           {MACHINE_STATUSES.map((item) => <option key={item} value={item}>{item.replaceAll("_", " ")}</option>)}
         </select>
         {canManage ? <Button asChild><Link href={`/arcade/machines/new${locationId ? `?locationId=${locationId}` : ""}`}>Add machine</Link></Button> : null}
       </div>
-      <div className="hidden md:block">
+      <div className="hidden overflow-x-auto md:block">
         <table className="w-full text-sm">
-          <thead className="text-left text-muted-foreground"><tr><th className="py-2">Asset</th><th>Machine</th><th>Site</th><th>Status</th></tr></thead>
+          <thead className="text-left text-muted-foreground">
+            <tr>
+              <th className="py-2">Asset</th>
+              <th>Machine</th>
+              <th>Site</th>
+              <th>{t("arcadeGames.listSupplier")}</th>
+              <th>{t("arcadeGames.listPaid")}</th>
+              <th>{t("arcadeGames.listPaidOn")}</th>
+              <th>{t("arcadeGames.listFix")}</th>
+              <th>Status</th>
+            </tr>
+          </thead>
           <tbody>
             {(list.data?.rows ?? []).map((row) => (
               <tr key={row.id} className="border-t">
                 <td className="py-2 font-mono text-xs">{row.asset_code}</td>
                 <td><Link className="font-medium underline-offset-2 hover:underline" href={`/arcade/machines/${row.id}`}>{row.name}</Link></td>
                 <td>{label(row.location_id)}</td>
+                <td>{row.supplier_name || "—"}</td>
+                <td className="tabular-nums">{formatPaid(row.amount_paid, row.paid_currency)}</td>
+                <td>{row.paid_on || "—"}</td>
+                <td className="max-w-48 truncate">{row.last_fix_status ? `${row.last_fix_status.replaceAll("_", " ")} · ${row.last_fix_summary ?? ""}` : "—"}</td>
                 <td><StatusBadge status={row.status} /></td>
               </tr>
             ))}
@@ -118,6 +134,8 @@ export function ArcadeMachines({ locationId }: { locationId?: string }) {
           <Link key={row.id} href={`/arcade/machines/${row.id}`} className="rounded-lg border p-3">
             <div className="flex items-center justify-between gap-2"><span className="font-medium">{row.name}</span><StatusBadge status={row.status} /></div>
             <p className="text-xs text-muted-foreground">{row.asset_code} · {label(row.location_id)}</p>
+            <p className="text-xs text-muted-foreground">{t("arcadeGames.listSupplier")}: {row.supplier_name || "—"} · {formatPaid(row.amount_paid, row.paid_currency)} · {row.paid_on || "—"}</p>
+            {row.last_fix_summary ? <p className="text-xs">{t("arcadeGames.listFix")}: {row.last_fix_summary}</p> : null}
           </Link>
         ))}
       </div>
@@ -126,41 +144,102 @@ export function ArcadeMachines({ locationId }: { locationId?: string }) {
   );
 }
 
-export function ArcadeMachineForm() {
+function formatPaid(amount: number | string | null | undefined, currency: string | null | undefined) {
+  if (amount == null || amount === "") return "—";
+  const value = Number(amount);
+  if (!Number.isFinite(value)) return "—";
+  return fmtCurrency(value, currency || "QAR");
+}
+
+function dayValue(value: string | null | undefined) {
+  return value ? String(value).slice(0, 10) : "";
+}
+
+const emptyMachineForm = {
+  assetCode: "",
+  name: "",
+  gameCategory: "Arcade",
+  locationId: "",
+  zone: "",
+  unitNumber: "",
+  manufacturer: "",
+  vendorId: "",
+  supplierName: "",
+  model: "",
+  serialNumber: "",
+  installedOn: "",
+  purchasedOn: "",
+  warrantyStart: "",
+  warrantyExpiresOn: "",
+  machineCost: "",
+  amountPaid: "",
+  paidCurrency: "QAR",
+  paidOn: "",
+  status: "WORKING",
+  technicianStaffId: "",
+  powerRequirement: "",
+  networkRequirement: "",
+  ipAddress: "",
+  softwareVersion: "",
+  controllerPcb: "",
+  cardRfidInterface: "",
+  nextPmOn: "",
+  notes: "",
+};
+
+export function ArcadeMachineForm({ machineId }: { machineId?: string }) {
+  const { t } = useTranslation();
   const sites = useSites();
   const context = useQuery({ queryKey: queryKeys.arcade.context(), queryFn: () => getArcadeContext({}) });
   const suppliers = useQuery({ queryKey: [...queryKeys.arcade.all, "supplier-options", "machine-form"], queryFn: () => listArcadeSuppliers({ page: 1, pageSize: 50 }) });
+  const existing = useQuery({
+    queryKey: queryKeys.arcade.machine(machineId),
+    queryFn: () => getArcadeMachine({ id: machineId }),
+    enabled: Boolean(machineId),
+  });
   const qc = useQueryClient();
   const search = useSearchParams();
-  const [form, setForm] = useState({
-    assetCode: "",
-    name: "",
-    gameCategory: "Arcade",
-    locationId: search.get("locationId") ?? "",
-    zone: "",
-    unitNumber: "",
-    manufacturer: "",
-    vendorId: "",
-    model: "",
-    serialNumber: "",
-    installedOn: "",
-    purchasedOn: "",
-    warrantyStart: "",
-    warrantyExpiresOn: "",
-    machineCost: "",
-    status: "WORKING",
-    technicianStaffId: "",
-    powerRequirement: "",
-    networkRequirement: "",
-    ipAddress: "",
-    softwareVersion: "",
-    controllerPcb: "",
-    cardRfidInterface: "",
-    nextPmOn: "",
-    notes: "",
-  });
+  const [form, setForm] = useState({ ...emptyMachineForm, locationId: search.get("locationId") ?? "" });
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
+    const row = existing.data?.machine;
+    if (!row || hydrated) return;
+    setForm({
+      assetCode: row.asset_code,
+      name: row.name,
+      gameCategory: row.game_category,
+      locationId: row.location_id,
+      zone: row.zone ?? "",
+      unitNumber: row.unit_number ?? "",
+      manufacturer: row.manufacturer ?? "",
+      vendorId: row.vendor_id ?? "",
+      supplierName: row.supplier_name ?? "",
+      model: row.model ?? "",
+      serialNumber: row.serial_number ?? "",
+      installedOn: dayValue(row.installed_on),
+      purchasedOn: dayValue(row.purchased_on),
+      warrantyStart: dayValue(row.warranty_start),
+      warrantyExpiresOn: dayValue(row.warranty_expires_on),
+      machineCost: row.machine_cost == null ? "" : String(row.machine_cost),
+      amountPaid: row.amount_paid == null ? "" : String(row.amount_paid),
+      paidCurrency: row.paid_currency ?? "QAR",
+      paidOn: dayValue(row.paid_on),
+      status: row.status,
+      technicianStaffId: row.technician_staff_id ?? "",
+      powerRequirement: row.power_requirement ?? "",
+      networkRequirement: row.network_requirement ?? "",
+      ipAddress: row.ip_address ?? "",
+      softwareVersion: row.software_version ?? "",
+      controllerPcb: row.controller_pcb ?? "",
+      cardRfidInterface: row.card_rfid_interface ?? "",
+      nextPmOn: dayValue(row.next_pm_on),
+      notes: row.notes ?? "",
+    });
+    setHydrated(true);
+  }, [existing.data, hydrated]);
   const save = useMutation({
     mutationFn: () => saveArcadeMachine({
+      id: machineId,
       assetCode: form.assetCode,
       name: form.name,
       gameCategory: form.gameCategory,
@@ -169,6 +248,7 @@ export function ArcadeMachineForm() {
       unitNumber: form.unitNumber || null,
       manufacturer: form.manufacturer || null,
       vendorId: form.vendorId || null,
+      supplierName: form.supplierName || null,
       model: form.model || null,
       serialNumber: form.serialNumber || null,
       installedOn: form.installedOn || null,
@@ -176,6 +256,9 @@ export function ArcadeMachineForm() {
       warrantyStart: form.warrantyStart || null,
       warrantyExpiresOn: form.warrantyExpiresOn || null,
       machineCost: form.machineCost ? Number(form.machineCost) : null,
+      amountPaid: form.amountPaid === "" ? null : Number(form.amountPaid),
+      paidCurrency: form.paidCurrency || null,
+      paidOn: form.paidOn || null,
       status: form.status as "WORKING",
       technicianStaffId: form.technicianStaffId || null,
       powerRequirement: form.powerRequirement || null,
@@ -194,9 +277,10 @@ export function ArcadeMachineForm() {
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Could not save machine"),
   });
+  if (machineId && existing.isLoading) return <p className="text-sm text-muted-foreground">Loading machine…</p>;
   return (
     <form className="grid max-w-3xl gap-3" onSubmit={(event) => { event.preventDefault(); save.mutate(); }}>
-      <h1 className="text-xl font-semibold">Machine master</h1>
+      <h1 className="text-xl font-semibold">{machineId ? t("arcadeGames.editGame") : "Machine master"}</h1>
       <p className="text-sm text-muted-foreground">Each physical unit is its own asset. RC Car #1 and RC Car #2 are separate records.</p>
       <div className="grid gap-3 md:grid-cols-2">
         <Field label="Asset ID"><Input value={form.assetCode} onChange={(event) => setForm({ ...form, assetCode: event.target.value })} placeholder="UA-ARCAR-001" required /></Field>
@@ -211,11 +295,21 @@ export function ArcadeMachineForm() {
         <Field label="Zone / area"><Input value={form.zone} onChange={(event) => setForm({ ...form, zone: event.target.value })} /></Field>
         <Field label="Unit number"><Input value={form.unitNumber} onChange={(event) => setForm({ ...form, unitNumber: event.target.value })} /></Field>
         <Field label="Manufacturer"><Input value={form.manufacturer} onChange={(event) => setForm({ ...form, manufacturer: event.target.value })} /></Field>
-        <Field label="Supplier">
-          <select className="h-10 rounded-md border bg-background px-2" value={form.vendorId} onChange={(event) => setForm({ ...form, vendorId: event.target.value })}>
+        <Field label={t("arcadeGames.supplierRecord")}>
+          <select className="h-10 rounded-md border bg-background px-2" value={form.vendorId} onChange={(event) => {
+            const vendor = (suppliers.data?.rows ?? []).find((item) => item.id === event.target.value);
+            setForm({
+              ...form,
+              vendorId: event.target.value,
+              supplierName: form.supplierName || vendor?.name || "",
+            });
+          }}>
             <option value="">None</option>
             {(suppliers.data?.rows ?? []).map((vendor) => <option key={vendor.id} value={vendor.id}>{vendor.name}</option>)}
           </select>
+        </Field>
+        <Field label={t("arcadeGames.supplier")}>
+          <Input value={form.supplierName} onChange={(event) => setForm({ ...form, supplierName: event.target.value })} />
         </Field>
         <Field label="Model"><Input value={form.model} onChange={(event) => setForm({ ...form, model: event.target.value })} /></Field>
         <Field label="Serial number"><Input value={form.serialNumber} onChange={(event) => setForm({ ...form, serialNumber: event.target.value })} /></Field>
@@ -224,6 +318,9 @@ export function ArcadeMachineForm() {
         <Field label="Warranty start"><Input type="date" value={form.warrantyStart} onChange={(event) => setForm({ ...form, warrantyStart: event.target.value })} /></Field>
         <Field label="Warranty expiry"><Input type="date" value={form.warrantyExpiresOn} onChange={(event) => setForm({ ...form, warrantyExpiresOn: event.target.value })} /></Field>
         <Field label="Machine cost"><Input type="number" min={0} value={form.machineCost} onChange={(event) => setForm({ ...form, machineCost: event.target.value })} /></Field>
+        <Field label={t("arcadeGames.amountPaid")}><Input type="number" min={0} step="0.01" value={form.amountPaid} onChange={(event) => setForm({ ...form, amountPaid: event.target.value })} /></Field>
+        <Field label={t("arcadeGames.currency")}><Input value={form.paidCurrency} maxLength={8} onChange={(event) => setForm({ ...form, paidCurrency: event.target.value.toUpperCase() })} /></Field>
+        <Field label={t("arcadeGames.paidOn")}><Input type="date" value={form.paidOn} onChange={(event) => setForm({ ...form, paidOn: event.target.value })} /></Field>
         <Field label="Power"><Input value={form.powerRequirement} onChange={(event) => setForm({ ...form, powerRequirement: event.target.value })} /></Field>
         <Field label="Network"><Input value={form.networkRequirement} onChange={(event) => setForm({ ...form, networkRequirement: event.target.value })} /></Field>
         <Field label="IP"><Input value={form.ipAddress} onChange={(event) => setForm({ ...form, ipAddress: event.target.value })} /></Field>
@@ -243,14 +340,17 @@ export function ArcadeMachineForm() {
           </select>
         </Field>
       </div>
+      <p className="text-xs text-muted-foreground">{t("arcadeGames.supplierHint")}</p>
       <Field label="Notes"><Textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></Field>
-      <Button type="submit" disabled={save.isPending}>Save machine</Button>
+      <Button type="submit" disabled={save.isPending}>{t("arcadeGames.saveGame")}</Button>
     </form>
   );
 }
 
 export function ArcadeMachineDetail({ id }: { id: string }) {
+  const { t } = useTranslation();
   const machine = useQuery({ queryKey: queryKeys.arcade.machine(id), queryFn: () => getArcadeMachine({ id }) });
+  const context = useQuery({ queryKey: queryKeys.arcade.context(), queryFn: () => getArcadeContext({}) });
   const label = useSiteLabel();
   const canManage = usePermission("arcade.manage");
   const qc = useQueryClient();
@@ -278,6 +378,8 @@ export function ArcadeMachineDetail({ id }: { id: string }) {
   if (machine.isLoading) return <p className="text-sm text-muted-foreground">Loading machine…</p>;
   if (!row) return <p className="text-sm text-destructive">Machine not found</p>;
   const prefill = `machineId=${row.id}&locationId=${row.location_id}&technicianId=${row.technician_staff_id ?? ""}`;
+  const fixer = (context.data?.technicians ?? []).find((tech) => tech.id === row.last_fix_technician_staff_id)?.full_name;
+  const fixWhen = row.last_fix_at ? new Date(row.last_fix_at).toLocaleString() : null;
   return (
     <div className="grid gap-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -288,6 +390,9 @@ export function ArcadeMachineDetail({ id }: { id: string }) {
         </div>
         <div className="grid gap-2">
           <StatusBadge status={row.status} />
+          {canManage ? (
+            <Button asChild variant="outline"><Link href={`/arcade/machines/${row.id}/edit`}>{t("arcadeGames.editGame")}</Link></Button>
+          ) : null}
           {canManage ? (
             <select
               className="h-10 rounded-md border bg-background px-2"
@@ -323,7 +428,23 @@ export function ArcadeMachineDetail({ id }: { id: string }) {
         <Info label="Controller / PCB" value={row.controller_pcb} />
         <Info label="Card / RFID" value={row.card_rfid_interface} />
         <Info label="IP" value={row.ip_address} />
+        <Info label={t("arcadeGames.supplier")} value={row.supplier_name} />
+        <Info label={t("arcadeGames.amountPaid")} value={formatPaid(row.amount_paid, row.paid_currency)} />
+        <Info label={t("arcadeGames.paidOn")} value={row.paid_on} />
       </dl>
+      <section className="rounded-lg border p-3">
+        <h2 className="font-semibold">{t("arcadeGames.latestFix")}</h2>
+        {row.last_fix_summary ? (
+          <div className="mt-2 grid gap-1 text-sm">
+            <p>{row.last_fix_summary}</p>
+            <p className="text-muted-foreground">
+              {[row.last_fix_status?.replaceAll("_", " "), fixWhen, fixer].filter(Boolean).join(" · ")}
+            </p>
+          </div>
+        ) : (
+          <p className="mt-2 text-sm text-muted-foreground">{t("arcadeGames.fixNone")}</p>
+        )}
+      </section>
       <MachineTabs data={machine.data} />
     </div>
   );

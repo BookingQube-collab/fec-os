@@ -700,6 +700,96 @@ export function weekBounds(anchorIso: string): { start: string; end: string; day
   return { start, end: days[6]!, days };
 }
 
+export const GAME_PAYMENT_CURRENCY = "QAR";
+
+export type GamePayment = {
+  supplierName: string | null;
+  amountPaid: number | null;
+  currency: string | null;
+  paidOn: string | null;
+};
+
+/**
+ * Supplier, amount paid, and paid date for one game.
+ * All values stay empty when staff have not entered them.
+ * A later bulk upload of purchase invoices writes these same fields.
+ */
+export function normalizeGamePayment(input: {
+  supplierName?: string | null;
+  amountPaid?: number | null;
+  currency?: string | null;
+  paidOn?: string | null;
+}): GamePayment {
+  const supplierName = (input.supplierName ?? "").replace(/\s+/g, " ").trim() || null;
+  let amountPaid: number | null = null;
+  if (input.amountPaid != null) {
+    if (!Number.isFinite(input.amountPaid) || input.amountPaid < 0) {
+      throw new Error("Amount paid cannot be negative");
+    }
+    amountPaid = Math.round(input.amountPaid * 100) / 100;
+  }
+  const explicit = (input.currency ?? "").trim().toUpperCase() || null;
+  const currency = amountPaid != null ? explicit || GAME_PAYMENT_CURRENCY : explicit;
+  const paidOn = (input.paidOn ?? "").trim() || null;
+  if (paidOn && !/^\d{4}-\d{2}-\d{2}$/.test(paidOn)) {
+    throw new Error("Paid date must be a calendar date");
+  }
+  return { supplierName, amountPaid, currency, paidOn };
+}
+
+const COMPLETED_FIX_STATUSES = new Set(["COMPLETED", "RESOLVED", "CLOSED"]);
+
+export type MachineFixUpdate = {
+  lastFixAt: string;
+  lastFixSummary: string;
+  lastFixStatus: string;
+  lastFixTechnicianStaffId: string | null;
+  /** Set only when the fix is completed. Null means leave the previous repair time. */
+  lastRepairAt: string | null;
+};
+
+/** Prefer the note the technician just wrote, then the repair write-up, then the fault description. */
+export function fixSummaryFromFault(input: {
+  note?: string | null;
+  actionTaken?: string | null;
+  finalResult?: string | null;
+  diagnosis?: string | null;
+  description?: string | null;
+}): string {
+  return [input.note, input.actionTaken, input.finalResult, input.diagnosis, input.description]
+    .map((value) => (value ?? "").replace(/\s+/g, " ").trim())
+    .find((value) => value.length >= 2) ?? "";
+}
+
+/**
+ * Logging or completing a technician fix updates that game.
+ * The returned snapshot is what the machine record stores as its latest fix.
+ */
+export function machineFixUpdate(input: {
+  at: string;
+  summary?: string | null;
+  status: string;
+  technicianStaffId?: string | null;
+}): MachineFixUpdate {
+  const summary = (input.summary ?? "").replace(/\s+/g, " ").trim().slice(0, 500);
+  if (summary.length < 2) {
+    throw new Error("A technician fix needs a short summary before it updates the game");
+  }
+  if (!Number.isFinite(new Date(input.at).getTime())) {
+    throw new Error("Fix time is not a valid timestamp");
+  }
+  const status = input.status.trim();
+  if (!status) throw new Error("Fix status is required");
+  const completed = COMPLETED_FIX_STATUSES.has(status);
+  return {
+    lastFixAt: input.at,
+    lastFixSummary: summary,
+    lastFixStatus: status,
+    lastFixTechnicianStaffId: input.technicianStaffId?.trim() || null,
+    lastRepairAt: completed ? input.at : null,
+  };
+}
+
 export const DEFAULT_PM_CHECKLIST = [
   "Visual condition and cabinet",
   "Power and earth",

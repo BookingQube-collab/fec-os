@@ -7,6 +7,8 @@ import {
   compareWorkPriority,
   detectRepeatFault,
   faultsFromPmChecklist,
+  fixSummaryFromFault,
+  machineFixUpdate,
   machineStatusForFault,
   nextMachineStatus,
   nextPmDate,
@@ -63,6 +65,46 @@ async function applyMachineStatus(
     if (updateError) throw updateError;
   }
   return next;
+}
+
+async function stampMachineFix(
+  context: AuthContext,
+  machineId: string,
+  input: {
+    at: string;
+    summary?: string | null;
+    status: string;
+    technicianStaffId?: string | null;
+    fallback?: string | null;
+  },
+) {
+  const summary = fixSummaryFromFault({
+    note: input.summary,
+    description: input.fallback,
+  });
+  const stamp = machineFixUpdate({
+    at: input.at,
+    summary,
+    status: input.status,
+    technicianStaffId: input.technicianStaffId,
+  });
+  const patch: {
+    last_fix_at: string;
+    last_fix_summary: string;
+    last_fix_status: string;
+    updated_by: string;
+    last_fix_technician_staff_id?: string;
+    last_repair_at?: string;
+  } = {
+    last_fix_at: stamp.lastFixAt,
+    last_fix_summary: stamp.lastFixSummary,
+    last_fix_status: stamp.lastFixStatus,
+    updated_by: context.userId,
+  };
+  if (stamp.lastFixTechnicianStaffId) patch.last_fix_technician_staff_id = stamp.lastFixTechnicianStaffId;
+  if (stamp.lastRepairAt) patch.last_repair_at = stamp.lastRepairAt;
+  const { error } = await context.supabase.from("arcade_machines").update(patch).eq("id", machineId);
+  if (error) throw error;
 }
 
 export const listArcadeFaults = createAuthenticatedAction(
@@ -164,6 +206,12 @@ export const reportArcadeFault = createAuthenticatedAction(
     const proposed = data.machineStatus ?? machineStatusForFault("REPORTED", data.operationalImpact);
     await applyMachineStatus(context, data.machineId, proposed, row.id);
     await context.supabase.from("arcade_machines").update({ last_fault_at: reportedAt, updated_by: context.userId }).eq("id", data.machineId);
+    await stampMachineFix(context, data.machineId, {
+      at: reportedAt,
+      summary: data.description,
+      status: "REPORTED",
+      technicianStaffId: data.technicianStaffId,
+    });
     return row;
   },
   { auth: { capability: "arcade.operate" } },
@@ -235,9 +283,18 @@ export const updateArcadeFault = createAuthenticatedAction(
     }
     const proposed = machineStatusForFault(data.status, existing.operational_impact);
     await applyMachineStatus(context, existing.machine_id, proposed, data.id);
-    if (data.status === "RESOLVED" || data.status === "CLOSED") {
-      await context.supabase.from("arcade_machines").update({ last_repair_at: new Date().toISOString(), updated_by: context.userId }).eq("id", existing.machine_id);
-    }
+    await stampMachineFix(context, existing.machine_id, {
+      at: new Date().toISOString(),
+      summary: fixSummaryFromFault({
+        note: data.note,
+        actionTaken: closure.actionTaken,
+        finalResult: closure.finalResult,
+        diagnosis: closure.diagnosis,
+        description: existing.description,
+      }),
+      status: data.status,
+      technicianStaffId: existing.technician_staff_id,
+    });
     return { id: data.id, status: data.status };
   },
   { auth: { capability: "arcade.operate" } },
@@ -317,6 +374,14 @@ export const setArcadeRepairState = createAuthenticatedAction(
         created_by: context.userId,
       });
     }
+    const repairStatus = data.action === "START" ? "IN_PROGRESS" : data.action === "PAUSE" ? "PAUSED" : "COMPLETED";
+    await stampMachineFix(context, fault.machine_id, {
+      at: new Date().toISOString(),
+      summary: data.note,
+      fallback: data.action === "START" ? "Repair started" : data.action === "PAUSE" ? "Repair paused" : "Repair completed",
+      status: repairStatus,
+      technicianStaffId: fault.technician_staff_id,
+    });
     return { ok: true };
   },
   { auth: { capability: "arcade.operate" } },
@@ -382,6 +447,12 @@ export const finishObservation = createAuthenticatedAction(
       }
       await context.supabase.from("arcade_observations").update({ status: "REOPENED", closed_at: new Date().toISOString() }).eq("id", observation.id);
       await applyMachineStatus(context, observation.machine_id, "UNDER_REPAIR", observation.fault_id ?? undefined);
+      await stampMachineFix(context, observation.machine_id, {
+        at: new Date().toISOString(),
+        fallback: "Returned to repair",
+        status: "UNDER_REPAIR",
+        technicianStaffId: observation.technician_staff_id,
+      });
       return { status: "UNDER_REPAIR" as const };
     }
     if (!observation.fault_id) throw new Error("This observation is not linked to a fault");
@@ -409,6 +480,17 @@ export const finishObservation = createAuthenticatedAction(
     if (updateError) throw updateError;
     await context.supabase.from("arcade_observations").update({ status: "RETURNED", closed_at: new Date().toISOString() }).eq("id", observation.id);
     await applyMachineStatus(context, observation.machine_id, "WORKING", observation.fault_id);
+    await stampMachineFix(context, observation.machine_id, {
+      at: new Date().toISOString(),
+      summary: fixSummaryFromFault({
+        actionTaken: data.actionTaken,
+        finalResult: data.finalResult,
+        diagnosis: data.diagnosis,
+        description: data.problem,
+      }),
+      status: "RESOLVED",
+      technicianStaffId: observation.technician_staff_id,
+    });
     return { status: "RESOLVED" as const };
   },
   { auth: { capability: "arcade.operate" } },
@@ -531,6 +613,12 @@ export const completePm = createAuthenticatedAction(
         .single();
       if (faultError) throw faultError;
       faultIds.push(fault.ticket_number ?? fault.id);
+      await stampMachineFix(context, data.machineId, {
+        at: new Date().toISOString(),
+        summary: draft.description,
+        status: "REPORTED",
+        technicianStaffId: data.technicianStaffId,
+      });
     }
     return { recordId: record.id, nextPmOn: next, faultTickets: faultIds, pmCompleted: true };
   },

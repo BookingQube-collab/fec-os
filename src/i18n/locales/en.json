@@ -7887,5 +7887,22 @@
       "history": "Stage & communication history",
       "noHistory": "No history yet."
     }
+  },
+  "arcadeGames": {
+    "supplier": "Supplier",
+    "supplierHint": "Name on the purchase invoice. A later bulk upload fills this same field.",
+    "supplierRecord": "Supplier record",
+    "amountPaid": "Amount paid (QAR)",
+    "currency": "Currency",
+    "paidOn": "Date paid",
+    "latestFix": "Latest technician fix",
+    "fixNone": "No technician fix recorded on this game yet.",
+    "editGame": "Edit game",
+    "saveGame": "Save game",
+    "openGame": "Open game",
+    "listSupplier": "Supplier",
+    "listPaid": "Paid",
+    "listPaidOn": "Paid on",
+    "listFix": "Latest fix"
   }
 }

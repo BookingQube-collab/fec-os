@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { Field, Pager, StatusBadge } from "@/components/arcade/ui";
@@ -158,6 +159,7 @@ export function ArcadeFaultForm() {
 }
 
 export function ArcadeFaultDetail({ id }: { id: string }) {
+  const { t } = useTranslation();
   const fault = useQuery({ queryKey: queryKeys.arcade.fault(id), queryFn: () => getArcadeFault({ id }) });
   const canClose = usePermission("arcade.close");
   const qc = useQueryClient();
@@ -174,7 +176,7 @@ export function ArcadeFaultDetail({ id }: { id: string }) {
   const row = fault.data?.fault;
   const act = useMutation({
     mutationFn: (action: "START" | "PAUSE" | "COMPLETE") => setArcadeRepairState({ faultId: id, action, note }),
-    onSuccess: () => { toast.success("Repair updated"); void qc.invalidateQueries({ queryKey: queryKeys.arcade.fault(id) }); },
+    onSuccess: () => { toast.success("Repair updated"); void qc.invalidateQueries({ queryKey: queryKeys.arcade.all }); },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Update failed"),
   });
   const move = useMutation({
@@ -207,6 +209,7 @@ export function ArcadeFaultDetail({ id }: { id: string }) {
         <Button type="button" onClick={() => act.mutate("START")}>Start</Button>
         <Button type="button" variant="outline" onClick={() => act.mutate("PAUSE")}>Pause</Button>
         <Button type="button" variant="outline" onClick={() => act.mutate("COMPLETE")}>Complete repair session</Button>
+        <Button asChild variant="outline"><Link href={`/arcade/machines/${row.machine_id}`}>{t("arcadeGames.openGame")}</Link></Button>
         <Button asChild variant="outline"><Link href={`/arcade/parts?machineId=${row.machine_id}&locationId=${row.location_id}&faultId=${row.id}`}>Request part</Link></Button>
         <Button asChild variant="outline"><Link href={`/arcade/support/new?machineId=${row.machine_id}&locationId=${row.location_id}&faultId=${row.id}&technicianId=${row.technician_staff_id ?? ""}`}>Supplier case</Link></Button>
       </div>

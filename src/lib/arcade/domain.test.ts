@@ -6,10 +6,13 @@ import {
   consumeStock,
   detectRepeatFault,
   faultsFromPmChecklist,
+  fixSummaryFromFault,
+  machineFixUpdate,
   matchImportMachine,
   mtbfDays,
   mttrHours,
   nextMachineStatus,
+  normalizeGamePayment,
   nextPartSupplyStatus,
   observationFailedAgain,
   operationalPercent,
@@ -215,5 +218,75 @@ describe("availability, reliability, import, alerts", () => {
       observationFailedIds: [],
     });
     expect(alerts.map((alert) => alert.rule)).toEqual(["fault_7d"]);
+  });
+});
+
+describe("game supplier payment", () => {
+  it("keeps supplier, amount paid, QAR, and paid date", () => {
+    expect(
+      normalizeGamePayment({
+        supplierName: "  CQ Amusement  ",
+        amountPaid: 15000.126,
+        paidOn: "2026-09-12",
+      }),
+    ).toEqual({
+      supplierName: "CQ Amusement",
+      amountPaid: 15000.13,
+      currency: "QAR",
+      paidOn: "2026-09-12",
+    });
+  });
+
+  it("leaves payment empty when nothing was entered", () => {
+    expect(normalizeGamePayment({})).toEqual({
+      supplierName: null,
+      amountPaid: null,
+      currency: null,
+      paidOn: null,
+    });
+  });
+
+  it("rejects a negative amount", () => {
+    expect(() => normalizeGamePayment({ amountPaid: -1, supplierName: "CQ Amusement" })).toThrow(/cannot be negative/);
+  });
+});
+
+describe("technician fix updates the game", () => {
+  it("stamps the game when a repair is logged and keeps the previous repair time", () => {
+    const stamp = machineFixUpdate({
+      at: "2026-09-29T09:30:00.000Z",
+      summary: fixSummaryFromFault({ note: "Opened the cabinet and reseated the harness" }),
+      status: "IN_PROGRESS",
+      technicianStaffId: "tech-1",
+    });
+    expect(stamp).toEqual({
+      lastFixAt: "2026-09-29T09:30:00.000Z",
+      lastFixSummary: "Opened the cabinet and reseated the harness",
+      lastFixStatus: "IN_PROGRESS",
+      lastFixTechnicianStaffId: "tech-1",
+      lastRepairAt: null,
+    });
+  });
+
+  it("replaces the latest fix and records the repair time when the fix is completed", () => {
+    const stamp = machineFixUpdate({
+      at: "2026-09-29T11:00:00.000Z",
+      summary: fixSummaryFromFault({
+        note: "",
+        actionTaken: "Replaced the radar box and reseated the harness",
+        description: "Pink car stops after the first lap",
+      }),
+      status: "RESOLVED",
+    });
+    expect(stamp.lastFixSummary).toContain("radar box");
+    expect(stamp.lastFixStatus).toBe("RESOLVED");
+    expect(stamp.lastRepairAt).toBe("2026-09-29T11:00:00.000Z");
+    expect(stamp.lastFixTechnicianStaffId).toBeNull();
+  });
+
+  it("does not update the game from an empty fix note", () => {
+    expect(() => machineFixUpdate({ at: "2026-09-29T11:00:00.000Z", summary: " ", status: "COMPLETED" })).toThrow(
+      /short summary/,
+    );
   });
 });
