@@ -1,22 +1,22 @@
 "use client";
 
-import { FecLoader, FecPageHeader } from "@/components/fec";
+import { FecPageHeader } from "@/components/fec";
 
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import Link from "next/link";
-import { ChevronDown, FileBarChart, LayoutGrid, LayoutList, Loader2, MapPin, Search, Trash2, Upload } from "lucide-react";
+import { ChevronDown, FileBarChart, Loader2, MapPin, Search, Trash2, Upload } from "lucide-react";
 import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { AttendanceHrNav } from "@/components/attendance-hr/attendance-hr-nav";
+import { ConfirmationAction, EmptyState, LoadingState, SegmentControl } from "@/components/ds";
 import { AttendanceHrReportsKpiStrip } from "@/components/attendance-hr/attendance-hr-reports-kpi-strip";
 import { CapabilityGate } from "@/components/auth/capability-gate";
 import { ExportButton } from "@/components/export/export-button";
 import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -35,7 +35,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AttendanceRecordsGrid } from "@/components/people/attendance-records-grid";
 import {
   AttendanceRecordsTable,
@@ -437,19 +436,19 @@ export default function AttendanceHrReportsPage() {
           </div>
           <div className="min-w-44 space-y-1.5">
             <Label>{t("attendanceHr.reports.status")}</Label>
-            <Select value={status || "all"} onValueChange={(value) => setStatus(value === "all" ? "" : value)}>
-              <SelectTrigger aria-label={t("attendanceHr.reports.status")}>
-                <SelectValue placeholder={t("attendanceHr.reports.allStatuses")} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t("attendanceHr.reports.allStatuses")}</SelectItem>
-                {ATTENDANCE_STATUSES.map((value) => (
-                  <SelectItem key={value} value={value}>
-                    {t(`attendanceHr.reports.statuses.${value}`)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <SegmentControl
+              layout="scroll"
+              ariaLabel={t("attendanceHr.reports.status")}
+              value={status || "all"}
+              onValueChange={(value) => setStatus(value === "all" ? "" : value)}
+              options={[
+                { value: "all", label: t("attendanceHr.reports.allStatuses") },
+                ...ATTENDANCE_STATUSES.map((value) => ({
+                  value,
+                  label: t(`attendanceHr.reports.statuses.${value}`),
+                })),
+              ]}
+            />
           </div>
           <div className="min-w-44 space-y-1.5">
             <Label>{t("attendanceHr.reports.department")}</Label>
@@ -610,30 +609,15 @@ export default function AttendanceHrReportsPage() {
               {t("attendanceHr.reports.removeAll")}
             </Button>
           </CapabilityGate>
-          <div className="ms-auto inline-flex shrink-0 rounded-lg border border-border/70 p-0.5">
-            <Button
-              type="button"
-              size="sm"
-              variant={viewMode === "grid" ? "secondary" : "ghost"}
-              className="h-8 gap-1.5 px-2.5"
-              onClick={() => setViewMode("grid")}
-              aria-pressed={viewMode === "grid"}
-            >
-              <LayoutGrid className="h-3.5 w-3.5" />
-              {t("attendanceHr.reports.viewGrid")}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant={viewMode === "list" ? "secondary" : "ghost"}
-              className="h-8 gap-1.5 px-2.5"
-              onClick={() => setViewMode("list")}
-              aria-pressed={viewMode === "list"}
-            >
-              <LayoutList className="h-3.5 w-3.5" />
-              {t("attendanceHr.reports.viewList")}
-            </Button>
-          </div>
+          <SegmentControl
+            ariaLabel={t("attendanceHr.reports.viewList")}
+            value={viewMode}
+            onValueChange={setViewMode}
+            options={[
+              { value: "grid", label: t("attendanceHr.reports.viewGrid") },
+              { value: "list", label: t("attendanceHr.reports.viewList") },
+            ]}
+          />
         </div>
       </NeumorphicCard>
 
@@ -641,12 +625,9 @@ export default function AttendanceHrReportsPage() {
 
       <div className="relative" aria-busy={showListingBusy}>
         {showListingBusy && !q.isLoading ? (
-          <div className="pointer-events-none absolute inset-0 z-10 flex items-start justify-center bg-background/55 pt-16 backdrop-blur-[1px]">
-            <FecLoader
-              density="chip"
-              label={showSearchBusy ? t("attendanceHr.reports.searching") : t("attendanceHr.reports.loading")}
-            />
-          </div>
+          <p className="pointer-events-none absolute inset-x-0 top-4 z-10 text-center text-sm text-muted-foreground" role="status">
+            {showSearchBusy ? t("attendanceHr.reports.searching") : t("attendanceHr.reports.loading")}
+          </p>
         ) : null}
         <div className={cn(showListingBusy && !q.isLoading && "opacity-60 transition-opacity")}>
           {q.isLoading || emptyImport || (emptyFiltered && !showListingBusy) ? (
@@ -657,11 +638,11 @@ export default function AttendanceHrReportsPage() {
                 dateTo={to}
                 empty={
                   q.isLoading ? (
-                    <p className="text-sm text-muted-foreground">{t("attendanceHr.reports.loading")}</p>
+                    <LoadingState label={t("attendanceHr.reports.loading")} count={4} />
                   ) : emptyImport ? (
                     <div className="space-y-3 text-sm">
-                      <p className="text-muted-foreground">{t("attendanceHr.reports.empty")}</p>
-                      <Button asChild size="sm">
+                      <EmptyState title={t("attendanceHr.reports.empty")} />
+                      <Button asChild size="sm" className="min-h-12">
                         <Link href="/people/attendance/import">
                           <Upload className="h-4 w-4" />
                           {t("attendanceHr.reports.importCta")}
@@ -669,7 +650,7 @@ export default function AttendanceHrReportsPage() {
                       </Button>
                     </div>
                   ) : (
-                    <p className="text-sm text-muted-foreground">{t("attendanceHr.reports.emptyFiltered")}</p>
+                    <EmptyState title={t("attendanceHr.reports.emptyFiltered")} />
                   )
                 }
               />
@@ -679,11 +660,11 @@ export default function AttendanceHrReportsPage() {
                 {...listMapProps}
                 empty={
                   q.isLoading ? (
-                    <p className="text-sm text-muted-foreground">{t("attendanceHr.reports.loading")}</p>
+                    <LoadingState label={t("attendanceHr.reports.loading")} count={4} />
                   ) : emptyImport ? (
                     <div className="space-y-3 text-sm">
-                      <p className="text-muted-foreground">{t("attendanceHr.reports.empty")}</p>
-                      <Button asChild size="sm">
+                      <EmptyState title={t("attendanceHr.reports.empty")} />
+                      <Button asChild size="sm" className="min-h-12">
                         <Link href="/people/attendance/import">
                           <Upload className="h-4 w-4" />
                           {t("attendanceHr.reports.importCta")}
@@ -691,7 +672,7 @@ export default function AttendanceHrReportsPage() {
                       </Button>
                     </div>
                   ) : (
-                    <p className="text-sm text-muted-foreground">{t("attendanceHr.reports.emptyFiltered")}</p>
+                    <EmptyState title={t("attendanceHr.reports.emptyFiltered")} />
                   )
                 }
               />
@@ -716,16 +697,12 @@ export default function AttendanceHrReportsPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={purgeMut.isPending}>{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            <ConfirmationAction
+              label={t("attendanceHr.reports.removeAllConfirm")}
+              holdingLabel={t("common.holding")}
               disabled={purgeMut.isPending}
-              onClick={(e) => {
-                e.preventDefault();
-                purgeMut.mutate();
-              }}
-            >
-              {t("attendanceHr.reports.removeAllConfirm")}
-            </AlertDialogAction>
+              onConfirm={() => purgeMut.mutate()}
+            />
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

@@ -18,21 +18,25 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { BitsShine } from "@/components/layout/bits-shine";
 import { CircularProgressBadge } from "@/components/dashboard/circular-progress-badge";
-import SpotlightCard from "@/components/react-bits/spotlight-panel";
-import { TintedKpiCard, type KpiTint } from "@/components/dashboard/tinted-kpi-card";
-import EmployeeMePage from "@/views/employee-me-page";
+import {
+  AppCard,
+  EmptyState,
+  LoadingState,
+  MetricCard,
+  PageHeader,
+  SectionHeader,
+  SegmentControl,
+  StatusCard,
+  StatusChip,
+  StatusIndicator,
+  type MetricTone,
+  type StatusTone,
+} from "@/components/ds";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import EmployeeMePage from "@/views/employee-me-page";
 
 import { useAuth } from "@/hooks/use-auth";
 import { useDashboardKpis, useDashboardCharts } from "@/hooks/queries/useDashboardKpis";
@@ -41,11 +45,8 @@ import { useComplianceRenewals } from "@/hooks/queries/useInspections";
 import { useAfterLoad, useScrollGatedVisible } from "@/hooks/use-deferred-visible";
 import { useAppStore } from "@/stores/app-store";
 
-const HOME_SPOTLIGHT =
-  "!rounded-2xl !border-border/40 !bg-card !p-0 !text-foreground shadow-[0_4px_20px_rgba(0,0,0,0.05)]";
-const HOME_SPOTLIGHT_COLOR = "rgba(245, 197, 24, 0.22)" as const;
-import { useBranchesSummary } from "@/hooks/queries/useOperationsDashboard";
 import { useSites } from "@/hooks/queries/useSites";
+import { useBranchesSummary } from "@/hooks/queries/useOperationsDashboard";
 import type { DashboardPeriod } from "@/lib/dashboard.functions";
 import {
   dashboardViewForRoles,
@@ -55,7 +56,6 @@ import {
 } from "@/lib/rbac";
 import { fmtQar } from "@/lib/currency";
 import { retryImport } from "@/lib/retry-import";
-import { cn } from "@/lib/utils";
 import type { ComplianceRenewalRow } from "@/lib/queries/amc-queries.core";
 
 const HomeCommandCharts = dynamic(
@@ -83,45 +83,28 @@ const TIER_RANK: Record<string, number> = {
   Expired: 2,
 };
 
+function healthTone(pct: number): StatusTone {
+  if (pct >= 80) return "completed";
+  if (pct >= 60) return "warning";
+  return "critical";
+}
+
 function CommandKpi({
   href,
+  tone,
+  pulse,
   ...props
 }: {
   title: string;
   value: string | number;
   hint?: string;
   icon?: LucideIcon;
-  tint: KpiTint;
+  tone: MetricTone;
   empty?: boolean;
   href?: string;
+  pulse?: boolean;
 }) {
-  const card = <TintedKpiCard compact {...props} />;
-  if (!href) return card;
-  return (
-    <Link
-      href={href}
-      className="block rounded-2xl transition-shadow hover:shadow-elevated-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-    >
-      {card}
-    </Link>
-  );
-}
-
-function HealthPill({ pct }: { pct: number }) {
-  const { t } = useTranslation();
-  const variant = pct >= 80 ? "success" : pct >= 60 ? "warning" : "destructive";
-  const label =
-    pct >= 80
-      ? t("home.healthHealthy")
-      : pct >= 60
-        ? t("home.healthWatch")
-        : t("home.healthAtRisk");
-  return (
-    <Badge variant={variant} className="tabular-nums">
-      {label}
-      <span className="font-semibold">{pct}%</span>
-    </Badge>
-  );
+  return <MetricCard href={href} tone={tone} pulse={pulse} {...props} />;
 }
 
 function pickAttentionItems(rows: ComplianceRenewalRow[] | undefined, limit = 5) {
@@ -226,59 +209,54 @@ function OpsCommandHome() {
   const expiringAmc = sm?.amc_expiring_soon;
   const expiringValue =
     expiringDocs != null || expiringAmc != null ? (expiringAmc ?? 0) + (expiringDocs ?? 0) : "—";
+  const branchRows = branchesQ.data;
+  const lateTotal = branchRows ? branchRows.reduce((sum, row) => sum + row.staff_late, 0) : null;
+  const gamesOffline = branchRows
+    ? branchRows.reduce((sum, row) => sum + row.machines_down, 0)
+    : null;
 
   return (
-    <div className="space-y-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">
-          {t("home.asOf", { period: t(`home.period.${period}`), site: siteLabel })}
-        </p>
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <Select value={period} onValueChange={(v) => setPeriod(v as DashboardPeriod)}>
-            <SelectTrigger className="w-auto min-w-[10.5rem]" aria-label={t("home.periodLabel")}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {PERIODS.map((p) => (
-                <SelectItem key={p} value={p}>
-                  {t(`home.period.${p}`)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {e ? (
-            <span
-              tabIndex={0}
-              title={t("home.healthTooltip")}
-              aria-label={`${t("home.health", { pct: e.health_score })}. ${t("home.healthTooltip")}`}
-              className="group relative inline-flex cursor-help items-center rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground"
-            >
-              {t("home.health", { pct: e.health_score })}
-              <span
-                role="tooltip"
-                className="pointer-events-none absolute end-0 top-full z-20 mt-2 w-72 rounded-xl border border-border/70 bg-card p-3 text-start text-xs font-normal leading-relaxed text-foreground opacity-0 shadow-elevated-sm transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
-              >
-                {t("home.healthTooltip")}
-              </span>
-            </span>
-          ) : null}
-        </div>
-      </header>
+    <div className="ds-enter space-y-6">
+      <PageHeader
+        description={t("home.asOf", { period: t(`home.period.${period}`), site: siteLabel })}
+        actions={
+          <>
+            <SegmentControl
+              layout="scroll"
+              ariaLabel={t("home.periodLabel")}
+              value={period}
+              onValueChange={setPeriod}
+              options={PERIODS.map((p) => ({ value: p, label: t(`home.period.${p}`) }))}
+            />
+            {e ? (
+              <StatusChip tone={healthTone(e.health_score)}>
+                <span title={t("home.healthTooltip")}>{t("home.health", { pct: e.health_score })}</span>
+              </StatusChip>
+            ) : null}
+          </>
+        }
+      />
 
       {kpisQ.isLoading ? (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="h-[7.25rem] rounded-2xl" />
-          ))}
-        </div>
+        <LoadingState label={t("home.chartsTitle")} />
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {e ? (
+            <CommandKpi
+              title={t("home.sitesOpen")}
+              value={`${e.branches_open}/${e.branches_total}`}
+              hint={t("home.sites", { n: e.branches_total })}
+              icon={MapPin}
+              tone="info"
+              href="/branches"
+            />
+          ) : null}
           <CommandKpi
             title={t("home.openWorkOrders")}
             value={openWo}
             hint={t("home.sites", { n: e?.branches_total ?? "—" })}
             icon={Wrench}
-            tint="sky"
+            tone="info"
             href="/maintenance"
           />
           <CommandKpi
@@ -286,7 +264,7 @@ function OpsCommandHome() {
             value={overdueWo}
             hint={t("home.orders")}
             icon={Clock}
-            tint={overdueWo > 0 ? "red" : "green"}
+            tone={overdueWo > 0 ? "danger" : "success"}
             href="/maintenance"
           />
           <CommandKpi
@@ -294,7 +272,8 @@ function OpsCommandHome() {
             value={critical}
             hint={t("home.openIssuesHint", { n: openIssues })}
             icon={AlertTriangle}
-            tint={critical > 0 ? "red" : openIssues > 0 ? "orange" : "green"}
+            tone={critical > 0 ? "danger" : openIssues > 0 ? "warning" : "success"}
+            pulse={critical > 0}
             href="/issues"
           />
           <CommandKpi
@@ -302,17 +281,37 @@ function OpsCommandHome() {
             value={hasRoster ? `${e.staff_present}/${e.staff_scheduled}` : t("home.noRoster")}
             hint={hasRoster ? t("home.acrossEstate") : t("home.noRosterHint")}
             icon={Users}
-            tint="sky"
+            tone="info"
             empty={!hasRoster}
             href="/daily-ops/roster"
           />
+          {lateTotal != null ? (
+            <CommandKpi
+              title={t("home.staffLate")}
+              value={lateTotal}
+              hint={t("home.staffLateHint")}
+              icon={Clock}
+              tone={lateTotal > 0 ? "warning" : "success"}
+              href="/people/attendance"
+            />
+          ) : null}
+          {gamesOffline != null ? (
+            <CommandKpi
+              title={t("home.gamesOffline")}
+              value={gamesOffline}
+              hint={t("home.gamesOfflineHint")}
+              icon={Gauge}
+              tone={gamesOffline > 0 ? "danger" : "success"}
+              href="/arcade/faults"
+            />
+          ) : null}
           {hasRevenue ? (
             <CommandKpi
               title={t("home.revenueToday")}
               value={fmtQar(e.revenue_today)}
               hint={t("home.targetPct", { pct: e.revenue_target_pct })}
               icon={Wallet}
-              tint="green"
+              tone="success"
               href="/revenue"
             />
           ) : null}
@@ -322,7 +321,7 @@ function OpsCommandHome() {
               value={fmtQar(sm.utility_cost_this_month)}
               hint={t("home.thisMonth")}
               icon={BarChart3}
-              tint="green"
+              tone="success"
               href="/operations/utilities"
             />
           ) : null}
@@ -336,7 +335,7 @@ function OpsCommandHome() {
                   docs: expiringDocs ?? "—",
                 })}
                 icon={ShieldCheck}
-                tint={(expiringAmc ?? 0) + (expiringDocs ?? 0) > 0 ? "orange" : "amber"}
+                tone={(expiringAmc ?? 0) + (expiringDocs ?? 0) > 0 ? "warning" : "neutral"}
                 href="/compliance/expiry-alerts"
               />
               <CommandKpi
@@ -344,14 +343,14 @@ function OpsCommandHome() {
                 value={complianceKpis ? `${complianceKpis.compliance_health_pct}%` : "—"}
                 hint={t("home.complianceHealthHint")}
                 icon={ShieldCheck}
-                tint={
+                tone={
                   complianceKpis
                     ? complianceKpis.compliance_health_pct >= 80
-                      ? "green"
+                      ? "success"
                       : complianceKpis.compliance_health_pct >= 60
-                        ? "amber"
-                        : "red"
-                    : "slate"
+                        ? "warning"
+                        : "danger"
+                    : "neutral"
                 }
                 href="/compliance"
               />
@@ -362,17 +361,9 @@ function OpsCommandHome() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <section>
-          <SpotlightCard className={HOME_SPOTLIGHT} spotlightColor={HOME_SPOTLIGHT_COLOR}>
+          <AppCard>
             <div className="flex items-center justify-between border-b border-border/40 px-4 py-3">
-              <h2 className="section-kicker">
-                <AlertTriangle strokeWidth={1.5} />
-                <BitsShine
-                  text={t("home.needsAttention")}
-                  color="#6b6560"
-                  shineColor="#1a1a1a"
-                  speed={6}
-                />
-              </h2>
+              <SectionHeader icon={AlertTriangle} title={t("home.needsAttention")} />
               <Button variant="ghost" size="sm" asChild>
                 <Link href="/compliance/expiry-alerts">{t("home.viewAll")}</Link>
               </Button>
@@ -391,7 +382,7 @@ function OpsCommandHome() {
               {renewalsQ.isLoading ? (
                 <Skeleton className="m-4 h-24 rounded-xl" />
               ) : attention.top.length === 0 ? (
-                <p className="px-4 py-6 text-sm text-muted-foreground">{t("home.noItemsDue")}</p>
+              <EmptyState title={t("home.noItemsDue")} />
               ) : (
                 attention.top.map((item) => (
                   <div
@@ -428,21 +419,13 @@ function OpsCommandHome() {
                 </Button>
               </div>
             </div>
-          </SpotlightCard>
+          </AppCard>
         </section>
 
         <section>
-          <SpotlightCard className={HOME_SPOTLIGHT} spotlightColor={HOME_SPOTLIGHT_COLOR}>
-            <div className="p-5">
-              <h2 className="section-kicker">
-                <Gauge strokeWidth={1.5} />
-                <BitsShine
-                  text={t("home.siteReadiness")}
-                  color="#6b6560"
-                  shineColor="#1a1a1a"
-                  speed={6}
-                />
-              </h2>
+          <AppCard>
+            <StatusCard>
+              <SectionHeader icon={Gauge} title={t("home.siteReadiness")} />
               <div className="mt-5 flex justify-center">
                 {kpisQ.isLoading ? (
                   <Skeleton className="h-[120px] w-[120px] rounded-full" />
@@ -486,16 +469,13 @@ function OpsCommandHome() {
                   <Link href="/facility">{t("home.viewFacilityReadiness")}</Link>
                 </Button>
               </div>
-            </div>
-          </SpotlightCard>
+            </StatusCard>
+          </AppCard>
         </section>
       </div>
 
       <div ref={chartsRef}>
-        <h2 className="section-kicker mb-3">
-          <BarChart3 strokeWidth={1.5} />
-          <BitsShine text={t("home.chartsTitle")} color="#6b6560" shineColor="#1a1a1a" speed={6} />
-        </h2>
+        <SectionHeader className="mb-3" icon={BarChart3} title={t("home.chartsTitle")} />
         <Suspense
           fallback={
             <div className="grid gap-4 lg:grid-cols-3">
@@ -525,17 +505,9 @@ function OpsCommandHome() {
         kpisQ.data?.assigned_tasks &&
         kpisQ.data.assigned_tasks.length > 0 && (
           <section>
-            <SpotlightCard className={HOME_SPOTLIGHT} spotlightColor={HOME_SPOTLIGHT_COLOR}>
+            <AppCard>
               <div className="p-4">
-                <h2 className="section-kicker mb-3">
-                  <CheckCircle2 strokeWidth={1.5} />
-                  <BitsShine
-                    text={t("home.myAssignedTasks")}
-                    color="#6b6560"
-                    shineColor="#1a1a1a"
-                    speed={6}
-                  />
-                </h2>
+                <SectionHeader className="mb-3" icon={CheckCircle2} title={t("home.myAssignedTasks")} />
                 <ul className="space-y-2">
                   {kpisQ.data.assigned_tasks.map((task) => (
                     <li key={task.id} className="flex items-center justify-between text-sm">
@@ -550,32 +522,24 @@ function OpsCommandHome() {
                   ))}
                 </ul>
               </div>
-            </SpotlightCard>
+            </AppCard>
           </section>
         )}
 
       {showCompliance ? (
         <section>
-          <SpotlightCard className={HOME_SPOTLIGHT} spotlightColor={HOME_SPOTLIGHT_COLOR}>
-            <div className="flex items-center justify-between border-b border-border/40 px-4 py-3">
-              <h2 className="section-kicker">
-                <MapPin strokeWidth={1.5} />
-                <BitsShine
-                  text={t("home.siteReadinessSummary")}
-                  color="#6b6560"
-                  shineColor="#1a1a1a"
-                  speed={6}
-                />
-              </h2>
+          <AppCard>
+            <div className="border-b border-border/40 px-4 py-3">
+              <SectionHeader icon={MapPin} title={t("home.siteReadinessSummary")} />
             </div>
             {branchesQ.isLoading ? (
               <Skeleton className="m-4 h-32 rounded-xl" />
             ) : branchesQ.data && branchesQ.data.length > 0 ? (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full min-w-[40rem] text-sm">
                   <thead>
                     <tr className="border-b border-border/40 text-start text-xs uppercase tracking-wide text-muted-foreground">
-                      <th className="px-4 py-2.5 font-semibold">{t("home.tableSite")}</th>
+                      <th className="sticky start-0 z-10 bg-card px-4 py-2.5 font-semibold">{t("home.tableSite")}</th>
                       <th className="px-4 py-2.5 font-semibold">{t("home.tableHealth")}</th>
                       <th className="px-4 py-2.5 font-semibold">{t("home.tableOpening")}</th>
                       <th className="px-4 py-2.5 font-semibold">{t("home.tableStaff")}</th>
@@ -591,7 +555,7 @@ function OpsCommandHome() {
                         key={b.location_id}
                         className="border-b border-border/30 last:border-0 hover:bg-muted/40"
                       >
-                        <td className="px-4 py-2.5 font-medium">
+                        <td className="sticky start-0 z-10 bg-card px-4 py-2.5 font-medium">
                           <Link
                             href={`/occ/branch/${b.location_id}`}
                             className="text-foreground underline-offset-2 hover:underline"
@@ -600,7 +564,14 @@ function OpsCommandHome() {
                           </Link>
                         </td>
                         <td className="px-4 py-2.5">
-                          <HealthPill pct={b.health_score} />
+                          <StatusChip tone={healthTone(b.health_score)} className="tabular-nums">
+                            {b.health_score >= 80
+                              ? t("home.healthHealthy")
+                              : b.health_score >= 60
+                                ? t("home.healthWatch")
+                                : t("home.healthAtRisk")}
+                            <span className="font-semibold">{b.health_score}%</span>
+                          </StatusChip>
                         </td>
                         <td className="px-4 py-2.5">
                           <Badge
@@ -632,9 +603,9 @@ function OpsCommandHome() {
                 </table>
               </div>
             ) : (
-              <p className="px-4 py-6 text-sm text-muted-foreground">{t("home.noBranchData")}</p>
+              <EmptyState title={t("home.noBranchData")} />
             )}
-          </SpotlightCard>
+          </AppCard>
         </section>
       ) : null}
     </div>
@@ -656,16 +627,11 @@ function AttentionRow({
       href={href}
       className="flex items-center justify-between gap-3 px-4 py-3 text-sm hover:bg-muted/40"
     >
-      <span
-        className={cn(
-          "font-medium",
-          tone === "danger" && "text-rag-red",
-          tone === "warn" && "text-foreground",
-          tone === "ok" && "text-muted-foreground",
-        )}
-      >
-        {label}
-      </span>
+      <StatusIndicator
+        tone={tone === "danger" ? "critical" : tone === "warn" ? "warning" : "completed"}
+        label={label}
+        pulse={tone === "danger"}
+      />
       <span className="text-xs text-muted-foreground">{t("home.viewAll")}</span>
     </Link>
   );

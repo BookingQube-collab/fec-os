@@ -8,7 +8,9 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { HeaderSearch } from "@/components/layout/header-search";
 import { MobileNotificationBell } from "@/components/layout/mobile-notification-bell";
+import { SiteSwitch } from "@/components/ds";
 import { useAuth } from "@/hooks/use-auth";
+import { useSites } from "@/hooks/queries/useSites";
 import type { SupportedLanguage } from "@/i18n";
 import { useAppStore } from "@/stores/app-store";
 import { cn } from "@/lib/utils";
@@ -23,6 +25,9 @@ export function MobileAppHeader({ className }: { className?: string }) {
   const { signOut } = useAuth();
   const language = useAppStore((s) => s.language);
   const setLanguage = useAppStore((s) => s.setLanguage);
+  const currentLocationId = useAppStore((s) => s.currentLocationId);
+  const setCurrentLocationId = useAppStore((s) => s.setCurrentLocationId);
+  const sites = useSites();
   const [searchOpen, setSearchOpen] = useState(false);
 
   const handleSignOut = async () => {
@@ -88,6 +93,15 @@ export function MobileAppHeader({ className }: { className?: string }) {
           {t("common.signOut")}
         </Button>
       </div>
+
+      <SiteSwitch
+        className="mt-2"
+        value={currentLocationId}
+        onValueChange={setCurrentLocationId}
+        sites={(sites.data ?? []).filter((site) => site.status === "active")}
+        allLabel={t("common.allBranches")}
+        ariaLabel={t("common.allBranches")}
+      />
 
       {searchOpen ? (
         <div className="mt-2">

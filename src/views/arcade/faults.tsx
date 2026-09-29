@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { arcadeCategoryName, arcadeStatusName, Field, Pager, StatusBadge } from "@/components/arcade/ui";
+import { EmptyState, InteractiveCard, LoadingState } from "@/components/ds";
 import GlideSelect from "@/components/react-bits/glide-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,17 +34,29 @@ export function ArcadeFaults() {
         <Button asChild><Link href="/arcade/faults/new">{t("arcadeScreens.reportFault")}</Link></Button>
       </div>
       <Input value={q} onChange={(event) => { setQ(event.target.value); setPage(1); }} placeholder={t("arcadeScreens.faultSearch")} className="max-w-sm" />
+      <div key={`${q}:${page}`} className="ds-enter">
+      {list.isLoading ? <LoadingState label={t("arcadeOps.loading")} count={4} /> : null}
+      {!list.isLoading && (list.data?.rows.length ?? 0) === 0 ? (
+        <EmptyState title={t("arcadeOps.none")} />
+      ) : null}
+      {!list.isLoading && (list.data?.rows.length ?? 0) > 0 ? (
       <div className="grid gap-2">
-        {(list.data?.rows ?? []).map((row) => (
-          <Link key={row.id} href={`/arcade/faults/${row.id}`} className="rounded-lg border p-3">
+        {(list.data?.rows ?? []).map((row, index) => (
+          <div key={row.id} className={index < 12 ? "ds-enter" : undefined} style={index < 12 ? { animationDelay: `${index * 20}ms` } : undefined}>
+          <InteractiveCard>
+          <Link href={`/arcade/faults/${row.id}`} className="block rounded-[var(--radius)] border bg-card p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="font-medium">{row.machine_name ? `${row.machine_name} · ` : ""}{row.ticket_number}</span>
-              <span className="flex gap-1">{row.is_repeat ? <StatusBadge status="REPEAT" /> : null}<StatusBadge status={row.status} /></span>
+              <span className="flex flex-wrap gap-1">{row.is_repeat ? <StatusBadge status="REPEAT" /> : null}<StatusBadge status={row.status} />{row.severity ? <StatusBadge status={row.severity} /> : null}</span>
             </div>
-            <p className="text-sm text-muted-foreground">{arcadeCategoryName(t, row.category)} · {arcadeStatusName(t, row.severity)} · {row.description}</p>
+            <p className="text-sm text-muted-foreground">{[row.machine_name, arcadeCategoryName(t, row.category), row.description].filter(Boolean).join(" · ")}</p>
             {row.is_repeat ? <p className="text-xs">{t("arcadeScreens.repeatLine", { count: row.repeat_count, when: row.last_failure_at ? new Date(row.last_failure_at).toLocaleDateString() : "—", days: row.days_since_last_repair ?? "—" })}</p> : null}
           </Link>
+          </InteractiveCard>
+          </div>
         ))}
+      </div>
+      ) : null}
       </div>
       <Pager page={page} total={list.data?.total ?? 0} pageSize={50} onPage={setPage} />
     </div>

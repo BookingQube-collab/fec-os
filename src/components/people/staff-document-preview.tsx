@@ -5,7 +5,6 @@ import { FileText } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import ClickSpark from "@/components/react-bits/click-spark";
 import { FecLoader } from "@/components/fec";
 import StatusMark, { type StatusMarkStatus } from "@/components/react-bits/status-mark";
 import {
@@ -217,10 +216,8 @@ export function StaffDocumentOpenButton({
   children: ReactNode;
 }) {
   return (
-    <ClickSpark sparkColor="currentColor" sparkSize={8} sparkRadius={16} className="min-w-0 flex-1">
-      <button type="button" className="flex w-full min-w-0 flex-col gap-3 text-start sm:flex-row sm:items-center" onClick={onOpen} aria-label={label}>
-        {children}
-      </button>
-    </ClickSpark>
+    <button type="button" className="flex w-full min-w-0 flex-1 flex-col gap-3 text-start sm:flex-row sm:items-center" onClick={onOpen} aria-label={label}>
+      {children}
+    </button>
   );
 }

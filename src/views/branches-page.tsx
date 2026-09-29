@@ -2,11 +2,11 @@
 
 import { FecPageHeader } from "@/components/fec";
 
-import { useState } from "react";
-import { Grid3X3, LayoutList, Trophy, TrendingUp, AlertTriangle, TicketCheck, Users, Sparkles } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Trophy, AlertTriangle, TicketCheck, Users } from "lucide-react";
 
+import { EmptyState, LoadingState, SegmentControl, SiteSwitch } from "@/components/ds";
 import { useBranchLeague } from "@/hooks/queries/useBranches";
-import { Skeleton as UiSkeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -16,12 +16,19 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { fmtNumber, fmtQar } from "@/lib/currency";
+import { fmtQar } from "@/lib/currency";
+import { useAppStore } from "@/stores/app-store";
 
 function Page() {
-    const { data, isLoading } = useBranchLeague();
+  const { data, isLoading } = useBranchLeague();
   const [view, setView] = useState<"list" | "heatmap">("heatmap");
+  const locationId = useAppStore((s) => s.currentLocationId);
+  const setLocationId = useAppStore((s) => s.setCurrentLocationId);
+  const rows = useMemo(() => data ?? [], [data]);
+  const visible = useMemo(
+    () => (locationId ? rows.filter((row) => row.location_id === locationId) : rows),
+    [locationId, rows],
+  );
 
   return (
     <div className="space-y-6">
@@ -30,35 +37,38 @@ function Page() {
         title="Location performance"
         subtitle="League table and heat map ranked by composite operating score (last 30 days)."
         actions={
-        <div className="flex gap-2">
-          <Button variant={view === "heatmap" ? "default" : "outline"} size="sm" onClick={() => setView("heatmap")}>
-            <Grid3X3 className="mr-2 h-4 w-4" />Heat map
-          </Button>
-          <Button variant={view === "list" ? "default" : "outline"} size="sm" onClick={() => setView("list")}>
-            <LayoutList className="mr-2 h-4 w-4" />List
-          </Button>
-        </div>
+          <SegmentControl
+            ariaLabel="Location view"
+            value={view}
+            onValueChange={setView}
+            options={[
+              { value: "heatmap", label: "Heat map" },
+              { value: "list", label: "List" },
+            ]}
+          />
         }
       />
 
+      <SiteSwitch
+        value={locationId}
+        onValueChange={setLocationId}
+        sites={rows.map((row) => ({ id: row.location_id, code: row.code, name: row.name, region: row.city }))}
+        allLabel="All branches"
+        ariaLabel="Sites"
+      />
+
       {isLoading ? (
-        view === "list" ? (
-          <div className="space-y-2 rounded-lg border border-border bg-card p-4">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <UiSkeleton key={i} className="h-10 w-full rounded-md" />
-            ))}
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <UiSkeleton key={i} className="h-48 rounded-lg" />
-            ))}
-          </div>
-        )
-      ) : view === "list" ? (
-        <ListView data={data ?? []} />
+        <LoadingState label="Loading locations" count={view === "list" ? 6 : 6} />
       ) : (
-        <HeatMapView data={data ?? []} />
+        <div key={`${view}:${locationId ?? "all"}`} className="ds-enter">
+          {visible.length === 0 ? (
+            <EmptyState title="No location data for this site." />
+          ) : view === "list" ? (
+            <ListView data={visible} />
+          ) : (
+            <HeatMapView data={visible} />
+          )}
+        </div>
       )}
     </div>
   );
@@ -67,11 +77,11 @@ function Page() {
 function ListView({ data }: { data: Array<import("@/lib/branches.functions").BranchScore> }) {
   return (
     <div className="rounded-lg border border-border bg-card">
-      <Table>
+      <Table className="min-w-[52rem]">
         <TableHeader>
           <TableRow>
             <TableHead>#</TableHead>
-            <TableHead>Branch</TableHead>
+            <TableHead className="sticky start-0 z-10 bg-card">Branch</TableHead>
             <TableHead className="text-right">Score</TableHead>
             <TableHead className="text-right">Revenue 30d</TableHead>
             <TableHead className="text-right">Margin</TableHead>
@@ -87,7 +97,7 @@ function ListView({ data }: { data: Array<import("@/lib/branches.functions").Bra
               <TableCell className="font-mono">
                 {i === 0 ? <Trophy className="inline h-4 w-4 text-rag-green" /> : i + 1}
               </TableCell>
-              <TableCell className="font-medium">
+              <TableCell className="sticky start-0 z-10 bg-card font-medium">
                 {b.name}
                 <span className="text-muted-foreground"> · {b.city}</span>
               </TableCell>

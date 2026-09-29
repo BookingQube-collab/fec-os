@@ -16,7 +16,7 @@ import {
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
-import { TintedKpiCard, type KpiTint } from "@/components/dashboard/tinted-kpi-card";
+import { EmptyState, LoadingState, MetricCard, SearchField, StatusChip, staffStatusTone, type MetricTone } from "@/components/ds";
 import {
   FecButton as Button,
   FecDrawer as Sheet,
@@ -31,10 +31,7 @@ import {
   FecDropdownTrigger as DropdownMenuTrigger,
   FecFilter,
   FecFilterGroup,
-  FecLoader,
-  FecSearch,
 } from "@/components/fec";
-import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { SearchableSelect } from "@/components/ui/searchable-select";
@@ -100,31 +97,6 @@ function formatStaffDisplayName(name: string): string {
   return trimmed.toLowerCase().replace(/(^|[\s'\-])(\S)/g, (_, sep: string, ch: string) => sep + ch.toUpperCase());
 }
 
-function staffStatusBadgeVariant(
-  status: string,
-): "success" | "warning" | "destructive" | "info" | "muted" | "outline" {
-  const s = status.trim().toLowerCase().replace(/[\s-]+/g, "_");
-  if (s === "active" || s === "probation") return "success";
-  if (s === "terminated" || s === "resigned" || s === "released") return "destructive";
-  if (s === "secondment" || s === "remote" || s === "serving_notice") return "warning";
-  if (s === "on_leave" || s === "vacation" || s === "sick_leave" || s === "unpaid_leave") return "info";
-  return "outline";
-}
-
-function alertBadgeClass(severity: HrAlertSeverity): string {
-  switch (severity) {
-    case "expired":
-    case "critical":
-      return "border-rose-300 bg-rose-50 text-rose-800";
-    case "urgent":
-      return "border-amber-300 bg-amber-50 text-amber-900";
-    case "watch":
-      return "border-orange-200 bg-orange-50 text-orange-900";
-    default:
-      return "border-border bg-muted/60 text-muted-foreground";
-  }
-}
-
 const FILTER_TRIGGER = "h-10 min-h-10 w-full font-normal";
 const COLS_STORAGE_KEY = "fec.people.employee-columns.v2";
 const PAGE_SIZE_KEY = "fec.people.employee-page-size";
@@ -178,6 +150,20 @@ function loadPageSize(): number {
   return n === 50 || n === 100 ? n : 25;
 }
 
+function alertBadgeClass(severity: HrAlertSeverity): string {
+  switch (severity) {
+    case "expired":
+    case "critical":
+      return "border-rose-300 bg-rose-50 text-rose-800";
+    case "urgent":
+      return "border-amber-300 bg-amber-50 text-amber-900";
+    case "watch":
+      return "border-orange-200 bg-orange-50 text-orange-900";
+    default:
+      return "border-border bg-muted/60 text-muted-foreground";
+  }
+}
+
 function HrAlertBadges({ alerts }: { alerts: StaffHrAlert[] }) {
   if (!alerts.length) return <span className="text-xs text-muted-foreground">—</span>;
   return (
@@ -191,6 +177,9 @@ function HrAlertBadges({ alerts }: { alerts: StaffHrAlert[] }) {
           )}
           title={`${a.label} · ${hrAlertSeverityLabel(a.severity)}`}
         >
+          {(a.severity === "expired" || a.severity === "critical") ? (
+            <span className="ds-pulse me-1 h-1.5 w-1.5 rounded-full bg-current" aria-hidden />
+          ) : null}
           {a.label}
           <span className="ml-1 opacity-70">{hrAlertSeverityLabel(a.severity)}</span>
         </span>
@@ -525,54 +514,52 @@ export function StaffDirectory({
   return (
     <div className="space-y-4">
       {isRefreshing ? (
-        <div className="flex justify-end">
-          <FecLoader density="chip" label={t("people.staff.refreshing")} />
-        </div>
+        <p className="text-end text-xs text-muted-foreground" role="status">{t("people.staff.refreshing")}</p>
       ) : null}
       {/* Headcount KPI quick filters — keep essential counts on phone */}
-      <div className={cn("grid grid-cols-2 gap-2 md:grid-cols-3 md:gap-3 lg:grid-cols-6", isRefreshing && "opacity-90")}>
+      <div className={cn("flex gap-2 overflow-x-auto pb-1 md:grid md:grid-cols-3 md:gap-3 lg:grid-cols-6", isRefreshing && "opacity-90")}>
         {(
           [
             {
               key: "total" as const,
               label: t("people.dashboard.kpiTotal", "Total"),
               value: rosterKpis.total,
-              tint: "sky" as KpiTint,
+              tint: "info" as MetricTone,
               mobile: true,
             },
             {
               key: "active" as const,
               label: t("people.dashboard.kpiActive", "Active"),
               value: rosterKpis.active,
-              tint: "green" as KpiTint,
+              tint: "success" as MetricTone,
               mobile: true,
             },
             {
               key: "secondment" as const,
               label: t("people.dashboard.kpiSecondment", "Secondment"),
               value: rosterKpis.secondment,
-              tint: "orange" as KpiTint,
+              tint: "warning" as MetricTone,
               mobile: true,
             },
             {
               key: "temporary" as const,
               label: t("people.dashboard.kpiTemporary", "Temporary / Project"),
               value: rosterKpis.temporary,
-              tint: "amber" as KpiTint,
+              tint: "warning" as MetricTone,
               mobile: false,
             },
             {
               key: "new_joiners" as const,
               label: t("people.dashboard.kpiNewJoiners", "New Joiners (90d)"),
               value: rosterKpis.newJoiners,
-              tint: "sky" as KpiTint,
+              tint: "info" as MetricTone,
               mobile: false,
             },
             {
               key: "exiting" as const,
               label: t("people.dashboard.kpiExiting", "Exiting"),
               value: rosterKpis.exiting,
-              tint: "orange" as KpiTint,
+              tint: "warning" as MetricTone,
               mobile: true,
             },
           ] as const
@@ -584,20 +571,13 @@ export function StaffDirectory({
               type="button"
               onClick={() => applyDirectoryKpi(item.key)}
               aria-pressed={selected}
-              className={cn(
-                "h-full text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 rounded-2xl",
-                !item.mobile && "max-md:hidden",
-              )}
+              className="h-full min-w-[9.5rem] shrink-0 text-start focus-visible:rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 md:min-w-0"
             >
-              <TintedKpiCard
+              <MetricCard
                 title={item.label}
                 value={item.value}
-                tint={item.tint}
-                compact
-                className={cn(
-                  "h-full transition-all hover:opacity-90",
-                  selected && "ring-2 ring-foreground/25 border-foreground/25 shadow-[0_4px_20px_rgba(0,0,0,0.08)]",
-                )}
+                tone={item.tint}
+                className={cn(selected && "ring-2 ring-foreground/25")}
               />
             </button>
           );
@@ -605,12 +585,12 @@ export function StaffDirectory({
       </div>
 
       {/* Toolbar — sticky search/filters on phone */}
-      <div className="sticky top-0 z-20 -mx-1 space-y-2 bg-background/95 px-1 py-2 backdrop-blur md:static md:z-auto md:mx-0 md:bg-transparent md:px-0 md:py-0 md:backdrop-blur-none">
+      <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
-        <FecSearch containerClassName="min-w-0 flex-1 md:min-w-[14rem] sm:max-w-md" className="h-10" placeholder={t("people.staff.search", "Search staff…")} value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} />
+        <SearchField className="h-11 max-w-md" placeholder={t("people.staff.search", "Search staff…")} value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} aria-label={t("people.staff.search", "Search staff…")} />
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {canEdit && onAdd ? (
-            <Button size="sm" onClick={onAdd} className="max-md:h-10 max-md:w-10 max-md:px-0" aria-label={t("people.staff.addEmployee", "Add employee")}>
+            <Button size="sm" onClick={onAdd} className="max-md:h-11 max-md:w-11 max-md:px-0" aria-label={t("people.staff.addEmployee", "Add employee")}>
               <Plus className="h-4 w-4 md:mr-1 md:h-3.5 md:w-3.5" />
               <span className="max-md:hidden">{t("people.staff.addEmployee", "Add employee")}</span>
             </Button>
@@ -841,46 +821,94 @@ export function StaffDirectory({
       </div>
 
       {/* Table / mobile cards */}
-      <div className={cn("relative", isRefreshing && "opacity-70 transition-opacity")}>
+      <div key={`${status}|${loc}|${department}|${type}|${page}`} className={cn("ds-enter relative", isRefreshing && "opacity-70 transition-opacity")}>
       {isInitialLoading ? (
-        <div className="flex items-center justify-center px-4 py-16">
-          <FecLoader density="page" label={t("people.staff.loading")} />
-        </div>
+        <LoadingState label={t("people.staff.loading")} count={6} />
       ) : (
       <ResponsiveDataView
         mobile={
           <div className="space-y-2">
             {pageRows.length === 0 ? (
-              <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
-                {t("common.empty")}
-              </p>
+              <div className="rounded-xl border border-dashed border-border px-4 py-6 text-center">
+                <EmptyState title={t("common.empty")} />
+                {onAdd ? (
+                  <Button size="sm" onClick={onAdd} className="min-h-12">{t("people.staff.addEmployee", "Add employee")}</Button>
+                ) : null}
+              </div>
             ) : (
-              pageRows.map((s) => {
+              pageRows.map((s, index) => {
                 const displayName = formatStaffDisplayName(s.full_name);
+                const deptLabel = s.department || (s.department_names?.length ? s.department_names.join(", ") : null);
+                const fields: Array<[string, string]> = [];
+                if (col("code")) fields.push([colLabel.code, s.employee_code]);
+                if (col("position")) fields.push([colLabel.position, s.job_title ?? "—"]);
+                if (col("dept")) fields.push([colLabel.dept, deptLabel ?? "—"]);
+                if (col("location")) fields.push([colLabel.location, formatLocation(s)]);
+                if (col("type")) fields.push([colLabel.type, s.employment_type ? t(`people.staff.employmentTypes.${s.employment_type}`, s.employment_type) : "—"]);
+                if (col("sponsorship")) fields.push([colLabel.sponsorship, s.sponsorship_info ?? "—"]);
+                if (col("nationality")) fields.push([colLabel.nationality, s.nationality ?? "—"]);
+                if (col("mobile")) fields.push([colLabel.mobile, s.phone ?? "—"]);
+                if (col("joining")) fields.push([colLabel.joining, s.hire_date ?? "—"]);
+                if (col("qid_expiry")) fields.push([colLabel.qid_expiry, canSensitive ? (s.qid_expiry ?? "—") : "••••"]);
+                if (col("passport_expiry")) fields.push([colLabel.passport_expiry, canSensitive ? (s.passport_expiry ?? "—") : "••••"]);
                 return (
+                  <div key={s.id} className={index < 12 ? "ds-enter" : undefined} style={index < 12 ? { animationDelay: `${index * 20}ms` } : undefined}>
                   <MobileListCard
-                    key={s.id}
-                    href={`/people/staff/${s.id}`}
-                    title={displayName}
+                    title={<Link href={`/people/staff/${s.id}`} className="hover:underline">{displayName}</Link>}
                     subtitle={[s.job_title, formatLocation(s)].filter(Boolean).join(" · ") || s.employee_code}
-                    meta={
-                      <Badge variant={staffStatusBadgeVariant(s.status)}>{s.status}</Badge>
-                    }
+                    meta={<StatusChip tone={staffStatusTone(s.status)}>{s.status.replace(/_/g, " ")}</StatusChip>}
                     trailing={
-                      <StaffAvatar
-                        staffId={s.id}
-                        name={displayName}
-                        hasPhoto={s.has_photo}
-                        photoUpdatedAt={s.photo_updated_at}
-                      />
+                      <div className="flex items-center gap-1">
+                        <Checkbox
+                          checked={selected.has(s.id)}
+                          onCheckedChange={(checked) => {
+                            setSelected((prev) => {
+                              const next = new Set(prev);
+                              if (checked) next.add(s.id);
+                              else next.delete(s.id);
+                              return next;
+                            });
+                          }}
+                          aria-label={displayName}
+                        />
+                        <StaffRowMenu
+                          staffId={s.id}
+                          status={s.status}
+                          canEdit={canEdit}
+                          canSalary={canSalary}
+                          onQuickView={() => setQuickView(s)}
+                          onEdit={() => onEdit(s)}
+                          onArchive={() => onArchive(s.id)}
+                          onRestore={() => restoreMut.mutate(s.id)}
+                        />
+                      </div>
                     }
-                  />
+                  >
+                    <dl className="grid grid-cols-2 gap-x-3 gap-y-1">
+                      {fields.map(([label, value]) => (
+                        <div key={label} className="min-w-0">
+                          <dt className="text-[10px] uppercase tracking-wide">{label}</dt>
+                          <dd className="truncate text-foreground">{value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                    {col("alerts") ? <div className="mt-2"><HrAlertBadges alerts={staffHrAlerts(s)} /></div> : null}
+                  </MobileListCard>
+                  </div>
                 );
               })
             )}
           </div>
         }
         desktop={
+          pageRows.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-border px-4 py-6 text-center">
+              <EmptyState title={t("common.empty")} />
+              {onAdd ? (
+                <Button size="sm" onClick={onAdd} className="min-h-12">{t("people.staff.addEmployee", "Add employee")}</Button>
+              ) : null}
+            </div>
+          ) : (
                 <div className="overflow-x-auto rounded-lg border border-border">
                   <table className="w-full min-w-[56rem] text-sm">
                     <thead className="sticky top-0 z-10 bg-surface/95 text-xs font-medium uppercase tracking-wide text-muted-foreground backdrop-blur">
@@ -920,7 +948,7 @@ export function StaffDirectory({
                       </tr>
                     </thead>
                     <tbody>
-                      {pageRows.map((s) => {
+                      {pageRows.map((s, index) => {
                         const multiSite = s.is_roaming || (s.work_locations?.length ?? 0) > 1;
                         const displayName = formatStaffDisplayName(s.full_name);
                         const alerts = staffHrAlerts(s);
@@ -929,7 +957,8 @@ export function StaffDirectory({
                         return (
                           <tr
                             key={s.id}
-                            className="cursor-pointer border-t border-border hover:bg-surface/40"
+                            className={cn("cursor-pointer border-t border-border hover:bg-muted/40", index < 12 && "ds-enter")}
+                            style={index < 12 ? { animationDelay: `${index * 20}ms` } : undefined}
                             onClick={(e) => {
                               const target = e.target as HTMLElement;
                               if (target.closest("a,button,input,[role='checkbox'],[data-radix-collection-item]")) return;
@@ -1033,9 +1062,7 @@ export function StaffDirectory({
                             ) : null}
                             {col("status") ? (
                               <td className="px-3 py-2.5">
-                                <Badge variant={staffStatusBadgeVariant(s.status)} className="uppercase tracking-wide">
-                                  {s.status.replace(/_/g, " ")}
-                                </Badge>
+                                <StatusChip tone={staffStatusTone(s.status)}>{s.status.replace(/_/g, " ")}</StatusChip>
                               </td>
                             ) : null}
                             {col("alerts") ? (
@@ -1044,80 +1071,16 @@ export function StaffDirectory({
                               </td>
                             ) : null}
                             <td className="px-3 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button size="sm" variant="ghost" aria-label={t("people.actions")}>
-                                    <MoreHorizontal className="h-4 w-4" />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="min-w-[12rem]">
-                                  <DropdownMenuItem onClick={() => setQuickView(s)}>
-                                    {t("people.staff.quickView", "Quick view")}
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem asChild>
-                                    <Link href={`/people/staff/${s.id}`}>
-                                      {t("people.staff.viewProfile", "View profile")}
-                                    </Link>
-                                  </DropdownMenuItem>
-                                  {canEdit ? (
-                                    <DropdownMenuItem onClick={() => onEdit(s)}>
-                                      {t("people.staff.editEmployee", "Edit")}
-                                    </DropdownMenuItem>
-                                  ) : null}
-                                  <DropdownMenuSeparator />
-                                  <DropdownMenuItem asChild>
-                                    <Link href={`/people/staff/${s.id}?tab=documents`}>
-                                      {t("people.staff.menuDocuments", "Documents")}
-                                    </Link>
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem asChild>
-                                    <Link href={`/people/staff/${s.id}?tab=attendance`}>
-                                      {t("people.staff.menuAttendance", "Attendance")}
-                                    </Link>
-                                  </DropdownMenuItem>
-                                  {canSalary ? (
-                                    <DropdownMenuItem asChild>
-                                      <Link href={`/people/staff/${s.id}?tab=payroll`}>
-                                        {t("people.staff.menuPayroll", "Payroll")}
-                                      </Link>
-                                    </DropdownMenuItem>
-                                  ) : null}
-                                  <DropdownMenuItem asChild>
-                                    <Link href={`/people/staff/${s.id}?tab=training`}>
-                                      {t("people.staff.menuTraining", "Training")}
-                                    </Link>
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem asChild>
-                                    <Link href={`/people/staff/${s.id}?tab=employment`}>
-                                      {t("people.staff.menuTransfer", "Transfer location")}
-                                    </Link>
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem asChild>
-                                    <Link href={`/people/staff/${s.id}?tab=history`}>
-                                      {t("people.staff.menuHistory", "Employment history")}
-                                    </Link>
-                                  </DropdownMenuItem>
-                                  {canEdit ? (
-                                    <>
-                                      <DropdownMenuSeparator />
-                                      {s.status === "terminated" ||
-                                      s.status === "resigned" ||
-                                      s.status === "released" ? (
-                                        <DropdownMenuItem onClick={() => restoreMut.mutate(s.id)}>
-                                          {t("people.staff.restore")}
-                                        </DropdownMenuItem>
-                                      ) : (
-                                        <DropdownMenuItem
-                                          className="text-amber-800 focus:text-amber-900"
-                                          onClick={() => onArchive(s.id)}
-                                        >
-                                          {t("people.staff.archiveExit", "Archive / exit")}
-                                        </DropdownMenuItem>
-                                      )}
-                                    </>
-                                  ) : null}
-                                </DropdownMenuContent>
-                              </DropdownMenu>
+                              <StaffRowMenu
+                                staffId={s.id}
+                                status={s.status}
+                                canEdit={canEdit}
+                                canSalary={canSalary}
+                                onQuickView={() => setQuickView(s)}
+                                onEdit={() => onEdit(s)}
+                                onArchive={() => onArchive(s.id)}
+                                onRestore={() => restoreMut.mutate(s.id)}
+                              />
                             </td>
                           </tr>
                         );
@@ -1125,7 +1088,7 @@ export function StaffDirectory({
                     </tbody>
                   </table>
                 </div>
-
+          )
         }
       />
       )}
@@ -1214,9 +1177,7 @@ export function StaffDirectory({
                 <div className="flex justify-between gap-2">
                   <dt className="text-muted-foreground">{t("people.staff.status")}</dt>
                   <dd>
-                    <Badge variant={staffStatusBadgeVariant(quickView.status)} className="uppercase tracking-wide">
-                      {quickView.status.replace(/_/g, " ")}
-                    </Badge>
+                    <StatusChip tone={staffStatusTone(quickView.status)}>{quickView.status.replace(/_/g, " ")}</StatusChip>
                   </dd>
                 </div>
                 <div className="flex justify-between gap-2">
@@ -1276,5 +1237,78 @@ export function StaffDirectory({
 
       <StaffMasterfileImportDialog open={importOpen} onOpenChange={setImportOpen} locationId={locationId} />
     </div>
+  );
+}
+
+function StaffRowMenu({
+  staffId,
+  status,
+  canEdit,
+  canSalary,
+  onQuickView,
+  onEdit,
+  onArchive,
+  onRestore,
+}: {
+  staffId: string;
+  status: string;
+  canEdit: boolean;
+  canSalary: boolean;
+  onQuickView: () => void;
+  onEdit: () => void;
+  onArchive: () => void;
+  onRestore: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button size="sm" variant="ghost" className="min-h-11 min-w-11" aria-label={t("people.actions")}>
+          <MoreHorizontal className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-[12rem]">
+        <DropdownMenuItem onClick={onQuickView}>{t("people.staff.quickView", "Quick view")}</DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href={`/people/staff/${staffId}`}>{t("people.staff.viewProfile", "View profile")}</Link>
+        </DropdownMenuItem>
+        {canEdit ? (
+          <DropdownMenuItem onClick={onEdit}>{t("people.staff.editEmployee", "Edit")}</DropdownMenuItem>
+        ) : null}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link href={`/people/staff/${staffId}?tab=documents`}>{t("people.staff.menuDocuments", "Documents")}</Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href={`/people/staff/${staffId}?tab=attendance`}>{t("people.staff.menuAttendance", "Attendance")}</Link>
+        </DropdownMenuItem>
+        {canSalary ? (
+          <DropdownMenuItem asChild>
+            <Link href={`/people/staff/${staffId}?tab=payroll`}>{t("people.staff.menuPayroll", "Payroll")}</Link>
+          </DropdownMenuItem>
+        ) : null}
+        <DropdownMenuItem asChild>
+          <Link href={`/people/staff/${staffId}?tab=training`}>{t("people.staff.menuTraining", "Training")}</Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href={`/people/staff/${staffId}?tab=employment`}>{t("people.staff.menuTransfer", "Transfer location")}</Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href={`/people/staff/${staffId}?tab=history`}>{t("people.staff.menuHistory", "Employment history")}</Link>
+        </DropdownMenuItem>
+        {canEdit ? (
+          <>
+            <DropdownMenuSeparator />
+            {status === "terminated" || status === "resigned" || status === "released" ? (
+              <DropdownMenuItem onClick={onRestore}>{t("people.staff.restore")}</DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem className="text-amber-800 focus:text-amber-900" onClick={onArchive}>
+                {t("people.staff.archiveExit", "Archive / exit")}
+              </DropdownMenuItem>
+            )}
+          </>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

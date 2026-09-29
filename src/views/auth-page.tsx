@@ -9,16 +9,11 @@ import { useTranslation } from "react-i18next";
 
 import { PasswordField } from "@/components/auth/password-field";
 import { FecButton as Button } from "@/components/fec";
-import { AuroraBackdrop } from "@/components/layout/aurora-backdrop";
-import { BitsShine } from "@/components/layout/bits-shine";
 import BlurText from "@/components/react-bits/blur-text";
 import BorderGlow from "@/components/react-bits/border-glow";
-import ClickSpark from "@/components/react-bits/click-spark";
 import FadeContent from "@/components/react-bits/fade-content";
 import GlareHover from "@/components/react-bits/glare-hover";
 import GradientText from "@/components/react-bits/gradient-text";
-import Noise from "@/components/react-bits/noise";
-import SpotlightCard from "@/components/react-bits/spotlight-card";
 import StarBorder from "@/components/react-bits/star-border-button";
 import { Input } from "@/components/ui/input";
 import { usePrefersReducedMotion } from "@/hooks/use-prefers-reduced-motion";
@@ -168,10 +163,6 @@ function AuthPage() {
       >
         {language === "en" ? "العربية" : "English"}
       </button>
-      <AuroraBackdrop className="fixed inset-0 z-0" amplitude={1.05} blend={0.58} speed={0.42} />
-      <div className="pointer-events-none fixed inset-0 z-[1]" aria-hidden>
-        <Noise patternAlpha={14} patternRefreshInterval={7} patternSize={72} />
-      </div>
       <div
         className="pointer-events-none fixed inset-0 z-[1] bg-[radial-gradient(ellipse_at_center,transparent_0%,rgba(253,248,236,0.28)_48%,rgba(253,248,236,0.78)_100%)]"
         aria-hidden
@@ -200,13 +191,9 @@ function AuthPage() {
                 {t("app.name")}
               </GradientText>
             )}
-            <BitsShine
-              text={t("auth.kicker")}
-              color="#6b6560"
-              shineColor="#1a1a1a"
-              speed={5.5}
-              className="mt-3 text-[11px] font-semibold uppercase tracking-[0.22em]"
-            />
+            <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+              {t("auth.kicker")}
+            </p>
             <p className="mt-4 hidden max-w-md text-sm leading-6 text-muted-foreground lg:block">
               {hint}
             </p>
@@ -228,10 +215,7 @@ function AuthPage() {
               fillOpacity={0.34}
               className="w-full"
             >
-              <SpotlightCard
-                className="rounded-[28px]"
-                spotlightColor="rgba(245, 197, 24, 0.38)"
-              >
+              <div className="rounded-[28px]">
                 <div className="p-6 sm:p-8">
                   {reducedMotion ? (
                     <h1 className="text-center text-2xl font-semibold tracking-tight text-foreground">
@@ -284,14 +268,6 @@ function AuthPage() {
                       </div>
                     )}
 
-                    <ClickSpark
-                      sparkColor="#f5c518"
-                      sparkCount={8}
-                      sparkSize={10}
-                      sparkRadius={22}
-                      duration={480}
-                      className="block"
-                    >
                       <StarBorder
                         as="button"
                         type="submit"
@@ -311,7 +287,6 @@ function AuthPage() {
                             ? t("auth.submit")
                             : t("auth.sendReset")}
                       </StarBorder>
-                    </ClickSpark>
                   </form>
 
                   {mode === "signin" && (
@@ -419,7 +394,7 @@ function AuthPage() {
                     )}
                   </div>
                 </div>
-              </SpotlightCard>
+              </div>
             </BorderGlow>
           </FadeContent>
         </div>

@@ -29,6 +29,7 @@ export function PrApproveDialog({
   onOpenChange,
   summary,
   pending,
+  acknowledged,
   onConfirm,
   overBudget,
   excessAmount,
@@ -39,6 +40,7 @@ export function PrApproveDialog({
   onOpenChange: (open: boolean) => void;
   summary: Summary;
   pending: boolean;
+  acknowledged?: boolean;
   onConfirm: () => void;
   overBudget?: boolean;
   excessAmount?: number;
@@ -100,11 +102,11 @@ export function PrApproveDialog({
           </Button>
           <Button
             type="button"
-            disabled={pending}
+            disabled={pending || acknowledged}
             className="bg-emerald-800 text-white hover:bg-emerald-900"
             onClick={onConfirm}
           >
-            {confirm}
+            <ActionFace pending={pending} acknowledged={acknowledged} label={confirm} />
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -119,6 +121,7 @@ export function PrCommentDialog({
   description,
   confirmLabel,
   pending,
+  acknowledged,
   destructive,
   onConfirm,
 }: {
@@ -128,6 +131,7 @@ export function PrCommentDialog({
   description: string;
   confirmLabel: string;
   pending: boolean;
+  acknowledged?: boolean;
   destructive?: boolean;
   onConfirm: (comments: string) => void;
 }) {
@@ -175,15 +179,37 @@ export function PrCommentDialog({
           <Button
             type="button"
             variant={destructive ? "destructive" : "default"}
-            disabled={pending || tooShort}
+            disabled={pending || acknowledged || tooShort}
             onClick={() => onConfirm(comments.trim())}
           >
-            {confirmLabel}
+            <ActionFace pending={pending} acknowledged={acknowledged} label={confirmLabel} />
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
+}
+
+function ActionFace({
+  pending,
+  acknowledged,
+  label,
+}: {
+  pending?: boolean;
+  acknowledged?: boolean;
+  label: string;
+}) {
+  const { t } = useTranslation();
+  if (acknowledged) {
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <Check className="h-4 w-4" aria-hidden />
+        {label}
+      </span>
+    );
+  }
+  if (pending) return <span>{t("common.saving")}</span>;
+  return <>{label}</>;
 }
 
 function Row({ label, value }: { label: string; value: string }) {

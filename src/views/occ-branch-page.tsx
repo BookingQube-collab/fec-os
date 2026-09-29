@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -17,7 +17,8 @@ import {
 import { toggleSurgeMode } from "@/lib/occ.functions";
 import type { BranchPack } from "@/lib/queries/occ.core";
 import { useBranchPack } from "@/hooks/queries/useOcc";
-import { Skeleton } from "@/components/ui/skeleton";
+import { AppCard, EmptyState, LoadingState, MetricCard, SectionHeader, SiteSwitch, StatusChip } from "@/components/ds";
+import { useSites } from "@/hooks/queries/useSites";
 import { Button } from "@/components/ui/button";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { cn } from "@/lib/utils";
@@ -46,19 +47,9 @@ function BranchPage() {
           <Link href="/occ" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
             <ArrowLeft className="h-3 w-3" /> Estate
           </Link>
-          <Skeleton className="mt-2 h-7 w-64" />
-          <Skeleton className="mt-1 h-4 w-40" />
+          <p className="mt-2 text-sm text-muted-foreground">Loading site</p>
         </div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-16 rounded-lg" />
-          ))}
-        </div>
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-48 rounded-lg" />
-          ))}
-        </div>
+        <LoadingState label="Loading site" count={4} />
       </div>
     );
   }
@@ -67,9 +58,21 @@ function BranchPage() {
 }
 
 function BranchView({ pack }: { pack: BranchPack }) {
+  const router = useRouter();
+  const sites = useSites();
   const r = pack.rollup;
   return (
     <div className="space-y-6">
+      <SiteSwitch
+        value={pack.location.id}
+        onValueChange={(id) => {
+          if (!id) router.push("/occ");
+          else if (id !== pack.location.id) router.push(`/occ/branch/${id}`);
+        }}
+        sites={(sites.data ?? []).filter((site) => site.status === "active")}
+        allLabel="All branches"
+        ariaLabel="Sites"
+      />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <Link href="/occ" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
@@ -102,18 +105,18 @@ function BranchView({ pack }: { pack: BranchPack }) {
       </div>
 
       {r ? (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <StatCard label="Open tickets" value={r.open_tickets} />
-          <StatCard label="Urgent" value={r.urgent_tickets} tone={r.urgent_tickets ? "red" : undefined} />
-          <StatCard label="Incidents 24h" value={r.incidents_24h} tone={r.incidents_24h ? "red" : undefined} />
-          <StatCard label="Overdue WOs" value={r.overdue_work_orders} tone={r.overdue_work_orders ? "amber" : undefined} />
+        <div key={pack.location.id} className="ds-enter grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <MetricCard title="Open tickets" value={r.open_tickets} tone="info" />
+          <MetricCard title="Urgent" value={r.urgent_tickets} tone={r.urgent_tickets ? "danger" : "success"} pulse={r.urgent_tickets > 0} />
+          <MetricCard title="Incidents 24h" value={r.incidents_24h} tone={r.incidents_24h ? "danger" : "success"} pulse={r.incidents_24h > 0} />
+          <MetricCard title="Overdue work orders" value={r.overdue_work_orders} tone={r.overdue_work_orders ? "warning" : "success"} />
         </div>
       ) : null}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Panel title="Recent tickets" icon={AlertTriangle}>
           {pack.recent_tickets.length === 0 ? (
-            <EmptyHint text="No tickets in window" />
+            <EmptyState title="No tickets in window" />
           ) : (
             <ul className="divide-y divide-border">
               {pack.recent_tickets.map((t) => (
@@ -135,7 +138,7 @@ function BranchView({ pack }: { pack: BranchPack }) {
 
         <Panel title="Recent incidents" icon={AlertOctagon}>
           {pack.recent_incidents.length === 0 ? (
-            <EmptyHint text="No incidents on record" />
+            <EmptyState title="No incidents on record" />
           ) : (
             <ul className="divide-y divide-border">
               {pack.recent_incidents.map((i) => (
@@ -152,7 +155,7 @@ function BranchView({ pack }: { pack: BranchPack }) {
 
         <Panel title="Open work orders" icon={Wrench}>
           {pack.open_work_orders.length === 0 ? (
-            <EmptyHint text="No open work orders" />
+            <EmptyState title="No open work orders" />
           ) : (
             <ul className="divide-y divide-border">
               {pack.open_work_orders.map((w) => (
@@ -176,7 +179,7 @@ function BranchView({ pack }: { pack: BranchPack }) {
 
         <Panel title="Attractions" icon={Sparkles}>
           {pack.attractions.length === 0 ? (
-            <EmptyHint text="No attractions configured" />
+            <EmptyState title="No attractions configured" />
           ) : (
             <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {pack.attractions.map((a) => (
@@ -185,40 +188,23 @@ function BranchView({ pack }: { pack: BranchPack }) {
                   className="flex items-center justify-between rounded-md border border-border bg-surface-2 px-3 py-2 text-sm"
                 >
                   <span className="truncate font-medium">{a.name}</span>
-                  <span
-                    className={cn(
-                      "rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider",
+                  <StatusChip
+                    tone={
                       a.status === "operational"
-                        ? "bg-emerald-500/10 text-emerald-300"
+                        ? "online"
                         : a.status === "degraded"
-                          ? "bg-amber-500/10 text-amber-300"
-                          : "bg-rose-500/10 text-rose-300",
-                    )}
+                          ? "warning"
+                          : "offline"
+                    }
                   >
                     {a.status}
-                  </span>
+                  </StatusChip>
                 </li>
               ))}
             </ul>
           )}
         </Panel>
       </div>
-    </div>
-  );
-}
-
-function StatCard({ label, value, tone }: { label: string; value: number; tone?: "red" | "amber" }) {
-  return (
-    <div className="rounded-lg border border-border bg-surface p-3">
-      <div
-        className={cn(
-          "text-2xl font-semibold tabular-nums",
-          tone === "red" ? "text-rose-300" : tone === "amber" ? "text-amber-300" : "text-foreground",
-        )}
-      >
-        {value}
-      </div>
-      <div className="mt-0.5 text-[10px] uppercase tracking-widest text-muted-foreground">{label}</div>
     </div>
   );
 }
@@ -233,18 +219,11 @@ function Panel({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-lg border border-border bg-surface p-4">
-      <div className="mb-3 flex items-center gap-2">
-        <Icon className="h-4 w-4 text-muted-foreground" />
-        <h3 className="text-sm font-semibold uppercase tracking-wider text-foreground">{title}</h3>
-      </div>
+    <AppCard className="p-4">
+      <SectionHeader icon={Icon} title={title} className="mb-3" />
       {children}
-    </section>
+    </AppCard>
   );
-}
-
-function EmptyHint({ text }: { text: string }) {
-  return <div className="py-6 text-center text-xs text-muted-foreground">{text}</div>;
 }
 
 function SurgeToggle({

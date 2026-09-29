@@ -4,7 +4,6 @@ import Link from "next/link";
 import { ChevronRight, type LucideIcon } from "lucide-react";
 
 import { KpiAnimatedValue } from "@/components/react-bits/kpi-animated-value";
-import SpotlightCard from "@/components/react-bits/spotlight-card";
 import {
   KPI_ICON_CLASS,
   KPI_TINT_CLASS,
@@ -40,8 +39,7 @@ export function TintedKpiCard({
   ariaLabel?: string;
 }) {
   const card = (
-    <SpotlightCard
-      spotlightColor="rgba(255, 186, 0, 0.95)"
+    <div
       className={cn(
         "rounded-2xl border shadow-[0_4px_20px_rgba(0,0,0,0.05)]",
         compact ? "px-4 py-3" : "px-5 py-4",
@@ -75,7 +73,7 @@ export function TintedKpiCard({
           </span>
         ) : null}
       </div>
-    </SpotlightCard>
+    </div>
   );
 
   if (!href) return card;

@@ -3,7 +3,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, Eye, MoreHorizontal, RotateCcw, Undo2, X } from "lucide-react";
 import Link from "next/link";
-import { type ReactNode, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -51,7 +51,13 @@ export function usePrActions(options?: {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const lastTarget = useRef<PrActionTarget | null>(null);
+  const ackTimer = useRef<number | null>(null);
   const [dialog, setDialog] = useState<{ kind: PrActionKind; target: PrActionTarget } | null>(null);
+  const [acknowledged, setAcknowledged] = useState<"approve" | "reject" | "return" | "reissue" | null>(null);
+
+  useEffect(() => () => {
+    if (ackTimer.current != null) window.clearTimeout(ackTimer.current);
+  }, []);
 
   const act = useMutation({
     mutationFn: (vars: {
@@ -62,13 +68,27 @@ export function usePrActions(options?: {
     onSuccess: (_res, vars) => {
       void qc.invalidateQueries({ queryKey: queryKeys.procurement.all });
       void qc.invalidateQueries({ queryKey: queryKeys.notifications.all });
-      setDialog(null);
-      if (vars.action === "reissue") {
-        toast.success(t("procurement.detail.reissued"));
-        options?.onReissued?.(vars.id, lastTarget.current?.isOwner ?? false);
+      const flash =
+        vars.action === "approve" || vars.action === "reject" || vars.action === "return" || vars.action === "reissue"
+          ? vars.action
+          : null;
+      const finish = () => {
+        setAcknowledged(null);
+        setDialog(null);
+        if (vars.action === "reissue") {
+          toast.success(t("procurement.detail.reissued"));
+          options?.onReissued?.(vars.id, lastTarget.current?.isOwner ?? false);
+          return;
+        }
+        toast.success(t(`procurement.detail.toast.${vars.action}`));
+      };
+      if (!flash) {
+        finish();
         return;
       }
-      toast.success(t(`procurement.detail.toast.${vars.action}`));
+      setAcknowledged(flash);
+      if (ackTimer.current != null) window.clearTimeout(ackTimer.current);
+      ackTimer.current = window.setTimeout(finish, 280);
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -85,6 +105,7 @@ export function usePrActions(options?: {
 
   return {
     pending: act.isPending,
+    acknowledged,
     open: (kind: PrActionKind, target: PrActionTarget) => setDialog({ kind, target }),
     approve: (target: PrActionTarget, comments?: string) => {
       lastTarget.current = target;
@@ -113,6 +134,7 @@ export function usePrActions(options?: {
           onOpenChange={(open) => setDialog(open && dialog ? dialog : null)}
           summary={summary}
           pending={act.isPending}
+          acknowledged={acknowledged === "approve"}
           overBudget={dialog?.target.overBudget}
           excessAmount={dialog?.target.excessAmount}
           budgetIncreasePending={dialog?.target.budgetIncreasePending}
@@ -126,6 +148,7 @@ export function usePrActions(options?: {
           description={t("procurement.detail.confirmRejectBody")}
           confirmLabel={t("procurement.detail.confirmReject")}
           pending={act.isPending}
+          acknowledged={acknowledged === "reject"}
           destructive
           onConfirm={(comments) => dialog && act.mutate({ id: dialog.target.id, action: "reject", comments })}
         />
@@ -136,6 +159,7 @@ export function usePrActions(options?: {
           description={t("procurement.detail.confirmReturnBody")}
           confirmLabel={t("procurement.detail.confirmReturn")}
           pending={act.isPending}
+          acknowledged={acknowledged === "return"}
           onConfirm={(comments) => dialog && act.mutate({ id: dialog.target.id, action: "return", comments })}
         />
       </>

@@ -1,35 +1,28 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  getActiveMobileTab,
-  isAttendancePath,
-  isMobileTabActive,
-  isOperationsPath,
-  isPeoplePath,
-} from "./mobile-nav";
+import { getActiveMobileTab, isMobileTabActive, isSitesPath, isTasksPath } from "./mobile-nav";
 
 describe("mobile-nav path matching", () => {
-  it("classifies attendance under /people/attendance without stealing People", () => {
-    expect(isAttendancePath("/people/attendance")).toBe(true);
-    expect(isAttendancePath("/people/attendance/reports")).toBe(true);
-    expect(isPeoplePath("/people")).toBe(true);
-    expect(isPeoplePath("/people/hr")).toBe(true);
-    expect(isPeoplePath("/people/attendance")).toBe(false);
+  it("classifies sites and tasks without stealing home", () => {
+    expect(isSitesPath("/branches")).toBe(true);
+    expect(isSitesPath("/branches/league")).toBe(true);
+    expect(isTasksPath("/tasks")).toBe(true);
+    expect(isTasksPath("/tasks/abc")).toBe(true);
+    expect(isSitesPath("/")).toBe(false);
   });
 
   it("lights the correct primary tab", () => {
     expect(getActiveMobileTab("/")).toBe("home");
-    expect(getActiveMobileTab("/people")).toBe("people");
-    expect(getActiveMobileTab("/people/attendance/mapping")).toBe("attendance");
-    expect(getActiveMobileTab("/daily-ops")).toBe("operations");
-    expect(getActiveMobileTab("/operations/weekly-review")).toBe("operations");
-    expect(getActiveMobileTab("/maintenance")).toBe(null);
+    expect(getActiveMobileTab("/branches")).toBe("sites");
+    expect(getActiveMobileTab("/tasks/1")).toBe("tasks");
+    expect(getActiveMobileTab("/people")).toBe(null);
+    expect(getActiveMobileTab("/daily-ops")).toBe(null);
   });
 
   it("treats unmatched routes as More when the sheet is closed", () => {
     expect(isMobileTabActive("more", "/maintenance")).toBe(true);
-    expect(isMobileTabActive("more", "/people", false)).toBe(false);
-    expect(isMobileTabActive("more", "/people", true)).toBe(true);
-    expect(isOperationsPath("/occ")).toBe(false);
+    expect(isMobileTabActive("more", "/branches", false)).toBe(false);
+    expect(isMobileTabActive("more", "/tasks", true)).toBe(true);
+    expect(isMobileTabActive("home", "/")).toBe(true);
   });
 });

@@ -1,10 +1,10 @@
 "use client";
 
-import { FecLoader, FecPageHeader } from "@/components/fec";
+import { FecPageHeader } from "@/components/fec";
 
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ClipboardList, FileBarChart, LayoutDashboard, Loader2, Pencil, Sparkles, Trash2, Truck, Wrench } from "lucide-react";
+import { ChevronDown, ClipboardList, FileBarChart, LayoutDashboard, Loader2, Pencil, Sparkles, Truck, Wrench } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -16,6 +16,7 @@ import { useSites } from "@/hooks/queries/useSites";
 import { usePmSchedules } from "@/hooks/queries/usePmSchedules";
 import { useDowntimeEvents } from "@/hooks/queries/useDowntimeEvents";
 import { usePermission } from "@/hooks/use-permission";
+import { ConfirmationAction, EmptyState, LoadingState, SegmentControl, StatusChip, equipmentStatusTone } from "@/components/ds";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { queryKeys } from "@/lib/query-keys";
 import {
@@ -68,11 +69,7 @@ const MaintenanceDashboardPanel = dynamic(
     ),
   {
     ssr: false,
-    loading: () => (
-      <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-        Loading dashboard…
-      </div>
-    ),
+    loading: () => <LoadingState label="Loading dashboard…" count={4} />,
   },
 );
 
@@ -275,28 +272,24 @@ function WorkOrdersList({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2">
-        <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Status</span>
-        <Select value={status} onValueChange={setStatus}>
-          <SelectTrigger className="h-8 w-[160px] text-xs"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">all</SelectItem>
-            {WO_STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      </div>
+      <SegmentControl
+        layout="scroll"
+        ariaLabel="Status"
+        value={status}
+        onValueChange={setStatus}
+        options={[{ value: "all", label: "all" }, ...WO_STATUSES.map((item) => ({ value: item, label: item }))]}
+      />
+      <div key={status} className="ds-enter">
       {isLoading ? (
-        <div className="flex justify-center p-8"><FecLoader density="page" /></div>
+        <LoadingState label={t("common.loading")} count={4} />
       ) : (rows?.length ?? 0) === 0 ? (
-        <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-          {scope === "mine" ? "No work orders assigned to you." : "No work orders."}
-        </div>
+        <EmptyState title={scope === "mine" ? "No work orders assigned to you." : "No work orders."} />
       ) : (
-        <div className="overflow-hidden rounded-lg border border-border">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto rounded-lg border border-border">
+          <table className="w-full min-w-[40rem] text-sm">
             <thead className="bg-surface/60 text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
-                <th className="px-3 py-2 text-left">Title</th>
+                <th className="sticky start-0 z-10 bg-card px-3 py-2 text-left">Title</th>
                 <th className="px-3 py-2 text-left">Kind</th>
                 <th className="px-3 py-2 text-left">Status</th>
                 <th className="px-3 py-2 text-left">Planned end</th>
@@ -306,9 +299,9 @@ function WorkOrdersList({
             <tbody>
               {rows!.map((w) => (
                 <tr key={w.id} className="border-t border-border hover:bg-surface/40">
-                  <td className="px-3 py-2 font-medium">{w.title}</td>
+                  <td className="sticky start-0 z-10 bg-card px-3 py-2 font-medium">{w.title}</td>
                   <td className="px-3 py-2 text-xs"><Badge variant="outline" className="uppercase">{w.kind}</Badge></td>
-                  <td className="px-3 py-2 text-xs text-muted-foreground">{w.status}</td>
+                  <td className="px-3 py-2 text-xs"><StatusChip tone={equipmentStatusTone(w.status)}>{w.status}</StatusChip></td>
                   <td className="px-3 py-2 text-xs text-muted-foreground">
                     {w.planned_end ? new Date(w.planned_end).toLocaleString() : "—"}
                   </td>
@@ -318,7 +311,7 @@ function WorkOrdersList({
                         <Button
                           size="icon"
                           variant="ghost"
-                          className="h-7 w-7"
+                          className="h-11 w-11"
                           title={t("maintenanceWorkOrder.edit")}
                           aria-label={t("maintenanceWorkOrder.edit")}
                           onClick={() => openEdit(w)}
@@ -327,24 +320,20 @@ function WorkOrdersList({
                         </Button>
                       )}
                       {canManage && (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7 text-destructive"
+                        <ConfirmationAction
+                          label={t("common.delete")}
+                          holdingLabel={t("common.holding")}
                           disabled={deleteMut.isPending}
-                          onClick={() => {
-                            if (window.confirm(`Delete work order "${w.title}"?`)) deleteMut.mutate(w.id);
-                          }}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                          className="h-12 min-w-12 px-3"
+                          onConfirm={() => deleteMut.mutate(w.id)}
+                        />
                       )}
                       {canExecute && (
                         <Select
                           value={w.status}
                           onValueChange={(v) => statusMut.mutate({ id: w.id, status: v as (typeof WO_STATUSES)[number] })}
                         >
-                          <SelectTrigger className="h-7 w-[140px] text-xs"><SelectValue /></SelectTrigger>
+                          <SelectTrigger className="h-11 w-[9.5rem] text-xs"><SelectValue /></SelectTrigger>
                           <SelectContent>
                             {WO_STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
                           </SelectContent>
@@ -358,6 +347,7 @@ function WorkOrdersList({
           </table>
         </div>
       )}
+      </div>
 
       <Dialog open={!!editing} onOpenChange={(open) => !open && setEditing(null)}>
         <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
@@ -484,6 +474,7 @@ function WorkOrdersList({
 }
 
 function AssetsList({ canSchedule, canManage }: { canSchedule: boolean; canManage: boolean }) {
+  const { t } = useTranslation();
   const locationId = useAppStore((s) => s.currentLocationId);
   const qc = useQueryClient();
   const locsQ = useSites();
@@ -621,16 +612,17 @@ function AssetsList({ canSchedule, canManage }: { canSchedule: boolean; canManag
         </form>
       )}
 
+      <div className="ds-enter">
       {isLoading ? (
-        <div className="flex justify-center p-8"><FecLoader density="page" /></div>
+        <LoadingState label={t("common.loading")} count={4} />
       ) : !data || data.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">No assets in scope.</div>
+        <EmptyState title="No assets in scope." />
       ) : (
-        <div className="overflow-hidden rounded-lg border border-border">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto rounded-lg border border-border">
+          <table className="w-full min-w-[40rem] text-sm">
             <thead className="bg-surface/60 text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
-                <th className="px-3 py-2 text-left">Tag</th>
+                <th className="sticky start-0 z-10 bg-card px-3 py-2 text-left">Tag</th>
                 <th className="px-3 py-2 text-left">Name</th>
                 <th className="px-3 py-2 text-left">Category</th>
                 <th className="px-3 py-2 text-left">Criticality</th>
@@ -641,10 +633,10 @@ function AssetsList({ canSchedule, canManage }: { canSchedule: boolean; canManag
             <tbody>
               {data.map((a) => (
                 <tr key={a.id} className="border-t border-border hover:bg-surface/40">
-                  <td className="px-3 py-2 font-mono text-xs">{a.tag}</td>
+                  <td className="sticky start-0 z-10 bg-card px-3 py-2 font-mono text-xs">{a.tag}</td>
                   <td className="px-3 py-2 font-medium">{a.name}</td>
                   <td className="px-3 py-2 text-xs text-muted-foreground">{a.category ?? "—"}</td>
-                  <td className="px-3 py-2 text-xs"><Badge variant="outline" className="uppercase">{a.criticality}</Badge></td>
+                  <td className="px-3 py-2 text-xs"><StatusChip tone={equipmentStatusTone(a.criticality)}>{a.criticality}</StatusChip></td>
                   <td className="px-3 py-2 text-xs text-muted-foreground">
                     {a.warranty_expires_on ? new Date(a.warranty_expires_on).toLocaleDateString() : "—"}
                   </td>
@@ -652,22 +644,18 @@ function AssetsList({ canSchedule, canManage }: { canSchedule: boolean; canManag
                     <td className="px-3 py-2 text-right">
                       <div className="flex items-center justify-end gap-1">
                         {canSchedule && (
-                          <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEditAsset(a)}>
+                          <Button size="icon" variant="ghost" className="h-11 w-11" onClick={() => openEditAsset(a)}>
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
                         )}
                         {canManage && (
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7 text-destructive"
+                          <ConfirmationAction
+                            label={t("common.delete")}
+                            holdingLabel={t("common.holding")}
                             disabled={deleteMut.isPending}
-                            onClick={() => {
-                              if (window.confirm(`Delete asset "${a.tag}"?`)) deleteMut.mutate(a.id);
-                            }}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
+                            className="h-12 min-w-12 px-3"
+                            onConfirm={() => deleteMut.mutate(a.id)}
+                          />
                         )}
                       </div>
                     </td>
@@ -678,11 +666,13 @@ function AssetsList({ canSchedule, canManage }: { canSchedule: boolean; canManag
           </table>
         </div>
       )}
+      </div>
     </div>
   );
 }
 
 function PmSchedulesPanel({ canSchedule, canManage }: { canSchedule: boolean; canManage: boolean }) {
+  const { t } = useTranslation();
   const locationId = useAppStore((s) => s.currentLocationId);
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -847,16 +837,17 @@ function PmSchedulesPanel({ canSchedule, canManage }: { canSchedule: boolean; ca
         </form>
       ) : null}
 
+      <div className="ds-enter">
       {pmQ.isLoading ? (
-        <div className="flex justify-center p-8"><FecLoader density="page" /></div>
+        <LoadingState label={t("common.loading")} count={4} />
       ) : (pmQ.data?.length ?? 0) === 0 ? (
-        <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">No PM schedules yet.</div>
+        <EmptyState title="No PM schedules yet." />
       ) : (
-        <div className="overflow-hidden rounded-lg border border-border">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto rounded-lg border border-border">
+          <table className="w-full min-w-[40rem] text-sm">
             <thead className="bg-surface/60 text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
-                <th className="px-3 py-2 text-left">Title</th>
+                <th className="sticky start-0 z-10 bg-card px-3 py-2 text-left">Title</th>
                 <th className="px-3 py-2 text-left">Interval</th>
                 <th className="px-3 py-2 text-left">Next due</th>
                 <th className="px-3 py-2 text-left">Last run</th>
@@ -869,37 +860,34 @@ function PmSchedulesPanel({ canSchedule, canManage }: { canSchedule: boolean; ca
                 const overdue = new Date(p.next_due_at).getTime() < Date.now();
                 return (
                   <tr key={p.id} className="border-t border-border hover:bg-surface/40">
-                    <td className="px-3 py-2 font-medium">{p.title}</td>
+                    <td className="sticky start-0 z-10 bg-card px-3 py-2 font-medium">{p.title}</td>
                     <td className="px-3 py-2 text-xs text-muted-foreground">every {p.interval_days}d</td>
-                    <td className={`px-3 py-2 text-xs ${overdue ? "text-rose-400 font-medium" : "text-muted-foreground"}`}>
-                      {new Date(p.next_due_at).toLocaleString()}
+                    <td className="px-3 py-2 text-xs text-muted-foreground">
+                      <span className="me-2">{new Date(p.next_due_at).toLocaleString()}</span>
+                      {overdue ? <StatusChip tone="warning">overdue</StatusChip> : null}
                     </td>
                     <td className="px-3 py-2 text-xs text-muted-foreground">
                       {p.last_generated_at ? new Date(p.last_generated_at).toLocaleString() : "—"}
                     </td>
                     <td className="px-3 py-2 text-xs">
-                      <Badge variant={p.active ? "default" : "outline"}>{p.active ? "active" : "off"}</Badge>
+                      <StatusChip tone={p.active ? "online" : "offline"}>{p.active ? "active" : "off"}</StatusChip>
                     </td>
                     {(canSchedule || canManage) && (
                       <td className="px-3 py-2 text-right">
                         <div className="flex items-center justify-end gap-1">
                           {canSchedule && (
-                            <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => openEditSchedule(p)}>
+                            <Button size="icon" variant="ghost" className="h-11 w-11" onClick={() => openEditSchedule(p)}>
                               <Pencil className="h-3.5 w-3.5" />
                             </Button>
                           )}
                           {canManage && (
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-7 w-7 text-destructive"
+                            <ConfirmationAction
+                              label={t("common.delete")}
+                              holdingLabel={t("common.holding")}
                               disabled={deleteMut.isPending}
-                              onClick={() => {
-                                if (window.confirm(`Delete PM schedule "${p.title}"?`)) deleteMut.mutate(p.id);
-                              }}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
+                              className="h-12 min-w-12 px-3"
+                              onConfirm={() => deleteMut.mutate(p.id)}
+                            />
                           )}
                         </div>
                       </td>
@@ -911,11 +899,13 @@ function PmSchedulesPanel({ canSchedule, canManage }: { canSchedule: boolean; ca
           </table>
         </div>
       )}
+      </div>
     </div>
   );
 }
 
 function DowntimePanel({ canExecute }: { canExecute: boolean }) {
+  const { t } = useTranslation();
   const locationId = useAppStore((s) => s.currentLocationId);
   const qc = useQueryClient();
   const [openOnly, setOpenOnly] = useState(false);
@@ -1013,22 +1003,27 @@ function DowntimePanel({ canExecute }: { canExecute: boolean }) {
       </form>
       )}
 
-      <div className="flex items-center gap-2">
-        <Button size="sm" variant={openOnly ? "default" : "outline"} onClick={() => setOpenOnly((v) => !v)}>
-          {openOnly ? "Showing open only" : "Show open only"}
-        </Button>
-      </div>
+      <SegmentControl
+        ariaLabel="Downtime"
+        value={openOnly ? "open" : "all"}
+        onValueChange={(value) => setOpenOnly(value === "open")}
+        options={[
+          { value: "all", label: "All" },
+          { value: "open", label: "Open" },
+        ]}
+      />
 
+      <div key={openOnly ? "open" : "all"} className="ds-enter">
       {dtQ.isLoading ? (
-        <div className="flex justify-center p-8"><FecLoader density="page" /></div>
+        <LoadingState label={t("common.loading")} count={4} />
       ) : (dtQ.data?.length ?? 0) === 0 ? (
-        <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">No downtime recorded.</div>
+        <EmptyState title="No downtime recorded." />
       ) : (
-        <div className="overflow-hidden rounded-lg border border-border">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto rounded-lg border border-border">
+          <table className="w-full min-w-[40rem] text-sm">
             <thead className="bg-surface/60 text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
-                <th className="px-3 py-2 text-left">Reason</th>
+                <th className="sticky start-0 z-10 bg-card px-3 py-2 text-left">Reason</th>
                 <th className="px-3 py-2 text-left">Source</th>
                 <th className="px-3 py-2 text-left">Started</th>
                 <th className="px-3 py-2 text-left">Duration</th>
@@ -1042,21 +1037,19 @@ function DowntimePanel({ canExecute }: { canExecute: boolean }) {
                   ?? (live ? Math.max(0, Math.round((Date.now() - new Date(d.started_at).getTime()) / 60000)) : 0);
                 return (
                   <tr key={d.id} className="border-t border-border hover:bg-surface/40">
-                    <td className="px-3 py-2 font-medium">{d.reason}</td>
+                    <td className="sticky start-0 z-10 bg-card px-3 py-2 font-medium">{d.reason}</td>
                     <td className="px-3 py-2 text-xs">
-                      <Badge variant={d.source === "silent_failure" ? "destructive" : "outline"} className="uppercase">
-                        {d.source}
-                      </Badge>
+                      <StatusChip tone={d.source === "silent_failure" ? "critical" : "neutral"}>{d.source}</StatusChip>
                     </td>
                     <td className="px-3 py-2 text-xs text-muted-foreground">
                       {new Date(d.started_at).toLocaleString()}
                     </td>
-                    <td className={`px-3 py-2 text-xs ${live ? "text-amber-400 font-medium" : "text-muted-foreground"}`}>
-                      {mins}m {live ? "(live)" : ""}
+                    <td className="px-3 py-2 text-xs text-muted-foreground">
+                      {mins}m {live ? <StatusChip tone="warning">live</StatusChip> : null}
                     </td>
                     <td className="px-3 py-2 text-right">
                       {live && canExecute ? (
-                        <Button size="sm" variant="outline" disabled={endMut.isPending}
+                        <Button size="sm" variant="outline" className="min-h-11" disabled={endMut.isPending}
                           onClick={() => endMut.mutate(d.id)}>
                           Close
                         </Button>
@@ -1069,6 +1062,7 @@ function DowntimePanel({ canExecute }: { canExecute: boolean }) {
           </table>
         </div>
       )}
+      </div>
     </div>
   );
 }

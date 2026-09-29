@@ -10,6 +10,8 @@ import {
   User,
   Zap,
 } from "lucide-react";
+import { format } from "date-fns";
+import { ar as arDateLocale } from "date-fns/locale";
 import { useTranslation } from "react-i18next";
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -19,13 +21,11 @@ import { useAppStore } from "@/stores/app-store";
 import { translateRole, type SupportedLanguage } from "@/i18n";
 import { useAuth } from "@/hooks/use-auth";
 import { useSites } from "@/hooks/queries/useSites";
-import { formatLocationRecord } from "@/lib/locations/normalize";
-import { BitsShine } from "@/components/layout/bits-shine";
+import { CommandBar, SiteSwitch } from "@/components/ds";
 import { NotificationBell } from "@/components/layout/notification-bell";
 import { usesOpsCommandSubtitle } from "@/lib/topbar-identity";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   DropdownMenu,
@@ -99,7 +99,9 @@ export function AppTopbar() {
     .join("");
   const primaryRole = translateRole(t, roles[0]?.role);
   const showOpsCommand = usesOpsCommandSubtitle(roles[0]?.role);
-
+  const todayLabel = format(new Date(), "EEE d MMM yyyy", {
+    locale: language === "ar" ? arDateLocale : undefined,
+  });
 
   return (
     <header
@@ -118,13 +120,9 @@ export function AppTopbar() {
                 surgeMode && "text-[1.35rem]",
               )}
             >
-              <BitsShine
-                text={
-                  language === "ar"
-                    ? `${t(greetingKey())}، ${displayName}`
-                    : `${t(greetingKey())}, ${displayName}`
-                }
-              />
+              {language === "ar"
+                ? `${t(greetingKey())}، ${displayName}`
+                : `${t(greetingKey())}, ${displayName}`}
             </h1>
             {surgeMode ? (
               <span className="rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
@@ -133,6 +131,7 @@ export function AppTopbar() {
             ) : null}
           </div>
           <p className="page-subtitle mt-0.5">
+            <span className="me-2 tabular-nums">{todayLabel}</span>
             {surgeMode
               ? t("layout.surgeHint")
               : showOpsCommand
@@ -143,26 +142,17 @@ export function AppTopbar() {
 
         <HeaderSearch />
 
-        <div className="flex items-center gap-1.5">
-          <SearchableSelect
-            value={currentLocationId ?? "__all__"}
-            onValueChange={(v) => setCurrentLocationId(v === "__all__" ? null : v)}
-            onOpenChange={(open) => {
-              if (open) requestSites();
+        <CommandBar>
+          <SiteSwitch
+            value={currentLocationId}
+            onValueChange={(id) => {
+              requestSites();
+              setCurrentLocationId(id);
             }}
-            aria-label={t("common.allBranches")}
-            className="hidden sm:block"
-            triggerClassName="w-auto min-w-[12rem]"
-            options={[
-              { value: "__all__", label: t("common.allBranches") },
-              ...(locations.data ?? [])
-                .filter((l) => l.status === "active")
-                .map((l) => ({
-                  value: l.id,
-                  label: formatLocationRecord(l),
-                  keywords: `${l.code} ${l.name ?? ""} ${l.region ?? ""}`,
-                })),
-            ]}
+            sites={(locations.data ?? []).filter((l) => l.status === "active")}
+            allLabel={t("common.allBranches")}
+            ariaLabel={t("common.allBranches")}
+            className="hidden max-w-[28rem] sm:flex"
           />
 
           <Button
@@ -272,7 +262,7 @@ export function AppTopbar() {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-        </div>
+        </CommandBar>
       </div>
     </header>
   );

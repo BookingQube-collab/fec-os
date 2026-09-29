@@ -5,7 +5,7 @@ import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
-import { Badge } from "@/components/ui/badge";
+import { StatusChip, attendanceStatusTone } from "@/components/ds";
 import { Button } from "@/components/ui/button";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
@@ -87,11 +87,11 @@ export function AttendanceRecordsTable({
   const totalHoursSum = sumListingTotalHours(rows);
 
   return (
-    <div className="overflow-hidden rounded-lg border border-border">
-      <Table>
-        <TableHeader>
+    <div className="overflow-x-auto rounded-lg border border-border">
+      <Table className="min-w-[72rem]">
+        <TableHeader className="sticky top-0 z-10 bg-card">
           <TableRow className="bg-surface/60 hover:bg-surface/60">
-            <TableHead className={HEAD_CLASS}>{t("people.attendance.location")}</TableHead>
+            <TableHead className={cn(HEAD_CLASS, "sticky start-0 z-20 bg-card")}>{t("people.attendance.location")}</TableHead>
             <TableHead className={HEAD_CLASS}>{t("people.attendance.userName")}</TableHead>
             <TableHead className={HEAD_CLASS}>{t("people.attendance.deviceUserId")}</TableHead>
             <TableHead className={HEAD_CLASS}>{t("people.attendance.date")}</TableHead>
@@ -133,9 +133,10 @@ export function AttendanceRecordsTable({
               return (
                 <TableRow
                   key={row.id ?? `${row.userName}-${row.work_date}-${index}`}
-                  className={cn("hover:bg-transparent", rowTint)}
+                  className={cn(index < 12 && "ds-enter", "hover:bg-muted/40", rowTint)}
+                  style={index < 12 ? { animationDelay: `${index * 16}ms` } : undefined}
                 >
-                  <TableCell className="min-w-[10rem] text-xs text-muted-foreground">
+                  <TableCell className="sticky start-0 z-10 min-w-[10rem] bg-card text-xs text-muted-foreground">
                     {row.locationLabel}
                   </TableCell>
                   <TableCell
@@ -231,9 +232,9 @@ export function AttendanceRecordsTable({
                     {ot ? formatOvertimeHours(otMinutes) : "—"}
                   </TableCell>
                   <TableCell>
-                    <Badge variant="outline" className={statusDisplay.badgeClass}>
+                    <StatusChip tone={attendanceStatusTone(statusKey)}>
                       {t(`attendanceHr.reports.statuses.${statusKey}`, { defaultValue: statusDisplay.label })}
-                    </Badge>
+                    </StatusChip>
                   </TableCell>
                 </TableRow>
               );

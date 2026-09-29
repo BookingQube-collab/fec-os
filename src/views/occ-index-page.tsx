@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -20,6 +21,7 @@ import { matchesVenueQuery, rollupDrivers, sharedCity, type OccStatusFilter } fr
 import { useEstateRollup } from "@/hooks/queries/useOcc";
 import { queryKeys } from "@/lib/query-keys";
 import { supabase } from "@/integrations/supabase/client";
+import { EmptyState, LoadingState, SegmentControl, SiteSwitch } from "@/components/ds";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,12 +34,6 @@ const RAG_CARD: Record<RagStatus, string> = {
   green: "border-emerald-200/80 bg-card dark:border-emerald-500/25 dark:bg-emerald-500/5",
 };
 
-const RAG_DOT: Record<RagStatus, string> = {
-  red: "bg-rose-500",
-  amber: "bg-amber-500",
-  green: "bg-emerald-500",
-};
-
 const RAG_BADGE: Record<RagStatus, "destructive" | "warning" | "success"> = {
   red: "destructive",
   amber: "warning",
@@ -46,6 +42,7 @@ const RAG_BADGE: Record<RagStatus, "destructive" | "warning" | "success"> = {
 
 function EstatePage() {
   const { t } = useTranslation();
+  const router = useRouter();
   const qc = useQueryClient();
   const { data, isLoading, isFetching, error, refetch, dataUpdatedAt } = useEstateRollup({
     refetchInterval: 30_000,
@@ -110,36 +107,29 @@ function EstatePage() {
         </div>
       ) : null}
 
+      <SiteSwitch
+        value={null}
+        onValueChange={(id) => {
+          if (id) router.push(`/occ/branch/${id}`);
+        }}
+        sites={rollups.map((row) => ({ id: row.location_id, code: row.code, name: row.name, region: row.city }))}
+        allLabel={t("common.allBranches")}
+        ariaLabel={t("common.allBranches")}
+      />
+
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap items-center gap-2" role="group" aria-label={t("command.filterAria")}>
-          <FilterPill
-            label={t("common.all")}
-            count={rollups.length}
-            active={filter === "all"}
-            onClick={() => setFilter("all")}
-          />
-          <FilterPill
-            label={t("command.rag.red")}
-            count={counts.red}
-            status="red"
-            active={filter === "red"}
-            onClick={() => setFilter(filter === "red" ? "all" : "red")}
-          />
-          <FilterPill
-            label={t("command.rag.amber")}
-            count={counts.amber}
-            status="amber"
-            active={filter === "amber"}
-            onClick={() => setFilter(filter === "amber" ? "all" : "amber")}
-          />
-          <FilterPill
-            label={t("command.rag.green")}
-            count={counts.green}
-            status="green"
-            active={filter === "green"}
-            onClick={() => setFilter(filter === "green" ? "all" : "green")}
-          />
-        </div>
+        <SegmentControl
+          layout="scroll"
+          ariaLabel={t("command.filterAria")}
+          value={filter}
+          onValueChange={setFilter}
+          options={[
+            { value: "all", label: `${t("common.all")} ${rollups.length}` },
+            { value: "red", label: `${t("command.rag.red")} ${counts.red}` },
+            { value: "amber", label: `${t("command.rag.amber")} ${counts.amber}` },
+            { value: "green", label: `${t("command.rag.green")} ${counts.green}` },
+          ]}
+        />
 
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-[12rem] flex-1 sm:max-w-xs">
@@ -152,7 +142,7 @@ function EstatePage() {
               aria-label={t("command.searchPlaceholder")}
             />
           </div>
-          <Button size="sm" variant="outline" onClick={() => void refetch()} disabled={isFetching}>
+          <Button size="sm" variant="outline" className="min-h-11" onClick={() => void refetch()} disabled={isFetching}>
             {isFetching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
             <span className="ms-1.5">{t("command.refresh")}</span>
           </Button>
@@ -163,21 +153,16 @@ function EstatePage() {
         <p className="text-[11px] text-muted-foreground">{formatUpdatedAt(dataUpdatedAt, t)}</p>
       ) : null}
 
+      <div key={`${filter}:${query}`} className="ds-enter">
       {error ? (
         <div className="rounded-2xl border border-rose-300 bg-rose-50 p-4 text-sm text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/5 dark:text-rose-300">
           <AlertCircle className="me-2 inline h-4 w-4" />
           {t("command.loadError", { message: (error as Error).message })}
         </div>
       ) : isLoading ? (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="h-48 animate-pulse rounded-2xl border border-border bg-surface" />
-          ))}
-        </div>
+        <LoadingState label={t("common.loading")} count={6} />
       ) : rollups.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border p-12 text-center text-sm text-muted-foreground">
-          {t("command.emptyAssignments")}
-        </div>
+        <EmptyState title={t("command.emptyAssignments")} className="text-center" />
       ) : visible.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-border p-12 text-center">
           <p className="text-sm text-muted-foreground">{t("command.emptyFilter")}</p>
@@ -200,39 +185,8 @@ function EstatePage() {
           ))}
         </div>
       )}
+      </div>
     </div>
-  );
-}
-
-function FilterPill({
-  label,
-  count,
-  status,
-  active,
-  onClick,
-}: {
-  label: string;
-  count: number;
-  status?: RagStatus;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-        active
-          ? "border-foreground bg-foreground text-background"
-          : "border-border bg-card text-foreground hover:bg-muted/60",
-      )}
-    >
-      {status ? <span className={cn("h-2 w-2 rounded-full", RAG_DOT[status])} /> : null}
-      <span>{label}</span>
-      <span className={cn("tabular-nums", active ? "opacity-80" : "text-muted-foreground")}>{count}</span>
-    </button>
   );
 }
 
@@ -277,7 +231,7 @@ function LocationTile({ rollup, hideCity }: { rollup: LocationRollup; hideCity: 
         <ArrowUpRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
       </div>
 
-      <div className="mt-4 grid grid-cols-4 gap-2 text-center">
+      <div className="mt-4 grid grid-cols-2 gap-2 text-center sm:grid-cols-4">
         <Metric label={t("command.metric.urgent")} value={rollup.urgent_tickets} tone="red" />
         <Metric label={t("command.metric.high")} value={rollup.high_tickets} tone="amber" />
         <Metric label={t("command.metric.incidents")} value={rollup.incidents_24h} tone="red" />

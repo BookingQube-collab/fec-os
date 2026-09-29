@@ -21,6 +21,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
+import { ConfirmationAction } from "@/components/ds";
 import { KPIWidget } from "@/components/dashboard/kpi-widget";
 import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
 import { Badge } from "@/components/ui/badge";
@@ -242,6 +243,7 @@ function DiagnosticsHubView() {
             action={t("diagnostics.healing.purge.action")}
             pending={purgeMut.isPending}
             disabled={busy}
+            hold
             onClick={() => purgeMut.mutate()}
           />
           <HealCard
@@ -261,6 +263,7 @@ function DiagnosticsHubView() {
             body={t("diagnostics.healing.client.body")}
             action={t("diagnostics.healing.client.action")}
             disabled={busy}
+            hold
             onClick={purgeLocalClientState}
           />
           <HealCard
@@ -367,6 +370,7 @@ function HealCard({
   onClick,
   pending,
   disabled,
+  hold,
 }: {
   tag: string;
   icon: typeof Wrench;
@@ -376,7 +380,9 @@ function HealCard({
   onClick: () => void;
   pending?: boolean;
   disabled?: boolean;
+  hold?: boolean;
 }) {
+  const { t } = useTranslation();
   return (
     <NeumorphicCard className="p-4">
       <div className="flex items-start justify-between gap-2">
@@ -389,10 +395,20 @@ function HealCard({
       </div>
       <h3 className="mt-3 text-sm font-semibold text-foreground">{title}</h3>
       <p className="mt-1 min-h-[2.5rem] text-xs text-muted-foreground">{body}</p>
-      <Button size="sm" className="mt-3 w-full" disabled={disabled} onClick={onClick}>
-        {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wrench className="h-3.5 w-3.5" />}
-        {action}
-      </Button>
+      {hold ? (
+        <ConfirmationAction
+          className="mt-3 w-full"
+          label={pending ? t("common.loading") : action}
+          holdingLabel={t("common.holding")}
+          disabled={disabled || pending}
+          onConfirm={onClick}
+        />
+      ) : (
+        <Button size="sm" className="mt-3 w-full" disabled={disabled} onClick={onClick}>
+          {pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wrench className="h-3.5 w-3.5" />}
+          {action}
+        </Button>
+      )}
     </NeumorphicCard>
   );
 }

@@ -149,6 +149,25 @@
 
   --control-height: 2.5rem;
 
+  /* Motion — micro 120–250ms, panels 200–350ms, sections 250–450ms */
+  --motion-micro: 180ms;
+  --motion-panel: 280ms;
+  --motion-section: 360ms;
+  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* Status language. Pulse is reserved for critical only. */
+  --status-online: var(--success);
+  --status-offline: var(--muted-foreground);
+  --status-pending: var(--warning);
+  --status-approved: var(--success);
+  --status-rejected: var(--danger);
+  --status-maintenance: var(--info);
+  --status-critical: var(--danger);
+  --status-warning: var(--warning);
+  --status-completed: var(--success);
+
+  --shadow-hover: 0 10px 28px rgba(26, 26, 26, 0.08);
+
   /* KPI tints — extracted from Purchase Requests strip (emerald / orange / sky / amber) */
   --kpi-green-bg: color-mix(in oklab, #ecfdf5 90%, transparent);
   --kpi-green-border: color-mix(in oklab, #a7f3d0 80%, transparent);
@@ -594,7 +613,7 @@
   }
 
   .pr-module .pr-table-wrap {
-    overflow: hidden;
+    overflow-x: auto;
     border-radius: 1rem;
     border: 1px solid color-mix(in oklab, var(--color-border) 40%, transparent);
     background: var(--color-card);
@@ -1172,10 +1191,146 @@
   background-position: 130% 130%;
 }
 
+/* Phase 1 design-system motion. Transform / opacity only. */
+@keyframes ds-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes ds-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.ds-enter {
+  animation: ds-enter var(--motion-section) var(--ease-standard) both;
+}
+
+.ds-hover {
+  transition:
+    transform var(--motion-micro) var(--ease-standard),
+    box-shadow var(--motion-micro) var(--ease-standard);
+}
+
+.ds-hover:hover {
+  transform: scale(1.01);
+  box-shadow: var(--shadow-hover);
+}
+
+.ds-nav-indicator {
+  transform: scaleY(0);
+  transform-origin: center;
+  transition: transform var(--motion-micro) var(--ease-standard);
+}
+
+.ds-nav-indicator[data-active="true"] {
+  transform: scaleY(1);
+}
+
+.ds-segment-thumb {
+  position: absolute;
+  top: 0.25rem;
+  bottom: 0.25rem;
+  width: calc((100% - 0.5rem) / var(--n));
+  inset-inline-start: 0.25rem;
+  border-radius: 999px;
+  background: var(--card);
+  box-shadow: var(--shadow-xs);
+  transform: translateX(calc(var(--i) * 100%));
+  transition: transform var(--motion-micro) var(--ease-standard);
+}
+
+[dir="rtl"] .ds-segment-thumb {
+  transform: translateX(calc(var(--i) * -100%));
+}
+
+.ds-status {
+  transition:
+    color var(--motion-micro) var(--ease-standard),
+    background-color var(--motion-micro) var(--ease-standard);
+}
+
+.ds-status[data-tone="online"],
+.ds-status[data-tone="approved"],
+.ds-status[data-tone="completed"] {
+  color: var(--status-completed);
+  background: color-mix(in oklab, var(--status-completed) 14%, white);
+}
+
+.ds-status[data-tone="offline"] {
+  color: var(--status-offline);
+  background: color-mix(in oklab, var(--status-offline) 12%, white);
+}
+
+.ds-status[data-tone="pending"],
+.ds-status[data-tone="warning"],
+.ds-status[data-tone="maintenance"] {
+  color: var(--status-warning);
+  background: color-mix(in oklab, var(--status-warning) 16%, white);
+}
+
+.ds-status[data-tone="maintenance"] {
+  color: var(--status-maintenance);
+  background: color-mix(in oklab, var(--status-maintenance) 14%, white);
+}
+
+.ds-status[data-tone="rejected"],
+.ds-status[data-tone="critical"] {
+  color: var(--status-critical);
+  background: color-mix(in oklab, var(--status-critical) 14%, white);
+}
+
+.ds-status[data-tone="neutral"] {
+  color: var(--foreground);
+  background: var(--secondary);
+}
+
+.ds-hold-fill {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  transform: scaleX(var(--p, 0));
+  background: color-mix(in oklab, white 32%, transparent);
+  pointer-events: none;
+}
+
+[dir="rtl"] .ds-hold-fill {
+  transform-origin: right center;
+}
+
+.ds-pulse {
+  animation: ds-pulse 1.6s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .fec-star-border:focus:not(:disabled) {
     animation: none;
     box-shadow: 0 0 0 3px var(--fec-star);
+  }
+
+  .ds-enter,
+  .ds-pulse,
+  .ds-nav-indicator,
+  .ds-segment-thumb,
+  .ds-hover,
+  .ds-hold-fill {
+    animation: none;
+    transition: none;
+  }
+
+  .ds-hover:hover {
+    transform: none;
   }
 
   .animate-star-movement-bottom,
