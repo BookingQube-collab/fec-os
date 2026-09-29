@@ -7,7 +7,7 @@ import { useTranslation } from "react-i18next";
 
 import { FecPageHeader } from "@/components/fec";
 import { E3_NAV_ITEMS } from "@/lib/compliance-tracker/constants";
-import { cn } from "@/lib/utils";
+import { PillTabScroller, pillTabItemClass } from "@/components/react-bits/pill-tab-scroller";
 
 export function E3TrackerLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -21,28 +21,19 @@ export function E3TrackerLayout({ children }: { children: React.ReactNode }) {
         title={t("e3Tracker.layout.title")}
         subtitle={t("e3Tracker.layout.subtitle")}
       />
-      <nav className="flex flex-wrap gap-2 border-b border-border pb-3">
+      <PillTabScroller label={t("e3Tracker.layout.title")}>
         {E3_NAV_ITEMS.map((item) => {
           const active =
             item.href === "/compliance/e3-tracker"
               ? pathname === item.href
               : pathname === item.href || pathname.startsWith(`${item.href}/`);
           return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
-                active
-                  ? "bg-primary text-primary-foreground shadow-elevated-xs"
-                  : "text-muted-foreground hover:bg-secondary hover:text-foreground",
-              )}
-            >
+            <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={pillTabItemClass(active)}>
               {t(item.labelKey)}
             </Link>
           );
         })}
-      </nav>
+      </PillTabScroller>
       {children}
     </div>
   );

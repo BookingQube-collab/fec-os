@@ -10,7 +10,7 @@ import { canUserDo } from "@/lib/rbac";
 import { Button } from "@/components/ui/button";
 import { MAINTENANCE_WEEKLY_REPORTS_NAV_ITEMS } from "@/lib/maintenance-weekly-reports/constants";
 import { usePermission } from "@/hooks/use-permission";
-import { cn } from "@/lib/utils";
+import { PillTabScroller, pillTabItemClass } from "@/components/react-bits/pill-tab-scroller";
 
 export function MaintenanceWeeklyReportsLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -55,8 +55,8 @@ export function MaintenanceWeeklyReportsLayout({ children }: { children: React.R
           <h1 className="page-title">{t("maintenanceWeeklyReports.title")}</h1>
           <p className="page-subtitle">{t("maintenanceWeeklyReports.subtitle")}</p>
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
-          <nav className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <PillTabScroller className="w-auto min-w-0 flex-1" label={t("maintenanceWeeklyReports.title")}>
             {navItems.map((item) => {
               const staticRoutes = ["/review", "/executive", "/new", "/kpis"];
               const active =
@@ -66,16 +66,12 @@ export function MaintenanceWeeklyReportsLayout({ children }: { children: React.R
                       !staticRoutes.some((s) => pathname === `/maintenance/weekly-report${s}` || pathname.startsWith(`/maintenance/weekly-report${s}/`)))
                   : pathname === item.href || pathname.startsWith(`${item.href}/`);
               return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn("filter-chip", active && "filter-chip-active")}
-                >
+                <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={pillTabItemClass(active)}>
                   {t(item.labelKey)}
                 </Link>
               );
             })}
-          </nav>
+          </PillTabScroller>
           {showLayoutNewButton && (
             <Button asChild size="sm">
               <Link href="/maintenance/weekly-report/new">

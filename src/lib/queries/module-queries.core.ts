@@ -1,5 +1,7 @@
 import type { AuthContext } from "@/lib/server/auth";
 import { redactStaffIdentityNumbers } from "@/lib/hr-advanced";
+import { fetchAttendanceMappedStaffIds } from "@/lib/staff-attendance-mapped";
+import { hiddenUnmappedDuplicateIds } from "@/lib/staff-mapped-duplicates";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { canUserDo } from "@/lib/rbac";
 import type { MasterDepartmentRow } from "@/lib/staff-departments";
@@ -408,7 +410,7 @@ function mapStaffRow(
   const department_names = sorted
     .map((d) => d.master_departments?.name)
     .filter((n): n is string => Boolean(n));
-  const { locations: _locations, staff_departments: _sd, ...rest } = row;
+  const { locations: _locations, staff_departments: _sd, user_id: _userId, ...rest } = row;
   const department =
     typeof rest.department === "string" && rest.department.trim()
       ? rest.department
@@ -442,6 +444,31 @@ function mapStaffRow(
   };
 }
 
+/** Drop unmapped stubs so directory counts and pickers share one usable person. */
+async function withoutUnmappedStaffDuplicates<T extends Record<string, unknown>>(
+  supabase: AuthContext["supabase"],
+  rows: T[],
+): Promise<T[]> {
+  if (rows.length < 2) return rows;
+  const attendanceMapped = await fetchAttendanceMappedStaffIds(supabase);
+  const hidden = hiddenUnmappedDuplicateIds(
+    rows.map((row) => {
+      const id = String(row.id ?? "");
+      return {
+        id,
+        full_name: String(row.full_name ?? ""),
+        employee_code: String(row.employee_code ?? ""),
+        location_id: String(row.location_id ?? ""),
+        phone: (row.phone as string | null | undefined) ?? null,
+        user_id: (row.user_id as string | null | undefined) ?? null,
+        attendance_mapped: attendanceMapped.has(id),
+      };
+    }),
+  );
+  if (!hidden.size) return rows;
+  return rows.filter((row) => !hidden.has(String(row.id ?? "")));
+}
+
 export async function fetchMasterDepartments(context: AuthContext): Promise<MasterDepartmentRow[]> {
   const { data: rows, error } = await context.supabase
     .from("master_departments")
@@ -463,7 +490,7 @@ export async function fetchStaff(
   let q = context.supabase
     .from("staff")
     .select(
-      "id, employee_code, full_name, job_title, department, status, location_id, is_roaming, phone, email, hire_date, qid, e3_enrolled, employment_type, staff_role, photo_updated_at, flexible_attendance, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday, locations!staff_location_id_fkey(code, name), staff_departments(department_id, master_departments(id, name, sort_order))",
+      "id, user_id, employee_code, full_name, job_title, department, status, location_id, is_roaming, phone, email, hire_date, qid, e3_enrolled, employment_type, staff_role, photo_updated_at, flexible_attendance, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday, locations!staff_location_id_fkey(code, name), staff_departments(department_id, master_departments(id, name, sort_order))",
     )
     .order("full_name")
     .limit(500);
@@ -476,7 +503,11 @@ export async function fetchStaff(
   }
   const { data: rows, error } = await q;
   if (error) throw error;
-  const mapped = (rows ?? []).map((row) => mapStaffRow(row));
+  const visibleRows = await withoutUnmappedStaffDuplicates(
+    context.supabase,
+    (rows ?? []) as Array<Record<string, unknown>>,
+  );
+  const mapped = visibleRows.map((row) => mapStaffRow(row));
   const workByStaff = await fetchWorkLocationsByStaffId(
     context.supabase,
     mapped.map((s) => s.id),
@@ -550,7 +581,7 @@ export async function fetchStaff(
  * Hint both embeds: locations (home vs work M2M) and staff_profile_ext
  * (staff_id vs reporting_manager_staff_id) — otherwise PostgREST PGRST201. */
 const STAFF_DIRECTORY_SELECT =
-  "id, employee_code, full_name, job_title, department, status, location_id, is_roaming, phone, email, hire_date, qid, e3_enrolled, employment_type, staff_role, photo_updated_at, flexible_attendance, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday, locations!staff_location_id_fkey(code, name), staff_departments(department_id, master_departments(id, name, sort_order)), staff_profile_ext!staff_profile_ext_staff_id_fkey(nationality, gender, sponsorship_info, passport_number, passport_expiry, visa_number, qid_expiry, date_of_birth, contract_end, visa_expiry)";
+  "id, user_id, employee_code, full_name, job_title, department, status, location_id, is_roaming, phone, email, hire_date, qid, e3_enrolled, employment_type, staff_role, photo_updated_at, flexible_attendance, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday, locations!staff_location_id_fkey(code, name), staff_departments(department_id, master_departments(id, name, sort_order)), staff_profile_ext!staff_profile_ext_staff_id_fkey(nationality, gender, sponsorship_info, passport_number, passport_expiry, visa_number, qid_expiry, date_of_birth, contract_end, visa_expiry)";
 
 export type StaffDirectoryListFilters = {
   locationId?: string | null;
@@ -647,7 +678,12 @@ export async function fetchStaffDirectory(
   const { data: rows, error } = await q;
   if (error) throw error;
 
-  const mapped = (rows ?? []).map((row) => {
+  const visibleRows = await withoutUnmappedStaffDuplicates(
+    context.supabase,
+    (rows ?? []) as Array<Record<string, unknown>>,
+  );
+
+  const mapped = visibleRows.map((row) => {
     const raw = row as Record<string, unknown> & {
       locations?: { code: string; name: string } | null;
       staff_departments?: StaffDeptJoin[] | null;

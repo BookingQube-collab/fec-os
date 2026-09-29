@@ -9,7 +9,7 @@ import { CapabilityGate } from "@/components/auth/capability-gate";
 import { Button } from "@/components/ui/button";
 import { WEEKLY_REPORTS_NAV_ITEMS } from "@/lib/weekly-reports/constants";
 import { usePermission } from "@/hooks/use-permission";
-import { cn } from "@/lib/utils";
+import { PillTabScroller, pillTabItemClass } from "@/components/react-bits/pill-tab-scroller";
 
 export function WeeklyReportsLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -42,24 +42,20 @@ export function WeeklyReportsLayout({ children }: { children: React.ReactNode })
           <h1 className="page-title">{t("weeklyReports.title")}</h1>
           <p className="page-subtitle">{t("weeklyReports.subtitle")}</p>
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
-          <nav className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <PillTabScroller className="w-auto min-w-0 flex-1" label={t("weeklyReports.title")}>
             {navItems.map((item) => {
               const active =
                 item.href === "/operations/weekly-reports"
                   ? pathname === item.href
                   : pathname === item.href || pathname.startsWith(`${item.href}/`);
               return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn("filter-chip", active && "filter-chip-active")}
-                >
+                <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={pillTabItemClass(active)}>
                   {t(item.labelKey)}
                 </Link>
               );
             })}
-          </nav>
+          </PillTabScroller>
           {showLayoutNewButton && (
             <Button asChild size="sm">
               <Link href="/operations/weekly-reports/new">

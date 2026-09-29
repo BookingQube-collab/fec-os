@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { ActionButton, arcadeCategoryName, arcadeStatusName, Field, KpiTile, MobileActions, Pager, StatusBadge } from "@/components/arcade/ui";
 import { ArcadeWorkbookImport } from "@/components/arcade/workbook-import";
 import GlideSelect from "@/components/react-bits/glide-select";
+import { PillTabScroller, pillTabItemClass } from "@/components/react-bits/pill-tab-scroller";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -511,11 +512,11 @@ function MachineTabs({ data }: { data: Awaited<ReturnType<typeof getArcadeMachin
   if (!data) return null;
   return (
     <div>
-      <div className="flex gap-1 overflow-x-auto">
+      <PillTabScroller label={t("nav.arcade")}>
         {tabs.map((item) => (
-          <button key={item} type="button" className={`rounded-md px-3 py-2 text-sm ${tab === item ? "bg-primary text-primary-foreground" : "bg-muted"}`} onClick={() => setTab(item)}>{t(`arcadeScreens.tab.${item}`)}</button>
+          <button key={item} type="button" aria-pressed={tab === item} className={pillTabItemClass(tab === item)} onClick={() => setTab(item)}>{t(`arcadeScreens.tab.${item}`)}</button>
         ))}
-      </div>
+      </PillTabScroller>
       <div className="mt-3 grid gap-2 text-sm">
         {tab === "Overview" ? <p>{data.machine.notes || t("arcadeScreens.noNotes")}</p> : null}
         {tab === "Faults" ? data.faults.map((row) => <Link key={row.id} href={`/arcade/faults/${row.id}`} className="rounded border p-2">{row.ticket_number} · {arcadeCategoryName(t, row.category)} · {arcadeStatusName(t, row.status)}{row.is_repeat ? ` · ${t("arcadeStatus.REPEAT")}` : ""}</Link>) : null}

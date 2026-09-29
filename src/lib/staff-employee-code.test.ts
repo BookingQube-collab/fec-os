@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertInternalEmployeeCode,
   generateEmployeeCode,
+  isGeneratedEmployeeCode,
   isPreservableEmployeeCode,
   isQidShapedCode,
   nextEmployeeCode,
@@ -17,6 +18,23 @@ describe("isQidShapedCode", () => {
     expect(isQidShapedCode("INF-CC-BM")).toBe(false);
     expect(isQidShapedCode("INF-CC-STF03")).toBe(false);
     expect(isQidShapedCode("KDS-CC-TEMP-01")).toBe(false);
+  });
+});
+
+describe("isGeneratedEmployeeCode", () => {
+  it("recognises allocator output and leaves masterfile codes alone", () => {
+    const used = new Set<string>();
+    const generated = generateEmployeeCode("UA-DR", used, { staffRole: "crew" });
+    expect(generated).toBe("UA-DR-STF01");
+    expect(isGeneratedEmployeeCode(generated)).toBe(true);
+    expect(isGeneratedEmployeeCode("UA-DR-STF84")).toBe(true);
+    expect(isGeneratedEmployeeCode("INF-CC-BM")).toBe(true);
+    expect(isGeneratedEmployeeCode("INF-CC-BM2")).toBe(true);
+    expect(isGeneratedEmployeeCode("INF-CC-VS")).toBe(true);
+    expect(isGeneratedEmployeeCode("KDS-CC-CSH01")).toBe(true);
+    expect(isGeneratedEmployeeCode("FEC-TEC01")).toBe(true);
+    expect(isGeneratedEmployeeCode("543")).toBe(false);
+    expect(isGeneratedEmployeeCode("KDS-CC-TEMP-01")).toBe(false);
   });
 });
 

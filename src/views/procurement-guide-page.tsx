@@ -5,6 +5,7 @@ import { FecPageHeader } from "@/components/fec";
 import { BookOpen, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
+import { PillTabScroller, pillTabItemClass } from "@/components/react-bits/pill-tab-scroller";
 import { Button } from "@/components/ui/button";
 
 const SECTIONS = [
@@ -41,17 +42,13 @@ export default function ProcurementGuidePage() {
         }
       />
 
-      <nav className="flex flex-wrap gap-2">
+      <PillTabScroller label={t("procurement.guide.title")}>
         {SECTIONS.map((id) => (
-          <a
-            key={id}
-            href={`#pr-guide-${id}`}
-            className="rounded-full border border-border/50 bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted/40"
-          >
+          <a key={id} href={`#pr-guide-${id}`} className={pillTabItemClass(false)}>
             {t(`procurement.guide.nav.${id}`)}
           </a>
         ))}
-      </nav>
+      </PillTabScroller>
 
       {SECTIONS.map((id) => (
         <section

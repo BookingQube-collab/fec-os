@@ -20,6 +20,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { FecPageHeader } from "@/components/fec";
+import { PillTabScroller, pillTabItemClass } from "@/components/react-bits/pill-tab-scroller";
 import {
   MissedPunchApprovalQueue,
   MissedPunchRequestButton,
@@ -391,18 +392,18 @@ export default function EmployeeMePage() {
 
         {selfReady && (person || profile.isError) ? (
           <>
-            <nav className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1" aria-label={t("hr.me.jumpTo")}>
+            <PillTabScroller label={t("hr.me.jumpTo")}>
               {jumps.map((item) => (
                 <button
                   key={item.id}
                   type="button"
-                  className="min-h-11 shrink-0 rounded-full border border-border/70 bg-card px-4 text-sm font-medium shadow-elevated-xs touch-manipulation hover:border-primary/40 hover:bg-primary/5"
+                  className={pillTabItemClass(false)}
                   onClick={() => document.getElementById(item.id)?.scrollIntoView({ behavior: "smooth", block: "start" })}
                 >
                   {item.label}
                 </button>
               ))}
-            </nav>
+            </PillTabScroller>
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {profile.isError ? (

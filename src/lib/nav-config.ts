@@ -27,7 +27,6 @@ import {
   LayoutDashboard,
   LineChart,
   ListChecks,
-  Network,
   Package,
   Plane,
   Presentation,
@@ -259,6 +258,8 @@ const HR_ADMIN_NAV_GROUP: SidebarNavGroup = {
   viewCapability: "hr.manage",
   items: [
     { href: "/people/hr", labelKey: "nav.hrDashboard", capability: "people.view_roster" },
+    // Same nav gate as before (admin.view). The page and server still require role level 95, so this is not opened to every HR role.
+    { href: "/people/hr/hierarchy", labelKey: "nav.operationsHierarchy", capability: "admin.view" },
     { href: "/people/hr/documents", labelKey: "nav.hrDocuments", capability: "hr.docs.manage" },
     { href: "/people/hr/onboarding", labelKey: "nav.hrOnboarding", capability: "hr.manage" },
     { href: "/people/hr/announcements", labelKey: "nav.hrAnnouncements", capability: "hr.manage" },
@@ -466,7 +467,6 @@ export const NAV_DEPARTMENTS: NavDepartment[] = [
     items: [
       { href: "/admin", labelKey: "nav.settings", icon: Settings, capability: "admin.view" },
       { href: "/admin/roles", labelKey: "nav.rolesAccess", icon: Shield, capability: "admin.view" },
-      { href: "/admin/hierarchy", labelKey: "nav.operationsHierarchy", icon: Network, capability: "admin.view" },
       { href: "/admin/ai-integrations", labelKey: "nav.aiIntegrations", icon: Sparkles, capability: "admin.view" },
       { href: "/admin/diagnostics", labelKey: "nav.diagnostics", icon: HeartPulse, capability: "admin.diagnostics" },
       { href: "/admin/api-explorer", labelKey: "nav.apiExplorer", icon: Code2, capability: "admin.view" },

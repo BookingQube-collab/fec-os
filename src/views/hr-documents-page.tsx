@@ -11,6 +11,16 @@ import { HrEmbedFrame } from "@/components/hr/hr-embed-frame";
 import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { HrPanel } from "@/components/hr/hr-panel";
 import { HrShell } from "@/components/hr/hr-shell";
+import {
+  documentStatusMark,
+  StaffDocumentLightbox,
+  StaffDocumentOpenButton,
+  StaffDocumentThumbnail,
+  verificationStatusMark,
+} from "@/components/people/staff-document-preview";
+import GlideSelect from "@/components/react-bits/glide-select";
+import SpotlightCard from "@/components/react-bits/spotlight-card";
+import StatusMark from "@/components/react-bits/status-mark";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -54,7 +64,8 @@ export function HrDocumentsWorkspace({
   embedded?: boolean;
   onChanged?: () => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const menuAlign = i18n.dir() === "rtl" ? "right" : "left";
   const qc = useQueryClient();
   const [pickedStaffId, setPickedStaffId] = useState("");
   const staffId = lockedStaffId ?? pickedStaffId;
@@ -72,6 +83,7 @@ export function HrDocumentsWorkspace({
   const [mofaStatus, setMofaStatus] = useState<"" | "yes" | "no" | "not_required">("");
   const [replaceId, setReplaceId] = useState<string | null>(null);
   const [replaceFile, setReplaceFile] = useState<File | null>(null);
+  const [previewId, setPreviewId] = useState<string | null>(null);
 
   const staff = useQuery({
     queryKey: queryKeys.people.hrLeaveBalances({ view: "staff" }),
@@ -162,14 +174,6 @@ export function HrDocumentsWorkspace({
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const openDoc = useMutation({
-    mutationFn: (id: string) => getEmployeeDocumentUrl({ id, purpose: "preview" }),
-    onSuccess: (res) => {
-      window.open(res.url, "_blank", "noopener,noreferrer");
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
   const downloadDoc = useMutation({
     mutationFn: (id: string) => getEmployeeDocumentUrl({ id, purpose: "download" }),
     onSuccess: (res) => {
@@ -182,6 +186,7 @@ export function HrDocumentsWorkspace({
     mutationFn: deleteEmployeeDocument,
     onSuccess: () => {
       toast.success(t("hr.docs.deleted"));
+      setPreviewId(null);
       invalidate();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -271,6 +276,67 @@ export function HrDocumentsWorkspace({
 
   const showEducation = EDUCATION_TYPES.has(docType);
   const today = new Date().toISOString().slice(0, 10);
+  const previewDoc = (docs.data ?? []).find((doc) => doc.id === previewId) ?? null;
+
+  function docActions(
+    doc: {
+      id: string;
+      verificationStatus: string;
+      status: string;
+      expiryDate: string | null;
+    },
+    includeView = false,
+  ) {
+    return (
+      <>
+        {includeView ? (
+          <Button size="sm" variant="secondary" onClick={() => setPreviewId(doc.id)}>
+            {t("hr.docs.view")}
+          </Button>
+        ) : null}
+        <Button size="sm" variant="secondary" onClick={() => downloadDoc.mutate(doc.id)}>
+          {t("hr.docs.download")}
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            setReplaceId(doc.id);
+            setPreviewId(null);
+          }}
+        >
+          {t("hr.docs.replace")}
+        </Button>
+        {doc.verificationStatus !== "verified" ? (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => verify.mutate({ id: doc.id, verificationStatus: "verified" })}
+          >
+            {t("hr.docs.verify")}
+          </Button>
+        ) : null}
+        {doc.status === "pending" ? (
+          <>
+            <Button size="sm" variant="outline" onClick={() => approve.mutate({ id: doc.id })}>
+              {t("hr.docs.approve")}
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => reject.mutate({ id: doc.id })}>
+              {t("hr.docs.reject")}
+            </Button>
+          </>
+        ) : null}
+        {doc.status !== "expired" && doc.expiryDate && doc.expiryDate < today ? (
+          <Button size="sm" variant="outline" onClick={() => expire.mutate({ id: doc.id })}>
+            {t("hr.docs.expire")}
+          </Button>
+        ) : null}
+        <Button size="sm" variant="outline" onClick={() => remove.mutate({ id: doc.id })}>
+          {t("hr.docs.delete")}
+        </Button>
+      </>
+    );
+  }
 
   return (
     <CapabilityGate
@@ -294,7 +360,7 @@ export function HrDocumentsWorkspace({
         title={t("hr.docs.title")}
         subtitle={t("hr.docs.subtitle")}
       >
-          <HrPanel delay={0}>
+          <HrPanel delay={0} className="hr-panel--overflow relative z-20">
             <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-5">
               {lockedStaffId ? null : (
               <div className="lg:col-span-2">
@@ -314,11 +380,20 @@ export function HrDocumentsWorkspace({
               )}
               <div>
                 <Label>{t("hr.docs.type")}</Label>
-                <select
-                  className="flex h-10 w-full rounded-xl border border-input bg-background px-3 text-sm"
+                <GlideSelect
+                  ariaLabel={t("hr.docs.type")}
                   value={docType}
-                  onChange={(e) => {
-                    setDocType(e.target.value as (typeof HR_DOC_TYPES)[number]);
+                  size="lg"
+                  showTags={false}
+                  align={menuAlign}
+                  menuWidth={360}
+                  className="block w-full [&>button]:w-full [&>button]:justify-between"
+                  options={HR_DOC_TYPES.map((value) => ({
+                    value,
+                    label: t(`hr.docs.types.${value}`),
+                  }))}
+                  onChange={(value) => {
+                    setDocType(value as (typeof HR_DOC_TYPES)[number]);
                     setDocumentNumber("");
                     setExpiry("");
                     setNumberSuggestion("");
@@ -326,13 +401,7 @@ export function HrDocumentsWorkspace({
                     setExtractNote("");
                     setFile(null);
                   }}
-                >
-                  {HR_DOC_TYPES.map((value) => (
-                    <option key={value} value={value}>
-                      {t(`hr.docs.types.${value}`)}
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
               {isIdentityDocType(docType) ? (
                 <div>
@@ -416,16 +485,22 @@ export function HrDocumentsWorkspace({
                   </div>
                   <div>
                     <Label>{t("hr.docs.mofaStatus")}</Label>
-                    <select
-                      className="flex h-10 w-full rounded-xl border border-input bg-background px-3 text-sm"
+                    <GlideSelect
+                      ariaLabel={t("hr.docs.mofaStatus")}
                       value={mofaStatus}
-                      onChange={(e) => setMofaStatus(e.target.value as typeof mofaStatus)}
-                    >
-                      <option value="">{t("hr.docs.mofaUnset")}</option>
-                      <option value="yes">{t("hr.docs.mofaYes")}</option>
-                      <option value="no">{t("hr.docs.mofaNo")}</option>
-                      <option value="not_required">{t("hr.docs.mofaNotRequired")}</option>
-                    </select>
+                      size="lg"
+                      showTags={false}
+                      align={menuAlign}
+                      menuWidth={280}
+                      className="block w-full [&>button]:w-full [&>button]:justify-between"
+                      options={[
+                        { value: "", label: t("hr.docs.mofaUnset") },
+                        { value: "yes", label: t("hr.docs.mofaYes") },
+                        { value: "no", label: t("hr.docs.mofaNo") },
+                        { value: "not_required", label: t("hr.docs.mofaNotRequired") },
+                      ]}
+                      onChange={(value) => setMofaStatus(value as typeof mofaStatus)}
+                    />
                   </div>
                 </>
               ) : null}
@@ -464,66 +539,59 @@ export function HrDocumentsWorkspace({
                 <HrEmptyState message={t("hr.docs.empty")} icon={FileText} />
               ) : (
                 (docs.data ?? []).map((doc) => (
-                  <div key={doc.id} className="hr-list-row">
-                    <div>
-                      <p className="font-medium">
-                        {doc.staffName} · {t(`hr.docs.types.${doc.docType}`)}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {doc.fileName ?? "—"}
-                        {doc.expiryDate ? ` · ${t("hr.docs.expires", { date: doc.expiryDate })}` : ""}
-                        {` · ${t(`hr.docs.status.${doc.status}`)}`}
-                        {` · ${t(`hr.docs.verification.${doc.verificationStatus}`)}`}
-                      </p>
+                  <SpotlightCard key={doc.id} className="hr-list-row !items-stretch rounded-2xl">
+                    <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center">
+                    <StaffDocumentOpenButton
+                      label={t("hr.docs.openPreview", {
+                        name: doc.fileName ?? t(`hr.docs.types.${doc.docType}`),
+                      })}
+                      onOpen={() => setPreviewId(doc.id)}
+                    >
+                      <StaffDocumentThumbnail doc={doc} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block font-medium">
+                          {doc.staffName} · {t(`hr.docs.types.${doc.docType}`)}
+                        </span>
+                        <span className="mt-1 block text-xs text-muted-foreground">
+                          {doc.fileName ?? "—"}
+                          {doc.expiryDate ? ` · ${t("hr.docs.expires", { date: doc.expiryDate })}` : ""}
+                        </span>
+                        <span className="mt-2 flex flex-wrap items-center gap-3">
+                          <StatusMark
+                            status={documentStatusMark(doc.status)}
+                            label={t(`hr.docs.status.${doc.status}`)}
+                            size={16}
+                            fontSize={12}
+                            strike={false}
+                          />
+                          <StatusMark
+                            status={verificationStatusMark(doc.verificationStatus)}
+                            label={t(`hr.docs.verification.${doc.verificationStatus}`)}
+                            size={16}
+                            fontSize={12}
+                            strike={false}
+                          />
+                          {doc.expiryDate && doc.expiryDate < today ? (
+                            <Badge variant="destructive">{t("hr.docs.expired")}</Badge>
+                          ) : null}
+                        </span>
+                      </span>
+                    </StaffDocumentOpenButton>
+                    <div className="flex flex-wrap items-center gap-2">{docActions(doc, true)}</div>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {doc.expiryDate && doc.expiryDate < today ? (
-                        <Badge variant="destructive">{t("hr.docs.expired")}</Badge>
-                      ) : null}
-                      <Button size="sm" variant="secondary" onClick={() => openDoc.mutate(doc.id)}>
-                        {t("hr.docs.view")}
-                      </Button>
-                      <Button size="sm" variant="secondary" onClick={() => downloadDoc.mutate(doc.id)}>
-                        {t("hr.docs.download")}
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => setReplaceId(doc.id)}>
-                        {t("hr.docs.replace")}
-                      </Button>
-                      {doc.verificationStatus !== "verified" ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() =>
-                            verify.mutate({ id: doc.id, verificationStatus: "verified" })
-                          }
-                        >
-                          {t("hr.docs.verify")}
-                        </Button>
-                      ) : null}
-                      {doc.status === "pending" ? (
-                        <>
-                          <Button size="sm" variant="outline" onClick={() => approve.mutate({ id: doc.id })}>
-                            {t("hr.docs.approve")}
-                          </Button>
-                          <Button size="sm" variant="outline" onClick={() => reject.mutate({ id: doc.id })}>
-                            {t("hr.docs.reject")}
-                          </Button>
-                        </>
-                      ) : null}
-                      {doc.status !== "expired" && doc.expiryDate && doc.expiryDate < today ? (
-                        <Button size="sm" variant="outline" onClick={() => expire.mutate({ id: doc.id })}>
-                          {t("hr.docs.expire")}
-                        </Button>
-                      ) : null}
-                      <Button size="sm" variant="outline" onClick={() => remove.mutate({ id: doc.id })}>
-                        {t("hr.docs.delete")}
-                      </Button>
-                    </div>
-                  </div>
+                  </SpotlightCard>
                 ))
               )}
             </div>
           </HrPanel>
+          <StaffDocumentLightbox
+            doc={previewDoc}
+            open={Boolean(previewDoc)}
+            onOpenChange={(next) => {
+              if (!next) setPreviewId(null);
+            }}
+            actions={previewDoc ? docActions(previewDoc) : null}
+          />
       </HrEmbedFrame>
     </CapabilityGate>
   );

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
+import { PillTabScroller, pillTabItemClass } from "@/components/react-bits/pill-tab-scroller";
 import StatusMark, { type StatusMarkStatus } from "@/components/react-bits/status-mark";
 import { Button } from "@/components/ui/button";
 import { usePermission } from "@/hooks/use-permission";
@@ -76,23 +77,21 @@ export function ArcadeSubnav() {
   const canReport = usePermission("arcade.reports");
   const { t } = useTranslation();
   return (
-    <nav className="flex gap-1 overflow-x-auto pb-1" aria-label={t("nav.arcade")}>
+    <PillTabScroller label={t("nav.arcade")}>
       {LINKS.filter((link) => !link.report || canReport).map((link) => {
         const active = link.exact ? pathname === link.href : pathname === link.href || pathname.startsWith(`${link.href}/`);
         return (
           <Link
             key={link.href}
             href={link.href}
-            className={cn(
-              "shrink-0 rounded-md px-3 py-2 text-sm font-medium",
-              active ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
-            )}
+            aria-current={active ? "page" : undefined}
+            className={pillTabItemClass(active)}
           >
             {t(link.labelKey)}
           </Link>
         );
       })}
-    </nav>
+    </PillTabScroller>
   );
 }
 

@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
 
 import { usePermission } from "@/hooks/use-permission";
-import { cn } from "@/lib/utils";
+import { PillTabScroller, pillTabItemClass } from "@/components/react-bits/pill-tab-scroller";
 
 const ITEMS = [
   { href: "/procurement", labelKey: "procurement.chrome.purchases", match: "purchases" as const },
@@ -43,22 +43,18 @@ export function PrModuleShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="pr-module space-y-5">
-      <nav className="pr-chrome-nav" aria-label={t("procurement.chrome.nav")}>
+      <PillTabScroller label={t("procurement.chrome.nav")}>
         {ITEMS.map((item) => {
           if (item.capability === "vendors.view" && !canVendors) return null;
           if (item.capability === "procurement.configure" && !canConfig) return null;
           const active = chromeMatch(pathname, item.match);
           return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn("pr-chrome-link", active && "pr-chrome-link-active")}
-            >
+            <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={pillTabItemClass(active)}>
               {t(item.labelKey)}
             </Link>
           );
         })}
-      </nav>
+      </PillTabScroller>
       {children}
     </div>
   );

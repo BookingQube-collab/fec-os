@@ -40,12 +40,8 @@ import { HrWarningsWorkspace } from "@/views/hr-warnings-page";
 import { PerformanceStaffProfilePanel } from "@/views/performance-staff-profile-page";
 import { StaffKraScorecards } from "@/components/people/staff-kra-scorecards";
 import { Checkbox } from "@/components/ui/checkbox";
+import { PillTabScroller, pillTabItemClass } from "@/components/react-bits/pill-tab-scroller";
 
-/** People pill switcher (cream track, black active). ponytail: full-width scroll — ~11 tabs; People uses sm:w-fit for four. */
-const PROFILE_TAB_LIST =
-  "h-11 min-h-11 w-full max-w-full flex-nowrap items-center gap-0.5 overflow-x-auto overflow-y-hidden rounded-full border-0 bg-secondary p-1 text-foreground [scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
-const PROFILE_TAB_TRIGGER =
-  "h-full min-h-0 shrink-0 data-[state=active]:shadow-none data-[state=inactive]:text-foreground data-[state=inactive]:hover:bg-transparent data-[state=inactive]:hover:text-foreground";
 const SECTION_LABEL = "text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground";
 const PANEL = "surface-card min-w-0 space-y-3 p-4";
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
@@ -672,9 +668,9 @@ function StaffProfilePageBody() {
         }}
         className="space-y-3"
       >
-        <TabsList className={PROFILE_TAB_LIST}>
+        <TabsList>
           {profileTabs.map((tab) => (
-            <TabsTrigger key={tab.value} value={tab.value} className={PROFILE_TAB_TRIGGER}>
+            <TabsTrigger key={tab.value} value={tab.value}>
               {tab.label}
             </TabsTrigger>
           ))}
@@ -1478,22 +1474,21 @@ function StaffProfilePageBody() {
           </section>
         <section className={PANEL}>
           <h2 className={SECTION_LABEL}>{t("people.profile.timeline")}</h2>
-          <div className="flex gap-1 overflow-x-auto">
+          <PillTabScroller label={t("people.profile.timeline")}>
             {(
               ["all", "status_change", "salary_change", "leave_approved", "document_verified", "document_replaced"] as const
             ).map((value) => (
               <button
                 key={value}
                 type="button"
-                className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${
-                  timelineFilter === value ? "bg-primary text-primary-foreground" : "bg-secondary text-foreground"
-                }`}
+                aria-pressed={timelineFilter === value}
+                className={pillTabItemClass(timelineFilter === value)}
                 onClick={() => setTimelineFilter(value)}
               >
                 {t(`people.profile.timelineFilters.${value}`)}
               </button>
             ))}
-          </div>
+          </PillTabScroller>
           {(timeline.data ?? []).length === 0 ? (
             <p className="text-sm text-muted-foreground">{t("people.profile.timelineEmpty")}</p>
           ) : (

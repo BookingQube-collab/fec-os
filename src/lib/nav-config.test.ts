@@ -13,7 +13,6 @@ import {
 const ADMIN_HREFS = [
   "/admin",
   "/admin/roles",
-  "/admin/hierarchy",
   "/admin/ai-integrations",
   "/admin/diagnostics",
   "/admin/api-explorer",
@@ -90,6 +89,7 @@ describe("admin sidebar visibility", () => {
     ]);
     expect(people?.groups.find((g) => g.id === "hr-admin")?.items.map((i) => i.href)).toEqual([
       "/people/hr",
+      "/people/hr/hierarchy",
       "/people/hr/documents",
       "/people/hr/onboarding",
       "/people/hr/announcements",
@@ -126,6 +126,24 @@ describe("admin sidebar visibility", () => {
     expect(people?.groups.find((g) => g.id === "hr-attendance")?.items.some((i) => i.href === "/people/field")).toBe(
       false,
     );
+  });
+
+  it("places operations hierarchy in HR admin and keeps it off the Administration rail", () => {
+    const people = getVisibleDepartments(["ceo"]).find((dept) => dept.id === "people");
+    const peopleHrefs = people?.groups.flatMap((group) => group.items.map((item) => item.href)) ?? [];
+    expect(peopleHrefs).toContain("/people/hr/hierarchy");
+
+    const admin = getVisibleDepartments(["ceo"]).find((dept) => dept.id === "admin");
+    const adminHrefs = [
+      ...(admin?.items.map((item) => item.href) ?? []),
+      ...(admin?.groups.flatMap((group) => group.items.map((item) => item.href)) ?? []),
+    ];
+    expect(adminHrefs).not.toContain("/admin/hierarchy");
+    expect(adminHrefs).not.toContain("/people/hr/hierarchy");
+
+    const hr = getVisibleDepartments(["hr"]).find((dept) => dept.id === "people");
+    const hrHrefs = hr?.groups.flatMap((group) => group.items.map((item) => item.href)) ?? [];
+    expect(hrHrefs).not.toContain("/people/hr/hierarchy");
   });
 
   it("exposes hierarchical flyout tree for People (parents preserve children)", () => {

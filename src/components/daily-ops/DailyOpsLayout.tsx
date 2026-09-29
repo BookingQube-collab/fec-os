@@ -8,7 +8,7 @@ import { ClipboardList } from "lucide-react";
 import { CapabilityGate } from "@/components/auth/capability-gate";
 import { FecPageHeader, FecSection } from "@/components/fec";
 import { DAILY_OPS_NAV_ITEMS } from "@/lib/daily-ops/constants";
-import { cn } from "@/lib/utils";
+import { PillTabScroller, pillTabItemClass } from "@/components/react-bits/pill-tab-scroller";
 
 export function DailyOpsLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -26,23 +26,19 @@ export function DailyOpsLayout({ children }: { children: React.ReactNode }) {
         title={t("dailyOps.title")}
         subtitle={t("dailyOps.subtitle")}
       />
-      <nav className="flex flex-wrap gap-2 border-b border-border pb-3">
+      <PillTabScroller label={t("dailyOps.title")}>
         {DAILY_OPS_NAV_ITEMS.map((item) => {
           const active =
             item.href === "/daily-ops"
               ? pathname === item.href
               : pathname === item.href || pathname.startsWith(`${item.href}/`);
           return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn("filter-chip", active && "filter-chip-active")}
-            >
+            <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={pillTabItemClass(active)}>
               {t(item.labelKey)}
             </Link>
           );
         })}
-      </nav>
+      </PillTabScroller>
       {children}
     </div>
     </CapabilityGate>

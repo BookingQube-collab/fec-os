@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 
 import { useEvent } from "@/hooks/queries/useEvents";
 import { missingRequiredDocs } from "@/lib/events/documents";
+import { PillTabScroller, pillTabItemClass } from "@/components/react-bits/pill-tab-scroller";
 import { cn } from "@/lib/utils";
 
 const TABS = [
@@ -24,7 +25,7 @@ export function EventWorkspaceNav({ eventId }: { eventId: string }) {
   const base = `/events/${eventId}`;
 
   return (
-    <nav className="flex max-w-full flex-nowrap gap-1 overflow-x-auto overflow-y-hidden rounded-full border border-border/70 bg-secondary/40 p-1">
+    <PillTabScroller label={t("nav.events")}>
       {TABS.map((tab) => {
         const href = `${base}${tab.suffix}`;
         const active = tab.suffix === "" ? pathname === base : pathname.startsWith(href);
@@ -33,10 +34,7 @@ export function EventWorkspaceNav({ eventId }: { eventId: string }) {
             key={tab.key}
             href={href}
             aria-current={active ? "page" : undefined}
-            className={cn(
-              "inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full px-3 text-xs font-semibold tracking-wide",
-              active ? "bg-primary text-primary-foreground shadow-elevated-xs" : "text-muted-foreground hover:text-foreground",
-            )}
+            className={cn(pillTabItemClass(active), "text-xs font-semibold tracking-wide")}
           >
             <tab.icon className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} aria-hidden />
             {t(`events.workspace.${tab.key}`)}
@@ -48,6 +46,6 @@ export function EventWorkspaceNav({ eventId }: { eventId: string }) {
           </Link>
         );
       })}
-    </nav>
+    </PillTabScroller>
   );
 }

@@ -86,6 +86,7 @@ function mapDoc(row: Record<string, unknown>) {
     documentNumber: (row.document_number as string | null) ?? null,
     title: (row.title as string | null) ?? null,
     fileName: (row.file_name as string | null) ?? null,
+    fileMime: (row.file_mime as string | null) ?? null,
     filePath: (row.file_path as string | null) ?? null,
     expiryDate: row.expiry_date ? String(row.expiry_date).slice(0, 10) : null,
     notes: (row.notes as string | null) ?? null,
@@ -111,7 +112,7 @@ const educationFields = {
 };
 
 const DOC_SELECT =
-  "id, staff_id, doc_type, document_number, title, file_name, file_path, expiry_date, notes, created_at, status, verification_status, verification_remarks, verified_at, qualification, institution, graduation_year, mofa_status, supersedes_id, deleted_at, staff(full_name, employee_code)";
+  "id, staff_id, doc_type, document_number, title, file_name, file_mime, file_path, expiry_date, notes, created_at, status, verification_status, verification_remarks, verified_at, qualification, institution, graduation_year, mofa_status, supersedes_id, deleted_at, staff(full_name, employee_code)";
 
 const identityDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 

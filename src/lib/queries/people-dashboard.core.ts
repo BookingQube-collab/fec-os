@@ -1,5 +1,7 @@
 import type { AuthContext } from "@/lib/server/auth";
 import { CANONICAL_LOCATION_CODES, rosterSheetLabel } from "@/lib/locations/normalize";
+import { fetchAttendanceMappedStaffIds } from "@/lib/staff-attendance-mapped";
+import { hiddenUnmappedDuplicateIds } from "@/lib/staff-mapped-duplicates";
 import { canUserDo } from "@/lib/rbac";
 import { createTimer } from "@/lib/performance/timer";
 import {
@@ -69,6 +71,7 @@ type StaffAggRow = {
   location_id: string;
   qid: string | null;
   phone: string | null;
+  user_id: string | null;
   e3_enrolled: boolean | null;
   employment_type: string | null;
 };
@@ -216,12 +219,12 @@ export async function fetchPeopleDashboard(
 
   const { data: staffRows, error: staffErr } = await context.supabase
     .from("staff")
-    .select("id, employee_code, full_name, job_title, department, status, hire_date, location_id, qid, phone, e3_enrolled, employment_type, staff_departments(department_id, master_departments(name, sort_order))")
+    .select("id, user_id, employee_code, full_name, job_title, department, status, hire_date, location_id, qid, phone, e3_enrolled, employment_type, staff_departments(department_id, master_departments(name, sort_order))")
     .in("location_id", locationIds)
     .is("deleted_at", null);
   if (staffErr) throw staffErr;
 
-  const staff = (staffRows ?? []) as Array<
+  const loaded = (staffRows ?? []) as Array<
     StaffAggRow & {
       staff_departments?: Array<{
         department_id: string;
@@ -229,6 +232,20 @@ export async function fetchPeopleDashboard(
       }>;
     }
   >;
+  const attendanceMapped =
+    loaded.length > 1 ? await fetchAttendanceMappedStaffIds(context.supabase) : new Set<string>();
+  const hiddenDuplicates = hiddenUnmappedDuplicateIds(
+    loaded.map((row) => ({
+      id: row.id,
+      full_name: row.full_name,
+      employee_code: row.employee_code,
+      location_id: row.location_id,
+      phone: row.phone,
+      user_id: row.user_id,
+      attendance_mapped: attendanceMapped.has(row.id),
+    })),
+  );
+  const staff = hiddenDuplicates.size ? loaded.filter((row) => !hiddenDuplicates.has(row.id)) : loaded;
 
   let activeStaff = 0;
   let onLeave = 0;

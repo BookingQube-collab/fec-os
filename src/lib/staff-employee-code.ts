@@ -11,6 +11,19 @@ export function isQidShapedCode(value: string | null | undefined): boolean {
   return QID_SHAPED.test(String(value).replace(/\s+/g, "").trim());
 }
 
+/**
+ * Codes issued by `generateEmployeeCode`: `UA-DR-STF84`, `INF-CC-BM`, `KDS-CC-CSH01`.
+ * Payroll / masterfile codes such as `543` are not this shape.
+ */
+const GENERATED_EMPLOYEE_CODE =
+  /^[A-Z0-9]+(?:-[A-Z0-9]+)*-(?:STF\d{2,}|CSH\d*|TEC\d*|BM\d*|VS)$/i;
+
+export function isGeneratedEmployeeCode(value: string | null | undefined): boolean {
+  const code = String(value ?? "").trim();
+  if (!code) return false;
+  return GENERATED_EMPLOYEE_CODE.test(code);
+}
+
 export function isPreservableEmployeeCode(
   value: string | null | undefined,
   qid?: string | null,

@@ -7469,6 +7469,12 @@
       "needFile": "Choose a staff member and file.",
       "expires": "Expires {{date}}",
       "expired": "Expired",
+      "previewTitle": "Document preview",
+      "previewLoading": "Loading preview",
+      "previewUnavailable": "Preview unavailable. Download the file to open it.",
+      "previewPdf": "PDF",
+      "previewFile": "File",
+      "openPreview": "Open {{name}}",
       "qualification": "Qualification",
       "institution": "Institution",
       "graduationYear": "Graduation year",
@@ -7544,6 +7550,21 @@
         "done": "Done",
         "skipped": "Skipped"
       }
+    },
+    "hierarchy": {
+      "kicker": "HR",
+      "subtitle": "Drag people onto the chart to set who they report to. Missed-punch approval uses these same reporting lines.",
+      "back": "Back to HR",
+      "noAccess": "Only the CEO or COO can view the operations hierarchy.",
+      "loading": "Loading hierarchy…",
+      "loadError": "Could not load hierarchy.",
+      "removed": "Removed from the chart.",
+      "placedTop": "{{name}} now sits at the top of the chart.",
+      "placedUnder": "{{name}} now reports to {{manager}}.",
+      "selfReport": "A person cannot report to themselves.",
+      "cycle": "That assignment would create a reporting loop.",
+      "unknownPerson": "They",
+      "unknownManager": "that person"
     },
     "announcements": {
       "kicker": "HR",

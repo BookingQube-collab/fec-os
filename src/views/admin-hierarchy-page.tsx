@@ -3,34 +3,49 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Network } from "lucide-react";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { OrgHierarchyBoard } from "@/components/admin/org-hierarchy-board";
-import { FecPageHeader } from "@/components/fec";
+import { HrShell } from "@/components/hr/hr-shell";
+import { HrSection } from "@/components/hr/hr-section";
 import { useAuth } from "@/hooks/use-auth";
 import { getOrgChart, placeOrgChartPerson, removeOrgChartPerson } from "@/lib/admin-hierarchy.functions";
 import { groupOrgChart, wouldCreateReportingCycle, type OrgChartSnapshot } from "@/lib/org-hierarchy";
 import { queryKeys } from "@/lib/query-keys";
 
 function Forbidden() {
+  const { t } = useTranslation();
   return (
-    <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-      Only the CEO or COO can view the operations hierarchy.
-    </div>
+    <HrShell>
+      <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+        {t("hr.hierarchy.noAccess")}
+      </div>
+    </HrShell>
   );
 }
 
 export default function AdminHierarchyPage() {
+  const { t } = useTranslation();
   const { roles, rolesSettled } = useAuth();
   if (!rolesSettled) {
-    return <p className="text-sm text-muted-foreground">Loading hierarchy…</p>;
+    return (
+      <HrShell>
+        <p className="text-sm text-muted-foreground">{t("hr.hierarchy.loading")}</p>
+      </HrShell>
+    );
   }
   const maxLevel = roles.reduce((acc, role) => Math.max(acc, role.role_level), 0);
   if (maxLevel < 95) return <Forbidden />;
-  return <HierarchyEditor />;
+  return (
+    <HrShell>
+      <HierarchyEditor />
+    </HrShell>
+  );
 }
 
 function HierarchyEditor() {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const query = useQuery({
     queryKey: queryKeys.admin.hierarchy(),
@@ -42,11 +57,17 @@ function HierarchyEditor() {
       qc.setQueryData(queryKeys.admin.hierarchy(), snapshot);
       const manager = snapshot.people.find((person) => person.staffId === variables.managerStaffId);
       const person = snapshot.people.find((row) => row.staffId === variables.staffId);
+      const name = person?.fullName ?? t("hr.hierarchy.unknownPerson");
       if (!variables.managerStaffId) {
-        toast.success(`${person?.fullName ?? "They"} now sit at the top of the chart.`);
+        toast.success(t("hr.hierarchy.placedTop", { name }));
         return;
       }
-      toast.success(`${person?.fullName ?? "They"} now report to ${manager?.fullName ?? "that person"}.`);
+      toast.success(
+        t("hr.hierarchy.placedUnder", {
+          name,
+          manager: manager?.fullName ?? t("hr.hierarchy.unknownManager"),
+        }),
+      );
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -54,7 +75,7 @@ function HierarchyEditor() {
     mutationFn: (input: { staffId: string }) => removeOrgChartPerson(input),
     onSuccess: (snapshot) => {
       qc.setQueryData(queryKeys.admin.hierarchy(), snapshot);
-      toast.success("Removed from the chart.");
+      toast.success(t("hr.hierarchy.removed"));
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -65,12 +86,12 @@ function HierarchyEditor() {
     const snapshot = query.data;
     if (!snapshot || saving) return;
     if (managerStaffId === staffId) {
-      toast.error("A person cannot report to themselves.");
+      toast.error(t("hr.hierarchy.selfReport"));
       return;
     }
     const managers = new Map(snapshot.people.map((person) => [person.staffId, person.reportingManagerStaffId]));
     if (wouldCreateReportingCycle(managers, staffId, managerStaffId)) {
-      toast.error("That assignment would create a reporting loop.");
+      toast.error(t("hr.hierarchy.cycle"));
       return;
     }
     const person = snapshot.people.find((row) => row.staffId === staffId);
@@ -84,21 +105,20 @@ function HierarchyEditor() {
   };
 
   return (
-    <div className="space-y-4">
-      <FecPageHeader
-        icon={Network}
-        kicker="Administration"
-        title="Operations hierarchy"
-        subtitle="Drag people onto the chart to set who they report to. Missed-punch approval uses these same reporting lines."
-      />
-      <Link href="/admin" className="text-sm text-muted-foreground underline-offset-4 hover:underline">
-        Back to Administration
+    <HrSection
+      icon={Network}
+      kicker={t("hr.hierarchy.kicker")}
+      title={t("nav.operationsHierarchy")}
+      subtitle={t("hr.hierarchy.subtitle")}
+    >
+      <Link href="/people/hr" className="text-sm text-muted-foreground underline-offset-4 hover:underline">
+        {t("hr.hierarchy.back")}
       </Link>
 
-      {query.isLoading ? <p className="text-sm text-muted-foreground">Loading hierarchy…</p> : null}
+      {query.isLoading ? <p className="text-sm text-muted-foreground">{t("hr.hierarchy.loading")}</p> : null}
       {query.isError ? (
         <p className="text-sm text-destructive">
-          {query.error instanceof Error ? query.error.message : "Could not load hierarchy."}
+          {query.error instanceof Error ? query.error.message : t("hr.hierarchy.loadError")}
         </p>
       ) : null}
       {query.data ? (
@@ -111,6 +131,6 @@ function HierarchyEditor() {
           }}
         />
       ) : null}
-    </div>
+    </HrSection>
   );
 }

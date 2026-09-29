@@ -1,3 +1,5 @@
-import { lazyView } from "@/lib/lazy-view";
+import { redirect } from "next/navigation";
 
-export default lazyView(() => import("@/views/admin-hierarchy-page"), "table");
+export default function AdminHierarchyRedirect() {
+  redirect("/people/hr/hierarchy");
+}
