@@ -319,6 +319,15 @@ export const CAPABILITIES = {
   "procurement.finance": ["ceo", "coo", "cfo", "regional_ops"],
   "procurement.configure": ["ceo", "coo", "cfo"],
 
+  // Arcade technical management
+  "arcade.view": ["ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "technician", "auditor"],
+  "arcade.operate": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "technician"],
+  "arcade.assign": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor"],
+  "arcade.close": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor"],
+  "arcade.purchase": ["ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager"],
+  "arcade.manage": ["ceo", "coo", "regional_ops", "branch_gm"],
+  "arcade.reports": ["ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "auditor"],
+
   // Event project management
   "events.view": ["ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager", "auditor", "tech_supervisor"],
   "events.create": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager"],

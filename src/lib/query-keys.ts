@@ -385,6 +385,15 @@ export const queryKeys = {
     config: () => [...queryKeys.procurement.all, "config"] as const,
     analytics: (filters?: object) => [...queryKeys.procurement.all, "analytics", filters ?? {}] as const,
   },
+  arcade: {
+    all: ["arcade"] as const,
+    dashboard: (locationId?: string | null) => [...queryKeys.arcade.all, "dashboard", locationId ?? null] as const,
+    machines: (filters?: object) => [...queryKeys.arcade.all, "machines", filters ?? {}] as const,
+    machine: (id?: string | null) => [...queryKeys.arcade.all, "machine", id ?? null] as const,
+    faults: (filters?: object) => [...queryKeys.arcade.all, "faults", filters ?? {}] as const,
+    fault: (id?: string | null) => [...queryKeys.arcade.all, "fault", id ?? null] as const,
+    context: () => [...queryKeys.arcade.all, "context"] as const,
+  },
   events: {
     all: ["events"] as const,
     dashboard: (locationId?: string | null) =>

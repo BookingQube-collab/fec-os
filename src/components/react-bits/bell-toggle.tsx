@@ -17,11 +17,12 @@ import {
   animate,
   motion,
   useMotionValue,
-  useReducedMotion,
   useTransform,
   type AnimationPlaybackControls,
   type MotionStyle,
 } from "motion/react";
+
+import { usePrefersReducedMotion } from "@/hooks/use-prefers-reduced-motion";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Notification03Icon } from "@hugeicons/core-free-icons";
 export type BellToggleSize = "sm" | "md" | "lg";
@@ -127,7 +128,9 @@ const BellToggle: React.FC<BellToggleProps> = ({
 }) => {
   const [inner, setInner] = useState(defaultPressed);
   const on = pressed ?? inner;
-  const reduce = useReducedMotion();
+  // Motion's useReducedMotion matches the bare `(prefers-reduced-motion)` feature,
+  // which stays true even when the user has no preference and skips the ring.
+  const reduce = usePrefersReducedMotion();
   const rootRef = useRef<HTMLSpanElement>(null);
   const glyphRef = useRef<HTMLSpanElement>(null);
   const clapperRef = useRef<HTMLSpanElement>(null);
@@ -202,7 +205,6 @@ const BellToggle: React.FC<BellToggleProps> = ({
     spring.current?.stop();
     if (pointer) spring.current = animate(t, on ? 1 : 0, { ...SPRING_UI, bounce: revealBounce });
     else t.jump(on ? 1 : 0);
-    if (on && pointer) swing(ringAmplitude, ringPasses, ringDuration);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [on]);
   useLayoutEffect(() => () => spring.current?.stop(), []);
@@ -218,6 +220,11 @@ const BellToggle: React.FC<BellToggleProps> = ({
   const toggle = () => {
     pending.current = lastInput.current;
     if (pressed === undefined) setInner(!on);
+    // Ring even when `pressed` stays true (unread badge). The layout effect
+    // only runs when `on` changes, so a controlled bell would otherwise stay still.
+    if (lastInput.current === "pointer" && !reduce) {
+      swing(ringAmplitude, ringPasses, ringDuration);
+    }
     onChange?.(!on);
   };
   const press = (e: React.PointerEvent<HTMLButtonElement>) => {
@@ -326,19 +333,6 @@ const BellToggle: React.FC<BellToggleProps> = ({
               </svg>
             </>
           ) : null}
-          {badge ? (
-            <span
-              className="pointer-events-none absolute -top-1.5 -right-[7px] box-border grid h-3.5 min-w-3.5 place-items-center rounded-[7px] px-[3px] text-[9.5px] leading-none font-semibold opacity-0 [background:var(--bt-badge)] [color:var(--bt-badge-ink)] [transform:translateY(5px)_scale(0.6)] [transition:transform_180ms_cubic-bezier(0.23,1,0.32,1),opacity_140ms_ease] data-[show]:opacity-100 data-[show]:[transform:translateY(0)_scale(1)] data-[show]:[transition:transform_280ms_cubic-bezier(0.34,1.56,0.64,1),opacity_120ms_ease] motion-reduce:[transform:none]! motion-reduce:[transition:opacity_140ms_ease]!"
-              data-show={showBadge ? "" : undefined}
-            >
-              <span
-                key={count}
-                className="block translate-y-0 opacity-100 [transition:opacity_200ms_ease,transform_200ms_cubic-bezier(0.23,1,0.32,1)] starting:translate-y-[5px] starting:opacity-0 motion-reduce:[transform:none]! motion-reduce:[transition:opacity_200ms_ease]"
-              >
-                {count > 9 ? "9+" : count}
-              </span>
-            </span>
-          ) : null}
         </span>
         <span
           className="inline-grid h-[18px] grid-cols-[max-content] leading-[18px]"
@@ -358,6 +352,20 @@ const BellToggle: React.FC<BellToggleProps> = ({
           </span>
         </span>
       </button>
+      {badge ? (
+        <span
+          className="pointer-events-none absolute z-[2] box-border grid h-3.5 min-w-3.5 place-items-center rounded-[7px] px-[3px] text-[9.5px] leading-none font-semibold opacity-0 [background:var(--bt-badge)] [color:var(--bt-badge-ink)] [transform:translateY(5px)_scale(0.6)] [transition:transform_180ms_cubic-bezier(0.23,1,0.32,1),opacity_140ms_ease] data-[show]:opacity-100 data-[show]:[transform:translateY(0)_scale(1)] data-[show]:[transition:transform_280ms_cubic-bezier(0.34,1.56,0.64,1),opacity_120ms_ease] motion-reduce:[transform:none]! motion-reduce:[transition:opacity_140ms_ease]!"
+          style={{ top: -4, insetInlineStart: "calc(var(--bt-px) + var(--bt-icon) - 0.65rem)" }}
+          data-show={showBadge ? "" : undefined}
+        >
+          <span
+            key={count}
+            className="block translate-y-0 opacity-100 [transition:opacity_200ms_ease,transform_200ms_cubic-bezier(0.23,1,0.32,1)] starting:translate-y-[5px] starting:opacity-0 motion-reduce:[transform:none]! motion-reduce:[transition:opacity_200ms_ease]"
+          >
+            {count > 9 ? "9+" : count}
+          </span>
+        </span>
+      ) : null}
     </motion.span>
   );
 };

@@ -9,6 +9,7 @@ export const NOTIFICATION_CATEGORIES = [
   "inventory",
   "procurement",
   "maintenance",
+  "arcade",
   "events",
   "people",
   "hr_documents",

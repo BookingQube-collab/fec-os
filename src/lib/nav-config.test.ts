@@ -195,6 +195,16 @@ describe("admin sidebar visibility", () => {
     expect(hrefs.has("/people/payroll")).toBe(false);
   });
 
+  it("shows Arcade Technical to technicians and keeps reports off their nav", () => {
+    const arcade = getVisibleDepartments(["technician"]).find((dept) => dept.id === "arcade");
+    const hrefs = arcade?.groups.flatMap((group) => group.items.map((item) => item.href)) ?? [];
+    expect(hrefs).toContain("/arcade");
+    expect(hrefs).toContain("/arcade/faults");
+    expect(hrefs).toContain("/arcade/week");
+    expect(hrefs).not.toContain("/arcade/reports");
+    expect(getPrimaryRailNav(["technician"]).some((item) => item.departmentId === "arcade")).toBe(true);
+  });
+
   it("keeps a group visible when some children fail capability checks", () => {
     const maintenance = getVisibleDepartments(["technician"]).find((dept) => dept.id === "maintenance");
     const group = maintenance?.groups.find((g) => g.id === "maintenance");

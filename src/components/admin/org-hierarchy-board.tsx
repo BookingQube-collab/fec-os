@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronRight, Minus, Plus, Scan, X } from "lucide-react";
+import { ChevronRight, Info, Minus, Plus, Scan, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -41,6 +41,7 @@ export function OrgHierarchyBoard({
 }) {
   const [search, setSearch] = useState("");
   const [openKeys, setOpenKeys] = useState<Set<string>>(() => new Set());
+  const [departmentsOpen, setDepartmentsOpen] = useState(false);
   const query = search.trim().toLowerCase();
 
   const grouped = useMemo(() => groupOrgChart(snapshot.people), [snapshot.people]);
@@ -91,17 +92,54 @@ export function OrgHierarchyBoard({
 
   return (
     <div className="flex h-[calc(100vh-14.5rem)] min-h-[36rem] flex-col gap-3 lg:flex-row">
-      <aside className="flex max-h-[40vh] w-full shrink-0 flex-col overflow-hidden rounded-2xl border border-border/60 bg-card shadow-elevated-xs lg:max-h-none lg:w-80">
+      <button
+        type="button"
+        className={cn(
+          "inline-flex min-h-11 shrink-0 items-center gap-1.5 self-start rounded-xl border border-border/60 bg-card px-3 text-sm font-semibold text-foreground shadow-elevated-xs hover:bg-muted",
+          departmentsOpen && "hidden",
+        )}
+        aria-expanded={departmentsOpen}
+        aria-controls="org-departments-panel"
+        onClick={() => setDepartmentsOpen(true)}
+      >
+        <ChevronRight className="h-4 w-4 text-muted-foreground rtl:rotate-180" />
+        Departments
+      </button>
+      <aside
+        id="org-departments-panel"
+        className={cn(
+          "flex max-h-[40vh] w-full shrink-0 flex-col overflow-hidden rounded-2xl border border-border/60 bg-card shadow-elevated-xs lg:max-h-none lg:w-80",
+          !departmentsOpen && "hidden",
+        )}
+      >
         <div className="space-y-2 border-b border-border/50 p-3">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-sm font-semibold text-foreground">Departments</p>
             <button
               type="button"
-              className="text-xs font-medium text-muted-foreground hover:text-foreground"
-              onClick={() => setOpenKeys(new Set(openKeys.size ? [] : groups.map((group) => group.key)))}
+              className="text-sm font-semibold text-foreground"
+              aria-expanded={departmentsOpen}
+              aria-controls="org-departments-panel"
+              onClick={() => setDepartmentsOpen(false)}
             >
-              {openKeys.size ? "Collapse" : "Expand"}
+              Departments
             </button>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                className="text-xs font-medium text-muted-foreground hover:text-foreground"
+                onClick={() => setOpenKeys(new Set(openKeys.size ? [] : groups.map((group) => group.key)))}
+              >
+                {openKeys.size ? "Collapse" : "Expand"}
+              </button>
+              <button
+                type="button"
+                className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                aria-label="Close departments"
+                onClick={() => setDepartmentsOpen(false)}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </div>
           <label className="sr-only" htmlFor="org-hierarchy-search">
             Search by name
@@ -233,6 +271,21 @@ function OrgCanvas({
   const fitted = useRef(false);
   const [dropHover, setDropHover] = useState<string | null>(null);
   const [panning, setPanning] = useState(false);
+  const [legendPinned, setLegendPinned] = useState(false);
+  const [legendHover, setLegendHover] = useState(false);
+  const [legendHoverMode, setLegendHoverMode] = useState(false);
+
+  useEffect(() => {
+    const media = window.matchMedia("(hover: hover) and (pointer: fine) and (min-width: 1024px)");
+    const sync = () => {
+      const hoverCapable = media.matches;
+      setLegendHoverMode(hoverCapable);
+      if (hoverCapable) setLegendPinned(false);
+    };
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
 
   const applyView = (next: View) => {
     viewRef.current = next;
@@ -464,17 +517,66 @@ function OrgCanvas({
       {legend.length > 0 ? (
         <div
           data-org-chrome
-          className="absolute end-3 top-3 z-20 max-h-[min(24rem,70%)] w-56 overflow-auto rounded-xl border border-border/60 bg-card/95 p-3 shadow-elevated-sm"
+          className="org-legend absolute end-3 top-3 z-20"
+          onPointerEnter={() => {
+            if (legendHoverMode) setLegendHover(true);
+          }}
+          onPointerLeave={() => {
+            if (legendHoverMode) setLegendHover(false);
+          }}
+          onFocus={(event) => {
+            if (legendHoverMode && event.target instanceof Element && event.target.matches(":focus-visible")) {
+              setLegendHover(true);
+            }
+          }}
+          onBlur={(event) => {
+            if (!legendHoverMode) return;
+            if (!event.currentTarget.contains(event.relatedTarget as Node)) setLegendHover(false);
+          }}
         >
-          <p className="text-xs font-semibold text-foreground">Legend</p>
-          <ul className="mt-2 space-y-1.5">
-            {legend.map((item) => (
-              <li key={item.key} className="flex items-center gap-2 text-xs">
-                <span className="h-2.5 w-2.5 shrink-0 rounded-[3px]" style={{ background: item.color }} />
-                <span className="truncate text-foreground">{item.name}</span>
-              </li>
-            ))}
-          </ul>
+          <style>{`
+            .org-legend-card { display: none; }
+            .org-legend-card[data-open="true"] { display: block; }
+            @media (hover: hover) and (pointer: fine) and (min-width: 1024px) {
+              .org-legend:hover .org-legend-card,
+              .org-legend:has(:focus-visible) .org-legend-card { display: block; }
+            }
+          `}</style>
+          <button
+            type="button"
+            className={cn(
+              "flex h-8 w-8 items-center justify-center rounded-lg border border-border/70 bg-card text-foreground shadow-elevated-xs hover:bg-muted",
+              (legendHoverMode ? legendHover : legendPinned) && "bg-muted",
+            )}
+            aria-label="Legend"
+            aria-expanded={legendHoverMode ? legendHover : legendPinned}
+            aria-controls="org-legend-panel"
+            onClick={() => {
+              if (legendHoverMode) return;
+              setLegendPinned((open) => !open);
+            }}
+          >
+            <Info className="h-4 w-4" />
+          </button>
+          <div
+            id="org-legend-panel"
+            role="region"
+            aria-label="Legend"
+            data-open={legendPinned ? "true" : "false"}
+            className="org-legend-card absolute end-0 top-full z-20 w-56 pt-2"
+          >
+            <div className="max-h-[min(24rem,60vh)] overflow-auto rounded-xl border border-border/60 bg-card/95 p-3 shadow-elevated-sm">
+              <p className="text-xs font-semibold text-foreground">Legend</p>
+              <ul className="mt-2 space-y-1.5">
+                {legend.map((item) => (
+                  <li key={item.key} className="flex items-center gap-2 text-xs">
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-[3px]" style={{ background: item.color }} />
+                    <span className="truncate text-foreground">{item.name}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
         </div>
       ) : null}
 

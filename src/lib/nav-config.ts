@@ -42,6 +42,7 @@ import {
   TrendingUp,
   UserRound,
   Users,
+  Gamepad2,
   Wallet,
   Wrench,
   type LucideIcon,
@@ -78,6 +79,7 @@ export type NavDepartmentId =
   | "commercial"
   | "guest"
   | "maintenance"
+  | "arcade"
   | "compliance"
   | "utilities"
   | "admin"
@@ -117,6 +119,30 @@ const MAINTENANCE_NAV_GROUP: SidebarNavGroup = {
     { href: "/maintenance/weekly-report", labelKey: "nav.maintenanceWeeklyReport", capability: "maintenance.weekly_report" },
     { href: "/maintenance/weekly-report/review", labelKey: "nav.maintenanceWeeklyReportReview", capability: "maintenance.weekly_report.review" },
     { href: "/maintenance/weekly-report/executive", labelKey: "nav.maintenanceWeeklyReportExecutive", capability: "maintenance.weekly_report.executive" },
+  ],
+};
+
+const ARCADE_NAV_GROUP: SidebarNavGroup = {
+  id: "arcade",
+  labelKey: "nav.arcade",
+  icon: Gamepad2,
+  pathPrefix: "/arcade",
+  viewCapability: "arcade.view",
+  items: [
+    { href: "/arcade", labelKey: "nav.arcadeDashboard", capability: "arcade.view" },
+    { href: "/arcade/week", labelKey: "nav.arcadeWeek", capability: "arcade.view" },
+    { href: "/arcade/sites", labelKey: "nav.arcadeSites", capability: "arcade.view" },
+    { href: "/arcade/faults", labelKey: "nav.arcadeFaults", capability: "arcade.view" },
+    { href: "/arcade/pm", labelKey: "nav.arcadePm", capability: "arcade.view" },
+    { href: "/arcade/observation", labelKey: "nav.arcadeObservation", capability: "arcade.view" },
+    { href: "/arcade/suppliers", labelKey: "nav.arcadeSuppliers", capability: "arcade.view" },
+    { href: "/arcade/support", labelKey: "nav.arcadeSupport", capability: "arcade.view" },
+    { href: "/arcade/parts", labelKey: "nav.arcadeParts", capability: "arcade.view" },
+    { href: "/arcade/manuals", labelKey: "nav.arcadeManuals", capability: "arcade.view" },
+    { href: "/arcade/installations", labelKey: "nav.arcadeInstallations", capability: "arcade.view" },
+    { href: "/arcade/damage", labelKey: "nav.arcadeDamage", capability: "arcade.view" },
+    { href: "/arcade/history", labelKey: "nav.arcadeHistory", capability: "arcade.view" },
+    { href: "/arcade/reports", labelKey: "nav.arcadeReports", capability: "arcade.reports" },
   ],
 };
 
@@ -358,6 +384,14 @@ export const NAV_DEPARTMENTS: NavDepartment[] = [
     groups: [MAINTENANCE_NAV_GROUP],
   },
   {
+    id: "arcade",
+    labelKey: "nav.departments.arcade",
+    icon: Gamepad2,
+    audience: ["executive", "supervisor", "maintenance", "all"],
+    items: [],
+    groups: [ARCADE_NAV_GROUP],
+  },
+  {
     id: "commercial",
     labelKey: "nav.departments.commercial",
     icon: LineChart,
@@ -463,7 +497,7 @@ const ADMIN_RAIL_HREF = "/admin";
 const PRIMARY_RAIL_ORDER: Record<NavAudience, string[]> = {
   executive: ["/", "/people", "/admin", "/revenue", "/events", "/maintenance", "/procurement", "/compliance/e3-tracker"],
   supervisor: ["/", "/people", "/events", "/maintenance", "/compliance/e3-tracker", "/procurement", "/inventory", "/admin"],
-  maintenance: ["/", "/maintenance", "/inventory", "/compliance/amc-schedule", "/people", "/procurement", "/events", "/admin"],
+  maintenance: ["/", "/arcade", "/maintenance", "/inventory", "/compliance/amc-schedule", "/people", "/procurement", "/events"],
   all: ["/", "/people", "/events", "/maintenance", "/compliance/e3-tracker", "/inventory", "/procurement", "/admin"],
 };
 
@@ -690,6 +724,9 @@ export function isSidebarNavGroupItemActive(href: string, pathname: string): boo
     return pathname === href;
   }
   if (href === "/events") {
+    return pathname === href;
+  }
+  if (href === "/arcade") {
     return pathname === href;
   }
   if (href === "/events/list") {

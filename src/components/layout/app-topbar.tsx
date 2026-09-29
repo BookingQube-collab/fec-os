@@ -1,49 +1,27 @@
 "use client";
 
 import {
-  AlertTriangle,
   Bell,
-  Calendar,
-  CheckCheck,
-  ClipboardList,
-  FileText,
   Globe,
   HelpCircle,
   Keyboard,
   LogOut,
   Search,
-  ShieldAlert,
   User,
-  UserCheck,
-  Wrench,
   Zap,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { formatDistanceToNow } from "date-fns";
-import { ar as arDateLocale } from "date-fns/locale";
 
 import { useAppStore } from "@/stores/app-store";
 import { applyLanguageToDocument, translateRole, type SupportedLanguage } from "@/i18n";
 import { useAuth } from "@/hooks/use-auth";
 import { useSites } from "@/hooks/queries/useSites";
-import { useActionInbox, useEscalations } from "@/hooks/queries/useNotifications";
-import { useComplianceExpiryNotifications } from "@/hooks/queries/useComplianceExpiryNotifications";
-import { canViewComplianceExpiryAlerts } from "@/lib/compliance/compliance-expiry-access";
-import type { InboxItemKind } from "@/lib/notifications/inbox";
 import { formatLocationRecord } from "@/lib/locations/normalize";
-import { queryKeys } from "@/lib/query-keys";
 import { BitsShine } from "@/components/layout/bits-shine";
-import BellToggle from "@/components/react-bits/bell-toggle";
-import {
-  ackEscalation,
-  markAllNotificationsRead,
-  markNotificationRead,
-} from "@/lib/notifications.functions";
-import type { AppRole } from "@/lib/rbac";
+import { NotificationBell } from "@/components/layout/notification-bell";
 import { usesOpsCommandSubtitle } from "@/lib/topbar-identity";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -66,26 +44,6 @@ function greetingKey() {
   return "layout.greeting.evening";
 }
 
-const INBOX_ICONS: Record<InboxItemKind, typeof Bell> = {
-  notification: Bell,
-  procurement: ClipboardList,
-  maintenance: Wrench,
-  work_order: Wrench,
-  event_task: Calendar,
-  snag: AlertTriangle,
-  weekly_report: FileText,
-  evaluation: UserCheck,
-};
-
-function relativeTime(iso: string, language: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return formatDistanceToNow(d, {
-    addSuffix: true,
-    locale: language === "ar" ? arDateLocale : undefined,
-  });
-}
-
 export function AppTopbar() {
   const { t, i18n } = useTranslation();
   const language = useAppStore((s) => s.language);
@@ -96,11 +54,8 @@ export function AppTopbar() {
   const setCurrentLocationId = useAppStore((s) => s.setCurrentLocationId);
   const { user, profile, roles, signOut } = useAuth();
   const router = useRouter();
-  const qc = useQueryClient();
-  const [bellOpen, setBellOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [sitesRequested, setSitesRequested] = useState(false);
-  const headerRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (!user) {
@@ -121,74 +76,12 @@ export function AppTopbar() {
     };
   }, [user]);
 
-  const roleList = roles.map((r) => r.role as AppRole);
-  const showComplianceAlerts = canViewComplianceExpiryAlerts(roleList);
-
-  const inbox = useActionInbox(user?.id, { enabled: !!user });
-  const escalations = useEscalations({
-    enabled: !!user,
-  });
-  const complianceAlerts = useComplianceExpiryNotifications(
-    { locationId: currentLocationId, limit: 12 },
-    { enabled: !!user && showComplianceAlerts && bellOpen },
-  );
-  const complianceSummary = useComplianceExpiryNotifications(
-    { locationId: currentLocationId, summaryOnly: true },
-    { enabled: !!user && showComplianceAlerts },
-  );
-
-  const ack = useMutation({
-    mutationFn: (id: string) => ackEscalation({ id }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.notifications.escalations() }),
-  });
-  const markRead = useMutation({
-    mutationFn: (id: string) => markNotificationRead({ id }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.notifications.all }),
-  });
-  const markAll = useMutation({
-    mutationFn: () => markAllNotificationsRead(),
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.notifications.all }),
-  });
-
-  const inboxItems = inbox.data?.items ?? [];
-  const inboxUnread = inbox.data?.unreadCount ?? 0;
-  const escalationCount = escalations.data?.length ?? 0;
-  const complianceCount = complianceSummary.data?.summary.total ?? 0;
-  const unread = inboxUnread + escalationCount + complianceCount;
-
-  const severityLabel = useMemo(
-    () =>
-      ({
-        expired: t("complianceExpiry.severity.expired"),
-        critical: t("complianceExpiry.severity.critical"),
-        warning: t("complianceExpiry.severity.warning"),
-      }) as const,
-    [t],
-  );
   const locations = useSites({ enabled: !!user && sitesRequested });
 
   useEffect(() => {
     if (i18n.language !== language) void i18n.changeLanguage(language);
     applyLanguageToDocument(language);
   }, [language, i18n]);
-
-  useEffect(() => {
-    if (!bellOpen) return;
-    const onPointer = (e: PointerEvent) => {
-      if (headerRef.current && !headerRef.current.contains(e.target as Node)) {
-        setBellOpen(false);
-      }
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setBellOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointer);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("pointerdown", onPointer);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [bellOpen]);
 
   const toggleLanguage = () => {
     const next: SupportedLanguage = language === "en" ? "ar" : "en";
@@ -212,151 +105,9 @@ export function AppTopbar() {
   const primaryRole = translateRole(t, roles[0]?.role);
   const showOpsCommand = usesOpsCommandSubtitle(roles[0]?.role);
 
-  const closeBell = () => setBellOpen(false);
-
-  const inboxList = (
-    <div className="max-h-96 overflow-y-auto">
-      {inboxItems.length > 0 && (
-        <div className="section-kicker border-b border-border bg-secondary/60 px-4 py-2 uppercase tracking-wide text-primary">
-          {t("inbox.actionSection")}
-        </div>
-      )}
-      {inboxItems.map((item) => {
-        const Icon = INBOX_ICONS[item.kind] ?? Bell;
-        const when = relativeTime(item.createdAt, language);
-        return (
-          <Link
-            key={item.id}
-            href={item.actionUrl || "/notifications"}
-            onClick={() => {
-              if (item.persisted && item.id.startsWith("notif:")) {
-                markRead.mutate(item.id.slice(6));
-              }
-              closeBell();
-            }}
-            className="block border-b border-border p-3 last:border-b-0 hover:bg-secondary/50"
-          >
-            <div className="flex items-start gap-2">
-              <Icon
-                className={
-                  "mt-0.5 h-3.5 w-3.5 shrink-0 " +
-                  (item.severity === "critical" ? "text-destructive" : "text-amber-600")
-                }
-              />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <div className="truncate text-sm font-medium text-foreground">
-                    {item.titleKey ? t(item.titleKey, item.titleParams) : item.title}
-                  </div>
-                  {!item.readAt && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />}
-                </div>
-                {item.body && (
-                  <div className="mt-0.5 truncate text-xs text-muted-foreground">{item.body}</div>
-                )}
-                {when ? <div className="mt-1 text-xs text-muted-foreground">{when}</div> : null}
-              </div>
-            </div>
-          </Link>
-        );
-      })}
-      {showComplianceAlerts && complianceCount > 0 && (
-        <>
-          <div className="flex items-center justify-between border-b border-border bg-rag-amber px-4 py-2">
-            <span className="section-kicker uppercase tracking-wide text-amber-800">
-              {t("complianceExpiry.bell.complianceSection")}
-            </span>
-            <Link
-              href="/compliance/expiry-alerts"
-              className="text-xs font-medium text-foreground hover:underline"
-              onClick={closeBell}
-            >
-              {t("complianceExpiry.banner.viewAll")}
-            </Link>
-          </div>
-          {(complianceAlerts.data?.items ?? []).map((item) => (
-            <Link
-              key={item.id}
-              href={item.actionUrl}
-              onClick={closeBell}
-              className="block border-b border-border p-3 last:border-b-0 hover:bg-secondary/50"
-            >
-              <div className="flex items-start gap-2">
-                <ShieldAlert
-                  className={
-                    "mt-0.5 h-3.5 w-3.5 shrink-0 " +
-                    (item.severity === "expired" || item.severity === "critical"
-                      ? "text-destructive"
-                      : "text-amber-600")
-                  }
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium text-foreground">{item.title}</div>
-                  <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                    {item.locationLabel}
-                    {item.subtitle ? ` · ${item.subtitle}` : ""}
-                  </div>
-                  <div className="mt-1 text-xs font-medium text-[var(--warning)]">
-                    {severityLabel[item.severity]} ·{" "}
-                    {item.daysRemaining < 0
-                      ? t("complianceExpiry.daysOverdue", { count: Math.abs(item.daysRemaining) })
-                      : t("complianceExpiry.daysRemaining", { count: item.daysRemaining })}
-                  </div>
-                </div>
-              </div>
-            </Link>
-          ))}
-          {complianceAlerts.isLoading && (
-            <div className="border-b border-border p-4 text-center text-xs text-muted-foreground">
-              {t("complianceExpiry.bell.loading")}
-            </div>
-          )}
-        </>
-      )}
-
-      {escalationCount > 0 && (
-        <div className="section-kicker border-b border-border bg-secondary/60 px-4 py-2 uppercase tracking-wide text-primary">
-          {t("complianceExpiry.bell.escalationsSection")}
-        </div>
-      )}
-      {(escalations.data ?? []).map((e) => {
-        const when = relativeTime(e.created_at, language);
-        return (
-          <div key={e.id} className="border-b border-border p-3 last:border-b-0">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <div className="truncate text-sm font-medium text-foreground">{e.title}</div>
-                {when ? <div className="mt-1 text-xs text-muted-foreground">{when}</div> : null}
-              </div>
-              <button
-                type="button"
-                onClick={() => ack.mutate(e.id)}
-                className="shrink-0 text-xs font-medium text-foreground hover:underline"
-              >
-                {t("common.resolve")}
-              </button>
-            </div>
-          </div>
-        );
-      })}
-      {(inbox.isLoading || escalations.isLoading) &&
-        inboxItems.length === 0 &&
-        escalationCount === 0 &&
-        complianceCount === 0 && (
-          <div className="p-6 text-center text-xs text-muted-foreground">{t("inbox.loading")}</div>
-        )}
-      {!inbox.isLoading &&
-        !escalations.isLoading &&
-        inboxItems.length === 0 &&
-        escalationCount === 0 &&
-        complianceCount === 0 && (
-          <div className="p-6 text-center text-xs text-muted-foreground">{t("inbox.empty")}</div>
-        )}
-    </div>
-  );
 
   return (
     <header
-      ref={headerRef}
       className={cn(
         // Desktop/tablet chrome only — phone uses MobileAppHeader (CSS, not matchMedia).
         "hidden flex-col gap-3 px-0.5 pt-0.5 md:flex",
@@ -450,10 +201,7 @@ export function AppTopbar() {
 
           <Popover
             open={helpOpen}
-            onOpenChange={(open) => {
-              setHelpOpen(open);
-              if (open) setBellOpen(false);
-            }}
+            onOpenChange={setHelpOpen}
           >
             <PopoverTrigger asChild>
               <Button
@@ -496,25 +244,7 @@ export function AppTopbar() {
             </PopoverContent>
           </Popover>
 
-          <BellToggle
-            size="sm"
-            className="shrink-0"
-            label={t("common.notifications")}
-            offLabel={t("common.notifications")}
-            onLabel={t("common.notifications")}
-            count={unread}
-            pressed={bellOpen || unread > 0}
-            onChange={() => {
-              setHelpOpen(false);
-              setBellOpen((open) => !open);
-            }}
-            color="#1a1a1a"
-            background="#ffffff"
-            onColor="#1a1a1a"
-            onBackground="#fff1c2"
-            badgeColor="#c93c37"
-            badgeTextColor="#ffffff"
-          />
+          <NotificationBell dismissed={helpOpen} onOpen={() => setHelpOpen(false)} />
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -549,39 +279,6 @@ export function AppTopbar() {
           </DropdownMenu>
         </div>
       </div>
-
-      {bellOpen ? (
-        <div className="flex justify-end">
-          <div className="w-full max-w-md overflow-hidden rounded-[1.5rem] border border-border bg-card shadow-elevated-md">
-            <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
-              <div className="section-kicker uppercase tracking-wide">
-                {t("inbox.header", { count: unread })}
-              </div>
-              <div className="flex items-center gap-3">
-                {inboxUnread > 0 ? (
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1 text-xs font-medium text-foreground hover:underline"
-                    onClick={() => markAll.mutate()}
-                    disabled={markAll.isPending}
-                  >
-                    <CheckCheck className="h-3.5 w-3.5" />
-                    {t("inbox.markAllRead")}
-                  </button>
-                ) : null}
-                <Link
-                  href="/notifications"
-                  className="text-xs font-medium text-foreground hover:underline"
-                  onClick={closeBell}
-                >
-                  {t("inbox.viewAll")}
-                </Link>
-              </div>
-            </div>
-            {inboxList}
-          </div>
-        </div>
-      ) : null}
     </header>
   );
 }
