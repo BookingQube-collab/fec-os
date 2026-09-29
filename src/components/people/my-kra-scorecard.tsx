@@ -1,5 +1,7 @@
 "use client";
 
+import { FecLoader } from "@/components/fec";
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -32,7 +34,7 @@ export function MyKraScorecards() {
     onError: (error: Error) => toast.error(error.message),
   });
 
-  if (cards.isLoading) return <p className="text-sm text-muted-foreground">{t("common.loading")}</p>;
+  if (cards.isLoading) return <div className="flex justify-center py-16"><FecLoader density="page" label={t("common.loading")} /></div>;
   if (cards.isError) return <p className="text-sm text-destructive">{(cards.error as Error).message}</p>;
   if (!cards.data?.length) return <p className="text-sm text-muted-foreground">{t("kraScorecard.myEmpty")}</p>;
 

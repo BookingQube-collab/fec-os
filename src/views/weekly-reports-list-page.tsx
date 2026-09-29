@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { FileText, Loader2, Plus } from "lucide-react";
+import { FileText, Plus } from "lucide-react";
+
+import { FecLoader } from "@/components/fec";
 
 import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
 import { WeeklyReportsLayout } from "@/components/weekly-reports/WeeklyReportsLayout";
@@ -152,8 +154,8 @@ export default function WeeklyReportsListPage() {
 
       <NeumorphicCard className="overflow-hidden">
         {isLoading ? (
-          <div className="flex items-center justify-center gap-2 p-12 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" /> {t("weeklyReports.loading")}
+          <div className="flex items-center justify-center p-12">
+            <FecLoader density="page" label={t("weeklyReports.loading")} />
           </div>
         ) : reports.length === 0 ? (
           <div className="flex flex-col items-center gap-3 p-12 text-center text-sm text-muted-foreground">

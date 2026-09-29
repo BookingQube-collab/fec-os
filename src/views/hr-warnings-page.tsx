@@ -1,5 +1,7 @@
 "use client";
 
+import { FecLoader } from "@/components/fec";
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -253,7 +255,7 @@ export function HrWarningsWorkspace({
 
           {list.isLoading ? (
             <HrPanel>
-              <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
+              <FecLoader density="chip" label={t("common.loading")} />
             </HrPanel>
           ) : !list.data?.length ? (
             <HrEmptyState message={t("hr.warnings.empty")} />

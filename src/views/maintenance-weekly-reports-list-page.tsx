@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { FileText, Loader2, Plus } from "lucide-react";
+import { FileText, Plus } from "lucide-react";
+
+import { FecLoader } from "@/components/fec";
 
 import { MaintenanceWeeklyReportsLayout } from "@/components/maintenance-weekly-reports/MaintenanceWeeklyReportsLayout";
 import { Badge } from "@/components/ui/badge";
@@ -180,9 +182,8 @@ export default function MaintenanceWeeklyReportsListPage() {
       </div>
 
       {isLoading ? (
-        <div className="mt-6 flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          {t("maintenanceWeeklyReports.loading")}
+        <div className="mt-6 flex justify-center">
+          <FecLoader density="page" label={t("maintenanceWeeklyReports.loading")} />
         </div>
       ) : reports.length === 0 ? (
         <div className="mt-6 rounded-lg border border-dashed p-8 text-center">

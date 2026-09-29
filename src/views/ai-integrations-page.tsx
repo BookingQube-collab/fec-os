@@ -1,6 +1,6 @@
 "use client";
 
-import { FecPageHeader } from "@/components/fec";
+import { FecLoader, FecPageHeader } from "@/components/fec";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -226,9 +226,8 @@ function AiIntegrationsPage() {
 
   if (query.isLoading) {
     return (
-      <div className="flex items-center justify-center gap-2 p-16 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        {t("aiIntegrations.loading")}
+      <div className="flex items-center justify-center p-16">
+        <FecLoader density="page" label={t("aiIntegrations.loading")} />
       </div>
     );
   }

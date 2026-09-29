@@ -1,5 +1,7 @@
 "use client";
 
+import { FecLoader } from "@/components/fec";
+
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 
@@ -27,7 +29,7 @@ export function StaffKraScorecards({ staffId }: { staffId: string }) {
           <Link href={`/people/kra?staff=${staffId}`}>{t("kraScorecard.assign")}</Link>
         </Button>
       </div>
-      {cards.isLoading ? <p className="text-sm text-muted-foreground">{t("common.loading")}</p> : null}
+      {cards.isLoading ? <FecLoader density="chip" label={t("common.loading")} /> : null}
       {!cards.isLoading && mine.length === 0 ? (
         <p className="text-sm text-muted-foreground">{t("kraScorecard.empty")}</p>
       ) : null}

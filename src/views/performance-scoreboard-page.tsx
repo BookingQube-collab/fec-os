@@ -1,6 +1,6 @@
 "use client";
 
-import { FecPageHeader } from "@/components/fec";
+import { FecLoader, FecPageHeader } from "@/components/fec";
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
@@ -101,8 +101,8 @@ export default function PerformanceScoreboardPage() {
             <TableBody>
               {boardQ.isLoading && (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-muted-foreground">
-                    {t("common.loading")}
+                  <TableCell colSpan={8} className="text-center">
+                    <FecLoader density="chip" label={t("common.loading")} />
                   </TableCell>
                 </TableRow>
               )}

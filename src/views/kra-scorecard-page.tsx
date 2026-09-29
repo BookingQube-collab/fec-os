@@ -10,7 +10,7 @@ import { toast } from "sonner";
 
 import { KraSiteSopList, KraSopCodeLinks } from "@/components/people/kra-site-sops";
 import { CapabilityGate } from "@/components/auth/capability-gate";
-import { FecPageHeader } from "@/components/fec";
+import { FecLoader, FecPageHeader } from "@/components/fec";
 import { HrPanel } from "@/components/hr/hr-panel";
 import { HrShell } from "@/components/hr/hr-shell";
 import { Badge } from "@/components/ui/badge";
@@ -148,7 +148,7 @@ export default function KraScorecardPage() {
         ))}
       </div>
 
-      {master.isLoading ? <p className="text-sm text-muted-foreground">{t("common.loading")}</p> : null}
+      {master.isLoading ? <FecLoader density="chip" label={t("common.loading")} /> : null}
       {master.isError ? <p className="text-sm text-destructive">{(master.error as Error).message}</p> : null}
 
       {tab === "sites" ? (

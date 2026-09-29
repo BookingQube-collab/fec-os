@@ -13,6 +13,7 @@ import {
   listDecisions,
   updateDecisionStatus,
 } from "@/lib/decision.functions";
+import { FecLoader } from "@/components/fec";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -46,7 +47,7 @@ function DecisionList({ onNew, onOpen }: { onNew: () => void; onOpen: (id: strin
         </div>
         <Button onClick={onNew}><Plus className="mr-2 h-4 w-4" />Propose decision</Button>
       </div>
-      {isLoading ? <Skeleton text="Loading…" /> : (data ?? []).length === 0 ? <Skeleton text="No decisions yet. Propose the first one." /> : (
+      {isLoading ? <FecLoader density="page" /> : (data ?? []).length === 0 ? <Skeleton text="No decisions yet. Propose the first one." /> : (
         <div className="space-y-2">
           {(data ?? []).map((d) => (
             <div key={d.id} className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3">

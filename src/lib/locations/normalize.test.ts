@@ -9,6 +9,7 @@ import {
   resolveLocationCode,
   rosterSheetLabel,
   ROSTER_SHEET_LABELS,
+  venueTitle,
 } from "./normalize";
 
 describe("location normalize", () => {
@@ -38,6 +39,15 @@ describe("location normalize", () => {
     expect(rosterSheetLabel("KDS-CC")).toBe("Kids Driving School - City Center");
     expect(rosterSheetLabel("WM-VM")).toBe("Winter Mirage - Vendome Mall");
     expect(rosterSheetLabel("UNKNOWN", "Fallback")).toBe("Fallback");
+  });
+
+  it("keeps two Crayons & Bricks venues distinct", () => {
+    const vendome = venueTitle({ code: "CB-VM", name: "Crayons & Bricks", region: "Vendome Mall" });
+    const darAlSalam = venueTitle({ code: "CB-DSM", name: "Crayons & Bricks", region: "Dar Al Salam Mall" });
+    expect(vendome).toBe("Crayons & Bricks - Vendome Mall");
+    expect(darAlSalam).toBe("Crayons & Bricks - Dar Al Salam Mall");
+    expect(vendome).not.toBe(darAlSalam);
+    expect(venueTitle(null, "Site")).toBe("Site");
   });
 
   it("does not invent a code for an unmapped venue", () => {

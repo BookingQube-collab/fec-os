@@ -1,5 +1,7 @@
 "use client";
 
+import { FecLoader } from "@/components/fec";
+
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -61,7 +63,7 @@ function ComplianceCalendarItemsPage() {
         { label: t("complianceHub.calendar.thisMonth"), value: data?.count ?? "—" },
         { label: t("complianceHub.calendar.renewalCost"), value: `QAR ${(data?.renewal_cost ?? 0).toLocaleString()}` },
       ]} />
-      {isLoading ? <p className="text-sm text-muted-foreground">{t("common.loading")}</p> : (
+      {isLoading ? <FecLoader density="chip" label={t("common.loading")} /> : (
         <div className="grid grid-cols-7 gap-1 text-center text-xs">
           {Array.from({ length: daysInMonth }, (_, i) => {
             const d = `${year}-${String(month).padStart(2, "0")}-${String(i + 1).padStart(2, "0")}`;

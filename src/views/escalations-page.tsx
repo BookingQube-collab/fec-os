@@ -13,6 +13,7 @@ import {
   runEscalationSweep,
   upsertEscalationRule,
 } from "@/lib/escalations.functions";
+import { FecLoader } from "@/components/fec";
 import { useSites } from "@/hooks/queries/useSites";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -112,7 +113,7 @@ function EscalationsPage() {
 
         <TabsContent value="active" className="mt-4">
           {activeQ.isLoading ? (
-            <div className="text-sm text-muted-foreground">Loading…</div>
+            <FecLoader density="chip" />
           ) : (activeQ.data ?? []).length === 0 ? (
             <div className="rounded-lg border border-border bg-surface/30 p-6 text-sm text-muted-foreground">
               No active escalations. Tickets within SLA.

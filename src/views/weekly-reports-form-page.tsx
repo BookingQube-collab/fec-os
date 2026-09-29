@@ -3,11 +3,11 @@
 import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
+import { FecLoader } from "@/components/fec";
 import { WeeklyReportsLayout } from "@/components/weekly-reports/WeeklyReportsLayout";
 import { WeeklyReportForm } from "@/components/weekly-reports/weekly-report-form";
 import { Button } from "@/components/ui/button";
@@ -174,8 +174,8 @@ export default function WeeklyReportsFormPage() {
   if (!isNew && isLoading) {
     return (
       <WeeklyReportsLayout>
-        <div className="flex items-center gap-2 p-12 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" /> {t("weeklyReports.loading")}
+        <div className="flex justify-center p-12">
+          <FecLoader density="page" label={t("weeklyReports.loading")} />
         </div>
       </WeeklyReportsLayout>
     );

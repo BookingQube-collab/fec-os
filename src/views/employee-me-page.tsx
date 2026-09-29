@@ -19,7 +19,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
-import { FecPageHeader } from "@/components/fec";
+import { FecLoader, FecPageHeader } from "@/components/fec";
 import { PillTabScroller, pillTabItemClass } from "@/components/react-bits/pill-tab-scroller";
 import {
   MissedPunchApprovalQueue,
@@ -381,7 +381,7 @@ export default function EmployeeMePage() {
           </section>
         ) : null}
 
-        {profile.isLoading ? <p className="text-sm text-muted-foreground">{t("common.loading")}</p> : null}
+        {profile.isLoading ? <FecLoader density="chip" label={t("common.loading")} /> : null}
 
         {unlinked ? (
           <HrPanel className="space-y-2 p-5 text-center md:p-8">

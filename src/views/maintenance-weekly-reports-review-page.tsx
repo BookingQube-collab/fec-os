@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, Flag, Loader2, MessageSquarePlus, RotateCcw } from "lucide-react";
+import { Check, Flag, MessageSquarePlus, RotateCcw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
+import { FecLoader } from "@/components/fec";
 import { MaintenanceWeeklyReportsLayout } from "@/components/maintenance-weekly-reports/MaintenanceWeeklyReportsLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -182,9 +183,8 @@ export default function MaintenanceWeeklyReportsReviewPage() {
       </div>
 
       {isLoading ? (
-        <div className="mt-6 flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          {t("maintenanceWeeklyReports.loading")}
+        <div className="mt-6 flex justify-center">
+          <FecLoader density="page" label={t("maintenanceWeeklyReports.loading")} />
         </div>
       ) : (
         <div className="mt-6 grid gap-4 lg:grid-cols-[1fr_320px]">

@@ -390,6 +390,8 @@ export const queryKeys = {
   arcade: {
     all: ["arcade"] as const,
     dashboard: (locationId?: string | null) => [...queryKeys.arcade.all, "dashboard", locationId ?? null] as const,
+    siteBoard: (locationId?: string | null) => [...queryKeys.arcade.all, "site-board", locationId ?? null] as const,
+    photos: (paths: readonly string[]) => [...queryKeys.arcade.all, "photos", paths] as const,
     machines: (filters?: object) => [...queryKeys.arcade.all, "machines", filters ?? {}] as const,
     machine: (id?: string | null) => [...queryKeys.arcade.all, "machine", id ?? null] as const,
     faults: (filters?: object) => [...queryKeys.arcade.all, "faults", filters ?? {}] as const,

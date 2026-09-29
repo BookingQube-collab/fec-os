@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 
+import { FecLoader } from "@/components/fec";
 import { CompliancePageShell } from "@/components/compliance/compliance-page-shell";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useVendorScorecard } from "@/hooks/queries/useComplianceSubpages";
@@ -55,7 +56,7 @@ function VendorScorecardPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {isLoading ? <TableRow><TableCell colSpan={8}>Loading…</TableCell></TableRow> : (rows ?? []).map((r) => (
+            {isLoading ? <TableRow><TableCell colSpan={8}><FecLoader density="chip" /></TableCell></TableRow> : (rows ?? []).map((r) => (
               <TableRow key={r.vendor}>
                 <TableCell className="font-medium">{r.vendor}</TableCell>
                 <TableCell>{r.amc_contracts}</TableCell>

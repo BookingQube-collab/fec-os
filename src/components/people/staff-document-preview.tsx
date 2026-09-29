@@ -6,7 +6,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import ClickSpark from "@/components/react-bits/click-spark";
-import LatticeLoader from "@/components/react-bits/lattice-loader";
+import { FecLoader } from "@/components/fec";
 import StatusMark, { type StatusMarkStatus } from "@/components/react-bits/status-mark";
 import {
   Dialog,
@@ -98,8 +98,8 @@ export function StaffDocumentThumbnail({
   return (
     <span className={cn("relative block h-36 w-full overflow-hidden rounded-xl border border-border bg-muted sm:h-32 sm:w-44", className)}>
       {preview.isPending ? (
-        <span className="flex h-full items-center justify-center overflow-hidden px-2 [&_.ll-text]:hidden">
-          <LatticeLoader label={t("hr.docs.previewLoading")} showTimer={false} fontSize={11} cellSize={5} />
+        <span className="flex h-full items-center justify-center overflow-hidden px-2">
+          <FecLoader density="chip" label={t("hr.docs.previewLoading")} className="[&_.ll-text]:sr-only" />
         </span>
       ) : null}
       {preview.isError ? (
@@ -174,7 +174,7 @@ export function StaffDocumentLightbox({
         <div className="overflow-hidden rounded-2xl border border-border bg-muted">
           {preview.isPending ? (
             <div className="flex min-h-48 items-center justify-center p-6">
-              <LatticeLoader label={t("hr.docs.previewLoading")} showTimer={false} fontSize={13} />
+              <FecLoader density="page" label={t("hr.docs.previewLoading")} />
             </div>
           ) : null}
           {preview.isError ? (

@@ -1,6 +1,6 @@
 "use client";
 
-import { FecPageHeader } from "@/components/fec";
+import { FecLoader, FecPageHeader } from "@/components/fec";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -440,7 +440,7 @@ function IncidentQueue({
         </div>
       </div>
       {loading ? (
-        <p className="p-6 text-center text-sm text-muted-foreground">{t("common.loading")}</p>
+        <div className="flex justify-center p-6"><FecLoader density="chip" label={t("common.loading")} /></div>
       ) : rows.length === 0 ? (
         <p className="p-6 text-center text-sm text-muted-foreground">{t("diagnostics.queue.empty")}</p>
       ) : (
@@ -503,7 +503,7 @@ function SchemaPanel({ hub, loading }: { hub?: DiagnosticsHub; loading: boolean 
           </p>
         </div>
         {loading ? (
-          <p className="p-6 text-sm text-muted-foreground">{t("common.loading")}</p>
+          <div className="p-6"><FecLoader density="chip" label={t("common.loading")} /></div>
         ) : (
           <div className="divide-y divide-border/70">
             {(hub?.schema ?? []).map((row) => (
@@ -559,7 +559,7 @@ function AuditPanel({ hub, loading }: { hub?: DiagnosticsHub; loading: boolean }
         <p className="text-xs text-muted-foreground">{t("diagnostics.audit.subtitle")}</p>
       </div>
       {loading ? (
-        <p className="p-6 text-sm text-muted-foreground">{t("common.loading")}</p>
+        <div className="p-6"><FecLoader density="chip" label={t("common.loading")} /></div>
       ) : rows.length === 0 ? (
         <p className="p-6 text-center text-sm text-muted-foreground">{t("diagnostics.audit.empty")}</p>
       ) : (

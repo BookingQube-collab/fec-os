@@ -1,5 +1,7 @@
 "use client";
 
+import { FecLoader } from "@/components/fec";
+
 import { useMemo, useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { useTranslation } from "react-i18next";
@@ -85,7 +87,7 @@ function ComplianceCommandPage() {
       onExportExcel={exportExcel}
     >
       {isLoading ? (
-        <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
+        <FecLoader density="chip" label={t("common.loading")} />
       ) : (
         <>
           <KpiStrip

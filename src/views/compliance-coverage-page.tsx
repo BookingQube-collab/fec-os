@@ -2,6 +2,7 @@
 
 import { useTranslation } from "react-i18next";
 
+import { FecLoader } from "@/components/fec";
 import { CompliancePageShell } from "@/components/compliance/compliance-page-shell";
 import { useComplianceCoverage } from "@/hooks/queries/useComplianceSubpages";
 import { useReportExport } from "@/hooks/use-report-export";
@@ -29,7 +30,7 @@ function ComplianceCoveragePage() {
 
   return (
     <CompliancePageShell title={t("complianceHub.coverage.title")} subtitle={t("complianceHub.coverage.subtitle")} onExportPdf={exportPdf} onExportExcel={exportExcel}>
-      {isLoading ? <p className="text-sm text-muted-foreground">Loading…</p> : (
+      {isLoading ? <FecLoader density="chip" /> : (
         <>
           <div className="overflow-x-auto rounded-lg border border-border bg-card">
             <Table>

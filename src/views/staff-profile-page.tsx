@@ -1,6 +1,6 @@
 "use client";
 
-import { FecPageHeader } from "@/components/fec";
+import { FecLoader, FecPageHeader } from "@/components/fec";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
@@ -1553,7 +1553,7 @@ function StaffProfilePageBody() {
 
 export default function StaffProfilePage() {
   return (
-    <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}>
+    <Suspense fallback={<div className="flex justify-center py-16"><FecLoader density="page" /></div>}>
       <StaffProfilePageBody />
     </Suspense>
   );

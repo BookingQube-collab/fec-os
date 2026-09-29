@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { AlertOctagon } from "lucide-react";
 
+import { FecLoader } from "@/components/fec";
 import { useRiskSummary, useRiskRegister } from "@/hooks/queries/useRisk";
 import { useAppStore } from "@/stores/app-store";
 import { formatLocationLabel } from "@/lib/locations/normalize";
@@ -53,7 +54,7 @@ function RiskRegisterPage() {
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">Loading…</TableCell></TableRow>
+              <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground"><FecLoader density="chip" /></TableCell></TableRow>
             ) : !rows?.length ? (
               <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">No risks logged.</TableCell></TableRow>
             ) : (

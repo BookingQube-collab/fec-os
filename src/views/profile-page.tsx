@@ -5,7 +5,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
-import { FecButton as Button, FecPageHeader } from "@/components/fec";
+import { FecButton as Button, FecLoader, FecPageHeader } from "@/components/fec";
 import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -46,7 +46,7 @@ export default function ProfilePage() {
   };
 
   if (loading && !user) {
-    return <p className="text-sm text-muted-foreground">{t("common.loading")}</p>;
+    return <div className="flex justify-center py-16"><FecLoader density="page" label={t("common.loading")} /></div>;
   }
 
   return (

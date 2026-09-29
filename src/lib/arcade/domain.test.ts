@@ -15,6 +15,7 @@ import {
   normalizeGamePayment,
   nextPartSupplyStatus,
   observationFailedAgain,
+  firstCoverByLocation,
   operationalPercent,
   patchSupplierCase,
   pmCompliancePercent,
@@ -282,6 +283,17 @@ describe("technician fix updates the game", () => {
     expect(stamp.lastFixStatus).toBe("RESOLVED");
     expect(stamp.lastRepairAt).toBe("2026-09-29T11:00:00.000Z");
     expect(stamp.lastFixTechnicianStaffId).toBeNull();
+  });
+
+  it("keeps the first photo for each site", () => {
+    expect(
+      firstCoverByLocation([
+        { location_id: "a", photo_path: null },
+        { location_id: "a", photo_path: "a/one.jpg" },
+        { location_id: "a", photo_path: "a/two.jpg" },
+        { location_id: "b", photo_path: "b/one.jpg" },
+      ]),
+    ).toEqual({ a: "a/one.jpg", b: "b/one.jpg" });
   });
 
   it("does not update the game from an empty fix note", () => {

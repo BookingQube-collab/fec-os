@@ -2,19 +2,23 @@
 
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect } from "react";
-import { Gamepad2 } from "lucide-react";
+import { CircleCheck, CircleX, Gamepad2, Gauge, Wrench } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 
-import { arcadeCategoryName, KpiTile, StatusBadge } from "@/components/arcade/ui";
-import { FecPageHeader } from "@/components/fec";
+import { arcadeCategoryName, SiteHealthCard, StatusBadge } from "@/components/arcade/ui";
+import { ChartCard, ChartEmpty } from "@/components/charts/chart-card";
+import { TintedKpiCard } from "@/components/dashboard/tinted-kpi-card";
+import { FecLoader, FecPageHeader } from "@/components/fec";
+import { PillTabScroller, pillTabItemClass } from "@/components/react-bits/pill-tab-scroller";
 import { useSites } from "@/hooks/queries/useSites";
 import { getArcadeDashboard, syncArcadeAlerts } from "@/lib/arcade.functions";
+import { CHART, chartTooltipStyle } from "@/lib/chart-theme";
+import { venueTitle } from "@/lib/locations/normalize";
 import { queryKeys } from "@/lib/query-keys";
 
-function siteName(sites: { id: string; name: string }[] | undefined, id: string, fallback: string) {
-  return sites?.find((site) => site.id === id)?.name ?? fallback;
-}
+const ALERTS_FLAG = "arcade-alerts-synced";
 
 export function ArcadeDashboard() {
   const { t } = useTranslation();
@@ -24,78 +28,180 @@ export function ArcadeDashboard() {
     queryFn: () => getArcadeDashboard({}),
   });
   useEffect(() => {
-    void syncArcadeAlerts({}).catch(() => undefined);
-  }, []);
+    if (!dashboard.isSuccess) return;
+    try {
+      if (sessionStorage.getItem(ALERTS_FLAG)) return;
+    } catch {
+      return;
+    }
+    const id = window.setTimeout(() => {
+      try {
+        if (sessionStorage.getItem(ALERTS_FLAG)) return;
+        sessionStorage.setItem(ALERTS_FLAG, "1");
+      } catch {
+        return;
+      }
+      void syncArcadeAlerts({}).catch(() => undefined);
+    }, 2000);
+    return () => window.clearTimeout(id);
+  }, [dashboard.isSuccess]);
+
   const data = dashboard.data;
   const kpis = data?.kpis;
+  const siteCards = [...(data?.sites ?? [])].sort((a, b) => (a.availability ?? 101) - (b.availability ?? 101));
+  const slices = kpis
+    ? [
+        { key: "working", name: t("arcadeOps.working"), value: kpis.working, fill: CHART.teal },
+        { key: "down", name: t("arcadeOps.down"), value: kpis.down, fill: CHART.red },
+        { key: "repair", name: t("arcadeOps.underRepair"), value: kpis.underRepair, fill: CHART.amber },
+        { key: "watch", name: t("arcadeOps.underObservation"), value: kpis.underObservation, fill: CHART.info },
+        { key: "part", name: t("arcadeOps.waitingParts"), value: kpis.waitingPart, fill: CHART.gold },
+        { key: "supplier", name: t("arcadeOps.waitingSupplier"), value: kpis.waitingSupplier, fill: CHART.ink },
+        { key: "out", name: t("arcadeStatus.OUT_OF_SERVICE"), value: kpis.outOfService, fill: CHART.muted },
+      ].filter((slice) => slice.value > 0)
+    : [];
+  const chips = kpis
+    ? [
+        { href: "/arcade/faults", label: t("arcadeOps.underRepair"), value: kpis.underRepair },
+        { href: "/arcade/observation", label: t("arcadeOps.underObservation"), value: kpis.underObservation },
+        { href: "/arcade/parts", label: t("arcadeOps.waitingParts"), value: kpis.waitingPart },
+        { href: "/arcade/support", label: t("arcadeOps.waitingSupplier"), value: kpis.waitingSupplier },
+        { href: "/arcade/pm", label: t("arcadeOps.pmDue"), value: kpis.pmDue },
+        { href: "/arcade/pm", label: t("arcadeOps.pmOverdue"), value: kpis.pmOverdue },
+        { href: "/arcade/faults", label: t("arcadeOps.repeatFaults"), value: kpis.repeatFaults },
+      ]
+    : [];
+
   return (
-    <div className="grid gap-4">
+    <div className="grid gap-5">
       <FecPageHeader icon={Gamepad2} kicker={t("nav.arcade")} title={t("nav.arcadeDashboard")} subtitle={t("arcadeOps.dashboardSubtitle")} />
-      {dashboard.isLoading ? <p className="text-sm text-muted-foreground">{t("arcadeOps.loading")}</p> : null}
+      {dashboard.isLoading ? <FecLoader label={t("arcadeOps.loading")} /> : null}
       {dashboard.isError ? <p className="text-sm text-destructive">{dashboard.error instanceof Error ? dashboard.error.message : t("arcadeOps.failed")}</p> : null}
       {kpis ? (
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-6">
-          <KpiTile label={t("arcadeOps.totalMachines")} value={kpis.total} href="/arcade/sites" />
-          <KpiTile label={t("arcadeOps.working")} value={kpis.working} />
-          <KpiTile label={t("arcadeOps.down")} value={kpis.down} href="/arcade/faults?status=DOWN" />
-          <KpiTile label={t("arcadeOps.underRepair")} value={kpis.underRepair} />
-          <KpiTile label={t("arcadeOps.underObservation")} value={kpis.underObservation} href="/arcade/observation" />
-          <KpiTile label={t("arcadeOps.waitingParts")} value={kpis.waitingPart} href="/arcade/parts" />
-          <KpiTile label={t("arcadeOps.waitingSupplier")} value={kpis.waitingSupplier} href="/arcade/support" />
-          <KpiTile label={t("arcadeOps.pmDue")} value={kpis.pmDue} href="/arcade/pm" />
-          <KpiTile label={t("arcadeOps.pmOverdue")} value={kpis.pmOverdue} href="/arcade/pm" />
-          <KpiTile label={t("arcadeOps.openFaults")} value={kpis.openFaults} href="/arcade/faults" />
-          <KpiTile label={t("arcadeOps.repeatFaults")} value={kpis.repeatFaults} href="/arcade/faults" />
-          <KpiTile label={t("arcadeOps.operational")} value={kpis.operationalPercent ?? "—"} hint={kpis.pmCompliance == null ? t("arcadeOps.pmHintEmpty") : t("arcadeOps.pmHint", { percent: kpis.pmCompliance })} />
-        </div>
-      ) : null}
-      <section className="grid gap-2">
-        <h2 className="text-sm font-semibold">{t("arcadeOps.siteHealth")}</h2>
-        <div className="grid gap-2 md:grid-cols-2">
-          {(data?.sites ?? []).map((site) => (
-            <Link key={site.location_id} href={`/arcade/sites/${site.location_id}`} className="rounded-lg border p-3 hover:bg-muted/40">
-              <div className="flex items-start justify-between gap-2">
-                <p className="font-medium">{siteName(sites.data, site.location_id, t("common.site"))}</p>
-                <p className="text-lg font-semibold tabular-nums">{site.availability ?? "—"}%</p>
-              </div>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {t("arcadeOps.siteLine", {
-                  machines: site.active_machines,
-                  working: site.working,
-                  repair: site.under_repair,
-                  waiting: site.waiting_part,
+        <>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <TintedKpiCard
+              tint="green"
+              icon={Gauge}
+              title={t("arcadeOps.operational")}
+              value={kpis.operationalPercent == null ? "—" : `${kpis.operationalPercent}%`}
+              hint={kpis.pmCompliance == null ? t("arcadeOps.pmHintEmpty") : t("arcadeOps.pmHint", { percent: kpis.pmCompliance })}
+              href="/arcade/sites"
+              viewLabel={t("common.view")}
+            />
+            <TintedKpiCard tint="sky" icon={CircleCheck} title={t("arcadeOps.working")} value={kpis.working} hint={t("arcadeOps.fleetCount", { count: kpis.total })} href="/arcade/sites" viewLabel={t("common.view")} />
+            <TintedKpiCard tint="red" icon={CircleX} title={t("arcadeOps.down")} value={kpis.down} href="/arcade/faults" viewLabel={t("common.view")} />
+            <TintedKpiCard tint="orange" icon={Wrench} title={t("arcadeOps.openFaults")} value={kpis.openFaults} href="/arcade/faults" viewLabel={t("common.view")} />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {chips.map((chip) => (
+              <Link key={chip.href + chip.label} href={chip.href} className="inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1.5 text-sm hover:bg-muted/50">
+                <span className="text-muted-foreground">{chip.label}</span>
+                <span className="font-semibold tabular-nums">{chip.value}</span>
+              </Link>
+            ))}
+          </div>
+          <div className="grid items-start gap-4 lg:grid-cols-[minmax(16rem,22rem)_minmax(0,1fr)]">
+            <ChartCard title={t("arcadeOps.fleetHealth")} subtitle={t("arcadeOps.fleetCount", { count: kpis.total })}>
+              {slices.length === 0 ? (
+                <ChartEmpty label={t("arcadeOps.emptySites")} className="h-40" />
+              ) : (
+                <div className="grid gap-3">
+                  <div className="h-44">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={slices} dataKey="value" nameKey="name" innerRadius={52} outerRadius={74} paddingAngle={2} stroke="transparent">
+                          {slices.map((slice) => (
+                            <Cell key={slice.key} fill={slice.fill} />
+                          ))}
+                        </Pie>
+                        <Tooltip contentStyle={chartTooltipStyle} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <ul className="grid gap-1.5">
+                    {slices.map((slice) => (
+                      <li key={slice.key} className="flex items-center justify-between gap-3 text-sm">
+                        <span className="flex min-w-0 items-center gap-2">
+                          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: slice.fill }} />
+                          <span className="truncate">{slice.name}</span>
+                        </span>
+                        <span className="tabular-nums font-medium">{slice.value}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </ChartCard>
+            <section className="grid gap-3">
+              <h2 className="text-base font-semibold">{t("arcadeOps.siteHealth")}</h2>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {siteCards.map((site) => {
+                  const location = sites.data?.find((row) => row.id === site.location_id);
+                  return (
+                    <SiteHealthCard
+                      key={site.location_id}
+                      href={`/arcade/sites/${site.location_id}`}
+                      title={venueTitle(location, t("common.site"))}
+                      code={location?.code}
+                      availability={site.availability}
+                      meterLabel={t("arcadeScreens.availability")}
+                      detail={t("arcadeScreens.siteLineShort", {
+                        machines: site.active_machines,
+                        working: site.working,
+                        down: site.down,
+                      })}
+                    />
+                  );
                 })}
-              </p>
-            </Link>
-          ))}
-          {data && data.sites.length === 0 ? <p className="text-sm text-muted-foreground">{t("arcadeOps.emptySites")}</p> : null}
-        </div>
-      </section>
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Queue title={t("arcadeOps.critical")} empty={t("arcadeOps.none")} rows={(data?.critical ?? []).map((row) => ({ href: `/arcade/machines/${row.id}`, label: row.name, meta: row.asset_code, status: row.status }))} />
-        <Queue title={t("arcadeOps.aged")} empty={t("arcadeOps.none")} rows={(data?.aged ?? []).map((row) => ({ href: `/arcade/faults/${row.id}`, label: row.ticket_number ?? t("arcadeOps.fault"), meta: row.description, status: row.status }))} />
-        <Queue title={t("arcadeOps.waitingSupplier")} empty={t("arcadeOps.none")} rows={(data?.waitingSupplier ?? []).map((row) => ({ href: `/arcade/faults/${row.id}`, label: row.ticket_number ?? t("arcadeOps.fault"), meta: row.description, status: row.status }))} />
-        <Queue title={t("arcadeOps.waitingParts")} empty={t("arcadeOps.none")} rows={(data?.waitingPart ?? []).map((row) => ({ href: `/arcade/faults/${row.id}`, label: row.ticket_number ?? t("arcadeOps.fault"), meta: row.description, status: row.status }))} />
-        <Queue title={t("arcadeOps.repeats")} empty={t("arcadeOps.none")} rows={(data?.repeats ?? []).map((row) => ({ href: `/arcade/faults/${row.id}`, label: row.ticket_number ?? t("arcadeOps.fault"), meta: t("arcadeOps.repeatMeta", { category: arcadeCategoryName(t, row.category), count: row.repeat_count }), status: "REPEAT" }))} />
-        <Queue title={t("arcadeOps.pmDue")} empty={t("arcadeOps.none")} rows={(data?.pmDue ?? []).map((row) => ({ href: `/arcade/machines/${row.id}`, label: row.name, meta: row.next_pm_on ?? "", status: row.status }))} />
-        <Queue title={t("arcadeOps.resolved")} empty={t("arcadeOps.none")} rows={(data?.resolved ?? []).map((row) => ({ href: `/arcade/faults/${row.id}`, label: row.ticket_number ?? t("arcadeOps.fault"), meta: arcadeCategoryName(t, row.category), status: "RESOLVED" }))} />
-      </div>
+              </div>
+              {data && data.sites.length === 0 ? <p className="text-sm text-muted-foreground">{t("arcadeOps.emptySites")}</p> : null}
+            </section>
+          </div>
+          <Attention
+            queues={[
+              { id: "critical", title: t("arcadeOps.critical"), rows: (data?.critical ?? []).map((row) => ({ href: `/arcade/machines/${row.id}`, label: row.name, meta: `${row.asset_code} · ${venueTitle(sites.data?.find((site) => site.id === row.location_id), t("common.site"))}`, status: row.status })) },
+              { id: "aged", title: t("arcadeOps.aged"), rows: (data?.aged ?? []).map((row) => ({ href: `/arcade/faults/${row.id}`, label: row.ticket_number ?? t("arcadeOps.fault"), meta: row.description, status: row.status })) },
+              { id: "supplier", title: t("arcadeOps.waitingSupplier"), rows: (data?.waitingSupplier ?? []).map((row) => ({ href: `/arcade/faults/${row.id}`, label: row.ticket_number ?? t("arcadeOps.fault"), meta: row.description, status: row.status })) },
+              { id: "parts", title: t("arcadeOps.waitingParts"), rows: (data?.waitingPart ?? []).map((row) => ({ href: `/arcade/faults/${row.id}`, label: row.ticket_number ?? t("arcadeOps.fault"), meta: row.description, status: row.status })) },
+              { id: "repeats", title: t("arcadeOps.repeats"), rows: (data?.repeats ?? []).map((row) => ({ href: `/arcade/faults/${row.id}`, label: row.ticket_number ?? t("arcadeOps.fault"), meta: t("arcadeOps.repeatMeta", { category: arcadeCategoryName(t, row.category), count: row.repeat_count }), status: "REPEAT" })) },
+              { id: "pm", title: t("arcadeOps.pmDue"), rows: (data?.pmDue ?? []).map((row) => ({ href: `/arcade/machines/${row.id}`, label: row.name, meta: row.next_pm_on ?? "", status: row.status })) },
+              { id: "resolved", title: t("arcadeOps.resolved"), rows: (data?.resolved ?? []).map((row) => ({ href: `/arcade/faults/${row.id}`, label: row.ticket_number ?? t("arcadeOps.fault"), meta: arcadeCategoryName(t, row.category), status: "RESOLVED" })) },
+            ]}
+          />
+        </>
+      ) : null}
     </div>
   );
 }
 
-function Queue({ title, empty, rows }: { title: string; empty: string; rows: { href: string; label: string; meta: string; status: string }[] }) {
+function Attention({ queues }: { queues: { id: string; title: string; rows: { href: string; label: string; meta: string; status: string }[] }[] }) {
+  const { t } = useTranslation();
+  const [picked, setPicked] = useState<string | null>(null);
+  const activeId = picked && queues.some((queue) => queue.id === picked) ? picked : (queues.find((queue) => queue.rows.length > 0)?.id ?? queues[0]?.id);
+  const active = queues.find((queue) => queue.id === activeId) ?? queues[0];
+  if (!active) return null;
   return (
-    <section className="rounded-lg border p-3">
-      <h2 className="text-sm font-semibold">{title}</h2>
-      <ul className="mt-2 grid gap-2">
-        {rows.length === 0 ? <li className="text-sm text-muted-foreground">{empty}</li> : null}
-        {rows.map((row) => (
-          <li key={row.href + row.label}>
-            <Link href={row.href} className="flex items-center justify-between gap-2 text-sm">
-              <span>
-                <span className="font-medium">{row.label}</span>
-                <span className="mt-0.5 block text-muted-foreground">{row.meta}</span>
+    <section className="grid gap-3 rounded-2xl border bg-card p-4">
+      <div>
+        <h2 className="text-base font-semibold">{t("arcadeOps.needsAttention")}</h2>
+        <p className="mt-1 text-sm text-muted-foreground">{t("arcadeOps.attentionHint")}</p>
+      </div>
+      <PillTabScroller label={t("arcadeOps.needsAttention")}>
+        {queues.map((queue) => (
+          <button key={queue.id} type="button" aria-pressed={queue.id === active.id} className={pillTabItemClass(queue.id === active.id)} onClick={() => setPicked(queue.id)}>
+            {queue.title}
+          </button>
+        ))}
+      </PillTabScroller>
+      <ul className="grid gap-2">
+        {active.rows.length === 0 ? <li className="text-sm text-muted-foreground">{t("arcadeOps.none")}</li> : null}
+        {active.rows.map((row) => (
+          <li key={row.href}>
+            <Link href={row.href} className="flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-sm hover:bg-muted/40">
+              <span className="min-w-0">
+                <span className="block font-medium">{row.label}</span>
+                <span className="mt-0.5 block truncate text-muted-foreground">{row.meta}</span>
               </span>
               <StatusBadge status={row.status} />
             </Link>

@@ -1,5 +1,7 @@
 "use client";
 
+import { FecLoader } from "@/components/fec";
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -284,7 +286,7 @@ export function AmcContractDetailPage({ id }: { id: string }) {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["amc", "contract", id] }),
   });
 
-  if (isLoading) return <p className="text-muted-foreground">{t("common.loading")}</p>;
+  if (isLoading) return <div className="flex justify-center py-16"><FecLoader density="page" label={t("common.loading")} /></div>;
   if (!contract) return <p className="text-muted-foreground">{t("amc.notFound")}</p>;
 
   return (

@@ -1,5 +1,7 @@
 "use client";
 
+import { FecLoader } from "@/components/fec";
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { ArrowLeft, Loader2, Plus, Sparkles, Trash2 } from "lucide-react";
@@ -57,7 +59,7 @@ function ForecastList({ onNew, onOpen }: { onNew: () => void; onOpen: (id: strin
         </div>
         <Button onClick={onNew}><Plus className="mr-2 h-4 w-4" />{t("forecasts.new")}</Button>
       </div>
-      {isLoading ? <Skeleton text={t("common.loading")} /> : (data ?? []).length === 0 ? <Skeleton text={t("forecasts.empty")} /> : (
+      {isLoading ? <FecLoader density="page" label={t("common.loading")} /> : (data ?? []).length === 0 ? <Skeleton text={t("forecasts.empty")} /> : (
         <div className="space-y-2">
           {(data ?? []).map((f) => (
             <div key={f.id} className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3">
@@ -218,7 +220,7 @@ function ForecastDetail({ id, onBack }: { id: string; onBack: () => void }) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {isLoading && <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">{t("common.loading")}</TableCell></TableRow>}
+            {isLoading && <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground"><FecLoader density="chip" label={t("common.loading")} /></TableCell></TableRow>}
             {results.map((r) => (
               <TableRow key={r.id}>
                 <TableCell className="font-medium">{r.locations?.name ?? "—"}</TableCell>

@@ -1,5 +1,7 @@
 "use client";
 
+import { FecLoader } from "@/components/fec";
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronLeft,
@@ -623,7 +625,7 @@ function ProcurementRequisitionNewInner() {
   const paymentIcon = { full_advance: Zap, milestones: ClipboardList, post_delivery: ShieldCheck } as const;
 
   if (existingId && !hydrated && existing.isLoading) {
-    return <p className="text-muted-foreground">{t("common.loading")}</p>;
+    return <div className="flex justify-center py-16"><FecLoader density="page" label={t("common.loading")} /></div>;
   }
 
   return (

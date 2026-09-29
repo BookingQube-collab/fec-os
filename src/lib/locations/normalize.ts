@@ -34,6 +34,20 @@ export function rosterSheetLabel(code: string, fallbackName?: string | null): st
   return ROSTER_SHEET_LABEL_BY_CODE[code as CanonicalLocationCode] ?? fallbackName ?? code;
 }
 
+/**
+ * Venue title that keeps same-name sites apart.
+ * Known codes use the roster sheet label (mall included). Others use name plus region.
+ */
+export function venueTitle(
+  site: { code?: string | null; name?: string | null; region?: string | null } | null | undefined,
+  fallback = "—",
+): string {
+  if (!site) return fallback;
+  const named = formatLocationName(site.name, site.region) || (site.name ?? "").trim();
+  const titled = rosterSheetLabel((site.code ?? "").trim(), named || null);
+  return titled.trim() || fallback;
+}
+
 /** Live name plus region, e.g. `Inflatapark - City Center Doha`. Skips empty parts. */
 export function formatLocationName(name?: string | null, region?: string | null): string {
   const n = (name ?? "").trim();

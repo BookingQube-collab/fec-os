@@ -10,6 +10,7 @@ import {
   listPlannedNotifications,
   syncPlannedNotifications,
 } from "@/lib/planned-notifications.functions";
+import { FecLoader } from "@/components/fec";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -76,7 +77,7 @@ function PlannedNotificationsPage() {
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">Loading…</TableCell></TableRow>
+              <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground"><FecLoader density="chip" /></TableCell></TableRow>
             ) : !rows?.length ? (
               <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">No planned reminders. Click Sync reminders.</TableCell></TableRow>
             ) : (

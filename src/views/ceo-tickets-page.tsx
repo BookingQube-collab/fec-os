@@ -1,6 +1,6 @@
 "use client";
 
-import { FecPageHeader } from "@/components/fec";
+import { FecLoader, FecPageHeader } from "@/components/fec";
 
 import Link from "next/link";
 import { AlertTriangle, ChevronLeft } from "lucide-react";
@@ -53,7 +53,7 @@ function Page() {
       {error ? (
         <p className="text-sm text-destructive">{(error as Error).message}</p>
       ) : isLoading ? (
-        <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
+        <FecLoader density="chip" label={t("common.loading")} />
       ) : rows.length === 0 ? (
         <p className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
           {t("ceo.ticketsEmpty")}

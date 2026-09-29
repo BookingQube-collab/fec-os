@@ -1,6 +1,6 @@
 "use client";
 
-import { FecPageHeader } from "@/components/fec";
+import { FecLoader, FecPageHeader } from "@/components/fec";
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -162,7 +162,7 @@ function IssuesList() {
       {error ? (
         <Empty tone="error">{(error as Error).message}</Empty>
       ) : isLoading ? (
-        <Empty>Loading tickets…</Empty>
+        <FecLoader density="chip" />
       ) : items.length === 0 ? (
         <Empty>No tickets match these filters.</Empty>
       ) : (
@@ -227,7 +227,7 @@ function IssuesBoard() {
     onError: (e) => toast.error((e as Error).message),
   });
 
-  if (isLoading) return <Empty>Loading board…</Empty>;
+  if (isLoading) return <div className="flex justify-center py-16"><FecLoader density="page" /></div>;
 
   return (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-5">

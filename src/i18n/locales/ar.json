@@ -202,6 +202,13 @@
     "admin": "الإدارة",
     "hrAts": "مسار المتقدمين",
     "arcadeSearch": "بحث",
+    "arcadeGroupMaintenance": "الصيانة",
+    "arcadeGroupSuppliers": "الموردون",
+    "arcadeGroupParts": "قطع الغيار",
+    "arcadeGroupManuals": "الأدلة",
+    "arcadeGroupInstalls": "التركيبات",
+    "arcadeGroupMore": "المزيد",
+    "arcadeMoreSections": "أقسام أخرى للألعاب",
     "corporateDeals": "تقرير العروض الأسبوعية للشركات"
   },
   "common": {
@@ -218,6 +225,7 @@
     "saving": "جارٍ الحفظ…",
     "delete": "حذف",
     "loading": "جارٍ التحميل…",
+    "updating": "جارٍ التحديث…",
     "help": "مساعدة",
     "resolve": "معالجة",
     "user": "مستخدم",
@@ -3039,6 +3047,7 @@
     },
     "staff": {
       "loading": "جاري تحميل الموظفين…",
+      "refreshing": "جارٍ التحديث…",
       "empty": "لا يوجد موظفون في النطاق.",
       "add": "إضافة موظف",
       "edit": "تعديل موظف",
@@ -7871,7 +7880,11 @@
     "none": "لا يوجد",
     "fault": "عطل",
     "repeatMeta": "{{category}} · {{count}} سابق",
-    "unavailable": "هذا القسم غير متاح."
+    "unavailable": "هذا القسم غير متاح.",
+    "fleetHealth": "صحة الأسطول",
+    "fleetCount": "{{count}} لعبة",
+    "needsAttention": "يحتاج انتباهاً",
+    "attentionHint": "اختر قائمة لرؤية الألعاب والأعطال التي تحتاج شخصاً اليوم."
   },
   "arcadeStatus": {
     "WORKING": "تعمل",
@@ -8056,6 +8069,9 @@
     "sitesTitle": "المواقع والألعاب",
     "sitesHint": "المواقع من سجل المواقع الحالي. افتح موقعاً لرؤية ألعابه.",
     "noMachines": "لا ألعاب",
+    "photoMissing": "لا توجد صورة بعد",
+    "gamePhoto": "صورة {{name}}",
+    "noMachineRows": "لا توجد ألعاب مطابقة لهذا البحث.",
     "siteLineShort": "{{machines}} ألعاب · {{working}} تعمل · {{down}} متوقفة",
     "siteInventory": "مخزون الألعاب في هذا الموقع.",
     "machines": "الألعاب",

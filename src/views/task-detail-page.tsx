@@ -14,6 +14,7 @@ import {
   submitTaskInstance,
   uploadTaskPhoto,
 } from "@/lib/tasks.functions";
+import { FecLoader } from "@/components/fec";
 import { enqueue, flushQueue } from "@/lib/offline-queue";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -46,7 +47,7 @@ function InstancePage() {
     onError: (e) => toast.error((e as Error).message),
   });
 
-  if (isLoading || !data) return <div className="p-8 text-center text-sm text-muted-foreground">Loading…</div>;
+  if (isLoading || !data) return <div className="flex justify-center py-16"><FecLoader density="page" /></div>;
   const locked = data.instance.status !== "open" && data.instance.status !== "overdue";
   const resultByItem = new Map(data.results.map((r) => [r.item_id, r]));
 

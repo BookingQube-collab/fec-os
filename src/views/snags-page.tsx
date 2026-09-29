@@ -1,5 +1,7 @@
 "use client";
 
+import { FecLoader } from "@/components/fec";
+
 
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -574,7 +576,7 @@ function SnagsPage() {
 
               {isLoading ? (
 
-                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">{t("common.loading")}</TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground"><FecLoader density="chip" label={t("common.loading")} /></TableCell></TableRow>
 
               ) : !snags?.length ? (
 

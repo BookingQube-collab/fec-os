@@ -1,5 +1,7 @@
 "use client";
 
+import { FecLoader } from "@/components/fec";
+
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
@@ -87,7 +89,7 @@ export function VendorDetailDialog({
           </DialogDescription>
         </DialogHeader>
         {detail.isLoading || !vendor ? (
-          <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
+          <FecLoader density="chip" label={t("common.loading")} />
         ) : (
           <div className="space-y-5">
             <div className="flex flex-wrap gap-2">

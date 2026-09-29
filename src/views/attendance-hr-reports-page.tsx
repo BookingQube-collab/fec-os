@@ -1,6 +1,6 @@
 "use client";
 
-import { FecPageHeader } from "@/components/fec";
+import { FecLoader, FecPageHeader } from "@/components/fec";
 
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import Link from "next/link";
@@ -642,12 +642,10 @@ export default function AttendanceHrReportsPage() {
       <div className="relative" aria-busy={showListingBusy}>
         {showListingBusy && !q.isLoading ? (
           <div className="pointer-events-none absolute inset-0 z-10 flex items-start justify-center bg-background/55 pt-16 backdrop-blur-[1px]">
-            <div className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-sm text-muted-foreground shadow-sm">
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-              <span>
-                {showSearchBusy ? t("attendanceHr.reports.searching") : t("attendanceHr.reports.loading")}
-              </span>
-            </div>
+            <FecLoader
+              density="chip"
+              label={showSearchBusy ? t("attendanceHr.reports.searching") : t("attendanceHr.reports.loading")}
+            />
           </div>
         ) : null}
         <div className={cn(showListingBusy && !q.isLoading && "opacity-60 transition-opacity")}>

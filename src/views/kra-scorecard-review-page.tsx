@@ -9,7 +9,7 @@ import { ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 
 import { KraSiteSopList, KraSopCodeLinks } from "@/components/people/kra-site-sops";
-import { FecPageHeader } from "@/components/fec";
+import { FecLoader, FecPageHeader } from "@/components/fec";
 import { HrPanel } from "@/components/hr/hr-panel";
 import { HrShell } from "@/components/hr/hr-shell";
 import { Badge } from "@/components/ui/badge";
@@ -132,7 +132,13 @@ function KraScorecardReview({ reviewId }: { reviewId: string }) {
   if (review.isLoading || !draft || !live) {
     return (
       <HrShell>
-        <p className="text-sm text-muted-foreground">{review.isError ? (review.error as Error).message : t("common.loading")}</p>
+        {review.isError ? (
+          <p className="text-sm text-muted-foreground">{(review.error as Error).message}</p>
+        ) : (
+          <div className="flex justify-center py-10">
+            <FecLoader density="page" label={t("common.loading")} />
+          </div>
+        )}
       </HrShell>
     );
   }

@@ -202,7 +202,14 @@
     "hrMyPayslips": "Payslips",
     "hrMyKra": "My KRA",
     "hrAts": "ATS pipeline",
-    "arcadeSearch": "Search"
+    "arcadeSearch": "Search",
+    "arcadeGroupMaintenance": "Maintenance",
+    "arcadeGroupSuppliers": "Suppliers",
+    "arcadeGroupParts": "Parts",
+    "arcadeGroupManuals": "Manuals",
+    "arcadeGroupInstalls": "Installations",
+    "arcadeGroupMore": "More",
+    "arcadeMoreSections": "More arcade sections"
   },
   "common": {
     "search": "Search",
@@ -218,6 +225,7 @@
     "saving": "Saving…",
     "delete": "Delete",
     "loading": "Loading…",
+    "updating": "Updating…",
     "searchHere": "Search here",
     "searchNoMatches": "No matching options.",
     "help": "Help",
@@ -3146,6 +3154,7 @@
     },
     "staff": {
       "loading": "Loading employees…",
+      "refreshing": "Updating…",
       "empty": "No employees in scope.",
       "add": "Add employee",
       "addEmployee": "Add employee",
@@ -7955,7 +7964,11 @@
     "none": "None",
     "fault": "Fault",
     "repeatMeta": "{{category}} · {{count}} previous",
-    "unavailable": "This section is not available."
+    "unavailable": "This section is not available.",
+    "fleetHealth": "Fleet health",
+    "fleetCount": "{{count}} games",
+    "needsAttention": "Needs attention",
+    "attentionHint": "Pick a list to see the games and faults that need someone today."
   },
   "arcadeStatus": {
     "WORKING": "Working",
@@ -8011,8 +8024,11 @@
   "arcadeScreens": {
     "records": "{{count}} records",
     "sitesTitle": "Sites & Games",
-    "sitesHint": "Sites come from the existing location master. Open a site to see its machines.",
+    "sitesHint": "Sites come from the existing location master. Open a site to see its games.",
     "noMachines": "No machines",
+    "photoMissing": "No photo yet",
+    "gamePhoto": "Photo of {{name}}",
+    "noMachineRows": "No games match this search.",
     "siteLineShort": "{{machines}} machines · {{working}} working · {{down}} down",
     "siteInventory": "Machine inventory for this site.",
     "machines": "Machines",

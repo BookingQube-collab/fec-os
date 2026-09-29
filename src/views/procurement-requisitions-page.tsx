@@ -1,6 +1,6 @@
 "use client";
 
-import { FecPageHeader } from "@/components/fec";
+import { FecLoader, FecPageHeader } from "@/components/fec";
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
@@ -631,8 +631,8 @@ function ProcurementRequisitionsInner({
             <TableBody>
               {list.isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="py-12 text-center text-sm text-muted-foreground">
-                    {t("common.loading")}
+                  <TableCell colSpan={6} className="py-12 text-center">
+                    <FecLoader density="chip" label={t("common.loading")} />
                   </TableCell>
                 </TableRow>
               ) : pageRows.length === 0 ? (

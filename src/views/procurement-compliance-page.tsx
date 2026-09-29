@@ -1,6 +1,6 @@
 "use client";
 
-import { FecPageHeader } from "@/components/fec";
+import { FecLoader, FecPageHeader } from "@/components/fec";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Download, Search, Shield, ShieldCheck } from "lucide-react";
@@ -139,8 +139,8 @@ export default function ProcurementCompliancePage() {
             <tbody>
               {list.isLoading ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">
-                    {t("common.loading")}
+                  <td colSpan={6} className="px-4 py-12 text-center">
+                    <FecLoader density="chip" label={t("common.loading")} />
                   </td>
                 </tr>
               ) : filtered.length === 0 ? (

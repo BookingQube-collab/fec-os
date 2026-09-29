@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 
+import { FecLoader } from "@/components/fec";
 import { EnterDataPanel } from "@/components/weekly-review/enter-data-panel";
 import { WeeklyReviewDataTools } from "@/components/weekly-review/data-tools";
 import { Button } from "@/components/ui/button";
@@ -190,10 +191,7 @@ export default function WeeklyReviewPage() {
       </div>
 
       {listQ.isLoading || (activeId && packQ.isLoading && !draft) ? (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          {t("common.loading")}
-        </div>
+        <FecLoader density="page" label={t("common.loading")} />
       ) : !draft ? (
         <p className="text-sm text-muted-foreground">{t("weeklyReview.empty")}</p>
       ) : mode === "enter" ? (

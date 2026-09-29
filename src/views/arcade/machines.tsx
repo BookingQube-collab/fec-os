@@ -4,11 +4,14 @@ import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { Gamepad2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
-import { ActionButton, arcadeCategoryName, arcadeStatusName, Field, KpiTile, MobileActions, Pager, StatusBadge } from "@/components/arcade/ui";
+import { GamePhoto, useArcadePhotoUrls } from "@/components/arcade/game-photo";
+import { ActionButton, arcadeCategoryName, arcadeStatusName, Field, HealthMeter, KpiTile, MobileActions, Pager, SiteHealthCard, StatusBadge, useVenueTitle } from "@/components/arcade/ui";
 import { ArcadeWorkbookImport } from "@/components/arcade/workbook-import";
+import { FecLoader, FecPageHeader } from "@/components/fec";
 import GlideSelect from "@/components/react-bits/glide-select";
 import { PillTabScroller, pillTabItemClass } from "@/components/react-bits/pill-tab-scroller";
 import { Button } from "@/components/ui/button";
@@ -16,66 +19,96 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useSites } from "@/hooks/queries/useSites";
 import { usePermission } from "@/hooks/use-permission";
-import { MACHINE_STATUSES, siteAvailability } from "@/lib/arcade/domain";
-import { getArcadeContext, getArcadeDashboard, getArcadeFileUrl, getArcadeMachine, listArcadeMachines, saveArcadeMachine, uploadArcadeFile } from "@/lib/arcade.functions";
+import { MACHINE_STATUSES } from "@/lib/arcade/domain";
+import { getArcadeContext, getArcadeFileUrl, getArcadeMachine, getArcadeSiteBoard, listArcadeMachines, saveArcadeMachine, uploadArcadeFile } from "@/lib/arcade.functions";
 import { listArcadeSuppliers } from "@/lib/arcade-supply.functions";
 import { fmtCurrency } from "@/lib/currency";
+import { venueTitle } from "@/lib/locations/normalize";
 import { queryKeys } from "@/lib/query-keys";
 
-function useSiteLabel() {
-  const { t } = useTranslation();
-  const sites = useSites();
-  return (id?: string | null) => sites.data?.find((site) => site.id === id)?.name ?? t("common.site");
-}
+const GAME_PAGE_SIZE = 24;
 
 export function ArcadeSites() {
   const { t } = useTranslation();
   const sites = useSites();
-  const dashboard = useQuery({ queryKey: queryKeys.arcade.dashboard("sites"), queryFn: () => getArcadeDashboard({}) });
-  const health = new Map((dashboard.data?.sites ?? []).map((site) => [site.location_id, site]));
+  const board = useQuery({ queryKey: queryKeys.arcade.siteBoard(null), queryFn: () => getArcadeSiteBoard({}) });
+  const health = new Map((board.data?.sites ?? []).map((site) => [site.location_id, site]));
+  const photos = useArcadePhotoUrls(Object.values(board.data?.covers ?? {}));
+  const cards = [...(sites.data ?? [])]
+    .map((site) => {
+      const row = health.get(site.id);
+      return { site, row, title: venueTitle(site, site.name) };
+    })
+    .sort((a, b) => {
+      const aMachines = a.row?.active_machines ?? 0;
+      const bMachines = b.row?.active_machines ?? 0;
+      if ((aMachines > 0) !== (bMachines > 0)) return aMachines > 0 ? -1 : 1;
+      const availability = (a.row?.availability ?? 101) - (b.row?.availability ?? 101);
+      if (availability !== 0) return availability;
+      return a.title.localeCompare(b.title);
+    });
   return (
-    <div className="grid gap-3">
-      <h1 className="text-xl font-semibold">{t("arcadeScreens.sitesTitle")}</h1>
-      <p className="text-sm text-muted-foreground">{t("arcadeScreens.sitesHint")}</p>
-      <div className="grid gap-2">
-        {(sites.data ?? []).map((site) => {
-          const row = health.get(site.id);
+    <div className="grid gap-4">
+      <FecPageHeader icon={Gamepad2} kicker={t("nav.arcade")} title={t("arcadeScreens.sitesTitle")} subtitle={t("arcadeScreens.sitesHint")} />
+      {sites.isLoading || board.isLoading ? <FecLoader label={t("arcadeOps.loading")} /> : null}
+      {board.isError ? <p className="text-sm text-destructive">{board.error instanceof Error ? board.error.message : t("arcadeOps.failed")}</p> : null}
+      {!sites.isLoading && !board.isLoading && !board.isError ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {cards.map(({ site, row, title }) => {
+          const cover = board.data?.covers[site.id];
           return (
-            <Link key={site.id} href={`/arcade/sites/${site.id}`} className="rounded-lg border p-3">
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-medium">{site.name}</span>
-                <span className="tabular-nums">{row ? `${siteAvailability({ working: row.working, active: row.active_machines }) ?? "—"}%` : t("arcadeScreens.noMachines")}</span>
-              </div>
-              {row ? <p className="text-sm text-muted-foreground">{t("arcadeScreens.siteLineShort", { machines: row.active_machines, working: row.working, down: row.down })}</p> : null}
-            </Link>
+            <SiteHealthCard
+              key={site.id}
+              href={`/arcade/sites/${site.id}`}
+              title={title}
+              code={site.code}
+              availability={row?.availability ?? null}
+              meterLabel={t("arcadeScreens.availability")}
+              detail={row ? t("arcadeScreens.siteLineShort", { machines: row.active_machines, working: row.working, down: row.down }) : t("arcadeScreens.noMachines")}
+              media={
+                <GamePhoto
+                  src={cover ? photos.data?.urls[cover] : null}
+                  alt={t("arcadeScreens.gamePhoto", { name: title })}
+                  missingLabel={t("arcadeScreens.photoMissing")}
+                  className="aspect-[16/10] w-full"
+                />
+              }
+            />
           );
         })}
-      </div>
+      </div> : null}
     </div>
   );
 }
 
 export function ArcadeSite({ locationId }: { locationId: string }) {
   const { t } = useTranslation();
-  const label = useSiteLabel();
-  const dashboard = useQuery({ queryKey: queryKeys.arcade.dashboard(locationId), queryFn: () => getArcadeDashboard({ locationId }) });
-  const site = dashboard.data?.sites[0];
+  const label = useVenueTitle();
+  const sites = useSites();
+  const location = sites.data?.find((site) => site.id === locationId);
+  const board = useQuery({ queryKey: queryKeys.arcade.siteBoard(locationId), queryFn: () => getArcadeSiteBoard({ locationId }) });
+  const site = board.data?.sites[0];
   return (
     <div className="grid gap-4">
-      <div>
-        <h1 className="text-xl font-semibold">{label(locationId)}</h1>
-        <p className="text-sm text-muted-foreground">{t("arcadeScreens.siteInventory")}</p>
-      </div>
+      <FecPageHeader
+        icon={Gamepad2}
+        kicker={location?.code}
+        title={label(locationId)}
+        subtitle={t("arcadeScreens.siteInventory")}
+      />
+      {board.isLoading ? <FecLoader label={t("arcadeOps.loading")} density="chip" /> : null}
       {site ? (
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-          <KpiTile label={t("arcadeScreens.machines")} value={site.active_machines} />
-          <KpiTile label={t("arcadeOps.working")} value={site.working} />
-          <KpiTile label={t("arcadeOps.down")} value={site.down} />
-          <KpiTile label={t("arcadeOps.underRepair")} value={site.under_repair} />
-          <KpiTile label={t("arcadeScreens.observation")} value={site.under_observation} />
-          <KpiTile label={t("arcadeOps.waitingParts")} value={site.waiting_part} />
-          <KpiTile label={t("arcadeOps.pmDue")} value={site.pm_due + site.pm_overdue} />
-          <KpiTile label={t("arcadeScreens.availability")} value={`${site.availability ?? "—"}%`} />
+        <div className="grid gap-3">
+          <HealthMeter value={site.availability} label={t("arcadeScreens.availability")} />
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+            <KpiTile label={t("arcadeScreens.machines")} value={site.active_machines} />
+            <KpiTile label={t("arcadeOps.working")} value={site.working} />
+            <KpiTile label={t("arcadeOps.down")} value={site.down} />
+            <KpiTile label={t("arcadeOps.underRepair")} value={site.under_repair} />
+            <KpiTile label={t("arcadeScreens.observation")} value={site.under_observation} />
+            <KpiTile label={t("arcadeOps.waitingParts")} value={site.waiting_part} />
+            <KpiTile label={t("arcadeOps.pmDue")} value={site.pm_due + site.pm_overdue} />
+            <KpiTile label={t("arcadeOps.waitingSupplier")} value={site.waiting_supplier} />
+          </div>
         </div>
       ) : null}
       <ArcadeMachines locationId={locationId} />
@@ -88,12 +121,14 @@ export function ArcadeMachines({ locationId }: { locationId?: string }) {
   const [page, setPage] = useState(1);
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
-  const label = useSiteLabel();
+  const label = useVenueTitle();
   const canManage = usePermission("arcade.manage");
   const list = useQuery({
-    queryKey: queryKeys.arcade.machines({ page, q, status, locationId }),
-    queryFn: () => listArcadeMachines({ page, pageSize: 100, q, status: status || null, locationId: locationId ?? null }),
+    queryKey: queryKeys.arcade.machines({ page, q, status, locationId, pageSize: GAME_PAGE_SIZE }),
+    queryFn: () => listArcadeMachines({ page, pageSize: GAME_PAGE_SIZE, q, status: status || null, locationId: locationId ?? null }),
   });
+  const photos = useArcadePhotoUrls((list.data?.rows ?? []).map((row) => row.photo_path));
+  const rows = list.data?.rows ?? [];
   return (
     <div className="grid gap-3">
       {!locationId ? <h1 className="text-xl font-semibold">{t("arcadeScreens.machineList")}</h1> : null}
@@ -110,47 +145,37 @@ export function ArcadeMachines({ locationId }: { locationId?: string }) {
         {canManage ? <Button asChild><Link href={`/arcade/machines/new${locationId ? `?locationId=${locationId}` : ""}`}>{t("arcadeScreens.addMachine")}</Link></Button> : null}
         <ArcadeWorkbookImport />
       </div>
-      <div className="hidden overflow-x-auto md:block">
-        <table className="w-full text-sm">
-          <thead className="text-left text-muted-foreground">
-            <tr>
-              <th className="py-2">{t("arcadeScreens.asset")}</th>
-              <th>{t("arcadeScreens.machine")}</th>
-              <th>{t("common.site")}</th>
-              <th>{t("arcadeImport.purchaseInvoice")}</th>
-              <th>{t("arcadeGames.listPaid")}</th>
-              <th>{t("arcadeGames.listPaidOn")}</th>
-              <th>{t("arcadeGames.listFix")}</th>
-              <th>{t("arcadeScreens.status")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(list.data?.rows ?? []).map((row) => (
-              <tr key={row.id} className="border-t">
-                <td className="py-2 font-mono text-xs">{row.asset_code}</td>
-                <td><Link className="font-medium underline-offset-2 hover:underline" href={`/arcade/machines/${row.id}`}>{row.name}</Link></td>
-                <td>{label(row.location_id)}</td>
-                <td>{row.supplier_name || "—"}</td>
-                <td className="tabular-nums">{formatPaid(row.amount_paid, row.paid_currency)}</td>
-                <td>{row.paid_on || "—"}</td>
-                <td className="max-w-48 truncate">{row.last_fix_status ? `${arcadeStatusName(t, row.last_fix_status)} · ${row.last_fix_summary ?? ""}` : "—"}</td>
-                <td><StatusBadge status={row.status} /></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div className="grid gap-2 md:hidden">
-        {(list.data?.rows ?? []).map((row) => (
-          <Link key={row.id} href={`/arcade/machines/${row.id}`} className="rounded-lg border p-3">
-            <div className="flex items-center justify-between gap-2"><span className="font-medium">{row.name}</span><StatusBadge status={row.status} /></div>
-            <p className="text-xs text-muted-foreground">{row.asset_code} · {label(row.location_id)}</p>
-            <p className="text-xs text-muted-foreground">{t("arcadeImport.purchaseInvoice")}: {row.supplier_name || "—"} · {formatPaid(row.amount_paid, row.paid_currency)} · {row.paid_on || "—"}</p>
-            {row.last_fix_summary ? <p className="text-xs">{t("arcadeGames.listFix")}: {row.last_fix_summary}</p> : null}
+      {list.isLoading ? <FecLoader label={t("arcadeOps.loading")} density="chip" /> : null}
+      {!list.isLoading && rows.length === 0 ? <p className="text-sm text-muted-foreground">{t("arcadeScreens.noMachineRows")}</p> : null}
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {rows.map((row) => (
+          <Link key={row.id} href={`/arcade/machines/${row.id}`} className="overflow-hidden rounded-2xl border bg-card shadow-[0_4px_20px_rgba(0,0,0,0.04)] transition hover:-translate-y-0.5">
+            <GamePhoto
+              src={row.photo_path ? photos.data?.urls[row.photo_path] : null}
+              alt={t("arcadeScreens.gamePhoto", { name: row.name })}
+              missingLabel={t("arcadeScreens.photoMissing")}
+              className="aspect-[16/10] w-full"
+            />
+            <div className="grid gap-2 p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="font-medium leading-snug">{row.name}</p>
+                  <p className="font-mono text-xs text-muted-foreground">{row.asset_code}</p>
+                </div>
+                <StatusBadge status={row.status} />
+              </div>
+              {!locationId ? <p className="text-xs text-muted-foreground">{label(row.location_id)}</p> : null}
+              <p className="text-xs text-muted-foreground">
+                {t("arcadeImport.purchaseInvoice")}: {row.supplier_name || "—"} · {formatPaid(row.amount_paid, row.paid_currency)} · {row.paid_on || "—"}
+              </p>
+              <p className="line-clamp-2 text-xs text-muted-foreground">
+                {t("arcadeGames.listFix")}: {row.last_fix_status ? `${arcadeStatusName(t, row.last_fix_status)} · ${row.last_fix_summary ?? ""}` : "—"}
+              </p>
+            </div>
           </Link>
         ))}
       </div>
-      <Pager page={page} pageSize={100} total={list.data?.total ?? 0} onPage={setPage} />
+      <Pager page={page} pageSize={GAME_PAGE_SIZE} total={list.data?.total ?? 0} onPage={setPage} />
     </div>
   );
 }
@@ -381,7 +406,7 @@ export function ArcadeMachineDetail({ id }: { id: string }) {
   const { t } = useTranslation();
   const machine = useQuery({ queryKey: queryKeys.arcade.machine(id), queryFn: () => getArcadeMachine({ id }) });
   const context = useQuery({ queryKey: queryKeys.arcade.context(), queryFn: () => getArcadeContext({}) });
-  const label = useSiteLabel();
+  const label = useVenueTitle();
   const canManage = usePermission("arcade.manage");
   const qc = useQueryClient();
   const statusSave = useMutation({
@@ -560,7 +585,12 @@ function PhotoUpload({ machineId, locationId, photoPath }: { machineId: string; 
   });
   return (
     <div className="flex flex-wrap items-center gap-3">
-      {photo.data?.url ? <img src={photo.data.url} alt="" className="h-24 w-24 rounded-md object-cover" /> : null}
+      <GamePhoto
+        src={photo.data?.url}
+        alt={t("arcadeScreens.gamePhoto", { name: t("arcadeScreens.machine") })}
+        missingLabel={t("arcadeScreens.photoMissing")}
+        className="h-24 w-24 rounded-md"
+      />
       <label className="text-sm font-medium">
         {t("arcadeScreens.addPhoto")}
         <input className="mt-1 block text-sm" type="file" accept="image/*,video/*" capture="environment" onChange={(event) => {

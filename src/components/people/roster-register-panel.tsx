@@ -6,6 +6,8 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from "r
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
+import { FecLoader } from "@/components/fec";
+
 import { ShiftRangeEditor } from "@/components/people/shift-range-editor";
 import {
   AlertDialog,
@@ -691,10 +693,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
         </div>
 
         {register.isLoading ? (
-          <p className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            {t("people.roster.registerLoading")}
-          </p>
+          <FecLoader density="chip" label={t("people.roster.registerLoading")} />
         ) : register.isError ? (
           <p className="text-sm text-destructive">
             {register.error instanceof Error ? register.error.message : t("people.roster.registerLoadFailed")}

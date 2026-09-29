@@ -1,5 +1,7 @@
 "use client";
 
+import { FecLoader } from "@/components/fec";
+
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -114,7 +116,7 @@ function ComplianceRegisterPage() {
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground">{t("common.loading")}</TableCell></TableRow>
+              <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground"><FecLoader density="chip" label={t("common.loading")} /></TableCell></TableRow>
             ) : !rows?.length ? (
               <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground">{t("complianceHub.register.noItems")}</TableCell></TableRow>
             ) : (

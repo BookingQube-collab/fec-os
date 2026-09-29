@@ -86,7 +86,7 @@ function FacilityPage() {
             {isLoading ? (
               <TableRow>
                 <TableCell colSpan={5} className="text-center">
-                  <FecLoader size="sm" label="Loading…" />
+                  <FecLoader density="chip" />
                 </TableCell>
               </TableRow>
             ) : !tasks?.length ? (

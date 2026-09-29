@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
+import { FecLoader } from "@/components/fec";
 import { WeeklyReportsLayout } from "@/components/weekly-reports/WeeklyReportsLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -203,9 +204,9 @@ export default function WeeklyReportsReviewPage() {
 
         <div className="order-2 lg:order-1 lg:col-span-2 overflow-x-auto rounded-lg border bg-card">
           {isLoading ? (
-            <p className="p-8 text-sm text-muted-foreground">
-              <Loader2 className="inline h-4 w-4 animate-spin" /> {t("weeklyReports.loading")}
-            </p>
+            <div className="flex justify-center p-8">
+              <FecLoader density="page" label={t("weeklyReports.loading")} />
+            </div>
           ) : reports.length === 0 ? (
             <p className="p-8 text-sm text-muted-foreground">{t("weeklyReports.list.empty")}</p>
           ) : (

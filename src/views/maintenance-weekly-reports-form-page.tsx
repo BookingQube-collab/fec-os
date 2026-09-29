@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
+import { FecLoader } from "@/components/fec";
 import { MaintenanceWeeklyReportsLayout } from "@/components/maintenance-weekly-reports/MaintenanceWeeklyReportsLayout";
 import { MaintenanceKpiSnapshotView } from "@/components/maintenance-weekly-reports/maintenance-kpi-snapshot";
 import { MaintenanceWeeklyReportAttachments } from "@/components/maintenance-weekly-reports/maintenance-weekly-report-attachments";
@@ -231,9 +232,8 @@ export default function MaintenanceWeeklyReportsFormPage() {
   if (isLoading && !isNew) {
     return (
       <MaintenanceWeeklyReportsLayout>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          {t("maintenanceWeeklyReports.loading")}
+        <div className="flex justify-center py-16">
+          <FecLoader density="page" label={t("maintenanceWeeklyReports.loading")} />
         </div>
       </MaintenanceWeeklyReportsLayout>
     );

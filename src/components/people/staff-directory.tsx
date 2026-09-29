@@ -7,7 +7,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronDown,
   Columns3,
-  Download,
+  Download,
+
   MoreHorizontal,
   Plus,
   Upload,
@@ -524,7 +525,9 @@ export function StaffDirectory({
   return (
     <div className="space-y-4">
       {isRefreshing ? (
-        <FecLoader size="sm" className="min-h-0 justify-start text-xs" label={t("people.staff.refreshing", "Updating…")} />
+        <div className="flex justify-end">
+          <FecLoader density="chip" label={t("people.staff.refreshing")} />
+        </div>
       ) : null}
       {/* Headcount KPI quick filters — keep essential counts on phone */}
       <div className={cn("grid grid-cols-2 gap-2 md:grid-cols-3 md:gap-3 lg:grid-cols-6", isRefreshing && "opacity-90")}>
@@ -840,8 +843,8 @@ export function StaffDirectory({
       {/* Table / mobile cards */}
       <div className={cn("relative", isRefreshing && "opacity-70 transition-opacity")}>
       {isInitialLoading ? (
-        <div className="flex items-center justify-center rounded-xl border border-dashed border-border px-4 py-16">
-          <FecLoader size="sm" label={t("people.staff.loading")} />
+        <div className="flex items-center justify-center px-4 py-16">
+          <FecLoader density="page" label={t("people.staff.loading")} />
         </div>
       ) : (
       <ResponsiveDataView

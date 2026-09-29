@@ -1,5 +1,7 @@
 "use client";
 
+import { FecLoader } from "@/components/fec";
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plane } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -254,7 +256,7 @@ export default function HrAirTicketsPage() {
 
           {list.isLoading ? (
             <HrPanel className="mt-4">
-              <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
+              <FecLoader density="chip" label={t("common.loading")} />
             </HrPanel>
           ) : (list.data ?? []).length === 0 ? (
             <HrPanel className="mt-4">

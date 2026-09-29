@@ -1,12 +1,12 @@
 "use client";
 
-import { FecPageHeader } from "@/components/fec";
+import { FecLoader, FecPageHeader } from "@/components/fec";
 
 import { useMemo, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { FileBarChart, Loader2, Plus, Trash2 } from "lucide-react";
+import { FileBarChart, Plus, Trash2 } from "lucide-react";
 
 import { TintedKpiCard } from "@/components/dashboard/tinted-kpi-card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -383,7 +383,7 @@ export default function CorporateDealsPage() {
 
         <TabsContent value="dashboard" className="corporate-deals-dashboard mt-4 space-y-5">
           {reportQ.isLoading ? (
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            <FecLoader density="chip" />
           ) : !activeWeek ? (
             <p className="text-sm text-muted-foreground">{t("corporateDeals.empty")}</p>
           ) : (

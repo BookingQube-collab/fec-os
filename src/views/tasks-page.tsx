@@ -10,6 +10,7 @@ import {
   createTaskTemplate,
   spawnTaskInstance,
 } from "@/lib/tasks.functions";
+import { FecLoader } from "@/components/fec";
 import { useTaskInstances, useTaskTemplates } from "@/hooks/queries/useTasks";
 import { useSites } from "@/hooks/queries/useSites";
 import { queryKeys } from "@/lib/query-keys";
@@ -98,7 +99,7 @@ function TodayInstances() {
     { locationId: locationId ?? null },
     { enabled: true },
   );
-  if (isLoading) return <Skeleton text="Loading…" />;
+  if (isLoading) return <div className="flex justify-center py-16"><FecLoader density="page" /></div>;
   if (!data || data.length === 0) return <Skeleton text="No checklists yet. Spawn one from Templates." />;
   return (
     <div className="space-y-2">
@@ -136,7 +137,7 @@ function TemplatesList() {
     onError: (e) => toast.error((e as Error).message),
   });
 
-  if (isLoading) return <Skeleton text="Loading…" />;
+  if (isLoading) return <div className="flex justify-center py-16"><FecLoader density="page" /></div>;
   if (!data || data.length === 0) return <Skeleton text="No templates. Create one in the next tab." />;
   return (
     <div className="space-y-2">

@@ -1,5 +1,7 @@
 "use client";
 
+import { FecLoader } from "@/components/fec";
+
 import { useMutation } from "@tanstack/react-query";
 import { Download, Gauge } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -87,7 +89,7 @@ function UtilitiesPage() {
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">{t("common.loading")}</TableCell></TableRow>
+              <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground"><FecLoader density="chip" label={t("common.loading")} /></TableCell></TableRow>
             ) : !rows?.length ? (
               <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">{t("utilities.empty")}</TableCell></TableRow>
             ) : (

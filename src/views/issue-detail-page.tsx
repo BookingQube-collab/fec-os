@@ -7,6 +7,7 @@ import { ArrowLeft, CheckCircle2, ImagePlus, Loader2, Trash2 } from "lucide-reac
 import { toast } from "sonner";
 import { useRef } from "react";
 
+import { FecLoader } from "@/components/fec";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { getIssue, updateIssueStatus, verifyIssue, addIssuePhoto, listIssuePhotos, softDeleteIssue } from "@/lib/issues.functions";
 import { supabase } from "@/integrations/supabase/client";
@@ -72,7 +73,7 @@ function IssueDetail() {
     onError: (e) => toast.error((e as Error).message),
   });
 
-  if (isLoading) return <div className="text-sm text-muted-foreground">Loading…</div>;
+  if (isLoading) return <div className="flex justify-center py-16"><FecLoader density="page" /></div>;
   if (error) return <div className="text-sm text-rose-300">{(error as Error).message}</div>;
   if (!data) return null;
 

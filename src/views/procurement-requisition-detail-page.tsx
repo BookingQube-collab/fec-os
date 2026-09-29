@@ -1,5 +1,7 @@
 "use client";
 
+import { FecLoader } from "@/components/fec";
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -150,7 +152,7 @@ export default function ProcurementRequisitionDetailPage() {
   }, [d, t]);
 
   if (detail.isLoading) {
-    return <p className="text-muted-foreground">{t("common.loading")}</p>;
+    return <div className="flex justify-center py-16"><FecLoader density="page" label={t("common.loading")} /></div>;
   }
   if (!d || !h) {
     return <p className="text-muted-foreground">{t("procurement.detail.notFound")}</p>;

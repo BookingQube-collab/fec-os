@@ -1,6 +1,6 @@
 "use client";
 
-import { FecPageHeader } from "@/components/fec";
+import { FecLoader, FecPageHeader } from "@/components/fec";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
@@ -410,9 +410,7 @@ function BookingQubePanel({
       </div>
 
       {isLoading ? (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" /> Loading monthly progress…
-        </div>
+        <FecLoader density="page" label="Loading monthly progress…" />
       ) : monthly ? (
         <>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">

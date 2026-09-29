@@ -1,5 +1,7 @@
 "use client";
 
+import { FecLoader } from "@/components/fec";
+
 import Link from "next/link";
 import { CalendarClock } from "lucide-react";
 
@@ -46,7 +48,7 @@ function AmcSchedulePage() {
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">{t("common.loading")}</TableCell></TableRow>
+              <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground"><FecLoader density="chip" label={t("common.loading")} /></TableCell></TableRow>
             ) : !rows?.length ? (
               <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">{t("amc.noScheduled")}</TableCell></TableRow>
             ) : (

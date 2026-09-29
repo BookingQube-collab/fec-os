@@ -1,6 +1,6 @@
 "use client";
 
-import { FecPageHeader } from "@/components/fec";
+import { FecLoader, FecPageHeader } from "@/components/fec";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
@@ -153,7 +153,7 @@ export default function EventOverviewPage() {
   );
 
   if (eventQ.isLoading || !d) {
-    return <p className="text-sm text-muted-foreground">{t("common.loading")}</p>;
+    return <div className="flex justify-center py-16"><FecLoader density="page" label={t("common.loading")} /></div>;
   }
 
   if (inBuilder) {

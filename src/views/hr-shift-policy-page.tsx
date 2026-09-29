@@ -6,6 +6,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
+import { FecLoader } from "@/components/fec";
+
 import { CapabilityGate } from "@/components/auth/capability-gate";
 import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { HrPanel } from "@/components/hr/hr-panel";
@@ -234,10 +236,7 @@ export default function HrShiftPolicyPage() {
               </div>
 
               {q.isLoading ? (
-                <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  {t("common.loading")}
-                </p>
+                <FecLoader density="chip" label={t("common.loading")} />
               ) : null}
 
               {selected ? (

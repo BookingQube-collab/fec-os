@@ -13,7 +13,7 @@ import { useSites } from "@/hooks/queries/useSites";
 import { canUserDo, ROLE_LEVELS, type AppRole } from "@/lib/rbac";
 import { useAuth } from "@/hooks/use-auth";
 import { Badge } from "@/components/ui/badge";
-import { FecButton as Button, FecPageHeader } from "@/components/fec";
+import { FecButton as Button, FecLoader, FecPageHeader } from "@/components/fec";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -130,7 +130,7 @@ function RBACEditor({ canManage }: { canManage: boolean }) {
   });
 
   if (isLoading) {
-    return <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">Loading users…</div>;
+    return <div className="flex justify-center py-16"><FecLoader density="page" /></div>;
   }
 
   return (

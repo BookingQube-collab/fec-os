@@ -1,5 +1,7 @@
 "use client";
 
+import { FecLoader } from "@/components/fec";
+
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -30,7 +32,7 @@ function SopReader({ sopId, open, onOpenChange }: { sopId: string | null; open: 
         <DialogHeader>
           <DialogTitle>{detail.data?.title ?? t("kraScorecard.openSop")}</DialogTitle>
         </DialogHeader>
-        {detail.isLoading ? <p className="text-sm text-muted-foreground">{t("common.loading")}</p> : null}
+        {detail.isLoading ? <FecLoader density="chip" label={t("common.loading")} /> : null}
         {detail.isError ? <p className="text-sm text-destructive">{(detail.error as Error).message}</p> : null}
         {detail.data?.fileName ? (
           <Button

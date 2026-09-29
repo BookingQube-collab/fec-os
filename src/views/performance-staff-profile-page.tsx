@@ -1,5 +1,7 @@
 "use client";
 
+import { FecLoader } from "@/components/fec";
+
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -36,7 +38,7 @@ export function PerformanceStaffProfilePanel({
   });
 
   if (profileQ.isLoading) {
-    return <p className="text-sm text-muted-foreground">{t("common.loading")}</p>;
+    return <div className="flex justify-center py-16"><FecLoader density="page" label={t("common.loading")} /></div>;
   }
   if (!profileQ.data) {
     return <p className="text-sm text-muted-foreground">{t("performance.profile.notFound")}</p>;

@@ -2,9 +2,11 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { Calendar, ChevronRight, FileUp, Loader2, Plus, Settings2 } from "lucide-react";
+import { Calendar, ChevronRight, FileUp, Plus, Settings2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+
+import { FecLoader } from "@/components/fec";
 
 import { CompliancePageShell, KpiStrip } from "@/components/compliance/compliance-page-shell";
 import { Badge } from "@/components/ui/badge";
@@ -351,8 +353,8 @@ function LocationComplianceTrackerPage() {
 
       <div className="overflow-x-auto rounded-lg border border-border bg-card">
         {isLoading ? (
-          <div className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" /> {t("complianceHub.tracker.loading")}
+          <div className="flex items-center justify-center p-8">
+            <FecLoader density="page" label={t("complianceHub.tracker.loading")} />
           </div>
         ) : (
           <Table>

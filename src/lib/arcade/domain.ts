@@ -290,6 +290,18 @@ export function siteAvailability(site: Pick<SiteMachineCounts, "working" | "acti
   return operationalPercent(site.working, site.active);
 }
 
+/** First stored photo for each site, in row order. Later photos for the same site are ignored. */
+export function firstCoverByLocation(
+  rows: ReadonlyArray<{ location_id: string; photo_path: string | null }>,
+): Record<string, string> {
+  const covers: Record<string, string> = {};
+  for (const row of rows) {
+    if (!row.photo_path || covers[row.location_id]) continue;
+    covers[row.location_id] = row.photo_path;
+  }
+  return covers;
+}
+
 const CADENCE_DAYS: Record<Exclude<PmCadence, "CUSTOM">, number> = {
   DAILY: 1,
   WEEKLY: 7,

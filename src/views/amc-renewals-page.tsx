@@ -1,5 +1,7 @@
 "use client";
 
+import { FecLoader } from "@/components/fec";
+
 import Link from "next/link";
 import { RefreshCw } from "lucide-react";
 
@@ -45,7 +47,7 @@ function AmcRenewalsPage() {
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">{t("common.loading")}</TableCell></TableRow>
+              <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground"><FecLoader density="chip" label={t("common.loading")} /></TableCell></TableRow>
             ) : !renewals?.length ? (
               <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">{t("amc.noRenewals")}</TableCell></TableRow>
             ) : (

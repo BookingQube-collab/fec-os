@@ -1,5 +1,7 @@
 "use client";
 
+import { FecLoader } from "@/components/fec";
+
 import { useTranslation } from "react-i18next";
 
 import { CompliancePageShell } from "@/components/compliance/compliance-page-shell";
@@ -55,7 +57,7 @@ function AmcServiceHistoryPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {isLoading ? <TableRow><TableCell colSpan={8}>{t("common.loading")}</TableCell></TableRow> : (rows ?? []).map((r) => (
+            {isLoading ? <TableRow><TableCell colSpan={8}><FecLoader density="chip" label={t("common.loading")} /></TableCell></TableRow> : (rows ?? []).map((r) => (
               <TableRow key={r.id}>
                 <TableCell>{formatDisplayDate(r.service_date)}</TableCell>
                 <TableCell>{r.contract_item}</TableCell>

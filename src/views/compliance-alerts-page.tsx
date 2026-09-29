@@ -1,5 +1,7 @@
 "use client";
 
+import { FecLoader } from "@/components/fec";
+
 import { useTranslation } from "react-i18next";
 
 import { CompliancePageShell, KpiStrip } from "@/components/compliance/compliance-page-shell";
@@ -54,7 +56,7 @@ function ComplianceAlertsPage() {
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow><TableCell colSpan={6}>{t("common.loading")}</TableCell></TableRow>
+              <TableRow><TableCell colSpan={6}><FecLoader density="chip" label={t("common.loading")} /></TableCell></TableRow>
             ) : (
               (data?.items ?? []).map((i) => (
                 <TableRow key={i.id} className={i.flag === "✔ OK" ? "opacity-50" : ""}>

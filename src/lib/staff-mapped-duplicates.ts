@@ -1,18 +1,32 @@
 /**
- * People directory: one usable row per person.
+ * People directory: hide an unmapped generated stub only.
  *
- * Same person (existing identity rules, exact — not fuzzy):
- * - full name + home location
- * - full name + phone
+ * A row is hidden only when all of these are true:
+ * - its employee code is a generated `{location}-STF` + digits stub (`UA-DR-STF84`)
+ * - it has no login (`user_id`)
+ * - another row has the same complete full name (case and extra spaces only)
+ *   and the same home `location_id`
+ * - that other row is the mapped person: a non-generated employee code, a login,
+ *   or a phone
  *
- * A generated location code (`UA-DR-STF84`) is an unmapped stub when a
- * non-generated employee code (`543`) exists for that person. A login
- * (`staff.user_id`) or attendance biometric link is an explicit map: when
- * several real codes share an identity, only the mapped ones stay usable.
+ * A numeric code, any other real code, or a row with a login is never removed.
+ * Two real employees who share a full name both stay. A single given name
+ * ("Rajan", "Sarah") never matches a longer name and never collapses people.
  */
 
-import { isGeneratedEmployeeCode } from "@/lib/staff-employee-code";
-import { normalizeName, normalizePhoneMatch } from "@/lib/staff-roster/values";
+function normalizePhoneMatch(value: string | null | undefined): string | null {
+  if (value == null) return null;
+  const digits = String(value).replace(/\D/g, "");
+  if (!digits) return null;
+  if (digits.length === 8) return `+974${digits}`;
+  if (digits.length === 11 && digits.startsWith("974")) return `+${digits}`;
+  if (digits.length === 13 && digits.startsWith("974")) return `+${digits.slice(-11)}`;
+  if (digits.startsWith("974") && digits.length >= 11) return `+974${digits.slice(-8)}`;
+  return `+${digits}`;
+}
+
+/** Allocator stubs such as `UA-DR-STF84`. Not `543`, `9`, `INF-CC-BM`, or `FEC-TEC01`. */
+const GENERATED_LOCATION_STUB = /^[A-Z0-9]+(?:-[A-Z0-9]+)*-STF\d+$/i;
 
 export type StaffIdentityRow = {
   id: string;
@@ -25,30 +39,32 @@ export type StaffIdentityRow = {
   attendance_mapped?: boolean;
 };
 
-function hasGivenAndFamilyName(name: string): boolean {
+/** Case and repeated spaces only. "Rajan" stays distinct from "Rajan Pathak". */
+export function normalizeExactFullName(value: string | null | undefined): string {
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+function isCompleteFullName(name: string): boolean {
   return name.includes(" ");
 }
 
-function isExplicitlyMapped(row: StaffIdentityRow): boolean {
-  return Boolean(row.user_id) || Boolean(row.attendance_mapped);
+export function isGeneratedLocationStub(value: string | null | undefined): boolean {
+  return GENERATED_LOCATION_STUB.test(String(value ?? "").trim());
 }
 
-function idsToHide(members: StaffIdentityRow[]): string[] {
-  if (members.length < 2) return [];
+function hasPhone(value: string | null | undefined): boolean {
+  return Boolean(normalizePhoneMatch(value));
+}
 
-  const masters = members.filter((row) => !isGeneratedEmployeeCode(row.employee_code));
-  const stubs = members.filter((row) => isGeneratedEmployeeCode(row.employee_code));
-
-  if (masters.length && stubs.length) {
-    const mappedMasters = masters.filter(isExplicitlyMapped);
-    const keep = new Set((mappedMasters.length ? mappedMasters : masters).map((row) => row.id));
-    return members.filter((row) => !keep.has(row.id)).map((row) => row.id);
-  }
-
-  const mapped = members.filter(isExplicitlyMapped);
-  if (!mapped.length || mapped.length === members.length) return [];
-  const keep = new Set(mapped.map((row) => row.id));
-  return members.filter((row) => !keep.has(row.id)).map((row) => row.id);
+/** The row we keep: real employee code, login, or a phone number. */
+function isMappedKeeper(row: StaffIdentityRow): boolean {
+  if (row.user_id) return true;
+  if (hasPhone(row.phone)) return true;
+  const code = String(row.employee_code ?? "").trim();
+  return Boolean(code) && !isGeneratedLocationStub(code);
 }
 
 /** Staff ids that must not appear as separate, actionable directory rows. */
@@ -56,59 +72,158 @@ export function hiddenUnmappedDuplicateIds(rows: readonly StaffIdentityRow[]): S
   const hidden = new Set<string>();
   if (rows.length < 2) return hidden;
 
-  const parent = new Map<string, string>();
-  for (const row of rows) parent.set(row.id, row.id);
+  for (const row of rows) {
+    // A login, a numeric code, or any non-stub code is a real directory row.
+    if (row.user_id) continue;
+    if (!isGeneratedLocationStub(row.employee_code)) continue;
 
-  const find = (id: string): string => {
-    let cur = id;
-    while (parent.get(cur) !== cur) {
-      const next = parent.get(cur);
-      if (!next) return cur;
-      parent.set(cur, parent.get(next) ?? next);
-      cur = next;
+    const name = normalizeExactFullName(row.full_name);
+    const locationId = String(row.location_id ?? "").trim();
+    if (!isCompleteFullName(name) || !locationId) continue;
+
+    const keeper = rows.some((other) => {
+      if (other.id === row.id) return false;
+      if (String(other.location_id ?? "").trim() !== locationId) return false;
+      if (normalizeExactFullName(other.full_name) !== name) return false;
+      return isMappedKeeper(other);
+    });
+    if (keeper) hidden.add(row.id);
+  }
+
+  return hidden;
+}
+
+export type StaffDuplicateMerge = {
+  keepId: string;
+  removeId: string;
+};
+
+function sameStaffPerson(a: StaffIdentityRow, b: StaffIdentityRow): boolean {
+  const nameA = normalizeExactFullName(a.full_name);
+  const nameB = normalizeExactFullName(b.full_name);
+  if (!isCompleteFullName(nameA) || nameA !== nameB) return false;
+
+  const locationA = String(a.location_id ?? "").trim();
+  const locationB = String(b.location_id ?? "").trim();
+  if (locationA && locationA === locationB) return true;
+
+  const phoneA = normalizePhoneMatch(a.phone);
+  const phoneB = normalizePhoneMatch(b.phone);
+  return Boolean(phoneA && phoneA === phoneB);
+}
+
+function isExplicitlyMapped(row: StaffIdentityRow): boolean {
+  return Boolean(row.user_id) || Boolean(row.attendance_mapped);
+}
+
+/** Real employee code first, then a login or biometric link, then code, then id. */
+function compareStaffKeepers(a: StaffIdentityRow, b: StaffIdentityRow): number {
+  const realA = isGeneratedLocationStub(a.employee_code) ? 0 : 1;
+  const realB = isGeneratedLocationStub(b.employee_code) ? 0 : 1;
+  if (realA !== realB) return realB - realA;
+  const mappedA = isExplicitlyMapped(a) ? 1 : 0;
+  const mappedB = isExplicitlyMapped(b) ? 1 : 0;
+  if (mappedA !== mappedB) return mappedB - mappedA;
+  const byCode = String(a.employee_code).localeCompare(String(b.employee_code));
+  if (byCode !== 0) return byCode;
+  return a.id.localeCompare(b.id);
+}
+
+/**
+ * Pairs to merge. Same person = exact full name plus home location, or exact
+ * full name plus phone. A generated `{location}-STFnn` stub folds into the
+ * real employee code. Two real codes fold only when one has a login or
+ * attendance link and the other does not.
+ */
+export function planStaffDuplicateMerges(rows: readonly StaffIdentityRow[]): StaffDuplicateMerge[] {
+  const list = [...rows];
+  const parent = list.map((_, index) => index);
+  const find = (index: number): number => {
+    let cur = index;
+    while (parent[cur] !== cur) {
+      parent[cur] = parent[parent[cur]] ?? parent[cur];
+      cur = parent[cur] ?? cur;
     }
     return cur;
   };
-
-  const union = (a: string, b: string) => {
-    const pa = find(a);
-    const pb = find(b);
-    if (pa !== pb) parent.set(pa, pb);
+  const union = (left: number, right: number) => {
+    const a = find(left);
+    const b = find(right);
+    if (a !== b) parent[a] = b;
   };
 
-  const byNameLocation = new Map<string, string>();
-  const byNamePhone = new Map<string, string>();
-
-  for (const row of rows) {
-    const name = normalizeName(row.full_name);
-    if (!hasGivenAndFamilyName(name)) continue;
-
-    if (row.location_id) {
-      const key = `${name}\0${row.location_id}`;
-      const prev = byNameLocation.get(key);
-      if (prev) union(prev, row.id);
-      else byNameLocation.set(key, row.id);
-    }
-
-    const phone = normalizePhoneMatch(row.phone);
-    if (phone) {
-      const key = `${name}\0${phone}`;
-      const prev = byNamePhone.get(key);
-      if (prev) union(prev, row.id);
-      else byNamePhone.set(key, row.id);
+  for (let i = 0; i < list.length; i += 1) {
+    for (let j = i + 1; j < list.length; j += 1) {
+      if (sameStaffPerson(list[i], list[j])) union(i, j);
     }
   }
 
-  const groups = new Map<string, StaffIdentityRow[]>();
-  for (const row of rows) {
-    const root = find(row.id);
-    const list = groups.get(root);
-    if (list) list.push(row);
+  const groups = new Map<number, StaffIdentityRow[]>();
+  list.forEach((row, index) => {
+    const root = find(index);
+    const bucket = groups.get(root);
+    if (bucket) bucket.push(row);
     else groups.set(root, [row]);
+  });
+
+  const plans: StaffDuplicateMerge[] = [];
+  for (const members of groups.values()) {
+    if (members.length < 2) continue;
+    const sorted = [...members].sort(compareStaffKeepers);
+    const keep = sorted[0];
+    const keepIsReal = !isGeneratedLocationStub(keep.employee_code);
+    const keepIsMapped = isExplicitlyMapped(keep);
+    for (const other of sorted.slice(1)) {
+      const otherIsReal = !isGeneratedLocationStub(other.employee_code);
+      if (otherIsReal) {
+        if (keepIsReal && keepIsMapped && !isExplicitlyMapped(other)) {
+          plans.push({ keepId: keep.id, removeId: other.id });
+        }
+        continue;
+      }
+      if (keepIsReal || keepIsMapped) {
+        plans.push({ keepId: keep.id, removeId: other.id });
+      }
+    }
   }
 
-  for (const members of groups.values()) {
-    for (const id of idsToHide(members)) hidden.add(id);
+  plans.sort((a, b) => a.removeId.localeCompare(b.removeId) || a.keepId.localeCompare(b.keepId));
+  return plans;
+}
+
+const BLANK_TEXT_FIELDS = ["job_title", "department", "phone", "email", "qid", "employment_type"] as const;
+const NULL_FIELDS = [
+  "hire_date",
+  "staff_role",
+  "e3_enrolled",
+  "user_id",
+  "source_row_no",
+  "reporting_time_minutes",
+  "buffer_minutes",
+  "flexible_shift_start",
+  "flexible_shift_end",
+  "expected_hours",
+  "break_minutes",
+  "weekly_off_weekday",
+] as const;
+
+function isBlankField(value: unknown): boolean {
+  return value == null || (typeof value === "string" && value.trim() === "");
+}
+
+/** Copy only fields that are empty on the kept row and present on the stub. */
+export function fillEmptyStaffFields<T extends Record<string, unknown>>(keep: T, stub: T): T {
+  const next = { ...keep };
+  for (const key of BLANK_TEXT_FIELDS) {
+    if (isBlankField(next[key]) && !isBlankField(stub[key])) next[key] = stub[key] as T[typeof key];
   }
-  return hidden;
+  for (const key of NULL_FIELDS) {
+    if (next[key] == null && stub[key] != null) next[key] = stub[key] as T[typeof key];
+  }
+  if (next.photo_data == null && stub.photo_data != null) {
+    next.photo_data = stub.photo_data as T["photo_data"];
+    next.photo_mime = stub.photo_mime as T["photo_mime"];
+    next.photo_updated_at = stub.photo_updated_at as T["photo_updated_at"];
+  }
+  return next;
 }

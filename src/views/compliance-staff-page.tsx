@@ -1,5 +1,7 @@
 "use client";
 
+import { FecLoader } from "@/components/fec";
+
 import { useTranslation } from "react-i18next";
 
 import { CompliancePageShell, KpiStrip } from "@/components/compliance/compliance-page-shell";
@@ -58,7 +60,7 @@ function ComplianceStaffPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {isLoading ? <TableRow><TableCell colSpan={7}>{t("common.loading")}</TableCell></TableRow> : (data?.staff ?? []).map((s) => (
+            {isLoading ? <TableRow><TableCell colSpan={7}><FecLoader density="chip" label={t("common.loading")} /></TableCell></TableRow> : (data?.staff ?? []).map((s) => (
               <TableRow key={s.id}>
                 <TableCell>{s.staff_name}</TableCell>
                 <TableCell>{s.role ?? "—"}</TableCell>

@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Briefcase, Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
+import { FecLoader } from "@/components/fec";
 import { createComplaint, resolveComplaint, triageComplaintWithAI, updateComplaintStatus } from "@/lib/customer.functions";
 import { useComplaints } from "@/hooks/queries/useCustomer";
 import { useSites } from "@/hooks/queries/useSites";
@@ -91,7 +92,7 @@ function ComplaintsList() {
           </SelectContent>
         </Select>
       </div>
-      {isLoading ? <Empty>Loading complaints…</Empty> : !data?.length ? <Empty>No complaints in scope.</Empty> : (
+      {isLoading ? <FecLoader density="chip" /> : !data?.length ? <Empty>No complaints in scope.</Empty> : (
         <div className="overflow-hidden rounded-lg border border-border">
           <table className="w-full text-sm">
             <thead className="bg-surface/60 text-xs uppercase tracking-wider text-muted-foreground">

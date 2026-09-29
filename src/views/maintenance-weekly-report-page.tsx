@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { FileBarChart, Loader2 } from "lucide-react";
+import { FileBarChart } from "lucide-react";
+
+import { FecLoader } from "@/components/fec";
 
 import { MaintenanceWeeklyReportsLayout } from "@/components/maintenance-weekly-reports/MaintenanceWeeklyReportsLayout";
 import { useMaintenanceWeeklyReport } from "@/hooks/queries/useMaintenanceWeeklyReport";
@@ -89,9 +91,7 @@ function MaintenanceWeeklyReportPage() {
       </header>
 
       {isLoading ? (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" /> Loading report…
-        </div>
+        <FecLoader density="page" label="Loading report…" />
       ) : !data ? (
         <p className="text-sm text-muted-foreground">Unable to load report.</p>
       ) : (

@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Calendar, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
+import { FecLoader } from "@/components/fec";
 import { createBooking, updateBookingStatus } from "@/lib/bookings.functions";
 import { useBookings } from "@/hooks/queries/useBookings";
 import { useSites } from "@/hooks/queries/useSites";
@@ -83,7 +84,7 @@ function BookingsList() {
         <FilterSelect label="Kind" value={kind} onChange={setKind} options={["all", ...KINDS]} />
       </div>
       {isLoading ? (
-        <Empty>Loading bookings…</Empty>
+        <FecLoader density="chip" />
       ) : rows.length === 0 ? (
         <Empty>No bookings in scope.</Empty>
       ) : (

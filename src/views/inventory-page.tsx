@@ -1,6 +1,8 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+
+import { FecLoader } from "@/components/fec";
 import dynamic from "next/dynamic";
 import {
   AlertTriangle,
@@ -290,8 +292,8 @@ function StockPanel({
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-muted-foreground">
-                  {t("common.loading")}
+                <TableCell colSpan={7} className="text-center">
+                  <FecLoader density="chip" label={t("common.loading")} />
                 </TableCell>
               </TableRow>
             ) : !stock?.length ? (
@@ -555,8 +557,8 @@ function CatalogPanel({ canManage }: { canManage: boolean }) {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-muted-foreground">
-                  {t("common.loading")}
+                <TableCell colSpan={7} className="text-center">
+                  <FecLoader density="chip" label={t("common.loading")} />
                 </TableCell>
               </TableRow>
             ) : !items?.length ? (

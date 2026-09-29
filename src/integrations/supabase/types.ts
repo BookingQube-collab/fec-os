@@ -4981,6 +4981,10 @@ export type Database = {
       }
       user_can_view_staff_salary: { Args: never; Returns: boolean }
       user_can_import_staff_roster: { Args: never; Returns: boolean }
+      merge_staff_into: {
+        Args: { keep_id: string; drop_id: string }
+        Returns: undefined
+      }
       log_audit: {
         Args: {
           _action: string

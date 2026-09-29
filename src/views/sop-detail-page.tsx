@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
+import { FecLoader } from "@/components/fec";
 import { acknowledgeSop, getSopDocument, getSopFileUrl } from "@/lib/sop.functions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,7 +31,7 @@ function SopDetailPage() {
   });
 
   if (isLoading) {
-    return <div className="text-sm text-muted-foreground">Loading SOP…</div>;
+    return <div className="flex justify-center py-16"><FecLoader density="page" /></div>;
   }
 
   if (!data) {

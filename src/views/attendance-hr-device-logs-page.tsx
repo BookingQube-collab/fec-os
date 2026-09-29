@@ -1,6 +1,6 @@
 "use client";
 
-import { FecPageHeader } from "@/components/fec";
+import { FecLoader, FecPageHeader } from "@/components/fec";
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Loader2, MapPin, ScrollText } from "lucide-react";
@@ -355,10 +355,7 @@ export default function AttendanceHrDeviceLogsPage() {
       <div className="relative space-y-6" aria-busy={listingBusy || logs.isLoading}>
         {listingBusy ? (
           <div className="pointer-events-none absolute inset-0 z-10 flex items-start justify-center bg-background/55 pt-16 backdrop-blur-[1px]">
-            <div className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-sm text-muted-foreground shadow-sm">
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-              <span>{t("attendanceHr.deviceLogs.loading")}</span>
-            </div>
+            <FecLoader density="chip" label={t("attendanceHr.deviceLogs.loading")} />
           </div>
         ) : null}
         <div className={cn("space-y-6", listingBusy && "opacity-60 transition-opacity")}>

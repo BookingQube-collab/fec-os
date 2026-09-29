@@ -1,5 +1,7 @@
 "use client";
 
+import { FecLoader } from "@/components/fec";
+
 import { useQuery } from "@tanstack/react-query";
 import { CalendarDays } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -73,7 +75,7 @@ function ComplianceCalendarPage() {
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground">{t("common.loading")}</TableCell></TableRow>
+              <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground"><FecLoader density="chip" label={t("common.loading")} /></TableCell></TableRow>
             ) : !events?.length ? (
               <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground">{t("complianceHub.calendar.empty")}</TableCell></TableRow>
             ) : (

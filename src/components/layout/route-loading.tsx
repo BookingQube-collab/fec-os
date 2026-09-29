@@ -1,4 +1,4 @@
-import LatticeLoader from "@/components/react-bits/lattice-loader";
+import { FecLoader } from "@/components/fec/fec-loader";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export type RouteLoadingVariant =
@@ -99,8 +99,10 @@ function RouteLoadingBody({ variant = "dashboard" }: RouteLoadingSkeletonProps) 
 
 export function RouteLoadingSkeleton({ variant = "dashboard" }: RouteLoadingSkeletonProps) {
   return (
-    <div className="grid gap-4 text-muted-foreground">
-      <LatticeLoader label="Loading" showTimer={false} color="currentColor" />
+    <div className="grid gap-5">
+      <div className="flex justify-center pt-1">
+        <FecLoader density="page" />
+      </div>
       <RouteLoadingBody variant={variant} />
     </div>
   );

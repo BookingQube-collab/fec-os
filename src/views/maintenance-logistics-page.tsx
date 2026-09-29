@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Loader2, Plus, Trash2, Truck } from "lucide-react";
 import { toast } from "sonner";
 
+import { FecLoader } from "@/components/fec";
 import { SignaturePad } from "@/components/maintenance/signature-pad";
 import { DeliveryPhotosGallery } from "@/components/maintenance/delivery-photos-gallery";
 import { fileToBase64, PhotoCaptureUpload } from "@/components/maintenance/photo-capture-upload";
@@ -77,7 +78,7 @@ function MaintenanceLogisticsPage() {
 
         <TabsContent value="list" className="mt-4">
           {isLoading ? (
-            <p className="text-sm text-muted-foreground">Loading…</p>
+            <FecLoader density="chip" />
           ) : !data?.length ? (
             <p className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
               No delivery requests yet.
@@ -389,7 +390,7 @@ function DeliveryDetailPanel({
     onError: (e) => toast.error((e as Error).message),
   });
 
-  if (isLoading || !data) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  if (isLoading || !data) return <div className="flex justify-center py-16"><FecLoader density="page" /></div>;
 
   const hasSupervisorSig = data.signatures.some((s) => s.signer_role === "supervisor");
   const hasWarehouseSig = data.signatures.some((s) => s.signer_role === "warehouse");

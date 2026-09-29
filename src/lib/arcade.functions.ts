@@ -2,8 +2,7 @@
 
 import { z } from "zod";
 
-import { normalizeGamePayment, operationalPercent, searchToken, siteAvailability } from "@/lib/arcade/domain";
-import { buildAlertDrafts } from "@/lib/arcade/domain";
+import { buildAlertDrafts, firstCoverByLocation, normalizeGamePayment, operationalPercent, searchToken, siteAvailability } from "@/lib/arcade/domain";
 import { MachineInput, PageQuery, UploadInput } from "@/lib/arcade/schemas";
 import { canUserDo } from "@/lib/rbac";
 import { assertLocationAccess } from "@/lib/server/authorize";
@@ -91,25 +90,91 @@ export const getArcadeContext = createAuthenticatedAction(
   { defaultInput: {}, auth: { capability: "arcade.view" } },
 );
 
+const SITE_HEALTH_COLUMNS =
+  "location_id, active_machines, working, down, under_repair, under_observation, waiting_part, waiting_supplier, out_of_service, pm_overdue, pm_due" as const;
+
+const DASHBOARD_PREVIEW = 8;
+const SITE_COVER_LIMIT = 300;
+
 export const getArcadeDashboard = createAuthenticatedAction(
   z.object({ locationId: z.string().uuid().optional().nullable() }).default({}),
   async (data, context) => {
-    let sites = context.supabase.from("arcade_site_health").select("*");
-    if (data.locationId) sites = sites.eq("location_id", data.locationId);
+    const locationId = data.locationId ?? null;
     const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
-    const dayAgo = new Date(Date.now() - 86400000).toISOString();
-    const [siteRes, faultRes, critical, aged, waitingSupplier, waitingPart, repeats, pmDue, resolved, openFaults] =
+    const pmSoon = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+    const pmSince = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+
+    let sites = context.supabase.from("arcade_site_health").select(SITE_HEALTH_COLUMNS);
+    let critical = context.supabase
+      .from("arcade_machines")
+      .select("id, name, asset_code, location_id, status")
+      .eq("status", "DOWN")
+      .eq("active", true)
+      .order("name")
+      .limit(DASHBOARD_PREVIEW);
+    let pmDue = context.supabase
+      .from("arcade_machines")
+      .select("id, name, asset_code, location_id, next_pm_on, status")
+      .eq("active", true)
+      .not("next_pm_on", "is", null)
+      .lte("next_pm_on", pmSoon)
+      .order("next_pm_on")
+      .limit(DASHBOARD_PREVIEW);
+    let aged = context.supabase
+      .from("arcade_faults")
+      .select("id, ticket_number, location_id, status, description")
+      .lt("reported_at", weekAgo)
+      .not("status", "in", "(RESOLVED,CLOSED)")
+      .order("reported_at")
+      .limit(DASHBOARD_PREVIEW);
+    let waitingSupplier = context.supabase
+      .from("arcade_faults")
+      .select("id, ticket_number, location_id, status, description")
+      .eq("status", "WAITING_SUPPLIER")
+      .order("reported_at")
+      .limit(DASHBOARD_PREVIEW);
+    let waitingPart = context.supabase
+      .from("arcade_faults")
+      .select("id, ticket_number, location_id, status, description")
+      .eq("status", "WAITING_PART")
+      .order("reported_at")
+      .limit(DASHBOARD_PREVIEW);
+    let repeats = context.supabase
+      .from("arcade_faults")
+      .select("id, ticket_number, location_id, category, repeat_count")
+      .eq("is_repeat", true)
+      .not("status", "in", "(RESOLVED,CLOSED)")
+      .order("reported_at", { ascending: false })
+      .limit(DASHBOARD_PREVIEW);
+    let resolved = context.supabase
+      .from("arcade_faults")
+      .select("id, ticket_number, location_id, category")
+      .not("resolved_at", "is", null)
+      .order("resolved_at", { ascending: false })
+      .limit(DASHBOARD_PREVIEW);
+    if (locationId) {
+      sites = sites.eq("location_id", locationId);
+      critical = critical.eq("location_id", locationId);
+      pmDue = pmDue.eq("location_id", locationId);
+      aged = aged.eq("location_id", locationId);
+      waitingSupplier = waitingSupplier.eq("location_id", locationId);
+      waitingPart = waitingPart.eq("location_id", locationId);
+      repeats = repeats.eq("location_id", locationId);
+      resolved = resolved.eq("location_id", locationId);
+    }
+
+    const [siteRes, faultRes, criticalRes, agedRes, waitingSupplierRes, waitingPartRes, repeatsRes, pmDueRes, resolvedRes, pmCompletedRes] =
       await Promise.all([
         sites,
-        context.supabase.from("arcade_fault_kpis").select("*").limit(1),
-        context.supabase.from("arcade_machines").select("id, name, asset_code, location_id, status").eq("status", "DOWN").eq("active", true).limit(8),
-        context.supabase.from("arcade_faults").select("id, ticket_number, machine_id, location_id, status, severity, reported_at, description").lt("reported_at", weekAgo).not("status", "in", "(RESOLVED,CLOSED)").order("reported_at").limit(8),
-        context.supabase.from("arcade_faults").select("id, ticket_number, machine_id, location_id, status, reported_at, description").eq("status", "WAITING_SUPPLIER").order("reported_at").limit(8),
-        context.supabase.from("arcade_faults").select("id, ticket_number, machine_id, location_id, status, reported_at, description").eq("status", "WAITING_PART").order("reported_at").limit(8),
-        context.supabase.from("arcade_faults").select("id, ticket_number, machine_id, location_id, category, repeat_count, last_failure_at, days_since_last_repair, reported_at").eq("is_repeat", true).not("status", "in", "(RESOLVED,CLOSED)").order("reported_at", { ascending: false }).limit(8),
-        context.supabase.from("arcade_machines").select("id, name, asset_code, location_id, next_pm_on, status").eq("active", true).not("next_pm_on", "is", null).lte("next_pm_on", new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)).order("next_pm_on").limit(8),
-        context.supabase.from("arcade_faults").select("id, ticket_number, machine_id, location_id, resolved_at, category").not("resolved_at", "is", null).order("resolved_at", { ascending: false }).limit(8),
-        context.supabase.from("arcade_faults").select("id, ticket_number, machine_id, status, severity, reported_at, is_repeat").not("status", "in", "(RESOLVED,CLOSED)").order("reported_at").limit(80),
+        context.supabase.from("arcade_fault_kpis").select("open_faults, repeat_faults").limit(1),
+        critical,
+        aged,
+        waitingSupplier,
+        waitingPart,
+        repeats,
+        pmDue,
+        resolved,
+        context.supabase.from("arcade_pm_records").select("id", { count: "exact", head: true }).eq("confirmed", true).gte("performed_on", pmSince),
       ]);
     if (siteRes.error) throw siteRes.error;
     const rows = siteRes.data ?? [];
@@ -117,26 +182,9 @@ export const getArcadeDashboard = createAuthenticatedAction(
     const working = rows.reduce((sum, row) => sum + row.working, 0);
     const down = rows.reduce((sum, row) => sum + row.down, 0);
     const kpis = faultRes.data?.[0];
-    const pmCompletedRes = await context.supabase
-      .from("arcade_pm_records")
-      .select("id", { count: "exact", head: true })
-      .eq("confirmed", true)
-      .gte("performed_on", new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10));
     const pmOverdue = rows.reduce((sum, row) => sum + row.pm_overdue, 0);
     const pmCompleted = pmCompletedRes.count ?? 0;
     const pmCompliance = pmCompleted + pmOverdue > 0 ? Math.round((pmCompleted / (pmCompleted + pmOverdue)) * 1000) / 10 : null;
-
-    const { data: alertMachines } = await context.supabase
-      .from("arcade_machines")
-      .select("id, name, status, warranty_expires_on, next_pm_on")
-      .eq("active", true)
-      .or(`status.eq.DOWN,next_pm_on.lt.${new Date().toISOString().slice(0, 10)}`)
-      .limit(40);
-    const { data: parts } = await context.supabase
-      .from("arcade_spare_parts")
-      .select("id, name, min_stock, supply_status, eta, inventory_item_id")
-      .in("supply_status", ["OUT_OF_STOCK", "LOW_STOCK", "ORDERED", "IN_TRANSIT"])
-      .limit(40);
 
     return {
       kpis: {
@@ -147,6 +195,7 @@ export const getArcadeDashboard = createAuthenticatedAction(
         underObservation: rows.reduce((sum, row) => sum + row.under_observation, 0),
         waitingPart: rows.reduce((sum, row) => sum + row.waiting_part, 0),
         waitingSupplier: rows.reduce((sum, row) => sum + row.waiting_supplier, 0),
+        outOfService: rows.reduce((sum, row) => sum + row.out_of_service, 0),
         pmDue: rows.reduce((sum, row) => sum + row.pm_due, 0),
         pmOverdue,
         openFaults: kpis?.open_faults ?? 0,
@@ -158,18 +207,43 @@ export const getArcadeDashboard = createAuthenticatedAction(
         ...row,
         availability: siteAvailability({ working: row.working, active: row.active_machines }),
       })),
-      critical: critical.data ?? [],
-      aged: aged.data ?? [],
-      waitingSupplier: waitingSupplier.data ?? [],
-      waitingPart: waitingPart.data ?? [],
-      repeats: repeats.data ?? [],
-      pmDue: pmDue.data ?? [],
-      resolved: resolved.data ?? [],
-      alertSeed: {
-        machines: alertMachines ?? [],
-        faults: (openFaults.data ?? []).filter((fault) => new Date(fault.reported_at).toISOString() <= dayAgo || fault.severity === "CRITICAL" || fault.is_repeat),
-        parts: parts ?? [],
-      },
+      critical: criticalRes.data ?? [],
+      aged: agedRes.data ?? [],
+      waitingSupplier: waitingSupplierRes.data ?? [],
+      waitingPart: waitingPartRes.data ?? [],
+      repeats: repeatsRes.data ?? [],
+      pmDue: pmDueRes.data ?? [],
+      resolved: resolvedRes.data ?? [],
+    };
+  },
+  { defaultInput: {}, auth: { capability: "arcade.view" } },
+);
+
+export const getArcadeSiteBoard = createAuthenticatedAction(
+  z.object({ locationId: z.string().uuid().optional().nullable() }).default({}),
+  async (data, context) => {
+    const locationId = data.locationId ?? null;
+    let health = context.supabase.from("arcade_site_health").select(SITE_HEALTH_COLUMNS);
+    let covers = context.supabase
+      .from("arcade_machines")
+      .select("location_id, photo_path")
+      .eq("active", true)
+      .not("photo_path", "is", null)
+      .order("location_id")
+      .order("name")
+      .limit(locationId ? 1 : SITE_COVER_LIMIT);
+    if (locationId) {
+      health = health.eq("location_id", locationId);
+      covers = covers.eq("location_id", locationId);
+    }
+    const [healthRes, coverRes] = await Promise.all([health, covers]);
+    if (healthRes.error) throw healthRes.error;
+    return {
+      sites: (healthRes.data ?? []).map((row) => ({
+        ...row,
+        availability: siteAvailability({ working: row.working, active: row.active_machines }),
+      })),
+      covers: coverRes.error ? {} : firstCoverByLocation(coverRes.data ?? []),
     };
   },
   { defaultInput: {}, auth: { capability: "arcade.view" } },
@@ -181,7 +255,7 @@ export const listArcadeMachines = createAuthenticatedAction(
     const token = data.q ? searchToken(data.q) : null;
     let query = context.supabase
       .from("arcade_machines")
-      .select("id, asset_code, name, game_category, location_id, zone, unit_number, manufacturer, model, serial_number, status, technician_staff_id, vendor_id, supplier_name, amount_paid, paid_currency, paid_on, next_pm_on, last_fault_at, last_repair_at, last_fix_at, last_fix_summary, last_fix_status, last_fix_technician_staff_id, warranty_expires_on, active", { count: "exact" })
+      .select("id, asset_code, name, game_category, location_id, zone, unit_number, manufacturer, model, serial_number, status, photo_path, technician_staff_id, vendor_id, supplier_name, amount_paid, paid_currency, paid_on, next_pm_on, last_fault_at, last_repair_at, last_fix_at, last_fix_summary, last_fix_status, last_fix_technician_staff_id, warranty_expires_on, active", { count: "exact" })
       .order("name");
     if (data.locationId) query = query.eq("location_id", data.locationId);
     if (data.status) query = query.eq("status", data.status);
@@ -376,6 +450,21 @@ export const getArcadeFileUrl = createAuthenticatedAction(
     const { data: signed, error } = await context.supabase.storage.from("arcade-technical").createSignedUrl(data.path, 600);
     if (error) throw error;
     return { url: signed.signedUrl };
+  },
+  { auth: { capability: "arcade.view" } },
+);
+
+export const getArcadeFileUrls = createAuthenticatedAction(
+  z.object({ paths: z.array(z.string().min(1).max(500)).min(1).max(60) }),
+  async (data, context) => {
+    const paths = [...new Set(data.paths)].slice(0, 60);
+    const { data: signed, error } = await context.supabase.storage.from("arcade-technical").createSignedUrls(paths, 600);
+    if (error) throw error;
+    const urls: Record<string, string> = {};
+    for (const row of signed ?? []) {
+      if (row.path && row.signedUrl && !row.error) urls[row.path] = row.signedUrl;
+    }
+    return { urls };
   },
   { auth: { capability: "arcade.view" } },
 );

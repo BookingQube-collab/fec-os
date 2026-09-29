@@ -1,6 +1,6 @@
 "use client";
 
-import { FecPageHeader } from "@/components/fec";
+import { FecLoader, FecPageHeader } from "@/components/fec";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, MapPin, Search, Users } from "lucide-react";
@@ -635,8 +635,8 @@ export default function AttendanceHrMappingPage() {
           <tbody>
             {q.isLoading ? (
               <tr>
-                <td className="px-4 py-6 text-muted-foreground" colSpan={6}>
-                  {t("common.loading")}
+                <td className="px-4 py-6 text-center" colSpan={6}>
+                  <FecLoader density="chip" label={t("common.loading")} />
                 </td>
               </tr>
             ) : visibleRows.length === 0 ? (

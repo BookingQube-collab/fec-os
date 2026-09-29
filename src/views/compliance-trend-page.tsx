@@ -1,5 +1,7 @@
 "use client";
 
+import { FecLoader } from "@/components/fec";
+
 import dynamic from "next/dynamic";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -48,7 +50,7 @@ function ComplianceTrendPage() {
         </Select>
       }
     >
-      {isLoading ? <p className="text-sm text-muted-foreground">{t("common.loading")}</p> : (
+      {isLoading ? <FecLoader density="chip" label={t("common.loading")} /> : (
         <ComplianceTrendCharts months={data?.months ?? []} />
       )}
     </CompliancePageShell>

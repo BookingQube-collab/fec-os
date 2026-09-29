@@ -1,11 +1,13 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Check, Circle, Loader2, X } from "lucide-react";
+import { AlertTriangle, Check, Circle, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+
+import { FecLoader } from "@/components/fec";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -185,10 +187,7 @@ export function ZktecoConnectionTestDialog({
         </DialogHeader>
 
         {testing ? (
-          <p className="flex items-center gap-2 text-sm font-medium">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            {t("attendanceHr.settings.testingDevice")}
-          </p>
+          <FecLoader density="chip" label={t("attendanceHr.settings.testingDevice")} />
         ) : null}
 
         {view ? (

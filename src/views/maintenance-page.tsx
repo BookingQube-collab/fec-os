@@ -1,6 +1,6 @@
 "use client";
 
-import { FecPageHeader } from "@/components/fec";
+import { FecLoader, FecPageHeader } from "@/components/fec";
 
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -286,7 +286,7 @@ function WorkOrdersList({
         </Select>
       </div>
       {isLoading ? (
-        <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">Loading…</div>
+        <div className="flex justify-center p-8"><FecLoader density="page" /></div>
       ) : (rows?.length ?? 0) === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
           {scope === "mine" ? "No work orders assigned to you." : "No work orders."}
@@ -622,7 +622,7 @@ function AssetsList({ canSchedule, canManage }: { canSchedule: boolean; canManag
       )}
 
       {isLoading ? (
-        <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">Loading…</div>
+        <div className="flex justify-center p-8"><FecLoader density="page" /></div>
       ) : !data || data.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">No assets in scope.</div>
       ) : (
@@ -848,7 +848,7 @@ function PmSchedulesPanel({ canSchedule, canManage }: { canSchedule: boolean; ca
       ) : null}
 
       {pmQ.isLoading ? (
-        <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">Loading…</div>
+        <div className="flex justify-center p-8"><FecLoader density="page" /></div>
       ) : (pmQ.data?.length ?? 0) === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">No PM schedules yet.</div>
       ) : (
@@ -1020,7 +1020,7 @@ function DowntimePanel({ canExecute }: { canExecute: boolean }) {
       </div>
 
       {dtQ.isLoading ? (
-        <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">Loading…</div>
+        <div className="flex justify-center p-8"><FecLoader density="page" /></div>
       ) : (dtQ.data?.length ?? 0) === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">No downtime recorded.</div>
       ) : (

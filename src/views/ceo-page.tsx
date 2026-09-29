@@ -12,7 +12,7 @@ import { generateDailyBrief, generatePnLCommentary } from "@/lib/ceo.functions";
 import { useCeoOverview } from "@/hooks/queries/useCeo";
 import { usePermission } from "@/hooks/use-permission";
 import { queryKeys } from "@/lib/query-keys";
-import { FecButton as Button, FecPageHeader, FecStatCard, type KpiTint } from "@/components/fec";
+import { FecButton as Button, FecLoader, FecPageHeader, FecStatCard, type KpiTint } from "@/components/fec";
 import { fmtQar } from "@/lib/currency";
 import { cn } from "@/lib/utils";
 
@@ -135,7 +135,7 @@ function Page() {
           )}
         </div>
         {isLoading ? (
-          <div className="text-sm text-muted-foreground">{t("common.loading")}</div>
+          <FecLoader density="chip" label={t("common.loading")} />
         ) : data?.latest_brief ? (
           <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
             {data.latest_brief.narrative || t("ceo.noNarrative")}

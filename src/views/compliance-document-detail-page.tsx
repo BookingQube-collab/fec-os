@@ -1,5 +1,7 @@
 "use client";
 
+import { FecLoader } from "@/components/fec";
+
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -117,7 +119,7 @@ function ComplianceDocumentDetailPage() {
     onError: (e) => toast.error((e as Error).message),
   });
 
-  if (isLoading) return <div className="text-sm text-muted-foreground">{t("common.loading")}</div>;
+  if (isLoading) return <div className="flex justify-center py-16"><FecLoader density="page" label={t("common.loading")} /></div>;
   if (error) return <div className="text-sm text-rose-300">{(error as Error).message}</div>;
   if (!data) return null;
 

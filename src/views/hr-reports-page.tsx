@@ -1,5 +1,7 @@
 "use client";
 
+import { FecLoader } from "@/components/fec";
+
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { FileBarChart } from "lucide-react";
@@ -299,7 +301,7 @@ export default function HrReportsPage() {
               {catalog.data?.denied ? (
                 <HrEmptyState message={t("hr.reports.denied")} icon={FileBarChart} />
               ) : catalog.isLoading ? (
-                <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
+                <FecLoader density="chip" label={t("common.loading")} />
               ) : rows.length === 0 ? (
                 <HrEmptyState message={t("hr.reports.emptyCatalog")} icon={FileBarChart} />
               ) : (

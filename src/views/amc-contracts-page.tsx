@@ -1,5 +1,7 @@
 "use client";
 
+import { FecLoader } from "@/components/fec";
+
 import Link from "next/link";
 import { Plus, ShieldCheck } from "lucide-react";
 
@@ -51,7 +53,7 @@ function AmcContractsPage() {
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">{t("common.loading")}</TableCell></TableRow>
+              <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground"><FecLoader density="chip" label={t("common.loading")} /></TableCell></TableRow>
             ) : !contracts?.length ? (
               <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">{t("amc.noContracts")}</TableCell></TableRow>
             ) : (
