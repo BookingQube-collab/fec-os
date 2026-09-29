@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -68,6 +69,7 @@ export type RosterRegisterPanelHandle = {
 export type RosterDeleteAllState = {
   canDelete: boolean;
   disabled: boolean;
+  selectedCount: number;
 };
 
 type RosterRegisterPanelProps = {
@@ -169,6 +171,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     const [editingId, setEditingId] = useState<string | null>(null);
     const [draft, setDraft] = useState<Draft | null>(null);
     const [deleteAllOpen, setDeleteAllOpen] = useState(false);
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
 
     useEffect(() => {
       if (defaultLocationId && !locationId) setLocationId(defaultLocationId);
@@ -236,6 +239,49 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     });
     const periodRange = formatPayrollRange(dateFrom, dateTo, i18n.language);
 
+    const selectionScopeKey = [
+      dateFrom,
+      dateTo,
+      locationId,
+      staffId,
+      excludedDepartmentIds.join(","),
+      sourceFilter,
+      sourceUploadOnly ? "upload" : "all",
+      query,
+    ].join("|");
+
+    useEffect(() => {
+      setSelectedIds(new Set());
+    }, [selectionScopeKey]);
+
+    const selectedVisibleIds = useMemo(
+      () => filtered.filter((row) => selectedIds.has(row.id)).map((row) => row.id),
+      [filtered, selectedIds],
+    );
+    const selectedCount = selectedVisibleIds.length;
+    const allVisibleSelected = filtered.length > 0 && selectedCount === filtered.length;
+    const headerChecked: boolean | "indeterminate" = allVisibleSelected
+      ? true
+      : selectedCount > 0
+        ? "indeterminate"
+        : false;
+
+    const setVisibleSelection = (select: boolean) => {
+      setSelectedIds(() => {
+        if (!select) return new Set();
+        return new Set(filtered.map((row) => row.id));
+      });
+    };
+
+    const toggleRowSelected = (id: string, checked: boolean) => {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (checked) next.add(id);
+        else next.delete(id);
+        return next;
+      });
+    };
+
     const saveMut = useMutation({
       mutationFn: async (row: RosterRegisterRow) => {
         if (!draft) throw new Error(t("people.roster.registerNothingToSave"));
@@ -269,17 +315,23 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
 
     const deleteMut = useMutation({
       mutationFn: (id: string) => deleteRosterAssignment({ id }),
-      onSuccess: () => {
+      onSuccess: (_result, id) => {
         toast.success(t("people.roster.registerDeleted"));
         setEditingId(null);
         setDraft(null);
+        setSelectedIds((prev) => {
+          if (!prev.has(id)) return prev;
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
         void qc.invalidateQueries({ queryKey: queryKeys.people.all });
       },
       onError: (e: Error) => toast.error(e.message),
     });
 
     const deleteAllMut = useMutation({
-      mutationFn: () =>
+      mutationFn: (ids: string[] | null) =>
         deleteRosterAssignments({
           locationId: locationId || null,
           staffId: staffId || null,
@@ -289,12 +341,14 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
           sourceUploadOnly,
           source: !sourceUploadOnly && sourceFilter !== "all" ? sourceFilter : null,
           search: query.trim() || null,
+          ...(ids ? { ids } : {}),
         }),
       onSuccess: (result) => {
         toast.success(t("people.roster.registerDeletedAll", { count: result.deleted }));
         setDeleteAllOpen(false);
         setEditingId(null);
         setDraft(null);
+        setSelectedIds(new Set());
         void qc.invalidateQueries({ queryKey: queryKeys.people.all });
       },
       onError: (e: Error) => toast.error(e.message),
@@ -314,8 +368,8 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     );
 
     useEffect(() => {
-      onDeleteAllStateChange?.({ canDelete: canAmend, disabled: deleteAllDisabled });
-    }, [canAmend, deleteAllDisabled, onDeleteAllStateChange]);
+      onDeleteAllStateChange?.({ canDelete: canAmend, disabled: deleteAllDisabled, selectedCount });
+    }, [canAmend, deleteAllDisabled, onDeleteAllStateChange, selectedCount]);
 
     const startEdit = (row: RosterRegisterRow) => {
       setEditingId(row.id);
@@ -344,6 +398,11 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       ? t("people.roster.registerEmpty")
       : t("people.roster.registerEmptyAll");
 
+    const deleteActionLabel =
+      selectedCount > 0
+        ? t("people.roster.registerDeleteSelected", { count: selectedCount })
+        : t("people.roster.registerDeleteAll");
+
     const deleteAllButton = canAmend ? (
       <Button
         type="button"
@@ -354,7 +413,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
         onClick={() => setDeleteAllOpen(true)}
       >
         {deleteAllMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-        {t("people.roster.registerDeleteAll")}
+        {deleteActionLabel}
       </Button>
     ) : null;
 
@@ -784,6 +843,20 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
             <Table>
               <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow>
+                  {canAmend ? (
+                    <TableHead className="w-10">
+                      <Checkbox
+                        checked={headerChecked}
+                        disabled={deleting || filtered.length === 0}
+                        onCheckedChange={(value) => setVisibleSelection(value === true)}
+                        aria-label={
+                          allVisibleSelected
+                            ? t("people.roster.registerDeselectAll")
+                            : t("people.roster.registerSelectAll")
+                        }
+                      />
+                    </TableHead>
+                  ) : null}
                   <TableHead>{t("people.roster.colDate")}</TableHead>
                   <TableHead>{t("people.roster.colStaff")}</TableHead>
                   <TableHead>{t("people.roster.col.location")}</TableHead>
@@ -796,8 +869,22 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
               <TableBody>
                 {filtered.map((row) => {
                   const editing = editingId === row.id && draft;
+                  const rowSelected = selectedIds.has(row.id);
                   return (
-                    <TableRow key={row.id}>
+                    <TableRow key={row.id} data-state={rowSelected ? "selected" : undefined}>
+                      {canAmend ? (
+                        <TableCell>
+                          <Checkbox
+                            checked={rowSelected}
+                            disabled={deleting}
+                            onCheckedChange={(value) => toggleRowSelected(row.id, value === true)}
+                            aria-label={t("people.roster.registerSelectRow", {
+                              name: row.staffName || row.employeeCode || row.qid || row.workDate,
+                              date: row.workDate,
+                            })}
+                          />
+                        </TableCell>
+                      ) : null}
                       <TableCell className="whitespace-nowrap">{row.workDate}</TableCell>
                       <TableCell>
                         <div className="font-medium">{row.staffName || "—"}</div>
@@ -902,11 +989,17 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
         <AlertDialog open={deleteAllOpen} onOpenChange={(open) => !open && !deleteAllMut.isPending && setDeleteAllOpen(false)}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>{t("people.roster.registerDeleteAllTitle")}</AlertDialogTitle>
+              <AlertDialogTitle>
+                {selectedCount > 0
+                  ? t("people.roster.registerDeleteSelectedTitle")
+                  : t("people.roster.registerDeleteAllTitle")}
+              </AlertDialogTitle>
               <AlertDialogDescription>
-                {hasExtraFilters
-                  ? t("people.roster.registerDeleteAllConfirmFiltered", { count: filtered.length, range: periodRange })
-                  : t("people.roster.registerDeleteAllConfirmPeriod", { count: filtered.length, range: periodRange })}
+                {selectedCount > 0
+                  ? t("people.roster.registerDeleteSelectedConfirm", { count: selectedCount, range: periodRange })
+                  : hasExtraFilters
+                    ? t("people.roster.registerDeleteAllConfirmFiltered", { count: filtered.length, range: periodRange })
+                    : t("people.roster.registerDeleteAllConfirmPeriod", { count: filtered.length, range: periodRange })}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -916,11 +1009,13 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
                 disabled={deleteAllMut.isPending || filtered.length === 0}
                 onClick={(e) => {
                   e.preventDefault();
-                  deleteAllMut.mutate();
+                  deleteAllMut.mutate(selectedCount > 0 ? selectedVisibleIds : null);
                 }}
               >
                 {deleteAllMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                {t("people.roster.registerDeleteAllConfirm")}
+                {selectedCount > 0
+                  ? t("people.roster.registerDeleteSelectedConfirmAction")
+                  : t("people.roster.registerDeleteAllConfirm")}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

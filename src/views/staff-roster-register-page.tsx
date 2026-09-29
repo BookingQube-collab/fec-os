@@ -57,6 +57,7 @@ export default function StaffRosterRegisterPage() {
   const [deleteAllState, setDeleteAllState] = useState<RosterDeleteAllState>({
     canDelete: canImport,
     disabled: true,
+    selectedCount: 0,
   });
   const [periodMode, setPeriodMode] = useState<AttendanceRosterPeriodMode>("month");
   const [weekStart, setWeekStart] = useState(() => qatarWeekBounds(todayYmd()).dateFrom);
@@ -148,7 +149,9 @@ export default function StaffRosterRegisterPage() {
                 onClick={() => registerRef.current?.openDeleteAll()}
               >
                 <Trash2 className="h-4 w-4" />
-                {t("people.roster.registerDeleteAll")}
+                {deleteAllState.selectedCount > 0
+                  ? t("people.roster.registerDeleteSelected", { count: deleteAllState.selectedCount })
+                  : t("people.roster.registerDeleteAll")}
               </Button>
             ) : null}
             {canImport ? (

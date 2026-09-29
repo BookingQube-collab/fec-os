@@ -683,18 +683,27 @@ async function applyRosterSearchFilter(
   });
 }
 
-/** Delete every roster row in the selected period that matches the current register filters. */
+/**
+ * Delete roster rows in the selected period that match the current register filters.
+ * When `ids` is set, only those rows are removed (still limited to the filtered scope).
+ */
 export const deleteRosterAssignments = createAuthenticatedAction(
-  rosterScopeInput,
+  rosterScopeInput.extend({
+    ids: z.array(z.string().uuid()).max(10000).optional(),
+  }),
   async (data, context) => {
     assertCanAmendRoster(context.roles);
     assertRosterDeletePeriod(data.dateFrom, data.dateTo);
     if (data.locationId) await assertAttendanceRosterLocation(context, data.locationId);
 
     const scoped = await fetchRosterAssignmentsInScope(context.supabase, data);
-    const toDelete = data.search?.trim()
+    const searched = data.search?.trim()
       ? await applyRosterSearchFilter(context.supabase, scoped, data.search)
       : scoped;
+    const allowedIds = data.ids ? new Set(data.ids) : null;
+    const toDelete = allowedIds
+      ? searched.filter((row) => allowedIds.has(String(row.id)))
+      : searched;
 
     if (!toDelete.length) {
       return { ok: true as const, deleted: 0, dateFrom: data.dateFrom, dateTo: data.dateTo };
