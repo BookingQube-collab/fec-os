@@ -35,6 +35,7 @@ export type AttendanceGridTone =
   | "missed_punch"
   | "weekly_off"
   | "absent"
+  | "not_joined"
   | "unscheduled"
   | "leave"
   | "other";
@@ -75,6 +76,7 @@ export function attendanceGridTone(row: AttendanceListingSource): AttendanceGrid
   if (status === "weekly_off") return "weekly_off";
   if (LEAVE_KEYS.has(status)) return "leave";
   if (status === "absent") return "absent";
+  if (status === "not_joined") return "not_joined";
   if (status === "unscheduled") return "unscheduled";
   if (hasLatePunch(row.late_minutes) || status === "late") return "late";
   if (status === "present" || status === "overtime") return "present";
@@ -94,6 +96,8 @@ export function attendanceGridCellClass(tone: AttendanceGridTone): string {
       return "bg-sky-500/20 text-sky-900 dark:text-sky-100";
     case "unscheduled":
       return "bg-zinc-500/10 text-zinc-800 dark:text-zinc-200";
+    case "not_joined":
+      return "bg-stone-500/10 text-stone-700 dark:text-stone-200";
     default:
       return "";
   }
@@ -114,7 +118,7 @@ export function attendanceGridCellContent(row: AttendanceListingSource): Attenda
   const hours = resolveTotalHoursWorked(row);
   const late = formatLatePunch(row.late_minutes);
 
-  if (tone === "weekly_off" || tone === "leave" || tone === "absent" || tone === "unscheduled") {
+  if (tone === "weekly_off" || tone === "leave" || tone === "absent" || tone === "not_joined" || tone === "unscheduled") {
     return { tone, primary: statusLabel, secondary: null, meta: null, statusLabel };
   }
 
@@ -168,6 +172,7 @@ export const ATTENDANCE_MATRIX_STATUS_CODES = [
   ["MP", "Missed Punch"],
   ["HD", "Half Day"],
   ["US", "Unscheduled"],
+  ["NJ", "Not joined"],
 ] as const;
 
 export function attendanceMatrixStatusCode(row: AttendanceListingSource): string {
@@ -189,6 +194,8 @@ export function attendanceMatrixStatusCode(row: AttendanceListingSource): string
       return "MP";
     case "unscheduled":
       return "US";
+    case "not_joined":
+      return "NJ";
     case "short_hours": {
       const worked = resolveTotalHoursWorked(row);
       const expected = row.expected_minutes != null ? Number(row.expected_minutes) / 60 : null;
@@ -212,7 +219,7 @@ export function attendanceMatrixExcelCellText(entries: AttendanceMatrixRow[]): s
   return entries
     .map((entry) => {
       const code = attendanceMatrixStatusCode(entry);
-      if (code === "WO" || code === "A" || code === "AL" || code === "SL" || code === "UL" || code === "PH" || code === "US") {
+      if (code === "WO" || code === "A" || code === "AL" || code === "SL" || code === "UL" || code === "PH" || code === "US" || code === "NJ") {
         return code;
       }
       const inn = formatAttendanceGridPunch(entry.actual_in);

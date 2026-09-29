@@ -38,7 +38,11 @@ import {
   resolveResyncWindow,
 } from "@/lib/attendance-hr/gap-check";
 import { defaultPayrollPeriod } from "@/lib/attendance-hr/roster-period";
-import { applyRosterDayStatusOverride, resolveHoursBasedAttendanceStatus } from "@/lib/attendance-display";
+import {
+  applyPreJoinAttendanceStatus,
+  applyRosterDayStatusOverride,
+  resolveHoursBasedAttendanceStatus,
+} from "@/lib/attendance-display";
 import {
   aggregateDashboardPeriod,
   buildAbsentRowsForPeriod,
@@ -2158,6 +2162,7 @@ type StaffLookup = {
   expected_hours?: number | null;
   break_minutes?: number | null;
   weekly_off_weekday?: number | null;
+  hire_date?: string | null;
 };
 type LocationLookup = {
   id: string;
@@ -2232,7 +2237,7 @@ async function enrichAttendanceHrDailyRows(
     loadByIds<StaffLookup>(
       context,
       "staff",
-      "id, full_name, employee_code, qid, employment_type, department, job_title, status, is_roaming, flexible_attendance, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday",
+      "id, full_name, employee_code, qid, employment_type, department, job_title, status, is_roaming, flexible_attendance, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday, hire_date",
       staffIds,
     ),
     loadByIds<LocationLookup>(context, "locations", "id, code, name, region", locationIds),
@@ -2524,6 +2529,8 @@ async function enrichAttendanceHrDailyRows(
           expected_minutes: expectedMinutes,
           employment_type: employmentType,
           flexible_attendance: true,
+          work_date: workDate,
+          hire_date: staff?.hire_date ?? null,
           sitePolicy: { permanentHours, secondmentHours, jokerHours },
         });
       }
@@ -2577,6 +2584,7 @@ async function enrichAttendanceHrDailyRows(
       joker_hours: jokerHours,
       flexible_attendance: Boolean(staff?.flexible_attendance),
       cross_site_day_merge: crossSiteDayMerge,
+      hire_date: staff?.hire_date ? String(staff.hire_date).slice(0, 10) : null,
     };
   });
 
@@ -2590,8 +2598,13 @@ async function enrichAttendanceHrDailyRows(
         bufferMinutes: row.location_buffer_minutes,
         lateFromShiftStart: Boolean(row.flexible_attendance),
       });
-      if (lateMinutes === row.late_minutes) return row;
-      return { ...row, late_minutes: lateMinutes };
+      const status = applyPreJoinAttendanceStatus({
+        status: row.status,
+        workDate: row.work_date,
+        hireDate: row.hire_date,
+      });
+      if (lateMinutes === row.late_minutes && status === row.status) return row;
+      return { ...row, late_minutes: lateMinutes, status };
     });
 
   const crossSiteIds = [

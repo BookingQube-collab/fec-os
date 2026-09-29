@@ -480,6 +480,7 @@ export const generatePayrollLines = createAuthenticatedAction(
           scheduled_out: row.scheduled_out ? String(row.scheduled_out) : null,
           employment_type: meta?.employment_type ?? null,
           flexible_attendance: Boolean(meta?.flexible_attendance),
+          hire_date: meta?.hire_date ? String(meta.hire_date).slice(0, 10) : null,
         };
       });
       for (const row of aggregatePayrollRows(dayInputs)) {

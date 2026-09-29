@@ -6150,7 +6150,8 @@
         "incomplete": "غير مكتمل",
         "overtime": "وقت إضافي",
         "review_required": "يحتاج مراجعة",
-        "unscheduled": "غير مجدول"
+        "unscheduled": "غير مجدول",
+        "not_joined": "لم يلتحق"
       }
     },
     "mapping": {

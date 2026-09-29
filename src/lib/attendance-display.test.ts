@@ -4,9 +4,12 @@ import {
   attendanceDateRange,
   attendanceListingCells,
   applyRosterDayStatusOverride,
+  computeAttendanceKpis,
   formatPunchTime12h,
   formatWorkDateDdMmYyyy,
   getAttendanceStatusDisplay,
+  resolveHoursBasedAttendanceStatus,
+  type AttendanceSummaryRow,
 } from "./attendance-display";
 import { attendanceHrToListingSource, type AttendanceHrReportRow } from "./attendance-hr/report";
 
@@ -462,5 +465,132 @@ describe("attendance listing display", () => {
     expect(cells.overtimeHours).toBe("0.60");
     expect(cells.status).toBe("Present");
     expect(cells.latePunch).toBe("30m");
+  });
+});
+
+function summaryRow(partial: Partial<AttendanceSummaryRow> & Pick<AttendanceSummaryRow, "work_date" | "status">): AttendanceSummaryRow {
+  return {
+    id: partial.id ?? "row",
+    location_id: partial.location_id ?? "loc",
+    staff_id: partial.staff_id ?? "staff",
+    work_date: partial.work_date,
+    status: partial.status,
+    late_minutes: partial.late_minutes ?? 0,
+    early_leave_minutes: partial.early_leave_minutes ?? 0,
+    overtime_minutes: partial.overtime_minutes ?? 0,
+    missed_punch: partial.missed_punch ?? false,
+    actual_in: partial.actual_in ?? null,
+    actual_out: partial.actual_out ?? null,
+    scheduled_in: partial.scheduled_in ?? null,
+    scheduled_out: partial.scheduled_out ?? null,
+    staff: partial.staff ?? null,
+    location: partial.location ?? null,
+    hire_date: partial.hire_date,
+  };
+}
+
+describe("pre-join attendance status", () => {
+  const hire = "2026-09-17";
+
+  it("marks days before the join date as not joined, including rostered days", () => {
+    const before = getAttendanceStatusDisplay({
+      status: "absent",
+      missed_punch: false,
+      actual_in: null,
+      actual_out: null,
+      work_date: "2026-09-16",
+      hire_date: hire,
+      scheduled_in: "2026-09-16T07:00:00.000Z",
+      scheduled_out: "2026-09-16T16:00:00.000Z",
+    });
+    expect(before.label).toBe("Not joined");
+    expect(before.badgeClass).toMatch(/zinc/);
+    expect(before.badgeClass).not.toMatch(/rose/);
+    expect(before.badgeClass).not.toMatch(/sky/);
+    expect(before.rowClass).toBe("");
+    expect(
+      resolveHoursBasedAttendanceStatus({
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        work_date: "2026-08-28",
+        hire_date: hire,
+      }),
+    ).toBe("not_joined");
+  });
+
+  it("keeps absent on or after the join date when a rostered day has no punch", () => {
+    expect(
+      resolveHoursBasedAttendanceStatus({
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        work_date: "2026-09-17",
+        hire_date: hire,
+        scheduled_in: "2026-09-17T07:00:00.000Z",
+      }),
+    ).toBe("absent");
+    expect(
+      getAttendanceStatusDisplay({
+        status: "absent",
+        missed_punch: false,
+        actual_in: null,
+        actual_out: null,
+        work_date: "2026-09-20",
+        hire_date: hire,
+      }).label,
+    ).toBe("Absent");
+  });
+
+  it("leaves weekly off unchanged before the join date", () => {
+    expect(
+      resolveHoursBasedAttendanceStatus({
+        status: "weekly_off",
+        actual_in: null,
+        actual_out: null,
+        work_date: "2026-09-10",
+        hire_date: hire,
+      }),
+    ).toBe("weekly_off");
+    expect(
+      getAttendanceStatusDisplay({
+        status: "weekly_off",
+        missed_punch: false,
+        actual_in: null,
+        actual_out: null,
+        work_date: "2026-09-10",
+        hire_date: hire,
+      }).label,
+    ).toBe("Weekly off");
+  });
+
+  it("keeps existing absent behavior when the join date is missing", () => {
+    expect(
+      resolveHoursBasedAttendanceStatus({
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        work_date: "2026-09-01",
+        hire_date: null,
+      }),
+    ).toBe("absent");
+    expect(
+      resolveHoursBasedAttendanceStatus({
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        work_date: "2026-09-01",
+      }),
+    ).toBe("absent");
+  });
+
+  it("does not count not-joined days in the absent total", () => {
+    const kpis = computeAttendanceKpis([
+      summaryRow({ work_date: "2026-09-01", status: "absent", hire_date: hire }),
+      summaryRow({ work_date: "2026-09-10", status: "weekly_off", hire_date: hire }),
+      summaryRow({ work_date: "2026-09-17", status: "absent", hire_date: hire }),
+      summaryRow({ work_date: "2026-09-18", status: "absent", hire_date: null }),
+    ]);
+    expect(kpis.absent).toBe(2);
   });
 });

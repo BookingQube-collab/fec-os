@@ -1,3 +1,4 @@
+import { applyPreJoinAttendanceStatus } from "@/lib/attendance-display";
 import { isAttendanceListingWorkedDay } from "@/lib/attendance-hr/export-workbook";
 import type { AttendanceHrReportRow } from "@/lib/attendance-hr/report";
 
@@ -29,6 +30,8 @@ export type PayrollDayInput = {
   expected_minutes?: number | null;
   employment_type?: string | null;
   flexible_attendance?: boolean | null;
+  /** staff.hire_date. Days strictly before this are not absence deductions. */
+  hire_date?: string | null;
 };
 
 export type PayrollBlockReason = {
@@ -95,6 +98,7 @@ export function payrollDayToListingRow(day: PayrollDayInput): AttendanceHrReport
     location_region: null,
     expected_minutes: day.expected_minutes ?? null,
     flexible_attendance: Boolean(day.flexible_attendance),
+    hire_date: day.hire_date ?? null,
   };
 }
 
@@ -223,8 +227,13 @@ export function aggregatePayrollRows(days: PayrollDayInput[]): PayrollStaffRow[]
       byStaff.get(day.staff_id) ??
       emptyStaff(day.staff_id, (day.staff_name ?? "").trim() || "Staff", day.employee_code ?? "");
     const status = String(day.status ?? "");
+    const absenceStatus = applyPreJoinAttendanceStatus({
+      status,
+      workDate: day.work_date,
+      hireDate: day.hire_date,
+    });
     if (isPayrollPresentDay(day)) current.daysPresent += 1;
-    if (status === "absent") current.daysAbsent += 1;
+    if (absenceStatus === "absent") current.daysAbsent += 1;
     if (status === "unpaid_leave") current.daysUnpaidLeave += 1;
     if (status === "late" || Number(day.late_minutes ?? 0) > 0) current.daysLate += 1;
     if (day.missed_punch || status === "missed_punch") current.missedPunches += 1;

@@ -34,6 +34,8 @@ export const EXCEL_THEME = {
   missedPunch: "FED7AA",
   /** Unscheduled */
   unscheduled: "F3F4F6",
+  /** Before hire date — not an absence */
+  notJoined: "F5F5F4",
   /** Light blue alias for PH / info */
   lightBlue: "BFDBFE",
   white: "FFFFFF",
@@ -57,6 +59,7 @@ export const MATRIX_CODE_THEME: Record<string, ExcelThemeKey> = {
   MP: "missedPunch",
   HD: "halfDay",
   US: "unscheduled",
+  NJ: "notJoined",
 };
 
 export function matrixCodeFillRgb(code: string): string {

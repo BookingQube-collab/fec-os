@@ -53,6 +53,8 @@ export type AttendanceHrReportRow = {
   permanent_hours?: number | null;
   secondment_hours?: number | null;
   joker_hours?: number | null;
+  /** staff.hire_date from the people directory. Days before this are not absences. */
+  hire_date?: string | null;
   /** staff.flexible_attendance — listing collapses multi-site same-day rows. */
   flexible_attendance?: boolean;
   /** Flexible or MULTIPLE SITES — same-day cross-site collapse / punch enrich. */
@@ -270,6 +272,8 @@ export function collapseFlexibleAttendanceReportRows(
         expected_minutes: winner.expected_minutes,
         employment_type: winner.employment_type,
         flexible_attendance: winner.flexible_attendance,
+        work_date: winner.work_date,
+        hire_date: winner.hire_date,
         sitePolicy: {
           permanentHours: winner.permanent_hours,
           secondmentHours: winner.secondment_hours,
@@ -365,6 +369,7 @@ export function attendanceHrToListingSource(
   expected_minutes: number | null;
   employment_type: string | null;
   flexible_attendance: boolean;
+  hire_date: string | null;
   status: string;
   missed_punch: boolean;
 } {
@@ -408,6 +413,7 @@ export function attendanceHrToListingSource(
     expected_minutes: expected,
     employment_type: row.employment_type,
     flexible_attendance: Boolean(row.flexible_attendance),
+    hire_date: row.hire_date ?? null,
     status: row.status,
     missed_punch: row.missed_punch,
   };

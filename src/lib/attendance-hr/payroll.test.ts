@@ -275,4 +275,37 @@ describe("payroll readiness", () => {
     expect(earned).not.toBe(7800);
     expect(earned).toBe(Math.round(((7800 / periodDays) * 10 + Number.EPSILON) * 100) / 100);
   });
+
+  it("does not count days before hire date as absences", () => {
+    const [row] = aggregatePayrollRows([
+      {
+        staff_id: "sarah",
+        staff_name: "Sarah Oxel",
+        work_date: "2026-09-16",
+        status: "absent",
+        hire_date: "2026-09-17",
+      },
+      {
+        staff_id: "sarah",
+        staff_name: "Sarah Oxel",
+        work_date: "2026-09-10",
+        status: "weekly_off",
+        hire_date: "2026-09-17",
+      },
+      {
+        staff_id: "sarah",
+        staff_name: "Sarah Oxel",
+        work_date: "2026-09-17",
+        status: "absent",
+        hire_date: "2026-09-17",
+      },
+      {
+        staff_id: "sarah",
+        staff_name: "Sarah Oxel",
+        work_date: "2026-09-18",
+        status: "absent",
+      },
+    ]);
+    expect(row.daysAbsent).toBe(2);
+  });
 });

@@ -82,14 +82,18 @@ export const listAttendanceDailySummary = createAuthenticatedAction(
 
     const staffIds = [...new Set(rows.map((r) => r.staff_id).filter(Boolean))] as string[];
     const { data: staff } = staffIds.length
-      ? await context.supabase.from("staff").select("id, full_name, employee_code").in("id", staffIds)
+      ? await context.supabase.from("staff").select("id, full_name, employee_code, hire_date").in("id", staffIds)
       : { data: [] };
     const staffMap = new Map((staff ?? []).map((s) => [s.id, s]));
 
-    return rows.map((r) => ({
-      ...r,
-      staff: r.staff_id ? staffMap.get(r.staff_id) ?? null : null,
-    }));
+    return rows.map((r) => {
+      const staff = r.staff_id ? staffMap.get(r.staff_id) ?? null : null;
+      return {
+        ...r,
+        hire_date: staff?.hire_date ? String(staff.hire_date).slice(0, 10) : null,
+        staff,
+      };
+    });
   },
   { defaultInput: {}, auth: { capability: "attendance.view" } },
 );

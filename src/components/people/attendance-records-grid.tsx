@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   attendanceListingCells,
+  resolveHoursBasedAttendanceStatus,
   type AttendanceListingSource,
 } from "@/lib/attendance-display";
 import {
@@ -71,6 +72,11 @@ export function AttendanceRecordsGrid({
   }
 
   const detailCells = detail ? attendanceListingCells(detail) : null;
+  const detailStatus = detail
+    ? t(`attendanceHr.reports.statuses.${resolveHoursBasedAttendanceStatus(detail)}`, {
+        defaultValue: detailCells?.status ?? "",
+      })
+    : "";
 
   return (
     <>
@@ -167,7 +173,9 @@ export function AttendanceRecordsGrid({
                             const primary =
                               content.tone === "weekly_off"
                                 ? t("attendanceHr.reports.cellOff")
-                                : content.primary;
+                                : content.tone === "not_joined"
+                                  ? t("attendanceHr.reports.statuses.not_joined")
+                                  : content.primary;
                             return (
                               <button
                                 key={entry.id ?? `${entry.staffId}-${entry.workDate}`}
@@ -239,7 +247,7 @@ export function AttendanceRecordsGrid({
                   [t("attendanceHr.reports.colLate"), detailCells.latePunch],
                   [t("people.attendance.overtime"), detailCells.overtime],
                   [t("people.attendance.overtimeHours"), detailCells.overtimeHours],
-                  [t("attendanceHr.reports.colStatus"), detailCells.status],
+                  [t("attendanceHr.reports.colStatus"), detailStatus],
                 ] as const
               ).map(([label, value]) => (
                 <div key={label} className="contents">

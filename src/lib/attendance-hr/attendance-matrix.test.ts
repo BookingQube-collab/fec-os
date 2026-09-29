@@ -37,6 +37,7 @@ function listing(partial: Partial<AttendanceListingSource> & Pick<AttendanceList
     expected_minutes: partial.expected_minutes,
     status: partial.status ?? "present",
     missed_punch: partial.missed_punch ?? false,
+    hire_date: partial.hire_date,
   };
 }
 
@@ -178,6 +179,16 @@ describe("attendance matrix", () => {
 
   it("maps status codes to matrix theme fills", () => {
     expect(attendanceMatrixStatusCode(listing({ work_date: "2026-07-28", status: "absent" }))).toBe("A");
+    expect(
+      attendanceMatrixStatusCode(
+        listing({ work_date: "2026-08-01", status: "absent", hire_date: "2026-09-17" }),
+      ),
+    ).toBe("NJ");
+    expect(
+      attendanceMatrixStatusCode(
+        listing({ work_date: "2026-08-01", status: "weekly_off", hire_date: "2026-09-17" }),
+      ),
+    ).toBe("WO");
     expect(
       attendanceMatrixCellFillRgb([
         toAttendanceMatrixRow(listing({ work_date: "2026-07-28", status: "absent" })),

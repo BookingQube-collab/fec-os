@@ -292,6 +292,7 @@ export function resolveHrAttendanceStatus(row: AttendanceHrReportRow): string {
   if (resolved === "unpaid_leave") return "Unpaid Leave";
   if (resolved === "unscheduled") return "Unscheduled";
   if (resolved === "review_required") return "Pending Review";
+  if (resolved === "not_joined") return "Not joined";
   if (resolved === "absent") return "Absent";
 
   if (resolved === "missed_punch" || (hasIn !== hasOut && (hasIn || hasOut))) {
@@ -365,6 +366,7 @@ function leaveTypeLabel(status: string): string {
 }
 
 function payrollImpact(status: string): string {
+  if (status === "not_joined") return "";
   if (status === "unpaid_leave" || status === "absent") return "Unpaid";
   if (LEAVE_STATUSES.has(status) || status === "public_holiday" || status === "weekly_off") return "Paid / Off";
   return "";
@@ -445,7 +447,12 @@ function emptyAgg(row: AttendanceHrReportRow): EmpAgg {
 }
 
 function isScheduledDay(status: string): boolean {
-  return status !== "unscheduled" && status !== "weekly_off" && status !== "public_holiday";
+  return (
+    status !== "unscheduled" &&
+    status !== "weekly_off" &&
+    status !== "public_holiday" &&
+    status !== "not_joined"
+  );
 }
 
 function aggregateEmployees(
@@ -467,7 +474,7 @@ function aggregateEmployees(
     if (locationCodeOf(row)) cur.location = locationCodeOf(row);
     if (!cur.employmentType && blank(row.employment_type)) cur.employmentType = blank(row.employment_type);
 
-    cur.scheduledDays += 1;
+    if (status !== "not_joined") cur.scheduledDays += 1;
     if (isAttendanceListingWorkedDay(row)) cur.presentDays += 1;
     if (status === "absent") cur.absentDays += 1;
     if (status === "annual_leave") cur.paidLeave += 1;
@@ -491,7 +498,10 @@ function aggregateEmployees(
       cur.earlyMinutes += early;
     }
     const offOrLeave =
-      status === "weekly_off" || status === "public_holiday" || LEAVE_STATUSES.has(status);
+      status === "weekly_off" ||
+      status === "public_holiday" ||
+      status === "not_joined" ||
+      LEAVE_STATUSES.has(status);
     if (!offOrLeave && (punch.startsWith("Missing") || punch === "Both Missing" || punch === "Invalid Punch Sequence")) {
       cur.missedPunches += 1;
     }
@@ -1106,7 +1116,10 @@ function buildMissedPunches(daily: AttendanceHrReportRow[], ctx: SheetContext): 
     .filter((r) => {
       const status = resolveHoursBasedAttendanceStatus(listingOf(r));
       if (
-        (status === "weekly_off" || status === "public_holiday" || LEAVE_STATUSES.has(status)) &&
+        (status === "weekly_off" ||
+          status === "public_holiday" ||
+          status === "not_joined" ||
+          LEAVE_STATUSES.has(status)) &&
         !r.actual_in &&
         !r.actual_out
       ) {

@@ -26,6 +26,7 @@ import {
   formatWorkDateDdMmYyyy,
   getAttendanceStatusDisplay,
   hasLatePunch,
+  resolveHoursBasedAttendanceStatus,
   latePunchCellClass,
   resolveOvertimeMinutes,
   resolveReportingDisplayIso,
@@ -116,6 +117,7 @@ export function AttendanceRecordsTable({
             rows.map((row, index) => {
               const hours = resolveTotalHoursWorked(row);
               const statusDisplay = getAttendanceStatusDisplay(row);
+              const statusKey = resolveHoursBasedAttendanceStatus(row);
               const otMinutes = resolveOvertimeMinutes(row);
               const ot = otMinutes > 0;
               const late = hasLatePunch(row.late_minutes);
@@ -230,7 +232,7 @@ export function AttendanceRecordsTable({
                   </TableCell>
                   <TableCell>
                     <Badge variant="outline" className={statusDisplay.badgeClass}>
-                      {statusDisplay.label}
+                      {t(`attendanceHr.reports.statuses.${statusKey}`, { defaultValue: statusDisplay.label })}
                     </Badge>
                   </TableCell>
                 </TableRow>

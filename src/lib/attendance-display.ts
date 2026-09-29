@@ -29,7 +29,9 @@ export type AttendanceSummaryRow = {
   /** Expected net daily minutes from site working hours + employment type. */
   expected_minutes?: number | null;
   employment_type?: string | null;
-  staff: { full_name?: string; employee_code?: string } | null;
+  staff: { full_name?: string; employee_code?: string; hire_date?: string | null } | null;
+  /** People-directory join date (`staff.hire_date`). Days before this are not absences. */
+  hire_date?: string | null;
   location: { code: string; name: string; region: string | null } | null;
 };
 
@@ -130,6 +132,7 @@ export function resolveTotalHoursWorked(row: {
 }
 
 const NO_OVERTIME_STATUS_KEYS = new Set([
+  "not_joined",
   "weekly_off",
   "week_off",
   "public_holiday",
@@ -236,6 +239,7 @@ const LATE_BADGE = "border-amber-500/40 bg-amber-500/15 text-amber-700 dark:text
 const UNDERTIME_BADGE = "border-orange-500/40 bg-orange-500/15 text-orange-800 dark:text-orange-200";
 const COMPLETE_BADGE = "border-emerald-500/40 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300";
 const WEEKLY_OFF_BADGE = "border-sky-500/50 bg-sky-500/15 text-sky-800 dark:text-sky-200";
+const NOT_JOINED_BADGE = "border-zinc-400/60 bg-zinc-500/10 text-zinc-600 dark:text-zinc-300";
 
 /** Full-row tints only for Weekly off + Missed punch — `<tr>` bg is unreliable with border-collapse. */
 const MISSED_PUNCH_ROW = "[&>td]:bg-amber-400/25 hover:[&>td]:bg-amber-400/35";
@@ -307,6 +311,11 @@ const NAMED_STATUS_DISPLAY: Record<string, AttendanceStatusDisplay> = {
     badgeClass: "border-zinc-500/40 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300",
     rowClass: NO_ROW_TINT,
   },
+  not_joined: {
+    label: "Not joined",
+    badgeClass: NOT_JOINED_BADGE,
+    rowClass: NO_ROW_TINT,
+  },
   review_required: {
     label: "Review required",
     badgeClass: LATE_BADGE,
@@ -361,6 +370,33 @@ function normalizeAttendanceStatusKey(status: string): string {
   return STATUS_ALIASES[raw] ?? raw;
 }
 
+/** True when the calendar day is strictly before `staff.hire_date`. Missing/invalid hire date is false. */
+export function isWorkDateBeforeHireDate(
+  workDate: string | null | undefined,
+  hireDate: string | null | undefined,
+): boolean {
+  const hire = String(hireDate ?? "").trim().slice(0, 10);
+  const day = String(workDate ?? "").trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(hire) || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return false;
+  return day < hire;
+}
+
+/**
+ * Days before the people-directory join date are not absences.
+ * Weekly off (and any non-absent status) stays as-is. Missing hire date keeps the current status.
+ */
+export function applyPreJoinAttendanceStatus(input: {
+  status: string;
+  workDate?: string | null;
+  hireDate?: string | null;
+}): string {
+  const key = normalizeAttendanceStatusKey(input.status);
+  if (key === "weekly_off") return "weekly_off";
+  if (key !== "absent") return key || input.status;
+  if (!isWorkDateBeforeHireDate(input.workDate, input.hireDate)) return "absent";
+  return "not_joined";
+}
+
 /** Resolve expected net minutes from employment type + optional site hour overrides. */
 export function resolveExpectedWorkMinutes(input: {
   expected_minutes?: number | null;
@@ -399,6 +435,9 @@ export function resolveHoursBasedAttendanceStatus(
     sitePolicy?: SiteShiftPolicyOverrides | null;
     flexible_attendance?: boolean | null;
     late_minutes?: number | null;
+    work_date?: string | null;
+    /** `staff.hire_date`. Strictly earlier days that would be Absent become not_joined. */
+    hire_date?: string | null;
   },
 ): string {
   const statusKey = normalizeAttendanceStatusKey(row.status);
@@ -410,7 +449,12 @@ export function resolveHoursBasedAttendanceStatus(
   if (!(hasIn && hasOut)) {
     if (row.missed_punch || hasIn !== hasOut) return "missed_punch";
     if (!hasIn && !hasOut) {
-      return statusKey === "absent" ? "absent" : statusKey || "absent";
+      const next = statusKey === "absent" ? "absent" : statusKey || "absent";
+      return applyPreJoinAttendanceStatus({
+        status: next,
+        workDate: row.work_date,
+        hireDate: row.hire_date,
+      });
     }
   }
 
@@ -467,6 +511,8 @@ export function getAttendanceStatusDisplay(
     sitePolicy?: SiteShiftPolicyOverrides | null;
     flexible_attendance?: boolean | null;
     late_minutes?: number | null;
+    work_date?: string | null;
+    hire_date?: string | null;
   },
 ): AttendanceStatusDisplay {
   const statusKey = resolveHoursBasedAttendanceStatus(row);
@@ -565,7 +611,7 @@ export function computeAttendanceKpis(rows: AttendanceSummaryRow[]): AttendanceK
     } else if (display.label === "Missing Punch" || display.label === "Absent") missingPunch++;
     else if (display.label === "Late" || display.label === "Early Leave") late++;
 
-    if (row.status === "absent" || display.label === "Absent") absent++;
+    if (display.label === "Absent") absent++;
     if (hasOvertime(row)) overtime++;
 
     const hours = resolveTotalHoursWorked(row);
@@ -616,6 +662,8 @@ export type AttendanceListingSource = {
   employment_type?: string | null;
   /** staff.flexible_attendance — Late = late punch; Undertime = on time under expected. */
   flexible_attendance?: boolean | null;
+  /** People-directory join date. Days strictly before this are Not joined, not Absent. */
+  hire_date?: string | null;
   status: string;
   missed_punch: boolean;
 };
@@ -670,6 +718,7 @@ export function toAttendanceListingSource(row: AttendanceSummaryRow): Attendance
     break_minutes: row.break_minutes ?? null,
     expected_minutes: row.expected_minutes ?? null,
     employment_type: row.employment_type ?? null,
+    hire_date: row.hire_date ?? row.staff?.hire_date ?? null,
     status: row.status,
     missed_punch: row.missed_punch,
   };

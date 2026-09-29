@@ -6357,7 +6357,8 @@
         "incomplete": "Incomplete",
         "overtime": "Overtime",
         "review_required": "Review required",
-        "unscheduled": "Unscheduled"
+        "unscheduled": "Unscheduled",
+        "not_joined": "Not joined"
       }
     },
     "mapping": {
