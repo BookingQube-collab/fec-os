@@ -213,17 +213,18 @@ function isBlankField(value: unknown): boolean {
 
 /** Copy only fields that are empty on the kept row and present on the stub. */
 export function fillEmptyStaffFields<T extends Record<string, unknown>>(keep: T, stub: T): T {
-  const next = { ...keep };
+  // Write through a concrete record. TypeScript 5.8 rejects assignment through a generic index.
+  const next: Record<string, unknown> = { ...keep };
   for (const key of BLANK_TEXT_FIELDS) {
-    if (isBlankField(next[key]) && !isBlankField(stub[key])) next[key] = stub[key] as T[typeof key];
+    if (isBlankField(next[key]) && !isBlankField(stub[key])) next[key] = stub[key];
   }
   for (const key of NULL_FIELDS) {
-    if (next[key] == null && stub[key] != null) next[key] = stub[key] as T[typeof key];
+    if (next[key] == null && stub[key] != null) next[key] = stub[key];
   }
   if (next.photo_data == null && stub.photo_data != null) {
-    next.photo_data = stub.photo_data as T["photo_data"];
-    next.photo_mime = stub.photo_mime as T["photo_mime"];
-    next.photo_updated_at = stub.photo_updated_at as T["photo_updated_at"];
+    next.photo_data = stub.photo_data;
+    next.photo_mime = stub.photo_mime;
+    next.photo_updated_at = stub.photo_updated_at;
   }
-  return next;
+  return next as T;
 }
