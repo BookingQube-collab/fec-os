@@ -25,6 +25,11 @@ import { useTranslation } from "react-i18next";
 
 import { StaffDirectory } from "@/components/people/staff-directory";
 import { StaffPhotoField, type StaffPhotoDraft } from "@/components/people/staff-photo-field";
+import {
+  emptyIdentityDraft,
+  StaffIdentityDocsField,
+  type StaffIdentityDraft,
+} from "@/components/people/staff-identity-docs-field";
 import { useStaff } from "@/hooks/queries/usePeople";
 import { useSites } from "@/hooks/queries/useSites";
 import {
@@ -36,6 +41,7 @@ import {
   cancelShift,
   createStaff,
   updateStaff,
+  attachStaffIdentityDocuments,
   saveStaffPhoto,
   removeStaffPhoto,
   deactivateStaff,
@@ -70,6 +76,8 @@ import {
   downloadCsvContent,
 } from "@/lib/staff-import";
 import { nextEmployeeCode } from "@/lib/staff-employee-code";
+import { fileToBase64, identityFileContentType } from "@/lib/hr/identity-file";
+import type { IdentityDocType } from "@/lib/hr/identity-document-parse";
 import type { StaffRow } from "@/lib/queries/module-queries.core";
 import { queryKeys } from "@/lib/query-keys";
 import { usePermission } from "@/hooks/use-permission";
@@ -518,7 +526,16 @@ function StaffFormDialog({
     staff?.weekly_off_weekday == null ? "" : String(staff.weekly_off_weekday),
   );
   const [photoDraft, setPhotoDraft] = useState<StaffPhotoDraft>({ dataUrl: null, remove: false });
+  const [identity, setIdentity] = useState<StaffIdentityDraft>(() => emptyIdentityDraft(staff));
+  const [createdStaffId, setCreatedStaffId] = useState<string | null>(null);
   const [codeNonce, setCodeNonce] = useState(0);
+
+  useEffect(() => {
+    if (open) return;
+    setIdentity(emptyIdentityDraft(staff));
+    setCreatedStaffId(null);
+    setPhotoDraft({ dataUrl: null, remove: false });
+  }, [open, staff]);
 
   useEffect(() => {
     if (!open || isEdit) return;
@@ -616,6 +633,22 @@ function StaffFormDialog({
           isRoaming,
         });
         if (!sitesResult.ok) throw new Error(sitesResult.error);
+      } else if (createdStaffId) {
+        const updated = await updateStaff({
+          id: createdStaffId,
+          fullName,
+          jobTitle: jobTitle || null,
+          departmentIds,
+          hireDate: hireDate || null,
+          status,
+          phone: phone || null,
+          email: email || null,
+          qid: qidValue,
+          e3Enrolled,
+          employmentType: employment,
+        });
+        if (!updated.ok) throw new Error(updated.error);
+        staffId = createdStaffId;
       } else {
         if (!loc) throw new Error(t("people.staff.selectBranch"));
         const created = await createStaff({
@@ -634,6 +667,7 @@ function StaffFormDialog({
         });
         if (!created.ok) throw new Error(created.error);
         staffId = created.data.id;
+        setCreatedStaffId(staffId);
       }
 
       if (staffId && canEditSalary) {
@@ -659,6 +693,59 @@ function StaffFormDialog({
         await saveStaffPhoto({ id: staffId, photoDataUrl: photoDraft.dataUrl });
       } else if (staffId && photoDraft.remove && isEdit) {
         await removeStaffPhoto({ id: staffId });
+      }
+
+      if (staffId) {
+        const documents: Array<{
+          docType: IdentityDocType;
+          filename: string;
+          data_base64: string;
+          content_type: string;
+          documentNumber: string | null;
+          expiryDate: string | null;
+        }> = [];
+        const numberFor = (docType: IdentityDocType) => {
+          if (docType === "qid") return qidValue;
+          if (docType === "passport") return identity.passportNumber.trim() || null;
+          if (docType === "visa") return identity.visaNumber.trim() || null;
+          return identity.contractNumber.trim() || null;
+        };
+        const expiryFor = (docType: IdentityDocType) => {
+          if (docType === "qid") return identity.qidExpiry || null;
+          if (docType === "passport") return identity.passportExpiry || null;
+          if (docType === "visa") return identity.visaExpiry || null;
+          return identity.contractExpiry || null;
+        };
+        for (const docType of ["qid", "passport", "visa", "contract"] as const) {
+          const file = identity.files[docType];
+          if (!file) continue;
+          const contentType = identityFileContentType(file);
+          if (!contentType) throw new Error(t("people.staff.fileType"));
+          documents.push({
+            docType,
+            filename: file.name,
+            data_base64: await fileToBase64(file),
+            content_type: contentType,
+            documentNumber: numberFor(docType),
+            expiryDate: expiryFor(docType),
+          });
+        }
+        const hasProfile =
+          Boolean(identity.qidExpiry || identity.passportNumber.trim() || identity.passportExpiry || identity.visaNumber.trim() || identity.visaExpiry || identity.contractExpiry);
+        if (documents.length || hasProfile) {
+          const attached = await attachStaffIdentityDocuments({
+            staffId,
+            qidExpiry: identity.qidExpiry || null,
+            passportNumber: identity.passportNumber.trim() || null,
+            passportExpiry: identity.passportExpiry || null,
+            visaNumber: identity.visaNumber.trim() || null,
+            visaExpiry: identity.visaExpiry || null,
+            contractEnd: identity.contractExpiry || null,
+            qidIfEmpty: qidValue,
+            documents,
+          });
+          if (!attached.ok) throw new Error(attached.error);
+        }
       }
     },
     onSuccess: () => {
@@ -687,7 +774,7 @@ function StaffFormDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
+      <DialogContent className="max-h-[90vh] max-w-[calc(100%-1.5rem)] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>{isEdit ? t("people.staff.edit") : t("people.staff.add")}</DialogTitle>
         </DialogHeader>
@@ -736,7 +823,7 @@ function StaffFormDialog({
               </div>
             </>
           ) : (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
                 <Label>{t("people.staff.branch")}</Label>
                 <Input
@@ -758,12 +845,33 @@ function StaffFormDialog({
           )}
           <div>
             <Label>{t("people.staff.name")}</Label>
-            <Input value={fullName} onChange={(e) => setFullName(e.target.value)} />
+            <Input
+              value={fullName}
+              onChange={(e) => {
+                setFullName(e.target.value);
+                if (identity.suggestions.fullName) {
+                  const suggestions = { ...identity.suggestions };
+                  delete suggestions.fullName;
+                  setIdentity({ ...identity, suggestions });
+                }
+              }}
+            />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label>{t("people.staff.qid")}</Label>
-              <Input value={qid} onChange={(e) => setQid(e.target.value)} className="font-mono" />
+              <Input
+                value={qid}
+                onChange={(e) => {
+                  setQid(e.target.value);
+                  if (identity.suggestions.qid) {
+                    const suggestions = { ...identity.suggestions };
+                    delete suggestions.qid;
+                    setIdentity({ ...identity, suggestions });
+                  }
+                }}
+                className="font-mono"
+              />
             </div>
             <div>
               <Label>{t("people.staff.e3")}</Label>
@@ -777,7 +885,18 @@ function StaffFormDialog({
               </Select>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <StaffIdentityDocsField
+            fullName={fullName}
+            qid={qid}
+            draft={identity}
+            onDraft={setIdentity}
+            onApplyFields={(patch) => {
+              if (patch.fullName != null) setFullName(patch.fullName);
+              if (patch.qid != null) setQid(patch.qid);
+            }}
+            disabled={m.isPending}
+          />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label>{t("people.staff.title")}</Label>
               <Input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} />
@@ -799,7 +918,7 @@ function StaffFormDialog({
             />
             <p className="mt-1 text-[11px] text-muted-foreground">{t("people.staff.deptFbCafeHint")}</p>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label>{t("people.staff.status")}</Label>
               <Select value={status} onValueChange={(v) => setStatus(v as (typeof STAFF_STATUSES)[number])}>
@@ -924,7 +1043,7 @@ function StaffFormDialog({
               <p className="mt-1 text-[11px] text-muted-foreground">{t("people.staff.payBasisDailyHelp")}</p>
             </div>
           ) : null}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label>{t("people.staff.phone")}</Label>
               <Input value={phone} onChange={(e) => setPhone(e.target.value)} />

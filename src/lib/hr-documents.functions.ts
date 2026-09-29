@@ -10,6 +10,9 @@ import { appendEmployeeEvent } from "@/lib/hr-employee-events";
 import { createAuthenticatedAction, type AuthContext } from "@/lib/server/create-action";
 import { ForbiddenError } from "@/lib/server/authorize";
 import { canUserDo, type AppRole } from "@/lib/rbac";
+import { extractIdentityDocumentFromBytes } from "@/lib/hr/extract-identity-document";
+import { isIdentityDocType } from "@/lib/hr/identity-document-parse";
+import { syncStaffIdentityProfile } from "@/lib/hr/sync-staff-identity";
 import { validateBase64Size, validateUploadMime } from "@/lib/server/upload-validation";
 
 const DOC_BUCKET = "hr-employee-documents";
@@ -80,6 +83,7 @@ function mapDoc(row: Record<string, unknown>) {
     staffName: (staff as { full_name?: string } | null)?.full_name ?? null,
     employeeCode: (staff as { employee_code?: string } | null)?.employee_code ?? null,
     docType: String(row.doc_type),
+    documentNumber: (row.document_number as string | null) ?? null,
     title: (row.title as string | null) ?? null,
     fileName: (row.file_name as string | null) ?? null,
     filePath: (row.file_path as string | null) ?? null,
@@ -107,7 +111,30 @@ const educationFields = {
 };
 
 const DOC_SELECT =
-  "id, staff_id, doc_type, title, file_name, file_path, expiry_date, notes, created_at, status, verification_status, verification_remarks, verified_at, qualification, institution, graduation_year, mofa_status, supersedes_id, deleted_at, staff(full_name, employee_code)";
+  "id, staff_id, doc_type, document_number, title, file_name, file_path, expiry_date, notes, created_at, status, verification_status, verification_remarks, verified_at, qualification, institution, graduation_year, mofa_status, supersedes_id, deleted_at, staff(full_name, employee_code)";
+
+const identityDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+async function syncUploadedIdentity(
+  context: AuthContext,
+  staffId: string,
+  docType: string,
+  documentNumber: string | null | undefined,
+  expiryDate: string | null | undefined,
+) {
+  if (!isIdentityDocType(docType)) return;
+  await syncStaffIdentityProfile({
+    staffId,
+    updatedBy: context.userId,
+    qidExpiry: docType === "qid" ? expiryDate : undefined,
+    qidIfEmpty: docType === "qid" ? documentNumber : undefined,
+    passportNumber: docType === "passport" ? documentNumber : undefined,
+    passportExpiry: docType === "passport" ? expiryDate : undefined,
+    visaNumber: docType === "visa" ? documentNumber : undefined,
+    visaExpiry: docType === "visa" ? expiryDate : undefined,
+    contractEnd: docType === "contract" ? expiryDate : undefined,
+  });
+}
 
 export const listEmployeeDocuments = createAuthenticatedAction(
   z.object({
@@ -171,7 +198,8 @@ export const uploadEmployeeDocument = createAuthenticatedAction(
     staffId: z.string().uuid().optional(),
     docType: z.enum(HR_DOC_TYPES),
     title: z.string().max(200).optional().nullable(),
-    expiryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+    documentNumber: z.string().max(40).optional().nullable(),
+    expiryDate: identityDate.optional().nullable(),
     notes: z.string().max(500).optional().nullable(),
     filename: z.string().min(1).max(200),
     data_base64: z.string().min(10).max(14_000_000),
@@ -197,6 +225,7 @@ export const uploadEmployeeDocument = createAuthenticatedAction(
         staff_id: staffId,
         doc_type: data.docType,
         title: data.title ?? data.filename,
+        document_number: data.documentNumber?.trim() || null,
         file_path: path,
         file_name: data.filename,
         file_mime: data.content_type,
@@ -213,9 +242,37 @@ export const uploadEmployeeDocument = createAuthenticatedAction(
       .select("id")
       .single();
     if (error) throw error;
+    await syncUploadedIdentity(
+      context,
+      staffId,
+      data.docType,
+      data.documentNumber,
+      data.expiryDate,
+    );
     return { id: row.id as string };
   },
   { auth: { anyCapability: ["hr.docs.manage", "hr.manage", "hr.employee_app"] } },
+);
+
+export const extractStaffIdentityDocument = createAuthenticatedAction(
+  z.object({
+    docType: z.enum(["qid", "passport", "visa", "contract"]),
+    filename: z.string().min(1).max(200),
+    data_base64: z.string().min(10).max(14_000_000),
+    content_type: z.string().max(100),
+  }),
+  async (data) => {
+    validateUploadMime(data.content_type, "document");
+    validateBase64Size(data.data_base64, 10 * 1024 * 1024);
+    const bytes = Buffer.from(data.data_base64, "base64");
+    return extractIdentityDocumentFromBytes({
+      docType: data.docType,
+      filename: data.filename,
+      bytes,
+      contentType: data.content_type,
+    });
+  },
+  { auth: { anyCapability: ["people.edit_roster", "hr.docs.manage", "hr.manage", "hr.employee_app"] } },
 );
 
 /** Replace = new row + supersedes_id; never overwrite existing file_path. */
@@ -226,7 +283,8 @@ export const replaceEmployeeDocument = createAuthenticatedAction(
     data_base64: z.string().min(10).max(14_000_000),
     content_type: z.string().max(100).default("application/pdf"),
     title: z.string().max(200).optional().nullable(),
-    expiryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+    documentNumber: z.string().max(40).optional().nullable(),
+    expiryDate: identityDate.optional().nullable(),
     notes: z.string().max(500).optional().nullable(),
     ...educationFields,
   }),
@@ -235,7 +293,7 @@ export const replaceEmployeeDocument = createAuthenticatedAction(
     const mine = await myStaff(context);
     const { data: old, error } = await context.supabase
       .from("hr_employee_documents")
-      .select("id, staff_id, doc_type, title, notes, qualification, institution, graduation_year, mofa_status")
+      .select("id, staff_id, doc_type, document_number, expiry_date, title, notes, qualification, institution, graduation_year, mofa_status")
       .eq("id", data.id)
       .is("deleted_at", null)
       .maybeSingle();
@@ -259,10 +317,11 @@ export const replaceEmployeeDocument = createAuthenticatedAction(
         staff_id: old.staff_id,
         doc_type: old.doc_type,
         title: data.title ?? old.title ?? data.filename,
+        document_number: data.documentNumber?.trim() || (old.document_number as string | null) || null,
         file_path: path,
         file_name: data.filename,
         file_mime: data.content_type,
-        expiry_date: data.expiryDate ?? null,
+        expiry_date: data.expiryDate ?? (old.expiry_date ? String(old.expiry_date).slice(0, 10) : null),
         notes: data.notes ?? old.notes ?? null,
         uploaded_by: context.userId,
         supersedes_id: old.id,
@@ -287,6 +346,13 @@ export const replaceEmployeeDocument = createAuthenticatedAction(
       })
       .eq("id", old.id);
 
+    await syncUploadedIdentity(
+      context,
+      String(old.staff_id),
+      String(old.doc_type),
+      data.documentNumber,
+      data.expiryDate,
+    );
     await auditDoc(context, "hr_document.replace", String(row.id), {
       supersedes_id: old.id,
     });

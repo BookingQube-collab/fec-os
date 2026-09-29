@@ -18,9 +18,20 @@ import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { HR_DOC_TYPES } from "@/lib/hr-advanced";
 import {
+  fileToBase64,
+  IDENTITY_FILE_ACCEPT,
+  IDENTITY_FILE_MAX_BYTES,
+  identityFileContentType,
+} from "@/lib/hr/identity-file";
+import {
+  applyDocumentEditorExtraction,
+  isIdentityDocType,
+} from "@/lib/hr/identity-document-parse";
+import {
   approveEmployeeDocument,
   deleteEmployeeDocument,
   expireEmployeeDocument,
+  extractStaffIdentityDocument,
   getEmployeeDocumentUrl,
   listEmployeeDocuments,
   rejectEmployeeDocument,
@@ -31,14 +42,6 @@ import {
 import { listStaffForLeaveBalances } from "@/lib/hr-leave.functions";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
-
-async function fileToBase64(file: File): Promise<string> {
-  const buf = await file.arrayBuffer();
-  let binary = "";
-  const bytes = new Uint8Array(buf);
-  for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i]!);
-  return btoa(binary);
-}
 
 const EDUCATION_TYPES = new Set(["educational_certificate", "mofa_attested_certificate"]);
 
@@ -57,6 +60,11 @@ export function HrDocumentsWorkspace({
   const staffId = lockedStaffId ?? pickedStaffId;
   const [docType, setDocType] = useState<(typeof HR_DOC_TYPES)[number]>("contract");
   const [expiry, setExpiry] = useState("");
+  const [documentNumber, setDocumentNumber] = useState("");
+  const [numberSuggestion, setNumberSuggestion] = useState("");
+  const [expirySuggestion, setExpirySuggestion] = useState("");
+  const [extractNote, setExtractNote] = useState("");
+  const [readingFile, setReadingFile] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [qualification, setQualification] = useState("");
   const [institution, setInstitution] = useState("");
@@ -83,6 +91,50 @@ export function HrDocumentsWorkspace({
     onChanged?.();
   };
 
+  async function onPickUpload(next: File | null) {
+    setFile(next);
+    setNumberSuggestion("");
+    setExpirySuggestion("");
+    setExtractNote("");
+    if (!next || !isIdentityDocType(docType)) return;
+    if (next.size > IDENTITY_FILE_MAX_BYTES) {
+      toast.error(t("people.staff.fileTooLarge"));
+      setFile(null);
+      return;
+    }
+    const contentType = identityFileContentType(next);
+    if (!contentType) {
+      toast.error(t("people.staff.fileType"));
+      setFile(null);
+      return;
+    }
+    setReadingFile(true);
+    try {
+      const data_base64 = await fileToBase64(next);
+      const result = await extractStaffIdentityDocument({
+        docType,
+        filename: next.name,
+        data_base64,
+        content_type: contentType,
+      });
+      const applied = applyDocumentEditorExtraction({
+        docType,
+        number: documentNumber,
+        expiry,
+        parsed: result.parsed,
+      });
+      setDocumentNumber(applied.number);
+      setExpiry(applied.expiry);
+      setNumberSuggestion(applied.suggestions.number ?? "");
+      setExpirySuggestion(applied.suggestions.expiry ?? "");
+      setExtractNote(result.manual ? t("people.staff.extractManual") : "");
+    } catch (error) {
+      setExtractNote((error as Error).message || t("people.staff.extractManual"));
+    } finally {
+      setReadingFile(false);
+    }
+  }
+
   const upload = useMutation({
     mutationFn: async () => {
       if (!staffId || !file) throw new Error(t("hr.docs.needFile"));
@@ -93,6 +145,7 @@ export function HrDocumentsWorkspace({
         filename: file.name,
         data_base64,
         content_type: file.type || "application/pdf",
+        documentNumber: documentNumber.trim() || null,
         expiryDate: expiry || null,
         title: file.name,
         qualification: qualification || null,
@@ -174,11 +227,37 @@ export function HrDocumentsWorkspace({
     mutationFn: async () => {
       if (!replaceId || !replaceFile) throw new Error(t("hr.docs.needFile"));
       const data_base64 = await fileToBase64(replaceFile);
+      const contentType = identityFileContentType(replaceFile) || replaceFile.type || "application/pdf";
+      const existing = (docs.data ?? []).find((doc) => doc.id === replaceId);
+      let documentNumber = existing?.documentNumber ?? null;
+      let expiryDate = existing?.expiryDate ?? null;
+      if (existing && isIdentityDocType(existing.docType) && identityFileContentType(replaceFile)) {
+        try {
+          const result = await extractStaffIdentityDocument({
+            docType: existing.docType,
+            filename: replaceFile.name,
+            data_base64,
+            content_type: contentType,
+          });
+          const applied = applyDocumentEditorExtraction({
+            docType: existing.docType,
+            number: existing.documentNumber ?? "",
+            expiry: existing.expiryDate ?? "",
+            parsed: result.parsed,
+          });
+          documentNumber = applied.number || documentNumber;
+          expiryDate = applied.expiry || expiryDate;
+        } catch {
+          /* keep the previous number and expiry; the new file still replaces the scan */
+        }
+      }
       return replaceEmployeeDocument({
         id: replaceId,
         filename: replaceFile.name,
         data_base64,
-        content_type: replaceFile.type || "application/pdf",
+        content_type: contentType,
+        documentNumber,
+        expiryDate,
       });
     },
     onSuccess: () => {
@@ -238,7 +317,15 @@ export function HrDocumentsWorkspace({
                 <select
                   className="flex h-10 w-full rounded-xl border border-input bg-background px-3 text-sm"
                   value={docType}
-                  onChange={(e) => setDocType(e.target.value as (typeof HR_DOC_TYPES)[number])}
+                  onChange={(e) => {
+                    setDocType(e.target.value as (typeof HR_DOC_TYPES)[number]);
+                    setDocumentNumber("");
+                    setExpiry("");
+                    setNumberSuggestion("");
+                    setExpirySuggestion("");
+                    setExtractNote("");
+                    setFile(null);
+                  }}
                 >
                   {HR_DOC_TYPES.map((value) => (
                     <option key={value} value={value}>
@@ -247,13 +334,67 @@ export function HrDocumentsWorkspace({
                   ))}
                 </select>
               </div>
+              {isIdentityDocType(docType) ? (
+                <div>
+                  <Label>{t("hr.docs.documentNumber")}</Label>
+                  <Input
+                    value={documentNumber}
+                    className="font-mono"
+                    onChange={(e) => {
+                      setDocumentNumber(e.target.value);
+                      setNumberSuggestion("");
+                    }}
+                  />
+                  {numberSuggestion ? (
+                    <button
+                      type="button"
+                      className="mt-1 text-left text-xs text-primary underline"
+                      onClick={() => {
+                        setDocumentNumber(numberSuggestion);
+                        setNumberSuggestion("");
+                      }}
+                    >
+                      {t("people.staff.useExtracted", { value: numberSuggestion })}
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
               <div>
                 <Label>{t("hr.docs.expiry")}</Label>
-                <Input type="date" value={expiry} onChange={(e) => setExpiry(e.target.value)} />
+                <Input
+                  type="date"
+                  value={expiry}
+                  onChange={(e) => {
+                    setExpiry(e.target.value);
+                    setExpirySuggestion("");
+                  }}
+                />
+                {expirySuggestion ? (
+                  <button
+                    type="button"
+                    className="mt-1 text-left text-xs text-primary underline"
+                    onClick={() => {
+                      setExpiry(expirySuggestion);
+                      setExpirySuggestion("");
+                    }}
+                  >
+                    {t("people.staff.useExtracted", { value: expirySuggestion })}
+                  </button>
+                ) : null}
               </div>
               <div>
                 <Label>{t("hr.docs.file")}</Label>
-                <Input type="file" accept=".pdf,image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+                <Input
+                  type="file"
+                  accept={IDENTITY_FILE_ACCEPT}
+                  onChange={(e) => void onPickUpload(e.target.files?.[0] ?? null)}
+                />
+                {readingFile ? (
+                  <p className="mt-1 text-[11px] text-muted-foreground">{t("people.staff.readingDocument")}</p>
+                ) : null}
+                {extractNote ? (
+                  <p className="mt-1 text-[11px] text-muted-foreground">{extractNote}</p>
+                ) : null}
               </div>
               {showEducation ? (
                 <>

@@ -378,6 +378,7 @@ export interface StaffRow {
   sponsorship_info?: string | null;
   passport_number?: string | null;
   passport_expiry?: string | null;
+  visa_number?: string | null;
   qid_expiry?: string | null;
   date_of_birth?: string | null;
   contract_end?: string | null;
@@ -490,7 +491,7 @@ export async function fetchStaff(
     const { data: exts } = await context.supabase
       .from("staff_profile_ext")
       .select(
-        "staff_id, nationality, gender, sponsorship_info, passport_number, passport_expiry, qid_expiry, date_of_birth, contract_end, visa_expiry",
+        "staff_id, nationality, gender, sponsorship_info, passport_number, passport_expiry, visa_number, qid_expiry, date_of_birth, contract_end, visa_expiry",
       )
       .in(
         "staff_id",
@@ -505,6 +506,7 @@ export async function fetchStaff(
       row.sponsorship_info = ext.sponsorship_info ?? null;
       row.passport_number = ext.passport_number ?? null;
       row.passport_expiry = ext.passport_expiry ?? null;
+      row.visa_number = ext.visa_number ?? null;
       row.qid_expiry = ext.qid_expiry ?? null;
       row.date_of_birth = ext.date_of_birth ?? null;
       row.contract_end = ext.contract_end ?? null;
@@ -548,7 +550,7 @@ export async function fetchStaff(
  * Hint both embeds: locations (home vs work M2M) and staff_profile_ext
  * (staff_id vs reporting_manager_staff_id) — otherwise PostgREST PGRST201. */
 const STAFF_DIRECTORY_SELECT =
-  "id, employee_code, full_name, job_title, department, status, location_id, is_roaming, phone, email, hire_date, qid, e3_enrolled, employment_type, staff_role, photo_updated_at, flexible_attendance, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday, locations!staff_location_id_fkey(code, name), staff_departments(department_id, master_departments(id, name, sort_order)), staff_profile_ext!staff_profile_ext_staff_id_fkey(nationality, gender, sponsorship_info, passport_number, passport_expiry, qid_expiry, date_of_birth, contract_end, visa_expiry)";
+  "id, employee_code, full_name, job_title, department, status, location_id, is_roaming, phone, email, hire_date, qid, e3_enrolled, employment_type, staff_role, photo_updated_at, flexible_attendance, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday, locations!staff_location_id_fkey(code, name), staff_departments(department_id, master_departments(id, name, sort_order)), staff_profile_ext!staff_profile_ext_staff_id_fkey(nationality, gender, sponsorship_info, passport_number, passport_expiry, visa_number, qid_expiry, date_of_birth, contract_end, visa_expiry)";
 
 export type StaffDirectoryListFilters = {
   locationId?: string | null;
@@ -591,6 +593,7 @@ function applyStaffProfileExt(
         sponsorship_info?: string | null;
         passport_number?: string | null;
         passport_expiry?: string | null;
+        visa_number?: string | null;
         qid_expiry?: string | null;
         date_of_birth?: string | null;
         contract_end?: string | null;
@@ -607,6 +610,7 @@ function applyStaffProfileExt(
     sponsorship_info: ext.sponsorship_info ?? null,
     passport_number: ext.passport_number ?? null,
     passport_expiry: ext.passport_expiry ?? null,
+    visa_number: ext.visa_number ?? null,
     qid_expiry: ext.qid_expiry ?? null,
     date_of_birth: ext.date_of_birth ?? null,
     contract_end: ext.contract_end ?? null,
@@ -654,6 +658,7 @@ export async function fetchStaffDirectory(
             sponsorship_info?: string | null;
             passport_number?: string | null;
             passport_expiry?: string | null;
+            visa_number?: string | null;
             qid_expiry?: string | null;
             date_of_birth?: string | null;
             contract_end?: string | null;
@@ -665,6 +670,7 @@ export async function fetchStaffDirectory(
             sponsorship_info?: string | null;
             passport_number?: string | null;
             passport_expiry?: string | null;
+            visa_number?: string | null;
             qid_expiry?: string | null;
             date_of_birth?: string | null;
             contract_end?: string | null;

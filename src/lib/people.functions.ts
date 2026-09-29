@@ -25,6 +25,8 @@ import { shiftUuid, staffUuid } from "@/lib/staff-import-ids";
 import { createAuthenticatedAction, createSafeAuthenticatedAction } from "@/lib/server/create-action";
 import type { AuthContext } from "@/lib/server/create-action";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { syncStaffIdentityProfile } from "@/lib/hr/sync-staff-identity";
+import { validateBase64Size, validateUploadMime } from "@/lib/server/upload-validation";
 import type { TablesUpdate } from "@/integrations/supabase/types";
 import { insertStatusHistory } from "@/lib/staff-history";
 import {
@@ -1116,6 +1118,96 @@ export const updateStaffProfileNotes = createAuthenticatedAction(
     );
     if (error) throw error;
     return { ok: true };
+  },
+  { auth: { anyCapability: ["people.edit_roster", "hr.manage", "hr.docs.manage"] } },
+);
+
+const identityDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const HR_DOC_BUCKET = "hr-employee-documents";
+
+/** Store QID / passport / visa / contract files on hr_employee_documents and copy numbers/expiries onto the staff profile. */
+export const attachStaffIdentityDocuments = createSafeAuthenticatedAction(
+  z.object({
+    staffId: z.string().uuid(),
+    qidExpiry: identityDate.nullable().optional(),
+    passportNumber: z.string().max(32).nullable().optional(),
+    passportExpiry: identityDate.nullable().optional(),
+    visaNumber: z.string().max(40).nullable().optional(),
+    visaExpiry: identityDate.nullable().optional(),
+    contractEnd: identityDate.nullable().optional(),
+    qidIfEmpty: z.string().max(32).nullable().optional(),
+    documents: z
+      .array(
+        z.object({
+          docType: z.enum(["qid", "passport", "visa", "contract"]),
+          filename: z.string().min(1).max(200),
+          data_base64: z.string().min(10).max(14_000_000),
+          content_type: z.string().max(100),
+          documentNumber: z.string().max(40).nullable().optional(),
+          expiryDate: identityDate.nullable().optional(),
+        }),
+      )
+      .max(4),
+  }),
+  async (data, context) => {
+    const { data: existing, error: fetchErr } = await context.supabase
+      .from("staff")
+      .select("location_id")
+      .eq("id", data.staffId)
+      .is("deleted_at", null)
+      .single();
+    if (fetchErr) throw fetchErr;
+    await assertLocationAccess(context, existing.location_id);
+
+    const stored: string[] = [];
+    for (const doc of data.documents) {
+      validateUploadMime(doc.content_type, "document");
+      validateBase64Size(doc.data_base64, 10 * 1024 * 1024);
+      const safeName = doc.filename.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const path = `${data.staffId}/${doc.docType}-${Date.now()}-${safeName}`;
+      const bytes = Uint8Array.from(Buffer.from(doc.data_base64, "base64"));
+      const { error: upErr } = await supabaseAdmin.storage
+        .from(HR_DOC_BUCKET)
+        .upload(path, bytes, { contentType: doc.content_type, upsert: false });
+      if (upErr) throw upErr;
+      const { error: insErr } = await supabaseAdmin.from("hr_employee_documents").insert({
+        staff_id: data.staffId,
+        doc_type: doc.docType,
+        title: doc.filename,
+        document_number: doc.documentNumber?.trim() || null,
+        file_path: path,
+        file_name: doc.filename,
+        file_mime: doc.content_type,
+        expiry_date: doc.expiryDate ?? null,
+        uploaded_by: context.userId,
+        status: "pending",
+        verification_status: "unverified",
+      });
+      if (insErr) throw insErr;
+      stored.push(doc.docType);
+    }
+
+    await syncStaffIdentityProfile({
+      staffId: data.staffId,
+      updatedBy: context.userId,
+      qidExpiry: data.qidExpiry,
+      passportNumber: data.passportNumber,
+      passportExpiry: data.passportExpiry,
+      visaNumber: data.visaNumber,
+      visaExpiry: data.visaExpiry,
+      contractEnd: data.contractEnd,
+      qidIfEmpty: data.qidIfEmpty,
+    });
+
+    await context.supabase.rpc("log_audit", {
+      _action: "staff.identity_documents",
+      _table_name: "hr_employee_documents",
+      _row_id: data.staffId,
+      _after: { documents: stored },
+      _location_id: existing.location_id,
+      _metadata: {},
+    });
+    return { stored };
   },
   { auth: { anyCapability: ["people.edit_roster", "hr.manage", "hr.docs.manage"] } },
 );

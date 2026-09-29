@@ -271,6 +271,7 @@ const SENSITIVE_MASK = "••••••••";
 export function redactStaffIdentityNumbers<T extends {
   qid?: string | null;
   passport_number?: string | null;
+  visa_number?: string | null;
 }>(row: T, canViewSensitive: boolean): T {
   if (canViewSensitive) return row;
   return {
@@ -280,6 +281,9 @@ export function redactStaffIdentityNumbers<T extends {
       : {}),
     ...(Object.prototype.hasOwnProperty.call(row, "passport_number")
       ? { passport_number: row.passport_number ? SENSITIVE_MASK : null }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(row, "visa_number")
+      ? { visa_number: row.visa_number ? SENSITIVE_MASK : null }
       : {}),
   };
 }

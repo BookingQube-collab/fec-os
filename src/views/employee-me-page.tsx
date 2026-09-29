@@ -35,7 +35,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import { getEmployeeDocumentUrl, listEmployeeDocuments, uploadEmployeeDocument } from "@/lib/hr-documents.functions";
+import { extractStaffIdentityDocument, getEmployeeDocumentUrl, listEmployeeDocuments, uploadEmployeeDocument } from "@/lib/hr-documents.functions";
+import { fileToBase64, IDENTITY_FILE_ACCEPT, IDENTITY_FILE_MAX_BYTES, identityFileContentType } from "@/lib/hr/identity-file";
+import { applyDocumentEditorExtraction, isIdentityDocType } from "@/lib/hr/identity-document-parse";
 import { reviewLeaveRequest, submitLeaveRequest } from "@/lib/hr-leave.functions";
 import { listAnnouncements } from "@/lib/hr-announcements.functions";
 import { listAirTicketEntitlements } from "@/lib/hr-air-ticket.functions";
@@ -63,14 +65,6 @@ function isStandalonePwa() {
     "standalone" in window.navigator &&
     Boolean((window.navigator as Navigator & { standalone?: boolean }).standalone);
   return media || iosStandalone;
-}
-
-async function fileToBase64(file: File): Promise<string> {
-  const buf = await file.arrayBuffer();
-  let binary = "";
-  const bytes = new Uint8Array(buf);
-  for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i]!);
-  return btoa(binary);
 }
 
 function initials(name: string) {
@@ -144,6 +138,12 @@ export default function EmployeeMePage() {
   const [installDismissed, setInstallDismissed] = useState(true);
   const [docType, setDocType] = useState<(typeof EMPLOYEE_DOC_TYPES)[number]>("qid");
   const [docFile, setDocFile] = useState<File | null>(null);
+  const [docNumber, setDocNumber] = useState("");
+  const [docExpiry, setDocExpiry] = useState("");
+  const [docNumberSuggestion, setDocNumberSuggestion] = useState("");
+  const [docExpirySuggestion, setDocExpirySuggestion] = useState("");
+  const [docExtractNote, setDocExtractNote] = useState("");
+  const [docReading, setDocReading] = useState(false);
   const [docInputKey, setDocInputKey] = useState(0);
 
   useEffect(() => {
@@ -233,24 +233,76 @@ export default function EmployeeMePage() {
   const uploadDoc = useMutation({
     mutationFn: async () => {
       if (!docFile) throw new Error(t("hr.me.needFile"));
-      if (docFile.size > 10 * 1024 * 1024) throw new Error(t("hr.me.fileTooLarge"));
+      if (docFile.size > IDENTITY_FILE_MAX_BYTES) throw new Error(t("hr.me.fileTooLarge"));
+      const contentType = identityFileContentType(docFile) || docFile.type || "application/pdf";
       const data_base64 = await fileToBase64(docFile);
       return uploadEmployeeDocument({
         docType,
         filename: docFile.name,
         data_base64,
-        content_type: docFile.type || "application/pdf",
+        content_type: contentType,
         title: docFile.name,
+        documentNumber: docNumber.trim() || null,
+        expiryDate: docExpiry || null,
       });
     },
     onSuccess: () => {
       toast.success(t("hr.docs.uploaded"));
       setDocFile(null);
+      setDocNumber("");
+      setDocExpiry("");
+      setDocNumberSuggestion("");
+      setDocExpirySuggestion("");
+      setDocExtractNote("");
       setDocInputKey((key) => key + 1);
       void qc.invalidateQueries({ queryKey: queryKeys.people.hrDocs() });
     },
     onError: (e: Error) => toast.error(e.message),
   });
+
+  async function onPickMyDocument(next: File | null) {
+    setDocFile(next);
+    setDocNumberSuggestion("");
+    setDocExpirySuggestion("");
+    setDocExtractNote("");
+    if (!next || !isIdentityDocType(docType)) return;
+    if (next.size > IDENTITY_FILE_MAX_BYTES) {
+      toast.error(t("people.staff.fileTooLarge"));
+      setDocFile(null);
+      return;
+    }
+    const contentType = identityFileContentType(next);
+    if (!contentType) {
+      toast.error(t("people.staff.fileType"));
+      setDocFile(null);
+      return;
+    }
+    setDocReading(true);
+    try {
+      const data_base64 = await fileToBase64(next);
+      const result = await extractStaffIdentityDocument({
+        docType,
+        filename: next.name,
+        data_base64,
+        content_type: contentType,
+      });
+      const applied = applyDocumentEditorExtraction({
+        docType,
+        number: docNumber,
+        expiry: docExpiry,
+        parsed: result.parsed,
+      });
+      setDocNumber(applied.number);
+      setDocExpiry(applied.expiry);
+      setDocNumberSuggestion(applied.suggestions.number ?? "");
+      setDocExpirySuggestion(applied.suggestions.expiry ?? "");
+      setDocExtractNote(result.manual ? t("people.staff.extractManual") : "");
+    } catch (error) {
+      setDocExtractNote((error as Error).message || t("people.staff.extractManual"));
+    } finally {
+      setDocReading(false);
+    }
+  }
 
   const openDoc = useMutation({
     mutationFn: (id: string) => getEmployeeDocumentUrl({ id, purpose: "preview" }),
@@ -610,12 +662,20 @@ export default function EmployeeMePage() {
               ) : null}
 
               <MeSection id="me-documents" icon={FileText} title={t("hr.me.myDocuments")} hint={t("hr.me.uploadHint")}>
-                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto] sm:items-end">
+                <div className="grid gap-2 sm:grid-cols-2 sm:items-end">
                   <div>
                     <Label>{t("hr.me.docType")}</Label>
                     <SearchableSelect
                       value={docType}
-                      onValueChange={(value) => setDocType(value as (typeof EMPLOYEE_DOC_TYPES)[number])}
+                      onValueChange={(value) => {
+                        setDocType(value as (typeof EMPLOYEE_DOC_TYPES)[number]);
+                        setDocNumber("");
+                        setDocExpiry("");
+                        setDocNumberSuggestion("");
+                        setDocExpirySuggestion("");
+                        setDocExtractNote("");
+                        setDocFile(null);
+                      }}
                       aria-label={t("hr.me.docType")}
                       options={EMPLOYEE_DOC_TYPES.map((value) => ({
                         value,
@@ -623,14 +683,70 @@ export default function EmployeeMePage() {
                       }))}
                     />
                   </div>
+                  {isIdentityDocType(docType) ? (
+                    <>
+                      <div>
+                        <Label>{t("hr.docs.documentNumber")}</Label>
+                        <Input
+                          value={docNumber}
+                          className="font-mono"
+                          onChange={(e) => {
+                            setDocNumber(e.target.value);
+                            setDocNumberSuggestion("");
+                          }}
+                        />
+                        {docNumberSuggestion ? (
+                          <button
+                            type="button"
+                            className="mt-1 text-left text-xs text-primary underline"
+                            onClick={() => {
+                              setDocNumber(docNumberSuggestion);
+                              setDocNumberSuggestion("");
+                            }}
+                          >
+                            {t("people.staff.useExtracted", { value: docNumberSuggestion })}
+                          </button>
+                        ) : null}
+                      </div>
+                      <div>
+                        <Label>{t("hr.docs.expiry")}</Label>
+                        <Input
+                          type="date"
+                          value={docExpiry}
+                          onChange={(e) => {
+                            setDocExpiry(e.target.value);
+                            setDocExpirySuggestion("");
+                          }}
+                        />
+                        {docExpirySuggestion ? (
+                          <button
+                            type="button"
+                            className="mt-1 text-left text-xs text-primary underline"
+                            onClick={() => {
+                              setDocExpiry(docExpirySuggestion);
+                              setDocExpirySuggestion("");
+                            }}
+                          >
+                            {t("people.staff.useExtracted", { value: docExpirySuggestion })}
+                          </button>
+                        ) : null}
+                      </div>
+                    </>
+                  ) : null}
                   <div>
                     <Label>{t("hr.me.chooseFile")}</Label>
                     <Input
                       key={docInputKey}
                       type="file"
-                      accept="application/pdf,image/*"
-                      onChange={(e) => setDocFile(e.target.files?.[0] ?? null)}
+                      accept={IDENTITY_FILE_ACCEPT}
+                      onChange={(e) => void onPickMyDocument(e.target.files?.[0] ?? null)}
                     />
+                    {docReading ? (
+                      <p className="mt-1 text-[11px] text-muted-foreground">{t("people.staff.readingDocument")}</p>
+                    ) : null}
+                    {docExtractNote ? (
+                      <p className="mt-1 text-[11px] text-muted-foreground">{docExtractNote}</p>
+                    ) : null}
                   </div>
                   <Button className="min-h-11" disabled={!docFile || uploadDoc.isPending} onClick={() => uploadDoc.mutate()}>
                     {t("hr.me.uploadDoc")}
