@@ -55,8 +55,8 @@ function relativeTime(iso: string, language: string): string {
 }
 
 /**
- * Header bell + inbox. The panel is portaled so shell overflow and sticky
- * headers cannot clip it. Anchored to the bell.
+ * Header bell + inbox. The panel is portaled so shell overflow, the aurora
+ * backdrop, and sticky headers cannot clip it. Anchored to the bell.
  */
 export function NotificationBell({
   dismissed = false,

@@ -6,9 +6,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { InteractiveCard } from "@/components/ds/app-card";
-import { StatusChip, StatusIndicator, equipmentStatusPulse, equipmentStatusTone } from "@/components/ds/status";
 import { PillTabScroller, pillTabItemClass } from "@/components/react-bits/pill-tab-scroller";
+import StatusMark, { type StatusMarkStatus } from "@/components/react-bits/status-mark";
 import { Button } from "@/components/ui/button";
 import { useSites } from "@/hooks/queries/useSites";
 import { usePermission } from "@/hooks/use-permission";
@@ -77,8 +76,34 @@ function isArcadeLinkActive(pathname: string, link: ArcadeLink) {
   return pathname === link.href || pathname.startsWith(`${link.href}/`);
 }
 
+const STATUS_CLASS: Record<string, string> = {
+  WORKING: "bg-emerald-600 text-white",
+  DOWN: "bg-red-600 text-white",
+  UNDER_REPAIR: "bg-amber-500 text-black",
+  UNDER_OBSERVATION: "bg-sky-600 text-white",
+  WAITING_PART: "bg-orange-600 text-white",
+  WAITING_SUPPLIER: "bg-violet-700 text-white",
+  OUT_OF_SERVICE: "bg-rose-800 text-white",
+  DECOMMISSIONED: "bg-slate-500 text-white",
+  CRITICAL: "bg-red-700 text-white",
+  HIGH: "bg-orange-700 text-white",
+  RESOLVED: "bg-emerald-700 text-white",
+  CLOSED: "bg-slate-700 text-white",
+  REPORTED: "bg-blue-700 text-white",
+  LOW_STOCK: "bg-amber-600 text-black",
+  OUT_OF_STOCK: "bg-red-700 text-white",
+  IN_STOCK: "bg-emerald-700 text-white",
+};
+
 export function statusLabel(status: string) {
   return status.replaceAll("_", " ");
+}
+
+function arcadeMark(status: string): StatusMarkStatus {
+  if (["WORKING", "RESOLVED", "CLOSED", "IN_STOCK", "COMPLETED", "DONE"].includes(status)) return "done";
+  if (["DOWN", "CRITICAL", "HIGH", "OUT_OF_STOCK", "OUT_OF_SERVICE", "DECOMMISSIONED"].includes(status)) return "failed";
+  if (["REPORTED", "UNDER_REPAIR", "WAITING_PART", "WAITING_SUPPLIER", "UNDER_OBSERVATION", "LOW_STOCK"].includes(status)) return "running";
+  return "pending";
 }
 
 export function StatusBadge({ status }: { status: string }) {
@@ -86,13 +111,11 @@ export function StatusBadge({ status }: { status: string }) {
   const key = `arcadeStatus.${status}`;
   const translated = t(key);
   const label = translated === key ? statusLabel(status) : translated;
-  const tone = equipmentStatusTone(status);
-  const pulse = equipmentStatusPulse(status);
   return (
-    <StatusChip tone={tone}>
-      <span className={cn("h-2 w-2 rounded-full bg-current", pulse && "ds-pulse")} aria-hidden />
+    <span className={cn("inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-semibold tracking-wide", STATUS_CLASS[status] ?? "bg-muted text-foreground")}>
+      <StatusMark status={arcadeMark(status)} size={14} />
       {label}
-    </StatusChip>
+    </span>
   );
 }
 
@@ -140,7 +163,6 @@ export function SiteHealthCard({
   detail,
   meterLabel,
   media,
-  alert,
 }: {
   href: string;
   title: string;
@@ -149,32 +171,25 @@ export function SiteHealthCard({
   detail: string;
   meterLabel: string;
   media?: ReactNode;
-  /** Shown when this site already has games down. */
-  alert?: string | null;
 }) {
   return (
-    <InteractiveCard className="h-full">
-      <Link
-        href={href}
-        className={cn(
-          "flex h-full flex-col overflow-hidden rounded-[var(--radius)] border border-s-4 bg-card shadow-elevated-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-          healthEdge(availability),
-        )}
-      >
-        {media}
-        <div className="grid flex-1 gap-3 p-4">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <p className="font-semibold leading-snug">{title}</p>
-              {code ? <p className="mt-0.5 font-mono text-xs text-muted-foreground">{code}</p> : null}
-            </div>
-            {alert ? <StatusIndicator tone="critical" label={alert} pulse /> : null}
-          </div>
-          <p className="text-sm text-muted-foreground">{detail}</p>
-          <HealthMeter value={availability} label={meterLabel} />
+    <Link
+      href={href}
+      className={cn(
+        "flex h-full flex-col overflow-hidden rounded-2xl border border-s-4 bg-card shadow-[0_4px_20px_rgba(0,0,0,0.04)] transition hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(0,0,0,0.06)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+        healthEdge(availability),
+      )}
+    >
+      {media}
+      <div className="grid flex-1 gap-3 p-4">
+        <div className="min-w-0">
+          <p className="font-semibold leading-snug">{title}</p>
+          {code ? <p className="mt-0.5 font-mono text-xs text-muted-foreground">{code}</p> : null}
         </div>
-      </Link>
-    </InteractiveCard>
+        <p className="text-sm text-muted-foreground">{detail}</p>
+        <HealthMeter value={availability} label={meterLabel} />
+      </div>
+    </Link>
   );
 }
 

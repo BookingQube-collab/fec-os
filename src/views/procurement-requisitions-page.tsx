@@ -1,5 +1,7 @@
 "use client";
 
+import { FecLoader, FecPageHeader } from "@/components/fec";
+
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -18,12 +20,15 @@ import {
   FileSpreadsheet,
   Filter,
   Hourglass,
+  LayoutGrid,
+  LayoutList,
   Plus,
   RefreshCw,
+  Search,
+  ShoppingCart,
 } from "lucide-react";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
-import { EmptyState, LoadingState, PageHeader, SearchField, SegmentControl } from "@/components/ds";
 import { PrKpiStrip } from "@/components/procurement/pr-kpi-cards";
 import {
   PrRowActions,
@@ -368,7 +373,7 @@ function ProcurementRequisitionsInner({
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      <FecPageHeader
         title={
           <span className="inline-flex flex-wrap items-center gap-2.5">
             {t("procurement.pageTitle")}
@@ -380,7 +385,7 @@ function ProcurementRequisitionsInner({
             ) : null}
           </span>
         }
-        description={t("procurement.pageSubtitle")}
+        subtitle={t("procurement.pageSubtitle")}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <div className="inline-flex rounded-full border border-border/60 bg-card p-1 shadow-elevated-xs">
@@ -431,36 +436,45 @@ function ProcurementRequisitionsInner({
       <PrKpiStrip values={kpis} loading={list.isLoading} />
 
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-        <SearchField
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            setPage(1);
-          }}
-          placeholder={t("procurement.searchPlaceholder")}
-          aria-label={t("procurement.searchPlaceholder")}
-        />
-        <div className="flex flex-wrap items-center gap-2">
-          <SegmentControl
-            layout="scroll"
-            ariaLabel={t("procurement.list.status")}
-            value={chip}
-            onValueChange={(next) => {
-              setChip(next);
+        <div className="relative min-w-0 flex-1">
+          <Search className="pointer-events-none absolute start-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="ps-10"
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
               setPage(1);
             }}
-            options={(
-              [
-                ["all", chipCounts.all],
-                ["pending", chipCounts.pending],
-                ["approved", chipCounts.approved],
-                ["rejected", chipCounts.rejected],
-              ] as const
-            ).map(([key, count]) => ({
-              value: key,
-              label: count ? `${t(`procurement.statusChip.${key}`)} ${count}` : t(`procurement.statusChip.${key}`),
-            }))}
+            placeholder={t("procurement.searchPlaceholder")}
           />
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {(
+            [
+              ["all", chipCounts.all],
+              ["pending", chipCounts.pending],
+              ["approved", chipCounts.approved],
+              ["rejected", chipCounts.rejected],
+            ] as const
+          ).map(([key, count]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => {
+                setChip(key);
+                setPage(1);
+              }}
+              className={cn(
+                "inline-flex min-h-9 items-center rounded-full border px-3 text-xs font-semibold transition-colors",
+                chip === key
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border/70 bg-card text-muted-foreground hover:bg-secondary",
+              )}
+            >
+              {t(`procurement.statusChip.${key}`)}
+              {key !== "all" ? ` ${count}` : count ? ` ${count}` : ""}
+            </button>
+          ))}
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="outline" size="sm" className={cn(advancedActive && "border-primary/40")}>
@@ -539,24 +553,35 @@ function ProcurementRequisitionsInner({
               </Button>
             </PopoverContent>
           </Popover>
-          <SegmentControl
-            ariaLabel={t("procurement.viewList")}
-            value={view}
-            onValueChange={setView}
-            options={[
-              { value: "list", label: t("procurement.viewList") },
-              { value: "cards", label: t("procurement.viewCards") },
-            ]}
-          />
+          <div className="inline-flex rounded-full border border-border/60 bg-card p-1">
+            <Button
+              type="button"
+              size="icon"
+              variant={view === "list" ? "default" : "ghost"}
+              className="h-9 w-9"
+              onClick={() => setView("list")}
+              aria-label={t("procurement.viewList")}
+            >
+              <LayoutList />
+            </Button>
+            <Button
+              type="button"
+              size="icon"
+              variant={view === "cards" ? "default" : "ghost"}
+              className="h-9 w-9"
+              onClick={() => setView("cards")}
+              aria-label={t("procurement.viewCards")}
+            >
+              <LayoutGrid />
+            </Button>
+          </div>
         </div>
       </div>
 
-      <div key={`${chip}:${view}`} className="ds-enter">
       {view === "cards" ? (
         <PrCardGrid
           rows={pageRows}
           empty={!list.isLoading && sorted.length === 0}
-          pendingFilter={chip === "pending"}
           loading={list.isLoading}
           pending={actions.pending}
           onApprove={(row) => actions.open("approve", toActionTarget(row))}
@@ -566,8 +591,8 @@ function ProcurementRequisitionsInner({
         />
       ) : (
         <div className="pr-table-wrap">
-          <Table className="min-w-[56rem]">
-            <TableHeader className="sticky top-0 z-10 bg-card">
+          <Table>
+            <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead className="w-10">
                   <Checkbox
@@ -577,7 +602,6 @@ function ProcurementRequisitionsInner({
                   />
                 </TableHead>
                 <SortableHead
-                  sticky
                   label={t("procurement.list.requestNumber")}
                   active={sortKey === "number"}
                   dir={sortDir}
@@ -606,24 +630,20 @@ function ProcurementRequisitionsInner({
             </TableHeader>
             <TableBody>
               {list.isLoading ? (
-                <TableRow className="hover:bg-transparent">
-                  <TableCell colSpan={6}>
-                    <LoadingState count={3} className="grid-cols-1" label={t("common.loading")} />
+                <TableRow>
+                  <TableCell colSpan={6} className="py-12 text-center">
+                    <FecLoader density="chip" label={t("common.loading")} />
                   </TableCell>
                 </TableRow>
               ) : pageRows.length === 0 ? (
                 <TableRow className="hover:bg-transparent">
                   <TableCell colSpan={6}>
-                    <EmptyList pendingFilter={chip === "pending"} />
+                    <EmptyList />
                   </TableCell>
                 </TableRow>
               ) : (
-                pageRows.map((row, index) => (
-                  <TableRow
-                    key={row.id}
-                    className={cn("hover:bg-secondary/50", index < 12 && "ds-enter")}
-                    style={index < 12 ? { animationDelay: `${index * 20}ms` } : undefined}
-                  >
+                pageRows.map((row) => (
+                  <TableRow key={row.id} className="hover:bg-secondary/50">
                     <TableCell>
                       <Checkbox
                         checked={selected.has(row.id)}
@@ -631,7 +651,7 @@ function ProcurementRequisitionsInner({
                         aria-label={row.pr_number ?? row.id}
                       />
                     </TableCell>
-                    <TableCell className="sticky start-0 z-10 bg-card">
+                    <TableCell>
                       <span className="pr-number-pill">
                         {row.pr_number ?? t("procurement.list.draftNumber")}
                       </span>
@@ -702,7 +722,6 @@ function ProcurementRequisitionsInner({
           </Table>
         </div>
       )}
-      </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
         <p>
@@ -741,17 +760,15 @@ function SortableHead({
   active,
   dir,
   onClick,
-  sticky,
 }: {
   label: string;
   active: boolean;
   dir: SortDir;
   onClick: () => void;
-  sticky?: boolean;
 }) {
   const Icon = !active ? ArrowUpDown : dir === "asc" ? ArrowUp : ArrowDown;
   return (
-    <TableHead className={sticky ? "sticky start-0 z-20 bg-card" : undefined}>
+    <TableHead>
       <button
         type="button"
         onClick={onClick}
@@ -764,18 +781,22 @@ function SortableHead({
   );
 }
 
-function EmptyList({ pendingFilter }: { pendingFilter?: boolean }) {
+function EmptyList() {
   const { t } = useTranslation();
-  const title = pendingFilter
-    ? `${t("procurement.statusChip.pending")} — ${t("procurement.list.empty")}`
-    : t("procurement.list.emptyTitle");
-  return <EmptyState title={title} className="py-10 text-center" />;
+  return (
+    <div className="flex flex-col items-center justify-center px-6 py-14 text-center">
+      <span className="grid h-12 w-12 place-items-center rounded-full bg-primary/10 text-primary">
+        <ShoppingCart className="h-5 w-5" />
+      </span>
+      <p className="mt-3 text-sm font-semibold text-foreground">{t("procurement.list.emptyTitle")}</p>
+      <p className="mt-1 max-w-sm text-xs text-muted-foreground">{t("procurement.list.emptyHint")}</p>
+    </div>
+  );
 }
 
 function PrCardGrid({
   rows,
   empty,
-  pendingFilter,
   loading,
   pending,
   onApprove,
@@ -785,7 +806,6 @@ function PrCardGrid({
 }: {
   rows: PrListRow[];
   empty: boolean;
-  pendingFilter?: boolean;
   loading: boolean;
   pending: boolean;
   onApprove: (row: PrListRow) => void;
@@ -795,25 +815,27 @@ function PrCardGrid({
 }) {
   const { t } = useTranslation();
   if (loading) {
-    return <LoadingState count={4} className="md:grid-cols-2 xl:grid-cols-2" label={t("common.loading")} />;
+    return (
+      <div className="grid gap-4 md:grid-cols-2">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="h-44 animate-pulse rounded-2xl bg-muted/70" />
+        ))}
+      </div>
+    );
   }
   if (empty) {
     return (
       <div className="rounded-2xl border border-border/40 bg-card shadow-[0_4px_20px_rgba(0,0,0,0.05)]">
-        <EmptyList pendingFilter={pendingFilter} />
+        <EmptyList />
       </div>
     );
   }
   return (
     <div className="grid gap-4 md:grid-cols-2">
-      {rows.map((row, index) => (
+      {rows.map((row) => (
         <div
           key={row.id}
-          className={cn(
-            "rounded-2xl border border-border/40 bg-card p-5 shadow-[0_4px_20px_rgba(0,0,0,0.05)] transition-shadow hover:shadow-elevated-sm",
-            index < 12 && "ds-enter",
-          )}
-          style={index < 12 ? { animationDelay: `${index * 20}ms` } : undefined}
+          className="rounded-2xl border border-border/40 bg-card p-5 shadow-[0_4px_20px_rgba(0,0,0,0.05)] transition-shadow hover:shadow-elevated-sm"
         >
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -821,9 +843,6 @@ function PrCardGrid({
               <p className="mt-0.5 text-xs text-muted-foreground">
                 {(row.pr_number ?? t("procurement.list.draftNumber"))} • {row.department_name}
               </p>
-              {row.project_name || row.location_name ? (
-                <p className="mt-0.5 text-xs text-muted-foreground">{row.project_name || row.location_name}</p>
-              ) : null}
               {row.event_id ? (
                 <Link
                   href={`/events/${row.event_id}`}

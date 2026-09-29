@@ -5,6 +5,7 @@ import type { CSSProperties } from "react";
 import type { LucideIcon } from "lucide-react";
 
 import { KpiAnimatedValue } from "@/components/react-bits/kpi-animated-value";
+import SpotlightCard from "@/components/react-bits/spotlight-card";
 import { cn } from "@/lib/utils";
 
 export type HrKpiTone = "charcoal" | "mustard" | "cream" | "alert" | "ok" | "info";
@@ -41,7 +42,8 @@ export function HrKpiTile({
   delay,
 }: HrKpiTileProps) {
   const body = (
-    <div
+    <SpotlightCard
+      spotlightColor="rgba(255, 186, 0, 0.95)"
       className={cn(
         "hr-kpi hr-enter",
         TONE_CLASS[tone],
@@ -64,7 +66,7 @@ export function HrKpiTile({
           </span>
         ) : null}
       </div>
-    </div>
+    </SpotlightCard>
   );
 
   if (!href) return body;

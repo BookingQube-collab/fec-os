@@ -10,10 +10,11 @@ import { useTranslation } from "react-i18next";
 
 import { AttendanceHrNav, AttendanceHrSitesHint } from "@/components/attendance-hr/attendance-hr-nav";
 import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
-import { EmptyState, LoadingState, MetricCard } from "@/components/ds";
 import {
   FecButton as Button,
   FecPageHeader,
+  FecSkeleton,
+  FecStatCard,
 } from "@/components/fec";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -37,7 +38,7 @@ const AttendanceHrTrendsChart = dynamic(
     retryImport(() =>
       import("@/components/attendance-hr/attendance-hr-trends-chart").then((m) => m.AttendanceHrTrendsChart),
     ),
-  { ssr: false, loading: () => <LoadingState label="Loading chart" count={1} /> },
+  { ssr: false, loading: () => <FecSkeleton className="h-64 rounded-2xl" /> },
 );
 
 const AttendanceHrDashboardChart = dynamic(
@@ -45,7 +46,7 @@ const AttendanceHrDashboardChart = dynamic(
     retryImport(() =>
       import("@/components/attendance-hr/attendance-hr-dashboard-charts").then((m) => m.AttendanceHrDashboardChart),
     ),
-  { ssr: false, loading: () => <LoadingState label="Loading chart" count={1} /> },
+  { ssr: false, loading: () => <FecSkeleton className="h-64 rounded-2xl" /> },
 );
 
 function ymd(value: string | null | undefined) {
@@ -89,7 +90,7 @@ function WatchlistGroup({
     <div>
       <p className="mb-2 text-xs font-medium text-muted-foreground">{title}</p>
       {entries.length === 0 ? (
-        <EmptyState title={empty} />
+        <p className="rounded-2xl border border-dashed border-border/80 px-3 py-3 text-sm text-muted-foreground">{empty}</p>
       ) : (
         <div className="space-y-2">
           {entries.map((entry) => (
@@ -135,7 +136,7 @@ function WatchlistRow({
 
 export default function AttendanceHrDashboardPage() {
   return (
-    <Suspense fallback={<LoadingState label="Loading" count={4} />}>
+    <Suspense fallback={<div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">{Array.from({ length: 7 }).map((_, i) => <FecSkeleton key={i} className="h-28 rounded-2xl" />)}</div>}>
       <AttendanceHrDashboardBody />
     </Suspense>
   );
@@ -258,85 +259,88 @@ function AttendanceHrDashboardBody() {
       ) : null}
 
       {dash.isLoading ? (
-        <LoadingState label={t("common.loading")} count={7} />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 7 }).map((_, i) => (
+            <FecSkeleton key={i} className="h-28 rounded-2xl" />
+          ))}
+        </div>
       ) : (
-        <div key={`${fromLabel ?? ""}:${toLabel ?? ""}`} className="ds-enter grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <MetricCard
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <FecStatCard
             title={t("attendanceHr.dashboard.employees", { defaultValue: "Employees" })}
             value={kpis?.employees ?? 0}
             hint={t("attendanceHr.dashboard.employeesHint", { defaultValue: "Active roster at this location" })}
             icon={Users}
-            tone="info"
+            tint="sky"
           />
-          <MetricCard
+          <FecStatCard
             title={t("attendanceHr.dashboard.present", { defaultValue: "Present" })}
             value={kpis?.present ?? 0}
             hint={t("attendanceHr.dashboard.presentHint", { defaultValue: "Mapped staff with in and out" })}
             icon={Clock}
-            tone="success"
+            tint="green"
           />
-          <MetricCard
+          <FecStatCard
             title={t("attendanceHr.dashboard.absent", { defaultValue: "Absent" })}
             value={kpis?.absent ?? 0}
             hint={t("attendanceHr.dashboard.absentHint", { defaultValue: "Expected staff with no punch" })}
             icon={UserX}
-            tone={(kpis?.absent ?? 0) > 0 ? "danger" : "success"}
-            pulse={(kpis?.absent ?? 0) > 0}
+            tint="red"
           />
-          <MetricCard
+          <FecStatCard
             title={t("attendanceHr.dashboard.late", { defaultValue: "Late" })}
             value={kpis?.late ?? 0}
             hint={t("attendanceHr.dashboard.lateHint", { defaultValue: "Mapped in after shift start" })}
             icon={AlertTriangle}
-            tone={(kpis?.late ?? 0) > 0 ? "warning" : "neutral"}
+            tint="amber"
           />
-          <MetricCard
+          <FecStatCard
             title={t("attendanceHr.dashboard.missedPunches", { defaultValue: "Missed punches" })}
             value={kpis?.missedPunches ?? 0}
             hint={t("attendanceHr.dashboard.missedHint", { defaultValue: "Mapped in without out, or out without in" })}
             icon={ClipboardCheck}
-            tone={(kpis?.missedPunches ?? 0) > 0 ? "warning" : "neutral"}
+            tint="orange"
           />
-          <MetricCard
+          <FecStatCard
             title={t("attendanceHr.dashboard.unmatched", { defaultValue: "Unmatched User IDs" })}
             value={kpis?.unmatched ?? 0}
             hint={t("attendanceHr.dashboard.unmatchedHint", { defaultValue: "Not counted as Present until mapped" })}
             icon={Users}
-            tone="neutral"
+            tint="slate"
             href="/people/attendance/mapping"
           />
-          <MetricCard
+          <FecStatCard
             title={t("attendanceHr.dashboard.pendingCorrections", { defaultValue: "Pending corrections" })}
             value={kpis?.pendingCorrections ?? 0}
             icon={ClipboardCheck}
-            tone="info"
+            tint="sky"
             href="/people/attendance/corrections"
           />
         </div>
       )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <MetricCard
+        <FecStatCard
           title={t("attendanceHr.dashboard.history")}
           value={dash.data?.trends?.history.present ?? 0}
           hint={t("attendanceHr.dashboard.historyHint")}
           icon={CalendarRange}
-          tone="neutral"
+          tint="slate"
         />
-        <MetricCard
+        <FecStatCard
           title={t("attendanceHr.dashboard.currentVisits")}
           value={dash.data?.trends?.current.visits ?? 0}
           hint={t("attendanceHr.dashboard.currentVisitsHint")}
           icon={MapPin}
-          tone="info"
+          tint="sky"
           href="/people/attendance/field"
         />
-        <MetricCard
+        <FecStatCard
           title={t("attendanceHr.dashboard.upcomingRoster")}
           value={dash.data?.trends?.upcoming.rostered ?? 0}
           hint={t("attendanceHr.dashboard.upcomingHint")}
           icon={Users}
-          tone="success"
+          tint="green"
         />
       </div>
 
@@ -359,7 +363,9 @@ function AttendanceHrDashboardBody() {
           </h2>
           <div className="space-y-2">
             {sites.length === 0 ? (
-              <EmptyState title={t("attendanceHr.dashboard.noSites", { defaultValue: "No attendance sites yet." })} />
+              <p className="text-sm text-muted-foreground">
+                {t("attendanceHr.dashboard.noSites", { defaultValue: "No attendance sites yet." })}
+              </p>
             ) : (
               sites.map((site) => (
                 <Link

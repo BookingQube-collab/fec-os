@@ -5,6 +5,8 @@ import type { ReactNode } from "react";
 import { usePathname } from "next/navigation";
 
 import { GlobalComplianceExpiryBanner } from "@/components/compliance/global-compliance-expiry-banner";
+import { AuroraBackdrop } from "@/components/layout/aurora-backdrop";
+import ClickSpark from "@/components/react-bits/click-spark";
 import { AppSidebar } from "./app-sidebar";
 import { AppTopbar } from "./app-topbar";
 import { EmployeeMobileHeader } from "./employee-app-shell";
@@ -38,16 +40,18 @@ export function AppShell({ children }: { children: ReactNode }) {
   const sidebarExpanded = useAppStore((s) => s.sidebarExpanded);
   const surgeMode = useAppStore((s) => s.surgeMode);
   return (
+    <ClickSpark sparkColor="#1a1a1a" sparkSize={8} sparkRadius={14} sparkCount={8} className="min-h-screen">
     <div
       className="relative min-h-screen text-foreground"
       data-surge-mode={surgeMode ? "true" : "false"}
     >
+      <AuroraBackdrop className="fixed inset-x-0 top-0 z-0 h-[42vh]" />
       <SitesPrefetch />
       <HrFieldSync />
       <AppSidebar />
       <div
         className={cn(
-          "relative z-[1] flex min-h-screen min-w-0 max-w-full flex-col overflow-x-hidden pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pe-5",
+          "relative z-[1] flex min-h-screen min-w-0 max-w-full flex-col overflow-x-hidden pb-20 md:pe-5",
           sidebarExpanded ? "md:ms-[16.25rem]" : "md:ms-[5.25rem]",
           surgeMode ? "md:pb-3" : "md:pb-6",
         )}
@@ -73,5 +77,6 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
       <MobileBottomNav />
     </div>
+    </ClickSpark>
   );
 }

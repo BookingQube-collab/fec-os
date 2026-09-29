@@ -10,9 +10,9 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { AttendanceHrNav } from "@/components/attendance-hr/attendance-hr-nav";
-import { StatusChip, attendanceStatusTone } from "@/components/ds";
 import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
 import { StaffSampleDownloadDialog } from "@/components/people/staff-sample-download-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -335,10 +335,10 @@ export default function AttendanceHrRosterPage() {
         <NeumorphicCard className="space-y-3 p-5">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-sm font-semibold">{t("attendanceHr.roster.previewTitle")}</h2>
-            <StatusChip tone="online">{t("attendanceHr.roster.matched", { count: preview.matched ?? 0 })}</StatusChip>
-            <StatusChip tone="warning">{t("attendanceHr.roster.unmatched", { count: preview.unmatched ?? 0 })}</StatusChip>
+            <Badge variant="success">{t("attendanceHr.roster.matched", { count: preview.matched ?? 0 })}</Badge>
+            <Badge variant="warning">{t("attendanceHr.roster.unmatched", { count: preview.unmatched ?? 0 })}</Badge>
             {(preview.skipped ?? 0) > 0 ? (
-              <StatusChip tone="neutral">{t("attendanceHr.roster.skipped", { count: preview.skipped })}</StatusChip>
+              <Badge variant="secondary">{t("attendanceHr.roster.skipped", { count: preview.skipped })}</Badge>
             ) : null}
           </div>
           {(preview.errors ?? []).map((msg) => (
@@ -353,11 +353,11 @@ export default function AttendanceHrRosterPage() {
           ))}
           {sampleRows.length ? (
             <div className="overflow-x-auto">
-              <Table className="min-w-[44rem]">
+              <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>{t("attendanceHr.roster.colDate")}</TableHead>
-                    <TableHead className="sticky start-0 z-10 bg-card">{t("attendanceHr.roster.colStaff")}</TableHead>
+                    <TableHead>{t("attendanceHr.roster.colStaff")}</TableHead>
                     <TableHead>{t("attendanceHr.roster.colLocation")}</TableHead>
                     <TableHead>{t("attendanceHr.roster.colShift")}</TableHead>
                     <TableHead>{t("attendanceHr.roster.colDuty")}</TableHead>
@@ -368,7 +368,7 @@ export default function AttendanceHrRosterPage() {
                   {sampleRows.map((row, i) => (
                     <TableRow key={`${row.rowNumber}-${row.workDate}-${i}`}>
                       <TableCell className="whitespace-nowrap">{row.workDate || "—"}</TableCell>
-                      <TableCell className="sticky start-0 z-10 bg-card">
+                      <TableCell>
                         <div>{row.staffLabel}</div>
                         <div className="text-xs text-muted-foreground">
                           {row.employeeCode || row.qid || ""}
@@ -382,7 +382,9 @@ export default function AttendanceHrRosterPage() {
                         {row.isWeekOff ? t("attendanceHr.roster.dutyOff") : t("attendanceHr.roster.dutyYes")}
                       </TableCell>
                       <TableCell>
-                        <StatusChip tone={attendanceStatusTone(row.status)}>{row.status}</StatusChip>
+                        <Badge variant={row.status === "matched" ? "success" : row.status === "skipped" ? "secondary" : "destructive"}>
+                          {row.status}
+                        </Badge>
                         {row.message ? <p className="mt-1 text-xs text-muted-foreground">{row.message}</p> : null}
                       </TableCell>
                     </TableRow>

@@ -9,8 +9,9 @@ import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 
 import { arcadeCategoryName, SiteHealthCard, StatusBadge } from "@/components/arcade/ui";
 import { ChartCard, ChartEmpty } from "@/components/charts/chart-card";
-import { AppCard, EmptyState, LoadingState, MetricCard, SegmentControl } from "@/components/ds";
-import { FecPageHeader } from "@/components/fec";
+import { TintedKpiCard } from "@/components/dashboard/tinted-kpi-card";
+import { FecLoader, FecPageHeader } from "@/components/fec";
+import { PillTabScroller, pillTabItemClass } from "@/components/react-bits/pill-tab-scroller";
 import { useSites } from "@/hooks/queries/useSites";
 import { getArcadeDashboard, syncArcadeAlerts } from "@/lib/arcade.functions";
 import { CHART, chartTooltipStyle } from "@/lib/chart-theme";
@@ -74,22 +75,23 @@ export function ArcadeDashboard() {
   return (
     <div className="grid gap-5">
       <FecPageHeader icon={Gamepad2} kicker={t("nav.arcade")} title={t("nav.arcadeDashboard")} subtitle={t("arcadeOps.dashboardSubtitle")} />
-      {dashboard.isLoading ? <LoadingState label={t("arcadeOps.loading")} count={4} /> : null}
+      {dashboard.isLoading ? <FecLoader label={t("arcadeOps.loading")} /> : null}
       {dashboard.isError ? <p className="text-sm text-destructive">{dashboard.error instanceof Error ? dashboard.error.message : t("arcadeOps.failed")}</p> : null}
       {kpis ? (
         <>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <MetricCard
+            <TintedKpiCard
+              tint="green"
               icon={Gauge}
-              tone="success"
               title={t("arcadeOps.operational")}
               value={kpis.operationalPercent == null ? "—" : `${kpis.operationalPercent}%`}
               hint={kpis.pmCompliance == null ? t("arcadeOps.pmHintEmpty") : t("arcadeOps.pmHint", { percent: kpis.pmCompliance })}
               href="/arcade/sites"
+              viewLabel={t("common.view")}
             />
-            <MetricCard icon={CircleCheck} tone="info" title={t("arcadeOps.working")} value={kpis.working} hint={t("arcadeOps.fleetCount", { count: kpis.total })} href="/arcade/sites" />
-            <MetricCard icon={CircleX} tone={kpis.down > 0 ? "danger" : "success"} title={t("arcadeOps.down")} value={kpis.down} href="/arcade/faults" pulse={kpis.down > 0} empty={kpis.down === 0} />
-            <MetricCard icon={Wrench} tone={kpis.openFaults > 0 ? "warning" : "success"} title={t("arcadeOps.openFaults")} value={kpis.openFaults} href="/arcade/faults" />
+            <TintedKpiCard tint="sky" icon={CircleCheck} title={t("arcadeOps.working")} value={kpis.working} hint={t("arcadeOps.fleetCount", { count: kpis.total })} href="/arcade/sites" viewLabel={t("common.view")} />
+            <TintedKpiCard tint="red" icon={CircleX} title={t("arcadeOps.down")} value={kpis.down} href="/arcade/faults" viewLabel={t("common.view")} />
+            <TintedKpiCard tint="orange" icon={Wrench} title={t("arcadeOps.openFaults")} value={kpis.openFaults} href="/arcade/faults" viewLabel={t("common.view")} />
           </div>
           <div className="flex flex-wrap gap-2">
             {chips.map((chip) => (
@@ -149,12 +151,11 @@ export function ArcadeDashboard() {
                         working: site.working,
                         down: site.down,
                       })}
-                      alert={site.down > 0 ? t("arcadeOps.down") : null}
                     />
                   );
                 })}
               </div>
-              {data && data.sites.length === 0 ? <EmptyState title={t("arcadeOps.emptySites")} /> : null}
+              {data && data.sites.length === 0 ? <p className="text-sm text-muted-foreground">{t("arcadeOps.emptySites")}</p> : null}
             </section>
           </div>
           <Attention
@@ -181,35 +182,32 @@ function Attention({ queues }: { queues: { id: string; title: string; rows: { hr
   const active = queues.find((queue) => queue.id === activeId) ?? queues[0];
   if (!active) return null;
   return (
-    <AppCard className="grid gap-3 p-4">
+    <section className="grid gap-3 rounded-2xl border bg-card p-4">
       <div>
         <h2 className="text-base font-semibold">{t("arcadeOps.needsAttention")}</h2>
         <p className="mt-1 text-sm text-muted-foreground">{t("arcadeOps.attentionHint")}</p>
       </div>
-      <SegmentControl
-        layout="scroll"
-        ariaLabel={t("arcadeOps.needsAttention")}
-        value={active.id}
-        onValueChange={setPicked}
-        options={queues.map((queue) => ({ value: queue.id, label: queue.title }))}
-      />
-      <div key={active.id} className="ds-enter">
-        {active.rows.length === 0 ? <EmptyState title={t("arcadeOps.none")} /> : (
-          <ul className="grid gap-2">
-            {active.rows.map((row, index) => (
-              <li key={row.href} className={index < 12 ? "ds-enter" : undefined} style={index < 12 ? { animationDelay: `${index * 20}ms` } : undefined}>
-                <Link href={row.href} className="flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  <span className="min-w-0">
-                    <span className="block font-medium">{row.label}</span>
-                    {row.meta ? <span className="mt-0.5 block truncate text-muted-foreground">{row.meta}</span> : null}
-                  </span>
-                  <StatusBadge status={row.status} />
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </AppCard>
+      <PillTabScroller label={t("arcadeOps.needsAttention")}>
+        {queues.map((queue) => (
+          <button key={queue.id} type="button" aria-pressed={queue.id === active.id} className={pillTabItemClass(queue.id === active.id)} onClick={() => setPicked(queue.id)}>
+            {queue.title}
+          </button>
+        ))}
+      </PillTabScroller>
+      <ul className="grid gap-2">
+        {active.rows.length === 0 ? <li className="text-sm text-muted-foreground">{t("arcadeOps.none")}</li> : null}
+        {active.rows.map((row) => (
+          <li key={row.href}>
+            <Link href={row.href} className="flex items-center justify-between gap-3 rounded-xl border px-3 py-2 text-sm hover:bg-muted/40">
+              <span className="min-w-0">
+                <span className="block font-medium">{row.label}</span>
+                <span className="mt-0.5 block truncate text-muted-foreground">{row.meta}</span>
+              </span>
+              <StatusBadge status={row.status} />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

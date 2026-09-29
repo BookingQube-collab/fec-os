@@ -9,7 +9,6 @@ import { useTranslation } from "react-i18next";
 import { MaintenanceRequestForm } from "@/components/maintenance/maintenance-request-form";
 import { ManageLocationAreasDialog } from "@/components/maintenance/manage-location-areas-dialog";
 import { DailyOpsPageShell } from "@/components/daily-ops/DailyOpsLayout";
-import { EmptyState, LoadingState, StatusChip, equipmentStatusPulse, equipmentStatusTone } from "@/components/ds";
 import { useDailyOpsMaintenance } from "@/hooks/queries/useDailyOps";
 import { useAuth } from "@/hooks/use-auth";
 import { useSites } from "@/hooks/queries/useSites";
@@ -33,6 +32,12 @@ type MaintenanceRow = {
   days_open: number;
   work_order_id: string | null;
 };
+
+function statusTone(status: string, daysOpen: number) {
+  if (["completed", "cancelled"].includes(status)) return "text-emerald-600";
+  if (daysOpen > 7 || status === "submitted") return "text-red-600";
+  return "text-amber-600";
+}
 
 function DailyOpsMaintenancePage() {
   const { t } = useTranslation();
@@ -141,11 +146,10 @@ function DailyOpsMaintenancePage() {
               </Link>
             </div>
           ) : null}
-          <div key={priorityFilter ?? "all"} className="ds-enter">
           {isLoading ? (
-            <LoadingState label={t("dailyOps.loading")} count={4} />
+            <p className="text-sm text-muted-foreground">{t("dailyOps.loading")}</p>
           ) : !rows.length ? (
-            <EmptyState title={t("dailyOps.maintenance.empty")} />
+            <p className="text-sm text-muted-foreground">{t("dailyOps.maintenance.empty")}</p>
           ) : (
             <div className="overflow-x-auto rounded-lg border border-border bg-card">
               <Table>
@@ -170,16 +174,13 @@ function DailyOpsMaintenancePage() {
                       <TableCell>{row.area ?? row.category}</TableCell>
                       <TableCell className="max-w-xs truncate">{row.description}</TableCell>
                       <TableCell>
-                        <StatusChip tone={row.priority === "urgent" ? "critical" : "neutral"}>{row.priority}</StatusChip>
+                        <Badge variant={row.priority === "urgent" ? "destructive" : "secondary"} className="uppercase">
+                          {row.priority}
+                        </Badge>
                       </TableCell>
                       <TableCell>{row.assigned_to ?? "—"}</TableCell>
-                      <TableCell>
-                        <StatusChip tone={equipmentStatusTone(row.status)}>
-                          {equipmentStatusPulse(row.status) ? <span className="ds-pulse h-2 w-2 rounded-full bg-current" aria-hidden /> : null}
-                          {row.status}
-                        </StatusChip>
-                      </TableCell>
-                      <TableCell>{row.days_open}</TableCell>
+                      <TableCell className={statusTone(row.status, row.days_open)}>{row.status}</TableCell>
+                      <TableCell className={row.days_open > 7 ? "text-red-600" : ""}>{row.days_open}</TableCell>
                       <TableCell>
                         <Button size="sm" variant="ghost" asChild>
                           <Link href="/maintenance/requests">{t("dailyOps.maintenance.view")}</Link>
@@ -191,7 +192,6 @@ function DailyOpsMaintenancePage() {
               </Table>
             </div>
           )}
-          </div>
         </TabsContent>
 
         {canSubmit && (

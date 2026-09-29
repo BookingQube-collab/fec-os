@@ -1,7 +1,7 @@
 "use client";
 
-import { Check, RotateCcw, Shield, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { RotateCcw, Shield, X } from "lucide-react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,6 @@ export function PrReviewPanel({
   stageOptions,
   universal,
   pending,
-  acknowledged,
   onApprove,
   onReject,
   onRequestChanges,
@@ -29,18 +28,13 @@ export function PrReviewPanel({
   stageOptions?: Array<{ id: string; label: string }>;
   universal?: boolean;
   pending?: boolean;
-  acknowledged?: "approve" | "reject" | "return" | null;
   onApprove: (comments: string) => void;
   onReject: (comments: string) => void;
   onRequestChanges: (comments: string) => void;
 }) {
   const { t } = useTranslation();
   const [feedback, setFeedback] = useState("");
-  const [busy, setBusy] = useState<"approve" | "reject" | "return" | null>(null);
   const [stageId, setStageId] = useState(stageOptions?.[0]?.id ?? "current");
-  useEffect(() => {
-    if (!pending && !acknowledged) setBusy(null);
-  }, [pending, acknowledged]);
   const activeStage = stageOptions?.find((s) => s.id === stageId)?.label ?? roleLabel;
 
   return (
@@ -82,30 +76,19 @@ export function PrReviewPanel({
         placeholder={t("procurement.detail.feedbackPlaceholderReject")}
       />
       <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          disabled={pending || Boolean(acknowledged)}
-          onClick={() => {
-            setBusy("return");
-            onRequestChanges(feedback.trim());
-          }}
-        >
-          {acknowledged === "return" ? <Check className="h-4 w-4" aria-hidden /> : <RotateCcw className="h-4 w-4" />}
-          {pending && busy === "return" ? t("common.saving") : t("procurement.detail.requestChanges")}
+        <Button type="button" variant="outline" disabled={pending} onClick={() => onRequestChanges(feedback.trim())}>
+          <RotateCcw className="h-4 w-4" />
+          {t("procurement.detail.requestChanges")}
         </Button>
         <Button
           type="button"
           variant="outline"
           className="border-destructive/40 text-destructive hover:bg-destructive/10"
-          disabled={pending || Boolean(acknowledged)}
-          onClick={() => {
-            setBusy("reject");
-            onReject(feedback.trim());
-          }}
+          disabled={pending}
+          onClick={() => onReject(feedback.trim())}
         >
-          {acknowledged === "reject" ? <Check className="h-4 w-4" aria-hidden /> : <X className="h-4 w-4" />}
-          {pending && busy === "reject" ? t("common.saving") : t("procurement.detail.reject")}
+          <X className="h-4 w-4" />
+          {t("procurement.detail.reject")}
         </Button>
         <Button
           type="button"
@@ -114,14 +97,10 @@ export function PrReviewPanel({
             "border-emerald-500/50 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
             "dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-300 dark:hover:bg-emerald-500/20",
           )}
-          disabled={pending || Boolean(acknowledged)}
-          onClick={() => {
-            setBusy("approve");
-            onApprove(feedback.trim());
-          }}
+          disabled={pending}
+          onClick={() => onApprove(feedback.trim())}
         >
-          {acknowledged === "approve" ? <Check className="h-4 w-4" aria-hidden /> : null}
-          {pending && busy === "approve" ? t("common.saving") : t("procurement.detail.approveRequest")}
+          {t("procurement.detail.approveRequest")}
         </Button>
       </div>
     </section>

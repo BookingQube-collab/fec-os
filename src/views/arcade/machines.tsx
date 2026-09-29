@@ -9,10 +9,9 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { GamePhoto, useArcadePhotoUrls } from "@/components/arcade/game-photo";
-import { ActionButton, arcadeCategoryName, arcadeStatusName, Field, HealthMeter, MobileActions, Pager, SiteHealthCard, StatusBadge, useVenueTitle } from "@/components/arcade/ui";
+import { ActionButton, arcadeCategoryName, arcadeStatusName, Field, HealthMeter, KpiTile, MobileActions, Pager, SiteHealthCard, StatusBadge, useVenueTitle } from "@/components/arcade/ui";
 import { ArcadeWorkbookImport } from "@/components/arcade/workbook-import";
-import { EmptyState, InteractiveCard, LoadingState, MetricCard, SegmentControl } from "@/components/ds";
-import { FecPageHeader } from "@/components/fec";
+import { FecLoader, FecPageHeader } from "@/components/fec";
 import GlideSelect from "@/components/react-bits/glide-select";
 import { PillTabScroller, pillTabItemClass } from "@/components/react-bits/pill-tab-scroller";
 import { Button } from "@/components/ui/button";
@@ -51,22 +50,20 @@ export function ArcadeSites() {
   return (
     <div className="grid gap-4">
       <FecPageHeader icon={Gamepad2} kicker={t("nav.arcade")} title={t("arcadeScreens.sitesTitle")} subtitle={t("arcadeScreens.sitesHint")} />
-      {sites.isLoading || board.isLoading ? <LoadingState label={t("arcadeOps.loading")} count={6} /> : null}
+      {sites.isLoading || board.isLoading ? <FecLoader label={t("arcadeOps.loading")} /> : null}
       {board.isError ? <p className="text-sm text-destructive">{board.error instanceof Error ? board.error.message : t("arcadeOps.failed")}</p> : null}
-      {!sites.isLoading && !board.isLoading && !board.isError && cards.length === 0 ? <EmptyState title={t("arcadeOps.emptySites")} /> : null}
-      {!sites.isLoading && !board.isLoading && !board.isError && cards.length > 0 ? <div className="ds-enter grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {cards.map(({ site, row, title }, index) => {
+      {!sites.isLoading && !board.isLoading && !board.isError ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {cards.map(({ site, row, title }) => {
           const cover = board.data?.covers[site.id];
           return (
-            <div key={site.id} className={index < 12 ? "ds-enter" : undefined} style={index < 12 ? { animationDelay: `${index * 20}ms` } : undefined}>
             <SiteHealthCard
+              key={site.id}
               href={`/arcade/sites/${site.id}`}
               title={title}
               code={site.code}
               availability={row?.availability ?? null}
               meterLabel={t("arcadeScreens.availability")}
               detail={row ? t("arcadeScreens.siteLineShort", { machines: row.active_machines, working: row.working, down: row.down }) : t("arcadeScreens.noMachines")}
-              alert={row && row.down > 0 ? t("arcadeOps.down") : null}
               media={
                 <GamePhoto
                   src={cover ? photos.data?.urls[cover] : null}
@@ -76,7 +73,6 @@ export function ArcadeSites() {
                 />
               }
             />
-            </div>
           );
         })}
       </div> : null}
@@ -99,19 +95,19 @@ export function ArcadeSite({ locationId }: { locationId: string }) {
         title={label(locationId)}
         subtitle={t("arcadeScreens.siteInventory")}
       />
-      {board.isLoading ? <LoadingState label={t("arcadeOps.loading")} count={4} /> : null}
+      {board.isLoading ? <FecLoader label={t("arcadeOps.loading")} density="chip" /> : null}
       {site ? (
-        <div key={locationId} className="ds-enter grid gap-3">
+        <div className="grid gap-3">
           <HealthMeter value={site.availability} label={t("arcadeScreens.availability")} />
           <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-            <MetricCard title={t("arcadeScreens.machines")} value={site.active_machines} />
-            <MetricCard title={t("arcadeOps.working")} value={site.working} tone="success" />
-            <MetricCard title={t("arcadeOps.down")} value={site.down} tone={site.down > 0 ? "danger" : "success"} pulse={site.down > 0} />
-            <MetricCard title={t("arcadeOps.underRepair")} value={site.under_repair} tone={site.under_repair > 0 ? "warning" : "neutral"} />
-            <MetricCard title={t("arcadeScreens.observation")} value={site.under_observation} tone={site.under_observation > 0 ? "warning" : "neutral"} />
-            <MetricCard title={t("arcadeOps.waitingParts")} value={site.waiting_part} tone={site.waiting_part > 0 ? "warning" : "neutral"} />
-            <MetricCard title={t("arcadeOps.pmDue")} value={site.pm_due + site.pm_overdue} />
-            <MetricCard title={t("arcadeOps.waitingSupplier")} value={site.waiting_supplier} tone={site.waiting_supplier > 0 ? "warning" : "neutral"} />
+            <KpiTile label={t("arcadeScreens.machines")} value={site.active_machines} />
+            <KpiTile label={t("arcadeOps.working")} value={site.working} />
+            <KpiTile label={t("arcadeOps.down")} value={site.down} />
+            <KpiTile label={t("arcadeOps.underRepair")} value={site.under_repair} />
+            <KpiTile label={t("arcadeScreens.observation")} value={site.under_observation} />
+            <KpiTile label={t("arcadeOps.waitingParts")} value={site.waiting_part} />
+            <KpiTile label={t("arcadeOps.pmDue")} value={site.pm_due + site.pm_overdue} />
+            <KpiTile label={t("arcadeOps.waitingSupplier")} value={site.waiting_supplier} />
           </div>
         </div>
       ) : null}
@@ -138,27 +134,22 @@ export function ArcadeMachines({ locationId }: { locationId?: string }) {
       {!locationId ? <h1 className="text-xl font-semibold">{t("arcadeScreens.machineList")}</h1> : null}
       <div className="flex flex-wrap gap-2">
         <Input value={q} onChange={(event) => { setQ(event.target.value); setPage(1); }} placeholder={t("arcadeScreens.searchMachines")} className="max-w-xs" />
-        <SegmentControl
-          layout="scroll"
+        <GlideSelect
           ariaLabel={t("arcadeScreens.status")}
           value={status}
-          onValueChange={(value) => { setStatus(value); setPage(1); }}
+          placeholder={t("arcadeScreens.allStatuses")}
+          showTags={false}
+          onChange={(value) => { setStatus(value); setPage(1); }}
           options={[{ value: "", label: t("arcadeScreens.allStatuses") }, ...MACHINE_STATUSES.map((item) => ({ value: item, label: arcadeStatusName(t, item) }))]}
         />
         {canManage ? <Button asChild><Link href={`/arcade/machines/new${locationId ? `?locationId=${locationId}` : ""}`}>{t("arcadeScreens.addMachine")}</Link></Button> : null}
         <ArcadeWorkbookImport />
       </div>
-      <div key={`${status}:${q}:${page}`} className="ds-enter">
-      {list.isLoading ? <LoadingState label={t("arcadeOps.loading")} count={6} /> : null}
-      {!list.isLoading && rows.length === 0 ? (
-        <EmptyState title={t("arcadeScreens.noMachineRows")} />
-      ) : null}
-      {!list.isLoading && rows.length > 0 ? (
+      {list.isLoading ? <FecLoader label={t("arcadeOps.loading")} density="chip" /> : null}
+      {!list.isLoading && rows.length === 0 ? <p className="text-sm text-muted-foreground">{t("arcadeScreens.noMachineRows")}</p> : null}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {rows.map((row, index) => (
-          <div key={row.id} className={index < 12 ? "ds-enter" : undefined} style={index < 12 ? { animationDelay: `${index * 20}ms` } : undefined}>
-          <InteractiveCard>
-          <Link href={`/arcade/machines/${row.id}`} className="block overflow-hidden rounded-[var(--radius)] border bg-card shadow-elevated-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        {rows.map((row) => (
+          <Link key={row.id} href={`/arcade/machines/${row.id}`} className="overflow-hidden rounded-2xl border bg-card shadow-[0_4px_20px_rgba(0,0,0,0.04)] transition hover:-translate-y-0.5">
             <GamePhoto
               src={row.photo_path ? photos.data?.urls[row.photo_path] : null}
               alt={t("arcadeScreens.gamePhoto", { name: row.name })}
@@ -174,17 +165,15 @@ export function ArcadeMachines({ locationId }: { locationId?: string }) {
                 <StatusBadge status={row.status} />
               </div>
               {!locationId ? <p className="text-xs text-muted-foreground">{label(row.location_id)}</p> : null}
-              {row.supplier_name ? <p className="text-xs text-muted-foreground">{row.supplier_name}</p> : null}
-              {row.last_fix_at ? <p className="text-xs text-muted-foreground">{new Date(row.last_fix_at).toLocaleDateString()}</p> : null}
-              {row.last_fix_summary ? <p className="line-clamp-2 text-xs text-muted-foreground">{row.last_fix_summary}</p> : null}
-              {row.next_pm_on ? <p className="text-xs text-muted-foreground">{row.next_pm_on}</p> : null}
+              <p className="text-xs text-muted-foreground">
+                {t("arcadeImport.purchaseInvoice")}: {row.supplier_name || "—"} · {formatPaid(row.amount_paid, row.paid_currency)} · {row.paid_on || "—"}
+              </p>
+              <p className="line-clamp-2 text-xs text-muted-foreground">
+                {t("arcadeGames.listFix")}: {row.last_fix_status ? `${arcadeStatusName(t, row.last_fix_status)} · ${row.last_fix_summary ?? ""}` : "—"}
+              </p>
             </div>
           </Link>
-          </InteractiveCard>
-          </div>
         ))}
-      </div>
-      ) : null}
       </div>
       <Pager page={page} pageSize={GAME_PAGE_SIZE} total={list.data?.total ?? 0} onPage={setPage} />
     </div>

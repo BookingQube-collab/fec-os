@@ -5,7 +5,6 @@ import { FecLoader } from "@/components/fec";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
-  Check,
   Building2,
   CalendarDays,
   ChevronDown,
@@ -21,6 +20,7 @@ import {
   RotateCcw,
   ShieldCheck,
   Tag,
+  Trash2,
   UserRound,
 } from "lucide-react";
 import Link from "next/link";
@@ -29,9 +29,9 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { PrReviewPanel } from "@/components/procurement/pr-review-panel";
-import { ApprovalTimeline, ConfirmationAction, type ApprovalStage, type ApprovalStageState } from "@/components/ds";
 import { usePrActions } from "@/components/procurement/pr-row-actions";
 import { PrStatusPill } from "@/components/procurement/pr-status-pill";
+import { PrTimeline, type TimelineNode } from "@/components/procurement/pr-timeline";
 import { usePermission } from "@/hooks/use-permission";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -209,7 +209,7 @@ export default function ProcurementRequisitionDetailPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 items-start gap-3">
-          <Button variant="outline" size="icon" className="mt-0.5 h-11 w-11" asChild>
+          <Button variant="outline" size="icon" className="mt-0.5 h-10 w-10" asChild>
             <Link href="/procurement/requisitions" aria-label={t("procurement.wizard.back")}>
               <ArrowLeft className="rtl:rotate-180" />
             </Link>
@@ -268,24 +268,24 @@ export default function ProcurementRequisitionDetailPage() {
             </Button>
           ) : null}
           {d.canReissue ? (
-            <Button
-              variant="outline"
-              disabled={actions.pending || actions.acknowledged === "reissue"}
-              onClick={() => actions.reissue(actionTarget)}
-            >
-              {actions.acknowledged === "reissue" ? <Check /> : <RotateCcw />}
-              {actions.pending
-                ? t("common.saving")
-                : t("procurement.detail.reissue")}
+            <Button variant="outline" disabled={actions.pending} onClick={() => actions.reissue(actionTarget)}>
+              <RotateCcw />
+              {t("procurement.detail.reissue")}
             </Button>
           ) : null}
           {d.canCancel ? (
-            <ConfirmationAction
-              label={t("procurement.detail.delete")}
-              holdingLabel={t("common.holding")}
+            <Button
+              variant="destructive"
               disabled={actions.pending}
-              onConfirm={() => actions.cancel(actionTarget, t("procurement.detail.deleteReason"))}
-            />
+              onClick={() => {
+                if (window.confirm(t("procurement.detail.confirmDeleteBody"))) {
+                  actions.cancel(actionTarget, t("procurement.detail.deleteReason"));
+                }
+              }}
+            >
+              <Trash2 />
+              {t("procurement.detail.delete")}
+            </Button>
           ) : null}
           {d.isLocked && !d.canAct ? (
             <Button variant="outline" disabled>
@@ -353,7 +353,6 @@ export default function ProcurementRequisitionDetailPage() {
           stageOptions={stageOptions.length ? stageOptions : undefined}
           universal={universal}
           pending={actions.pending}
-          acknowledged={actions.acknowledged === "approve" || actions.acknowledged === "reject" || actions.acknowledged === "return" ? actions.acknowledged : null}
           onApprove={(comments) => {
             if (h.over_budget) {
               actions.open("approve", actionTarget);
@@ -541,10 +540,10 @@ export default function ProcurementRequisitionDetailPage() {
                 {t("procurement.detail.exportCsv")}
               </Button>
             </div>
-            <Table className="min-w-[36rem]">
+            <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
-                  <TableHead className="sticky start-0 z-10 bg-card">{t("procurement.form.description")}</TableHead>
+                  <TableHead>{t("procurement.form.description")}</TableHead>
                   <TableHead>{t("procurement.form.qty")}</TableHead>
                   <TableHead>{t("procurement.form.unitPrice")}</TableHead>
                   <TableHead className="text-end">{t("procurement.form.lineTotal")}</TableHead>
@@ -560,7 +559,7 @@ export default function ProcurementRequisitionDetailPage() {
                 ) : (
                   goodsLines.map((line) => (
                     <TableRow key={line.id}>
-                      <TableCell className="sticky start-0 z-10 bg-card">
+                      <TableCell>
                         <p className="font-medium">{line.name}</p>
                         {line.description ? (
                           <p className="text-xs text-muted-foreground">{line.description}</p>
@@ -633,17 +632,7 @@ export default function ProcurementRequisitionDetailPage() {
           </div>
         </div>
 
-        <ApprovalTimeline
-          title={t("procurement.detail.timeline")}
-          stages={nodes}
-          stateLabels={{
-            completed: t("procurement.detail.timelineState.completed"),
-            current: t("procurement.detail.timelineState.current"),
-            waiting: t("procurement.detail.timelineState.waiting"),
-            rejected: t("procurement.detail.timelineState.rejected"),
-            returned: t("procurement.detail.timelineState.returned"),
-          }}
-        />
+        <PrTimeline nodes={nodes} />
       </div>
 
       {actions.dialogs}
@@ -748,58 +737,92 @@ function buildTimeline(
   d: Awaited<ReturnType<typeof getPurchaseRequisition>>,
   t: (key: string, opts?: Record<string, string>) => string,
   locale: string,
-): ApprovalStage[] {
+): TimelineNode[] {
   const submitted = d.history.find((ev) => ev.action === "submitted" || ev.action === "resubmitted");
-  const withRequester = ["draft", "returned", "changes_requested"].includes(d.header.status);
-  const requester: ApprovalStage = {
-    id: "requester",
-    label: t("procurement.detail.timelineInitiated"),
-    state: withRequester ? "current" : "completed",
-    detail: d.header.requester_name
-      ? t("procurement.detail.timelineBy", { name: d.header.requester_name })
-      : undefined,
-    when: formatStamp(submitted?.created_at ?? d.header.created_at, locale),
+  const initiatedDone = Boolean(submitted) || !["draft", "returned", "changes_requested"].includes(d.header.status);
+  const initiated: TimelineNode = {
+    id: "initiated",
+    title: t("procurement.detail.timelineInitiated"),
+    state: initiatedDone ? "done" : "current",
+    meta: t("procurement.detail.timelineBy", { name: d.header.requester_name }),
+    date: formatStamp(submitted?.created_at ?? d.header.created_at, locale),
   };
 
   const currentPending = d.steps.find((s) => s.status === "pending");
-  const steps = [...d.steps].sort((a, b) => a.step_order - b.step_order);
-  const stepStages: ApprovalStage[] = steps.map((step) => {
+  const stepNodes: TimelineNode[] = d.steps.map((step) => {
     const role = step.step_role as string;
-    const state = stepStageState(step.status, step.id, d.header.status, currentPending?.id);
+    let state: TimelineNode["state"] = "upcoming";
+    if (step.status === "approved" || step.status === "skipped") state = "done";
+    else if (step.status === "rejected") state = "rejected";
+    else if (currentPending?.id === step.id && !["rejected", "returned", "cancelled"].includes(d.header.status)) {
+      state = "current";
+    }
     const actor = step.acted_by ? d.actorNames[step.acted_by] : null;
     const stepComment = typeof step.comments === "string" ? step.comments.trim() : "";
-    const detail =
-      state === "rejected"
-        ? stepComment || t("procurement.status.rejected")
-        : state === "returned"
-          ? stepComment || t("procurement.detail.timelineReturned")
-          : actor
-            ? t("procurement.detail.timelineBy", { name: actor })
-            : undefined;
     return {
       id: step.id,
-      label: t(`procurement.detail.timelineStep.${role}`, { defaultValue: t(`procurement.steps.${role}`) }),
+      title: t(`procurement.detail.timelineStep.${role}`, { defaultValue: t(`procurement.steps.${role}`) }),
       state,
-      detail,
-      when: step.acted_at ? formatStamp(step.acted_at, locale) : undefined,
+      meta:
+        state === "current"
+          ? t("procurement.detail.pendingAction")
+          : state === "rejected"
+            ? stepComment || t("procurement.status.rejected")
+            : actor
+              ? t("procurement.detail.timelineBy", { name: actor })
+              : "",
+      date: step.acted_at ? formatStamp(step.acted_at, locale) : undefined,
     };
   });
 
-  return [requester, ...stepStages];
-}
+  const hasRejectedStep = d.steps.some((s) => s.status === "rejected");
+  const cycleNotes: TimelineNode[] = hasRejectedStep
+    ? []
+    : d.history
+        .filter((ev) => ev.action === "returned" || ev.action === "rejected" || ev.action === "resubmitted")
+        .map((ev) => {
+          const actor = ev.actor_id ? d.actorNames[ev.actor_id] : null;
+          const comment = typeof ev.comments === "string" ? ev.comments.trim() : "";
+          return {
+            id: `hist-${ev.id}`,
+            title:
+              ev.action === "resubmitted"
+                ? t("procurement.detail.timelineResubmitted")
+                : ev.action === "returned"
+                  ? t("procurement.detail.timelineReturned")
+                  : t("procurement.detail.timelineRejectedNote"),
+            state: (ev.action === "resubmitted" ? "done" : "rejected") as TimelineNode["state"],
+            meta:
+              comment ||
+              (actor ? t("procurement.detail.timelineBy", { name: actor }) : ""),
+            date: formatStamp(ev.created_at, locale),
+          };
+        });
 
-function stepStageState(
-  stepStatus: string,
-  stepId: string,
-  headerStatus: string,
-  pendingId: string | undefined,
-): ApprovalStageState {
-  if (stepStatus === "rejected") return "rejected";
-  if (stepStatus === "approved" || stepStatus === "skipped") return "completed";
-  if ((headerStatus === "returned" || headerStatus === "changes_requested") && pendingId === stepId) return "returned";
-  if (headerStatus === "draft" || headerStatus === "cancelled") return "waiting";
-  if (pendingId === stepId && headerStatus !== "rejected") return "current";
-  return "waiting";
+  let finalState: TimelineNode["state"] = "upcoming";
+  let finalMeta = t("procurement.detail.awaitingSignoffs");
+  if (d.header.status === "approved" || d.header.status === "po_created") {
+    finalState = "done";
+    finalMeta = t("procurement.status.approved");
+  } else if (d.header.status === "rejected") {
+    finalState = "rejected";
+    finalMeta = t("procurement.status.rejected");
+  } else if (d.header.status === "cancelled") {
+    finalState = "rejected";
+    finalMeta = t("procurement.status.cancelled");
+  }
+
+  return [
+    initiated,
+    ...cycleNotes,
+    ...stepNodes,
+    {
+      id: "final",
+      title: t("procurement.detail.finalStatus"),
+      state: finalState,
+      meta: finalMeta,
+    },
+  ];
 }
 
 function formatLongDate(value: string | null | undefined, locale: string) {

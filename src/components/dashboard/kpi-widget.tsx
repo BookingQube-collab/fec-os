@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
 
 import { KpiAnimatedValue } from "@/components/react-bits/kpi-animated-value";
+import SpotlightCard from "@/components/react-bits/spotlight-card";
 import { CircularProgressBadge } from "./circular-progress-badge";
 import { KPI_ICON_CLASS, KPI_TINT_CLASS, widgetAccentToTint } from "@/lib/ui/command-surface";
 import { cn } from "@/lib/utils";
@@ -33,7 +34,8 @@ export function KPIWidget({
 }: KPIWidgetProps) {
   const tint = widgetAccentToTint(accent);
   const inner = (
-    <div
+    <SpotlightCard
+      spotlightColor="rgba(255, 186, 0, 0.95)"
       className={cn(
         "h-full rounded-2xl border px-5 py-4 shadow-[0_4px_20px_rgba(0,0,0,0.05)] transition-shadow hover:shadow-elevated-sm",
         KPI_TINT_CLASS[tint],
@@ -55,7 +57,7 @@ export function KPIWidget({
         </div>
         {progress != null && <CircularProgressBadge value={progress} positive={progressPositive} />}
       </div>
-    </div>
+    </SpotlightCard>
   );
 
   return href ? (

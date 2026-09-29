@@ -11,7 +11,6 @@ import { RosterGeneratePanel } from "@/components/daily-ops/roster-generate-pane
 import { RosterMonthCalendar } from "@/components/daily-ops/roster-month-calendar";
 import { RosterExportView } from "@/components/daily-ops/roster-export-view";
 import { DailyOpsPageShell } from "@/components/daily-ops/DailyOpsLayout";
-import { EmptyState, LoadingState, StatusChip, staffStatusTone } from "@/components/ds";
 import {
   useDailyOpsRoster,
   useDailyOpsRosterUploads,
@@ -33,6 +32,7 @@ import { captureAndShareRosterImage } from "@/lib/daily-ops/share-roster-image";
 import { STAFF_ROLE_LABELS, STAFF_ROLES } from "@/lib/daily-ops/constants";
 import { usePermission } from "@/hooks/use-permission";
 import { useAppStore } from "@/stores/app-store";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -374,17 +374,16 @@ function DailyOpsRosterPage() {
         </TabsContent>
 
         <TabsContent value="staff" className="mt-4">
-          <div key={locationId ?? "none"} className="ds-enter">
           {staffLoading ? (
-            <LoadingState label={t("dailyOps.loading")} count={4} />
+            <p className="text-sm text-muted-foreground">{t("dailyOps.loading")}</p>
           ) : !staff?.length ? (
-            <EmptyState title={t("dailyOps.roster.empty")} />
+            <p className="text-sm text-muted-foreground">{t("dailyOps.roster.empty")}</p>
           ) : (
             <div className="overflow-x-auto rounded-lg border border-border bg-card">
-              <Table className="min-w-[40rem]">
-                <TableHeader className="md:sticky md:top-0 md:z-10 bg-card">
+              <Table>
+                <TableHeader>
                   <TableRow>
-                    <TableHead className="sticky start-0 z-10 bg-card">{t("dailyOps.roster.name")}</TableHead>
+                    <TableHead>{t("dailyOps.roster.name")}</TableHead>
                     <TableHead>{t("dailyOps.roster.code")}</TableHead>
                     <TableHead>{t("dailyOps.roster.role")}</TableHead>
                     <TableHead>{t("dailyOps.roster.phone")}</TableHead>
@@ -393,9 +392,9 @@ function DailyOpsRosterPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {staff.map((row, index) => (
-                    <TableRow key={String(row.id)} className={index < 12 ? "ds-enter hover:bg-muted/40" : "hover:bg-muted/40"} style={index < 12 ? { animationDelay: `${index * 20}ms` } : undefined}>
-                      <TableCell className="sticky start-0 z-10 bg-card">{String(row.full_name)}</TableCell>
+                  {staff.map((row) => (
+                    <TableRow key={String(row.id)}>
+                      <TableCell>{String(row.full_name)}</TableCell>
                       <TableCell className="font-mono text-xs">{String(row.employee_code)}</TableCell>
                       <TableCell>
                         {row.staff_role
@@ -404,16 +403,15 @@ function DailyOpsRosterPage() {
                       </TableCell>
                       <TableCell>{String(row.phone ?? "—")}</TableCell>
                       <TableCell>
-                        <StatusChip tone={staffStatusTone(String(row.status))}>
+                        <Badge variant={row.status === "active" ? "default" : "secondary"}>
                           {row.status === "active" ? "Active" : "Inactive"}
-                        </StatusChip>
+                        </Badge>
                       </TableCell>
                       {canEditStaff && (
                         <TableCell>
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="min-h-11"
                             onClick={() => {
                               setEditId(String(row.id));
                               setRole(String(row.staff_role ?? ""));
@@ -430,7 +428,6 @@ function DailyOpsRosterPage() {
               </Table>
             </div>
           )}
-          </div>
 
           {editId && (
             <div className="mt-4 max-w-md space-y-3 rounded-lg border border-border bg-card p-4">

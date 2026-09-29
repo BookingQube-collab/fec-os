@@ -19,6 +19,7 @@ import {
   verificationStatusMark,
 } from "@/components/people/staff-document-preview";
 import GlideSelect from "@/components/react-bits/glide-select";
+import SpotlightCard from "@/components/react-bits/spotlight-card";
 import StatusMark from "@/components/react-bits/status-mark";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -538,7 +539,7 @@ export function HrDocumentsWorkspace({
                 <HrEmptyState message={t("hr.docs.empty")} icon={FileText} />
               ) : (
                 (docs.data ?? []).map((doc) => (
-                  <div key={doc.id} className="hr-list-row !items-stretch rounded-2xl">
+                  <SpotlightCard key={doc.id} className="hr-list-row !items-stretch rounded-2xl">
                     <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center">
                     <StaffDocumentOpenButton
                       label={t("hr.docs.openPreview", {
@@ -578,7 +579,7 @@ export function HrDocumentsWorkspace({
                     </StaffDocumentOpenButton>
                     <div className="flex flex-wrap items-center gap-2">{docActions(doc, true)}</div>
                     </div>
-                  </div>
+                  </SpotlightCard>
                 ))
               )}
             </div>

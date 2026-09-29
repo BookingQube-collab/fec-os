@@ -2,9 +2,10 @@
 
 import dynamic from "next/dynamic";
 
-import type { KpiTint } from "@/components/dashboard/tinted-kpi-card";
-import { EmptyState, LoadingState, MetricCard, type MetricTone } from "@/components/ds";
+import { TintedKpiCard, type KpiTint } from "@/components/dashboard/tinted-kpi-card";
+import { KpiSkeletonStrip } from "@/components/loading/page-skeleton";
 import { Badge } from "@/components/ui/badge";
+import { FecEmptyState, FecSkeleton, FecStatCard } from "@/components/fec";
 import { useMaintenanceDashboard } from "@/hooks/queries/useMaintenanceDashboard";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { useAppStore } from "@/stores/app-store";
@@ -16,21 +17,18 @@ const MaintenanceDashboardCharts = dynamic(
     ),
   {
     ssr: false,
-    loading: () => <LoadingState label="Loading charts" count={4} />,
+    loading: () => (
+      <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <FecSkeleton key={i} className="h-72 rounded-lg" />
+        ))}
+      </div>
+    ),
   },
 );
 
-const TONE: Record<KpiTint, MetricTone> = {
-  green: "success",
-  red: "danger",
-  amber: "warning",
-  orange: "warning",
-  sky: "info",
-  slate: "neutral",
-};
-
 function KpiCard({ label, value, tint }: { label: string; value: string | number; tint: KpiTint }) {
-  return <MetricCard title={label} value={value} tone={TONE[tint] ?? "neutral"} />;
+  return <FecStatCard title={label} value={value} tint={tint} compact />;
 }
 
 function tintForCount(value: number, warnAbove = 0): KpiTint {
@@ -46,11 +44,20 @@ export function MaintenanceDashboardPanel() {
   const k = data?.kpis;
 
   if (isLoading) {
-    return <LoadingState label="Loading dashboard" count={8} />;
+    return (
+      <div className="space-y-4">
+        <KpiSkeletonStrip count={8} />
+        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <FecSkeleton key={i} className="h-72 rounded-lg" />
+          ))}
+        </div>
+      </div>
+    );
   }
 
   if (!data) {
-    return <EmptyState title="Unable to load maintenance dashboard." />;
+    return <FecEmptyState message="Unable to load maintenance dashboard." />;
   }
 
   return (
@@ -96,7 +103,9 @@ export function MaintenanceDashboardPanel() {
         <section className="space-y-2">
           <h3 className="text-sm font-medium">Near SLA breach</h3>
           {data.near_sla_breach.length === 0 ? (
-            <EmptyState title="No jobs approaching SLA breach." />
+            <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+              No jobs approaching SLA breach.
+            </p>
           ) : (
             <div className="overflow-hidden rounded-lg border border-border">
               <table className="w-full text-sm">
@@ -126,7 +135,7 @@ export function MaintenanceDashboardPanel() {
         <section className="space-y-2">
           <h3 className="text-sm font-medium">Jobs by location</h3>
           {data.jobs_by_location.length === 0 ? (
-            <EmptyState title="No open jobs." />
+            <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">No open jobs.</p>
           ) : (
             <div className="overflow-hidden rounded-lg border border-border">
               <table className="w-full text-sm">
@@ -154,7 +163,9 @@ export function MaintenanceDashboardPanel() {
         <section className="space-y-2">
           <h3 className="text-sm font-medium">Overdue work orders</h3>
           {data.overdue_work_orders.length === 0 ? (
-            <EmptyState title="No overdue work orders." />
+            <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+              No overdue work orders.
+            </p>
           ) : (
             <div className="overflow-hidden rounded-lg border border-border">
               <table className="w-full text-sm">
@@ -194,7 +205,9 @@ export function MaintenanceDashboardPanel() {
         <section className="space-y-2">
           <h3 className="text-sm font-medium">Overdue PM schedules</h3>
           {data.overdue_pm.length === 0 ? (
-            <EmptyState title="No overdue PM schedules." />
+            <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+              No overdue PM schedules.
+            </p>
           ) : (
             <div className="overflow-hidden rounded-lg border border-border">
               <table className="w-full text-sm">
@@ -224,7 +237,9 @@ export function MaintenanceDashboardPanel() {
         <section className="space-y-2">
           <h3 className="text-sm font-medium">Technician workload</h3>
           {data.technician_workload.length === 0 ? (
-            <EmptyState title="No assigned open work orders." />
+            <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+              No assigned open work orders.
+            </p>
           ) : (
             <div className="overflow-hidden rounded-lg border border-border">
               <table className="w-full text-sm">
@@ -252,7 +267,9 @@ export function MaintenanceDashboardPanel() {
         <section className="space-y-2">
           <h3 className="text-sm font-medium">Active downtime events</h3>
           {data.active_downtime.length === 0 ? (
-            <EmptyState title="No active downtime events." />
+            <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+              No active downtime events.
+            </p>
           ) : (
             <div className="overflow-hidden rounded-lg border border-border">
               <table className="w-full text-sm">
@@ -284,7 +301,7 @@ export function MaintenanceDashboardPanel() {
         <section className="space-y-2">
           <h3 className="text-sm font-medium">PM calendar (next 14)</h3>
           {data.pm_calendar.length === 0 ? (
-            <EmptyState title="No PM schedules." />
+            <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">No PM schedules.</p>
           ) : (
             <div className="overflow-hidden rounded-lg border border-border">
               <table className="w-full text-sm">
@@ -312,7 +329,7 @@ export function MaintenanceDashboardPanel() {
         <section className="space-y-2">
           <h3 className="text-sm font-medium">Delivery status</h3>
           {data.delivery_status.length === 0 ? (
-            <EmptyState title="No deliveries." />
+            <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">No deliveries.</p>
           ) : (
             <div className="overflow-hidden rounded-lg border border-border">
               <table className="w-full text-sm">
@@ -339,7 +356,7 @@ export function MaintenanceDashboardPanel() {
       <section className="space-y-2">
         <h3 className="text-sm font-medium">Recent activities</h3>
         {data.recent_activities.length === 0 ? (
-          <EmptyState title="No recent activity." />
+          <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">No recent activity.</p>
         ) : (
           <div className="overflow-hidden rounded-lg border border-border">
             <table className="w-full text-sm">
@@ -369,7 +386,9 @@ export function MaintenanceDashboardPanel() {
       <section className="space-y-2">
         <h3 className="text-sm font-medium">Recent work orders</h3>
         {data.recent_work_orders.length === 0 ? (
-          <EmptyState title="No recent work orders." />
+          <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+            No recent work orders.
+          </p>
         ) : (
           <div className="overflow-hidden rounded-lg border border-border">
             <table className="w-full text-sm">

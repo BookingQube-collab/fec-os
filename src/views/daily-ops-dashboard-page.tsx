@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
+  ChevronRight,
   ClipboardList,
   MessageSquareWarning,
   PackageMinus,
@@ -15,12 +16,11 @@ import {
 import { useTranslation } from "react-i18next";
 
 import { DailyOpsPageShell } from "@/components/daily-ops/DailyOpsLayout";
-import { EmptyState, LoadingState, MetricCard, SiteSwitch, type MetricTone } from "@/components/ds";
+import { KpiSkeletonStrip } from "@/components/loading/page-skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useDailyOpsKpis } from "@/hooks/queries/useDailyOps";
-import { useSites } from "@/hooks/queries/useSites";
 import { usePermission } from "@/hooks/use-permission";
 import {
   DAILY_OPS_KPI_HREFS,
@@ -28,6 +28,8 @@ import {
   type DailyOpsKpiLevel,
 } from "@/lib/daily-ops/constants";
 import type { DailyOpsLocationKpis } from "@/lib/queries/daily-ops.core";
+import { KPI_TINT_CLASS, type KpiTint } from "@/lib/ui/command-surface";
+import { cn } from "@/lib/utils";
 import { useAppStore } from "@/stores/app-store";
 
 const KPI_CARDS = [
@@ -75,11 +77,11 @@ const KPI_CARDS = [
   },
 ] as const;
 
-const LEVEL_TONE: Record<DailyOpsKpiLevel, MetricTone> = {
-  critical: "danger",
-  watch: "warning",
-  healthy: "success",
-  missing: "neutral",
+const LEVEL_TINT: Record<DailyOpsKpiLevel, KpiTint> = {
+  critical: "red",
+  watch: "amber",
+  healthy: "green",
+  missing: "orange",
 };
 
 type LocationStatus = "critical" | "watch" | "clear";
@@ -111,8 +113,6 @@ function SignalChip({ href, children, tone }: { href: string; children: ReactNod
 function DailyOpsDashboardPage() {
   const { t } = useTranslation();
   const locationId = useAppStore((s) => s.currentLocationId);
-  const setCurrentLocationId = useAppStore((s) => s.setCurrentLocationId);
-  const sites = useSites();
   const canViewAll = usePermission("daily_ops.view_all");
   const { data, isLoading } = useDailyOpsKpis(locationId);
 
@@ -150,17 +150,8 @@ function DailyOpsDashboardPage() {
         </div>
       ) : null}
 
-      <SiteSwitch
-        value={locationId}
-        onValueChange={setCurrentLocationId}
-        sites={(sites.data ?? []).filter((site) => site.status === "active")}
-        allLabel={t("common.allBranches")}
-        ariaLabel={t("common.allBranches")}
-      />
-
-      <div key={locationId ?? "all"} className="ds-enter space-y-6">
       {isLoading ? (
-        <LoadingState label={t("common.loading")} count={8} />
+        <KpiSkeletonStrip count={8} />
       ) : (
         <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
           {KPI_CARDS.map((card) => {
@@ -168,21 +159,39 @@ function DailyOpsDashboardPage() {
             const invert = "invert" in card && card.invert;
             const level = dailyOpsKpiLevel(card.key, value, invert);
             const label = t(card.labelKey);
+            const Icon = card.icon;
             return (
-              <MetricCard
+              <Link
                 key={card.key}
-                title={label}
-                value={value}
-                icon={card.icon}
-                tone={LEVEL_TONE[level]}
-                empty={level === "healthy"}
-                pulse={
-                  level === "critical" &&
-                  (card.key === "critical_open_incidents" || card.key === "urgent_maintenance_open")
-                }
                 href={DAILY_OPS_KPI_HREFS[card.key]}
-                hint={t("dailyOps.dashboard.open")}
-              />
+                aria-label={t("dailyOps.dashboard.openKpi", { label })}
+                className={cn(
+                  "group flex h-full flex-col rounded-2xl border px-4 py-3 shadow-[0_4px_20px_rgba(0,0,0,0.05)]",
+                  "transition-all hover:-translate-y-0.5 hover:shadow-md",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                  KPI_TINT_CLASS[LEVEL_TINT[level]],
+                  level === "healthy" && "opacity-80",
+                )}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <p className="min-w-0 text-sm font-medium text-muted-foreground">{label}</p>
+                  <span className="flex shrink-0 items-center gap-1 text-muted-foreground">
+                    <Icon className="h-4 w-4" strokeWidth={1.75} />
+                    <ChevronRight className="h-4 w-4 transition-transform group-hover:ltr:translate-x-0.5 group-hover:rtl:-translate-x-0.5 rtl:rotate-180" />
+                  </span>
+                </div>
+                <p
+                  className={cn(
+                    "mt-1.5 text-2xl font-bold tracking-tight tabular-nums",
+                    level === "healthy" ? "text-muted-foreground" : "text-foreground",
+                  )}
+                >
+                  {value}
+                </p>
+                <p className="mt-auto pt-2 text-xs font-medium text-muted-foreground">
+                  {t("dailyOps.dashboard.open")}
+                </p>
+              </Link>
             );
           })}
         </div>
@@ -206,10 +215,10 @@ function DailyOpsDashboardPage() {
                 <p className="text-sm text-emerald-700">{t("dailyOps.dashboard.allClear")}</p>
               ) : null}
               <div className="overflow-x-auto surface-card">
-                <Table className="min-w-[44rem]">
+                <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="sticky start-0 z-10 bg-card">{t("dailyOps.table.venue")}</TableHead>
+                      <TableHead>{t("dailyOps.table.venue")}</TableHead>
                       <TableHead>{t("dailyOps.dashboard.status")}</TableHead>
                       <TableHead>{t("dailyOps.dashboard.signals")}</TableHead>
                       <TableHead>{t("dailyOps.dashboard.staffOnDuty")}</TableHead>
@@ -265,7 +274,7 @@ function DailyOpsDashboardPage() {
 
                       return (
                         <TableRow key={row.location_id}>
-                          <TableCell className="sticky start-0 z-10 bg-card">
+                          <TableCell>
                             <div className="min-w-0">
                               <p className="font-medium">{row.name || row.code}</p>
                               {row.name ? (
@@ -327,11 +336,10 @@ function DailyOpsDashboardPage() {
               </div>
             </>
           ) : (
-            <EmptyState title={t("dailyOps.dashboard.emptyLocations")} />
+            <p className="text-sm text-muted-foreground">{t("dailyOps.dashboard.emptyLocations")}</p>
           )}
         </div>
       )}
-      </div>
     </DailyOpsPageShell>
   );
 }

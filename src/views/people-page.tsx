@@ -24,7 +24,6 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
 import { StaffDirectory } from "@/components/people/staff-directory";
-import { ConfirmationAction, EmptyState, LoadingState, StatusChip, attendanceStatusTone } from "@/components/ds";
 import { StaffPhotoField, type StaffPhotoDraft } from "@/components/people/staff-photo-field";
 import {
   emptyIdentityDraft,
@@ -427,12 +426,12 @@ function StaffTab() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-            <ConfirmationAction
-              label={t("people.staff.deactivateConfirm")}
-              holdingLabel={t("common.holding")}
-              disabled={!deleteId || deactivateMut.isPending}
-              onConfirm={() => deleteId && deactivateMut.mutate(deleteId)}
-            />
+            <AlertDialogAction
+              onClick={() => deleteId && deactivateMut.mutate(deleteId)}
+              disabled={deactivateMut.isPending}
+            >
+              {t("people.staff.deactivateConfirm")}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -1186,17 +1185,16 @@ function ShiftsTab() {
           )}
         </div>
       </div>
-      <div key={locationId ?? "none"} className="ds-enter">
       {isLoading ? (
-        <LoadingState label={t("people.shifts.loading")} count={4} />
+        <Empty>{t("people.shifts.loading")}</Empty>
       ) : !data?.length ? (
-        <EmptyState title={t("people.shifts.emptyRoster")} />
+        <Empty>{t("people.shifts.emptyRoster")}</Empty>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-border">
-          <table className="w-full min-w-[48rem] text-sm">
-            <thead className="bg-card text-xs uppercase tracking-wider text-muted-foreground md:sticky md:top-0 md:z-10">
+        <div className="overflow-hidden rounded-lg border border-border">
+          <table className="w-full text-sm">
+            <thead className="bg-surface/60 text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
-                <th className="sticky start-0 z-10 bg-card px-3 py-2 text-left">{t("people.shifts.staff")}</th>
+                <th className="px-3 py-2 text-left">{t("people.shifts.staff")}</th>
                 <th className="px-3 py-2 text-left">{t("people.shifts.date")}</th>
                 <th className="px-3 py-2 text-left">{t("people.shifts.starts")}</th>
                 <th className="px-3 py-2 text-left">{t("people.shifts.ends")}</th>
@@ -1207,9 +1205,9 @@ function ShiftsTab() {
               </tr>
             </thead>
             <tbody>
-              {(data as ShiftRow[]).map((s, index) => (
-                <tr key={s.id} className={`border-t border-border hover:bg-muted/40${index < 12 ? " ds-enter" : ""}`} style={index < 12 ? { animationDelay: `${index * 20}ms` } : undefined}>
-                  <td className="sticky start-0 z-10 bg-card px-3 py-2 font-medium">
+              {(data as ShiftRow[]).map((s) => (
+                <tr key={s.id} className="border-t border-border hover:bg-surface/40">
+                  <td className="px-3 py-2 font-medium">
                     {s.staff?.full_name ?? t("people.shifts.unassigned")}
                     {s.staff?.employee_code ? (
                       <span className="ml-1 font-mono text-[10px] text-muted-foreground">{s.staff.employee_code}</span>
@@ -1221,31 +1219,31 @@ function ShiftsTab() {
                   <td className="px-3 py-2 text-xs">{s.role_label ?? s.staff?.job_title ?? "—"}</td>
                   <td className="px-3 py-2 text-xs text-muted-foreground">{shiftDepartment(s)}</td>
                   <td className="px-3 py-2">
-                    <StatusChip tone={attendanceStatusTone(s.status)}>{s.status}</StatusChip>
+                    <Badge variant="outline" className="uppercase text-[10px]">{s.status}</Badge>
                   </td>
                   <td className="px-3 py-2 text-right">
                     <div className="inline-flex gap-1">
                       {canEdit && s.status !== "completed" && s.status !== "cancelled" && (
-                        <Button size="sm" variant="ghost" className="min-h-11 min-w-11" onClick={() => setEditShift(s)}>
+                        <Button size="sm" variant="ghost" onClick={() => setEditShift(s)}>
                           <Pencil className="h-3 w-3" />
                         </Button>
                       )}
                       {s.status === "scheduled" && (
-                        <Button size="sm" variant="outline" className="min-h-11" onClick={() => mIn.mutate(s.id)} disabled={mIn.isPending}>
+                        <Button size="sm" variant="outline" onClick={() => mIn.mutate(s.id)} disabled={mIn.isPending}>
                           <LogIn className="h-3 w-3" /><span className="ml-1">{t("people.shifts.in")}</span>
                         </Button>
                       )}
                       {s.status === "in_progress" && (
-                        <Button size="sm" variant="outline" className="min-h-11" onClick={() => mOut.mutate(s.id)} disabled={mOut.isPending}>
+                        <Button size="sm" variant="outline" onClick={() => mOut.mutate(s.id)} disabled={mOut.isPending}>
                           <LogOut className="h-3 w-3" /><span className="ml-1">{t("people.shifts.out")}</span>
                         </Button>
                       )}
                       {s.status !== "completed" && s.status !== "cancelled" && canEdit && (
                         <>
-                          <Button size="sm" variant="ghost" className="min-h-11 min-w-11" onClick={() => mCancel.mutate(s.id)} disabled={mCancel.isPending}>
+                          <Button size="sm" variant="ghost" onClick={() => mCancel.mutate(s.id)} disabled={mCancel.isPending}>
                             <XCircle className="h-3 w-3" />
                           </Button>
-                          <Button size="sm" variant="ghost" className="min-h-11 min-w-11" onClick={() => setDeleteId(s.id)}>
+                          <Button size="sm" variant="ghost" onClick={() => setDeleteId(s.id)}>
                             <Trash2 className="h-3 w-3 text-rose-400" />
                           </Button>
                         </>
@@ -1258,7 +1256,6 @@ function ShiftsTab() {
           </table>
         </div>
       )}
-      </div>
 
       {editShift && locationId && (
         <EditShiftDialog
@@ -1459,7 +1456,7 @@ function TrainingTab() {
     onError: (e) => toast.error((e as Error).message),
   });
 
-  if (isLoading) return <LoadingState label={t("people.training.loading")} count={4} />;
+  if (isLoading) return <Empty>{t("people.training.loading")}</Empty>;
 
   const now = Date.now();
 
@@ -1477,13 +1474,13 @@ function TrainingTab() {
         </div>
       )}
       {!data?.length ? (
-        <EmptyState title={t("people.training.empty")} />
+        <Empty>{t("people.training.empty")}</Empty>
       ) : (
-        <div className="ds-enter overflow-x-auto rounded-lg border border-border">
-          <table className="w-full min-w-[48rem] text-sm">
-            <thead className="bg-card text-xs uppercase tracking-wider text-muted-foreground md:sticky md:top-0 md:z-10">
+        <div className="overflow-hidden rounded-lg border border-border">
+          <table className="w-full text-sm">
+            <thead className="bg-surface/60 text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
-                <th className="sticky start-0 z-10 bg-card px-3 py-2 text-left">{t("people.training.course")}</th>
+                <th className="px-3 py-2 text-left">{t("people.training.course")}</th>
                 <th className="px-3 py-2 text-left">{t("people.training.staff")}</th>
                 <th className="px-3 py-2 text-left">{t("people.training.required")}</th>
                 <th className="px-3 py-2 text-left">{t("people.training.status")}</th>
@@ -1497,11 +1494,11 @@ function TrainingTab() {
                 const overdue = row.status !== "completed" && row.due_on && new Date(row.due_on).getTime() < now;
                 return (
                   <tr key={row.id} className="border-t border-border hover:bg-surface/40">
-                    <td className="sticky start-0 z-10 bg-card px-3 py-2 font-medium">{row.course_name}</td>
+                    <td className="px-3 py-2 font-medium">{row.course_name}</td>
                     <td className="px-3 py-2 text-xs">{row.staff?.full_name ?? "—"}</td>
                     <td className="px-3 py-2 text-xs">{row.required ? t("people.training.yes") : t("people.training.no")}</td>
                     <td className="px-3 py-2">
-                      <StatusChip tone={attendanceStatusTone(row.status)}>{row.status}</StatusChip>
+                      <Badge variant="outline" className="uppercase text-[10px]">{row.status}</Badge>
                     </td>
                     <td className={`px-3 py-2 text-xs ${overdue ? "text-rose-400" : "text-muted-foreground"}`}>
                       {row.due_on ?? "—"}
@@ -1511,10 +1508,10 @@ function TrainingTab() {
                       <div className="inline-flex gap-1">
                         {canEdit && (
                           <>
-                            <Button size="sm" variant="ghost" className="min-h-11 min-w-11" onClick={() => setEditRow(row)}>
+                            <Button size="sm" variant="ghost" onClick={() => setEditRow(row)}>
                               <Pencil className="h-3 w-3" />
                             </Button>
-                            <Button size="sm" variant="ghost" className="min-h-11 min-w-11" onClick={() => setDeleteId(row.id)}>
+                            <Button size="sm" variant="ghost" onClick={() => setDeleteId(row.id)}>
                               <Trash2 className="h-3 w-3 text-rose-400" />
                             </Button>
                           </>

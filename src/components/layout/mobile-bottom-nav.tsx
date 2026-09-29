@@ -2,11 +2,18 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Building2, Home, ListChecks, LogOut, MoreHorizontal, type LucideIcon } from "lucide-react";
+import {
+  Clock,
+  Home,
+  LayoutDashboard,
+  LogOut,
+  MoreHorizontal,
+  Users,
+  type LucideIcon,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { MobileActionBar } from "@/components/ds";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useAuth, useUserRoles } from "@/hooks/use-auth";
@@ -22,8 +29,9 @@ import { cn } from "@/lib/utils";
 
 const TAB_ICONS: Record<Exclude<MobileTabId, "more">, LucideIcon> = {
   home: Home,
-  sites: Building2,
-  tasks: ListChecks,
+  people: Users,
+  attendance: Clock,
+  operations: LayoutDashboard,
 };
 
 function MoreModulesList({
@@ -131,7 +139,11 @@ export function MobileBottomNav() {
 
   return (
     <>
-      <MobileActionBar label={t("nav.mobileNav")}>
+      <nav
+        aria-label={t("nav.mobileNav")}
+        className="fixed inset-x-0 bottom-0 z-50 border-t border-border/80 bg-background/95 pb-[max(0.35rem,env(safe-area-inset-bottom))] pt-1 backdrop-blur md:hidden"
+      >
+        <ul className="mx-auto flex max-w-lg items-stretch justify-between gap-0.5 px-1">
           {tabs.map((tab) => {
             const active = isMobileTabActive(tab.id, pathname, moreOpen);
             if (tab.id === "more") {
@@ -145,7 +157,7 @@ export function MobileBottomNav() {
                     aria-expanded={moreOpen}
                     onClick={() => setMoreOpen(true)}
                     className={cn(
-                      "h-auto min-h-12 w-full flex-col gap-0.5 rounded-2xl px-1 py-2 text-xs font-semibold leading-tight",
+                      "h-auto w-full flex-col gap-0.5 rounded-2xl px-1 py-1.5 text-[10px] font-semibold leading-tight",
                       active ? "text-foreground" : "text-muted-foreground",
                     )}
                   >
@@ -167,7 +179,7 @@ export function MobileBottomNav() {
                   variant="ghost"
                   asChild
                   className={cn(
-                    "h-auto min-h-12 w-full flex-col gap-0.5 rounded-2xl px-1 py-2 text-xs font-semibold leading-tight",
+                    "h-auto w-full flex-col gap-0.5 rounded-2xl px-1 py-1.5 text-[10px] font-semibold leading-tight",
                     active ? "text-foreground" : "text-muted-foreground",
                   )}
                 >
@@ -188,7 +200,8 @@ export function MobileBottomNav() {
               </li>
             );
           })}
-      </MobileActionBar>
+        </ul>
+      </nav>
 
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
         <SheetContent
