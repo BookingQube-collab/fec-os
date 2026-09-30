@@ -316,9 +316,17 @@ export function MobileActions({ children }: { children: ReactNode }) {
   return <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">{children}</div>;
 }
 
-export function ActionButton({ href, children }: { href: string; children: ReactNode }) {
+export function ActionButton({
+  href,
+  children,
+  variant = "default",
+}: {
+  href: string;
+  children: ReactNode;
+  variant?: "default" | "outline" | "secondary";
+}) {
   return (
-    <Button asChild className="h-12 text-base">
+    <Button asChild variant={variant} className="h-12 w-full text-base">
       <Link href={href}>{children}</Link>
     </Button>
   );

@@ -3,13 +3,13 @@
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
-import { Gamepad2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Camera, Gamepad2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { GamePhoto, useArcadePhotoUrls } from "@/components/arcade/game-photo";
-import { ActionButton, arcadeCategoryName, arcadeStatusName, Field, HealthMeter, KpiTile, MobileActions, Pager, SiteHealthCard, StatusBadge, useVenueTitle } from "@/components/arcade/ui";
+import { ActionButton, arcadeCategoryName, arcadeStatusName, Field, HealthMeter, KpiTile, Pager, SiteHealthCard, StatusBadge, useVenueTitle } from "@/components/arcade/ui";
 import { ArcadeWorkbookImport } from "@/components/arcade/workbook-import";
 import { FecLoader, FecPageHeader } from "@/components/fec";
 import GlideSelect from "@/components/react-bits/glide-select";
@@ -25,6 +25,7 @@ import { listArcadeSuppliers } from "@/lib/arcade-supply.functions";
 import { fmtCurrency } from "@/lib/currency";
 import { venueTitle } from "@/lib/locations/normalize";
 import { queryKeys } from "@/lib/query-keys";
+import { cn } from "@/lib/utils";
 
 const GAME_PAGE_SIZE = 24;
 
@@ -181,10 +182,35 @@ export function ArcadeMachines({ locationId }: { locationId?: string }) {
 }
 
 function formatPaid(amount: number | string | null | undefined, currency: string | null | undefined) {
-  if (amount == null || amount === "") return "—";
+  return displayMoney(amount, currency) ?? "—";
+}
+
+function displayMoney(amount: number | string | null | undefined, currency: string | null | undefined) {
+  if (amount == null || amount === "") return null;
   const value = Number(amount);
-  if (!Number.isFinite(value)) return "—";
+  if (!Number.isFinite(value)) return null;
   return fmtCurrency(value, currency || "QAR");
+}
+
+function textOrNull(value: string | number | null | undefined) {
+  if (value == null) return null;
+  const text = String(value).trim();
+  return text || null;
+}
+
+function formatDay(value: string | null | undefined) {
+  if (!value) return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (!match) return value;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+function formatStamp(value: string | null | undefined) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 function dayValue(value: string | null | undefined) {
@@ -431,19 +457,25 @@ export function ArcadeMachineDetail({ id }: { id: string }) {
   });
   const row = machine.data?.machine;
   if (machine.isLoading) return <p className="text-sm text-muted-foreground">{t("arcadeScreens.loadingMachine")}</p>;
-  if (!row) return <p className="text-sm text-destructive">{t("arcadeScreens.notFound")}</p>;
+  if (!row || !machine.data) return <p className="text-sm text-destructive">{t("arcadeScreens.notFound")}</p>;
   const prefill = `machineId=${row.id}&locationId=${row.location_id}&technicianId=${row.technician_staff_id ?? ""}`;
-  const fixer = (context.data?.technicians ?? []).find((tech) => tech.id === row.last_fix_technician_staff_id)?.full_name;
-  const fixWhen = row.last_fix_at ? new Date(row.last_fix_at).toLocaleString() : null;
+  const links = {
+    fault: `/arcade/faults/new?${prefill}`,
+    repair: `/arcade/faults/new?${prefill}&startRepair=1`,
+    pm: `/arcade/pm?machineId=${row.id}`,
+    part: `/arcade/parts?machineId=${row.id}&locationId=${row.location_id}`,
+    supplier: `/arcade/support/new?${prefill}`,
+    manual: `/arcade/manuals?machineId=${row.id}`,
+  };
   return (
-    <div className="grid gap-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+    <div className="grid min-w-0 gap-4">
+      <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
           <p className="font-mono text-xs text-muted-foreground">{row.asset_code}</p>
-          <h1 className="text-2xl font-semibold">{row.name}</h1>
+          <h1 className="break-words text-2xl font-semibold">{row.name}</h1>
           <p className="text-sm text-muted-foreground">{label(row.location_id)}{row.zone ? ` · ${row.zone}` : ""}</p>
         </div>
-        <div className="grid gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <StatusBadge status={row.status} />
           {canManage ? (
             <Button asChild variant="outline"><Link href={`/arcade/machines/${row.id}/edit`}>{t("arcadeGames.editGame")}</Link></Button>
@@ -454,53 +486,33 @@ export function ArcadeMachineDetail({ id }: { id: string }) {
               value={row.status}
               disabled={statusSave.isPending}
               showTags={false}
+              size="lg"
               onChange={(value) => statusSave.mutate(value as (typeof MACHINE_STATUSES)[number])}
               options={MACHINE_STATUSES.map((item) => ({ value: item, label: arcadeStatusName(t, item) }))}
             />
           ) : null}
         </div>
       </div>
-      <MobileActions>
-        <ActionButton href={`/arcade/faults/new?${prefill}`}>{t("arcadeScreens.reportFault")}</ActionButton>
-        <ActionButton href={`/arcade/faults/new?${prefill}&startRepair=1`}>{t("arcadeScreens.startRepair")}</ActionButton>
-        <ActionButton href={`/arcade/pm?machineId=${row.id}`}>{t("arcadeScreens.completePm")}</ActionButton>
-        <ActionButton href={`/arcade/parts?machineId=${row.id}&locationId=${row.location_id}`}>{t("arcadeScreens.requestPart")}</ActionButton>
-        <ActionButton href={`/arcade/support/new?${prefill}`}>{t("arcadeScreens.contactSupplier")}</ActionButton>
-        <ActionButton href={`/arcade/manuals?machineId=${row.id}`}>{t("arcadeScreens.viewManual")}</ActionButton>
-      </MobileActions>
-      <PhotoUpload machineId={row.id} locationId={row.location_id} photoPath={row.photo_path} />
-      <MachineQr assetCode={row.asset_code} />
-      <dl className="grid gap-2 text-sm md:grid-cols-3">
-        <Info label={t("arcadeScreens.category")} value={row.game_category} />
-        <Info label={t("arcadeScreens.manufacturer")} value={row.manufacturer} />
-        <Info label={t("arcadeScreens.model")} value={row.model} />
-        <Info label={t("arcadeScreens.serial")} value={row.serial_number} />
-        <Info label={t("arcadeScreens.unit")} value={row.unit_number} />
-        <Info label={t("arcadeScreens.warrantyExpiry")} value={row.warranty_expires_on} />
-        <Info label={t("arcadeScreens.lastPm")} value={row.last_pm_on} />
-        <Info label={t("arcadeScreens.nextPm")} value={row.next_pm_on} />
-        <Info label={t("arcadeScreens.software")} value={row.software_version} />
-        <Info label={t("arcadeScreens.controller")} value={row.controller_pcb} />
-        <Info label={t("arcadeScreens.card")} value={row.card_rfid_interface} />
-        <Info label={t("arcadeScreens.ip")} value={row.ip_address} />
-        <Info label={t("arcadeGames.supplier")} value={row.supplier_name} />
-        <Info label={t("arcadeGames.amountPaid")} value={formatPaid(row.amount_paid, row.paid_currency)} />
-        <Info label={t("arcadeGames.paidOn")} value={row.paid_on} />
-      </dl>
-      <section className="rounded-lg border p-3">
-        <h2 className="font-semibold">{t("arcadeGames.latestFix")}</h2>
-        {row.last_fix_summary ? (
-          <div className="mt-2 grid gap-1 text-sm">
-            <p>{row.last_fix_summary}</p>
-            <p className="text-muted-foreground">
-              {[row.last_fix_status ? arcadeStatusName(t, row.last_fix_status) : null, fixWhen, fixer].filter(Boolean).join(" · ")}
-            </p>
-          </div>
-        ) : (
-          <p className="mt-2 text-sm text-muted-foreground">{t("arcadeGames.fixNone")}</p>
-        )}
-      </section>
-      <MachineTabs data={machine.data} />
+      <div className="grid gap-2">
+        <div className="grid gap-2 sm:grid-cols-2">
+          <ActionButton href={links.fault}>{t("arcadeScreens.reportFault")}</ActionButton>
+          <ActionButton href={links.repair}>{t("arcadeScreens.startRepair")}</ActionButton>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <ActionButton variant="outline" href={links.pm}>{t("arcadeScreens.completePm")}</ActionButton>
+          <ActionButton variant="outline" href={links.part}>{t("arcadeScreens.requestPart")}</ActionButton>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <ActionButton variant="secondary" href={links.supplier}>{t("arcadeScreens.contactSupplier")}</ActionButton>
+          <ActionButton variant="secondary" href={links.manual}>{t("arcadeScreens.viewManual")}</ActionButton>
+        </div>
+      </div>
+      <MachineTabs
+        data={machine.data}
+        technicians={context.data?.technicians ?? []}
+        techniciansReady={context.isFetched}
+        links={links}
+      />
     </div>
   );
 }
@@ -526,39 +538,289 @@ function QrMissing({ assetCode }: { assetCode: string }) {
   return <p className="text-sm text-destructive">{t("arcadeScreens.noMatch", { code: assetCode })}</p>;
 }
 
-function Info({ label, value }: { label: string; value: string | number | null | undefined }) {
-  return <div className="rounded-md border p-2"><dt className="text-xs text-muted-foreground">{label}</dt><dd>{value || "—"}</dd></div>;
-}
+type MachineDetail = NonNullable<Awaited<ReturnType<typeof getArcadeMachine>>>;
+type MachineLinks = {
+  fault: string;
+  repair: string;
+  pm: string;
+  part: string;
+  supplier: string;
+  manual: string;
+};
+type Technician = { id: string; full_name: string };
+type DetailTab = "Overview" | "Faults" | "PM" | "Parts" | "SupplierCases" | "Documents" | "Damage" | "Timeline";
 
-function MachineTabs({ data }: { data: Awaited<ReturnType<typeof getArcadeMachine>> | undefined }) {
+const detailTabs: DetailTab[] = ["Overview", "Faults", "PM", "Parts", "SupplierCases", "Documents", "Damage", "Timeline"];
+const detailCard = "rounded-lg border bg-card p-3 text-sm";
+const detailLink = "block rounded-lg border bg-card p-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40";
+
+function MachineTabs({
+  data,
+  technicians,
+  techniciansReady,
+  links,
+}: {
+  data: MachineDetail;
+  technicians: Technician[];
+  techniciansReady: boolean;
+  links: MachineLinks;
+}) {
   const { t } = useTranslation();
-  const [tab, setTab] = useState("Overview");
-  const tabs = ["Overview", "Faults", "PM", "Parts", "SupplierCases", "Documents", "Damage", "Timeline"] as const;
-  if (!data) return null;
+  const [tab, setTab] = useState<DetailTab>("Overview");
+  const row = data.machine;
+  const techName = (id: string | null) => {
+    if (!id) return null;
+    return technicians.find((tech) => tech.id === id)?.full_name ?? null;
+  };
+  const specs = machineSpecs(t, data, technicians, techniciansReady);
+  const fixer = techName(row.last_fix_technician_staff_id);
+  const fixWhen = formatStamp(row.last_fix_at);
   return (
-    <div>
+    <div className="min-w-0">
       <PillTabScroller label={t("nav.arcade")}>
-        {tabs.map((item) => (
+        {detailTabs.map((item) => (
           <button key={item} type="button" aria-pressed={tab === item} className={pillTabItemClass(tab === item)} onClick={() => setTab(item)}>{t(`arcadeScreens.tab.${item}`)}</button>
         ))}
       </PillTabScroller>
-      <div className="mt-3 grid gap-2 text-sm">
-        {tab === "Overview" ? <p>{data.machine.notes || t("arcadeScreens.noNotes")}</p> : null}
-        {tab === "Faults" ? data.faults.map((row) => <Link key={row.id} href={`/arcade/faults/${row.id}`} className="rounded border p-2">{row.ticket_number} · {arcadeCategoryName(t, row.category)} · {arcadeStatusName(t, row.status)}{row.is_repeat ? ` · ${t("arcadeStatus.REPEAT")}` : ""}</Link>) : null}
-        {tab === "PM" ? data.pm.map((row) => <p key={row.id} className="rounded border p-2">{row.performed_on} · {t("arcadeScreens.pmNext", { date: row.next_pm_on ?? "—" })} · {row.issues_found || t("arcadeScreens.noIssues")}</p>) : null}
-        {tab === "Parts" ? data.parts.map((row) => <p key={row.id} className="rounded border p-2">{row.used_on} · {t("arcadeScreens.qty", { qty: row.qty })}</p>) : null}
-        {tab === "SupplierCases" ? data.cases.map((row) => <Link key={row.id} href={`/arcade/support/${row.id}`} className="rounded border p-2">{row.case_number} · {arcadeStatusName(t, row.status)}</Link>) : null}
-        {tab === "Documents" ? data.documents.map((row) => <p key={row.id} className="rounded border p-2">{row.title} · {row.doc_type}</p>) : null}
-        {tab === "Damage" ? data.damage.map((row) => <p key={row.id} className="rounded border p-2">{row.reported_on} · {row.damage_type}{row.needs_mapping ? ` · ${t("arcadeScreens.needsMapping")}` : ""}</p>) : null}
-        {tab === "Timeline" ? data.timeline.map((row) => <p key={row.id} className="rounded border p-2">{new Date(row.created_at).toLocaleString()} · {row.previous_status ? arcadeStatusName(t, row.previous_status) : ""} → {row.new_status ? arcadeStatusName(t, row.new_status) : ""}</p>) : null}
+      <div className="mt-3 grid min-w-0 gap-3">
+        {tab === "Overview" ? (
+          <>
+            <div className="grid min-w-0 items-start gap-4 md:grid-cols-[18rem_minmax(0,1fr)]">
+              <PhotoUpload machineId={row.id} locationId={row.location_id} photoPath={row.photo_path} name={row.name} />
+              <MachineQr assetCode={row.asset_code} />
+            </div>
+            <SpecGrid items={specs} />
+            <section className={detailCard}>
+              <h2 className="font-semibold">{t("arcadeGames.latestFix")}</h2>
+              {row.last_fix_summary ? (
+                <div className="mt-2 grid gap-1">
+                  <p className="whitespace-pre-wrap">{row.last_fix_summary}</p>
+                  <p className="text-muted-foreground">
+                    {[row.last_fix_status ? arcadeStatusName(t, row.last_fix_status) : null, fixWhen, fixer].filter(Boolean).join(" · ")}
+                  </p>
+                </div>
+              ) : (
+                <p className="mt-2 text-muted-foreground">{t("arcadeGames.fixNone")}</p>
+              )}
+            </section>
+            <section className={detailCard}>
+              <h2 className="font-semibold">{t("arcadeScreens.notes")}</h2>
+              <p className={cn("mt-2 whitespace-pre-wrap", row.notes ? "text-foreground" : "text-muted-foreground")}>{row.notes || t("arcadeScreens.noNotes")}</p>
+            </section>
+            {data.installations.length > 0 ? (
+              <section className="grid gap-2">
+                <h2 className="font-semibold">{t("arcadeScreens.installTitle")}</h2>
+                {data.installations.map((item) => (
+                  <article key={item.id} className={detailCard}>
+                    <p className="font-medium">{arcadeStatusName(t, item.status)}</p>
+                    <p className="mt-1 text-muted-foreground">
+                      {t("arcadeScreens.installed")}: {formatDay(item.installed_on) ?? t("arcadeScreens.notRecorded")}
+                    </p>
+                    {item.delivery_on ? <p className="text-muted-foreground">{t("arcadeScreens.delivered")}: {formatDay(item.delivery_on)}</p> : null}
+                  </article>
+                ))}
+              </section>
+            ) : null}
+          </>
+        ) : null}
+        {tab === "Faults" ? (
+          data.faults.length === 0 ? <TabEmpty message={t("arcadeScreens.emptyFaults")} href={links.fault} label={t("arcadeScreens.reportFault")} /> : data.faults.map((item) => (
+            <Link key={item.id} href={`/arcade/faults/${item.id}`} className={detailLink}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="font-medium">{item.ticket_number || t("arcadeScreens.notRecorded")}</p>
+                <StatusBadge status={item.status} />
+              </div>
+              <p className="mt-1 text-muted-foreground">
+                {[
+                  item.is_repeat ? t("arcadeOps.repeatMeta", { category: arcadeCategoryName(t, item.category), count: item.repeat_count }) : arcadeCategoryName(t, item.category),
+                  arcadeStatusName(t, item.severity),
+                  formatStamp(item.reported_at),
+                ].filter(Boolean).join(" · ")}
+              </p>
+              <p className="mt-2 whitespace-pre-wrap">{item.description}</p>
+            </Link>
+          ))
+        ) : null}
+        {tab === "PM" ? (
+          data.pm.length === 0 ? <TabEmpty message={t("arcadeScreens.emptyPm")} href={links.pm} label={t("arcadeScreens.completePm")} variant="outline" /> : data.pm.map((item) => {
+            const technician = techName(item.technician_staff_id);
+            return (
+              <article key={item.id} className={detailCard}>
+                <p className="font-medium">{formatDay(item.performed_on) ?? t("arcadeScreens.notRecorded")}</p>
+                <p className="mt-1 text-muted-foreground">
+                  {t("arcadeScreens.pmNext", { date: formatDay(item.next_pm_on) ?? t("arcadeScreens.notRecorded") })}
+                  {" · "}
+                  {item.confirmed ? t("arcadeScreens.pmConfirmed") : t("arcadeScreens.pmNotConfirmed")}
+                </p>
+                <p className="mt-2 whitespace-pre-wrap">{item.issues_found || t("arcadeScreens.noIssues")}</p>
+                {technician ? <p className="mt-1 text-muted-foreground">{t("arcadeScreens.technician")}: {technician}</p> : null}
+              </article>
+            );
+          })
+        ) : null}
+        {tab === "Parts" ? (
+          data.parts.length === 0 ? <TabEmpty message={t("arcadeScreens.emptyParts")} href={links.part} label={t("arcadeScreens.requestPart")} variant="outline" /> : data.parts.map((item) => {
+            const cost = displayMoney(item.unit_cost, "QAR");
+            return (
+              <article key={item.id} className={detailCard}>
+                <p className="font-medium">{formatDay(item.used_on) ?? t("arcadeScreens.notRecorded")}</p>
+                <p className="mt-1 text-muted-foreground">
+                  {t("arcadeScreens.qty", { qty: item.qty })}
+                  {cost ? ` · ${t("arcadeScreens.unitCost", { cost })}` : ""}
+                </p>
+                {item.fault_id ? <Link href={`/arcade/faults/${item.fault_id}`} className="mt-2 inline-flex min-h-11 items-center underline underline-offset-2">{t("arcadeOps.fault")}</Link> : null}
+              </article>
+            );
+          })
+        ) : null}
+        {tab === "SupplierCases" ? (
+          data.cases.length === 0 ? <TabEmpty message={t("arcadeScreens.emptyCases")} href={links.supplier} label={t("arcadeScreens.contactSupplier")} variant="secondary" /> : data.cases.map((item) => (
+            <Link key={item.id} href={`/arcade/support/${item.id}`} className={detailLink}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="font-medium">{item.case_number || t("arcadeScreens.notRecorded")}</p>
+                <StatusBadge status={item.status} />
+              </div>
+              {item.created_at ? <p className="mt-1 text-muted-foreground">{formatStamp(item.created_at)}</p> : null}
+              <p className="mt-2 whitespace-pre-wrap">{item.problem}</p>
+            </Link>
+          ))
+        ) : null}
+        {tab === "Documents" ? (
+          data.documents.length === 0 ? <TabEmpty message={t("arcadeScreens.emptyDocuments")} href={links.manual} label={t("arcadeScreens.viewManual")} variant="secondary" /> : data.documents.map((item) => (
+            <article key={item.id} className={detailCard}>
+              <p className="font-medium">{item.title}</p>
+              <p className="mt-1 text-muted-foreground">
+                {[item.doc_type.replaceAll("_", " "), item.manufacturer, item.model, item.error_code, item.file_name].filter(Boolean).join(" · ") || t("arcadeScreens.general")}
+              </p>
+              {item.external_url ? <a className="mt-2 inline-flex min-h-11 items-center underline underline-offset-2" href={item.external_url}>{t("arcadeScreens.openLink")}</a> : null}
+            </article>
+          ))
+        ) : null}
+        {tab === "Damage" ? (
+          data.damage.length === 0 ? <TabEmpty message={t("arcadeScreens.emptyDamage")} /> : data.damage.map((item) => {
+            const cost = displayMoney(item.estimated_cost, "QAR");
+            return (
+              <article key={item.id} className={detailCard}>
+                <p className="font-medium">{[formatDay(item.reported_on), item.damage_type].filter(Boolean).join(" · ")}</p>
+                <p className="mt-2 whitespace-pre-wrap">{item.description}</p>
+                {cost ? <p className="mt-1 text-muted-foreground">{cost}</p> : null}
+                {item.needs_mapping ? <p className="mt-1">{t("arcadeScreens.needsMapping")}</p> : null}
+              </article>
+            );
+          })
+        ) : null}
+        {tab === "Timeline" ? (
+          data.timeline.length === 0 ? <TabEmpty message={t("arcadeScreens.emptyTimeline")} /> : data.timeline.map((item) => {
+            const from = item.previous_status ? arcadeStatusName(t, item.previous_status) : null;
+            const to = item.new_status ? arcadeStatusName(t, item.new_status) : null;
+            const change = [from, to].filter(Boolean).join(" → ");
+            return (
+              <article key={item.id} className={detailCard}>
+                <p className="font-medium">{formatStamp(item.created_at) ?? t("arcadeScreens.notRecorded")}</p>
+                <p className="mt-1">{change || t("arcadeScreens.notRecorded")}</p>
+                {item.notes ? <p className="mt-2 whitespace-pre-wrap text-muted-foreground">{item.notes}</p> : null}
+                {item.entity_type && item.entity_type !== "machine" ? <p className="mt-1 text-xs text-muted-foreground">{item.entity_type}</p> : null}
+              </article>
+            );
+          })
+        ) : null}
       </div>
     </div>
   );
 }
 
-function PhotoUpload({ machineId, locationId, photoPath }: { machineId: string; locationId: string; photoPath: string | null }) {
+function TabEmpty({
+  message,
+  href,
+  label,
+  variant = "default",
+}: {
+  message: string;
+  href?: string;
+  label?: string;
+  variant?: "default" | "outline" | "secondary";
+}) {
+  return (
+    <div className="rounded-lg border bg-card p-4">
+      <p className="text-sm text-muted-foreground">{message}</p>
+      {href && label ? <div className="mt-3 max-w-sm"><ActionButton href={href} variant={variant}>{label}</ActionButton></div> : null}
+    </div>
+  );
+}
+
+function SpecGrid({ items }: { items: { label: string; value: string | null }[] }) {
+  const { t } = useTranslation();
+  const missing = t("arcadeScreens.notRecorded");
+  return (
+    <dl className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+      {items.map((item) => {
+        const filled = Boolean(item.value);
+        return (
+          <div key={item.label} className="min-w-0 rounded-lg border bg-card px-3 py-3">
+            <dt className="text-xs font-medium text-muted-foreground">{item.label}</dt>
+            <dd className={cn("mt-1 break-words text-sm", filled ? "font-medium text-foreground" : "text-muted-foreground")}>{filled ? item.value : missing}</dd>
+          </div>
+        );
+      })}
+    </dl>
+  );
+}
+
+function machineSpecs(
+  t: (key: string, options?: Record<string, unknown>) => string,
+  data: MachineDetail,
+  technicians: Technician[],
+  techniciansReady: boolean,
+) {
+  const row = data.machine;
+  const lastPm = formatDay(row.last_pm_on) ?? formatDay(data.pm[0]?.performed_on);
+  const nextFromPm = data.pm.find((item) => item.next_pm_on)?.next_pm_on;
+  const nextPm = formatDay(row.next_pm_on) ?? formatDay(nextFromPm);
+  const assignedName = row.technician_staff_id
+    ? technicians.find((tech) => tech.id === row.technician_staff_id)?.full_name ?? null
+    : null;
+  const technicianRow = !row.technician_staff_id
+    ? { label: t("arcadeScreens.technician"), value: t("arcadeScreens.unassigned") }
+    : assignedName
+      ? { label: t("arcadeScreens.technician"), value: assignedName }
+      : techniciansReady
+        ? { label: t("arcadeScreens.technician"), value: null }
+        : null;
+  const core = [
+    { label: t("arcadeScreens.category"), value: textOrNull(row.game_category) },
+    { label: t("arcadeScreens.manufacturer"), value: textOrNull(row.manufacturer) },
+    { label: t("arcadeScreens.model"), value: textOrNull(row.model) },
+    { label: t("arcadeScreens.serial"), value: textOrNull(row.serial_number) },
+    { label: t("arcadeScreens.unit"), value: textOrNull(row.unit_number) },
+    { label: t("arcadeScreens.warrantyExpiry"), value: formatDay(row.warranty_expires_on) },
+    { label: t("arcadeScreens.lastPm"), value: lastPm },
+    { label: t("arcadeScreens.nextPm"), value: nextPm },
+    { label: t("arcadeScreens.software"), value: textOrNull(row.software_version) },
+    { label: t("arcadeScreens.controller"), value: textOrNull(row.controller_pcb) },
+    { label: t("arcadeScreens.card"), value: textOrNull(row.card_rfid_interface) },
+    { label: t("arcadeScreens.ip"), value: textOrNull(row.ip_address) },
+    { label: t("arcadeGames.supplier"), value: textOrNull(row.supplier_name) },
+    { label: t("arcadeGames.amountPaid"), value: displayMoney(row.amount_paid, row.paid_currency) },
+    { label: t("arcadeGames.paidOn"), value: formatDay(row.paid_on) },
+  ];
+  if (technicianRow) core.push(technicianRow);
+  const extra = [
+    { label: t("arcadeScreens.installed"), value: formatDay(row.installed_on) },
+    { label: t("arcadeScreens.purchased"), value: formatDay(row.purchased_on) },
+    { label: t("arcadeScreens.warrantyStart"), value: formatDay(row.warranty_start) },
+    { label: t("arcadeScreens.machineCost"), value: displayMoney(row.machine_cost, "QAR") },
+    { label: t("arcadeScreens.power"), value: textOrNull(row.power_requirement) },
+    { label: t("arcadeScreens.network"), value: textOrNull(row.network_requirement) },
+    { label: t("arcadeScreens.lastFault"), value: formatStamp(row.last_fault_at) },
+    { label: t("arcadeScreens.lastRepair"), value: formatStamp(row.last_repair_at) },
+  ].filter((item): item is { label: string; value: string } => Boolean(item.value));
+  return [...core, ...extra];
+}
+
+function PhotoUpload({ machineId, locationId, photoPath, name }: { machineId: string; locationId: string; photoPath: string | null; name: string }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
+  const inputRef = useRef<HTMLInputElement>(null);
   const photo = useQuery({
     queryKey: ["arcade-photo", photoPath],
     queryFn: () => (photoPath ? getArcadeFileUrl({ path: photoPath }) : Promise.resolve({ url: "" })),
@@ -584,20 +846,38 @@ function PhotoUpload({ machineId, locationId, photoPath }: { machineId: string; 
     onError: (error) => toast.error(error instanceof Error ? error.message : t("arcadeScreens.uploadFailed")),
   });
   return (
-    <div className="flex flex-wrap items-center gap-3">
+    <div className="grid min-w-0 gap-3 rounded-lg border bg-card p-3">
       <GamePhoto
         src={photo.data?.url}
-        alt={t("arcadeScreens.gamePhoto", { name: t("arcadeScreens.machine") })}
+        alt={t("arcadeScreens.gamePhoto", { name })}
         missingLabel={t("arcadeScreens.photoMissing")}
-        className="h-24 w-24 rounded-md"
+        className="aspect-[4/3] w-full rounded-lg"
       />
-      <label className="text-sm font-medium">
-        {t("arcadeScreens.addPhoto")}
-        <input className="mt-1 block text-sm" type="file" accept="image/*,video/*" capture="environment" onChange={(event) => {
+      <Button
+        type="button"
+        variant="outline"
+        className="w-full"
+        disabled={upload.isPending}
+        aria-busy={upload.isPending}
+        onClick={() => inputRef.current?.click()}
+      >
+        <Camera aria-hidden />
+        {upload.isPending ? t("arcadeScreens.photoUploading") : t("arcadeScreens.addPhoto")}
+      </Button>
+      <input
+        ref={inputRef}
+        tabIndex={-1}
+        className="sr-only"
+        type="file"
+        accept="image/*,video/*"
+        capture="environment"
+        aria-label={t("arcadeScreens.addPhoto")}
+        onChange={(event) => {
           const file = event.target.files?.[0];
+          event.target.value = "";
           if (file) upload.mutate(file);
-        }} />
-      </label>
+        }}
+      />
     </div>
   );
 }
@@ -609,13 +889,20 @@ function MachineQr({ assetCode }: { assetCode: string }) {
     queryKey: ["arcade-qr", url],
     queryFn: async () => {
       const QR = await import("qrcode");
-      return QR.default.toString(url, { type: "svg", margin: 1, width: 180 });
+      return QR.default.toString(url, { type: "svg", margin: 1, width: 112 });
     },
   });
   return (
-    <div className="flex items-center gap-3">
-      {qr.data ? <div className="h-28 w-28" dangerouslySetInnerHTML={{ __html: qr.data }} /> : <div className="h-28 w-28 rounded border" />}
-      <p className="text-xs text-muted-foreground break-all">{t("arcadeScreens.scanHint")} {url}</p>
+    <div className="flex min-w-0 items-center gap-3 self-start rounded-lg border bg-card p-3">
+      {qr.data ? (
+        <div className="size-28 shrink-0 overflow-hidden rounded-md bg-white [&_svg]:block [&_svg]:size-full" aria-hidden dangerouslySetInnerHTML={{ __html: qr.data }} />
+      ) : (
+        <div className="size-28 shrink-0 rounded-md border bg-muted" aria-hidden />
+      )}
+      <p className="min-w-0 break-all text-xs leading-5 text-muted-foreground">
+        <span className="mb-1 block text-sm font-medium text-foreground">{t("arcadeScreens.scanHint")}</span>
+        {url}
+      </p>
     </div>
   );
 }
