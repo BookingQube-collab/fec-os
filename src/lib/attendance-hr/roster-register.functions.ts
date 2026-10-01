@@ -186,6 +186,24 @@ async function hiddenStaffIdsForExcludedDepartments(
   return rosterHiddenStaffIds(links, excluded);
 }
 
+/** Staff linked to at least one of these departments. People with no department are absent. */
+async function staffIdsLinkedToDepartments(
+  supabase: AuthContext["supabase"],
+  departmentIds: readonly string[],
+): Promise<Set<string>> {
+  const ids = [...new Set(departmentIds.filter(Boolean))];
+  const shown = new Set<string>();
+  if (ids.length === 0) return shown;
+  for (const chunk of chunkIds(ids, 200)) {
+    const { data, error } = await supabase.from("staff_departments").select("staff_id").in("department_id", chunk);
+    if (error) throw error;
+    for (const row of data ?? []) {
+      if (row.staff_id) shown.add(String(row.staff_id));
+    }
+  }
+  return shown;
+}
+
 export const listUploadedRosterAssignments = createAuthenticatedAction(
   z.object({
     locationId: z.string().uuid().nullable().optional(),
@@ -193,6 +211,11 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
     departmentId: z.string().uuid().nullable().optional(),
     /** Unchecked departments. Empty keeps every department on the roster. */
     excludedDepartmentIds: z.array(z.string().uuid()).optional(),
+    /**
+     * View filter. When set, and no departments are excluded above, keep only
+     * staff linked to one of these master departments.
+     */
+    showOnlyDepartmentIds: z.array(z.string().uuid()).optional(),
     dateFrom: ymd,
     dateTo: ymd,
     /** When true, only upload + amend rows (legacy import register). */
@@ -256,6 +279,9 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
       if (hiddenStaff.size > 0) {
         assignments = assignments.filter((row) => !hiddenStaff.has(String(row.staff_id)));
       }
+    } else if (data.showOnlyDepartmentIds?.length) {
+      const shownStaff = await staffIdsLinkedToDepartments(context.supabase, data.showOnlyDepartmentIds);
+      assignments = assignments.filter((row) => shownStaff.has(String(row.staff_id)));
     }
 
     const staffIds = [...new Set(assignments.map((row) => String(row.staff_id)).filter(Boolean))];

@@ -5,7 +5,10 @@ import {
   normalizeDepartmentName,
   splitDepartmentTokens,
 } from "@/lib/staff-departments";
-import { staffHiddenByOrgDepartmentExclude } from "@/lib/exclude-org-departments";
+import {
+  staffMatchesOrgShowOnly,
+  type OrgFocusDepartment,
+} from "@/lib/exclude-org-departments";
 import { isExitingStaff, isNewJoiner } from "@/lib/staff-hr-alerts";
 import {
   countsAsActiveStaff,
@@ -29,10 +32,11 @@ export type StaffDirectoryFilters = {
   /** Resolved master_departments.name for `department` — used when staff only have legacy text. */
   departmentName?: string;
   /**
-   * View filter. Drops Operations, Maintenance, and F&B Cafe when department is All.
+   * View filter. Empty means every department stays.
+   * A non-empty list shows only those focus departments (the ones the user unchecked).
    * Ignored when `department` is set — the explicit department choice wins.
    */
-  excludeOrgDepartments?: boolean;
+  showOrgDepartments?: readonly OrgFocusDepartment[];
   type: string;
   e3: string;
   status: string;
@@ -116,9 +120,9 @@ export function filterStaffDirectory(staff: StaffRow[], f: StaffDirectoryFilters
     if (f.loc && !staffLocationCodes(s).includes(f.loc)) return false;
     if (f.department && !staffMatchesDepartment(s, f.department, f.departmentName)) return false;
     if (
-      f.excludeOrgDepartments &&
+      f.showOrgDepartments?.length &&
       !f.department &&
-      staffHiddenByOrgDepartmentExclude(s)
+      !staffMatchesOrgShowOnly(s, f.showOrgDepartments)
     ) {
       return false;
     }
@@ -181,7 +185,7 @@ export function filterStaffDirectory(staff: StaffRow[], f: StaffDirectoryFilters
 
 /**
  * Rows behind the directory KPI tiles.
- * Location, department, employment type, search, exclude-org, and the other
+ * Location, department, employment type, search, show-only departments, and the other
  * non-status filters narrow every tile. Status and expiry stay on the table
  * only — those controls are the tile shortcuts — so each tile still counts
  * its own bucket inside the shared scope. With those cleared, an otherwise

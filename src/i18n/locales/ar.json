@@ -241,7 +241,13 @@
     "date": "التاريخ",
     "vendor": "المورد",
     "department": "القسم",
-    "excludeOpsMaintenanceFb": "استبعاد التشغيل والصيانة و F&B",
+    "orgDepartmentsMenu": "التشغيل والصيانة و F&B",
+    "orgDepartment": {
+      "operations": "التشغيل",
+      "maintenance": "الصيانة",
+      "fb_cafe": "مقهى F&B"
+    },
+    "showingOrgDepartments": "عرض: {{departments}}",
     "site": "الموقع",
     "filters": "عوامل التصفية",
     "apply": "تطبيق",
@@ -3685,6 +3691,7 @@
       "docType": "نوع المستند",
       "allTypes": "كل أنواع المستندات",
       "status": "حالة الانتهاء",
+      "staffStatus": "حالة الموظف",
       "allStatuses": "كل الحالات",
       "expiryDate": "تاريخ الانتهاء",
       "empty": "لا مستندات في نافذة الانتهاء المحددة."

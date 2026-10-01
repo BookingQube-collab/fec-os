@@ -4,6 +4,7 @@ import { fetchAttendanceMappedStaffIds } from "@/lib/staff-attendance-mapped";
 import { hiddenUnmappedDuplicateIds } from "@/lib/staff-mapped-duplicates";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { canUserDo } from "@/lib/rbac";
+import type { OrgFocusDepartment } from "@/lib/exclude-org-departments";
 import type { MasterDepartmentRow } from "@/lib/staff-departments";
 import {
   computeStaffDirectoryKpis,
@@ -593,8 +594,8 @@ export type StaffDirectoryListFilters = {
   loc?: string;
   department?: string;
   departmentName?: string;
-  /** View filter. Applied in filterStaffDirectory when department is empty. */
-  excludeOrgDepartments?: boolean;
+  /** View filter. Unchecked focus departments to show. Empty keeps every department. */
+  showOrgDepartments?: readonly OrgFocusDepartment[];
   position?: string;
   employmentType?: string;
   status?: string;
@@ -745,7 +746,7 @@ export async function fetchStaffDirectory(
     position: filters.position ?? "",
     department: filters.department ?? "",
     departmentName: filters.departmentName ?? "",
-    excludeOrgDepartments: Boolean(filters.excludeOrgDepartments) && !filters.department,
+    showOrgDepartments: filters.department ? [] : [...(filters.showOrgDepartments ?? [])],
     type: filters.employmentType ?? "",
     e3: filters.e3 ?? "",
     status: filters.status ?? "",

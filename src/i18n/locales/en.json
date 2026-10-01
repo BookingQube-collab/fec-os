@@ -241,7 +241,13 @@
     "date": "Date",
     "vendor": "Vendor",
     "department": "Department",
-    "excludeOpsMaintenanceFb": "Exclude Ops, Maintenance & F&B",
+    "orgDepartmentsMenu": "Operations, Maintenance & F&B",
+    "orgDepartment": {
+      "operations": "Operations",
+      "maintenance": "Maintenance",
+      "fb_cafe": "F&B Cafe"
+    },
+    "showingOrgDepartments": "Showing: {{departments}}",
     "site": "Site",
     "filters": "Filters",
     "apply": "Apply",
@@ -3149,6 +3155,7 @@
       "docType": "Document type",
       "allTypes": "All document types",
       "status": "Expiry status",
+      "staffStatus": "Staff status",
       "allStatuses": "All statuses",
       "expiryDate": "Expiry date",
       "empty": "No documents in the selected expiry window."

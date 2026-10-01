@@ -5,6 +5,7 @@ import type {
   StaffDirectoryListPayload,
   StaffRow,
 } from "@/lib/queries/module-queries.core";
+import type { OrgFocusDepartment } from "@/lib/exclude-org-departments";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 
@@ -31,7 +32,7 @@ export type StaffDirectoryFilters = {
   loc?: string;
   department?: string;
   departmentName?: string;
-  excludeOrgDepartments?: boolean;
+  showOrgDepartments?: readonly OrgFocusDepartment[];
   position?: string;
   employmentType?: string;
   status?: string;
@@ -58,7 +59,7 @@ export function useStaffDirectory(
     loc: filters.loc ?? "",
     department: filters.department ?? "",
     departmentName: filters.departmentName ?? "",
-    excludeOrgDepartments: Boolean(filters.excludeOrgDepartments),
+    showOrgDepartments: (filters.showOrgDepartments ?? []).join(","),
     position: filters.position ?? "",
     employmentType: filters.employmentType ?? "",
     status: filters.status ?? "",
@@ -87,7 +88,7 @@ export function useStaffDirectory(
           loc: keyFilters.loc || undefined,
           department: keyFilters.department || undefined,
           departmentName: keyFilters.departmentName || undefined,
-          excludeOrgDepartments: keyFilters.excludeOrgDepartments ? "1" : undefined,
+          showOrgDepartments: keyFilters.showOrgDepartments || undefined,
           position: keyFilters.position || undefined,
           employmentType: keyFilters.employmentType || undefined,
           status: keyFilters.status || undefined,

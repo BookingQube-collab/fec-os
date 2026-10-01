@@ -14,7 +14,7 @@ import { HrKpiTile } from "@/components/hr/hr-kpi-tile";
 import { HrPanel } from "@/components/hr/hr-panel";
 import { HrSection } from "@/components/hr/hr-section";
 import { HrShell } from "@/components/hr/hr-shell";
-import { ExcludeOrgDepartmentsFilter } from "@/components/people/exclude-org-departments-filter";
+import { OrgDepartmentsFilter } from "@/components/people/exclude-org-departments-filter";
 import { DownloadReportButton } from "@/components/reports/download-report-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,8 +22,11 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { defaultPayrollPeriod, formatPayrollRange, monthBounds } from "@/lib/attendance-hr/roster-period";
 import {
-  recordHiddenByOrgDepartmentExclude,
-  shouldApplyOrgDepartmentExclude,
+  ALL_ORG_DEPARTMENTS_CHECKED,
+  activeShowOnlyOrgDepartments,
+  orgDepartmentSelectionIsAll,
+  recordMatchesOrgShowOnly,
+  type OrgDepartmentChecks,
 } from "@/lib/exclude-org-departments";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { getHrReportsSummary, runHrCatalogReport } from "@/lib/hr-reports.functions";
@@ -40,7 +43,7 @@ export default function HrReportsPage() {
   const storeLocationId = useAppStore((s) => s.currentLocationId);
   const [locationId, setLocationId] = useState(storeLocationId || "all");
   const [departmentId, setDepartmentId] = useState("all");
-  const [excludeOrgDepartments, setExcludeOrgDepartments] = useState(false);
+  const [orgChecks, setOrgChecks] = useState<OrgDepartmentChecks>(ALL_ORG_DEPARTMENTS_CHECKED);
   const [category, setCategory] = useState("all");
   const [designation, setDesignation] = useState("");
   const [status, setStatus] = useState("all");
@@ -101,12 +104,15 @@ export default function HrReportsPage() {
   ];
 
   const columns = useMemo(() => catalog.data?.columns ?? [], [catalog.data?.columns]);
-  const applyOrgExclude = shouldApplyOrgDepartmentExclude(excludeOrgDepartments, departmentId);
+  const showOrgDepartments = useMemo(
+    () => activeShowOnlyOrgDepartments(orgChecks, departmentId),
+    [orgChecks, departmentId],
+  );
   const rows = useMemo(() => {
     const loaded = catalog.data?.rows ?? [];
-    if (!applyOrgExclude) return loaded;
-    return loaded.filter((row) => !recordHiddenByOrgDepartmentExclude(row));
-  }, [catalog.data?.rows, applyOrgExclude]);
+    if (!showOrgDepartments.length) return loaded;
+    return loaded.filter((row) => recordMatchesOrgShowOnly(row, showOrgDepartments));
+  }, [catalog.data?.rows, showOrgDepartments]);
   const tabLabel = t(`hr.reports.catalog.${activeId}`, { defaultValue: activeId });
 
   const exportRows = useMemo(
@@ -254,10 +260,11 @@ export default function HrReportsPage() {
                 />
               </div>
               <div className="flex min-w-0 items-end">
-                <ExcludeOrgDepartmentsFilter
-                  checked={excludeOrgDepartments}
-                  disabled={!shouldApplyOrgDepartmentExclude(true, departmentId)}
-                  onCheckedChange={setExcludeOrgDepartments}
+                <OrgDepartmentsFilter
+                  checks={orgChecks}
+                  disabled={!orgDepartmentSelectionIsAll(departmentId)}
+                  onChange={setOrgChecks}
+                  className="w-full"
                 />
               </div>
               <div className="flex flex-wrap items-end gap-2">

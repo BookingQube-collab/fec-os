@@ -1,3 +1,4 @@
+import { parseShowOrgDepartmentsParam } from "@/lib/exclude-org-departments";
 import { withAuthRouteRequest, searchParams } from "@/lib/server/api-route";
 import { fetchStaff, fetchStaffDirectory } from "@/lib/queries/module-queries.core";
 
@@ -20,7 +21,7 @@ export async function GET(request: Request) {
           loc: params.get("loc") ?? "",
           department: params.get("department") ?? "",
           departmentName: params.get("departmentName") ?? "",
-          excludeOrgDepartments: params.get("excludeOrgDepartments") === "1",
+          showOrgDepartments: parseShowOrgDepartmentsParam(params.get("showOrgDepartments")),
           position: params.get("position") ?? "",
           employmentType: params.get("employmentType") ?? params.get("type") ?? "",
           status: params.get("status") ?? "",

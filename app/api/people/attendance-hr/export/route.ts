@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { displayDepartmentHidden } from "@/lib/exclude-org-departments";
+import { displayDepartmentShown, parseShowOrgDepartmentsParam } from "@/lib/exclude-org-departments";
 import { withAuthRouteRequest, searchParams } from "@/lib/server/api-route";
 import {
   getAttendanceHrDaily,
@@ -239,10 +239,10 @@ export async function GET(request: Request) {
         listAttendanceImports({ locationId }),
       ]);
 
-      const excludeOrgDepartments =
-        params.get("excludeOrgDepartments") === "1" && departmentIds.length === 0;
-      const daily = excludeOrgDepartments
-        ? dailyRows.filter((row) => !displayDepartmentHidden(row.department))
+      const showOrgDepartments =
+        departmentIds.length === 0 ? parseShowOrgDepartmentsParam(params.get("showOrgDepartments")) : [];
+      const daily = showOrgDepartments.length
+        ? dailyRows.filter((row) => displayDepartmentShown(row.department, showOrgDepartments))
         : dailyRows;
       const listing = listingSources(daily);
 

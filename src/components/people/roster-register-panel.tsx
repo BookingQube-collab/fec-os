@@ -8,7 +8,7 @@ import { toast } from "sonner";
 
 import { FecLoader } from "@/components/fec";
 
-import { ExcludeOrgDepartmentsFilter } from "@/components/people/exclude-org-departments-filter";
+import { OrgDepartmentsFilter } from "@/components/people/exclude-org-departments-filter";
 import { ShiftRangeEditor } from "@/components/people/shift-range-editor";
 import {
   AlertDialog,
@@ -39,8 +39,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { usePermission } from "@/hooks/use-permission";
 import { filterDepartmentsForLocation } from "@/lib/department-audience";
 import {
-  excludedOrgDepartmentIds,
-  shouldApplyOrgDepartmentExclude,
+  ALL_ORG_DEPARTMENTS_CHECKED,
+  activeShowOnlyOrgDepartments,
+  orgDepartmentIdsFor,
+  orgDepartmentSelectionIsAll,
+  type OrgDepartmentChecks,
 } from "@/lib/exclude-org-departments";
 import { useMasterDepartments } from "@/hooks/queries/useDepartments";
 import { useSites } from "@/hooks/queries/useSites";
@@ -172,7 +175,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     const [locationId, setLocationId] = useState(defaultLocationId ?? "");
     const [staffId, setStaffId] = useState("");
     const [excludedDepartmentIds, setExcludedDepartmentIds] = useState<string[]>([]);
-    const [excludeOrgDepartments, setExcludeOrgDepartments] = useState(false);
+    const [orgChecks, setOrgChecks] = useState<OrgDepartmentChecks>(ALL_ORG_DEPARTMENTS_CHECKED);
     const [sourceFilter, setSourceFilter] = useState<RosterSourceFilter>("all");
     const [query, setQuery] = useState("");
     const [viewMode, setViewMode] = useState<ViewMode>("grid");
@@ -185,17 +188,16 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       if (defaultLocationId && !locationId) setLocationId(defaultLocationId);
     }, [defaultLocationId, locationId]);
 
-    const applyOrgExclude = shouldApplyOrgDepartmentExclude(excludeOrgDepartments, excludedDepartmentIds);
-    const orgExcludeIds = useMemo(() => excludedOrgDepartmentIds(departments), [departments]);
+    const showOnlyDepartmentIds = useMemo(
+      () => orgDepartmentIdsFor(departments, activeShowOnlyOrgDepartments(orgChecks, excludedDepartmentIds)),
+      [departments, orgChecks, excludedDepartmentIds],
+    );
     const filters = useMemo(
       () => ({
         locationId: locationId || null,
         staffId: staffId || null,
-        excludedDepartmentIds: applyOrgExclude
-          ? orgExcludeIds
-          : excludedDepartmentIds.length
-            ? excludedDepartmentIds
-            : undefined,
+        excludedDepartmentIds: excludedDepartmentIds.length ? excludedDepartmentIds : undefined,
+        showOnlyDepartmentIds: showOnlyDepartmentIds.length ? showOnlyDepartmentIds : undefined,
         dateFrom,
         dateTo,
         sourceUploadOnly,
@@ -204,7 +206,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
             ? (sourceFilter as "upload" | "amend" | "manual" | "copied")
             : null,
       }),
-      [locationId, staffId, excludedDepartmentIds, applyOrgExclude, orgExcludeIds, dateFrom, dateTo, sourceUploadOnly, sourceFilter],
+      [locationId, staffId, excludedDepartmentIds, showOnlyDepartmentIds, dateFrom, dateTo, sourceUploadOnly, sourceFilter],
     );
 
     const register = useQuery({
@@ -259,6 +261,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       locationId,
       staffId,
       excludedDepartmentIds.join(","),
+      showOnlyDepartmentIds.join(","),
       sourceFilter,
       sourceUploadOnly ? "upload" : "all",
       query,
@@ -678,12 +681,12 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
             />
           </div>
           <div className="min-w-0 space-y-1.5">
-            <Label className="sr-only">{t("common.excludeOpsMaintenanceFb")}</Label>
+            <Label className="sr-only">{t("common.orgDepartmentsMenu")}</Label>
             <div className="sm:pt-6">
-              <ExcludeOrgDepartmentsFilter
-                checked={excludeOrgDepartments}
-                disabled={!shouldApplyOrgDepartmentExclude(true, excludedDepartmentIds)}
-                onCheckedChange={setExcludeOrgDepartments}
+              <OrgDepartmentsFilter
+                checks={orgChecks}
+                disabled={!orgDepartmentSelectionIsAll(excludedDepartmentIds)}
+                onChange={setOrgChecks}
               />
             </div>
           </div>

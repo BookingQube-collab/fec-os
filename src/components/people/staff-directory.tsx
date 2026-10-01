@@ -41,10 +41,15 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { MobileListCard } from "@/components/layout/mobile-list-card";
 import { ResponsiveDataView } from "@/components/layout/responsive-data-view";
 import { StaffAvatar } from "@/components/people/staff-photo-field";
-import { ExcludeOrgDepartmentsFilter } from "@/components/people/exclude-org-departments-filter";
+import { OrgDepartmentsFilter } from "@/components/people/exclude-org-departments-filter";
 import { StaffMasterfileImportDialog } from "@/components/people/staff-masterfile-import-dialog";
 import { filterDepartmentsForLocation } from "@/lib/department-audience";
-import { shouldApplyOrgDepartmentExclude } from "@/lib/exclude-org-departments";
+import {
+  ALL_ORG_DEPARTMENTS_CHECKED,
+  activeShowOnlyOrgDepartments,
+  orgDepartmentSelectionIsAll,
+  type OrgDepartmentChecks,
+} from "@/lib/exclude-org-departments";
 import { useMasterDepartments } from "@/hooks/queries/useDepartments";
 import { useStaffDirectory } from "@/hooks/queries/usePeople";
 import { usePermission } from "@/hooks/use-permission";
@@ -233,7 +238,7 @@ export function StaffDirectory({
   const [missing, setMissing] = useState(() => searchParams.get("missing") === "1");
   const [loc, setLoc] = useState(() => searchParams.get("loc") ?? "");
   const [department, setDepartment] = useState(() => searchParams.get("department") ?? "");
-  const [excludeOrgDepartments, setExcludeOrgDepartments] = useState(false);
+  const [orgChecks, setOrgChecks] = useState<OrgDepartmentChecks>(ALL_ORG_DEPARTMENTS_CHECKED);
   const [showJokers, setShowJokers] = useState(() => searchParams.get("jokers") === "1");
   const [nationality, setNationality] = useState("");
   const [gender, setGender] = useState("");
@@ -299,6 +304,10 @@ export function StaffDirectory({
     () => departments.find((d) => d.id === department)?.name ?? "",
     [departments, department],
   );
+  const showOrgDepartments = useMemo(
+    () => activeShowOnlyOrgDepartments(orgChecks, department),
+    [orgChecks, department],
+  );
 
   const directory = useStaffDirectory({
     locationId,
@@ -309,7 +318,7 @@ export function StaffDirectory({
     loc,
     department,
     departmentName,
-    excludeOrgDepartments: shouldApplyOrgDepartmentExclude(excludeOrgDepartments, department),
+    showOrgDepartments,
     position,
     employmentType: type,
     status,
@@ -441,11 +450,13 @@ export function StaffDirectory({
         clear: () => setShowJokers(false),
       });
     }
-    if (shouldApplyOrgDepartmentExclude(excludeOrgDepartments, department)) {
+    if (showOrgDepartments.length) {
       chips.push({
-        key: "exclude-org",
-        label: t("common.excludeOpsMaintenanceFb"),
-        clear: () => setExcludeOrgDepartments(false),
+        key: "show-org",
+        label: t("common.showingOrgDepartments", {
+          departments: showOrgDepartments.map((key) => t(`common.orgDepartment.${key}`)).join(", "),
+        }),
+        clear: () => setOrgChecks(ALL_ORG_DEPARTMENTS_CHECKED),
       });
     }
     if (type) chips.push({ key: "type", label: `Type: ${type}`, clear: () => setType("") });
@@ -458,13 +469,13 @@ export function StaffDirectory({
     if (expiry) chips.push({ key: "exp", label: expiryChipLabel(expiry), clear: () => setExpiry("") });
     if (e3) chips.push({ key: "e3", label: `E3: ${e3}`, clear: () => setE3("") });
     return chips;
-  }, [q, loc, locations, department, departmentName, excludeOrgDepartments, showJokers, type, status, position, nationality, gender, sponsorship, missing, expiry, e3, t]);
+  }, [q, loc, locations, department, departmentName, showOrgDepartments, showJokers, type, status, position, nationality, gender, sponsorship, missing, expiry, e3, t]);
 
   function clearAllFilters() {
     setQ("");
     setLoc("");
     setDepartment("");
-    setExcludeOrgDepartments(false);
+    setOrgChecks(ALL_ORG_DEPARTMENTS_CHECKED);
     setShowJokers(false);
     setPosition("");
     setType("");
@@ -708,11 +719,11 @@ export function StaffDirectory({
             triggerClassName={FILTER_TRIGGER}
             className="w-full"
           />
-          <ExcludeOrgDepartmentsFilter
-            checked={excludeOrgDepartments}
-            disabled={!shouldApplyOrgDepartmentExclude(true, department)}
-            onCheckedChange={(next) => {
-              setExcludeOrgDepartments(next);
+          <OrgDepartmentsFilter
+            checks={orgChecks}
+            disabled={!orgDepartmentSelectionIsAll(department)}
+            onChange={(next) => {
+              setOrgChecks(next);
               setPage(1);
             }}
           />

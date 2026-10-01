@@ -232,7 +232,7 @@ describe("staff directory KPIs follow filters", () => {
     expect(scoped).toEqual(computeStaffDirectoryKpis(staff));
   });
 
-  it("applies the exclude-org filter to every tile without using status", () => {
+  it("applies the show-only department filter to every tile without using status", () => {
     const withOps = [
       ...staff,
       row({
@@ -244,11 +244,44 @@ describe("staff directory KPIs follow filters", () => {
         department_names: ["Operations"],
         location_code: "KDS",
       }),
+      row({
+        id: "maint",
+        full_name: "Maint Only",
+        employee_code: "M1",
+        employment_type: "permanent",
+        status: "active",
+        department_names: ["Maintenance"],
+        location_code: "KDS",
+      }),
     ];
-    const filters = { ...base, loc: "KDS", status: "active", excludeOrgDepartments: true };
+    const open = computeStaffDirectoryKpis(
+      filterStaffDirectoryForKpis(withOps, { ...base, loc: "KDS", status: "active" }),
+    );
+    expect(open.total).toBe(5);
+
+    const filters = {
+      ...base,
+      loc: "KDS",
+      status: "active",
+      showOrgDepartments: ["operations"] as const,
+    };
     const kpis = computeStaffDirectoryKpis(filterStaffDirectoryForKpis(withOps, filters));
-    expect(kpis.total).toBe(3);
+    expect(kpis.total).toBe(1);
     expect(kpis.exiting).toBe(1);
+
+    const two = filterStaffDirectoryForKpis(withOps, {
+      ...filters,
+      showOrgDepartments: ["operations", "maintenance"],
+    });
+    expect(two.map((s) => s.id).sort()).toEqual(["maint", "ops"]);
+
+    const explicit = filterStaffDirectoryForKpis(withOps, {
+      ...filters,
+      department: "maint-id",
+      departmentName: "Maintenance",
+      showOrgDepartments: ["operations"],
+    });
+    expect(explicit.map((s) => s.id)).toEqual(["maint"]);
   });
 
   it("searches passport and position", () => {

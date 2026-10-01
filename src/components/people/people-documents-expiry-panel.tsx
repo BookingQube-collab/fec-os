@@ -13,7 +13,12 @@ import { useStaff } from "@/hooks/queries/usePeople";
 import { usePermission } from "@/hooks/use-permission";
 import { expiryBand, qatarTodayYmd, type HrExpiryBand } from "@/lib/hr-expiry-bands";
 import { formatLocationLabel } from "@/lib/locations/normalize";
+import {
+  DOCUMENT_EXPIRY_DEFAULT_STAFF_STATUS,
+  staffIncludedInDocumentExpiry,
+} from "@/lib/people-document-expiry-staff";
 import type { StaffRow } from "@/lib/queries/module-queries.core";
+import { STAFF_DIRECTORY_STATUSES } from "@/lib/staff-status";
 import { useAppStore } from "@/stores/app-store";
 import { cn } from "@/lib/utils";
 
@@ -98,16 +103,26 @@ const DOC_LABELS: Record<DocKind, string> = {
 export function PeopleDocumentsExpiryPanel() {
   const { t } = useTranslation();
   const locationId = useAppStore((s) => s.currentLocationId);
-  const canSensitive = usePermission("hr.profile.view_sensitive") || usePermission("people.view_salary");
+  const canViewSensitive = usePermission("hr.profile.view_sensitive");
+  const canViewSalary = usePermission("people.view_salary");
+  const canSensitive = canViewSensitive || canViewSalary;
   const { data: staff = [], isLoading } = useStaff(locationId ?? null, { includeArchived: true });
   const today = qatarTodayYmd();
 
   const [docType, setDocType] = useState<string>("");
   const [loc, setLoc] = useState("");
   const [band, setBand] = useState("");
+  const [staffStatus, setStaffStatus] = useState(DOCUMENT_EXPIRY_DEFAULT_STAFF_STATUS);
   const [q, setQ] = useState("");
 
-  const allDocs = useMemo(() => collectDocs(staff, today, canSensitive), [staff, today, canSensitive]);
+  const scopedStaff = useMemo(
+    () => staff.filter((s) => staffIncludedInDocumentExpiry(s, staffStatus)),
+    [staff, staffStatus],
+  );
+  const allDocs = useMemo(
+    () => collectDocs(scopedStaff, today, canSensitive),
+    [scopedStaff, today, canSensitive],
+  );
 
   const locations = useMemo(() => {
     const map = new Map<string, string>();
@@ -194,7 +209,7 @@ export function PeopleDocumentsExpiryPanel() {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
         <Input
           placeholder={t("people.staff.search", "Search name or code")}
           value={q}
@@ -215,6 +230,21 @@ export function PeopleDocumentsExpiryPanel() {
           placeholder={t("people.staff.allLocations")}
           emptyOption={{ value: "", label: t("people.staff.allLocations") }}
           options={locations.map(([code, label]) => ({ value: code, label, keywords: `${code} ${label}` }))}
+          triggerClassName="h-10 w-full font-normal"
+          className="w-full"
+        />
+        <SearchableSelect
+          value={staffStatus}
+          onValueChange={setStaffStatus}
+          placeholder={t("people.documents.staffStatus", "Staff status")}
+          emptyOption={{ value: "", label: t("people.documents.allStatuses", "All statuses") }}
+          options={STAFF_DIRECTORY_STATUSES.map((s) => ({
+            value: s,
+            label:
+              s === "joker"
+                ? t("people.staff.employmentTypes.joker", "Joker")
+                : t(`hr.me.staffStatus.${s}`, s.replace(/_/g, " ")),
+          }))}
           triggerClassName="h-10 w-full font-normal"
           className="w-full"
         />
