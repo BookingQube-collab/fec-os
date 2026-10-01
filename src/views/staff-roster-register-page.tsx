@@ -8,6 +8,7 @@ import { CalendarDays, Copy, Loader2, Trash2, Upload } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { RosterLocationCoverage } from "@/components/people/roster-location-coverage";
 import {
   RosterRegisterPanel,
   type RosterDeleteAllState,
@@ -209,6 +210,8 @@ export default function StaffRosterRegisterPage() {
           </div>
         </div>
       </div>
+
+      <RosterLocationCoverage dateFrom={period.dateFrom} dateTo={period.dateTo} />
 
       <RosterRegisterPanel
         ref={registerRef}

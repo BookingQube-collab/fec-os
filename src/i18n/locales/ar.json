@@ -3572,6 +3572,13 @@
       "viewRangeLabel": "تواريخ الفترة",
       "viewFromImport": "عرض الكشف الشهري",
       "viewFromImportHelp": "افتح سجل الورديات الكامل لمراجعة الصفوف المرفوعة واليدوية والمعدَّلة لأي شهر أو أسبوع FEC.",
+      "locationCoverageTitle": "حالة كشف المواقع",
+      "locationCoverageAllUploaded": "تم رفع كشوف جميع المواقع",
+      "locationCoverageMissing": "ناقص: {{names}}",
+      "locationCoverageUploaded": "مرفوع",
+      "locationCoverageMissingStatus": "ناقص",
+      "locationCoverageLoading": "جارٍ التحقق من كشوف المواقع…",
+      "locationCoverageLoadFailed": "تعذر التحقق من المواقع التي لديها كشف.",
       "col": {
         "location": "الموقع",
         "full_name": "اسم الموظف",

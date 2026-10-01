@@ -3660,6 +3660,13 @@
       "viewRangeLabel": "Period dates",
       "viewFromImport": "View monthly roster",
       "viewFromImportHelp": "Open the full roster register to review uploaded, manual, and amended rows for any FEC month or week.",
+      "locationCoverageTitle": "Location roster status",
+      "locationCoverageAllUploaded": "All location rosters uploaded",
+      "locationCoverageMissing": "Missing: {{names}}",
+      "locationCoverageUploaded": "Uploaded",
+      "locationCoverageMissingStatus": "Missing",
+      "locationCoverageLoading": "Checking location rosters…",
+      "locationCoverageLoadFailed": "Could not check which locations have a roster.",
       "col": {
         "location": "Location",
         "full_name": "Employee name",
