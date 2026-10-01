@@ -4,7 +4,8 @@ import { z } from "zod";
 
 import { createAuthenticatedAction, type AuthContext } from "@/lib/server/create-action";
 import { canUserDo } from "@/lib/rbac";
-import { defaultPayrollPeriod } from "@/lib/attendance-hr/roster-period";
+import { defaultPayrollPeriod, payrollMonthOf } from "@/lib/attendance-hr/roster-period";
+import { displayDepartmentShown } from "@/lib/exclude-org-departments";
 import { getPayrollAttendanceSummary } from "@/lib/attendance-hr-field.functions";
 import { formatOtPolicySummary } from "@/lib/hr-advanced";
 import {
@@ -29,10 +30,18 @@ function tableMissing(message: string | undefined): boolean {
 }
 
 export const getHrOverview = createAuthenticatedAction(
-  z.object({ locationId: z.string().uuid().nullable().optional() }),
+  z.object({
+    locationId: z.string().uuid().nullable().optional(),
+    dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    showOnlyDepartments: z.array(z.enum(["operations", "maintenance", "fb_cafe"])).max(3).optional(),
+  }),
   async (data, context: AuthContext) => {
     const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" });
-    const period = defaultPayrollPeriod(today);
+    const period =
+      data.dateFrom && data.dateTo && data.dateFrom <= data.dateTo
+        ? { month: payrollMonthOf(data.dateTo), dateFrom: data.dateFrom, dateTo: data.dateTo }
+        : defaultPayrollPeriod(today);
     const dayStart = `${today}T00:00:00+03:00`;
     const dayEnd = `${today}T23:59:59+03:00`;
     const expiryHorizon = new Date(`${today}T00:00:00+03:00`);
@@ -320,6 +329,7 @@ export const getHrOverview = createAuthenticatedAction(
     }
 
     let breakdowns = emptyHrOverviewBreakdowns();
+    let filteredHeadcount: number | null = null;
     let expiringQids = 0;
     let expiringPassports = 0;
     let missingCvs = 0;
@@ -367,11 +377,15 @@ export const getHrOverview = createAuthenticatedAction(
           locationName: (loc as { name?: string } | null)?.name ?? null,
         };
       });
-      breakdowns = aggregateHrHeadcountBreakdowns(mapped);
-      joiningSoon = countJoiningSoon(mapped, today, 30);
-      leavingSoon = countLeavingSoon(mapped, today, 30);
+      const showOnly = data.showOnlyDepartments ?? [];
+      const roster =
+        showOnly.length > 0 ? mapped.filter((row) => displayDepartmentShown(row.departmentName, showOnly)) : mapped;
+      if (showOnly.length > 0 && staffDetail) filteredHeadcount = roster.length;
+      breakdowns = aggregateHrHeadcountBreakdowns(roster);
+      joiningSoon = countJoiningSoon(roster, today, 30);
+      leavingSoon = countLeavingSoon(roster, today, 30);
 
-      const staffIds = mapped.map((m) => m.id);
+      const staffIds = roster.map((m) => m.id);
       if (staffIds.length && (canUserDo(context.roles ?? [], "hr.docs.manage") || canUserDo(context.roles ?? [], "hr.manage"))) {
         const { data: docRows, error: docListErr } = await context.supabase
           .from("hr_employee_documents")
@@ -441,7 +455,7 @@ export const getHrOverview = createAuthenticatedAction(
     }
 
     return {
-      headcount: headcount ?? 0,
+      headcount: filteredHeadcount ?? headcount ?? 0,
       presentToday: presentToday ?? 0,
       onLeaveToday: onLeaveMissing ? 0 : onLeaveToday ?? 0,
       pendingLeave: leaveMissing ? 0 : pendingLeave ?? 0,

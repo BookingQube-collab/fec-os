@@ -118,12 +118,25 @@ function LocationMasterView() {
 
   const toggle = useMutation({
     mutationFn: (input: { id: string; active: boolean }) => setLocationActive(input),
-    onMutate: (input) => setPendingId(input.id),
+    onMutate: async (input) => {
+      setPendingId(input.id);
+      await qc.cancelQueries({ queryKey: queryKeys.sites.master() });
+      const previous = qc.getQueryData<LocationMasterRow[]>(queryKeys.sites.master());
+      qc.setQueryData<LocationMasterRow[]>(queryKeys.sites.master(), (rows) =>
+        rows?.map((row) =>
+          row.id === input.id ? { ...row, status: input.active ? "active" : "closed" } : row,
+        ),
+      );
+      return { previous };
+    },
     onSuccess: async (_row, input) => {
       toast.success(input.active ? t("locationMaster.activated") : t("locationMaster.deactivated"));
       await refreshSites();
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : t("locationMaster.saveFailed")),
+    onError: (error, _input, context) => {
+      if (context?.previous) qc.setQueryData(queryKeys.sites.master(), context.previous);
+      toast.error(error instanceof Error ? error.message : t("locationMaster.saveFailed"));
+    },
     onSettled: () => setPendingId(null),
   });
 

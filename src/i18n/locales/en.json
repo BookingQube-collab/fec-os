@@ -7412,6 +7412,27 @@
       "title": "HR dashboard",
       "subtitle": "FEC period {{range}}. Headcount, presence, leave, field, and payroll blockers.",
       "noAccess": "You do not have access to the HR dashboard.",
+      "loadError": "Unable to load the HR dashboard.",
+      "sections": {
+        "overview": "Overview",
+        "people": "People",
+        "attendance": "Attendance",
+        "payroll": "Payroll",
+        "documents": "Documents"
+      },
+      "filters": {
+        "period": "Period",
+        "fecMonth": "FEC month",
+        "thisMonth": "This month"
+      },
+      "charts": {
+        "locationHint": "Active roster by site for the current filters.",
+        "categoryHint": "Permanent, secondment, and other categories in this filter.",
+        "documentExpiry": "Document expiry",
+        "documentExpiryHint": "Expired and expiring documents counted for this view.",
+        "count": "Count",
+        "empty": "No figures for this filter."
+      },
       "tiles": {
         "headcount": "Active employees",
         "presentToday": "Present today",

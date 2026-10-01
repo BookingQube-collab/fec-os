@@ -1,6 +1,12 @@
 type CacheEntry<T> = { value: T; expires: number };
 
-const store = new Map<string, CacheEntry<unknown>>();
+const globalCache = globalThis as typeof globalThis & {
+  __fecRouteCache?: Map<string, CacheEntry<unknown>>;
+};
+
+/** Shared across route handlers and server actions in this process. */
+const store = globalCache.__fecRouteCache ?? new Map<string, CacheEntry<unknown>>();
+globalCache.__fecRouteCache = store;
 
 export function getRouteCache<T>(key: string): T | undefined {
   const entry = store.get(key);
