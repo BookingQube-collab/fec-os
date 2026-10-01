@@ -1,11 +1,11 @@
 import fs from "node:fs";
-import XLSX from "xlsx";
 
-const wb = XLSX.readFile("A:/FEC/KRA/FEC_Master_KRA_Scorecard.xlsx");
+import { readAoaFile } from "./read-xlsx.mjs";
 
-function cell(ws, row, col) {
-  const addr = XLSX.utils.encode_cell({ r: row - 1, c: col - 1 });
-  const value = ws[addr]?.v;
+const wb = await readAoaFile("A:/FEC/KRA/FEC_Master_KRA_Scorecard.xlsx");
+
+function cell(matrix, row, col) {
+  const value = matrix?.[row - 1]?.[col - 1];
   return value == null ? "" : String(value);
 }
 
@@ -116,7 +116,7 @@ CREATE TRIGGER trg_kra_scorecard_reviews_updated BEFORE UPDATE ON public.kra_sco
 DROP TRIGGER IF EXISTS trg_kra_scorecard_lines_updated ON public.kra_scorecard_lines;
 CREATE TRIGGER trg_kra_scorecard_lines_updated BEFORE UPDATE ON public.kra_scorecard_lines FOR EACH ROW EXECUTE FUNCTION public.tg_set_updated_at();`);
 
-const fw = wb.Sheets["KRA Framework"];
+const fw = wb.sheets["KRA Framework"];
 function insertFramework(role, sort, title, standard, mapping, points, how, evidence) {
   lines.push(`INSERT INTO public.kra_scorecard_framework_items (role_category, sort_order, title, expected_standard, master_sheet_mapping, points, how_to_rate, evidence_to_keep)
 VALUES (${[q(role), String(sort), q(title), q(standard), q(mapping), String(points || 0), q(how), q(evidence)].join(", ")})
@@ -157,7 +157,7 @@ for (let i = 0; i < 7; i += 1) {
 insertFramework("dual_role", 1, "Dual-role rule", cell(fw, 26, 1), "", 0, "", "");
 
 for (const [index, code] of sites.entries()) {
-  const ws = wb.Sheets[code];
+  const ws = wb.sheets[code];
   const title = cell(ws, 1, 1);
   const parts = title.split("|").map((part) => part.trim());
   const brand = parts[1] || code;

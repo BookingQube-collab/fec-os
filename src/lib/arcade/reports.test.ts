@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { buildMonthlyArcadeReport, buildSupplierPerformance, buildWeeklyArcadeReport } from "./reports";
+import {
+  availabilityForSites,
+  buildMonthlyArcadeReport,
+  buildSupplierPerformance,
+  buildWeeklyArcadeReport,
+  faultTileCounts,
+  filterArcadeReportFaults,
+  partTotals,
+} from "./reports";
 
 describe("arcade reports", () => {
   it("builds the weekly report from activity counts and site groups", () => {
@@ -35,13 +43,19 @@ describe("arcade reports", () => {
       partsCost: 140,
       faults: [
         {
+          id: "f1",
           ticketNumber: "ARC-2026-0004",
+          locationId: "l1",
           site: "Urban Arena - Doha Mall",
+          machineId: "m1",
           machine: "RC Car #2",
           status: "WAITING_PART",
           severity: "HIGH",
           category: "Sensor",
           summary: "Lane sensor dark",
+          reportedOn: "2026-09-22",
+          isRepeat: false,
+          resolved: false,
         },
       ],
     });
@@ -168,5 +182,55 @@ describe("arcade reports", () => {
       pendingParts: 1,
       warrantyMachines: 1,
     });
+  });
+
+  it("recomputes tiles from the filtered fault rows", () => {
+    const faults = [
+      {
+        id: "a",
+        ticketNumber: "A",
+        locationId: "l1",
+        site: "Urban Arena",
+        machineId: "m1",
+        machine: "RC Car",
+        status: "WAITING_PART",
+        severity: "HIGH",
+        category: "Sensor",
+        summary: "Lane sensor dark",
+        reportedOn: "2026-09-22",
+        isRepeat: true,
+        resolved: false,
+      },
+      {
+        id: "b",
+        ticketNumber: "B",
+        locationId: "l2",
+        site: "Infrapark",
+        machineId: "m2",
+        machine: "Bumper",
+        status: "RESOLVED",
+        severity: "LOW",
+        category: "Power",
+        summary: "Reset supply",
+        reportedOn: "2026-09-23",
+        isRepeat: false,
+        resolved: true,
+      },
+    ];
+    const filtered = filterArcadeReportFaults(faults, { siteId: "l1", q: "sensor" });
+    expect(filtered).toHaveLength(1);
+    expect(faultTileCounts(filtered)).toMatchObject({
+      opened: 1,
+      resolved: 0,
+      pending: 1,
+      waitingParts: 1,
+      waitingSuppliers: 0,
+      repeats: 1,
+    });
+    expect(availabilityForSites([{ locationId: "l1", working: 8, active: 10 }, { locationId: "l2", working: 1, active: 2 }], "l1")).toBe(80);
+    expect(partTotals(
+      [{ machineId: "m1", locationId: "l1", quantity: 2, cost: 15 }, { machineId: "m2", locationId: "l2", quantity: 1, cost: 9 }],
+      { siteId: "l1", machineIds: new Set(["m1"]) },
+    )).toEqual({ parts: 2, cost: 15 });
   });
 });

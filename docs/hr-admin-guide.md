@@ -22,7 +22,7 @@ Change policy before running payroll or air-ticket eligibility so entitlement ma
 4. **Warnings / probation** — `/people/hr/warnings`, `/people/hr/probation`. Escalations use `hr_disciplinary`. **No auto-termination** on third warning or failed probation — HR must open a termination case.
 5. **Exit** — Resignations `/people/hr/resignations`, terminations `/people/hr/terminations` with dual approval + clearance.
 6. **Air tickets** — Entitlements from hire date + policy on `/people/hr/air-tickets`.
-7. **Payroll** — FEC **28–27** cycle on `/people/payroll`. Advance draft → HR → finance → GM → processed → paid; lock separately.
+7. **Payroll** — FEC **28–27** cycle on `/people/payroll`. Advance draft → HR → finance → GM → processed → paid; lock separately. To wipe **all** runs (including locked and paid) and retest from scratch, CEO or COO uses **Administration → Settings → Remove all payroll** (`/admin`). That does not delete employees or attendance. Per-period delete on the payroll page still only allows draft, attendance validation, or HR review. See [admin-panel.md](admin-panel.md).
 8. **Recruitment / quota** — Job requests, vacancies, ATS pipeline, workforce quota. Approvals notify `hr_recruitment`.
 9. **Dashboard & reports** — Overview tiles `/people/hr`; catalog exports `/people/hr/reports` (CSV / Excel / PDF). Salary and QID columns require `people.view_salary` / `hr.profile.view_sensitive`.
 

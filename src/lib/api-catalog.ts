@@ -1488,7 +1488,7 @@ export const API_ENDPOINTS: ApiEndpoint[] = [
     "categoryId": "public",
     "categoryLabel": "Public & Cron",
     "authType": "api_key",
-    "authDetail": "Device SN allowlist + optional ADMS_COMM_KEY / ADMS_IP_ALLOWLIST"
+    "authDetail": "Device SN allowlist + required ADMS_COMM_KEY. Optional ADMS_IP_ALLOWLIST."
   },
   {
     "id": "post-api-public-iclock-slug",
@@ -1498,7 +1498,7 @@ export const API_ENDPOINTS: ApiEndpoint[] = [
     "categoryId": "public",
     "categoryLabel": "Public & Cron",
     "authType": "api_key",
-    "authDetail": "Device SN allowlist + optional ADMS_COMM_KEY / ADMS_IP_ALLOWLIST"
+    "authDetail": "Device SN allowlist + required ADMS_COMM_KEY. Optional ADMS_IP_ALLOWLIST."
   },
   {
     "id": "post-api-public-maintenance-sla-sweep",

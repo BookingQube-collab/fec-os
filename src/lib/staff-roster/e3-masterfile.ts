@@ -44,10 +44,10 @@ export async function parseE3Masterfile(
   buffer: Buffer,
   options?: RosterParseOptions,
 ): Promise<E3MasterfileParseResult> {
-  const XLSX = await import("xlsx");
-  const wb = XLSX.read(buffer, { type: "buffer", cellDates: true, raw: false });
+  const { readWorkbookMatrices } = await import("@/lib/spreadsheet/workbook");
+  const wb = await readWorkbookMatrices(buffer, { raw: false, defval: "" });
 
-  if (!workbookHasE3Sheets(wb.SheetNames)) {
+  if (!workbookHasE3Sheets(wb.sheetNames)) {
     const fallback = await parseRosterWorkbook("Employee Roster.xlsx", buffer, options);
     return {
       ...fallback,
@@ -64,15 +64,10 @@ export async function parseE3Masterfile(
   let headers: string[] = [];
   let mapping: RosterParseResult["mapping"] = {};
 
-  for (const name of wb.SheetNames) {
+  for (const name of wb.sheetNames) {
     const e3Title = matchE3SheetName(name);
     if (!e3Title) continue;
-    const sheet = wb.Sheets[name];
-    const matrix = XLSX.utils.sheet_to_json<(string | number | null)[]>(sheet, {
-      header: 1,
-      raw: false,
-      defval: "",
-    });
+    const matrix = wb.sheets[name] ?? [];
     const asStrings = matrix.map((r) => (r ?? []).map((c) => String(c ?? "").trim()));
 
     let headerIdx = -1;
@@ -173,9 +168,9 @@ export async function parseDirectoryWorkbook(
   }
   if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) {
     try {
-      const XLSX = await import("xlsx");
-      const wb = XLSX.read(buffer, { type: "buffer", bookSheets: true });
-      if (workbookHasE3Sheets(wb.SheetNames)) {
+      const { readWorkbookMatrices } = await import("@/lib/spreadsheet/workbook");
+      const wb = await readWorkbookMatrices(buffer, { raw: false, defval: "" });
+      if (workbookHasE3Sheets(wb.sheetNames)) {
         return parseE3Masterfile(buffer, options);
       }
     } catch {

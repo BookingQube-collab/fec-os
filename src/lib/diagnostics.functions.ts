@@ -11,6 +11,7 @@ import {
   type AuthContext,
 } from "@/lib/server/create-action";
 import { DIAGNOSTICS_TABLES } from "@/lib/diagnostics/constants";
+import { runSecurityChecklistReport } from "@/lib/diagnostics/security-checklist.server";
 import { clearServerSessionCache } from "@/lib/server/auth";
 import { clearRouteCache } from "@/lib/server/route-cache";
 
@@ -465,6 +466,27 @@ export const resolveIncident = createAuthenticatedAction(
     if (error) throw error;
     await logDiagnosticsAudit(context, "diagnostics.resolve_incident", data.id, {}, "Resolved incident");
     return { ok: true };
+  },
+  { auth: { capability: "admin.diagnostics", minRoleLevel: EXEC_ROLE_LEVEL } },
+);
+
+export const runSecurityChecklist = createAuthenticatedActionNoInput(
+  async (context) => {
+    const report = await runSecurityChecklistReport();
+    await logDiagnosticsAudit(
+      context,
+      "diagnostics.security_checklist",
+      null,
+      {
+        pass: report.counts.pass,
+        failed: report.counts.failed,
+        fixed: report.counts.fixed,
+        notAutoFixable: report.counts.not_auto_fixable,
+        checks: report.checks.map((item) => ({ id: item.id, status: item.status })),
+      },
+      "Security checklist",
+    );
+    return report;
   },
   { auth: { capability: "admin.diagnostics", minRoleLevel: EXEC_ROLE_LEVEL } },
 );

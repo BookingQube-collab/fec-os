@@ -530,9 +530,13 @@ Tabs: **BookingQube MTD**, **Branch P&L**, **Leakage**, **Asset ROI**. Sync Book
 
 ## 15. Administration
 
+Page-by-page steps, permissions, and pitfalls: [admin-panel.md](admin-panel.md).
+
 ### Settings
 
-**Administration** — grant or revoke roles and location scope (executive). **Install app** (PWA) when offered.
+**Administration** (`/admin`) — grant or revoke roles and location scope (executive). **Install app** (PWA) when offered.
+
+**Remove all payroll** (CEO or COO who can also generate payroll) deletes every payroll run so payroll can be tested again from scratch. Type `REMOVE ALL PAYROLL` to confirm. Employees, attendance, and other HR records stay. Overtime claims posted to payroll return to HR approved. Details and the rest of the Administration pages are in [admin-panel.md](admin-panel.md).
 
 Roles include CEO, COO, CFO, Regional Operations, General Manager, Duty Manager, Maintenance Supervisor, Maintenance Technician, Cashier / Host, Auditor, Human Resources, Customer Service.
 

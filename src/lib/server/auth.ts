@@ -8,6 +8,16 @@ import type { Database } from "@/integrations/supabase/types";
 import type { AppRole } from "@/lib/rbac";
 import { createTimer } from "@/lib/performance/timer";
 import { readRolesCookie } from "./roles-cookie";
+import {
+  authCookiesCacheKey,
+  clearServerSessionCache,
+  getCachedSession,
+  primeAuthSessionCache,
+  setCachedSession,
+  updateAuthRolesCache,
+} from "./session-cache";
+
+export { clearServerSessionCache, primeAuthSessionCache, updateAuthRolesCache };
 
 export type AuthContext = {
   supabase: ReturnType<typeof createServerClient<Database>>;
@@ -17,58 +27,8 @@ export type AuthContext = {
   roles?: AppRole[];
 };
 
-type SessionCacheEntry = {
-  userId: string;
-  claims: Record<string, unknown>;
-  roles?: AppRole[];
-  expires: number;
-};
-
-const SESSION_CACHE_TTL_MS = 60_000;
-const sessionCache = new Map<string, SessionCacheEntry>();
-
 function authTokenFingerprint(cookieStore: Awaited<ReturnType<typeof cookies>>): string | null {
-  const authCookie = cookieStore
-    .getAll()
-    .find((c) => c.name.includes("auth-token") && c.value.length > 20);
-  if (!authCookie) return null;
-  return `${authCookie.name}:${authCookie.value.slice(0, 48)}`;
-}
-
-function getCachedSession(fingerprint: string): SessionCacheEntry | undefined {
-  const entry = sessionCache.get(fingerprint);
-  if (!entry) return undefined;
-  if (Date.now() > entry.expires) {
-    sessionCache.delete(fingerprint);
-    return undefined;
-  }
-  return entry;
-}
-
-function setCachedSession(fingerprint: string, entry: Omit<SessionCacheEntry, "expires">): void {
-  sessionCache.set(fingerprint, { ...entry, expires: Date.now() + SESSION_CACHE_TTL_MS });
-}
-
-export function primeAuthSessionCache(
-  fingerprint: string,
-  data: { userId: string; claims: Record<string, unknown>; roles?: AppRole[] },
-): void {
-  setCachedSession(fingerprint, data);
-}
-
-export function updateAuthRolesCache(userId: string, roles: AppRole[]): void {
-  for (const [key, entry] of sessionCache.entries()) {
-    if (entry.userId === userId && Date.now() <= entry.expires) {
-      sessionCache.set(key, { ...entry, roles });
-    }
-  }
-}
-
-/** Drop short-lived auth session cache entries (this Node isolate only). */
-export function clearServerSessionCache(): { cleared: number } {
-  const cleared = sessionCache.size;
-  sessionCache.clear();
-  return { cleared };
+  return authCookiesCacheKey(cookieStore.getAll());
 }
 
 function createSupabaseClient(cookieStore: Awaited<ReturnType<typeof cookies>>) {

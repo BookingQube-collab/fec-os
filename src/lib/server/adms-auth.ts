@@ -1,4 +1,5 @@
 import { getRequestSourceIp } from "@/lib/attendance-ingest-log";
+import { secretsEqual } from "@/lib/server/secret-equal";
 
 export type AdmsAuthFailure = {
   status: number;
@@ -37,9 +38,12 @@ export function validateAdmsIp(request: Request): AdmsAuthFailure | null {
 
 export function validateAdmsCommKey(request: Request, queryKey: string | null): AdmsAuthFailure | null {
   const expected = expectedCommKey();
-  if (!expected) return null;
+  if (!expected) {
+    console.error("ADMS_COMM_KEY is not configured");
+    return { status: 403, body: "AUTH_ERROR", reason: "missing_comm_key" };
+  }
   const got = extractAdmsCommKey(request, queryKey);
-  if (got && got === expected) return null;
+  if (got && secretsEqual(got, expected)) return null;
   return { status: 403, body: "AUTH_ERROR", reason: "bad_comm_key" };
 }
 

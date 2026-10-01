@@ -87,6 +87,10 @@ export const FaultStatusInput = z.object({
   testingPerformed: optionalText(),
   finalResult: optionalText(),
   recommendations: optionalText(),
+  description: z.string().trim().min(8).max(4000).optional(),
+  locationId: uuid.optional(),
+  machineId: uuid.optional(),
+  reportedAt: z.string().datetime().optional(),
 });
 
 export const PmCompleteInput = z.object({

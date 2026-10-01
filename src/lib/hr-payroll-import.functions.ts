@@ -67,23 +67,12 @@ async function auditPayroll(
   }
 }
 
-function aoaFromWorkbook(buffer: ArrayBuffer): {
+async function aoaFromWorkbook(buffer: ArrayBuffer): Promise<{
   sheetNames: string[];
   sheets: Record<string, unknown[][]>;
-} {
-  // Dynamic require keeps this server-only and matches other FEC xlsx call sites
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const XLSX = require("xlsx") as typeof import("xlsx");
-  const wb = XLSX.read(Buffer.from(buffer), { type: "buffer", cellDates: true, raw: true });
-  const sheets: Record<string, unknown[][]> = {};
-  for (const name of wb.SheetNames) {
-    sheets[name] = XLSX.utils.sheet_to_json(wb.Sheets[name]!, {
-      header: 1,
-      defval: null,
-      raw: true,
-    }) as unknown[][];
-  }
-  return { sheetNames: wb.SheetNames, sheets };
+}> {
+  const { readWorkbookMatrices } = await import("@/lib/spreadsheet/workbook");
+  return readWorkbookMatrices(Buffer.from(buffer), { raw: true, defval: null });
 }
 
 function toPaymentMethod(v: string): HrPayrollPaymentMethod {
@@ -162,7 +151,7 @@ export const previewPayrollExcelImport = createAuthenticatedAction(
   async (data, context) => {
     requireCap(context, "payroll.generate");
     const buffer = Buffer.from(data.fileBase64, "base64");
-    const { sheetNames, sheets } = aoaFromWorkbook(
+    const { sheetNames, sheets } = await aoaFromWorkbook(
       buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength),
     );
     const parsed = parsePayrollWorkbookSheets({
@@ -245,7 +234,7 @@ export const commitPayrollExcelImport = createAuthenticatedAction(
   async (data, context) => {
     requireCap(context, "payroll.generate");
     const buffer = Buffer.from(data.fileBase64, "base64");
-    const { sheetNames, sheets } = aoaFromWorkbook(
+    const { sheetNames, sheets } = await aoaFromWorkbook(
       buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength),
     );
     const parsed = parsePayrollWorkbookSheets({

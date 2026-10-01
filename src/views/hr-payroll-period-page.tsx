@@ -312,11 +312,8 @@ function downloadCsv(filename: string, matrix: string[][]) {
 }
 
 async function downloadXlsx(filename: string, sheetName: string, matrix: string[][]) {
-  const XLSX = await import("xlsx");
-  const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.aoa_to_sheet(matrix);
-  XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
-  XLSX.writeFile(wb, filename);
+  const { downloadXlsx: saveXlsx } = await import("@/lib/spreadsheet/workbook");
+  await saveXlsx(filename, [{ name: sheetName, rows: matrix }]);
 }
 
 function fileToBase64(file: File): Promise<string> {

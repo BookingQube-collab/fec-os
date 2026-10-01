@@ -58,21 +58,25 @@ describe("parseHtmlRoster", () => {
 
 describe("parseXlsxRoster", () => {
   it("imports only the Employee Roster worksheet", async () => {
-    const XLSX = await import("xlsx");
-    const other = XLSX.utils.aoa_to_sheet([
-      ["#", "Location", "Employee Name", "QID"],
-      ["1", "Urban Arena - Doha Mall", "Should Ignore", "000"],
+    const { writeXlsxBuffer } = await import("@/lib/spreadsheet/workbook");
+    const buffer = await writeXlsxBuffer([
+      {
+        name: "Ignore Me",
+        rows: [
+          ["#", "Location", "Employee Name", "QID"],
+          ["1", "Urban Arena - Doha Mall", "Should Ignore", "000"],
+        ],
+      },
+      {
+        name: "Employee Roster",
+        rows: [
+          ["EMPLOYEE ROSTER"],
+          ["#", "Location", "Employee Name", "E3", "Employee Type", "Salary", "QID", "Activity", "Position", "Contact Number", "Joining Date", "Status"],
+          ["1", "Urban Arena - Doha Mall", "Waqar Asghar", "", "", "", "29658611062", "OverAll", "Venue Supervisor", "51234705", "19/03/2026", "Active"],
+          ["", "", "", "", "", "", "", "", "", "", "", ""],
+        ],
+      },
     ]);
-    const roster = XLSX.utils.aoa_to_sheet([
-      ["EMPLOYEE ROSTER"],
-      ["#", "Location", "Employee Name", "E3", "Employee Type", "Salary", "QID", "Activity", "Position", "Contact Number", "Joining Date", "Status"],
-      ["1", "Urban Arena - Doha Mall", "Waqar Asghar", "", "", "", "29658611062", "OverAll", "Venue Supervisor", "51234705", "19/03/2026", "Active"],
-      ["", "", "", "", "", "", "", "", "", "", "", ""],
-    ]);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, other, "Ignore Me");
-    XLSX.utils.book_append_sheet(wb, roster, "Employee Roster");
-    const buffer = Buffer.from(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }));
     const parsed = await parseXlsxRoster(buffer);
     expect(parsed.worksheetName).toBe("Employee Roster");
     expect(parsed.rows).toHaveLength(1);

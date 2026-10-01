@@ -167,22 +167,21 @@ export async function GET(request: Request) {
           });
         }
 
-        const XLSX = await import("xlsx");
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(
-          wb,
-          XLSX.utils.json_to_sheet(
-            dayRows.map((row) =>
-              deviceLogDayExportObject(
-                row,
-                formatPunchTime12h(row.punchInAt) || "",
-                formatPunchTime12h(row.punchOutAt) || "",
+        const { objectsToRows, writeXlsxBuffer } = await import("@/lib/spreadsheet/workbook");
+        const buf = await writeXlsxBuffer([
+          {
+            name: "Device logs",
+            rows: objectsToRows(
+              dayRows.map((row) =>
+                deviceLogDayExportObject(
+                  row,
+                  formatPunchTime12h(row.punchInAt) || "",
+                  formatPunchTime12h(row.punchOutAt) || "",
+                ),
               ),
             ),
-          ),
-          "Device logs",
-        );
-        const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+          },
+        ]);
         return new NextResponse(new Uint8Array(buf), {
           headers: {
             "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -192,29 +191,28 @@ export async function GET(request: Request) {
       }
 
       if (format === "payroll") {
-        const XLSX = await import("xlsx");
+        const { objectsToRows, writeXlsxBuffer } = await import("@/lib/spreadsheet/workbook");
         const payroll = await getPayrollAttendanceSummary({ locationId, dateFrom, dateTo });
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(
-          wb,
-          XLSX.utils.json_to_sheet(
-            payroll.rows.map((r) => ({
-              Location: r.locationLabel ?? "—",
-              Employee: r.staffName,
-              "Employee code": r.employeeCode,
-              Present: r.daysPresent,
-              Absent: r.daysAbsent,
-              Late: r.daysLate,
-              "Missed punches": r.missedPunches,
-              "Worked hours": Math.round((r.workedMinutes / 60) * 100) / 100,
-              "Overtime hours": Math.round((r.overtimeMinutes / 60) * 100) / 100,
-              "Ready for payroll": r.payrollReady ? "Yes" : "No",
-              "Block reasons": formatPayrollBlockReasons(r.blockReasons ?? []).join("; "),
-            })),
-          ),
-          "Payroll",
-        );
-        const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+        const buf = await writeXlsxBuffer([
+          {
+            name: "Payroll",
+            rows: objectsToRows(
+              payroll.rows.map((r) => ({
+                Location: r.locationLabel ?? "—",
+                Employee: r.staffName,
+                "Employee code": r.employeeCode,
+                Present: r.daysPresent,
+                Absent: r.daysAbsent,
+                Late: r.daysLate,
+                "Missed punches": r.missedPunches,
+                "Worked hours": Math.round((r.workedMinutes / 60) * 100) / 100,
+                "Overtime hours": Math.round((r.overtimeMinutes / 60) * 100) / 100,
+                "Ready for payroll": r.payrollReady ? "Yes" : "No",
+                "Block reasons": formatPayrollBlockReasons(r.blockReasons ?? []).join("; "),
+              })),
+            ),
+          },
+        ]);
         const filename = e3AttendanceExportFilename(dateFrom, dateTo, "payroll");
         return new NextResponse(new Uint8Array(buf), {
           headers: {
@@ -380,7 +378,7 @@ export async function GET(request: Request) {
         filters,
         sheetNames: sheetsForExportFocus(focus),
       });
-      appendExcelSheets(XLSX as unknown as typeof import("xlsx"), wb, sheets);
+      appendExcelSheets(XLSX, wb, sheets);
 
       const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
       const filename = e3AttendanceExportFilename(dateFrom, dateTo, focusFilenameKind(focus));

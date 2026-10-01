@@ -10,7 +10,7 @@ import { createClient } from "@supabase/supabase-js";
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import XLSX from "xlsx";
+import { objectsFromAoa, readAoaFile } from "./read-xlsx.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, "..");
@@ -40,10 +40,10 @@ function workbookPath() {
   throw new Error(`Workbook not found. Tried:\n${WORKBOOK_CANDIDATES.join("\n")}`);
 }
 
-function sheetObjects(wb, name) {
-  const sh = wb.Sheets[name];
-  if (!sh) throw new Error(`Missing sheet: ${name}`);
-  return XLSX.utils.sheet_to_json(sh, { range: 3, defval: null }).filter((r) => r.promocode);
+function sheetObjects(sheets, name) {
+  const rows = sheets[name];
+  if (!rows) throw new Error(`Missing sheet: ${name}`);
+  return objectsFromAoa(rows, 3).filter((r) => r.promocode);
 }
 
 function str(v) {
@@ -177,7 +177,7 @@ async function main() {
   const cached = join(outDir, "FEC_Corporate_Deals_Weekly_Report.xlsx");
   if (src !== cached) copyFileSync(src, cached);
 
-  const wb = XLSX.readFile(src);
+  const wb = await readAoaFile(src);
   const { data: partners, error: pErr } = await sb.from("corporate_deal_partners").select("id, name");
   if (pErr) throw pErr;
   const partnersByName = new Map((partners ?? []).map((p) => [p.name, p.id]));
@@ -185,12 +185,10 @@ async function main() {
     console.warn(`Expected 21 partners, got ${partnersByName.size}`);
   }
 
-  const weekRaw = sheetObjects(wb, "Weekly Log").filter((r) => str(r.period_week) === ISO_WEEK);
-  const monthRaw = sheetObjects(wb, "Month Data").filter((r) => str(r.period_month) === PERIOD_MONTH);
-  const trendRaw = sheetObjects(wb, "Trend Data");
-  const codeRaw = XLSX.utils
-    .sheet_to_json(wb.Sheets["Code Mapping"], { range: 3, defval: null })
-    .filter((r) => r["Promo code"] || r.promocode);
+  const weekRaw = sheetObjects(wb.sheets, "Weekly Log").filter((r) => str(r.period_week) === ISO_WEEK);
+  const monthRaw = sheetObjects(wb.sheets, "Month Data").filter((r) => str(r.period_month) === PERIOD_MONTH);
+  const trendRaw = sheetObjects(wb.sheets, "Trend Data");
+  const codeRaw = objectsFromAoa(wb.sheets["Code Mapping"] ?? [], 3).filter((r) => r["Promo code"] || r.promocode);
 
   const weekRows = weekRaw.map((r) => mapLogRow(r, partnersByName, "iso_week", ISO_WEEK));
   const monthRows = monthRaw.map((r) => mapLogRow(r, partnersByName, "period_month", PERIOD_MONTH));

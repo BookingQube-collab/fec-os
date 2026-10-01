@@ -4,8 +4,7 @@
  */
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
-import * as XLSX from "xlsx";
-
+import { readWorkbookMatrices } from "./spreadsheet/workbook";
 import { computeExcelStyleNet, parsePayrollWorkbookSheets } from "./hr-payroll-import";
 import { matchAllPayrollImportRows } from "./hr-payroll-match";
 import { buildReconciliationReport } from "./hr-payroll-reconcile";
@@ -17,17 +16,9 @@ if (!existsSync(file)) {
 }
 
 const buf = readFileSync(file);
-const wb = XLSX.read(buf, { type: "buffer", cellDates: true, raw: true });
-const sheets: Record<string, unknown[][]> = {};
-for (const name of wb.SheetNames) {
-  sheets[name] = XLSX.utils.sheet_to_json(wb.Sheets[name]!, {
-    header: 1,
-    defval: null,
-    raw: true,
-  }) as unknown[][];
-}
+const wb = await readWorkbookMatrices(buf, { raw: true, defval: null });
 
-const parsed = parsePayrollWorkbookSheets({ sheetNames: wb.SheetNames, sheets });
+const parsed = parsePayrollWorkbookSheets({ sheetNames: wb.sheetNames, sheets: wb.sheets });
 const assert = (cond: boolean, msg: string) => {
   if (!cond) throw new Error(msg);
 };

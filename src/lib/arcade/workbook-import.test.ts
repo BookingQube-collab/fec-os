@@ -1,17 +1,17 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
-import * as XLSX from "xlsx";
 
-import { gridFromSheet, machineKey, parseArcadeWorkbooks, parseCalendarDate, resolveVenueCode, type SheetGrid } from "./workbook-import";
+import { readWorkbookMatrices } from "@/lib/spreadsheet/workbook";
+import { gridFromMatrix, machineKey, parseArcadeWorkbooks, parseCalendarDate, resolveVenueCode, type SheetGrid } from "./workbook-import";
 import { WorkbookPlanInput } from "./schemas";
 
 const DAMAGE = "A:/Weekly Meeting/week39/MACHINE DAMAGE REPORT  (Magic Table).xlsx";
 const AUGUST = "A:/Weekly Meeting/week39/E3 Monthly Maintenance Report (August).xlsx";
 
-function book(path: string): SheetGrid[] {
-  const workbook = XLSX.readFile(path, { cellDates: true });
-  return workbook.SheetNames.map((name) => gridFromSheet(name, workbook.Sheets[name] ?? {}));
+async function book(path: string): Promise<SheetGrid[]> {
+  const workbook = await readWorkbookMatrices(readFileSync(path), { raw: false, defval: "" });
+  return workbook.sheetNames.map((name) => gridFromMatrix(name, workbook.sheets[name] ?? []));
 }
 
 describe("arcade workbook import", () => {
@@ -32,10 +32,10 @@ describe("arcade workbook import", () => {
     expect(parseCalendarDate("January 0, 1900")).toBeNull();
   });
 
-  it("keeps Magic Table and the August rows the admin panel should show", () => {
+  it("keeps Magic Table and the August rows the admin panel should show", async () => {
     if (!existsSync(DAMAGE) || !existsSync(AUGUST)) return;
-    const damage = book(DAMAGE)[0];
-    const maintenance = book(AUGUST);
+    const damage = (await book(DAMAGE))[0];
+    const maintenance = await book(AUGUST);
     const plan = parseArcadeWorkbooks({ damage, maintenance });
     const magic = plan.machines.find((machine) => machineKey(machine.name) === "magic table");
     expect(magic?.locationCode).toBe("CB-VM");

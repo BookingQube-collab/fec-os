@@ -9,7 +9,7 @@ type RouteCtx = { params: Promise<{ slug?: string[] }> };
 /**
  * ZKTeco ADMS / iClock push alias (same handlers as /iclock/*).
  * Devices should be pointed at the host so they call /iclock/cdata; this path is for tests and docs.
- * Auth: device SN allowlist + optional ADMS_COMM_KEY / ADMS_IP_ALLOWLIST.
+ * Auth: device SN allowlist + required ADMS_COMM_KEY. Optional ADMS_IP_ALLOWLIST.
  */
 export async function GET(request: Request, ctx: RouteCtx) {
   const { slug } = await ctx.params;

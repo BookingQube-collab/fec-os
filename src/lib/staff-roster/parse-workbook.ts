@@ -511,9 +511,9 @@ export function parseCsvRoster(text: string, options?: RosterParseOptions): Rost
 }
 
 export async function parseXlsxRoster(buffer: Buffer, options?: RosterParseOptions): Promise<RosterParseResult> {
-  const XLSX = await import("xlsx");
-  const wb = XLSX.read(buffer, { type: "buffer", cellDates: true, raw: false });
-  const sheetName = wb.SheetNames.find((n) => isEmployeeRosterTitle(n));
+  const { readWorkbookMatrices } = await import("@/lib/spreadsheet/workbook");
+  const wb = await readWorkbookMatrices(buffer, { raw: false, defval: "" });
+  const sheetName = wb.sheetNames.find((n) => isEmployeeRosterTitle(n));
   if (!sheetName) {
     return {
       worksheetName: null,
@@ -530,12 +530,7 @@ export async function parseXlsxRoster(buffer: Buffer, options?: RosterParseOptio
       ],
     };
   }
-  const sheet = wb.Sheets[sheetName];
-  const matrix = XLSX.utils.sheet_to_json<(string | number | null)[]>(sheet, {
-    header: 1,
-    raw: false,
-    defval: "",
-  });
+  const matrix = wb.sheets[sheetName] ?? [];
   const asStrings = matrix.map((r) => (r ?? []).map((c) => String(c ?? "").trim()));
   let headerIdx = findHeaderRowIndex(asStrings, options);
   if (headerIdx < 0) {

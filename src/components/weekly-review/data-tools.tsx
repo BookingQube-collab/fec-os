@@ -8,26 +8,21 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import type { SiteOption } from "@/components/weekly-review/fields";
 import type { ReviewPack } from "@/lib/weekly-review/model";
+import { downloadXlsx, readWorkbookMatrices } from "@/lib/spreadsheet/workbook";
 import { applySheetMap, packToSheetMap, sampleSheetMap, type SheetMap } from "@/lib/weekly-review/workbook";
 
 async function writeWorkbook(sheets: SheetMap, filename: string) {
-  const XLSX = await import("xlsx");
-  const wb = XLSX.utils.book_new();
-  for (const [name, rows] of Object.entries(sheets)) {
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), name.slice(0, 31));
-  }
-  XLSX.writeFile(wb, filename);
+  await downloadXlsx(
+    filename,
+    Object.entries(sheets).map(([name, rows]) => ({ name, rows })),
+  );
 }
 
 async function readWorkbook(file: File): Promise<SheetMap> {
-  const XLSX = await import("xlsx");
-  const buffer = await file.arrayBuffer();
-  const wb = XLSX.read(buffer, { type: "array" });
+  const wb = await readWorkbookMatrices(await file.arrayBuffer(), { raw: false, defval: "" });
   const sheets: SheetMap = {};
-  for (const name of wb.SheetNames) {
-    const sheet = wb.Sheets[name];
-    if (!sheet) continue;
-    sheets[name] = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: "" }) as string[][];
+  for (const name of wb.sheetNames) {
+    sheets[name] = (wb.sheets[name] ?? []).map((row) => row.map((cell) => String(cell ?? ""))) as SheetMap[string];
   }
   return sheets;
 }

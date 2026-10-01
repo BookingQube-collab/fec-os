@@ -401,6 +401,202 @@
       "title": "Diagnostics & Crash Hub",
       "body": "Incident queue, schema inspection, and self-healing tools.",
       "open": "Open hub"
+    },
+    "security": {
+      "title": "Security checklist",
+      "subtitle": "Runs this app’s auth, headers, validation, and known-risk checks, then applies only a remediation that can be done safely from this page.",
+      "action": "Run checks and resolve",
+      "empty": "Run the checklist to see pass, failed, fixed, and not automatically fixable results for this server.",
+      "summary": "{{pass}} passed · {{fixed}} fixed · {{failed}} failed · {{notAutoFixable}} not automatically fixable",
+      "ranAt": "Checked {{when}}",
+      "resolvedNote": "A result is marked fixed only after that check passes again. Environment variables, identity-provider policy, host controls, and files this page will not rewrite stay unresolved.",
+      "toast": "{{pass}} passed, {{fixed}} fixed, {{failed}} still failing, {{notAutoFixable}} not automatically fixable",
+      "status": {
+        "pass": "Pass",
+        "failed": "Failed",
+        "fixed": "Fixed",
+        "not_auto_fixable": "Not automatically fixable"
+      },
+      "areas": {
+        "input": "Input validation",
+        "auth": "Authentication",
+        "rbac": "Authorization",
+        "data": "Data protection",
+        "crypto": "Cryptography",
+        "database": "Database",
+        "api": "API and headers",
+        "errors": "Errors",
+        "logging": "Logging",
+        "dependencies": "Dependencies",
+        "code": "Code security",
+        "operations": "Operations and compliance"
+      },
+      "checks": {
+        "passwordPolicy": {
+          "title": "Password minimum",
+          "pass": "The sign-in field, staff provisioning, and the identity-provider minimum are all at least 12 characters.",
+          "unreadable": "Not verifiable here. The sign-in form source is not readable in this environment.",
+          "idpOutside": "The sign-in field minimum is {{uiMin}} and staff provisioning minimum is {{staffMin}}. The identity-provider password policy is not in this repo, so this page will not raise only the field.",
+          "serverBelow": "The identity-provider minimum is {{idpMin}}, below 12. This page will not pretend a form change fixes that.",
+          "staffBelow": "Staff provisioning still allows {{staffMin}} characters. This page will not change that policy.",
+          "canRaise": "The identity provider already requires 12 characters, and the sign-in field is still {{uiMin}}.",
+          "notWritten": "The identity provider already requires at least 12 characters, and the sign-in field is still {{uiMin}}. This page does not rewrite the form."
+        },
+        "zodActions": {
+          "title": "Zod on server actions",
+          "pass": "Shared server actions parse input with Zod before the handler runs.",
+          "missing": "The shared server-action helper does not parse a Zod schema. This page will not rewrite that helper.",
+          "unreadable": "Not verifiable here. The server-action helper is not readable in this environment."
+        },
+        "sessionCacheKey": {
+          "title": "Session cache key",
+          "pass": "The session cache key is a hash of the full auth cookie, not a token prefix.",
+          "prefix": "The session cache key is the first {{length}} characters of the auth cookie. Hash the full token in the auth helper. This page does not edit that file.",
+          "unreadable": "Not verifiable here. The auth helper source is not readable in this environment.",
+          "unrecognized": "The auth helper is readable, but the session fingerprint is not a full-token hash. This page does not edit that file."
+        },
+        "cronSecret": {
+          "title": "CRON_SECRET",
+          "set": "CRON_SECRET is set. The value is not shown.",
+          "missing": "CRON_SECRET is missing. Set it on the server. This page does not generate or store a new secret."
+        },
+        "admsCommKey": {
+          "title": "ADMS_COMM_KEY",
+          "set": "ADMS_COMM_KEY is set. The value is not shown.",
+          "missing": "ADMS_COMM_KEY is missing. Set it on the server. This page does not generate or store a new key."
+        },
+        "loginRateLimit": {
+          "title": "Login rate limit",
+          "present": "The sign-in screen calls a rate-limit check before email and password sign-in.",
+          "missing": "Email and password sign-in does not call an app rate limit. Provider limits are outside this repo, so this page cannot add one safely.",
+          "unreadable": "Not verifiable here. The sign-in screen source is not readable in this environment."
+        },
+        "cronLegacyFallback": {
+          "title": "Cron legacy fallback",
+          "absent": "Cron authentication does not fall back to the publishable API key.",
+          "present": "When CRON_SECRET is unset, cron authentication still accepts the publishable API key. This page will not edit that helper.",
+          "unreadable": "Not verifiable here. The cron helper source is not readable in this environment."
+        },
+        "admsFailOpen": {
+          "title": "ADMS key enforcement",
+          "closed": "Device ingest rejects requests when the comm key is missing or wrong.",
+          "open": "Device ingest allows the request when ADMS_COMM_KEY is unset. This page will not edit that helper.",
+          "unreadable": "Not verifiable here. The ADMS helper source is not readable in this environment."
+        },
+        "rbacMatrix": {
+          "title": "Diagnostics capability",
+          "pass": "The role matrix defines the admin.diagnostics capability used by this hub.",
+          "missing": "admin.diagnostics is not defined on the role matrix. This page will not invent grants.",
+          "unreadable": "Not verifiable here. The role matrix source is not readable in this environment."
+        },
+        "crashReportGate": {
+          "title": "Crash report gate",
+          "gated": "Crash reporting does not opt out of the role requirement.",
+          "open": "Crash reporting allows a signed-in user with no role. This checklist does not use that gate, and it will not change crash reporting from here.",
+          "unreadable": "Not verifiable here. The crash-report action is not readable in this environment."
+        },
+        "serviceRole": {
+          "title": "Service-role key",
+          "ok": "The service-role key is read from the environment. No JWT-shaped literal was found in the server client, and the value is not shown.",
+          "missing": "SUPABASE_SERVICE_ROLE_KEY is not set. This page does not create or print a key.",
+          "hardcoded": "A JWT-shaped literal is present in the server client source. The value is not shown. This page will not rewrite that file.",
+          "unreadable": "Not verifiable here. The server client source is not readable in this environment."
+        },
+        "fileEncryptionKey": {
+          "title": "Encryption key",
+          "set": "An attendance or AI credential encryption key is set. The value is not shown.",
+          "missing": "Neither ATTENDANCE_FILE_ENCRYPTION_KEY nor AI_CREDENTIALS_ENCRYPTION_KEY is set. This page does not generate or display a key."
+        },
+        "attendanceCipher": {
+          "title": "Attendance file cipher",
+          "pass": "Attendance files use AES-256-GCM.",
+          "other": "Attendance file encryption is not AES-256-GCM. This page will not swap ciphers.",
+          "unreadable": "Not verifiable here. The file-crypto module is not readable in this environment."
+        },
+        "rls": {
+          "title": "Row-level security",
+          "body": "Row-level security policies are not inspected or edited from this page."
+        },
+        "actionAuth": {
+          "title": "Action auth wrapper",
+          "pass": "Shared server actions load an authenticated context and enforce the action capability gate.",
+          "missing": "The shared server-action helper does not enforce an auth wrapper. This page will not rewrite that helper.",
+          "unreadable": "Not verifiable here. The server-action helper is not readable in this environment."
+        },
+        "pageHeaders": {
+          "title": "Page security headers",
+          "pass": "Page middleware sets Content-Security-Policy (frame-ancestors), framing protection, X-Content-Type-Options, and Referrer-Policy.",
+          "gap": "Page responses are missing {{missing}}. This page will not rewrite Next config or the session gate to invent a stricter policy.",
+          "unreadable": "Not verifiable here. Middleware and Next config are not readable in this environment."
+        },
+        "apiHeaders": {
+          "title": "API route headers",
+          "pass": "The middleware matcher includes API routes, so the page security headers apply there too.",
+          "skipped": "Middleware skips /api and /iclock, so those responses do not get the page security headers. This page will not change that matcher.",
+          "unreadable": "Not verifiable here. Middleware source is not readable in this environment."
+        },
+        "strictCsp": {
+          "title": "Script content security policy",
+          "pass": "A script-src directive is declared for page responses.",
+          "missing": "No script-src policy is declared. A strict content security policy can break the app and is not applied from this page."
+        },
+        "hsts": {
+          "title": "HTTP Strict Transport Security",
+          "pass": "Strict-Transport-Security is declared or was visible on a response.",
+          "host": "HSTS is not declared in app config, and this request cannot see the response it will send. Set it on the HTTPS host. This page will not emit HSTS."
+        },
+        "dbErrors": {
+          "title": "Database errors",
+          "pass": "The shared action helper does not return database detail text to the client.",
+          "leak": "Server actions can return database message and detail text to the client. Sanitizing that is a product-wide change this page will not apply.",
+          "unreadable": "Not verifiable here. The server-action helper is not readable in this environment."
+        },
+        "ingestPayload": {
+          "title": "Attendance ingest logging",
+          "pass": "Ingest hit logs do not store the raw request payload.",
+          "raw": "Ingest hit logs store the raw request payload. This page will not delete those rows or rewrite the logger.",
+          "unreadable": "Not verifiable here. The ingest logger is not readable in this environment."
+        },
+        "dependencyAudit": {
+          "title": "Dependency vulnerabilities",
+          "lockfile": "Not verifiable here. The lockfile is readable (lockfileVersion {{version}}) but npm audit is not run from this page.",
+          "unreadable": "Not verifiable here. The lockfile is not readable in this environment, and npm audit is not run from this page."
+        },
+        "dangerousSinks": {
+          "title": "eval and Function",
+          "pass": "No eval or new Function in {{count}} allowlisted files. The rest of the repository is not scanned on each run.",
+          "found": "eval or new Function appears in {{files}}. This page does not rewrite those files.",
+          "unreadable": "Not verifiable here. Allowlisted sources could not be read, and a full repository scan is not run from this page."
+        },
+        "threatModel": {
+          "title": "Threat model",
+          "body": "A written threat model is a process artifact. This server cannot confirm or create one."
+        },
+        "pentest": {
+          "title": "Penetration test schedule",
+          "body": "A pentest schedule lives outside this app. This page cannot book or record one."
+        },
+        "compliance": {
+          "title": "HIPAA, PCI, SOC 2, and ISO",
+          "body": "Those programs are organizational. This page cannot certify them."
+        },
+        "firewall": {
+          "title": "Firewall",
+          "body": "Host firewall rules are outside this process. This page cannot inspect or change them."
+        },
+        "intrusionDetection": {
+          "title": "Intrusion detection",
+          "body": "Intrusion detection is a host or network control. This page cannot enable it."
+        },
+        "encryptedBackups": {
+          "title": "Encrypted backups",
+          "body": "Backup encryption is a hosting control. This page cannot verify or configure it."
+        },
+        "tlsHost": {
+          "title": "TLS at the host",
+          "body": "Certificate termination is at the host or proxy. This page cannot provision TLS."
+        }
+      }
     }
   },
   "aiIntegrations": {
@@ -5326,6 +5522,33 @@
     "saveFailed": "Could not save access change",
     "noCapabilities": "No capabilities for this role."
   },
+  "adminPayrollReset": {
+    "title": "Remove all payroll",
+    "cardBody": "Delete every payroll run so you can test payroll again from scratch. Employees, attendance, and other HR records stay.",
+    "open": "Remove all payroll",
+    "dialogTitle": "Remove all payroll?",
+    "cannotUndo": "This cannot be undone. Locked, paid, and imported payroll runs are removed too.",
+    "removedHeading": "This removes",
+    "removedPeriods": "All payroll periods (draft through locked)",
+    "removedLines": "Payroll lines",
+    "removedPayslips": "Payslips and stored payslip files under payroll/",
+    "removedLocks": "Payroll lock and reopen records",
+    "removedAdjustments": "Payroll adjustments",
+    "removedOverrides": "Line amount overrides",
+    "removedBatches": "Excel import batches",
+    "removedNotifications": "In-app notifications that point at a payroll period",
+    "keptHeading": "This keeps",
+    "keptPeople": "Employees, users, and roles",
+    "keptAttendance": "Attendance, punches, and rosters",
+    "keptHr": "Leave, documents, warnings, and other HR records",
+    "keptPolicy": "Payroll policy settings and the audit log",
+    "releasedOt": "Overtime claims stay. Claims posted to payroll return to HR approved, and the payroll link is cleared.",
+    "releasedAir": "Air-ticket issues stay. Their payroll link is cleared and payroll payment status returns to unpaid.",
+    "typeLabel": "Type {{phrase}} to confirm",
+    "confirm": "Remove all payroll",
+    "failed": "Could not remove payroll",
+    "success": "Removed {{periods}} periods, {{lines}} lines, {{payslips}} payslips, {{locks}} locks, {{adjustments}} adjustments, {{overrides}} overrides, {{batches}} import batches, {{files}} payslip files, and {{notifications}} notifications. Released {{ot}} overtime claims and {{air}} air-ticket payroll links."
+  },
   "profile": {
     "kicker": "Account",
     "title": "Your profile",
@@ -8399,6 +8622,24 @@
     "weeklyLine": "Opened {{opened}} · resolved {{resolved}} · pending {{pending}} · waiting parts {{parts}} · waiting suppliers {{suppliers}} · repeats {{repeats}}",
     "weeklyMeta": "Availability {{availability}}% · PM compliance {{pm}}% · parts {{parts}} · cost {{cost}}",
     "weekRange": "{{from}} to {{to}}",
+    "dateFrom": "From",
+    "dateTo": "To",
+    "allSites": "All sites",
+    "searchMachineIssue": "Search machine or issue",
+    "opened": "Opened",
+    "resolved": "Resolved",
+    "pending": "Pending",
+    "repeats": "Repeats",
+    "parts": "Parts",
+    "cost": "Cost",
+    "pmCompliance": "PM compliance",
+    "waitingParts": "Waiting parts",
+    "waitingSuppliers": "Waiting suppliers",
+    "editFault": "Edit fault",
+    "faultSaved": "Fault saved",
+    "noMatchingFaults": "No faults match these filters.",
+    "issueTooShort": "Issue text needs at least 8 characters.",
+    "pickStatus": "Choose a recorded fault status before saving.",
     "buildingReport": "Building the weekly report from recorded activity…",
     "monthly": "Monthly",
     "monthlyFaults": "Faults {{faults}} (previous {{previous}}) · resolved {{resolved}} · pending {{pending}} · resolution {{rate}}%",

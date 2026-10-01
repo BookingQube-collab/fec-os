@@ -250,12 +250,36 @@ export const updateArcadeFault = createAuthenticatedAction(
       finalResult: data.finalResult ?? existing.final_result,
       recommendations: data.recommendations ?? existing.recommendations,
     };
-    const errors = transitionFault(existing.status as FaultStatus, data.status, closure);
-    if (errors.length) throw new Error(errors[0]);
+    let machineId = data.machineId ?? existing.machine_id;
+    let locationId = data.locationId ?? existing.location_id;
+    if (data.machineId && data.machineId !== existing.machine_id) {
+      const { data: machine, error: machineError } = await context.supabase
+        .from("arcade_machines")
+        .select("id, location_id")
+        .eq("id", data.machineId)
+        .single();
+      if (machineError) throw machineError;
+      if (data.locationId && data.locationId !== machine.location_id) {
+        throw new Error("That machine is not at the selected site");
+      }
+      machineId = machine.id;
+      locationId = machine.location_id;
+    }
+    if (locationId !== existing.location_id) await assertLocationAccess(context, locationId);
+    const statusChanged = data.status !== existing.status;
+    if (statusChanged) {
+      const errors = transitionFault(existing.status as FaultStatus, data.status, closure);
+      if (errors.length) throw new Error(errors[0]);
+    }
+    const description = data.description?.trim() || existing.description;
     const { error: updateError } = await context.supabase
       .from("arcade_faults")
       .update({
         status: data.status,
+        description,
+        location_id: locationId,
+        machine_id: machineId,
+        reported_at: data.reportedAt ?? existing.reported_at,
         problem: closure.problem,
         diagnosis: closure.diagnosis,
         action_taken: closure.actionTaken,
@@ -270,46 +294,52 @@ export const updateArcadeFault = createAuthenticatedAction(
     if (data.note?.trim()) {
       await context.supabase.from("arcade_fault_updates").insert({
         fault_id: data.id,
-        location_id: existing.location_id,
+        location_id: locationId,
         kind: "note",
         body: data.note.trim(),
         created_by: context.userId,
       });
     }
-    if (data.status === "UNDER_REPAIR") {
+    if (statusChanged && data.status === "UNDER_REPAIR") {
       await context.supabase.from("arcade_repairs").insert({
         fault_id: data.id,
-        machine_id: existing.machine_id,
-        location_id: existing.location_id,
+        machine_id: machineId,
+        location_id: locationId,
         technician_staff_id: existing.technician_staff_id,
         status: "IN_PROGRESS",
         created_by: context.userId,
       });
     }
-    if (data.status === "UNDER_OBSERVATION") {
+    if (statusChanged && data.status === "UNDER_OBSERVATION") {
       await context.supabase.from("arcade_observations").insert({
-        machine_id: existing.machine_id,
+        machine_id: machineId,
         fault_id: data.id,
-        location_id: existing.location_id,
+        location_id: locationId,
         technician_staff_id: existing.technician_staff_id,
         status: "OPEN",
         created_by: context.userId,
       });
     }
     const proposed = machineStatusForFault(data.status, existing.operational_impact);
-    await applyMachineStatus(context, existing.machine_id, proposed, data.id);
-    await stampMachineFix(context, existing.machine_id, {
-      at: new Date().toISOString(),
-      summary: fixSummaryFromFault({
-        note: data.note,
-        actionTaken: closure.actionTaken,
-        finalResult: closure.finalResult,
-        diagnosis: closure.diagnosis,
-        description: existing.description,
-      }),
-      status: data.status,
-      technicianStaffId: existing.technician_staff_id,
-    });
+    const machineMoved = machineId !== existing.machine_id;
+    if (statusChanged || machineMoved) {
+      await applyMachineStatus(context, machineId, proposed, data.id);
+      if (machineMoved) await applyMachineStatus(context, existing.machine_id, "WORKING", data.id);
+    }
+    if (statusChanged || machineMoved) {
+      await stampMachineFix(context, machineId, {
+        at: new Date().toISOString(),
+        summary: fixSummaryFromFault({
+          note: data.note,
+          actionTaken: closure.actionTaken,
+          finalResult: closure.finalResult,
+          diagnosis: closure.diagnosis,
+          description,
+        }),
+        status: data.status,
+        technicianStaffId: existing.technician_staff_id,
+      });
+    }
     return { id: data.id, status: data.status };
   },
   { auth: { capability: "arcade.operate" } },

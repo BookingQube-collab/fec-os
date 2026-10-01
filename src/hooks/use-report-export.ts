@@ -89,8 +89,7 @@ export function useReportExport<T extends Record<string, unknown>>(opts: UseRepo
   }, [opts, filterLine]);
 
   const exportExcel = useCallback(async () => {
-    const XLSX = await import("xlsx");
-    const wb = XLSX.utils.book_new();
+    const { downloadXlsx } = await import("@/lib/spreadsheet/workbook");
     const kpiRows: (string | number)[][] = [
       [opts.title],
       [`Venue: ${opts.venueLabel}`],
@@ -109,9 +108,7 @@ export function useReportExport<T extends Record<string, unknown>>(opts: UseRepo
         }),
       ),
     ];
-    const ws = XLSX.utils.aoa_to_sheet(kpiRows);
-    XLSX.utils.book_append_sheet(wb, ws, "Report");
-    XLSX.writeFile(wb, `${fileBase(opts.pageKey, opts.venueLabel)}.xlsx`);
+    await downloadXlsx(`${fileBase(opts.pageKey, opts.venueLabel)}.xlsx`, [{ name: "Report", rows: kpiRows }]);
   }, [opts, filterLine]);
 
   return { exportPdf, exportExcel };

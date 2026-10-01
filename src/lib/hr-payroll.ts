@@ -526,3 +526,12 @@ export function nextStatusAfter(from: HrPayrollStatus): HrPayrollStatus | null {
 export function statusLabel(status: HrPayrollStatus): string {
   return status.replace(/_/g, " ");
 }
+
+/** Typed phrase required by Administration → Remove all payroll. */
+export const PAYROLL_RESET_CONFIRMATION = "REMOVE ALL PAYROLL";
+
+export function assertPayrollResetConfirmation(value: string): void {
+  if (value.trim() !== PAYROLL_RESET_CONFIRMATION) {
+    throw new Error(`Type ${PAYROLL_RESET_CONFIRMATION} to confirm. This cannot be undone.`);
+  }
+}

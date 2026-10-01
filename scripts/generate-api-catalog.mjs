@@ -80,7 +80,7 @@ function extractAuth(content, method, apiPath) {
     return { authType: "api_key", authDetail: "ATTENDANCE_INGEST_API_KEY (Bearer or X-API-Key)" };
   }
   if (apiPath.startsWith("/api/public/iclock")) {
-    return { authType: "api_key", authDetail: "Device SN allowlist + optional ADMS_COMM_KEY / ADMS_IP_ALLOWLIST" };
+    return { authType: "api_key", authDetail: "Device SN allowlist + required ADMS_COMM_KEY. Optional ADMS_IP_ALLOWLIST." };
   }
   if (apiPath.startsWith("/api/public/")) {
     return { authType: "cron_secret", authDetail: "CRON_SECRET (Bearer or x-cron-secret)" };

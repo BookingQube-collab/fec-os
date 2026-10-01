@@ -10,7 +10,7 @@
  *   node --env-file=.env.local scripts/apply-august-2026-salaries.mjs --apply
  */
 import { createClient } from "@supabase/supabase-js";
-import XLSX from "xlsx";
+import { readAoaFile } from "./read-xlsx.mjs";
 
 const APPLY = process.argv.includes("--apply");
 const AUGUST_XLSX = process.env.AUGUST_PAYROLL_XLSX || "A:/August 2026.xlsx";
@@ -107,9 +107,9 @@ function daysBetweenInclusive(from, to) {
   return Math.floor((b - a) / 86400000) + 1;
 }
 
-function parseAugust(path) {
-  const wb = XLSX.readFile(path, { cellDates: false });
-  const aoa = (name) => XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: null, raw: true });
+async function parseAugust(path) {
+  const wb = await readAoaFile(path);
+  const aoa = (name) => wb.sheets[name] ?? [];
   const main = [];
   for (const r of aoa("August 2026").slice(1)) {
     const name = cellStr(r[2]);
@@ -158,8 +158,8 @@ function parseAugust(path) {
   return { rows: [...main, ...project], qidByName };
 }
 
-function parseMasterQid(path) {
-  const wb = XLSX.readFile(path, { cellDates: false });
+async function parseMasterQid(path) {
+  const wb = await readAoaFile(path);
   const qidByName = new Map();
   const sheets = [
     ["E3 -Active Employee", 1, 2, 6],
@@ -168,7 +168,7 @@ function parseMasterQid(path) {
     ["Remote staff", 0, 2, 6],
   ];
   for (const [sheet, header, nameCol, qidCol] of sheets) {
-    const aoa = XLSX.utils.sheet_to_json(wb.Sheets[sheet], { header: 1, defval: null, raw: true });
+    const aoa = wb.sheets[sheet] ?? [];
     for (const r of aoa.slice(header + 1)) {
       const name = cellStr(r[nameCol]);
       const qid = cellStr(r[qidCol])?.replace(/\D/g, "") || null;
@@ -308,8 +308,8 @@ function sumCode(rows, code) {
   return round2((rows ?? []).filter((e) => e && e.code === code).reduce((s, e) => s + (Number(e.amountQar) || 0), 0));
 }
 
-const august = parseAugust(AUGUST_XLSX);
-const masterQid = parseMasterQid(MASTER_XLSX);
+const august = await parseAugust(AUGUST_XLSX);
+const masterQid = await parseMasterQid(MASTER_XLSX);
 for (const row of august.rows) {
   row.qid = august.qidByName.get(normName(row.employeeName)) || masterQid.get(normName(row.employeeName)) || null;
 }

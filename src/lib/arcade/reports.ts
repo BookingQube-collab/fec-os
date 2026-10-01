@@ -9,13 +9,26 @@ import {
 } from "./domain";
 
 export type WeeklyFaultRow = {
+  id: string;
   ticketNumber: string;
+  locationId: string;
   site: string;
+  machineId: string;
   machine: string;
   status: string;
   severity: string;
   category: string;
   summary: string;
+  reportedOn: string;
+  isRepeat: boolean;
+  resolved: boolean;
+};
+
+export type ArcadePartLine = {
+  machineId: string;
+  locationId: string;
+  quantity: number;
+  cost: number;
 };
 
 export type WeeklyReportInput = {
@@ -34,6 +47,7 @@ export type WeeklyReportInput = {
   partsConsumed: number;
   partsCost: number;
   faults: WeeklyFaultRow[];
+  partLines?: ArcadePartLine[];
 };
 
 export type WeeklyReport = WeeklyReportInput & {
@@ -44,6 +58,7 @@ export type WeeklyReport = WeeklyReportInput & {
   working: number;
   down: number;
   siteGroups: {
+    locationId: string;
     siteName: string;
     active: number;
     working: number;
@@ -53,6 +68,7 @@ export type WeeklyReport = WeeklyReportInput & {
     availability: number | null;
     faults: WeeklyFaultRow[];
   }[];
+  partLines: ArcadePartLine[];
 };
 
 export function buildWeeklyArcadeReport(input: WeeklyReportInput): WeeklyReport {
@@ -67,7 +83,9 @@ export function buildWeeklyArcadeReport(input: WeeklyReportInput): WeeklyReport 
     activeMachines,
     working,
     down,
+    partLines: input.partLines ?? [],
     siteGroups: input.sites.map((site) => ({
+      locationId: site.locationId,
       siteName: site.siteName,
       active: site.active,
       working: site.working,
@@ -75,8 +93,64 @@ export function buildWeeklyArcadeReport(input: WeeklyReportInput): WeeklyReport 
       underRepair: site.underRepair,
       waitingPart: site.waitingPart,
       availability: siteAvailability(site),
-      faults: input.faults.filter((fault) => fault.site === site.siteName),
+      faults: input.faults.filter((fault) => fault.locationId === site.locationId),
     })),
+  };
+}
+
+export type ArcadeReportFilters = {
+  siteId?: string;
+  status?: string;
+  q?: string;
+};
+
+/** Counts that can be read off the fault rows currently on screen. */
+export function faultTileCounts(faults: Pick<WeeklyFaultRow, "status" | "isRepeat" | "resolved">[]) {
+  return {
+    opened: faults.length,
+    resolved: faults.filter((fault) => fault.resolved || fault.status === "RESOLVED" || fault.status === "CLOSED").length,
+    pending: faults.filter((fault) => fault.status !== "RESOLVED" && fault.status !== "CLOSED").length,
+    waitingParts: faults.filter((fault) => fault.status === "WAITING_PART").length,
+    waitingSuppliers: faults.filter((fault) => fault.status === "WAITING_SUPPLIER").length,
+    repeats: faults.filter((fault) => fault.isRepeat).length,
+  };
+}
+
+export function filterArcadeReportFaults(faults: WeeklyFaultRow[], filters: ArcadeReportFilters): WeeklyFaultRow[] {
+  const q = filters.q?.trim().toLowerCase() ?? "";
+  return faults.filter((fault) => {
+    if (filters.siteId && fault.locationId !== filters.siteId) return false;
+    if (filters.status && fault.status !== filters.status) return false;
+    if (!q) return true;
+    return `${fault.machine} ${fault.summary}`.toLowerCase().includes(q);
+  });
+}
+
+export function availabilityForSites(
+  sites: { locationId: string; working: number; active: number }[],
+  siteId?: string,
+): number | null {
+  const rows = siteId ? sites.filter((site) => site.locationId === siteId) : sites;
+  if (!rows.length) return null;
+  return operationalPercent(
+    rows.reduce((sum, site) => sum + site.working, 0),
+    rows.reduce((sum, site) => sum + site.active, 0),
+  );
+}
+
+/** Part usage follows the date range from the server, then site and the machines still in view. */
+export function partTotals(
+  lines: ArcadePartLine[],
+  filters: { siteId?: string; machineIds?: ReadonlySet<string> | null },
+) {
+  const rows = lines.filter((line) => {
+    if (filters.siteId && line.locationId !== filters.siteId) return false;
+    if (filters.machineIds && !filters.machineIds.has(line.machineId)) return false;
+    return true;
+  });
+  return {
+    parts: rows.reduce((sum, row) => sum + row.quantity, 0),
+    cost: Math.round(rows.reduce((sum, row) => sum + row.cost, 0) * 100) / 100,
   };
 }
 

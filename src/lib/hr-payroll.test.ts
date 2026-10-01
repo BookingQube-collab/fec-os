@@ -4,6 +4,7 @@ import { canMarkPayrollPosted } from "./hr-ot";
 import { HR_POLICY_DEFAULTS } from "./hr-policy";
 import {
   assertCanDeletePayrollPeriod,
+  assertPayrollResetConfirmation,
   assertPeriodEditable,
   buildWpsExportRows,
   canDeletePayrollPeriod,
@@ -302,5 +303,14 @@ describe("payroll period delete gate", () => {
   it("tells locked periods to reopen first", () => {
     expect(() => assertCanDeletePayrollPeriod("locked")).toThrow(/reopen/i);
     expect(() => assertCanDeletePayrollPeriod("draft")).not.toThrow();
+  });
+});
+
+describe("remove all payroll confirmation", () => {
+  it("accepts only the exact admin phrase", () => {
+    expect(() => assertPayrollResetConfirmation("REMOVE ALL PAYROLL")).not.toThrow();
+    expect(() => assertPayrollResetConfirmation("  REMOVE ALL PAYROLL  ")).not.toThrow();
+    expect(() => assertPayrollResetConfirmation("remove all payroll")).toThrow(/REMOVE ALL PAYROLL/);
+    expect(() => assertPayrollResetConfirmation("")).toThrow(/cannot be undone/i);
   });
 });

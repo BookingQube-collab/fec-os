@@ -4,15 +4,13 @@
  *
  * Usage: node --experimental-strip-types --env-file=.env.local scripts/seed-arcade-week39.mts
  */
-import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
 
 import { createClient } from "@supabase/supabase-js";
 
 import { applyArcadeWorkbookPlan } from "../src/lib/arcade/apply-workbook.ts";
-import { gridFromSheet, parseArcadeWorkbooks } from "../src/lib/arcade/workbook-import.ts";
-
-const require = createRequire(import.meta.url);
-const XLSX = require("xlsx") as typeof import("xlsx");
+import { gridFromMatrix, parseArcadeWorkbooks } from "../src/lib/arcade/workbook-import.ts";
+import { readWorkbookMatrices } from "../src/lib/spreadsheet/workbook.ts";
 
 const DAMAGE = "A:/Weekly Meeting/week39/MACHINE DAMAGE REPORT  (Magic Table).xlsx";
 const AUGUST = "A:/Weekly Meeting/week39/E3 Monthly Maintenance Report (August).xlsx";
@@ -24,13 +22,13 @@ if (!url || !serviceKey) {
   process.exit(1);
 }
 
-function grids(path: string) {
-  const book = XLSX.readFile(path, { cellDates: true });
-  return book.SheetNames.map((name) => gridFromSheet(name, book.Sheets[name] ?? {}));
+async function grids(path: string) {
+  const book = await readWorkbookMatrices(readFileSync(path), { raw: false, defval: "" });
+  return book.sheetNames.map((name) => gridFromMatrix(name, book.sheets[name] ?? []));
 }
 
-const damage = grids(DAMAGE)[0];
-const plan = parseArcadeWorkbooks({ damage, maintenance: grids(AUGUST) });
+const damage = (await grids(DAMAGE))[0];
+const plan = parseArcadeWorkbooks({ damage, maintenance: await grids(AUGUST) });
 console.log(
   `Parsed ${plan.machines.length} machines, ${plan.damage.length} damage, ${plan.maintenance.length} maintenance, ${plan.parts.length} parts, ${plan.unmapped.length} unmapped.`,
 );

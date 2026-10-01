@@ -2,8 +2,22 @@ import { type NextRequest } from "next/server";
 
 import { updateSession } from "@/integrations/supabase/middleware";
 
+const PAGE_SECURITY_HEADERS: ReadonlyArray<readonly [string, string]> = [
+  ["X-Content-Type-Options", "nosniff"],
+  ["X-Frame-Options", "SAMEORIGIN"],
+  ["Referrer-Policy", "strict-origin-when-cross-origin"],
+  ["Content-Security-Policy", "frame-ancestors 'self'"],
+];
+
+function withPageSecurityHeaders<T extends { headers: Headers }>(response: T): T {
+  for (const [name, value] of PAGE_SECURITY_HEADERS) {
+    if (!response.headers.has(name)) response.headers.set(name, value);
+  }
+  return response;
+}
+
 export async function middleware(request: NextRequest) {
-  return updateSession(request);
+  return withPageSecurityHeaders(await updateSession(request));
 }
 
 export const config = {

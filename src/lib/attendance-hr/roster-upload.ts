@@ -716,17 +716,20 @@ export async function parseAttendanceRosterFile(
     return recordsFromUnknown(buffer.toString("utf8"));
   }
   if (base.endsWith(".xlsx") || base.endsWith(".xls")) {
-    const XLSX = await import("xlsx");
-    const wb = XLSX.read(buffer, { type: "buffer", cellDates: true, raw: false });
-    const sheetName = pickShiftRosterSheetName(wb.SheetNames);
+    const { SpreadsheetReadError, readWorkbookMatrices } = await import("@/lib/spreadsheet/workbook");
+    let wb;
+    try {
+      wb = await readWorkbookMatrices(buffer, { raw: false, defval: "" });
+    } catch (error) {
+      const message = error instanceof SpreadsheetReadError ? error.message : "Could not read this spreadsheet.";
+      return { records: [], error: message };
+    }
+    const sheetName = pickShiftRosterSheetName(wb.sheetNames);
     if (!sheetName) return { records: [], error: "Workbook has no sheets." };
-    const sheet = wb.Sheets[sheetName];
-    const matrix = XLSX.utils.sheet_to_json<(string | number | Date | null)[]>(sheet, {
-      header: 1,
-      raw: false,
-      defval: "",
-    });
-    const asStrings = matrix.map((r) => (r ?? []).map((c) => stringifyRosterCell(c)));
+    const matrix = wb.sheets[sheetName] ?? [];
+    const asStrings = matrix.map((r) =>
+      (r ?? []).map((c) => stringifyRosterCell(c as string | number | Date | null)),
+    );
     return { records: matrixToRecords(asStrings), sheetName };
   }
   const text = buffer.toString("utf8");

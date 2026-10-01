@@ -21,6 +21,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
+import { SecurityChecklistPanel } from "@/components/diagnostics/security-checklist-panel";
 import { KPIWidget } from "@/components/dashboard/kpi-widget";
 import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
 import { Badge } from "@/components/ui/badge";
@@ -275,6 +276,8 @@ function DiagnosticsHubView() {
           />
         </div>
       </section>
+
+      <SecurityChecklistPanel />
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>

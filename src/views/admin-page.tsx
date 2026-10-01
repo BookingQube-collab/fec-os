@@ -18,6 +18,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { RemoveAllPayrollCard } from "@/components/admin/remove-all-payroll-card";
 import { InstallAppAdminCard } from "@/components/pwa/install-app-control";
 
 const ROLES = Object.keys(ROLE_LEVELS) as AppRole[];
@@ -26,8 +27,10 @@ function AdminPage() {
   const { t } = useTranslation();
   const { roles } = useAuth();
   const maxLevel = roles.reduce((acc, r) => Math.max(acc, r.role_level), 0);
+  const roleNames = roles.map((r) => r.role);
   const canManage = maxLevel >= 95;
-  const canDiagnostics = canUserDo(roles.map((r) => r.role), "admin.diagnostics") && maxLevel >= 80;
+  const canDiagnostics = canUserDo(roleNames, "admin.diagnostics") && maxLevel >= 80;
+  const canResetPayroll = canUserDo(roleNames, "admin.view") && canUserDo(roleNames, "payroll.generate");
   return (
     <div className="space-y-5">
       <FecPageHeader
@@ -92,6 +95,7 @@ function AdminPage() {
         </Link>
       ) : null}
       <InstallAppAdminCard />
+      {canResetPayroll ? <RemoveAllPayrollCard /> : null}
       {maxLevel < 80 ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
           You need executive or regional access to view the admin module.

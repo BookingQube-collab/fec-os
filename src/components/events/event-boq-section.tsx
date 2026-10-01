@@ -30,11 +30,8 @@ async function readBoqSpreadsheet(file: File): Promise<Record<string, string>[]>
   const ext = file.name.split(".").pop()?.toLowerCase();
   if (ext === "csv" || file.type === "text/csv") return parseCsv(await file.text());
   if (ext === "xlsx" || ext === "xls") {
-    const XLSX = await import("xlsx");
-    const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    if (!sheet) throw new Error("empty");
-    return parseCsv(XLSX.utils.sheet_to_csv(sheet));
+    const { readFirstSheetCsv } = await import("@/lib/spreadsheet/workbook");
+    return parseCsv(await readFirstSheetCsv(await file.arrayBuffer()));
   }
   throw new Error("unsupported");
 }

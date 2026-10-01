@@ -10,7 +10,7 @@
  *   node --env-file=.env.local scripts/apply-august-2026-excel-breakdown.mjs --apply
  */
 import { createClient } from "@supabase/supabase-js";
-import XLSX from "xlsx";
+import { readAoaFile } from "./read-xlsx.mjs";
 
 const APPLY = process.argv.includes("--apply");
 const AUGUST_XLSX = process.env.AUGUST_PAYROLL_XLSX || "A:/August 2026.xlsx";
@@ -227,9 +227,9 @@ function formulaNet(row) {
   return round2(Math.max(0, earned + add - ded));
 }
 
-function parseAugust(path) {
-  const wb = XLSX.readFile(path, { cellDates: false });
-  const aoa = (name) => XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: null, raw: true });
+async function parseAugust(path) {
+  const wb = await readAoaFile(path);
+  const aoa = (name) => wb.sheets[name] ?? [];
   const main = [];
   for (const r of aoa("August 2026").slice(1)) {
     const employeeName = cellStr(r[2]);
@@ -496,7 +496,7 @@ async function pageAll(table, select, filter) {
   return out;
 }
 
-const august = parseAugust(AUGUST_XLSX);
+const august = await parseAugust(AUGUST_XLSX);
 const staff = (await pageAll("staff", "id, full_name, employee_code, qid, status, deleted_at")).filter((s) => !s.deleted_at);
 const periods = await pageAll("hr_payroll_periods", "id, month, status");
 const period = periods.find((p) => String(p.month) === PERIOD_MONTH);

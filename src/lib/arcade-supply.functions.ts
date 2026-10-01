@@ -690,25 +690,49 @@ export const listImportQueue = createAuthenticatedAction(
   { defaultInput: {}, auth: { capability: "arcade.manage" } },
 );
 
+const reportDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+function reportBounds(data: { anchor?: string; from?: string; to?: string }) {
+  if (data.from && data.to) {
+    const start = data.from <= data.to ? data.from : data.to;
+    const end = data.from <= data.to ? data.to : data.from;
+    return { start, end };
+  }
+  const week = weekBounds(data.anchor ?? new Date().toISOString().slice(0, 10));
+  return { start: week.start, end: week.end };
+}
+
 export const getArcadeWeeklyReport = createAuthenticatedAction(
-  z.object({ anchor: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).default({}),
+  z.object({
+    anchor: reportDay.optional(),
+    from: reportDay.optional(),
+    to: reportDay.optional(),
+  }).default({}),
   async (data, context) => {
-    const bounds = weekBounds(data.anchor ?? new Date().toISOString().slice(0, 10));
+    const bounds = reportBounds(data);
     const [{ data: sites }, { data: locs }, { data: faults }, pmCompleted, pmOverdue, usages] = await Promise.all([
       context.supabase.from("arcade_site_health").select("*"),
       context.supabase.from("locations").select("id, name"),
-      context.supabase.from("arcade_faults").select("id, ticket_number, location_id, machine_id, status, severity, category, description, reported_at, resolved_at, is_repeat").gte("reported_at", `${bounds.start}T00:00:00Z`).lte("reported_at", `${bounds.end}T23:59:59Z`).limit(200),
+      context.supabase.from("arcade_faults").select("id, ticket_number, location_id, machine_id, status, severity, category, description, reported_at, resolved_at, is_repeat").gte("reported_at", `${bounds.start}T00:00:00Z`).lte("reported_at", `${bounds.end}T23:59:59Z`).limit(800),
       context.supabase.from("arcade_pm_records").select("id", { count: "exact", head: true }).eq("confirmed", true).gte("performed_on", bounds.start).lte("performed_on", bounds.end),
       context.supabase.from("arcade_machines").select("id", { count: "exact", head: true }).eq("active", true).lt("next_pm_on", bounds.start),
-      context.supabase.from("arcade_part_usages").select("qty, unit_cost").gte("used_on", bounds.start).lte("used_on", bounds.end),
+      context.supabase.from("arcade_part_usages").select("machine_id, qty, unit_cost").gte("used_on", bounds.start).lte("used_on", bounds.end),
     ]);
     const names = new Map((locs ?? []).map((loc) => [loc.id, loc.name]));
-    const machineIds = [...new Set((faults ?? []).map((fault) => fault.machine_id))];
+    const usageRows = usages.data ?? [];
+    const machineIds = [...new Set([...(faults ?? []).map((fault) => fault.machine_id), ...usageRows.map((row) => row.machine_id)])];
     const { data: machines } = machineIds.length
-      ? await context.supabase.from("arcade_machines").select("id, name").in("id", machineIds)
+      ? await context.supabase.from("arcade_machines").select("id, name, location_id").in("id", machineIds)
       : { data: [] };
     const machineNames = new Map((machines ?? []).map((machine) => [machine.id, machine.name]));
+    const machineLocations = new Map((machines ?? []).map((machine) => [machine.id, machine.location_id]));
     const list = faults ?? [];
+    const partLines = usageRows.map((row) => ({
+      machineId: row.machine_id,
+      locationId: machineLocations.get(row.machine_id) ?? "",
+      quantity: Number(row.qty),
+      cost: Number(row.qty) * Number(row.unit_cost ?? 0),
+    }));
     return buildWeeklyArcadeReport({
       weekStart: bounds.start,
       weekEnd: bounds.end,
@@ -734,16 +758,23 @@ export const getArcadeWeeklyReport = createAuthenticatedAction(
       repeatFaults: list.filter((fault) => fault.is_repeat).length,
       pmCompleted: pmCompleted.count ?? 0,
       pmOverdue: pmOverdue.count ?? 0,
-      partsConsumed: (usages.data ?? []).reduce((sum, row) => sum + Number(row.qty), 0),
-      partsCost: (usages.data ?? []).reduce((sum, row) => sum + Number(row.qty) * Number(row.unit_cost ?? 0), 0),
+      partsConsumed: partLines.reduce((sum, row) => sum + row.quantity, 0),
+      partsCost: Math.round(partLines.reduce((sum, row) => sum + row.cost, 0) * 100) / 100,
+      partLines,
       faults: list.map((fault) => ({
+        id: fault.id,
         ticketNumber: fault.ticket_number ?? fault.id,
+        locationId: fault.location_id,
         site: names.get(fault.location_id) ?? fault.location_id,
+        machineId: fault.machine_id,
         machine: machineNames.get(fault.machine_id) ?? fault.machine_id,
         status: fault.status,
         severity: fault.severity,
         category: fault.category,
         summary: fault.description,
+        reportedOn: String(fault.reported_at).slice(0, 10),
+        isRepeat: Boolean(fault.is_repeat),
+        resolved: Boolean(fault.resolved_at),
       })),
     });
   },

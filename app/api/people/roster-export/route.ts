@@ -80,7 +80,7 @@ export async function GET(request: Request) {
       const filterNote = `scope=${scopeMode}; generated=${generatedAt}`;
 
       if (format === "xlsx") {
-        const XLSX = await import("xlsx");
+        const { writeXlsxBuffer } = await import("@/lib/spreadsheet/workbook");
         // Column names aligned to E3 Employee Masterfile 2026 (single-sheet export; Status replaces sheet membership).
         const header = [
           "Department",
@@ -116,18 +116,15 @@ export async function GET(request: Request) {
           header,
           ...dataRows,
         ];
-        const ws = XLSX.utils.aoa_to_sheet(aoa);
-        ws["!freeze"] = { xSplit: 0, ySplit: 2 };
-        ws["!autofilter"] = {
-          ref: XLSX.utils.encode_range({
-            s: { r: 1, c: 0 },
-            e: { r: Math.max(dataRows.length + 1, 1), c: header.length - 1 },
-          }),
-        };
-        ws["!cols"] = header.map((k) => ({ wch: Math.max(12, Math.min(28, k.length + 4)) }));
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Employee Master");
-        const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+        const buf = await writeXlsxBuffer([
+          {
+            name: "Employee Master",
+            rows: aoa,
+            freezeRows: 2,
+            colWidths: header.map((k) => Math.max(12, Math.min(28, k.length + 4))),
+            autoFilter: { headerRow: 1, cols: header.length },
+          },
+        ]);
         await context.supabase.rpc("log_audit", {
           _action: "staff.export",
           _table_name: "staff",

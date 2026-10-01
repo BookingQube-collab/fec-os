@@ -1596,10 +1596,10 @@ export function buildE3AttendanceHrWorkbookSheets(input: BuildE3AttendanceHrWork
   return all;
 }
 
-/** Append sheet specs onto a SheetJS / xlsx-js-style workbook (styles require xlsx-js-style). */
+/** Append sheet specs onto an xlsx-js-style workbook (styles require that writer). */
 export function appendExcelSheets(
-  XLSX: typeof import("xlsx"),
-  wb: import("xlsx").WorkBook,
+  XLSX: typeof import("xlsx-js-style"),
+  wb: import("xlsx-js-style").WorkBook,
   sheets: ExcelSheetSpec[],
 ): void {
   for (const sheet of sheets) {

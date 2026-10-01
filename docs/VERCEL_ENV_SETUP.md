@@ -22,9 +22,9 @@ These are **not** created by the Supabase integration. Add them in the Vercel UI
 
 | Variable | Environments | Notes |
 |----------|--------------|-------|
-| `CRON_SECRET` | Production (and Preview if testing crons) | Protects `/api/public/*` cron routes including daily ADMS fetch (`/api/public/attendance-adms-poll`). Generate with `openssl rand -hex 32`. Vercel Cron sends `Authorization: Bearer $CRON_SECRET`. Hobby allows daily crons only. |
+| `CRON_SECRET` | Production (and Preview if testing crons) | **Required.** Protects `/api/public/*` cron routes including daily ADMS fetch (`/api/public/attendance-adms-poll`). Requests are rejected when this is unset. Generate with `openssl rand -hex 32`. Vercel Cron sends `Authorization: Bearer $CRON_SECRET`. Hobby allows daily crons only. |
 | `ATTENDANCE_INGEST_API_KEY` | Production (and Preview if testing) | `POST /api/public/attendance-ingest` — see [attendance-ingest.md](./api/attendance-ingest.md). |
-| `ADMS_COMM_KEY` | Production (if BioPro SA40 / ZKTeco ADMS push is used) | Shared secret for `/iclock/*`. Pair with a mapped device SN in Time & Attendance → Settings. Optional `ADMS_IP_ALLOWLIST`. |
+| `ADMS_COMM_KEY` | Production (if BioPro SA40 / ZKTeco ADMS push is used) | **Required** shared secret for `/iclock/*`. Device push is rejected when this is unset. Pair with a mapped device SN in Time & Attendance → Settings. Optional `ADMS_IP_ALLOWLIST`. |
 
 Other optional keys (`BOOKINGQUBE_*`, etc.) — see `.env.example` if present.
 

@@ -29,12 +29,13 @@ async function readImportFile(file: File, unsupported: string, noWorksheets: str
     return file.text();
   }
   if (ext === "xlsx" || ext === "xls") {
-    const XLSX = await import("xlsx");
-    const buffer = await file.arrayBuffer();
-    const workbook = XLSX.read(buffer, { type: "array" });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    if (!sheet) throw new Error(noWorksheets);
-    return XLSX.utils.sheet_to_csv(sheet);
+    const { readFirstSheetCsv } = await import("@/lib/spreadsheet/workbook");
+    try {
+      return await readFirstSheetCsv(await file.arrayBuffer());
+    } catch (error) {
+      if (error instanceof Error && /no worksheets/i.test(error.message)) throw new Error(noWorksheets);
+      throw error;
+    }
   }
   throw new Error(unsupported);
 }

@@ -3,14 +3,8 @@ import { type NextConfig } from "next";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
-  // Build speed (Vercel 2-core): ESLint during `next build` was the long stall after
-  // compile (~63s). Keep typechecking ON (no ignoreBuildErrors). Run `npm run lint`
-  // separately in CI. Expected: deploy fails in ~2–5 min on real TS errors instead of
-  // ~34 min of lint+thrashing; warm cache typecheck should land closer to compile time.
-  // Deploy latest master — stale SHAs (e.g. 7d29789) will not pick this up.
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
+  // Next 16 does not run ESLint during `next build`. Keep typechecking ON
+  // (no ignoreBuildErrors). Run `npm run lint` separately in CI.
   typescript: {
     tsconfigPath: "tsconfig.build.json",
   },
@@ -20,7 +14,7 @@ const nextConfig: NextConfig = {
   images: {
     formats: ["image/avif", "image/webp"],
   },
-  serverExternalPackages: ["xlsx", "xlsx-js-style", "jspdf", "jspdf-autotable"],
+  serverExternalPackages: ["exceljs", "xlsx-js-style", "jspdf", "jspdf-autotable"],
   experimental: {
     serverActions: {
       bodySizeLimit: "25mb",

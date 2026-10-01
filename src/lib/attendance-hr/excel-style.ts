@@ -14,7 +14,7 @@ import {
   type ExcelCellStyle,
 } from "@/lib/attendance-hr/excel-theme";
 
-type WorkSheet = import("xlsx").WorkSheet;
+type WorkSheet = import("xlsx-js-style").WorkSheet;
 
 /** Minimal sheet shape needed for theming (avoids circular import with export-workbook). */
 export type StyleableExcelSheet = {

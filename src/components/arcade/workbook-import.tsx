@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { usePermission } from "@/hooks/use-permission";
 import { applyArcadeWorkbook } from "@/lib/arcade-supply.functions";
-import { gridFromSheet, parseArcadeWorkbooks, type SheetGrid } from "@/lib/arcade/workbook-import";
+import { gridFromMatrix, parseArcadeWorkbooks, type SheetGrid } from "@/lib/arcade/workbook-import";
 import { queryKeys } from "@/lib/query-keys";
 
 export function ArcadeWorkbookImport() {
@@ -22,12 +22,12 @@ export function ArcadeWorkbookImport() {
     if (!list?.length) return;
     setBusy(true);
     try {
-      const XLSX = await import("xlsx");
+      const { readWorkbookMatrices } = await import("@/lib/spreadsheet/workbook");
       let damage: SheetGrid | null = null;
       const maintenance: SheetGrid[] = [];
       for (const file of list) {
-        const book = XLSX.read(await file.arrayBuffer(), { cellDates: true });
-        const grids = book.SheetNames.map((name) => gridFromSheet(name, book.Sheets[name] ?? {}));
+        const book = await readWorkbookMatrices(await file.arrayBuffer(), { raw: false, defval: "" });
+        const grids = book.sheetNames.map((name) => gridFromMatrix(name, book.sheets[name] ?? []));
         const damageSheet = grids.find((grid) => grid.cells.some((cell) => /machine damage report/i.test(cell.value)));
         if (damageSheet) damage = damageSheet;
         else maintenance.push(...grids);

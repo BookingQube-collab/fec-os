@@ -181,18 +181,16 @@ function toOptionalInt(value: string): number | null {
 }
 
 export async function parseWorkbookAttendance(buffer: Buffer): Promise<SpreadsheetParseResult> {
-  const XLSX = await import("xlsx");
-  const wb = XLSX.read(buffer, { type: "buffer", cellDates: true, raw: false });
-  const sheetName = wb.SheetNames[0];
-  if (!sheetName) {
-    return { kind: "unknown", users: [], punches: [], errors: [{ rowNumber: 0, code: "empty", message: "Workbook has no sheets." }], headers: [], mapping: {} };
-  }
-  const sheet = wb.Sheets[sheetName];
-  const ref = sheet["!ref"];
-  if (ref) {
-    const range = XLSX.utils.decode_range(ref);
-    const rows = range.e.r - range.s.r;
-    if (rows > MAX_IMPORT_ROWS + 5) {
+  const { SpreadsheetReadError, matrixToCsv, readWorkbookMatrices } = await import("@/lib/spreadsheet/workbook");
+  let book;
+  try {
+    book = await readWorkbookMatrices(buffer, {
+      raw: false,
+      defval: "",
+      maxRows: MAX_IMPORT_ROWS + 5,
+    });
+  } catch (error) {
+    if (error instanceof SpreadsheetReadError && error.code === "too_many_rows") {
       return {
         kind: "unknown",
         users: [],
@@ -202,7 +200,20 @@ export async function parseWorkbookAttendance(buffer: Buffer): Promise<Spreadshe
         mapping: {},
       };
     }
+    const message = error instanceof Error ? error.message : "Could not read this spreadsheet.";
+    return {
+      kind: "unknown",
+      users: [],
+      punches: [],
+      errors: [{ rowNumber: 0, code: "unreadable", message }],
+      headers: [],
+      mapping: {},
+    };
   }
-  const csv = XLSX.utils.sheet_to_csv(sheet, { FS: ",", RS: "\n" });
+  const sheetName = book.sheetNames[0];
+  if (!sheetName) {
+    return { kind: "unknown", users: [], punches: [], errors: [{ rowNumber: 0, code: "empty", message: "Workbook has no sheets." }], headers: [], mapping: {} };
+  }
+  const csv = matrixToCsv(book.sheets[sheetName] ?? []);
   return parseDelimitedAttendance(csv, ",");
 }

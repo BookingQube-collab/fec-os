@@ -115,6 +115,28 @@ const MONTHS: Record<string, number> = {
   december: 12,
 };
 
+function columnLetters(index: number): string {
+  let n = index;
+  let col = "";
+  while (n >= 0) {
+    col = String.fromCharCode((n % 26) + 65) + col;
+    n = Math.floor(n / 26) - 1;
+  }
+  return col;
+}
+
+export function gridFromMatrix(name: string, matrix: unknown[][]): SheetGrid {
+  const cells: SheetCell[] = [];
+  matrix.forEach((row, rowIndex) => {
+    row.forEach((value, colIndex) => {
+      const text = String(value ?? "").replace(/\s+/g, " ").trim();
+      if (!text) return;
+      cells.push({ col: columnLetters(colIndex), row: rowIndex + 1, value: text });
+    });
+  });
+  return { name, cells };
+}
+
 export function gridFromSheet(
   name: string,
   sheet: Record<string, { w?: unknown; v?: unknown } | undefined>,

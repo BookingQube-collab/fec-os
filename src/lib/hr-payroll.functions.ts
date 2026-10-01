@@ -11,6 +11,7 @@ import {
   assertAdvancePayrollStatus,
   assertCanDeletePayrollPeriod,
   assertCanLockPayroll,
+  assertPayrollResetConfirmation,
   assertPeriodEditable,
   buildBankTransferExportRows,
   buildChequeExportRows,
@@ -42,7 +43,7 @@ import { collectPagedRows } from "@/lib/attendance-hr/roster-register-scope";
 import { assertCanMarkPayrollPosted } from "@/lib/hr-ot";
 import { readPolicySection } from "@/lib/hr-policy-read";
 import { canUserDo } from "@/lib/rbac";
-import { ForbiddenError } from "@/lib/server/authorize";
+import { ForbiddenError, requireCapability } from "@/lib/server/authorize";
 import {
   createAuthenticatedAction,
   type AuthContext,
@@ -844,6 +845,262 @@ export const deletePayrollPeriod = createAuthenticatedAction(
     return { periodId: data.periodId, month: period.month, deleted: true as const };
   },
   { auth: { capability: "payroll.generate" } },
+);
+
+const PAYROLL_RESET_PAGE = 200;
+
+type PayrollCountTable =
+  | "hr_payroll_periods"
+  | "hr_payroll_lines"
+  | "hr_payslips"
+  | "hr_payroll_locks"
+  | "hr_payroll_adjustments"
+  | "hr_payroll_line_overrides"
+  | "hr_payroll_import_batches";
+
+async function countPayrollTable(table: PayrollCountTable): Promise<number> {
+  const { count, error } = await supabaseAdmin.from(table).select("id", { count: "exact", head: true });
+  if (error) {
+    if (tableMissing(error.message)) return 0;
+    throw error;
+  }
+  return count ?? 0;
+}
+
+async function deleteIdPage(
+  table: "hr_payroll_periods" | "hr_payroll_import_batches" | "notifications",
+  ids: string[],
+) {
+  if (!ids.length) return;
+  const { error } = await supabaseAdmin.from(table).delete().in("id", ids);
+  if (error) throw error;
+}
+
+async function deleteAllPayrollPeriods() {
+  for (;;) {
+    const { data, error } = await supabaseAdmin
+      .from("hr_payroll_periods")
+      .select("id")
+      .limit(PAYROLL_RESET_PAGE);
+    if (error) {
+      if (tableMissing(error.message)) return;
+      throw error;
+    }
+    const ids = (data ?? []).map((row) => String(row.id));
+    if (!ids.length) return;
+    await deleteIdPage("hr_payroll_periods", ids);
+    if (ids.length < PAYROLL_RESET_PAGE) return;
+  }
+}
+
+async function deleteAllPayrollImportBatches() {
+  for (;;) {
+    const { data, error } = await supabaseAdmin
+      .from("hr_payroll_import_batches")
+      .select("id")
+      .limit(PAYROLL_RESET_PAGE);
+    if (error) {
+      if (tableMissing(error.message)) return;
+      throw error;
+    }
+    const ids = (data ?? []).map((row) => String(row.id));
+    if (!ids.length) return;
+    await deleteIdPage("hr_payroll_import_batches", ids);
+    if (ids.length < PAYROLL_RESET_PAGE) return;
+  }
+}
+
+async function deletePayrollPeriodNotifications() {
+  for (;;) {
+    const { data, error } = await supabaseAdmin
+      .from("notifications")
+      .select("id")
+      .eq("source_type", "hr_payroll_periods")
+      .limit(PAYROLL_RESET_PAGE);
+    if (error) {
+      if (tableMissing(error.message)) return;
+      throw error;
+    }
+    const ids = (data ?? []).map((row) => String(row.id));
+    if (!ids.length) return;
+    await deleteIdPage("notifications", ids);
+    if (ids.length < PAYROLL_RESET_PAGE) return;
+  }
+}
+
+async function releasePostedOtClaims(): Promise<number> {
+  let released = 0;
+  for (let page = 0; page < 100; page += 1) {
+    const { data, error } = await supabaseAdmin
+      .from("hr_ot_claims")
+      .select("id")
+      .or("status.eq.payroll_posted,payroll_period_id.not.is.null")
+      .limit(PAYROLL_RESET_PAGE);
+    if (error) {
+      if (tableMissing(error.message)) return released;
+      throw error;
+    }
+    const ids = (data ?? []).map((row) => String(row.id));
+    if (!ids.length) return released;
+    const { error: upErr } = await supabaseAdmin
+      .from("hr_ot_claims")
+      .update({
+        status: "hr_approved",
+        payroll_posted_by: null,
+        payroll_posted_at: null,
+        payroll_period_id: null,
+      })
+      .in("id", ids)
+      .eq("status", "payroll_posted");
+    if (upErr) throw upErr;
+    const { error: linkErr } = await supabaseAdmin
+      .from("hr_ot_claims")
+      .update({
+        payroll_posted_by: null,
+        payroll_posted_at: null,
+        payroll_period_id: null,
+      })
+      .in("id", ids);
+    if (linkErr) throw linkErr;
+    released += ids.length;
+    if (ids.length < PAYROLL_RESET_PAGE) return released;
+  }
+  throw new Error("Payroll reset did not finish releasing overtime claims.");
+}
+
+async function releasePayrollAirTickets(): Promise<number> {
+  let released = 0;
+  for (let page = 0; page < 100; page += 1) {
+    const { data, error } = await supabaseAdmin
+      .from("hr_air_ticket_issues")
+      .select("id")
+      .not("payroll_period_id", "is", null)
+      .limit(PAYROLL_RESET_PAGE);
+    if (error) {
+      if (tableMissing(error.message)) return released;
+      throw error;
+    }
+    const ids = (data ?? []).map((row) => String(row.id));
+    if (!ids.length) return released;
+    const { error: upErr } = await supabaseAdmin
+      .from("hr_air_ticket_issues")
+      .update({
+        payroll_payment_status: "unpaid",
+        payroll_period_id: null,
+      })
+      .in("id", ids);
+    if (upErr) throw upErr;
+    released += ids.length;
+    if (ids.length < PAYROLL_RESET_PAGE) return released;
+  }
+  throw new Error("Payroll reset did not finish releasing air-ticket payroll links.");
+}
+
+async function removePayslipFiles(): Promise<{ removed: number; warning: string | null }> {
+  const paths: string[] = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await supabaseAdmin
+      .from("hr_payslips")
+      .select("file_path")
+      .not("file_path", "is", null)
+      .range(from, from + PAYROLL_RESET_PAGE - 1);
+    if (error) {
+      if (tableMissing(error.message)) return { removed: 0, warning: null };
+      throw error;
+    }
+    const rows = data ?? [];
+    for (const row of rows) {
+      const path = row.file_path;
+      if (typeof path === "string" && path.startsWith("payroll/")) paths.push(path);
+    }
+    if (rows.length < PAYROLL_RESET_PAGE) break;
+    from += PAYROLL_RESET_PAGE;
+  }
+  if (!paths.length) return { removed: 0, warning: null };
+
+  let removed = 0;
+  for (let i = 0; i < paths.length; i += 100) {
+    const chunk = paths.slice(i, i + 100);
+    const { error } = await supabaseAdmin.storage.from("hr-employee-documents").remove(chunk);
+    if (error) {
+      return {
+        removed,
+        warning: `Payslip files left in storage: ${error.message}`,
+      };
+    }
+    removed += chunk.length;
+  }
+  return { removed, warning: null };
+}
+
+/**
+ * Wipe every payroll run so an administrator can retest from scratch.
+ * Requires admin.view and payroll.generate. Does not delete staff, users,
+ * attendance, leave, or payroll policy. OT claims and air-ticket issues are
+ * unlinked from payroll and kept.
+ */
+export const resetAllPayroll = createAuthenticatedAction(
+  z.object({
+    confirmation: z.string().max(80),
+  }),
+  async (data, context) => {
+    await requireCapability(context, "payroll.generate");
+    assertPayrollResetConfirmation(data.confirmation);
+
+    const [periods, lines, payslips, locks, adjustments, overrides, importBatches] = await Promise.all([
+      countPayrollTable("hr_payroll_periods"),
+      countPayrollTable("hr_payroll_lines"),
+      countPayrollTable("hr_payslips"),
+      countPayrollTable("hr_payroll_locks"),
+      countPayrollTable("hr_payroll_adjustments"),
+      countPayrollTable("hr_payroll_line_overrides"),
+      countPayrollTable("hr_payroll_import_batches"),
+    ]);
+
+    const { count: notificationCount, error: notificationCountError } = await supabaseAdmin
+      .from("notifications")
+      .select("id", { count: "exact", head: true })
+      .eq("source_type", "hr_payroll_periods");
+    if (notificationCountError && !tableMissing(notificationCountError.message)) throw notificationCountError;
+
+    const payslipFiles = await removePayslipFiles();
+    const otClaimsReleased = await releasePostedOtClaims();
+    const airTicketsReleased = await releasePayrollAirTickets();
+    await deletePayrollPeriodNotifications();
+    await deleteAllPayrollPeriods();
+    await deleteAllPayrollImportBatches();
+
+    await auditPayroll(context, "hr.payroll.reset_all", context.userId, {
+      periods,
+      lines,
+      payslips,
+      locks,
+      adjustments,
+      overrides,
+      importBatches,
+      payslipFiles: payslipFiles.removed,
+      otClaimsReleased,
+      airTicketsReleased,
+      notifications: notificationCount ?? 0,
+    });
+
+    return {
+      periods,
+      lines,
+      payslips,
+      locks,
+      adjustments,
+      overrides,
+      importBatches,
+      payslipFiles: payslipFiles.removed,
+      payslipFileWarning: payslipFiles.warning,
+      otClaimsReleased,
+      airTicketsReleased,
+      notifications: notificationCount ?? 0,
+    };
+  },
+  { auth: { capability: "admin.view" } },
 );
 
 export const advancePayrollPeriod = createAuthenticatedAction(

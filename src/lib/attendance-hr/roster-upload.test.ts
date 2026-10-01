@@ -399,19 +399,20 @@ describe("buildAttendanceRosterPreview", () => {
   });
 
   it("skips E3 title rows and reads the Date Wise Roster sheet", async () => {
-    const XLSX = await import("xlsx");
-    const aoa = [
-      ["DATE WISE MONTHLY ROSTER"],
-      ["E3 — Events and Entertainments Enterprises Trading WLL   |   Period: 16-Aug-2026 to 22-Aug-2026"],
-      [],
-      ["DATE", "EMPLOYEE", "LOCATION", "SHIFT"],
-      ["16-Aug-2026", "Hassan Al-Kaabi", "Kids Driving School - City Center", "12:00 PM–10:00 PM"],
-    ];
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["ignore"]]), "Summary");
-    XLSX.utils.book_append_sheet(wb, ws, "Date Wise Roster");
-    const buffer = Buffer.from(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }));
+    const { writeXlsxBuffer } = await import("@/lib/spreadsheet/workbook");
+    const buffer = await writeXlsxBuffer([
+      { name: "Summary", rows: [["ignore"]] },
+      {
+        name: "Date Wise Roster",
+        rows: [
+          ["DATE WISE MONTHLY ROSTER"],
+          ["E3 — Events and Entertainments Enterprises Trading WLL   |   Period: 16-Aug-2026 to 22-Aug-2026"],
+          [],
+          ["DATE", "EMPLOYEE", "LOCATION", "SHIFT"],
+          ["16-Aug-2026", "Hassan Al-Kaabi", "Kids Driving School - City Center", "12:00 PM–10:00 PM"],
+        ],
+      },
+    ]);
     const parsed = await parseAttendanceRosterFile("E3_Date_Wise_Roster.xlsx", buffer);
     expect(parsed.sheetName).toBe("Date Wise Roster");
     expect(parsed.records).toHaveLength(1);
@@ -435,23 +436,24 @@ describe("buildAttendanceRosterPreview", () => {
   });
 
   it("keeps Wasanthi-style DATE WISE MONTHLY times instead of a 10:00–20:00 catalog shift", async () => {
-    const XLSX = await import("xlsx");
-    const aoa = [
-      ["DATE WISE MONTHLY ROSTER"],
-      ["E3 — Events and Entertainments Enterprises Trading WLL   |   Period: 28-Jul-2026 to 27-Aug-2026"],
-      [],
-      ["DATE", "EMPLOYEE", "POSITION", "LOCATION", "SHIFT"],
-      ["28-Jul-2026", "Wasanthi Hamamali Rankoth Pedige", "STAFF", "InflataPark - City Center", "DAY OFF"],
-      ["29-Jul-2026", "Wasanthi Hamamali Rankoth Pedige", "STAFF", "InflataPark - City Center", "10:30 AM—8:00 PM"],
-      ["30-Jul-2026", "Wasanthi Hamamali Rankoth Pedige", "STAFF", "InflataPark - City Center", "10:30 AM—8:00 PM"],
-      ["31-Jul-2026", "Wasanthi Hamamali Rankoth Pedige", "STAFF", "InflataPark - City Center", "12:30 PM—10:00 PM"],
-      ["01-Aug-2026", "Wasanthi Hamamali Rankoth Pedige", "STAFF", "InflataPark - City Center", "10:30 AM—8:00 PM"],
-      ["05-Aug-2026", "Wasanthi Hamamali Rankoth Pedige", "STAFF", "InflataPark - City Center", "DAY OFF"],
-    ];
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
-    const buffer = Buffer.from(XLSX.write(wb, { type: "buffer", bookType: "xlsx" }));
+    const { writeXlsxBuffer } = await import("@/lib/spreadsheet/workbook");
+    const buffer = await writeXlsxBuffer([
+      {
+        name: "Sheet1",
+        rows: [
+          ["DATE WISE MONTHLY ROSTER"],
+          ["E3 — Events and Entertainments Enterprises Trading WLL   |   Period: 28-Jul-2026 to 27-Aug-2026"],
+          [],
+          ["DATE", "EMPLOYEE", "POSITION", "LOCATION", "SHIFT"],
+          ["28-Jul-2026", "Wasanthi Hamamali Rankoth Pedige", "STAFF", "InflataPark - City Center", "DAY OFF"],
+          ["29-Jul-2026", "Wasanthi Hamamali Rankoth Pedige", "STAFF", "InflataPark - City Center", "10:30 AM—8:00 PM"],
+          ["30-Jul-2026", "Wasanthi Hamamali Rankoth Pedige", "STAFF", "InflataPark - City Center", "10:30 AM—8:00 PM"],
+          ["31-Jul-2026", "Wasanthi Hamamali Rankoth Pedige", "STAFF", "InflataPark - City Center", "12:30 PM—10:00 PM"],
+          ["01-Aug-2026", "Wasanthi Hamamali Rankoth Pedige", "STAFF", "InflataPark - City Center", "10:30 AM—8:00 PM"],
+          ["05-Aug-2026", "Wasanthi Hamamali Rankoth Pedige", "STAFF", "InflataPark - City Center", "DAY OFF"],
+        ],
+      },
+    ]);
     const parsed = await parseAttendanceRosterFile("FEC-aug.xlsx", buffer);
     expect(parsed.records).toHaveLength(6);
     expect(parsed.records[1]?.SHIFT).toMatch(/10:30/);

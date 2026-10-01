@@ -126,23 +126,20 @@ export async function writePeopleRosterSheetXlsx(
   matrix: Pick<PeopleRosterSheetMatrix, "headers" | "rows" | "rowCount" | "truncated" | "title" | "periodLine">,
 ): Promise<{ buffer: Buffer; rowCount: number; truncated: boolean; headers: readonly string[] }> {
   const { headers, rows, rowCount, truncated, title, periodLine } = matrix;
-  const lastCol = headers.length - 1;
-  const XLSX = await import("xlsx");
+  const lastCol = headers.length;
+  const { writeXlsxBuffer } = await import("@/lib/spreadsheet/workbook");
   const aoa: Array<Array<string>> = [[title], [periodLine], [], [...headers], ...rows];
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws["!merges"] = [
-    { s: { r: 0, c: 0 }, e: { r: 0, c: lastCol } },
-    { s: { r: 1, c: 0 }, e: { r: 1, c: lastCol } },
-  ];
-  ws["!cols"] = [
-    { wch: 14 },
-    { wch: 28 },
-    { wch: 34 },
-    { wch: 22 },
-  ];
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, PEOPLE_ROSTER_SAMPLE_SHEET);
-  const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  const buffer = await writeXlsxBuffer([
+    {
+      name: PEOPLE_ROSTER_SAMPLE_SHEET,
+      rows: aoa,
+      colWidths: [14, 28, 34, 22],
+      merges: [
+        { top: 1, left: 1, bottom: 1, right: lastCol },
+        { top: 2, left: 1, bottom: 2, right: lastCol },
+      ],
+    },
+  ]);
   return { buffer, rowCount, truncated, headers };
 }
 
