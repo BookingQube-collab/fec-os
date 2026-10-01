@@ -18,17 +18,12 @@ type RosterLocationCoverageProps = {
   dateTo: string;
 };
 
-function joinLocationNames(names: string[], language: string) {
-  const arabic = language.toLowerCase().startsWith("ar");
-  return names.join(arabic ? "، " : ", ");
-}
-
 /**
  * Period coverage for every active site the Location filter uses.
  * Grid location, staff, and department filters are intentionally not applied.
  */
 export function RosterLocationCoverage({ dateFrom, dateTo }: RosterLocationCoverageProps) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const sites = useSites();
   const coverage = useQuery({
     queryKey: queryKeys.people.rosterRegister({
@@ -51,17 +46,6 @@ export function RosterLocationCoverage({ dateFrom, dateTo }: RosterLocationCover
     [sites.data, coverage.data?.rows],
   );
 
-  const missing = items.filter((item) => !item.uploaded);
-  const allUploaded = items.length > 0 && missing.length === 0;
-  const summary = allUploaded
-    ? t("people.roster.locationCoverageAllUploaded")
-    : t("people.roster.locationCoverageMissing", {
-        names: joinLocationNames(
-          missing.map((item) => item.label),
-          i18n.language,
-        ),
-      });
-
   if (sites.isError || coverage.isError) {
     return (
       <section className="surface-card p-4" aria-label={t("people.roster.locationCoverageTitle")}>
@@ -81,10 +65,7 @@ export function RosterLocationCoverage({ dateFrom, dateTo }: RosterLocationCover
   if (items.length === 0) return null;
 
   return (
-    <section className="surface-card space-y-3 p-4" aria-label={t("people.roster.locationCoverageTitle")}>
-      <p className="text-sm font-medium leading-snug" role="status">
-        {summary}
-      </p>
+    <section className="surface-card p-4" aria-label={t("people.roster.locationCoverageTitle")}>
       <ul className="flex gap-2 overflow-x-auto pb-1 snap-x snap-mandatory sm:flex-wrap sm:overflow-visible">
         {items.map((item) => {
           const status = item.uploaded

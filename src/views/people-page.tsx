@@ -57,6 +57,7 @@ import { updateStaffSalary, updateStaffWorkLocations } from "@/lib/staff-roster.
 import { departmentAudienceForLocationCode, filterDepartmentsForLocation } from "@/lib/department-audience";
 import { useMasterDepartments, usePeopleMasters } from "@/hooks/queries/useDepartments";
 import { DepartmentMultiSelect } from "@/components/people/department-multi-select";
+import { WorkSiteMultiSelect } from "@/components/people/work-site-multi-select";
 import { ManagePeopleMastersDialog } from "@/components/people/manage-people-masters-dialog";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { alignMasterValue } from "@/lib/people-masters";
@@ -78,6 +79,7 @@ import {
   buildStaffSampleCsv,
   downloadCsvContent,
 } from "@/lib/staff-import";
+import { formatLocationLabel } from "@/lib/locations/normalize";
 import { nextEmployeeCode } from "@/lib/staff-employee-code";
 import { countsAsActiveStaff, isActiveStaffStatus, reconcileJokerStaffStatus } from "@/lib/staff-status";
 import { fileToBase64, identityFileContentType } from "@/lib/hr/identity-file";
@@ -163,7 +165,7 @@ const PeopleDocumentsExpiryPanel = dynamic(
   },
 );
 
-const STAFF_STATUSES = ["active", "on_leave", "terminated", "joker"] as const;
+const STAFF_STATUSES = ["active", "on_leave", "terminated", "resigned", "joker"] as const;
 const ATTENDANCE_STATUSES = ["present", "absent", "late", "early_leave", "missed_punch", "overtime"] as const;
 const TRAINING_STATUSES = ["enrolled", "in_progress", "completed", "overdue"] as const;
 
@@ -545,6 +547,7 @@ function StaffFormDialog({
   const [createdStaffId, setCreatedStaffId] = useState<string | null>(null);
   const [codeNonce, setCodeNonce] = useState(0);
   const titleListOpenRef = useRef(false);
+  const workSiteListOpenRef = useRef(false);
 
   useEffect(() => {
     if (open) return;
@@ -781,6 +784,7 @@ function StaffFormDialog({
 
   const homeLocationId = isEdit ? staff!.location_id : loc;
   const activeSites = sites.filter((s) => s.status !== "inactive");
+  const homeSite = sites.find((site) => site.id === homeLocationId);
   const formLocationCode = sites.find((site) => site.id === homeLocationId)?.code ?? null;
   const formAudience = departmentAudienceForLocationCode(formLocationCode);
   const formDepartments = useMemo(
@@ -799,7 +803,7 @@ function StaffFormDialog({
       <DialogContent
         className="max-h-[90vh] max-w-[calc(100%-1.5rem)] overflow-y-auto sm:max-w-xl"
         onEscapeKeyDown={(event) => {
-          if (!titleListOpenRef.current) return;
+          if (!titleListOpenRef.current && !workSiteListOpenRef.current) return;
           event.preventDefault();
         }}
       >
@@ -993,7 +997,11 @@ function StaffFormDialog({
                 <SelectContent>
                   {STAFF_STATUSES.map((s) => (
                     <SelectItem key={s} value={s}>
-                      {s === "joker" ? t("people.staff.employmentTypes.joker") : s.replace("_", " ")}
+                      {s === "joker"
+                        ? t("people.staff.employmentTypes.joker")
+                        : s === "resigned"
+                          ? t("hr.me.staffStatus.resigned", "Resigned")
+                          : s.replace("_", " ")}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -1160,34 +1168,34 @@ function StaffFormDialog({
                 />
                 {t("people.staff.roaming")}
               </label>
-              <div className="grid max-h-40 gap-2 overflow-y-auto sm:grid-cols-2">
-                {activeSites.map((site) => {
-                  const home = site.id === homeLocationId;
-                  const checked = workLocationIds.includes(site.id) || home;
-                  return (
-                    <label key={site.id} className="flex items-center gap-2 text-sm">
-                      <Checkbox
-                        checked={checked}
-                        disabled={home || m.isPending}
-                        onCheckedChange={(v) => {
-                          const on = Boolean(v);
-                          setWorkLocationIds((prev) => {
-                            const next = new Set(prev);
-                            if (on) next.add(site.id);
-                            else next.delete(site.id);
-                            next.add(homeLocationId);
-                            return [...next];
-                          });
-                          if (on) setIsRoaming(true);
-                        }}
-                      />
-                      <span className={home ? "font-medium" : undefined}>
-                        {site.code}
-                        {home ? ` (${t("people.staff.primaryLocation")})` : ""}
-                      </span>
-                    </label>
-                  );
-                })}
+              <div className="rounded-lg border border-border bg-muted/30 px-3 py-2">
+                <div className="text-[11px] text-muted-foreground">{t("people.staff.homeLocation")}</div>
+                <div className="text-sm font-medium">
+                  {formatLocationLabel(homeSite?.code, homeSite?.name)}
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label>{t("people.staff.dedicatedSites")}</Label>
+                <WorkSiteMultiSelect
+                  sites={activeSites}
+                  homeLocationId={homeLocationId}
+                  value={workLocationIds.filter((id) => id !== homeLocationId)}
+                  disabled={m.isPending}
+                  onOpenChange={(next) => {
+                    if (next) {
+                      workSiteListOpenRef.current = true;
+                      return;
+                    }
+                    queueMicrotask(() => {
+                      workSiteListOpenRef.current = false;
+                    });
+                  }}
+                  onChange={(ids) => {
+                    const previousExtra = workLocationIds.filter((id) => id !== homeLocationId);
+                    if (ids.length > previousExtra.length) setIsRoaming(true);
+                    setWorkLocationIds([homeLocationId, ...ids]);
+                  }}
+                />
               </div>
             </div>
           ) : null}
