@@ -32,7 +32,11 @@ export async function previewLiveShiftRoster(
         .select("id, full_name, employee_code, qid, location_id, status")
         .is("deleted_at", null)
         .limit(5000),
-      context.supabase.from("locations").select("id, code, name, region, status").in("code", [...CANONICAL_LOCATION_CODES]),
+      context.supabase
+        .from("locations")
+        .select("id, code, name, region, status")
+        .eq("status", "active")
+        .in("code", [...CANONICAL_LOCATION_CODES]),
       context.supabase.from("attendance_shift_templates").select("id, location_id, start_time, end_time").eq("active", true),
       context.supabase
         .from("attendance_biometric_users")

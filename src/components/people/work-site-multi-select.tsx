@@ -40,7 +40,7 @@ export function WorkSiteMultiSelect({
   const choices = useMemo(() => {
     const selected = new Set(value);
     return sites
-      .filter((site) => site.id !== homeLocationId && (site.status !== "inactive" || selected.has(site.id)))
+      .filter((site) => site.id !== homeLocationId && (site.status === "active" || !site.status || selected.has(site.id)))
       .slice()
       .sort((a, b) => a.code.localeCompare(b.code));
   }, [homeLocationId, sites, value]);

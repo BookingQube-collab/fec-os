@@ -827,9 +827,9 @@ function StaffFormDialog({
   });
 
   const homeLocationId = isEdit ? editHomeLocationId || staff!.location_id : loc;
-  const activeSites = sites.filter((s) => s.status !== "inactive");
+  const activeSites = sites.filter((s) => s.status === "active");
   const homeSiteOptions = useMemo(() => {
-    const rows = sites.filter((site) => site.status !== "inactive" || site.id === homeLocationId);
+    const rows = sites.filter((site) => site.status === "active" || site.id === homeLocationId);
     return rows.slice().sort((a, b) => a.code.localeCompare(b.code));
   }, [sites, homeLocationId]);
   const homeSite = sites.find((site) => site.id === homeLocationId);

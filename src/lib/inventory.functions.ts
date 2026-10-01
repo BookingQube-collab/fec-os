@@ -298,7 +298,8 @@ export const importInventoryRows = createAuthenticatedAction(
 
     const { data: locations, error: locErr } = await context.supabase
       .from("locations")
-      .select("id, code");
+      .select("id, code")
+      .eq("status", "active");
     if (locErr) throw locErr;
     const locByCode = new Map((locations ?? []).map((l) => [l.code.toUpperCase(), l.id]));
 

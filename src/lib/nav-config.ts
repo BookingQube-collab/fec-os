@@ -466,6 +466,7 @@ export const NAV_DEPARTMENTS: NavDepartment[] = [
     audience: ["executive", "all"],
     items: [
       { href: "/admin", labelKey: "nav.settings", icon: Settings, capability: "admin.view" },
+      { href: "/admin/locations", labelKey: "nav.locationMaster", icon: Building2, capability: "admin.view" },
       { href: "/admin/roles", labelKey: "nav.rolesAccess", icon: Shield, capability: "admin.view" },
       { href: "/admin/ai-integrations", labelKey: "nav.aiIntegrations", icon: Sparkles, capability: "admin.view" },
       { href: "/admin/diagnostics", labelKey: "nav.diagnostics", icon: HeartPulse, capability: "admin.diagnostics" },

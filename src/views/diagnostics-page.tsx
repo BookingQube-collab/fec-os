@@ -35,6 +35,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import {
   dispatchCrashAlert,
@@ -421,6 +422,7 @@ function IncidentQueue({
     () => (filter === "open" ? incidents.filter((i) => i.status === "open") : incidents),
     [filter, incidents],
   );
+  const openCount = useMemo(() => incidents.filter((i) => i.status === "open").length, [incidents]);
 
   return (
     <NeumorphicCard className="p-0">
@@ -428,6 +430,9 @@ function IncidentQueue({
         <div>
           <h3 className="text-sm font-semibold text-foreground">{t("diagnostics.queue.title")}</h3>
           <p className="text-xs text-muted-foreground">{t("diagnostics.queue.subtitle")}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {t("diagnostics.queue.summary", { open: openCount, shown: loading ? "…" : rows.length })}
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" variant={filter === "open" ? "default" : "outline"} onClick={() => setFilter("open")}>
@@ -447,46 +452,46 @@ function IncidentQueue({
       ) : rows.length === 0 ? (
         <p className="p-6 text-center text-sm text-muted-foreground">{t("diagnostics.queue.empty")}</p>
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t("diagnostics.queue.when")}</TableHead>
-              <TableHead>{t("diagnostics.queue.severity")}</TableHead>
-              <TableHead>{t("diagnostics.queue.status")}</TableHead>
-              <TableHead>{t("diagnostics.queue.route")}</TableHead>
-              <TableHead>{t("diagnostics.queue.message")}</TableHead>
-              <TableHead className="text-end">{t("diagnostics.queue.actions")}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.map((row) => (
-              <TableRow key={row.id}>
-                <TableCell className="whitespace-nowrap text-xs">{formatWhen(row.created_at)}</TableCell>
-                <TableCell>
+        <div className="divide-y divide-border/70">
+          {rows.map((row) => (
+            <article
+              key={row.id}
+              className={cn(
+                "border-s-2 px-4 py-3",
+                row.severity === "critical"
+                  ? "border-s-[var(--danger)]"
+                  : row.severity === "warning"
+                    ? "border-s-[var(--warning)]"
+                    : "border-s-border",
+              )}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Badge variant={row.severity === "critical" ? "destructive" : row.severity === "warning" ? "warning" : "info"}>
+                    <span className="sr-only">{t("diagnostics.queue.severity")}: </span>
                     {row.severity}
                   </Badge>
-                </TableCell>
-                <TableCell>
-                  <Badge variant={row.status === "open" ? "warning" : "success"}>{row.status}</Badge>
-                </TableCell>
-                <TableCell className="max-w-[10rem] truncate font-mono text-xs">{row.route ?? "—"}</TableCell>
-                <TableCell className="max-w-[22rem] truncate text-xs" title={row.stack ?? row.message}>
-                  {row.message}
-                </TableCell>
-                <TableCell className="text-end">
-                  {row.status === "open" ? (
-                    <Button size="sm" variant="outline" disabled={resolving} onClick={() => onResolve(row.id)}>
-                      {t("diagnostics.queue.resolve")}
-                    </Button>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">{formatWhen(row.resolved_at)}</span>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+                  <Badge variant={row.status === "open" ? "warning" : "success"}>
+                    <span className="sr-only">{t("diagnostics.queue.status")}: </span>
+                    {row.status}
+                  </Badge>
+                  <span className="font-mono text-xs text-foreground">{row.route ?? "—"}</span>
+                  <span className="text-xs text-muted-foreground">{formatWhen(row.created_at)}</span>
+                </div>
+                {row.status === "open" ? (
+                  <Button size="sm" variant="outline" disabled={resolving} onClick={() => onResolve(row.id)}>
+                    {t("diagnostics.queue.resolve")}
+                  </Button>
+                ) : (
+                  <span className="text-xs text-muted-foreground">{formatWhen(row.resolved_at)}</span>
+                )}
+              </div>
+              <p className="mt-2 text-sm leading-relaxed text-foreground" title={row.stack ?? undefined}>
+                {row.message}
+              </p>
+            </article>
+          ))}
+        </div>
       )}
     </NeumorphicCard>
   );

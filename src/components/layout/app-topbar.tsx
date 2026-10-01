@@ -78,6 +78,12 @@ export function AppTopbar() {
 
   const locations = useSites({ enabled: !!user && sitesRequested });
 
+  useEffect(() => {
+    if (!currentLocationId || !locations.data) return;
+    const stillActive = locations.data.some((loc) => loc.id === currentLocationId && loc.status === "active");
+    if (!stillActive) setCurrentLocationId(null);
+  }, [currentLocationId, locations.data, setCurrentLocationId]);
+
   const toggleLanguage = () => {
     const next: SupportedLanguage = language === "en" ? "ar" : "en";
     setLanguage(next);

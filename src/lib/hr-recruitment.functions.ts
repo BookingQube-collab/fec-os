@@ -244,7 +244,7 @@ function canActOnStep(roles: string[], stepRole: HrJobApprovalRole): boolean {
 export const listRecruitmentLookups = createAuthenticatedActionNoInput(
   async (context) => {
     const [locs, depts] = await Promise.all([
-      context.supabase.from("locations").select("id, code, name").order("name").limit(200),
+      context.supabase.from("locations").select("id, code, name").eq("status", "active").order("name").limit(200),
       context.supabase
         .from("master_departments")
         .select("id, name, code, audience")

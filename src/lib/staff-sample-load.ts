@@ -37,7 +37,11 @@ export async function loadLiveStaffForSample(context: AuthContext): Promise<{
       .is("deleted_at", null)
       .order("full_name")
       .limit(5000),
-    context.supabase.from("locations").select("id, code, name").in("code", [...CANONICAL_LOCATION_CODES]),
+    context.supabase
+      .from("locations")
+      .select("id, code, name")
+      .eq("status", "active")
+      .in("code", [...CANONICAL_LOCATION_CODES]),
   ]);
   if (staffErr) throw staffErr;
   if (locErr) throw locErr;

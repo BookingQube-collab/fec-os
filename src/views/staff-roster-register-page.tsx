@@ -39,7 +39,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useSites } from "@/hooks/queries/useSites";
-import { flexibleMultiSiteRosterStaff } from "@/lib/attendance-hr/roster-copy";
+import { fbCafeRosterStaff, flexibleMultiSiteRosterStaff, flexibleRosterStaff } from "@/lib/attendance-hr/roster-copy";
 import { locationRosterCoverage } from "@/lib/attendance-hr/roster-location-coverage";
 import {
   copyRosterToNextMonth,
@@ -67,6 +67,20 @@ function todayYmd() {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" });
 }
 
+type RosterCopyMode = "all" | "sites" | "flexible" | "fb_cafe";
+
+type PendingRosterCopy = {
+  locationIds: string[] | null;
+  staffIds: string[] | null;
+  department: "fb_cafe" | null;
+};
+
+function rosterCopyReplaceScope(input: PendingRosterCopy): "all" | "sites" | "people" {
+  if (input.staffIds?.length || input.department) return "people";
+  if (input.locationIds?.length) return "sites";
+  return "all";
+}
+
 export default function StaffRosterRegisterPage() {
   const { t, i18n } = useTranslation();
   const qc = useQueryClient();
@@ -86,9 +100,13 @@ export default function StaffRosterRegisterPage() {
   const [weekStart, setWeekStart] = useState(() => qatarWeekBounds(todayYmd()).dateFrom);
   const [month, setMonth] = useState(() => payrollMonthOf(todayYmd()));
   const [copyChoiceOpen, setCopyChoiceOpen] = useState(false);
-  const [copyAllLocations, setCopyAllLocations] = useState(true);
+  const [copyMode, setCopyMode] = useState<RosterCopyMode>("all");
   const [copyLocationIds, setCopyLocationIds] = useState<string[]>([]);
-  const [copyLocationFilter, setCopyLocationFilter] = useState<string[] | null>(null);
+  const [pendingCopy, setPendingCopy] = useState<PendingRosterCopy>({
+    locationIds: null,
+    staffIds: null,
+    department: null,
+  });
   const [copyReplaceOpen, setCopyReplaceOpen] = useState(false);
   const [previousBusy, setPreviousBusy] = useState(false);
   const [copyReplaceMeta, setCopyReplaceMeta] = useState<{
@@ -96,7 +114,7 @@ export default function StaffRosterRegisterPage() {
     targetCount: number;
     sourceCount: number;
     targetRange: string;
-    siteWise: boolean;
+    scope: "all" | "sites" | "people";
   } | null>(null);
 
   const period = useMemo(() => {
@@ -116,12 +134,14 @@ export default function StaffRosterRegisterPage() {
       dateFrom: period.dateFrom,
       dateTo: period.dateTo,
       locationCoverage: true,
+      includeCopyDepartments: true,
     }),
     queryFn: () =>
       listUploadedRosterAssignments({
         dateFrom: period.dateFrom,
         dateTo: period.dateTo,
         sourceUploadOnly: false,
+        includeCopyDepartments: true,
       }),
     staleTime: STALE.people,
     enabled: Boolean(period.dateFrom && period.dateTo),
@@ -139,6 +159,14 @@ export default function StaffRosterRegisterPage() {
     () => flexibleMultiSiteRosterStaff(rosterCoverage.data?.rows ?? []),
     [rosterCoverage.data?.rows],
   );
+  const flexiblePeople = useMemo(
+    () => flexibleRosterStaff(rosterCoverage.data?.rows ?? []),
+    [rosterCoverage.data?.rows],
+  );
+  const fbCafePeople = useMemo(
+    () => fbCafeRosterStaff(rosterCoverage.data?.rows ?? []),
+    [rosterCoverage.data?.rows],
+  );
   const flexibleNamesByLocation = useMemo(() => {
     const map = new Map<string, string[]>();
     for (const person of flexibleStaff) {
@@ -152,6 +180,8 @@ export default function StaffRosterRegisterPage() {
     return map;
   }, [flexibleStaff]);
   const flexibleNames = flexibleStaff.map((person) => person.staffName || person.staffId).join(", ");
+  const flexibleOptionNames = flexiblePeople.map((person) => person.staffName || person.staffId).join(", ");
+  const fbCafeNames = fbCafePeople.map((person) => person.staffName || person.staffId).join(", ");
 
   const downloadPrevious = async () => {
     try {
@@ -180,7 +210,7 @@ export default function StaffRosterRegisterPage() {
 
   const applyCopyResult = (
     result: Awaited<ReturnType<typeof copyRosterToNextMonth>>,
-    locationIds: string[] | null,
+    filter: PendingRosterCopy,
   ) => {
     if (result.status === "empty") {
       toast.error(t("people.roster.copyNextMonthEmpty"));
@@ -192,7 +222,7 @@ export default function StaffRosterRegisterPage() {
         targetCount: result.targetCount,
         sourceCount: result.sourceCount,
         targetRange: formatPayrollRange(result.target.dateFrom, result.target.dateTo, i18n.language),
-        siteWise: Boolean(locationIds?.length),
+        scope: rosterCopyReplaceScope(filter),
       });
       setCopyReplaceOpen(true);
       return;
@@ -210,21 +240,28 @@ export default function StaffRosterRegisterPage() {
   };
 
   const copyMut = useMutation({
-    mutationFn: (input: { replace: boolean; locationIds: string[] | null }) =>
+    mutationFn: (input: PendingRosterCopy & { replace: boolean }) =>
       copyRosterToNextMonth({
         month,
         replace: input.replace,
         ...(input.locationIds?.length ? { locationIds: input.locationIds } : {}),
+        ...(input.staffIds?.length ? { staffIds: input.staffIds } : {}),
+        ...(input.department ? { department: input.department } : {}),
       }),
     onSuccess: (result, variables) => {
-      setCopyLocationFilter(variables.locationIds);
-      applyCopyResult(result, variables.locationIds);
+      const filter = {
+        locationIds: variables.locationIds,
+        staffIds: variables.staffIds,
+        department: variables.department,
+      };
+      setPendingCopy(filter);
+      applyCopyResult(result, filter);
     },
     onError: (e: Error) => toast.error(e.message),
   });
 
   const openCopyChoice = () => {
-    setCopyAllLocations(true);
+    setCopyMode("all");
     setCopyLocationIds([]);
     setCopyChoiceOpen(true);
   };
@@ -236,18 +273,33 @@ export default function StaffRosterRegisterPage() {
   };
 
   const confirmCopyChoice = () => {
-    const selected = copyLocationIds.filter((id) => uploadedLocations.some((site) => site.id === id));
-    if (!copyAllLocations && selected.length === 0) return;
-    const locationIds = copyAllLocations ? null : selected;
+    let filter: PendingRosterCopy = { locationIds: null, staffIds: null, department: null };
+    if (copyMode === "sites") {
+      const selected = copyLocationIds.filter((id) => uploadedLocations.some((site) => site.id === id));
+      if (selected.length === 0) return;
+      filter = { locationIds: selected, staffIds: null, department: null };
+    } else if (copyMode === "flexible") {
+      if (flexiblePeople.length === 0) return;
+      filter = { locationIds: null, staffIds: flexiblePeople.map((person) => person.staffId), department: null };
+    } else if (copyMode === "fb_cafe") {
+      if (fbCafePeople.length === 0) return;
+      filter = { locationIds: null, staffIds: null, department: "fb_cafe" };
+    }
     setCopyChoiceOpen(false);
-    setCopyLocationFilter(locationIds);
-    copyMut.mutate({ replace: false, locationIds });
+    setPendingCopy(filter);
+    copyMut.mutate({ replace: false, ...filter });
   };
 
   const sitesLoading = rosterCoverage.isLoading || sites.isLoading;
   const sitesFailed = rosterCoverage.isError || sites.isError;
+  const rosterLoading = rosterCoverage.isLoading;
+  const rosterFailed = rosterCoverage.isError;
+  const flexibleEmpty = !rosterLoading && !rosterFailed && flexiblePeople.length === 0;
+  const fbCafeEmpty = !rosterLoading && !rosterFailed && fbCafePeople.length === 0;
   const siteChoiceBlocked =
-    !copyAllLocations && (sitesLoading || sitesFailed || uploadedLocations.length === 0 || copyLocationIds.length === 0);
+    copyMode === "sites" && (sitesLoading || sitesFailed || uploadedLocations.length === 0 || copyLocationIds.length === 0);
+  const flexibleChoiceBlocked = copyMode === "flexible" && (rosterLoading || rosterFailed || flexiblePeople.length === 0);
+  const fbCafeChoiceBlocked = copyMode === "fb_cafe" && (rosterLoading || rosterFailed || fbCafePeople.length === 0);
 
   const copyDisabled = periodMode !== "month" || copyMut.isPending || !/^\d{4}-\d{2}$/.test(month);
 
@@ -381,7 +433,7 @@ export default function StaffRosterRegisterPage() {
           if (!open && !copyMut.isPending) setCopyChoiceOpen(false);
         }}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-h-[85vh] max-w-md overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{t("people.roster.copyNextMonthChooseTitle")}</DialogTitle>
             <DialogDescription>
@@ -394,15 +446,15 @@ export default function StaffRosterRegisterPage() {
             <label
               className={cn(
                 "flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2",
-                copyAllLocations ? "border-primary" : "border-border/70",
+                copyMode === "all" ? "border-primary" : "border-border/70",
               )}
             >
               <input
                 type="radio"
                 name="roster-copy-scope"
                 className="mt-1"
-                checked={copyAllLocations}
-                onChange={() => setCopyAllLocations(true)}
+                checked={copyMode === "all"}
+                onChange={() => setCopyMode("all")}
               />
               <span>
                 <span className="block text-sm font-medium">{t("people.roster.copyNextMonthAllLocations")}</span>
@@ -414,15 +466,15 @@ export default function StaffRosterRegisterPage() {
             <label
               className={cn(
                 "flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2",
-                !copyAllLocations ? "border-primary" : "border-border/70",
+                copyMode === "sites" ? "border-primary" : "border-border/70",
               )}
             >
               <input
                 type="radio"
                 name="roster-copy-scope"
                 className="mt-1"
-                checked={!copyAllLocations}
-                onChange={() => setCopyAllLocations(false)}
+                checked={copyMode === "sites"}
+                onChange={() => setCopyMode("sites")}
               />
               <span>
                 <span className="block text-sm font-medium">{t("people.roster.copyNextMonthChooseSites")}</span>
@@ -431,7 +483,7 @@ export default function StaffRosterRegisterPage() {
                 </span>
               </span>
             </label>
-            {!copyAllLocations ? (
+            {copyMode === "sites" ? (
               sitesLoading ? (
                 <p className="text-sm text-muted-foreground">{t("people.roster.copyNextMonthSitesLoading")}</p>
               ) : sitesFailed ? (
@@ -478,6 +530,62 @@ export default function StaffRosterRegisterPage() {
                 </ul>
               )
             ) : null}
+            <label
+              className={cn(
+                "flex items-start gap-3 rounded-xl border px-3 py-2",
+                flexibleEmpty || rosterFailed ? "cursor-not-allowed opacity-60" : "cursor-pointer",
+                copyMode === "flexible" ? "border-primary" : "border-border/70",
+              )}
+            >
+              <input
+                type="radio"
+                name="roster-copy-scope"
+                className="mt-1"
+                checked={copyMode === "flexible"}
+                disabled={rosterLoading || rosterFailed || flexibleEmpty}
+                onChange={() => setCopyMode("flexible")}
+              />
+              <span>
+                <span className="block text-sm font-medium">{t("people.staff.flexibleHours")}</span>
+                <span className="block text-xs text-muted-foreground">
+                  {rosterLoading
+                    ? t("common.loading")
+                    : rosterFailed
+                      ? t("people.roster.locationCoverageLoadFailed")
+                      : flexibleEmpty
+                        ? t("people.roster.copyNextMonthNone")
+                        : t("people.roster.copyNextMonthFlexibleHint", { names: flexibleOptionNames })}
+                </span>
+              </span>
+            </label>
+            <label
+              className={cn(
+                "flex items-start gap-3 rounded-xl border px-3 py-2",
+                fbCafeEmpty || rosterFailed ? "cursor-not-allowed opacity-60" : "cursor-pointer",
+                copyMode === "fb_cafe" ? "border-primary" : "border-border/70",
+              )}
+            >
+              <input
+                type="radio"
+                name="roster-copy-scope"
+                className="mt-1"
+                checked={copyMode === "fb_cafe"}
+                disabled={rosterLoading || rosterFailed || fbCafeEmpty}
+                onChange={() => setCopyMode("fb_cafe")}
+              />
+              <span>
+                <span className="block text-sm font-medium">{t("common.orgDepartment.fb_cafe")}</span>
+                <span className="block text-xs text-muted-foreground">
+                  {rosterLoading
+                    ? t("common.loading")
+                    : rosterFailed
+                      ? t("people.roster.locationCoverageLoadFailed")
+                      : fbCafeEmpty
+                        ? t("people.roster.copyNextMonthNone")
+                        : t("people.roster.copyNextMonthFbCafeHint", { names: fbCafeNames })}
+                </span>
+              </span>
+            </label>
             {flexibleNames ? (
               <p className="flex items-start gap-2 text-xs text-muted-foreground">
                 <Badge variant="warning">{t("people.staff.flexibleHours")}</Badge>
@@ -489,7 +597,11 @@ export default function StaffRosterRegisterPage() {
             <Button type="button" variant="outline" onClick={() => setCopyChoiceOpen(false)} disabled={copyMut.isPending}>
               {t("common.cancel")}
             </Button>
-            <Button type="button" onClick={confirmCopyChoice} disabled={copyMut.isPending || siteChoiceBlocked}>
+            <Button
+              type="button"
+              onClick={confirmCopyChoice}
+              disabled={copyMut.isPending || siteChoiceBlocked || flexibleChoiceBlocked || fbCafeChoiceBlocked}
+            >
               {copyMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               {t("people.roster.copyNextMonthConfirm")}
             </Button>
@@ -511,9 +623,11 @@ export default function StaffRosterRegisterPage() {
             <AlertDialogTitle>{t("people.roster.copyNextMonthReplaceTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
               {t(
-                copyReplaceMeta?.siteWise
+                copyReplaceMeta?.scope === "sites"
                   ? "people.roster.copyNextMonthReplaceBodySites"
-                  : "people.roster.copyNextMonthReplaceBody",
+                  : copyReplaceMeta?.scope === "people"
+                    ? "people.roster.copyNextMonthReplaceBodyPeople"
+                    : "people.roster.copyNextMonthReplaceBody",
                 {
                   count: copyReplaceMeta?.targetCount ?? 0,
                   range: copyReplaceMeta?.targetRange ?? nextMonth,
@@ -528,7 +642,7 @@ export default function StaffRosterRegisterPage() {
               disabled={copyMut.isPending}
               onClick={(e) => {
                 e.preventDefault();
-                copyMut.mutate({ replace: true, locationIds: copyLocationFilter });
+                copyMut.mutate({ replace: true, ...pendingCopy });
               }}
             >
               {copyMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}

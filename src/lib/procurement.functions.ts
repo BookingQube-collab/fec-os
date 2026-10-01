@@ -535,7 +535,7 @@ export const getProcurementOptions = createAuthenticatedActionNoInput(
     const staff = await lookupStaff(context);
     const [{ data: locations }, { data: departments }, { data: vendors }, { data: items }] =
       await Promise.all([
-        context.supabase.from("locations").select("id, code, name").order("name"),
+        context.supabase.from("locations").select("id, code, name").eq("status", "active").order("name"),
         context.supabase
           .from("master_departments")
           .select("id, name, parent_id")
@@ -689,7 +689,7 @@ export const aiDraftPurchaseRequisition = createAuthenticatedAction(
 
     try {
       const [locationsRes, departmentsRes, vendorsRes, itemsRes, pricesRes] = await Promise.all([
-        context.supabase.from("locations").select("id, code, name, region").order("name"),
+        context.supabase.from("locations").select("id, code, name, region").eq("status", "active").order("name"),
         context.supabase
           .from("master_departments")
           .select("id, name")

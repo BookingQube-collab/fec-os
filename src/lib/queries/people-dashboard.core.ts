@@ -204,6 +204,7 @@ export async function fetchPeopleDashboard(
   let locQ = context.supabase
     .from("locations")
     .select("id, code, name")
+    .eq("status", "active")
     .in("code", [...CANONICAL_LOCATION_CODES]);
   if (filters.locationId) locQ = locQ.eq("id", filters.locationId);
   const { data: locations, error: locErr } = await locQ;

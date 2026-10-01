@@ -9,6 +9,7 @@ export const queryKeys = {
   sites: {
     all: ["sites"] as const,
     list: () => [...queryKeys.sites.all, "list"] as const,
+    master: () => [...queryKeys.sites.all, "master"] as const,
   },
   locationAreas: {
     all: ["location-areas"] as const,

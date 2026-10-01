@@ -16,6 +16,18 @@ export function setRouteCache<T>(key: string, value: T, ttlMs: number): void {
   store.set(key, { value, expires: Date.now() + ttlMs });
 }
 
+/** Drop in-memory entries whose key starts with `prefix` (for example `sites:`). */
+export function invalidateRouteCachePrefix(prefix: string): number {
+  let removed = 0;
+  for (const key of store.keys()) {
+    if (key.startsWith(prefix)) {
+      store.delete(key);
+      removed += 1;
+    }
+  }
+  return removed;
+}
+
 export const ROUTE_CACHE_TTL = {
   kpis: 30_000,
   lists: 60_000,

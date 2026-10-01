@@ -66,6 +66,15 @@ export type RosterRegisterRow = {
   source: string;
   /** Staff profile flag. Read for the copy dialog only; punches and payroll are unchanged. */
   flexibleAttendance: boolean;
+  /**
+   * Legacy staff.department. Null unless the caller asked for copy-dialog departments.
+   * Compound labels still match F&B Cafe.
+   */
+  department: string | null;
+  /** Linked master department names. Empty unless copy-dialog departments were requested. */
+  departmentNames: string[];
+  /** Linked master department codes (FB, FB_CAFE, …). */
+  departmentCodes: string[];
 };
 
 async function syncRosterLeaveRecord(
@@ -214,6 +223,69 @@ async function staffIdsLinkedToDepartments(
   return shown;
 }
 
+type RosterCopyDepartmentLabel = {
+  legacy: string | null;
+  names: string[];
+  codes: string[];
+};
+
+function emptyDepartmentLabel(): RosterCopyDepartmentLabel {
+  return { legacy: null, names: [], codes: [] };
+}
+
+function pushUniqueLabel(list: string[], value: string | null | undefined) {
+  const trimmed = value?.trim();
+  if (!trimmed || list.includes(trimmed)) return;
+  list.push(trimmed);
+}
+
+function masterDepartmentJoin(
+  value:
+    | { name?: string | null; code?: string | null }
+    | { name?: string | null; code?: string | null }[]
+    | null
+    | undefined,
+): { name?: string | null; code?: string | null } | null {
+  if (!value) return null;
+  return Array.isArray(value) ? (value[0] ?? null) : value;
+}
+
+/** Legacy department text plus linked master name/code. Used to match F&B Cafe without a second copier. */
+async function loadRosterCopyDepartmentLabels(
+  supabase: AuthContext["supabase"],
+  staffIds: readonly string[],
+): Promise<Map<string, RosterCopyDepartmentLabel>> {
+  const labels = new Map<string, RosterCopyDepartmentLabel>();
+  const ids = [...new Set(staffIds.filter(Boolean))];
+  for (const id of ids) labels.set(id, emptyDepartmentLabel());
+  for (const chunk of chunkIds(ids, 200)) {
+    const { data: staffRows, error: staffError } = await supabase.from("staff").select("id, department").in("id", chunk);
+    if (staffError) throw staffError;
+    for (const row of staffRows ?? []) {
+      const bucket = labels.get(String(row.id));
+      if (bucket) bucket.legacy = (row.department as string | null) ?? null;
+    }
+    const { data: links, error: linkError } = await supabase
+      .from("staff_departments")
+      .select("staff_id, master_departments(name, code)")
+      .in("staff_id", chunk);
+    if (linkError) throw linkError;
+    for (const link of links ?? []) {
+      const bucket = labels.get(String(link.staff_id));
+      if (!bucket) continue;
+      const department = masterDepartmentJoin(
+        link.master_departments as
+          | { name?: string | null; code?: string | null }
+          | { name?: string | null; code?: string | null }[]
+          | null,
+      );
+      pushUniqueLabel(bucket.names, department?.name);
+      pushUniqueLabel(bucket.codes, department?.code);
+    }
+  }
+  return labels;
+}
+
 export const listUploadedRosterAssignments = createAuthenticatedAction(
   z.object({
     locationId: z.string().uuid().nullable().optional(),
@@ -232,6 +304,8 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
     sourceUploadOnly: z.boolean().optional().default(false),
     /** Optional single-source filter. Ignored when sourceUploadOnly is true. */
     source: z.enum(["upload", "amend", "manual", "copied"]).nullable().optional(),
+    /** Attach department name/code so the copy dialog can offer F&B Cafe. */
+    includeCopyDepartments: z.boolean().optional().default(false),
   }),
   async (data, context) => {
     assertCanViewRosterRegister(context.roles);
@@ -328,6 +402,9 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
     const staffById = new Map((staffRes.data ?? []).map((row) => [String(row.id), row]));
     const locById = new Map((locRes.data ?? []).map((row) => [String(row.id), row]));
     const shiftById = new Map((shiftRes.data ?? []).map((row) => [String(row.id), row]));
+    const departmentLabels = data.includeCopyDepartments
+      ? await loadRosterCopyDepartmentLabels(context.supabase, staffIds)
+      : new Map<string, RosterCopyDepartmentLabel>();
 
     const leaveByStaffDate = new Map<
       string,
@@ -428,6 +505,9 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
         compOffNote: leave?.compOffNote ?? null,
         source: String(row.source ?? "manual"),
         flexibleAttendance: Boolean(staff?.flexible_attendance),
+        department: departmentLabels.get(String(row.staff_id))?.legacy ?? null,
+        departmentNames: departmentLabels.get(String(row.staff_id))?.names ?? [],
+        departmentCodes: departmentLabels.get(String(row.staff_id))?.codes ?? [],
       };
     });
 
@@ -815,16 +895,20 @@ type CopyTargetRow = {
 /**
  * Copy assignments in the selected FEC month into the next FEC month.
  * Dates map by day-of-period index (see mapRosterPeriodByDayIndex). Empty cells stay empty.
- * Omit locationIds to copy every site. Pass locationIds to copy only those sites;
- * each row keeps the location already stored on it.
+ * Omit locationIds to copy every site. Pass locationIds to copy only those sites.
+ * Pass staffIds to copy only those people. Pass department "fb_cafe" to copy the F&B Cafe team.
+ * Each row keeps the location already stored on it.
  * If that target scope already has rows, pass replace=true after UI confirm; otherwise returns needs_replace.
- * All locations replaces every row in the next month. A site filter replaces only those locations.
+ * All locations replaces every row in the next month.
+ * A site filter replaces only those locations. A staff or department filter replaces only those people's rows.
  */
 export const copyRosterToNextMonth = createAuthenticatedAction(
   z.object({
     month: z.string().regex(/^\d{4}-\d{2}$/),
     replace: z.boolean().optional().default(false),
     locationIds: z.array(z.string().uuid()).max(100).optional(),
+    staffIds: z.array(z.string().uuid()).max(2000).optional(),
+    department: z.enum(["fb_cafe"]).optional(),
   }),
   async (data, context) => {
     assertCanAmendRoster(context.roles);
@@ -836,6 +920,7 @@ export const copyRosterToNextMonth = createAuthenticatedAction(
     assertRosterDeletePeriod(target.dateFrom, target.dateTo);
 
     const siteFilter = data.locationIds ? [...new Set(data.locationIds)] : null;
+    const staffFilter = data.staffIds ? [...new Set(data.staffIds)] : null;
     const siteWise = siteFilter != null;
     if (siteFilter) {
       for (const locationId of siteFilter) {
@@ -857,7 +942,24 @@ export const copyRosterToNextMonth = createAuthenticatedAction(
       return (page ?? []) as CopySourceRow[];
     }, ATTENDANCE_DAILY_LIST_PAGE_SIZE);
 
-    const sourceRows = filterRosterCopyRows(sourceRowsAll, siteFilter);
+    let sourceRows = filterRosterCopyRows(sourceRowsAll, siteFilter, staffFilter ? { staffIds: staffFilter } : null);
+    if (data.department) {
+      const labelIds = [...new Set(sourceRows.map((row) => String(row.staff_id)))];
+      const labels = await loadRosterCopyDepartmentLabels(context.supabase, labelIds);
+      sourceRows = filterRosterCopyRows(
+        sourceRows.map((row) => {
+          const label = labels.get(String(row.staff_id));
+          return {
+            ...row,
+            department: label?.legacy ?? null,
+            departmentNames: label?.names ?? [],
+            departmentCodes: label?.codes ?? [],
+          };
+        }),
+        null,
+        { department: data.department },
+      );
+    }
 
     if (!sourceRows.length) {
       return {
@@ -872,8 +974,17 @@ export const copyRosterToNextMonth = createAuthenticatedAction(
       };
     }
 
+    const peopleScoped = staffFilter != null || Boolean(data.department);
+    const replaceStaffIds = peopleScoped ? [...new Set(sourceRows.map((row) => String(row.staff_id)))] : null;
+    const scopedCopy = siteWise || peopleScoped;
+
+    const rowsInCopyScope = (rows: readonly CopyTargetRow[]) => {
+      const byStaff = replaceStaffIds ? filterRosterCopyRows(rows, null, { staffIds: replaceStaffIds }) : rows;
+      return siteFilter ? filterRosterCopyRows(byStaff, siteFilter) : byStaff.slice();
+    };
+
     let destinationRows: CopyTargetRow[] | null = null;
-    if (siteWise) {
+    if (scopedCopy) {
       destinationRows = await collectPagedRows<CopyTargetRow>(async (from, to) => {
         const { data: page, error } = await context.supabase
           .from("attendance_roster_assignments")
@@ -888,8 +999,8 @@ export const copyRosterToNextMonth = createAuthenticatedAction(
     }
 
     let targetCount = 0;
-    if (siteWise) {
-      targetCount = filterRosterCopyRows(destinationRows ?? [], siteFilter).length;
+    if (scopedCopy) {
+      targetCount = rowsInCopyScope(destinationRows ?? []).length;
     } else {
       const { count, error } = await context.supabase
         .from("attendance_roster_assignments")
@@ -922,8 +1033,8 @@ export const copyRosterToNextMonth = createAuthenticatedAction(
 
     let replaced = 0;
     if (targetCount > 0 && data.replace) {
-      const existing = siteWise
-        ? filterRosterCopyRows(destinationRows ?? [], siteFilter)
+      const existing = scopedCopy
+        ? rowsInCopyScope(destinationRows ?? [])
         : await fetchRosterAssignmentsInScope(context.supabase, {
             dateFrom: target.dateFrom,
             dateTo: target.dateTo,
@@ -1027,6 +1138,8 @@ export const copyRosterToNextMonth = createAuthenticatedAction(
         replaced,
         mapping: "day_of_period_index",
         locationIds: siteWise ? siteFilter : null,
+        staffIds: peopleScoped ? replaceStaffIds : null,
+        department: data.department ?? null,
       },
     });
 

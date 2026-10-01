@@ -1,4 +1,4 @@
-type ApiGetInit = Pick<RequestInit, "priority">;
+type ApiGetInit = Pick<RequestInit, "priority" | "cache">;
 
 /** Client-side fetch helper for authenticated API route handlers. */
 export async function apiGet<T>(
@@ -14,6 +14,7 @@ export async function apiGet<T>(
   }
   const res = await fetch(url.toString(), {
     credentials: "include",
+    cache: init?.cache,
     priority: init?.priority,
     signal: init?.signal,
   });

@@ -2,7 +2,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { HeartPulse, Loader2, Settings, Shield, Sparkles, Trash2 } from "lucide-react";
+import { Building2, HeartPulse, Loader2, Settings, Shield, Sparkles, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -39,6 +39,23 @@ function AdminPage() {
         title="Administration"
         subtitle="Roles, access, and platform configuration."
       />
+      <Link
+        href="/admin/locations"
+        className="flex items-center justify-between gap-3 rounded-2xl border border-border/50 bg-card p-4 shadow-elevated-xs transition-shadow hover:shadow-elevated-sm"
+      >
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="icon-well">
+            <Building2 className="h-4 w-4 stroke-[1.5]" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-foreground">{t("locationMaster.title")}</p>
+            <p className="text-xs text-muted-foreground">{t("locationMaster.subtitle")}</p>
+          </div>
+        </div>
+        <span className="shrink-0 rounded-full border border-input bg-card px-3 py-1.5 text-xs font-semibold shadow-elevated-xs">
+          {t("adminRoles.open")}
+        </span>
+      </Link>
       <Link
         href="/admin/roles"
         className="flex items-center justify-between gap-3 rounded-2xl border border-border/50 bg-card p-4 shadow-elevated-xs transition-shadow hover:shadow-elevated-sm"

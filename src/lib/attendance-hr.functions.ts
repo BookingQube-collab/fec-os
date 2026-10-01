@@ -174,6 +174,7 @@ export const getAttendanceHrBootstrap = createAuthenticatedActionNoInput(
         context.supabase
           .from("locations")
           .select("id, code, name, region, status")
+          .eq("status", "active")
           .in("code", [...CANONICAL_LOCATION_CODES]),
         (async () => {
           const full =
@@ -220,16 +221,21 @@ export const getAttendanceHrBootstrap = createAuthenticatedActionNoInput(
       staffRows.map((row) => row.id),
     );
     const settingsByLocation = new Map((sites ?? []).map((s) => [s.location_id, s]));
-    const roster = (rosterLocations ?? []).map((loc) => ({
-      id: loc.id,
-      code: loc.code,
-      name: loc.name,
-      region: loc.region,
-      status: loc.status,
-    }));
+    const roster = (rosterLocations ?? [])
+      .filter((loc) => loc.status === "active")
+      .map((loc) => ({
+        id: loc.id,
+        code: loc.code,
+        name: loc.name,
+        region: loc.region,
+        status: loc.status,
+      }));
+    const activeLocationIds = new Set(roster.map((loc) => loc.id));
     const mergedSites = mergeAttendanceSites(
       roster,
-      (sites ?? []).map((s) => ({ location_id: s.location_id })),
+      (sites ?? [])
+        .filter((s) => activeLocationIds.has(s.location_id))
+        .map((s) => ({ location_id: s.location_id })),
     );
     return {
       companies: companies ?? [],
@@ -279,6 +285,7 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
       context.supabase
         .from("locations")
         .select("id, code, name, region, status")
+        .eq("status", "active")
         .in("code", [...CANONICAL_LOCATION_CODES]),
       context.supabase.from("attendance_site_settings").select("location_id"),
       context.supabase.from("staff").select("id, location_id, status").is("deleted_at", null).limit(5000),
@@ -308,7 +315,12 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
     const { dateFrom, dateTo, month, usedImportedPeriod } = period;
     const dates = enumerateYmd(dateFrom, dateTo);
 
-    const sites = mergeAttendanceSites(locRes.data ?? [], settingsRes.data ?? []);
+    const activeLocations = (locRes.data ?? []).filter((loc) => loc.status === "active");
+    const activeLocationIds = new Set(activeLocations.map((loc) => loc.id));
+    const sites = mergeAttendanceSites(
+      activeLocations,
+      (settingsRes.data ?? []).filter((row) => activeLocationIds.has(row.location_id)),
+    );
     let workStaffIds: string[] = [];
     const workByLocation = new Map<string, string[]>();
     try {
@@ -1640,6 +1652,7 @@ export const listAttendanceSiteShiftPolicies = createAuthenticatedActionNoInput(
       context.supabase
         .from("locations")
         .select("id, code, name, region, status")
+        .eq("status", "active")
         .in("code", [...CANONICAL_LOCATION_CODES])
         .order("name"),
       context.supabase
@@ -1736,6 +1749,7 @@ export const applyDefaultAttendanceSiteShiftPolicies = createAuthenticatedAction
     const { data: locations, error } = await context.supabase
       .from("locations")
       .select("id, code")
+      .eq("status", "active")
       .in("code", [...CANONICAL_LOCATION_CODES]);
     if (error) throw error;
 
