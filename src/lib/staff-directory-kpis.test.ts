@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 
+import { qatarTodayYmd } from "@/lib/hr-expiry-bands";
 import type { StaffRow } from "@/lib/queries/module-queries.core";
+import { shiftYmd } from "@/lib/staff-temporary-moves";
 import {
   computeStaffDirectoryKpis,
+  computeStaffDirectoryTileKpis,
   filterStaffDirectory,
   filterStaffDirectoryForKpis,
 } from "./staff-directory-kpis";
@@ -208,31 +211,89 @@ describe("staff directory KPIs follow filters", () => {
     expect(filtered.map((s) => s.id).sort()).toEqual(["6"]);
   });
 
-  it("scopes every tile by location and search, and leaves status on the table", () => {
+  it("scopes bucket tiles by location and search, and Total follows the table status", () => {
     const filters = { ...base, loc: "KDS", status: "active" };
     const table = filterStaffDirectory(staff, filters);
-    const kpis = computeStaffDirectoryKpis(filterStaffDirectoryForKpis(staff, filters));
+    const kpis = computeStaffDirectoryTileKpis(staff, filters);
 
     expect(table.map((s) => s.id).sort()).toEqual(["1", "3"]);
-    expect(kpis.total).toBe(3);
+    expect(kpis.total).toBe(table.length);
+    expect(kpis.total).toBe(2);
     expect(kpis.active).toBe(1);
     expect(kpis.secondment).toBe(1);
     expect(kpis.exiting).toBe(1);
 
-    const searched = computeStaffDirectoryKpis(
-      filterStaffDirectoryForKpis(staff, { ...filters, q: "cara" }),
-    );
+    const searched = computeStaffDirectoryTileKpis(staff, { ...filters, q: "cara" });
     expect(searched.total).toBe(1);
     expect(searched.secondment).toBe(1);
     expect(searched.active).toBe(0);
   });
 
-  it("matches the full roster when the only control is the default active status", () => {
-    const scoped = computeStaffDirectoryKpis(filterStaffDirectoryForKpis(staff, base));
-    expect(scoped).toEqual(computeStaffDirectoryKpis(staff));
+  it("keeps bucket tiles on the full roster when the only control is the default active status", () => {
+    const tiles = computeStaffDirectoryTileKpis(staff, base);
+    const roster = computeStaffDirectoryKpis(staff);
+    expect(tiles.active).toBe(roster.active);
+    expect(tiles.secondment).toBe(roster.secondment);
+    expect(tiles.temporary).toBe(roster.temporary);
+    expect(tiles.exiting).toBe(roster.exiting);
+    expect(tiles.total).toBe(filterStaffDirectory(staff, base).length);
+    expect(tiles.total).toBe(2);
   });
 
-  it("applies the show-only department filter to every tile without using status", () => {
+  it("leaves a person who fails the active status filter out of Total", () => {
+    const carousel: StaffRow[] = [
+      row({
+        id: "flora",
+        full_name: "Flora Mae",
+        employee_code: "CAR-AP-STF06",
+        status: "active",
+        location_code: "CAR-AP",
+        department: "Operations",
+        department_names: ["Operations"],
+      }),
+      row({
+        id: "zaryab",
+        full_name: "Zaryab Javaid",
+        employee_code: "CAR-AP-VS",
+        status: "active",
+        location_code: "CAR-AP",
+        department: "Operations",
+        department_names: ["Operations"],
+      }),
+      row({
+        id: "beth",
+        full_name: "Beth Wangechi",
+        employee_code: "CAR-AP-STF01",
+        status: "joker",
+        employment_type: "joker",
+        location_code: "CAR-AP",
+        department: "Operations",
+        department_names: ["Operations"],
+      }),
+    ];
+    const filters = {
+      ...base,
+      loc: "CAR-AP",
+      status: "active",
+      showOrgDepartments: ["operations"] as const,
+    };
+    const table = filterStaffDirectory(carousel, filters);
+    const kpis = computeStaffDirectoryTileKpis(carousel, filters);
+
+    expect(table.map((s) => s.id).sort()).toEqual(["flora", "zaryab"]);
+    expect(kpis.total).toBe(2);
+    expect(kpis.active).toBe(2);
+    expect(kpis.secondment).toBe(0);
+    expect(kpis.temporary).toBe(0);
+    expect(kpis.newJoiners).toBe(0);
+    expect(kpis.exiting).toBe(0);
+
+    const allStatuses = computeStaffDirectoryTileKpis(carousel, { ...filters, status: "" });
+    expect(allStatuses.total).toBe(3);
+    expect(allStatuses.active).toBe(2);
+  });
+
+  it("applies the show-only department filter to every tile, and Total follows status", () => {
     const withOps = [
       ...staff,
       row({
@@ -254,10 +315,8 @@ describe("staff directory KPIs follow filters", () => {
         location_code: "KDS",
       }),
     ];
-    const open = computeStaffDirectoryKpis(
-      filterStaffDirectoryForKpis(withOps, { ...base, loc: "KDS", status: "active" }),
-    );
-    expect(open.total).toBe(5);
+    const open = computeStaffDirectoryTileKpis(withOps, { ...base, loc: "KDS", status: "active" });
+    expect(open.total).toBe(3);
 
     const filters = {
       ...base,
@@ -265,8 +324,8 @@ describe("staff directory KPIs follow filters", () => {
       status: "active",
       showOrgDepartments: ["operations"] as const,
     };
-    const kpis = computeStaffDirectoryKpis(filterStaffDirectoryForKpis(withOps, filters));
-    expect(kpis.total).toBe(1);
+    const kpis = computeStaffDirectoryTileKpis(withOps, filters);
+    expect(kpis.total).toBe(0);
     expect(kpis.exiting).toBe(1);
 
     const two = filterStaffDirectoryForKpis(withOps, {
@@ -299,8 +358,9 @@ describe("staff directory KPIs follow filters", () => {
     expect(filterStaffDirectory(withPass, { ...base, q: "technician" }).map((s) => s.id)).toEqual(["5"]);
   });
 
-  it("matches a dedicated second workplace and not a punch-only visit", () => {
-    const punchVisitor = {
+  it("lists home and an active temporary site, not an extra dedicated site, a punch, or an ended move", () => {
+    const today = qatarTodayYmd();
+    const person = {
       ...row({
         id: "russell",
         full_name: "Russell Bombita Pante",
@@ -312,34 +372,64 @@ describe("staff directory KPIs follow filters", () => {
         location_code: "INF-CC",
         location_name: "Inflatapark",
         work_locations: [
-          { id: "inf", code: "INF-CC", name: "Inflatapark" },
           { id: "kds", code: "KDS-CC", name: "Kids Driving School" },
+          { id: "cb", code: "CB-DSM", name: "Crayons & Bricks" },
         ],
-        work_location_ids: ["inf", "kds"],
+        work_location_ids: ["kds", "cb"],
+        temporary_site_moves: [
+          {
+            to_location_id: "ua",
+            to_location_code: "UA-DM",
+            to_location_name: "Urban Arena",
+            starts_on: shiftYmd(today, -2),
+            ends_on: shiftYmd(today, 5),
+          },
+        ],
       }),
-      punch_location_codes: ["CB-DSM"],
+      punch_location_codes: ["CB-VM"],
     };
-    const assigned = row({
-      id: "assigned",
-      full_name: "Second Site Lead",
-      employee_code: "E9",
+    const ended = row({
+      id: "ended",
+      full_name: "Ended Move",
+      employee_code: "E-END",
       employment_type: "permanent",
       status: "active",
       location_id: "inf",
       location_code: "INF-CC",
       location_name: "Inflatapark",
-      work_locations: [{ id: "cb", code: "CB-DSM", name: "Crayons & Bricks" }],
-      work_location_ids: ["cb"],
+      temporary_site_moves: [
+        {
+          to_location_id: "ua",
+          to_location_code: "UA-DM",
+          to_location_name: "Urban Arena",
+          starts_on: shiftYmd(today, -30),
+          ends_on: shiftYmd(today, -1),
+        },
+      ],
     });
-    const atCrayons = filterStaffDirectory([punchVisitor, assigned], { ...base, loc: "CB-DSM" });
-    expect(atCrayons.map((s) => s.id)).toEqual(["assigned"]);
-    const tiles = computeStaffDirectoryKpis(
-      filterStaffDirectoryForKpis([punchVisitor, assigned], { ...base, loc: "CB-DSM", status: "active" }),
-    );
-    expect(tiles.total).toBe(1);
-    expect(tiles.active).toBe(1);
 
-    const atHome = filterStaffDirectory([punchVisitor, assigned], { ...base, loc: "INF-CC" });
-    expect(atHome.map((s) => s.id).sort()).toEqual(["assigned", "russell"]);
+    expect(filterStaffDirectory([person, ended], { ...base, loc: "KDS-CC" })).toEqual([]);
+    expect(filterStaffDirectory([person, ended], { ...base, loc: "CB-DSM" })).toEqual([]);
+    expect(filterStaffDirectory([person], { ...base, loc: "CB-VM" })).toEqual([]);
+
+    const atHome = filterStaffDirectory([person, ended], { ...base, loc: "INF-CC" });
+    expect(atHome.map((s) => s.id).sort()).toEqual(["ended", "russell"]);
+
+    const atTemp = filterStaffDirectory([person, ended], { ...base, loc: "UA-DM" });
+    expect(atTemp.map((s) => s.id)).toEqual(["russell"]);
+
+    const tempTiles = computeStaffDirectoryTileKpis([person, ended], {
+      ...base,
+      loc: "UA-DM",
+      status: "active",
+    });
+    expect(tempTiles.total).toBe(1);
+
+    const extraTiles = computeStaffDirectoryTileKpis([person, ended], {
+      ...base,
+      loc: "CB-DSM",
+      status: "active",
+    });
+    expect(extraTiles.total).toBe(0);
   });
 });

@@ -65,6 +65,7 @@ import {
   type StaffHrAlert,
 } from "@/lib/staff-hr-alerts";
 import { restoreStaffMember } from "@/lib/staff-roster.functions";
+import { activeTemporaryLocationCodes } from "@/lib/staff-temporary-moves";
 import type { StaffRow } from "@/lib/queries/module-queries.core";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { STAFF_DIRECTORY_STATUSES } from "@/lib/staff-status";
@@ -921,6 +922,7 @@ export function StaffDirectory({
             ) : (
               pageRows.map((s) => {
                 const displayName = formatStaffDisplayName(s.full_name);
+                const tempCodes = activeTemporaryLocationCodes(s.temporary_site_moves);
                 return (
                   <MobileListCard
                     key={s.id}
@@ -928,7 +930,12 @@ export function StaffDirectory({
                     title={displayName}
                     subtitle={[s.job_title, formatLocation(s)].filter(Boolean).join(" · ") || s.employee_code}
                     meta={
-                      <Badge variant={staffStatusBadgeVariant(s.status)}>{s.status}</Badge>
+                      <>
+                        <Badge variant={staffStatusBadgeVariant(s.status)}>{s.status}</Badge>
+                        {tempCodes.length ? (
+                          <Badge variant="info">{t("people.staff.temporaryMove")}</Badge>
+                        ) : null}
+                      </>
                     }
                     trailing={
                       <StaffAvatar
@@ -986,6 +993,7 @@ export function StaffDirectory({
                     <tbody>
                       {pageRows.map((s) => {
                         const multiSite = s.is_roaming || (s.work_locations?.length ?? 0) > 1;
+                        const tempCodes = activeTemporaryLocationCodes(s.temporary_site_moves);
                         const displayName = formatStaffDisplayName(s.full_name);
                         const alerts = staffHrAlerts(s);
                         const deptLabel =
@@ -1058,6 +1066,12 @@ export function StaffDirectory({
                                     <div className="font-mono text-[11px] text-muted-foreground">{s.location_code}</div>
                                   ) : null}
                                   <div className="text-sm text-foreground">{s.location_name ?? formatLocation(s)}</div>
+                                  {tempCodes.length ? (
+                                    <div className="mt-0.5 text-[11px] font-medium text-foreground">
+                                      {t("people.staff.temporaryMove")}
+                                      <span className="font-normal text-muted-foreground"> · {tempCodes.join(", ")}</span>
+                                    </div>
+                                  ) : null}
                                   {multiSite ? (
                                     <div className="mt-0.5 text-[11px] text-muted-foreground">
                                       {t("people.staff.multiSite")}

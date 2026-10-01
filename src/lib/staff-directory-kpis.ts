@@ -1,6 +1,7 @@
 import type { StaffRow } from "@/lib/queries/module-queries.core";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { expiryBand, isExpiringSoon, qatarTodayYmd } from "@/lib/hr-expiry-bands";
+import { activeTemporaryLocationCodes } from "@/lib/staff-temporary-moves";
 import {
   normalizeDepartmentName,
   splitDepartmentTokens,
@@ -87,21 +88,27 @@ export type StaffDirectoryKpis = {
 };
 
 /**
- * Dedicated workplace codes: home branch plus extra sites HR saved on the profile.
- * `punch_location_codes` is accepted so callers can pass punch/visit sites beside
- * the person; those codes are never membership.
+ * People directory location membership: the home branch, plus a temporary site
+ * while today is inside that move. Extra dedicated sites (`work_locations`) and
+ * punch or visit sites are not membership.
  */
 export function dedicatedStaffLocationCodes(
   s: Pick<StaffRow, "location_code" | "work_locations"> & {
     punch_location_codes?: readonly string[] | null;
+    temporary_site_moves?: readonly {
+      to_location_code?: string | null;
+      starts_on: string;
+      ends_on: string;
+    }[] | null;
   },
+  today = qatarTodayYmd(),
 ): string[] {
-  // Attendance punches, device sites, and visits are not dedicated workplaces.
+  void s.work_locations;
   void s.punch_location_codes;
   const codes = new Set<string>();
   if (s.location_code) codes.add(s.location_code);
-  for (const loc of s.work_locations ?? []) {
-    if (loc.code) codes.add(loc.code);
+  for (const code of activeTemporaryLocationCodes(s.temporary_site_moves, today)) {
+    codes.add(code);
   }
   return [...codes];
 }
@@ -195,18 +202,35 @@ export function filterStaffDirectory(staff: StaffRow[], f: StaffDirectoryFilters
 }
 
 /**
- * Rows behind the directory KPI tiles.
+ * Rows behind the directory bucket tiles (Active, Secondment, Exiting, and the rest).
  * Location, department, employment type, search, show-only departments, and the other
- * non-status filters narrow every tile. Status and expiry stay on the table
- * only — those controls are the tile shortcuts — so each tile still counts
- * its own bucket inside the shared scope. With those cleared, an otherwise
- * empty filter set is the full roster (same figures as an unfiltered page).
+ * non-status filters narrow every bucket. Status, expiry, and the joker toggle stay
+ * off here — those controls are the tile shortcuts — so each bucket still counts
+ * inside the shared scope. Total is not this list; it is the table row count.
  */
 export function filterStaffDirectoryForKpis(staff: StaffRow[], f: StaffDirectoryFilters): StaffRow[] {
   return filterStaffDirectory(staff, { ...f, status: "", expiry: "", showJokers: false });
 }
 
-/** KPI strip counts for one scoped roster (see filterStaffDirectoryForKpis). */
+/**
+ * Tiles above the directory table.
+ * Total is the table: every current filter, including status.
+ * The other tiles keep their own buckets inside the non-status filters
+ * (location, department, type, search, and the rest) so HR can still see
+ * secondment, exiting, and the other counts while the table is narrowed.
+ */
+export function computeStaffDirectoryTileKpis(
+  staff: StaffRow[],
+  filters: StaffDirectoryFilters,
+): StaffDirectoryKpis {
+  const buckets = computeStaffDirectoryKpis(filterStaffDirectoryForKpis(staff, filters));
+  return {
+    ...buckets,
+    total: filterStaffDirectory(staff, filters).length,
+  };
+}
+
+/** Bucket counts for one roster. `total` is `rows.length`. Directory tiles use `computeStaffDirectoryTileKpis` so Total matches the table. */
 export function computeStaffDirectoryKpis(rows: StaffRow[]): StaffDirectoryKpis {
   const today = qatarTodayYmd();
   let active = 0;

@@ -24,6 +24,7 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
 import { StaffDirectory } from "@/components/people/staff-directory";
+import { TemporarySiteMovesPanel } from "@/components/people/temporary-site-moves-panel";
 import { StaffJobTitleField } from "@/components/people/staff-job-title-field";
 import { StaffPhotoField, type StaffPhotoDraft } from "@/components/people/staff-photo-field";
 import {
@@ -234,9 +235,9 @@ function PeoplePage() {
   );
 }
 
-const PEOPLE_TABS = ["dashboard", "staff", "documents", "shifts", "attendance", "training"] as const;
+const PEOPLE_TABS = ["dashboard", "staff", "moves", "documents", "shifts", "attendance", "training"] as const;
 /** Visible People module tabs — route values stay dashboard/staff for URL compatibility. */
-const PEOPLE_MAIN_TABS = ["dashboard", "staff", "documents", "training"] as const;
+const PEOPLE_MAIN_TABS = ["dashboard", "staff", "moves", "documents", "training"] as const;
 type PeopleTab = (typeof PEOPLE_TABS)[number];
 
 const TAB_ALIASES: Record<string, PeopleTab> = {
@@ -329,6 +330,9 @@ function PeoplePageBody() {
             data-state inactive must stay display:none so force-mounted panels never leak under the active tab. */}
         <TabsContent value="staff" className="mt-4 data-[state=inactive]:hidden" forceMount>
           <StaffTab />
+        </TabsContent>
+        <TabsContent value="moves" className="mt-4 data-[state=inactive]:hidden">
+          <TemporarySiteMovesPanel />
         </TabsContent>
         <TabsContent value="documents" className="mt-4 data-[state=inactive]:hidden">
           <PeopleDocumentsExpiryPanel />
@@ -518,6 +522,7 @@ function StaffFormDialog({
     }
     return staff?.monthly_salary_qar != null ? String(staff.monthly_salary_qar) : "";
   });
+  const [editHomeLocationId, setEditHomeLocationId] = useState(staff?.location_id ?? "");
   const [workLocationIds, setWorkLocationIds] = useState<string[]>(
     staff?.work_location_ids?.length
       ? staff.work_location_ids
@@ -547,6 +552,7 @@ function StaffFormDialog({
   const [createdStaffId, setCreatedStaffId] = useState<string | null>(null);
   const [codeNonce, setCodeNonce] = useState(0);
   const titleListOpenRef = useRef(false);
+  const homeSiteListOpenRef = useRef(false);
   const workSiteListOpenRef = useRef(false);
 
   useEffect(() => {
@@ -646,11 +652,13 @@ function StaffFormDialog({
           nationality: alignMasterValue(nationality, nationalityNames) || null,
         });
         if (!updated.ok) throw new Error(updated.error);
-        const homeId = staff!.location_id;
-        const uniqueSites = [...new Set([homeId, ...workLocationIds.filter(Boolean)])];
+        const homeId = editHomeLocationId || staff!.location_id;
+        if (!homeId) throw new Error(t("people.staff.selectBranch"));
+        const extraIds = [...new Set(workLocationIds.filter((id) => id && id !== homeId))];
         const sitesResult = await updateStaffWorkLocations({
           id: staff!.id,
-          locationIds: uniqueSites,
+          locationIds: [homeId, ...extraIds],
+          homeLocationId: homeId,
           isRoaming,
         });
         if (!sitesResult.ok) throw new Error(sitesResult.error);
@@ -782,8 +790,12 @@ function StaffFormDialog({
     onError: (e) => toast.error((e as Error).message),
   });
 
-  const homeLocationId = isEdit ? staff!.location_id : loc;
+  const homeLocationId = isEdit ? editHomeLocationId || staff!.location_id : loc;
   const activeSites = sites.filter((s) => s.status !== "inactive");
+  const homeSiteOptions = useMemo(() => {
+    const rows = sites.filter((site) => site.status !== "inactive" || site.id === homeLocationId);
+    return rows.slice().sort((a, b) => a.code.localeCompare(b.code));
+  }, [sites, homeLocationId]);
   const homeSite = sites.find((site) => site.id === homeLocationId);
   const formLocationCode = sites.find((site) => site.id === homeLocationId)?.code ?? null;
   const formAudience = departmentAudienceForLocationCode(formLocationCode);
@@ -803,7 +815,7 @@ function StaffFormDialog({
       <DialogContent
         className="max-h-[90vh] max-w-[calc(100%-1.5rem)] overflow-y-auto sm:max-w-xl"
         onEscapeKeyDown={(event) => {
-          if (!titleListOpenRef.current && !workSiteListOpenRef.current) return;
+          if (!titleListOpenRef.current && !homeSiteListOpenRef.current && !workSiteListOpenRef.current) return;
           event.preventDefault();
         }}
       >
@@ -861,12 +873,11 @@ function StaffFormDialog({
                 <Input
                   readOnly
                   className="bg-muted/40"
-                  value={(() => {
-                    const home = sites.find((s) => s.id === staff!.location_id);
-                    return home
-                      ? `${home.code} — ${home.name}`
-                      : staff!.location_code ?? "—";
-                  })()}
+                  value={
+                    homeSite
+                      ? formatLocationLabel(homeSite.code, homeSite.name)
+                      : staff!.location_code ?? "—"
+                  }
                 />
               </div>
               <div>
@@ -1168,11 +1179,38 @@ function StaffFormDialog({
                 />
                 {t("people.staff.roaming")}
               </label>
-              <div className="rounded-lg border border-border bg-muted/30 px-3 py-2">
-                <div className="text-[11px] text-muted-foreground">{t("people.staff.homeLocation")}</div>
-                <div className="text-sm font-medium">
-                  {formatLocationLabel(homeSite?.code, homeSite?.name)}
-                </div>
+              <div className="space-y-1">
+                <Label htmlFor="staff-home-location">{t("people.staff.homeLocation")}</Label>
+                <SearchableSelect
+                  id="staff-home-location"
+                  value={homeLocationId}
+                  onValueChange={(nextId) => {
+                    if (!nextId || nextId === homeLocationId) return;
+                    setEditHomeLocationId(nextId);
+                    setWorkLocationIds((prev) => {
+                      const extras = prev.filter((id) => id && id !== homeLocationId && id !== nextId);
+                      return [nextId, ...extras];
+                    });
+                  }}
+                  disabled={m.isPending}
+                  aria-label={t("people.staff.homeLocation")}
+                  placeholder={t("people.staff.homeLocationPlaceholder")}
+                  onOpenChange={(next) => {
+                    if (next) {
+                      homeSiteListOpenRef.current = true;
+                      return;
+                    }
+                    queueMicrotask(() => {
+                      homeSiteListOpenRef.current = false;
+                    });
+                  }}
+                  options={homeSiteOptions.map((site) => ({
+                    value: site.id,
+                    label: formatLocationLabel(site.code, site.name),
+                    keywords: `${site.code} ${site.name}`,
+                  }))}
+                />
+                <p className="text-[11px] text-muted-foreground">{t("people.staff.homeLocationHint")}</p>
               </div>
               <div className="space-y-1">
                 <Label>{t("people.staff.dedicatedSites")}</Label>

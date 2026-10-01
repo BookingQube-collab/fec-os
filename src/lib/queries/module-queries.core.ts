@@ -7,13 +7,17 @@ import { canUserDo } from "@/lib/rbac";
 import type { OrgFocusDepartment } from "@/lib/exclude-org-departments";
 import type { MasterDepartmentRow } from "@/lib/staff-departments";
 import {
-  computeStaffDirectoryKpis,
+  computeStaffDirectoryTileKpis,
   filterStaffDirectory,
-  filterStaffDirectoryForKpis,
   type StaffDirectoryKpis,
   type StaffDirectorySort,
 } from "@/lib/staff-directory-kpis";
 import { distinctJobTitles } from "@/lib/staff-job-titles";
+import {
+  fetchActiveTemporaryMovesByStaffId,
+  fetchStaffIdsOnActiveTemporaryMove,
+} from "@/lib/staff-temporary-moves-query";
+import type { TemporarySiteMoveRef } from "@/lib/staff-temporary-moves";
 import {
   fetchStaffIdsWorkingAtLocation,
   fetchWorkLocationsByStaffId,
@@ -359,6 +363,8 @@ export interface StaffRow {
   is_roaming: boolean;
   work_locations: WorkLocationRef[];
   work_location_ids: string[];
+  /** Active temporary site moves only (today inside starts_on..ends_on). */
+  temporary_site_moves?: TemporarySiteMoveRef[];
   phone: string | null;
   email: string | null;
   hire_date: string | null;
@@ -677,10 +683,11 @@ export async function fetchStaffDirectory(
     .limit(2000);
   if (!filters.includeArchived) q = q.is("deleted_at", null);
   if (filters.locationId) {
-    // Home location, plus extra workplaces HR saved. Not punch or device sites.
-    const extraIds = await fetchStaffIdsWorkingAtLocation(context.supabase, filters.locationId);
-    q = extraIds.length
-      ? q.or(`location_id.eq.${filters.locationId},id.in.(${extraIds.join(",")})`)
+    // Home location, or an active temporary move to this site.
+    // Extra dedicated sites and punches are not directory membership.
+    const tempIds = await fetchStaffIdsOnActiveTemporaryMove(context.supabase, filters.locationId);
+    q = tempIds.length
+      ? q.or(`location_id.eq.${filters.locationId},id.in.(${tempIds.join(",")})`)
       : q.eq("location_id", filters.locationId);
   }
 
@@ -734,9 +741,14 @@ export async function fetchStaffDirectory(
     context.supabase,
     mapped.map((s) => s.id),
   );
+  const tempByStaff = await fetchActiveTemporaryMovesByStaffId(
+    context.supabase,
+    mapped.map((s) => s.id),
+  );
   for (const row of mapped) {
     row.work_locations = workByStaff.get(row.id) ?? [];
     row.work_location_ids = row.work_locations.map((loc) => loc.id);
+    row.temporary_site_moves = tempByStaff.get(row.id) ?? [];
   }
 
   const canSensitive = canUserDo(context.roles ?? [], "hr.profile.view_sensitive");
@@ -761,9 +773,9 @@ export async function fetchStaffDirectory(
     sort: filters.sort ?? "name",
   };
 
-  // Same filter pipeline as the table. Status and expiry are omitted so each
-  // tile keeps its own bucket inside location / department / type / search.
-  const kpis = computeStaffDirectoryKpis(filterStaffDirectoryForKpis(identitySafe, directoryFilters));
+  // Total matches the table, including status. Other tiles keep their buckets
+  // inside location / department / type / search.
+  const kpis = computeStaffDirectoryTileKpis(identitySafe, directoryFilters);
 
   const positions = [...new Set(identitySafe.map((s) => s.job_title).filter(Boolean))] as string[];
   positions.sort((a, b) => a.localeCompare(b));
@@ -776,9 +788,12 @@ export async function fetchStaffDirectory(
     if (s.location_code) {
       locationMap.set(s.location_code, formatLocationLabel(s.location_code, s.location_name));
     }
-    for (const wl of s.work_locations ?? []) {
-      if (wl.code && !locationMap.has(wl.code)) {
-        locationMap.set(wl.code, formatLocationLabel(wl.code, wl.name));
+    for (const move of s.temporary_site_moves ?? []) {
+      if (move.to_location_code && !locationMap.has(move.to_location_code)) {
+        locationMap.set(
+          move.to_location_code,
+          formatLocationLabel(move.to_location_code, move.to_location_name),
+        );
       }
     }
   }

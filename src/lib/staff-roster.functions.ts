@@ -11,6 +11,7 @@ import {
 import { ForbiddenError } from "@/lib/server/authorize";
 import { rollbackRosterBatch } from "@/lib/staff-roster/apply";
 import { insertSalaryHistoryAndSync, insertStatusHistory } from "@/lib/staff-history";
+import { staffHomeWorkSiteIds } from "@/lib/staff-work-locations";
 
 async function assertStaffLocation(context: AuthContext, staffId: string): Promise<{ location_id: string; status: string; deleted_at: string | null }> {
   const { data, error } = await context.supabase
@@ -231,11 +232,17 @@ export const updateStaffWorkLocations = createSafeAuthenticatedAction(
     id: z.string().uuid(),
     locationIds: z.array(z.string().uuid()).max(20),
     isRoaming: z.boolean().optional(),
+    /** Directory home (`staff.location_id`). Omit to leave the current home unchanged. */
+    homeLocationId: z.string().uuid().optional(),
   }),
   async (data, context) => {
     const existing = await assertStaffLocation(context, data.id);
-    const unique = [...new Set(data.locationIds.filter(Boolean))];
-    if (!unique.includes(existing.location_id)) unique.unshift(existing.location_id);
+    const resolved = staffHomeWorkSiteIds({
+      previousHomeId: existing.location_id,
+      homeLocationId: data.homeLocationId,
+      locationIds: data.locationIds,
+    });
+    const unique = resolved.locationIds;
 
     for (const locationId of unique) {
       const { data: allowed, error } = await context.supabase.rpc("user_can_access_location", {
@@ -243,6 +250,17 @@ export const updateStaffWorkLocations = createSafeAuthenticatedAction(
       });
       if (error) throw error;
       if (!allowed) throw new ForbiddenError("Forbidden: cannot attach this branch");
+    }
+
+    const extraSites = unique.filter((id) => id !== resolved.homeLocationId);
+    const isRoaming = data.isRoaming ?? extraSites.length > 0;
+    // Directory listing uses staff.location_id. Punches are left as they are.
+    if (resolved.homeLocationId !== existing.location_id) {
+      const { error: homeErr } = await context.supabase
+        .from("staff")
+        .update({ location_id: resolved.homeLocationId })
+        .eq("id", data.id);
+      if (homeErr) throw homeErr;
     }
 
     const { error: delErr } = await context.supabase.from("staff_work_locations").delete().eq("staff_id", data.id);
@@ -258,8 +276,6 @@ export const updateStaffWorkLocations = createSafeAuthenticatedAction(
       if (insErr) throw insErr;
     }
 
-    const extraSites = unique.filter((id) => id !== existing.location_id);
-    const isRoaming = data.isRoaming ?? extraSites.length > 0;
     const { error: flagErr } = await context.supabase
       .from("staff")
       .update({ is_roaming: isRoaming })
@@ -270,10 +286,20 @@ export const updateStaffWorkLocations = createSafeAuthenticatedAction(
       context,
       "staff.work_locations_updated",
       data.id,
-      { location_ids: unique, is_roaming: isRoaming },
-      existing.location_id,
+      {
+        location_ids: unique,
+        is_roaming: isRoaming,
+        home_location_id: resolved.homeLocationId,
+        previous_home_location_id: existing.location_id,
+      },
+      resolved.homeLocationId,
     );
-    return { ok: true as const, isRoaming, locationIds: unique };
+    return {
+      ok: true as const,
+      isRoaming,
+      locationIds: unique,
+      homeLocationId: resolved.homeLocationId,
+    };
   },
   { auth: { capability: "people.edit_roster" } },
 );

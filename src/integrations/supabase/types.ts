@@ -2511,6 +2511,64 @@ export type Database = {
           },
         ]
       }
+      staff_temporary_site_moves: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          ends_on: string
+          from_location_id: string | null
+          id: string
+          note: string | null
+          staff_id: string
+          starts_on: string
+          to_location_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          ends_on: string
+          from_location_id?: string | null
+          id?: string
+          note?: string | null
+          staff_id: string
+          starts_on: string
+          to_location_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          ends_on?: string
+          from_location_id?: string | null
+          id?: string
+          note?: string | null
+          staff_id?: string
+          starts_on?: string
+          to_location_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_temporary_site_moves_from_location_id_fkey"
+            columns: ["from_location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staff_temporary_site_moves_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staff_temporary_site_moves_to_location_id_fkey"
+            columns: ["to_location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       staff_transfers: {
         Row: {
           created_at: string

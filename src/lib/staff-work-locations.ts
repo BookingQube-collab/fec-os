@@ -12,6 +12,28 @@ export type StaffLocationFields = {
   work_location_ids?: string[] | null;
 };
 
+/**
+ * Directory home is `staff.location_id`. Extra dedicated sites must not include that home.
+ * Changing home does not keep the previous home unless it is still in `locationIds`,
+ * and does not rewrite punches.
+ */
+export function staffHomeWorkSiteIds(input: {
+  previousHomeId: string;
+  /** Selected home. Omit to keep `previousHomeId`. */
+  homeLocationId?: string | null;
+  /** Form ids. May include the home and extra sites. */
+  locationIds: string[];
+}): { homeLocationId: string; locationIds: string[] } {
+  const home = input.homeLocationId || input.previousHomeId;
+  const changingHome = Boolean(input.homeLocationId) && input.homeLocationId !== input.previousHomeId;
+  const extras = [...new Set(input.locationIds.filter((id) => id && id !== home))];
+  const stored = [home, ...extras];
+  if (!changingHome && input.previousHomeId && !stored.includes(input.previousHomeId)) {
+    stored.unshift(input.previousHomeId);
+  }
+  return { homeLocationId: home, locationIds: [...new Set(stored.filter(Boolean))] };
+}
+
 /** Home branch or an HR-assigned work site. Mapping can also include all roaming techs. */
 export function staffWorksAtLocation(
   staff: StaffLocationFields,
