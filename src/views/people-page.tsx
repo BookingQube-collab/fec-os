@@ -16,7 +16,7 @@ import {
   CalendarDays,
   RefreshCw,
 } from "lucide-react";
-import { useState, useEffect, useMemo, Suspense } from "react";
+import { useState, useEffect, useMemo, useRef, Suspense } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -24,6 +24,7 @@ import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
 
 import { StaffDirectory } from "@/components/people/staff-directory";
+import { StaffJobTitleField } from "@/components/people/staff-job-title-field";
 import { StaffPhotoField, type StaffPhotoDraft } from "@/components/people/staff-photo-field";
 import {
   emptyIdentityDraft,
@@ -54,9 +55,11 @@ import {
 } from "@/lib/people.functions";
 import { updateStaffSalary, updateStaffWorkLocations } from "@/lib/staff-roster.functions";
 import { departmentAudienceForLocationCode, filterDepartmentsForLocation } from "@/lib/department-audience";
-import { useMasterDepartments } from "@/hooks/queries/useDepartments";
+import { useMasterDepartments, usePeopleMasters } from "@/hooks/queries/useDepartments";
 import { DepartmentMultiSelect } from "@/components/people/department-multi-select";
-import { ManageDepartmentsDialog } from "@/components/people/manage-departments-dialog";
+import { ManagePeopleMastersDialog } from "@/components/people/manage-people-masters-dialog";
+import { SearchableSelect } from "@/components/ui/searchable-select";
+import { alignMasterValue } from "@/lib/people-masters";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -386,7 +389,7 @@ function StaffTab() {
     <div className="space-y-4">
       {canEdit ? (
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <ManageDepartmentsDialog />
+          <ManagePeopleMastersDialog />
         </div>
       ) : null}
       <StaffDirectory
@@ -463,6 +466,17 @@ function StaffFormDialog({
   const [employeeCode, setEmployeeCode] = useState(staff?.employee_code ?? "");
   const [fullName, setFullName] = useState(staff?.full_name ?? "");
   const [jobTitle, setJobTitle] = useState(staff?.job_title ?? "");
+  const [gender, setGender] = useState(staff?.gender ?? "");
+  const [nationality, setNationality] = useState(staff?.nationality ?? "");
+  const peopleMasters = usePeopleMasters({ enabled: open });
+  const genderNames = useMemo(
+    () => (peopleMasters.data?.genders ?? []).map((row) => row.name),
+    [peopleMasters.data?.genders],
+  );
+  const nationalityNames = useMemo(
+    () => (peopleMasters.data?.nationalities ?? []).map((row) => row.name),
+    [peopleMasters.data?.nationalities],
+  );
   const { data: departments = [] } = useMasterDepartments({ enabled: open });
   const { data: codeScopeStaff = [] } = useStaff(loc || null, {
     enabled: open && !isEdit && !!loc,
@@ -530,6 +544,7 @@ function StaffFormDialog({
   const [identity, setIdentity] = useState<StaffIdentityDraft>(() => emptyIdentityDraft(staff));
   const [createdStaffId, setCreatedStaffId] = useState<string | null>(null);
   const [codeNonce, setCodeNonce] = useState(0);
+  const titleListOpenRef = useRef(false);
 
   useEffect(() => {
     if (open) return;
@@ -624,6 +639,8 @@ function StaffFormDialog({
           expectedHours: expectedParsed,
           breakMinutes: breakParsed,
           weeklyOffWeekday: weeklyOffParsed,
+          gender: alignMasterValue(gender, genderNames) || null,
+          nationality: alignMasterValue(nationality, nationalityNames) || null,
         });
         if (!updated.ok) throw new Error(updated.error);
         const homeId = staff!.location_id;
@@ -647,6 +664,8 @@ function StaffFormDialog({
           qid: qidValue,
           e3Enrolled,
           employmentType: employment,
+          gender: alignMasterValue(gender, genderNames) || null,
+          nationality: alignMasterValue(nationality, nationalityNames) || null,
         });
         if (!updated.ok) throw new Error(updated.error);
         staffId = createdStaffId;
@@ -665,6 +684,8 @@ function StaffFormDialog({
           qid: qidValue || undefined,
           e3Enrolled,
           employmentType: employment,
+          gender: alignMasterValue(gender, genderNames) || null,
+          nationality: alignMasterValue(nationality, nationalityNames) || null,
         });
         if (!created.ok) throw new Error(created.error);
         staffId = created.data.id;
@@ -775,7 +796,13 @@ function StaffFormDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="max-h-[90vh] max-w-[calc(100%-1.5rem)] overflow-y-auto sm:max-w-xl">
+      <DialogContent
+        className="max-h-[90vh] max-w-[calc(100%-1.5rem)] overflow-y-auto sm:max-w-xl"
+        onEscapeKeyDown={(event) => {
+          if (!titleListOpenRef.current) return;
+          event.preventDefault();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>{isEdit ? t("people.staff.edit") : t("people.staff.add")}</DialogTitle>
         </DialogHeader>
@@ -898,19 +925,48 @@ function StaffFormDialog({
             disabled={m.isPending}
           />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <Label>{t("people.staff.title")}</Label>
-              <Input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} />
-            </div>
+            <StaffJobTitleField
+              value={jobTitle}
+              onChange={setJobTitle}
+              disabled={m.isPending}
+              enabled={open}
+              onListOpenChange={(next) => {
+                titleListOpenRef.current = next;
+              }}
+            />
             <div>
               <Label>{t("people.staff.hireDate")}</Label>
               <Input type="date" value={hireDate} onChange={(e) => setHireDate(e.target.value)} />
             </div>
           </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <Label>{t("people.staff.gender")}</Label>
+              <SearchableSelect
+                value={alignMasterValue(gender, genderNames)}
+                onValueChange={setGender}
+                disabled={m.isPending}
+                placeholder={t("people.staff.genderUnset")}
+                emptyOption={{ value: "", label: t("people.staff.genderUnset") }}
+                options={genderNames.map((name) => ({ value: name, label: name }))}
+              />
+            </div>
+            <div>
+              <Label>{t("people.staff.nationality")}</Label>
+              <SearchableSelect
+                value={alignMasterValue(nationality, nationalityNames)}
+                onValueChange={setNationality}
+                disabled={m.isPending}
+                placeholder={t("people.staff.nationalityUnset")}
+                emptyOption={{ value: "", label: t("people.staff.nationalityUnset") }}
+                options={nationalityNames.map((name) => ({ value: name, label: name }))}
+              />
+            </div>
+          </div>
           <div>
             <div className="mb-1 flex items-center justify-between gap-2">
               <Label>{t("people.staff.dept")}</Label>
-              <ManageDepartmentsDialog audience={formAudience ?? undefined} />
+              <ManagePeopleMastersDialog audience={formAudience ?? undefined} />
             </div>
             <DepartmentMultiSelect
               value={departmentIds}

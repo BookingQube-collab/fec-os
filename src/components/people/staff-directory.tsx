@@ -50,7 +50,7 @@ import {
   orgDepartmentSelectionIsAll,
   type OrgDepartmentChecks,
 } from "@/lib/exclude-org-departments";
-import { useMasterDepartments } from "@/hooks/queries/useDepartments";
+import { useMasterDepartments, usePeopleMasters } from "@/hooks/queries/useDepartments";
 import { useStaffDirectory } from "@/hooks/queries/usePeople";
 import { usePermission } from "@/hooks/use-permission";
 import { queryKeys } from "@/lib/query-keys";
@@ -224,6 +224,7 @@ export function StaffDirectory({
   const router = useRouter();
   const searchParams = useSearchParams();
   const { data: departments = [] } = useMasterDepartments();
+  const peopleMasters = usePeopleMasters();
   const canSalary = usePermission("people.view_salary");
   const canImport = usePermission("people.import_roster");
   const canSensitive = usePermission("hr.profile.view_sensitive") || canSalary;
@@ -857,11 +858,15 @@ export function StaffDirectory({
               }}
               placeholder={t("people.staff.gender", "Gender")}
               emptyOption={{ value: "", label: t("people.staff.allGenders", "All genders") }}
-              options={[
-                { value: "male", label: "Male" },
-                { value: "female", label: "Female" },
-                { value: "other", label: "Other" },
-              ]}
+              options={
+                peopleMasters.data?.genders.length
+                  ? peopleMasters.data.genders.map((row) => ({ value: row.name, label: row.name }))
+                  : [
+                      { value: "male", label: "Male" },
+                      { value: "female", label: "Female" },
+                      { value: "other", label: "Other" },
+                    ]
+              }
               triggerClassName={FILTER_TRIGGER}
               className="w-full"
             />

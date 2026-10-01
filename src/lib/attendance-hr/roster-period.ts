@@ -40,6 +40,15 @@ export function nextPayrollMonth(month: string): string {
   return `${year}-${String(mo + 1).padStart(2, "0")}`;
 }
 
+/** FEC payroll month immediately before `month` (YYYY-MM). */
+export function previousPayrollMonth(month: string): string {
+  const ym = month.slice(0, 7);
+  const [year, mo] = ym.split("-").map(Number);
+  if (!year || !mo) return ym;
+  if (mo === 1) return `${year - 1}-12`;
+  return `${year}-${String(mo - 1).padStart(2, "0")}`;
+}
+
 /** FEC month that contains `ymd`: the 28th onward belongs to the next calendar month. */
 export function payrollMonthOf(ymd: string): string {
   const day = ymd.slice(0, 10);

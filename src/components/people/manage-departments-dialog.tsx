@@ -8,6 +8,7 @@ import { toast } from "sonner";
 
 import {
   createMasterDepartment,
+  deleteMasterDepartment,
   listDepartmentBudgets,
   updateMasterDepartment,
   upsertDepartmentBudget,
@@ -15,7 +16,7 @@ import {
 import { departmentBudgetYear } from "@/lib/procurement/department-budget";
 import type { DepartmentAudience } from "@/lib/department-audience";
 import { sortDepartmentsTree } from "@/lib/departments";
-import { useMasterDepartments } from "@/hooks/queries/useDepartments";
+import { useMasterDepartments, usePeopleMasters } from "@/hooks/queries/useDepartments";
 import { queryKeys } from "@/lib/query-keys";
 import {
   FecButton as Button,
@@ -41,18 +42,19 @@ import {
 
 const NONE = "__none__";
 
-export function ManageDepartmentsDialog({
-  trigger,
+export function DepartmentMasterPanel({
   audience,
+  active = true,
 }: {
-  trigger?: React.ReactNode;
-  /** When set, the dialog only edits that office. Head office stays separate from FEC sites. */
+  /** When set, the panel only edits that office. Head office stays separate from FEC sites. */
   audience?: DepartmentAudience;
+  active?: boolean;
 }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const { data: departments = [], isLoading } = useMasterDepartments();
-  const [open, setOpen] = useState(false);
+  const masters = usePeopleMasters({ enabled: active });
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [newCode, setNewCode] = useState("");
   const [newParentId, setNewParentId] = useState<string>(NONE);
@@ -62,8 +64,12 @@ export function ManageDepartmentsDialog({
   const budgetsQuery = useQuery({
     queryKey: [...queryKeys.people.departments(), "budgets", year],
     queryFn: () => listDepartmentBudgets({ year }),
-    enabled: open,
+    enabled: active,
   });
+  const usageById = useMemo(
+    () => new Map((masters.data?.departmentUsage ?? []).map((row) => [row.id, row.usageCount])),
+    [masters.data?.departmentUsage],
+  );
 
   const visibleDepartments = useMemo(
     () => departments.filter((department) => audienceFilter === "all" || department.audience === audienceFilter),
@@ -84,6 +90,9 @@ export function ManageDepartmentsDialog({
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: queryKeys.people.departments() });
+    void qc.invalidateQueries({ queryKey: queryKeys.people.masters() });
+    void qc.invalidateQueries({ queryKey: [...queryKeys.people.all, "staff-directory"] });
+    void qc.invalidateQueries({ queryKey: [...queryKeys.people.all, "staff"] });
     void qc.invalidateQueries({ queryKey: queryKeys.procurement.config() });
     void qc.invalidateQueries({ queryKey: queryKeys.procurement.options() });
   };
@@ -131,20 +140,18 @@ export function ManageDepartmentsDialog({
     onError: (e) => toast.error((e as Error).message),
   });
 
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => deleteMasterDepartment({ id }),
+    onSuccess: () => {
+      toast.success(t("people.departments.deleted"));
+      setPendingDeleteId(null);
+      invalidate();
+      void qc.invalidateQueries({ queryKey: queryKeys.people.masters() });
+    },
+    onError: (e) => toast.error((e as Error).message),
+  });
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        {trigger ?? (
-          <Button type="button" size="sm" variant="ghost">
-            <Settings2 className="mr-1 h-3 w-3" />
-            {t("people.departments.manage")}
-          </Button>
-        )}
-      </DialogTrigger>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>{t("people.departments.title")}</DialogTitle>
-        </DialogHeader>
         <div className="space-y-4">
           <FecFormSection description={t("people.departments.budgetHint", { year })}>
             {audience ? (
@@ -307,20 +314,66 @@ export function ManageDepartmentsDialog({
                         />
                       </td>
                       <td className="px-3 py-2 text-end">
-                        {!d.parent_id ? (
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => {
-                              setNewParentId(d.id);
-                              setNewName("");
-                              if (d.audience === "ho" || d.audience === "fec") setNewAudience(d.audience);
-                            }}
-                          >
-                            {t("people.departments.addChild")}
-                          </Button>
-                        ) : null}
+                        <div className="flex flex-col items-end gap-1">
+                          {(usageById.get(d.id) ?? 0) > 0 ? (
+                            <p className="text-[10px] text-muted-foreground">
+                              {t("people.masters.usedBy", { count: usageById.get(d.id) ?? 0 })}
+                            </p>
+                          ) : null}
+                          {!d.parent_id ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => {
+                                setNewParentId(d.id);
+                                setNewName("");
+                                if (d.audience === "ho" || d.audience === "fec") setNewAudience(d.audience);
+                              }}
+                            >
+                              {t("people.departments.addChild")}
+                            </Button>
+                          ) : null}
+                          {pendingDeleteId === d.id ? (
+                            <div className="flex gap-1">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="destructive"
+                                disabled={deleteMut.isPending}
+                                onClick={() => deleteMut.mutate(d.id)}
+                              >
+                                {t("people.masters.confirmDelete")}
+                              </Button>
+                              <Button type="button" size="sm" variant="ghost" onClick={() => setPendingDeleteId(null)}>
+                                {t("common.cancel")}
+                              </Button>
+                            </div>
+                          ) : (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => {
+                                const usage = usageById.get(d.id) ?? 0;
+                                if (masters.isSuccess && usage > 0) {
+                                  toast.error(t("people.masters.deleteBlocked", { name: d.name, count: usage }));
+                                  return;
+                                }
+                                const children = departments.filter((row) => row.parent_id === d.id).length;
+                                if (children > 0) {
+                                  toast.error(
+                                    t("people.departments.deleteBlockedChildren", { name: d.name, count: children }),
+                                  );
+                                  return;
+                                }
+                                setPendingDeleteId(d.id);
+                              }}
+                            >
+                              {t("people.departments.delete")}
+                            </Button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -329,6 +382,35 @@ export function ManageDepartmentsDialog({
             </table>
           </div>
         </div>
+  );
+}
+
+export function ManageDepartmentsDialog({
+  trigger,
+  audience,
+}: {
+  trigger?: React.ReactNode;
+  /** When set, the dialog only edits that office. Head office stays separate from FEC sites. */
+  audience?: DepartmentAudience;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        {trigger ?? (
+          <Button type="button" size="sm" variant="ghost">
+            <Settings2 className="mr-1 h-3 w-3" />
+            {t("people.departments.manage")}
+          </Button>
+        )}
+      </DialogTrigger>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{t("people.departments.title")}</DialogTitle>
+        </DialogHeader>
+        <DepartmentMasterPanel audience={audience} active={open} />
         <DialogFooter>
           <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
             {t("common.close")}

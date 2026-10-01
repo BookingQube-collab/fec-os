@@ -13,6 +13,7 @@ import {
   type StaffDirectoryKpis,
   type StaffDirectorySort,
 } from "@/lib/staff-directory-kpis";
+import { distinctJobTitles } from "@/lib/staff-job-titles";
 import {
   fetchStaffIdsWorkingAtLocation,
   fetchWorkLocationsByStaffId,
@@ -832,6 +833,34 @@ export async function fetchStaffDirectory(
       locations: locationFacets,
     },
   };
+}
+
+const JOB_TITLE_PAGE = 1000;
+
+/**
+ * Position suggestions come from master_positions.
+ * Before that table exists, fall back to distinct staff.job_title values.
+ */
+export async function fetchStaffJobTitles(context: AuthContext): Promise<string[]> {
+  const masters = await context.supabase.from("master_positions").select("name").order("name");
+  if (!masters.error) {
+    return distinctJobTitles((masters.data ?? []).map((row) => row.name ?? ""));
+  }
+
+  const raw: string[] = [];
+  for (let from = 0; ; from += JOB_TITLE_PAGE) {
+    const { data, error } = await context.supabase
+      .from("staff")
+      .select("job_title")
+      .not("job_title", "is", null)
+      .order("id", { ascending: true })
+      .range(from, from + JOB_TITLE_PAGE - 1);
+    if (error) throw error;
+    const rows = data ?? [];
+    for (const row of rows) raw.push(row.job_title ?? "");
+    if (rows.length < JOB_TITLE_PAGE) break;
+  }
+  return distinctJobTitles(raw);
 }
 
 // ——— Facility ———

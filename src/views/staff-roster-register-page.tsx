@@ -4,7 +4,7 @@ import { FecPageHeader } from "@/components/fec";
 
 import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CalendarDays, Copy, Loader2, Trash2, Upload } from "lucide-react";
+import { CalendarDays, Copy, Download, Loader2, Trash2, Upload } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -28,12 +28,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import { copyRosterToNextMonth } from "@/lib/attendance-hr/roster-register.functions";
+import { copyRosterToNextMonth, downloadPreviousMonthRoster } from "@/lib/attendance-hr/roster-register.functions";
 import {
   attendanceRosterPeriod,
   formatPayrollRange,
+  monthBounds,
   nextPayrollMonth,
   payrollMonthOf,
+  previousPayrollMonth,
   qatarWeekBounds,
   type AttendanceRosterPeriodMode,
 } from "@/lib/attendance-hr/roster-period";
@@ -64,6 +66,7 @@ export default function StaffRosterRegisterPage() {
   const [weekStart, setWeekStart] = useState(() => qatarWeekBounds(todayYmd()).dateFrom);
   const [month, setMonth] = useState(() => payrollMonthOf(todayYmd()));
   const [copyReplaceOpen, setCopyReplaceOpen] = useState(false);
+  const [previousBusy, setPreviousBusy] = useState(false);
   const [copyReplaceMeta, setCopyReplaceMeta] = useState<{
     targetMonth: string;
     targetCount: number;
@@ -80,6 +83,32 @@ export default function StaffRosterRegisterPage() {
   }, [periodMode, weekStart, month]);
 
   const nextMonth = nextPayrollMonth(month);
+  const previousPeriod = useMemo(() => monthBounds(previousPayrollMonth(month)), [month]);
+
+  const downloadPrevious = async () => {
+    try {
+      setPreviousBusy(true);
+      const file = await downloadPreviousMonthRoster({ month });
+      const bin = Uint8Array.from(atob(file.base64), (c) => c.charCodeAt(0));
+      const blob = new Blob([bin], { type: file.mime });
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = file.filename;
+      a.click();
+      URL.revokeObjectURL(objectUrl);
+      const range = formatPayrollRange(file.dateFrom, file.dateTo, i18n.language);
+      if (file.empty) {
+        toast.message(t("people.roster.downloadPreviousMonthEmpty", { range }));
+      } else {
+        toast.success(t("people.roster.downloadPreviousMonthReady", { range, count: file.rowCount }));
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("people.roster.previewFailed"));
+    } finally {
+      setPreviousBusy(false);
+    }
+  };
 
   const applyCopyResult = (result: Awaited<ReturnType<typeof copyRosterToNextMonth>>) => {
     if (result.status === "empty") {
@@ -125,6 +154,21 @@ export default function StaffRosterRegisterPage() {
         subtitle={t("people.roster.viewSubtitle")}
         actions={
           <>
+            {periodMode === "month" ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={previousBusy || !/^\d{4}-\d{2}$/.test(month)}
+                title={t("people.roster.downloadPreviousMonthHint", {
+                  range: formatPayrollRange(previousPeriod.dateFrom, previousPeriod.dateTo, i18n.language),
+                })}
+                onClick={() => void downloadPrevious()}
+              >
+                {previousBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                {t("people.roster.downloadPreviousMonth")}
+              </Button>
+            ) : null}
             {canImport && periodMode === "month" ? (
               <Button
                 type="button"

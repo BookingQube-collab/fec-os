@@ -21,7 +21,9 @@ import {
   type RosterDayStatus,
   type RosterLeaveType,
 } from "@/lib/attendance-hr/roster-register-scope";
-import { mapRosterPeriodByDayIndex, monthBounds, nextPayrollMonth } from "@/lib/attendance-hr/roster-period";
+import { mapRosterPeriodByDayIndex, monthBounds, nextPayrollMonth, previousPayrollMonth } from "@/lib/attendance-hr/roster-period";
+import { previousMonthRosterSheetLines } from "@/lib/staff-roster/previous-month-export";
+import { buildPeopleRosterRowsXlsx, peopleRosterSampleFilename } from "@/lib/staff-roster/period-sample";
 import { ATTENDANCE_DAILY_LIST_PAGE_SIZE } from "@/lib/attendance-hr/constants";
 
 const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -984,4 +986,60 @@ export const copyRosterToNextMonth = createAuthenticatedAction(
     };
   },
   { auth: { anyCapability: ["people.import_roster", "people.edit_roster", "daily_ops.roster.upload"] } },
+);
+
+/**
+ * Excel of roster rows already stored for the FEC month before `month`.
+ * Same DATE / EMPLOYEE / LOCATION / SHIFT workbook as the shift-roster sample.
+ * An empty prior month still returns headers and no invented shifts.
+ */
+export const downloadPreviousMonthRoster = createAuthenticatedAction(
+  z.object({ month: z.string().regex(/^\d{4}-\d{2}$/) }),
+  async (data) => {
+    const priorMonth = previousPayrollMonth(data.month);
+    const period = monthBounds(priorMonth);
+    const listed = await listUploadedRosterAssignments({
+      dateFrom: period.dateFrom,
+      dateTo: period.dateTo,
+      sourceUploadOnly: false,
+    });
+    const lines = previousMonthRosterSheetLines(
+      listed.rows.map((row) => ({
+        workDate: row.workDate,
+        staffName: row.staffName,
+        employeeCode: row.employeeCode,
+        locationCode: row.locationCode,
+        locationName: row.locationName,
+        shiftStart: row.shiftStart,
+        shiftEnd: row.shiftEnd,
+        isWeekOff: row.isWeekOff,
+        leaveType: row.leaveType,
+      })),
+    );
+    const built = await buildPeopleRosterRowsXlsx(lines, period, { periodMode: "month" });
+    if (built.truncated) {
+      throw new Error("Previous month roster is too large to download in one file.");
+    }
+    return {
+      filename: peopleRosterSampleFilename(period.dateFrom, period.dateTo, null),
+      mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      base64: built.buffer.toString("base64"),
+      rowCount: built.rowCount,
+      empty: built.rowCount === 0,
+      month: priorMonth,
+      dateFrom: period.dateFrom,
+      dateTo: period.dateTo,
+    };
+  },
+  {
+    auth: {
+      anyCapability: [
+        "people.view_roster",
+        "people.import_roster",
+        "people.edit_roster",
+        "daily_ops.roster.upload",
+        "attendance.view",
+      ],
+    },
+  },
 );

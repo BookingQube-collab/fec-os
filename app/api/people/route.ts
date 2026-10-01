@@ -1,6 +1,6 @@
 import { parseShowOrgDepartmentsParam } from "@/lib/exclude-org-departments";
 import { withAuthRouteRequest, searchParams } from "@/lib/server/api-route";
-import { fetchStaff, fetchStaffDirectory } from "@/lib/queries/module-queries.core";
+import { fetchStaff, fetchStaffDirectory, fetchStaffJobTitles } from "@/lib/queries/module-queries.core";
 
 export async function GET(request: Request) {
   return withAuthRouteRequest(
@@ -8,6 +8,10 @@ export async function GET(request: Request) {
       const params = searchParams(req);
       const view = params.get("view");
       const pageParam = params.get("page");
+
+      if (view === "job-titles") {
+        return { titles: await fetchStaffJobTitles(context) };
+      }
 
       // Paginated directory (People Employees tab). Legacy array kept for other callers.
       if (view === "directory" || pageParam != null) {

@@ -8,6 +8,7 @@ import {
   mapRosterPeriodByDayIndex,
   monthBounds,
   nextPayrollMonth,
+  previousPayrollMonth,
   payrollMonthMatchingBounds,
   payrollMonthOf,
   punchWorkDateInPeriod,
@@ -56,6 +57,16 @@ describe("attendance import period", () => {
   it("advances the FEC payroll month label", () => {
     expect(nextPayrollMonth("2026-08")).toBe("2026-09");
     expect(nextPayrollMonth("2026-12")).toBe("2027-01");
+  });
+
+  it("steps back one FEC payroll month", () => {
+    expect(previousPayrollMonth("2026-10")).toBe("2026-09");
+    expect(monthBounds(previousPayrollMonth("2026-10"))).toEqual({
+      dateFrom: "2026-08-28",
+      dateTo: "2026-09-27",
+    });
+    expect(previousPayrollMonth("2027-01")).toBe("2026-12");
+    expect(monthBounds("2026-10")).toEqual({ dateFrom: "2026-09-28", dateTo: "2026-10-27" });
   });
 
   it("maps roster dates by day-of-period index into the next FEC month", () => {

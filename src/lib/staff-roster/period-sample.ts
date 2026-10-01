@@ -83,16 +83,49 @@ export function peopleRosterSampleFilename(
   return `e3-date-wise-roster-${loc}-${dateFrom}-to-${dateTo}.xlsx`;
 }
 
-export async function buildPeopleRosterSampleXlsx(
-  dates: string[],
-  placements: StaffPlacement[],
+export type PeopleRosterSheetLine = {
+  date: string;
+  employee: string;
+  location: string;
+  shift: string;
+};
+
+export type PeopleRosterSheetMatrix = {
+  headers: readonly string[];
+  rows: string[][];
+  rowCount: number;
+  truncated: boolean;
+  title: string;
+  periodLine: string;
+};
+
+/** Same DATE / EMPLOYEE / LOCATION / SHIFT sheet as the blank sample, with caller-supplied rows. */
+export function buildPeopleRosterSheetMatrix(
+  lines: PeopleRosterSheetLine[],
+  period: { dateFrom: string; dateTo: string },
   options?: { maxRows?: number; periodMode?: AttendanceRosterPeriodMode },
+): PeopleRosterSheetMatrix {
+  const maxRows = options?.maxRows ?? 10_000;
+  const kept = lines.slice(0, maxRows);
+  return {
+    headers: PEOPLE_ROSTER_SAMPLE_HEADERS,
+    rows: kept.map((line) => [
+      formatE3RosterDate(line.date),
+      line.employee,
+      line.location,
+      line.shift,
+    ]),
+    rowCount: kept.length,
+    truncated: lines.length > maxRows,
+    title: peopleRosterSampleTitle(options?.periodMode ?? "month"),
+    periodLine: peopleRosterSamplePeriodLine(period.dateFrom, period.dateTo),
+  };
+}
+
+export async function writePeopleRosterSheetXlsx(
+  matrix: Pick<PeopleRosterSheetMatrix, "headers" | "rows" | "rowCount" | "truncated" | "title" | "periodLine">,
 ): Promise<{ buffer: Buffer; rowCount: number; truncated: boolean; headers: readonly string[] }> {
-  const { headers, rows, rowCount, truncated, title, periodLine } = buildPeopleRosterSampleMatrix(
-    dates,
-    placements,
-    options,
-  );
+  const { headers, rows, rowCount, truncated, title, periodLine } = matrix;
   const lastCol = headers.length - 1;
   const XLSX = await import("xlsx");
   const aoa: Array<Array<string>> = [[title], [periodLine], [], [...headers], ...rows];
@@ -111,6 +144,22 @@ export async function buildPeopleRosterSampleXlsx(
   XLSX.utils.book_append_sheet(wb, ws, PEOPLE_ROSTER_SAMPLE_SHEET);
   const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
   return { buffer, rowCount, truncated, headers };
+}
+
+export async function buildPeopleRosterSampleXlsx(
+  dates: string[],
+  placements: StaffPlacement[],
+  options?: { maxRows?: number; periodMode?: AttendanceRosterPeriodMode },
+): Promise<{ buffer: Buffer; rowCount: number; truncated: boolean; headers: readonly string[] }> {
+  return writePeopleRosterSheetXlsx(buildPeopleRosterSampleMatrix(dates, placements, options));
+}
+
+export async function buildPeopleRosterRowsXlsx(
+  lines: PeopleRosterSheetLine[],
+  period: { dateFrom: string; dateTo: string },
+  options?: { maxRows?: number; periodMode?: AttendanceRosterPeriodMode },
+): Promise<{ buffer: Buffer; rowCount: number; truncated: boolean; headers: readonly string[] }> {
+  return writePeopleRosterSheetXlsx(buildPeopleRosterSheetMatrix(lines, period, options));
 }
 
 export { enumerateRosterSampleDates };

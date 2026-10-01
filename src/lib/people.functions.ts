@@ -33,6 +33,222 @@ import { reconcileJokerStaffStatus } from "@/lib/staff-status";
 import {
   decodeImageDataUrl,
 } from "@/lib/staff-photo";
+import {
+  PEOPLE_MASTER_TABLE,
+  masterInUseMessage,
+  masterLabelKey,
+  normalizeMasterLabel,
+  type PeopleMasterKind,
+  type PeopleMasterRow,
+} from "@/lib/people-masters";
+
+const MASTER_PAGE = 1000;
+
+async function fetchAllRows<T>(
+  load: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+): Promise<T[]> {
+  const all: T[] = [];
+  for (let from = 0; ; from += MASTER_PAGE) {
+    const { data, error } = await load(from, from + MASTER_PAGE - 1);
+    if (error) throw new Error(error.message);
+    const rows = data ?? [];
+    all.push(...rows);
+    if (rows.length < MASTER_PAGE) return all;
+  }
+}
+
+function chunkIds(ids: string[], size: number): string[][] {
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += size) chunks.push(ids.slice(i, i + size));
+  return chunks;
+}
+
+function oneJoin<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null;
+  return Array.isArray(value) ? (value[0] ?? null) : value;
+}
+
+async function relabelDepartmentMembers(departmentId: string) {
+  const links = await fetchAllRows<{ staff_id: string }>((from, to) =>
+    supabaseAdmin
+      .from("staff_departments")
+      .select("staff_id")
+      .eq("department_id", departmentId)
+      .order("staff_id")
+      .range(from, to),
+  );
+  const staffIds = [...new Set(links.map((link) => link.staff_id))];
+  for (const chunk of chunkIds(staffIds, 80)) {
+    const { data, error } = await supabaseAdmin
+      .from("staff_departments")
+      .select("staff_id, master_departments(name, sort_order)")
+      .in("staff_id", chunk);
+    if (error) throw error;
+    const grouped = new Map<string, { name: string; sort_order: number }[]>();
+    for (const row of data ?? []) {
+      const dept = oneJoin(row.master_departments as { name: string; sort_order: number } | { name: string; sort_order: number }[] | null);
+      if (!dept?.name) continue;
+      const list = grouped.get(row.staff_id) ?? [];
+      list.push(dept);
+      grouped.set(row.staff_id, list);
+    }
+    await Promise.all(
+      chunk.map(async (staffId) => {
+        const names = (grouped.get(staffId) ?? [])
+          .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name))
+          .map((dept) => dept.name);
+        const { error: updErr } = await supabaseAdmin
+          .from("staff")
+          .update({ department: formatDepartmentDisplay(names) || null })
+          .eq("id", staffId);
+        if (updErr) throw updErr;
+      }),
+    );
+  }
+}
+
+async function countCurrentDepartmentStaff(departmentId: string): Promise<number> {
+  const rows = await fetchAllRows<{
+    staff_id: string;
+    staff: { deleted_at: string | null } | { deleted_at: string | null }[] | null;
+  }>((from, to) =>
+    supabaseAdmin
+      .from("staff_departments")
+      .select("staff_id, staff!inner(deleted_at)")
+      .eq("department_id", departmentId)
+      .order("staff_id")
+      .range(from, to),
+  );
+  const ids = new Set<string>();
+  for (const row of rows) {
+    const staff = oneJoin(row.staff);
+    if (staff && staff.deleted_at == null) ids.add(row.staff_id);
+  }
+  return ids.size;
+}
+
+async function rewriteStaffText(
+  column: "job_title" | "gender" | "nationality",
+  fromName: string,
+  toName: string,
+) {
+  const fromKey = masterLabelKey(fromName);
+  const next = normalizeMasterLabel(toName);
+  if (!fromKey || !next || fromName === next) return;
+
+  if (column === "job_title") {
+    const rows = await fetchAllRows<{ id: string; job_title: string | null }>((from, to) =>
+      supabaseAdmin
+        .from("staff")
+        .select("id, job_title")
+        .not("job_title", "is", null)
+        .order("id")
+        .range(from, to),
+    );
+    const ids = rows
+      .filter((row) => row.job_title && masterLabelKey(row.job_title) === fromKey && row.job_title !== next)
+      .map((row) => row.id);
+    for (const chunk of chunkIds(ids, 100)) {
+      const { error } = await supabaseAdmin.from("staff").update({ job_title: next }).in("id", chunk);
+      if (error) throw error;
+    }
+    return;
+  }
+
+  const rows = await fetchAllRows<{ staff_id: string; gender: string | null; nationality: string | null }>(
+    (from, to) =>
+      supabaseAdmin
+        .from("staff_profile_ext")
+        .select("staff_id, gender, nationality")
+        .order("staff_id")
+        .range(from, to),
+  );
+  const ids = rows
+    .filter((row) => {
+      const current = row[column];
+      return Boolean(current) && masterLabelKey(current) === fromKey && current !== next;
+    })
+    .map((row) => row.staff_id);
+  for (const chunk of chunkIds(ids, 100)) {
+    const patch = column === "gender" ? { gender: next } : { nationality: next };
+    const { error } = await supabaseAdmin.from("staff_profile_ext").update(patch).in("staff_id", chunk);
+    if (error) throw error;
+  }
+}
+
+async function currentStaffMasterUsage(): Promise<{
+  departments: Map<string, number>;
+  positions: Map<string, number>;
+  genders: Map<string, number>;
+  nationalities: Map<string, number>;
+}> {
+  const departments = new Map<string, number>();
+  const positions = new Map<string, number>();
+  const genders = new Map<string, number>();
+  const nationalities = new Map<string, number>();
+  const rows = await fetchAllRows<{
+    id: string;
+    job_title: string | null;
+    staff_profile_ext:
+      | { gender: string | null; nationality: string | null }
+      | { gender: string | null; nationality: string | null }[]
+      | null;
+    staff_departments: { department_id: string }[] | null;
+  }>((from, to) =>
+    supabaseAdmin
+      .from("staff")
+      .select("id, job_title, staff_profile_ext!staff_profile_ext_staff_id_fkey(gender, nationality), staff_departments(department_id)")
+      .is("deleted_at", null)
+      .order("id")
+      .range(from, to),
+  );
+  for (const row of rows) {
+    const titleKey = masterLabelKey(row.job_title);
+    if (titleKey) positions.set(titleKey, (positions.get(titleKey) ?? 0) + 1);
+    const ext = oneJoin(row.staff_profile_ext);
+    const genderKey = masterLabelKey(ext?.gender);
+    if (genderKey) genders.set(genderKey, (genders.get(genderKey) ?? 0) + 1);
+    const nationalityKey = masterLabelKey(ext?.nationality);
+    if (nationalityKey) nationalities.set(nationalityKey, (nationalities.get(nationalityKey) ?? 0) + 1);
+    for (const link of row.staff_departments ?? []) {
+      departments.set(link.department_id, (departments.get(link.department_id) ?? 0) + 1);
+    }
+  }
+  return { departments, positions, genders, nationalities };
+}
+
+async function canonicalMasterName(
+  kind: "gender" | "nationality",
+  value: string | null | undefined,
+): Promise<string | null> {
+  const trimmed = normalizeMasterLabel(value);
+  if (!trimmed) return null;
+  const table = PEOPLE_MASTER_TABLE[kind];
+  const { data, error } = await supabaseAdmin.from(table).select("name");
+  if (error) throw error;
+  const match = (data ?? []).find((row) => masterLabelKey(row.name) === masterLabelKey(trimmed));
+  if (!match) throw new Error(`Choose a saved ${kind}`);
+  return match.name;
+}
+
+async function saveStaffDemographics(
+  staffId: string,
+  input: { gender?: string | null; nationality?: string | null },
+  userId: string,
+) {
+  const patch: { gender?: string | null; nationality?: string | null; updated_by: string } = {
+    updated_by: userId,
+  };
+  if (input.gender !== undefined) patch.gender = await canonicalMasterName("gender", input.gender);
+  if (input.nationality !== undefined) {
+    patch.nationality = await canonicalMasterName("nationality", input.nationality);
+  }
+  if (patch.gender === undefined && patch.nationality === undefined) return;
+  const { error } = await supabaseAdmin
+    .from("staff_profile_ext")
+    .upsert({ staff_id: staffId, ...patch }, { onConflict: "staff_id" });
+  if (error) throw error;
+}
 
 async function requireRosterEdit(context: AuthContext) {
   const { data: roles, error } = await context.supabase
@@ -429,6 +645,8 @@ export const createStaff = createSafeAuthenticatedAction(
     qid: z.string().max(32).optional(),
     e3Enrolled: z.boolean().nullable().optional(),
     employmentType: z.enum(["permanent", "temporary", "secondment", "joker"]).nullable().optional(),
+    gender: z.union([z.string().max(80), z.literal(""), z.null()]).optional(),
+    nationality: z.union([z.string().max(120), z.literal(""), z.null()]).optional(),
   }),
   async (data, context) => {
     await assertLocationAccess(context, data.locationId);
@@ -488,6 +706,11 @@ export const createStaff = createSafeAuthenticatedAction(
     if (error) throw error;
 
     await syncStaffDepartments(context, row.id as string, data.departmentIds, department);
+    await saveStaffDemographics(
+      row.id as string,
+      { gender: data.gender, nationality: data.nationality },
+      context.userId,
+    );
     await context.supabase.rpc("log_audit", {
       _action: "staff.created",
       _table_name: "staff",
@@ -520,6 +743,8 @@ export const updateStaff = createSafeAuthenticatedAction(
     expectedHours: z.number().min(1).max(16).nullable().optional(),
     breakMinutes: z.number().int().min(0).max(240).nullable().optional(),
     weeklyOffWeekday: z.number().int().min(0).max(6).nullable().optional(),
+    gender: z.union([z.string().max(80), z.literal(""), z.null()]).optional(),
+    nationality: z.union([z.string().max(120), z.literal(""), z.null()]).optional(),
   }),
   async (data, context) => {
     const { data: existing, error: fetchErr } = await context.supabase
@@ -575,6 +800,12 @@ export const updateStaff = createSafeAuthenticatedAction(
       const department = formatDepartmentDisplay(names) || null;
       await syncStaffDepartments(context, data.id, data.departmentIds, department);
     }
+
+    await saveStaffDemographics(
+      data.id,
+      { gender: data.gender, nationality: data.nationality },
+      context.userId,
+    );
 
     await context.supabase.rpc("log_audit", {
       _action: "staff.updated",
@@ -792,7 +1023,11 @@ export const updateMasterDepartment = createAuthenticatedAction(
       sort_order?: number;
       parent_id?: string | null;
     } = {};
-    if (data.name !== undefined) patch.name = data.name.trim();
+    if (data.name !== undefined) {
+      const next = normalizeMasterLabel(data.name);
+      if (!next) throw new Error("Name is required");
+      patch.name = next;
+    }
     if (data.code !== undefined) patch.code = data.code?.trim().toUpperCase() || null;
     if (data.active !== undefined) patch.active = data.active;
     if (data.sortOrder !== undefined) patch.sort_order = data.sortOrder;
@@ -806,7 +1041,172 @@ export const updateMasterDepartment = createAuthenticatedAction(
       .update(patch)
       .eq("id", data.id);
     if (error) throw error;
+    if (data.name !== undefined) await relabelDepartmentMembers(data.id);
     return { ok: true };
+  },
+  { auth: { capability: "people.edit_roster" } },
+);
+
+export const deleteMasterDepartment = createAuthenticatedAction(
+  z.object({ id: z.string().uuid() }),
+  async (data, context) => {
+    const { data: row, error } = await context.supabase
+      .from("master_departments")
+      .select("id, name")
+      .eq("id", data.id)
+      .maybeSingle();
+    if (error) throw error;
+    if (!row) throw new Error("Department not found");
+
+    const { count: childCount, error: childErr } = await context.supabase
+      .from("master_departments")
+      .select("id", { count: "exact", head: true })
+      .eq("parent_id", data.id);
+    if (childErr) throw childErr;
+    if ((childCount ?? 0) > 0) {
+      throw new Error(
+        `Remove or move ${childCount} sub-department${childCount === 1 ? "" : "s"} before deleting "${row.name}".`,
+      );
+    }
+
+    const usage = await countCurrentDepartmentStaff(data.id);
+    if (usage > 0) throw new Error(masterInUseMessage(row.name, usage));
+
+    const { error: delErr } = await context.supabase.from("master_departments").delete().eq("id", data.id);
+    if (delErr) throw delErr;
+    return { ok: true as const };
+  },
+  { auth: { capability: "people.edit_roster" } },
+);
+
+const peopleMasterKind = z.enum(["position", "gender", "nationality"]);
+
+function masterRows(
+  rows: { id: string; name: string }[],
+  usage: Map<string, number>,
+): PeopleMasterRow[] {
+  return rows
+    .map((row) => ({
+      id: row.id,
+      name: row.name,
+      usageCount: usage.get(masterLabelKey(row.name)) ?? 0,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export const listPeopleMasters = createAuthenticatedAction(
+  z.object({}).default({}),
+  async () => {
+    const [positions, genders, nationalities, usage] = await Promise.all([
+      supabaseAdmin.from("master_positions").select("id, name"),
+      supabaseAdmin.from("master_genders").select("id, name"),
+      supabaseAdmin.from("master_nationalities").select("id, name"),
+      currentStaffMasterUsage(),
+    ]);
+    if (positions.error) throw positions.error;
+    if (genders.error) throw genders.error;
+    if (nationalities.error) throw nationalities.error;
+    const departmentUsage = [...usage.departments.entries()].map(([id, usageCount]) => ({
+      id,
+      usageCount,
+    }));
+    return {
+      positions: masterRows(positions.data ?? [], usage.positions),
+      genders: masterRows(genders.data ?? [], usage.genders),
+      nationalities: masterRows(nationalities.data ?? [], usage.nationalities),
+      departmentUsage,
+    };
+  },
+  { defaultInput: {}, auth: { capability: "people.view_roster" } },
+);
+
+async function assertMasterNameAvailable(kind: PeopleMasterKind, name: string, exceptId?: string) {
+  const table = PEOPLE_MASTER_TABLE[kind];
+  const { data, error } = await supabaseAdmin.from(table).select("id, name");
+  if (error) throw error;
+  const key = masterLabelKey(name);
+  const clash = (data ?? []).find((row) => row.id !== exceptId && masterLabelKey(row.name) === key);
+  if (clash) throw new Error("That name already exists");
+}
+
+export const createPeopleMaster = createAuthenticatedAction(
+  z.object({
+    kind: peopleMasterKind,
+    name: z.string().min(1).max(120),
+  }),
+  async (data, context) => {
+    const name = normalizeMasterLabel(data.name);
+    if (!name) throw new Error("Name is required");
+    await assertMasterNameAvailable(data.kind, name);
+    const { data: row, error } = await context.supabase
+      .from(PEOPLE_MASTER_TABLE[data.kind])
+      .insert({ name })
+      .select("id")
+      .single();
+    if (error) throw error;
+    return { id: row.id as string };
+  },
+  { auth: { capability: "people.edit_roster" } },
+);
+
+export const renamePeopleMaster = createAuthenticatedAction(
+  z.object({
+    kind: peopleMasterKind,
+    id: z.string().uuid(),
+    name: z.string().min(1).max(120),
+    previousName: z.string().max(120).optional(),
+  }),
+  async (data, context) => {
+    const name = normalizeMasterLabel(data.name);
+    if (!name) throw new Error("Name is required");
+    const table = PEOPLE_MASTER_TABLE[data.kind];
+    const { data: existing, error: readErr } = await context.supabase
+      .from(table)
+      .select("name")
+      .eq("id", data.id)
+      .maybeSingle();
+    if (readErr) throw readErr;
+    if (!existing) throw new Error("Value not found");
+    await assertMasterNameAvailable(data.kind, name, data.id);
+    const { error } = await context.supabase.from(table).update({ name }).eq("id", data.id);
+    if (error) throw error;
+    const column = data.kind === "position" ? "job_title" : data.kind;
+    const sources = [existing.name, data.previousName].filter((value): value is string => Boolean(value?.trim()));
+    try {
+      for (const source of sources) {
+        await rewriteStaffText(column, source, name);
+      }
+    } catch (err) {
+      await context.supabase.from(table).update({ name: existing.name }).eq("id", data.id);
+      throw err instanceof Error ? err : new Error("Could not update staff records");
+    }
+    return { ok: true as const };
+  },
+  { auth: { capability: "people.edit_roster" } },
+);
+
+export const deletePeopleMaster = createAuthenticatedAction(
+  z.object({
+    kind: peopleMasterKind,
+    id: z.string().uuid(),
+  }),
+  async (data, context) => {
+    const table = PEOPLE_MASTER_TABLE[data.kind];
+    const { data: existing, error: readErr } = await context.supabase
+      .from(table)
+      .select("name")
+      .eq("id", data.id)
+      .maybeSingle();
+    if (readErr) throw readErr;
+    if (!existing) throw new Error("Value not found");
+    const usage = await currentStaffMasterUsage();
+    const counts =
+      data.kind === "position" ? usage.positions : data.kind === "gender" ? usage.genders : usage.nationalities;
+    const count = counts.get(masterLabelKey(existing.name)) ?? 0;
+    if (count > 0) throw new Error(masterInUseMessage(existing.name, count));
+    const { error } = await context.supabase.from(table).delete().eq("id", data.id);
+    if (error) throw error;
+    return { ok: true as const };
   },
   { auth: { capability: "people.edit_roster" } },
 );
