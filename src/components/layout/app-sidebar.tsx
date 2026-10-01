@@ -99,6 +99,117 @@ function NavLinkRow({
   );
 }
 
+type SidebarGroupLink = SidebarNavGroup["items"][number];
+
+function clusterSidebarItems(items: SidebarGroupLink[]) {
+  const blocks: { sectionKey: string | null; items: SidebarGroupLink[] }[] = [];
+  for (const item of items) {
+    const sectionKey = item.sectionKey ?? null;
+    const last = blocks[blocks.length - 1];
+    if (last && last.sectionKey === sectionKey) last.items.push(item);
+    else blocks.push({ sectionKey, items: [item] });
+  }
+  return blocks;
+}
+
+function SidebarGroupLinkList({
+  items,
+  pathname,
+  t,
+  prefetchRoute,
+  onNavigate,
+}: {
+  items: SidebarGroupLink[];
+  pathname: string;
+  t: (key: string) => string;
+  prefetchRoute: (href: string) => void;
+  onNavigate?: () => void;
+}) {
+  return (
+    <ul className="space-y-0.5">
+      {items.map((item) => {
+        const active = isSidebarNavGroupItemActive(item.href, pathname);
+        return (
+          <li key={item.href} className="min-w-0">
+            <Link
+              href={item.href}
+              prefetch
+              onClick={onNavigate}
+              onMouseEnter={() => prefetchRoute(item.href)}
+              className={cn(
+                "block max-w-full truncate rounded-full px-2.5 py-1.5 text-sm",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                active
+                  ? "bg-primary font-semibold text-primary-foreground shadow-elevated-xs"
+                  : "text-muted-foreground hover:bg-secondary/70 hover:text-foreground",
+              )}
+            >
+              {t(item.labelKey)}
+            </Link>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function SidebarNavCluster({
+  labelKey,
+  items,
+  pathname,
+  t,
+  prefetchRoute,
+  onNavigate,
+  forceOpen,
+}: {
+  labelKey: string;
+  items: SidebarGroupLink[];
+  pathname: string;
+  t: (key: string) => string;
+  prefetchRoute: (href: string) => void;
+  onNavigate?: () => void;
+  forceOpen?: boolean;
+}) {
+  const active = items.some((item) => isSidebarNavGroupItemActive(item.href, pathname));
+  const [open, setOpen] = useState(active || Boolean(forceOpen));
+
+  useEffect(() => {
+    setOpen(Boolean(forceOpen) || active);
+  }, [forceOpen, active, pathname]);
+
+  return (
+    <li className="min-w-0">
+      <Collapsible open={open} onOpenChange={setOpen}>
+        <CollapsibleTrigger
+          className={cn(
+            "group/section flex w-full min-w-0 items-center gap-1.5 rounded-full px-2 py-1 text-start text-xs font-semibold",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            active
+              ? "bg-sidebar-accent text-sidebar-accent-foreground"
+              : open
+                ? "text-foreground"
+                : "text-muted-foreground hover:bg-sidebar-accent/80 hover:text-sidebar-accent-foreground",
+          )}
+        >
+          <span className="min-w-0 flex-1 truncate">{t(labelKey)}</span>
+          <ChevronDown className="h-3 w-3 shrink-0 transition-transform group-data-[state=open]/section:rotate-180 motion-reduce:transition-none" />
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="mt-0.5 ps-1.5">
+            <SidebarGroupLinkList
+              items={items}
+              pathname={pathname}
+              t={t}
+              prefetchRoute={prefetchRoute}
+              onNavigate={onNavigate}
+            />
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+    </li>
+  );
+}
+
 function SidebarNavGroupSection({
   group,
   pathname,
@@ -124,6 +235,9 @@ function SidebarNavGroupSection({
     group.items.map((item) => item.href),
   );
   const [open, setOpen] = useState(Boolean(forceOpen));
+  const blocks = clusterSidebarItems(group.items);
+  const sectioned = blocks.some((block) => block.sectionKey);
+  const warm = sectioned && (open || groupActive);
 
   useEffect(() => {
     setOpen(Boolean(forceOpen));
@@ -133,48 +247,88 @@ function SidebarNavGroupSection({
     <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger
         className={cn(
-          "group flex w-full items-center gap-2 rounded-full text-sm",
-          compact ? "bg-card px-3 py-2" : "px-2 py-1.5",
-          groupActive
-            ? "font-semibold text-foreground"
-            : compact
-              ? "text-foreground"
-              : "text-muted-foreground hover:bg-secondary/70",
+          "group/nav flex w-full min-w-0 items-center gap-2 rounded-full text-sm",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          compact ? "px-3 py-2" : "px-2 py-1.5",
+          compact && !warm && "bg-card",
+          warm
+            ? "bg-sidebar-accent font-semibold text-sidebar-accent-foreground"
+            : groupActive
+              ? "font-semibold text-foreground"
+              : compact
+                ? "text-foreground"
+                : "text-muted-foreground hover:bg-secondary/70",
         )}
       >
         <Icon className="h-4 w-4 shrink-0 stroke-[1.5]" />
-        <span className="flex-1 truncate text-start">{t(group.labelKey)}</span>
-        <ChevronDown className="h-3.5 w-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
+        <span className="min-w-0 flex-1 truncate text-start">{t(group.labelKey)}</span>
+        <ChevronDown className="h-3.5 w-3.5 shrink-0 transition-transform group-data-[state=open]/nav:rotate-180 motion-reduce:transition-none" />
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <ul
-          className={cn(
-            "space-y-0.5",
-            compact ? "mt-1 grid grid-cols-1 gap-1" : "ms-5 mt-1 border-s border-border ps-2",
-          )}
-        >
-          {group.items.map((item) => {
-            const active = isSidebarNavGroupItemActive(item.href, pathname);
-            return (
-              <li key={item.href}>
-                <Link
-                  href={item.href}
-                  prefetch
-                  onClick={onNavigate}
-                  onMouseEnter={() => prefetchRoute(item.href)}
-                  className={cn(
-                    "block truncate rounded-full px-2.5 py-1.5 text-sm",
-                    active
-                      ? "bg-primary font-semibold text-primary-foreground shadow-elevated-xs"
-                      : "text-muted-foreground hover:bg-secondary/70 hover:text-foreground",
-                  )}
-                >
-                  {t(item.labelKey)}
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
+        {sectioned ? (
+          <div
+            className={cn(
+              "min-w-0",
+              compact ? "mt-1" : "ms-4 mt-1 border-s border-sidebar-border ps-1.5",
+            )}
+          >
+            <ul className="min-w-0 space-y-0.5">
+              {blocks.map((block) =>
+                block.sectionKey ? (
+                  <SidebarNavCluster
+                    key={block.sectionKey}
+                    labelKey={block.sectionKey}
+                    items={block.items}
+                    pathname={pathname}
+                    t={t}
+                    prefetchRoute={prefetchRoute}
+                    onNavigate={onNavigate}
+                    forceOpen={forceOpen}
+                  />
+                ) : (
+                  <li key={block.items.map((item) => item.href).join("|")} className="min-w-0">
+                    <SidebarGroupLinkList
+                      items={block.items}
+                      pathname={pathname}
+                      t={t}
+                      prefetchRoute={prefetchRoute}
+                      onNavigate={onNavigate}
+                    />
+                  </li>
+                ),
+              )}
+            </ul>
+          </div>
+        ) : (
+          <ul
+            className={cn(
+              "space-y-0.5",
+              compact ? "mt-1 grid grid-cols-1 gap-1" : "ms-5 mt-1 border-s border-border ps-2",
+            )}
+          >
+            {group.items.map((item) => {
+              const active = isSidebarNavGroupItemActive(item.href, pathname);
+              return (
+                <li key={item.href} className="min-w-0">
+                  <Link
+                    href={item.href}
+                    prefetch
+                    onClick={onNavigate}
+                    onMouseEnter={() => prefetchRoute(item.href)}
+                    className={cn(
+                      "block max-w-full truncate rounded-full px-2.5 py-1.5 text-sm",
+                      active
+                        ? "bg-primary font-semibold text-primary-foreground shadow-elevated-xs"
+                        : "text-muted-foreground hover:bg-secondary/70 hover:text-foreground",
+                    )}
+                  >
+                    {t(item.labelKey)}
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </CollapsibleContent>
     </Collapsible>
   );
@@ -211,11 +365,14 @@ function DepartmentSection({
     ? dept.groups
         .map((group) => ({
           ...group,
-          items: group.items.filter(
-            (item) =>
+          items: group.items.filter((item) => {
+            const section = item.sectionKey ? t(item.sectionKey).toLowerCase() : "";
+            return (
               t(item.labelKey).toLowerCase().includes(q) ||
-              t(group.labelKey).toLowerCase().includes(q),
-          ),
+              t(group.labelKey).toLowerCase().includes(q) ||
+              section.includes(q)
+            );
+          }),
         }))
         .filter((group) => group.items.length > 0)
     : dept.groups;

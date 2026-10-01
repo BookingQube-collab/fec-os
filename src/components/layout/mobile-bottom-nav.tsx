@@ -78,30 +78,48 @@ function MoreModulesList({
                   </li>
                 );
               })}
-              {dept.groups.flatMap((group) =>
-                group.items.map((item) => {
-                  const active = isSidebarNavGroupItemActive(item.href, pathname);
-                  const Icon = group.icon;
-                  return (
-                    <li key={item.href}>
-                      <Link
-                        href={item.href}
-                        prefetch
-                        onClick={onNavigate}
-                        className={cn(
-                          "flex items-center gap-2 rounded-2xl border px-2.5 py-2.5 text-sm touch-manipulation",
-                          active
-                            ? "border-primary bg-primary font-semibold text-primary-foreground"
-                            : "border-border/70 bg-card text-foreground hover:bg-secondary/70",
-                        )}
-                      >
-                        <Icon className="h-4 w-4 shrink-0 stroke-[1.5]" aria-hidden />
-                        <span className="truncate">{t(item.labelKey)}</span>
-                      </Link>
-                    </li>
-                  );
-                }),
-              )}
+              {dept.groups.flatMap((group) => {
+                const blocks: { sectionKey: string | null; items: typeof group.items }[] = [];
+                for (const item of group.items) {
+                  const sectionKey = item.sectionKey ?? null;
+                  const last = blocks[blocks.length - 1];
+                  if (last && last.sectionKey === sectionKey) last.items.push(item);
+                  else blocks.push({ sectionKey, items: [item] });
+                }
+                return blocks.flatMap((block) => {
+                  const links = block.items.map((item) => {
+                    const active = isSidebarNavGroupItemActive(item.href, pathname);
+                    const Icon = group.icon;
+                    return (
+                      <li key={item.href} className="min-w-0">
+                        <Link
+                          href={item.href}
+                          prefetch
+                          onClick={onNavigate}
+                          className={cn(
+                            "flex min-w-0 items-center gap-2 rounded-2xl border px-2.5 py-2.5 text-sm touch-manipulation",
+                            active
+                              ? "border-primary bg-primary font-semibold text-primary-foreground"
+                              : "border-border/70 bg-card text-foreground hover:bg-secondary/70",
+                          )}
+                        >
+                          <Icon className="h-4 w-4 shrink-0 stroke-[1.5]" aria-hidden />
+                          <span className="min-w-0 flex-1 truncate">{t(item.labelKey)}</span>
+                        </Link>
+                      </li>
+                    );
+                  });
+                  if (!block.sectionKey) return links;
+                  return [
+                    <li key={`${group.id}-${block.sectionKey}`} className="col-span-2 min-w-0 px-1 pt-2">
+                      <span className="block truncate text-xs font-semibold text-muted-foreground">
+                        {t(block.sectionKey)}
+                      </span>
+                    </li>,
+                    ...links,
+                  ];
+                });
+              })}
             </ul>
           </li>
         );

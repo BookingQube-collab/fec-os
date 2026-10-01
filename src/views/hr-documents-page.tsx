@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileText } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -19,7 +19,6 @@ import {
   verificationStatusMark,
 } from "@/components/people/staff-document-preview";
 import GlideSelect from "@/components/react-bits/glide-select";
-import SpotlightCard from "@/components/react-bits/spotlight-card";
 import StatusMark from "@/components/react-bits/status-mark";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -84,6 +83,7 @@ export function HrDocumentsWorkspace({
   const [replaceId, setReplaceId] = useState<string | null>(null);
   const [replaceFile, setReplaceFile] = useState<File | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
+  const [openFolder, setOpenFolder] = useState<string | null>(null);
 
   const staff = useQuery({
     queryKey: queryKeys.people.hrLeaveBalances({ view: "staff" }),
@@ -168,6 +168,7 @@ export function HrDocumentsWorkspace({
     },
     onSuccess: () => {
       toast.success(t("hr.docs.uploaded"));
+      setOpenFolder(docType);
       setFile(null);
       invalidate();
     },
@@ -276,7 +277,22 @@ export function HrDocumentsWorkspace({
 
   const showEducation = EDUCATION_TYPES.has(docType);
   const today = new Date().toISOString().slice(0, 10);
-  const previewDoc = (docs.data ?? []).find((doc) => doc.id === previewId) ?? null;
+  const documents = docs.data ?? [];
+  const previewDoc = documents.find((doc) => doc.id === previewId) ?? null;
+  const folders = useMemo(() => {
+    const rows = docs.data ?? [];
+    const byType = new Map<string, typeof rows>();
+    for (const doc of rows) {
+      const bucket = byType.get(doc.docType);
+      if (bucket) bucket.push(doc);
+      else byType.set(doc.docType, [doc]);
+    }
+    return HR_DOC_TYPES.flatMap((type) => {
+      const items = byType.get(type);
+      return items ? [{ type, items }] : [];
+    });
+  }, [docs.data]);
+  const activeFolder = folders.find((folder) => folder.type === openFolder) ?? folders[0] ?? null;
 
   function docActions(
     doc: {
@@ -360,8 +376,13 @@ export function HrDocumentsWorkspace({
         title={t("hr.docs.title")}
         subtitle={t("hr.docs.subtitle")}
       >
-          <HrPanel delay={0} className="hr-panel--overflow relative z-20">
-            <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-5">
+          <div className="hr-intake hr-enter">
+            <div className="hr-intake__tab" title={t("hr.docs.fileInto", { type: t(`hr.docs.types.${docType}`) })}>
+              <span className="hr-intake__label">{t("hr.docs.fileInto", { type: t(`hr.docs.types.${docType}`) })}</span>
+            </div>
+            <div className="hr-intake__body">
+            <p className="hr-intake__hint">{t("hr.docs.intakeHint")}</p>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
               {lockedStaffId ? null : (
               <div className="lg:col-span-2">
                 <Label>{t("hr.docs.staff")}</Label>
@@ -394,6 +415,7 @@ export function HrDocumentsWorkspace({
                   }))}
                   onChange={(value) => {
                     setDocType(value as (typeof HR_DOC_TYPES)[number]);
+                    if ((docs.data ?? []).some((doc) => doc.docType === value)) setOpenFolder(value);
                     setDocumentNumber("");
                     setExpiry("");
                     setNumberSuggestion("");
@@ -451,7 +473,7 @@ export function HrDocumentsWorkspace({
                   </button>
                 ) : null}
               </div>
-              <div>
+              <div className="hr-intake__slot">
                 <Label>{t("hr.docs.file")}</Label>
                 <Input
                   type="file"
@@ -510,10 +532,11 @@ export function HrDocumentsWorkspace({
                 </Button>
               </div>
             </div>
-          </HrPanel>
+            </div>
+          </div>
 
           {replaceId ? (
-            <HrPanel delay={0.5}>
+            <div className="hr-slip hr-enter">
               <div className="flex flex-wrap items-end gap-3 p-4 sm:p-5">
                 <div>
                   <Label>{t("hr.docs.replaceFile")}</Label>
@@ -530,60 +553,97 @@ export function HrDocumentsWorkspace({
                   {t("common.cancel")}
                 </Button>
               </div>
-            </HrPanel>
+            </div>
           ) : null}
 
-          <HrPanel delay={1}>
-            <div className="space-y-2 p-4 sm:p-5">
-              {(docs.data ?? []).length === 0 ? (
-                <HrEmptyState message={t("hr.docs.empty")} icon={FileText} />
-              ) : (
-                (docs.data ?? []).map((doc) => (
-                  <SpotlightCard key={doc.id} className="hr-list-row !items-stretch rounded-2xl">
-                    <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center">
-                    <StaffDocumentOpenButton
-                      label={t("hr.docs.openPreview", {
-                        name: doc.fileName ?? t(`hr.docs.types.${doc.docType}`),
-                      })}
-                      onOpen={() => setPreviewId(doc.id)}
-                    >
-                      <StaffDocumentThumbnail doc={doc} />
-                      <span className="min-w-0 flex-1">
-                        <span className="block font-medium">
-                          {doc.staffName} · {t(`hr.docs.types.${doc.docType}`)}
-                        </span>
-                        <span className="mt-1 block text-xs text-muted-foreground">
-                          {doc.fileName ?? "—"}
-                          {doc.expiryDate ? ` · ${t("hr.docs.expires", { date: doc.expiryDate })}` : ""}
-                        </span>
-                        <span className="mt-2 flex flex-wrap items-center gap-3">
-                          <StatusMark
-                            status={documentStatusMark(doc.status)}
-                            label={t(`hr.docs.status.${doc.status}`)}
-                            size={16}
-                            fontSize={12}
-                            strike={false}
-                          />
-                          <StatusMark
-                            status={verificationStatusMark(doc.verificationStatus)}
-                            label={t(`hr.docs.verification.${doc.verificationStatus}`)}
-                            size={16}
-                            fontSize={12}
-                            strike={false}
-                          />
-                          {doc.expiryDate && doc.expiryDate < today ? (
-                            <Badge variant="destructive">{t("hr.docs.expired")}</Badge>
-                          ) : null}
-                        </span>
-                      </span>
-                    </StaffDocumentOpenButton>
-                    <div className="flex flex-wrap items-center gap-2">{docActions(doc, true)}</div>
-                    </div>
-                  </SpotlightCard>
-                ))
-              )}
-            </div>
-          </HrPanel>
+          <div className="hr-cabinet hr-enter">
+            {activeFolder ? (
+              <>
+                <div className="hr-cabinet__tabs" role="tablist" aria-label={t("hr.docs.cabinet")}>
+                  {folders.map((folder) => {
+                    const label = t(`hr.docs.types.${folder.type}`);
+                    const selected = folder.type === activeFolder.type;
+                    return (
+                      <button
+                        key={folder.type}
+                        type="button"
+                        role="tab"
+                        id={`hr-folder-tab-${folder.type}`}
+                        aria-selected={selected}
+                        aria-controls="hr-folder-panel"
+                        className={selected ? "hr-folder-tab is-open" : "hr-folder-tab"}
+                        title={label}
+                        aria-label={t("hr.docs.openFolder", { type: label, count: folder.items.length })}
+                        onClick={() => setOpenFolder(folder.type)}
+                      >
+                        <span className="hr-folder-tab__label">{label}</span>
+                        <span className="hr-folder-tab__count">{folder.items.length}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div
+                  className="hr-folder-body"
+                  role="tabpanel"
+                  id="hr-folder-panel"
+                  aria-labelledby={`hr-folder-tab-${activeFolder.type}`}
+                >
+                  <div className="hr-folder-body__stack">
+                    {activeFolder.items.map((doc) => (
+                      <article key={doc.id} className="hr-sheet">
+                        <StaffDocumentOpenButton
+                          label={t("hr.docs.openPreview", {
+                            name: doc.fileName ?? t(`hr.docs.types.${doc.docType}`),
+                          })}
+                          onOpen={() => setPreviewId(doc.id)}
+                        >
+                          <StaffDocumentThumbnail doc={doc} />
+                          <span className="hr-sheet__copy min-w-0 flex-1">
+                            <span className="block font-medium">
+                              {doc.staffName} · {t(`hr.docs.types.${doc.docType}`)}
+                            </span>
+                            <span className="mt-1 block text-xs text-muted-foreground">
+                              {doc.fileName ?? "—"}
+                              {doc.expiryDate ? ` · ${t("hr.docs.expires", { date: doc.expiryDate })}` : ""}
+                            </span>
+                            <span className="mt-2 flex flex-wrap items-center gap-3">
+                              <StatusMark
+                                status={documentStatusMark(doc.status)}
+                                label={t(`hr.docs.status.${doc.status}`)}
+                                size={16}
+                                fontSize={12}
+                                strike={false}
+                              />
+                              <StatusMark
+                                status={verificationStatusMark(doc.verificationStatus)}
+                                label={t(`hr.docs.verification.${doc.verificationStatus}`)}
+                                size={16}
+                                fontSize={12}
+                                strike={false}
+                              />
+                              {doc.expiryDate && doc.expiryDate < today ? (
+                                <Badge variant="destructive">{t("hr.docs.expired")}</Badge>
+                              ) : null}
+                            </span>
+                          </span>
+                        </StaffDocumentOpenButton>
+                        <div className="hr-sheet__actions">{docActions(doc, true)}</div>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="hr-intake__tab" aria-hidden="true">
+                  <span className="hr-intake__label">{t("hr.docs.cabinet")}</span>
+                </div>
+                <div className="hr-folder-body">
+                  <HrEmptyState message={t("hr.docs.empty")} icon={FileText} />
+                </div>
+              </>
+            )}
+          </div>
           <StaffDocumentLightbox
             doc={previewDoc}
             open={Boolean(previewDoc)}

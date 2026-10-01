@@ -28,6 +28,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { syncStaffIdentityProfile } from "@/lib/hr/sync-staff-identity";
 import { validateBase64Size, validateUploadMime } from "@/lib/server/upload-validation";
 import type { TablesUpdate } from "@/integrations/supabase/types";
+import { redactAuditPayload } from "@/lib/hr-sensitive-audit";
 import { insertStatusHistory } from "@/lib/staff-history";
 import { reconcileJokerStaffStatus } from "@/lib/staff-status";
 import {
@@ -755,7 +756,7 @@ export const updateStaff = createSafeAuthenticatedAction(
   async (data, context) => {
     const { data: existing, error: fetchErr } = await context.supabase
       .from("staff")
-      .select("location_id, status, employment_type")
+      .select("location_id, status, employment_type, qid")
       .eq("id", data.id)
       .is("deleted_at", null)
       .single();
@@ -828,13 +829,15 @@ export const updateStaff = createSafeAuthenticatedAction(
 
     await Promise.all(writes);
 
+    const audited = redactAuditPayload(patch as Record<string, unknown>);
     await context.supabase.rpc("log_audit", {
       _action: "staff.updated",
       _table_name: "staff",
       _row_id: data.id,
-      _after: patch,
+      _before: audited.fields.includes("qid") ? { qid: "[redacted]" } : undefined,
+      _after: audited.payload,
       _location_id: existing.location_id,
-      _metadata: {},
+      _metadata: audited.fields.length ? { redactedFields: audited.fields } : {},
     });
     return { ok: true as const };
   },
@@ -1547,9 +1550,56 @@ export const updateStaffProfileNotes = createAuthenticatedAction(
       { onConflict: "staff_id" },
     );
     if (error) throw error;
+    const audited = redactAuditPayload({ notes: data.notes });
+    await context.supabase.rpc("log_audit", {
+      _action: "staff.notes_updated",
+      _table_name: "staff_profile_ext",
+      _row_id: data.staffId,
+      _before: { notes: "[redacted]" },
+      _after: audited.payload,
+      _location_id: existing.location_id,
+      _metadata: { redactedFields: audited.fields },
+    });
     return { ok: true };
   },
   { auth: { anyCapability: ["people.edit_roster", "hr.manage", "hr.docs.manage"] } },
+);
+
+export const updateStaffSkills = createAuthenticatedAction(
+  z.object({
+    staffId: z.string().uuid(),
+    skills: z.string().max(2000).nullable(),
+  }),
+  async (data, context) => {
+    const { data: existing, error: fetchErr } = await context.supabase
+      .from("staff")
+      .select("location_id")
+      .eq("id", data.staffId)
+      .is("deleted_at", null)
+      .single();
+    if (fetchErr) throw fetchErr;
+    await assertLocationAccess(context, existing.location_id);
+    const skills = data.skills?.trim() ? data.skills.trim() : null;
+    const { error } = await context.supabase.from("staff_profile_ext").upsert(
+      {
+        staff_id: data.staffId,
+        skills,
+        updated_by: context.userId,
+      },
+      { onConflict: "staff_id" },
+    );
+    if (error) throw error;
+    await context.supabase.rpc("log_audit", {
+      _action: "staff.skills_updated",
+      _table_name: "staff_profile_ext",
+      _row_id: data.staffId,
+      _after: { skills },
+      _location_id: existing.location_id,
+      _metadata: {},
+    });
+    return { ok: true };
+  },
+  { auth: { capability: "hr.manage" } },
 );
 
 const identityDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);

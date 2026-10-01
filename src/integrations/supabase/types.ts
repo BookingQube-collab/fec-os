@@ -4507,6 +4507,7 @@ export type Database = {
           contract_start: string | null
           contract_end: string | null
           notes: string | null
+          skills: string | null
           updated_by: string | null
           created_at: string
           updated_at: string
@@ -5106,6 +5107,11 @@ export type Database = {
         Args: { keep_id: string; drop_id: string }
         Returns: undefined
       }
+      read_staff_profile_ext: {
+        Args: { _staff_id: string }
+        Returns: Json
+      }
+      user_can_view_hr_sensitive: { Args: never; Returns: boolean }
       log_audit: {
         Args: {
           _action: string

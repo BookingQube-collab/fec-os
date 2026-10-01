@@ -27,6 +27,7 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
+import { HrWorkspaceMap } from "@/components/hr/hr-workspace-map";
 import { OrgDepartmentsFilter } from "@/components/people/exclude-org-departments-filter";
 import {
   FecButton as Button,
@@ -463,6 +464,7 @@ export default function HrDashboardPage() {
                     documents={documents}
                   />
                 ) : null}
+                <HrWorkspaceMap />
               </>
             ) : (
               <TileGrid keys={SECTION_TILES[section]} values={values} viewLabel={viewLabel} />

@@ -33,6 +33,8 @@ import { previewStaffLogin, provisionStaffLogin } from "@/lib/admin.functions";
 import { isStaffLoginPassword, parseStaffLoginEmail, resolveStaffLoginEmail } from "@/lib/staff-login";
 import { StaffPayrollPanel } from "@/components/people/staff-payroll-panel";
 import { StaffTrainingPanel } from "@/components/people/staff-training-panel";
+import { Employee360Panel } from "@/components/people/employee-360-panel";
+import { EDUCATION_DOC_TYPES, employeeProfileGaps } from "@/lib/hr-profile-completeness";
 import { removeStaffPhoto, saveStaffPhoto, updateStaff, updateStaffProfileNotes } from "@/lib/people.functions";
 import { HrDocumentsWorkspace } from "@/views/hr-documents-page";
 import { HrLeaveWorkspace } from "@/views/hr-leave-page";
@@ -62,6 +64,7 @@ type ProfileExt = {
   contract_start: string | null;
   contract_end: string | null;
   notes: string | null;
+  skills?: string | null;
   emergency_contact_name: string | null;
   emergency_contact_phone: string | null;
   emergency_contact_relation?: string | null;
@@ -476,6 +479,9 @@ function StaffProfilePageBody() {
   if (profile.isLoading) {
     return <p className="text-sm text-muted-foreground">{t("people.staff.loading")}</p>;
   }
+  if (profile.isError) {
+    return <p className="text-sm text-destructive">{profile.error.message}</p>;
+  }
   if (!s) {
     return <p className="text-sm text-muted-foreground">{t("people.staff.empty")}</p>;
   }
@@ -676,7 +682,37 @@ function StaffProfilePageBody() {
           ))}
         </TabsList>
 
-        <TabsContent value="overview" className="mt-3">
+        <TabsContent value="overview" className="mt-3 space-y-3">
+          <Employee360Panel
+            staffId={id}
+            canEditSkills={canHrManage}
+            gaps={employeeProfileGaps({
+              emergencyContact: Boolean(ext?.emergency_contact_name || ext?.emergency_contact_phone),
+              manager: Boolean(profile.data?.managerName),
+              hireDate: Boolean(s.hire_date),
+              contract: Boolean(ext?.contract_start || ext?.contract_end),
+              photo: Boolean(s.has_photo),
+              qidOnFile: Boolean(s.qid),
+              skills: Boolean(ext?.skills?.trim()),
+              educationVisible: canManageDocs || canViewSensitive,
+              educationCount: docs.filter((doc) => EDUCATION_DOC_TYPES.has(doc.doc_type)).length,
+            })}
+            educationVisible={canManageDocs || canViewSensitive}
+            education={docs
+              .filter((doc) => EDUCATION_DOC_TYPES.has(doc.doc_type))
+              .map((doc) => ({
+                id: doc.id,
+                label: doc.file_name || doc.document_number || doc.doc_type,
+                expiry: doc.expiry_date,
+              }))}
+            skills={ext?.skills ?? null}
+            certifications={(profile.data?.training ?? []).map((row) => ({
+              id: row.id,
+              label: row.course_name,
+              status: row.status,
+            }))}
+            onSaved={refreshProfile}
+          />
           <section className="surface-card p-4 sm:p-5">
             <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
               <div className="min-w-0 space-y-3">

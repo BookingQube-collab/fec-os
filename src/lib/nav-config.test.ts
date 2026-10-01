@@ -88,23 +88,53 @@ describe("admin sidebar visibility", () => {
       "/people",
       "/people/training",
     ]);
-    expect(people?.groups.find((g) => g.id === "hr-admin")?.items.map((i) => i.href)).toEqual([
+    const hrAdmin = people?.groups.find((g) => g.id === "hr-admin");
+    expect(hrAdmin?.items.map((i) => i.href)).toEqual([
       "/people/hr",
-      "/people/hr/hierarchy",
-      "/people/hr/documents",
       "/people/hr/onboarding",
-      "/people/hr/announcements",
-      "/people/hr/shift-policy",
-      "/people/hr/ot",
-      "/people/hr/warnings",
       "/people/hr/probation",
+      "/people/hr/warnings",
       "/people/hr/resignations",
       "/people/hr/terminations",
-      "/people/hr/air-tickets",
-      "/people/hr/quota",
+      "/people/hr/announcements",
+      "/people/hr/hierarchy",
       "/people/recruitment",
       "/people/recruitment/jobs",
       "/people/recruitment/jobs/admin",
+      "/people/hr/shift-policy",
+      "/people/hr/ot",
+      "/people/hr/air-tickets",
+      "/people/hr/documents",
+      "/people/hr/settings",
+      "/people/hr/reports",
+      "/people/employee-app",
+    ]);
+    expect(hrAdmin?.items.find((i) => i.href === "/people/hr")?.sectionKey).toBeUndefined();
+    expect(hrAdmin?.items.filter((i) => i.sectionKey === "nav.hrAdminPeople").map((i) => i.href)).toEqual([
+      "/people/hr/onboarding",
+      "/people/hr/probation",
+      "/people/hr/warnings",
+      "/people/hr/resignations",
+      "/people/hr/terminations",
+      "/people/hr/announcements",
+      "/people/hr/hierarchy",
+    ]);
+    expect(hrAdmin?.items.filter((i) => i.sectionKey === "nav.hrAdminHiring").map((i) => i.href)).toEqual([
+      "/people/recruitment",
+      "/people/recruitment/jobs",
+      "/people/recruitment/jobs/admin",
+    ]);
+    expect(hrAdmin?.items.filter((i) => i.sectionKey === "nav.hrAdminTime").map((i) => i.href)).toEqual([
+      "/people/hr/shift-policy",
+      "/people/hr/ot",
+    ]);
+    expect(hrAdmin?.items.filter((i) => i.sectionKey === "nav.hrAdminPay").map((i) => i.href)).toEqual([
+      "/people/hr/air-tickets",
+    ]);
+    expect(hrAdmin?.items.filter((i) => i.sectionKey === "nav.hrAdminDocuments").map((i) => i.href)).toEqual([
+      "/people/hr/documents",
+    ]);
+    expect(hrAdmin?.items.filter((i) => i.sectionKey === "nav.hrAdminSetup").map((i) => i.href)).toEqual([
       "/people/hr/settings",
       "/people/hr/reports",
       "/people/employee-app",
@@ -112,18 +142,14 @@ describe("admin sidebar visibility", () => {
     expect(people?.groups.find((g) => g.id === "hr-workforce")?.items.map((i) => i.href)).toEqual([
       "/people/payroll",
       "/people/leave",
-      "/people/hr/ot",
-      "/people/hr/warnings",
-      "/people/hr/probation",
-      "/people/hr/resignations",
-      "/people/hr/terminations",
-      "/people/hr/air-tickets",
       "/people/hr/quota",
-      "/people/recruitment",
-      "/people/recruitment/jobs",
-      "/people/recruitment/jobs/admin",
       "/people/field",
     ]);
+    const workforceHrefs = new Set(
+      people?.groups.find((g) => g.id === "hr-workforce")?.items.map((i) => i.href) ?? [],
+    );
+    const adminHrefs = hrAdmin?.items.map((i) => i.href) ?? [];
+    expect(adminHrefs.filter((href) => workforceHrefs.has(href))).toEqual([]);
     expect(people?.groups.find((g) => g.id === "hr-attendance")?.items.some((i) => i.href === "/people/field")).toBe(
       false,
     );

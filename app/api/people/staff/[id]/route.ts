@@ -151,7 +151,7 @@ export async function GET(
       }
 
       let training: Array<Record<string, unknown>> = [];
-      if (loadTraining || legacyFull) {
+      if (loadTraining || legacyFull || loadOverview) {
         const { data: trainingRows } = await context.supabase
           .from("training_enrollments")
           .select("id, course_name, status, due_on, completed_on")
@@ -173,13 +173,23 @@ export async function GET(
       let managerName: string | null = null;
 
       if (loadOverview || legacyFull) {
-        const { data: ext } = await context.supabase
-          .from("staff_profile_ext")
-          .select(
-            "nationality, gender, date_of_birth, emergency_contact_name, emergency_contact_phone, emergency_contact_relation, reporting_manager_staff_id, employment_category, probation_start, probation_end, passport_number, passport_expiry, visa_number, visa_expiry, sponsorship_info, qid_expiry, ticket_eligibility, ticket_eligibility_months, ticket_amount, contract_start, contract_end, notes, payment_method, bank_name, iban, last_working_date, releasing_date, exit_reason",
-          )
-          .eq("staff_id", id)
-          .maybeSingle();
+        const { data: extPayload, error: extErr } = await context.supabase.rpc("read_staff_profile_ext", {
+          _staff_id: id,
+        });
+        let ext = (extPayload ?? null) as Record<string, unknown> | null;
+        if (extErr) {
+          const missingFn = /read_staff_profile_ext|PGRST202|schema cache/i.test(extErr.message);
+          if (!missingFn) throw extErr;
+          const { data: legacy, error: legacyErr } = await context.supabase
+            .from("staff_profile_ext")
+            .select(
+              "nationality, gender, date_of_birth, emergency_contact_name, emergency_contact_phone, emergency_contact_relation, reporting_manager_staff_id, employment_category, probation_start, probation_end, passport_number, passport_expiry, visa_number, visa_expiry, sponsorship_info, qid_expiry, ticket_eligibility, ticket_eligibility_months, ticket_amount, contract_start, contract_end, notes, payment_method, bank_name, iban, last_working_date, releasing_date, exit_reason",
+            )
+            .eq("staff_id", id)
+            .maybeSingle();
+          if (legacyErr) throw legacyErr;
+          ext = legacy;
+        }
         profileExt = ext;
 
         const { data: historyRows } = await context.supabase
@@ -203,11 +213,12 @@ export async function GET(
           documents = docRows ?? [];
         }
 
-        if (ext?.reporting_manager_staff_id) {
+        const managerId = typeof ext?.reporting_manager_staff_id === "string" ? ext.reporting_manager_staff_id : null;
+        if (managerId) {
           const { data: mgr } = await context.supabase
             .from("staff")
             .select("full_name, employee_code")
-            .eq("id", ext.reporting_manager_staff_id)
+            .eq("id", managerId)
             .maybeSingle();
           managerName = mgr ? `${mgr.full_name} (${mgr.employee_code})` : null;
         }

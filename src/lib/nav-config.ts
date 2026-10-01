@@ -61,6 +61,8 @@ export interface SidebarNavGroupItem {
   href: string;
   labelKey: string;
   capability: Capability;
+  /** Optional cluster inside a group. Consecutive items with the same key render together. */
+  sectionKey?: string;
 }
 
 export interface SidebarNavGroup {
@@ -235,21 +237,12 @@ const HR_WORKFORCE_NAV_GROUP: SidebarNavGroup = {
   items: [
     { href: "/people/payroll", labelKey: "nav.hrPayroll", capability: "payroll.view" },
     { href: "/people/leave", labelKey: "nav.hrLeave", capability: "hr.leave.manage" },
-    { href: "/people/hr/ot", labelKey: "nav.hrOt", capability: "hr.ot.verify" },
-    { href: "/people/hr/warnings", labelKey: "nav.hrWarnings", capability: "hr.warnings.manage" },
-    { href: "/people/hr/probation", labelKey: "nav.hrProbation", capability: "hr.probation.manage" },
-    { href: "/people/hr/resignations", labelKey: "nav.hrResignations", capability: "hr.resignation.manage" },
-    { href: "/people/hr/terminations", labelKey: "nav.hrTerminations", capability: "hr.termination.initiate" },
-    { href: "/people/hr/air-tickets", labelKey: "nav.hrAirTickets", capability: "hr.air_ticket.manage" },
     { href: "/people/hr/quota", labelKey: "nav.hrQuota", capability: "quota.view" },
-    { href: "/people/recruitment", labelKey: "nav.hrAts", capability: "recruitment.request" },
-    { href: "/people/recruitment/jobs", labelKey: "nav.hrJobRequests", capability: "recruitment.request" },
-    { href: "/people/recruitment/jobs/admin", labelKey: "nav.hrJobAdmin", capability: "recruitment.manage" },
     { href: "/people/field", labelKey: "nav.hrField", capability: "attendance.view" },
   ],
 };
 
-/** HR admin cluster — dashboard + documents/onboarding/announcements/settings/reports (+ employee app). */
+/** HR admin cluster — dashboard, then collapsible People / Hiring / Time / Pay / Documents / Setup. */
 const HR_ADMIN_NAV_GROUP: SidebarNavGroup = {
   id: "hr-admin",
   labelKey: "nav.hrAdmin",
@@ -258,25 +251,24 @@ const HR_ADMIN_NAV_GROUP: SidebarNavGroup = {
   viewCapability: "hr.manage",
   items: [
     { href: "/people/hr", labelKey: "nav.hrDashboard", capability: "people.view_roster" },
+    { href: "/people/hr/onboarding", labelKey: "nav.hrOnboarding", capability: "hr.manage", sectionKey: "nav.hrAdminPeople" },
+    { href: "/people/hr/probation", labelKey: "nav.hrProbation", capability: "hr.probation.manage", sectionKey: "nav.hrAdminPeople" },
+    { href: "/people/hr/warnings", labelKey: "nav.hrWarnings", capability: "hr.warnings.manage", sectionKey: "nav.hrAdminPeople" },
+    { href: "/people/hr/resignations", labelKey: "nav.hrResignations", capability: "hr.resignation.manage", sectionKey: "nav.hrAdminPeople" },
+    { href: "/people/hr/terminations", labelKey: "nav.hrTerminations", capability: "hr.termination.initiate", sectionKey: "nav.hrAdminPeople" },
+    { href: "/people/hr/announcements", labelKey: "nav.hrAnnouncements", capability: "hr.manage", sectionKey: "nav.hrAdminPeople" },
     // Same nav gate as before (admin.view). The page and server still require role level 95, so this is not opened to every HR role.
-    { href: "/people/hr/hierarchy", labelKey: "nav.operationsHierarchy", capability: "admin.view" },
-    { href: "/people/hr/documents", labelKey: "nav.hrDocuments", capability: "hr.docs.manage" },
-    { href: "/people/hr/onboarding", labelKey: "nav.hrOnboarding", capability: "hr.manage" },
-    { href: "/people/hr/announcements", labelKey: "nav.hrAnnouncements", capability: "hr.manage" },
-    { href: "/people/hr/shift-policy", labelKey: "nav.hrShiftPolicy", capability: "hr.manage" },
-    { href: "/people/hr/ot", labelKey: "nav.hrOt", capability: "hr.ot.verify" },
-    { href: "/people/hr/warnings", labelKey: "nav.hrWarnings", capability: "hr.warnings.manage" },
-    { href: "/people/hr/probation", labelKey: "nav.hrProbation", capability: "hr.probation.manage" },
-    { href: "/people/hr/resignations", labelKey: "nav.hrResignations", capability: "hr.resignation.manage" },
-    { href: "/people/hr/terminations", labelKey: "nav.hrTerminations", capability: "hr.termination.initiate" },
-    { href: "/people/hr/air-tickets", labelKey: "nav.hrAirTickets", capability: "hr.air_ticket.manage" },
-    { href: "/people/hr/quota", labelKey: "nav.hrQuota", capability: "quota.view" },
-    { href: "/people/recruitment", labelKey: "nav.hrAts", capability: "recruitment.request" },
-    { href: "/people/recruitment/jobs", labelKey: "nav.hrJobRequests", capability: "recruitment.request" },
-    { href: "/people/recruitment/jobs/admin", labelKey: "nav.hrJobAdmin", capability: "recruitment.manage" },
-    { href: "/people/hr/settings", labelKey: "nav.hrSettings", capability: "hr.policy.configure" },
-    { href: "/people/hr/reports", labelKey: "nav.hrReports", capability: "hr.manage" },
-    { href: "/people/employee-app", labelKey: "nav.hrEmployeeApp", capability: "attendance.view" },
+    { href: "/people/hr/hierarchy", labelKey: "nav.operationsHierarchy", capability: "admin.view", sectionKey: "nav.hrAdminPeople" },
+    { href: "/people/recruitment", labelKey: "nav.hrAts", capability: "recruitment.request", sectionKey: "nav.hrAdminHiring" },
+    { href: "/people/recruitment/jobs", labelKey: "nav.hrJobRequests", capability: "recruitment.request", sectionKey: "nav.hrAdminHiring" },
+    { href: "/people/recruitment/jobs/admin", labelKey: "nav.hrJobAdmin", capability: "recruitment.manage", sectionKey: "nav.hrAdminHiring" },
+    { href: "/people/hr/shift-policy", labelKey: "nav.hrShiftPolicy", capability: "hr.manage", sectionKey: "nav.hrAdminTime" },
+    { href: "/people/hr/ot", labelKey: "nav.hrOt", capability: "hr.ot.verify", sectionKey: "nav.hrAdminTime" },
+    { href: "/people/hr/air-tickets", labelKey: "nav.hrAirTickets", capability: "hr.air_ticket.manage", sectionKey: "nav.hrAdminPay" },
+    { href: "/people/hr/documents", labelKey: "nav.hrDocuments", capability: "hr.docs.manage", sectionKey: "nav.hrAdminDocuments" },
+    { href: "/people/hr/settings", labelKey: "nav.hrSettings", capability: "hr.policy.configure", sectionKey: "nav.hrAdminSetup" },
+    { href: "/people/hr/reports", labelKey: "nav.hrReports", capability: "hr.manage", sectionKey: "nav.hrAdminSetup" },
+    { href: "/people/employee-app", labelKey: "nav.hrEmployeeApp", capability: "attendance.view", sectionKey: "nav.hrAdminSetup" },
   ],
 };
 

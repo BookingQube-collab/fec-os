@@ -1087,9 +1087,231 @@
     --hr-delay: 0ms;
   }
 
+  /* Hallmark · pre-emit critique: P4 H4 E4 S4 R4 V4
+   * redesign: employee-file cabinet · tone: soft utilitarian
+   * anchor hue: mustard · theme: existing FEC HR tokens
+   */
+  .hr-intake {
+    position: relative;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    min-width: 0;
+  }
+
+  .hr-intake__tab,
+  .hr-folder-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    max-width: 100%;
+    min-width: 0;
+    min-height: 2.5rem;
+    margin-bottom: -1px;
+    padding: 0.45rem 0.9rem 0.55rem;
+    border: 1px solid color-mix(in oklab, var(--hr-mustard) 48%, var(--color-border));
+    border-bottom-color: transparent;
+    border-start-start-radius: 0.85rem;
+    border-start-end-radius: 0.85rem;
+    background: color-mix(in oklab, var(--hr-mustard) 34%, var(--card));
+    color: var(--foreground);
+    font-size: 0.8125rem;
+    font-weight: 650;
+    font-style: normal;
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+  }
+
+  .hr-intake__tab {
+    z-index: 1;
+  }
+
+  .hr-intake__label,
+  .hr-folder-tab__label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .hr-intake__body,
+  .hr-folder-body {
+    position: relative;
+    width: 100%;
+    min-width: 0;
+    border: 1px solid color-mix(in oklab, var(--hr-mustard) 48%, var(--color-border));
+    background: color-mix(in oklab, var(--hr-mustard) 14%, var(--card));
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+  }
+
+  .hr-intake__body {
+    border-start-end-radius: 1rem;
+    border-end-start-radius: 1rem;
+    border-end-end-radius: 1rem;
+    padding: 0.85rem;
+  }
+
+  .hr-intake__hint {
+    margin: 0.15rem 0.35rem 0.75rem;
+    max-width: 40rem;
+    font-size: 0.8125rem;
+    line-height: 1.45;
+    color: var(--muted-foreground);
+  }
+
+  .hr-intake__slot {
+    min-width: 0;
+    border-radius: 0.85rem;
+    border: 1.5px dashed color-mix(in oklab, var(--hr-mustard) 62%, var(--color-border));
+    background: color-mix(in oklab, var(--background) 72%, var(--card));
+    padding: 0.55rem 0.7rem 0.7rem;
+  }
+
+  .hr-slip {
+    min-width: 0;
+    border-radius: 1rem;
+    border: 1px solid color-mix(in oklab, var(--hr-mustard) 42%, var(--color-border));
+    background: var(--card);
+    box-shadow: inset 0 3px 0 color-mix(in oklab, var(--hr-mustard) 70%, var(--card));
+  }
+
+  .hr-cabinet {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    min-width: 0;
+  }
+
+  .hr-cabinet__tabs + .hr-folder-body {
+    margin-top: 0.45rem;
+  }
+
+  .hr-intake__tab + .hr-folder-body {
+    border-start-start-radius: 0;
+  }
+
+  .hr-cabinet__tabs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.35rem 0.4rem;
+    width: 100%;
+    min-width: 0;
+    padding-inline: 0.15rem;
+  }
+
+  .hr-folder-tab {
+    flex: 1 1 8.75rem;
+    justify-content: space-between;
+    border-bottom-color: color-mix(in oklab, var(--hr-mustard) 48%, var(--color-border));
+    border-end-start-radius: 0.35rem;
+    border-end-end-radius: 0.35rem;
+    background: color-mix(in oklab, var(--hr-mustard) 18%, var(--card));
+    margin-bottom: 0;
+    cursor: pointer;
+    text-align: start;
+    transition:
+      background-color 160ms var(--hr-ease),
+      transform 160ms var(--hr-ease);
+  }
+
+  .hr-folder-tab:hover {
+    background: color-mix(in oklab, var(--hr-mustard) 32%, var(--card));
+  }
+
+  .hr-folder-tab:focus-visible {
+    outline: 2px solid var(--foreground);
+    outline-offset: 2px;
+  }
+
+  .hr-folder-tab:active {
+    transform: translateY(1px);
+  }
+
+  .hr-folder-tab.is-open {
+    background: color-mix(in oklab, var(--hr-mustard) 46%, var(--card));
+    border-color: color-mix(in oklab, var(--hr-mustard) 62%, var(--hr-charcoal));
+    box-shadow: inset 0 -3px 0 var(--hr-charcoal);
+  }
+
+  .hr-folder-tab__count {
+    flex-shrink: 0;
+    min-width: 1.35rem;
+    padding: 0.05rem 0.4rem;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--card) 78%, transparent);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.4;
+    text-align: center;
+  }
+
+  .hr-folder-body {
+    border-radius: 1rem;
+    padding: 0.85rem;
+  }
+
+  .hr-folder-body::before {
+    content: "";
+    position: absolute;
+    inset-inline-start: 0.55rem;
+    top: 0.7rem;
+    bottom: 0.7rem;
+    width: 3px;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--hr-mustard) 78%, var(--hr-charcoal));
+    pointer-events: none;
+  }
+
+  .hr-folder-body__stack {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    min-width: 0;
+    padding-inline-start: 0.45rem;
+  }
+
+  .hr-sheet {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    min-width: 0;
+    padding: 0.8rem;
+    border-radius: 0.85rem;
+    border: 1px solid color-mix(in oklab, var(--color-border) 70%, transparent);
+    background: var(--card);
+    box-shadow:
+      0 1px 0 color-mix(in oklab, var(--hr-mustard) 35%, transparent),
+      0 8px 18px rgba(0, 0, 0, 0.04);
+  }
+
+  .hr-sheet__copy {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .hr-sheet__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+    width: 100%;
+    min-width: 0;
+  }
+
+  @media (min-width: 640px) {
+    .hr-folder-tab {
+      flex: 0 1 auto;
+      max-width: 16rem;
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     a:hover .hr-kpi,
-    .hr-kpi:hover {
+    .hr-kpi:hover,
+    .hr-folder-tab:active {
       transform: none;
     }
   }

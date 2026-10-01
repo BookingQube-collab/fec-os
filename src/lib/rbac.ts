@@ -335,6 +335,20 @@ export const CAPABILITIES = {
   "events.manage": ["ceo", "coo", "regional_ops", "branch_gm"],
   "events.approve": ["ceo", "coo", "regional_ops", "branch_gm"],
   "events.finance": ["ceo", "coo", "cfo", "regional_ops"],
+
+  // Chat hub. Capabilities only — no nav item until a later phase.
+  // view/send: floor roles and every role that already uses operations modules.
+  // create_group/manage_members: branch_gm and above, plus hr.
+  "chat.view": [
+    "ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager",
+    "tech_supervisor", "technician", "cashier_host", "auditor", "hr", "customer_service",
+  ],
+  "chat.send": [
+    "ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager",
+    "tech_supervisor", "technician", "cashier_host", "auditor", "hr", "customer_service",
+  ],
+  "chat.create_group": ["ceo", "coo", "cfo", "regional_ops", "branch_gm", "hr"],
+  "chat.manage_members": ["ceo", "coo", "cfo", "regional_ops", "branch_gm", "hr"],
 } as const satisfies Record<string, readonly AppRole[]>;
 
 export type Capability = keyof typeof CAPABILITIES;
