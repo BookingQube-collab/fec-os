@@ -21,6 +21,12 @@ import {
   type RosterDayStatus,
   type RosterLeaveType,
 } from "@/lib/attendance-hr/roster-register-scope";
+import {
+  filterRosterCopyRows,
+  planRosterCopyByLocation,
+  rosterCopyDestinationKey,
+  rosterCopyProtectedDestinationKeys,
+} from "@/lib/attendance-hr/roster-copy";
 import { mapRosterPeriodByDayIndex, monthBounds, nextPayrollMonth, previousPayrollMonth } from "@/lib/attendance-hr/roster-period";
 import { previousMonthRosterSheetLines } from "@/lib/staff-roster/previous-month-export";
 import { buildPeopleRosterRowsXlsx, peopleRosterSampleFilename } from "@/lib/staff-roster/period-sample";
@@ -58,6 +64,8 @@ export type RosterRegisterRow = {
   /** Short explanation stored on attendance_leave_records.notes for comp-off. */
   compOffNote: string | null;
   source: string;
+  /** Staff profile flag. Read for the copy dialog only; punches and payroll are unchanged. */
+  flexibleAttendance: boolean;
 };
 
 async function syncRosterLeaveRecord(
@@ -298,7 +306,10 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
 
     const [staffRes, locRes, shiftRes] = await Promise.all([
       staffIds.length
-        ? context.supabase.from("staff").select("id, full_name, employee_code, qid").in("id", staffIds)
+        ? context.supabase
+            .from("staff")
+            .select("id, full_name, employee_code, qid, flexible_attendance")
+            .in("id", staffIds)
         : Promise.resolve({ data: [], error: null }),
       locationIds.length
         ? context.supabase.from("locations").select("id, code, name").in("id", locationIds)
@@ -416,6 +427,7 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
         compOffForDate: leave?.compOffForDate ?? null,
         compOffNote: leave?.compOffNote ?? null,
         source: String(row.source ?? "manual"),
+        flexibleAttendance: Boolean(staff?.flexible_attendance),
       };
     });
 
@@ -793,15 +805,26 @@ type CopySourceRow = {
   is_week_off: boolean;
 };
 
+type CopyTargetRow = {
+  id: string;
+  location_id: string;
+  staff_id: string;
+  work_date: string;
+};
+
 /**
- * Copy every assignment in the selected FEC month into the next FEC month.
+ * Copy assignments in the selected FEC month into the next FEC month.
  * Dates map by day-of-period index (see mapRosterPeriodByDayIndex). Empty cells stay empty.
- * If the target already has rows, pass replace=true after UI confirm; otherwise returns needsReplace.
+ * Omit locationIds to copy every site. Pass locationIds to copy only those sites;
+ * each row keeps the location already stored on it.
+ * If that target scope already has rows, pass replace=true after UI confirm; otherwise returns needs_replace.
+ * All locations replaces every row in the next month. A site filter replaces only those locations.
  */
 export const copyRosterToNextMonth = createAuthenticatedAction(
   z.object({
     month: z.string().regex(/^\d{4}-\d{2}$/),
     replace: z.boolean().optional().default(false),
+    locationIds: z.array(z.string().uuid()).max(100).optional(),
   }),
   async (data, context) => {
     assertCanAmendRoster(context.roles);
@@ -812,9 +835,17 @@ export const copyRosterToNextMonth = createAuthenticatedAction(
     assertRosterDeletePeriod(source.dateFrom, source.dateTo);
     assertRosterDeletePeriod(target.dateFrom, target.dateTo);
 
+    const siteFilter = data.locationIds ? [...new Set(data.locationIds)] : null;
+    const siteWise = siteFilter != null;
+    if (siteFilter) {
+      for (const locationId of siteFilter) {
+        await assertAttendanceRosterLocation(context, locationId);
+      }
+    }
+
     const dateMap = mapRosterPeriodByDayIndex(source.dateFrom, source.dateTo, target.dateFrom, target.dateTo);
 
-    const sourceRows = await collectPagedRows<CopySourceRow>(async (from, to) => {
+    const sourceRowsAll = await collectPagedRows<CopySourceRow>(async (from, to) => {
       const { data: page, error } = await context.supabase
         .from("attendance_roster_assignments")
         .select("location_id, staff_id, work_date, shift_template_id, shift_start, shift_end, is_week_off")
@@ -825,6 +856,8 @@ export const copyRosterToNextMonth = createAuthenticatedAction(
       if (error) throw error;
       return (page ?? []) as CopySourceRow[];
     }, ATTENDANCE_DAILY_LIST_PAGE_SIZE);
+
+    const sourceRows = filterRosterCopyRows(sourceRowsAll, siteFilter);
 
     if (!sourceRows.length) {
       return {
@@ -839,8 +872,25 @@ export const copyRosterToNextMonth = createAuthenticatedAction(
       };
     }
 
+    let destinationRows: CopyTargetRow[] | null = null;
+    if (siteWise) {
+      destinationRows = await collectPagedRows<CopyTargetRow>(async (from, to) => {
+        const { data: page, error } = await context.supabase
+          .from("attendance_roster_assignments")
+          .select("id, location_id, staff_id, work_date")
+          .gte("work_date", target.dateFrom)
+          .lte("work_date", target.dateTo)
+          .order("id", { ascending: true })
+          .range(from, to);
+        if (error) throw error;
+        return (page ?? []) as CopyTargetRow[];
+      }, ATTENDANCE_DAILY_LIST_PAGE_SIZE);
+    }
+
     let targetCount = 0;
-    {
+    if (siteWise) {
+      targetCount = filterRosterCopyRows(destinationRows ?? [], siteFilter).length;
+    } else {
       const { count, error } = await context.supabase
         .from("attendance_roster_assignments")
         .select("id", { count: "exact", head: true })
@@ -872,11 +922,13 @@ export const copyRosterToNextMonth = createAuthenticatedAction(
 
     let replaced = 0;
     if (targetCount > 0 && data.replace) {
-      const existing = await fetchRosterAssignmentsInScope(context.supabase, {
-        dateFrom: target.dateFrom,
-        dateTo: target.dateTo,
-        sourceUploadOnly: false,
-      });
+      const existing = siteWise
+        ? filterRosterCopyRows(destinationRows ?? [], siteFilter)
+        : await fetchRosterAssignmentsInScope(context.supabase, {
+            dateFrom: target.dateFrom,
+            dateTo: target.dateTo,
+            sourceUploadOnly: false,
+          });
       replaced = existing.length;
       for (const ids of chunkIds(existing.map((row) => String(row.id)), 200)) {
         const { error: delErr } = await context.supabase
@@ -889,6 +941,11 @@ export const copyRosterToNextMonth = createAuthenticatedAction(
       }
     }
 
+    const protectedKeys = siteWise
+      ? rosterCopyProtectedDestinationKeys(destinationRows ?? [], siteFilter)
+      : new Set<string>();
+    const planned = planRosterCopyByLocation(sourceRows, null, dateMap);
+
     const payload: {
       location_id: string;
       staff_id: string;
@@ -900,11 +957,9 @@ export const copyRosterToNextMonth = createAuthenticatedAction(
       source: string;
       created_by: string;
     }[] = [];
-    let skipped = 0;
-    for (const row of sourceRows) {
-      const workDate = String(row.work_date).slice(0, 10);
-      const mapped = dateMap.get(workDate);
-      if (!mapped) {
+    let skipped = planned.skipped;
+    for (const row of planned.rows) {
+      if (protectedKeys.has(rosterCopyDestinationKey(String(row.staff_id), row.work_date))) {
         skipped += 1;
         continue;
       }
@@ -912,7 +967,7 @@ export const copyRosterToNextMonth = createAuthenticatedAction(
       payload.push({
         location_id: String(row.location_id),
         staff_id: String(row.staff_id),
-        work_date: mapped,
+        work_date: row.work_date,
         shift_template_id: isWeekOff ? null : ((row.shift_template_id as string | null) ?? null),
         shift_start: isWeekOff
           ? null
@@ -971,6 +1026,7 @@ export const copyRosterToNextMonth = createAuthenticatedAction(
         skipped,
         replaced,
         mapping: "day_of_period_index",
+        locationIds: siteWise ? siteFilter : null,
       },
     });
 

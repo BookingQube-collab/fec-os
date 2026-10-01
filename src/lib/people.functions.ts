@@ -236,13 +236,17 @@ async function saveStaffDemographics(
   input: { gender?: string | null; nationality?: string | null },
   userId: string,
 ) {
+  const [gender, nationality] = await Promise.all([
+    input.gender !== undefined ? canonicalMasterName("gender", input.gender) : Promise.resolve(undefined),
+    input.nationality !== undefined
+      ? canonicalMasterName("nationality", input.nationality)
+      : Promise.resolve(undefined),
+  ]);
   const patch: { gender?: string | null; nationality?: string | null; updated_by: string } = {
     updated_by: userId,
   };
-  if (input.gender !== undefined) patch.gender = await canonicalMasterName("gender", input.gender);
-  if (input.nationality !== undefined) {
-    patch.nationality = await canonicalMasterName("nationality", input.nationality);
-  }
+  if (gender !== undefined) patch.gender = gender;
+  if (nationality !== undefined) patch.nationality = nationality;
   if (patch.gender === undefined && patch.nationality === undefined) return;
   const { error } = await supabaseAdmin
     .from("staff_profile_ext")
@@ -705,12 +709,14 @@ export const createStaff = createSafeAuthenticatedAction(
       .single();
     if (error) throw error;
 
-    await syncStaffDepartments(context, row.id as string, data.departmentIds, department);
-    await saveStaffDemographics(
-      row.id as string,
-      { gender: data.gender, nationality: data.nationality },
-      context.userId,
-    );
+    await Promise.all([
+      syncStaffDepartments(context, row.id as string, data.departmentIds, department),
+      saveStaffDemographics(
+        row.id as string,
+        { gender: data.gender, nationality: data.nationality },
+        context.userId,
+      ),
+    ]);
     await context.supabase.rpc("log_audit", {
       _action: "staff.created",
       _table_name: "staff",
@@ -780,32 +786,47 @@ export const updateStaff = createSafeAuthenticatedAction(
     if (data.breakMinutes !== undefined) patch.break_minutes = data.breakMinutes;
     if (data.weeklyOffWeekday !== undefined) patch.weekly_off_weekday = data.weeklyOffWeekday;
 
+    const writes: Promise<unknown>[] = [
+      saveStaffDemographics(
+        data.id,
+        { gender: data.gender, nationality: data.nationality },
+        context.userId,
+      ),
+    ];
+
     if (nextStatus !== existing.status) {
-      await insertStatusHistory(context, {
-        staffId: data.id,
-        fromStatus: existing.status,
-        toStatus: nextStatus,
-        reason: "profile_update",
-        locationId: existing.location_id,
-      });
+      writes.push(
+        insertStatusHistory(context, {
+          staffId: data.id,
+          fromStatus: existing.status,
+          toStatus: nextStatus,
+          reason: "profile_update",
+          locationId: existing.location_id,
+        }),
+      );
     }
 
     if (Object.keys(patch).length) {
-      const { error } = await context.supabase.from("staff").update(patch).eq("id", data.id);
-      if (error) throw error;
+      writes.push(
+        (async () => {
+          const { error } = await context.supabase.from("staff").update(patch).eq("id", data.id);
+          if (error) throw error;
+        })(),
+      );
     }
 
     if (data.departmentIds !== undefined) {
-      const names = await departmentNamesForIds(context, data.departmentIds);
-      const department = formatDepartmentDisplay(names) || null;
-      await syncStaffDepartments(context, data.id, data.departmentIds, department);
+      const departmentIds = data.departmentIds;
+      writes.push(
+        (async () => {
+          const names = await departmentNamesForIds(context, departmentIds);
+          const department = formatDepartmentDisplay(names) || null;
+          await syncStaffDepartments(context, data.id, departmentIds, department);
+        })(),
+      );
     }
 
-    await saveStaffDemographics(
-      data.id,
-      { gender: data.gender, nationality: data.nationality },
-      context.userId,
-    );
+    await Promise.all(writes);
 
     await context.supabase.rpc("log_audit", {
       _action: "staff.updated",

@@ -3,7 +3,7 @@
 import { FecPageHeader } from "@/components/fec";
 
 import Link from "next/link";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarDays, Copy, Download, Loader2, Trash2, Upload } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -24,11 +24,31 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import { copyRosterToNextMonth, downloadPreviousMonthRoster } from "@/lib/attendance-hr/roster-register.functions";
+import { useSites } from "@/hooks/queries/useSites";
+import { flexibleMultiSiteRosterStaff } from "@/lib/attendance-hr/roster-copy";
+import { locationRosterCoverage } from "@/lib/attendance-hr/roster-location-coverage";
+import {
+  copyRosterToNextMonth,
+  downloadPreviousMonthRoster,
+  listUploadedRosterAssignments,
+} from "@/lib/attendance-hr/roster-register.functions";
+import { formatLocationRecord } from "@/lib/locations/normalize";
+import { STALE } from "@/lib/query-client";
+import { cn } from "@/lib/utils";
 import {
   attendanceRosterPeriod,
   formatPayrollRange,
@@ -65,6 +85,10 @@ export default function StaffRosterRegisterPage() {
   const [periodMode, setPeriodMode] = useState<AttendanceRosterPeriodMode>("month");
   const [weekStart, setWeekStart] = useState(() => qatarWeekBounds(todayYmd()).dateFrom);
   const [month, setMonth] = useState(() => payrollMonthOf(todayYmd()));
+  const [copyChoiceOpen, setCopyChoiceOpen] = useState(false);
+  const [copyAllLocations, setCopyAllLocations] = useState(true);
+  const [copyLocationIds, setCopyLocationIds] = useState<string[]>([]);
+  const [copyLocationFilter, setCopyLocationFilter] = useState<string[] | null>(null);
   const [copyReplaceOpen, setCopyReplaceOpen] = useState(false);
   const [previousBusy, setPreviousBusy] = useState(false);
   const [copyReplaceMeta, setCopyReplaceMeta] = useState<{
@@ -72,6 +96,7 @@ export default function StaffRosterRegisterPage() {
     targetCount: number;
     sourceCount: number;
     targetRange: string;
+    siteWise: boolean;
   } | null>(null);
 
   const period = useMemo(() => {
@@ -83,7 +108,50 @@ export default function StaffRosterRegisterPage() {
   }, [periodMode, weekStart, month]);
 
   const nextMonth = nextPayrollMonth(month);
+  const nextBounds = monthBounds(nextMonth);
   const previousPeriod = useMemo(() => monthBounds(previousPayrollMonth(month)), [month]);
+  const sites = useSites();
+  const rosterCoverage = useQuery({
+    queryKey: queryKeys.people.rosterRegister({
+      dateFrom: period.dateFrom,
+      dateTo: period.dateTo,
+      locationCoverage: true,
+    }),
+    queryFn: () =>
+      listUploadedRosterAssignments({
+        dateFrom: period.dateFrom,
+        dateTo: period.dateTo,
+        sourceUploadOnly: false,
+      }),
+    staleTime: STALE.people,
+    enabled: Boolean(period.dateFrom && period.dateTo),
+  });
+  const uploadedLocations = useMemo(
+    () =>
+      locationRosterCoverage(
+        sites.data ?? [],
+        (rosterCoverage.data?.rows ?? []).map((row) => ({ locationId: row.locationId, staffId: row.staffId })),
+        (site) => formatLocationRecord(site),
+      ).filter((item) => item.uploaded),
+    [sites.data, rosterCoverage.data?.rows],
+  );
+  const flexibleStaff = useMemo(
+    () => flexibleMultiSiteRosterStaff(rosterCoverage.data?.rows ?? []),
+    [rosterCoverage.data?.rows],
+  );
+  const flexibleNamesByLocation = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const person of flexibleStaff) {
+      const name = person.staffName || person.staffId;
+      for (const locationId of person.locationIds) {
+        const list = map.get(locationId) ?? [];
+        list.push(name);
+        map.set(locationId, list);
+      }
+    }
+    return map;
+  }, [flexibleStaff]);
+  const flexibleNames = flexibleStaff.map((person) => person.staffName || person.staffId).join(", ");
 
   const downloadPrevious = async () => {
     try {
@@ -110,7 +178,10 @@ export default function StaffRosterRegisterPage() {
     }
   };
 
-  const applyCopyResult = (result: Awaited<ReturnType<typeof copyRosterToNextMonth>>) => {
+  const applyCopyResult = (
+    result: Awaited<ReturnType<typeof copyRosterToNextMonth>>,
+    locationIds: string[] | null,
+  ) => {
     if (result.status === "empty") {
       toast.error(t("people.roster.copyNextMonthEmpty"));
       return;
@@ -121,6 +192,7 @@ export default function StaffRosterRegisterPage() {
         targetCount: result.targetCount,
         sourceCount: result.sourceCount,
         targetRange: formatPayrollRange(result.target.dateFrom, result.target.dateTo, i18n.language),
+        siteWise: Boolean(locationIds?.length),
       });
       setCopyReplaceOpen(true);
       return;
@@ -138,10 +210,44 @@ export default function StaffRosterRegisterPage() {
   };
 
   const copyMut = useMutation({
-    mutationFn: (replace: boolean) => copyRosterToNextMonth({ month, replace }),
-    onSuccess: applyCopyResult,
+    mutationFn: (input: { replace: boolean; locationIds: string[] | null }) =>
+      copyRosterToNextMonth({
+        month,
+        replace: input.replace,
+        ...(input.locationIds?.length ? { locationIds: input.locationIds } : {}),
+      }),
+    onSuccess: (result, variables) => {
+      setCopyLocationFilter(variables.locationIds);
+      applyCopyResult(result, variables.locationIds);
+    },
     onError: (e: Error) => toast.error(e.message),
   });
+
+  const openCopyChoice = () => {
+    setCopyAllLocations(true);
+    setCopyLocationIds([]);
+    setCopyChoiceOpen(true);
+  };
+
+  const toggleCopyLocation = (id: string, on: boolean) => {
+    setCopyLocationIds((current) =>
+      on ? (current.includes(id) ? current : [...current, id]) : current.filter((item) => item !== id),
+    );
+  };
+
+  const confirmCopyChoice = () => {
+    const selected = copyLocationIds.filter((id) => uploadedLocations.some((site) => site.id === id));
+    if (!copyAllLocations && selected.length === 0) return;
+    const locationIds = copyAllLocations ? null : selected;
+    setCopyChoiceOpen(false);
+    setCopyLocationFilter(locationIds);
+    copyMut.mutate({ replace: false, locationIds });
+  };
+
+  const sitesLoading = rosterCoverage.isLoading || sites.isLoading;
+  const sitesFailed = rosterCoverage.isError || sites.isError;
+  const siteChoiceBlocked =
+    !copyAllLocations && (sitesLoading || sitesFailed || uploadedLocations.length === 0 || copyLocationIds.length === 0);
 
   const copyDisabled = periodMode !== "month" || copyMut.isPending || !/^\d{4}-\d{2}$/.test(month);
 
@@ -175,7 +281,7 @@ export default function StaffRosterRegisterPage() {
                 size="sm"
                 variant="outline"
                 disabled={copyDisabled}
-                onClick={() => copyMut.mutate(false)}
+                onClick={openCopyChoice}
               >
                 {copyMut.isPending ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -269,6 +375,128 @@ export default function StaffRosterRegisterPage() {
         onDeleteAllStateChange={setDeleteAllState}
       />
 
+      <Dialog
+        open={copyChoiceOpen}
+        onOpenChange={(open) => {
+          if (!open && !copyMut.isPending) setCopyChoiceOpen(false);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("people.roster.copyNextMonthChooseTitle")}</DialogTitle>
+            <DialogDescription>
+              {t("people.roster.copyNextMonthChooseBody", {
+                range: formatPayrollRange(nextBounds.dateFrom, nextBounds.dateTo, i18n.language),
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <label
+              className={cn(
+                "flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2",
+                copyAllLocations ? "border-primary" : "border-border/70",
+              )}
+            >
+              <input
+                type="radio"
+                name="roster-copy-scope"
+                className="mt-1"
+                checked={copyAllLocations}
+                onChange={() => setCopyAllLocations(true)}
+              />
+              <span>
+                <span className="block text-sm font-medium">{t("people.roster.copyNextMonthAllLocations")}</span>
+                <span className="block text-xs text-muted-foreground">
+                  {t("people.roster.copyNextMonthAllLocationsHint")}
+                </span>
+              </span>
+            </label>
+            <label
+              className={cn(
+                "flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2",
+                !copyAllLocations ? "border-primary" : "border-border/70",
+              )}
+            >
+              <input
+                type="radio"
+                name="roster-copy-scope"
+                className="mt-1"
+                checked={!copyAllLocations}
+                onChange={() => setCopyAllLocations(false)}
+              />
+              <span>
+                <span className="block text-sm font-medium">{t("people.roster.copyNextMonthChooseSites")}</span>
+                <span className="block text-xs text-muted-foreground">
+                  {t("people.roster.copyNextMonthChooseSitesHint")}
+                </span>
+              </span>
+            </label>
+            {!copyAllLocations ? (
+              sitesLoading ? (
+                <p className="text-sm text-muted-foreground">{t("people.roster.copyNextMonthSitesLoading")}</p>
+              ) : sitesFailed ? (
+                <p className="text-sm text-destructive">{t("people.roster.locationCoverageLoadFailed")}</p>
+              ) : uploadedLocations.length === 0 ? (
+                <p className="text-sm text-muted-foreground">{t("people.roster.copyNextMonthNoSites")}</p>
+              ) : (
+                <ul className="max-h-64 space-y-2 overflow-y-auto">
+                  {uploadedLocations.map((site) => {
+                    const names = flexibleNamesByLocation.get(site.id) ?? [];
+                    const checked = copyLocationIds.includes(site.id);
+                    return (
+                      <li
+                        key={site.id}
+                        className={cn(
+                          "flex items-start gap-3 rounded-xl border px-3 py-2",
+                          checked ? "border-primary" : "border-border/70",
+                        )}
+                      >
+                        <Checkbox
+                          id={`roster-copy-site-${site.id}`}
+                          className="mt-0.5"
+                          checked={checked}
+                          onCheckedChange={(value) => toggleCopyLocation(site.id, value === true)}
+                        />
+                        <Label htmlFor={`roster-copy-site-${site.id}`} className="min-w-0 cursor-pointer font-normal leading-snug">
+                          <span className="block truncate text-sm font-medium" title={site.label}>
+                            {site.label}
+                          </span>
+                          <span className="block text-xs font-normal text-muted-foreground">
+                            {t("people.roster.registerCount", { count: site.rowCount })}
+                            <span aria-hidden="true"> · </span>
+                            {t("people.roster.registerStaffCount", { count: site.staffCount })}
+                          </span>
+                          {names.length ? (
+                            <span className="mt-1 block text-xs font-normal text-[color:var(--color-warning)]">
+                              {t("people.roster.copyNextMonthFlexibleOnSite", { names: names.join(", ") })}
+                            </span>
+                          ) : null}
+                        </Label>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )
+            ) : null}
+            {flexibleNames ? (
+              <p className="flex items-start gap-2 text-xs text-muted-foreground">
+                <Badge variant="warning">{t("people.staff.flexibleHours")}</Badge>
+                <span>{t("people.roster.copyNextMonthFlexibleNote", { names: flexibleNames })}</span>
+              </p>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setCopyChoiceOpen(false)} disabled={copyMut.isPending}>
+              {t("common.cancel")}
+            </Button>
+            <Button type="button" onClick={confirmCopyChoice} disabled={copyMut.isPending || siteChoiceBlocked}>
+              {copyMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {t("people.roster.copyNextMonthConfirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <AlertDialog
         open={copyReplaceOpen}
         onOpenChange={(open) => {
@@ -282,11 +510,16 @@ export default function StaffRosterRegisterPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>{t("people.roster.copyNextMonthReplaceTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t("people.roster.copyNextMonthReplaceBody", {
-                count: copyReplaceMeta?.targetCount ?? 0,
-                range: copyReplaceMeta?.targetRange ?? nextMonth,
-                sourceCount: copyReplaceMeta?.sourceCount ?? 0,
-              })}
+              {t(
+                copyReplaceMeta?.siteWise
+                  ? "people.roster.copyNextMonthReplaceBodySites"
+                  : "people.roster.copyNextMonthReplaceBody",
+                {
+                  count: copyReplaceMeta?.targetCount ?? 0,
+                  range: copyReplaceMeta?.targetRange ?? nextMonth,
+                  sourceCount: copyReplaceMeta?.sourceCount ?? 0,
+                },
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -295,7 +528,7 @@ export default function StaffRosterRegisterPage() {
               disabled={copyMut.isPending}
               onClick={(e) => {
                 e.preventDefault();
-                copyMut.mutate(true);
+                copyMut.mutate({ replace: true, locationIds: copyLocationFilter });
               }}
             >
               {copyMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}

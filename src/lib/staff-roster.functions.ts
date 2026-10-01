@@ -244,13 +244,15 @@ export const updateStaffWorkLocations = createSafeAuthenticatedAction(
     });
     const unique = resolved.locationIds;
 
-    for (const locationId of unique) {
-      const { data: allowed, error } = await context.supabase.rpc("user_can_access_location", {
-        _location_id: locationId,
-      });
-      if (error) throw error;
-      if (!allowed) throw new ForbiddenError("Forbidden: cannot attach this branch");
-    }
+    await Promise.all(
+      unique.map(async (locationId) => {
+        const { data: allowed, error } = await context.supabase.rpc("user_can_access_location", {
+          _location_id: locationId,
+        });
+        if (error) throw error;
+        if (!allowed) throw new ForbiddenError("Forbidden: cannot attach this branch");
+      }),
+    );
 
     const extraSites = unique.filter((id) => id !== resolved.homeLocationId);
     const isRoaming = data.isRoaming ?? extraSites.length > 0;

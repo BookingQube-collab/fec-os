@@ -84,7 +84,6 @@ import { formatLocationLabel } from "@/lib/locations/normalize";
 import { nextEmployeeCode } from "@/lib/staff-employee-code";
 import { countsAsActiveStaff, isActiveStaffStatus, reconcileJokerStaffStatus } from "@/lib/staff-status";
 import { fileToBase64, identityFileContentType } from "@/lib/hr/identity-file";
-import type { IdentityDocType } from "@/lib/hr/identity-document-parse";
 import type { StaffRow } from "@/lib/queries/module-queries.core";
 import { queryKeys } from "@/lib/query-keys";
 import { usePermission } from "@/hooks/use-permission";
@@ -449,6 +448,30 @@ function StaffTab() {
   );
 }
 
+function sameIdSet(left: readonly string[] | null | undefined, right: readonly string[]) {
+  const a = [...(left ?? [])].sort();
+  const b = [...right].sort();
+  return a.length === b.length && a.every((id, index) => id === b[index]);
+}
+
+function identityFieldsChanged(current: StaffIdentityDraft, staff?: StaffRow) {
+  const initial = emptyIdentityDraft(staff);
+  if (Object.values(current.files).some(Boolean)) return true;
+  return (
+    current.qidExpiry !== initial.qidExpiry ||
+    current.passportNumber.trim() !== initial.passportNumber.trim() ||
+    current.passportExpiry !== initial.passportExpiry ||
+    current.visaNumber.trim() !== initial.visaNumber.trim() ||
+    current.visaExpiry !== initial.visaExpiry ||
+    current.contractNumber.trim() !== initial.contractNumber.trim() ||
+    current.contractExpiry !== initial.contractExpiry
+  );
+}
+
+function assertSaved(result: { ok: boolean; error?: string } | void) {
+  if (result && result.ok === false) throw new Error(result.error || "Save failed");
+}
+
 function StaffFormDialog({
   open,
   onOpenChange,
@@ -554,8 +577,12 @@ function StaffFormDialog({
   const titleListOpenRef = useRef(false);
   const homeSiteListOpenRef = useRef(false);
   const workSiteListOpenRef = useRef(false);
+  const [formTab, setFormTab] = useState("profile");
 
+  const wasOpenRef = useRef(false);
   useEffect(() => {
+    if (open && !wasOpenRef.current) setFormTab("profile");
+    wasOpenRef.current = open;
     if (open) return;
     setIdentity(emptyIdentityDraft(staff));
     setCreatedStaffId(null);
@@ -592,14 +619,19 @@ function StaffFormDialog({
       const qidValue = qid.trim() || null;
       // Jokers always store the amount as daily_rate_qar (pay basis UI is day-rate-first).
       const jokerDaily = employment === "joker";
-      let staffId = staff?.id;
+      const reportingParsed =
+        reportingTimeMinutes.trim() === ""
+          ? null
+          : Number.parseInt(reportingTimeMinutes, 10);
+      const bufferParsed =
+        bufferMinutes.trim() === "" ? null : Number.parseInt(bufferMinutes, 10);
+      const expectedParsed =
+        expectedHours.trim() === "" ? null : Number(expectedHours);
+      const breakParsed =
+        staffBreakMinutes.trim() === "" ? null : Number.parseInt(staffBreakMinutes, 10);
+      const weeklyOffParsed =
+        weeklyOffWeekday.trim() === "" ? null : Number.parseInt(weeklyOffWeekday, 10);
       if (isEdit) {
-        const reportingParsed =
-          reportingTimeMinutes.trim() === ""
-            ? null
-            : Number.parseInt(reportingTimeMinutes, 10);
-        const bufferParsed =
-          bufferMinutes.trim() === "" ? null : Number.parseInt(bufferMinutes, 10);
         if (
           reportingParsed != null &&
           (!Number.isFinite(reportingParsed) || reportingParsed < 0 || reportingParsed > 180)
@@ -612,12 +644,6 @@ function StaffFormDialog({
         ) {
           throw new Error(t("people.staff.flexibleBufferInvalid"));
         }
-        const expectedParsed =
-          expectedHours.trim() === "" ? null : Number(expectedHours);
-        const breakParsed =
-          staffBreakMinutes.trim() === "" ? null : Number.parseInt(staffBreakMinutes, 10);
-        const weeklyOffParsed =
-          weeklyOffWeekday.trim() === "" ? null : Number.parseInt(weeklyOffWeekday, 10);
         if (
           expectedParsed != null &&
           (!Number.isFinite(expectedParsed) || expectedParsed < 1 || expectedParsed > 16)
@@ -630,55 +656,138 @@ function StaffFormDialog({
         ) {
           throw new Error(t("people.staff.breakMinutesInvalid"));
         }
-        const updated = await updateStaff({
-          id: staff!.id,
-          fullName,
-          jobTitle: jobTitle || null,
-          departmentIds,
-          hireDate: hireDate || null,
-          status,
-          phone: phone || null,
-          email: email || null,
-          qid: qidValue,
-          e3Enrolled,
-          employmentType: employment,
-          flexibleAttendance,
-          reportingTimeMinutes: reportingParsed,
-          bufferMinutes: bufferParsed,
-          expectedHours: expectedParsed,
-          breakMinutes: breakParsed,
-          weeklyOffWeekday: weeklyOffParsed,
-          gender: alignMasterValue(gender, genderNames) || null,
-          nationality: alignMasterValue(nationality, nationalityNames) || null,
-        });
-        if (!updated.ok) throw new Error(updated.error);
+      }
+
+      const nextAmount = salary.trim() === "" ? null : Number(salary);
+      if (canEditSalary && nextAmount !== null && Number.isNaN(nextAmount)) {
+        throw new Error(t("people.staff.salaryPlaceholder"));
+      }
+      const nextMonthly = jokerDaily ? null : nextAmount;
+      const nextDaily = jokerDaily ? nextAmount : null;
+      const salaryChanged =
+        canEditSalary &&
+        (nextMonthly !== (staff?.monthly_salary_qar ?? null) ||
+          nextDaily !== (staff?.daily_rate_qar ?? null));
+
+      const saveIdentity = identityFieldsChanged(identity, staff);
+      const documents = saveIdentity
+        ? await Promise.all(
+            (["qid", "passport", "visa", "contract"] as const).flatMap((docType) => {
+              const file = identity.files[docType];
+              if (!file) return [];
+              const contentType = identityFileContentType(file);
+              if (!contentType) throw new Error(t("people.staff.fileType"));
+              const documentNumber =
+                docType === "qid"
+                  ? qidValue
+                  : docType === "passport"
+                    ? identity.passportNumber.trim() || null
+                    : docType === "visa"
+                      ? identity.visaNumber.trim() || null
+                      : identity.contractNumber.trim() || null;
+              const expiryDate =
+                docType === "qid"
+                  ? identity.qidExpiry || null
+                  : docType === "passport"
+                    ? identity.passportExpiry || null
+                    : docType === "visa"
+                      ? identity.visaExpiry || null
+                      : identity.contractExpiry || null;
+              return [
+                fileToBase64(file).then((data_base64) => ({
+                  docType,
+                  filename: file.name,
+                  data_base64,
+                  content_type: contentType,
+                  documentNumber,
+                  expiryDate,
+                })),
+              ];
+            }),
+          )
+        : [];
+
+      const departmentIdsPayload =
+        isEdit && sameIdSet(staff?.department_ids, departmentIds) ? undefined : departmentIds;
+      const profilePatch = {
+        fullName,
+        jobTitle: jobTitle || null,
+        departmentIds: departmentIdsPayload,
+        hireDate: hireDate || null,
+        status,
+        phone: phone || null,
+        email: email || null,
+        qid: qidValue,
+        e3Enrolled,
+        employmentType: employment,
+        gender: alignMasterValue(gender, genderNames) || null,
+        nationality: alignMasterValue(nationality, nationalityNames) || null,
+      };
+
+      const saveSalary = (id: string) => {
+        if (!salaryChanged) return Promise.resolve();
+        return updateStaffSalary({
+          id,
+          monthlySalaryQar: nextMonthly,
+          dailyRateQar: nextDaily,
+        }).then(assertSaved);
+      };
+      const savePhoto = (id: string) => {
+        if (photoDraft.dataUrl) return saveStaffPhoto({ id, photoDataUrl: photoDraft.dataUrl });
+        if (photoDraft.remove && isEdit) return removeStaffPhoto({ id });
+        return Promise.resolve();
+      };
+      const saveDocuments = (id: string) => {
+        if (!saveIdentity) return Promise.resolve();
+        return attachStaffIdentityDocuments({
+          staffId: id,
+          qidExpiry: identity.qidExpiry || null,
+          passportNumber: identity.passportNumber.trim() || null,
+          passportExpiry: identity.passportExpiry || null,
+          visaNumber: identity.visaNumber.trim() || null,
+          visaExpiry: identity.visaExpiry || null,
+          contractEnd: identity.contractExpiry || null,
+          qidIfEmpty: qidValue,
+          documents,
+        }).then(assertSaved);
+      };
+
+      let staffId = staff?.id;
+      if (isEdit) {
         const homeId = editHomeLocationId || staff!.location_id;
         if (!homeId) throw new Error(t("people.staff.selectBranch"));
         const extraIds = [...new Set(workLocationIds.filter((id) => id && id !== homeId))];
-        const sitesResult = await updateStaffWorkLocations({
-          id: staff!.id,
-          locationIds: [homeId, ...extraIds],
-          homeLocationId: homeId,
-          isRoaming,
-        });
-        if (!sitesResult.ok) throw new Error(sitesResult.error);
-      } else if (createdStaffId) {
+        await Promise.all([
+          updateStaff({
+            id: staff!.id,
+            ...profilePatch,
+            flexibleAttendance,
+            reportingTimeMinutes: reportingParsed,
+            bufferMinutes: bufferParsed,
+            expectedHours: expectedParsed,
+            breakMinutes: breakParsed,
+            weeklyOffWeekday: weeklyOffParsed,
+          }).then(assertSaved),
+          updateStaffWorkLocations({
+            id: staff!.id,
+            locationIds: [homeId, ...extraIds],
+            homeLocationId: homeId,
+            isRoaming,
+          }).then(assertSaved),
+          saveSalary(staff!.id),
+          savePhoto(staff!.id),
+          saveDocuments(staff!.id),
+        ]);
+        return;
+      }
+
+      if (createdStaffId) {
         const updated = await updateStaff({
           id: createdStaffId,
-          fullName,
-          jobTitle: jobTitle || null,
+          ...profilePatch,
           departmentIds,
-          hireDate: hireDate || null,
-          status,
-          phone: phone || null,
-          email: email || null,
-          qid: qidValue,
-          e3Enrolled,
-          employmentType: employment,
-          gender: alignMasterValue(gender, genderNames) || null,
-          nationality: alignMasterValue(nationality, nationalityNames) || null,
         });
-        if (!updated.ok) throw new Error(updated.error);
+        assertSaved(updated);
         staffId = createdStaffId;
       } else {
         if (!loc) throw new Error(t("people.staff.selectBranch"));
@@ -703,89 +812,16 @@ function StaffFormDialog({
         setCreatedStaffId(staffId);
       }
 
-      if (staffId && canEditSalary) {
-        const nextAmount = salary.trim() === "" ? null : Number(salary);
-        if (nextAmount !== null && Number.isNaN(nextAmount)) {
-          throw new Error(t("people.staff.salaryPlaceholder"));
-        }
-        const nextMonthly = jokerDaily ? null : nextAmount;
-        const nextDaily = jokerDaily ? nextAmount : null;
-        const prevMonthly = staff?.monthly_salary_qar ?? null;
-        const prevDaily = staff?.daily_rate_qar ?? null;
-        if (nextMonthly !== prevMonthly || nextDaily !== prevDaily) {
-          const salaryResult = await updateStaffSalary({
-            id: staffId,
-            monthlySalaryQar: nextMonthly,
-            dailyRateQar: nextDaily,
-          });
-          if (!salaryResult.ok) throw new Error(salaryResult.error);
-        }
-      }
-
-      if (staffId && photoDraft.dataUrl) {
-        await saveStaffPhoto({ id: staffId, photoDataUrl: photoDraft.dataUrl });
-      } else if (staffId && photoDraft.remove && isEdit) {
-        await removeStaffPhoto({ id: staffId });
-      }
-
-      if (staffId) {
-        const documents: Array<{
-          docType: IdentityDocType;
-          filename: string;
-          data_base64: string;
-          content_type: string;
-          documentNumber: string | null;
-          expiryDate: string | null;
-        }> = [];
-        const numberFor = (docType: IdentityDocType) => {
-          if (docType === "qid") return qidValue;
-          if (docType === "passport") return identity.passportNumber.trim() || null;
-          if (docType === "visa") return identity.visaNumber.trim() || null;
-          return identity.contractNumber.trim() || null;
-        };
-        const expiryFor = (docType: IdentityDocType) => {
-          if (docType === "qid") return identity.qidExpiry || null;
-          if (docType === "passport") return identity.passportExpiry || null;
-          if (docType === "visa") return identity.visaExpiry || null;
-          return identity.contractExpiry || null;
-        };
-        for (const docType of ["qid", "passport", "visa", "contract"] as const) {
-          const file = identity.files[docType];
-          if (!file) continue;
-          const contentType = identityFileContentType(file);
-          if (!contentType) throw new Error(t("people.staff.fileType"));
-          documents.push({
-            docType,
-            filename: file.name,
-            data_base64: await fileToBase64(file),
-            content_type: contentType,
-            documentNumber: numberFor(docType),
-            expiryDate: expiryFor(docType),
-          });
-        }
-        const hasProfile =
-          Boolean(identity.qidExpiry || identity.passportNumber.trim() || identity.passportExpiry || identity.visaNumber.trim() || identity.visaExpiry || identity.contractExpiry);
-        if (documents.length || hasProfile) {
-          const attached = await attachStaffIdentityDocuments({
-            staffId,
-            qidExpiry: identity.qidExpiry || null,
-            passportNumber: identity.passportNumber.trim() || null,
-            passportExpiry: identity.passportExpiry || null,
-            visaNumber: identity.visaNumber.trim() || null,
-            visaExpiry: identity.visaExpiry || null,
-            contractEnd: identity.contractExpiry || null,
-            qidIfEmpty: qidValue,
-            documents,
-          });
-          if (!attached.ok) throw new Error(attached.error);
-        }
-      }
+      if (!staffId) return;
+      await Promise.all([saveSalary(staffId), savePhoto(staffId), saveDocuments(staffId)]);
     },
     onSuccess: () => {
       toast.success(isEdit ? t("people.staff.updateSuccess") : t("people.staff.createSuccess"));
       setPhotoDraft({ dataUrl: null, remove: false });
       onOpenChange(false);
-      onSaved();
+      queueMicrotask(() => {
+        onSaved();
+      });
     },
     onError: (e) => toast.error((e as Error).message),
   });
@@ -813,432 +849,479 @@ function StaffFormDialog({
       }}
     >
       <DialogContent
-        className="max-h-[90vh] max-w-[calc(100%-1.5rem)] overflow-y-auto sm:max-w-xl"
+        className="flex max-h-[90vh] max-w-[calc(100%-1.5rem)] flex-col gap-3 overflow-hidden sm:max-w-xl"
         onEscapeKeyDown={(event) => {
           if (!titleListOpenRef.current && !homeSiteListOpenRef.current && !workSiteListOpenRef.current) return;
           event.preventDefault();
         }}
       >
-        <DialogHeader>
+        <DialogHeader className="shrink-0 space-y-1 pe-8">
           <DialogTitle>{isEdit ? t("people.staff.edit") : t("people.staff.add")}</DialogTitle>
+          {isEdit ? (
+            <p className="truncate text-sm text-muted-foreground">
+              {[fullName.trim() || staff.full_name, staff.employee_code].filter(Boolean).join(" · ")}
+            </p>
+          ) : null}
         </DialogHeader>
-        <div className="space-y-3">
-          <StaffPhotoField
-            staffId={staff?.id}
-            hasPhoto={Boolean(staff?.has_photo)}
-            photoUpdatedAt={staff?.photo_updated_at ?? null}
-            draft={photoDraft}
-            onChange={setPhotoDraft}
-            disabled={m.isPending}
-          />
-          {!isEdit ? (
-            <>
+        <Tabs
+          value={formTab}
+          onValueChange={(next) => {
+            titleListOpenRef.current = false;
+            homeSiteListOpenRef.current = false;
+            workSiteListOpenRef.current = false;
+            setFormTab(next);
+          }}
+          className="flex min-h-0 flex-1 flex-col gap-3"
+        >
+          <TabsList className="h-auto w-full shrink-0">
+            <TabsTrigger value="profile" className="min-h-11">
+              {t("people.staff.formTabs.profile")}
+            </TabsTrigger>
+            <TabsTrigger value="job" className="min-h-11">
+              {t("people.staff.formTabs.job")}
+            </TabsTrigger>
+            {isEdit && homeLocationId ? (
+              <TabsTrigger value="sites" className="min-h-11">
+                {t("people.staff.formTabs.sites")}
+              </TabsTrigger>
+            ) : null}
+            {isEdit ? (
+              <TabsTrigger value="time" className="min-h-11">
+                {t("people.staff.formTabs.time")}
+              </TabsTrigger>
+            ) : null}
+            <TabsTrigger value="documents" className="min-h-11">
+              {t("people.staff.formTabs.documents")}
+            </TabsTrigger>
+          </TabsList>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pe-1">
+            <TabsContent value="profile" forceMount className="mt-0 space-y-3 data-[state=inactive]:hidden">
+              <StaffPhotoField
+                staffId={staff?.id}
+                hasPhoto={Boolean(staff?.has_photo)}
+                photoUpdatedAt={staff?.photo_updated_at ?? null}
+                draft={photoDraft}
+                onChange={setPhotoDraft}
+                disabled={m.isPending}
+              />
+              {!isEdit ? (
+                <>
+                  <div>
+                    <Label>{t("people.staff.branch")}</Label>
+                    <Select value={loc} onValueChange={setLoc}>
+                      <SelectTrigger><SelectValue placeholder={t("people.staff.selectBranch")} /></SelectTrigger>
+                      <SelectContent>
+                        {sites.map((s) => (
+                          <SelectItem key={s.id} value={s.id}>{s.code} — {s.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      <Label>{t("people.staff.code")}</Label>
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+                        onClick={() => setCodeNonce((n) => n + 1)}
+                        disabled={!loc || m.isPending}
+                      >
+                        <RefreshCw className="h-3 w-3" />
+                        {t("people.staff.codeRegenerate")}
+                      </button>
+                    </div>
+                    <Input
+                      value={employeeCode}
+                      readOnly
+                      className="bg-muted/40 font-mono"
+                      placeholder={loc ? t("people.staff.codeAuto") : t("people.staff.selectBranch")}
+                    />
+                    <p className="mt-1 text-[11px] text-muted-foreground">{t("people.staff.codeAuto")}</p>
+                  </div>
+                </>
+              ) : (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label>{t("people.staff.branch")}</Label>
+                    <Input
+                      readOnly
+                      className="bg-muted/40"
+                      value={
+                        homeSite
+                          ? formatLocationLabel(homeSite.code, homeSite.name)
+                          : staff!.location_code ?? "—"
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label>{t("people.staff.code")}</Label>
+                    <Input readOnly className="bg-muted/40 font-mono" value={staff!.employee_code} />
+                  </div>
+                </div>
+              )}
               <div>
-                <Label>{t("people.staff.branch")}</Label>
-                <Select value={loc} onValueChange={setLoc}>
-                  <SelectTrigger><SelectValue placeholder={t("people.staff.selectBranch")} /></SelectTrigger>
-                  <SelectContent>
-                    {sites.map((s) => (
-                      <SelectItem key={s.id} value={s.id}>{s.code} — {s.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>{t("people.staff.name")}</Label>
+                <Input
+                  value={fullName}
+                  onChange={(e) => {
+                    setFullName(e.target.value);
+                    if (identity.suggestions.fullName) {
+                      const suggestions = { ...identity.suggestions };
+                      delete suggestions.fullName;
+                      setIdentity({ ...identity, suggestions });
+                    }
+                  }}
+                />
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <Label>{t("people.staff.phone")}</Label>
+                  <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
+                </div>
+                <div>
+                  <Label>{t("people.staff.email")}</Label>
+                  <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <Label>{t("people.staff.qid")}</Label>
+                  <Input
+                    value={qid}
+                    onChange={(e) => {
+                      setQid(e.target.value);
+                      if (identity.suggestions.qid) {
+                        const suggestions = { ...identity.suggestions };
+                        delete suggestions.qid;
+                        setIdentity({ ...identity, suggestions });
+                      }
+                    }}
+                    className="font-mono"
+                  />
+                </div>
+                <div>
+                  <Label>{t("people.staff.e3")}</Label>
+                  <Select value={e3 || "__unset"} onValueChange={(v) => setE3(v === "__unset" ? "" : v)}>
+                    <SelectTrigger><SelectValue placeholder={t("people.staff.e3Unset")} /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__unset">{t("people.staff.e3Unset")}</SelectItem>
+                      <SelectItem value="yes">{t("people.staff.e3Yes")}</SelectItem>
+                      <SelectItem value="no">{t("people.staff.e3No")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <Label>{t("people.staff.gender")}</Label>
+                  <SearchableSelect
+                    value={alignMasterValue(gender, genderNames)}
+                    onValueChange={setGender}
+                    disabled={m.isPending}
+                    placeholder={t("people.staff.genderUnset")}
+                    emptyOption={{ value: "", label: t("people.staff.genderUnset") }}
+                    options={genderNames.map((name) => ({ value: name, label: name }))}
+                  />
+                </div>
+                <div>
+                  <Label>{t("people.staff.nationality")}</Label>
+                  <SearchableSelect
+                    value={alignMasterValue(nationality, nationalityNames)}
+                    onValueChange={setNationality}
+                    disabled={m.isPending}
+                    placeholder={t("people.staff.nationalityUnset")}
+                    emptyOption={{ value: "", label: t("people.staff.nationalityUnset") }}
+                    options={nationalityNames.map((name) => ({ value: name, label: name }))}
+                  />
+                </div>
+              </div>
+            </TabsContent>
+            <TabsContent value="job" forceMount className="mt-0 space-y-3 data-[state=inactive]:hidden">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <StaffJobTitleField
+                  value={jobTitle}
+                  onChange={setJobTitle}
+                  disabled={m.isPending}
+                  enabled={open}
+                  onListOpenChange={(next) => {
+                    titleListOpenRef.current = next;
+                  }}
+                />
+                <div>
+                  <Label>{t("people.staff.hireDate")}</Label>
+                  <Input type="date" value={hireDate} onChange={(e) => setHireDate(e.target.value)} />
+                </div>
               </div>
               <div>
                 <div className="mb-1 flex items-center justify-between gap-2">
-                  <Label>{t("people.staff.code")}</Label>
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
-                    onClick={() => setCodeNonce((n) => n + 1)}
-                    disabled={!loc || m.isPending}
-                  >
-                    <RefreshCw className="h-3 w-3" />
-                    {t("people.staff.codeRegenerate")}
-                  </button>
+                  <Label>{t("people.staff.dept")}</Label>
+                  <ManagePeopleMastersDialog audience={formAudience ?? undefined} />
                 </div>
-                <Input
-                  value={employeeCode}
-                  readOnly
-                  className="bg-muted/40 font-mono"
-                  placeholder={loc ? t("people.staff.codeAuto") : t("people.staff.selectBranch")}
+                <DepartmentMultiSelect
+                  value={departmentIds}
+                  onChange={setDepartmentIds}
+                  departments={formDepartments}
                 />
-                <p className="mt-1 text-[11px] text-muted-foreground">{t("people.staff.codeAuto")}</p>
+                <p className="mt-1 text-[11px] text-muted-foreground">{t("people.staff.deptFbCafeHint")}</p>
               </div>
-            </>
-          ) : (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <Label>{t("people.staff.branch")}</Label>
-                <Input
-                  readOnly
-                  className="bg-muted/40"
-                  value={
-                    homeSite
-                      ? formatLocationLabel(homeSite.code, homeSite.name)
-                      : staff!.location_code ?? "—"
-                  }
-                />
-              </div>
-              <div>
-                <Label>{t("people.staff.code")}</Label>
-                <Input readOnly className="bg-muted/40 font-mono" value={staff!.employee_code} />
-              </div>
-            </div>
-          )}
-          <div>
-            <Label>{t("people.staff.name")}</Label>
-            <Input
-              value={fullName}
-              onChange={(e) => {
-                setFullName(e.target.value);
-                if (identity.suggestions.fullName) {
-                  const suggestions = { ...identity.suggestions };
-                  delete suggestions.fullName;
-                  setIdentity({ ...identity, suggestions });
-                }
-              }}
-            />
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <Label>{t("people.staff.qid")}</Label>
-              <Input
-                value={qid}
-                onChange={(e) => {
-                  setQid(e.target.value);
-                  if (identity.suggestions.qid) {
-                    const suggestions = { ...identity.suggestions };
-                    delete suggestions.qid;
-                    setIdentity({ ...identity, suggestions });
-                  }
-                }}
-                className="font-mono"
-              />
-            </div>
-            <div>
-              <Label>{t("people.staff.e3")}</Label>
-              <Select value={e3 || "__unset"} onValueChange={(v) => setE3(v === "__unset" ? "" : v)}>
-                <SelectTrigger><SelectValue placeholder={t("people.staff.e3Unset")} /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__unset">{t("people.staff.e3Unset")}</SelectItem>
-                  <SelectItem value="yes">{t("people.staff.e3Yes")}</SelectItem>
-                  <SelectItem value="no">{t("people.staff.e3No")}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <StaffIdentityDocsField
-            fullName={fullName}
-            qid={qid}
-            draft={identity}
-            onDraft={setIdentity}
-            onApplyFields={(patch) => {
-              if (patch.fullName != null) setFullName(patch.fullName);
-              if (patch.qid != null) setQid(patch.qid);
-            }}
-            disabled={m.isPending}
-          />
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <StaffJobTitleField
-              value={jobTitle}
-              onChange={setJobTitle}
-              disabled={m.isPending}
-              enabled={open}
-              onListOpenChange={(next) => {
-                titleListOpenRef.current = next;
-              }}
-            />
-            <div>
-              <Label>{t("people.staff.hireDate")}</Label>
-              <Input type="date" value={hireDate} onChange={(e) => setHireDate(e.target.value)} />
-            </div>
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <Label>{t("people.staff.gender")}</Label>
-              <SearchableSelect
-                value={alignMasterValue(gender, genderNames)}
-                onValueChange={setGender}
-                disabled={m.isPending}
-                placeholder={t("people.staff.genderUnset")}
-                emptyOption={{ value: "", label: t("people.staff.genderUnset") }}
-                options={genderNames.map((name) => ({ value: name, label: name }))}
-              />
-            </div>
-            <div>
-              <Label>{t("people.staff.nationality")}</Label>
-              <SearchableSelect
-                value={alignMasterValue(nationality, nationalityNames)}
-                onValueChange={setNationality}
-                disabled={m.isPending}
-                placeholder={t("people.staff.nationalityUnset")}
-                emptyOption={{ value: "", label: t("people.staff.nationalityUnset") }}
-                options={nationalityNames.map((name) => ({ value: name, label: name }))}
-              />
-            </div>
-          </div>
-          <div>
-            <div className="mb-1 flex items-center justify-between gap-2">
-              <Label>{t("people.staff.dept")}</Label>
-              <ManagePeopleMastersDialog audience={formAudience ?? undefined} />
-            </div>
-            <DepartmentMultiSelect
-              value={departmentIds}
-              onChange={setDepartmentIds}
-              departments={formDepartments}
-            />
-            <p className="mt-1 text-[11px] text-muted-foreground">{t("people.staff.deptFbCafeHint")}</p>
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <Label>{t("people.staff.status")}</Label>
-              <Select
-                value={status}
-                onValueChange={(v) => {
-                  const next = v as (typeof STAFF_STATUSES)[number];
-                  if (employmentType === "joker" && isActiveStaffStatus(next)) {
-                    setStatus("joker");
-                    return;
-                  }
-                  setStatus(next);
-                }}
-              >
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {STAFF_STATUSES.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {s === "joker"
-                        ? t("people.staff.employmentTypes.joker")
-                        : s === "resigned"
-                          ? t("hr.me.staffStatus.resigned", "Resigned")
-                          : s.replace("_", " ")}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>{t("people.staff.employmentType")}</Label>
-              <Select value={employmentType} onValueChange={(v) => {
-                setEmploymentType(v);
-                if (v === "joker") {
-                  setStatus((prev) => (isActiveStaffStatus(prev) ? "joker" : prev));
-                } else {
-                  setPayBasis("monthly");
-                  setStatus((prev) => (prev === "joker" ? "active" : prev));
-                }
-              }}>
-                <SelectTrigger><SelectValue placeholder={t("people.staff.employmentType")} /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="permanent">{t("people.staff.employmentTypes.permanent")}</SelectItem>
-                  <SelectItem value="secondment">{t("people.staff.employmentTypes.secondment")}</SelectItem>
-                  <SelectItem value="joker">{t("people.staff.employmentTypes.joker")}</SelectItem>
-                  <SelectItem value="temporary">{t("people.staff.employmentTypes.temporary")}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <p className="text-xs text-muted-foreground">{t("people.staff.roleHoursHelp")}</p>
-          {isEdit ? (
-            <div className="space-y-2 rounded-md border border-border p-3">
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
-                  <Label>{t("people.staff.expectedHours")}</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={16}
-                    step={0.5}
-                    value={expectedHours}
-                    onChange={(e) => setExpectedHours(e.target.value)}
-                    placeholder={t("people.staff.flexibleUseSiteDefault")}
-                  />
-                </div>
-                <div>
-                  <Label>{t("people.staff.breakMinutes")}</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    max={240}
-                    value={staffBreakMinutes}
-                    onChange={(e) => setStaffBreakMinutes(e.target.value)}
-                    placeholder={t("people.staff.flexibleUseSiteDefault")}
-                  />
-                </div>
-                <div>
-                  <Label>{t("people.staff.weeklyOff")}</Label>
+                  <Label>{t("people.staff.status")}</Label>
                   <Select
-                    value={weeklyOffWeekday === "" ? "none" : weeklyOffWeekday}
-                    onValueChange={(v) => setWeeklyOffWeekday(v === "none" ? "" : v)}
+                    value={status}
+                    onValueChange={(v) => {
+                      const next = v as (typeof STAFF_STATUSES)[number];
+                      if (employmentType === "joker" && isActiveStaffStatus(next)) {
+                        setStatus("joker");
+                        return;
+                      }
+                      setStatus(next);
+                    }}
                   >
-                    <SelectTrigger>
-                      <SelectValue placeholder={t("people.staff.weeklyOffNone")} />
-                    </SelectTrigger>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">{t("people.staff.weeklyOffNone")}</SelectItem>
-                      {["0", "1", "2", "3", "4", "5", "6"].map((d) => (
-                        <SelectItem key={d} value={d}>
-                          {t(`people.staff.weekdays.${d}`)}
+                      {STAFF_STATUSES.map((s) => (
+                        <SelectItem key={s} value={s}>
+                          {s === "joker"
+                            ? t("people.staff.employmentTypes.joker")
+                            : s === "resigned"
+                              ? t("hr.me.staffStatus.resigned", "Resigned")
+                              : s.replace("_", " ")}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
+                <div>
+                  <Label>{t("people.staff.employmentType")}</Label>
+                  <Select value={employmentType} onValueChange={(v) => {
+                    setEmploymentType(v);
+                    if (v === "joker") {
+                      setStatus((prev) => (isActiveStaffStatus(prev) ? "joker" : prev));
+                    } else {
+                      setPayBasis("monthly");
+                      setStatus((prev) => (prev === "joker" ? "active" : prev));
+                    }
+                  }}>
+                    <SelectTrigger><SelectValue placeholder={t("people.staff.employmentType")} /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="permanent">{t("people.staff.employmentTypes.permanent")}</SelectItem>
+                      <SelectItem value="secondment">{t("people.staff.employmentTypes.secondment")}</SelectItem>
+                      <SelectItem value="joker">{t("people.staff.employmentTypes.joker")}</SelectItem>
+                      <SelectItem value="temporary">{t("people.staff.employmentTypes.temporary")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              <p className="text-[11px] text-muted-foreground">{t("people.staff.weeklyOffHint")}</p>
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox
-                  checked={flexibleAttendance}
-                  onCheckedChange={(v) => setFlexibleAttendance(Boolean(v))}
-                />
-                {t("people.staff.flexibleHoursEnable")}
-              </label>
-              <p className="text-[11px] text-muted-foreground">{t("people.staff.flexibleHoursHint")}</p>
-              {flexibleAttendance ? (
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <Label>{t("people.staff.flexibleReportingMinutes")}</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      max={180}
-                      value={reportingTimeMinutes}
-                      onChange={(e) => setReportingTimeMinutes(e.target.value)}
-                      placeholder={t("people.staff.flexibleReportingBlank")}
+              <p className="text-xs text-muted-foreground">{t("people.staff.roleHoursHelp")}</p>
+              {employmentType === "joker" ? (
+                <div>
+                  <Label>{t("people.staff.payBasis")}</Label>
+                  <Select value={payBasis} onValueChange={(v) => setPayBasis(v as "monthly" | "daily")}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="monthly">{t("people.staff.payBasisMonthly")}</SelectItem>
+                      <SelectItem value="daily">{t("people.staff.payBasisDaily")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="mt-1 text-[11px] text-muted-foreground">{t("people.staff.payBasisDailyHelp")}</p>
+                </div>
+              ) : null}
+              {(canEditSalary || (isEdit && canViewSalary)) && (
+                <div>
+                  <Label>
+                    {employmentType === "joker" && payBasis === "daily"
+                      ? t("people.staff.dayRate")
+                      : t("people.staff.salary")}
+                  </Label>
+                  <Input
+                    value={salary}
+                    onChange={(e) => setSalary(e.target.value)}
+                    placeholder={
+                      employmentType === "joker" && payBasis === "daily"
+                        ? t("people.staff.dayRatePlaceholder")
+                        : t("people.staff.salaryPlaceholder")
+                    }
+                    inputMode="decimal"
+                    readOnly={!canEditSalary}
+                    className={canEditSalary ? undefined : "bg-muted/40"}
+                  />
+                </div>
+              )}
+            </TabsContent>
+            {isEdit && homeLocationId ? (
+              <TabsContent value="sites" forceMount className="mt-0 space-y-3 data-[state=inactive]:hidden">
+                <div className="space-y-2">
+                  <Label>{t("people.staff.workLocations")}</Label>
+                  <p className="text-[11px] text-muted-foreground">{t("people.staff.workLocationsHint")}</p>
+                  <label className="flex min-h-11 items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={isRoaming}
+                      onCheckedChange={(v) => setIsRoaming(Boolean(v))}
+                      disabled={m.isPending}
                     />
+                    {t("people.staff.roaming")}
+                  </label>
+                  <div className="space-y-1">
+                    <Label htmlFor="staff-home-location">{t("people.staff.homeLocation")}</Label>
+                    <SearchableSelect
+                      id="staff-home-location"
+                      value={homeLocationId}
+                      onValueChange={(nextId) => {
+                        if (!nextId || nextId === homeLocationId) return;
+                        setEditHomeLocationId(nextId);
+                        setWorkLocationIds((prev) => {
+                          const extras = prev.filter((id) => id && id !== homeLocationId && id !== nextId);
+                          return [nextId, ...extras];
+                        });
+                      }}
+                      disabled={m.isPending}
+                      aria-label={t("people.staff.homeLocation")}
+                      placeholder={t("people.staff.homeLocationPlaceholder")}
+                      onOpenChange={(next) => {
+                        if (next) {
+                          homeSiteListOpenRef.current = true;
+                          return;
+                        }
+                        queueMicrotask(() => {
+                          homeSiteListOpenRef.current = false;
+                        });
+                      }}
+                      options={homeSiteOptions.map((site) => ({
+                        value: site.id,
+                        label: formatLocationLabel(site.code, site.name),
+                        keywords: `${site.code} ${site.name}`,
+                      }))}
+                    />
+                    <p className="text-[11px] text-muted-foreground">{t("people.staff.homeLocationHint")}</p>
                   </div>
-                  <div>
-                    <Label>{t("people.staff.flexibleBufferMinutes")}</Label>
-                    <Input
-                      type="number"
-                      min={0}
-                      max={120}
-                      value={bufferMinutes}
-                      onChange={(e) => setBufferMinutes(e.target.value)}
-                      placeholder={t("people.staff.flexibleUseSiteDefault")}
+                  <div className="space-y-1">
+                    <Label>{t("people.staff.dedicatedSites")}</Label>
+                    <WorkSiteMultiSelect
+                      sites={activeSites}
+                      homeLocationId={homeLocationId}
+                      value={workLocationIds.filter((id) => id !== homeLocationId)}
+                      disabled={m.isPending}
+                      onOpenChange={(next) => {
+                        if (next) {
+                          workSiteListOpenRef.current = true;
+                          return;
+                        }
+                        queueMicrotask(() => {
+                          workSiteListOpenRef.current = false;
+                        });
+                      }}
+                      onChange={(ids) => {
+                        const previousExtra = workLocationIds.filter((id) => id !== homeLocationId);
+                        if (ids.length > previousExtra.length) setIsRoaming(true);
+                        setWorkLocationIds([homeLocationId, ...ids]);
+                      }}
                     />
                   </div>
                 </div>
-              ) : null}
-            </div>
-          ) : null}
-          {employmentType === "joker" ? (
-            <div>
-              <Label>{t("people.staff.payBasis")}</Label>
-              <Select value={payBasis} onValueChange={(v) => setPayBasis(v as "monthly" | "daily")}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="monthly">{t("people.staff.payBasisMonthly")}</SelectItem>
-                  <SelectItem value="daily">{t("people.staff.payBasisDaily")}</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="mt-1 text-[11px] text-muted-foreground">{t("people.staff.payBasisDailyHelp")}</p>
-            </div>
-          ) : null}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <Label>{t("people.staff.phone")}</Label>
-              <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
-            </div>
-            <div>
-              <Label>{t("people.staff.email")}</Label>
-              <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-            </div>
-          </div>
-          {(canEditSalary || (isEdit && canViewSalary)) && (
-            <div>
-              <Label>
-                {employmentType === "joker" && payBasis === "daily"
-                  ? t("people.staff.dayRate")
-                  : t("people.staff.salary")}
-              </Label>
-              <Input
-                value={salary}
-                onChange={(e) => setSalary(e.target.value)}
-                placeholder={
-                  employmentType === "joker" && payBasis === "daily"
-                    ? t("people.staff.dayRatePlaceholder")
-                    : t("people.staff.salaryPlaceholder")
-                }
-                inputMode="decimal"
-                readOnly={!canEditSalary}
-                className={canEditSalary ? undefined : "bg-muted/40"}
+              </TabsContent>
+            ) : null}
+            {isEdit ? (
+              <TabsContent value="time" forceMount className="mt-0 space-y-3 data-[state=inactive]:hidden">
+                <div className="space-y-2 rounded-md border border-border p-3">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                    <div>
+                      <Label>{t("people.staff.expectedHours")}</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={16}
+                        step={0.5}
+                        value={expectedHours}
+                        onChange={(e) => setExpectedHours(e.target.value)}
+                        placeholder={t("people.staff.flexibleUseSiteDefault")}
+                      />
+                    </div>
+                    <div>
+                      <Label>{t("people.staff.breakMinutes")}</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={240}
+                        value={staffBreakMinutes}
+                        onChange={(e) => setStaffBreakMinutes(e.target.value)}
+                        placeholder={t("people.staff.flexibleUseSiteDefault")}
+                      />
+                    </div>
+                    <div>
+                      <Label>{t("people.staff.weeklyOff")}</Label>
+                      <Select
+                        value={weeklyOffWeekday === "" ? "none" : weeklyOffWeekday}
+                        onValueChange={(v) => setWeeklyOffWeekday(v === "none" ? "" : v)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder={t("people.staff.weeklyOffNone")} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">{t("people.staff.weeklyOffNone")}</SelectItem>
+                          {["0", "1", "2", "3", "4", "5", "6"].map((d) => (
+                            <SelectItem key={d} value={d}>
+                              {t(`people.staff.weekdays.${d}`)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">{t("people.staff.weeklyOffHint")}</p>
+                  <label className="flex min-h-11 items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={flexibleAttendance}
+                      onCheckedChange={(v) => setFlexibleAttendance(Boolean(v))}
+                    />
+                    {t("people.staff.flexibleHoursEnable")}
+                  </label>
+                  <p className="text-[11px] text-muted-foreground">{t("people.staff.flexibleHoursHint")}</p>
+                  {flexibleAttendance ? (
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <div>
+                        <Label>{t("people.staff.flexibleReportingMinutes")}</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={180}
+                          value={reportingTimeMinutes}
+                          onChange={(e) => setReportingTimeMinutes(e.target.value)}
+                          placeholder={t("people.staff.flexibleReportingBlank")}
+                        />
+                      </div>
+                      <div>
+                        <Label>{t("people.staff.flexibleBufferMinutes")}</Label>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={120}
+                          value={bufferMinutes}
+                          onChange={(e) => setBufferMinutes(e.target.value)}
+                          placeholder={t("people.staff.flexibleUseSiteDefault")}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </TabsContent>
+            ) : null}
+            <TabsContent value="documents" forceMount className="mt-0 space-y-3 data-[state=inactive]:hidden">
+              <StaffIdentityDocsField
+                fullName={fullName}
+                qid={qid}
+                draft={identity}
+                onDraft={setIdentity}
+                onApplyFields={(patch) => {
+                  if (patch.fullName != null) setFullName(patch.fullName);
+                  if (patch.qid != null) setQid(patch.qid);
+                }}
+                disabled={m.isPending}
               />
-            </div>
-          )}
-          {isEdit && homeLocationId ? (
-            <div className="space-y-2 border-t pt-3">
-              <Label>{t("people.staff.workLocations")}</Label>
-              <p className="text-[11px] text-muted-foreground">{t("people.staff.workLocationsHint")}</p>
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox
-                  checked={isRoaming}
-                  onCheckedChange={(v) => setIsRoaming(Boolean(v))}
-                  disabled={m.isPending}
-                />
-                {t("people.staff.roaming")}
-              </label>
-              <div className="space-y-1">
-                <Label htmlFor="staff-home-location">{t("people.staff.homeLocation")}</Label>
-                <SearchableSelect
-                  id="staff-home-location"
-                  value={homeLocationId}
-                  onValueChange={(nextId) => {
-                    if (!nextId || nextId === homeLocationId) return;
-                    setEditHomeLocationId(nextId);
-                    setWorkLocationIds((prev) => {
-                      const extras = prev.filter((id) => id && id !== homeLocationId && id !== nextId);
-                      return [nextId, ...extras];
-                    });
-                  }}
-                  disabled={m.isPending}
-                  aria-label={t("people.staff.homeLocation")}
-                  placeholder={t("people.staff.homeLocationPlaceholder")}
-                  onOpenChange={(next) => {
-                    if (next) {
-                      homeSiteListOpenRef.current = true;
-                      return;
-                    }
-                    queueMicrotask(() => {
-                      homeSiteListOpenRef.current = false;
-                    });
-                  }}
-                  options={homeSiteOptions.map((site) => ({
-                    value: site.id,
-                    label: formatLocationLabel(site.code, site.name),
-                    keywords: `${site.code} ${site.name}`,
-                  }))}
-                />
-                <p className="text-[11px] text-muted-foreground">{t("people.staff.homeLocationHint")}</p>
-              </div>
-              <div className="space-y-1">
-                <Label>{t("people.staff.dedicatedSites")}</Label>
-                <WorkSiteMultiSelect
-                  sites={activeSites}
-                  homeLocationId={homeLocationId}
-                  value={workLocationIds.filter((id) => id !== homeLocationId)}
-                  disabled={m.isPending}
-                  onOpenChange={(next) => {
-                    if (next) {
-                      workSiteListOpenRef.current = true;
-                      return;
-                    }
-                    queueMicrotask(() => {
-                      workSiteListOpenRef.current = false;
-                    });
-                  }}
-                  onChange={(ids) => {
-                    const previousExtra = workLocationIds.filter((id) => id !== homeLocationId);
-                    if (ids.length > previousExtra.length) setIsRoaming(true);
-                    setWorkLocationIds([homeLocationId, ...ids]);
-                  }}
-                />
-              </div>
-            </div>
-          ) : null}
-        </div>
-        <DialogFooter>
+            </TabsContent>
+          </div>
+        </Tabs>
+        <DialogFooter className="shrink-0">
           <Button variant="ghost" onClick={() => onOpenChange(false)}>{t("common.cancel")}</Button>
           <Button
             onClick={() => m.mutate()}
