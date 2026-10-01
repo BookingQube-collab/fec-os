@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 interface NeumorphicCardProps {
   children: ReactNode;
   className?: string;
+  id?: string;
   accent?: "blue" | "cyan" | "purple" | "green" | "amber" | "red" | "none";
   glass?: boolean;
 }
@@ -18,9 +19,10 @@ const accentColors = {
   none: "",
 };
 
-export function NeumorphicCard({ children, className, accent = "none", glass }: NeumorphicCardProps) {
+export function NeumorphicCard({ children, className, id, accent = "none", glass }: NeumorphicCardProps) {
   return (
     <div
+      id={id}
       className={cn(
         "relative overflow-hidden rounded-[1.5rem] border border-border/45 bg-card",
         "shadow-elevated-xs",

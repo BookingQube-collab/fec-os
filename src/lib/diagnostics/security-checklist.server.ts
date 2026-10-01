@@ -49,13 +49,76 @@ function envFlag(names: string[]): EnvFlag {
   return "missing";
 }
 
-async function readBounded(relativePath: string, maxBytes: number): Promise<string | null> {
+function clip(buffer: Buffer, maxBytes: number) {
+  return buffer.subarray(0, maxBytes).toString("utf8");
+}
+
+// A path.join(process.cwd(), dynamicPath) makes the production build trace the
+// whole repo into the server bundle. Keep a static directory on every read.
+async function readLib(relativePath: string, maxBytes: number): Promise<string | null> {
   try {
-    const buffer = await readFile(path.join(process.cwd(), relativePath));
-    return buffer.subarray(0, maxBytes).toString("utf8");
+    const buffer = await readFile(path.join(process.cwd(), "src", "lib", relativePath));
+    return clip(buffer, maxBytes);
   } catch {
     return null;
   }
+}
+
+async function readViews(relativePath: string, maxBytes: number): Promise<string | null> {
+  try {
+    const buffer = await readFile(path.join(process.cwd(), "src", "views", relativePath));
+    return clip(buffer, maxBytes);
+  } catch {
+    return null;
+  }
+}
+
+async function readIntegrations(relativePath: string, maxBytes: number): Promise<string | null> {
+  try {
+    const buffer = await readFile(path.join(process.cwd(), "src", "integrations", relativePath));
+    return clip(buffer, maxBytes);
+  } catch {
+    return null;
+  }
+}
+
+async function readRepoRoot(
+  name: "middleware.ts" | "package-lock.json",
+  maxBytes: number,
+): Promise<string | null> {
+  try {
+    if (name === "middleware.ts") {
+      return clip(await readFile(path.join(process.cwd(), "middleware.ts")), maxBytes);
+    }
+    return clip(await readFile(path.join(process.cwd(), "package-lock.json")), maxBytes);
+  } catch {
+    return null;
+  }
+}
+
+async function readNextConfig(maxBytes: number): Promise<string | null> {
+  // next.config.ts sits at the repo root. Tracing that read pulls the whole
+  // project into the server bundle, so opt this one file out of the trace.
+  const filePath = path.join(/*turbopackIgnore: true*/ process.cwd(), "next.config.ts");
+  try {
+    const buffer = await readFile(/*turbopackIgnore: true*/ filePath);
+    return clip(buffer, maxBytes);
+  } catch {
+    return null;
+  }
+}
+
+async function readBounded(relativePath: string, maxBytes: number): Promise<string | null> {
+  if (relativePath.startsWith("src/lib/")) return readLib(relativePath.slice("src/lib/".length), maxBytes);
+  if (relativePath.startsWith("src/views/")) return readViews(relativePath.slice("src/views/".length), maxBytes);
+  if (relativePath.startsWith("src/integrations/")) {
+    return readIntegrations(relativePath.slice("src/integrations/".length), maxBytes);
+  }
+  if (relativePath === "next.config.ts") return readNextConfig(maxBytes);
+  if (relativePath === "middleware.ts" || relativePath === "package-lock.json") {
+    return readRepoRoot(relativePath, maxBytes);
+  }
+  return null;
 }
 
 function firstNumber(source: string | null, pattern: RegExp): number | null {
