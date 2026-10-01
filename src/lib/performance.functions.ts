@@ -18,6 +18,7 @@ import {
   weightedScore,
 } from "@/lib/performance/score";
 import type { AuthContext } from "@/lib/server/create-action";
+import { STAFF_NOT_JOKER_EMPLOYMENT_OR } from "@/lib/staff-status";
 import {
   createAuthenticatedAction,
   createAuthenticatedActionNoInput,
@@ -1669,6 +1670,7 @@ export const listStaffForAssignment = createAuthenticatedAction(
       .select("id, full_name, employee_code, job_title, department, location_id, status")
       .is("deleted_at", null)
       .eq("status", "active")
+      .or(STAFF_NOT_JOKER_EMPLOYMENT_OR)
       .order("full_name")
       .limit(500);
     if (data.locationId) q = q.eq("location_id", data.locationId);

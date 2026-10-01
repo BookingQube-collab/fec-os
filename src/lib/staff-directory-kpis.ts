@@ -5,9 +5,11 @@ import {
   normalizeDepartmentName,
   splitDepartmentTokens,
 } from "@/lib/staff-departments";
+import { staffHiddenByOrgDepartmentExclude } from "@/lib/exclude-org-departments";
 import { isExitingStaff, isNewJoiner } from "@/lib/staff-hr-alerts";
 import {
-  isActiveStaffStatus,
+  countsAsActiveStaff,
+  isJokerStaff,
   isOnLeaveStaffStatus,
   isRemoteStaffStatus,
   isResignedStaffStatus,
@@ -26,9 +28,16 @@ export type StaffDirectoryFilters = {
   department: string;
   /** Resolved master_departments.name for `department` — used when staff only have legacy text. */
   departmentName?: string;
+  /**
+   * View filter. Drops Operations, Maintenance, and F&B Cafe when department is All.
+   * Ignored when `department` is set — the explicit department choice wins.
+   */
+  excludeOrgDepartments?: boolean;
   type: string;
   e3: string;
   status: string;
+  /** When true, the directory shows Jokers instead of the active-staff list. Default off. */
+  showJokers?: boolean;
   nationality: string;
   gender: string;
   sponsorship: string;
@@ -37,7 +46,7 @@ export type StaffDirectoryFilters = {
    * KPI / attention quick filter:
    * qid_expiring | qid_expired | passport_expiring | passport_expired |
    * contract_expiring | visa_expiring | new_joiners | exiting |
-   * temporary_project (active temporary + joker / project staff)
+   * temporary_project (active temporary staff; jokers are not active)
    */
   expiry: string;
   sort: StaffDirectorySort;
@@ -106,6 +115,13 @@ export function filterStaffDirectory(staff: StaffRow[], f: StaffDirectoryFilters
     }
     if (f.loc && !staffLocationCodes(s).includes(f.loc)) return false;
     if (f.department && !staffMatchesDepartment(s, f.department, f.departmentName)) return false;
+    if (
+      f.excludeOrgDepartments &&
+      !f.department &&
+      staffHiddenByOrgDepartmentExclude(s)
+    ) {
+      return false;
+    }
     if (f.position && s.job_title !== f.position) return false;
     if (f.type && s.employment_type !== f.type) return false;
     if (f.e3 === "yes" && s.e3_enrolled !== true) return false;
@@ -115,9 +131,18 @@ export function filterStaffDirectory(staff: StaffRow[], f: StaffDirectoryFilters
     if (f.sponsorship && !(s.sponsorship_info ?? "").toLowerCase().includes(f.sponsorship.toLowerCase())) {
       return false;
     }
-    if (f.status === "active" && !isActiveStaffStatus(s.status)) return false;
-    if (f.status === "inactive" && isActiveStaffStatus(s.status)) return false;
-    if (f.status && f.status !== "active" && f.status !== "inactive") {
+    const jokerOnly =
+      Boolean(f.showJokers) ||
+      f.type === "joker" ||
+      normalizeDirectoryStatus(f.status) === "joker";
+    if (jokerOnly && !isJokerStaff(s)) return false;
+    if (!jokerOnly && f.status === "active" && !countsAsActiveStaff(s.status, s.employment_type)) {
+      return false;
+    }
+    if (!jokerOnly && f.status === "inactive" && countsAsActiveStaff(s.status, s.employment_type)) {
+      return false;
+    }
+    if (!jokerOnly && f.status && f.status !== "active" && f.status !== "inactive") {
       if (normalizeDirectoryStatus(s.status) !== normalizeDirectoryStatus(f.status)) return false;
     }
     if (f.expiry === "qid_expiring" && expiryBand(today, s.qid_expiry) !== "0_30") return false;
@@ -135,9 +160,9 @@ export function filterStaffDirectory(staff: StaffRow[], f: StaffDirectoryFilters
     if (f.expiry === "new_joiners" && !isNewJoiner(s, today)) return false;
     if (f.expiry === "exiting" && !isExitingStaff(s)) return false;
     if (f.expiry === "temporary_project") {
-      const isTemp =
-        s.employment_type === "temporary" || s.employment_type === "joker";
-      if (!isTemp || !isActiveStaffStatus(s.status)) return false;
+      if (s.employment_type !== "temporary" || !countsAsActiveStaff(s.status, s.employment_type)) {
+        return false;
+      }
     }
     if (f.missing && s.qid && s.phone && s.hire_date) return false;
     return true;
@@ -154,7 +179,19 @@ export function filterStaffDirectory(staff: StaffRow[], f: StaffDirectoryFilters
   });
 }
 
-/** KPI strip counts — must be called with the same array the table renders. */
+/**
+ * Rows behind the directory KPI tiles.
+ * Location, department, employment type, search, exclude-org, and the other
+ * non-status filters narrow every tile. Status and expiry stay on the table
+ * only — those controls are the tile shortcuts — so each tile still counts
+ * its own bucket inside the shared scope. With those cleared, an otherwise
+ * empty filter set is the full roster (same figures as an unfiltered page).
+ */
+export function filterStaffDirectoryForKpis(staff: StaffRow[], f: StaffDirectoryFilters): StaffRow[] {
+  return filterStaffDirectory(staff, { ...f, status: "", expiry: "", showJokers: false });
+}
+
+/** KPI strip counts for one scoped roster (see filterStaffDirectoryForKpis). */
 export function computeStaffDirectoryKpis(rows: StaffRow[]): StaffDirectoryKpis {
   const today = qatarTodayYmd();
   let active = 0;
@@ -175,13 +212,9 @@ export function computeStaffDirectoryKpis(rows: StaffRow[]): StaffDirectoryKpis 
     else if (isOnLeaveStaffStatus(s.status)) onLeave += 1;
     else if (isResignedStaffStatus(s.status)) resigned += 1;
     else if (isTerminatedStaffStatus(s.status)) terminated += 1;
-    else if (isActiveStaffStatus(s.status)) active += 1;
+    else if (countsAsActiveStaff(s.status, s.employment_type)) active += 1;
 
-    // Temporary / project KPI = active roster on temporary or joker (project) type
-    if (
-      (s.employment_type === "temporary" || s.employment_type === "joker") &&
-      isActiveStaffStatus(s.status)
-    ) {
+    if (s.employment_type === "temporary" && countsAsActiveStaff(s.status, s.employment_type)) {
       temporary += 1;
     }
     if (isNewJoiner(s, today)) newJoiners += 1;

@@ -177,7 +177,7 @@ export async function fetchDailyOpsRoster(context: AuthContext, locationId?: str
   let q = context.supabase
     .from("staff")
     .select(
-      "id, location_id, employee_code, full_name, staff_role, phone, hire_date, status, job_title",
+      "id, location_id, employee_code, full_name, staff_role, phone, hire_date, status, job_title, employment_type",
     )
     .is("deleted_at", null)
     .order("full_name");

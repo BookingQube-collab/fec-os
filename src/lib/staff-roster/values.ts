@@ -114,6 +114,7 @@ export function parseRosterStatus(raw: string | null | undefined): {
   if (s === "released" || s === "release") return { status: "released", blank: false };
   if (s === "serving_notice") return { status: "serving_notice", blank: false };
   if (s === "inactive") return { status: "inactive", blank: false };
+  if (s === "joker") return { status: "joker", blank: false };
   return { status: null, blank: false };
 }
 

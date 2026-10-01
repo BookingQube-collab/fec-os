@@ -10,6 +10,7 @@ import {
 } from "@/lib/server/create-action";
 import { ForbiddenError, assertLocationAccess } from "@/lib/server/authorize";
 import { canUserDo, type AppRole } from "@/lib/rbac";
+import { STAFF_NOT_JOKER_EMPLOYMENT_OR } from "@/lib/staff-status";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import {
@@ -205,6 +206,7 @@ export const getAttendanceHrBootstrap = createAuthenticatedActionNoInput(
             .from("staff")
             .select("id, full_name, employee_code, qid, department, job_title, location_id, status, is_roaming")
             .eq("status", "active")
+            .or(STAFF_NOT_JOKER_EMPLOYMENT_OR)
             .order("full_name", { ascending: true })
             .order("id", { ascending: true })
             .range(from, to);
@@ -534,7 +536,8 @@ export const getAttendanceHrSite = createAuthenticatedAction(
         context.supabase
           .from("staff")
           .select("id, full_name, employee_code, department, job_title, status, location_id, is_roaming")
-          .eq("status", "active"),
+          .eq("status", "active")
+          .or(STAFF_NOT_JOKER_EMPLOYMENT_OR),
         context.supabase.from("attendance_daily_summary").select("*").eq("location_id", data.locationId).eq("work_date", date),
         context.supabase.from("attendance_biometric_users").select("*").eq("location_id", data.locationId).is("staff_id", null),
         context.supabase
@@ -3120,7 +3123,7 @@ async function matchingStaffIds(context: AuthContext, needle: string): Promise<s
   const { data, error } = await context.supabase
     .from("staff")
     .select("id, full_name, employee_code, qid")
-    .in("status", ["active", "on_leave", "serving_notice"])
+    .in("status", ["active", "on_leave", "serving_notice", "joker"])
     .or(`full_name.ilike."${pattern}",employee_code.ilike."${pattern}",qid.ilike."${pattern}"`)
     .limit(500);
   if (error) throw error;

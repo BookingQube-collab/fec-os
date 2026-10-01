@@ -11,6 +11,7 @@ import {
   type OrgDepartment,
 } from "@/lib/org-hierarchy";
 import { createAuthenticatedAction, createAuthenticatedActionNoInput } from "@/lib/server/create-action";
+import { STAFF_NOT_JOKER_EMPLOYMENT_OR } from "@/lib/staff-status";
 
 /** CEO and COO. Regional operations can see Administration, not this chart. */
 const HIERARCHY_AUTH = { capability: "admin.view" as const, minRoleLevel: 95 };
@@ -71,6 +72,7 @@ async function loadOrgChart(): Promise<OrgChartSnapshot> {
           "id, full_name, employee_code, job_title, department, photo_updated_at, staff_departments(department_id, master_departments(id, name, sort_order))",
         )
         .eq("status", "active")
+        .or(STAFF_NOT_JOKER_EMPLOYMENT_OR)
         .is("deleted_at", null)
         .order("id")
         .range(from, to) as PromiseLike<{ data: StaffJoin[] | null; error: { message: string } | null }>,

@@ -41,8 +41,10 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { MobileListCard } from "@/components/layout/mobile-list-card";
 import { ResponsiveDataView } from "@/components/layout/responsive-data-view";
 import { StaffAvatar } from "@/components/people/staff-photo-field";
+import { ExcludeOrgDepartmentsFilter } from "@/components/people/exclude-org-departments-filter";
 import { StaffMasterfileImportDialog } from "@/components/people/staff-masterfile-import-dialog";
 import { filterDepartmentsForLocation } from "@/lib/department-audience";
+import { shouldApplyOrgDepartmentExclude } from "@/lib/exclude-org-departments";
 import { useMasterDepartments } from "@/hooks/queries/useDepartments";
 import { useStaffDirectory } from "@/hooks/queries/usePeople";
 import { usePermission } from "@/hooks/use-permission";
@@ -108,6 +110,7 @@ function staffStatusBadgeVariant(
   if (s === "terminated" || s === "resigned" || s === "released") return "destructive";
   if (s === "secondment" || s === "remote" || s === "serving_notice") return "warning";
   if (s === "on_leave" || s === "vacation" || s === "sick_leave" || s === "unpaid_leave") return "info";
+  if (s === "joker") return "muted";
   return "outline";
 }
 
@@ -230,6 +233,8 @@ export function StaffDirectory({
   const [missing, setMissing] = useState(() => searchParams.get("missing") === "1");
   const [loc, setLoc] = useState(() => searchParams.get("loc") ?? "");
   const [department, setDepartment] = useState(() => searchParams.get("department") ?? "");
+  const [excludeOrgDepartments, setExcludeOrgDepartments] = useState(false);
+  const [showJokers, setShowJokers] = useState(() => searchParams.get("jokers") === "1");
   const [nationality, setNationality] = useState("");
   const [gender, setGender] = useState("");
   const [sponsorship, setSponsorship] = useState("");
@@ -270,6 +275,7 @@ export function StaffDirectory({
       setQ(nextQ);
       setDebouncedQ(nextQ);
     }
+    if (searchParams.has("jokers")) setShowJokers(searchParams.get("jokers") === "1");
     setPage(1);
   }, [searchParams]);
 
@@ -303,9 +309,11 @@ export function StaffDirectory({
     loc,
     department,
     departmentName,
+    excludeOrgDepartments: shouldApplyOrgDepartmentExclude(excludeOrgDepartments, department),
     position,
     employmentType: type,
     status,
+    showJokers,
     nationality,
     gender,
     sponsorship,
@@ -362,9 +370,10 @@ export function StaffDirectory({
     [departments, loc, department],
   );
 
-  const selectedKpi = selectedDirectoryKpi(status, type, expiry);
+  const selectedKpi = showJokers ? null : selectedDirectoryKpi(status, type, expiry);
 
   function applyDirectoryKpi(key: DirectoryKpiKey) {
+    setShowJokers(false);
     if (selectedKpi === key) {
       setStatus("");
       setType("");
@@ -425,6 +434,20 @@ export function StaffDirectory({
         clear: () => setDepartment(""),
       });
     }
+    if (showJokers) {
+      chips.push({
+        key: "jokers",
+        label: t("people.staff.showJokers", "Joker"),
+        clear: () => setShowJokers(false),
+      });
+    }
+    if (shouldApplyOrgDepartmentExclude(excludeOrgDepartments, department)) {
+      chips.push({
+        key: "exclude-org",
+        label: t("common.excludeOpsMaintenanceFb"),
+        clear: () => setExcludeOrgDepartments(false),
+      });
+    }
     if (type) chips.push({ key: "type", label: `Type: ${type}`, clear: () => setType("") });
     if (status) chips.push({ key: "status", label: `Status: ${status.replace(/_/g, " ")}`, clear: () => setStatus("") });
     if (position) chips.push({ key: "pos", label: `Position: ${position}`, clear: () => setPosition("") });
@@ -435,12 +458,14 @@ export function StaffDirectory({
     if (expiry) chips.push({ key: "exp", label: expiryChipLabel(expiry), clear: () => setExpiry("") });
     if (e3) chips.push({ key: "e3", label: `E3: ${e3}`, clear: () => setE3("") });
     return chips;
-  }, [q, loc, locations, department, departmentName, type, status, position, nationality, gender, sponsorship, missing, expiry, e3]);
+  }, [q, loc, locations, department, departmentName, excludeOrgDepartments, showJokers, type, status, position, nationality, gender, sponsorship, missing, expiry, e3, t]);
 
   function clearAllFilters() {
     setQ("");
     setLoc("");
     setDepartment("");
+    setExcludeOrgDepartments(false);
+    setShowJokers(false);
     setPosition("");
     setType("");
     setStatus("");
@@ -453,7 +478,7 @@ export function StaffDirectory({
     setPage(1);
     // Strip filter query params while keeping tab=staff
     const params = new URLSearchParams(searchParams.toString());
-    for (const key of ["q", "loc", "department", "type", "status", "missing", "expiry"]) {
+    for (const key of ["q", "loc", "department", "type", "status", "missing", "expiry", "jokers"]) {
       params.delete(key);
     }
     params.set("tab", "staff");
@@ -468,6 +493,7 @@ export function StaffDirectory({
       params.set("q", q);
       params.set("type", type);
       params.set("loc", loc);
+      if (showJokers) params.set("jokers", "1");
     }
     if (scope === "selected") {
       params.set("ids", [...selected].join(","));
@@ -682,6 +708,14 @@ export function StaffDirectory({
             triggerClassName={FILTER_TRIGGER}
             className="w-full"
           />
+          <ExcludeOrgDepartmentsFilter
+            checked={excludeOrgDepartments}
+            disabled={!shouldApplyOrgDepartmentExclude(true, department)}
+            onCheckedChange={(next) => {
+              setExcludeOrgDepartments(next);
+              setPage(1);
+            }}
+          />
           <SearchableSelect
             value={type}
             onValueChange={(next) => {
@@ -707,10 +741,24 @@ export function StaffDirectory({
             }}
             placeholder={t("people.staff.status")}
             emptyOption={{ value: "", label: t("people.staff.allStatuses", "All statuses") }}
-            options={STAFF_DIRECTORY_STATUSES.map((s) => ({ value: s, label: s.replace(/_/g, " ") }))}
+            options={STAFF_DIRECTORY_STATUSES.map((s) => ({
+              value: s,
+              label: s === "joker" ? t("people.staff.employmentTypes.joker") : s.replace(/_/g, " "),
+            }))}
             triggerClassName={FILTER_TRIGGER}
             className="w-full"
           />
+          <label className="flex min-h-10 w-full min-w-0 items-center gap-2 rounded-lg border border-input bg-card px-3 py-2 text-sm font-normal leading-snug">
+            <Checkbox
+              checked={showJokers}
+              onCheckedChange={(value) => {
+                setShowJokers(value === true);
+                setPage(1);
+              }}
+              aria-label={t("people.staff.showJokers", "Joker")}
+            />
+            <span className="min-w-0 whitespace-normal">{t("people.staff.showJokers", "Joker")}</span>
+          </label>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -1106,14 +1154,13 @@ export function StaffDirectory({
                                         <DropdownMenuItem onClick={() => restoreMut.mutate(s.id)}>
                                           {t("people.staff.restore")}
                                         </DropdownMenuItem>
-                                      ) : (
-                                        <DropdownMenuItem
-                                          className="text-amber-800 focus:text-amber-900"
-                                          onClick={() => onArchive(s.id)}
-                                        >
-                                          {t("people.staff.archiveExit", "Archive / exit")}
-                                        </DropdownMenuItem>
-                                      )}
+                                      ) : null}
+                                      <DropdownMenuItem
+                                        className="text-destructive focus:text-destructive"
+                                        onClick={() => onArchive(s.id)}
+                                      >
+                                        {t("people.staff.delete", "Delete")}
+                                      </DropdownMenuItem>
                                     </>
                                   ) : null}
                                 </DropdownMenuContent>

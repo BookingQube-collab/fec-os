@@ -5,8 +5,8 @@ import { hiddenUnmappedDuplicateIds } from "@/lib/staff-mapped-duplicates";
 import { canUserDo } from "@/lib/rbac";
 import { createTimer } from "@/lib/performance/timer";
 import {
+  countsAsActiveStaff,
   isActiveRosterStaff,
-  isActiveStaffStatus,
   isOnLeaveStaffStatus,
   isTerminatedStaffStatus,
 } from "@/lib/staff-status";
@@ -264,7 +264,7 @@ export async function fetchPeopleDashboard(
   for (const s of staff) {
     const statusKey = s.status?.trim() || "active";
     statusCounts.set(statusKey, (statusCounts.get(statusKey) ?? 0) + 1);
-    if (isActiveStaffStatus(s.status)) activeStaff += 1;
+    if (countsAsActiveStaff(s.status, s.employment_type)) activeStaff += 1;
     else if (isOnLeaveStaffStatus(s.status)) onLeave += 1;
     else if (isTerminatedStaffStatus(s.status)) terminated += 1;
     if (isTerminatedStaffStatus(s.status)) continue;
@@ -277,7 +277,7 @@ export async function fetchPeopleDashboard(
     const typeKey = s.employment_type?.trim() || "unspecified";
     typeCounts.set(typeKey, (typeCounts.get(typeKey) ?? 0) + 1);
 
-    if (!isActiveStaffStatus(s.status)) continue;
+    if (!countsAsActiveStaff(s.status, s.employment_type)) continue;
 
     const loc = locById.get(s.location_id);
     const code = loc?.code ?? "—";

@@ -48,7 +48,8 @@ export type StaffDirectoryStatus =
   | "terminated"
   | "released"
   | "serving_notice"
-  | "inactive";
+  | "inactive"
+  | "joker";
 
 export type ParsedRosterRow = {
   rowNumber: number;

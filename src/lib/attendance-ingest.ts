@@ -253,7 +253,7 @@ export async function ingestAttendanceRecords(
   const { data: allStaff, error: staffErr } = await sb
     .from("staff")
     .select("id, full_name, employee_code, user_id, location_id")
-    .eq("status", "active");
+    .in("status", ["active", "joker"]);
   if (staffErr) throw staffErr;
 
   const staffByLocation = new Map<string, StaffRow[]>();

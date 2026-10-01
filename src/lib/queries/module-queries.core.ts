@@ -8,6 +8,7 @@ import type { MasterDepartmentRow } from "@/lib/staff-departments";
 import {
   computeStaffDirectoryKpis,
   filterStaffDirectory,
+  filterStaffDirectoryForKpis,
   type StaffDirectoryKpis,
   type StaffDirectorySort,
 } from "@/lib/staff-directory-kpis";
@@ -592,9 +593,13 @@ export type StaffDirectoryListFilters = {
   loc?: string;
   department?: string;
   departmentName?: string;
+  /** View filter. Applied in filterStaffDirectory when department is empty. */
+  excludeOrgDepartments?: boolean;
   position?: string;
   employmentType?: string;
   status?: string;
+  /** Joker chip. Default off — active directory excludes jokers. */
+  showJokers?: boolean;
   nationality?: string;
   gender?: string;
   sponsorship?: string;
@@ -651,7 +656,8 @@ function applyStaffProfileExt(
 
 /**
  * Paginated People directory. Filters applied before the page slice.
- * KPIs are roster-scoped (location / archive), not search-scoped — same as prior UI.
+ * KPI tiles use the same roster and the same filters as the table, except
+ * status and expiry (tile shortcuts — they filter the table only).
  * Client receives only the current page of lean rows (not the full roster).
  */
 export async function fetchStaffDirectory(
@@ -733,8 +739,28 @@ export async function fetchStaffDirectory(
   const canSensitive = canUserDo(context.roles ?? [], "hr.profile.view_sensitive");
   const identitySafe = mapped.map((s) => redactStaffIdentityNumbers(s, canSensitive));
 
-  // Roster KPIs (location-scoped) — independent of search/filter chips.
-  const kpis = computeStaffDirectoryKpis(identitySafe);
+  const directoryFilters = {
+    q: filters.q ?? "",
+    loc: filters.loc ?? "",
+    position: filters.position ?? "",
+    department: filters.department ?? "",
+    departmentName: filters.departmentName ?? "",
+    excludeOrgDepartments: Boolean(filters.excludeOrgDepartments) && !filters.department,
+    type: filters.employmentType ?? "",
+    e3: filters.e3 ?? "",
+    status: filters.status ?? "",
+    showJokers: Boolean(filters.showJokers),
+    nationality: filters.nationality ?? "",
+    gender: filters.gender ?? "",
+    sponsorship: filters.sponsorship ?? "",
+    missing: Boolean(filters.missing),
+    expiry: filters.expiry ?? "",
+    sort: filters.sort ?? "name",
+  };
+
+  // Same filter pipeline as the table. Status and expiry are omitted so each
+  // tile keeps its own bucket inside location / department / type / search.
+  const kpis = computeStaffDirectoryKpis(filterStaffDirectoryForKpis(identitySafe, directoryFilters));
 
   const positions = [...new Set(identitySafe.map((s) => s.job_title).filter(Boolean))] as string[];
   positions.sort((a, b) => a.localeCompare(b));
@@ -757,22 +783,7 @@ export async function fetchStaffDirectory(
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([code, label]) => ({ code, label }));
 
-  const filtered = filterStaffDirectory(identitySafe, {
-    q: filters.q ?? "",
-    loc: filters.loc ?? "",
-    position: filters.position ?? "",
-    department: filters.department ?? "",
-    departmentName: filters.departmentName ?? "",
-    type: filters.employmentType ?? "",
-    e3: filters.e3 ?? "",
-    status: filters.status ?? "",
-    nationality: filters.nationality ?? "",
-    gender: filters.gender ?? "",
-    sponsorship: filters.sponsorship ?? "",
-    missing: Boolean(filters.missing),
-    expiry: filters.expiry ?? "",
-    sort: filters.sort ?? "name",
-  });
+  const filtered = filterStaffDirectory(identitySafe, directoryFilters);
 
   const total = filtered.length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));

@@ -8,6 +8,7 @@ import { toast } from "sonner";
 
 import { FecLoader } from "@/components/fec";
 
+import { ExcludeOrgDepartmentsFilter } from "@/components/people/exclude-org-departments-filter";
 import { ShiftRangeEditor } from "@/components/people/shift-range-editor";
 import {
   AlertDialog,
@@ -37,6 +38,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { usePermission } from "@/hooks/use-permission";
 import { filterDepartmentsForLocation } from "@/lib/department-audience";
+import {
+  excludedOrgDepartmentIds,
+  shouldApplyOrgDepartmentExclude,
+} from "@/lib/exclude-org-departments";
 import { useMasterDepartments } from "@/hooks/queries/useDepartments";
 import { useSites } from "@/hooks/queries/useSites";
 import {
@@ -167,6 +172,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     const [locationId, setLocationId] = useState(defaultLocationId ?? "");
     const [staffId, setStaffId] = useState("");
     const [excludedDepartmentIds, setExcludedDepartmentIds] = useState<string[]>([]);
+    const [excludeOrgDepartments, setExcludeOrgDepartments] = useState(false);
     const [sourceFilter, setSourceFilter] = useState<RosterSourceFilter>("all");
     const [query, setQuery] = useState("");
     const [viewMode, setViewMode] = useState<ViewMode>("grid");
@@ -179,11 +185,17 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       if (defaultLocationId && !locationId) setLocationId(defaultLocationId);
     }, [defaultLocationId, locationId]);
 
+    const applyOrgExclude = shouldApplyOrgDepartmentExclude(excludeOrgDepartments, excludedDepartmentIds);
+    const orgExcludeIds = useMemo(() => excludedOrgDepartmentIds(departments), [departments]);
     const filters = useMemo(
       () => ({
         locationId: locationId || null,
         staffId: staffId || null,
-        excludedDepartmentIds: excludedDepartmentIds.length ? excludedDepartmentIds : undefined,
+        excludedDepartmentIds: applyOrgExclude
+          ? orgExcludeIds
+          : excludedDepartmentIds.length
+            ? excludedDepartmentIds
+            : undefined,
         dateFrom,
         dateTo,
         sourceUploadOnly,
@@ -192,7 +204,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
             ? (sourceFilter as "upload" | "amend" | "manual" | "copied")
             : null,
       }),
-      [locationId, staffId, excludedDepartmentIds, dateFrom, dateTo, sourceUploadOnly, sourceFilter],
+      [locationId, staffId, excludedDepartmentIds, applyOrgExclude, orgExcludeIds, dateFrom, dateTo, sourceUploadOnly, sourceFilter],
     );
 
     const register = useQuery({
@@ -664,6 +676,16 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
               options={departmentOptions}
               aria-label={t("people.roster.registerFilterDepartment")}
             />
+          </div>
+          <div className="min-w-0 space-y-1.5">
+            <Label className="sr-only">{t("common.excludeOpsMaintenanceFb")}</Label>
+            <div className="sm:pt-6">
+              <ExcludeOrgDepartmentsFilter
+                checked={excludeOrgDepartments}
+                disabled={!shouldApplyOrgDepartmentExclude(true, excludedDepartmentIds)}
+                onCheckedChange={setExcludeOrgDepartments}
+              />
+            </div>
           </div>
           {showSource ? (
             <div className="space-y-1.5">

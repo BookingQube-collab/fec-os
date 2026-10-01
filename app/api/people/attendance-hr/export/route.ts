@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { displayDepartmentHidden } from "@/lib/exclude-org-departments";
 import { withAuthRouteRequest, searchParams } from "@/lib/server/api-route";
 import {
   getAttendanceHrDaily,
@@ -223,7 +224,7 @@ export async function GET(request: Request) {
         });
       }
 
-      const [daily, punches, unmatched, imports] = await Promise.all([
+      const [dailyRows, punches, unmatched, imports] = await Promise.all([
         getAttendanceHrDaily({
           locationId,
           dateFrom,
@@ -238,6 +239,11 @@ export async function GET(request: Request) {
         listAttendanceImports({ locationId }),
       ]);
 
+      const excludeOrgDepartments =
+        params.get("excludeOrgDepartments") === "1" && departmentIds.length === 0;
+      const daily = excludeOrgDepartments
+        ? dailyRows.filter((row) => !displayDepartmentHidden(row.department))
+        : dailyRows;
       const listing = listingSources(daily);
 
       if (format === "csv") {

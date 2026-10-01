@@ -6,7 +6,7 @@ import {
   formatFlexibleCrossSiteLocationLabel,
 } from "@/lib/attendance-hr/flexible-cross-site";
 import { resolveListingLateMinutes } from "@/lib/attendance-hr/late-punch";
-import { isActiveRosterStaff } from "@/lib/staff-status";
+import { isActiveRosterStaff, isJokerStaffStatus } from "@/lib/staff-status";
 
 export type AttendanceHrReportRow = {
   id: string;
@@ -499,6 +499,7 @@ export function attendanceHrIncludesStaffInListing(
   staffStatus: string | null | undefined,
 ): boolean {
   if (!staffId) return true;
+  if (isJokerStaffStatus(staffStatus)) return true;
   return isActiveRosterStaff(staffStatus);
 }
 

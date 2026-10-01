@@ -29,6 +29,7 @@ import { syncStaffIdentityProfile } from "@/lib/hr/sync-staff-identity";
 import { validateBase64Size, validateUploadMime } from "@/lib/server/upload-validation";
 import type { TablesUpdate } from "@/integrations/supabase/types";
 import { insertStatusHistory } from "@/lib/staff-history";
+import { reconcileJokerStaffStatus } from "@/lib/staff-status";
 import {
   decodeImageDataUrl,
 } from "@/lib/staff-photo";
@@ -409,6 +410,7 @@ const STAFF_STATUSES = [
   "terminated",
   "released",
   "serving_notice",
+  "joker",
 ] as const;
 const TRAINING_STATUSES = ["enrolled", "in_progress", "completed", "overdue"] as const;
 
@@ -474,7 +476,7 @@ export const createStaff = createSafeAuthenticatedAction(
         job_title: data.jobTitle ?? null,
         department,
         hire_date: data.hireDate ?? null,
-        status: data.status,
+        status: reconcileJokerStaffStatus(data.employmentType, data.status),
         phone: data.phone ?? null,
         email: data.email || null,
         qid: data.qid ?? null,
@@ -522,18 +524,25 @@ export const updateStaff = createSafeAuthenticatedAction(
   async (data, context) => {
     const { data: existing, error: fetchErr } = await context.supabase
       .from("staff")
-      .select("location_id, status")
+      .select("location_id, status, employment_type")
       .eq("id", data.id)
       .is("deleted_at", null)
       .single();
     if (fetchErr) throw fetchErr;
     await assertLocationAccess(context, existing.location_id);
 
+    const nextEmploymentType =
+      data.employmentType !== undefined ? data.employmentType : existing.employment_type;
+    const nextStatus = reconcileJokerStaffStatus(
+      nextEmploymentType,
+      data.status !== undefined ? data.status : existing.status,
+    );
+
     const patch: TablesUpdate<"staff"> = {};
     if (data.fullName !== undefined) patch.full_name = data.fullName;
     if (data.jobTitle !== undefined) patch.job_title = data.jobTitle;
     if (data.hireDate !== undefined) patch.hire_date = data.hireDate;
-    if (data.status !== undefined) patch.status = data.status;
+    if (nextStatus !== existing.status) patch.status = nextStatus;
     if (data.phone !== undefined) patch.phone = data.phone;
     if (data.email !== undefined) patch.email = data.email || null;
     if (data.qid !== undefined) patch.qid = data.qid;
@@ -546,11 +555,11 @@ export const updateStaff = createSafeAuthenticatedAction(
     if (data.breakMinutes !== undefined) patch.break_minutes = data.breakMinutes;
     if (data.weeklyOffWeekday !== undefined) patch.weekly_off_weekday = data.weeklyOffWeekday;
 
-    if (data.status !== undefined && data.status !== existing.status) {
+    if (nextStatus !== existing.status) {
       await insertStatusHistory(context, {
         staffId: data.id,
         fromStatus: existing.status,
-        toStatus: data.status,
+        toStatus: nextStatus,
         reason: "profile_update",
         locationId: existing.location_id,
       });

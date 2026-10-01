@@ -31,9 +31,11 @@ export type StaffDirectoryFilters = {
   loc?: string;
   department?: string;
   departmentName?: string;
+  excludeOrgDepartments?: boolean;
   position?: string;
   employmentType?: string;
   status?: string;
+  showJokers?: boolean;
   nationality?: string;
   gender?: string;
   sponsorship?: string;
@@ -56,9 +58,11 @@ export function useStaffDirectory(
     loc: filters.loc ?? "",
     department: filters.department ?? "",
     departmentName: filters.departmentName ?? "",
+    excludeOrgDepartments: Boolean(filters.excludeOrgDepartments),
     position: filters.position ?? "",
     employmentType: filters.employmentType ?? "",
     status: filters.status ?? "",
+    showJokers: Boolean(filters.showJokers),
     nationality: filters.nationality ?? "",
     gender: filters.gender ?? "",
     sponsorship: filters.sponsorship ?? "",
@@ -83,9 +87,11 @@ export function useStaffDirectory(
           loc: keyFilters.loc || undefined,
           department: keyFilters.department || undefined,
           departmentName: keyFilters.departmentName || undefined,
+          excludeOrgDepartments: keyFilters.excludeOrgDepartments ? "1" : undefined,
           position: keyFilters.position || undefined,
           employmentType: keyFilters.employmentType || undefined,
           status: keyFilters.status || undefined,
+          jokers: keyFilters.showJokers ? "1" : undefined,
           nationality: keyFilters.nationality || undefined,
           gender: keyFilters.gender || undefined,
           sponsorship: keyFilters.sponsorship || undefined,

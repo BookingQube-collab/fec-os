@@ -41,9 +41,14 @@ import {
   AttendanceRecordsTable,
   type AttendanceMapStaffOption,
 } from "@/components/people/attendance-records-table";
+import { ExcludeOrgDepartmentsFilter } from "@/components/people/exclude-org-departments-filter";
 import { useFileExport } from "@/hooks/use-file-export";
 import { useSites } from "@/hooks/queries/useSites";
 import { filterDepartmentsForLocation } from "@/lib/department-audience";
+import {
+  displayDepartmentHidden,
+  shouldApplyOrgDepartmentExclude,
+} from "@/lib/exclude-org-departments";
 import { useMasterDepartments } from "@/hooks/queries/useDepartments";
 import { useUserRoles } from "@/hooks/use-auth";
 import { canUserDo } from "@/lib/rbac";
@@ -89,6 +94,7 @@ export default function AttendanceHrReportsPage() {
   );
   const [status, setStatus] = useState("");
   const [departmentIds, setDepartmentIds] = useState<string[]>([]);
+  const [excludeOrgDepartments, setExcludeOrgDepartments] = useState(false);
   const [staffQ, setStaffQ] = useState("");
   const [staffQDebounced, setStaffQDebounced] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -179,12 +185,16 @@ export default function AttendanceHrReportsPage() {
     return ordered;
   }, [sites, bootstrap.data?.sites, locationId]);
 
+  const applyOrgExclude = shouldApplyOrgDepartmentExclude(excludeOrgDepartments, departmentIds);
   const rows = useMemo(
-    () =>
-      ((q.data ?? []) as AttendanceHrReportRow[]).filter((row) =>
+    () => {
+      const located = ((q.data ?? []) as AttendanceHrReportRow[]).filter((row) =>
         attendanceHrRowMatchesLocation(row, locationId),
-      ),
-    [q.data, locationId],
+      );
+      if (!applyOrgExclude) return located;
+      return located.filter((row) => !displayDepartmentHidden(row.department));
+    },
+    [q.data, locationId, applyOrgExclude],
   );
   const deferredRows = useDeferredValue(rows);
   const listingRows = useMemo(
@@ -227,7 +237,9 @@ export default function AttendanceHrReportsPage() {
     : t("common.allLocations");
   const departmentLabel =
     departmentIds.length === 0
-      ? t("attendanceHr.reports.allDepartments")
+      ? applyOrgExclude
+        ? `${t("attendanceHr.reports.allDepartments")} · ${t("common.excludeOpsMaintenanceFb")}`
+        : t("attendanceHr.reports.allDepartments")
       : departmentIds
           .map((id) => departmentOptions.find((d) => d.value === id)?.label)
           .filter((label): label is string => Boolean(label))
@@ -242,11 +254,12 @@ export default function AttendanceHrReportsPage() {
     if (status) p.set("status", status);
     if (staffQDebounced.trim()) p.set("staffQ", staffQDebounced.trim());
     if (departmentIds.length) p.set("departmentIds", departmentIds.join(","));
+    if (applyOrgExclude) p.set("excludeOrgDepartments", "1");
     p.set("locationLabel", locationLabel);
     p.set("departmentLabel", departmentLabel);
     if (status) p.set("statusLabel", statusLabel);
     return `/api/people/attendance-hr/export?${p.toString()}`;
-  }, [from, to, locationId, status, staffQDebounced, departmentIds, locationLabel, departmentLabel, statusLabel]);
+  }, [from, to, locationId, status, staffQDebounced, departmentIds, applyOrgExclude, locationLabel, departmentLabel, statusLabel]);
 
   const payrollHref = useMemo(() => {
     const p = new URLSearchParams({ from, to, month });
@@ -464,6 +477,13 @@ export default function AttendanceHrReportsPage() {
               aria-label={t("attendanceHr.reports.department")}
               triggerClassName="h-10 min-h-10 w-auto min-w-[11rem] font-normal"
               className="w-auto"
+            />
+          </div>
+          <div className="min-w-0 w-full basis-full sm:w-auto sm:max-w-xs sm:basis-auto">
+            <ExcludeOrgDepartmentsFilter
+              checked={excludeOrgDepartments}
+              disabled={!shouldApplyOrgDepartmentExclude(true, departmentIds)}
+              onCheckedChange={setExcludeOrgDepartments}
             />
           </div>
         </div>

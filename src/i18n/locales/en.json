@@ -241,6 +241,7 @@
     "date": "Date",
     "vendor": "Vendor",
     "department": "Department",
+    "excludeOpsMaintenanceFb": "Exclude Ops, Maintenance & F&B",
     "site": "Site",
     "filters": "Filters",
     "apply": "Apply",
@@ -3175,6 +3176,7 @@
       "menuTransfer": "Transfer location",
       "menuHistory": "Employment history",
       "archiveExit": "Archive / exit",
+      "delete": "Delete",
       "moreFilters": "More filters",
       "hideMoreFilters": "Hide filters",
       "clearAll": "Clear all",
@@ -3252,6 +3254,7 @@
         "secondment": "Secondment",
         "joker": "Joker"
       },
+      "showJokers": "Joker",
       "roleHoursHelp": "Tag each person as Permanent, Secondment, or Joker for site default hours — or set Expected hours / Break / Weekly off below (or via staff CSV). Staff values override HR admin → Site working hours for payroll.",
       "flexibleHours": "Flexible hours",
       "flexibleHoursEnable": "Use flexible reporting times",

@@ -1,6 +1,6 @@
 import { withAuthRouteRequest, searchParams } from "@/lib/server/api-route";
 import { canUserDo } from "@/lib/rbac";
-import { isActiveStaffStatus } from "@/lib/staff-status";
+import { countsAsActiveStaff, isJokerStaff } from "@/lib/staff-status";
 import { loadLiveStaffForSample, loadSalaryByStaffId, resolveSampleScope } from "@/lib/staff-sample-load";
 import { directoryStaffForScope } from "@/lib/staff-sample-scope";
 import { buildDirectorySampleCsv, directorySampleFilename } from "@/lib/staff-roster/directory-sample";
@@ -22,7 +22,7 @@ export async function GET(request: Request) {
       });
 
       if (scopeMode === "active") {
-        scoped = scoped.filter((row) => isActiveStaffStatus(row.status));
+        scoped = scoped.filter((row) => countsAsActiveStaff(row.status, row.employment_type));
       } else if (scopeMode === "selected") {
         const ids = new Set(
           (params.get("ids") ?? "")
@@ -36,9 +36,14 @@ export async function GET(request: Request) {
         const q = (params.get("q") ?? "").trim().toLowerCase();
         const type = (params.get("type") ?? "").trim().toLowerCase();
         const loc = (params.get("loc") ?? "").trim().toUpperCase();
+        const showJokers = params.get("jokers") === "1";
         scoped = scoped.filter((row) => {
-          if (status === "active" && !isActiveStaffStatus(row.status)) return false;
-          if (status && status !== "active" && (row.status ?? "").toLowerCase() !== status) return false;
+          const jokerOnly = showJokers || type === "joker" || status === "joker";
+          if (jokerOnly && !isJokerStaff(row)) return false;
+          if (!jokerOnly && status === "active" && !countsAsActiveStaff(row.status, row.employment_type)) {
+            return false;
+          }
+          if (!jokerOnly && status && status !== "active" && (row.status ?? "").toLowerCase() !== status) return false;
           if (type && (row.employment_type ?? "").toLowerCase() !== type) return false;
           if (loc && row.locationCode !== loc) return false;
           if (q) {

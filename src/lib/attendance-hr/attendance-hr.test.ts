@@ -754,6 +754,7 @@ describe("HR report row helpers", () => {
     expect(attendanceHrIncludesStaffInListing("s1", "serving_notice")).toBe(true);
     expect(attendanceHrIncludesStaffInListing("s1", "terminated")).toBe(false);
     expect(attendanceHrIncludesStaffInListing("s1", "inactive")).toBe(false);
+    expect(attendanceHrIncludesStaffInListing("s1", "joker")).toBe(true);
   });
 
   it("matches search against name-on-device for unmapped rows", () => {

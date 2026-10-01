@@ -19,7 +19,18 @@ export const STAFF_DIRECTORY_STATUSES = [
   "terminated",
   "released",
   "serving_notice",
+  "joker",
 ] as const;
+
+/** Stored staff.status for employment-type jokers who are not active staff. */
+export const JOKER_STAFF_STATUS = "joker";
+
+/**
+ * PostgREST `.or()` fragment: drop employment_type joker, keep null types.
+ * Pair with `.eq("status", "active")` on active-staff pickers.
+ */
+export const STAFF_NOT_JOKER_EMPLOYMENT_OR =
+  "employment_type.is.null,employment_type.not.ilike.joker";
 
 export type StaffDirectoryStatusValue = (typeof STAFF_DIRECTORY_STATUSES)[number];
 
@@ -61,6 +72,54 @@ export function isRemoteStaffStatus(status: string | null | undefined): boolean 
 
 export function isSecondmentStaffStatus(status: string | null | undefined): boolean {
   return normalizeStaffStatus(status) === "secondment";
+}
+
+/** Employment type stored on staff.employment_type (case-insensitive). */
+export function isJokerEmploymentType(employmentType: string | null | undefined): boolean {
+  return (employmentType ?? "").trim().toLowerCase() === "joker";
+}
+
+export function isJokerStaffStatus(status: string | null | undefined): boolean {
+  return normalizeStaffStatus(status) === JOKER_STAFF_STATUS;
+}
+
+export function isJokerStaff(staff: {
+  status?: string | null;
+  employment_type?: string | null;
+  employmentType?: string | null;
+}): boolean {
+  return (
+    isJokerEmploymentType(staff.employment_type ?? staff.employmentType) ||
+    isJokerStaffStatus(staff.status)
+  );
+}
+
+/**
+ * Active headcount. Jokers are not active staff, including a stale status=active row.
+ */
+export function countsAsActiveStaff(
+  status: string | null | undefined,
+  employmentType?: string | null,
+): boolean {
+  if (isJokerEmploymentType(employmentType) || isJokerStaffStatus(status)) return false;
+  return isActiveStaffStatus(status);
+}
+
+/**
+ * Joker employment cannot stay on an active status. Leaving joker employment
+ * clears a joker status back to active. Leave / exit statuses are kept.
+ */
+export function reconcileJokerStaffStatus(
+  employmentType: string | null | undefined,
+  status: string | null | undefined,
+): string {
+  if (isJokerEmploymentType(employmentType)) {
+    if (status == null || status.trim() === "" || isActiveStaffStatus(status)) return JOKER_STAFF_STATUS;
+    return status.trim();
+  }
+  if (isJokerStaffStatus(status)) return "active";
+  const trimmed = (status ?? "").trim();
+  return trimmed || "active";
 }
 
 /** Active roster for payroll: active cohort, on leave, serving notice, or blank. Excludes exited. */

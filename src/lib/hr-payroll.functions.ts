@@ -371,7 +371,7 @@ export const generatePayrollLines = createAuthenticatedAction(
       .from("staff")
       .select("id, full_name, employee_code, qid, hire_date, status, employment_type, flexible_attendance")
       .is("deleted_at", null)
-      .in("status", ["active", "on_leave", "serving_notice"]);
+      .in("status", ["active", "on_leave", "serving_notice", "joker"]);
     if (data.locationId) staffQ = staffQ.eq("location_id", data.locationId);
     const { data: staffRows, error: staffErr } = await staffQ;
     if (staffErr) throw staffErr;

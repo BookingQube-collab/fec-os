@@ -6,6 +6,7 @@ import type {
   ProposedProfileExt,
   ProposedStaffValues,
 } from "./types";
+import { reconcileJokerStaffStatus } from "@/lib/staff-status";
 import {
   generateEmployeeCode,
   isPreservableEmployeeCode,
@@ -226,7 +227,7 @@ export function proposeStaffValues(
     job_title: pickNonBlank(row.position, existing?.job_title ?? null),
     department: pickNonBlank(row.activity, existing?.department ?? null),
     hire_date: pickNonBlank(row.hireDate, existing?.hire_date ?? null),
-    status: mapStatus(row, existing),
+    status: reconcileJokerStaffStatus(employmentType, mapStatus(row, existing)),
     e3_enrolled: row.e3Enrolled === null ? (existing?.e3_enrolled ?? null) : row.e3Enrolled,
     employment_type: employmentType,
     staff_role: row.staffRole ?? (existing?.staff_role as ProposedStaffValues["staff_role"]) ?? null,

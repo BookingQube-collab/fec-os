@@ -76,6 +76,7 @@ import {
   downloadCsvContent,
 } from "@/lib/staff-import";
 import { nextEmployeeCode } from "@/lib/staff-employee-code";
+import { countsAsActiveStaff, isActiveStaffStatus, reconcileJokerStaffStatus } from "@/lib/staff-status";
 import { fileToBase64, identityFileContentType } from "@/lib/hr/identity-file";
 import type { IdentityDocType } from "@/lib/hr/identity-document-parse";
 import type { StaffRow } from "@/lib/queries/module-queries.core";
@@ -159,7 +160,7 @@ const PeopleDocumentsExpiryPanel = dynamic(
   },
 );
 
-const STAFF_STATUSES = ["active", "on_leave", "terminated"] as const;
+const STAFF_STATUSES = ["active", "on_leave", "terminated", "joker"] as const;
 const ATTENDANCE_STATUSES = ["present", "absent", "late", "early_leave", "missed_punch", "overtime"] as const;
 const TRAINING_STATUSES = ["enrolled", "in_progress", "completed", "overdue"] as const;
 
@@ -469,9 +470,13 @@ function StaffFormDialog({
   });
   const [departmentIds, setDepartmentIds] = useState<string[]>(staff?.department_ids ?? []);
   const [hireDate, setHireDate] = useState(staff?.hire_date ?? "");
-  const [status, setStatus] = useState<(typeof STAFF_STATUSES)[number]>(
-    (staff?.status as (typeof STAFF_STATUSES)[number]) ?? "active",
-  );
+  const [status, setStatus] = useState<(typeof STAFF_STATUSES)[number]>(() => {
+    const reconciled = reconcileJokerStaffStatus(staff?.employment_type, staff?.status ?? "active");
+    if ((STAFF_STATUSES as readonly string[]).includes(reconciled)) {
+      return reconciled as (typeof STAFF_STATUSES)[number];
+    }
+    return (staff?.status as (typeof STAFF_STATUSES)[number]) ?? "active";
+  });
   const [phone, setPhone] = useState(staff?.phone ?? "");
   const [email, setEmail] = useState(staff?.email ?? "");
   const [qid, setQid] = useState(staff?.qid ?? "");
@@ -917,11 +922,23 @@ function StaffFormDialog({
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label>{t("people.staff.status")}</Label>
-              <Select value={status} onValueChange={(v) => setStatus(v as (typeof STAFF_STATUSES)[number])}>
+              <Select
+                value={status}
+                onValueChange={(v) => {
+                  const next = v as (typeof STAFF_STATUSES)[number];
+                  if (employmentType === "joker" && isActiveStaffStatus(next)) {
+                    setStatus("joker");
+                    return;
+                  }
+                  setStatus(next);
+                }}
+              >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {STAFF_STATUSES.map((s) => (
-                    <SelectItem key={s} value={s}>{s.replace("_", " ")}</SelectItem>
+                    <SelectItem key={s} value={s}>
+                      {s === "joker" ? t("people.staff.employmentTypes.joker") : s.replace("_", " ")}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -930,7 +947,12 @@ function StaffFormDialog({
               <Label>{t("people.staff.employmentType")}</Label>
               <Select value={employmentType} onValueChange={(v) => {
                 setEmploymentType(v);
-                if (v !== "joker") setPayBasis("monthly");
+                if (v === "joker") {
+                  setStatus((prev) => (isActiveStaffStatus(prev) ? "joker" : prev));
+                } else {
+                  setPayBasis("monthly");
+                  setStatus((prev) => (prev === "joker" ? "active" : prev));
+                }
               }}>
                 <SelectTrigger><SelectValue placeholder={t("people.staff.employmentType")} /></SelectTrigger>
                 <SelectContent>
@@ -1337,7 +1359,7 @@ function NewShiftDialog({
             <Select value={staffId} onValueChange={setStaffId}>
               <SelectTrigger><SelectValue placeholder={t("people.shifts.selectStaff")} /></SelectTrigger>
               <SelectContent>
-                {staffList.filter((s) => s.status === "active").map((s) => (
+                {staffList.filter((s) => countsAsActiveStaff(s.status, s.employment_type)).map((s) => (
                   <SelectItem key={s.id} value={s.id}>{s.full_name} ({s.employee_code})</SelectItem>
                 ))}
               </SelectContent>
@@ -1407,7 +1429,7 @@ function EditShiftDialog({
               <SelectTrigger><SelectValue placeholder={t("people.shifts.selectStaff")} /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="__none__">{t("people.shifts.unassigned")}</SelectItem>
-                {staffList.filter((s) => s.status === "active").map((s) => (
+                {staffList.filter((s) => countsAsActiveStaff(s.status, s.employment_type)).map((s) => (
                   <SelectItem key={s.id} value={s.id}>{s.full_name} ({s.employee_code})</SelectItem>
                 ))}
               </SelectContent>
@@ -1637,7 +1659,7 @@ function TrainingFormDialog({
               <Select value={staffId} onValueChange={setStaffId}>
                 <SelectTrigger><SelectValue placeholder={t("people.training.selectStaff")} /></SelectTrigger>
                 <SelectContent>
-                  {staffList.filter((s) => s.status === "active").map((s) => (
+                  {staffList.filter((s) => countsAsActiveStaff(s.status, s.employment_type)).map((s) => (
                     <SelectItem key={s.id} value={s.id}>{s.full_name} ({s.employee_code})</SelectItem>
                   ))}
                 </SelectContent>
@@ -1834,7 +1856,7 @@ function AttendanceFormDialog({
                 <Select value={staffId} onValueChange={setStaffId}>
                   <SelectTrigger><SelectValue placeholder={t("people.attendance.selectStaff")} /></SelectTrigger>
                   <SelectContent>
-                    {staffList.filter((s) => s.status === "active").map((s) => (
+                    {staffList.filter((s) => countsAsActiveStaff(s.status, s.employment_type)).map((s) => (
                       <SelectItem key={s.id} value={s.id}>{s.full_name} ({s.employee_code})</SelectItem>
                     ))}
                   </SelectContent>

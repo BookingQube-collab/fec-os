@@ -22,6 +22,7 @@ import {
   uploadDailyOpsRosterCsv,
 } from "@/lib/daily-ops.functions";
 import { monthDateRange } from "@/lib/daily-ops/roster-calendar-utils";
+import { countsAsActiveStaff } from "@/lib/staff-status";
 import { shiftsToCsv } from "@/lib/daily-ops/roster-csv";
 import {
   buildRosterDatedSampleCsv,
@@ -121,7 +122,14 @@ function DailyOpsRosterPage() {
 
   const staffOptions = useMemo(
     () =>
-      (staff ?? []).filter((s) => s.status === "active").map((s) => ({
+      (staff ?? [])
+        .filter((s) =>
+          countsAsActiveStaff(
+            typeof s.status === "string" ? s.status : null,
+            typeof s.employment_type === "string" ? s.employment_type : null,
+          ),
+        )
+        .map((s) => ({
         id: String(s.id),
         label: `${s.full_name} (${s.employee_code})`,
       })),

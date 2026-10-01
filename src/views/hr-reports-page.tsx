@@ -14,12 +14,17 @@ import { HrKpiTile } from "@/components/hr/hr-kpi-tile";
 import { HrPanel } from "@/components/hr/hr-panel";
 import { HrSection } from "@/components/hr/hr-section";
 import { HrShell } from "@/components/hr/hr-shell";
+import { ExcludeOrgDepartmentsFilter } from "@/components/people/exclude-org-departments-filter";
 import { DownloadReportButton } from "@/components/reports/download-report-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { defaultPayrollPeriod, formatPayrollRange, monthBounds } from "@/lib/attendance-hr/roster-period";
+import {
+  recordHiddenByOrgDepartmentExclude,
+  shouldApplyOrgDepartmentExclude,
+} from "@/lib/exclude-org-departments";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { getHrReportsSummary, runHrCatalogReport } from "@/lib/hr-reports.functions";
 import { HR_REPORT_IDS, type HrReportId } from "@/lib/hr-reports";
@@ -35,6 +40,7 @@ export default function HrReportsPage() {
   const storeLocationId = useAppStore((s) => s.currentLocationId);
   const [locationId, setLocationId] = useState(storeLocationId || "all");
   const [departmentId, setDepartmentId] = useState("all");
+  const [excludeOrgDepartments, setExcludeOrgDepartments] = useState(false);
   const [category, setCategory] = useState("all");
   const [designation, setDesignation] = useState("");
   const [status, setStatus] = useState("all");
@@ -95,7 +101,12 @@ export default function HrReportsPage() {
   ];
 
   const columns = useMemo(() => catalog.data?.columns ?? [], [catalog.data?.columns]);
-  const rows = useMemo(() => catalog.data?.rows ?? [], [catalog.data?.rows]);
+  const applyOrgExclude = shouldApplyOrgDepartmentExclude(excludeOrgDepartments, departmentId);
+  const rows = useMemo(() => {
+    const loaded = catalog.data?.rows ?? [];
+    if (!applyOrgExclude) return loaded;
+    return loaded.filter((row) => !recordHiddenByOrgDepartmentExclude(row));
+  }, [catalog.data?.rows, applyOrgExclude]);
   const tabLabel = t(`hr.reports.catalog.${activeId}`, { defaultValue: activeId });
 
   const exportRows = useMemo(
@@ -240,6 +251,13 @@ export default function HrReportsPage() {
                   value={departmentId === "all" ? "" : departmentId}
                   onChange={(e) => setDepartmentId(e.target.value.trim() || "all")}
                   placeholder="UUID"
+                />
+              </div>
+              <div className="flex min-w-0 items-end">
+                <ExcludeOrgDepartmentsFilter
+                  checked={excludeOrgDepartments}
+                  disabled={!shouldApplyOrgDepartmentExclude(true, departmentId)}
+                  onCheckedChange={setExcludeOrgDepartments}
                 />
               </div>
               <div className="flex flex-wrap items-end gap-2">

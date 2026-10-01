@@ -35,7 +35,8 @@ export async function loadAssignableTechnicians(
       .from("staff")
       .select("id, full_name, user_id, employee_code, staff_role, job_title, location_id, status")
       .is("deleted_at", null)
-      .eq("status", "active"),
+      .eq("status", "active")
+      .or("employment_type.is.null,employment_type.not.ilike.joker"),
   ]);
   if (roleErr) throw roleErr;
   if (staffErr) throw staffErr;

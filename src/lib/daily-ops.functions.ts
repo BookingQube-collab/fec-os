@@ -11,6 +11,7 @@ import { toQatarIso } from "@/lib/staff-import";
 import { shiftUuid } from "@/lib/staff-import-ids";
 import { createAuthenticatedAction } from "@/lib/server/create-action";
 import { assertLocationAccess } from "@/lib/server/authorize";
+import { STAFF_NOT_JOKER_EMPLOYMENT_OR } from "@/lib/staff-status";
 
 const LocFilter = z
   .object({ locationId: z.string().uuid().nullable().optional() })
@@ -385,6 +386,7 @@ export const aiGenerateLocationRoster = createAuthenticatedAction(
           )
           .eq("location_id", data.location_id)
           .eq("status", "active")
+          .or(STAFF_NOT_JOKER_EMPLOYMENT_OR)
           .is("deleted_at", null)
           .order("full_name"),
         context.supabase

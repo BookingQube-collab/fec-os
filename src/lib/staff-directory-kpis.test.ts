@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import type { StaffRow } from "@/lib/queries/module-queries.core";
-import { computeStaffDirectoryKpis, filterStaffDirectory } from "./staff-directory-kpis";
+import {
+  computeStaffDirectoryKpis,
+  filterStaffDirectory,
+  filterStaffDirectoryForKpis,
+} from "./staff-directory-kpis";
 
 function row(partial: Partial<StaffRow> & Pick<StaffRow, "id" | "full_name" | "employee_code">): StaffRow {
   return {
@@ -90,9 +94,19 @@ describe("staff directory KPIs follow filters", () => {
   it("matches table rows for active default scope", () => {
     const filtered = filterStaffDirectory(staff, base);
     const kpis = computeStaffDirectoryKpis(filtered);
-    expect(kpis.total).toBe(3);
-    expect(kpis.active).toBe(2);
+    expect(filtered.map((s) => s.id).sort()).toEqual(["1", "3"]);
+    expect(kpis.total).toBe(2);
+    expect(kpis.active).toBe(1);
     expect(kpis.secondment).toBe(1);
+  });
+
+  it("does not count a joker as active, and the joker filter shows them", () => {
+    const roster = computeStaffDirectoryKpis(staff);
+    expect(roster.active).toBe(1);
+    expect(filterStaffDirectory(staff, base).some((s) => s.employment_type === "joker")).toBe(false);
+    const shown = filterStaffDirectory(staff, { ...base, showJokers: true });
+    expect(shown.map((s) => s.id)).toEqual(["2"]);
+    expect(computeStaffDirectoryKpis(shown).active).toBe(0);
   });
 
   it("updates when location / position / search change", () => {
@@ -102,7 +116,7 @@ describe("staff directory KPIs follow filters", () => {
     const byPos = filterStaffDirectory(staff, { ...base, position: "Supervisor" });
     expect(computeStaffDirectoryKpis(byPos).secondment).toBe(1);
 
-    const bySearch = filterStaffDirectory(staff, { ...base, q: "bob" });
+    const bySearch = filterStaffDirectory(staff, { ...base, q: "alice" });
     expect(computeStaffDirectoryKpis(bySearch).total).toBe(1);
   });
 
@@ -153,6 +167,7 @@ describe("staff directory KPIs follow filters", () => {
     ];
     const filtered = filterStaffDirectory(withLegacy, {
       ...base,
+      status: "",
       department: "fb-cafe",
       departmentName: "F&B Cafe",
     });
@@ -165,7 +180,7 @@ describe("staff directory KPIs follow filters", () => {
     expect(computeStaffDirectoryKpis(filtered).total).toBe(1);
   });
 
-  it("temporary_project KPI matches active temporary + joker", () => {
+  it("temporary_project KPI matches active temporary staff and not jokers", () => {
     const withTemp = [
       ...staff,
       row({
@@ -184,13 +199,56 @@ describe("staff directory KPIs follow filters", () => {
       }),
     ];
     const kpis = computeStaffDirectoryKpis(withTemp);
-    expect(kpis.temporary).toBe(2); // Bob joker + Temp Active
+    expect(kpis.temporary).toBe(1);
     const filtered = filterStaffDirectory(withTemp, {
       ...base,
       status: "",
       expiry: "temporary_project",
     });
-    expect(filtered.map((s) => s.id).sort()).toEqual(["2", "6"]);
+    expect(filtered.map((s) => s.id).sort()).toEqual(["6"]);
+  });
+
+  it("scopes every tile by location and search, and leaves status on the table", () => {
+    const filters = { ...base, loc: "KDS", status: "active" };
+    const table = filterStaffDirectory(staff, filters);
+    const kpis = computeStaffDirectoryKpis(filterStaffDirectoryForKpis(staff, filters));
+
+    expect(table.map((s) => s.id).sort()).toEqual(["1", "3"]);
+    expect(kpis.total).toBe(3);
+    expect(kpis.active).toBe(1);
+    expect(kpis.secondment).toBe(1);
+    expect(kpis.exiting).toBe(1);
+
+    const searched = computeStaffDirectoryKpis(
+      filterStaffDirectoryForKpis(staff, { ...filters, q: "cara" }),
+    );
+    expect(searched.total).toBe(1);
+    expect(searched.secondment).toBe(1);
+    expect(searched.active).toBe(0);
+  });
+
+  it("matches the full roster when the only control is the default active status", () => {
+    const scoped = computeStaffDirectoryKpis(filterStaffDirectoryForKpis(staff, base));
+    expect(scoped).toEqual(computeStaffDirectoryKpis(staff));
+  });
+
+  it("applies the exclude-org filter to every tile without using status", () => {
+    const withOps = [
+      ...staff,
+      row({
+        id: "ops",
+        full_name: "Ops Only",
+        employee_code: "OPS1",
+        employment_type: "permanent",
+        status: "terminated",
+        department_names: ["Operations"],
+        location_code: "KDS",
+      }),
+    ];
+    const filters = { ...base, loc: "KDS", status: "active", excludeOrgDepartments: true };
+    const kpis = computeStaffDirectoryKpis(filterStaffDirectoryForKpis(withOps, filters));
+    expect(kpis.total).toBe(3);
+    expect(kpis.exiting).toBe(1);
   });
 
   it("searches passport and position", () => {

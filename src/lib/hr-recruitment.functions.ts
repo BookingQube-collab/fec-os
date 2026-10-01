@@ -31,7 +31,7 @@ import {
 } from "@/lib/server/create-action";
 import { ForbiddenError } from "@/lib/server/authorize";
 import {
-  isActiveStaffStatus,
+  countsAsActiveStaff,
   isOnLeaveStaffStatus,
   isServingNoticeStaffStatus,
 } from "@/lib/staff-status";
@@ -76,7 +76,7 @@ async function staffHeadcountForScope(
 ) {
   let staffQ = context.supabase
     .from("staff")
-    .select("id, full_name, status, job_title, qid, location_id, staff_departments(department_id)")
+    .select("id, full_name, status, employment_type, job_title, qid, location_id, staff_departments(department_id)")
     .is("deleted_at", null)
     .in("status", ["active", "on_leave", "serving_notice", "leave", "vacation"]);
   if (scope.locationId) staffQ = staffQ.eq("location_id", scope.locationId);
@@ -87,6 +87,7 @@ async function staffHeadcountForScope(
     id: string;
     full_name: string;
     status: string | null;
+    employment_type?: string | null;
     job_title: string | null;
     qid: string | null;
     location_id: string | null;
@@ -133,7 +134,7 @@ async function staffHeadcountForScope(
   for (const s of filtered) {
     if (isServingNoticeStaffStatus(s.status)) servingNotice += 1;
     else if (isOnLeaveStaffStatus(s.status)) onLeave += 1;
-    else if (isActiveStaffStatus(s.status)) active += 1;
+    else if (countsAsActiveStaff(s.status, s.employment_type)) active += 1;
   }
   return { active, onLeave, servingNotice, staff: filtered };
 }
@@ -496,7 +497,7 @@ export const listQuotaEmployees = createAuthenticatedAction(
 
     let filtered = staff;
     if (data.statusFilter === "active") {
-      filtered = staff.filter((s) => isActiveStaffStatus(s.status));
+      filtered = staff.filter((s) => countsAsActiveStaff(s.status, s.employment_type));
     } else if (data.statusFilter === "on_leave") {
       filtered = staff.filter((s) => isOnLeaveStaffStatus(s.status));
     } else if (data.statusFilter === "serving_notice") {
