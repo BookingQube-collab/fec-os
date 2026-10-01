@@ -3255,7 +3255,7 @@
       "roaming": "Roaming",
       "primaryLocation": "Primary",
       "workLocations": "Work sites",
-      "workLocationsHint": "Sites where this person can punch. Salary and roster headcount stay on the primary location.",
+      "workLocationsHint": "Dedicated workplaces besides the primary branch. A punch or visit does not add a site. Salary and roster headcount stay on the primary location.",
       "roamingHint": "Not on the venue Excel roster. The next HTML sync will not archive this person.",
       "saveWorkLocations": "Save work sites",
       "workLocationsSaved": "Work sites updated",

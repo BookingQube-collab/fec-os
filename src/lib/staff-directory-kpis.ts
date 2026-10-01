@@ -86,7 +86,18 @@ export type StaffDirectoryKpis = {
   missingInfo: number;
 };
 
-function staffLocationCodes(s: StaffRow): string[] {
+/**
+ * Dedicated workplace codes: home branch plus extra sites HR saved on the profile.
+ * `punch_location_codes` is accepted so callers can pass punch/visit sites beside
+ * the person; those codes are never membership.
+ */
+export function dedicatedStaffLocationCodes(
+  s: Pick<StaffRow, "location_code" | "work_locations"> & {
+    punch_location_codes?: readonly string[] | null;
+  },
+): string[] {
+  // Attendance punches, device sites, and visits are not dedicated workplaces.
+  void s.punch_location_codes;
   const codes = new Set<string>();
   if (s.location_code) codes.add(s.location_code);
   for (const loc of s.work_locations ?? []) {
@@ -117,7 +128,7 @@ export function filterStaffDirectory(staff: StaffRow[], f: StaffDirectoryFilters
         .toLowerCase();
       if (!blob.includes(needle)) return false;
     }
-    if (f.loc && !staffLocationCodes(s).includes(f.loc)) return false;
+    if (f.loc && !dedicatedStaffLocationCodes(s).includes(f.loc)) return false;
     if (f.department && !staffMatchesDepartment(s, f.department, f.departmentName)) return false;
     if (
       f.showOrgDepartments?.length &&

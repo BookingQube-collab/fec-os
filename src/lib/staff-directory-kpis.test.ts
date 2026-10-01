@@ -298,4 +298,48 @@ describe("staff directory KPIs follow filters", () => {
     expect(filterStaffDirectory(withPass, { ...base, q: "p123" }).map((s) => s.id)).toEqual(["5"]);
     expect(filterStaffDirectory(withPass, { ...base, q: "technician" }).map((s) => s.id)).toEqual(["5"]);
   });
+
+  it("matches a dedicated second workplace and not a punch-only visit", () => {
+    const punchVisitor = {
+      ...row({
+        id: "russell",
+        full_name: "Russell Bombita Pante",
+        employee_code: "FEC-TEC01",
+        employment_type: "permanent",
+        status: "active",
+        is_roaming: true,
+        location_id: "inf",
+        location_code: "INF-CC",
+        location_name: "Inflatapark",
+        work_locations: [
+          { id: "inf", code: "INF-CC", name: "Inflatapark" },
+          { id: "kds", code: "KDS-CC", name: "Kids Driving School" },
+        ],
+        work_location_ids: ["inf", "kds"],
+      }),
+      punch_location_codes: ["CB-DSM"],
+    };
+    const assigned = row({
+      id: "assigned",
+      full_name: "Second Site Lead",
+      employee_code: "E9",
+      employment_type: "permanent",
+      status: "active",
+      location_id: "inf",
+      location_code: "INF-CC",
+      location_name: "Inflatapark",
+      work_locations: [{ id: "cb", code: "CB-DSM", name: "Crayons & Bricks" }],
+      work_location_ids: ["cb"],
+    });
+    const atCrayons = filterStaffDirectory([punchVisitor, assigned], { ...base, loc: "CB-DSM" });
+    expect(atCrayons.map((s) => s.id)).toEqual(["assigned"]);
+    const tiles = computeStaffDirectoryKpis(
+      filterStaffDirectoryForKpis([punchVisitor, assigned], { ...base, loc: "CB-DSM", status: "active" }),
+    );
+    expect(tiles.total).toBe(1);
+    expect(tiles.active).toBe(1);
+
+    const atHome = filterStaffDirectory([punchVisitor, assigned], { ...base, loc: "INF-CC" });
+    expect(atHome.map((s) => s.id).sort()).toEqual(["assigned", "russell"]);
+  });
 });

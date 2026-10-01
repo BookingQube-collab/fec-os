@@ -677,6 +677,7 @@ export async function fetchStaffDirectory(
     .limit(2000);
   if (!filters.includeArchived) q = q.is("deleted_at", null);
   if (filters.locationId) {
+    // Home location, plus extra workplaces HR saved. Not punch or device sites.
     const extraIds = await fetchStaffIdsWorkingAtLocation(context.supabase, filters.locationId);
     q = extraIds.length
       ? q.or(`location_id.eq.${filters.locationId},id.in.(${extraIds.join(",")})`)

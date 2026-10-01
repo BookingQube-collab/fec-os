@@ -12,7 +12,7 @@ export type StaffLocationFields = {
   work_location_ids?: string[] | null;
 };
 
-/** Directory / reports: home or an attached work site. Mapping can also include all roaming techs. */
+/** Home branch or an HR-assigned work site. Mapping can also include all roaming techs. */
 export function staffWorksAtLocation(
   staff: StaffLocationFields,
   locationId: string,
