@@ -71,7 +71,7 @@ import { formatLocationLabel } from "@/lib/locations/normalize";
 import { STAFF_DIRECTORY_STATUSES } from "@/lib/staff-status";
 import { cn } from "@/lib/utils";
 
-type DirectoryKpiKey = "total" | "active" | "secondment" | "temporary" | "new_joiners" | "exiting";
+type DirectoryKpiKey = "total" | "permanent" | "secondment" | "temporary" | "new_joiners" | "exiting";
 
 const DIRECTORY_KPI_EXPIRY = new Set(["temporary_project", "new_joiners", "exiting"]);
 
@@ -83,12 +83,16 @@ function expiryChipLabel(expiry: string): string {
 }
 
 function selectedDirectoryKpi(status: string, type: string, expiry: string): DirectoryKpiKey | null {
-  if (expiry === "temporary_project" && !type) return "temporary";
-  if (expiry === "new_joiners" && !type) return "new_joiners";
-  if (expiry === "exiting" && !type) return "exiting";
-  if (DIRECTORY_KPI_EXPIRY.has(expiry) || type) return null;
+  if (DIRECTORY_KPI_EXPIRY.has(expiry)) {
+    if (type) return null;
+    if (expiry === "temporary_project") return "temporary";
+    if (expiry === "new_joiners") return "new_joiners";
+    if (expiry === "exiting") return "exiting";
+    return null;
+  }
+  if (type === "permanent") return "permanent";
+  if (type) return null;
   if (status === "secondment") return "secondment";
-  if (status === "active") return "active";
   if (status === "") return "total";
   return null;
 }
@@ -339,6 +343,7 @@ export function StaffDirectory({
   const rosterKpis: StaffDirectoryKpis = directory.data?.kpis ?? {
     total: 0,
     active: 0,
+    permanent: 0,
     secondment: 0,
     temporary: 0,
     newJoiners: 0,
@@ -386,36 +391,43 @@ export function StaffDirectory({
   function applyDirectoryKpi(key: DirectoryKpiKey) {
     setShowJokers(false);
     if (selectedKpi === key) {
-      setStatus("");
-      setType("");
-      setExpiry("");
+      if (key === "permanent") setType("");
+      else {
+        setStatus("");
+        setType("");
+        setExpiry("");
+      }
       setPage(1);
       return;
     }
-    setType("");
     switch (key) {
       case "total":
         setStatus("");
+        setType("");
         setExpiry("");
         break;
-      case "active":
-        setStatus("active");
+      case "permanent":
+        setType("permanent");
         setExpiry("");
         break;
       case "secondment":
         setStatus("secondment");
+        setType("");
         setExpiry("");
         break;
       case "temporary":
         setStatus("");
+        setType("");
         setExpiry("temporary_project");
         break;
       case "new_joiners":
         setStatus("");
+        setType("");
         setExpiry("new_joiners");
         break;
       case "exiting":
         setStatus("");
+        setType("");
         setExpiry("exiting");
         break;
     }
@@ -580,9 +592,9 @@ export function StaffDirectory({
               mobile: true,
             },
             {
-              key: "active" as const,
-              label: t("people.dashboard.kpiActive", "Active"),
-              value: rosterKpis.active,
+              key: "permanent" as const,
+              label: t("people.staff.kpiPermanent", "Permanent"),
+              value: rosterKpis.permanent,
               tint: "green" as KpiTint,
               mobile: true,
             },

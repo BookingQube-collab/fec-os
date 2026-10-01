@@ -100,12 +100,14 @@ describe("staff directory KPIs follow filters", () => {
     expect(filtered.map((s) => s.id).sort()).toEqual(["1", "3"]);
     expect(kpis.total).toBe(2);
     expect(kpis.active).toBe(1);
+    expect(kpis.permanent).toBe(1);
     expect(kpis.secondment).toBe(1);
   });
 
   it("does not count a joker as active, and the joker filter shows them", () => {
     const roster = computeStaffDirectoryKpis(staff);
     expect(roster.active).toBe(1);
+    expect(roster.permanent).toBe(2);
     expect(filterStaffDirectory(staff, base).some((s) => s.employment_type === "joker")).toBe(false);
     const shown = filterStaffDirectory(staff, { ...base, showJokers: true });
     expect(shown.map((s) => s.id)).toEqual(["2"]);
@@ -220,6 +222,7 @@ describe("staff directory KPIs follow filters", () => {
     expect(kpis.total).toBe(table.length);
     expect(kpis.total).toBe(2);
     expect(kpis.active).toBe(1);
+    expect(kpis.permanent).toBe(1);
     expect(kpis.secondment).toBe(1);
     expect(kpis.exiting).toBe(1);
 
@@ -227,9 +230,87 @@ describe("staff directory KPIs follow filters", () => {
     expect(searched.total).toBe(1);
     expect(searched.secondment).toBe(1);
     expect(searched.active).toBe(0);
+    expect(searched.permanent).toBe(0);
   });
 
-  it("keeps bucket tiles on the full roster when the only control is the default active status", () => {
+  it("counts permanent staff inside the shared filters and the current status", () => {
+    const roster: StaffRow[] = [
+      ...staff,
+      row({
+        id: "sec-active",
+        full_name: "Sam Secondment Active",
+        employee_code: "E8",
+        employment_type: "secondment",
+        status: "active",
+        location_code: "KDS",
+        department_names: ["Operations"],
+      }),
+      row({
+        id: "temp-active",
+        full_name: "Tina Temporary",
+        employee_code: "E9",
+        employment_type: "temporary",
+        status: "active",
+        location_code: "KDS",
+        department_names: ["Operations"],
+      }),
+      row({
+        id: "perm-ops",
+        full_name: "Pat Permanent",
+        employee_code: "E10",
+        employment_type: "Permanent",
+        status: "active",
+        location_code: "KDS",
+        department_names: ["Operations"],
+      }),
+      row({
+        id: "perm-maint",
+        full_name: "Mia Maintenance",
+        employee_code: "E11",
+        employment_type: "permanent",
+        status: "active",
+        location_code: "KDS",
+        department_names: ["Maintenance"],
+      }),
+      row({
+        id: "perm-exited",
+        full_name: "Evan Exited",
+        employee_code: "E12",
+        employment_type: "permanent",
+        status: "terminated",
+        location_code: "KDS",
+        department_names: ["Operations"],
+      }),
+    ];
+    const filters = {
+      ...base,
+      loc: "KDS",
+      status: "active",
+      showOrgDepartments: ["operations"] as const,
+    };
+    const table = filterStaffDirectory(roster, filters);
+    const tiles = computeStaffDirectoryTileKpis(roster, filters);
+
+    expect(table.map((s) => s.id).sort()).toEqual(["perm-ops", "sec-active", "temp-active"]);
+    expect(tiles.permanent).toBe(1);
+    expect(tiles.total).toBe(3);
+
+    const searched = computeStaffDirectoryTileKpis(roster, { ...filters, q: "pat" });
+    expect(searched.permanent).toBe(1);
+    expect(computeStaffDirectoryTileKpis(roster, { ...filters, q: "tina" }).permanent).toBe(0);
+
+    const allStatuses = computeStaffDirectoryTileKpis(roster, { ...filters, status: "" });
+    expect(allStatuses.permanent).toBe(2);
+
+    expect(
+      computeStaffDirectoryTileKpis(roster, { ...filters, type: "secondment" }).permanent,
+    ).toBe(0);
+    expect(
+      computeStaffDirectoryTileKpis(roster, { ...filters, type: "permanent" }).permanent,
+    ).toBe(1);
+  });
+
+  it("keeps other bucket tiles on the full roster when the only control is the default active status", () => {
     const tiles = computeStaffDirectoryTileKpis(staff, base);
     const roster = computeStaffDirectoryKpis(staff);
     expect(tiles.active).toBe(roster.active);
@@ -238,6 +319,8 @@ describe("staff directory KPIs follow filters", () => {
     expect(tiles.exiting).toBe(roster.exiting);
     expect(tiles.total).toBe(filterStaffDirectory(staff, base).length);
     expect(tiles.total).toBe(2);
+    expect(tiles.permanent).toBe(1);
+    expect(computeStaffDirectoryTileKpis(staff, { ...base, status: "" }).permanent).toBe(2);
   });
 
   it("leaves a person who fails the active status filter out of Total", () => {
@@ -283,6 +366,7 @@ describe("staff directory KPIs follow filters", () => {
     expect(table.map((s) => s.id).sort()).toEqual(["flora", "zaryab"]);
     expect(kpis.total).toBe(2);
     expect(kpis.active).toBe(2);
+    expect(kpis.permanent).toBe(0);
     expect(kpis.secondment).toBe(0);
     expect(kpis.temporary).toBe(0);
     expect(kpis.newJoiners).toBe(0);
@@ -291,6 +375,7 @@ describe("staff directory KPIs follow filters", () => {
     const allStatuses = computeStaffDirectoryTileKpis(carousel, { ...filters, status: "" });
     expect(allStatuses.total).toBe(3);
     expect(allStatuses.active).toBe(2);
+    expect(allStatuses.permanent).toBe(0);
   });
 
   it("applies the show-only department filter to every tile, and Total follows status", () => {
@@ -317,6 +402,7 @@ describe("staff directory KPIs follow filters", () => {
     ];
     const open = computeStaffDirectoryTileKpis(withOps, { ...base, loc: "KDS", status: "active" });
     expect(open.total).toBe(3);
+    expect(open.permanent).toBe(2);
 
     const filters = {
       ...base,
@@ -326,6 +412,7 @@ describe("staff directory KPIs follow filters", () => {
     };
     const kpis = computeStaffDirectoryTileKpis(withOps, filters);
     expect(kpis.total).toBe(0);
+    expect(kpis.permanent).toBe(0);
     expect(kpis.exiting).toBe(1);
 
     const two = filterStaffDirectoryForKpis(withOps, {

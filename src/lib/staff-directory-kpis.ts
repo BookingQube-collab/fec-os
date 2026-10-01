@@ -74,6 +74,8 @@ export function staffMatchesDepartment(
 export type StaffDirectoryKpis = {
   total: number;
   active: number;
+  /** Employment type permanent. The Employees tile uses this, not `active`. */
+  permanent: number;
   secondment: number;
   temporary: number;
   newJoiners: number;
@@ -201,12 +203,17 @@ export function filterStaffDirectory(staff: StaffRow[], f: StaffDirectoryFilters
   });
 }
 
+function isPermanentEmploymentType(employmentType: string | null | undefined): boolean {
+  return (employmentType ?? "").trim().toLowerCase() === "permanent";
+}
+
 /**
- * Rows behind the directory bucket tiles (Active, Secondment, Exiting, and the rest).
+ * Rows behind the directory bucket tiles (Secondment, Exiting, and the rest).
  * Location, department, employment type, search, show-only departments, and the other
  * non-status filters narrow every bucket. Status, expiry, and the joker toggle stay
  * off here — those controls are the tile shortcuts — so each bucket still counts
  * inside the shared scope. Total is not this list; it is the table row count.
+ * The Permanent tile does not use this list; it keeps the current status filter.
  */
 export function filterStaffDirectoryForKpis(staff: StaffRow[], f: StaffDirectoryFilters): StaffRow[] {
   return filterStaffDirectory(staff, { ...f, status: "", expiry: "", showJokers: false });
@@ -215,17 +222,28 @@ export function filterStaffDirectoryForKpis(staff: StaffRow[], f: StaffDirectory
 /**
  * Tiles above the directory table.
  * Total is the table: every current filter, including status.
+ * Permanent is employment type permanent inside the same shared filters
+ * (location, department, show-only, search, and the rest) plus the current
+ * status filter, so the number matches the list on screen. Secondment,
+ * temporary, and joker are not permanent. Expiry and the joker toggle stay
+ * off, as they do for the other buckets.
  * The other tiles keep their own buckets inside the non-status filters
- * (location, department, type, search, and the rest) so HR can still see
- * secondment, exiting, and the other counts while the table is narrowed.
+ * so HR can still see secondment, exiting, and the other counts while the
+ * table is narrowed.
  */
 export function computeStaffDirectoryTileKpis(
   staff: StaffRow[],
   filters: StaffDirectoryFilters,
 ): StaffDirectoryKpis {
   const buckets = computeStaffDirectoryKpis(filterStaffDirectoryForKpis(staff, filters));
+  const type = filters.type.trim().toLowerCase();
+  const permanentScope =
+    type && type !== "permanent"
+      ? []
+      : filterStaffDirectory(staff, { ...filters, type: "", expiry: "", showJokers: false });
   return {
     ...buckets,
+    permanent: permanentScope.filter((s) => isPermanentEmploymentType(s.employment_type)).length,
     total: filterStaffDirectory(staff, filters).length,
   };
 }
@@ -234,6 +252,7 @@ export function computeStaffDirectoryTileKpis(
 export function computeStaffDirectoryKpis(rows: StaffRow[]): StaffDirectoryKpis {
   const today = qatarTodayYmd();
   let active = 0;
+  let permanent = 0;
   let secondment = 0;
   let temporary = 0;
   let newJoiners = 0;
@@ -253,6 +272,7 @@ export function computeStaffDirectoryKpis(rows: StaffRow[]): StaffDirectoryKpis 
     else if (isTerminatedStaffStatus(s.status)) terminated += 1;
     else if (countsAsActiveStaff(s.status, s.employment_type)) active += 1;
 
+    if (isPermanentEmploymentType(s.employment_type)) permanent += 1;
     if (s.employment_type === "temporary" && countsAsActiveStaff(s.status, s.employment_type)) {
       temporary += 1;
     }
@@ -266,6 +286,7 @@ export function computeStaffDirectoryKpis(rows: StaffRow[]): StaffDirectoryKpis 
   return {
     total: rows.length,
     active,
+    permanent,
     secondment,
     temporary,
     newJoiners,

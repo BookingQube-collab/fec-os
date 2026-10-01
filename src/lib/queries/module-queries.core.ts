@@ -773,8 +773,9 @@ export async function fetchStaffDirectory(
     sort: filters.sort ?? "name",
   };
 
-  // Total matches the table, including status. Other tiles keep their buckets
-  // inside location / department / type / search.
+  // Total matches the table, including status. Permanent counts employment
+  // type permanent inside those filters plus status. Other tiles keep their
+  // buckets inside location / department / type / search.
   const kpis = computeStaffDirectoryTileKpis(identitySafe, directoryFilters);
 
   const positions = [...new Set(identitySafe.map((s) => s.job_title).filter(Boolean))] as string[];
