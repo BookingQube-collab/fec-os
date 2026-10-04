@@ -19,6 +19,7 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { cn } from "@/lib/utils";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { classifyAdmsContact } from "@/lib/attendance-hr/adms-connection-test";
+import { isAdmsDeviceFetchable } from "@/lib/attendance-hr/constants";
 import { qatarTodayYmd } from "@/lib/attendance-hr/dashboard";
 import type { AttendanceGapReport } from "@/lib/attendance-hr/gap-check";
 import { defaultPayrollPeriod, formatPayrollRange } from "@/lib/attendance-hr/roster-period";
@@ -641,7 +642,8 @@ export default function AttendanceHrSettingsPage() {
             const hasSn = Boolean(savedSerial);
             const presence = hasSn ? classifyAdmsContact(d.last_adms_at) : null;
             const online = presence === "online";
-            const fetchDisabled = fetchDev.isPending || !savedSerial || !online;
+            const fetchable = isAdmsDeviceFetchable(d.last_adms_at);
+            const fetchDisabled = fetchDev.isPending || !savedSerial || !fetchable;
             const nameDraft = nameDrafts[d.id] ?? d.device_name;
             return (
               <div
@@ -753,7 +755,7 @@ export default function AttendanceHrSettingsPage() {
                     title={
                       !savedSerial
                         ? t("attendanceHr.settings.noSerialHint")
-                        : !online
+                        : !fetchable
                           ? t("attendanceHr.settings.fetchDisabledOffline")
                           : undefined
                     }
@@ -767,7 +769,7 @@ export default function AttendanceHrSettingsPage() {
                     {t("attendanceHr.settings.fetchNow")}
                   </Button>
                 </div>
-                {savedSerial && !online ? (
+                {savedSerial && !fetchable ? (
                   <p className="text-xs text-muted-foreground">
                     {t("attendanceHr.settings.fetchOfflineHint", { host: admsHost })}
                   </p>

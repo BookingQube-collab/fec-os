@@ -380,6 +380,7 @@ async function evaluateStoredTest(
     contactClass: pinnedContact,
     contactedDuringTest,
     polledGetRequestDuringTest,
+    lastEndpoint,
     serialMismatch: terminal ? test.diagnosis === "SERIAL_MISMATCH" : mismatch,
   };
   const evaluation = evaluateAdmsConnectionTest(facts);

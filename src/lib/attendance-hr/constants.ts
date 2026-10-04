@@ -30,6 +30,30 @@ export function isAdmsDeviceOnline(
   const nowMs = typeof now === "number" ? now : now.getTime();
   return nowMs - t <= ADMS_ONLINE_WINDOW_MS;
 }
+
+/**
+ * ADMS fetch queues a command the terminal collects on its next poll.
+ * Online and every stale contact can take that command. A device that has
+ * never contacted FEC-OS cannot.
+ */
+export function isAdmsDeviceFetchable(lastAdmsAt: string | Date | null | undefined): boolean {
+  if (lastAdmsAt == null || lastAdmsAt === "") return false;
+  const t = lastAdmsAt instanceof Date ? lastAdmsAt.getTime() : new Date(lastAdmsAt).getTime();
+  return Number.isFinite(t);
+}
+
+export type AdmsFetchDevice = {
+  serial_number?: string | null;
+  last_adms_at?: string | Date | null;
+};
+
+/** Every device with a serial and a prior ADMS contact — online or stale, any age. */
+export function selectAdmsFetchDevices<T extends AdmsFetchDevice>(devices: T[]): T[] {
+  return devices.filter(
+    (device) => String(device.serial_number ?? "").trim() && isAdmsDeviceFetchable(device.last_adms_at),
+  );
+}
+
 export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 export const MAX_IMPORT_ROWS = 50_000;
 export const ATTENDANCE_FILE_BUCKET = "attendance-imports";

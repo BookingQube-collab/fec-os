@@ -13,7 +13,9 @@ import {
   ATTENDANCE_DAILY_LIST_COLUMNS,
   ATTENDANCE_DAILY_LIST_PAGE_SIZE,
   DEFAULT_SHIFT,
+  isAdmsDeviceFetchable,
   isAdmsDeviceOnline,
+  selectAdmsFetchDevices,
   shouldTouchAdmsHeartbeat,
   USER_DAT_RECORD_SIZE,
 } from "./constants";
@@ -1475,6 +1477,33 @@ describe("isAdmsDeviceOnline", () => {
   it("treats a slightly future last_adms_at as online and invalid stamps as offline", () => {
     expect(isAdmsDeviceOnline(new Date(now.getTime() + 5_000).toISOString(), now)).toBe(true);
     expect(isAdmsDeviceOnline("not-a-date", now)).toBe(false);
+  });
+});
+
+describe("selectAdmsFetchDevices", () => {
+  const now = new Date("2026-08-24T15:00:00.000Z");
+  const stale = new Date(now.getTime() - ADMS_ONLINE_WINDOW_MS - 1).toISOString();
+  const olderStale = new Date(now.getTime() - 30 * 86_400_000).toISOString();
+  const online = new Date(now.getTime() - 60_000).toISOString();
+
+  it("queues every stale contact, not only devices inside the online window", () => {
+    expect(isAdmsDeviceOnline(stale, now)).toBe(false);
+    expect(isAdmsDeviceOnline(olderStale, now)).toBe(false);
+    expect(isAdmsDeviceFetchable(stale)).toBe(true);
+    expect(isAdmsDeviceFetchable(olderStale)).toBe(true);
+    expect(isAdmsDeviceFetchable(online)).toBe(true);
+    expect(isAdmsDeviceFetchable(null)).toBe(false);
+    expect(isAdmsDeviceFetchable("")).toBe(false);
+    expect(isAdmsDeviceFetchable("not-a-date")).toBe(false);
+
+    const selected = selectAdmsFetchDevices([
+      { id: "online", serial_number: "SN-1", last_adms_at: online },
+      { id: "stale", serial_number: "SN-2", last_adms_at: stale },
+      { id: "month-old", serial_number: "SN-3", last_adms_at: olderStale },
+      { id: "never", serial_number: "SN-4", last_adms_at: null },
+      { id: "blank-sn", serial_number: "  ", last_adms_at: stale },
+    ]);
+    expect(selected.map((device) => device.id)).toEqual(["online", "stale", "month-old"]);
   });
 });
 

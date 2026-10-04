@@ -80,6 +80,8 @@ export type AdmsConnectionTestFacts = {
   contactClass: AdmsContactClass;
   contactedDuringTest: boolean;
   polledGetRequestDuringTest: boolean;
+  /** Last ADMS endpoint this serial hit, including a stale poll outside this test. */
+  lastEndpoint: string | null;
   serialMismatch: boolean;
 };
 
@@ -322,17 +324,25 @@ function stage(
   return { id, state };
 }
 
+const COMMAND_POLL_ENDPOINTS = new Set(["getrequest", "devicecmd"]);
+
+/** True when this endpoint is the ADMS command poll, not a handshake or punch upload. */
+export function isAdmsCommandPollEndpoint(endpoint: string | null | undefined): boolean {
+  const value = endpoint?.trim().toLowerCase() ?? "";
+  return COMMAND_POLL_ENDPOINTS.has(value);
+}
+
 export function buildAdmsTestStages(facts: AdmsConnectionTestFacts, timedOut: boolean): AdmsTestStage[] {
   const blocked = !facts.registrationOk || !facts.serverHealthy;
-  const contacted = facts.contactClass === "online" || facts.contactedDuringTest;
-  const contactState: AdmsTestStageState = contacted
-    ? "pass"
-    : facts.contactClass === "stale" && !timedOut
-      ? "warn"
-      : timedOut || blocked
-        ? "fail"
-        : "pending";
-  const polled = facts.polledGetRequestDuringTest || Boolean(facts.deliveredAt);
+  // Any prior ADMS contact counts, including a stale one outside the online window.
+  const contacted =
+    facts.contactClass === "online" || facts.contactClass === "stale" || facts.contactedDuringTest;
+  const contactState: AdmsTestStageState = contacted ? "pass" : timedOut || blocked ? "fail" : "pending";
+  // A prior getrequest/devicecmd poll of any age counts. Delivery and acknowledgement do not.
+  const polled =
+    facts.polledGetRequestDuringTest ||
+    Boolean(facts.deliveredAt) ||
+    (facts.contactClass !== "never_connected" && isAdmsCommandPollEndpoint(facts.lastEndpoint));
   const pollState: AdmsTestStageState = polled ? "pass" : timedOut || blocked ? "fail" : "pending";
   const deliveredState: AdmsTestStageState = facts.deliveredAt ? "pass" : timedOut || blocked ? "fail" : "pending";
   const ackState: AdmsTestStageState = facts.acknowledgedAt

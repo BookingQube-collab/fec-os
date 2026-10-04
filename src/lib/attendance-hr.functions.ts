@@ -19,7 +19,8 @@ import {
   ATTENDANCE_FILE_BUCKET,
   DEFAULT_RULES,
   DEFAULT_SHIFT,
-  isAdmsDeviceOnline,
+  isAdmsDeviceFetchable,
+  selectAdmsFetchDevices,
 } from "@/lib/attendance-hr/constants";
 import {
   defaultSiteShiftPolicy,
@@ -1260,8 +1261,8 @@ export const requestAttendanceDeviceFetch = createAuthenticatedAction(
     if (!String(device.serial_number ?? "").trim()) {
       throw new Error("Save the device serial number first.");
     }
-    if (!isAdmsDeviceOnline(device.last_adms_at == null ? null : String(device.last_adms_at))) {
-      throw new Error("Device is offline. Fetch runs only after the terminal polls the server.");
+    if (!isAdmsDeviceFetchable(device.last_adms_at == null ? null : String(device.last_adms_at))) {
+      throw new Error("Device has never contacted the server. Fetch runs after the terminal polls.");
     }
     const result = await queueAdmsAttlogQuery(
       supabaseAdmin,
@@ -1406,9 +1407,11 @@ export const resyncAttendancePunches = createSafeAuthenticatedAction(
       to: string;
       deviceId: string;
     } | null = null;
+    let fetchQueuedCount = 0;
     let fetchSkippedReason: ResyncFetchSkipReason | null = null;
 
-    // Validate device SN / online status BEFORE expensive reprocess so missing SN never crashes the UI.
+    // Validate device SN / prior contact BEFORE expensive reprocess so missing SN never crashes the UI.
+    // Stale terminals still get the command — it waits for the next poll. Queue every eligible device.
     if (data.fetchFromDevice) {
       let deviceQuery = context.supabase
         .from("attendance_devices")
@@ -1422,33 +1425,45 @@ export const resyncAttendancePunches = createSafeAuthenticatedAction(
       if (!withSn.length) {
         fetchSkippedReason = "no_serial";
       } else {
-        const online = withSn.find((d) => isAdmsDeviceOnline(d.last_adms_at == null ? null : String(d.last_adms_at)));
-        if (!online) {
+        const ready = selectAdmsFetchDevices(
+          withSn.map((d) => ({
+            id: String(d.id),
+            serial_number: d.serial_number == null ? null : String(d.serial_number),
+            last_adms_at: d.last_adms_at == null ? null : String(d.last_adms_at),
+            timezone: d.timezone == null ? null : String(d.timezone),
+          })),
+        );
+        if (!ready.length) {
           fetchSkippedReason = "device_offline";
         } else {
           const { from, to } = qatarRangeToFetchWindow(window.dateFrom, window.dateTo);
-          const result = await queueAdmsAttlogQueryRange(
-            supabaseAdmin,
-            String(online.id),
-            from,
-            to,
-            online.timezone ? String(online.timezone) : "Asia/Qatar",
-          );
-          fetchQueued = {
-            cmdId: result.cmdId,
-            from: result.from.toISOString(),
-            to: result.to.toISOString(),
-            deviceId: String(online.id),
-          };
-          try {
-            await audit(context, "adms_resync_queued", "attendance_device", String(online.id), data.locationId, {
-              mode: data.mode,
-              dateFrom: window.dateFrom,
-              dateTo: window.dateTo,
-              cmdId: result.cmdId,
-            });
-          } catch (e) {
-            console.warn("[attendance-hr] audit after adms_resync_queued failed", e instanceof Error ? e.message : e);
+          for (const device of ready) {
+            const result = await queueAdmsAttlogQueryRange(
+              supabaseAdmin,
+              String(device.id),
+              from,
+              to,
+              device.timezone ? String(device.timezone) : "Asia/Qatar",
+            );
+            fetchQueuedCount += 1;
+            if (!fetchQueued) {
+              fetchQueued = {
+                cmdId: result.cmdId,
+                from: result.from.toISOString(),
+                to: result.to.toISOString(),
+                deviceId: String(device.id),
+              };
+            }
+            try {
+              await audit(context, "adms_resync_queued", "attendance_device", String(device.id), data.locationId, {
+                mode: data.mode,
+                dateFrom: window.dateFrom,
+                dateTo: window.dateTo,
+                cmdId: result.cmdId,
+              });
+            } catch (e) {
+              console.warn("[attendance-hr] audit after adms_resync_queued failed", e instanceof Error ? e.message : e);
+            }
           }
         }
       }
@@ -1474,6 +1489,7 @@ export const resyncAttendancePunches = createSafeAuthenticatedAction(
         fetchFromDevice: data.fetchFromDevice,
         reprocessed,
         fetchQueued,
+        fetchQueuedCount,
         fetchSkippedReason,
       });
     } catch (e) {
@@ -1485,6 +1501,7 @@ export const resyncAttendancePunches = createSafeAuthenticatedAction(
       dateTo: window.dateTo,
       reprocessed,
       fetchQueued,
+      fetchQueuedCount,
       fetchSkippedReason,
       /** FEC month uses 28→27 of the named calendar month. */
       monthConvention: "fec_28_27" as const,

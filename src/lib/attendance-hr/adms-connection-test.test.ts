@@ -37,6 +37,7 @@ function facts(overrides: Partial<AdmsConnectionTestFacts> = {}): AdmsConnection
     contactClass: "online",
     contactedDuringTest: false,
     polledGetRequestDuringTest: false,
+    lastEndpoint: null,
     serialMismatch: false,
     ...overrides,
   };
@@ -213,12 +214,14 @@ describe("evaluateAdmsConnectionTest", () => {
       message: ADMS_DIAGNOSIS_MESSAGES.NO_RECENT_CONTACT,
       provisional: true,
     });
-    expect(waitingStale.stages.find((s) => s.id === "device_contacted_server")?.state).toBe("warn");
+    expect(waitingStale.stages.find((s) => s.id === "device_contacted_server")?.state).toBe("pass");
+    expect(waitingStale.stages.find((s) => s.id === "device_polled_getrequest")?.state).toBe("pending");
 
     const never = evaluateAdmsConnectionTest(facts({ contactClass: "never_connected" }));
     expect(never.status).toBe("timed_out");
     expect(never.diagnosis?.code).toBe("NEVER_CONNECTED");
     expect(never.diagnosis?.message).toBe(ADMS_DIAGNOSIS_MESSAGES.NEVER_CONNECTED);
+    expect(never.stages.find((s) => s.id === "device_contacted_server")?.state).toBe("fail");
     expect(never.stages.find((s) => s.id === "device_polled_getrequest")?.state).toBe("fail");
 
     const notCollected = evaluateAdmsConnectionTest(facts({ contactClass: "online" }));
@@ -260,6 +263,45 @@ describe("evaluateAdmsConnectionTest", () => {
       message: ADMS_DIAGNOSIS_MESSAGES.DEVICE_STALE,
       provisional: false,
     });
+    expect(stale.stages.map((stage) => [stage.id, stage.state])).toEqual([
+      ["device_registered", "pass"],
+      ["adms_server_healthy", "pass"],
+      ["device_contacted_server", "pass"],
+      ["device_polled_getrequest", "fail"],
+      ["command_delivered", "fail"],
+      ["command_acknowledged", "fail"],
+    ]);
+
+    const stalePolled = evaluateAdmsConnectionTest(
+      facts({ contactClass: "stale", lastEndpoint: "getrequest" }),
+    );
+    expect(stalePolled.diagnosis).toMatchObject({
+      code: "DEVICE_STALE",
+      message: ADMS_DIAGNOSIS_MESSAGES.DEVICE_STALE,
+      provisional: false,
+    });
+    expect(stalePolled.stages.map((stage) => [stage.id, stage.state])).toEqual([
+      ["device_registered", "pass"],
+      ["adms_server_healthy", "pass"],
+      ["device_contacted_server", "pass"],
+      ["device_polled_getrequest", "pass"],
+      ["command_delivered", "fail"],
+      ["command_acknowledged", "fail"],
+    ]);
+
+    const staleHandshakeOnly = evaluateAdmsConnectionTest(
+      facts({ contactClass: "stale", lastEndpoint: "cdata" }),
+    );
+    expect(staleHandshakeOnly.stages.find((stage) => stage.id === "device_contacted_server")?.state).toBe("pass");
+    expect(staleHandshakeOnly.stages.find((stage) => stage.id === "device_polled_getrequest")?.state).toBe("fail");
+    expect(staleHandshakeOnly.stages.find((stage) => stage.id === "command_delivered")?.state).toBe("fail");
+    expect(staleHandshakeOnly.stages.find((stage) => stage.id === "command_acknowledged")?.state).toBe("fail");
+
+    const neverWithEndpoint = evaluateAdmsConnectionTest(
+      facts({ contactClass: "never_connected", lastEndpoint: "getrequest" }),
+    );
+    expect(neverWithEndpoint.stages.find((stage) => stage.id === "device_contacted_server")?.state).toBe("fail");
+    expect(neverWithEndpoint.stages.find((stage) => stage.id === "device_polled_getrequest")?.state).toBe("fail");
 
     const registration = evaluateAdmsConnectionTest(
       facts({
