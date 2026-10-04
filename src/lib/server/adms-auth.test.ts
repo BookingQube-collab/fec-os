@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { validateAdmsCommKey, validateAdmsIp } from "./adms-auth";
+import { admsAuthFailureMessage, validateAdmsCommKey, validateAdmsIp } from "./adms-auth";
 
 const ORIGINAL = process.env.ADMS_COMM_KEY;
 
@@ -38,6 +38,13 @@ describe("validateAdmsCommKey", () => {
     expect(validateAdmsCommKey(request({ "x-adms-key": "device-key-extra" }), null)?.reason).toBe(
       "bad_comm_key",
     );
+  });
+
+  it("names the rejection without including the key", () => {
+    expect(admsAuthFailureMessage("missing_comm_key")).toMatch(/ADMS_COMM_KEY is not set/);
+    expect(admsAuthFailureMessage("bad_comm_key")).toMatch(/comm key was rejected/);
+    expect(admsAuthFailureMessage("ip_not_allowed")).toMatch(/ADMS_IP_ALLOWLIST/);
+    expect(admsAuthFailureMessage("missing_comm_key")).not.toMatch(/secret|password/i);
   });
 
   it("keeps the IP allowlist optional when unset", () => {

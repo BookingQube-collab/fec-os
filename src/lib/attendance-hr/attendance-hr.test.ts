@@ -36,6 +36,7 @@ import {
   buildAdmsUserInfoQueryCommand,
   formatAdmsDateTime,
   formatAdmsGetRequestCommand,
+  isIgnorablePunchInsertError,
   parseAdmsAttlog,
   parseAdmsDeviceCmdAck,
   parseAdmsEndpoint,
@@ -1416,6 +1417,9 @@ describe("ZKTeco ADMS / iClock parse", () => {
       stamp: "26",
       pushcommkey: "secret",
     });
+    expect(
+      parseAdmsQuery(new URL("https://example.test/iclock/getrequest?SN=JJA1251800483&PUSHCOMMKEY=secret")).pushcommkey,
+    ).toBe("secret");
     const body = buildAdmsHandshake({ sn: "JJA1251800498", attlogStamp: "26" });
     expect(body).toContain("GET OPTION FROM: JJA1251800498");
     expect(body).toContain("ATTLOGStamp=26");
@@ -1433,6 +1437,13 @@ describe("ZKTeco ADMS / iClock parse", () => {
     expect(parseAdmsEndpoint(["cdata.aspx"])).toBe("cdata");
     expect(parseAdmsEndpoint(["getrequest.aspx"])).toBe("getrequest");
     expect(parseAdmsEndpoint(["CData"])).toBe("cdata");
+  });
+
+  it("treats only duplicate punch inserts as ignorable", () => {
+    expect(isIgnorablePunchInsertError({ code: "23505", message: "duplicate key" })).toBe(true);
+    expect(isIgnorablePunchInsertError({ message: "duplicate key value violates unique constraint" })).toBe(true);
+    expect(isIgnorablePunchInsertError({ code: "23502", message: "null value in column attendance_date" })).toBe(false);
+    expect(isIgnorablePunchInsertError(null)).toBe(false);
   });
 
   it("builds a DATA QUERY ATTLOG getrequest command and parses device ACK", () => {

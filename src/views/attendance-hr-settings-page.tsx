@@ -25,6 +25,7 @@ import type { AttendanceGapReport } from "@/lib/attendance-hr/gap-check";
 import { defaultPayrollPeriod, formatPayrollRange } from "@/lib/attendance-hr/roster-period";
 import {
   checkAttendancePunchGaps,
+  clearAttendanceDeviceStuckConnectionTest,
   getAttendanceHrBootstrap,
   requestAttendanceDeviceFetch,
   resyncAttendancePunches,
@@ -198,6 +199,18 @@ export default function AttendanceHrSettingsPage() {
     },
     onSuccess: () => {
       toast.success(t("attendanceHr.settings.nameSaved"));
+      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const clearStuck = useMutation({
+    mutationFn: (device: DeviceRow) => clearAttendanceDeviceStuckConnectionTest({ deviceId: device.id }),
+    onSuccess: (result) => {
+      toast.success(
+        result.cleared > 0
+          ? t("attendanceHr.settings.clearStuckTestDone", { count: result.cleared })
+          : t("attendanceHr.settings.clearStuckTestNone"),
+      );
       void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
     },
     onError: (e: Error) => toast.error(e.message),
@@ -676,6 +689,18 @@ export default function AttendanceHrSettingsPage() {
                         ? t("attendanceHr.settings.testingDevice")
                         : t("attendanceHr.settings.testConnection")}
                     </Button>
+                    {presence === "stale" ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        disabled={clearStuck.isPending}
+                        onClick={() => clearStuck.mutate(d)}
+                      >
+                        {clearStuck.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                        {t("attendanceHr.settings.clearStuckTest")}
+                      </Button>
+                    ) : null}
                     {presence === "online" ? (
                       <Badge variant="success">{t("attendanceHr.settings.deviceOnline")}</Badge>
                     ) : presence === "stale" ? (

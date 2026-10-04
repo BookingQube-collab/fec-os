@@ -31,7 +31,11 @@ import {
 } from "@/lib/attendance-hr/shift-policy";
 import { queueAdmsAttlogQuery, queueAdmsAttlogQueryRange } from "@/lib/attendance-hr/adms-ingest";
 import { assessAdmsHandlerHealth } from "@/lib/attendance-hr/adms-connection-test";
-import { readAdmsConnectionTest, startAdmsConnectionTest } from "@/lib/attendance-hr/adms-connection-test.server";
+import {
+  clearStuckAdmsConnectionTests,
+  readAdmsConnectionTest,
+  startAdmsConnectionTest,
+} from "@/lib/attendance-hr/adms-connection-test.server";
 import { handleAdmsGet, handleAdmsHead, handleAdmsOptions, handleAdmsPost } from "@/lib/attendance-hr/adms-http";
 import { parseAdmsEndpoint } from "@/lib/attendance-hr/parse-adms";
 import {
@@ -1322,6 +1326,29 @@ export const startAttendanceDeviceConnectionTest = createAuthenticatedAction(
       testId: result.testId,
       status: result.status,
       diagnosis: result.diagnosis?.code ?? null,
+    });
+    return result;
+  },
+  { auth: { capability: "attendance.manage_devices" } },
+);
+
+export const clearAttendanceDeviceStuckConnectionTest = createAuthenticatedAction(
+  z.object({
+    deviceId: z.string().uuid(),
+  }),
+  async (data, context) => {
+    const { data: device, error } = await context.supabase
+      .from("attendance_devices")
+      .select("id, location_id")
+      .eq("id", data.deviceId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!device) throw new Error("Device not found");
+    await assertLocationAccess(context, device.location_id as string);
+    const result = await clearStuckAdmsConnectionTests(supabaseAdmin, device.id as string);
+    await audit(context, "adms_connection_test_cleared", "attendance_device", device.id as string, device.location_id as string, {
+      cleared: result.cleared,
+      contactClass: result.contactClass,
     });
     return result;
   },

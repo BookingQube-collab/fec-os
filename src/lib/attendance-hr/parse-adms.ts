@@ -27,6 +27,16 @@ export function normalizeAdmsTable(raw: string | null | undefined): AdmsTable {
   return "unknown";
 }
 
+function firstQueryParam(url: URL, names: string[]): string | null {
+  const wanted = new Set(names.map((name) => name.toLowerCase()));
+  for (const [key, value] of url.searchParams.entries()) {
+    if (!wanted.has(key.toLowerCase())) continue;
+    const trimmed = value.trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
+}
+
 export function parseAdmsQuery(url: URL): {
   sn: string;
   table: AdmsTable;
@@ -35,21 +45,14 @@ export function parseAdmsQuery(url: URL): {
   pushver: string | null;
   pushcommkey: string | null;
 } {
-  const sn = (url.searchParams.get("SN") ?? url.searchParams.get("sn") ?? "").trim();
+  const sn = firstQueryParam(url, ["SN", "sn"]) ?? "";
   return {
     sn,
-    table: normalizeAdmsTable(url.searchParams.get("table") ?? url.searchParams.get("Table")),
-    stamp: (url.searchParams.get("Stamp") ?? url.searchParams.get("stamp") ?? "").trim() || null,
-    options: (url.searchParams.get("options") ?? url.searchParams.get("Options") ?? "").trim() || null,
-    pushver: (url.searchParams.get("pushver") ?? url.searchParams.get("pushVer") ?? "").trim() || null,
-    pushcommkey:
-      (
-        url.searchParams.get("pushcommkey") ??
-        url.searchParams.get("pushCommKey") ??
-        url.searchParams.get("CommKey") ??
-        url.searchParams.get("commKey") ??
-        ""
-      ).trim() || null,
+    table: normalizeAdmsTable(firstQueryParam(url, ["table", "Table"])),
+    stamp: firstQueryParam(url, ["Stamp", "stamp"]),
+    options: firstQueryParam(url, ["options", "Options"]),
+    pushver: firstQueryParam(url, ["pushver", "pushVer"]),
+    pushcommkey: firstQueryParam(url, ["pushcommkey", "pushCommKey", "CommKey", "commKey", "comkey"]),
   };
 }
 
@@ -199,6 +202,12 @@ export function buildAdmsHandshake(input: {
     "Realtime=1",
     "Encrypt=None",
   ].join("\n");
+}
+
+/** True for the unique-punch conflict. Other insert errors must not be treated as a saved punch. */
+export function isIgnorablePunchInsertError(error: { code?: string; message?: string } | null | undefined): boolean {
+  if (!error) return false;
+  return error.code === "23505" || /duplicate/i.test(error.message ?? "");
 }
 
 export function admsOk(count?: number): string {

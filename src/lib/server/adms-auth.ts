@@ -50,3 +50,17 @@ export function validateAdmsCommKey(request: Request, queryKey: string | null): 
 export function admsCommKeyConfigured(): boolean {
   return Boolean(expectedCommKey());
 }
+
+/** Operator-facing reason stored on the device. Does not include the key. */
+export function admsAuthFailureMessage(reason: string): string {
+  if (reason === "missing_comm_key") {
+    return "ADMS_COMM_KEY is not set on the server, so this terminal's punches are rejected.";
+  }
+  if (reason === "bad_comm_key") {
+    return "Device comm key was rejected. Punches are not saved until it matches ADMS_COMM_KEY.";
+  }
+  if (reason === "ip_not_allowed") {
+    return "Device IP is not on ADMS_IP_ALLOWLIST, so punches are rejected.";
+  }
+  return "ADMS request was rejected before punches could be saved.";
+}

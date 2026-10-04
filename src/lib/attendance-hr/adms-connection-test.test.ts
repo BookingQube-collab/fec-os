@@ -14,6 +14,7 @@ import {
   correlateDiagnosticCommand,
   evaluateAdmsConnectionTest,
   isSafeDiagnosticCommand,
+  isStuckAdmsConnectionTest,
   nextDiagnosticCommandId,
   registrationFailureMessage,
   registrationIssues,
@@ -183,106 +184,40 @@ describe("serialMismatchEvidence", () => {
 });
 
 describe("evaluateAdmsConnectionTest", () => {
-  it("returns each diagnosis from real stage facts", () => {
+  it("reads online or stale from the last contact and does not queue a command", () => {
     const connected = evaluateAdmsConnectionTest(
       facts({
-        queuedAt: new Date(NOW - 4_000).toISOString(),
-        deliveredAt: new Date(NOW - 2_000).toISOString(),
-        acknowledgedAt: new Date(NOW - 500).toISOString(),
-        polledGetRequestDuringTest: true,
-        contactedDuringTest: true,
+        queuedAt: null,
+        contactClass: "online",
+        lastEndpoint: "getrequest",
       }),
     );
     expect(connected.status).toBe("passed");
+    expect(connected.timedOut).toBe(false);
+    expect(connected.roundTripMs).toBeNull();
     expect(connected.diagnosis).toMatchObject({
       code: "CONNECTED",
       message: ADMS_DIAGNOSIS_MESSAGES.CONNECTED,
       provisional: false,
     });
-    expect(connected.roundTripMs).toBe(3_500);
-    expect(connected.stages.map((s) => s.state)).toEqual(["pass", "pass", "pass", "pass", "pass", "pass"]);
-
-    const waitingStale = evaluateAdmsConnectionTest(
-      facts({
-        queuedAt: new Date(NOW - 5_000).toISOString(),
-        contactClass: "stale",
-      }),
-    );
-    expect(waitingStale.status).toBe("queued");
-    expect(waitingStale.diagnosis).toMatchObject({
-      code: "NO_RECENT_CONTACT",
-      message: ADMS_DIAGNOSIS_MESSAGES.NO_RECENT_CONTACT,
-      provisional: true,
-    });
-    expect(waitingStale.stages.find((s) => s.id === "device_contacted_server")?.state).toBe("pass");
-    expect(waitingStale.stages.find((s) => s.id === "device_polled_getrequest")?.state).toBe("pending");
-
-    const never = evaluateAdmsConnectionTest(facts({ contactClass: "never_connected" }));
-    expect(never.status).toBe("timed_out");
-    expect(never.diagnosis?.code).toBe("NEVER_CONNECTED");
-    expect(never.diagnosis?.message).toBe(ADMS_DIAGNOSIS_MESSAGES.NEVER_CONNECTED);
-    expect(never.stages.find((s) => s.id === "device_contacted_server")?.state).toBe("fail");
-    expect(never.stages.find((s) => s.id === "device_polled_getrequest")?.state).toBe("fail");
-
-    const notCollected = evaluateAdmsConnectionTest(facts({ contactClass: "online" }));
-    expect(notCollected.diagnosis).toMatchObject({
-      code: "COMMAND_NOT_COLLECTED",
-      message: ADMS_DIAGNOSIS_MESSAGES.COMMAND_NOT_COLLECTED,
-    });
-
-    const notAcked = evaluateAdmsConnectionTest(
-      facts({
-        deliveredAt: new Date(NOW - 1_000).toISOString(),
-        polledGetRequestDuringTest: true,
-        contactedDuringTest: true,
-      }),
-    );
-    expect(notAcked.diagnosis).toMatchObject({
-      code: "COMMAND_NOT_ACKNOWLEDGED",
-      message: ADMS_DIAGNOSIS_MESSAGES.COMMAND_NOT_ACKNOWLEDGED,
-    });
-    expect(notAcked.status).toBe("timed_out");
-    expect(notAcked.stages.find((stage) => stage.id === "command_delivered")?.state).toBe("pass");
-    expect(notAcked.stages.find((stage) => stage.id === "command_acknowledged")?.state).toBe("fail");
-
-    const notCollectedStages = notCollected.stages;
-    expect(notCollectedStages.find((stage) => stage.id === "command_delivered")?.state).toBe("fail");
-    expect(notCollectedStages.find((stage) => stage.id === "command_acknowledged")?.state).toBe("fail");
-
-    const mismatch = evaluateAdmsConnectionTest(
-      facts({ contactClass: "stale", serialMismatch: true }),
-    );
-    expect(mismatch.diagnosis).toMatchObject({
-      code: "SERIAL_MISMATCH",
-      message: ADMS_DIAGNOSIS_MESSAGES.SERIAL_MISMATCH,
-    });
-    expect(mismatch.status).toBe("failed");
-    expect(mismatch.stages.find((stage) => stage.id === "command_delivered")?.state).toBe("fail");
-    expect(mismatch.stages.find((stage) => stage.id === "command_acknowledged")?.state).toBe("fail");
-
-    const server = evaluateAdmsConnectionTest(facts({ serverHealthy: false, queuedAt: null }));
-    expect(server.status).toBe("failed");
-    expect(server.diagnosis?.code).toBe("SERVER_ERROR");
-    expect(server.diagnosis?.message).toBe(ADMS_DIAGNOSIS_MESSAGES.SERVER_ERROR);
-
-    const stale = evaluateAdmsConnectionTest(facts({ contactClass: "stale" }));
-    expect(stale.diagnosis).toMatchObject({
-      code: "DEVICE_STALE",
-      message: ADMS_DIAGNOSIS_MESSAGES.DEVICE_STALE,
-      provisional: false,
-    });
-    expect(stale.stages.map((stage) => [stage.id, stage.state])).toEqual([
+    expect(connected.stages.map((stage) => [stage.id, stage.state])).toEqual([
       ["device_registered", "pass"],
       ["adms_server_healthy", "pass"],
       ["device_contacted_server", "pass"],
-      ["device_polled_getrequest", "fail"],
-      ["command_delivered", "warn"],
-      ["command_acknowledged", "warn"],
+      ["device_polled_getrequest", "pass"],
     ]);
+    expect(connected.stages.some((stage) => stage.id === "command_delivered" || stage.id === "command_acknowledged")).toBe(
+      false,
+    );
 
     const stalePolled = evaluateAdmsConnectionTest(
-      facts({ contactClass: "stale", lastEndpoint: "getrequest" }),
+      facts({
+        queuedAt: new Date(NOW - 5_000).toISOString(),
+        contactClass: "stale",
+        lastEndpoint: "getrequest",
+      }),
     );
+    expect(stalePolled.status).toBe("failed");
     expect(stalePolled.diagnosis).toMatchObject({
       code: "DEVICE_STALE",
       message: ADMS_DIAGNOSIS_MESSAGES.DEVICE_STALE,
@@ -293,25 +228,48 @@ describe("evaluateAdmsConnectionTest", () => {
       ["adms_server_healthy", "pass"],
       ["device_contacted_server", "pass"],
       ["device_polled_getrequest", "pass"],
-      ["command_delivered", "warn"],
-      ["command_acknowledged", "warn"],
     ]);
+    expect(stalePolled.stages.some((stage) => stage.state === "warn" || stage.state === "pending")).toBe(false);
 
     const staleHandshakeOnly = evaluateAdmsConnectionTest(
-      facts({ contactClass: "stale", lastEndpoint: "cdata" }),
+      facts({ contactClass: "stale", lastEndpoint: "cdata", queuedAt: null }),
     );
+    expect(staleHandshakeOnly.diagnosis?.code).toBe("DEVICE_STALE");
     expect(staleHandshakeOnly.stages.find((stage) => stage.id === "device_contacted_server")?.state).toBe("pass");
     expect(staleHandshakeOnly.stages.find((stage) => stage.id === "device_polled_getrequest")?.state).toBe("fail");
-    expect(staleHandshakeOnly.stages.find((stage) => stage.id === "command_delivered")?.state).toBe("warn");
-    expect(staleHandshakeOnly.stages.find((stage) => stage.id === "command_acknowledged")?.state).toBe("warn");
+
+    const never = evaluateAdmsConnectionTest(facts({ contactClass: "never_connected", queuedAt: null }));
+    expect(never.status).toBe("failed");
+    expect(never.diagnosis?.code).toBe("NEVER_CONNECTED");
+    expect(never.diagnosis?.message).toBe(ADMS_DIAGNOSIS_MESSAGES.NEVER_CONNECTED);
+    expect(never.stages.find((stage) => stage.id === "device_contacted_server")?.state).toBe("fail");
+    expect(never.stages.find((stage) => stage.id === "device_polled_getrequest")?.state).toBe("fail");
 
     const neverWithEndpoint = evaluateAdmsConnectionTest(
-      facts({ contactClass: "never_connected", lastEndpoint: "getrequest" }),
+      facts({ contactClass: "never_connected", lastEndpoint: "getrequest", queuedAt: null }),
     );
     expect(neverWithEndpoint.stages.find((stage) => stage.id === "device_contacted_server")?.state).toBe("fail");
     expect(neverWithEndpoint.stages.find((stage) => stage.id === "device_polled_getrequest")?.state).toBe("fail");
-    expect(neverWithEndpoint.stages.find((stage) => stage.id === "command_delivered")?.state).toBe("fail");
-    expect(neverWithEndpoint.stages.find((stage) => stage.id === "command_acknowledged")?.state).toBe("fail");
+
+    const onlineWithoutPoll = evaluateAdmsConnectionTest(
+      facts({ contactClass: "online", lastEndpoint: null, queuedAt: null }),
+    );
+    expect(onlineWithoutPoll.status).toBe("passed");
+    expect(onlineWithoutPoll.diagnosis?.code).toBe("CONNECTED");
+    expect(onlineWithoutPoll.stages.find((stage) => stage.id === "device_polled_getrequest")?.state).toBe("fail");
+
+    const mismatch = evaluateAdmsConnectionTest(facts({ contactClass: "stale", serialMismatch: true, queuedAt: null }));
+    expect(mismatch.diagnosis).toMatchObject({
+      code: "SERIAL_MISMATCH",
+      message: ADMS_DIAGNOSIS_MESSAGES.SERIAL_MISMATCH,
+    });
+    expect(mismatch.status).toBe("failed");
+
+    const server = evaluateAdmsConnectionTest(facts({ serverHealthy: false, queuedAt: null }));
+    expect(server.status).toBe("failed");
+    expect(server.diagnosis?.code).toBe("SERVER_ERROR");
+    expect(server.diagnosis?.message).toBe(ADMS_DIAGNOSIS_MESSAGES.SERVER_ERROR);
+    expect(server.stages.find((stage) => stage.id === "device_contacted_server")?.state).toBe("fail");
 
     const registration = evaluateAdmsConnectionTest(
       facts({
@@ -326,58 +284,16 @@ describe("evaluateAdmsConnectionTest", () => {
     expect(registration.diagnosis?.message).toBe("Serial number is missing.");
     expect(registration.stages[0]).toEqual({ id: "device_registered", state: "fail" });
   });
+});
 
-  it("does not time out a test that is still inside the window", () => {
-    const running = evaluateAdmsConnectionTest(
-      facts({
-        queuedAt: new Date(NOW - 1_000).toISOString(),
-        deliveredAt: new Date(NOW - 200).toISOString(),
-        polledGetRequestDuringTest: true,
-        contactedDuringTest: true,
-        contactClass: "online",
-      }),
-    );
-    expect(running.timedOut).toBe(false);
-    expect(running.status).toBe("running");
-    expect(running.diagnosis).toBeNull();
-    expect(running.stages.find((s) => s.id === "command_acknowledged")?.state).toBe("pending");
-  });
-
-  it("keeps a queued stale command waiting, and passes only stored prior delivery or acknowledgement", () => {
-    const queued = evaluateAdmsConnectionTest(
-      facts({
-        contactClass: "stale",
-        lastEndpoint: "getrequest",
-        priorCommandDelivered: false,
-        priorCommandAcknowledged: false,
-      }),
-    );
-    expect(queued.diagnosis?.code).toBe("DEVICE_STALE");
-    expect(queued.diagnosis?.message).toBe(ADMS_DIAGNOSIS_MESSAGES.DEVICE_STALE);
-    expect(queued.stages.find((stage) => stage.id === "command_delivered")?.state).toBe("warn");
-    expect(queued.stages.find((stage) => stage.id === "command_acknowledged")?.state).toBe("warn");
-
-    const priorDelivery = evaluateAdmsConnectionTest(
-      facts({
-        contactClass: "stale",
-        lastEndpoint: "getrequest",
-        priorCommandDelivered: true,
-      }),
-    );
-    expect(priorDelivery.diagnosis?.code).toBe("DEVICE_STALE");
-    expect(priorDelivery.stages.find((stage) => stage.id === "command_delivered")?.state).toBe("pass");
-    expect(priorDelivery.stages.find((stage) => stage.id === "command_acknowledged")?.state).toBe("warn");
-
-    const priorAck = evaluateAdmsConnectionTest(
-      facts({
-        contactClass: "stale",
-        lastEndpoint: "getrequest",
-        priorCommandAcknowledged: true,
-      }),
-    );
-    expect(priorAck.diagnosis?.code).toBe("DEVICE_STALE");
-    expect(priorAck.stages.find((stage) => stage.id === "command_delivered")?.state).toBe("pass");
-    expect(priorAck.stages.find((stage) => stage.id === "command_acknowledged")?.state).toBe("pass");
+describe("isStuckAdmsConnectionTest", () => {
+  it("matches only open unacknowledged connection tests", () => {
+    expect(isStuckAdmsConnectionTest({ status: "queued", acknowledgedAt: null })).toBe(true);
+    expect(isStuckAdmsConnectionTest({ status: "running", acknowledgedAt: null })).toBe(true);
+    expect(isStuckAdmsConnectionTest({ status: "running", acknowledgedAt: "2026-10-04T16:00:00.000Z" })).toBe(false);
+    expect(isStuckAdmsConnectionTest({ status: "passed", acknowledgedAt: null })).toBe(false);
+    expect(isStuckAdmsConnectionTest({ status: "failed", acknowledgedAt: null })).toBe(false);
+    expect(isStuckAdmsConnectionTest({ status: "timed_out", acknowledgedAt: null })).toBe(false);
   });
 });
 

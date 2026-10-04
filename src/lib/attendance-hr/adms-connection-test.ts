@@ -6,7 +6,7 @@ export const ADMS_CONNECTION_TEST_TIMEOUT_MS = 30_000;
 /** One finished test must settle before the next one is queued for the same device. */
 export const ADMS_CONNECTION_TEST_COOLDOWN_MS = 15_000;
 /**
- * Read-only iClock probe. Delivered as C:{id}:CHECK on the next /iclock/getrequest.
+ * Legacy probe command. The connection test no longer queues it.
  * Never reboot, clear, delete, shell, or rewrite users.
  */
 export const ADMS_DIAGNOSTIC_COMMAND = "CHECK";
@@ -30,7 +30,7 @@ export type AdmsDiagnosisCode =
   | "REGISTRATION_FAILED";
 
 export const ADMS_DIAGNOSIS_MESSAGES: Record<AdmsDiagnosisCode, string> = {
-  CONNECTED: "Device is online and two-way ADMS communication is working.",
+  CONNECTED: "Device is online. The server heard from it within the last 5 minutes.",
   NO_RECENT_CONTACT: "Server has not received an ADMS request from this device recently.",
   NEVER_CONNECTED: "This serial number has never contacted FEC-OS.",
   COMMAND_NOT_COLLECTED:
@@ -263,65 +263,44 @@ function diagnosisMessage(code: AdmsDiagnosisCode, issues: RegistrationIssue[]):
   return ADMS_DIAGNOSIS_MESSAGES[code];
 }
 
-export function isConnectionTestTimedOut(facts: AdmsConnectionTestFacts): boolean {
-  if (!facts.registrationOk || !facts.serverHealthy || facts.acknowledgedAt) return false;
-  if (!facts.queuedAt) return false;
-  const queued = new Date(facts.queuedAt).getTime();
-  if (!Number.isFinite(queued)) return false;
-  const timeoutMs = facts.timeoutMs > 0 ? facts.timeoutMs : ADMS_CONNECTION_TEST_TIMEOUT_MS;
-  return facts.now - queued >= timeoutMs;
+/**
+ * Open connection-test rows are the stuck CHECK waiter.
+ * Punch fetches live on attendance_devices.adms_pending_cmd and are not these rows.
+ */
+export function isStuckAdmsConnectionTest(row: {
+  status: string;
+  acknowledgedAt?: string | null;
+}): boolean {
+  if (row.acknowledgedAt) return false;
+  return row.status === "queued" || row.status === "running";
 }
 
-function resolveDiagnosis(facts: AdmsConnectionTestFacts, timedOut: boolean): {
+function resolveDiagnosis(facts: AdmsConnectionTestFacts): {
   status: AdmsTestStatus;
   diagnosis: AdmsDiagnosis | null;
 } {
-  const messageFor = (code: AdmsDiagnosisCode, provisional: boolean): AdmsDiagnosis => ({
+  const messageFor = (code: AdmsDiagnosisCode): AdmsDiagnosis => ({
     code,
     message: diagnosisMessage(code, facts.registrationIssues),
-    provisional,
+    provisional: false,
   });
 
   if (!facts.registrationOk) {
-    return { status: "failed", diagnosis: messageFor("REGISTRATION_FAILED", false) };
+    return { status: "failed", diagnosis: messageFor("REGISTRATION_FAILED") };
   }
   if (!facts.serverHealthy) {
-    return { status: "failed", diagnosis: messageFor("SERVER_ERROR", false) };
+    return { status: "failed", diagnosis: messageFor("SERVER_ERROR") };
   }
-  if (facts.acknowledgedAt) {
-    return { status: "passed", diagnosis: messageFor("CONNECTED", false) };
+  if (facts.serialMismatch && facts.contactClass !== "online") {
+    return { status: "failed", diagnosis: messageFor("SERIAL_MISMATCH") };
   }
-  if (timedOut && facts.serialMismatch) {
-    return { status: "failed", diagnosis: messageFor("SERIAL_MISMATCH", false) };
+  if (facts.contactClass === "online") {
+    return { status: "passed", diagnosis: messageFor("CONNECTED") };
   }
-  if (timedOut && facts.polledGetRequestDuringTest && !facts.deliveredAt) {
-    return { status: "failed", diagnosis: messageFor("SERVER_ERROR", false) };
+  if (facts.contactClass === "stale") {
+    return { status: "failed", diagnosis: messageFor("DEVICE_STALE") };
   }
-  if (timedOut && facts.deliveredAt) {
-    return { status: "timed_out", diagnosis: messageFor("COMMAND_NOT_ACKNOWLEDGED", false) };
-  }
-  if (timedOut && !facts.deliveredAt) {
-    if (facts.contactClass === "never_connected" && !facts.contactedDuringTest) {
-      return { status: "timed_out", diagnosis: messageFor("NEVER_CONNECTED", false) };
-    }
-    if ((facts.contactedDuringTest || facts.contactClass === "online") && !facts.polledGetRequestDuringTest) {
-      return { status: "timed_out", diagnosis: messageFor("COMMAND_NOT_COLLECTED", false) };
-    }
-    if (facts.contactClass === "stale" && !facts.contactedDuringTest) {
-      return { status: "timed_out", diagnosis: messageFor("DEVICE_STALE", false) };
-    }
-    return { status: "timed_out", diagnosis: messageFor("NO_RECENT_CONTACT", false) };
-  }
-  if (facts.contactClass === "never_connected" && !facts.contactedDuringTest && !facts.deliveredAt) {
-    return { status: "queued", diagnosis: messageFor("NEVER_CONNECTED", true) };
-  }
-  if (facts.contactClass === "stale" && !facts.contactedDuringTest && !facts.deliveredAt) {
-    return { status: "queued", diagnosis: messageFor("NO_RECENT_CONTACT", true) };
-  }
-  return {
-    status: facts.deliveredAt ? "running" : "queued",
-    diagnosis: null,
-  };
+  return { status: "failed", diagnosis: messageFor("NEVER_CONNECTED") };
 }
 
 function stage(
@@ -339,64 +318,32 @@ export function isAdmsCommandPollEndpoint(endpoint: string | null | undefined): 
   return COMMAND_POLL_ENDPOINTS.has(value);
 }
 
-export function buildAdmsTestStages(facts: AdmsConnectionTestFacts, timedOut: boolean): AdmsTestStage[] {
-  const blocked = !facts.registrationOk || !facts.serverHealthy;
-  // Any prior ADMS contact counts, including a stale one outside the online window.
+export function buildAdmsTestStages(facts: AdmsConnectionTestFacts): AdmsTestStage[] {
   const contacted =
     facts.contactClass === "online" || facts.contactClass === "stale" || facts.contactedDuringTest;
-  const contactState: AdmsTestStageState = contacted ? "pass" : timedOut || blocked ? "fail" : "pending";
-  // A prior getrequest/devicecmd poll of any age counts.
+  // A prior getrequest/devicecmd poll of any age counts. This does not queue a new command.
   const polled =
     facts.polledGetRequestDuringTest ||
-    Boolean(facts.deliveredAt) ||
     (facts.contactClass !== "never_connected" && isAdmsCommandPollEndpoint(facts.lastEndpoint));
-  const pollState: AdmsTestStageState = polled ? "pass" : timedOut || blocked ? "fail" : "pending";
-  // A stored delivery or acknowledgement of any age counts. A CHECK that is still queued
-  // because the terminal is stale is waiting for the next poll, not a failed delivery.
-  const deliveredKnown = Boolean(facts.deliveredAt) || Boolean(facts.priorCommandDelivered) || Boolean(facts.priorCommandAcknowledged);
-  const acknowledgedKnown = Boolean(facts.acknowledgedAt) || Boolean(facts.priorCommandAcknowledged);
-  const staleCommandWaiting =
-    !blocked &&
-    facts.contactClass === "stale" &&
-    !facts.contactedDuringTest &&
-    !facts.deliveredAt &&
-    Boolean(facts.queuedAt) &&
-    !facts.serialMismatch;
-  const deliveredState: AdmsTestStageState = deliveredKnown
-    ? "pass"
-    : staleCommandWaiting && timedOut
-      ? "warn"
-      : timedOut || blocked
-        ? "fail"
-        : "pending";
-  const ackState: AdmsTestStageState = acknowledgedKnown
-    ? "pass"
-    : facts.deliveredAt && (timedOut || blocked)
-      ? "fail"
-      : staleCommandWaiting && timedOut
-        ? "warn"
-        : timedOut || blocked
-          ? "fail"
-          : "pending";
+  const contactState: AdmsTestStageState = !facts.registrationOk || !facts.serverHealthy ? "fail" : contacted ? "pass" : "fail";
+  const pollState: AdmsTestStageState =
+    !facts.registrationOk || !facts.serverHealthy || !contacted ? "fail" : polled ? "pass" : "fail";
   return [
     stage("device_registered", facts.registrationOk ? "pass" : "fail"),
     stage("adms_server_healthy", facts.serverHealthy ? "pass" : "fail"),
     stage("device_contacted_server", contactState),
     stage("device_polled_getrequest", pollState),
-    stage("command_delivered", deliveredState),
-    stage("command_acknowledged", ackState),
   ];
 }
 
 export function evaluateAdmsConnectionTest(facts: AdmsConnectionTestFacts): AdmsConnectionEvaluation {
-  const timedOut = isConnectionTestTimedOut(facts);
-  const resolved = resolveDiagnosis(facts, timedOut);
+  const resolved = resolveDiagnosis(facts);
   return {
     status: resolved.status,
     diagnosis: resolved.diagnosis,
-    stages: buildAdmsTestStages(facts, timedOut),
-    timedOut,
-    roundTripMs: roundTripMs(facts.queuedAt, facts.acknowledgedAt),
+    stages: buildAdmsTestStages(facts),
+    timedOut: false,
+    roundTripMs: null,
   };
 }
 

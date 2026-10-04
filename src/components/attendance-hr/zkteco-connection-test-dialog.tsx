@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import type { AdmsContactClass, AdmsDiagnosisCode, AdmsTestStageState } from "@/lib/attendance-hr/adms-connection-test";
 import {
+  clearAttendanceDeviceStuckConnectionTest,
   getAttendanceDeviceConnectionTest,
   startAttendanceDeviceConnectionTest,
 } from "@/lib/attendance-hr.functions";
@@ -70,12 +71,6 @@ function formatWhen(iso?: string | null): string {
   return d.toLocaleString("en-GB", { timeZone: "Asia/Qatar", dateStyle: "medium", timeStyle: "medium" });
 }
 
-function formatLatency(ms: number | null | undefined): string {
-  if (ms == null) return "—";
-  if (ms < 1000) return `${ms} ms`;
-  return `${(ms / 1000).toFixed(1)} s`;
-}
-
 function stageMark(state: AdmsTestStageState) {
   if (state === "pass") return <Check className="h-4 w-4 text-emerald-600" aria-hidden />;
   if (state === "fail") return <X className="h-4 w-4 text-destructive" aria-hidden />;
@@ -119,6 +114,20 @@ export function ZktecoConnectionTestDialog({
     onSuccess: (data) => {
       setSeed(data);
       setTestId(data.testId);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const clearStuck = useMutation({
+    mutationFn: (deviceId: string) => clearAttendanceDeviceStuckConnectionTest({ deviceId }),
+    onSuccess: (result) => {
+      toast.success(
+        result.cleared > 0
+          ? t("attendanceHr.settings.clearStuckTestDone", { count: result.cleared })
+          : t("attendanceHr.settings.clearStuckTestNone"),
+      );
+      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+      if (device) start.mutate(device.id);
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -215,9 +224,7 @@ export function ZktecoConnectionTestDialog({
               </p>
             ) : null}
 
-            {diagnosisCode === "COMMAND_NOT_COLLECTED" || testing ? (
-              <p className="text-xs text-muted-foreground">{t("attendanceHr.settings.testPollHint")}</p>
-            ) : null}
+            <p className="text-xs text-muted-foreground">{t("attendanceHr.settings.clearStuckTestHint")}</p>
 
             <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
               <dt className="text-muted-foreground">{t("attendanceHr.settings.testConnectionStatus")}</dt>
@@ -232,17 +239,6 @@ export function ZktecoConnectionTestDialog({
               <dd>{formatWhen(view.lastContactAt)}</dd>
               <dt className="text-muted-foreground">{t("attendanceHr.settings.testLastEndpoint")}</dt>
               <dd className="font-mono">{view.lastEndpoint || "—"}</dd>
-              <dt className="text-muted-foreground">{t("attendanceHr.settings.testCommandQueued")}</dt>
-              <dd>{formatWhen(view.queuedAt)}</dd>
-              <dt className="text-muted-foreground">{t("attendanceHr.settings.testCommandDelivered")}</dt>
-              <dd>{formatWhen(view.deliveredAt)}</dd>
-              <dt className="text-muted-foreground">{t("attendanceHr.settings.testAcknowledged")}</dt>
-              <dd>{formatWhen(view.acknowledgedAt)}</dd>
-              <dt className="text-muted-foreground">{t("attendanceHr.settings.testRoundTrip")}</dt>
-              <dd>
-                {formatLatency(view.roundTripMs)}
-                {view.resultCode != null ? ` · Return=${view.resultCode}` : ""}
-              </dd>
             </dl>
 
             <div className="space-y-1">
@@ -268,7 +264,15 @@ export function ZktecoConnectionTestDialog({
         ) : null}
 
         <DialogFooter className="gap-2 sm:gap-2">
-          <Button type="button" variant="secondary" disabled={!device || start.isPending || testing} onClick={() => device && start.mutate(device.id)}>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={!device || start.isPending || clearStuck.isPending}
+            onClick={() => device && clearStuck.mutate(device.id)}
+          >
+            {clearStuck.isPending ? t("attendanceHr.settings.clearingStuckTest") : t("attendanceHr.settings.clearStuckTest")}
+          </Button>
+          <Button type="button" variant="secondary" disabled={!device || start.isPending || testing || clearStuck.isPending} onClick={() => device && start.mutate(device.id)}>
             {t("attendanceHr.settings.testRunAgain")}
           </Button>
           <Button type="button" variant="secondary" asChild>

@@ -17,6 +17,7 @@ import {
   buildAdmsAttlogQueryCommand,
   buildAdmsUserInfoQueryCommand,
   formatAdmsGetRequestCommand,
+  isIgnorablePunchInsertError,
   parseAdmsAttlog,
   parseAdmsUsers,
   type AdmsTable,
@@ -383,6 +384,16 @@ async function resolveCompanyId(sb: AdminClient, device: AdmsDeviceRow): Promise
   return data?.company_id ? String(data.company_id) : null;
 }
 
+/** Record why a known serial was rejected without moving last_adms_at (that would look Online). */
+export async function recordAdmsAuthRejection(sb: AdminClient, serialNumber: string, message: string): Promise<void> {
+  const serial = serialNumber.trim();
+  if (!serial || !message.trim()) return;
+  const device = await findAdmsDeviceBySerial(sb, serial);
+  if (!device) return;
+  const { error } = await sb.from("attendance_devices").update({ last_adms_error: message }).eq("id", device.id);
+  if (error) console.error("adms auth rejection note failed:", error.message);
+}
+
 export async function touchAdmsDevice(
   sb: AdminClient,
   deviceId: string,
@@ -512,16 +523,21 @@ export async function ingestAdmsPayload(
       staffByBiometric,
       deviceNameByBiometric,
     });
+    const insertFailures: string[] = [];
     for (const row of rows) {
       const { error } = await sb.from("attendance_logs").insert(row);
       if (error) {
-        if (error.code === "23505" || /duplicate/i.test(error.message)) duplicates += 1;
+        if (isIgnorablePunchInsertError(error)) duplicates += 1;
+        else insertFailures.push(error.message);
         continue;
       }
       punchCount += 1;
       const day = row.attendance_date;
       if (day && (!minDate || day < minDate)) minDate = day;
       if (day && (!maxDate || day > maxDate)) maxDate = day;
+    }
+    if (insertFailures.length) {
+      throw new Error(insertFailures[0] ?? "Punch insert failed.");
     }
     if (minDate && maxDate) {
       await recalculateAttendanceRange(sb, input.device.location_id, minDate, maxDate);

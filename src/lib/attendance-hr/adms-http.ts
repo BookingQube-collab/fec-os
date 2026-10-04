@@ -3,7 +3,6 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import {
   acknowledgeAdmsDiagnosticCommand,
-  claimAdmsDiagnosticDelivery,
   noteAdmsDeviceRequest,
   recordUnknownAdmsSerial,
 } from "@/lib/attendance-hr/adms-connection-test.server";
@@ -13,6 +12,7 @@ import {
   ingestAdmsPayload,
   markAdmsCommandDelivered,
   pendingAdmsCommandLine,
+  recordAdmsAuthRejection,
   touchAdmsDevice,
   type AdmsDeviceRow,
 } from "@/lib/attendance-hr/adms-ingest";
@@ -26,12 +26,13 @@ import {
 } from "@/lib/attendance-hr/parse-adms";
 import { decodeAttendanceText } from "@/lib/attendance-hr/parse-attlog";
 import { shouldTouchAdmsHeartbeat } from "@/lib/attendance-hr/constants";
-import { validateAdmsCommKey, validateAdmsIp } from "@/lib/server/adms-auth";
+import { admsAuthFailureMessage, validateAdmsCommKey, validateAdmsIp } from "@/lib/server/adms-auth";
 
 /** Identity cache for idle polls. Pending commands wait at most this long on a warm instance. */
 const DEVICE_CACHE_MS = 60_000;
 const deviceCache = new Map<string, { at: number; device: AdmsDeviceRow | null }>();
 const lastHeartbeatTouch = new Map<string, number>();
+const lastAuthRejectionNote = new Map<string, number>();
 
 function serialKey(sn: string) {
   return sn.trim().toLowerCase();
@@ -131,11 +132,33 @@ async function readBodyText(request: Request): Promise<string> {
   return decodeAttendanceText(buf);
 }
 
+async function noteRejectedSerial(sn: string, reason: string) {
+  const serial = sn.trim();
+  if (!serial) return;
+  const key = serialKey(serial);
+  const now = Date.now();
+  const prev = lastAuthRejectionNote.get(key) ?? 0;
+  if (now - prev < 60_000) return;
+  lastAuthRejectionNote.set(key, now);
+  try {
+    await recordAdmsAuthRejection(supabaseAdmin, serial, admsAuthFailureMessage(reason));
+  } catch (e) {
+    lastAuthRejectionNote.delete(key);
+    console.error("adms auth rejection note failed:", e);
+  }
+}
+
 async function authorize(request: Request, sn: string, queryKey: string | null, endpoint: string) {
   const ipErr = validateAdmsIp(request);
-  if (ipErr) return { error: admsText(ipErr.body, ipErr.status), device: null };
+  if (ipErr) {
+    await noteRejectedSerial(sn, ipErr.reason);
+    return { error: admsText(ipErr.body, ipErr.status), device: null };
+  }
   const keyErr = validateAdmsCommKey(request, queryKey);
-  if (keyErr) return { error: admsText(keyErr.body, keyErr.status), device: null };
+  if (keyErr) {
+    await noteRejectedSerial(sn, keyErr.reason);
+    return { error: admsText(keyErr.body, keyErr.status), device: null };
+  }
   if (!sn) return { error: admsText("AUTH_ERROR", 403), device: null };
   const cached = cachedDevice(sn);
   if (cached !== undefined) {
@@ -159,8 +182,7 @@ async function handleGetRequest(request: Request, sn: string, queryKey: string |
   const auth = await authorize(request, sn, queryKey, "getrequest");
   if (auth.error) return auth.error;
   await observeDevice(auth.device, request, "getrequest", pushver);
-  const diagnostic = await claimAdmsDiagnosticDelivery(supabaseAdmin, auth.device.id);
-  if (diagnostic) return admsText(`${diagnostic.line}\r\n`);
+  // Connection tests do not queue a command. Only a real punch/user fetch may occupy this poll.
   const command = pendingAdmsCommandLine(auth.device);
   if (!command) return admsText("OK");
   try {

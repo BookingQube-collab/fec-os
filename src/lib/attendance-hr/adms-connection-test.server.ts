@@ -2,15 +2,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "@/integrations/supabase/types";
 import {
-  ADMS_CONNECTION_TEST_COOLDOWN_MS,
   ADMS_CONNECTION_TEST_TIMEOUT_MS,
-  ADMS_DIAGNOSTIC_COMMAND,
   ADMS_UNKNOWN_SERIAL_WINDOW_MS,
-  buildDiagnosticGetRequestLine,
   classifyAdmsContact,
   correlateDiagnosticCommand,
   evaluateAdmsConnectionTest,
-  nextDiagnosticCommandId,
+  isStuckAdmsConnectionTest,
   registrationIssues,
   roundTripMs,
   sanitizeDiagnosticMetadata,
@@ -248,34 +245,6 @@ async function loadEvents(sb: AdminClient, testId: string): Promise<EventRow[]> 
   });
 }
 
-/** Earlier CHECK rows are the only stored proof that a command was delivered or acknowledged. */
-async function loadPriorCommandEvidence(
-  sb: AdminClient,
-  deviceId: string,
-  excludeTestId: string,
-): Promise<{ delivered: boolean; acknowledged: boolean }> {
-  const { data, error } = await sb
-    .from("attendance_adms_connection_tests")
-    .select("delivered_at, acknowledged_at")
-    .eq("device_id", deviceId)
-    .neq("id", excludeTestId)
-    .or("delivered_at.not.is.null,acknowledged_at.not.is.null")
-    .limit(20);
-  if (error) {
-    if (schemaNotReady(error)) return { delivered: false, acknowledged: false };
-    throw error;
-  }
-  let delivered = false;
-  let acknowledged = false;
-  for (const row of data ?? []) {
-    const src = row as { delivered_at?: string | null; acknowledged_at?: string | null };
-    if (src.delivered_at) delivered = true;
-    if (src.acknowledged_at) acknowledged = true;
-    if (delivered && acknowledged) break;
-  }
-  return { delivered, acknowledged };
-}
-
 async function loadUnknownHits(sb: AdminClient, sourceIp: string): Promise<Array<{ serial: string; sourceIp: string | null; seenAt: string }>> {
   const since = new Date(Date.now() - ADMS_UNKNOWN_SERIAL_WINDOW_MS).toISOString();
   const { data, error } = await sb
@@ -396,7 +365,6 @@ async function evaluateStoredTest(
     terminal && test.diagnosis === "REGISTRATION_FAILED" && issues.length === 0
       ? (["missing_device"] as RegistrationIssue[])
       : issues;
-  const priorCommand = await loadPriorCommandEvidence(sb, test.device_id, test.id);
   const facts: AdmsConnectionTestFacts = {
     now: terminal && test.completed_at ? new Date(test.completed_at).getTime() : now,
     timeoutMs: test.timeout_ms ?? ADMS_CONNECTION_TEST_TIMEOUT_MS,
@@ -411,8 +379,6 @@ async function evaluateStoredTest(
     polledGetRequestDuringTest,
     lastEndpoint,
     serialMismatch: terminal ? test.diagnosis === "SERIAL_MISMATCH" : mismatch,
-    priorCommandDelivered: priorCommand.delivered,
-    priorCommandAcknowledged: priorCommand.acknowledged,
   };
   const evaluation = evaluateAdmsConnectionTest(facts);
   const open = test.status === "queued" || test.status === "running";
@@ -446,7 +412,7 @@ async function evaluateStoredTest(
         locationId: test.location_id,
         serialNumber: serial,
         testId: test.id,
-        eventType: evaluation.status === "passed" ? "test_completed" : "test_timed_out",
+        eventType: evaluation.status === "timed_out" ? "test_timed_out" : "test_completed",
         endpoint: lastEndpoint,
         commandId: test.command_id,
         result: evaluation.diagnosis?.code ?? evaluation.status,
@@ -504,44 +470,6 @@ async function findActiveTest(sb: AdminClient, deviceId: string): Promise<TestRo
   return asTest(data);
 }
 
-async function latestCompletedAt(sb: AdminClient, deviceId: string): Promise<string | null> {
-  const { data, error } = await sb
-    .from("attendance_adms_connection_tests")
-    .select("completed_at")
-    .eq("device_id", deviceId)
-    .not("completed_at", "is", null)
-    .order("completed_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) {
-    if (schemaNotReady(error)) throw migrationError();
-    throw error;
-  }
-  const completed = (data as { completed_at?: string | null } | null)?.completed_at;
-  return completed ? String(completed) : null;
-}
-
-async function allocateDiagnosticCommandId(sb: AdminClient, deviceId: string): Promise<number> {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const { data, error } = await sb.from("attendance_devices").select("adms_diag_cmd_id").eq("id", deviceId).maybeSingle();
-    if (error) {
-      if (schemaNotReady(error)) throw migrationError();
-      throw error;
-    }
-    const current = Number((data as { adms_diag_cmd_id?: number | null } | null)?.adms_diag_cmd_id ?? 0);
-    const next = nextDiagnosticCommandId(current);
-    let update = sb.from("attendance_devices").update({ adms_diag_cmd_id: next }).eq("id", deviceId);
-    if (Number.isFinite(current) && current > 0) update = update.eq("adms_diag_cmd_id", current);
-    const { data: updated, error: upErr } = await update.select("adms_diag_cmd_id").maybeSingle();
-    if (upErr) {
-      if (schemaNotReady(upErr)) throw migrationError();
-      throw upErr;
-    }
-    if (Number((updated as { adms_diag_cmd_id?: number } | null)?.adms_diag_cmd_id) === next) return next;
-  }
-  throw new Error("Could not allocate a diagnostic command id.");
-}
-
 export async function startAdmsConnectionTest(
   sb: AdminClient,
   input: {
@@ -556,15 +484,7 @@ export async function startAdmsConnectionTest(
   if (!device.location_id) throw new Error("Device is not assigned to a site.");
   const active = await findActiveTest(sb, input.deviceId);
   if (active) {
-    const current = await evaluateStoredTest(sb, active, input.serverHealthy);
-    if (current.status === "queued" || current.status === "running") {
-      return { ...current, reused: true };
-    }
-  } else {
-    const completedAt = await latestCompletedAt(sb, input.deviceId);
-    if (completedAt && Date.now() - new Date(completedAt).getTime() < ADMS_CONNECTION_TEST_COOLDOWN_MS) {
-      throw new Error("Wait a few seconds before testing this device again.");
-    }
+    await evaluateStoredTest(sb, active, input.serverHealthy);
   }
 
   const issues = registrationIssues({
@@ -573,21 +493,18 @@ export async function startAdmsConnectionTest(
     locationId: device.location_id,
     active: device.active,
   });
-  const nowIso = new Date().toISOString();
   const contactClass = classifyAdmsContact(device.last_adms_at);
-  const failedEarly = issues.length > 0 || !input.serverHealthy;
-  const commandId = failedEarly ? null : await allocateDiagnosticCommandId(sb, device.id);
   const inserted = await sb
     .from("attendance_adms_connection_tests")
     .insert({
       device_id: device.id,
       location_id: device.location_id,
       serial_number: device.serial_number?.trim() || null,
-      status: failedEarly ? "failed" : "queued",
-      diagnosis: !input.serverHealthy && issues.length === 0 ? "SERVER_ERROR" : issues.length ? "REGISTRATION_FAILED" : null,
-      command_id: commandId,
-      command_body: commandId ? ADMS_DIAGNOSTIC_COMMAND : null,
-      queued_at: failedEarly ? null : nowIso,
+      status: "queued",
+      diagnosis: null,
+      command_id: null,
+      command_body: null,
+      queued_at: null,
       timeout_ms: ADMS_CONNECTION_TEST_TIMEOUT_MS,
       last_contact_at: device.last_adms_at,
       last_endpoint: device.last_adms_endpoint,
@@ -596,7 +513,7 @@ export async function startAdmsConnectionTest(
       contact_class: contactClass,
       error: !input.serverHealthy ? input.serverDetail : null,
       created_by: input.actorId,
-      completed_at: failedEarly ? nowIso : null,
+      completed_at: null,
     })
     .select("*")
     .single();
@@ -620,26 +537,80 @@ export async function startAdmsConnectionTest(
     testId: test.id,
     eventType: "test_started",
     endpoint: device.last_adms_endpoint,
-    commandId,
-    result: failedEarly ? "failed" : "queued",
+    result: "snapshot",
     error: input.serverDetail,
-    metadata: { contactClass, registrationIssues: issues },
+    metadata: { contactClass, registrationIssues: issues, mode: "read_only" },
   });
-  if (commandId) {
-    await logEvent(sb, {
-      deviceId: device.id,
-      locationId: device.location_id,
-      serialNumber: device.serial_number,
-      testId: test.id,
-      eventType: "command_queued",
-      endpoint: "getrequest",
-      commandId,
-      result: "queued",
-      metadata: { command: ADMS_DIAGNOSTIC_COMMAND },
-    });
-  }
   const view = await evaluateStoredTest(sb, test, input.serverHealthy);
   return view;
+}
+
+export async function clearStuckAdmsConnectionTests(
+  sb: AdminClient,
+  deviceId: string,
+): Promise<{
+  cleared: number;
+  contactClass: AdmsContactClass;
+  lastContactAt: string | null;
+  lastEndpoint: string | null;
+}> {
+  const device = await loadDevice(sb, deviceId);
+  if (!device) throw new Error("Device not found");
+  const { data, error } = await sb
+    .from("attendance_adms_connection_tests")
+    .select("id, status, acknowledged_at, location_id, serial_number, command_id")
+    .eq("device_id", deviceId)
+    .in("status", ["queued", "running"]);
+  if (error) {
+    if (schemaNotReady(error)) throw migrationError();
+    throw error;
+  }
+  const stuck = (data ?? []).filter((row) => {
+    const src = row as Record<string, unknown>;
+    return isStuckAdmsConnectionTest({
+      status: String(src.status ?? ""),
+      acknowledgedAt: src.acknowledged_at == null ? null : String(src.acknowledged_at),
+    });
+  });
+  const completedAt = new Date().toISOString();
+  if (stuck.length) {
+    const ids = stuck.map((row) => String((row as { id: string }).id));
+    const { error: upErr } = await sb
+      .from("attendance_adms_connection_tests")
+      .update({
+        status: "failed",
+        completed_at: completedAt,
+        error: "Cleared stuck connection test.",
+        command_id: null,
+        command_body: null,
+      })
+      .in("id", ids)
+      .in("status", ["queued", "running"]);
+    if (upErr) {
+      if (schemaNotReady(upErr)) throw migrationError();
+      throw upErr;
+    }
+    for (const row of stuck) {
+      const src = row as Record<string, unknown>;
+      await logEvent(sb, {
+        deviceId,
+        locationId: src.location_id == null ? device.location_id : String(src.location_id),
+        serialNumber: src.serial_number == null ? device.serial_number : String(src.serial_number),
+        testId: String(src.id),
+        eventType: "test_cleared",
+        endpoint: device.last_adms_endpoint,
+        commandId: src.command_id == null ? null : Number(src.command_id),
+        result: "cleared",
+        metadata: { mode: "clear_stuck_test" },
+      });
+    }
+  }
+  return {
+    cleared: stuck.length,
+    contactClass: classifyAdmsContact(device.last_adms_at),
+    lastContactAt: device.last_adms_at,
+    lastEndpoint: device.last_adms_endpoint,
+  };
 }
 
 export async function noteAdmsDeviceRequest(
@@ -685,59 +656,6 @@ export async function noteAdmsDeviceRequest(
     });
   } catch (e) {
     console.error("adms diagnostic request note failed:", e instanceof Error ? e.message : e);
-  }
-}
-
-/** Hand the queued CHECK to this serial on /iclock/getrequest without clearing a punch fetch. */
-export async function claimAdmsDiagnosticDelivery(
-  sb: AdminClient,
-  deviceId: string,
-): Promise<{ commandId: number; line: string } | null> {
-  if (diagnosticTablesReady === false) return null;
-  try {
-    const { data, error } = await sb
-      .from("attendance_adms_connection_tests")
-      .select("id, command_id, serial_number, location_id")
-      .eq("device_id", deviceId)
-      .in("status", ["queued", "running"])
-      .is("delivered_at", null)
-      .not("command_id", "is", null)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (error) {
-      rememberSchema(error);
-      return null;
-    }
-    rememberSchema(null);
-    if (!data) return null;
-    const src = data as Record<string, unknown>;
-    const commandId = Number(src.command_id);
-    if (!Number.isInteger(commandId)) return null;
-    const line = buildDiagnosticGetRequestLine(commandId);
-    const { data: updated, error: upErr } = await sb
-      .from("attendance_adms_connection_tests")
-      .update({ delivered_at: new Date().toISOString(), status: "running" })
-      .eq("id", String(src.id))
-      .is("delivered_at", null)
-      .select("id")
-      .maybeSingle();
-    if (upErr || !updated) return null;
-    await logEvent(sb, {
-      deviceId,
-      locationId: src.location_id == null ? null : String(src.location_id),
-      serialNumber: src.serial_number == null ? null : String(src.serial_number),
-      testId: String(src.id),
-      eventType: "command_delivered",
-      endpoint: "getrequest",
-      commandId,
-      result: "delivered",
-      metadata: { command: ADMS_DIAGNOSTIC_COMMAND },
-    });
-    return { commandId, line };
-  } catch (e) {
-    console.error("adms diagnostic delivery failed:", e instanceof Error ? e.message : e);
-    return null;
   }
 }
 
