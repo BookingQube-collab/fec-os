@@ -248,6 +248,34 @@ async function loadEvents(sb: AdminClient, testId: string): Promise<EventRow[]> 
   });
 }
 
+/** Earlier CHECK rows are the only stored proof that a command was delivered or acknowledged. */
+async function loadPriorCommandEvidence(
+  sb: AdminClient,
+  deviceId: string,
+  excludeTestId: string,
+): Promise<{ delivered: boolean; acknowledged: boolean }> {
+  const { data, error } = await sb
+    .from("attendance_adms_connection_tests")
+    .select("delivered_at, acknowledged_at")
+    .eq("device_id", deviceId)
+    .neq("id", excludeTestId)
+    .or("delivered_at.not.is.null,acknowledged_at.not.is.null")
+    .limit(20);
+  if (error) {
+    if (schemaNotReady(error)) return { delivered: false, acknowledged: false };
+    throw error;
+  }
+  let delivered = false;
+  let acknowledged = false;
+  for (const row of data ?? []) {
+    const src = row as { delivered_at?: string | null; acknowledged_at?: string | null };
+    if (src.delivered_at) delivered = true;
+    if (src.acknowledged_at) acknowledged = true;
+    if (delivered && acknowledged) break;
+  }
+  return { delivered, acknowledged };
+}
+
 async function loadUnknownHits(sb: AdminClient, sourceIp: string): Promise<Array<{ serial: string; sourceIp: string | null; seenAt: string }>> {
   const since = new Date(Date.now() - ADMS_UNKNOWN_SERIAL_WINDOW_MS).toISOString();
   const { data, error } = await sb
@@ -368,6 +396,7 @@ async function evaluateStoredTest(
     terminal && test.diagnosis === "REGISTRATION_FAILED" && issues.length === 0
       ? (["missing_device"] as RegistrationIssue[])
       : issues;
+  const priorCommand = await loadPriorCommandEvidence(sb, test.device_id, test.id);
   const facts: AdmsConnectionTestFacts = {
     now: terminal && test.completed_at ? new Date(test.completed_at).getTime() : now,
     timeoutMs: test.timeout_ms ?? ADMS_CONNECTION_TEST_TIMEOUT_MS,
@@ -382,6 +411,8 @@ async function evaluateStoredTest(
     polledGetRequestDuringTest,
     lastEndpoint,
     serialMismatch: terminal ? test.diagnosis === "SERIAL_MISMATCH" : mismatch,
+    priorCommandDelivered: priorCommand.delivered,
+    priorCommandAcknowledged: priorCommand.acknowledged,
   };
   const evaluation = evaluateAdmsConnectionTest(facts);
   const open = test.status === "queued" || test.status === "running";

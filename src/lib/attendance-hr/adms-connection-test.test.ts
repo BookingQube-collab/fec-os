@@ -242,6 +242,12 @@ describe("evaluateAdmsConnectionTest", () => {
       message: ADMS_DIAGNOSIS_MESSAGES.COMMAND_NOT_ACKNOWLEDGED,
     });
     expect(notAcked.status).toBe("timed_out");
+    expect(notAcked.stages.find((stage) => stage.id === "command_delivered")?.state).toBe("pass");
+    expect(notAcked.stages.find((stage) => stage.id === "command_acknowledged")?.state).toBe("fail");
+
+    const notCollectedStages = notCollected.stages;
+    expect(notCollectedStages.find((stage) => stage.id === "command_delivered")?.state).toBe("fail");
+    expect(notCollectedStages.find((stage) => stage.id === "command_acknowledged")?.state).toBe("fail");
 
     const mismatch = evaluateAdmsConnectionTest(
       facts({ contactClass: "stale", serialMismatch: true }),
@@ -251,6 +257,8 @@ describe("evaluateAdmsConnectionTest", () => {
       message: ADMS_DIAGNOSIS_MESSAGES.SERIAL_MISMATCH,
     });
     expect(mismatch.status).toBe("failed");
+    expect(mismatch.stages.find((stage) => stage.id === "command_delivered")?.state).toBe("fail");
+    expect(mismatch.stages.find((stage) => stage.id === "command_acknowledged")?.state).toBe("fail");
 
     const server = evaluateAdmsConnectionTest(facts({ serverHealthy: false, queuedAt: null }));
     expect(server.status).toBe("failed");
@@ -268,8 +276,8 @@ describe("evaluateAdmsConnectionTest", () => {
       ["adms_server_healthy", "pass"],
       ["device_contacted_server", "pass"],
       ["device_polled_getrequest", "fail"],
-      ["command_delivered", "fail"],
-      ["command_acknowledged", "fail"],
+      ["command_delivered", "warn"],
+      ["command_acknowledged", "warn"],
     ]);
 
     const stalePolled = evaluateAdmsConnectionTest(
@@ -285,8 +293,8 @@ describe("evaluateAdmsConnectionTest", () => {
       ["adms_server_healthy", "pass"],
       ["device_contacted_server", "pass"],
       ["device_polled_getrequest", "pass"],
-      ["command_delivered", "fail"],
-      ["command_acknowledged", "fail"],
+      ["command_delivered", "warn"],
+      ["command_acknowledged", "warn"],
     ]);
 
     const staleHandshakeOnly = evaluateAdmsConnectionTest(
@@ -294,14 +302,16 @@ describe("evaluateAdmsConnectionTest", () => {
     );
     expect(staleHandshakeOnly.stages.find((stage) => stage.id === "device_contacted_server")?.state).toBe("pass");
     expect(staleHandshakeOnly.stages.find((stage) => stage.id === "device_polled_getrequest")?.state).toBe("fail");
-    expect(staleHandshakeOnly.stages.find((stage) => stage.id === "command_delivered")?.state).toBe("fail");
-    expect(staleHandshakeOnly.stages.find((stage) => stage.id === "command_acknowledged")?.state).toBe("fail");
+    expect(staleHandshakeOnly.stages.find((stage) => stage.id === "command_delivered")?.state).toBe("warn");
+    expect(staleHandshakeOnly.stages.find((stage) => stage.id === "command_acknowledged")?.state).toBe("warn");
 
     const neverWithEndpoint = evaluateAdmsConnectionTest(
       facts({ contactClass: "never_connected", lastEndpoint: "getrequest" }),
     );
     expect(neverWithEndpoint.stages.find((stage) => stage.id === "device_contacted_server")?.state).toBe("fail");
     expect(neverWithEndpoint.stages.find((stage) => stage.id === "device_polled_getrequest")?.state).toBe("fail");
+    expect(neverWithEndpoint.stages.find((stage) => stage.id === "command_delivered")?.state).toBe("fail");
+    expect(neverWithEndpoint.stages.find((stage) => stage.id === "command_acknowledged")?.state).toBe("fail");
 
     const registration = evaluateAdmsConnectionTest(
       facts({
@@ -331,6 +341,43 @@ describe("evaluateAdmsConnectionTest", () => {
     expect(running.status).toBe("running");
     expect(running.diagnosis).toBeNull();
     expect(running.stages.find((s) => s.id === "command_acknowledged")?.state).toBe("pending");
+  });
+
+  it("keeps a queued stale command waiting, and passes only stored prior delivery or acknowledgement", () => {
+    const queued = evaluateAdmsConnectionTest(
+      facts({
+        contactClass: "stale",
+        lastEndpoint: "getrequest",
+        priorCommandDelivered: false,
+        priorCommandAcknowledged: false,
+      }),
+    );
+    expect(queued.diagnosis?.code).toBe("DEVICE_STALE");
+    expect(queued.diagnosis?.message).toBe(ADMS_DIAGNOSIS_MESSAGES.DEVICE_STALE);
+    expect(queued.stages.find((stage) => stage.id === "command_delivered")?.state).toBe("warn");
+    expect(queued.stages.find((stage) => stage.id === "command_acknowledged")?.state).toBe("warn");
+
+    const priorDelivery = evaluateAdmsConnectionTest(
+      facts({
+        contactClass: "stale",
+        lastEndpoint: "getrequest",
+        priorCommandDelivered: true,
+      }),
+    );
+    expect(priorDelivery.diagnosis?.code).toBe("DEVICE_STALE");
+    expect(priorDelivery.stages.find((stage) => stage.id === "command_delivered")?.state).toBe("pass");
+    expect(priorDelivery.stages.find((stage) => stage.id === "command_acknowledged")?.state).toBe("warn");
+
+    const priorAck = evaluateAdmsConnectionTest(
+      facts({
+        contactClass: "stale",
+        lastEndpoint: "getrequest",
+        priorCommandAcknowledged: true,
+      }),
+    );
+    expect(priorAck.diagnosis?.code).toBe("DEVICE_STALE");
+    expect(priorAck.stages.find((stage) => stage.id === "command_delivered")?.state).toBe("pass");
+    expect(priorAck.stages.find((stage) => stage.id === "command_acknowledged")?.state).toBe("pass");
   });
 });
 

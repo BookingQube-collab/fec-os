@@ -83,6 +83,13 @@ export type AdmsConnectionTestFacts = {
   /** Last ADMS endpoint this serial hit, including a stale poll outside this test. */
   lastEndpoint: string | null;
   serialMismatch: boolean;
+  /**
+   * An earlier connection test for this device recorded delivered_at.
+   * Operational fetches do not keep a delivery timestamp, so this stays false without that row.
+   */
+  priorCommandDelivered?: boolean;
+  /** An earlier connection test for this device recorded acknowledged_at. */
+  priorCommandAcknowledged?: boolean;
 };
 
 export type AdmsDiagnosis = {
@@ -338,18 +345,39 @@ export function buildAdmsTestStages(facts: AdmsConnectionTestFacts, timedOut: bo
   const contacted =
     facts.contactClass === "online" || facts.contactClass === "stale" || facts.contactedDuringTest;
   const contactState: AdmsTestStageState = contacted ? "pass" : timedOut || blocked ? "fail" : "pending";
-  // A prior getrequest/devicecmd poll of any age counts. Delivery and acknowledgement do not.
+  // A prior getrequest/devicecmd poll of any age counts.
   const polled =
     facts.polledGetRequestDuringTest ||
     Boolean(facts.deliveredAt) ||
     (facts.contactClass !== "never_connected" && isAdmsCommandPollEndpoint(facts.lastEndpoint));
   const pollState: AdmsTestStageState = polled ? "pass" : timedOut || blocked ? "fail" : "pending";
-  const deliveredState: AdmsTestStageState = facts.deliveredAt ? "pass" : timedOut || blocked ? "fail" : "pending";
-  const ackState: AdmsTestStageState = facts.acknowledgedAt
+  // A stored delivery or acknowledgement of any age counts. A CHECK that is still queued
+  // because the terminal is stale is waiting for the next poll, not a failed delivery.
+  const deliveredKnown = Boolean(facts.deliveredAt) || Boolean(facts.priorCommandDelivered) || Boolean(facts.priorCommandAcknowledged);
+  const acknowledgedKnown = Boolean(facts.acknowledgedAt) || Boolean(facts.priorCommandAcknowledged);
+  const staleCommandWaiting =
+    !blocked &&
+    facts.contactClass === "stale" &&
+    !facts.contactedDuringTest &&
+    !facts.deliveredAt &&
+    Boolean(facts.queuedAt) &&
+    !facts.serialMismatch;
+  const deliveredState: AdmsTestStageState = deliveredKnown
     ? "pass"
-    : timedOut || blocked
+    : staleCommandWaiting && timedOut
+      ? "warn"
+      : timedOut || blocked
+        ? "fail"
+        : "pending";
+  const ackState: AdmsTestStageState = acknowledgedKnown
+    ? "pass"
+    : facts.deliveredAt && (timedOut || blocked)
       ? "fail"
-      : "pending";
+      : staleCommandWaiting && timedOut
+        ? "warn"
+        : timedOut || blocked
+          ? "fail"
+          : "pending";
   return [
     stage("device_registered", facts.registrationOk ? "pass" : "fail"),
     stage("adms_server_healthy", facts.serverHealthy ? "pass" : "fail"),

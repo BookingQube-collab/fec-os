@@ -45,6 +45,12 @@ const STAGE_LABEL: Record<string, string> = {
   command_acknowledged: "attendanceHr.settings.testStageAck",
 };
 
+function stageLabelKey(id: string, state: AdmsTestStageState): string {
+  if (state === "warn" && id === "command_delivered") return "attendanceHr.settings.testStageDeliveredWaiting";
+  if (state === "warn" && id === "command_acknowledged") return "attendanceHr.settings.testStageAckWaiting";
+  return STAGE_LABEL[id] ?? id;
+}
+
 const DIAGNOSIS_LABEL: Record<AdmsDiagnosisCode, string> = {
   CONNECTED: "attendanceHr.settings.diagnosisConnected",
   NO_RECENT_CONTACT: "attendanceHr.settings.diagnosisNoRecentContact",
@@ -197,7 +203,7 @@ export function ZktecoConnectionTestDialog({
                 <li key={stage.id} className="flex items-center gap-2 text-sm">
                   {stageMark(stage.state)}
                   <span className={cn(stage.state === "fail" && "text-destructive", stage.state === "warn" && "text-amber-800 dark:text-amber-200")}>
-                    {t(STAGE_LABEL[stage.id] ?? stage.id)}
+                    {t(stageLabelKey(stage.id, stage.state))}
                   </span>
                 </li>
               ))}
