@@ -24,7 +24,8 @@ export function extractAdmsCommKey(request: Request, queryKey: string | null): s
     const token = auth.slice(7).trim();
     if (token) return token;
   }
-  return queryKey;
+  const fromQuery = queryKey?.trim() ?? "";
+  return fromQuery || null;
 }
 
 export function validateAdmsIp(request: Request): AdmsAuthFailure | null {
@@ -36,15 +37,20 @@ export function validateAdmsIp(request: Request): AdmsAuthFailure | null {
   return { status: 403, body: "AUTH_ERROR", reason: "ip_not_allowed" };
 }
 
+/**
+ * Key check only. A terminal that sends no key is allowed here, whether or not
+ * ADMS_COMM_KEY is set. Callers must still reject an unregistered serial.
+ * A key the device does send must match ADMS_COMM_KEY when that variable is set
+ * (trimmed, case-sensitive). When the server key is unset, a sent key is not
+ * rejected — these menus have no Server Auth field to type it into.
+ */
 export function validateAdmsCommKey(request: Request, queryKey: string | null): AdmsAuthFailure | null {
   const expected = expectedCommKey();
-  if (!expected) {
-    console.error("ADMS_COMM_KEY is not configured");
-    return { status: 403, body: "AUTH_ERROR", reason: "missing_comm_key" };
-  }
   const got = extractAdmsCommKey(request, queryKey);
-  if (got && secretsEqual(got, expected)) return null;
-  return { status: 403, body: "AUTH_ERROR", reason: "bad_comm_key" };
+  if (got && expected && !secretsEqual(got, expected)) {
+    return { status: 403, body: "AUTH_ERROR", reason: "bad_comm_key" };
+  }
+  return null;
 }
 
 export function admsCommKeyConfigured(): boolean {
@@ -53,9 +59,6 @@ export function admsCommKeyConfigured(): boolean {
 
 /** Operator-facing reason stored on the device. Does not include the key. */
 export function admsAuthFailureMessage(reason: string): string {
-  if (reason === "missing_comm_key") {
-    return "ADMS_COMM_KEY is not set on the server, so this terminal's punches are rejected.";
-  }
   if (reason === "bad_comm_key") {
     return "Device comm key was rejected. Punches are not saved until it matches ADMS_COMM_KEY.";
   }

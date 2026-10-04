@@ -9,7 +9,8 @@ type RouteCtx = { params: Promise<{ slug?: string[] }> };
 /**
  * ZKTeco ADMS / iClock push (device-initiated).
  * Devices POST/GET /iclock, /iclock/cdata, /iclock/getrequest, /iclock/devicecmd.
- * Auth: serial number allowlist on attendance_devices + required ADMS_COMM_KEY. Optional ADMS_IP_ALLOWLIST.
+ * Auth: registered serial on attendance_devices. No comm key is accepted for that serial.
+ * A sent key must match ADMS_COMM_KEY when set. Optional ADMS_IP_ALLOWLIST.
  */
 export async function GET(request: Request, ctx: RouteCtx) {
   const { slug } = await ctx.params;

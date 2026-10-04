@@ -154,6 +154,8 @@ async function authorize(request: Request, sn: string, queryKey: string | null, 
     await noteRejectedSerial(sn, ipErr.reason);
     return { error: admsText(ipErr.body, ipErr.status), device: null };
   }
+  // No device key is allowed. Unknown serials are rejected after the lookup below.
+  // A presented key is rejected only when ADMS_COMM_KEY is set and it does not match.
   const keyErr = validateAdmsCommKey(request, queryKey);
   if (keyErr) {
     await noteRejectedSerial(sn, keyErr.reason);

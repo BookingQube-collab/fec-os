@@ -494,7 +494,7 @@
         },
         "admsFailOpen": {
           "title": "ADMS key enforcement",
-          "closed": "Device ingest rejects requests when the comm key is missing or wrong.",
+          "closed": "A registered terminal that sends no comm key is accepted. If the device sends a key and ADMS_COMM_KEY is set, the key must match. Unknown serials are rejected.",
           "open": "Device ingest allows the request when ADMS_COMM_KEY is unset. This page will not edit that helper.",
           "unreadable": "Not verifiable here. The ADMS helper source is not readable in this environment."
         },
@@ -7005,7 +7005,7 @@
       "stepPort": "Server Port: 443.",
       "stepHttps": "HTTPS: ON if the firmware shows it. If the device has no HTTPS option, it cannot talk to Vercel directly — use USB import or a LAN agent.",
       "stepSn": "Copy the SN from Menu → System Info into the device row below (e.g. map it to Inflatapark / ZKTeco Device 1).",
-      "securityHint": "Unknown serials are rejected. Set ADMS_COMM_KEY (and optionally ADMS_IP_ALLOWLIST) on the server so this is not a public punch injector. Enter the same comm key on the device if Cloud Server has Server Auth.",
+      "securityHint": "Unknown serials are rejected. A registered terminal that sends no comm key is accepted, including when ADMS_COMM_KEY is unset. If the device sends a key and ADMS_COMM_KEY is set, the key must match. There is no device password to enter when Cloud Server has no Server Auth field.",
       "devices": "Devices",
       "lastSync": "Last sync",
       "deviceOnline": "Online",

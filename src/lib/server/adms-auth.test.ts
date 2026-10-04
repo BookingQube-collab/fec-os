@@ -15,36 +15,46 @@ function request(headers: Record<string, string> = {}): Request {
 }
 
 describe("validateAdmsCommKey", () => {
-  it("rejects when ADMS_COMM_KEY is unset and logs only that the key is missing", () => {
+  it("accepts a terminal that sends no key when ADMS_COMM_KEY is unset", () => {
     delete process.env.ADMS_COMM_KEY;
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    const result = validateAdmsCommKey(request({ "x-adms-key": "device-key" }), null);
-    expect(result).toMatchObject({ status: 403, body: "AUTH_ERROR" });
-    expect(error).toHaveBeenCalledTimes(1);
-    const logged = String(error.mock.calls[0]?.[0] ?? "");
-    expect(logged).toMatch(/ADMS_COMM_KEY is not configured/);
-    expect(logged).not.toMatch(/device-key/);
+    expect(validateAdmsCommKey(request(), null)).toBeNull();
+    expect(validateAdmsCommKey(request(), "   ")).toBeNull();
+    expect(error).not.toHaveBeenCalled();
   });
 
-  it("rejects an empty key and accepts a matching key via header, bearer, or query", () => {
+  it("accepts a sent key when ADMS_COMM_KEY is unset instead of demanding a server secret", () => {
+    delete process.env.ADMS_COMM_KEY;
+    expect(validateAdmsCommKey(request({ "x-adms-key": "device-key" }), null)).toBeNull();
     process.env.ADMS_COMM_KEY = "   ";
-    expect(validateAdmsCommKey(request(), "device-key")?.body).toBe("AUTH_ERROR");
+    expect(validateAdmsCommKey(request(), "device-key")).toBeNull();
+  });
 
+  it("accepts a registered-path request with no key when ADMS_COMM_KEY is set", () => {
+    process.env.ADMS_COMM_KEY = "device-key";
+    expect(validateAdmsCommKey(request(), null)).toBeNull();
+    expect(validateAdmsCommKey(request({ authorization: "Bearer   " }), "  ")).toBeNull();
+  });
+
+  it("matches a sent key trimmed and case-sensitively via header, bearer, or query", () => {
     process.env.ADMS_COMM_KEY = "device-key";
     expect(validateAdmsCommKey(request({ "x-adms-key": "device-key" }), null)).toBeNull();
+    expect(validateAdmsCommKey(request({ "x-api-key": "  device-key  " }), null)).toBeNull();
     expect(validateAdmsCommKey(request({ authorization: "Bearer device-key" }), null)).toBeNull();
-    expect(validateAdmsCommKey(request(), "device-key")).toBeNull();
+    expect(validateAdmsCommKey(request(), "  device-key  ")).toBeNull();
+    expect(validateAdmsCommKey(request({ "x-adms-key": "Device-Key" }), null)?.reason).toBe("bad_comm_key");
     expect(validateAdmsCommKey(request({ "x-adms-key": "other" }), null)?.reason).toBe("bad_comm_key");
     expect(validateAdmsCommKey(request({ "x-adms-key": "device-key-extra" }), null)?.reason).toBe(
       "bad_comm_key",
     );
   });
 
-  it("names the rejection without including the key", () => {
-    expect(admsAuthFailureMessage("missing_comm_key")).toMatch(/ADMS_COMM_KEY is not set/);
+  it("names a bad key without saying an unset server key rejects punches", () => {
     expect(admsAuthFailureMessage("bad_comm_key")).toMatch(/comm key was rejected/);
     expect(admsAuthFailureMessage("ip_not_allowed")).toMatch(/ADMS_IP_ALLOWLIST/);
+    expect(admsAuthFailureMessage("missing_comm_key")).not.toMatch(/ADMS_COMM_KEY is not set/);
     expect(admsAuthFailureMessage("missing_comm_key")).not.toMatch(/secret|password/i);
+    expect(admsAuthFailureMessage("bad_comm_key")).not.toMatch(/secret|password/i);
   });
 
   it("keeps the IP allowlist optional when unset", () => {

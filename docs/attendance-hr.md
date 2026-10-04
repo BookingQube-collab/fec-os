@@ -67,7 +67,7 @@ The browser cannot talk to the device. FEC-OS on Vercel also **cannot** open TCP
 1. People → Time & Attendance → **Settings**: paste the device SN (System Info) onto the Inflatapark (or other site) device row.
 2. On the device: **Menu → COMM. → Cloud Server Setting** (sometimes labelled **ADMS**).
 3. Enable Domain Name **ON**, Server Address = FEC-OS hostname only (no `https://`, no `/iclock`), Server Port **443**, HTTPS **ON** if shown, Proxy **OFF**.
-4. Set `ADMS_COMM_KEY` in the server environment (required; push is rejected when it is missing) and the same value on the device.
+4. Leave the device password blank. This menu has no Server Auth field. A registered serial that sends no comm key is accepted whether or not `ADMS_COMM_KEY` is set. If the device does send a key and `ADMS_COMM_KEY` is set, the values must match.
 5. Device must reach the public host (venue Wi‑Fi with outbound 443, or VPN). Map User IDs as usual; a name change on the device does **not** clear `staff_id`.
 
 ### Fetch punches (click or daily)
@@ -159,7 +159,7 @@ Schema: `supabase/migrations/20260829120000_hr_field_attendance_controls.sql`.
 - Role + location RLS (`user_can_access_attendance` includes HR/auditor for all sites)  
 - Audit table `attendance_audit_events`  
 - Server-side type/size/template checks; spreadsheet row cap  
-- ADMS `/iclock/*`: unknown device SN rejected; `ADMS_COMM_KEY` required; optional `ADMS_IP_ALLOWLIST`  
+- ADMS `/iclock/*`: unknown device SN rejected; a registered terminal that sends no comm key is accepted; a sent key must match `ADMS_COMM_KEY` when that variable is set; optional `ADMS_IP_ALLOWLIST`  
 
 ## Apply schema
 
