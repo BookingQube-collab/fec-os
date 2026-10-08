@@ -114,7 +114,10 @@ export interface NavDepartment {
   groups?: SidebarNavGroup[];
 }
 
-function withSection<T extends { sectionKey?: string }>(sectionKey: string, items: T[]): T[] {
+function withSection<T extends NavItem | SidebarNavGroupItem>(
+  sectionKey: string,
+  items: readonly T[],
+): Array<T & { sectionKey: string }> {
   return items.map((item) => ({ ...item, sectionKey }));
 }
 

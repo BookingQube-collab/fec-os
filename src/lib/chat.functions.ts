@@ -1006,7 +1006,7 @@ export const listDirectory = createSafeAuthenticatedAction(
   directoryQuerySchema,
   async (data, context) => {
     const departments = await loadDirectoryDepartments(context);
-    const canViewAdmin = canUserDo(context.roles, "admin.view");
+    const canViewAdmin = canUserDo(context.roles ?? [], "admin.view");
     const listsTree = (context.roles ?? []).some((role) =>
       chatHubListsFullReportingTree(ROLE_LEVELS[role] ?? 0, canViewAdmin),
     );

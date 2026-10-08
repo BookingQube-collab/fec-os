@@ -884,6 +884,7 @@ function StaffingPanel({ canDocs }: { canDocs: boolean }) {
     }),
   );
   const certificates = (docs.data ?? []).filter((doc) => doc.staffId === staffId && isQualificationRecord(doc));
+  const qualificationTypes: readonly string[] = QUALIFICATION_DOC_TYPES;
 
   return (
     <div className="min-w-0 space-y-4">
@@ -965,11 +966,11 @@ function StaffingPanel({ canDocs }: { canDocs: boolean }) {
             {t("hrWorkspace.workforce.staffing.addType")}
           </Button>
         </div>
-        {QUALIFICATION_DOC_TYPES.length === 0 ? (
+        {qualificationTypes.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t("hrWorkspace.workforce.staffing.noTypes")}</p>
         ) : (
           <ul className="space-y-1 text-sm">
-            {QUALIFICATION_DOC_TYPES.map((type) => (
+            {qualificationTypes.map((type) => (
               <li key={type}>{t(`hr.docs.types.${type}`)}</li>
             ))}
           </ul>

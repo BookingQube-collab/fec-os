@@ -62,7 +62,7 @@ export type RecruitmentFilterInput = {
   query: string;
 };
 
-export function isAtsReviewed(matchScore: number | null | undefined): boolean {
+export function isAtsReviewed(matchScore: number | null | undefined): matchScore is number {
   return typeof matchScore === "number" && Number.isFinite(matchScore);
 }
 

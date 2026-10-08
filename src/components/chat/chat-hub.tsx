@@ -129,7 +129,7 @@ export function ChatHub() {
     canManageCapability && (selected?.role === "OWNER" || selected?.role === "ADMIN");
 
   const direct = useMutation({
-    mutationFn: openDirect,
+    mutationFn: (input: { otherUserId: string }) => openDirect(input),
     onSuccess: async (result) => {
       if (!result.ok) {
         toast.error(result.error);

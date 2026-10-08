@@ -294,8 +294,8 @@ function Case() {
                       <section key={name} className="space-y-3">
                         <h3 className="text-sm font-semibold">{t(`hr.journeys.sections.${name}`)}</h3>
                         {rows.map((task) => (
-                    <HrPanel key={task.id} id={`task-${task.id}`} className="space-y-3 p-4">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
+                    <HrPanel key={task.id} className="space-y-3 p-4">
+                      <div id={`task-${task.id}`} className="flex flex-wrap items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="text-xs text-muted-foreground">{t(`hr.journeys.sections.${task.section}`)}</p>
                           <p className="font-medium">{task.title}</p>

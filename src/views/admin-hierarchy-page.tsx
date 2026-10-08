@@ -450,9 +450,9 @@ function HierarchyEditor({ accessMode }: { accessMode: Exclude<HierarchyAccessMo
               />
               <span>{t("hr.hierarchy.reportsTo")}</span>
             </label>
-            {reportsToBlocked ? (
+            {reportsToDrop && !reportsToDrop.ok ? (
               <p className="ms-6 text-xs text-muted-foreground">
-                {reportsToDrop?.reason === "self"
+                {reportsToDrop.reason === "self"
                   ? t("hr.hierarchy.selfReport")
                   : t("hr.hierarchy.reportsToBlocked", {
                       name: dragged?.fullName ?? "",
