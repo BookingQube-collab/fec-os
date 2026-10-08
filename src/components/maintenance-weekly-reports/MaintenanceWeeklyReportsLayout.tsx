@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
-import { Plus } from "lucide-react";
+import { ClipboardCheck, FileBarChart, Gauge, Plus, Presentation, type LucideIcon } from "lucide-react";
 
 import { useUserRoles } from "@/hooks/use-auth";
 import { canUserDo } from "@/lib/rbac";
@@ -11,6 +11,13 @@ import { Button } from "@/components/ui/button";
 import { MAINTENANCE_WEEKLY_REPORTS_NAV_ITEMS } from "@/lib/maintenance-weekly-reports/constants";
 import { usePermission } from "@/hooks/use-permission";
 import { PillTabScroller, pillTabItemClass } from "@/components/react-bits/pill-tab-scroller";
+
+const NAV_ICONS: Record<string, LucideIcon> = {
+  "/maintenance/weekly-report": FileBarChart,
+  "/maintenance/weekly-report/kpis": Gauge,
+  "/maintenance/weekly-report/review": ClipboardCheck,
+  "/maintenance/weekly-report/executive": Presentation,
+};
 
 export function MaintenanceWeeklyReportsLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -65,8 +72,10 @@ export function MaintenanceWeeklyReportsLayout({ children }: { children: React.R
                     (/^\/maintenance\/weekly-report\/[^/]+$/.test(pathname) &&
                       !staticRoutes.some((s) => pathname === `/maintenance/weekly-report${s}` || pathname.startsWith(`/maintenance/weekly-report${s}/`)))
                   : pathname === item.href || pathname.startsWith(`${item.href}/`);
+              const Icon = NAV_ICONS[item.href] ?? FileBarChart;
               return (
                 <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={pillTabItemClass(active)}>
+                  <Icon aria-hidden />
                   {t(item.labelKey)}
                 </Link>
               );

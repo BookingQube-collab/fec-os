@@ -1,5 +1,6 @@
 import "server-only";
 
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { AuthContext } from "@/lib/server/auth";
 import { CANONICAL_LOCATION_CODES } from "@/lib/locations/normalize";
 import { fetchWorkLocationsByStaffId } from "@/lib/staff-work-locations";
@@ -15,6 +16,8 @@ import {
   type AttendanceRosterStaff,
 } from "./roster-upload";
 
+export type TeamRosterUploadScope = { staffIds: string[]; locationIds: string[] };
+
 export async function previewLiveShiftRoster(
   context: AuthContext,
   input: {
@@ -24,33 +27,41 @@ export async function previewLiveShiftRoster(
     dateTo: string;
     selectedLocationId: string | null;
   },
+  team?: TeamRosterUploadScope,
 ): Promise<AttendanceRosterPreview> {
+  const db = team ? supabaseAdmin : context.supabase;
+  let staffQuery = db
+    .from("staff")
+    .select("id, full_name, employee_code, qid, location_id, status")
+    .is("deleted_at", null);
+  staffQuery = team ? staffQuery.in("id", team.staffIds) : staffQuery.limit(5000);
+  let locationQuery = db.from("locations").select("id, code, name, region, status").eq("status", "active");
+  locationQuery = team
+    ? locationQuery.in("id", team.locationIds.length ? team.locationIds : ["00000000-0000-0000-0000-000000000000"])
+    : locationQuery.in("code", [...CANONICAL_LOCATION_CODES]);
+  let shiftQuery = db.from("attendance_shift_templates").select("id, location_id, start_time, end_time").eq("active", true);
+  if (team && team.locationIds.length) shiftQuery = shiftQuery.or(`location_id.is.null,location_id.in.(${team.locationIds.join(",")})`);
+  let mapQuery = db
+    .from("attendance_biometric_users")
+    .select("location_id, device_name, staff_id")
+    .not("staff_id", "is", null)
+    .not("device_name", "is", null)
+    .limit(5000);
+  if (team) mapQuery = team.locationIds.length ? mapQuery.in("location_id", team.locationIds) : mapQuery.limit(0);
+
   const [{ data: staffRows, error: staffErr }, { data: locationRows, error: locErr }, { data: shiftRows }, { data: mapRows, error: mapErr }] =
     await Promise.all([
-      context.supabase
-        .from("staff")
-        .select("id, full_name, employee_code, qid, location_id, status")
-        .is("deleted_at", null)
-        .limit(5000),
-      context.supabase
-        .from("locations")
-        .select("id, code, name, region, status")
-        .eq("status", "active")
-        .in("code", [...CANONICAL_LOCATION_CODES]),
-      context.supabase.from("attendance_shift_templates").select("id, location_id, start_time, end_time").eq("active", true),
-      context.supabase
-        .from("attendance_biometric_users")
-        .select("location_id, device_name, staff_id")
-        .not("staff_id", "is", null)
-        .not("device_name", "is", null)
-        .limit(5000),
+      staffQuery,
+      locationQuery,
+      shiftQuery,
+      mapQuery,
     ]);
   if (staffErr) throw staffErr;
   if (locErr) throw locErr;
   if (mapErr) throw mapErr;
 
   const workByStaff = await fetchWorkLocationsByStaffId(
-    context.supabase,
+    db,
     (staffRows ?? []).map((row) => row.id),
   );
   const staff: AttendanceRosterStaff[] = (staffRows ?? []).map((row) => ({
@@ -102,6 +113,7 @@ export async function commitLiveShiftRoster(
     fileName: string;
     fileType: string;
   },
+  team?: TeamRosterUploadScope,
 ) {
   if (!input.preview.matched) {
     const first = input.preview.errors[0];
@@ -112,8 +124,27 @@ export async function commitLiveShiftRoster(
     );
   }
 
+  const allowStaff = team ? new Set(team.staffIds) : null;
+  const allowLocations = team ? new Set(team.locationIds) : null;
+  const sourcePreview = team
+    ? {
+        ...input.preview,
+        rows: input.preview.rows.filter(
+          (row) =>
+            row.status !== "matched" ||
+            (Boolean(row.staffId && allowStaff?.has(row.staffId)) &&
+              Boolean(row.locationId && allowLocations?.has(row.locationId))),
+        ),
+      }
+    : input.preview;
+  if (team && !sourcePreview.rows.some((row) => row.status === "matched")) {
+    throw new Error("No matched roster rows for people who report to you.");
+  }
   // Re-resolve templates after preview edits (times / week-off) so saved rows match what the user confirmed.
-  const preview = await rematchPreviewShiftTemplates(context, input.preview);
+  const preview = await rematchPreviewShiftTemplates(
+    team ? { ...context, supabase: supabaseAdmin } : context,
+    sourcePreview,
+  );
   const byLocation = groupMatchedRosterRowsByLocation(preview);
   if (!byLocation.size) {
     throw new Error(
@@ -123,16 +154,24 @@ export async function commitLiveShiftRoster(
 
   const results = [];
   for (const [locId, rows] of byLocation) {
-    await assertAttendanceRosterLocation(context, locId);
+    if (allowLocations && !allowLocations.has(locId)) continue;
+    const scopedRows = allowStaff ? rows.filter((row) => row.staffId && allowStaff.has(row.staffId)) : rows;
+    if (!scopedRows.length) continue;
+    if (!team) await assertAttendanceRosterLocation(context, locId);
     results.push(
-      await replaceAttendanceRosterPeriod(context, {
-        locationId: locId,
-        dateFrom: preview.dateFrom,
-        dateTo: preview.dateTo,
-        fileName: input.fileName,
-        fileType: input.fileType,
-        rows,
-      }),
+      await replaceAttendanceRosterPeriod(
+        context,
+        {
+          locationId: locId,
+          dateFrom: preview.dateFrom,
+          dateTo: preview.dateTo,
+          fileName: input.fileName,
+          fileType: input.fileType,
+          rows: scopedRows,
+        },
+        team ? supabaseAdmin : context.supabase,
+        team ? { trustedLocation: true } : undefined,
+      ),
     );
   }
 

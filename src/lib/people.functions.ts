@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 
+import { mapChatError } from "@/lib/chat/group-rules";
 import { parseCsv } from "@/lib/csv-parse";
 import { canUserDo, type AppRole } from "@/lib/rbac";
 import {
@@ -24,6 +25,8 @@ import { fetchStaffIdsWorkingAtLocation } from "@/lib/staff-work-locations";
 import { shiftUuid, staffUuid } from "@/lib/staff-import-ids";
 import { createAuthenticatedAction, createSafeAuthenticatedAction } from "@/lib/server/create-action";
 import type { AuthContext } from "@/lib/server/create-action";
+import { ForbiddenError } from "@/lib/server/authorize";
+import { loadDirectReportStaffIds } from "@/lib/reporting-manager-access.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { syncStaffIdentityProfile } from "@/lib/hr/sync-staff-identity";
 import { validateBase64Size, validateUploadMime } from "@/lib/server/upload-validation";
@@ -31,6 +34,7 @@ import type { TablesUpdate } from "@/integrations/supabase/types";
 import { redactAuditPayload } from "@/lib/hr-sensitive-audit";
 import { insertStatusHistory } from "@/lib/staff-history";
 import { reconcileJokerStaffStatus } from "@/lib/staff-status";
+import { applyStoredTrainingRules } from "@/lib/training/execute-rules";
 import {
   decodeImageDataUrl,
 } from "@/lib/staff-photo";
@@ -392,15 +396,22 @@ const LocFilter = z
 export const listStaff = createAuthenticatedAction(
   LocFilter,
   async (data, context) => {
-    let q = context.supabase
+    const fullRoster = canUserDo(context.roles ?? [], "people.view_roster");
+    const teamIds = fullRoster ? null : (await loadDirectReportStaffIds(context.userId)).directReportStaffIds;
+    if (!fullRoster && (!teamIds || teamIds.length === 0)) {
+      throw new ForbiddenError("The employee list is limited to people who report to you.");
+    }
+    const staffDb = teamIds ? supabaseAdmin : context.supabase;
+    let q = staffDb
       .from("staff")
       .select(
         "id, employee_code, full_name, job_title, department, status, location_id, is_roaming, staff_departments(department_id)",
       )
       .is("deleted_at", null)
       .order("full_name");
+    if (teamIds) q = q.in("id", teamIds);
     if (data.locationId) {
-      const extraIds = await fetchStaffIdsWorkingAtLocation(context.supabase, data.locationId);
+      const extraIds = await fetchStaffIdsWorkingAtLocation(staffDb, data.locationId);
       q = extraIds.length
         ? q.or(`location_id.eq.${data.locationId},id.in.(${extraIds.join(",")})`)
         : q.eq("location_id", data.locationId);
@@ -414,24 +425,42 @@ export const listStaff = createAuthenticatedAction(
       ),
     }));
   },
-  { defaultInput: {}, auth: { capability: "people.view_roster" } },
+  { defaultInput: {}, auth: { anyCapability: ["people.view_roster", "hr.employee_app"] } },
 );
 
+const ShiftListFilter = z
+  .object({
+    locationId: z.string().uuid().nullable().optional(),
+    from: z.string().datetime().optional(),
+    to: z.string().datetime().optional(),
+  })
+  .default({});
+
 export const listShifts = createAuthenticatedAction(
-  LocFilter,
+  ShiftListFilter,
   async (data, context) => {
-    const since = new Date(Date.now() - 7 * 86400_000).toISOString();
-    let q = context.supabase
+    const fullRoster = canUserDo(context.roles ?? [], "people.view_roster");
+    const teamIds = fullRoster ? null : (await loadDirectReportStaffIds(context.userId)).directReportStaffIds;
+    if (!fullRoster && (!teamIds || teamIds.length === 0)) {
+      throw new ForbiddenError("Shifts are limited to people who report to you.");
+    }
+    const since = data.from ?? new Date(Date.now() - 7 * 86400_000).toISOString();
+    const shiftDb = teamIds ? supabaseAdmin : context.supabase;
+    let q = shiftDb
       .from("shifts")
-      .select("id, location_id, user_id, staff_id, role_label, starts_at, ends_at, status, clock_in_at, clock_out_at, notes")
+      .select(
+        "id, location_id, user_id, staff_id, role_label, starts_at, ends_at, status, clock_in_at, clock_out_at, notes, swap_requested_at, swap_requested_for",
+      )
       .gte("starts_at", since)
       .order("starts_at");
+    if (teamIds) q = q.in("staff_id", teamIds);
+    if (data.to) q = q.lte("starts_at", data.to);
     if (data.locationId) q = q.eq("location_id", data.locationId);
     const { data: rows, error } = await q;
     if (error) throw error;
     return rows ?? [];
   },
-  { defaultInput: {}, auth: { capability: "people.view_roster" } },
+  { defaultInput: {}, auth: { anyCapability: ["people.view_roster", "hr.employee_app"] } },
 );
 
 export const createShift = createAuthenticatedAction(
@@ -718,6 +747,11 @@ export const createStaff = createSafeAuthenticatedAction(
         context.userId,
       ),
     ]);
+    await applyStoredTrainingRules(context, {
+      trigger: "JOIN_COMPANY",
+      staffId: row.id as string,
+      roleCode: data.jobTitle ?? null,
+    });
     await context.supabase.rpc("log_audit", {
       _action: "staff.created",
       _table_name: "staff",
@@ -756,7 +790,7 @@ export const updateStaff = createSafeAuthenticatedAction(
   async (data, context) => {
     const { data: existing, error: fetchErr } = await context.supabase
       .from("staff")
-      .select("location_id, status, employment_type, qid")
+      .select("location_id, status, employment_type, qid, job_title")
       .eq("id", data.id)
       .is("deleted_at", null)
       .single();
@@ -769,6 +803,14 @@ export const updateStaff = createSafeAuthenticatedAction(
       nextEmploymentType,
       data.status !== undefined ? data.status : existing.status,
     );
+
+    if (data.jobTitle !== undefined && data.jobTitle !== existing.job_title && data.jobTitle) {
+      await applyStoredTrainingRules(context, {
+        trigger: "ROLE_CHANGE",
+        staffId: data.id,
+        roleCode: data.jobTitle,
+      });
+    }
 
     const patch: TablesUpdate<"staff"> = {};
     if (data.fullName !== undefined) patch.full_name = data.fullName;
@@ -1008,6 +1050,7 @@ export const createMasterDepartment = createAuthenticatedAction(
     sortOrder: z.number().int().min(0).max(9999).optional(),
     parentId: z.string().uuid().nullable().optional(),
     audience: z.enum(["ho", "fec"]).optional(),
+    createChat: z.boolean().optional(),
   }),
   async (data, context) => {
     const parentId = data.parentId ?? null;
@@ -1025,7 +1068,17 @@ export const createMasterDepartment = createAuthenticatedAction(
       .select("id")
       .single();
     if (error) throw error;
-    return { id: row.id as string };
+    const id = row.id as string;
+    if (!data.createChat) return { id, chatError: null as string | null };
+
+    const supabase = context.supabase as unknown as {
+      rpc: (
+        name: string,
+        args: Record<string, unknown>,
+      ) => Promise<{ data: unknown; error: { message: string } | null }>;
+    };
+    const chat = await supabase.rpc("chat_enable_department_chat", { _department_id: id });
+    return { id, chatError: chat.error ? mapChatError(chat.error) : null };
   },
   { auth: { capability: "people.edit_roster" } },
 );

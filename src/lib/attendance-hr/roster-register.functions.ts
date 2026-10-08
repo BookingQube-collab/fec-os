@@ -3,6 +3,8 @@
 import { z } from "zod";
 
 import { canUserDo, type AppRole } from "@/lib/rbac";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { loadDirectReportStaffIds } from "@/lib/reporting-manager-access.server";
 import { createAuthenticatedAction, type AuthContext } from "@/lib/server/create-action";
 import { ForbiddenError } from "@/lib/server/authorize";
 import { assertAttendanceRosterLocation } from "@/lib/attendance-hr/roster-apply";
@@ -308,12 +310,33 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
     includeCopyDepartments: z.boolean().optional().default(false),
   }),
   async (data, context) => {
-    assertCanViewRosterRegister(context.roles);
-    if (data.locationId) await assertAttendanceRosterLocation(context, data.locationId);
+    const roles = (context.roles ?? []) as AppRole[];
+    const canViewCompanyRoster =
+      canUserDo(roles, "people.view_roster") ||
+      canUserDo(roles, "people.import_roster") ||
+      canUserDo(roles, "people.edit_roster") ||
+      canUserDo(roles, "daily_ops.roster.upload") ||
+      canUserDo(roles, "attendance.view");
+    const teamIds = canViewCompanyRoster
+      ? null
+      : (await loadDirectReportStaffIds(context.userId)).directReportStaffIds;
+    if (!canViewCompanyRoster && (!teamIds || teamIds.length === 0)) {
+      throw new ForbiddenError("Forbidden: missing capability to view the shift roster.");
+    }
+    if (teamIds && data.staffId && !teamIds.includes(data.staffId)) {
+      return { dateFrom: data.dateFrom, dateTo: data.dateTo, count: 0, rows: [] as RosterRegisterRow[] };
+    }
+    if (data.locationId && canViewCompanyRoster) await assertAttendanceRosterLocation(context, data.locationId);
+    // Team rows live at the sites people punch, which the manager's role locations do not include.
+    const db = teamIds ? supabaseAdmin : context.supabase;
 
     let deptStaffIds: string[] | null = null;
     if (data.departmentId) {
-      deptStaffIds = await staffIdsForDepartment(context.supabase, data.departmentId);
+      deptStaffIds = await staffIdsForDepartment(db, data.departmentId);
+      if (teamIds) {
+        const allow = new Set(teamIds);
+        deptStaffIds = deptStaffIds.filter((id) => allow.has(id));
+      }
       if (deptStaffIds.length === 0) {
         return { dateFrom: data.dateFrom, dateTo: data.dateTo, count: 0, rows: [] as RosterRegisterRow[] };
       }
@@ -335,7 +358,7 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
       created_at: string | null;
     };
     let assignments = await collectPagedRows<AssignmentPageRow>(async (from, to) => {
-      let q = context.supabase
+      let q = db
         .from("attendance_roster_assignments")
         .select(
           "id, location_id, staff_id, work_date, shift_template_id, shift_start, shift_end, is_week_off, source, created_at",
@@ -349,7 +372,8 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
 
       if (data.locationId) q = q.eq("location_id", data.locationId);
       if (data.staffId) q = q.eq("staff_id", data.staffId);
-      if (deptStaffIds) q = q.in("staff_id", deptStaffIds);
+      else if (deptStaffIds) q = q.in("staff_id", deptStaffIds);
+      else if (teamIds) q = q.in("staff_id", teamIds);
       if (data.sourceUploadOnly) q = q.in("source", ["upload", "amend"]);
       else if (data.source) q = q.eq("source", data.source);
 
@@ -359,12 +383,12 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
     }, ATTENDANCE_DAILY_LIST_PAGE_SIZE);
 
     if (data.excludedDepartmentIds?.length) {
-      const hiddenStaff = await hiddenStaffIdsForExcludedDepartments(context.supabase, data.excludedDepartmentIds);
+      const hiddenStaff = await hiddenStaffIdsForExcludedDepartments(db, data.excludedDepartmentIds);
       if (hiddenStaff.size > 0) {
         assignments = assignments.filter((row) => !hiddenStaff.has(String(row.staff_id)));
       }
     } else if (data.showOnlyDepartmentIds?.length) {
-      const shownStaff = await staffIdsLinkedToDepartments(context.supabase, data.showOnlyDepartmentIds);
+      const shownStaff = await staffIdsLinkedToDepartments(db, data.showOnlyDepartmentIds);
       assignments = assignments.filter((row) => shownStaff.has(String(row.staff_id)));
     }
 
@@ -380,16 +404,16 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
 
     const [staffRes, locRes, shiftRes] = await Promise.all([
       staffIds.length
-        ? context.supabase
+        ? db
             .from("staff")
             .select("id, full_name, employee_code, qid, flexible_attendance")
             .in("id", staffIds)
         : Promise.resolve({ data: [], error: null }),
       locationIds.length
-        ? context.supabase.from("locations").select("id, code, name").in("id", locationIds)
+        ? db.from("locations").select("id, code, name").in("id", locationIds)
         : Promise.resolve({ data: [], error: null }),
       shiftIds.length
-        ? context.supabase
+        ? db
             .from("attendance_shift_templates")
             .select("id, start_time, end_time, name")
             .in("id", shiftIds)
@@ -403,7 +427,7 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
     const locById = new Map((locRes.data ?? []).map((row) => [String(row.id), row]));
     const shiftById = new Map((shiftRes.data ?? []).map((row) => [String(row.id), row]));
     const departmentLabels = data.includeCopyDepartments
-      ? await loadRosterCopyDepartmentLabels(context.supabase, staffIds)
+      ? await loadRosterCopyDepartmentLabels(db, staffIds)
       : new Map<string, RosterCopyDepartmentLabel>();
 
     const leaveByStaffDate = new Map<
@@ -437,13 +461,13 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
               .order("staff_id", { ascending: true })
               .range(from, to);
           const withDate = await filters(
-            context.supabase
+            db
               .from("attendance_leave_records")
               .select("staff_id, leave_date, leave_type, notes, comp_off_for_date"),
           );
           if (withDate.error && missingCompOffColumn(withDate.error)) {
             const legacy = await filters(
-              context.supabase.from("attendance_leave_records").select("staff_id, leave_date, leave_type, notes"),
+              db.from("attendance_leave_records").select("staff_id, leave_date, leave_type, notes"),
             );
             if (legacy.error) throw legacy.error;
             return ((legacy.data ?? []) as Array<Omit<LeavePageRow, "comp_off_for_date">>).map((row) => ({
@@ -526,6 +550,7 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
         "people.edit_roster",
         "daily_ops.roster.upload",
         "attendance.view",
+        "hr.employee_app",
       ],
     },
   },

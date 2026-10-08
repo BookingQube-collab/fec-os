@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { AlertCircle, ChevronRight, Loader2, Plus, Sparkles } from "lucide-react";
+import { AlertCircle, ChevronRight, LayoutGrid, List, Loader2, Plus, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -87,11 +87,11 @@ function IssuesPage() {
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
         <TabsList>
-          <TabsTrigger value="list">List</TabsTrigger>
-          <TabsTrigger value="board">Board</TabsTrigger>
+          <TabsTrigger value="list"><List aria-hidden />List</TabsTrigger>
+          <TabsTrigger value="board"><LayoutGrid aria-hidden />Board</TabsTrigger>
           {canCreate && (
             <TabsTrigger value="new">
-              <Plus /> New ticket
+              <Plus aria-hidden /> New ticket
             </TabsTrigger>
           )}
         </TabsList>

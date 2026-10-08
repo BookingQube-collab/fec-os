@@ -1,5 +1,14 @@
 "use client";
 
+import {
+  BarChart3,
+  CircleHelp,
+  Settings,
+  ShieldCheck,
+  ShoppingCart,
+  Store,
+  type LucideIcon,
+} from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
@@ -20,6 +29,15 @@ const ITEMS = [
     capability: "procurement.configure" as const,
   },
 ];
+
+const NAV_ICONS: Record<(typeof ITEMS)[number]["match"], LucideIcon> = {
+  purchases: ShoppingCart,
+  vendors: Store,
+  analytics: BarChart3,
+  compliance: ShieldCheck,
+  help: CircleHelp,
+  config: Settings,
+};
 
 function chromeMatch(pathname: string, match: (typeof ITEMS)[number]["match"]) {
   if (match === "vendors") return pathname.startsWith("/vendors");
@@ -48,8 +66,10 @@ export function PrModuleShell({ children }: { children: React.ReactNode }) {
           if (item.capability === "vendors.view" && !canVendors) return null;
           if (item.capability === "procurement.configure" && !canConfig) return null;
           const active = chromeMatch(pathname, item.match);
+          const Icon = NAV_ICONS[item.match];
           return (
             <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={pillTabItemClass(active)}>
+              <Icon aria-hidden />
               {t(item.labelKey)}
             </Link>
           );

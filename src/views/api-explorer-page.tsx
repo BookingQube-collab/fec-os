@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { Code2, Loader2, Play, Search } from "lucide-react";
+import { Braces, Code2, Loader2, Play, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Badge } from "@/components/ui/badge";
@@ -365,8 +365,8 @@ function ApiExplorerPage() {
 
               <Tabs defaultValue="try">
                 <TabsList>
-                  <TabsTrigger value="try">{t("apiExplorer.tryIt")}</TabsTrigger>
-                  <TabsTrigger value="response">{t("apiExplorer.response")}</TabsTrigger>
+                  <TabsTrigger value="try"><Play aria-hidden />{t("apiExplorer.tryIt")}</TabsTrigger>
+                  <TabsTrigger value="response"><Braces aria-hidden />{t("apiExplorer.response")}</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="try" className="space-y-3 rounded-lg border border-border bg-card p-4">

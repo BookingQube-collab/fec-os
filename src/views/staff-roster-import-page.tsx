@@ -8,6 +8,8 @@ import Link from "next/link";
 import { type DragEvent, type UIEvent, memo, startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
+import { RosterLocationCoverage } from "@/components/people/roster-location-coverage";
+import { RosterRegisterPanel } from "@/components/people/roster-register-panel";
 import { ShiftRangeEditor } from "@/components/people/shift-range-editor";
 import { StaffSampleDownloadDialog } from "@/components/people/staff-sample-download-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -100,7 +102,9 @@ function kindLabel(kind: ReturnType<typeof rosterFileKind>, t: (key: string) => 
   return kind;
 }
 
-export default function StaffRosterImportPage() {
+const EMBEDDED_CONFIRM = "bg-electric text-white hover:bg-electric/90";
+
+export function ShiftRosterImport({ embedded = false }: { embedded?: boolean }) {
   const { t, i18n } = useTranslation();
   const roles = useUserRoles();
   const venueSafeOnly = roles.some((r) => r === "branch_gm" || r === "duty_manager")
@@ -122,6 +126,7 @@ export default function StaffRosterImportPage() {
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [sampleOpen, setSampleOpen] = useState(false);
   const [sampleBusy, setSampleBusy] = useState(false);
+  const [registerRefresh, setRegisterRefresh] = useState(0);
   const storeLocationId = useAppStore((s) => s.currentLocationId);
   const sites = useSites();
 
@@ -238,6 +243,7 @@ export default function StaffRosterImportPage() {
         toast.success(t("people.roster.previewReady"));
       }
       if (arg.mode === "commit") {
+        setRegisterRefresh((current) => current + 1);
         void qc.invalidateQueries({ queryKey: queryKeys.people.all });
       }
     },
@@ -320,8 +326,12 @@ export default function StaffRosterImportPage() {
     }
   };
 
+  const surface = embedded ? "hr-panel min-w-0" : "surface-card";
+  const confirmClass = embedded ? EMBEDDED_CONFIRM : undefined;
+
   return (
-    <div className="space-y-6">
+    <div className={embedded ? "min-w-0 space-y-4" : "space-y-6"}>
+      {embedded ? null : (
       <FecPageHeader
         icon={Upload}
         kicker={t("people.roster.kicker")}
@@ -334,6 +344,7 @@ export default function StaffRosterImportPage() {
           </Button>
         }
       />
+      )}
 
       <StaffSampleDownloadDialog
         open={sampleOpen}
@@ -347,7 +358,15 @@ export default function StaffRosterImportPage() {
         onConfirm={downloadSample}
       />
 
-      <div className="surface-card space-y-4 p-5">
+      <div className={cn(surface, "space-y-4 p-4 sm:p-5")}>
+        {embedded ? (
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setSampleOpen(true)}>
+              <Download className="h-4 w-4" />
+              {t("people.roster.downloadSample")}
+            </Button>
+          </div>
+        ) : null}
         <p className="text-xs text-muted-foreground">{t("people.roster.keepCsv")}</p>
         <p className="text-xs text-muted-foreground">{t("people.roster.matchHint")}</p>
 
@@ -561,6 +580,7 @@ export default function StaffRosterImportPage() {
           <Button
             type="button"
             variant={readyToConfirm || committing ? "default" : "outline"}
+            className={cn((readyToConfirm || committing) && confirmClass)}
             disabled={!readyToConfirm}
             onClick={() => uploadMut.mutate({ mode: "commit" })}
           >
@@ -587,7 +607,7 @@ export default function StaffRosterImportPage() {
       </div>
 
       {previewError ? (
-        <div className="surface-card space-y-2 p-5">
+        <div className={cn(surface, "space-y-2 p-4 sm:p-5")}>
           <h2 className="text-sm font-semibold">
             {uploadMut.variables?.mode === "commit"
               ? t("people.roster.confirmFailed")
@@ -602,12 +622,21 @@ export default function StaffRosterImportPage() {
           preview={preview}
           readyToConfirm={readyToConfirm}
           committing={committing}
+          confirmClassName={confirmClass}
+          surfaceClassName={surface}
           onConfirm={confirmImport}
           onClose={closePreview}
           onRowsChange={handleShiftRowsChange}
         />
       ) : null}
 
+      {embedded ? (
+        <EmbeddedMonthlyRoster
+          locationKey={locationScope === "single" ? (singleLocationId ?? "single") : "all"}
+          defaultLocationId={locationScope === "single" ? singleLocationId : storeLocationId}
+          refreshToken={registerRefresh}
+        />
+      ) : (
       <div className="surface-card flex flex-wrap items-center justify-between gap-4 p-5">
         <div className="space-y-1">
           <h2 className="text-sm font-semibold">{t("people.roster.viewTitle")}</h2>
@@ -620,9 +649,99 @@ export default function StaffRosterImportPage() {
           </Link>
         </Button>
       </div>
+      )}
     </div>
   );
 }
+
+function EmbeddedMonthlyRoster({
+  locationKey,
+  defaultLocationId,
+  refreshToken,
+}: {
+  locationKey: string;
+  defaultLocationId: string | null;
+  refreshToken: number;
+}) {
+  const { t, i18n } = useTranslation();
+  const [periodMode, setPeriodMode] = useState<AttendanceRosterPeriodMode>("month");
+  const [weekStart, setWeekStart] = useState(() => qatarWeekBounds(todayYmd()).dateFrom);
+  const [month, setMonth] = useState(() => payrollMonthOf(todayYmd()));
+  const period = useMemo(() => {
+    try {
+      return attendanceRosterPeriod({ mode: periodMode, weekStart, month });
+    } catch {
+      return { dateFrom: weekStart, dateTo: weekStart };
+    }
+  }, [periodMode, weekStart, month]);
+
+  return (
+    <div className="min-w-0 space-y-4">
+      <div className="space-y-1">
+        <h2 className="text-base font-semibold">{t("people.roster.viewTitle")}</h2>
+        <p className="max-w-2xl text-sm text-muted-foreground">{t("people.roster.reviewHere")}</p>
+      </div>
+      <div className="hr-panel min-w-0 space-y-4 p-4 sm:p-5">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="roster-embed-period">{t("people.roster.stepPeriod")}</Label>
+            <SearchableSelect
+              id="roster-embed-period"
+              value={periodMode}
+              onValueChange={(value) => setPeriodMode(value === "week" ? "week" : "month")}
+              options={[
+                { value: "month", label: t("people.roster.periodMonth") },
+                { value: "week", label: t("people.roster.periodWeek") },
+              ]}
+            />
+            <p className="text-xs text-muted-foreground">{t("people.roster.periodHelp")}</p>
+          </div>
+          {periodMode === "week" ? (
+            <div className="space-y-1.5">
+              <Label htmlFor="roster-embed-week">{t("people.roster.weekStart")}</Label>
+              <Input
+                id="roster-embed-week"
+                type="date"
+                value={weekStart}
+                onChange={(e) => setWeekStart(qatarWeekBounds(e.target.value || todayYmd()).dateFrom)}
+              />
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <Label htmlFor="roster-embed-month">{t("people.roster.month")}</Label>
+              <Input
+                id="roster-embed-month"
+                type="month"
+                value={month}
+                onChange={(e) => setMonth(e.target.value)}
+              />
+            </div>
+          )}
+          <div className="space-y-1.5">
+            <Label>{t("people.roster.viewRangeLabel")}</Label>
+            <p className="rounded-md border border-border/70 bg-muted/30 px-3 py-2 text-sm">
+              {formatPayrollRange(period.dateFrom, period.dateTo, i18n.language)}
+            </p>
+          </div>
+        </div>
+      </div>
+      <RosterLocationCoverage dateFrom={period.dateFrom} dateTo={period.dateTo} />
+      <RosterRegisterPanel
+        key={locationKey}
+        dateFrom={period.dateFrom}
+        dateTo={period.dateTo}
+        defaultLocationId={defaultLocationId}
+        refreshToken={refreshToken}
+        sourceUploadOnly={false}
+        showSourceFilter
+        hideHeader
+        maxHeight={640}
+      />
+    </div>
+  );
+}
+
+export default ShiftRosterImport;
 
 function useVirtualWindow(count: number, rowHeight = SHIFT_ROW_HEIGHT) {
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -651,6 +770,8 @@ const ShiftPreviewPanel = memo(function ShiftPreviewPanel({
   preview,
   readyToConfirm,
   committing,
+  confirmClassName,
+  surfaceClassName = "surface-card",
   onConfirm,
   onClose,
   onRowsChange,
@@ -658,6 +779,8 @@ const ShiftPreviewPanel = memo(function ShiftPreviewPanel({
   preview: PreviewResponse | null;
   readyToConfirm: boolean;
   committing: boolean;
+  confirmClassName?: string;
+  surfaceClassName?: string;
   onConfirm: () => void;
   onClose: () => void;
   onRowsChange: (rows: ShiftPreviewRow[], recount?: boolean) => void;
@@ -786,7 +909,7 @@ const ShiftPreviewPanel = memo(function ShiftPreviewPanel({
   const slice = virtualize ? filtered.slice(windowed.start, windowed.end) : filtered;
 
   return (
-    <div className="surface-card space-y-4 p-5">
+    <div className={cn(surfaceClassName, "space-y-4 p-4 sm:p-5")}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -808,7 +931,7 @@ const ShiftPreviewPanel = memo(function ShiftPreviewPanel({
             <X className="h-4 w-4" />
             {t("people.roster.closePreview")}
           </Button>
-          <Button type="button" variant={readyToConfirm || committing ? "default" : "outline"} disabled={!readyToConfirm} onClick={onConfirm}>
+          <Button type="button" variant={readyToConfirm || committing ? "default" : "outline"} className={cn((readyToConfirm || committing) && confirmClassName)} disabled={!readyToConfirm} onClick={onConfirm}>
             {committing ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {committing ? t("people.roster.confirming") : t("people.roster.confirm")}
           </Button>

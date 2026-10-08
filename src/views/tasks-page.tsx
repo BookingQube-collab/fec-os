@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { ListChecks, Loader2, Plus, Sparkles } from "lucide-react";
+import { CalendarDays, Files, ListChecks, Loader2, Plus, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -53,9 +53,9 @@ function TasksPage() {
       </header>
       <Tabs defaultValue="today">
         <TabsList>
-          <TabsTrigger value="today">Today</TabsTrigger>
-          <TabsTrigger value="templates">Templates</TabsTrigger>
-          <TabsTrigger value="new">New template</TabsTrigger>
+          <TabsTrigger value="today"><CalendarDays aria-hidden />Today</TabsTrigger>
+          <TabsTrigger value="templates"><Files aria-hidden />Templates</TabsTrigger>
+          <TabsTrigger value="new"><Plus aria-hidden />New template</TabsTrigger>
         </TabsList>
         <TabsContent value="today" className="mt-4"><TodayInstances /></TabsContent>
         <TabsContent value="templates" className="mt-4"><TemplatesList /></TabsContent>

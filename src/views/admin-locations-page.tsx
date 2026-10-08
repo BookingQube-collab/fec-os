@@ -30,6 +30,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { usePermission } from "@/hooks/use-permission";
+import { enableSiteChat } from "@/lib/chat/sync.functions";
 import {
   listLocationMaster,
   setLocationActive,
@@ -138,6 +139,12 @@ function LocationMasterView() {
       toast.error(error instanceof Error ? error.message : t("locationMaster.saveFailed"));
     },
     onSettled: () => setPendingId(null),
+  });
+
+  const enableChat = useMutation({
+    mutationFn: (locationId: string) => enableSiteChat({ locationId }),
+    onSuccess: () => toast.success(t("locationMaster.chatOn")),
+    onError: (error) => toast.error(error instanceof Error ? error.message : t("locationMaster.chatFailed")),
   });
 
   const save = useMutation({
@@ -251,16 +258,29 @@ function LocationMasterView() {
                         />
                       </TableCell>
                       <TableCell>
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="ghost"
-                          disabled={!canEdit}
-                          aria-label={t("locationMaster.edit", { code: row.code })}
-                          onClick={() => setDraft(draftFromRow(row))}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
+                        <div className="flex items-center justify-end gap-1">
+                          {canEdit ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              disabled={enableChat.isPending}
+                              onClick={() => enableChat.mutate(row.id)}
+                            >
+                              {t("locationMaster.enableChat")}
+                            </Button>
+                          ) : null}
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            disabled={!canEdit}
+                            aria-label={t("locationMaster.edit", { code: row.code })}
+                            onClick={() => setDraft(draftFromRow(row))}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   );

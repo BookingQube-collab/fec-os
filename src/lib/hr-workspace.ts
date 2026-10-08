@@ -19,7 +19,7 @@ export const HR_WORKSPACE_MODULES: HrWorkspaceModule[] = [
   { id: "07", labelKey: "hr.workspace.modules.payroll", href: "/people/payroll", status: "partial", phase: null },
   { id: "08", labelKey: "hr.workspace.modules.performance", href: "/people/performance", status: "partial", phase: null },
   { id: "09", labelKey: "hr.workspace.modules.learning", href: "/people/training", status: "partial", phase: null },
-  { id: "10", labelKey: "hr.workspace.modules.engagement", href: null, status: "later", phase: "P8" },
+  { id: "10", labelKey: "hr.workspace.modules.engagement", href: "/people/hr/engagement", status: "partial", phase: null },
   { id: "11", labelKey: "hr.workspace.modules.planning", href: "/people/hr/quota", status: "partial", phase: null },
   { id: "12", labelKey: "hr.workspace.modules.compliance", href: null, status: "later", phase: "P7" },
   { id: "13", labelKey: "hr.workspace.modules.relations", href: "/people/hr/warnings", status: "partial", phase: null },

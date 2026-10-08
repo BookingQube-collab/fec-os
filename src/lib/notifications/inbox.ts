@@ -67,6 +67,14 @@ export function mergeInboxItems(persisted: InboxItem[], derived: InboxItem[], li
     .slice(0, limit);
 }
 
+/** Open work (approvals, tasks) stays in the inbox, but it is not an unread notification. */
 export function inboxUnreadCount(items: InboxItem[]): number {
-  return items.filter((item) => !item.readAt).length;
+  return items.filter((item) => item.persisted && !item.readAt).length;
+}
+
+export function applyMarkAllRead(payload: ActionInboxPayload, readAt = new Date().toISOString()): ActionInboxPayload {
+  const items = payload.items.map((item) =>
+    item.persisted && !item.readAt ? { ...item, readAt } : item,
+  );
+  return { ...payload, items, unreadCount: inboxUnreadCount(items) };
 }

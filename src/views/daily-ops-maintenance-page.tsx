@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, List, Plus } from "lucide-react";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -130,8 +130,8 @@ function DailyOpsMaintenancePage() {
 
       <Tabs defaultValue="list">
         <TabsList>
-          <TabsTrigger value="list">{t("dailyOps.maintenance.list")}</TabsTrigger>
-          {canSubmit && <TabsTrigger value="new">{t("dailyOps.maintenance.new")}</TabsTrigger>}
+          <TabsTrigger value="list"><List aria-hidden />{t("dailyOps.maintenance.list")}</TabsTrigger>
+          {canSubmit && <TabsTrigger value="new"><Plus aria-hidden />{t("dailyOps.maintenance.new")}</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="list" className="mt-4">

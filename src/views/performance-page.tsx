@@ -8,7 +8,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Medal, Plus, UserCheck } from "lucide-react";
+import { Award, ClipboardList, LayoutDashboard, Medal, Plus, Target, Trophy, UserCheck, Users } from "lucide-react";
 import { toast } from "sonner";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
@@ -119,13 +119,13 @@ export default function PerformancePage() {
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
-          <TabsTrigger value="dashboard">{t("performance.tabs.dashboard")}</TabsTrigger>
-          <TabsTrigger value="kra">{t("performance.tabs.kra")}</TabsTrigger>
-          <TabsTrigger value="kpi">{t("performance.tabs.kpi")}</TabsTrigger>
-          <TabsTrigger value="assign">{t("performance.tabs.assign")}</TabsTrigger>
-          <TabsTrigger value="evaluations">{t("performance.tabs.evaluations")}</TabsTrigger>
-          <TabsTrigger value="achievements">{t("performance.tabs.achievements")}</TabsTrigger>
-          <TabsTrigger value="eom">{t("performance.tabs.eom")}</TabsTrigger>
+          <TabsTrigger value="dashboard"><LayoutDashboard aria-hidden />{t("performance.tabs.dashboard")}</TabsTrigger>
+          <TabsTrigger value="kra"><Target aria-hidden />{t("performance.tabs.kra")}</TabsTrigger>
+          <TabsTrigger value="kpi"><ClipboardList aria-hidden />{t("performance.tabs.kpi")}</TabsTrigger>
+          <TabsTrigger value="assign"><Users aria-hidden />{t("performance.tabs.assign")}</TabsTrigger>
+          <TabsTrigger value="evaluations"><UserCheck aria-hidden />{t("performance.tabs.evaluations")}</TabsTrigger>
+          <TabsTrigger value="achievements"><Award aria-hidden />{t("performance.tabs.achievements")}</TabsTrigger>
+          <TabsTrigger value="eom"><Trophy aria-hidden />{t("performance.tabs.eom")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="dashboard" className="mt-4">

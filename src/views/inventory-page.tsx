@@ -6,6 +6,7 @@ import { FecLoader } from "@/components/fec";
 import dynamic from "next/dynamic";
 import {
   AlertTriangle,
+  Boxes,
   LayoutDashboard,
   Loader2,
   Package,
@@ -111,12 +112,12 @@ function InventoryPage() {
 
       <Tabs defaultValue="dashboard">
         <TabsList>
-          <TabsTrigger value="dashboard" className="gap-1.5">
-            <LayoutDashboard className="h-3.5 w-3.5" />
+          <TabsTrigger value="dashboard">
+            <LayoutDashboard aria-hidden />
             {t("inventory.tabs.dashboard")}
           </TabsTrigger>
-          <TabsTrigger value="stock">{t("inventory.tabs.stock")}</TabsTrigger>
-          <TabsTrigger value="catalog">{t("inventory.tabs.catalog")}</TabsTrigger>
+          <TabsTrigger value="stock"><Package aria-hidden />{t("inventory.tabs.stock")}</TabsTrigger>
+          <TabsTrigger value="catalog"><Boxes aria-hidden />{t("inventory.tabs.catalog")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="dashboard" className="mt-4">

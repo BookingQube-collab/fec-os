@@ -31,12 +31,13 @@ export interface SiteRow {
   city: string | null;
   region: string | null;
   status: string;
+  timezone: string;
 }
 
 export async function fetchSites(context: AuthContext): Promise<SiteRow[]> {
   const { data, error } = await context.supabase
     .from("locations")
-    .select("id, code, name, city, region, status")
+    .select("id, code, name, city, region, status, timezone")
     .eq("status", "active")
     .order("code");
   if (error) throw error;

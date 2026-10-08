@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
+import { enableDepartmentChat } from "@/lib/chat/sync.functions";
 import {
   createMasterDepartment,
   deleteMasterDepartment,
@@ -57,6 +58,7 @@ export function DepartmentMasterPanel({
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [newCode, setNewCode] = useState("");
+  const [createChat, setCreateChat] = useState(false);
   const [newParentId, setNewParentId] = useState<string>(NONE);
   const [newAudience, setNewAudience] = useState<DepartmentAudience>(audience ?? "fec");
   const [audienceFilter, setAudienceFilter] = useState<"all" | DepartmentAudience>(audience ?? "all");
@@ -104,11 +106,15 @@ export function DepartmentMasterPanel({
           code: newCode.trim() || undefined,
           parentId: newParentId === NONE ? null : newParentId,
           audience: audience ?? newAudience,
+          createChat,
         }),
-    onSuccess: () => {
+    onSuccess: (result) => {
       toast.success(t("people.departments.added"));
+      if (createChat && result.chatError) toast.error(result.chatError);
+      else if (createChat) toast.success(t("people.departments.chatOn"));
       setNewName("");
       setNewCode("");
+      setCreateChat(false);
       setNewParentId(NONE);
       invalidate();
     },
@@ -136,6 +142,14 @@ export function DepartmentMasterPanel({
     onSuccess: () => {
       toast.success(t("people.departments.budgetSaved"));
       invalidate();
+    },
+    onError: (e) => toast.error((e as Error).message),
+  });
+
+  const enableChatMut = useMutation({
+    mutationFn: (departmentId: string) => enableDepartmentChat({ departmentId }),
+    onSuccess: () => {
+      toast.success(t("people.departments.chatOn"));
     },
     onError: (e) => toast.error((e as Error).message),
   });
@@ -240,6 +254,19 @@ export function DepartmentMasterPanel({
               <Plus />
             </Button>
             </div>
+            <div className="mt-3 flex items-start gap-2">
+              <Checkbox
+                id="create-department-chat"
+                checked={createChat}
+                onCheckedChange={(value) => setCreateChat(value === true)}
+              />
+              <Label htmlFor="create-department-chat" className="text-sm font-medium leading-tight">
+                {t("people.departments.createChat")}
+                <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+                  {t("people.departments.createChatHint")}
+                </span>
+              </Label>
+            </div>
           </FecFormSection>
 
           <div className="max-h-80 overflow-y-auto rounded-md border border-border">
@@ -320,6 +347,15 @@ export function DepartmentMasterPanel({
                               {t("people.masters.usedBy", { count: usageById.get(d.id) ?? 0 })}
                             </p>
                           ) : null}
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            disabled={enableChatMut.isPending}
+                            onClick={() => enableChatMut.mutate(d.id)}
+                          >
+                            {t("people.departments.enableChat")}
+                          </Button>
                           {!d.parent_id ? (
                             <Button
                               type="button"

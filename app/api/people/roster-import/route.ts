@@ -1,4 +1,6 @@
 import { logger } from "@/core/logger";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { resolveShiftRosterUploadScope } from "@/lib/reporting-manager-access.server";
 import { withAuthRouteRequest, searchParams } from "@/lib/server/api-route";
 import { attendanceRosterPeriod, monthBounds, qatarWeekBounds, type AttendanceRosterPeriodMode } from "@/lib/attendance-hr/roster-period";
 import { commitLiveShiftRoster, previewLiveShiftRoster } from "@/lib/attendance-hr/roster-run";
@@ -83,6 +85,7 @@ function readPeriod(source: { get: (key: string) => string | null }) {
 export async function GET(request: Request) {
   return withAuthRouteRequest(
     async (context, req) => {
+      await resolveShiftRosterUploadScope(context);
       const params = searchParams(req);
       if (params.get("download") === "sample") {
         const { period, periodMode } = readPeriod(params);
@@ -125,13 +128,16 @@ export async function GET(request: Request) {
       };
     },
     request,
-    { capability: "people.import_roster" },
+    { anyCapability: ["people.import_roster", "people.edit_roster", "daily_ops.roster.upload", "hr.employee_app"] },
   );
 }
 
 export async function POST(request: Request) {
   return withAuthRouteRequest(
     async (context, req) => {
+      const scope = await resolveShiftRosterUploadScope(context);
+      const team = scope.kind === "team" ? { staffIds: scope.staffIds, locationIds: scope.locationIds } : undefined;
+      const batchDb = team ? supabaseAdmin : context.supabase;
       const form = await req.formData();
       const mode = String(form.get("mode") ?? "preview");
       const importMode = (String(form.get("importMode") ?? "safe_sync") === "authoritative_replace"
@@ -147,11 +153,14 @@ export async function POST(request: Request) {
 
       if (mode === "commit") {
         if (!batchId) throw new Error("batchId is required to confirm an import");
-        const { data: batch, error } = await context.supabase
+        const { data: batch, error } = await batchDb
           .from("staff_import_batches")
-          .select("id, status, summary")
+          .select("id, status, summary, uploaded_by")
           .eq("id", batchId)
           .single();
+        if (team && batch && batch.uploaded_by !== context.userId) {
+          throw new Error("Import batch not found");
+        }
         if (error) throw new Error(error.message || "Could not load import batch");
         if (!batch) throw new Error("Import batch not found");
         if (batch.status !== "preview") throw new Error("This batch is no longer awaiting confirmation");
@@ -166,7 +175,7 @@ export async function POST(request: Request) {
         if (!storedShift) throw new Error("Preview payload is missing; upload again.");
         const shiftPreview = mergeShiftPreviewRows(storedShift, previewPatch?.rows);
         if (previewPatch?.rows?.length) {
-          const { error: patchErr } = await context.supabase
+          const { error: patchErr } = await batchDb
             .from("staff_import_batches")
             .update({
               summary: { ...summary, preview: shiftPreview } as unknown as import("@/integrations/supabase/types").Json,
@@ -180,12 +189,16 @@ export async function POST(request: Request) {
             logger.error("api", "Roster import preview patch failed; continuing confirm", patchErr);
           }
         }
-        const committed = await commitLiveShiftRoster(context, {
-          preview: shiftPreview,
-          fileName: summary.fileName,
-          fileType: summary.fileType,
-        });
-        const { error: uErr } = await context.supabase
+        const committed = await commitLiveShiftRoster(
+          context,
+          {
+            preview: shiftPreview,
+            fileName: summary.fileName,
+            fileType: summary.fileType,
+          },
+          team,
+        );
+        const { error: uErr } = await batchDb
           .from("staff_import_batches")
           .update({
             status: "applied",
@@ -226,15 +239,22 @@ export async function POST(request: Request) {
         if (!selectedLocationId) {
           throw new Error("Select a site for single-location upload.");
         }
+        if (team && !team.locationIds.includes(selectedLocationId)) {
+          throw new Error("Select a site your team works at.");
+        }
       }
 
-      const shiftPreview = await previewLiveShiftRoster(context, {
-        records: attParsed.records,
-        periodMode,
-        dateFrom: period.dateFrom,
-        dateTo: period.dateTo,
-        selectedLocationId,
-      });
+      const shiftPreview = await previewLiveShiftRoster(
+        context,
+        {
+          records: attParsed.records,
+          periodMode,
+          dateFrom: period.dateFrom,
+          dateTo: period.dateTo,
+          selectedLocationId,
+        },
+        team,
+      );
       const shiftSummary: ShiftBatchSummary = {
         kind: "shift_roster",
         preview: shiftPreview,
@@ -244,7 +264,7 @@ export async function POST(request: Request) {
         fileName: guard.filename,
         fileType: guard.fileType,
       };
-      const { data: batch, error: bErr } = await context.supabase
+      const { data: batch, error: bErr } = await batchDb
         .from("staff_import_batches")
         .insert({
           status: "preview",
@@ -267,7 +287,7 @@ export async function POST(request: Request) {
 
       const fileId = crypto.randomUUID();
       const stored = await persistOriginalBestEffort(context, fileId, buffer);
-      const { error: fErr } = await context.supabase.from("staff_import_files").insert({
+      const { error: fErr } = await batchDb.from("staff_import_files").insert({
         id: fileId,
         batch_id: batch.id,
         filename: guard.filename,
@@ -289,6 +309,6 @@ export async function POST(request: Request) {
       };
     },
     request,
-    { capability: "people.import_roster" },
+    { anyCapability: ["people.import_roster", "people.edit_roster", "daily_ops.roster.upload", "hr.employee_app"] },
   );
 }

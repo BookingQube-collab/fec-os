@@ -144,6 +144,7 @@ function mapResignation(row: Record<string, unknown>) {
     staffId: String(row.staff_id),
     staffName: (staff as { full_name?: string } | null)?.full_name ?? null,
     employeeCode: (staff as { employee_code?: string } | null)?.employee_code ?? null,
+    department: (staff as { department?: string | null } | null)?.department ?? null,
     staffStatus: (staff as { status?: string } | null)?.status ?? null,
     submittedOn: String(row.submitted_on).slice(0, 10),
     letterDocumentId: (row.letter_document_id as string | null) ?? null,
@@ -180,6 +181,7 @@ function mapTermination(row: Record<string, unknown>) {
     staffId: String(row.staff_id),
     staffName: (staff as { full_name?: string } | null)?.full_name ?? null,
     employeeCode: (staff as { employee_code?: string } | null)?.employee_code ?? null,
+    department: (staff as { department?: string | null } | null)?.department ?? null,
     staffStatus: (staff as { status?: string } | null)?.status ?? null,
     terminationType: String(row.termination_type) as HrTerminationType,
     employmentCategory: (row.employment_category as string | null) ?? null,
@@ -208,10 +210,10 @@ function mapTermination(row: Record<string, unknown>) {
 }
 
 const RESIGNATION_SELECT =
-  "id, staff_id, submitted_on, letter_document_id, reason, employment_category, length_of_service_days, suggested_notice_days, required_notice_days, notice_override, notice_override_reason, notice_override_approved_by, proposed_lwd, approved_lwd, notice_waiver, notice_recovery, handover_notes, asset_clearance, dept_clearance, finance_clearance, final_settlement_stub, air_ticket_eligible, releasing_date, status, approved_by, approved_at, created_at, staff(full_name, employee_code, status)";
+  "id, staff_id, submitted_on, letter_document_id, reason, employment_category, length_of_service_days, suggested_notice_days, required_notice_days, notice_override, notice_override_reason, notice_override_approved_by, proposed_lwd, approved_lwd, notice_waiver, notice_recovery, handover_notes, asset_clearance, dept_clearance, finance_clearance, final_settlement_stub, air_ticket_eligible, releasing_date, status, approved_by, approved_at, created_at, staff(full_name, employee_code, status, department)";
 
 const TERMINATION_SELECT =
-  "id, staff_id, termination_type, employment_category, reason, effective_on, last_working_date, notice_treatment, supporting_document_id, leave_treatment, loan_treatment, air_ticket_eligible, asset_clearance, dept_clearance, finance_clearance, final_settlement_stub, releasing_date, status, hr_approved_by, hr_approved_at, exec_approved_by, exec_approved_at, source_probation_review_id, applied_at, created_at, staff(full_name, employee_code, status)";
+  "id, staff_id, termination_type, employment_category, reason, effective_on, last_working_date, notice_treatment, supporting_document_id, leave_treatment, loan_treatment, air_ticket_eligible, asset_clearance, dept_clearance, finance_clearance, final_settlement_stub, releasing_date, status, hr_approved_by, hr_approved_at, exec_approved_by, exec_approved_at, source_probation_review_id, applied_at, created_at, staff(full_name, employee_code, status, department)";
 
 export const suggestNoticeForStaff = createAuthenticatedAction(
   z.object({

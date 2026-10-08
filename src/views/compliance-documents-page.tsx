@@ -93,8 +93,8 @@ function ComplianceDocumentsPage() {
       </header>
       <Tabs value={tab} onValueChange={(v) => setTab(v as "list" | "new")}>
         <TabsList>
-          <TabsTrigger value="list">{t("complianceHub.documents.all")}</TabsTrigger>
-          <TabsTrigger value="new">{t("complianceHub.documents.registerNew")}</TabsTrigger>
+          <TabsTrigger value="list"><FileText aria-hidden />{t("complianceHub.documents.all")}</TabsTrigger>
+          <TabsTrigger value="new"><Plus aria-hidden />{t("complianceHub.documents.registerNew")}</TabsTrigger>
         </TabsList>
         <TabsContent value="list" className="mt-4">
           <DocumentsList />

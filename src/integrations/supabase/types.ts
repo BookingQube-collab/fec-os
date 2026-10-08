@@ -3015,6 +3015,856 @@ export type Database = {
           },
         ]
       }
+      training_courses: {
+        Row: {
+          id: string
+          code: string
+          title: string
+          summary: string | null
+          description: string | null
+          category: string | null
+          training_type: string | null
+          difficulty: string | null
+          estimated_minutes: number | null
+          thumbnail_path: string | null
+          instructor_staff_id: string | null
+          department_id: string | null
+          location_id: string | null
+          business_unit: string | null
+          validity_days: number | null
+          passing_score: number | null
+          max_attempts: number | null
+          certificate_enabled: boolean
+          certificate_validity_days: number | null
+          refresher_course_id: string | null
+          retraining_lead_days: number
+          competency_code: string | null
+          competency_name: string | null
+          retrain_on_publish: boolean
+          required: boolean
+          requires_session_attendance: boolean
+          tags: string[]
+          status: string
+          published_version_id: string | null
+          created_by: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          code: string
+          title: string
+          summary?: string | null
+          description?: string | null
+          category?: string | null
+          training_type?: string | null
+          difficulty?: string | null
+          estimated_minutes?: number | null
+          thumbnail_path?: string | null
+          instructor_staff_id?: string | null
+          department_id?: string | null
+          location_id?: string | null
+          business_unit?: string | null
+          validity_days?: number | null
+          passing_score?: number | null
+          max_attempts?: number | null
+          certificate_enabled?: boolean
+          certificate_validity_days?: number | null
+          refresher_course_id?: string | null
+          retraining_lead_days?: number
+          competency_code?: string | null
+          competency_name?: string | null
+          retrain_on_publish?: boolean
+          required?: boolean
+          requires_session_attendance?: boolean
+          tags?: string[]
+          status?: string
+          published_version_id?: string | null
+          created_by: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          code?: string
+          title?: string
+          summary?: string | null
+          description?: string | null
+          category?: string | null
+          training_type?: string | null
+          difficulty?: string | null
+          estimated_minutes?: number | null
+          thumbnail_path?: string | null
+          instructor_staff_id?: string | null
+          department_id?: string | null
+          location_id?: string | null
+          business_unit?: string | null
+          validity_days?: number | null
+          passing_score?: number | null
+          max_attempts?: number | null
+          certificate_enabled?: boolean
+          certificate_validity_days?: number | null
+          refresher_course_id?: string | null
+          retraining_lead_days?: number
+          competency_code?: string | null
+          competency_name?: string | null
+          retrain_on_publish?: boolean
+          required?: boolean
+          requires_session_attendance?: boolean
+          tags?: string[]
+          status?: string
+          published_version_id?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      training_course_prerequisites: {
+        Row: { course_id: string; prerequisite_course_id: string }
+        Insert: { course_id: string; prerequisite_course_id: string }
+        Update: { course_id?: string; prerequisite_course_id?: string }
+        Relationships: []
+      }
+      training_course_versions: {
+        Row: {
+          id: string
+          course_id: string
+          version_no: number
+          status: string
+          title: string
+          change_summary: string | null
+          published_at: string | null
+          published_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          course_id: string
+          version_no: number
+          status?: string
+          title: string
+          change_summary?: string | null
+          published_at?: string | null
+          published_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          status?: string
+          title?: string
+          change_summary?: string | null
+          published_at?: string | null
+          published_by?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      training_sections: {
+        Row: { id: string; version_id: string; title: string; sort_order: number; created_at: string }
+        Insert: { id?: string; version_id: string; title: string; sort_order?: number; created_at?: string }
+        Update: { title?: string; sort_order?: number }
+        Relationships: []
+      }
+      training_lessons: {
+        Row: {
+          id: string
+          section_id: string
+          title: string
+          sort_order: number
+          kind: string
+          body: string | null
+          storage_path: string | null
+          external_url: string | null
+          duration_seconds: number | null
+          required: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          section_id: string
+          title: string
+          sort_order?: number
+          kind?: string
+          body?: string | null
+          storage_path?: string | null
+          external_url?: string | null
+          duration_seconds?: number | null
+          required?: boolean
+          created_at?: string
+        }
+        Update: {
+          title?: string
+          sort_order?: number
+          kind?: string
+          body?: string | null
+          storage_path?: string | null
+          external_url?: string | null
+          duration_seconds?: number | null
+          required?: boolean
+        }
+        Relationships: []
+      }
+      training_paths: {
+        Row: {
+          id: string
+          code: string
+          title: string
+          summary: string | null
+          status: string
+          certificate_enabled: boolean
+          created_by: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          code: string
+          title: string
+          summary?: string | null
+          status?: string
+          certificate_enabled?: boolean
+          created_by: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: { title?: string; summary?: string | null; status?: string; certificate_enabled?: boolean; updated_at?: string }
+        Relationships: []
+      }
+      training_path_items: {
+        Row: { path_id: string; course_id: string; sort_order: number }
+        Insert: { path_id: string; course_id: string; sort_order?: number }
+        Update: { sort_order?: number }
+        Relationships: []
+      }
+      training_assignments: {
+        Row: {
+          id: string
+          course_id: string | null
+          path_id: string | null
+          version_id: string | null
+          start_on: string | null
+          due_on: string | null
+          required: boolean
+          priority: string
+          reason: string | null
+          reminder_offsets_days: number[]
+          created_by: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          course_id?: string | null
+          path_id?: string | null
+          version_id?: string | null
+          start_on?: string | null
+          due_on?: string | null
+          required?: boolean
+          priority?: string
+          reason?: string | null
+          reminder_offsets_days?: number[]
+          created_by: string
+          created_at?: string
+        }
+        Update: {
+          due_on?: string | null
+          start_on?: string | null
+          required?: boolean
+          priority?: string
+          reason?: string | null
+          reminder_offsets_days?: number[]
+        }
+        Relationships: []
+      }
+      training_saved_rules: {
+        Row: {
+          id: string
+          course_id: string
+          version_id: string
+          trigger_kind: string
+          target: string
+          staff_id: string | null
+          department_id: string | null
+          location_id: string | null
+          role_code: string | null
+          business_unit: string | null
+          team_label: string | null
+          employment_type: string | null
+          custom_label: string | null
+          required: boolean
+          priority: string
+          due_offset_days: number | null
+          reminder_offsets_days: number[]
+          reason: string | null
+          created_by: string
+          created_at: string
+        }
+        Insert: {
+          course_id: string
+          version_id: string
+          trigger_kind: string
+          target: string
+          staff_id?: string | null
+          department_id?: string | null
+          location_id?: string | null
+          role_code?: string | null
+          business_unit?: string | null
+          team_label?: string | null
+          employment_type?: string | null
+          custom_label?: string | null
+          required?: boolean
+          priority?: string
+          due_offset_days?: number | null
+          reminder_offsets_days?: number[]
+          reason?: string | null
+          created_by: string
+        }
+        Update: { reason?: string | null }
+        Relationships: []
+      }
+      training_assignment_rules: {
+        Row: {
+          id: string
+          assignment_id: string
+          target: string
+          staff_id: string | null
+          department_id: string | null
+          location_id: string | null
+          role_code: string | null
+          business_unit: string | null
+          team_label: string | null
+          employment_type: string | null
+          custom_label: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          assignment_id: string
+          target: string
+          staff_id?: string | null
+          department_id?: string | null
+          location_id?: string | null
+          role_code?: string | null
+          business_unit?: string | null
+          team_label?: string | null
+          employment_type?: string | null
+          custom_label?: string | null
+          created_at?: string
+        }
+        Update: {
+          target?: string
+          staff_id?: string | null
+          department_id?: string | null
+          location_id?: string | null
+          role_code?: string | null
+          business_unit?: string | null
+          team_label?: string | null
+          employment_type?: string | null
+          custom_label?: string | null
+        }
+        Relationships: []
+      }
+      training_course_enrollments: {
+        Row: {
+          id: string
+          staff_id: string
+          course_id: string
+          version_id: string
+          assignment_id: string | null
+          path_id: string | null
+          status: string
+          enrolled_at: string
+          due_on: string | null
+          completed_at: string | null
+          score: number | null
+          started_at: string | null
+          last_lesson_id: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          staff_id: string
+          course_id: string
+          version_id: string
+          assignment_id?: string | null
+          path_id?: string | null
+          status?: string
+          enrolled_at?: string
+          due_on?: string | null
+          completed_at?: string | null
+          score?: number | null
+          started_at?: string | null
+          last_lesson_id?: string | null
+          created_at?: string
+        }
+        Update: {
+          status?: string
+          due_on?: string | null
+          completed_at?: string | null
+          score?: number | null
+          started_at?: string | null
+          last_lesson_id?: string | null
+        }
+        Relationships: []
+      }
+      training_progress: {
+        Row: {
+          id: string
+          enrollment_id: string
+          lesson_id: string
+          position_seconds: number
+          completed_at: string | null
+          updated_at: string
+          viewed_at: string | null
+          time_spent_seconds: number
+          checklist: Json
+          acknowledged_at: string | null
+        }
+        Insert: {
+          id?: string
+          enrollment_id: string
+          lesson_id: string
+          position_seconds?: number
+          completed_at?: string | null
+          updated_at?: string
+          viewed_at?: string | null
+          time_spent_seconds?: number
+          checklist?: Json
+          acknowledged_at?: string | null
+        }
+        Update: {
+          position_seconds?: number
+          completed_at?: string | null
+          updated_at?: string
+          viewed_at?: string | null
+          time_spent_seconds?: number
+          checklist?: Json
+          acknowledged_at?: string | null
+        }
+        Relationships: []
+      }
+      training_questions: {
+        Row: {
+          id: string
+          version_id: string
+          prompt: string
+          kind: string
+          options: Json
+          sort_order: number
+          points: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          version_id: string
+          prompt: string
+          kind: string
+          options?: Json
+          sort_order?: number
+          points?: number
+          created_at?: string
+        }
+        Update: { prompt?: string; kind?: string; options?: Json; sort_order?: number; points?: number }
+        Relationships: []
+      }
+      training_question_keys: {
+        Row: { question_id: string; correct: Json }
+        Insert: { question_id: string; correct: Json }
+        Update: { correct?: Json }
+        Relationships: []
+      }
+      training_question_banks: {
+        Row: { id: string; name: string; category: string | null; tags: string[]; created_by: string | null; created_at: string }
+        Insert: { id?: string; name: string; category?: string | null; tags?: string[]; created_by?: string | null; created_at?: string }
+        Update: { name?: string; category?: string | null; tags?: string[] }
+        Relationships: []
+      }
+      training_bank_questions: {
+        Row: {
+          id: string
+          bank_id: string
+          kind: string
+          prompt: string
+          difficulty: string | null
+          tags: string[]
+          topic: string | null
+          course_id: string | null
+          points: number
+          options: Json
+          scenario_prompt: string | null
+          inner_kind: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          bank_id: string
+          kind: string
+          prompt: string
+          difficulty?: string | null
+          tags?: string[]
+          topic?: string | null
+          course_id?: string | null
+          points?: number
+          options?: Json
+          scenario_prompt?: string | null
+          inner_kind?: string | null
+          created_at?: string
+        }
+        Update: {
+          kind?: string
+          prompt?: string
+          difficulty?: string | null
+          tags?: string[]
+          topic?: string | null
+          course_id?: string | null
+          points?: number
+          options?: Json
+          scenario_prompt?: string | null
+          inner_kind?: string | null
+        }
+        Relationships: []
+      }
+      training_bank_question_keys: {
+        Row: { question_id: string; correct: Json; explanation: string | null }
+        Insert: { question_id: string; correct: Json; explanation?: string | null }
+        Update: { correct?: Json; explanation?: string | null }
+        Relationships: []
+      }
+      training_lesson_quizzes: {
+        Row: {
+          lesson_id: string
+          bank_id: string
+          draw_count: number
+          passing_score: number
+          max_attempts: number
+          shuffle_questions: boolean
+          shuffle_options: boolean
+        }
+        Insert: {
+          lesson_id: string
+          bank_id: string
+          draw_count: number
+          passing_score?: number
+          max_attempts?: number
+          shuffle_questions?: boolean
+          shuffle_options?: boolean
+        }
+        Update: {
+          bank_id?: string
+          draw_count?: number
+          passing_score?: number
+          max_attempts?: number
+          shuffle_questions?: boolean
+          shuffle_options?: boolean
+        }
+        Relationships: []
+      }
+      training_quiz_attempts: {
+        Row: {
+          id: string
+          enrollment_id: string
+          lesson_id: string
+          staff_id: string
+          served_question_ids: string[]
+          option_order: Json
+          answers: Json | null
+          score: number | null
+          passed: boolean | null
+          started_at: string
+          submitted_at: string | null
+        }
+        Insert: {
+          id?: string
+          enrollment_id: string
+          lesson_id: string
+          staff_id: string
+          served_question_ids: string[]
+          option_order?: Json
+          answers?: Json | null
+          score?: number | null
+          passed?: boolean | null
+          started_at?: string
+          submitted_at?: string | null
+        }
+        Update: {
+          answers?: Json | null
+          score?: number | null
+          passed?: boolean | null
+          submitted_at?: string | null
+        }
+        Relationships: []
+      }
+      training_attempts: {
+        Row: {
+          id: string
+          enrollment_id: string
+          question_id: string | null
+          staff_id: string
+          answers: Json
+          score: number | null
+          passed: boolean | null
+          started_at: string
+          submitted_at: string | null
+        }
+        Insert: {
+          id?: string
+          enrollment_id: string
+          question_id?: string | null
+          staff_id: string
+          answers?: Json
+          score?: number | null
+          passed?: boolean | null
+          started_at?: string
+          submitted_at?: string | null
+        }
+        Update: {
+          answers?: Json
+          score?: number | null
+          passed?: boolean | null
+          submitted_at?: string | null
+        }
+        Relationships: []
+      }
+      training_sessions: {
+        Row: {
+          id: string
+          course_id: string
+          version_id: string
+          location_id: string
+          trainer_staff_id: string | null
+          starts_at: string
+          ends_at: string
+          capacity: number | null
+          room: string | null
+          status: string
+          created_by: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          course_id: string
+          version_id: string
+          location_id: string
+          trainer_staff_id?: string | null
+          starts_at: string
+          ends_at: string
+          capacity?: number | null
+          room?: string | null
+          status?: string
+          created_by: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          trainer_staff_id?: string | null
+          starts_at?: string
+          ends_at?: string
+          capacity?: number | null
+          room?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      training_session_participants: {
+        Row: { session_id: string; staff_id: string; added_by: string; added_at: string }
+        Insert: { session_id: string; staff_id: string; added_by: string; added_at?: string }
+        Update: { added_by?: string; added_at?: string }
+        Relationships: []
+      }
+      training_attendance: {
+        Row: { session_id: string; staff_id: string; status: string; marked_by: string; marked_at: string }
+        Insert: { session_id: string; staff_id: string; status: string; marked_by: string; marked_at?: string }
+        Update: { status?: string; marked_by?: string; marked_at?: string }
+        Relationships: []
+      }
+      training_practical_assessments: {
+        Row: {
+          id: string
+          enrollment_id: string
+          lesson_id: string | null
+          assessor_staff_id: string | null
+          rubric: Json
+          score: number | null
+          passed: boolean | null
+          notes: string | null
+          assessed_at: string | null
+          confirmation_name: string | null
+          confirmed_by: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          enrollment_id: string
+          lesson_id?: string | null
+          assessor_staff_id?: string | null
+          rubric?: Json
+          score?: number | null
+          passed?: boolean | null
+          notes?: string | null
+          assessed_at?: string | null
+          confirmation_name?: string | null
+          confirmed_by?: string | null
+          created_at?: string
+        }
+        Update: {
+          lesson_id?: string | null
+          assessor_staff_id?: string | null
+          rubric?: Json
+          score?: number | null
+          passed?: boolean | null
+          notes?: string | null
+          assessed_at?: string | null
+          confirmation_name?: string | null
+          confirmed_by?: string | null
+        }
+        Relationships: []
+      }
+      training_certificates: {
+        Row: {
+          id: string
+          enrollment_id: string | null
+          staff_id: string
+          course_id: string
+          holder_name: string
+          course_title: string
+          course_code: string | null
+          score: number | null
+          signatory_name: string | null
+          path_id: string | null
+          status: string
+          issued_at: string
+          valid_until: string | null
+          revoked_at: string | null
+          revoked_by: string | null
+          revoke_reason: string | null
+          public_token: string
+        }
+        Insert: {
+          id?: string
+          enrollment_id?: string | null
+          staff_id: string
+          course_id: string
+          holder_name: string
+          course_title: string
+          course_code?: string | null
+          score?: number | null
+          signatory_name?: string | null
+          path_id?: string | null
+          status?: string
+          issued_at?: string
+          valid_until?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
+          revoke_reason?: string | null
+          public_token?: string
+        }
+        Update: {
+          status?: string
+          valid_until?: string | null
+          revoked_at?: string | null
+          revoked_by?: string | null
+          revoke_reason?: string | null
+        }
+        Relationships: []
+      }
+      training_competencies: {
+        Row: {
+          id: string
+          staff_id: string
+          code: string
+          name: string
+          enrollment_id: string | null
+          awarded_at: string
+          expires_on: string | null
+          level: string
+        }
+        Insert: {
+          id?: string
+          staff_id: string
+          code: string
+          name: string
+          enrollment_id?: string | null
+          awarded_at?: string
+          expires_on?: string | null
+          level?: string
+        }
+        Update: { name?: string; expires_on?: string | null; level?: string }
+        Relationships: []
+      }
+      training_entity_links: {
+        Row: {
+          id: string
+          course_id: string | null
+          enrollment_id: string | null
+          entity_type: string
+          entity_id: string
+          requirement_type: string
+          enforce_mode: string
+          created_by: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          course_id?: string | null
+          enrollment_id?: string | null
+          entity_type: string
+          entity_id: string
+          requirement_type?: string
+          enforce_mode?: string
+          created_by: string
+          created_at?: string
+        }
+        Update: { entity_type?: string; entity_id?: string; requirement_type?: string; enforce_mode?: string }
+        Relationships: []
+      }
+      training_feedback: {
+        Row: {
+          id: string
+          enrollment_id: string
+          staff_id: string
+          rating: number
+          comment: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          enrollment_id: string
+          staff_id: string
+          rating: number
+          comment?: string | null
+          created_at?: string
+        }
+        Update: { rating?: number; comment?: string | null }
+        Relationships: []
+      }
+      training_audit_logs: {
+        Row: {
+          id: string
+          actor_id: string | null
+          action: string
+          table_name: string
+          row_id: string | null
+          location_id: string | null
+          before: Json | null
+          after: Json | null
+          reason: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          actor_id?: string | null
+          action: string
+          table_name: string
+          row_id?: string | null
+          location_id?: string | null
+          before?: Json | null
+          after?: Json | null
+          reason?: string | null
+          created_at?: string
+        }
+        Update: { reason?: string | null }
+        Relationships: []
+      }
       transactions: {
         Row: {
           amount: number
@@ -3920,7 +4770,18 @@ export type Database = {
       hr_checklist_template_items: { Row: Record<string, unknown> & { id: string; template_id: string; title: string; sort_order: number }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [{ foreignKeyName: "hr_checklist_template_items_template_id_fkey"; columns: ["template_id"]; isOneToOne: false; referencedRelation: "hr_checklist_templates"; referencedColumns: ["id"] }] }
       hr_staff_checklists: { Row: Record<string, unknown> & { id: string; staff_id: string; template_id: string | null; kind: string; status: string; started_at: string; completed_at: string | null; staff?: { full_name?: string; employee_code?: string } | { full_name?: string; employee_code?: string }[] | null; hr_staff_checklist_items?: { id: string; title: string; status: string; sort_order: number; completed_at: string | null }[] | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [{ foreignKeyName: "hr_staff_checklists_staff_id_fkey"; columns: ["staff_id"]; isOneToOne: false; referencedRelation: "staff"; referencedColumns: ["id"] }] }
       hr_staff_checklist_items: { Row: Record<string, unknown> & { id: string; checklist_id: string; title: string; status: string; sort_order: number; completed_at: string | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [{ foreignKeyName: "hr_staff_checklist_items_checklist_id_fkey"; columns: ["checklist_id"]; isOneToOne: false; referencedRelation: "hr_staff_checklists"; referencedColumns: ["id"] }] }
+      hr_checklist_template_acks: { Row: Record<string, unknown> & { id: string; template_id: string; title: string; required: boolean; sort_order: number }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      hr_checklist_template_training: { Row: Record<string, unknown> & { id: string; template_id: string; title: string; required: boolean; due_offset_days: number; sort_order: number }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      hr_journey_acknowledgments: { Row: Record<string, unknown> & { id: string; checklist_id: string; title: string; required: boolean; status: string; acknowledged_at: string | null; sort_order: number }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      hr_journey_training: { Row: Record<string, unknown> & { id: string; checklist_id: string; title: string; required: boolean; status: string; due_on: string | null; course_id: string | null; assignment_id: string | null; reason: string | null; sort_order: number; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      hr_journey_events: { Row: Record<string, unknown> & { id: string; checklist_id: string; event_type: string; actor_user_id: string | null; actor_name: string | null; reason: string | null; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      hr_approval_rules: { Row: Record<string, unknown> & { id: string; kind: string; title: string; approver_role: string; required: boolean; active: boolean; sort_order: number; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       hr_announcements: { Row: Record<string, unknown> & { id: string; title: string; body: string; active: boolean; published_at: string; expires_at: string | null; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      hr_helpdesk_articles: { Row: Record<string, unknown> & { id: string; title: string; body: string; category: string; visibility: string; published: boolean; created_by: string | null; created_at: string; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      hr_helpdesk_settings: { Row: Record<string, unknown> & { id: string; name: string | null; description: string | null; categories: Json; first_response_hours: number; resolution_hours: number; default_assignee_staff_id: string | null; assignment_notes: string | null; updated_by: string | null; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      hr_helpdesk_rules: { Row: Record<string, unknown> & { id: string; kind: string; category: string; condition: string; assignee_staff_id: string | null; active: boolean; created_by: string | null; created_at: string; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      hr_helpdesk_messages: { Row: Record<string, unknown> & { id: string; event_id: string; author_id: string | null; author_staff_id: string | null; author_name: string; body: string; visibility: string; attachment: Json | null; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      hr_helpdesk_history: { Row: Record<string, unknown> & { id: string; event_id: string; actor_id: string | null; actor_name: string; kind: string; detail: Json; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       hr_ot_policy: { Row: Record<string, unknown> & { id: string; company_id: string | null; overtime_after_minutes: number; max_daily_ot_minutes: number | null; max_weekly_ot_minutes: number | null; requires_preapproval: boolean; summary_notes: string | null; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       hr_ot_claims: { Row: Record<string, unknown> & { id: string; staff_id: string; location_id: string | null; work_date: string; attendance_daily_id: string | null; scheduled_in: string | null; scheduled_out: string | null; actual_in: string | null; actual_out: string | null; eligible_minutes: number; claimed_minutes: number; approved_minutes: number | null; rate_type: string; rate_multiplier: number; amount_qar: number; status: string; evidence_path: string | null; notes: string | null; submitted_by: string | null; submitted_at: string | null; verified_by: string | null; verified_at: string | null; approved_by: string | null; approved_at: string | null; payroll_posted_by: string | null; payroll_posted_at: string | null; payroll_period_id?: string | null; created_by: string | null; created_at: string; updated_at: string; staff?: { full_name?: string; employee_code?: string; user_id?: string; location_id?: string; employment_type?: string; department?: string } | { full_name?: string; employee_code?: string; user_id?: string; location_id?: string; employment_type?: string; department?: string }[] | null; locations?: { id?: string; code?: string; name?: string } | { id?: string; code?: string; name?: string }[] | null }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [{ foreignKeyName: "hr_ot_claims_staff_id_fkey"; columns: ["staff_id"]; isOneToOne: false; referencedRelation: "staff"; referencedColumns: ["id"] }, { foreignKeyName: "hr_ot_claims_location_id_fkey"; columns: ["location_id"]; isOneToOne: false; referencedRelation: "locations"; referencedColumns: ["id"] }] }
       hr_payroll_periods: { Row: Record<string, unknown> & { id: string; company_id: string | null; month: string; date_from: string; date_to: string; status: string; currency: string; notes: string | null; display_name: string | null; source: string; import_batch_id: string | null; reconciled_at: string | null; reconciled_by: string | null; created_by: string | null; created_at: string; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [{ foreignKeyName: "hr_payroll_periods_import_batch_fkey"; columns: ["import_batch_id"]; isOneToOne: false; referencedRelation: "hr_payroll_import_batches"; referencedColumns: ["id"] }] }
@@ -4900,6 +5761,49 @@ export type Database = {
       }
     }
     Functions: {
+      hr_helpdesk_patch_request: {
+        Args: {
+          p_event_id: string
+          p_status: string
+          p_category: string
+          p_assignee: string | null
+        }
+        Returns: undefined
+      }
+      hr_helpdesk_create_request: {
+        Args: {
+          p_staff_id: string
+          p_subject: string
+          p_category: string
+          p_attachment?: Json | null
+        }
+        Returns: string
+      }
+      hr_helpdesk_reply: {
+        Args: {
+          p_event_id: string
+          p_body: string
+          p_visibility: string
+          p_attachment?: Json | null
+        }
+        Returns: string
+      }
+      hr_helpdesk_set_status: {
+        Args: { p_event_id: string; p_status: string; p_reason: string }
+        Returns: undefined
+      }
+      hr_helpdesk_set_assignee: {
+        Args: { p_event_id: string; p_assignee: string | null }
+        Returns: undefined
+      }
+      hr_helpdesk_set_confidential: {
+        Args: { p_event_id: string; p_confidential: boolean }
+        Returns: undefined
+      }
+      hr_helpdesk_read_case: {
+        Args: { p_event_id: string }
+        Returns: Json
+      }
       arcade_consume_part: {
         Args: {
           p_item_id: string
@@ -4942,6 +5846,156 @@ export type Database = {
       complete_training: {
         Args: { _id: string; _score?: number }
         Returns: undefined
+      }
+      training_apply_completion: {
+        Args: { _enrollment_id: string; _client_completed?: boolean }
+        Returns: undefined
+      }
+      training_issue_certificate: {
+        Args: { _enrollment_id: string }
+        Returns: string
+      }
+      training_certificate_queue: {
+        Args: { _limit: number; _offset: number }
+        Returns: Json
+      }
+      training_apply_expiry: { Args: Record<PropertyKey, never>; Returns: Json }
+      training_assign_published_retraining: { Args: { _course_id: string }; Returns: number }
+      training_matrix: {
+        Args: {
+          _location_id: string | null
+          _department_id: string | null
+          _role_code: string | null
+          _course_id: string | null
+          _status: string | null
+          _limit: number
+          _offset: number
+        }
+        Returns: Json
+      }
+      training_dashboard: {
+        Args: { _location_id: string | null; _department_id: string | null }
+        Returns: Json
+      }
+      training_issue_path_certificate: {
+        Args: { _path_id: string; _staff_id: string }
+        Returns: string
+      }
+      training_requirement_status: {
+        Args: { _entity_type: string; _entity_id: string; _staff_id: string }
+        Returns: Json
+      }
+      training_revoke_certificate: {
+        Args: { _certificate_id: string; _reason: string }
+        Returns: undefined
+      }
+      training_verify_certificate: {
+        Args: { _token: string }
+        Returns: {
+          status: string
+          holder_name: string
+          course_title: string
+          issued_at: string
+          valid_until: string | null
+        }[]
+      }
+      training_code_allows: {
+        Args: { _capability: string }
+        Returns: boolean
+      }
+      training_apply_assignment: {
+        Args: { _assignment_id: string }
+        Returns: number
+      }
+      training_execute_saved_rules: {
+        Args: {
+          _trigger: string
+          _staff_id: string
+          _link_types: string[]
+          _entity_id: string | null
+          _role_code: string | null
+        }
+        Returns: Json
+      }
+      training_mark_started: {
+        Args: { _enrollment_id: string }
+        Returns: string
+      }
+      training_practical_grade: {
+        Args: {
+          _enrollment_id: string
+          _lesson_id: string
+          _items: Json
+          _result: string
+          _notes: string | null
+          _confirmation_name: string | null
+          _confirmed: boolean
+        }
+        Returns: Json
+      }
+      training_practical_queue: {
+        Args: { _limit: number; _offset: number }
+        Returns: Json
+      }
+      training_quiz_start: {
+        Args: { _enrollment_id: string; _lesson_id: string }
+        Returns: Json
+      }
+      training_quiz_submit: {
+        Args: { _attempt_id: string; _answers: Json }
+        Returns: Json
+      }
+      training_player_event: {
+        Args: {
+          _enrollment_id: string
+          _lesson_id: string
+          _event: string
+          _delta_seconds: number | null
+          _position_seconds: number | null
+          _item_id: string | null
+          _item_checked: boolean | null
+        }
+        Returns: Json
+      }
+      training_session_create: {
+        Args: {
+          _version_id: string
+          _trainer_staff_id: string
+          _location_id: string
+          _room: string | null
+          _starts_at: string
+          _ends_at: string
+          _capacity: number
+          _participants: string[]
+        }
+        Returns: string
+      }
+      training_session_calendar: {
+        Args: {
+          _from: string
+          _to: string
+          _location_id: string | null
+          _trainer_staff_id: string | null
+          _course_id: string | null
+          _department_id: string | null
+        }
+        Returns: Json
+      }
+      training_session_staff_page: {
+        Args: { _query: string; _limit: number; _offset: number }
+        Returns: Json
+      }
+      training_session_detail: {
+        Args: { _session_id: string }
+        Returns: Json
+      }
+      training_session_mark_attendance: {
+        Args: { _session_id: string; _staff_id: string; _status: string }
+        Returns: Json
+      }
+      training_my_required_flags: {
+        Args: Record<PropertyKey, never>
+        Returns: { enrollment_id: string; required: boolean }[]
       }
       compute_maintenance_sla: {
         Args: {
@@ -5273,6 +6327,10 @@ export type Database = {
       set_staff_photo_bytes: {
         Args: { _staff_id: string; _photo_base64: string; _mime: string }
         Returns: undefined
+      }
+      training_actor_staff_id: {
+        Args: Record<PropertyKey, never>
+        Returns: string
       }
       user_can_access_location: {
         Args: { _location_id: string }

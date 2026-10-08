@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Settings2 } from "lucide-react";
+import { Building2, Flag, Plus, Settings2, UserRound, Users } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -59,12 +59,16 @@ export function ManagePeopleMastersDialog({
         <p className="text-xs text-muted-foreground">{t("people.masters.hint")}</p>
         <Tabs defaultValue="department">
           <TabsList className="flex h-auto flex-wrap">
-            <TabsTrigger value="department">{t("people.masters.department")}</TabsTrigger>
-            {KINDS.map((kind) => (
+            <TabsTrigger value="department"><Building2 aria-hidden />{t("people.masters.department")}</TabsTrigger>
+            {KINDS.map((kind) => {
+              const Icon = kind === "position" ? Users : kind === "gender" ? UserRound : Flag;
+              return (
               <TabsTrigger key={kind} value={kind}>
+                <Icon aria-hidden />
                 {t(`people.masters.${kind}`)}
               </TabsTrigger>
-            ))}
+              );
+            })}
           </TabsList>
           <TabsContent value="department" className="mt-3">
             <DepartmentMasterPanel audience={audience} active={open} />

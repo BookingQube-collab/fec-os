@@ -59,13 +59,13 @@ export function EmployeeMobileHeader() {
           <MobileNotificationBell />
           <Button
             type="button"
-            size="sm"
-            variant="secondary"
-            className="h-9 px-2"
+            variant="ghost"
+            size="icon"
+            className="h-9 w-9 shrink-0"
+            aria-label={t("common.signOut")}
             onClick={() => void handleSignOut()}
           >
-            <LogOut className="h-4 w-4" />
-            {t("common.signOut")}
+            <LogOut className="h-4 w-4 stroke-[1.5]" />
           </Button>
         </div>
       </div>

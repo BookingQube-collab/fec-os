@@ -34,6 +34,48 @@ function shouldBypass(request, url) {
   return false;
 }
 
+function safePushTarget(value) {
+  if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) return "/chat";
+  try {
+    const target = new URL(value, self.location.origin);
+    if (target.origin !== self.location.origin) return "/chat";
+    return `${target.pathname}${target.search}`;
+  } catch {
+    return "/chat";
+  }
+}
+
+self.addEventListener("push", (event) => {
+  let title = "Chat";
+  let body = "";
+  let url = "/chat";
+  try {
+    const data = event.data ? event.data.json() : null;
+    if (data && typeof data === "object") {
+      if (typeof data.title === "string" && data.title.trim()) title = data.title.trim().slice(0, 120);
+      if (typeof data.body === "string") body = data.body.trim().slice(0, 180);
+      url = safePushTarget(data.url);
+    }
+  } catch {
+    title = "Chat";
+    body = "";
+    url = "/chat";
+  }
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      icon: "/icon-192.png",
+      data: { url },
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = safePushTarget(event.notification.data && event.notification.data.url);
+  event.waitUntil(self.clients.openWindow(new URL(url, self.location.origin).href));
+});
+
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   const url = new URL(request.url);

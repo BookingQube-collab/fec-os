@@ -674,14 +674,13 @@ function ProcurementRequisitionNewInner() {
         ) : null}
 
         <Tabs value={tab} onValueChange={(v) => setTab(v as WizardTab)} className="px-5 sm:px-6">
-          <TabsList className="mt-4 h-auto w-full justify-start gap-0 rounded-none border-0 border-b border-border/50 bg-transparent p-0">
+          <TabsList className="mt-4">
             {TABS.map((id) => {
               const Icon = id === "details" ? ClipboardList : id === "items" ? Package : id === "payment" ? Link2 : ShieldCheck;
               return (
                 <TabsTrigger
                   key={id}
                   value={id}
-                  className="rounded-none border-b-2 border-transparent px-4 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                 >
                   <Icon className="h-4 w-4" />
                   {t(`procurement.wizard.tabs.${id}`)}

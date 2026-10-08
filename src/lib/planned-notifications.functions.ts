@@ -2,6 +2,8 @@
 
 import { z } from "zod";
 
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { plannedReminderRecipient } from "@/lib/chat/reminder-rules";
 import { createAuthenticatedAction, createAuthenticatedActionNoInput } from "@/lib/server/create-action";
 
 const REMINDER_TYPES = [
@@ -163,10 +165,11 @@ export const dispatchDuePlannedNotifications = createAuthenticatedActionNoInput(
 
     let sent = 0;
     for (const row of due ?? []) {
-      const { data: notif, error: nErr } = await context.supabase
+      const recipient = plannedReminderRecipient(row.user_id, context.userId);
+      const { data: notif, error: nErr } = await supabaseAdmin
         .from("notifications")
         .insert({
-          user_id: context.userId,
+          user_id: recipient,
           location_id: row.location_id,
           category: row.reminder_type.includes("amc") ? "compliance" : "general",
           title: row.title,
@@ -177,7 +180,7 @@ export const dispatchDuePlannedNotifications = createAuthenticatedActionNoInput(
         })
         .select("id")
         .single();
-      if (nErr) continue;
+      if (nErr || !notif) continue;
 
       await context.supabase
         .from("planned_notifications")

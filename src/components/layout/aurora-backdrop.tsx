@@ -4,7 +4,7 @@ import Aurora from "@/components/react-bits/aurora";
 import { usePrefersReducedMotion } from "@/hooks/use-prefers-reduced-motion";
 import { cn } from "@/lib/utils";
 
-const FEC_STOPS = ["#fff6d4", "#f5c518", "#ffe7a3"];
+const FEC_STOPS = ["#efeaff", "#6d4aff", "#ddd4ff"];
 
 /** Official Aurora, held back when the user prefers reduced motion. */
 export function AuroraBackdrop({

@@ -44,6 +44,29 @@ function splitSqlStatements(sql) {
       continue;
     }
 
+    // Line comments can contain semicolons. They are not statement boundaries.
+    if (ch === "-" && sql[i + 1] === "-") {
+      const nl = sql.indexOf("\n", i);
+      if (nl === -1) {
+        buf += sql.slice(i);
+        break;
+      }
+      buf += sql.slice(i, nl + 1);
+      i = nl;
+      continue;
+    }
+
+    if (ch === "/" && sql[i + 1] === "*") {
+      const end = sql.indexOf("*/", i + 2);
+      if (end === -1) {
+        buf += sql.slice(i);
+        break;
+      }
+      buf += sql.slice(i, end + 2);
+      i = end + 1;
+      continue;
+    }
+
     if (ch === "$") {
       const match = sql.slice(i).match(/^(\$[A-Za-z0-9_]*\$)/);
       if (match) {

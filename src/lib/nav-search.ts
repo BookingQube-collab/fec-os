@@ -1,4 +1,8 @@
-import { getAllVisibleNavItems } from "@/lib/nav-config";
+import {
+  getAllVisibleNavItems,
+  getVisibleDepartments,
+  mergeReportingManagerDepartments,
+} from "@/lib/nav-config";
 import { canUserDo, type AppRole, type Capability } from "@/lib/rbac";
 
 export interface NavSearchHit {
@@ -51,11 +55,15 @@ const PREFERRED_HREFS = [
   "/people",
 ];
 
-export function buildNavSearchIndex(roles: AppRole[]): NavSearchHit[] {
+export function buildNavSearchIndex(roles: AppRole[], hasDirectReports = false): NavSearchHit[] {
   const seen = new Set<string>();
   const out: NavSearchHit[] = [];
+  const items = getAllVisibleNavItems(
+    roles,
+    mergeReportingManagerDepartments(getVisibleDepartments(roles), hasDirectReports),
+  );
 
-  for (const item of getAllVisibleNavItems(roles)) {
+  for (const item of items) {
     seen.add(item.href);
     out.push({
       href: item.href,

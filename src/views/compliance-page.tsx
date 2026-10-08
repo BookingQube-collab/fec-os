@@ -4,7 +4,7 @@ import { FecPageHeader } from "@/components/fec";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Loader2, ShieldCheck } from "lucide-react";
+import { Building2, ClipboardList, Loader2, Scale, ShieldAlert, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -37,10 +37,10 @@ function CompliancePage() {
       />
       <Tabs defaultValue="incidents">
         <TabsList>
-          <TabsTrigger value="incidents">{t("complianceHub.tabs.incidents")}</TabsTrigger>
-          <TabsTrigger value="audits">{t("complianceHub.tabs.audits")}</TabsTrigger>
-          <TabsTrigger value="obligations">{t("complianceHub.tabs.obligations")}</TabsTrigger>
-          <TabsTrigger value="mall">{t("complianceHub.tabs.mall")}</TabsTrigger>
+          <TabsTrigger value="incidents"><ShieldAlert aria-hidden />{t("complianceHub.tabs.incidents")}</TabsTrigger>
+          <TabsTrigger value="audits"><ClipboardList aria-hidden />{t("complianceHub.tabs.audits")}</TabsTrigger>
+          <TabsTrigger value="obligations"><Scale aria-hidden />{t("complianceHub.tabs.obligations")}</TabsTrigger>
+          <TabsTrigger value="mall"><Building2 aria-hidden />{t("complianceHub.tabs.mall")}</TabsTrigger>
         </TabsList>
         <TabsContent value="incidents" className="mt-4"><IncidentsTab /></TabsContent>
         <TabsContent value="audits" className="mt-4"><AuditsTab /></TabsContent>

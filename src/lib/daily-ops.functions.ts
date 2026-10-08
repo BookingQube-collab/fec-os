@@ -12,6 +12,7 @@ import { shiftUuid } from "@/lib/staff-import-ids";
 import { createAuthenticatedAction } from "@/lib/server/create-action";
 import { assertLocationAccess } from "@/lib/server/authorize";
 import { STAFF_NOT_JOKER_EMPLOYMENT_OR } from "@/lib/staff-status";
+import { applyStoredTrainingRules } from "@/lib/training/execute-rules";
 
 const LocFilter = z
   .object({ locationId: z.string().uuid().nullable().optional() })
@@ -219,11 +220,26 @@ export const updateStaffRoster = createAuthenticatedAction(
   async (data, context) => {
     const { data: existing, error: fetchErr } = await context.supabase
       .from("staff")
-      .select("location_id")
+      .select("location_id, staff_role, job_title")
       .eq("id", data.id)
       .single();
     if (fetchErr) throw fetchErr;
     await assertLocationAccess(context, existing.location_id);
+
+    if (data.staff_role && data.staff_role !== existing.staff_role) {
+      await applyStoredTrainingRules(context, {
+        trigger: "ROLE_CHANGE",
+        staffId: data.id,
+        roleCode: data.staff_role,
+      });
+    }
+    if (data.job_title && data.job_title !== existing.job_title) {
+      await applyStoredTrainingRules(context, {
+        trigger: "ROLE_CHANGE",
+        staffId: data.id,
+        roleCode: data.job_title,
+      });
+    }
 
     const patch: {
       staff_role?: (typeof STAFF_ROLES)[number] | null;

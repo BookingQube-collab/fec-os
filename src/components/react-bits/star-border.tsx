@@ -22,7 +22,7 @@ type StarBorderProps = React.HTMLAttributes<HTMLElement> & {
 export default function StarBorder({
   as,
   className,
-  color = "#c47a0a",
+  color = "#6d4aff",
   speed = "6s",
   thickness = 3,
   children,

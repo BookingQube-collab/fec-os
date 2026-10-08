@@ -8,6 +8,7 @@ import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
+import { LayoutDashboard, ListChecks } from "lucide-react";
 import { toast } from "sonner";
 
 import { CollapsibleSection } from "@/components/dashboard/collapsible-section";
@@ -446,8 +447,8 @@ export default function EventPlanPage() {
 
       <Tabs defaultValue="overview">
         <TabsList>
-          <TabsTrigger value="overview">{t("events.plan.tabOverview")}</TabsTrigger>
-          <TabsTrigger value="tasks">{t("events.plan.tabTasks")}</TabsTrigger>
+          <TabsTrigger value="overview"><LayoutDashboard aria-hidden />{t("events.plan.tabOverview")}</TabsTrigger>
+          <TabsTrigger value="tasks"><ListChecks aria-hidden />{t("events.plan.tabTasks")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">

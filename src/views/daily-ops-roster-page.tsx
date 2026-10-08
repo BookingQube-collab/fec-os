@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Download, MapPin, Share2, Upload, ChevronDown } from "lucide-react";
+import { CalendarDays, Download, MapPin, Share2, Sparkles, Upload, Users, ChevronDown } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -362,10 +362,10 @@ function DailyOpsRosterPage() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
-          <TabsTrigger value="calendar">{t("dailyOps.roster.tabCalendar")}</TabsTrigger>
-          <TabsTrigger value="staff">{t("dailyOps.roster.tabStaff")}</TabsTrigger>
-          <TabsTrigger value="uploads">{t("dailyOps.roster.tabUploads")}</TabsTrigger>
-          {canGenerate && <TabsTrigger value="generate">{t("dailyOps.roster.tabGenerate")}</TabsTrigger>}
+          <TabsTrigger value="calendar"><CalendarDays aria-hidden />{t("dailyOps.roster.tabCalendar")}</TabsTrigger>
+          <TabsTrigger value="staff"><Users aria-hidden />{t("dailyOps.roster.tabStaff")}</TabsTrigger>
+          <TabsTrigger value="uploads"><Upload aria-hidden />{t("dailyOps.roster.tabUploads")}</TabsTrigger>
+          {canGenerate && <TabsTrigger value="generate"><Sparkles aria-hidden />{t("dailyOps.roster.tabGenerate")}</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="calendar" className="mt-4">

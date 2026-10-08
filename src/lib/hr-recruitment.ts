@@ -314,6 +314,187 @@ export function maskJobRequestSalary<T extends { salaryBudgetQar?: number | null
   return { ...row, salaryBudgetQar: null };
 }
 
+/**
+ * Desk filters group stored job-request statuses.
+ * They do not add a step the approval ladder does not already have.
+ */
+export const JOB_REQUEST_DESK_GROUPS = ["in_review", "approved", "published", "returned", "closed"] as const;
+export type JobRequestDeskGroup = (typeof JOB_REQUEST_DESK_GROUPS)[number];
+
+const JOB_REQUEST_GROUP_OF: Record<HrJobRequestStatus, JobRequestDeskGroup> = {
+  draft: "in_review",
+  pending: "in_review",
+  approved: "approved",
+  published: "published",
+  returned: "returned",
+  on_hold: "returned",
+  rejected: "closed",
+  cancelled: "closed",
+  closed: "closed",
+};
+
+export function jobRequestDeskGroup(status: string): JobRequestDeskGroup {
+  if (status in JOB_REQUEST_GROUP_OF) return JOB_REQUEST_GROUP_OF[status as HrJobRequestStatus];
+  return "closed";
+}
+
+type JobStepCapability =
+  | "recruitment.request"
+  | "recruitment.manage"
+  | "recruitment.view_salary_budget"
+  | "quota.override_approve"
+  | "hr.manage";
+
+/** Same step rules the server uses before approve / reject. */
+export function canActOnJobStep(
+  stepRole: HrJobApprovalRole,
+  can: (capability: JobStepCapability) => boolean,
+  roles: readonly string[] = [],
+): boolean {
+  if (stepRole === "quota_override") return can("quota.override_approve");
+  if (stepRole === "dept_ops") {
+    return can("recruitment.request") || can("recruitment.manage") || can("hr.manage");
+  }
+  if (stepRole === "gm") {
+    return can("recruitment.manage") || roles.includes("ceo") || roles.includes("coo");
+  }
+  return can(JOB_STEP_CAPABILITY[stepRole]);
+}
+
+export function jobRequestOverrideOpen(
+  exceedsQuota: boolean,
+  quotaOverrideStatus: HrQuotaOverrideStatus | string | null | undefined,
+): boolean {
+  return exceedsQuota && quotaOverrideStatus !== "approved";
+}
+
+export type JobRequestDeskMessage =
+  | "approve_step"
+  | "awaiting_approval"
+  | "override_required"
+  | "publish"
+  | "awaiting_publish"
+  | "published"
+  | "returned"
+  | "rejected"
+  | "on_hold"
+  | "closed"
+  | "draft";
+
+export type JobRequestDeskAction = {
+  message: JobRequestDeskMessage;
+  approve: boolean;
+  returnForCorrection: boolean;
+  reject: boolean;
+  publish: boolean;
+  grantOverride: boolean;
+};
+
+const NO_JOB_DESK_BUTTONS: Pick<
+  JobRequestDeskAction,
+  "approve" | "returnForCorrection" | "reject" | "publish" | "grantOverride"
+> = {
+  approve: false,
+  returnForCorrection: false,
+  reject: false,
+  publish: false,
+  grantOverride: false,
+};
+
+/**
+ * Buttons only when a server action exists and this viewer can call it.
+ * Approve and publish stay off while a quota override is still open.
+ */
+export function jobRequestDeskAction(input: {
+  status: string;
+  canActOnCurrentStep: boolean;
+  canManage: boolean;
+  canGrantOverride: boolean;
+  exceedsQuota: boolean;
+  quotaOverrideStatus: HrQuotaOverrideStatus | string | null | undefined;
+}): JobRequestDeskAction {
+  const overrideOpen = jobRequestOverrideOpen(input.exceedsQuota, input.quotaOverrideStatus);
+  const grantOverride =
+    overrideOpen &&
+    input.canGrantOverride &&
+    (input.status === "pending" || input.status === "approved");
+
+  if (input.status === "pending") {
+    return {
+      message: overrideOpen
+        ? "override_required"
+        : input.canActOnCurrentStep
+          ? "approve_step"
+          : "awaiting_approval",
+      approve: input.canActOnCurrentStep && !overrideOpen,
+      returnForCorrection: input.canManage,
+      reject: input.canActOnCurrentStep,
+      publish: false,
+      grantOverride,
+    };
+  }
+  if (input.status === "approved") {
+    return {
+      message: overrideOpen ? "override_required" : input.canManage ? "publish" : "awaiting_publish",
+      ...NO_JOB_DESK_BUTTONS,
+      publish: input.canManage && !overrideOpen,
+      grantOverride,
+    };
+  }
+  if (input.status === "published") return { message: "published", ...NO_JOB_DESK_BUTTONS };
+  if (input.status === "returned") return { message: "returned", ...NO_JOB_DESK_BUTTONS };
+  if (input.status === "rejected") return { message: "rejected", ...NO_JOB_DESK_BUTTONS };
+  if (input.status === "on_hold") return { message: "on_hold", ...NO_JOB_DESK_BUTTONS };
+  if (input.status === "draft") return { message: "draft", ...NO_JOB_DESK_BUTTONS };
+  return { message: "closed", ...NO_JOB_DESK_BUTTONS };
+}
+
+/** Drop a salary sentence from free text when the viewer cannot see budget. */
+export function jobRequestVisibleText(
+  text: string | null | undefined,
+  canViewSalary: boolean,
+): string | null {
+  if (text == null) return null;
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  if (canViewSalary) return trimmed;
+  const redacted = trimmed
+    .replace(/\s*salary budget:\s*[^.\n]*\.?/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([.])/g, "$1")
+    .replace(/\.{2,}/g, ".")
+    .trim();
+  return redacted || null;
+}
+
+export function jobRequestSearchText(
+  row: {
+    jobTitle: string;
+    locationName?: string | null;
+    departmentName?: string | null;
+    status?: string | null;
+    priority?: string | null;
+    employmentCategory?: string | null;
+    jobDescription?: string | null;
+    salaryBudgetQar?: number | null;
+  },
+  canViewSalary: boolean,
+): string {
+  return [
+    row.jobTitle,
+    row.locationName,
+    row.departmentName,
+    row.status,
+    row.priority,
+    row.employmentCategory,
+    jobRequestVisibleText(row.jobDescription, canViewSalary),
+    canViewSalary && row.salaryBudgetQar != null ? String(row.salaryBudgetQar) : null,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
 export function requiresFinanceForBudget(salaryBudgetQar: number | null | undefined): boolean {
   return salaryBudgetQar != null && Number(salaryBudgetQar) > 0;
 }

@@ -6,7 +6,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { FileBarChart, Plus, Trash2 } from "lucide-react";
+import { BookOpen, FileBarChart, Handshake, LayoutDashboard, List, Map, Plus, ScrollText, Trash2, Upload } from "lucide-react";
 
 import { TintedKpiCard } from "@/components/dashboard/tinted-kpi-card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -371,14 +371,14 @@ export default function CorporateDealsPage() {
 
       <Tabs defaultValue="dashboard">
         <TabsList className="print:hidden mb-1 flex h-auto flex-wrap gap-1">
-          <TabsTrigger value="dashboard">{t("corporateDeals.tabs.dashboard")}</TabsTrigger>
-          <TabsTrigger value="summary">{t("corporateDeals.tabs.summary")}</TabsTrigger>
-          <TabsTrigger value="import">{t("corporateDeals.tabs.import")}</TabsTrigger>
-          <TabsTrigger value="log">{t("corporateDeals.tabs.log")}</TabsTrigger>
-          <TabsTrigger value="mapping">{t("corporateDeals.tabs.mapping")}</TabsTrigger>
-          <TabsTrigger value="partners">{t("corporateDeals.tabs.partners")}</TabsTrigger>
-          <TabsTrigger value="mom">{t("corporateDeals.tabs.mom")}</TabsTrigger>
-          <TabsTrigger value="readme">{t("corporateDeals.tabs.readme")}</TabsTrigger>
+          <TabsTrigger value="dashboard"><LayoutDashboard aria-hidden />{t("corporateDeals.tabs.dashboard")}</TabsTrigger>
+          <TabsTrigger value="summary"><FileBarChart aria-hidden />{t("corporateDeals.tabs.summary")}</TabsTrigger>
+          <TabsTrigger value="import"><Upload aria-hidden />{t("corporateDeals.tabs.import")}</TabsTrigger>
+          <TabsTrigger value="log"><List aria-hidden />{t("corporateDeals.tabs.log")}</TabsTrigger>
+          <TabsTrigger value="mapping"><Map aria-hidden />{t("corporateDeals.tabs.mapping")}</TabsTrigger>
+          <TabsTrigger value="partners"><Handshake aria-hidden />{t("corporateDeals.tabs.partners")}</TabsTrigger>
+          <TabsTrigger value="mom"><ScrollText aria-hidden />{t("corporateDeals.tabs.mom")}</TabsTrigger>
+          <TabsTrigger value="readme"><BookOpen aria-hidden />{t("corporateDeals.tabs.readme")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="dashboard" className="corporate-deals-dashboard mt-4 space-y-5">

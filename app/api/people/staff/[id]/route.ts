@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { redactStaffIdentityNumbers } from "@/lib/hr-advanced";
 import { formatLocationLabel } from "@/lib/locations/normalize";
+import { resolveStaffProfileReadAccess } from "@/lib/staff-profile-access.server";
 import { withAuthRouteRequest, searchParams } from "@/lib/server/api-route";
 import { canUserDo } from "@/lib/rbac";
 import { ForbiddenError } from "@/lib/server/authorize";
@@ -34,8 +35,10 @@ export async function GET(
       // Default request with no sections param → full payload (legacy callers).
       const legacyFull = params.get("sections") == null;
 
+      const access = await resolveStaffProfileReadAccess(context, id);
+      const db = access.scope === "team" ? supabaseAdmin : context.supabase;
       const includeSalary = canUserDo(context.roles ?? [], "people.view_salary");
-      const { data: staff, error } = await context.supabase
+      const { data: staff, error } = await db
         .from("staff")
         .select(
           "id, user_id, employee_code, full_name, job_title, department, status, location_id, is_roaming, phone, email, hire_date, qid, e3_enrolled, employment_type, staff_role, source_row_no, deleted_at, photo_updated_at, photo_mime, flexible_attendance, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday, locations!staff_location_id_fkey(code, name), staff_departments(department_id, master_departments(id, name, sort_order))",
@@ -45,22 +48,24 @@ export async function GET(
       if (error) throw error;
       if (!staff) throw new Error("Staff member not found");
 
-      const { data: allowed, error: locErr } = await context.supabase.rpc("user_can_access_staff", {
-        _staff_id: id,
-      });
-      if (locErr) {
-        const { data: homeOk, error: homeErr } = await context.supabase.rpc("user_can_access_location", {
-          _location_id: staff.location_id,
+      if (access.scope === "company") {
+        const { data: allowed, error: locErr } = await db.rpc("user_can_access_staff", {
+          _staff_id: id,
         });
-        if (homeErr) throw homeErr;
-        if (!homeOk) throw new ForbiddenError("Forbidden: cannot access this branch");
-      } else if (!allowed) {
-        throw new ForbiddenError("Forbidden: cannot access this branch");
+        if (locErr) {
+          const { data: homeOk, error: homeErr } = await db.rpc("user_can_access_location", {
+            _location_id: staff.location_id,
+          });
+          if (homeErr) throw homeErr;
+          if (!homeOk) throw new ForbiddenError("Forbidden: cannot access this branch");
+        } else if (!allowed) {
+          throw new ForbiddenError("Forbidden: cannot access this branch");
+        }
       }
 
       let compensation: { monthly_salary_qar: number | null; daily_rate_qar: number | null; currency: string } | null = null;
       if (includeSalary && (loadOverview || legacyFull)) {
-        const { data: comp } = await context.supabase
+        const { data: comp } = await db
           .from("staff_compensation")
           .select("monthly_salary_qar, daily_rate_qar, currency")
           .eq("staff_id", id)
@@ -77,7 +82,7 @@ export async function GET(
       const locationLabels = new Map<string, string>();
       let transfers: Array<Record<string, unknown>> = [];
       if (loadOverview || legacyFull) {
-        const { data: transferRows } = await context.supabase
+        const { data: transferRows } = await db
           .from("staff_transfers")
           .select("id, from_location_id, to_location_id, effective_on, reason, created_at")
           .eq("staff_id", id)
@@ -92,7 +97,7 @@ export async function GET(
           ),
         ];
         if (locationIds.length) {
-          const { data: locs } = await context.supabase
+          const { data: locs } = await db
             .from("locations")
             .select("id, code, name")
             .in("id", locationIds);
@@ -107,7 +112,7 @@ export async function GET(
         }));
       }
 
-      const workLocations = (await fetchWorkLocationsByStaffId(context.supabase, [id])).get(id) ?? [];
+      const workLocations = (await fetchWorkLocationsByStaffId(db, [id])).get(id) ?? [];
       for (const loc of workLocations) {
         locationLabels.set(loc.id, formatLocationLabel(loc.code, loc.name));
       }
@@ -115,7 +120,7 @@ export async function GET(
       let attendance: Array<Record<string, unknown>> = [];
       let punches: Array<Record<string, unknown>> = [];
       if (loadAttendance || legacyFull) {
-        const { data: attendanceRows } = await context.supabase
+        const { data: attendanceRows } = await db
           .from("attendance_daily_summary")
           .select("id, location_id, work_date, status, actual_in, actual_out, worked_minutes, overtime_minutes, missed_punch")
           .eq("staff_id", id)
@@ -127,7 +132,7 @@ export async function GET(
         ];
         const missingAttendanceLocs = attendanceLocationIds.filter((locId) => !locationLabels.has(locId));
         if (missingAttendanceLocs.length) {
-          const { data: attLocs } = await context.supabase
+          const { data: attLocs } = await db
             .from("locations")
             .select("id, code, name")
             .in("id", missingAttendanceLocs);
@@ -141,7 +146,7 @@ export async function GET(
           location_label: row.location_id ? (locationLabels.get(row.location_id) ?? null) : null,
         }));
 
-        const { data: punchRows } = await context.supabase
+        const { data: punchRows } = await db
           .from("attendance_logs")
           .select("id, punch_at, punch_type, source, location_id")
           .eq("staff_id", id)
@@ -152,7 +157,7 @@ export async function GET(
 
       let training: Array<Record<string, unknown>> = [];
       if (loadTraining || legacyFull || loadOverview) {
-        const { data: trainingRows } = await context.supabase
+        const { data: trainingRows } = await db
           .from("training_enrollments")
           .select("id, course_name, status, due_on, completed_on")
           .eq("staff_id", id)
@@ -173,26 +178,51 @@ export async function GET(
       let managerName: string | null = null;
 
       if (loadOverview || legacyFull) {
-        const { data: extPayload, error: extErr } = await context.supabase.rpc("read_staff_profile_ext", {
-          _staff_id: id,
-        });
-        let ext = (extPayload ?? null) as Record<string, unknown> | null;
-        if (extErr) {
-          const missingFn = /read_staff_profile_ext|PGRST202|schema cache/i.test(extErr.message);
-          if (!missingFn) throw extErr;
-          const { data: legacy, error: legacyErr } = await context.supabase
+        const profileExtSelect =
+          "nationality, gender, date_of_birth, emergency_contact_name, emergency_contact_phone, emergency_contact_relation, reporting_manager_staff_id, employment_category, probation_start, probation_end, passport_number, passport_expiry, visa_number, visa_expiry, sponsorship_info, qid_expiry, ticket_eligibility, ticket_eligibility_months, ticket_amount, contract_start, contract_end, notes, payment_method, bank_name, iban, last_working_date, releasing_date, exit_reason";
+        let ext: Record<string, unknown> | null = null;
+        if (access.scope === "team") {
+          const { data: legacy, error: legacyErr } = await db
             .from("staff_profile_ext")
-            .select(
-              "nationality, gender, date_of_birth, emergency_contact_name, emergency_contact_phone, emergency_contact_relation, reporting_manager_staff_id, employment_category, probation_start, probation_end, passport_number, passport_expiry, visa_number, visa_expiry, sponsorship_info, qid_expiry, ticket_eligibility, ticket_eligibility_months, ticket_amount, contract_start, contract_end, notes, payment_method, bank_name, iban, last_working_date, releasing_date, exit_reason",
-            )
+            .select(profileExtSelect)
             .eq("staff_id", id)
             .maybeSingle();
           if (legacyErr) throw legacyErr;
           ext = legacy;
+          if (ext && access.viewerStaffId !== id) {
+            ext = {
+              ...ext,
+              passport_number: null,
+              visa_number: null,
+              notes: null,
+              exit_reason: null,
+              ticket_amount: null,
+              payment_method: null,
+              bank_name: null,
+              iban: null,
+              wps_employee_id: null,
+            };
+          }
+        } else {
+          const { data: extPayload, error: extErr } = await db.rpc("read_staff_profile_ext", {
+            _staff_id: id,
+          });
+          ext = (extPayload ?? null) as Record<string, unknown> | null;
+          if (extErr) {
+            const missingFn = /read_staff_profile_ext|PGRST202|schema cache/i.test(extErr.message);
+            if (!missingFn) throw extErr;
+            const { data: legacy, error: legacyErr } = await db
+              .from("staff_profile_ext")
+              .select(profileExtSelect)
+              .eq("staff_id", id)
+              .maybeSingle();
+            if (legacyErr) throw legacyErr;
+            ext = legacy;
+          }
         }
         profileExt = ext;
 
-        const { data: historyRows } = await context.supabase
+        const { data: historyRows } = await db
           .from("staff_status_history")
           .select("id, from_status, to_status, effective_on, reason, created_at, created_by")
           .eq("staff_id", id)
@@ -201,7 +231,7 @@ export async function GET(
         statusHistory = historyRows ?? [];
 
         if (canDocs) {
-          const { data: docRows } = await context.supabase
+          const { data: docRows } = await db
             .from("hr_employee_documents")
             .select(
               "id, doc_type, document_number, issue_date, expiry_date, verification_status, status, file_name, notes, verification_remarks, created_at",
@@ -215,7 +245,7 @@ export async function GET(
 
         const managerId = typeof ext?.reporting_manager_staff_id === "string" ? ext.reporting_manager_staff_id : null;
         if (managerId) {
-          const { data: mgr } = await context.supabase
+          const { data: mgr } = await db
             .from("staff")
             .select("full_name, employee_code")
             .eq("id", managerId)
@@ -280,6 +310,6 @@ export async function GET(
       };
     },
     request,
-    { capability: "people.view_roster" },
+    { requireRole: true },
   );
 }

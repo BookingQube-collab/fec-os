@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, Building2, Handshake, Heart, ListChecks, Plus, Scale, Trash2, Star } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -98,13 +98,13 @@ export function EnterDataPanel({
 
       <Tabs defaultValue="decisions">
         <TabsList className="print:hidden">
-          <TabsTrigger value="decisions">{t("weeklyReview.tabs.decisions")}</TabsTrigger>
-          <TabsTrigger value="aggregators">{t("weeklyReview.tabs.aggregators")}</TabsTrigger>
-          <TabsTrigger value="corporate">{t("weeklyReview.tabs.corporate")}</TabsTrigger>
-          <TabsTrigger value="reviews">{t("weeklyReview.tabs.reviews")}</TabsTrigger>
-          <TabsTrigger value="loyalty">{t("weeklyReview.tabs.loyalty")}</TabsTrigger>
-          <TabsTrigger value="actions">{t("weeklyReview.tabs.actions")}</TabsTrigger>
-          <TabsTrigger value="incidents">{t("weeklyReview.tabs.incidents")}</TabsTrigger>
+          <TabsTrigger value="decisions"><Scale aria-hidden />{t("weeklyReview.tabs.decisions")}</TabsTrigger>
+          <TabsTrigger value="aggregators"><Building2 aria-hidden />{t("weeklyReview.tabs.aggregators")}</TabsTrigger>
+          <TabsTrigger value="corporate"><Handshake aria-hidden />{t("weeklyReview.tabs.corporate")}</TabsTrigger>
+          <TabsTrigger value="reviews"><Star aria-hidden />{t("weeklyReview.tabs.reviews")}</TabsTrigger>
+          <TabsTrigger value="loyalty"><Heart aria-hidden />{t("weeklyReview.tabs.loyalty")}</TabsTrigger>
+          <TabsTrigger value="actions"><ListChecks aria-hidden />{t("weeklyReview.tabs.actions")}</TabsTrigger>
+          <TabsTrigger value="incidents"><AlertTriangle aria-hidden />{t("weeklyReview.tabs.incidents")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="decisions">

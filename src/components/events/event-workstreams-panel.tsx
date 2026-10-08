@@ -1,5 +1,6 @@
 "use client";
 
+import { ShoppingCart, Truck, Users, Wrench } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -75,25 +76,24 @@ export function EventWorkstreamsPanel({
         </div>
       </div>
 
-      <div className="mb-3 flex flex-wrap gap-1.5">
-        {streams.map((stream) => (
+      <div className="fec-inner-tabs mb-3">
+        {streams.map((stream) => {
+          const Icon = stream.id === "procurement" ? ShoppingCart : stream.id === "people" ? Users : stream.id === "maintenance" ? Wrench : Truck;
+          return (
           <button
             key={stream.id}
             type="button"
             onClick={() => setTab(stream.id)}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold",
-              tab === stream.id
-                ? "border-primary bg-primary text-primary-foreground"
-                : "border-border/60 bg-secondary/40 text-muted-foreground hover:text-foreground",
-            )}
+            className={cn("fec-inner-tab", tab === stream.id && "is-active")}
           >
+            <Icon aria-hidden />
             {t(`events.home.stream.${stream.id}`)}
             <span className={cn("tabular-nums", tab === stream.id ? "opacity-90" : stream.warn ? "text-rag-red" : "")}>
               {stream.count}
             </span>
           </button>
-        ))}
+          );
+        })}
       </div>
 
       {tab === "procurement" ? (

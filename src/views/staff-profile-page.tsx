@@ -8,7 +8,21 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState, Suspense, type ReactNode } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { User } from "lucide-react";
+import {
+  Briefcase,
+  ClipboardList,
+  Clock,
+  FileText,
+  GraduationCap,
+  History,
+  LayoutDashboard,
+  ShieldAlert,
+  StickyNote,
+  User,
+  UserRound,
+  Wallet,
+  type LucideIcon,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,7 +56,7 @@ import { HrWarningsWorkspace } from "@/views/hr-warnings-page";
 import { PerformanceStaffProfilePanel } from "@/views/performance-staff-profile-page";
 import { StaffKraScorecards } from "@/components/people/staff-kra-scorecards";
 import { Checkbox } from "@/components/ui/checkbox";
-import { PillTabScroller, pillTabItemClass } from "@/components/react-bits/pill-tab-scroller";
+import { PillTabScroller, pillTrackItemClass } from "@/components/react-bits/pill-tab-scroller";
 
 const SECTION_LABEL = "text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground";
 const PANEL = "surface-card min-w-0 space-y-3 p-4";
@@ -241,11 +255,7 @@ function StaffProfilePageBody() {
       if (!result.ok) throw new Error(result.error);
       return result.data;
     },
-    enabled:
-      Boolean(id) &&
-      canProvisionLogin &&
-      Boolean(profile.data?.staff) &&
-      !profile.data?.login?.linked,
+    enabled: Boolean(id) && canProvisionLogin && Boolean(profile.data?.staff),
     staleTime: STALE.people,
   });
 
@@ -513,18 +523,18 @@ function StaffProfilePageBody() {
     today,
   );
   const showPayroll = Boolean(profile.data?.canViewSalary || canViewSalaryPerm);
-  const profileTabs: Array<{ value: string; label: string }> = [
-    { value: "overview", label: "Overview" },
-    { value: "employment", label: "Employment" },
-    { value: "personal", label: "Personal" },
-    { value: "documents", label: "Documents" },
-    { value: "attendance", label: "Attendance & Leave" },
-    ...(showPayroll ? [{ value: "payroll", label: "Payroll" }] : []),
-    { value: "performance", label: "Performance" },
-    { value: "training", label: "Training" },
-    { value: "warnings", label: "Disciplinary" },
-    { value: "history", label: "History" },
-    { value: "notes", label: "Notes" },
+  const profileTabs: Array<{ value: string; label: string; icon: LucideIcon }> = [
+    { value: "overview", label: "Overview", icon: LayoutDashboard },
+    { value: "employment", label: "Employment", icon: Briefcase },
+    { value: "personal", label: "Personal", icon: UserRound },
+    { value: "documents", label: "Documents", icon: FileText },
+    { value: "attendance", label: "Attendance & Leave", icon: Clock },
+    ...(showPayroll ? [{ value: "payroll", label: "Payroll", icon: Wallet }] : []),
+    { value: "performance", label: "Performance", icon: ClipboardList },
+    { value: "training", label: "Training", icon: GraduationCap },
+    { value: "warnings", label: "Disciplinary", icon: ShieldAlert },
+    { value: "history", label: "History", icon: History },
+    { value: "notes", label: "Notes", icon: StickyNote },
   ];
   const emergencyContact = [ext?.emergency_contact_name, ext?.emergency_contact_phone].filter(Boolean).join(" · ");
   const contractSpan = [ext?.contract_start, ext?.contract_end].filter(Boolean).join(" → ");
@@ -601,6 +611,17 @@ function StaffProfilePageBody() {
                 {t("people.profile.login.defaultPassword", { password: defaultPassword })}
               </p>
             ) : null}
+            {loginPreview.data?.team ? (
+              <p className="text-sm text-muted-foreground">
+                {t("people.profile.login.teamFromChart", {
+                  manager: loginPreview.data.team.managerName ?? t("people.profile.login.noManager"),
+                  reports: loginPreview.data.team.reportNames.length
+                    ? loginPreview.data.team.reportNames.join(", ")
+                    : t("people.profile.login.noReports"),
+                  further: loginPreview.data.team.furtherReportCount,
+                })}
+              </p>
+            ) : null}
             {!loginLinked && !canProvisionLogin ? (
               <p className="text-sm text-muted-foreground">{t("people.profile.login.ceoOnly")}</p>
             ) : null}
@@ -675,11 +696,15 @@ function StaffProfilePageBody() {
         className="space-y-3"
       >
         <TabsList>
-          {profileTabs.map((tab) => (
+          {profileTabs.map((tab) => {
+            const Icon = tab.icon;
+            return (
             <TabsTrigger key={tab.value} value={tab.value}>
+              <Icon aria-hidden />
               {tab.label}
             </TabsTrigger>
-          ))}
+            );
+          })}
         </TabsList>
 
         <TabsContent value="overview" className="mt-3 space-y-3">
@@ -1510,7 +1535,7 @@ function StaffProfilePageBody() {
           </section>
         <section className={PANEL}>
           <h2 className={SECTION_LABEL}>{t("people.profile.timeline")}</h2>
-          <PillTabScroller label={t("people.profile.timeline")}>
+          <PillTabScroller variant="track" label={t("people.profile.timeline")}>
             {(
               ["all", "status_change", "salary_change", "leave_approved", "document_verified", "document_replaced"] as const
             ).map((value) => (
@@ -1518,7 +1543,7 @@ function StaffProfilePageBody() {
                 key={value}
                 type="button"
                 aria-pressed={timelineFilter === value}
-                className={pillTabItemClass(timelineFilter === value)}
+                className={pillTrackItemClass(timelineFilter === value)}
                 onClick={() => setTimelineFilter(value)}
               >
                 {t(`people.profile.timelineFilters.${value}`)}

@@ -138,10 +138,10 @@ function DailyOpsBriefingsPage() {
     >
       <Tabs value={tab} onValueChange={(v) => setTab(v as BriefingTab)}>
         <TabsList>
-          <TabsTrigger value="list">{t("dailyOps.briefings.list")}</TabsTrigger>
+          <TabsTrigger value="list"><ClipboardList aria-hidden />{t("dailyOps.briefings.list")}</TabsTrigger>
           {canManage && (
             <TabsTrigger value="new">
-              <Plus className="mr-1 h-3.5 w-3.5" />
+              <Plus aria-hidden />
               {t("dailyOps.briefings.new")}
             </TabsTrigger>
           )}

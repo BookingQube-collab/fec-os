@@ -1,6 +1,8 @@
 # FEC-OS HRMS 2.0 implementation plan
 
-Phase 0 audit of the existing FEC-OS HR system, plus the Phase 1 scope that was implemented. Later phases are documented only. They are not built.
+Phase 0 audit of the existing FEC-OS HR system. Phases 1 through 10 are implemented as read-only notes on the current screens. Core roster, attendance, payroll, leave, people, and ZKTeco write paths were not replaced.
+
+People navigation is a flat list again: one sidebar row per existing page. The twelve-title dropdown regroup was removed. Review notes stay on the pages they already had. `/people/hr` is the AI Smart Dashboard and uses counts and notes the app already loads. Attrition percentage, burnout, an engagement score, and a payroll cost comparison were not added because those figures are not in the loaded records.
 
 This is one product. There is no second HR application, no second employee table, no second attendance engine, no second roster engine, and no second ZKTeco integration.
 
@@ -37,7 +39,7 @@ Protected routes live under `app/(protected)/people`, `app/(protected)/hr/me`, a
 
 | # | Module | Status | Where it lives |
 | --- | --- | --- | --- |
-| 01 | HR Command Center | PARTIAL | `/people/hr` dashboard, KPIs, links. Not a full command suite. |
+| 01 | HR Command Center | PARTIAL | `/people/hr` dashboard KPIs, plus plain-language notes from the counts that page already loads (headcount, present, on leave, pending leave, expired and expiring documents). Not a full command suite. |
 | 02 | Employee Management | PARTIAL | `/people`, `/people/staff/[id]`, import, master lists. Profile tabs already cover employment, personal, documents, attendance, payroll, performance, training, warnings, history, notes. |
 | 03 | Recruitment & Onboarding | PARTIAL | ATS pipeline, job requests, vacancies, offers, onboarding checklists. |
 | 04 | Attendance & Workforce Analytics | PARTIAL | Attendance dashboard, import, listing, mapping, device logs, corrections, ZKTeco devices, field/geo. Calculations stay in `src/lib/attendance-hr`. |
@@ -46,13 +48,13 @@ Protected routes live under `app/(protected)/people`, `app/(protected)/hr/me`, a
 | 07 | Payroll & Compensation | PARTIAL | Periods, lines, WPS/cheque/bank export, salary history, air tickets. |
 | 08 | Performance Management | PARTIAL | Cycles, KRA/KPI, evaluations, achievements. |
 | 09 | Learning & Development | PARTIAL | `training_enrollments` on people, shared with ops use. Not a cross-department learning platform yet. |
-| 10 | Employee Engagement | MISSING | No survey product. Do not invent scores. |
+| 10 | Employee Engagement | PARTIAL | `/people/hr/engagement` lists recognition and recurring warning, leave, and attendance notes. Pulse surveys are not stored, and the screen says so. No score. |
 | 11 | Workforce Planning | PARTIAL | Workforce quota and job requests. No forecast scenarios. |
 | 12 | Compliance & HR Risk | PARTIAL | Document expiry and policy settings exist. Labor-law watch is not a separate engine. Operations compliance (`/compliance`) is a different module. |
 | 13 | Employee Relations | PARTIAL | Warnings, probation. |
 | 14 | Documents & Expiry | PARTIAL | `hr_employee_documents`, bucket `hr-employee-documents`, expiry reminders. |
 | 15 | Employee Lifecycle | PARTIAL | Onboarding, probation, resignation, termination, status history. |
-| 16 | Employee Self-Service | PARTIAL | `/hr/me` (attendance, roster, leave, documents, payslips, KRA). |
+| 16 | Employee Self-Service | PARTIAL | `/hr/me` (attendance, roster, leave, documents, payslips, KRA) plus answers for leave remaining and how to update a document, read from the balances and files already on that page. |
 | 17 | HR Reports & Analytics | PARTIAL | `/people/hr/reports` and dashboard breakdowns. Not a report builder. |
 | 18 | HR Workflow & Approvals | PARTIAL | Approvals are per module (leave, OT, documents, payroll, termination, job requests). No reusable engine. |
 | 19 | AI HR Copilot | MISSING | Not built. |
@@ -63,12 +65,12 @@ Also in use and left unchanged: ZKTeco ADMS (`src/lib/attendance-hr/parse-adms.t
 
 ## Missing features
 
-- Engagement surveys (P8).
+- Pulse survey storage. `/people/hr/engagement` says surveys are not stored and uses warnings, leave, attendance, and recognition instead.
 - Reusable approval engine (P10). Do not hardcode a new approval table per module.
 - Labor-law change monitor (P7).
 - Cross-department learning platform that HR, Ops, Maintenance, HSE, CS, F&B, IT, and Management can assign (P6). Keep `training_enrollments`.
 - AI copilot and action center (P9).
-- Command-center KPI suite and command palette (out of Phase 1, not started).
+- Full command palette. `/people/hr` now explains the counts it already loads. It is not a second command suite.
 - Structured education rows. Education is already a document type. No second education table.
 - Employee-linked certifications. `staff_certifications` is a compliance sheet keyed by name, not `staff_id`. Do not duplicate it. Phase 1 shows training enrollments on the profile instead.
 
@@ -148,7 +150,7 @@ Scope today is location-based (`user_can_access_staff` / `user_can_access_locati
 2. Workforce planning and predictive staffing — P8, on quota and historical headcount. No second planning app.
 3. Smart payroll (calculation review, statutory/WPS status, anomaly before processing, life-stage benefits) — P3, on current payroll runs. No silent payroll approval.
 4. Core HR, hierarchies, labor-law flags — employee master and hierarchy exist (P1 profile). Labor-law watch is P7.
-5. ESS chatbot (PTO, insurance, workflows) — P9, reading `/hr/me` data. It must not file or approve leave by itself.
+5. ESS answers for leave remaining and document or insurance upload — on `/hr/me`, reading the leave balance and document list already loaded there. They do not file or approve leave.
 6. Continuous performance, feedback sentiment, goals, workload prompt — P5. Say workload concern, not a diagnosis.
 7. Personalized learning — P6, on the shared training platform, not an HR-only catalog.
 8. Predictive retention — P8. Explainable signals, why / view data / recommended action. No unexplained percentage.
@@ -195,39 +197,91 @@ Workspace index, employee 360 on the current profile, masked profile read, redac
 
 ### P2 — Attendance + Roster + Leave
 
-Assistive flags and shift suggestions on the current attendance, roster, and leave screens. ZKTeco sync unchanged. Managers approve. Not started.
+Implemented as read-only notes on the current screens. Managers still approve. Not a second attendance, roster, or leave engine.
+
+Done:
+
+- Attendance review on `/people/attendance`: duplicate punches (stored duplicate mark), impossible timestamps, repeated missing punches, unusual overtime against that person's own days, attendance outside the rostered site or shift, and roster versus daily-summary mismatch. Each note has why, evidence, period, and a human action, and links to the existing Corrections queue.
+- Roster recommendations on `/people/roster`: extra attendants only when the same site, weekday, and shift window is staffed higher on other days in the period; leave still listed on a roster row. Shift template names label a window when the times already appear on the roster. Nothing writes the roster.
+- Leave notes on `/people/leave`: overlapping leave, staffing counts against the roster, and "Pattern requires HR review". Balances and approval steps are unchanged.
+
+Deferred inside Phase 2:
+
+- No separate opening-hours table exists on `locations`. Recommendations use roster shift times and active shift templates as labels, not a new hours model.
+- No new correction or approval table. Corrections stay on `/people/attendance/corrections`.
+- Device logs, ZKTeco sync, punch processing, roster import/approval, and leave math were not given an AI writer.
 
 ### P3 — Payroll + Compensation
 
-Explain and flag current payroll lines before a human processes them. Not started.
+Done:
+
+- Review notes on `/people/payroll/[periodId]` before a person processes the run. They explain a net change of at least 500 QAR against the stored previous-period variance, a deduction code that was not on the previous line, overtime pay of at least 200 QAR when the previous line had none, and a plain-language reconciliation when earnings, net, or the imported net do not match. Each note has why, evidence, the period, and a human action.
+- Payroll calculations, lock, exports, and salary writes are unchanged. The note does not update `hr_payroll_lines`.
 
 ### P4 — Recruitment + Onboarding
 
-Matching and screening assist on the current ATS and onboarding checklists. Not started.
+Done:
+
+- Role-requirement notes on `/people/recruitment`: missing skills, experience years, and education compared with the candidate skills, education, and CV text, plus QID or visa presence as yes/no. The document number is not shown. Notes say the check is supporting analysis and must not auto-reject.
+- Open onboarding checklist items on `/people/hr/onboarding`. The checklist write path is unchanged.
+
+Deferred inside Phase 4:
+
+- No separate score, and no use of protected characteristics. Existing `match_score` / `ai_score` columns are not read or written by this layer.
 
 ### P5 — Performance
 
-Feedback sentiment and workload prompts on current evaluations. Not started.
+Done:
+
+- Notes on `/people/performance`: a KPI actual that moved down, comments that disagree, and a coaching suggestion. The text does not decide promotion or termination and is not a health assessment.
 
 ### P6 — Learning & Development (shared platform)
 
-Recommendations and assignments from HR, Ops, Maintenance, HSE, CS, F&B, IT, and Management on the existing training records. Not started.
+Done:
+
+- Notes on the existing People training tab (`/people?tab=training`): overdue required enrollments, and a published course whose title matches a skill token with no completed course of that name. The training engine and enrollment writes are unchanged.
 
 ### P7 — Compliance + Documents + Employee Relations
 
-Labor-law flags and document expiry explanation on current documents and warnings. Not started.
+Done:
+
+- Expiry and missing-expiry notes on `/people/hr/documents` for dated document types. Document numbers are not shown.
+- Neutral warning summaries on `/people/hr/warnings`, including "Pattern requires HR review" when three or more warnings fall in the year-to-date window. The summary does not determine what happened. Warning writes are unchanged.
 
 ### P8 — Workforce Planning + Engagement
 
-Quota-based forecast and explainable retention signals. Not started.
+Done:
+
+- Notes on `/people/hr/quota`: approved headcount versus distinct people rostered on duty, overtime minutes rising by at least 180 in the later half of the period, missing-punch days, leave days, overdue courses, and KPI drops. Wording is a workload or coverage note with why, evidence, period, and a human action. No flight-risk percentage.
+
+Deferred inside Phase 8:
+
+- No scenario simulator and no new forecast table. The note uses quota, roster, attendance, leave, training, and evaluation rows that already exist.
 
 ### P9 — AI HR Copilot + Insight Engine + Action Center
 
-Read-only copilot and a human queue. Not started.
+Done:
+
+- A question box and a review queue on `/people/hr`. The answer uses the same review notes, shows source, period, and filters, and says "Insufficient HR data to answer this reliably." when the question is not covered. Payroll amounts are included only when the role already has `payroll.view`. Cards open the module or dismiss in this browser. Nothing is approved automatically.
 
 ### P10 — Reporting + Automation + Security Audit
 
-Report explanations, reusable approvals only if designed once, and a review of the QID-on-staff residual risk. Not started.
+Done:
+
+- A short explanation on `/people/hr/reports` for the catalog report already selected. It uses the existing export buttons and does not add a report builder.
+- Assist selects for payroll omit QID, IBAN, passport, and bank. Recruitment returns QID as yes/no only. Document notes omit the document number. No new approval engine.
+
+Deferred inside Phase 10:
+
+- The QID column still exists on `staff` for the existing employee master. This phase did not widen who can read it. A later security pass can mask that column; it was not introduced by these notes.
+
+## Follow-on gaps after Phase 10
+
+Done on the existing screens. This is not a new phase.
+
+- Engagement: `/people/hr/engagement` reads `employee_achievements`, `employee_awards`, warning category counts, missing-punch days, and leave days. It states that no survey table exists. Wording stays at engagement risk and workload concern. No percentage score and no new table.
+- Self-service: `/hr/me` answers remaining leave from `getLeaveBalanceSummary` and points document or insurance questions at the upload already on that page. Leave approval math is unchanged.
+- Command insights: `/people/hr` adds notes from the overview counts that dashboard already loads. Each note has why, evidence, period, and a recommended action. A missing count is not guessed.
 
 ## Phase 1 preservation note
 
@@ -240,4 +294,4 @@ Files left on existing logic (not rewritten):
 
 Phase 1 AI attached: missing-data checklist on `/people/staff/[id]` only. It does not score people and does not write punches, rosters, salaries, or device data.
 
-Deferred: every AI item in the table above from P2 onward.
+Deferred: opening hours as their own table, a new correction table, and masking the existing QID column on `staff`. Assistive notes from Phase 2 onward do not write those records.

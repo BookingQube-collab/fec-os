@@ -100,10 +100,16 @@ export const CAPABILITIES = {
   "tasks.manage_templates": ["branch_gm", "regional_ops", "duty_manager"],
   "tasks.generate_ai": ["branch_gm", "regional_ops", "duty_manager", "tech_supervisor"],
 
-  // Bookings
-  "bookings.view": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "cashier_host"],
-  "bookings.create": ["branch_gm", "duty_manager", "cashier_host"],
-  "bookings.confirm": ["branch_gm", "duty_manager"],
+  // Bookings desk. Administration is ceo, coo, and regional_ops (admin.view).
+  // General Manager is branch_gm. There is no head_of_operations role;
+  // coo and regional_ops are the operations leadership seats.
+  // Temporary: also show Bookings to supervisor and manager logins
+  // (duty_manager, tech_supervisor). No separate site_supervisor or event-manager login role. Tighten later.
+  "bookings.view": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor"],
+  "bookings.create": ["ceo", "coo", "regional_ops", "branch_gm"],
+  "bookings.confirm": ["ceo", "coo", "regional_ops", "branch_gm"],
+  // Purchase orders shared bookings.view before that desk was narrowed.
+  "pos.view": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "cashier_host"],
 
   // People / HR
   "people.view_roster": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "hr"],
@@ -336,7 +342,7 @@ export const CAPABILITIES = {
   "events.approve": ["ceo", "coo", "regional_ops", "branch_gm"],
   "events.finance": ["ceo", "coo", "cfo", "regional_ops"],
 
-  // Chat hub. Capabilities only — no nav item until a later phase.
+  // Chat hub. Desktop nav is /chat (chat.view). Mobile tabs stay the five fixed slots.
   // view/send: floor roles and every role that already uses operations modules.
   // create_group/manage_members: branch_gm and above, plus hr.
   "chat.view": [
@@ -349,6 +355,29 @@ export const CAPABILITIES = {
   ],
   "chat.create_group": ["ceo", "coo", "cfo", "regional_ops", "branch_gm", "hr"],
   "chat.manage_members": ["ceo", "coo", "cfo", "regional_ops", "branch_gm", "hr"],
+
+  // Training engine. Platform domain, not an HR submodule.
+  // Floor roles learn through enrollments; they do not receive training.view.
+  // Keep public.training_code_allows() in the training engine migration in sync.
+  "training.view": ["ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "hr", "auditor"],
+  "training.learn": ["ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "technician", "cashier_host", "auditor", "hr", "customer_service"],
+  "training.create": ["ceo", "coo", "regional_ops", "branch_gm", "hr"],
+  "training.edit": ["ceo", "coo", "regional_ops", "branch_gm", "hr"],
+  "training.publish": ["ceo", "coo", "regional_ops", "hr"],
+  "training.archive": ["ceo", "coo", "regional_ops", "hr"],
+  "training.assign": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "hr"],
+  "training.assign.department": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "hr"],
+  "training.assign.site": ["ceo", "coo", "regional_ops", "branch_gm", "hr"],
+  "training.assign.company": ["ceo", "coo", "regional_ops", "hr"],
+  "training.assessment.manage": ["ceo", "coo", "regional_ops", "branch_gm", "hr"],
+  "training.assessment.grade": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "hr"],
+  "training.session.create": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "hr"],
+  "training.attendance.manage": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "hr"],
+  "training.certificate.view": ["ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager", "hr", "auditor"],
+  "training.certificate.issue": ["ceo", "coo", "regional_ops", "branch_gm", "hr"],
+  "training.certificate.revoke": ["ceo", "coo", "regional_ops", "hr"],
+  "training.analytics.view": ["ceo", "coo", "cfo", "regional_ops", "branch_gm", "hr", "auditor"],
+  "training.reports.export": ["ceo", "coo", "cfo", "regional_ops", "branch_gm", "hr", "auditor"],
 } as const satisfies Record<string, readonly AppRole[]>;
 
 export type Capability = keyof typeof CAPABILITIES;

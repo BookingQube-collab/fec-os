@@ -1,10 +1,9 @@
 "use client";
 
 /**
- * Shared horizontal pill-tab scroller.
- * React Bits in this app has no tab-scroller Micro component, so this matches
- * the existing pill track (soft secondary surface, rounded active pill) and
- * keeps overflow reachable without a native horizontal scrollbar.
+ * Shared horizontal pill-tab row.
+ * Plain variant matches My Account pills and wraps inside the page column.
+ * Track variant keeps the older capsule for filter chips and jump links.
  */
 
 import {
@@ -35,6 +34,7 @@ export {
   pillScrollMaskStyle,
   pillScrollportClass,
   pillTabItemClass,
+  pillTrackItemClass,
   splitPillFrameClass,
   type PillScrollEdges,
 } from "@/components/react-bits/pill-tab-scroll";
@@ -317,16 +317,20 @@ export function PillTabScroller({
   label,
   className,
   trackClassName,
+  variant = "plain",
 }: {
   children: ReactNode;
   label: string;
   className?: string;
   trackClassName?: string;
+  /** plain: My Account pills. track: filter chips and jump links. */
+  variant?: "plain" | "track";
 }) {
   const scroll = usePillTabScroll<HTMLElement>();
+  const port = variant === "track" ? pillScrollportClass : "fec-inner-tabs w-full";
   return (
     <div className={cn(pillScrollFrameClass, className)}>
-      <div className={pillScrollTrackClass(trackClassName)}>
+      <div className={pillScrollTrackClass(cn(port, trackClassName))}>
         {scroll.edges.start ? (
           <PillTabScrollButtons edges={{ start: true, end: false }} onScroll={scroll.scroll} />
         ) : null}
@@ -334,7 +338,7 @@ export function PillTabScroller({
           ref={scroll.ref}
           aria-label={label}
           style={pillScrollMaskStyle(scroll.edges, scroll.rtl)}
-          className={cn(pillScrollportClass, trackClassName)}
+          className={cn(port, trackClassName)}
         >
           {children}
         </nav>

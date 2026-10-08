@@ -14,6 +14,7 @@ import {
 import { useTranslation } from "react-i18next";
 
 import { useUserRoles } from "@/hooks/use-auth";
+import { useHasDirectReports } from "@/hooks/use-my-direct-reports";
 import { buildNavSearchIndex, searchNav } from "@/lib/nav-search";
 import { cn } from "@/lib/utils";
 
@@ -21,6 +22,7 @@ export function HeaderSearch({ className }: { className?: string }) {
   const { t } = useTranslation();
   const router = useRouter();
   const roles = useUserRoles();
+  const { hasDirectReports } = useHasDirectReports();
   const inputRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const listId = useId();
@@ -28,7 +30,7 @@ export function HeaderSearch({ className }: { className?: string }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
 
-  const index = useMemo(() => buildNavSearchIndex(roles), [roles]);
+  const index = useMemo(() => buildNavSearchIndex(roles, hasDirectReports), [hasDirectReports, roles]);
   const results = useMemo(() => searchNav(query, index, t), [query, index, t]);
 
   useEffect(() => {
@@ -133,7 +135,7 @@ export function HeaderSearch({ className }: { className?: string }) {
             <li className="px-3 py-3 text-sm text-muted-foreground">{t("layout.searchNoResults")}</li>
           ) : (
             results.map((item, i) => (
-              <li key={item.href} role="presentation">
+              <li key={`${item.labelKey}:${item.href}`} role="presentation">
                 <button
                   type="button"
                   id={`${listId}-${item.href}`}

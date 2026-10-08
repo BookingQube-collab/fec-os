@@ -6,6 +6,7 @@ import Link from "next/link";
 import { ClipboardCheck } from "lucide-react";
 
 import { MissedPunchApprovalQueue } from "@/components/attendance-hr/missed-punch-approval-queue";
+import { PunchCorrectionRequest } from "@/components/attendance-hr/punch-correction-request";
 import { AttendanceHrNav } from "@/components/attendance-hr/attendance-hr-nav";
 import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
 import { Button } from "@/components/ui/button";
@@ -17,10 +18,11 @@ export default function AttendanceHrCorrectionsPage() {
         icon={ClipboardCheck}
         kicker="Time & Attendance"
         title="Corrections"
-        subtitle="Missed punch requests wait on the site supervisor, then Head of Operations, then HR. Approvers see the step waiting for them. Admin also sees the supervisor and operations steps."
+        subtitle="Your own correction goes to your line manager, then Head of Operations, then HR. A correction for someone on your team is approved and sent to HR."
       />
       <AttendanceHrNav />
       <NeumorphicCard className="space-y-3 p-5">
+        <PunchCorrectionRequest />
         <MissedPunchApprovalQueue />
         <div className="flex flex-wrap gap-2 pt-1">
           <Button size="sm" variant="secondary" asChild>

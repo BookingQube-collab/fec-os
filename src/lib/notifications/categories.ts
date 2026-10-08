@@ -18,6 +18,8 @@ export const NOTIFICATION_CATEGORIES = [
   "hr_disciplinary",
   "hr_payroll",
   "hr_recruitment",
+  "chat",
+  "training",
 ] as const;
 
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];

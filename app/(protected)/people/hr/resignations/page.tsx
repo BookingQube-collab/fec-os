@@ -1,3 +1,5 @@
-import { lazyView } from "@/lib/lazy-view";
+import { redirect } from "next/navigation";
 
-export default lazyView(() => import("@/views/hr-resignations-page"), "table");
+export default function ResignationsPage() {
+  redirect("/people/hr/probation-exit?tab=resignation");
+}

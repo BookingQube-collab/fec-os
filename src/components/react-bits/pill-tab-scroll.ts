@@ -68,9 +68,15 @@ export function pillScrollTrackClass(port?: string) {
 export const pillScrollportClass =
   "flex h-11 min-h-11 w-max min-w-0 max-w-full flex-nowrap items-center gap-0.5 overflow-x-auto overflow-y-hidden overscroll-x-contain rounded-full border-0 bg-secondary p-1 text-foreground [scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
 
-export function pillTabItemClass(active: boolean) {
+/** Filter chips and in-page jump links keep the previous track pill. */
+export function pillTrackItemClass(active: boolean) {
   return cn(
     "inline-flex h-full min-h-9 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-full px-3.5 text-sm font-medium leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-2",
     active ? "bg-primary text-primary-foreground" : "text-foreground hover:bg-card/70",
   );
+}
+
+/** Section tabs and module subnav pills. Matches My Account. */
+export function pillTabItemClass(active: boolean) {
+  return cn("fec-inner-tab", active && "is-active");
 }

@@ -2,9 +2,10 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Calendar, Loader2 } from "lucide-react";
+import { Calendar, List, Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
 
+import { CapabilityGate } from "@/components/auth/capability-gate";
 import { FecLoader } from "@/components/fec";
 import { createBooking, updateBookingStatus } from "@/lib/bookings.functions";
 import { useBookings } from "@/hooks/queries/useBookings";
@@ -31,27 +32,29 @@ const KINDS = ["party", "group", "corporate", "school"] as const;
 
 function BookingsPage() {
   return (
-    <div className="space-y-5">
-      <header className="flex items-center gap-3">
-        <div className="grid h-9 w-9 place-items-center rounded-md bg-primary/10 text-primary">
-          <Calendar className="h-5 w-5" />
-        </div>
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">Bookings</h1>
-          <p className="text-xs text-muted-foreground">
-            Parties, groups, corporate, and school bookings — quote → deposit → confirmed → delivered.
-          </p>
-        </div>
-      </header>
-      <Tabs defaultValue="list">
-        <TabsList>
-          <TabsTrigger value="list">Bookings</TabsTrigger>
-          <TabsTrigger value="new">New booking</TabsTrigger>
-        </TabsList>
-        <TabsContent value="list" className="mt-4"><BookingsList /></TabsContent>
-        <TabsContent value="new" className="mt-4"><NewBookingForm /></TabsContent>
-      </Tabs>
-    </div>
+    <CapabilityGate capability="bookings.view" fallback={<Empty>You do not have access to bookings.</Empty>}>
+      <div className="space-y-5">
+        <header className="flex items-center gap-3">
+          <div className="grid h-9 w-9 place-items-center rounded-md bg-primary/10 text-primary">
+            <Calendar className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight">Bookings</h1>
+            <p className="text-xs text-muted-foreground">
+              Parties, groups, corporate, and school bookings — quote → deposit → confirmed → delivered.
+            </p>
+          </div>
+        </header>
+        <Tabs defaultValue="list">
+          <TabsList>
+            <TabsTrigger value="list"><List aria-hidden />Bookings</TabsTrigger>
+            <TabsTrigger value="new"><Plus aria-hidden />New booking</TabsTrigger>
+          </TabsList>
+          <TabsContent value="list" className="mt-4"><BookingsList /></TabsContent>
+          <TabsContent value="new" className="mt-4"><NewBookingForm /></TabsContent>
+        </Tabs>
+      </div>
+    </CapabilityGate>
   );
 }
 

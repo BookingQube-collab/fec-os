@@ -32,13 +32,24 @@ function useStepLabel() {
   };
 }
 
-export function MissedPunchApprovalQueue({ hideWhenEmpty = false }: { hideWhenEmpty?: boolean }) {
+export function MissedPunchApprovalQueue({
+  hideWhenEmpty = false,
+  actionableOnly = false,
+  title,
+}: {
+  hideWhenEmpty?: boolean;
+  /** Employee home: do not list other people's decided corrections. */
+  actionableOnly?: boolean;
+  title?: string;
+}) {
   const { t } = useTranslation();
   const stepLabel = useStepLabel();
   const qc = useQueryClient();
   const q = useQuery({
-    queryKey: queryKeys.people.attendanceHr({ view: "missed-punch-waiting" }),
-    queryFn: () => listAttendanceCorrections({ queue: "waiting" }),
+    queryKey: queryKeys.people.attendanceHr({
+      view: actionableOnly ? "missed-punch-actionable" : "missed-punch-waiting",
+    }),
+    queryFn: () => listAttendanceCorrections({ queue: "waiting", actionableOnly }),
     staleTime: STALE.people,
   });
   const reviewMut = useMutation({
@@ -55,12 +66,13 @@ export function MissedPunchApprovalQueue({ hideWhenEmpty = false }: { hideWhenEm
 
   return (
     <div className="space-y-3">
+      {title && rows.length > 0 ? <h3 className="text-sm font-semibold">{title}</h3> : null}
       {rows.length === 0 ? (
         <div className="space-y-2 text-sm">
           <p className="font-medium">No missed punch requests are waiting on you.</p>
           <p className="text-muted-foreground">
-            A new request goes to the site supervisor first. Head of Operations sees it after that
-            approval. HR sees it only after Head of Operations approves. A rejection stops the chain.
+            A correction for yourself goes to your line manager, then Head of Operations, then HR. A
+            correction a manager files for someone on their team is approved and sent straight to HR.
           </p>
         </div>
       ) : null}
@@ -87,16 +99,21 @@ export function MissedPunchApprovalQueue({ hideWhenEmpty = false }: { hideWhenEm
               {t("hr.me.punchOut")} {clockText(clocks.punchOut)}
             </p>
             <p className="text-xs text-muted-foreground">{row.reason}</p>
+            {row.reviewNote && !row.reason.includes(row.reviewNote) ? (
+              <p className="text-xs text-muted-foreground">{row.reviewNote}</p>
+            ) : null}
             {showActions ? (
               <p className="mt-1 text-xs text-muted-foreground">
                 {t("hr.me.waitingFor", { who: stepLabel(row.currentStepRole) })}
               </p>
             ) : null}
             {row.steps
-              .filter((step) => step.status === "approved")
+              .filter((step) => step.status === "approved" || step.status === "skipped")
               .map((step) => (
                 <p key={step.stepRole} className="text-xs text-muted-foreground">
-                  {stepLabel(step.stepRole)} {step.status}
+                  {step.status === "skipped"
+                    ? `${stepLabel(step.stepRole)} skipped`
+                    : `${stepLabel(step.stepRole)} approved`}
                   {step.actedByName ? ` · ${step.actedByName}` : ""}
                 </p>
               ))}

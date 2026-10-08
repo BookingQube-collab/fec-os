@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { createAuthenticatedAction, createAuthenticatedActionNoInput, type AuthContext } from "@/lib/server/create-action";
 import { ForbiddenError } from "@/lib/server/authorize";
+import { loadDirectReportStaffIds } from "@/lib/reporting-manager-access.server";
 import { canUserDo } from "@/lib/rbac";
 import { dispatchHrNotify } from "@/lib/attendance-hr/hr-notify-dispatch";
 import {
@@ -307,20 +308,24 @@ export const listLeaveRequests = createAuthenticatedAction(
       canUserDo(context.roles ?? [], "hr.leave.manage") ||
       canUserDo(context.roles ?? [], "hr.leave.approve_manager");
     const staff = await myStaff(context);
-    const scopedToSelf = !manage || data.mineOnly;
+    const teamIds =
+      manage || data.mineOnly ? [] : (await loadDirectReportStaffIds(context.userId)).directReportStaffIds;
+    const scopedToTeam = !manage && !data.mineOnly && teamIds.length > 0;
+    const scopedToSelf = Boolean(data.mineOnly) || (!manage && !scopedToTeam);
     if (scopedToSelf && !staff?.id) return [];
-    const { data: rows, error } = await context.supabase
+    if (scopedToTeam && data.staffId && !teamIds.includes(data.staffId)) return [];
+    let query = context.supabase
       .from("hr_leave_requests")
       .select(
         "id, staff_id, leave_type, date_from, date_to, days, reason, status, review_note, current_step_role, payroll_impact, emergency_treatment, compassionate_scope, created_at, staff(full_name, employee_code)",
       )
       .order("created_at", { ascending: false })
-      .limit(200)
-      .match({
-        ...(!scopedToSelf && data.staffId ? { staff_id: data.staffId } : {}),
-        ...(scopedToSelf && staff?.id ? { staff_id: staff.id } : {}),
-        ...(data.status ? { status: data.status } : {}),
-      });
+      .limit(200);
+    if (scopedToTeam) query = query.in("staff_id", data.staffId ? [data.staffId] : teamIds);
+    else if (scopedToSelf && staff?.id) query = query.eq("staff_id", staff.id);
+    else if (!scopedToSelf && data.staffId) query = query.eq("staff_id", data.staffId);
+    if (data.status) query = query.eq("status", data.status);
+    const { data: rows, error } = await query;
     if (error) {
       if (tableMissing(error.message)) return [];
       throw error;
@@ -675,28 +680,23 @@ export const actOnLeaveApproval = createAuthenticatedAction(
     const manage = canUserDo(context.roles ?? [], "hr.leave.manage");
     const managerCap = canUserDo(context.roles ?? [], "hr.leave.approve_manager");
     const mine = await myStaff(context);
+    const { data: ext } = await context.supabase
+      .from("staff_profile_ext")
+      .select("reporting_manager_staff_id")
+      .eq("staff_id", existing.staff_id)
+      .maybeSingle();
+    const reportingManager = (ext as { reporting_manager_staff_id?: string | null } | null)
+      ?.reporting_manager_staff_id;
+    const lineManager = Boolean(mine?.id && reportingManager === mine.id);
 
     if (stepRole === "hr" && !manage) {
       throw new ForbiddenError("HR verification requires hr.leave.manage.");
     }
-    if (stepRole === "manager" && !managerCap && !manage) {
+    if (stepRole === "manager" && !managerCap && !manage && !lineManager) {
       throw new ForbiddenError("Manager approval required.");
     }
     if (stepRole === "ops" && !manage && !managerCap) {
       throw new ForbiddenError("Ops/department approval required.");
-    }
-    if (stepRole === "manager" && mine?.id) {
-      const { data: ext } = await context.supabase
-        .from("staff_profile_ext")
-        .select("reporting_manager_staff_id")
-        .eq("staff_id", existing.staff_id)
-        .maybeSingle();
-      const reportingManager = (ext as { reporting_manager_staff_id?: string | null } | null)
-        ?.reporting_manager_staff_id;
-      // Reporting manager may act; otherwise elevated leave caps still can.
-      if (reportingManager && reportingManager !== mine.id && !manage) {
-        // Still allow anyone with approve_manager (site supervisors) — reporting match is preferred not exclusive.
-      }
     }
 
     if (data.action === "rejected") {
@@ -784,7 +784,7 @@ export const actOnLeaveApproval = createAuthenticatedAction(
 
     return { ok: true as const, syncedDays: 0, final: false as const, nextStep: nextRole };
   },
-  { auth: { anyCapability: ["hr.leave.manage", "hr.leave.approve_manager"] } },
+  { auth: { anyCapability: ["hr.leave.manage", "hr.leave.approve_manager", "hr.employee_app"] } },
 );
 
 export const reviewLeaveRequest = createAuthenticatedAction(

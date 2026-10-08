@@ -1,5 +1,3 @@
-import { redirect } from "next/navigation";
+import { lazyView } from "@/lib/lazy-view";
 
-export default function PeopleTrainingPage() {
-  redirect("/people?tab=training");
-}
+export default lazyView(() => import("@/views/hr-learning-page"), "table");

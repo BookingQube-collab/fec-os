@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import { Loader2 } from "lucide-react";
+import { ChartColumn, Loader2, PenLine, Presentation } from "lucide-react";
 
 import { FecLoader } from "@/components/fec";
 import { EnterDataPanel } from "@/components/weekly-review/enter-data-panel";
@@ -161,32 +161,37 @@ export default function WeeklyReviewPage() {
               {t("weeklyReview.exportPdf")}
             </Button>
           ) : null}
-          <Button
-            type="button"
-            variant={mode === "present" ? "default" : "outline"}
-            onClick={() => {
-              setMode("present");
-              if (canEdit && draft) persist(draft, "presented");
-            }}
-          >
-            {t("weeklyReview.present")}
-          </Button>
-          {canEdit ? (
-            <Button
+          <div className="fec-inner-tabs w-auto">
+            <button
               type="button"
-              variant={mode === "enter" ? "default" : "outline"}
-              onClick={() => setMode("enter")}
+              className={mode === "present" ? "fec-inner-tab is-active" : "fec-inner-tab"}
+              onClick={() => {
+                setMode("present");
+                if (canEdit && draft) persist(draft, "presented");
+              }}
             >
-              {t("weeklyReview.enter")}
-            </Button>
-          ) : null}
-          <Button
-            type="button"
-            variant={mode === "infographics" ? "default" : "outline"}
-            onClick={() => setMode("infographics")}
-          >
-            {t("weeklyReview.infographics.nav")}
-          </Button>
+              <Presentation aria-hidden />
+              {t("weeklyReview.present")}
+            </button>
+            {canEdit ? (
+              <button
+                type="button"
+                className={mode === "enter" ? "fec-inner-tab is-active" : "fec-inner-tab"}
+                onClick={() => setMode("enter")}
+              >
+                <PenLine aria-hidden />
+                {t("weeklyReview.enter")}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className={mode === "infographics" ? "fec-inner-tab is-active" : "fec-inner-tab"}
+              onClick={() => setMode("infographics")}
+            >
+              <ChartColumn aria-hidden />
+              {t("weeklyReview.infographics.nav")}
+            </button>
+          </div>
         </div>
       </div>
 

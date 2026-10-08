@@ -23,7 +23,7 @@ export function FecEmptyState({
 }: FecEmptyStateProps) {
   return (
     <FadeContent blur duration={0.7} threshold={0.05} className={cn("hr-empty", className)}>
-      <StarBorder color="#c47a0a" speed="7s" thickness={3} aria-hidden>
+      <StarBorder color="#6d4aff" speed="7s" thickness={3} aria-hidden>
         <span className="hr-empty__icon">
           <Icon strokeWidth={1.4} />
         </span>

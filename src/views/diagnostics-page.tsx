@@ -12,6 +12,7 @@ import {
   Loader2,
   MemoryStick,
   RefreshCw,
+  ScrollText,
   ShieldAlert,
   Trash2,
   Wrench,
@@ -283,10 +284,12 @@ function DiagnosticsHubView() {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="incidents">
+            <ShieldAlert aria-hidden />
             {t("diagnostics.tabs.incidents")} ({hub?.openCount ?? 0})
           </TabsTrigger>
-          <TabsTrigger value="schema">{t("diagnostics.tabs.schema")}</TabsTrigger>
+          <TabsTrigger value="schema"><Database aria-hidden />{t("diagnostics.tabs.schema")}</TabsTrigger>
           <TabsTrigger value="audit">
+            <ScrollText aria-hidden />
             {t("diagnostics.tabs.audit")} ({hub?.auditCount ?? 0})
           </TabsTrigger>
         </TabsList>

@@ -15,7 +15,7 @@ import {
   HR_JOB_REQUEST_STATUSES,
   HR_JOB_REQUEST_TYPES,
   HR_VACANCY_STATUSES,
-  JOB_STEP_CAPABILITY,
+  canActOnJobStep,
   maskJobRequestSalary,
   requiresFinanceForBudget,
   type HrJobApprovalRole,
@@ -216,25 +216,7 @@ async function seedJobApprovalSteps(
 }
 
 function canActOnStep(roles: string[], stepRole: HrJobApprovalRole): boolean {
-  if (stepRole === "quota_override") {
-    return canUserDo(roles as never[], "quota.override_approve");
-  }
-  const cap = JOB_STEP_CAPABILITY[stepRole];
-  if (stepRole === "dept_ops") {
-    return (
-      canUserDo(roles as never[], "recruitment.request") ||
-      canUserDo(roles as never[], "recruitment.manage") ||
-      canUserDo(roles as never[], "hr.manage")
-    );
-  }
-  if (stepRole === "gm") {
-    return (
-      canUserDo(roles as never[], "recruitment.manage") ||
-      (roles as string[]).includes("ceo") ||
-      (roles as string[]).includes("coo")
-    );
-  }
-  return canUserDo(roles as never[], cap);
+  return canActOnJobStep(stepRole, (capability) => canUserDo(roles as never[], capability), roles);
 }
 
 // ---------------------------------------------------------------------------
@@ -1024,6 +1006,20 @@ export const updateVacancyStatus = createAuthenticatedAction(
   { auth: { capability: "recruitment.manage" } },
 );
 
+/** Gender and salary band live in the job description when the vacancy table has no columns for them. */
+function readRequisitionFacts(description: string | null): {
+  gender: "female" | "male" | null;
+  salaryBand: string | null;
+} {
+  const text = description ?? "";
+  const genderMatch = /gender requirement:\s*(female|male)/i.exec(text);
+  const bandMatch = /salary budget:\s*([0-9][0-9,.\s–-]*[0-9])/i.exec(text);
+  return {
+    gender: genderMatch ? (genderMatch[1].toLowerCase() as "female" | "male") : null,
+    salaryBand: bandMatch ? bandMatch[1].trim().replace(/\s*-\s*/g, "–") : null,
+  };
+}
+
 export const listVacancies = createAuthenticatedAction(
   z.object({
     status: z.enum(HR_VACANCY_STATUSES).nullable().optional(),
@@ -1032,7 +1028,7 @@ export const listVacancies = createAuthenticatedAction(
     let q = context.supabase
       .from("hr_vacancies")
       .select(
-        "id, job_request_id, job_title, department_id, location_id, vacancies_count, employment_category, status, recruiter_user_id, published_at, hold_reason, close_reason, created_at, locations(name), master_departments(name)",
+        "id, job_request_id, job_title, department_id, location_id, vacancies_count, employment_category, status, recruiter_user_id, published_at, hold_reason, close_reason, required_location, created_at, locations(name), master_departments(name)",
       )
       .order("created_at", { ascending: false })
       .limit(200);
@@ -1042,17 +1038,44 @@ export const listVacancies = createAuthenticatedAction(
       if (tableMissing(error.message)) return [];
       throw error;
     }
+
+    const requestIds = [
+      ...new Set(
+        (rows ?? [])
+          .map((r) => (r.job_request_id as string | null) ?? null)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const requestFacts = new Map<string, { job_description: string | null }>();
+    if (requestIds.length) {
+      const { data: requests, error: requestError } = await context.supabase
+        .from("hr_job_requests")
+        .select("id, job_description")
+        .in("id", requestIds);
+      if (requestError && !tableMissing(requestError.message)) throw requestError;
+      for (const request of requests ?? []) {
+        requestFacts.set(String(request.id), {
+          job_description: (request.job_description as string | null) ?? null,
+        });
+      }
+    }
+
     return (rows ?? []).map((r) => {
       const loc = r.locations as { name: string } | null;
       const dept = r.master_departments as { name: string } | null;
+      const requestId = (r.job_request_id as string | null) ?? null;
+      const facts = readRequisitionFacts(requestId ? requestFacts.get(requestId)?.job_description ?? null : null);
+      const requiredLocation = (r.required_location as string | null) ?? null;
       return {
         id: String(r.id),
-        jobRequestId: (r.job_request_id as string | null) ?? null,
+        jobRequestId: requestId,
         jobTitle: String(r.job_title),
         departmentId: (r.department_id as string | null) ?? null,
         departmentName: dept?.name ?? null,
         locationId: (r.location_id as string | null) ?? null,
-        locationName: loc?.name ?? null,
+        locationName: loc?.name ?? requiredLocation,
+        gender: facts.gender,
+        salaryBand: facts.salaryBand,
         vacanciesCount: Number(r.vacancies_count),
         employmentCategory: (r.employment_category as string | null) ?? null,
         status: String(r.status),

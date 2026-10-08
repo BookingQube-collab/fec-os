@@ -1,5 +1,24 @@
 "use client";
 
+import {
+  Activity,
+  AlertTriangle,
+  ChartColumn,
+  CheckCircle2,
+  CircleDollarSign,
+  ClipboardList,
+  FileX,
+  GraduationCap,
+  Hammer,
+  ListChecks,
+  ShieldAlert,
+  ShoppingCart,
+  Truck,
+  Users,
+  Wallet,
+  type LucideIcon,
+} from "lucide-react";
+
 import { FecPageHeader } from "@/components/fec";
 
 import { useEffect, useMemo, useState } from "react";
@@ -10,7 +29,6 @@ import { EventReportAiBrief } from "@/components/events/event-report-ai-brief";
 import { EventReportsDetailTable, formatReportCell } from "@/components/events/event-reports-detail-table";
 import { EventSourceBanner } from "@/components/events/event-source-banner";
 import { DownloadReportButton } from "@/components/reports/download-report-button";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -27,6 +45,27 @@ import { buildEventReportVisuals } from "@/lib/events/report-visuals";
 import { retryImport } from "@/lib/retry-import";
 import { downloadCsvContent } from "@/lib/staff-import";
 import { useAppStore } from "@/stores/app-store";
+
+const REPORT_ICONS: Record<EventReportId, LucideIcon> = {
+  project_status: Activity,
+  event_readiness: CheckCircle2,
+  department_completion: ListChecks,
+  overdue_blocked: AlertTriangle,
+  budget_vs_actual: Wallet,
+  budget_variance: ChartColumn,
+  profitability: CircleDollarSign,
+  pending_procurement: ShoppingCart,
+  procurement_risks: ShieldAlert,
+  staffing_readiness: Users,
+  bump_in_progress: Hammer,
+  open_snags: ClipboardList,
+  critical_safety: ShieldAlert,
+  asset_movement: Truck,
+  go_live_status: CheckCircle2,
+  risk_register: FileX,
+  issues: AlertTriangle,
+  lessons_learned: GraduationCap,
+};
 
 const EventReportsVisuals = dynamic(
   () =>
@@ -185,17 +224,21 @@ export default function EventsReportsPage() {
         <Input type="date" className="w-40" value={to} onChange={(e) => setTo(e.target.value)} />
       </div>
 
-      <div className="flex flex-wrap gap-1">
-        {visibleIds.map((id) => (
-          <Button
+      <div className="fec-inner-tabs">
+        {visibleIds.map((id) => {
+          const Icon = REPORT_ICONS[id];
+          return (
+          <button
             key={id}
-            size="sm"
-            variant={activeId === id ? "default" : "outline"}
+            type="button"
+            className={activeId === id ? "fec-inner-tab is-active" : "fec-inner-tab"}
             onClick={() => setReportId(id)}
           >
+            <Icon aria-hidden />
             {t(`events.reports.kinds.${id}`)}
-          </Button>
-        ))}
+          </button>
+          );
+        })}
       </div>
 
       {q.isLoading || rows.length > 0 ? (

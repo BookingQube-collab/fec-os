@@ -11,6 +11,8 @@ export type CorrectionApprovalView = {
   locationId: string;
   staffId: string | null;
   requestedBy: string;
+  /** Staff id of the person who submitted. Their line manager approves the first step. */
+  requesterStaffId?: string | null;
 };
 
 export type ApprovalDirectory = {
@@ -70,6 +72,124 @@ export function missedPunchRequestSide(summary: {
   return "either";
 }
 
+/**
+ * A wrong punch-in or punch-out can be corrected even when both clocks already exist.
+ * A day with no punches, and a scheduled day off, stay on the missed-punch rules.
+ */
+export function punchCorrectionRequestSide(summary: {
+  missedPunch: boolean;
+  status: string;
+  hasIn: boolean;
+  hasOut: boolean;
+}): "in" | "out" | "either" | null {
+  if (summary.hasIn && summary.hasOut) return "either";
+  return missedPunchRequestSide(summary);
+}
+
+/** Branch, duty, and technical supervisors. A cashier is not a manager by role alone. */
+const ATTENDANCE_CORRECTION_REQUEST_ROLES = ["branch_gm", "duty_manager", "tech_supervisor"] as const;
+
+/**
+ * Floor staff may correct their own punches. A manager still approves that request.
+ * Supervisors, and anyone with people reporting to them, may also correct their team.
+ * Company-wide correction admin stays on the existing HR tools.
+ */
+const OWN_PUNCH_CORRECTION_ROLES = ["cashier_host", "technician", "customer_service", "auditor"] as const;
+
+export function canRequestAttendanceCorrection(input: {
+  roles: readonly string[];
+  hasDirectReports: boolean;
+}): boolean {
+  if (input.hasDirectReports) return true;
+  return input.roles.some(
+    (role) =>
+      (ATTENDANCE_CORRECTION_REQUEST_ROLES as readonly string[]).includes(role) ||
+      (OWN_PUNCH_CORRECTION_ROLES as readonly string[]).includes(role),
+  );
+}
+
+/**
+ * Self, or someone in directReportStaffIds.
+ * Callers pass direct reports and everyone who reports through them.
+ * People outside that list cannot be corrected.
+ */
+export function canCorrectStaffPunch(input: {
+  requesterStaffId: string | null;
+  targetStaffId: string;
+  directReportStaffIds: readonly string[];
+}): boolean {
+  if (!input.requesterStaffId) return false;
+  if (input.targetStaffId === input.requesterStaffId) return true;
+  return input.directReportStaffIds.includes(input.targetStaffId);
+}
+
+/**
+ * Own requests wait for the requester's line manager.
+ * A correction for someone on the requester's team is already approved and waits on HR.
+ * Null means the target does not report to the requester, so it must not be auto-approved.
+ */
+export function punchCorrectionRoute(input: {
+  requesterStaffId: string | null;
+  targetStaffId: string;
+  teamStaffIds: readonly string[];
+}): "line_manager" | "hr" | null {
+  if (!input.requesterStaffId) return null;
+  if (input.targetStaffId === input.requesterStaffId) return "line_manager";
+  if (input.teamStaffIds.includes(input.targetStaffId)) return "hr";
+  return null;
+}
+
+/** The step the request is waiting on after it is saved. */
+export function correctionWaitingStep(route: "line_manager" | "hr"): MissedPunchStepRole {
+  return route === "hr" ? "hr" : "manager";
+}
+
+/**
+ * Team corrections record the manager step as approved and skip Head of Operations.
+ * HR stays pending. Own requests leave every step pending.
+ */
+export function correctionStepSeed(route: "line_manager" | "hr"): Array<{
+  stepOrder: number;
+  stepRole: MissedPunchStepRole;
+  status: "pending" | "approved" | "skipped";
+}> {
+  return missedPunchApprovalSteps().map((step) => {
+    if (route === "line_manager") {
+      return { stepOrder: step.stepOrder, stepRole: step.stepRole, status: "pending" };
+    }
+    if (step.stepRole === "manager") {
+      return { stepOrder: step.stepOrder, stepRole: step.stepRole, status: "approved" };
+    }
+    if (step.stepRole === "ops") {
+      return { stepOrder: step.stepOrder, stepRole: step.stepRole, status: "skipped" };
+    }
+    return { stepOrder: step.stepOrder, stepRole: step.stepRole, status: "pending" };
+  });
+}
+
+function correctionClockLabel(value: string | null | undefined, empty: string): string {
+  if (!value || !value.trim()) return empty;
+  const trimmed = value.trim();
+  if (/^\d{2}:\d{2}$/.test(trimmed)) return trimmed;
+  return punchTimeInputValue(trimmed) || empty;
+}
+
+/** Saved on a team correction so HR can see who approved it and which punches changed. */
+export function managerTeamCorrectionNote(input: {
+  managerName: string;
+  requestedPunchIn: string | null;
+  requestedPunchOut: string | null;
+  previousPunchIn: string | null;
+  previousPunchOut: string | null;
+}): string {
+  const name = input.managerName.trim() || "The manager";
+  const requestedIn = correctionClockLabel(input.requestedPunchIn, "not on this request");
+  const requestedOut = correctionClockLabel(input.requestedPunchOut, "not on this request");
+  const previousIn = correctionClockLabel(input.previousPunchIn, "none");
+  const previousOut = correctionClockLabel(input.previousPunchOut, "none");
+  return `${name} requested and approved this correction. Requested punch-in ${requestedIn}, punch-out ${requestedOut}. Previous punch-in ${previousIn}, previous punch-out ${previousOut}.`;
+}
+
 /** Site in-charge: venue supervisor role, or a site/venue supervisor title. Not every "supervisor" job. */
 export function isSiteSupervisorTitle(jobTitle: string | null | undefined, staffRole: string | null | undefined): boolean {
   if (staffRole === "venue_supervisor") return true;
@@ -99,13 +219,46 @@ export function lineManagerUserIds(
   return [...new Set([...branch, ...titled])];
 }
 
+/**
+ * First approver is the requester's direct reporting manager.
+ * When that person has no login, other site supervisors can take the step.
+ * The requester is never the approver, and this step does not fall through to the CEO.
+ */
+export function requesterLineManagerUserIds(
+  directory: ApprovalDirectory,
+  args: {
+    locationId: string;
+    staffId: string | null;
+    requestedBy: string;
+    requesterStaffId?: string | null;
+  },
+): string[] {
+  const lookupId = args.requesterStaffId ?? args.staffId;
+  if (lookupId) {
+    const named = directory.reportingManagerUserIdByStaffId.get(lookupId);
+    if (named && named !== args.requestedBy) return [named];
+  }
+  return lineManagerUserIds(directory, args.locationId, lookupId).filter((id) => id !== args.requestedBy);
+}
+
 export function approverUserIdsForStep(
   directory: ApprovalDirectory,
   step: MissedPunchStepRole,
   locationId: string,
   staffId: string | null,
+  requester?: { requestedBy: string; requesterStaffId?: string | null },
 ): string[] {
-  if (step === "manager") return lineManagerUserIds(directory, locationId, staffId);
+  if (step === "manager") {
+    if (requester) {
+      return requesterLineManagerUserIds(directory, {
+        locationId,
+        staffId,
+        requestedBy: requester.requestedBy,
+        requesterStaffId: requester.requesterStaffId,
+      });
+    }
+    return lineManagerUserIds(directory, locationId, staffId);
+  }
   if (step === "ops") {
     const fromHierarchy = directory.opsManagerUserIdsByLocationId.get(locationId) ?? [];
     return [...new Set([...directory.headOfOperationsUserIds, ...fromHierarchy])];
@@ -121,6 +274,14 @@ export function missedPunchCopiesExecutives(step: MissedPunchStepRole): boolean 
   return step === "manager" || step === "ops";
 }
 
+/**
+ * Employee home queue: only rows this login must approve.
+ * Decided corrections for other people (visible because the caller can see the site) stay off this page.
+ */
+export function employeeHomeCorrectionRows<T extends { canAct: boolean }>(rows: readonly T[]): T[] {
+  return rows.filter((row) => row.canAct);
+}
+
 export function canUserActOnCorrection(
   directory: ApprovalDirectory,
   userId: string,
@@ -128,7 +289,10 @@ export function canUserActOnCorrection(
 ): boolean {
   if (row.status !== "pending" || !row.currentStepRole) return false;
   if (userId === row.requestedBy) return false;
-  return approverUserIdsForStep(directory, row.currentStepRole, row.locationId, row.staffId).includes(userId);
+  return approverUserIdsForStep(directory, row.currentStepRole, row.locationId, row.staffId, {
+    requestedBy: row.requestedBy,
+    requesterStaffId: row.requesterStaffId,
+  }).includes(userId);
 }
 
 export function correctionVisibleToUser(args: {
@@ -164,11 +328,11 @@ export function correctionVisibleToUser(args: {
   }
   // Earlier approvers keep a read-only view after their step, so the row can show Approved.
   if (args.row.status === "pending" && args.row.currentStepRole === "ops") {
-    return lineManagerUserIds(args.directory, args.row.locationId, args.row.staffId).includes(args.userId);
+    return managerStepApprovers(args.directory, args.row).includes(args.userId);
   }
   if (args.row.status === "pending" && args.row.currentStepRole === "hr") {
     return (
-      lineManagerUserIds(args.directory, args.row.locationId, args.row.staffId).includes(args.userId) ||
+      managerStepApprovers(args.directory, args.row).includes(args.userId) ||
       approverUserIdsForStep(args.directory, "ops", args.row.locationId, args.row.staffId).includes(args.userId)
     );
   }
@@ -183,10 +347,19 @@ function userFollowsCorrection(
 ): boolean {
   if (canSeeLocation(row.locationId)) return true;
   return (
-    lineManagerUserIds(directory, row.locationId, row.staffId).includes(userId) ||
+    managerStepApprovers(directory, row).includes(userId) ||
     approverUserIdsForStep(directory, "ops", row.locationId, row.staffId).includes(userId) ||
     approverUserIdsForStep(directory, "hr", row.locationId, row.staffId).includes(userId)
   );
+}
+
+function managerStepApprovers(directory: ApprovalDirectory, row: CorrectionApprovalView): string[] {
+  return requesterLineManagerUserIds(directory, {
+    locationId: row.locationId,
+    staffId: row.staffId,
+    requestedBy: row.requestedBy,
+    requesterStaffId: row.requesterStaffId,
+  });
 }
 
 export type CorrectionReviewLine = {

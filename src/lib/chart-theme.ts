@@ -7,7 +7,7 @@ export const CHART_FONT = "var(--font-sans), ui-sans-serif, system-ui, sans-seri
 
 export const CHART = {
   ink: "#1a1a1a",
-  gold: "#f5c518",
+  gold: "#6d4aff",
   teal: "#0f7a5a",
   amber: "#c47a0a",
   red: "#c93c37",

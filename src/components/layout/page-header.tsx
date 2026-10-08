@@ -31,7 +31,7 @@ export function PageHeader({
         className,
       )}
     >
-      <div className="flex min-w-0 flex-1 items-start gap-3">
+      <div className="flex w-full min-w-0 flex-1 basis-full items-start gap-3 sm:w-auto sm:basis-0">
         {Icon ? (
           <span className="icon-well icon-well-lg mt-0.5" aria-hidden>
             <Icon strokeWidth={1.5} />
@@ -56,7 +56,7 @@ export function PageHeader({
         </div>
       </div>
       {actions ? (
-        <div className="flex min-w-0 flex-wrap items-center gap-3 pt-0.5">{actions}</div>
+        <div className="flex w-full min-w-0 flex-wrap items-center gap-3 pt-0.5 sm:w-auto">{actions}</div>
       ) : null}
     </header>
   );

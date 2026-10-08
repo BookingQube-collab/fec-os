@@ -8,9 +8,8 @@ import { toast } from "sonner";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
 import { HrEmptyState } from "@/components/hr/hr-empty-state";
+import { HrModuleFrame } from "@/components/hr/hr-module-frame";
 import { HrPanel } from "@/components/hr/hr-panel";
-import { HrSection } from "@/components/hr/hr-section";
-import { HrShell } from "@/components/hr/hr-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,7 +37,7 @@ async function fileToBase64(file: File): Promise<string> {
   return btoa(binary);
 }
 
-export default function HrResignationsPage() {
+export default function HrResignationsPage({ embedded = false }: { embedded?: boolean }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [filter, setFilter] = useState<"serving" | "all" | "submitted" | "pending_override_approval">(
@@ -152,20 +151,18 @@ export default function HrResignationsPage() {
     <CapabilityGate
       capability="hr.resignation.manage"
       fallback={
-        <HrShell>
-          <HrPanel>
-            <HrEmptyState message={t("hr.resignations.noAccess")} />
-          </HrPanel>
-        </HrShell>
+        <HrPanel>
+          <HrEmptyState message={t("hr.resignations.noAccess")} />
+        </HrPanel>
       }
     >
-      <HrShell>
-        <HrSection
-          icon={LogOut}
-          kicker={t("hr.resignations.kicker")}
-          title={t("hr.resignations.title")}
-          subtitle={t("hr.resignations.subtitle")}
-        >
+      <HrModuleFrame
+        embedded={embedded}
+        icon={LogOut}
+        kicker={t("hr.resignations.kicker")}
+        title={t("hr.resignations.title")}
+        subtitle={t("hr.resignations.subtitle")}
+      >
           <div className="flex flex-wrap gap-2">
             {(
               [
@@ -346,8 +343,7 @@ export default function HrResignationsPage() {
               ))}
             </HrPanel>
           ) : null}
-        </HrSection>
-      </HrShell>
+      </HrModuleFrame>
     </CapabilityGate>
   );
 }

@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { FileText, List, Pencil, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -196,11 +197,11 @@ function MaintenanceRequestsPage() {
 
       <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList>
-          <TabsTrigger value="list">{t("maintenanceRequests.tabs.list")}</TabsTrigger>
-          {canSubmit && <TabsTrigger value="new">{t("maintenanceRequests.tabs.new")}</TabsTrigger>}
-          {selectedId && <TabsTrigger value="detail">{t("maintenanceRequests.tabs.detail")}</TabsTrigger>}
+          <TabsTrigger value="list"><List aria-hidden />{t("maintenanceRequests.tabs.list")}</TabsTrigger>
+          {canSubmit && <TabsTrigger value="new"><Plus aria-hidden />{t("maintenanceRequests.tabs.new")}</TabsTrigger>}
+          {selectedId && <TabsTrigger value="detail"><FileText aria-hidden />{t("maintenanceRequests.tabs.detail")}</TabsTrigger>}
           {selectedId && activeTab === "edit" && (
-            <TabsTrigger value="edit">{t("maintenanceRequests.tabs.edit")}</TabsTrigger>
+            <TabsTrigger value="edit"><Pencil aria-hidden />{t("maintenanceRequests.tabs.edit")}</TabsTrigger>
           )}
         </TabsList>
 

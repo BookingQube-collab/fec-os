@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
-import { ClipboardList } from "lucide-react";
+import { Building2, ClipboardCheck, ClipboardList, Layers } from "lucide-react";
 import { toast } from "sonner";
 
 import { KraSiteSopList, KraSopCodeLinks } from "@/components/people/kra-site-sops";
@@ -140,12 +140,21 @@ export default function KraScorecardPage() {
         subtitle={t("kraScorecard.subtitle")}
       />
       <p className="text-sm text-muted-foreground">{t("kraScorecard.sopLater")}</p>
-      <div className="flex flex-wrap gap-2">
-        {(["sites", "framework", "reviews"] as const).map((key) => (
-          <Button key={key} size="sm" variant={tab === key ? "default" : "outline"} onClick={() => setTab(key)}>
+      <div className="fec-inner-tabs">
+        {(["sites", "framework", "reviews"] as const).map((key) => {
+          const Icon = key === "sites" ? Building2 : key === "framework" ? Layers : ClipboardCheck;
+          return (
+          <button
+            key={key}
+            type="button"
+            className={tab === key ? "fec-inner-tab is-active" : "fec-inner-tab"}
+            onClick={() => setTab(key)}
+          >
+            <Icon aria-hidden />
             {t(`kraScorecard.${key}`)}
-          </Button>
-        ))}
+          </button>
+          );
+        })}
       </div>
 
       {master.isLoading ? <FecLoader density="chip" label={t("common.loading")} /> : null}

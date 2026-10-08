@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, CheckCheck } from "lucide-react";
+import { Bell, CheckCheck, Inbox, SlidersHorizontal } from "lucide-react";
 import Link from "next/link";
 import AnimatedList from "@/components/react-bits/animated-list";
 import { useTranslation } from "react-i18next";
@@ -9,12 +9,11 @@ import { toast } from "sonner";
 
 import {
   getNotificationPreferences,
-  markAllNotificationsRead,
   markNotificationRead,
   upsertNotificationPreference,
 } from "@/lib/notifications.functions";
 import { NOTIFICATION_CATEGORIES } from "@/lib/notifications/categories";
-import { useActionInbox } from "@/hooks/queries/useNotifications";
+import { useActionInbox, useMarkAllNotificationsRead } from "@/hooks/queries/useNotifications";
 import { useAuth } from "@/hooks/use-auth";
 import { queryKeys } from "@/lib/query-keys";
 import { Button } from "@/components/ui/button";
@@ -37,13 +36,7 @@ function NotificationsPage() {
     mutationFn: (id: string) => markNotificationRead({ id }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: queryKeys.notifications.all }),
   });
-  const markAll = useMutation({
-    mutationFn: () => markAllNotificationsRead(),
-    onSuccess: () => {
-      toast.success(t("inbox.markedAllRead"));
-      void qc.invalidateQueries({ queryKey: queryKeys.notifications.all });
-    },
-  });
+  const markAll = useMarkAllNotificationsRead(user?.id);
   const savePref = useMutation({
     mutationFn: (payload: { category: (typeof CATEGORIES)[number]; channelInApp: boolean; channelEmail: boolean }) =>
       upsertNotificationPreference(payload),
@@ -62,7 +55,14 @@ function NotificationsPage() {
           <h1 className="text-xl font-semibold">{t("inbox.pageTitle")}</h1>
           <p className="text-xs text-muted-foreground">{t("inbox.pageSubtitle")}</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => markAll.mutate()} disabled={markAll.isPending}>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() =>
+            markAll.mutate(undefined, { onSuccess: () => toast.success(t("inbox.markedAllRead")) })
+          }
+          disabled={markAll.isPending || (inbox?.unreadCount ?? 0) === 0}
+        >
           <CheckCheck className="mr-1 h-4 w-4" />
           {t("inbox.markAllRead")}
         </Button>
@@ -70,8 +70,8 @@ function NotificationsPage() {
 
       <Tabs defaultValue="inbox">
         <TabsList>
-          <TabsTrigger value="inbox">{t("inbox.tabInbox")}</TabsTrigger>
-          <TabsTrigger value="preferences">{t("inbox.tabPreferences")}</TabsTrigger>
+          <TabsTrigger value="inbox"><Inbox aria-hidden />{t("inbox.tabInbox")}</TabsTrigger>
+          <TabsTrigger value="preferences"><SlidersHorizontal aria-hidden />{t("inbox.tabPreferences")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="inbox" className="rounded-lg border border-border bg-card">
@@ -88,7 +88,7 @@ function NotificationsPage() {
                       <span className="text-sm font-medium">
                         {n.titleKey ? t(n.titleKey, n.titleParams) : n.title}
                       </span>
-                      {!n.readAt && <span className="h-2 w-2 rounded-full bg-primary" />}
+                      {n.persisted && !n.readAt && <span className="h-2 w-2 rounded-full bg-primary" />}
                     </div>
                     {n.body && <p className="mt-1 text-xs text-muted-foreground">{n.body}</p>}
                     {n.actionUrl && (

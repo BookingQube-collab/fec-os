@@ -9,6 +9,20 @@ import {
   type AuthContext,
 } from "@/lib/server/create-action";
 import { ForbiddenError, assertLocationAccess } from "@/lib/server/authorize";
+import {
+  attendanceListingIsCompanyWide,
+  attendanceMappingIsCompanyWide,
+  attendanceMappingRowAllowed,
+  attendanceMappingStaffAllowed,
+  canMergeAttendanceMappings,
+  canSeeAttendanceMapping,
+  resolveAttendanceListingStaffConstraint,
+} from "@/lib/attendance-listing-access";
+import {
+  loadDirectReportStaffIds,
+  loadReportingTreeStaffIds,
+  loadTeamCoverageLocations,
+} from "@/lib/reporting-manager-access.server";
 import { canUserDo, type AppRole } from "@/lib/rbac";
 import { STAFF_NOT_JOKER_EMPLOYMENT_OR } from "@/lib/staff-status";
 
@@ -139,7 +153,9 @@ import {
 } from "@/lib/attendance-hr/missed-punch-approval";
 import {
   countVisiblePendingCorrections,
+  findPunchCorrectionDay,
   listMissedPunchCorrections,
+  listPunchCorrectionSubjects,
   resubmitMissedPunchRequest as updateMissedPunchRequest,
   reviewMissedPunchChain,
   submitMissedPunchRequest as insertMissedPunchRequest,
@@ -283,23 +299,37 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
     month: z.string().regex(/^\d{4}-\d{2}$/).optional(),
   }),
   async (data, context) => {
-    if (data.locationId) await assertSite(context, data.locationId);
+    const fullAttendance = canUserDo(context.roles ?? [], "attendance.view");
+    const teamIds = fullAttendance
+      ? null
+      : (await loadDirectReportStaffIds(context.userId)).directReportStaffIds;
+    if (!fullAttendance && (!teamIds || teamIds.length === 0)) {
+      throw new ForbiddenError("Attendance review is limited to people who report to you.");
+    }
+    if (data.locationId && fullAttendance) await assertSite(context, data.locationId);
     const today = qatarTodayYmd();
+    // Reporting managers cannot read other sites through RLS. Their team's punches still count.
+    const readDb = teamIds ? supabaseAdmin : context.supabase;
+    let staffQuery = readDb.from("staff").select("id, location_id, status").is("deleted_at", null);
+    staffQuery = teamIds ? staffQuery.in("id", teamIds) : staffQuery.limit(5000);
+    let latestPunchQ = readDb
+      .from("attendance_logs")
+      .select("attendance_date, punch_at")
+      .order("punch_at", { ascending: false })
+      .limit(1);
+    if (teamIds) latestPunchQ = latestPunchQ.in("staff_id", teamIds);
 
     const [locRes, settingsRes, staffRes, latestPunchRes] = await Promise.all([
-      context.supabase
-        .from("locations")
-        .select("id, code, name, region, status")
-        .eq("status", "active")
-        .in("code", [...CANONICAL_LOCATION_CODES]),
+      teamIds
+        ? loadTeamCoverageLocations(teamIds).then((rows) => ({ data: rows, error: null as null }))
+        : context.supabase
+            .from("locations")
+            .select("id, code, name, region, status")
+            .eq("status", "active")
+            .in("code", [...CANONICAL_LOCATION_CODES]),
       context.supabase.from("attendance_site_settings").select("location_id"),
-      context.supabase.from("staff").select("id, location_id, status").is("deleted_at", null).limit(5000),
-      context.supabase
-        .from("attendance_logs")
-        .select("attendance_date, punch_at")
-        .order("punch_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
+      staffQuery,
+      latestPunchQ.maybeSingle(),
     ]);
     if (locRes.error) throw locRes.error;
     if (staffRes.error) throw staffRes.error;
@@ -329,7 +359,9 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
     let workStaffIds: string[] = [];
     const workByLocation = new Map<string, string[]>();
     try {
-      const { data: links } = await context.supabase.from("staff_work_locations").select("staff_id, location_id");
+      let linksQuery = readDb.from("staff_work_locations").select("staff_id, location_id");
+      if (teamIds) linksQuery = linksQuery.in("staff_id", teamIds);
+      const { data: links } = await linksQuery;
       for (const row of links ?? []) {
         const list = workByLocation.get(row.location_id) ?? [];
         list.push(row.staff_id);
@@ -352,31 +384,40 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
 
     let pendingQ = context.supabase.from("attendance_corrections").select("id", { count: "exact", head: true }).eq("status", "pending");
     if (data.locationId) pendingQ = pendingQ.eq("location_id", data.locationId);
+    if (teamIds) pendingQ = pendingQ.in("staff_id", teamIds);
 
     const punchFrom = `${addDaysYmd(dateFrom, -1)}T00:00:00.000Z`;
     const punchTo = `${addDaysYmd(dateTo, 2)}T00:00:00.000Z`;
 
+    let summaryQ = readDb
+      .from("attendance_daily_summary")
+      .select("location_id, staff_id, biometric_user_id, work_date, actual_in, actual_out, status, late_minutes, missed_punch, punch_count")
+      .gte("work_date", dateFrom)
+      .lte("work_date", dateTo)
+      .limit(20000);
+    let punchQ = readDb
+      .from("attendance_logs")
+      .select("location_id, staff_id, biometric_user_id, device_id, punch_at, probable_duplicate, excluded_from_calc, attendance_date")
+      .gte("punch_at", punchFrom)
+      .lt("punch_at", punchTo)
+      .limit(20000);
+    let rosterQ = readDb
+      .from("attendance_roster_assignments")
+      .select("location_id, staff_id, work_date, shift_template_id, is_week_off")
+      .gte("work_date", dateFrom)
+      .lte("work_date", dateTo)
+      .limit(20000);
+    if (teamIds) {
+      summaryQ = summaryQ.in("staff_id", teamIds);
+      punchQ = punchQ.in("staff_id", teamIds);
+      rosterQ = rosterQ.in("staff_id", teamIds);
+    }
     const [summaryRes, punchRes, unmatchedRes, pendingRes, rosterRes, uploadRes] = await Promise.all([
-      context.supabase
-        .from("attendance_daily_summary")
-        .select("location_id, staff_id, biometric_user_id, work_date, actual_in, actual_out, status, late_minutes, missed_punch, punch_count")
-        .gte("work_date", dateFrom)
-        .lte("work_date", dateTo)
-        .limit(20000),
-      context.supabase
-        .from("attendance_logs")
-        .select("location_id, staff_id, biometric_user_id, device_id, punch_at, probable_duplicate, excluded_from_calc, attendance_date")
-        .gte("punch_at", punchFrom)
-        .lt("punch_at", punchTo)
-        .limit(20000),
+      summaryQ,
+      punchQ,
       context.supabase.from("attendance_biometric_users").select("id", { count: "exact", head: true }).is("staff_id", null),
       pendingQ,
-      context.supabase
-        .from("attendance_roster_assignments")
-        .select("location_id, staff_id, work_date, shift_template_id, is_week_off")
-        .gte("work_date", dateFrom)
-        .lte("work_date", dateTo)
-        .limit(20000),
+      rosterQ,
       context.supabase
         .from("daily_ops_roster_uploads")
         .select("location_id, period_start, period_end, notes")
@@ -432,13 +473,18 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
       dayRows = [...dayRows, ...extra];
     }
 
+    if (teamIds) {
+      const allow = new Set(teamIds);
+      dayRows = dayRows.filter((row) => row.staff_id != null && allow.has(row.staff_id));
+    }
+
     const agg = aggregateDashboardPeriod(dayRows, sites, data.locationId ?? null);
     const frequentLate = frequentExceptionLeaders(dayRows, "late");
     const frequentMissed = frequentExceptionLeaders(dayRows, "missed");
     const watchIds = [...frequentLate, ...frequentMissed].map((row) => row.id);
     const namedStaff: Array<{ id: string; full_name?: string | null; location_id?: string | null }> = [];
     if (watchIds.length) {
-      const { data: named } = await context.supabase
+      const { data: named } = await readDb
         .from("staff")
         .select("id, full_name, location_id")
         .in("id", watchIds);
@@ -451,18 +497,22 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
       const hist = previousPeriod(dateFrom, dateTo);
       const next = upcomingPeriod(dateTo, 7);
       const locFilter = data.locationId ?? null;
-      const histQ = context.supabase
+      let histQ = readDb
         .from("attendance_daily_summary")
         .select("status, late_minutes, missed_punch")
         .gte("work_date", hist.dateFrom)
         .lte("work_date", hist.dateTo)
         .limit(20000);
-      const upcomingQ = context.supabase
+      let upcomingQ = readDb
         .from("attendance_roster_assignments")
         .select("is_week_off")
         .gte("work_date", next.dateFrom)
         .lte("work_date", next.dateTo)
         .limit(20000);
+      if (teamIds) {
+        histQ = histQ.in("staff_id", teamIds);
+        upcomingQ = upcomingQ.in("staff_id", teamIds);
+      }
       const histVisitQ = context.supabase
         .from("staff_location_events")
         .select("id", { count: "exact", head: true })
@@ -482,8 +532,8 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
       trends = buildAvailabilityTrends({
         historyRows: histRes.data ?? [],
         currentRows: dayRows,
-        historyVisits: histVisits.error ? 0 : histVisits.count ?? 0,
-        currentVisits: curVisits.error ? 0 : curVisits.count ?? 0,
+        historyVisits: teamIds || histVisits.error ? 0 : histVisits.count ?? 0,
+        currentVisits: teamIds || curVisits.error ? 0 : curVisits.count ?? 0,
         upcomingRows: upcomingRes.data ?? [],
       });
     } catch {
@@ -505,7 +555,7 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
         absent: agg.absent,
         late: agg.late,
         missedPunches: agg.missedPunches,
-        unmatched: unmatchedRes.count ?? 0,
+        unmatched: teamIds ? 0 : (unmatchedRes.count ?? 0),
         pendingCorrections: await (async () => {
           try {
             return await countVisiblePendingCorrections(context.userId, data.locationId ?? null);
@@ -532,7 +582,7 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
       rows: dayRows.slice(0, 200),
     };
   },
-  { auth: { capability: "attendance.view" } },
+  { auth: { anyCapability: ["attendance.view", "hr.employee_app"] } },
 );
 
 function addDaysYmd(ymd: string, days: number): string {
@@ -581,6 +631,13 @@ export const getAttendanceHrSite = createAuthenticatedAction(
   { auth: { capability: "attendance.view" } },
 );
 
+function chunkStaffIds(ids: string[], size = 80): string[][] {
+  if (ids.length <= size) return [ids];
+  const chunks: string[][] = [];
+  for (let index = 0; index < ids.length; index += size) chunks.push(ids.slice(index, index + size));
+  return chunks;
+}
+
 export const getAttendanceHrDaily = createAuthenticatedAction(
   z.object({
     locationId: z.string().uuid().nullable().optional(),
@@ -594,7 +651,15 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
     departmentIds: z.array(z.string().uuid()).optional(),
   }),
   async (data, context) => {
-    if (data.locationId) await assertSite(context, data.locationId);
+    const companyWide = attendanceListingIsCompanyWide(context.roles ?? []);
+    const teamStaffIds = companyWide ? null : await loadReportingTreeStaffIds(context.userId);
+    if (!companyWide && (!teamStaffIds || teamStaffIds.length === 0)) {
+      throw new ForbiddenError("Attendance listing is limited to people who report to you.");
+    }
+    if (data.locationId && companyWide) await assertSite(context, data.locationId);
+    const readContext: AuthContext = teamStaffIds
+      ? { ...context, supabase: supabaseAdmin as AuthContext["supabase"] }
+      : context;
 
     const departmentIds = [
       ...new Set(
@@ -603,11 +668,11 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
     ];
     const needle = data.staffQ?.trim() || "";
     const needStaffSearch = Boolean(!data.staffId && needle && !isAttendanceHrUnmappedSearch(needle));
-    const [matchedStaffIds, deptStaffIds] = await Promise.all([
-      needStaffSearch ? matchingStaffIds(context, needle) : Promise.resolve([] as string[]),
+    const [matchedStaffIds, loadedDeptStaffIds] = await Promise.all([
+      needStaffSearch ? matchingStaffIds(readContext, needle) : Promise.resolve([] as string[]),
       departmentIds.length
         ? (async () => {
-            const { data: links, error: deptErr } = await context.supabase
+            const { data: links, error: deptErr } = await readContext.supabase
               .from("staff_departments")
               .select("staff_id")
               .in("department_id", departmentIds);
@@ -618,6 +683,7 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
           })()
         : Promise.resolve(null as string[] | null),
     ]);
+    let deptStaffIds = loadedDeptStaffIds;
 
     let staffFilter: "none" | "unmapped" | { ids: string[] } | { biometricIlike: string } = "none";
     if (data.staffId) {
@@ -637,12 +703,35 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
     // Unmapped punches have no staff_id, so they drop out of a department filter.
     if (deptStaffIds && deptStaffIds.length === 0) return [];
 
+    if (teamStaffIds) {
+      if (staffFilter === "unmapped" || (staffFilter !== "none" && "biometricIlike" in staffFilter)) return [];
+      let narrow = staffFilter !== "none" && "ids" in staffFilter ? staffFilter.ids : null;
+      if (deptStaffIds) {
+        const deptAllow = new Set(deptStaffIds);
+        narrow = narrow ? narrow.filter((id) => deptAllow.has(id)) : deptStaffIds;
+        deptStaffIds = null;
+      }
+      const constraint = resolveAttendanceListingStaffConstraint({
+        companyWide: false,
+        teamStaffIds,
+        narrowToStaffIds: narrow,
+        unmappedOnly: false,
+      });
+      if (constraint.mode !== "team") return [];
+      staffFilter = { ids: constraint.staffIds };
+    }
+
     // Page past PostgREST max_rows (~1000). A single .limit(2000) still returns only 1000,
     // and work_date desc then drops the start of the FEC month (e.g. Aug 28–Sep 5).
     // ponytail: full filtered range in 1k pages — fine for one site-month (~1–3k); if multi-site year exports grow past ~20k, stream/paginate the export path.
+    const staffFilterIds =
+      staffFilter !== "none" && staffFilter !== "unmapped" && "ids" in staffFilter ? staffFilter.ids : null;
+    const summaryIdGroups: Array<string[] | null> =
+      staffFilterIds && !deptStaffIds ? chunkStaffIds(staffFilterIds) : [null];
     let rows: Array<Record<string, unknown>> = [];
+    for (const idGroup of summaryIdGroups) {
     for (let from = 0; ; from += ATTENDANCE_DAILY_LIST_PAGE_SIZE) {
-      let q = context.supabase
+      let q = readContext.supabase
         .from("attendance_daily_summary")
         .select(ATTENDANCE_DAILY_LIST_COLUMNS)
         .gte("work_date", data.dateFrom)
@@ -652,6 +741,7 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
         .range(from, from + ATTENDANCE_DAILY_LIST_PAGE_SIZE - 1);
       if (data.status) q = q.eq("status", data.status);
       if (staffFilter === "unmapped") q = q.is("staff_id", null);
+      else if (idGroup) q = q.in("staff_id", idGroup);
       else if (staffFilter !== "none" && "ids" in staffFilter) q = q.in("staff_id", staffFilter.ids);
       else if (staffFilter !== "none" && "biometricIlike" in staffFilter) {
         q = q.ilike("biometric_user_id", staffFilter.biometricIlike);
@@ -665,12 +755,13 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
       rows.push(...((page ?? []) as Array<Record<string, unknown>>));
       if (!page || page.length < ATTENDANCE_DAILY_LIST_PAGE_SIZE) break;
     }
+    }
 
     // Flexible staff may keep the day at the first-punch site while this chip is only
     // check-in or check-out — pull sibling person-days that punched here, then collapse.
     if (data.locationId) {
       const flexPunchDays = await flexibleStaffPunchDaysAtLocation(
-        context,
+        readContext,
         data.locationId,
         data.dateFrom,
         data.dateTo,
@@ -685,11 +776,12 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
       );
       if (staffIds.length) {
         const seenIds = new Set(rows.map((r) => String(r.id ?? "")));
+        for (const flexChunk of chunkStaffIds(staffIds)) {
         for (let from = 0; ; from += ATTENDANCE_DAILY_LIST_PAGE_SIZE) {
-          let q = context.supabase
+          let q = readContext.supabase
             .from("attendance_daily_summary")
             .select(ATTENDANCE_DAILY_LIST_COLUMNS)
-            .in("staff_id", staffIds)
+            .in("staff_id", flexChunk)
             .gte("work_date", data.dateFrom)
             .lte("work_date", data.dateTo)
             .order("work_date", { ascending: false })
@@ -708,6 +800,7 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
             rows.push(row as Record<string, unknown>);
           }
           if (!page || page.length < ATTENDANCE_DAILY_LIST_PAGE_SIZE) break;
+        }
         }
       }
     }
@@ -738,7 +831,7 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
             : fillStaffIds.size > 0
               ? [...fillStaffIds]
               : null;
-      const gapSources = await loadListingGapRosterAndPunchDays(context, {
+      const gapSources = await loadListingGapRosterAndPunchDays(readContext, {
         staffIds: gapStaffIds,
         locationId: data.locationId ?? null,
         dateFrom: data.dateFrom,
@@ -752,9 +845,14 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
       });
     }
 
-    return enrichAttendanceHrDailyRows(context, rows);
+    if (teamStaffIds) {
+      const allow = new Set(teamStaffIds);
+      rows = rows.filter((row) => typeof row.staff_id === "string" && allow.has(row.staff_id));
+    }
+
+    return enrichAttendanceHrDailyRows(readContext, rows);
   },
-  { auth: { capability: "attendance.view" } },
+  { auth: { anyCapability: ["attendance.view", "hr.employee_app"] } },
 );
 
 export const getAttendanceHrPunches = createAuthenticatedAction(
@@ -787,17 +885,40 @@ export const getAttendanceHrPunches = createAuthenticatedAction(
   { auth: { capability: "attendance.view" } },
 );
 
+function teamMappingOrFilter(staffIds: string[], locationIds: string[]): string {
+  const parts = ["and(staff_id.is.null,location_id.is.null)"];
+  if (locationIds.length) parts.push(`location_id.in.(${locationIds.join(",")})`);
+  if (staffIds.length) parts.push(`staff_id.in.(${staffIds.join(",")})`);
+  return parts.join(",");
+}
+
+/** Null keeps the company-wide mapping list. A reporting tree scopes team leaders. */
+async function mappingTeamScope(context: AuthContext): Promise<{ staffIds: string[]; locationIds: string[] } | null> {
+  const roles = context.roles ?? [];
+  if (attendanceListingIsCompanyWide(roles) || attendanceMappingIsCompanyWide(roles)) return null;
+  const staffIds = await loadReportingTreeStaffIds(context.userId);
+  if (staffIds.length === 0 || !canSeeAttendanceMapping(roles, true)) {
+    throw new ForbiddenError("Attendance mapping is limited to people who report to you.");
+  }
+  const sites = await loadTeamCoverageLocations(staffIds);
+  return { staffIds, locationIds: sites.map((site) => site.id) };
+}
+
 export const listAttendanceHrMappings = createAuthenticatedAction(
   z.object({ locationId: z.string().uuid().nullable().optional(), unmatchedOnly: z.boolean().optional() }),
   async (data, context) => {
-    if (data.locationId) await assertSite(context, data.locationId);
+    const teamScope = await mappingTeamScope(context);
+    if (data.locationId && !teamScope) await assertSite(context, data.locationId);
+    if (teamScope && data.locationId && !teamScope.locationIds.includes(data.locationId)) return [];
     const columns =
       "id, company_id, location_id, device_id, biometric_user_id, device_name, previous_device_name, staff_id, employee_code, full_name, department, job_title, employment_status";
     const fallbackColumns =
       "id, company_id, location_id, device_id, biometric_user_id, device_name, staff_id, employee_code, full_name, department, job_title, employment_status";
+    const db = teamScope ? (supabaseAdmin as AuthContext["supabase"]) : context.supabase;
     const run = async (select: string) => {
-      let q = context.supabase.from("attendance_biometric_users").select(select).order("biometric_user_id").limit(2000);
+      let q = db.from("attendance_biometric_users").select(select).order("biometric_user_id").limit(2000);
       if (data.locationId) q = q.eq("location_id", data.locationId);
+      else if (teamScope) q = q.or(teamMappingOrFilter(teamScope.staffIds, teamScope.locationIds));
       if (data.unmatchedOnly) q = q.is("staff_id", null);
       return q;
     };
@@ -807,10 +928,62 @@ export const listAttendanceHrMappings = createAuthenticatedAction(
       if (retry.error) throw retry.error;
       rows = retry.data;
     }
-    return rows ?? [];
+    const list = (rows ?? []) as Array<{ staff_id?: string | null; location_id?: string | null }>;
+    if (!teamScope) return rows ?? [];
+    return list.filter((row) =>
+      attendanceMappingRowAllowed(false, teamScope.staffIds, teamScope.locationIds, {
+        staffId: row.staff_id,
+        locationId: row.location_id,
+      }),
+    );
   },
-  { auth: { capability: "attendance.view" } },
+  { auth: { anyCapability: ["attendance.view", "attendance.map_users", "hr.employee_app"] } },
 );
+
+export const getAttendanceMappingDirectory = createAuthenticatedActionNoInput(async (context) => {
+  const roles = context.roles ?? [];
+  if (attendanceMappingIsCompanyWide(roles)) {
+    return { companyWide: true as const, staff: [], sites: [] as Awaited<ReturnType<typeof loadTeamCoverageLocations>> };
+  }
+  const staffIds = await loadReportingTreeStaffIds(context.userId);
+  if (staffIds.length === 0) {
+    return { companyWide: false as const, staff: [], sites: [] as Awaited<ReturnType<typeof loadTeamCoverageLocations>> };
+  }
+  const db = supabaseAdmin as AuthContext["supabase"];
+  const staffRows: Array<{
+    id: string;
+    full_name: string | null;
+    employee_code: string | null;
+    qid: string | null;
+    location_id: string | null;
+    is_roaming: boolean | null;
+  }> = [];
+  for (let index = 0; index < staffIds.length; index += 100) {
+    const chunk = staffIds.slice(index, index + 100);
+    const { data, error } = await db
+      .from("staff")
+      .select("id, full_name, employee_code, qid, location_id, is_roaming")
+      .in("id", chunk)
+      .is("deleted_at", null);
+    if (error) throw error;
+    staffRows.push(...(data ?? []));
+  }
+  const workByStaff = await fetchWorkLocationsByStaffId(db, staffRows.map((row) => row.id));
+  const sites = await loadTeamCoverageLocations(staffIds);
+  return {
+    companyWide: false as const,
+    sites,
+    staff: staffRows.map((row) => ({
+      id: row.id,
+      full_name: row.full_name ?? "",
+      employee_code: row.employee_code ?? "",
+      qid: row.qid,
+      location_id: row.location_id,
+      is_roaming: row.is_roaming,
+      work_location_ids: (workByStaff.get(row.id) ?? []).map((loc) => loc.id),
+    })),
+  };
+}, { auth: { anyCapability: ["attendance.view", "attendance.map_users", "hr.employee_app"] } });
 
 type StaffMapFields = {
   id: string;
@@ -823,7 +996,7 @@ type StaffMapFields = {
 
 type BiometricMapRow = {
   id: string;
-  location_id: string;
+  location_id: string | null;
   device_id: string;
   biometric_user_id: string;
 };
@@ -844,13 +1017,15 @@ async function applyStaffToBiometricUser(context: AuthContext, mapping: Biometri
     .eq("id", mapping.id);
   if (uErr) throw uErr;
 
-  await context.supabase
+  let logs = context.supabase
     .from("attendance_logs")
     .update({ staff_id: staff.id })
-    .eq("location_id", mapping.location_id)
     .eq("device_id", mapping.device_id)
     .eq("biometric_user_id", mapping.biometric_user_id)
     .is("staff_id", null);
+  if (mapping.location_id) logs = logs.eq("location_id", mapping.location_id);
+  else logs = logs.is("location_id", null);
+  await logs;
 
   await audit(context, "attendance.map_user", "attendance_biometric_users", mapping.id, mapping.location_id, {
     staff_id: staff.id,
@@ -863,9 +1038,11 @@ export const mapAttendanceBiometricUser = createAuthenticatedAction(
     staffId: z.string().uuid(),
   }),
   async (data, context) => {
-    assertMapUsers(context);
-    const mapping = await loadBiometricMapping(context, data.mappingId);
-    const { data: staff, error: sErr } = await context.supabase
+    const loaded = await loadBiometricMappingForWriter(context, data.mappingId);
+    if (!attendanceMappingStaffAllowed(loaded.companyWide, loaded.staffIds, data.staffId)) {
+      throw new ForbiddenError("You can only map punches to people on your team.");
+    }
+    const { data: staff, error: sErr } = await loaded.writer.supabase
       .from("staff")
       .select("id, full_name, employee_code, department, job_title, status")
       .eq("id", data.staffId)
@@ -873,19 +1050,21 @@ export const mapAttendanceBiometricUser = createAuthenticatedAction(
     if (sErr) throw sErr;
 
     await applyStaffToBiometricUser(
-      context,
+      loaded.writer,
       {
-        id: mapping.id as string,
-        location_id: mapping.location_id as string,
-        device_id: mapping.device_id as string,
-        biometric_user_id: String(mapping.biometric_user_id),
+        id: loaded.mapping.id as string,
+        location_id: (loaded.mapping.location_id as string | null) ?? null,
+        device_id: loaded.mapping.device_id as string,
+        biometric_user_id: String(loaded.mapping.biometric_user_id),
       },
       staff,
     );
-    await recalcRecentAttendance(context, mapping.location_id as string);
+    if (loaded.mapping.location_id) {
+      await recalcRecentAttendance(loaded.writer, loaded.mapping.location_id as string);
+    }
     return { ok: true };
   },
-  { auth: { capability: "attendance.map_users" } },
+  { auth: { anyCapability: ["attendance.map_users", "attendance.view", "hr.employee_app"] } },
 );
 
 const bulkMapItemSchema = z.object({
@@ -898,17 +1077,22 @@ export const mapAttendanceBiometricUsers = createAuthenticatedAction(
     mappings: z.array(bulkMapItemSchema).min(1).max(500),
   }),
   async (data, context) => {
-    assertMapUsers(context);
+    await assertMapUsers(context);
+    const roles = context.roles ?? [];
+    const companyWide = attendanceMappingIsCompanyWide(roles);
+    const teamStaffIds = companyWide ? [] : await loadReportingTreeStaffIds(context.userId);
+    const teamLocationIds = companyWide
+      ? []
+      : (await loadTeamCoverageLocations(teamStaffIds)).map((site) => site.id);
+    const db = companyWide ? context.supabase : (supabaseAdmin as AuthContext["supabase"]);
+    const writer = companyWide ? context : ({ ...context, supabase: db } as AuthContext);
 
     const uniqueIds = [...new Set(data.mappings.map((m) => m.mappingId))];
     const staffIds = [...new Set(data.mappings.map((m) => m.staffId))];
 
     const [{ data: mappingRows, error: mErr }, { data: staffRows, error: sErr }] = await Promise.all([
-      context.supabase.from("attendance_biometric_users").select("*").in("id", uniqueIds),
-      context.supabase
-        .from("staff")
-        .select("id, full_name, employee_code, department, job_title, status")
-        .in("id", staffIds),
+      db.from("attendance_biometric_users").select("*").in("id", uniqueIds),
+      db.from("staff").select("id, full_name, employee_code, department, job_title, status").in("id", staffIds),
     ]);
     if (mErr) throw mErr;
     if (sErr) throw sErr;
@@ -916,12 +1100,14 @@ export const mapAttendanceBiometricUsers = createAuthenticatedAction(
     const mappingById = new Map((mappingRows ?? []).map((row) => [row.id as string, row]));
     const staffById = new Map((staffRows ?? []).map((row) => [row.id as string, row]));
 
-    const locations = new Set<string>();
-    for (const row of mappingRows ?? []) {
-      locations.add(row.location_id as string);
-    }
-    for (const locationId of locations) {
-      await assertSite(context, locationId);
+    if (companyWide) {
+      const locations = new Set<string>();
+      for (const row of mappingRows ?? []) {
+        if (row.location_id) locations.add(row.location_id as string);
+      }
+      for (const locationId of locations) {
+        await assertSite(context, locationId);
+      }
     }
 
     let saved = 0;
@@ -932,32 +1118,43 @@ export const mapAttendanceBiometricUsers = createAuthenticatedAction(
       try {
         const mapping = mappingById.get(item.mappingId);
         if (!mapping) throw new Error("Mapping not found");
+        if (
+          !attendanceMappingRowAllowed(companyWide, teamStaffIds, teamLocationIds, {
+            staffId: mapping.staff_id == null ? null : String(mapping.staff_id),
+            locationId: mapping.location_id == null ? null : String(mapping.location_id),
+          })
+        ) {
+          throw new ForbiddenError("That device user is outside your team.");
+        }
+        if (!attendanceMappingStaffAllowed(companyWide, teamStaffIds, item.staffId)) {
+          throw new ForbiddenError("You can only map punches to people on your team.");
+        }
         const staff = staffById.get(item.staffId);
         if (!staff) throw new Error("Employee not found");
         await applyStaffToBiometricUser(
-          context,
+          writer,
           {
             id: mapping.id as string,
-            location_id: mapping.location_id as string,
+            location_id: (mapping.location_id as string | null) ?? null,
             device_id: mapping.device_id as string,
             biometric_user_id: String(mapping.biometric_user_id),
           },
           staff,
         );
         saved += 1;
-        recalcLocations.add(mapping.location_id as string);
+        if (mapping.location_id) recalcLocations.add(mapping.location_id as string);
       } catch (e) {
         failed.push({ mappingId: item.mappingId, error: e instanceof Error ? e.message : "Failed" });
       }
     }
 
     for (const locationId of recalcLocations) {
-      await recalcRecentAttendance(context, locationId);
+      await recalcRecentAttendance(writer, locationId);
     }
 
     return { saved, failed };
   },
-  { auth: { capability: "attendance.map_users" } },
+  { auth: { anyCapability: ["attendance.map_users", "attendance.view", "hr.employee_app"] } },
 );
 
 /**
@@ -1095,9 +1292,44 @@ export const mapAttendanceRosterSheetName = createAuthenticatedAction(
 );
 
 async function assertMapUsers(context: AuthContext) {
-  if (!canUserDo(context.roles ?? [], "attendance.map_users")) {
-    throw new ForbiddenError("HR mapping permission required");
+  const roles = context.roles ?? [];
+  if (attendanceMappingIsCompanyWide(roles)) return;
+  const staffIds = await loadReportingTreeStaffIds(context.userId);
+  if (!canMergeAttendanceMappings(roles, staffIds.length > 0)) {
+    throw new ForbiddenError("Attendance mapping is limited to your team.");
   }
+}
+
+async function loadBiometricMappingForWriter(context: AuthContext, mappingId: string) {
+  const roles = context.roles ?? [];
+  const companyWide = attendanceMappingIsCompanyWide(roles);
+  const db = companyWide ? context.supabase : (supabaseAdmin as AuthContext["supabase"]);
+  const { data: mapping, error } = await db.from("attendance_biometric_users").select("*").eq("id", mappingId).single();
+  throwPg(error);
+  if (!mapping) throw new Error("Device user mapping not found");
+  if (companyWide) {
+    await assertSite(context, mapping.location_id as string);
+    return { mapping, writer: context, companyWide: true, staffIds: [] as string[] };
+  }
+  const staffIds = await loadReportingTreeStaffIds(context.userId);
+  if (!canMergeAttendanceMappings(roles, staffIds.length > 0)) {
+    throw new ForbiddenError("Attendance mapping is limited to your team.");
+  }
+  const locationIds = (await loadTeamCoverageLocations(staffIds)).map((site) => site.id);
+  if (
+    !attendanceMappingRowAllowed(false, staffIds, locationIds, {
+      staffId: mapping.staff_id == null ? null : String(mapping.staff_id),
+      locationId: mapping.location_id == null ? null : String(mapping.location_id),
+    })
+  ) {
+    throw new ForbiddenError("That device user is outside your team.");
+  }
+  return {
+    mapping,
+    writer: { ...context, supabase: db } as AuthContext,
+    companyWide: false,
+    staffIds,
+  };
 }
 
 function throwPg(error: { message: string; details?: string; code?: string } | null): asserts error is null {
@@ -1124,13 +1356,15 @@ async function clearMappedLogs(
 ) {
   const staffId = mapping.staff_id == null ? "" : String(mapping.staff_id);
   if (!staffId) return;
-  const { error } = await context.supabase
+  let logs = context.supabase
     .from("attendance_logs")
     .update({ staff_id: null })
-    .eq("location_id", String(mapping.location_id))
     .eq("device_id", String(mapping.device_id))
     .eq("biometric_user_id", String(mapping.biometric_user_id))
     .eq("staff_id", staffId);
+  if (mapping.location_id) logs = logs.eq("location_id", String(mapping.location_id));
+  else logs = logs.is("location_id", null);
+  const { error } = await logs;
   throwPg(error);
 }
 
@@ -1143,10 +1377,10 @@ async function recalcRecentAttendance(context: AuthContext, locationId: string) 
 export const unmapAttendanceBiometricUser = createAuthenticatedAction(
   z.object({ mappingId: z.string().uuid() }),
   async (data, context) => {
-    await assertMapUsers(context);
-    const mapping = await loadBiometricMapping(context, data.mappingId);
+    const loaded = await loadBiometricMappingForWriter(context, data.mappingId);
+    const mapping = loaded.mapping;
 
-    const { error: uErr } = await context.supabase
+    const { error: uErr } = await loaded.writer.supabase
       .from("attendance_biometric_users")
       .update({
         staff_id: null,
@@ -1161,25 +1395,25 @@ export const unmapAttendanceBiometricUser = createAuthenticatedAction(
       .eq("id", data.mappingId);
     throwPg(uErr);
 
-    await clearMappedLogs(context, mapping);
-    await audit(context, "attendance.unmap_user", "attendance_biometric_users", data.mappingId, mapping.location_id as string, {
+    await clearMappedLogs(loaded.writer, mapping);
+    await audit(loaded.writer, "attendance.unmap_user", "attendance_biometric_users", data.mappingId, mapping.location_id as string | null, {
       previous_staff_id: mapping.staff_id,
     });
-    await recalcRecentAttendance(context, mapping.location_id as string);
+    if (mapping.location_id) await recalcRecentAttendance(loaded.writer, mapping.location_id as string);
     return { ok: true };
   },
-  { auth: { capability: "attendance.map_users" } },
+  { auth: { anyCapability: ["attendance.map_users", "attendance.view", "hr.employee_app"] } },
 );
 
 export const removeAttendanceBiometricUser = createSafeAuthenticatedAction(
   z.object({ mappingId: z.string().uuid() }),
   async (data, context) => {
-    await assertMapUsers(context);
-    const mapping = await loadBiometricMapping(context, data.mappingId);
+    const loaded = await loadBiometricMappingForWriter(context, data.mappingId);
+    const mapping = loaded.mapping;
 
-    await clearMappedLogs(context, mapping);
+    await clearMappedLogs(loaded.writer, mapping);
 
-    const { error: dErr, count } = await context.supabase
+    const { error: dErr, count } = await loaded.writer.supabase
       .from("attendance_biometric_users")
       .delete({ count: "exact" })
       .eq("id", data.mappingId);
@@ -1187,7 +1421,7 @@ export const removeAttendanceBiometricUser = createSafeAuthenticatedAction(
     if (count === 0) throw new Error("Device user mapping was not removed (not found or no permission)");
 
     try {
-      await audit(context, "attendance.remove_device_user", "attendance_biometric_users", data.mappingId, mapping.location_id as string, {
+      await audit(loaded.writer, "attendance.remove_device_user", "attendance_biometric_users", data.mappingId, mapping.location_id as string, {
         biometric_user_id: mapping.biometric_user_id,
         device_name: mapping.device_name,
         previous_staff_id: mapping.staff_id,
@@ -1195,12 +1429,14 @@ export const removeAttendanceBiometricUser = createSafeAuthenticatedAction(
     } catch (e) {
       console.warn("[attendance-hr] audit after remove failed", e instanceof Error ? e.message : e);
     }
-    void recalcRecentAttendance(context, mapping.location_id as string).catch((e) => {
-      console.warn("[attendance-hr] recalc after remove failed", e instanceof Error ? e.message : e);
-    });
+    void (mapping.location_id
+      ? recalcRecentAttendance(loaded.writer, mapping.location_id as string).catch((e) => {
+          console.warn("[attendance-hr] recalc after remove failed", e instanceof Error ? e.message : e);
+        })
+      : Promise.resolve());
     return { ok: true };
   },
-  { auth: { capability: "attendance.map_users" } },
+  { auth: { anyCapability: ["attendance.map_users", "attendance.view", "hr.employee_app"] } },
 );
 
 export const saveAttendanceDevice = createAuthenticatedAction(
@@ -1869,13 +2105,15 @@ export const submitAttendanceCorrection = createAuthenticatedAction(
   { auth: { capability: "attendance.correct" } },
 );
 
-/** Employee missed-punch request. First approver is the site supervisor, then Head of Operations, then HR. */
+/** Punch correction. Own requests wait on the line manager. A manager's team correction is approved and waits on HR. */
 export const submitMissedPunchRequest = createAuthenticatedAction(
   z.object({
     summaryId: z.string().uuid(),
     punchType: z.enum(["in", "out"]),
     punchTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
     reason: z.string().max(1000).optional(),
+    requestedPunchIn: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
+    requestedPunchOut: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
   }),
   async (data, context) => {
     const created = await insertMissedPunchRequest({
@@ -1884,12 +2122,15 @@ export const submitMissedPunchRequest = createAuthenticatedAction(
       punchType: data.punchType,
       punchTime: data.punchTime,
       reason: data.reason?.trim() ?? "",
+      requestedPunchIn: data.requestedPunchIn,
+      requestedPunchOut: data.requestedPunchOut,
     });
     await audit(context, "attendance.correction_submitted", "attendance_corrections", created.id, created.locationId, {
       missed_punch_request: true,
       approverCount: created.approverCount,
+      routedTo: created.routedTo,
     });
-    return { id: created.id, approverCount: created.approverCount };
+    return { id: created.id, approverCount: created.approverCount, routedTo: created.routedTo };
   },
   { auth: { capability: "hr.employee_app" } },
 );
@@ -1990,8 +2231,9 @@ export const resubmitMissedPunchRequest = createAuthenticatedAction(
     await audit(context, "attendance.correction_submitted", "attendance_corrections", updated.id, updated.locationId, {
       missed_punch_resubmit: true,
       approverCount: updated.approverCount,
+      routedTo: updated.routedTo,
     });
-    return { id: updated.id, approverCount: updated.approverCount };
+    return { id: updated.id, approverCount: updated.approverCount, routedTo: updated.routedTo };
   },
   { auth: { capability: "hr.employee_app" } },
 );
@@ -2049,11 +2291,31 @@ async function applyCorrection(context: AuthContext, row: Record<string, unknown
   }
 }
 
+export const listCorrectionSubjects = createAuthenticatedActionNoInput(
+  async (context) => listPunchCorrectionSubjects(context.userId),
+  { auth: { capability: "hr.employee_app" } },
+);
+
+export const findCorrectionDay = createAuthenticatedAction(
+  z.object({
+    staffId: z.string().uuid(),
+    workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  }),
+  async (data, context) =>
+    findPunchCorrectionDay({
+      userId: context.userId,
+      staffId: data.staffId,
+      workDate: data.workDate,
+    }),
+  { auth: { capability: "hr.employee_app" } },
+);
+
 export const listAttendanceCorrections = createAuthenticatedAction(
   z.object({
     locationId: z.string().uuid().nullable().optional(),
     status: z.string().optional(),
     queue: z.enum(["waiting", "mine"]).optional(),
+    actionableOnly: z.boolean().optional(),
   }),
   async (data, context) => {
     return listMissedPunchCorrections({
@@ -2061,6 +2323,7 @@ export const listAttendanceCorrections = createAuthenticatedAction(
       queue: data.queue ?? "waiting",
       locationId: data.locationId ?? null,
       status: data.status ?? null,
+      actionableOnly: data.actionableOnly ?? false,
     });
   },
   { auth: { anyCapability: ["attendance.view", "attendance.approve", "hr.employee_app"] } },

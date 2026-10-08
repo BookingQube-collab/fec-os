@@ -9,6 +9,7 @@ import { AlertTriangle, Building2, ClipboardCheck, Clock, MapPin, Upload, UserX,
 import { useTranslation } from "react-i18next";
 
 import { AttendanceHrNav, AttendanceHrSitesHint } from "@/components/attendance-hr/attendance-hr-nav";
+import { useRegisterHrAssist } from "@/components/hr/hr-people-assist";
 import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
 import {
   FecButton as Button,
@@ -20,6 +21,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getAttendanceHrDashboard } from "@/lib/attendance-hr.functions";
+import { canSeeAttendanceMapping } from "@/lib/attendance-listing-access";
 import {
   defaultPayrollPeriod,
   formatPayrollDate,
@@ -31,6 +33,9 @@ import { formatLocationLabel, formatLocationName, formatLocationRecord } from "@
 import { retryImport } from "@/lib/retry-import";
 import { STALE } from "@/lib/query-client";
 import { queryKeys } from "@/lib/query-keys";
+import { usePermission } from "@/hooks/use-permission";
+import { useHasDirectReports } from "@/hooks/use-my-direct-reports";
+import { useUserRoles } from "@/hooks/use-auth";
 import { useAppStore } from "@/stores/app-store";
 
 const AttendanceHrTrendsChart = dynamic(
@@ -144,6 +149,10 @@ export default function AttendanceHrDashboardPage() {
 
 function AttendanceHrDashboardBody() {
   const { t, i18n } = useTranslation();
+  const fullAttendance = usePermission("attendance.view");
+  const roles = useUserRoles();
+  const { hasDirectReports } = useHasDirectReports();
+  const canOpenMapping = canSeeAttendanceMapping(roles, hasDirectReports);
   const locationId = useAppStore((s) => s.currentLocationId);
   const search = useSearchParams();
   const urlFrom = ymd(search.get("from"));
@@ -185,6 +194,12 @@ function AttendanceHrDashboardBody() {
 
   const kpis = dash.data?.kpis;
   const sites = dash.data?.sites ?? [];
+  useRegisterHrAssist({
+    locationId: locationId ?? null,
+    dateFrom,
+    dateTo,
+  });
+
   const fromLabel = dateFrom ? formatPayrollDate(dateFrom, i18n.language) : "";
   const toLabel = dateTo ? formatPayrollDate(dateTo, i18n.language) : "";
   const usedImported = Boolean(dash.data?.usedImportedPeriod) && !payrollMonthMatchingBounds(dateFrom, dateTo);
@@ -239,12 +254,14 @@ function AttendanceHrDashboardBody() {
                 }
               />
             </div>
+            {fullAttendance ? (
             <Button asChild>
               <Link href="/people/attendance/import">
                 <Upload className="h-4 w-4" />
                 {t("attendanceHr.importFiles", { defaultValue: "Import files" })}
               </Link>
             </Button>
+            ) : null}
           </div>
         }
       />
@@ -307,7 +324,7 @@ function AttendanceHrDashboardBody() {
             hint={t("attendanceHr.dashboard.unmatchedHint", { defaultValue: "Not counted as Present until mapped" })}
             icon={Users}
             tint="slate"
-            href="/people/attendance/mapping"
+            href={canOpenMapping ? "/people/attendance/mapping" : undefined}
           />
           <FecStatCard
             title={t("attendanceHr.dashboard.pendingCorrections", { defaultValue: "Pending corrections" })}
@@ -333,7 +350,7 @@ function AttendanceHrDashboardBody() {
           hint={t("attendanceHr.dashboard.currentVisitsHint")}
           icon={MapPin}
           tint="sky"
-          href="/people/attendance/field"
+          href={fullAttendance ? "/people/attendance/field" : undefined}
         />
         <FecStatCard
           title={t("attendanceHr.dashboard.upcomingRoster")}
@@ -367,12 +384,10 @@ function AttendanceHrDashboardBody() {
                 {t("attendanceHr.dashboard.noSites", { defaultValue: "No attendance sites yet." })}
               </p>
             ) : (
-              sites.map((site) => (
-                <Link
-                  key={site.locationId}
-                  href={`/people/attendance/sites/${site.locationId}`}
-                  className="flex items-center justify-between rounded-2xl border border-border/60 px-3 py-2.5 hover:bg-secondary/50"
-                >
+              sites.map((site) => {
+                const rowClass = "flex items-center justify-between rounded-2xl border border-border/60 px-3 py-2.5";
+                const body = (
+                  <>
                   <div className="flex items-center gap-2">
                     <Building2 className="h-4 w-4 text-muted-foreground" />
                     <div>
@@ -386,8 +401,22 @@ function AttendanceHrDashboardBody() {
                     <Badge variant="destructive">{site.out} {t("attendanceHr.dashboard.out", { defaultValue: "out" })}</Badge>
                     <Badge variant="warning">{site.late} {t("attendanceHr.dashboard.late", { defaultValue: "late" })}</Badge>
                   </div>
+                  </>
+                );
+                return fullAttendance ? (
+                <Link
+                  key={site.locationId}
+                  href={`/people/attendance/sites/${site.locationId}`}
+                  className={`${rowClass} hover:bg-secondary/50`}
+                >
+                  {body}
                 </Link>
-              ))
+                ) : (
+                <div key={site.locationId} className={rowClass}>
+                  {body}
+                </div>
+                );
+              })
             )}
           </div>
         </NeumorphicCard>

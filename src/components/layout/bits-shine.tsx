@@ -9,7 +9,7 @@ export function BitsShine({
   text,
   className,
   color = "#1a1a1a",
-  shineColor = "#c47a0a",
+  shineColor = "#8b6cff",
   speed = 4.8,
 }: {
   text: string;

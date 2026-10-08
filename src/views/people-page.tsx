@@ -14,7 +14,17 @@ import {
   Trash2,
   ChevronDown,
   CalendarDays,
+  CalendarRange,
   RefreshCw,
+  LayoutDashboard,
+  ArrowLeftRight,
+  FileText,
+  GraduationCap,
+  UserRound,
+  Briefcase,
+  MapPin,
+  Clock,
+  type LucideIcon,
 } from "lucide-react";
 import { useState, useEffect, useMemo, useRef, Suspense } from "react";
 import dynamic from "next/dynamic";
@@ -237,6 +247,13 @@ function PeoplePage() {
 const PEOPLE_TABS = ["dashboard", "staff", "moves", "documents", "shifts", "attendance", "training"] as const;
 /** Visible People module tabs — route values stay dashboard/staff for URL compatibility. */
 const PEOPLE_MAIN_TABS = ["dashboard", "staff", "moves", "documents", "training"] as const;
+const PEOPLE_TAB_ICONS: Record<(typeof PEOPLE_MAIN_TABS)[number], LucideIcon> = {
+  dashboard: LayoutDashboard,
+  staff: Users,
+  moves: ArrowLeftRight,
+  documents: FileText,
+  training: GraduationCap,
+};
 type PeopleTab = (typeof PEOPLE_TABS)[number];
 
 const TAB_ALIASES: Record<string, PeopleTab> = {
@@ -280,7 +297,7 @@ function PeoplePageBody() {
   };
 
   return (
-    <div className="space-y-5">
+    <div className="hr-module space-y-5">
       <FecPageHeader
         icon={Users}
         title={t("people.title")}
@@ -303,11 +320,15 @@ function PeoplePageBody() {
       />
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
-          {PEOPLE_MAIN_TABS.map((value) => (
+          {PEOPLE_MAIN_TABS.map((value) => {
+            const Icon = PEOPLE_TAB_ICONS[value];
+            return (
             <TabsTrigger key={value} value={value}>
+              <Icon aria-hidden />
               {t(`people.tabs.${value}`)}
             </TabsTrigger>
-          ))}
+            );
+          })}
           {hiddenTab ? (
             <TabsTrigger value={tab} className="sr-only">
               {t(`people.tabs.${tab}`)}
@@ -874,23 +895,28 @@ function StaffFormDialog({
           className="flex min-h-0 flex-1 flex-col gap-3"
         >
           <TabsList className="h-auto w-full shrink-0">
-            <TabsTrigger value="profile" className="min-h-11">
+            <TabsTrigger value="profile">
+              <UserRound aria-hidden />
               {t("people.staff.formTabs.profile")}
             </TabsTrigger>
-            <TabsTrigger value="job" className="min-h-11">
+            <TabsTrigger value="job">
+              <Briefcase aria-hidden />
               {t("people.staff.formTabs.job")}
             </TabsTrigger>
             {isEdit && homeLocationId ? (
-              <TabsTrigger value="sites" className="min-h-11">
+              <TabsTrigger value="sites">
+                <MapPin aria-hidden />
                 {t("people.staff.formTabs.sites")}
               </TabsTrigger>
             ) : null}
             {isEdit ? (
-              <TabsTrigger value="time" className="min-h-11">
+              <TabsTrigger value="time">
+                <Clock aria-hidden />
                 {t("people.staff.formTabs.time")}
               </TabsTrigger>
             ) : null}
-            <TabsTrigger value="documents" className="min-h-11">
+            <TabsTrigger value="documents">
+              <FileText aria-hidden />
               {t("people.staff.formTabs.documents")}
             </TabsTrigger>
           </TabsList>
@@ -2198,31 +2224,35 @@ function ImportCsvDialog() {
         </DialogHeader>
         <div className="space-y-3 text-sm">
           <p className="text-xs text-muted-foreground">{t("people.importHelp")}</p>
-          <div className="flex gap-2">
-            <Button size="sm" variant={kind === "staff" ? "default" : "outline"} onClick={() => setKind("staff")}>
+          <div className="fec-inner-tabs">
+            <button type="button" className={kind === "staff" ? "fec-inner-tab is-active" : "fec-inner-tab"} onClick={() => setKind("staff")}>
+              <Users aria-hidden />
               {t("people.tabs.staff")}
-            </Button>
-            <Button size="sm" variant={kind === "roster" ? "default" : "outline"} onClick={() => setKind("roster")}>
+            </button>
+            <button type="button" className={kind === "roster" ? "fec-inner-tab is-active" : "fec-inner-tab"} onClick={() => setKind("roster")}>
+              <CalendarDays aria-hidden />
               {t("people.tabs.shifts")}
-            </Button>
+            </button>
           </div>
           {kind === "roster" && (
             <>
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant={rosterFormat === "dated" ? "default" : "outline"}
+              <div className="fec-inner-tabs">
+                <button
+                  type="button"
+                  className={rosterFormat === "dated" ? "fec-inner-tab is-active" : "fec-inner-tab"}
                   onClick={() => setRosterFormat("dated")}
                 >
+                  <CalendarDays aria-hidden />
                   {t("people.sampleRosterDated")}
-                </Button>
-                <Button
-                  size="sm"
-                  variant={rosterFormat === "weekly" ? "default" : "outline"}
+                </button>
+                <button
+                  type="button"
+                  className={rosterFormat === "weekly" ? "fec-inner-tab is-active" : "fec-inner-tab"}
                   onClick={() => setRosterFormat("weekly")}
                 >
+                  <CalendarRange aria-hidden />
                   {t("people.sampleRosterWeekly")}
-                </Button>
+                </button>
               </div>
               {rosterFormat === "weekly" && (
                 <div>

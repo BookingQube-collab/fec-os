@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 
+import { HrAssistProvider } from "@/components/hr/hr-people-assist";
+
 export const metadata: Metadata = {
   title: "FEC Employee",
   description: "Check in, attendance, and leave for FEC staff.",
@@ -23,5 +25,5 @@ export const viewport: Viewport = {
 };
 
 export default function EmployeeMeLayout({ children }: { children: React.ReactNode }) {
-  return children;
+  return <HrAssistProvider>{children}</HrAssistProvider>;
 }

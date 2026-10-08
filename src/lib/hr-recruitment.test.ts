@@ -4,9 +4,15 @@ import {
   assertCanPublishVacancy,
   assertQuotaOverrideAllowed,
   buildQuotaEmployeeRows,
+  canActOnJobStep,
   computeQuotaMetrics,
   defaultJobApprovalSteps,
   evaluateJobRequestAgainstQuota,
+  HR_JOB_REQUEST_STATUSES,
+  jobRequestDeskAction,
+  jobRequestDeskGroup,
+  jobRequestSearchText,
+  jobRequestVisibleText,
   maskJobRequestSalary,
   quotaMatchesRequest,
   requiresFinanceForBudget,
@@ -200,5 +206,96 @@ describe("AT#17 quota views expose names, CV status, QID status", () => {
   it("masks salary budget for unauthorized viewers", () => {
     expect(maskJobRequestSalary({ salaryBudgetQar: 9000 }, false).salaryBudgetQar).toBeNull();
     expect(maskJobRequestSalary({ salaryBudgetQar: 9000 }, true).salaryBudgetQar).toBe(9000);
+  });
+});
+
+describe("job request desk groups and next action", () => {
+  it("groups every stored status without inventing one", () => {
+    expect(HR_JOB_REQUEST_STATUSES.map(jobRequestDeskGroup)).toEqual([
+      "in_review",
+      "in_review",
+      "approved",
+      "closed",
+      "returned",
+      "closed",
+      "published",
+      "returned",
+      "closed",
+    ]);
+  });
+
+  it("follows the same step capabilities the server enforces", () => {
+    const allow = (...caps: string[]) => (capability: string) => caps.includes(capability);
+    expect(canActOnJobStep("dept_ops", allow("recruitment.request"))).toBe(true);
+    expect(canActOnJobStep("finance", allow("recruitment.manage"))).toBe(false);
+    expect(canActOnJobStep("finance", allow("recruitment.view_salary_budget"))).toBe(true);
+    expect(canActOnJobStep("gm", allow(), ["ceo"])).toBe(true);
+    expect(canActOnJobStep("gm", allow("recruitment.request"), ["branch_gm"])).toBe(false);
+    expect(canActOnJobStep("quota_override", allow("quota.override_approve"))).toBe(true);
+  });
+
+  it("hides approve and publish while a quota override is still open", () => {
+    const waiting = jobRequestDeskAction({
+      status: "pending",
+      canActOnCurrentStep: true,
+      canManage: true,
+      canGrantOverride: true,
+      exceedsQuota: true,
+      quotaOverrideStatus: "pending",
+    });
+    expect(waiting.message).toBe("override_required");
+    expect(waiting.approve).toBe(false);
+    expect(waiting.publish).toBe(false);
+    expect(waiting.grantOverride).toBe(true);
+    expect(waiting.reject).toBe(true);
+
+    const ready = jobRequestDeskAction({
+      status: "approved",
+      canActOnCurrentStep: false,
+      canManage: false,
+      canGrantOverride: false,
+      exceedsQuota: false,
+      quotaOverrideStatus: "none",
+    });
+    expect(ready).toMatchObject({ message: "awaiting_publish", publish: false, approve: false });
+
+    const published = jobRequestDeskAction({
+      status: "published",
+      canActOnCurrentStep: true,
+      canManage: true,
+      canGrantOverride: true,
+      exceedsQuota: false,
+      quotaOverrideStatus: "none",
+    });
+    expect(published).toMatchObject({
+      message: "published",
+      approve: false,
+      publish: false,
+      reject: false,
+      grantOverride: false,
+    });
+  });
+
+  it("keeps salary figures out of text and search for unauthorized viewers", () => {
+    const description =
+      "Guest-floor attendant at Urban Arena. Gender requirement: female. Salary budget: 2300–2500 QAR.";
+    expect(jobRequestVisibleText(description, false)).toBe(
+      "Guest-floor attendant at Urban Arena. Gender requirement: female.",
+    );
+    expect(jobRequestVisibleText(description, true)).toContain("2500");
+    const haystack = jobRequestSearchText(
+      {
+        jobTitle: "Crew / Attendant",
+        locationName: "Urban Arena",
+        departmentName: "Operations",
+        status: "published",
+        jobDescription: description,
+        salaryBudgetQar: 2500,
+      },
+      false,
+    );
+    expect(haystack).toContain("crew / attendant");
+    expect(haystack).not.toContain("2500");
+    expect(haystack).not.toContain("2300");
   });
 });

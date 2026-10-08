@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState } from "react";
-import { Loader2, Plus, Trash2, Truck } from "lucide-react";
+import { FileText, List, Loader2, Plus, Trash2, Truck } from "lucide-react";
 import { toast } from "sonner";
 
 import { FecLoader } from "@/components/fec";
@@ -71,9 +71,9 @@ function MaintenanceLogisticsPage() {
 
       <Tabs defaultValue="list">
         <TabsList>
-          <TabsTrigger value="list">Deliveries</TabsTrigger>
-          {canSubmit && <TabsTrigger value="new">New request</TabsTrigger>}
-          {selectedId && <TabsTrigger value="detail">Detail</TabsTrigger>}
+          <TabsTrigger value="list"><List aria-hidden />Deliveries</TabsTrigger>
+          {canSubmit && <TabsTrigger value="new"><Plus aria-hidden />New request</TabsTrigger>}
+          {selectedId && <TabsTrigger value="detail"><FileText aria-hidden />Detail</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="list" className="mt-4">

@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { AlertTriangle, Loader2, Play, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, List, Loader2, Play, Plus, Scale, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -107,8 +107,8 @@ function EscalationsPage() {
 
       <Tabs defaultValue="active">
         <TabsList>
-          <TabsTrigger value="active">Active</TabsTrigger>
-          <TabsTrigger value="rules">Rules</TabsTrigger>
+          <TabsTrigger value="active"><List aria-hidden />Active</TabsTrigger>
+          <TabsTrigger value="rules"><Scale aria-hidden />Rules</TabsTrigger>
         </TabsList>
 
         <TabsContent value="active" className="mt-4">

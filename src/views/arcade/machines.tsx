@@ -4,7 +4,19 @@ import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { Camera, Gamepad2 } from "lucide-react";
+import {
+  AlertTriangle,
+  Camera,
+  FileText,
+  Gamepad2,
+  History,
+  LayoutDashboard,
+  Package,
+  ShieldAlert,
+  Truck,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -551,6 +563,16 @@ type Technician = { id: string; full_name: string };
 type DetailTab = "Overview" | "Faults" | "PM" | "Parts" | "SupplierCases" | "Documents" | "Damage" | "Timeline";
 
 const detailTabs: DetailTab[] = ["Overview", "Faults", "PM", "Parts", "SupplierCases", "Documents", "Damage", "Timeline"];
+const DETAIL_TAB_ICONS: Record<DetailTab, LucideIcon> = {
+  Overview: LayoutDashboard,
+  Faults: AlertTriangle,
+  PM: Wrench,
+  Parts: Package,
+  SupplierCases: Truck,
+  Documents: FileText,
+  Damage: ShieldAlert,
+  Timeline: History,
+};
 const detailCard = "rounded-lg border bg-card p-3 text-sm";
 const detailLink = "block rounded-lg border bg-card p-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40";
 
@@ -578,9 +600,15 @@ function MachineTabs({
   return (
     <div className="min-w-0">
       <PillTabScroller label={t("nav.arcade")}>
-        {detailTabs.map((item) => (
-          <button key={item} type="button" aria-pressed={tab === item} className={pillTabItemClass(tab === item)} onClick={() => setTab(item)}>{t(`arcadeScreens.tab.${item}`)}</button>
-        ))}
+        {detailTabs.map((item) => {
+          const Icon = DETAIL_TAB_ICONS[item];
+          return (
+            <button key={item} type="button" aria-pressed={tab === item} className={pillTabItemClass(tab === item)} onClick={() => setTab(item)}>
+              <Icon aria-hidden />
+              {t(`arcadeScreens.tab.${item}`)}
+            </button>
+          );
+        })}
       </PillTabScroller>
       <div className="mt-3 grid min-w-0 gap-3">
         {tab === "Overview" ? (

@@ -6,7 +6,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
-import { Loader2, RefreshCw, Sparkles } from "lucide-react";
+import { CalendarRange, CircleDollarSign, Droplets, Loader2, RefreshCw, Sparkles, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -178,10 +178,10 @@ function Page() {
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
-          <TabsTrigger value="bookingqube">BookingQube MTD</TabsTrigger>
-          <TabsTrigger value="pnl">Branch P&amp;L</TabsTrigger>
-          <TabsTrigger value="leakage">Leakage</TabsTrigger>
-          <TabsTrigger value="roi">Asset ROI</TabsTrigger>
+          <TabsTrigger value="bookingqube"><CalendarRange aria-hidden />BookingQube MTD</TabsTrigger>
+          <TabsTrigger value="pnl"><CircleDollarSign aria-hidden />Branch P&amp;L</TabsTrigger>
+          <TabsTrigger value="leakage"><Droplets aria-hidden />Leakage</TabsTrigger>
+          <TabsTrigger value="roi"><TrendingUp aria-hidden />Asset ROI</TabsTrigger>
         </TabsList>
 
         <TabsContent value="bookingqube">

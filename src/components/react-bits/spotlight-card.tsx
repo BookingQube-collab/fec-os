@@ -108,7 +108,7 @@ export default function SpotlightCard({
         className="pointer-events-none absolute inset-0 transition-opacity duration-150 ease-out"
         style={{
           opacity,
-          background: `radial-gradient(circle 6.75rem at ${position.x}px ${position.y}px, ${spotlightColor}, rgba(245, 197, 24, 0.55) 46%, transparent 70%)`,
+          background: `radial-gradient(circle 6.75rem at ${position.x}px ${position.y}px, ${spotlightColor}, rgba(109, 74, 255, 0.28) 46%, transparent 70%)`,
         }}
       />
       <div className="relative z-[1] w-full min-w-0 flex-1">{children}</div>

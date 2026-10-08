@@ -3,13 +3,19 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
-import { Plus } from "lucide-react";
+import { ClipboardCheck, FileBarChart, Plus, Presentation, type LucideIcon } from "lucide-react";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
 import { Button } from "@/components/ui/button";
 import { WEEKLY_REPORTS_NAV_ITEMS } from "@/lib/weekly-reports/constants";
 import { usePermission } from "@/hooks/use-permission";
 import { PillTabScroller, pillTabItemClass } from "@/components/react-bits/pill-tab-scroller";
+
+const NAV_ICONS: Record<string, LucideIcon> = {
+  "/operations/weekly-reports": FileBarChart,
+  "/operations/weekly-reports/review": ClipboardCheck,
+  "/operations/weekly-reports/executive": Presentation,
+};
 
 export function WeeklyReportsLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -49,8 +55,10 @@ export function WeeklyReportsLayout({ children }: { children: React.ReactNode })
                 item.href === "/operations/weekly-reports"
                   ? pathname === item.href
                   : pathname === item.href || pathname.startsWith(`${item.href}/`);
+              const Icon = NAV_ICONS[item.href] ?? FileBarChart;
               return (
                 <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={pillTabItemClass(active)}>
+                  <Icon aria-hidden />
                   {t(item.labelKey)}
                 </Link>
               );

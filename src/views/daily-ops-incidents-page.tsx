@@ -6,6 +6,8 @@ import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import {
   AlertTriangle,
+  List,
+  Plus,
   CheckCircle2,
   ClipboardCopy,
   Loader2,
@@ -214,8 +216,8 @@ function DailyOpsIncidentsPage() {
     <DailyOpsPageShell title={t("dailyOps.incidents.title")} subtitle={t("dailyOps.incidents.subtitle")}>
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
-          <TabsTrigger value="list">{t("dailyOps.incidents.list")}</TabsTrigger>
-          {canManage && <TabsTrigger value="new">{t("dailyOps.incidents.new")}</TabsTrigger>}
+          <TabsTrigger value="list"><List aria-hidden />{t("dailyOps.incidents.list")}</TabsTrigger>
+          {canManage && <TabsTrigger value="new"><Plus aria-hidden />{t("dailyOps.incidents.new")}</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="list" className="mt-4">

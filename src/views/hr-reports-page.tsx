@@ -9,6 +9,7 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
+import { useRegisterHrAssist } from "@/components/hr/hr-people-assist";
 import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { HrKpiTile } from "@/components/hr/hr-kpi-tile";
 import { HrPanel } from "@/components/hr/hr-panel";
@@ -63,6 +64,12 @@ export default function HrReportsPage() {
 
   const catalogIds = (report.data?.catalog ?? []).map((c) => c.id as HrReportId);
   const activeId = catalogIds.includes(reportId) ? reportId : (catalogIds[0] ?? "employee_master");
+  useRegisterHrAssist({
+    locationId: loc,
+    dateFrom,
+    dateTo,
+    reportId: activeId,
+  });
 
   const catalog = useQuery({
     queryKey: queryKeys.people.hrReports({

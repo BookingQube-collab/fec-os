@@ -2,12 +2,15 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
+  BookUser,
+  GitBranch,
   LayoutGrid,
   LayoutList,
   Mail,
   Plus,
   Search,
   Settings2,
+  ShieldCheck,
   Upload,
 } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -176,25 +179,21 @@ export default function VendorsPage() {
           }
         />
 
-        <div className="flex flex-wrap gap-2">
+        <div className="fec-inner-tabs">
           {(
             [
-              ["directory", t("vendors.ecosystem.approvedDirectory"), directoryRows.length],
-              ["matrix", t("vendors.ecosystem.complianceMatrix"), matrixRows.length],
-              ["pipeline", t("vendors.ecosystem.onboardingPipeline"), pipelineRows.length],
+              ["directory", BookUser, t("vendors.ecosystem.approvedDirectory"), directoryRows.length],
+              ["matrix", ShieldCheck, t("vendors.ecosystem.complianceMatrix"), matrixRows.length],
+              ["pipeline", GitBranch, t("vendors.ecosystem.onboardingPipeline"), pipelineRows.length],
             ] as const
-          ).map(([id, label, count]) => (
+          ).map(([id, Icon, label, count]) => (
             <button
               key={id}
               type="button"
               onClick={() => setTab(id)}
-              className={cn(
-                "inline-flex min-h-9 items-center gap-2 rounded-full border px-3 text-xs font-semibold",
-                tab === id
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-border/70 bg-card text-muted-foreground hover:bg-secondary",
-              )}
+              className={cn("fec-inner-tab", tab === id && "is-active")}
             >
+              <Icon aria-hidden />
               {label}
               <span className="rounded-full bg-background/20 px-1.5 py-0.5 tabular-nums">{count}</span>
             </button>

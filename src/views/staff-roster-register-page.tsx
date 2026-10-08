@@ -8,6 +8,7 @@ import { CalendarDays, Copy, Download, Loader2, Trash2, Upload } from "lucide-re
 import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { useRegisterHrAssist } from "@/components/hr/hr-people-assist";
 import { RosterLocationCoverage } from "@/components/people/roster-location-coverage";
 import {
   RosterRegisterPanel,
@@ -61,7 +62,10 @@ import {
 } from "@/lib/attendance-hr/roster-period";
 import { queryKeys } from "@/lib/query-keys";
 import { useAppStore } from "@/stores/app-store";
+import { useHasDirectReports } from "@/hooks/use-my-direct-reports";
 import { usePermission } from "@/hooks/use-permission";
+import { canSeeShiftRosterUpload } from "@/lib/reporting-manager-locations";
+import { useUserRoles } from "@/hooks/use-auth";
 
 function todayYmd() {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" });
@@ -87,12 +91,15 @@ export default function StaffRosterRegisterPage() {
   const canImportRoster = usePermission("people.import_roster");
   const canEditRoster = usePermission("people.edit_roster");
   const canUploadRoster = usePermission("daily_ops.roster.upload");
-  const canImport = canImportRoster || canEditRoster || canUploadRoster;
+  const roles = useUserRoles();
+  const { hasDirectReports } = useHasDirectReports();
+  const canManageRoster = canImportRoster || canEditRoster || canUploadRoster;
+  const canUpload = canSeeShiftRosterUpload(roles, hasDirectReports);
   const storeLocationId = useAppStore((s) => s.currentLocationId);
 
   const registerRef = useRef<RosterRegisterPanelHandle>(null);
   const [deleteAllState, setDeleteAllState] = useState<RosterDeleteAllState>({
-    canDelete: canImport,
+    canDelete: canManageRoster,
     disabled: true,
     selectedCount: 0,
   });
@@ -124,6 +131,11 @@ export default function StaffRosterRegisterPage() {
       return { dateFrom: weekStart, dateTo: weekStart };
     }
   }, [periodMode, weekStart, month]);
+  useRegisterHrAssist({
+    locationId: storeLocationId ?? null,
+    dateFrom: period.dateFrom,
+    dateTo: period.dateTo,
+  });
 
   const nextMonth = nextPayrollMonth(month);
   const nextBounds = monthBounds(nextMonth);
@@ -327,7 +339,7 @@ export default function StaffRosterRegisterPage() {
                 {t("people.roster.downloadPreviousMonth")}
               </Button>
             ) : null}
-            {canImport && periodMode === "month" ? (
+            {canManageRoster && periodMode === "month" ? (
               <Button
                 type="button"
                 size="sm"
@@ -343,7 +355,7 @@ export default function StaffRosterRegisterPage() {
                 {t("people.roster.copyNextMonth")}
               </Button>
             ) : null}
-            {canImport ? (
+            {canManageRoster ? (
               <Button
                 type="button"
                 size="sm"
@@ -357,7 +369,7 @@ export default function StaffRosterRegisterPage() {
                   : t("people.roster.registerDeleteAll")}
               </Button>
             ) : null}
-            {canImport ? (
+            {canUpload ? (
               <Button asChild variant="outline" size="sm">
                 <Link href="/people/import">
                   <Upload className="h-4 w-4" />

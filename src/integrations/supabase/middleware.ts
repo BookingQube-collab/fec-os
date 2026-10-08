@@ -146,7 +146,8 @@ export async function updateSession(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const isAuthRoute = pathname.startsWith("/auth") || pathname.startsWith("/reset-password");
   const isPublicApi = pathname.startsWith("/api/public") || pathname.startsWith("/iclock");
-  const isProtected = !isAuthRoute && !isPublicApi && pathname !== "/favicon.ico";
+  const isPublicCertificate = pathname.startsWith("/verify/certificate/");
+  const isProtected = !isAuthRoute && !isPublicApi && !isPublicCertificate && pathname !== "/favicon.ico";
 
   const authenticated = hasUsableSession(request);
 

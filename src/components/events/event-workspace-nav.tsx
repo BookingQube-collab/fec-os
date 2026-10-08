@@ -8,7 +8,6 @@ import { useTranslation } from "react-i18next";
 import { useEvent } from "@/hooks/queries/useEvents";
 import { missingRequiredDocs } from "@/lib/events/documents";
 import { PillTabScroller, pillTabItemClass } from "@/components/react-bits/pill-tab-scroller";
-import { cn } from "@/lib/utils";
 
 const TABS = [
   { suffix: "", key: "home", icon: Home },
@@ -34,7 +33,7 @@ export function EventWorkspaceNav({ eventId }: { eventId: string }) {
             key={tab.key}
             href={href}
             aria-current={active ? "page" : undefined}
-            className={cn(pillTabItemClass(active), "text-xs font-semibold tracking-wide")}
+            className={pillTabItemClass(active)}
           >
             <tab.icon className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} aria-hidden />
             {t(`events.workspace.${tab.key}`)}

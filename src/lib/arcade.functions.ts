@@ -6,6 +6,7 @@ import { buildAlertDrafts, firstCoverByLocation, normalizeGamePayment, operation
 import { MachineInput, PageQuery, UploadInput } from "@/lib/arcade/schemas";
 import { canUserDo } from "@/lib/rbac";
 import { assertLocationAccess } from "@/lib/server/authorize";
+import { applyStoredTrainingRules } from "@/lib/training/execute-rules";
 import { createAuthenticatedAction, type AuthContext } from "@/lib/server/create-action";
 import { validateBase64Size } from "@/lib/server/upload-validation";
 
@@ -348,7 +349,31 @@ export const saveArcadeMachine = createAuthenticatedAction(
         .select("id, asset_code")
         .single();
       if (error) throw error;
+      if (data.technicianStaffId) {
+        await applyStoredTrainingRules(context, {
+          trigger: "MACHINE_ASSIGNMENT",
+          staffId: data.technicianStaffId,
+          entityId: row.id,
+        });
+      }
       return row;
+    }
+    if (data.technicianStaffId) {
+      const { data: current, error: currentError } = await context.supabase
+        .from("arcade_machines")
+        .select("technician_staff_id")
+        .eq("id", data.id)
+        .maybeSingle();
+      if (currentError) throw currentError;
+      const willAssign =
+        canUserDo(context.roles ?? [], "arcade.manage") || canUserDo(context.roles ?? [], "arcade.assign");
+      if (willAssign && current?.technician_staff_id !== data.technicianStaffId) {
+        await applyStoredTrainingRules(context, {
+          trigger: "MACHINE_ASSIGNMENT",
+          staffId: data.technicianStaffId,
+          entityId: data.id,
+        });
+      }
     }
     const patch = canUserDo(context.roles ?? [], "arcade.manage")
       ? payload

@@ -16,7 +16,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { fmtNumber, fmtQar } from "@/lib/currency";
 
 function Page() {
@@ -30,13 +29,13 @@ function Page() {
         title="Location performance"
         subtitle="League table and heat map ranked by composite operating score (last 30 days)."
         actions={
-        <div className="flex gap-2">
-          <Button variant={view === "heatmap" ? "default" : "outline"} size="sm" onClick={() => setView("heatmap")}>
-            <Grid3X3 className="mr-2 h-4 w-4" />Heat map
-          </Button>
-          <Button variant={view === "list" ? "default" : "outline"} size="sm" onClick={() => setView("list")}>
-            <LayoutList className="mr-2 h-4 w-4" />List
-          </Button>
+        <div className="fec-inner-tabs w-auto">
+          <button type="button" className={view === "heatmap" ? "fec-inner-tab is-active" : "fec-inner-tab"} onClick={() => setView("heatmap")}>
+            <Grid3X3 />Heat map
+          </button>
+          <button type="button" className={view === "list" ? "fec-inner-tab is-active" : "fec-inner-tab"} onClick={() => setView("list")}>
+            <LayoutList />List
+          </button>
         </div>
         }
       />

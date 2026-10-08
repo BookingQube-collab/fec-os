@@ -43,11 +43,11 @@ function SupervisorChecklistPage() {
       </header>
 
       <Tabs defaultValue="today">
-        <TabsList className={`grid w-full ${canGenerate ? "grid-cols-2" : "grid-cols-1"}`}>
-          <TabsTrigger value="today" className="text-sm">My daily checklist</TabsTrigger>
+        <TabsList>
+          <TabsTrigger value="today" className="text-sm"><ListChecks aria-hidden />My daily checklist</TabsTrigger>
           {canGenerate ? (
             <TabsTrigger value="generate" className="text-sm">
-              <Sparkles className="mr-1 h-3 w-3" />
+              <Sparkles aria-hidden />
               Generate with AI
             </TabsTrigger>
           ) : null}

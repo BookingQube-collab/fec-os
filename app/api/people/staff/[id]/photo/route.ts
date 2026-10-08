@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { resolveStaffProfileReadAccess } from "@/lib/staff-profile-access.server";
 import { ForbiddenError } from "@/lib/server/authorize";
 import { getAuthenticatedContext } from "@/lib/server/auth";
 import { enforceActionAuth } from "@/lib/server/create-action";
@@ -13,10 +15,12 @@ export async function GET(
 ) {
   try {
     const context = await getAuthenticatedContext();
-    await enforceActionAuth(context, { capability: "people.view_roster" });
+    await enforceActionAuth(context, { requireRole: true });
     const { id } = await ctx.params;
+    const access = await resolveStaffProfileReadAccess(context, id);
+    const db = access.scope === "team" ? supabaseAdmin : context.supabase;
 
-    const { data: staff, error } = await context.supabase
+    const { data: staff, error } = await db
       .from("staff")
       .select("id, location_id, photo_data, photo_mime, photo_updated_at, deleted_at")
       .eq("id", id)
@@ -26,17 +30,19 @@ export async function GET(
       return NextResponse.json({ error: "Photo not found" }, { status: 404 });
     }
 
-    const { data: allowed, error: locErr } = await context.supabase.rpc("user_can_access_staff", {
-      _staff_id: id,
-    });
-    if (locErr) {
-      const { data: homeOk, error: homeErr } = await context.supabase.rpc("user_can_access_location", {
-        _location_id: staff.location_id,
+    if (access.scope === "company") {
+      const { data: allowed, error: locErr } = await context.supabase.rpc("user_can_access_staff", {
+        _staff_id: id,
       });
-      if (homeErr) throw homeErr;
-      if (!homeOk) throw new ForbiddenError("Forbidden: cannot access this branch");
-    } else if (!allowed) {
-      throw new ForbiddenError("Forbidden: cannot access this branch");
+      if (locErr) {
+        const { data: homeOk, error: homeErr } = await context.supabase.rpc("user_can_access_location", {
+          _location_id: staff.location_id,
+        });
+        if (homeErr) throw homeErr;
+        if (!homeOk) throw new ForbiddenError("Forbidden: cannot access this branch");
+      } else if (!allowed) {
+        throw new ForbiddenError("Forbidden: cannot access this branch");
+      }
     }
 
     if (!staff.photo_data || !staff.photo_updated_at) {

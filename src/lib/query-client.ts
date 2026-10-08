@@ -41,6 +41,7 @@ export const STALE = {
   e3Compliance: 60_000,
   lists: 60_000,
   events: 60_000,
+  chat: 30_000,
 } as const;
 
 export function createQueryClient() {

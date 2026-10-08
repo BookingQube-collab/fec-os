@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { createAuthenticatedAction, createAuthenticatedActionNoInput, type AuthContext } from "@/lib/server/create-action";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { resolveSelfStaffId } from "@/lib/attendance-hr/self-staff";
@@ -250,6 +251,69 @@ type DeptLink = {
   master_departments?: { name?: string | null } | { name?: string | null }[] | null;
 };
 
+async function reportingNames(staffId: string) {
+  const { data: selfExt, error: selfErr } = await supabaseAdmin
+    .from("staff_profile_ext")
+    .select("reporting_manager_staff_id")
+    .eq("staff_id", staffId)
+    .maybeSingle();
+  if (selfErr) throw new Error(selfErr.message);
+
+  const directIds: string[] = [];
+  let frontier = [staffId];
+  const seen = new Set<string>([staffId]);
+  let furtherReportCount = 0;
+  for (let depth = 0; frontier.length > 0 && depth < 12; depth += 1) {
+    const next: string[] = [];
+    for (let index = 0; index < frontier.length; index += 100) {
+      const chunk = frontier.slice(index, index + 100);
+      const { data, error } = await supabaseAdmin
+        .from("staff_profile_ext")
+        .select("staff_id")
+        .in("reporting_manager_staff_id", chunk);
+      if (error) throw new Error(error.message);
+      const found = (data ?? []).map((row) => row.staff_id).filter((id) => !seen.has(id));
+      if (!found.length) continue;
+      const activeIds = new Set<string>();
+      for (let nameIndex = 0; nameIndex < found.length; nameIndex += 100) {
+        const nameChunk = found.slice(nameIndex, nameIndex + 100);
+        const { data: active, error: activeErr } = await supabaseAdmin
+          .from("staff")
+          .select("id")
+          .in("id", nameChunk)
+          .eq("status", "active")
+          .is("deleted_at", null);
+        if (activeErr) throw new Error(activeErr.message);
+        for (const row of active ?? []) activeIds.add(row.id);
+      }
+      for (const id of found) {
+        if (!activeIds.has(id) || seen.has(id)) continue;
+        seen.add(id);
+        next.push(id);
+        if (depth === 0) directIds.push(id);
+        else furtherReportCount += 1;
+      }
+    }
+    frontier = next;
+  }
+
+  const managerId = selfExt?.reporting_manager_staff_id ?? null;
+  const nameIds = [...directIds, ...(managerId ? [managerId] : [])];
+  const names = new Map<string, string>();
+  for (let index = 0; index < nameIds.length; index += 100) {
+    const chunk = nameIds.slice(index, index + 100);
+    const { data, error } = await supabaseAdmin.from("staff").select("id, full_name").in("id", chunk);
+    if (error) throw new Error(error.message);
+    for (const row of data ?? []) names.set(row.id, row.full_name?.trim() || "Staff");
+  }
+
+  return {
+    managerName: managerId ? (names.get(managerId) ?? null) : null,
+    reportNames: directIds.map((id) => names.get(id) ?? "Staff").sort((a, b) => a.localeCompare(b)),
+    furtherReportCount,
+  };
+}
+
 /** Self-service profile for /hr/me. No salary, QID, or passport fields. */
 export const getMyEmployeeProfile = createAuthenticatedActionNoInput(
   async (context) => {
@@ -282,12 +346,16 @@ export const getMyEmployeeProfile = createAuthenticatedActionNoInput(
       .filter((name): name is string => Boolean(name));
     const fallbackDept = (data.department as string | null)?.trim() || null;
     const locationLabel = loc ? formatLocationLabel(loc.code, loc.name) : null;
+    const reporting = await reportingNames(String(data.id));
 
     return {
       id: String(data.id),
       fullName: String(data.full_name ?? ""),
       employeeCode: (data.employee_code as string | null) ?? null,
       jobTitle: (data.job_title as string | null) ?? null,
+      managerName: reporting.managerName,
+      reportNames: reporting.reportNames,
+      furtherReportCount: reporting.furtherReportCount,
       department: deptNames.length > 0 ? deptNames.join(", ") : fallbackDept,
       phone: (data.phone as string | null) ?? null,
       email: (data.email as string | null) ?? null,

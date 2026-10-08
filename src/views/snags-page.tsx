@@ -530,15 +530,15 @@ function SnagsPage() {
 
         <TabsList>
 
-          <TabsTrigger value="list"><List className="mr-1 h-4 w-4" />{t("snags.list")}</TabsTrigger>
+          <TabsTrigger value="list"><List aria-hidden />{t("snags.list")}</TabsTrigger>
 
-          <TabsTrigger value="board"><LayoutGrid className="mr-1 h-4 w-4" />{t("snags.kanban")}</TabsTrigger>
+          <TabsTrigger value="board"><LayoutGrid aria-hidden />{t("snags.kanban")}</TabsTrigger>
 
           {canCreate && (
 
             <TabsTrigger value="new" onClick={() => setOpenCreate(true)}>
 
-              <Plus className="mr-1 h-4 w-4" />{t("snags.new")}
+              <Plus aria-hidden />{t("snags.new")}
 
             </TabsTrigger>
 

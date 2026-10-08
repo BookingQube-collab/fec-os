@@ -42,8 +42,8 @@ import { useAfterLoad, useScrollGatedVisible } from "@/hooks/use-deferred-visibl
 import { useAppStore } from "@/stores/app-store";
 
 const HOME_SPOTLIGHT =
-  "!rounded-2xl !border-border/40 !bg-card !p-0 !text-foreground shadow-[0_4px_20px_rgba(0,0,0,0.05)]";
-const HOME_SPOTLIGHT_COLOR = "rgba(245, 197, 24, 0.22)" as const;
+  "!rounded-2xl !border-border/40 !bg-card !p-0 !text-foreground shadow-[0_4px_20px_color-mix(in_oklab,#6d4aff_10%,transparent)]";
+const HOME_SPOTLIGHT_COLOR = "rgba(109, 74, 255, 0.16)" as const;
 import { useBranchesSummary } from "@/hooks/queries/useOperationsDashboard";
 import { useSites } from "@/hooks/queries/useSites";
 import type { DashboardPeriod } from "@/lib/dashboard.functions";

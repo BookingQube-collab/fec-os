@@ -22,14 +22,10 @@ import BellToggle from "@/components/react-bits/bell-toggle";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { useAuth } from "@/hooks/use-auth";
 import { useComplianceExpiryNotifications } from "@/hooks/queries/useComplianceExpiryNotifications";
-import { useActionInbox, useEscalations } from "@/hooks/queries/useNotifications";
+import { useActionInbox, useEscalations, useMarkAllNotificationsRead } from "@/hooks/queries/useNotifications";
 import { canViewComplianceExpiryAlerts } from "@/lib/compliance/compliance-expiry-access";
 import type { InboxItemKind } from "@/lib/notifications/inbox";
-import {
-  ackEscalation,
-  markAllNotificationsRead,
-  markNotificationRead,
-} from "@/lib/notifications.functions";
+import { ackEscalation, markNotificationRead } from "@/lib/notifications.functions";
 import { queryKeys } from "@/lib/query-keys";
 import type { AppRole } from "@/lib/rbac";
 import { useAppStore } from "@/stores/app-store";
@@ -100,16 +96,13 @@ export function NotificationBell({
     mutationFn: (id: string) => markNotificationRead({ id }),
     onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.notifications.all }),
   });
-  const markAll = useMutation({
-    mutationFn: () => markAllNotificationsRead(),
-    onSuccess: () => qc.invalidateQueries({ queryKey: queryKeys.notifications.all }),
-  });
+  const markAll = useMarkAllNotificationsRead(user?.id);
 
-  const inboxItems = inbox.data?.items ?? [];
+  const inboxItems = (inbox.data?.items ?? []).filter((item) => !item.persisted || !item.readAt);
   const inboxUnread = inbox.data?.unreadCount ?? 0;
   const escalationCount = escalations.data?.length ?? 0;
   const complianceCount = complianceSummary.data?.summary.total ?? 0;
-  const unread = inboxUnread + escalationCount + complianceCount;
+  const unread = inboxUnread + escalationCount;
 
   const severityLabel = useMemo(
     () =>
@@ -147,7 +140,7 @@ export function NotificationBell({
             color="#1a1a1a"
             background="#ffffff"
             onColor="#1a1a1a"
-            onBackground="#fff1c2"
+            onBackground="#efeaff"
             badgeColor="#c93c37"
             badgeTextColor="#ffffff"
           />
@@ -226,7 +219,9 @@ export function NotificationBell({
                       <div className="truncate text-sm font-medium text-foreground">
                         {item.titleKey ? t(item.titleKey, item.titleParams) : item.title}
                       </div>
-                      {!item.readAt && <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />}
+                      {item.persisted && !item.readAt && (
+                        <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />
+                      )}
                     </div>
                     {item.body && (
                       <div className="mt-0.5 truncate text-xs text-muted-foreground">{item.body}</div>

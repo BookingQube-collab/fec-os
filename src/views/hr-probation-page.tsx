@@ -8,9 +8,8 @@ import { toast } from "sonner";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
 import { HrEmptyState } from "@/components/hr/hr-empty-state";
+import { HrModuleFrame } from "@/components/hr/hr-module-frame";
 import { HrPanel } from "@/components/hr/hr-panel";
-import { HrSection } from "@/components/hr/hr-section";
-import { HrShell } from "@/components/hr/hr-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,7 +29,7 @@ import { HR_PROBATION_DECISIONS } from "@/lib/hr-probation";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 
-export default function HrProbationPage() {
+export default function HrProbationPage({ embedded = false }: { embedded?: boolean }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
@@ -130,20 +129,18 @@ export default function HrProbationPage() {
     <CapabilityGate
       capability="hr.probation.manage"
       fallback={
-        <HrShell>
-          <HrPanel>
-            <HrEmptyState message={t("hr.probation.noAccess")} />
-          </HrPanel>
-        </HrShell>
+        <HrPanel>
+          <HrEmptyState message={t("hr.probation.noAccess")} />
+        </HrPanel>
       }
     >
-      <HrShell>
-        <HrSection
-          icon={Hourglass}
-          kicker={t("hr.probation.kicker")}
-          title={t("hr.probation.title")}
-          subtitle={t("hr.probation.subtitle")}
-        >
+      <HrModuleFrame
+        embedded={embedded}
+        icon={Hourglass}
+        kicker={t("hr.probation.kicker")}
+        title={t("hr.probation.title")}
+        subtitle={t("hr.probation.subtitle")}
+      >
           <HrPanel className="space-y-2">
             <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
               {t("hr.probation.upcomingTitle")}
@@ -324,8 +321,7 @@ export default function HrProbationPage() {
               </>
             ) : null}
           </HrPanel>
-        </HrSection>
-      </HrShell>
+      </HrModuleFrame>
     </CapabilityGate>
   );
 }

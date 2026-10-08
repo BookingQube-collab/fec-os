@@ -6,6 +6,10 @@ export const queryKeys = {
     profile: (userId: string) => [...queryKeys.auth.all, "profile", userId] as const,
     roles: (userId: string) => [...queryKeys.auth.all, "roles", userId] as const,
   },
+  account: {
+    all: ["account"] as const,
+    snapshot: () => [...queryKeys.account.all, "snapshot"] as const,
+  },
   sites: {
     all: ["sites"] as const,
     list: () => [...queryKeys.sites.all, "list"] as const,
@@ -168,6 +172,8 @@ export const queryKeys = {
     dashboard: (filters?: object) => [...queryKeys.people.all, "dashboard", filters ?? {}] as const,
     staff: (locationId?: string | null, includeArchived?: boolean) =>
       [...queryKeys.people.all, "staff", locationId ?? null, includeArchived ? "archived" : "active"] as const,
+    teamReporting: () => [...queryKeys.people.all, "team-reporting"] as const,
+    directReports: () => [...queryKeys.people.all, "direct-reports"] as const,
     staffDirectory: (filters?: object) =>
       [...queryKeys.people.all, "staff-directory", filters ?? {}] as const,
     temporaryMoves: () => [...queryKeys.people.all, "temporary-moves"] as const,
@@ -182,6 +188,7 @@ export const queryKeys = {
     departments: () => [...queryKeys.people.all, "departments"] as const,
     shifts: (locationId?: string | null) => [...queryKeys.people.all, "shifts", locationId ?? null] as const,
     training: (locationId?: string | null) => [...queryKeys.people.all, "training", locationId ?? null] as const,
+    hrAssist: (filters?: object) => [...queryKeys.people.all, "hr-assist", filters ?? {}] as const,
     staffTraining: (staffId: string) => [...queryKeys.people.all, "training", "staff", staffId] as const,
     attendanceSummary: (filters?: { locationId?: string | null; dateFrom?: string; dateTo?: string }) =>
       [
@@ -206,6 +213,15 @@ export const queryKeys = {
     hrReports: (filters?: object) => [...queryKeys.people.all, "hr-reports", filters ?? {}] as const,
     hrLeaveBalances: (filters?: object) => [...queryKeys.people.all, "hr-leave-balances", filters ?? {}] as const,
     hrEmployeeTimeline: (filters?: object) => [...queryKeys.people.all, "hr-employee-timeline", filters ?? {}] as const,
+    hrHelpdesk: () => [...queryKeys.people.all, "hr-helpdesk"] as const,
+    hrHelpdeskCase: (id: string) => [...queryKeys.people.all, "hr-helpdesk-case", id] as const,
+    hrHelpdeskComposer: () => [...queryKeys.people.all, "hr-helpdesk-composer"] as const,
+    hrHelpdeskArticles: () => [...queryKeys.people.all, "hr-helpdesk-articles"] as const,
+    hrHelpdeskSettings: () => [...queryKeys.people.all, "hr-helpdesk-settings"] as const,
+    hrHelpdeskRules: () => [...queryKeys.people.all, "hr-helpdesk-rules"] as const,
+    hrPrivacy: () => [...queryKeys.people.all, "hr-privacy"] as const,
+    hrLeaveQueue: () => [...queryKeys.people.all, "hr-leave-queue"] as const,
+    hrExpenses: () => [...queryKeys.people.all, "hr-expenses"] as const,
     hrWarnings: (filters?: object) => [...queryKeys.people.all, "hr-warnings", filters ?? {}] as const,
     kraScorecards: () => [...queryKeys.people.all, "kra-scorecards"] as const,
     kraStaff: () => [...queryKeys.people.all, "kra-staff"] as const,
@@ -417,5 +433,27 @@ export const queryKeys = {
     plan: (id?: string | null) => [...queryKeys.events.all, "plan", id ?? null] as const,
     budget: (id?: string | null) => [...queryKeys.events.all, "budget", id ?? null] as const,
     reports: (filters?: object) => [...queryKeys.events.all, "reports", filters ?? {}] as const,
+  },
+  nav: {
+    departmentOrder: () => ["nav", "department-order"] as const,
+  },
+  chat: {
+    all: ["chat"] as const,
+    list: () => [...queryKeys.chat.all, "list"] as const,
+    members: (conversationId?: string | null) =>
+      [...queryKeys.chat.all, "members", conversationId ?? null] as const,
+    directory: (query: string) => [...queryKeys.chat.all, "directory", query] as const,
+    entitySearch: (query: string, entityType?: string | null) =>
+      [...queryKeys.chat.all, "entity-search", query, entityType ?? ""] as const,
+    departments: () => [...queryKeys.chat.all, "departments"] as const,
+    messages: (conversationId?: string | null) =>
+      [...queryKeys.chat.all, "messages", conversationId ?? null] as const,
+    receipt: (conversationId?: string | null) =>
+      [...queryKeys.chat.all, "receipt", conversationId ?? null] as const,
+    search: (key: string) => [...queryKeys.chat.all, "search", key] as const,
+    pins: (conversationId?: string | null) =>
+      [...queryKeys.chat.all, "pins", conversationId ?? null] as const,
+    saved: () => [...queryKeys.chat.all, "saved"] as const,
+    notificationSettings: () => [...queryKeys.chat.all, "notification-settings"] as const,
   },
 } as const;

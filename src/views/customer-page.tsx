@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Briefcase, Loader2, Sparkles } from "lucide-react";
+import { Briefcase, List, Loader2, Plus, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 import { FecLoader } from "@/components/fec";
@@ -38,8 +38,8 @@ function CustomerPage() {
       </header>
       <Tabs defaultValue="list">
         <TabsList>
-          <TabsTrigger value="list">Complaints</TabsTrigger>
-          <TabsTrigger value="new">New complaint</TabsTrigger>
+          <TabsTrigger value="list"><List aria-hidden />Complaints</TabsTrigger>
+          <TabsTrigger value="new"><Plus aria-hidden />New complaint</TabsTrigger>
         </TabsList>
         <TabsContent value="list" className="mt-4"><ComplaintsList /></TabsContent>
         <TabsContent value="new" className="mt-4"><NewComplaintForm /></TabsContent>

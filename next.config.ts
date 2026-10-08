@@ -14,10 +14,11 @@ const nextConfig: NextConfig = {
   images: {
     formats: ["image/avif", "image/webp"],
   },
-  serverExternalPackages: ["exceljs", "xlsx-js-style", "jspdf", "jspdf-autotable"],
+  serverExternalPackages: ["exceljs", "xlsx-js-style", "jspdf", "jspdf-autotable", "livekit-server-sdk", "web-push"],
   experimental: {
     serverActions: {
-      bodySizeLimit: "25mb",
+      // 25 MB video files are sent as base64, which is larger than the raw cap.
+      bodySizeLimit: "40mb",
     },
     // Next 15 defaults dynamic RSC cache to 0s — every click re-renders the page
     // on the server. This app is client-data-driven (React Query), so keep the

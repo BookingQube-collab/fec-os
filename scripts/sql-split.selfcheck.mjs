@@ -1,6 +1,7 @@
 import { splitSqlStatements } from "./sql-split.mjs";
 
 const sql = [
+  "-- read; writes stay in the comment",
   "COMMENT ON COLUMN x IS 'a; b';",
   "COMMENT ON COLUMN y IS 'c''d';",
 ].join("\n");

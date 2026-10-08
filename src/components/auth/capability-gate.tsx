@@ -9,11 +9,13 @@ interface CapabilityGateProps {
   capability: Capability;
   children: ReactNode;
   fallback?: ReactNode;
+  /** Extra allow, such as a reporting manager opening their own team. The server still scopes the data. */
+  alsoAllow?: boolean;
 }
 
 /** Hides children when the current user lacks the required capability. */
-export function CapabilityGate({ capability, children, fallback = null }: CapabilityGateProps) {
+export function CapabilityGate({ capability, children, fallback = null, alsoAllow = false }: CapabilityGateProps) {
   const roles = useUserRoles();
-  if (!canUserDo(roles, capability)) return fallback;
-  return children;
+  if (alsoAllow || canUserDo(roles, capability)) return children;
+  return fallback;
 }

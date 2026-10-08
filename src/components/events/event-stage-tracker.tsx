@@ -14,7 +14,7 @@ type PhaseMark = "done" | "now" | "gate" | "blocked" | "upcoming";
 const TAG_TONE: Record<PhaseMark, string> = {
   done: "bg-[var(--success)] text-white",
   now: "bg-primary text-primary-foreground",
-  gate: "bg-[var(--electric)] text-primary",
+  gate: "bg-[var(--electric)] text-white",
   blocked: "bg-destructive text-destructive-foreground",
   upcoming: "bg-muted-foreground text-white",
 };

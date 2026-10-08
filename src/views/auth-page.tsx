@@ -173,7 +173,7 @@ function AuthPage() {
         <Noise patternAlpha={14} patternRefreshInterval={7} patternSize={72} />
       </div>
       <div
-        className="pointer-events-none fixed inset-0 z-[1] bg-[radial-gradient(ellipse_at_center,transparent_0%,rgba(253,248,236,0.28)_48%,rgba(253,248,236,0.78)_100%)]"
+        className="pointer-events-none fixed inset-0 z-[1] bg-[radial-gradient(ellipse_at_center,transparent_0%,rgba(246,244,251,0.28)_48%,rgba(246,244,251,0.78)_100%)]"
         aria-hidden
       />
 
@@ -184,7 +184,7 @@ function AuthPage() {
             duration={0.9}
             className="flex flex-col items-center text-center lg:items-start lg:text-start"
           >
-            <div className="mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-primary text-primary-foreground shadow-elevated-xs ring-4 ring-[#f5c518]/35">
+            <div className="mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-primary text-primary-foreground shadow-elevated-xs ring-4 ring-[#6d4aff]/35">
               <ClipboardList className="h-6 w-6" />
             </div>
             {reducedMotion ? (
@@ -193,7 +193,7 @@ function AuthPage() {
               </div>
             ) : (
               <GradientText
-                colors={["#1a1a1a", "#c47a0a", "#f5c518", "#1a1a1a"]}
+                colors={["#1a1a1a", "#8b6cff", "#6d4aff", "#1a1a1a"]}
                 animationSpeed={10}
                 className="!mx-0 text-4xl font-semibold tracking-tight sm:text-5xl"
               >
@@ -222,7 +222,7 @@ function AuthPage() {
               backgroundColor="#ffffff"
               borderRadius={28}
               glowColor="42 92 48"
-              colors={["#f5c518", "#c47a0a", "#fff1c2"]}
+              colors={["#6d4aff", "#8b6cff", "#efeaff"]}
               animated={!reducedMotion}
               glowIntensity={0.55}
               fillOpacity={0.34}
@@ -230,7 +230,7 @@ function AuthPage() {
             >
               <SpotlightCard
                 className="rounded-[28px]"
-                spotlightColor="rgba(245, 197, 24, 0.38)"
+                spotlightColor="rgba(109, 74, 255, 0.22)"
               >
                 <div className="p-6 sm:p-8">
                   {reducedMotion ? (
@@ -285,7 +285,7 @@ function AuthPage() {
                     )}
 
                     <ClickSpark
-                      sparkColor="#f5c518"
+                      sparkColor="#6d4aff"
                       sparkCount={8}
                       sparkSize={10}
                       sparkRadius={22}
@@ -296,13 +296,13 @@ function AuthPage() {
                         as="button"
                         type="submit"
                         disabled={submitting}
-                        color="#f5c518"
+                        color="#6d4aff"
                         speed="7s"
                         thickness={2}
                         backgroundColor="#1a1a1a"
                         textColor="#ffffff"
                         borderColor="#1a1a1a"
-                        className="w-full transition-transform focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9a6208] active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-60 motion-reduce:transform-none"
+                        className="w-full transition-transform focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#6d4aff] active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-60 motion-reduce:transform-none"
                         style={{ display: "block", width: "100%" }}
                       >
                         {submitting
@@ -330,7 +330,7 @@ function AuthPage() {
                             background="transparent"
                             borderRadius="999px"
                             borderColor="transparent"
-                            glareColor="#f5c518"
+                            glareColor="#efeaff"
                             glareOpacity={0.55}
                             glareSize={170}
                             className="w-full place-items-stretch"

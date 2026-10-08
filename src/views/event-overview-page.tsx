@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { CircleDollarSign, ClipboardList, LayoutDashboard, MoreHorizontal } from "lucide-react";
 import { toast } from "sonner";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
@@ -214,10 +215,10 @@ export default function EventOverviewPage() {
       >
       <Tabs defaultValue="work" className="space-y-3">
         <TabsList>
-          <TabsTrigger value="work">{t("events.home.tabWork")}</TabsTrigger>
-          <TabsTrigger value="money">{t("events.home.tabMoney")}</TabsTrigger>
-          <TabsTrigger value="ready">{t("events.home.tabReady")}</TabsTrigger>
-          <TabsTrigger value="more">{t("events.home.tabMore")}</TabsTrigger>
+          <TabsTrigger value="work"><ClipboardList aria-hidden />{t("events.home.tabWork")}</TabsTrigger>
+          <TabsTrigger value="money"><CircleDollarSign aria-hidden />{t("events.home.tabMoney")}</TabsTrigger>
+          <TabsTrigger value="ready"><LayoutDashboard aria-hidden />{t("events.home.tabReady")}</TabsTrigger>
+          <TabsTrigger value="more"><MoreHorizontal aria-hidden />{t("events.home.tabMore")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="work" className="space-y-4">

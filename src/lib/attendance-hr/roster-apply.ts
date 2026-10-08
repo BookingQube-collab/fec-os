@@ -83,8 +83,10 @@ export async function replaceAttendanceRosterPeriod(
     fileType: string;
     rows: MatchedRosterRow[];
   },
+  db: AuthContext["supabase"] = context.supabase,
+  options?: { trustedLocation?: boolean },
 ) {
-  await assertAttendanceRosterLocation(context, input.locationId);
+  if (!options?.trustedLocation) await assertAttendanceRosterLocation(context, input.locationId);
 
   const unique = [...assignmentsFromPreview(input.rows).values()].filter((row) => row.locationId === input.locationId);
   const staffIds = [
@@ -104,7 +106,7 @@ export async function replaceAttendanceRosterPeriod(
     { shift_template_id: string | null; shift_start: string | null; shift_end: string | null }
   >();
   for (const ids of chunkIds(staffIds, STAFF_IN_CHUNK)) {
-    const { data: existing, error: existingErr } = await context.supabase
+    const { data: existing, error: existingErr } = await db
       .from("attendance_roster_assignments")
       .select("staff_id, work_date, shift_template_id, shift_start, shift_end")
       .eq("location_id", input.locationId)
@@ -124,7 +126,7 @@ export async function replaceAttendanceRosterPeriod(
 
   // Scope delete to uploaded staff — never clear the rest of the location roster.
   for (const ids of chunkIds(staffIds, STAFF_IN_CHUNK)) {
-    const { error: delErr } = await context.supabase
+    const { error: delErr } = await db
       .from("attendance_roster_assignments")
       .delete()
       .eq("location_id", input.locationId)
@@ -158,7 +160,7 @@ export async function replaceAttendanceRosterPeriod(
 
   for (let i = 0; i < payload.length; i += 400) {
     const chunk = payload.slice(i, i + 400);
-    const { error } = await context.supabase
+    const { error } = await db
       .from("attendance_roster_assignments")
       .upsert(chunk, { onConflict: "staff_id,work_date" });
     throwDb(error);
@@ -169,7 +171,7 @@ export async function replaceAttendanceRosterPeriod(
   const homeLocationIds: string[] = [];
   const workLocationIds: string[] = [];
   if (staffIds.length) {
-    const { data: homeRows, error: homeErr } = await context.supabase
+    const { data: homeRows, error: homeErr } = await db
       .from("staff")
       .select("id, location_id")
       .in("id", staffIds);
@@ -178,7 +180,7 @@ export async function replaceAttendanceRosterPeriod(
       if (row.location_id) homeLocationIds.push(String(row.location_id));
     }
     for (const ids of chunkIds(staffIds, STAFF_IN_CHUNK)) {
-      const { data: links, error: linkErr } = await context.supabase
+      const { data: links, error: linkErr } = await db
         .from("staff_work_locations")
         .select("location_id")
         .in("staff_id", ids);
@@ -191,7 +193,7 @@ export async function replaceAttendanceRosterPeriod(
 
   // Staff-scoped upserts must not mark the whole period as location coverage
   // (that would make other staff "unexpected" on later full recalcs).
-  const { data: uploadRow, error: upErr } = await context.supabase
+  const { data: uploadRow, error: upErr } = await db
     .from("daily_ops_roster_uploads")
     .insert({
       location_id: input.locationId,
@@ -216,7 +218,7 @@ export async function replaceAttendanceRosterPeriod(
   for (const locationId of recalcLocations) {
     for (const ids of chunkIds(staffIds, STAFF_IN_CHUNK)) {
       const recalc = await recalculateAttendanceRange(
-        context.supabase,
+        db,
         locationId,
         input.dateFrom,
         input.dateTo,
@@ -226,7 +228,7 @@ export async function replaceAttendanceRosterPeriod(
     }
   }
   await cleanupStaleAbsents(
-    context.supabase,
+    db,
     input.locationId,
     input.dateFrom,
     input.dateTo,

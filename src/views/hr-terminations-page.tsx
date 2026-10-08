@@ -7,9 +7,8 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { HrEmptyState } from "@/components/hr/hr-empty-state";
+import { HrModuleFrame } from "@/components/hr/hr-module-frame";
 import { HrPanel } from "@/components/hr/hr-panel";
-import { HrSection } from "@/components/hr/hr-section";
-import { HrShell } from "@/components/hr/hr-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,7 +42,7 @@ async function fileToBase64(file: File): Promise<string> {
   return btoa(binary);
 }
 
-export default function HrTerminationsPage() {
+export default function HrTerminationsPage({ embedded = false }: { embedded?: boolean }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const roles = useUserRoles();
@@ -171,22 +170,20 @@ export default function HrTerminationsPage() {
 
   if (!canView) {
     return (
-      <HrShell>
-        <HrPanel>
-          <HrEmptyState message={t("hr.terminations.noAccess")} />
-        </HrPanel>
-      </HrShell>
+      <HrPanel>
+        <HrEmptyState message={t("hr.terminations.noAccess")} />
+      </HrPanel>
     );
   }
 
   return (
-    <HrShell>
-        <HrSection
-          icon={ShieldAlert}
-          kicker={t("hr.terminations.kicker")}
-          title={t("hr.terminations.title")}
-          subtitle={t("hr.terminations.subtitle")}
-        >
+      <HrModuleFrame
+        embedded={embedded}
+        icon={ShieldAlert}
+        kicker={t("hr.terminations.kicker")}
+        title={t("hr.terminations.title")}
+        subtitle={t("hr.terminations.subtitle")}
+      >
           <p className="text-xs text-muted-foreground">{t("hr.terminations.neverAuto")}</p>
 
           <HrPanel className="space-y-2">
@@ -385,7 +382,6 @@ export default function HrTerminationsPage() {
               ))}
             </HrPanel>
           ) : null}
-        </HrSection>
-      </HrShell>
+      </HrModuleFrame>
   );
 }

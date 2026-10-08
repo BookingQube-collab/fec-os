@@ -3,7 +3,7 @@
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { ROLE_LEVELS, codeDefaultAllowed, CAPABILITIES, type AppRole, type Capability } from "@/lib/rbac";
+import { ROLE_LEVELS, canUserDo, codeDefaultAllowed, CAPABILITIES, type AppRole, type Capability } from "@/lib/rbac";
 import {
   createAuthenticatedAction,
   createAuthenticatedActionNoInput,
@@ -14,6 +14,9 @@ import {
   invalidateServerCapabilityGrantsCache,
 } from "@/lib/server/capability-grants";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { loginReportingTeam } from "@/lib/reporting-chain";
+import { loadDirectReportStaffIds } from "@/lib/reporting-manager-access.server";
+import { applyStoredTrainingRules } from "@/lib/training/execute-rules";
 import {
   chooseStaffLoginEmail,
   parseStaffLoginEmail,
@@ -47,6 +50,26 @@ async function requireExec(supabase: SupabaseClient, minLevel = 95) {
   if (level < minLevel) throw new Error("Forbidden: insufficient role level");
 }
 
+/** Company-wide login creation stays with CEO and COO. A reporting manager may create one for a direct report. */
+async function assertCanProvisionStaffLogin(
+  context: { supabase: SupabaseClient; userId: string; roles?: AppRole[] },
+  staffId: string,
+) {
+  const { data } = await context.supabase.rpc("current_user_role_level");
+  const level = typeof data === "number" ? data : 0;
+  if (level >= 95) {
+    await ensureServerCapabilityGrants();
+    if (!canUserDo(context.roles ?? [], "admin.provision_users")) {
+      throw new Error("Forbidden: insufficient role level");
+    }
+    return;
+  }
+  const access = await loadDirectReportStaffIds(context.userId);
+  if (!access.directReportStaffIds.includes(staffId)) {
+    throw new Error("Forbidden: insufficient role level");
+  }
+}
+
 export const listUsersWithRoles = createAuthenticatedActionNoInput(
   async (context) => {
     const { data: level } = await context.supabase.rpc("current_user_role_level");
@@ -76,6 +99,19 @@ export const grantRole = createAuthenticatedAction(
     await requireExec(context.supabase, 95);
     const role = data.role as AppRole;
     const role_level = ROLE_LEVELS[role];
+    const { data: people, error: peopleErr } = await supabaseAdmin
+      .from("staff")
+      .select("id")
+      .eq("user_id", data.user_id)
+      .is("deleted_at", null);
+    if (peopleErr) throw peopleErr;
+    for (const person of people ?? []) {
+      await applyStoredTrainingRules(context, {
+        trigger: "ROLE_CHANGE",
+        staffId: person.id,
+        roleCode: role,
+      });
+    }
     const { error } = await supabaseAdmin.from("user_roles").upsert(
       {
         user_id: data.user_id,
@@ -318,6 +354,62 @@ export const provisionUser = createAuthenticatedAction(
   { auth: { capability: "admin.provision_users" } },
 );
 
+type StaffLoginTeam = {
+  managerName: string | null;
+  reportNames: string[];
+  furtherReportCount: number;
+};
+
+/** Manager and reports from staff_profile_ext.reporting_manager_staff_id — the operations chart. */
+async function loginTeamForStaff(staffId: string): Promise<StaffLoginTeam> {
+  const names = new Map<string, string>();
+  const rows: { staffId: string; reportingManagerStaffId: string | null }[] = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await supabaseAdmin
+      .from("staff")
+      .select("id, full_name")
+      .eq("status", "active")
+      .is("deleted_at", null)
+      .order("id")
+      .range(from, from + 999);
+    if (error) throw new Error(error.message);
+    const page = data ?? [];
+    for (const row of page) names.set(row.id, row.full_name?.trim() || "Staff");
+    if (page.length < 1000) break;
+    from += 1000;
+  }
+  from = 0;
+  for (;;) {
+    const { data, error } = await supabaseAdmin
+      .from("staff_profile_ext")
+      .select("staff_id, reporting_manager_staff_id")
+      .order("staff_id")
+      .range(from, from + 999);
+    if (error) throw new Error(error.message);
+    const page = data ?? [];
+    for (const row of page) {
+      if (!names.has(row.staff_id)) continue;
+      rows.push({ staffId: row.staff_id, reportingManagerStaffId: row.reporting_manager_staff_id });
+    }
+    if (page.length < 1000) break;
+    from += 1000;
+  }
+  const seen = new Set(rows.map((row) => row.staffId));
+  for (const id of names.keys()) {
+    if (!seen.has(id)) rows.push({ staffId: id, reportingManagerStaffId: null });
+  }
+  const team = loginReportingTeam(staffId, rows);
+  const direct = new Set(team.directReportStaffIds);
+  return {
+    managerName: team.managerStaffId ? (names.get(team.managerStaffId) ?? null) : null,
+    reportNames: team.directReportStaffIds
+      .map((id) => names.get(id) ?? "Staff")
+      .sort((a, b) => a.localeCompare(b)),
+    furtherReportCount: team.reportStaffIds.filter((id) => !direct.has(id)).length,
+  };
+}
+
 /** Suggested sign-in email for the create-login form. Does not create a user. */
 export const previewStaffLogin = createSafeAuthenticatedAction(
   z.object({
@@ -333,8 +425,9 @@ export const previewStaffLogin = createSafeAuthenticatedAction(
       .maybeSingle();
     if (staffErr) throw staffErr;
     if (!staff || staff.deleted_at) throw new Error("Staff member not found");
+    const team = await loginTeamForStaff(staff.id);
     if (staff.user_id) {
-      return { email: await authEmailForUser(staff.user_id), alreadyLinked: true as const };
+      return { email: await authEmailForUser(staff.user_id), alreadyLinked: true as const, team };
     }
 
     const takenEmails = (await listAuthUsersByEmail()).keys();
@@ -344,6 +437,7 @@ export const previewStaffLogin = createSafeAuthenticatedAction(
         takenEmails,
       }),
       alreadyLinked: false as const,
+      team,
     };
   },
   { auth: { capability: "admin.provision_users" } },
@@ -357,7 +451,7 @@ export const provisionStaffLogin = createSafeAuthenticatedAction(
     password: z.string().min(STAFF_LOGIN_PASSWORD_MIN).max(STAFF_LOGIN_PASSWORD_MAX).optional(),
   }),
   async (data, context) => {
-    await requireExec(context.supabase, 95);
+    await assertCanProvisionStaffLogin(context, data.staffId);
 
     const { data: staff, error: staffErr } = await supabaseAdmin
       .from("staff")
@@ -376,6 +470,7 @@ export const provisionStaffLogin = createSafeAuthenticatedAction(
         email: await authEmailForUser(staff.user_id),
         password: null,
         role: STAFF_LOGIN_ROLE,
+        team: await loginTeamForStaff(staff.id),
       };
     }
 
@@ -536,7 +631,8 @@ export const provisionStaffLogin = createSafeAuthenticatedAction(
       email,
       password: issuedPassword,
       role: STAFF_LOGIN_ROLE,
+      team: await loginTeamForStaff(staff.id),
     };
   },
-  { auth: { capability: "admin.provision_users" } },
+  { auth: { requireRole: true } },
 );

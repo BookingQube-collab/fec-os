@@ -42,6 +42,7 @@ import {
   type AttendanceMapStaffOption,
 } from "@/components/people/attendance-records-table";
 import { OrgDepartmentsFilter } from "@/components/people/exclude-org-departments-filter";
+import { useHasDirectReports } from "@/hooks/use-my-direct-reports";
 import { useFileExport } from "@/hooks/use-file-export";
 import { useSites } from "@/hooks/queries/useSites";
 import { filterDepartmentsForLocation } from "@/lib/department-audience";
@@ -54,6 +55,10 @@ import {
 } from "@/lib/exclude-org-departments";
 import { useMasterDepartments } from "@/hooks/queries/useDepartments";
 import { useUserRoles } from "@/hooks/use-auth";
+import {
+  attendanceListingIsCompanyWide,
+  canSeeAttendanceListing,
+} from "@/lib/attendance-listing-access";
 import { canUserDo } from "@/lib/rbac";
 import {
   getAttendanceHrBootstrap,
@@ -61,6 +66,7 @@ import {
   mapAttendanceBiometricUser,
   purgeAttendanceHrImportedData,
 } from "@/lib/attendance-hr.functions";
+import { getAttendanceListingSites } from "@/lib/reporting-manager-access.functions";
 import { ATTENDANCE_STATUSES } from "@/lib/attendance-hr/constants";
 import { e3AttendanceExportFilename } from "@/lib/attendance-hr/export-workbook";
 import {
@@ -91,7 +97,13 @@ export default function AttendanceHrReportsPage() {
   const setCurrentLocationId = useAppStore((s) => s.setCurrentLocationId);
   const qc = useQueryClient();
   const roles = useUserRoles();
+  const { hasDirectReports, isPending: reportsPending } = useHasDirectReports();
+  const companyWide = attendanceListingIsCompanyWide(roles);
+  const canList = canSeeAttendanceListing(roles, hasDirectReports);
+  const listingEnabled = companyWide || (!reportsPending && canList);
   const canMapUsers = canUserDo(roles, "attendance.map_users");
+  const canImport = canUserDo(roles, "attendance.import");
+  const showHrExport = canUserDo(roles, "attendance.view") || canUserDo(roles, "attendance.export");
   const [{ month, dateFrom: from, dateTo: to }, setPeriod] = useState(() =>
     defaultPayrollPeriod(new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" })),
   );
@@ -125,21 +137,37 @@ export default function AttendanceHrReportsPage() {
     queryKey: queryKeys.people.attendanceHr({ view: "bootstrap" }),
     queryFn: () => getAttendanceHrBootstrap(),
     staleTime: STALE.people,
+    enabled: companyWide,
   });
+
+  const teamSites = useQuery({
+    queryKey: queryKeys.people.attendanceHr({ view: "listing-sites" }),
+    queryFn: () => getAttendanceListingSites(),
+    staleTime: STALE.people,
+    enabled: listingEnabled && !companyWide,
+  });
+  const teamSiteIds = useMemo(() => {
+    if (companyWide || !teamSites.data || teamSites.data.companyWide) return null;
+    return new Set(teamSites.data.sites.map((site) => site.id));
+  }, [companyWide, teamSites.data]);
+  const listingLocationId =
+    companyWide || !locationId ? locationId : teamSiteIds?.has(locationId) ? locationId : null;
+  const waitingForTeamSites = listingEnabled && !companyWide && teamSites.isPending;
 
   const q = useQuery({
     queryKey: queryKeys.people.attendanceHr({
       view: "daily",
-      locationId,
+      locationId: listingLocationId,
       from,
       to,
       status,
       staffQ: staffQDebounced,
       departmentIds,
+      team: !companyWide,
     }),
     queryFn: () =>
       getAttendanceHrDaily({
-        locationId: locationId || null,
+        locationId: listingLocationId || null,
         dateFrom: from,
         dateTo: to,
         status: status || null,
@@ -147,6 +175,7 @@ export default function AttendanceHrReportsPage() {
         departmentIds: departmentIds.length ? departmentIds : undefined,
       }),
     staleTime: STALE.people,
+    enabled: listingEnabled && !waitingForTeamSites,
     // Heavy matrix — never refetch just because the browser tab regained focus.
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
@@ -161,12 +190,13 @@ export default function AttendanceHrReportsPage() {
 
   const locationOptions = useMemo(() => {
     const byCode = new Map<string, { id: string; code: string; name: string }>();
-    for (const site of sites ?? []) {
+    const siteRows = !companyWide && teamSites.data && !teamSites.data.companyWide ? teamSites.data.sites : (sites ?? []);
+    for (const site of siteRows) {
       if (site.status === "active") {
         byCode.set(site.code, { id: site.id, code: site.code, name: site.name });
       }
     }
-    for (const site of bootstrap.data?.sites ?? []) {
+    for (const site of companyWide ? (bootstrap.data?.sites ?? []) : []) {
       const loc = site.location as { id?: string; code?: string; name?: string; status?: string } | null;
       if (!loc?.id || !loc.code || (loc.status && loc.status !== "active")) continue;
       if (!byCode.has(loc.code)) {
@@ -177,7 +207,12 @@ export default function AttendanceHrReportsPage() {
       const loc = byCode.get(code);
       return loc ? [loc] : [];
     });
-    if (locationId) {
+    if (!companyWide) {
+      for (const loc of byCode.values()) {
+        if (!ordered.some((row) => row.id === loc.id)) ordered.push(loc);
+      }
+    }
+    if (companyWide && locationId) {
       const current =
         [...byCode.values()].find((loc) => loc.id === locationId) ??
         (sites ?? []).find((site) => site.id === locationId);
@@ -186,7 +221,7 @@ export default function AttendanceHrReportsPage() {
       }
     }
     return ordered;
-  }, [sites, bootstrap.data?.sites, locationId]);
+  }, [companyWide, teamSites.data, sites, bootstrap.data?.sites, locationId]);
 
   const showOrgDepartments = useMemo(
     () => activeShowOnlyOrgDepartments(orgChecks, departmentIds),
@@ -200,12 +235,12 @@ export default function AttendanceHrReportsPage() {
   const rows = useMemo(
     () => {
       const located = ((q.data ?? []) as AttendanceHrReportRow[]).filter((row) =>
-        attendanceHrRowMatchesLocation(row, locationId),
+        attendanceHrRowMatchesLocation(row, listingLocationId),
       );
       if (!showOrgDepartments.length) return located;
       return located.filter((row) => displayDepartmentShown(row.department, showOrgDepartments));
     },
-    [q.data, locationId, showOrgDepartments],
+    [q.data, listingLocationId, showOrgDepartments],
   );
   const deferredRows = useDeferredValue(rows);
   const listingRows = useMemo(
@@ -242,7 +277,7 @@ export default function AttendanceHrReportsPage() {
     showSearchBusy ||
     (isTableDeferred && Boolean(staffQDebounced.trim() || status || departmentIds.length));
 
-  const selectedLocation = locationOptions.find((loc) => loc.id === locationId);
+  const selectedLocation = locationOptions.find((loc) => loc.id === listingLocationId);
   const locationLabel = selectedLocation
     ? formatAttendanceHrLocation(selectedLocation.code, selectedLocation.name)
     : t("common.allLocations");
@@ -328,8 +363,10 @@ export default function AttendanceHrReportsPage() {
   });
 
   const rowFilterOn = Boolean(staffQDebounced.trim() || status || departmentIds.length);
-  const emptyImport = !q.isLoading && rows.length === 0 && !rowFilterOn;
-  const emptyFiltered = !q.isLoading && rows.length === 0 && rowFilterOn;
+  const waitingForAccess = !companyWide && reportsPending;
+  const listingBlocked = waitingForAccess || waitingForTeamSites;
+  const emptyImport = !listingBlocked && !q.isLoading && listingEnabled && rows.length === 0 && !rowFilterOn;
+  const emptyFiltered = !listingBlocked && !q.isLoading && listingEnabled && rows.length === 0 && rowFilterOn;
 
   const listMapProps =
     canMapUsers && mapStaffOptions.length > 0
@@ -343,6 +380,25 @@ export default function AttendanceHrReportsPage() {
           },
         }
       : {};
+
+  if (!companyWide && !reportsPending && !canList) {
+    return (
+      <div className="space-y-6">
+        <FecPageHeader
+          icon={FileBarChart}
+          kicker={t("attendanceHr.reports.kicker")}
+          title={t("attendanceHr.reports.title")}
+          subtitle={t("attendanceHr.reports.subtitle")}
+        />
+        <AttendanceHrNav />
+        <p className="text-sm text-muted-foreground">
+          {t("attendanceHr.reports.teamOnly", {
+            defaultValue: "Attendance listing is limited to your team.",
+          })}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -364,8 +420,8 @@ export default function AttendanceHrReportsPage() {
           <div className="flex flex-wrap gap-2" role="group" aria-label={t("attendanceHr.reports.location")}>
             <button
               type="button"
-              className={cn("filter-chip", !locationId && "filter-chip-active")}
-              aria-pressed={!locationId}
+              className={cn("filter-chip", !listingLocationId && "filter-chip-active")}
+              aria-pressed={!listingLocationId}
               onClick={() => setCurrentLocationId(null)}
             >
               {t("common.allLocations")}
@@ -377,8 +433,8 @@ export default function AttendanceHrReportsPage() {
                 key={site.id}
                 type="button"
                 title={label}
-                className={cn("filter-chip max-w-[18rem] truncate", locationId === site.id && "filter-chip-active")}
-                aria-pressed={locationId === site.id}
+                className={cn("filter-chip max-w-[18rem] truncate", listingLocationId === site.id && "filter-chip-active")}
+                aria-pressed={listingLocationId === site.id}
                 onClick={() => setCurrentLocationId(site.id)}
               >
                 {label}
@@ -498,7 +554,7 @@ export default function AttendanceHrReportsPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {fileExport.stage === "error" ? (
+          {showHrExport ? (fileExport.stage === "error" ? (
             <Button type="button" variant="destructive" onClick={() => fileExport.retry()}>
               {t("attendanceHr.reports.exportRetry")}
             </Button>
@@ -609,7 +665,9 @@ export default function AttendanceHrReportsPage() {
                 </CapabilityGate>
               </DropdownMenuContent>
             </DropdownMenu>
-          )}
+          )) : null}
+          {showHrExport ? (
+          <>
           <ExportButton
             variant="secondary"
             href={`${exportHref}&format=csv`}
@@ -628,6 +686,8 @@ export default function AttendanceHrReportsPage() {
             successMessage={t("attendanceHr.reports.exportSuccessPdf")}
             exportState={fileExport}
           />
+          </>
+          ) : null}
           <CapabilityGate capability="payroll.view">
             <Button variant="secondary" asChild>
               <Link href={payrollHref}>{t("nav.hrPayroll")}</Link>
@@ -666,7 +726,7 @@ export default function AttendanceHrReportsPage() {
         </div>
       </NeumorphicCard>
 
-      <AttendanceHrReportsKpiStrip kpis={kpis} isLoading={q.isLoading} />
+      <AttendanceHrReportsKpiStrip kpis={kpis} isLoading={q.isLoading || listingBlocked} />
 
       <div className="relative" aria-busy={showListingBusy}>
         {showListingBusy && !q.isLoading ? (
@@ -678,24 +738,26 @@ export default function AttendanceHrReportsPage() {
           </div>
         ) : null}
         <div className={cn(showListingBusy && !q.isLoading && "opacity-60 transition-opacity")}>
-          {q.isLoading || emptyImport || (emptyFiltered && !showListingBusy) ? (
+          {listingBlocked || q.isLoading || emptyImport || (emptyFiltered && !showListingBusy) ? (
             viewMode === "grid" ? (
               <AttendanceRecordsGrid
                 rows={[]}
                 dateFrom={from}
                 dateTo={to}
                 empty={
-                  q.isLoading ? (
+                  q.isLoading || listingBlocked ? (
                     <p className="text-sm text-muted-foreground">{t("attendanceHr.reports.loading")}</p>
                   ) : emptyImport ? (
                     <div className="space-y-3 text-sm">
                       <p className="text-muted-foreground">{t("attendanceHr.reports.empty")}</p>
+                      {canImport ? (
                       <Button asChild size="sm">
                         <Link href="/people/attendance/import">
                           <Upload className="h-4 w-4" />
                           {t("attendanceHr.reports.importCta")}
                         </Link>
                       </Button>
+                      ) : null}
                     </div>
                   ) : (
                     <p className="text-sm text-muted-foreground">{t("attendanceHr.reports.emptyFiltered")}</p>
@@ -707,17 +769,19 @@ export default function AttendanceHrReportsPage() {
                 rows={[]}
                 {...listMapProps}
                 empty={
-                  q.isLoading ? (
+                  q.isLoading || listingBlocked ? (
                     <p className="text-sm text-muted-foreground">{t("attendanceHr.reports.loading")}</p>
                   ) : emptyImport ? (
                     <div className="space-y-3 text-sm">
                       <p className="text-muted-foreground">{t("attendanceHr.reports.empty")}</p>
+                      {canImport ? (
                       <Button asChild size="sm">
                         <Link href="/people/attendance/import">
                           <Upload className="h-4 w-4" />
                           {t("attendanceHr.reports.importCta")}
                         </Link>
                       </Button>
+                      ) : null}
                     </div>
                   ) : (
                     <p className="text-sm text-muted-foreground">{t("attendanceHr.reports.emptyFiltered")}</p>

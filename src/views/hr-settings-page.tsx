@@ -1,7 +1,20 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Settings2 } from "lucide-react";
+import {
+  Bell,
+  Clock,
+  FileText,
+  Timer,
+  TreePalm,
+  Plane,
+  ScrollText,
+  Settings2,
+  ShieldAlert,
+  Wallet,
+  type LucideIcon,
+} from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -23,6 +36,18 @@ import { HR_POLICY_SECTIONS, type HrPolicySection } from "@/lib/hr-policy";
 import { listHrPolicySettings, upsertHrPolicySection } from "@/lib/hr-policy.functions";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
+
+const SECTION_ICONS: Record<HrPolicySection, LucideIcon> = {
+  leave: TreePalm,
+  ot: Clock,
+  warning: ShieldAlert,
+  probation: Timer,
+  notice: ScrollText,
+  document: FileText,
+  air_ticket: Plane,
+  payroll: Wallet,
+  notification: Bell,
+};
 
 function stringifyValue(value: unknown): string {
   if (value == null) return "";
@@ -72,7 +97,12 @@ export default function HrSettingsPage() {
   });
 
   const [drafts, setDrafts] = useState<Record<string, Record<string, string>>>({});
-  const [activeSection, setActiveSection] = useState<HrPolicySection>("leave");
+  const requested = useSearchParams().get("section");
+  const [activeSection, setActiveSection] = useState<HrPolicySection>(
+    requested && (HR_POLICY_SECTIONS as readonly string[]).includes(requested)
+      ? (requested as HrPolicySection)
+      : "leave",
+  );
 
   useEffect(() => {
     if (!policy.data?.sections) return;
@@ -144,11 +174,15 @@ export default function HrSettingsPage() {
                 onValueChange={(v) => setActiveSection(v as HrPolicySection)}
               >
                 <TabsList className="flex h-auto flex-wrap gap-1">
-                  {HR_POLICY_SECTIONS.map((section) => (
-                    <TabsTrigger key={section} value={section} className="text-xs sm:text-sm">
+                  {HR_POLICY_SECTIONS.map((section) => {
+                    const Icon = SECTION_ICONS[section];
+                    return (
+                    <TabsTrigger key={section} value={section}>
+                      <Icon aria-hidden />
                       {t(`hr.settings.sections.${section}`)}
                     </TabsTrigger>
-                  ))}
+                    );
+                  })}
                 </TabsList>
                 {HR_POLICY_SECTIONS.map((section) => (
                   <TabsContent key={section} value={section} className="space-y-3 pt-3">

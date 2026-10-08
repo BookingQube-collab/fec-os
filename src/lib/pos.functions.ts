@@ -38,7 +38,7 @@ export const listPurchaseOrders = createAuthenticatedAction(
     if (error) throw error;
     return (rows ?? []) as PoRow[];
   },
-  { defaultInput: {}, auth: { capability: "bookings.view" } },
+  { defaultInput: {}, auth: { capability: "pos.view" } },
 );
 
 export const createPurchaseOrder = createAuthenticatedAction(
@@ -62,7 +62,7 @@ export const createPurchaseOrder = createAuthenticatedAction(
     if (error) throw error;
     return { id: id as string };
   },
-  { auth: { capability: "bookings.view" } },
+  { auth: { capability: "pos.view" } },
 );
 
 const PoStatusEnum = z.enum([
@@ -89,5 +89,5 @@ export const updatePoStatus = createAuthenticatedAction(
     if (error) throw error;
     return { ok: true };
   },
-  { auth: { capability: "bookings.view" } },
+  { auth: { capability: "pos.view" } },
 );

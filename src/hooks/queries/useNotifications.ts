@@ -1,7 +1,8 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiGet } from "@/lib/api-client";
-import type { ActionInboxPayload } from "@/lib/notifications/inbox";
+import { markAllNotificationsRead } from "@/lib/notifications.functions";
+import { applyMarkAllRead, type ActionInboxPayload } from "@/lib/notifications/inbox";
 import type { EscalationRow, NotificationRow } from "@/lib/queries/module-queries.core";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
@@ -51,5 +52,25 @@ export function useActionInbox(userId?: string | null, options?: { enabled?: boo
     refetchInterval: enabled ? INBOX_POLL_MS : false,
     refetchIntervalInBackground: false,
     retry: 2,
+  });
+}
+
+export function useMarkAllNotificationsRead(userId?: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => markAllNotificationsRead(),
+    onMutate: async () => {
+      await qc.cancelQueries({ queryKey: queryKeys.notifications.all });
+      const key = queryKeys.notifications.inbox(userId);
+      const previous = qc.getQueryData<ActionInboxPayload>(key);
+      if (previous) qc.setQueryData(key, applyMarkAllRead(previous));
+      return { previous, key };
+    },
+    onError: (_error, _vars, context) => {
+      if (context?.previous) qc.setQueryData(context.key, context.previous);
+    },
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.notifications.all });
+    },
   });
 }

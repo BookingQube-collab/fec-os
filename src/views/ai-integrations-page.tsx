@@ -11,6 +11,9 @@ import {
   EyeOff,
   Loader2,
   RefreshCw,
+  BarChart3,
+  GitBranch,
+  Server,
   Sparkles,
   Trash2,
 } from "lucide-react";
@@ -262,9 +265,9 @@ function AiIntegrationsPage() {
 
       <Tabs defaultValue="providers">
         <TabsList>
-          <TabsTrigger value="providers">{t("aiIntegrations.tabs.providers")}</TabsTrigger>
-          <TabsTrigger value="routing">{t("aiIntegrations.tabs.routing")}</TabsTrigger>
-          <TabsTrigger value="usage">{t("aiIntegrations.tabs.usage")}</TabsTrigger>
+          <TabsTrigger value="providers"><Server aria-hidden />{t("aiIntegrations.tabs.providers")}</TabsTrigger>
+          <TabsTrigger value="routing"><GitBranch aria-hidden />{t("aiIntegrations.tabs.routing")}</TabsTrigger>
+          <TabsTrigger value="usage"><BarChart3 aria-hidden />{t("aiIntegrations.tabs.usage")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="providers" className="mt-5 space-y-4">

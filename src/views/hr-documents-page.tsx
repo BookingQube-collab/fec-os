@@ -1,7 +1,23 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileText } from "lucide-react";
+import {
+  Award,
+  BookOpen,
+  Briefcase,
+  FileText,
+  FileX,
+  GraduationCap,
+  IdCard,
+  TreePalm,
+  Plane,
+  ScrollText,
+  Stamp,
+  Stethoscope,
+  UserRound,
+  Wallet,
+  type LucideIcon,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -25,7 +41,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import { HR_DOC_TYPES } from "@/lib/hr-advanced";
+import { HR_DOC_TYPES, type HrDocType } from "@/lib/hr-advanced";
 import {
   fileToBase64,
   IDENTITY_FILE_ACCEPT,
@@ -51,6 +67,27 @@ import {
 import { listStaffForLeaveBalances } from "@/lib/hr-leave.functions";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
+
+const DOC_TAB_ICONS: Record<HrDocType, LucideIcon> = {
+  cv: UserRound,
+  qid: IdCard,
+  passport: BookOpen,
+  visa: Stamp,
+  secondment: Briefcase,
+  contract: ScrollText,
+  educational_certificate: GraduationCap,
+  mofa_attested_certificate: Award,
+  warning_letter: FileX,
+  increment_letter: Wallet,
+  demotion_letter: FileText,
+  resignation_letter: FileText,
+  termination_letter: FileX,
+  medical_certificate: Stethoscope,
+  leave_document: TreePalm,
+  air_ticket_receipt: Plane,
+  loan_document: Wallet,
+  other: FileText,
+};
 
 const EDUCATION_TYPES = new Set(["educational_certificate", "mofa_attested_certificate"]);
 
@@ -559,10 +596,11 @@ export function HrDocumentsWorkspace({
           <div className="hr-cabinet hr-enter">
             {activeFolder ? (
               <>
-                <div className="hr-cabinet__tabs" role="tablist" aria-label={t("hr.docs.cabinet")}>
+                <div className="fec-inner-tabs" role="tablist" aria-label={t("hr.docs.cabinet")}>
                   {folders.map((folder) => {
                     const label = t(`hr.docs.types.${folder.type}`);
                     const selected = folder.type === activeFolder.type;
+                    const Icon = DOC_TAB_ICONS[folder.type as HrDocType] ?? FileText;
                     return (
                       <button
                         key={folder.type}
@@ -571,11 +609,12 @@ export function HrDocumentsWorkspace({
                         id={`hr-folder-tab-${folder.type}`}
                         aria-selected={selected}
                         aria-controls="hr-folder-panel"
-                        className={selected ? "hr-folder-tab is-open" : "hr-folder-tab"}
+                        className={selected ? "fec-inner-tab is-active" : "fec-inner-tab"}
                         title={label}
                         aria-label={t("hr.docs.openFolder", { type: label, count: folder.items.length })}
                         onClick={() => setOpenFolder(folder.type)}
                       >
+                        <Icon aria-hidden />
                         <span className="hr-folder-tab__label">{label}</span>
                         <span className="hr-folder-tab__count">{folder.items.length}</span>
                       </button>

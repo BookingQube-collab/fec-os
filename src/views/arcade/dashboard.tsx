@@ -2,7 +2,19 @@
 
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { CircleCheck, CircleX, Gamepad2, Gauge, Wrench } from "lucide-react";
+import {
+  AlertTriangle,
+  CircleCheck,
+  CircleX,
+  Clock,
+  Gamepad2,
+  Gauge,
+  Package,
+  Repeat2,
+  Truck,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
@@ -175,6 +187,16 @@ export function ArcadeDashboard() {
   );
 }
 
+const ATTENTION_ICONS: Record<string, LucideIcon> = {
+  critical: AlertTriangle,
+  aged: Clock,
+  supplier: Truck,
+  parts: Package,
+  repeats: Repeat2,
+  pm: Wrench,
+  resolved: CircleCheck,
+};
+
 function Attention({ queues }: { queues: { id: string; title: string; rows: { href: string; label: string; meta: string; status: string }[] }[] }) {
   const { t } = useTranslation();
   const [picked, setPicked] = useState<string | null>(null);
@@ -188,11 +210,15 @@ function Attention({ queues }: { queues: { id: string; title: string; rows: { hr
         <p className="mt-1 text-sm text-muted-foreground">{t("arcadeOps.attentionHint")}</p>
       </div>
       <PillTabScroller label={t("arcadeOps.needsAttention")}>
-        {queues.map((queue) => (
-          <button key={queue.id} type="button" aria-pressed={queue.id === active.id} className={pillTabItemClass(queue.id === active.id)} onClick={() => setPicked(queue.id)}>
-            {queue.title}
-          </button>
-        ))}
+        {queues.map((queue) => {
+          const Icon = ATTENTION_ICONS[queue.id] ?? AlertTriangle;
+          return (
+            <button key={queue.id} type="button" aria-pressed={queue.id === active.id} className={pillTabItemClass(queue.id === active.id)} onClick={() => setPicked(queue.id)}>
+              <Icon aria-hidden />
+              {queue.title}
+            </button>
+          );
+        })}
       </PillTabScroller>
       <ul className="grid gap-2">
         {active.rows.length === 0 ? <li className="text-sm text-muted-foreground">{t("arcadeOps.none")}</li> : null}

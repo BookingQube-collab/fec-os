@@ -1,5 +1,6 @@
 import { withAuthRoute } from "@/lib/server/api-route";
 import { fetchSites } from "@/lib/queries/module-queries.core";
+import { mergeReportingManagerSites } from "@/lib/reporting-manager-access.server";
 import { getRouteCache, routeCacheKey, setRouteCache } from "@/lib/server/route-cache";
 
 const SITES_CACHE_TTL_MS = 60_000;
@@ -10,7 +11,7 @@ export async function GET() {
       const cacheKey = routeCacheKey(["sites", context.userId]);
       const cached = getRouteCache<Awaited<ReturnType<typeof fetchSites>>>(cacheKey);
       if (cached) return cached;
-      const sites = await fetchSites(context);
+      const sites = await mergeReportingManagerSites(context, await fetchSites(context));
       setRouteCache(cacheKey, sites, SITES_CACHE_TTL_MS);
       return sites;
     },

@@ -7,6 +7,9 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
+import { useHasDirectReports } from "@/hooks/use-my-direct-reports";
+import { usePermission } from "@/hooks/use-permission";
+import { useRegisterHrAssist } from "@/components/hr/hr-people-assist";
 import { HrEmbedFrame } from "@/components/hr/hr-embed-frame";
 import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { HrPanel } from "@/components/hr/hr-panel";
@@ -44,6 +47,9 @@ export function HrLeaveWorkspace({
 }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
+  const canManage = usePermission("hr.leave.manage");
+  const { hasDirectReports, isPending: reportsPending } = useHasDirectReports();
+  useRegisterHrAssist({ staffId: lockedStaffId ?? null });
   const [status, setStatus] = useState<"pending" | "approved" | "rejected" | "cancelled" | "all">("pending");
   const [selected, setSelected] = useState<string[]>([]);
   const [balanceStaffId, setBalanceStaffId] = useState("");
@@ -77,7 +83,7 @@ export function HrLeaveWorkspace({
     queryKey: queryKeys.people.hrLeaveBalances({ view: "staff" }),
     queryFn: () => listStaffForLeaveBalances(),
     staleTime: STALE.people,
-    enabled: !lockedStaffId,
+    enabled: !lockedStaffId && canManage,
   });
 
   const balances = useQuery({
@@ -183,9 +189,20 @@ export function HrLeaveWorkspace({
     setSelected((prev) => (on ? [...new Set([...prev, id])] : prev.filter((x) => x !== id)));
   };
 
+  if (!canManage && reportsPending) {
+    return embedded ? null : (
+      <HrShell>
+        <HrPanel>
+          <HrEmptyState message={t("common.loading", { defaultValue: "Loading…" })} />
+        </HrPanel>
+      </HrShell>
+    );
+  }
+
   return (
     <CapabilityGate
       capability="hr.leave.manage"
+      alsoAllow={hasDirectReports}
       fallback={
         embedded ? (
           <HrEmptyState message={t("hr.leave.noAccess")} />
@@ -218,7 +235,7 @@ export function HrLeaveWorkspace({
             ))}
           </div>
 
-          {status === "pending" && pendingIds.length > 0 ? (
+          {canManage && status === "pending" && pendingIds.length > 0 ? (
             <div className="flex flex-wrap items-center gap-2 hr-enter">
               <label className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Checkbox checked={payrollImpact} onCheckedChange={(v) => setPayrollImpact(Boolean(v))} />
@@ -297,6 +314,7 @@ export function HrLeaveWorkspace({
                           >
                             {t("hr.leave.approveStep")}
                           </Button>
+                          {canManage ? (
                           <Button
                             size="sm"
                             variant="outline"
@@ -307,6 +325,7 @@ export function HrLeaveWorkspace({
                           >
                             {t("hr.leave.hrFinalApprove")}
                           </Button>
+                          ) : null}
                           <Button
                             size="sm"
                             variant="secondary"
@@ -324,6 +343,7 @@ export function HrLeaveWorkspace({
             </div>
           </HrPanel>
 
+          {canManage ? (
           <HrPanel delay={1.5}>
             <div className="space-y-4 p-4 sm:p-5">
               <h2 className="text-sm font-semibold tracking-tight">{t("hr.leave.recordTitle")}</h2>
@@ -392,7 +412,9 @@ export function HrLeaveWorkspace({
               </div>
             </div>
           </HrPanel>
+          ) : null}
 
+          {canManage ? (
           <HrPanel delay={2}>
             <div className="space-y-4 p-4 sm:p-5">
               <h2 className="text-sm font-semibold tracking-tight">{t("hr.leave.balancesTitle")}</h2>
@@ -510,6 +532,7 @@ export function HrLeaveWorkspace({
               </div>
             </div>
           </HrPanel>
+          ) : null}
       </HrEmbedFrame>
     </CapabilityGate>
   );

@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from "next";
-import Script from "next/script";
 
 import { Providers } from "@/components/providers";
 import { fontClassNames } from "@/lib/fonts";
@@ -42,16 +41,19 @@ export const viewport: Viewport = {
   themeColor: "#FDF8EC",
 };
 
+/** Runs during HTML parse, before first paint. English stays the server default. */
+const localeBootScript = `(function(){try{var raw=localStorage.getItem("fec-os-app");if(!raw)return;var lang=(JSON.parse(raw).state||{}).language;if(lang==="ar"){var el=document.documentElement;el.lang="ar-QA";el.dir="rtl";}}catch(e){}})();`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" dir="ltr" suppressHydrationWarning>
+      <head>
+        <script id="fec-locale-boot" dangerouslySetInnerHTML={{ __html: localeBootScript }} />
+      </head>
       <body
         className={`${fontClassNames} bg-background text-foreground antialiased`}
         suppressHydrationWarning
       >
-        <Script id="fec-locale-boot" strategy="beforeInteractive">
-          {`(function(){try{var raw=localStorage.getItem("fec-os-app");if(!raw)return;var lang=(JSON.parse(raw).state||{}).language;if(lang==="ar"){var el=document.documentElement;el.lang="ar-QA";el.dir="rtl";}}catch(e){}})();`}
-        </Script>
         <Providers>{children}</Providers>
       </body>
     </html>

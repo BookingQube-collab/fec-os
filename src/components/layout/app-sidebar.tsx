@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ChevronDown, MoreHorizontal, PanelLeft, PanelLeftClose, Search } from "lucide-react";
+import { ChevronDown, MoreHorizontal, PanelLeft, PanelLeftClose, Search, Sparkles } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -10,20 +10,27 @@ import {
   useRef,
   useState,
   type Dispatch,
+  type ReactNode,
   type SetStateAction,
 } from "react";
 import { useTranslation } from "react-i18next";
 
 import { BitsShine } from "@/components/layout/bits-shine";
+import { ItemDragBucket, ItemDragRow, ItemDragScope, NavDragRow } from "@/components/layout/nav-drag-row";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { useUserRoles } from "@/hooks/use-auth";
+import { useAuth, useUserRoles } from "@/hooks/use-auth";
+import { useHasDirectReports } from "@/hooks/use-my-direct-reports";
+import { useSidebarNavOrder } from "@/hooks/use-sidebar-nav-order";
 import {
+  clusterItemsBySection,
   getDepartmentFlyoutLinks,
   getDepartmentFlyoutTree,
+  employeePinnedRailItems,
+  getEmployeeFlatRail,
   getEmployeeSectionNav,
   getPrimaryRailNav,
   getVisibleDepartments,
@@ -31,15 +38,28 @@ import {
   isNavItemActive,
   isSidebarNavGroupActive,
   isSidebarNavGroupItemActive,
+  mergeReportingManagerDepartments,
+  navHrefPath,
+  reportingManagerRailItems,
+  showsMyDayNav,
+  usesEmployeeFlatRail,
   type NavItem,
   type PrimaryRailItem,
   type RailFlyoutLink,
   type SidebarNavGroup,
   type VisibleNavDepartment,
 } from "@/lib/nav-config";
-import { isEmployeeHomeAudience } from "@/lib/rbac";
+import {
+  applySidebarItemOrder,
+  canReorderSidebarNav,
+  moveNavDepartment,
+  moveNavItem,
+  orderDepartments,
+  orderPrimaryRail,
+} from "@/lib/nav-order";
 import { useAppStore } from "@/stores/app-store";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 /** Heavy route chunks — never auto-prefetch; hover/focus also skipped. */
 const SIDEBAR_HEAVY_ROUTES = new Set([
@@ -53,12 +73,19 @@ const SIDEBAR_HEAVY_ROUTES = new Set([
 const SIDEBAR_WARM_PREFETCH = ["/", "/people", "/events", "/maintenance", "/procurement"] as const;
 
 const FLYOUT_CLOSE_MS = 180;
-const FLYOUT_Z = "z-[80]";
+
+function navItemIsActive(href: string, pathname: string): boolean {
+  const path = navHrefPath(href);
+  if (path === null) return false;
+  return isNavItemActive(path, pathname);
+}
 
 function isFlyoutLinkActive(link: RailFlyoutLink, pathname: string): boolean {
+  const path = navHrefPath(link.href);
+  if (path === null) return false;
   return link.fromGroup
-    ? isSidebarNavGroupItemActive(link.href, pathname)
-    : isNavItemActive(link.href, pathname);
+    ? isSidebarNavGroupItemActive(path, pathname)
+    : isNavItemActive(path, pathname);
 }
 
 function NavLinkRow({
@@ -68,6 +95,7 @@ function NavLinkRow({
   prefetchRoute,
   onNavigate,
   compact,
+  flyout,
 }: {
   item: NavItem;
   pathname: string;
@@ -75,9 +103,10 @@ function NavLinkRow({
   prefetchRoute: (href: string) => void;
   onNavigate?: () => void;
   compact?: boolean;
+  flyout?: boolean;
 }) {
   const Icon = item.icon;
-  const active = isNavItemActive(item.href, pathname);
+  const active = navItemIsActive(item.href, pathname);
 
   return (
     <Link
@@ -85,16 +114,21 @@ function NavLinkRow({
       prefetch
       onClick={onNavigate}
       onMouseEnter={() => prefetchRoute(item.href)}
+      aria-current={flyout && active ? "page" : undefined}
       className={cn(
-        "flex items-center gap-2.5 rounded-full text-sm transition-colors",
-        compact ? "px-3 py-2" : "px-2.5 py-1.5",
-        active
-          ? "bg-primary font-semibold text-primary-foreground shadow-elevated-xs"
-          : "text-muted-foreground hover:bg-secondary/80 hover:text-foreground",
+        flyout
+          ? "nav-flyout-row"
+          : cn(
+              "flex items-center gap-2.5 rounded-full text-sm transition-colors",
+              compact ? "px-3 py-2" : "px-2.5 py-1.5",
+              active
+                ? "bg-primary font-semibold text-primary-foreground shadow-elevated-xs"
+                : "text-muted-foreground hover:bg-secondary/80 hover:text-foreground",
+            ),
       )}
     >
-      <Icon className="h-4 w-4 shrink-0 stroke-[1.5]" />
-      <span className="truncate">{t(item.labelKey)}</span>
+      <Icon className={flyout ? "nav-flyout-row__icon" : "h-4 w-4 shrink-0 stroke-[1.5]"} aria-hidden />
+      <span className={flyout ? "nav-flyout-row__label" : "truncate"}>{t(item.labelKey)}</span>
     </Link>
   );
 }
@@ -102,14 +136,7 @@ function NavLinkRow({
 type SidebarGroupLink = SidebarNavGroup["items"][number];
 
 function clusterSidebarItems(items: SidebarGroupLink[]) {
-  const blocks: { sectionKey: string | null; items: SidebarGroupLink[] }[] = [];
-  for (const item of items) {
-    const sectionKey = item.sectionKey ?? null;
-    const last = blocks[blocks.length - 1];
-    if (last && last.sectionKey === sectionKey) last.items.push(item);
-    else blocks.push({ sectionKey, items: [item] });
-  }
-  return blocks;
+  return clusterItemsBySection(items);
 }
 
 function SidebarGroupLinkList({
@@ -118,34 +145,43 @@ function SidebarGroupLinkList({
   t,
   prefetchRoute,
   onNavigate,
+  flyout,
 }: {
   items: SidebarGroupLink[];
   pathname: string;
   t: (key: string) => string;
   prefetchRoute: (href: string) => void;
   onNavigate?: () => void;
+  flyout?: boolean;
 }) {
   return (
-    <ul className="space-y-0.5">
+    <ul className={flyout ? "nav-flyout-list" : "space-y-0.5"}>
       {items.map((item) => {
         const active = isSidebarNavGroupItemActive(item.href, pathname);
         return (
-          <li key={item.href} className="min-w-0">
+          <li key={`${item.labelKey}:${item.href}`} className="min-w-0">
+            <ItemDragRow item={item}>
             <Link
               href={item.href}
               prefetch
               onClick={onNavigate}
               onMouseEnter={() => prefetchRoute(item.href)}
+              aria-current={flyout && active ? "page" : undefined}
               className={cn(
-                "block max-w-full truncate rounded-full px-2.5 py-1.5 text-sm",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                active
-                  ? "bg-primary font-semibold text-primary-foreground shadow-elevated-xs"
-                  : "text-muted-foreground hover:bg-secondary/70 hover:text-foreground",
+                flyout
+                  ? "nav-flyout-row"
+                  : cn(
+                      "block max-w-full truncate rounded-full px-2.5 py-1.5 text-sm",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      active
+                        ? "bg-primary font-semibold text-primary-foreground shadow-elevated-xs"
+                        : "text-muted-foreground hover:bg-secondary/70 hover:text-foreground",
+                    ),
               )}
             >
-              {t(item.labelKey)}
+              {flyout ? <span className="nav-flyout-row__label">{t(item.labelKey)}</span> : t(item.labelKey)}
             </Link>
+            </ItemDragRow>
           </li>
         );
       })}
@@ -161,6 +197,7 @@ function SidebarNavCluster({
   prefetchRoute,
   onNavigate,
   forceOpen,
+  flyout,
 }: {
   labelKey: string;
   items: SidebarGroupLink[];
@@ -169,6 +206,7 @@ function SidebarNavCluster({
   prefetchRoute: (href: string) => void;
   onNavigate?: () => void;
   forceOpen?: boolean;
+  flyout?: boolean;
 }) {
   const active = items.some((item) => isSidebarNavGroupItemActive(item.href, pathname));
   const [open, setOpen] = useState(active || Boolean(forceOpen));
@@ -181,27 +219,38 @@ function SidebarNavCluster({
     <li className="min-w-0">
       <Collapsible open={open} onOpenChange={setOpen}>
         <CollapsibleTrigger
+          data-expanded={flyout && open ? "true" : undefined}
           className={cn(
-            "group/section flex w-full min-w-0 items-center gap-1.5 rounded-full px-2 py-1 text-start text-xs font-semibold",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            active
-              ? "bg-sidebar-accent text-sidebar-accent-foreground"
-              : open
-                ? "text-foreground"
-                : "text-muted-foreground hover:bg-sidebar-accent/80 hover:text-sidebar-accent-foreground",
+            flyout
+              ? "nav-flyout-row group/section"
+              : cn(
+                  "group/section flex w-full min-w-0 items-center gap-1.5 rounded-full px-2 py-1 text-start text-xs font-semibold",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  active
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                    : open
+                      ? "text-foreground"
+                      : "text-muted-foreground hover:bg-sidebar-accent/80 hover:text-sidebar-accent-foreground",
+                ),
           )}
         >
-          <span className="min-w-0 flex-1 truncate">{t(labelKey)}</span>
-          <ChevronDown className="h-3 w-3 shrink-0 transition-transform group-data-[state=open]/section:rotate-180 motion-reduce:transition-none" />
+          <span className={flyout ? "nav-flyout-row__label" : "min-w-0 flex-1 truncate"}>{t(labelKey)}</span>
+          <ChevronDown
+            className={cn(
+              "shrink-0 transition-transform group-data-[state=open]/section:rotate-180 motion-reduce:transition-none",
+              flyout ? "nav-flyout-row__chevron" : "h-3 w-3",
+            )}
+          />
         </CollapsibleTrigger>
         <CollapsibleContent>
-          <div className="mt-0.5 ps-1.5">
+          <div className={flyout ? "nav-flyout-nested" : "mt-0.5 ps-1.5"}>
             <SidebarGroupLinkList
               items={items}
               pathname={pathname}
               t={t}
               prefetchRoute={prefetchRoute}
               onNavigate={onNavigate}
+              flyout={flyout}
             />
           </div>
         </CollapsibleContent>
@@ -218,6 +267,7 @@ function SidebarNavGroupSection({
   onNavigate,
   compact,
   forceOpen,
+  flyout,
 }: {
   group: SidebarNavGroup;
   pathname: string;
@@ -227,6 +277,7 @@ function SidebarNavGroupSection({
   compact?: boolean;
   /** Open while searching so matches stay visible. Never auto-open for the active route. */
   forceOpen?: boolean;
+  flyout?: boolean;
 }) {
   const Icon = group.icon;
   const groupActive = isSidebarNavGroupActive(
@@ -246,33 +297,49 @@ function SidebarNavGroupSection({
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger
+        data-expanded={flyout && open ? "true" : undefined}
         className={cn(
-          "group/nav flex w-full min-w-0 items-center gap-2 rounded-full text-sm",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          compact ? "px-3 py-2" : "px-2 py-1.5",
-          compact && !warm && "bg-card",
-          warm
-            ? "bg-sidebar-accent font-semibold text-sidebar-accent-foreground"
-            : groupActive
-              ? "font-semibold text-foreground"
-              : compact
-                ? "text-foreground"
-                : "text-muted-foreground hover:bg-secondary/70",
+          flyout
+            ? "nav-flyout-row group/nav"
+            : cn(
+                "group/nav flex w-full min-w-0 items-center gap-2 rounded-full text-sm",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                compact ? "px-3 py-2" : "px-2 py-1.5",
+                compact && !warm && "bg-card",
+                warm
+                  ? "bg-sidebar-accent font-semibold text-sidebar-accent-foreground"
+                  : groupActive
+                    ? "font-semibold text-foreground"
+                    : compact
+                      ? "text-foreground"
+                      : "text-muted-foreground hover:bg-secondary/70",
+              ),
         )}
       >
-        <Icon className="h-4 w-4 shrink-0 stroke-[1.5]" />
-        <span className="min-w-0 flex-1 truncate text-start">{t(group.labelKey)}</span>
-        <ChevronDown className="h-3.5 w-3.5 shrink-0 transition-transform group-data-[state=open]/nav:rotate-180 motion-reduce:transition-none" />
+        <Icon className={flyout ? "nav-flyout-row__icon" : "h-4 w-4 shrink-0 stroke-[1.5]"} aria-hidden />
+        <span className={flyout ? "nav-flyout-row__label" : "min-w-0 flex-1 truncate text-start"}>
+          {t(group.labelKey)}
+        </span>
+        <ChevronDown
+          className={cn(
+            "shrink-0 transition-transform group-data-[state=open]/nav:rotate-180 motion-reduce:transition-none",
+            flyout ? "nav-flyout-row__chevron" : "h-3.5 w-3.5",
+          )}
+        />
       </CollapsibleTrigger>
       <CollapsibleContent>
         {sectioned ? (
           <div
             className={cn(
               "min-w-0",
-              compact ? "mt-1" : "ms-4 mt-1 border-s border-sidebar-border ps-1.5",
+              flyout
+                ? "nav-flyout-nested"
+                : compact
+                  ? "mt-1"
+                  : "ms-4 mt-1 border-s border-sidebar-border ps-1.5",
             )}
           >
-            <ul className="min-w-0 space-y-0.5">
+            <ul className={flyout ? "nav-flyout-list" : "min-w-0 space-y-0.5"}>
               {blocks.map((block) =>
                 block.sectionKey ? (
                   <SidebarNavCluster
@@ -284,6 +351,7 @@ function SidebarNavGroupSection({
                     prefetchRoute={prefetchRoute}
                     onNavigate={onNavigate}
                     forceOpen={forceOpen}
+                    flyout={flyout}
                   />
                 ) : (
                   <li key={block.items.map((item) => item.href).join("|")} className="min-w-0">
@@ -293,11 +361,23 @@ function SidebarNavGroupSection({
                       t={t}
                       prefetchRoute={prefetchRoute}
                       onNavigate={onNavigate}
+                      flyout={flyout}
                     />
                   </li>
                 ),
               )}
             </ul>
+          </div>
+        ) : flyout ? (
+          <div className="nav-flyout-nested">
+            <SidebarGroupLinkList
+              items={group.items}
+              pathname={pathname}
+              t={t}
+              prefetchRoute={prefetchRoute}
+              onNavigate={onNavigate}
+              flyout
+            />
           </div>
         ) : (
           <ul
@@ -309,7 +389,8 @@ function SidebarNavGroupSection({
             {group.items.map((item) => {
               const active = isSidebarNavGroupItemActive(item.href, pathname);
               return (
-                <li key={item.href} className="min-w-0">
+                <li key={`${item.labelKey}:${item.href}`} className="min-w-0">
+                  <ItemDragRow item={item}>
                   <Link
                     href={item.href}
                     prefetch
@@ -324,6 +405,7 @@ function SidebarNavGroupSection({
                   >
                     {t(item.labelKey)}
                   </Link>
+                  </ItemDragRow>
                 </li>
               );
             })}
@@ -342,6 +424,8 @@ function DepartmentSection({
   onNavigate,
   compact,
   searchQuery,
+  canDrag,
+  onMove,
 }: {
   dept: VisibleNavDepartment;
   pathname: string;
@@ -350,6 +434,8 @@ function DepartmentSection({
   onNavigate?: () => void;
   compact?: boolean;
   searchQuery?: string;
+  canDrag?: boolean;
+  onMove?: (activeId: string, overId: string) => void;
 }) {
   const DeptIcon = dept.icon;
   const deptActive = isDepartmentActive(dept, pathname);
@@ -358,7 +444,10 @@ function DepartmentSection({
   const [open, setOpen] = useState(false);
 
   const filteredItems = q
-    ? dept.items.filter((item) => t(item.labelKey).toLowerCase().includes(q))
+    ? dept.items.filter((item) => {
+        const section = item.sectionKey ? t(item.sectionKey).toLowerCase() : "";
+        return t(item.labelKey).toLowerCase().includes(q) || section.includes(q);
+      })
     : dept.items;
 
   const filteredGroups = q
@@ -385,6 +474,12 @@ function DepartmentSection({
 
   return (
     <li className={compact ? "col-span-2" : undefined}>
+      <NavDragRow
+        id={dept.id}
+        enabled={Boolean(canDrag && onMove)}
+        label={t("sidebarOrder.drag")}
+        onMove={onMove ?? (() => undefined)}
+      >
       <Collapsible open={open} onOpenChange={setOpen}>
         <CollapsibleTrigger
           className={cn(
@@ -400,22 +495,54 @@ function DepartmentSection({
         <CollapsibleContent>
           <div className={cn("space-y-1", compact ? "mt-2" : "mt-1")}>
             {filteredItems.length > 0 && (
+              <ItemDragBucket bucket={dept.id}>
               <ul className={cn(compact && "grid grid-cols-2 gap-2")}>
-                {filteredItems.map((item) => (
-                  <li key={item.href}>
-                    <NavLinkRow
-                      item={item}
-                      pathname={pathname}
-                      t={t}
-                      prefetchRoute={prefetchRoute}
-                      onNavigate={onNavigate}
-                      compact={compact}
-                    />
-                  </li>
-                ))}
+                {clusterItemsBySection(filteredItems).map((block) => {
+                  const rows = (
+                    <ul className={cn(compact && "grid grid-cols-2 gap-2", !compact && "space-y-0.5")}>
+                      {block.items.map((item) => (
+                        <li key={`${item.labelKey}:${item.href}`}>
+                          <ItemDragRow item={item}>
+                          <NavLinkRow
+                            item={item}
+                            pathname={pathname}
+                            t={t}
+                            prefetchRoute={prefetchRoute}
+                            onNavigate={onNavigate}
+                            compact={compact}
+                          />
+                          </ItemDragRow>
+                        </li>
+                      ))}
+                    </ul>
+                  );
+                  if (!block.sectionKey) {
+                    return (
+                      <li key={`plain:${block.items[0]?.href}`} className="min-w-0">
+                        {rows}
+                      </li>
+                    );
+                  }
+                  return (
+                    <li key={block.sectionKey} className={cn("min-w-0", compact && "col-span-2")}>
+                      <CollapsibleNavSection
+                        label={t(block.sectionKey)}
+                        sectionKey={block.sectionKey}
+                        pathname={pathname}
+                        active={block.items.some((item) => navItemIsActive(item.href, pathname))}
+                        forceOpen={searchOpen}
+                        triggerClassName="nav-section-trigger"
+                      >
+                        {rows}
+                      </CollapsibleNavSection>
+                    </li>
+                  );
+                })}
               </ul>
+              </ItemDragBucket>
             )}
             {filteredGroups.map((group) => (
+              <ItemDragBucket key={group.id} bucket={`${dept.id}:${group.id}`}>
               <SidebarNavGroupSection
                 key={group.id}
                 group={group}
@@ -426,10 +553,12 @@ function DepartmentSection({
                 compact={compact}
                 forceOpen={searchOpen}
               />
+              </ItemDragBucket>
             ))}
           </div>
         </CollapsibleContent>
       </Collapsible>
+      </NavDragRow>
     </li>
   );
 }
@@ -441,6 +570,8 @@ function OverflowNavPanel({
   prefetchRoute,
   onNavigate,
   compact,
+  canDrag,
+  onMove,
 }: {
   pathname: string;
   departments: VisibleNavDepartment[];
@@ -448,11 +579,23 @@ function OverflowNavPanel({
   prefetchRoute: (href: string) => void;
   onNavigate?: () => void;
   compact?: boolean;
+  canDrag?: boolean;
+  onMove?: (activeId: string, overId: string) => void;
 }) {
   const [searchQuery, setSearchQuery] = useState("");
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {canDrag ? (
+        <Link
+          href="/admin/sidebar#arrange-automatically"
+          onClick={() => onNavigate?.()}
+          className="mb-3 flex items-center gap-2 rounded-2xl border border-primary/40 bg-primary/10 px-3 py-2.5 text-sm font-semibold text-foreground"
+        >
+          <Sparkles className="h-4 w-4 shrink-0 stroke-[1.5]" aria-hidden />
+          <span>{t("sidebarOrder.arrangeAuto")}</span>
+        </Link>
+      ) : null}
       <div className="relative mb-3 shrink-0">
         <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 stroke-[1.5] text-muted-foreground" />
         <Input
@@ -478,6 +621,8 @@ function OverflowNavPanel({
             onNavigate={onNavigate}
             compact={compact}
             searchQuery={searchQuery}
+            canDrag={canDrag && !searchQuery.trim()}
+            onMove={onMove}
           />
         ))}
       </ul>
@@ -485,7 +630,72 @@ function OverflowNavPanel({
   );
 }
 
-function FlyoutLinkList({
+const PEOPLE_NAV_SECTION_PREFIX = "nav.peopleSection";
+const PEOPLE_WORKSPACE_SECTION = "nav.peopleSectionWorkspace";
+
+/** People & HR: Workspace stays open. The section that holds the current page opens too. Every other section starts closed. */
+function peopleNavSectionStartsOpen(sectionKey: string, active: boolean, forceOpen?: boolean) {
+  if (forceOpen) return true;
+  return sectionKey === PEOPLE_WORKSPACE_SECTION || active;
+}
+
+/**
+ * Section heading that hides and shows its rows.
+ * Click or keyboard toggles. Search forces the block open.
+ * People & HR starts with only Workspace open (plus the section that contains the current page).
+ * That choice resets on navigation. Other departments stay expanded.
+ */
+function CollapsibleNavSection({
+  label,
+  sectionKey,
+  pathname,
+  active = false,
+  forceOpen,
+  triggerClassName,
+  children,
+}: {
+  label: string;
+  sectionKey?: string;
+  pathname: string;
+  /** True when the current route is one of this section's links. */
+  active?: boolean;
+  forceOpen?: boolean;
+  triggerClassName: string;
+  children: ReactNode;
+}) {
+  const peopleSection = Boolean(sectionKey?.startsWith(PEOPLE_NAV_SECTION_PREFIX));
+  const [open, setOpen] = useState(() =>
+    peopleSection && sectionKey
+      ? peopleNavSectionStartsOpen(sectionKey, active, forceOpen)
+      : true,
+  );
+
+  useEffect(() => {
+    if (!peopleSection || !sectionKey) {
+      setOpen(true);
+      return;
+    }
+    setOpen(peopleNavSectionStartsOpen(sectionKey, active, forceOpen));
+  }, [pathname, forceOpen, peopleSection, sectionKey, active]);
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger
+        data-expanded={open ? "true" : undefined}
+        className={cn("group/section", triggerClassName)}
+      >
+        <span className="min-w-0 flex-1 truncate text-start">{label}</span>
+        <ChevronDown
+          className="nav-flyout-row__chevron transition-transform group-data-[state=open]/section:rotate-180 motion-reduce:transition-none"
+          aria-hidden
+        />
+      </CollapsibleTrigger>
+      <CollapsibleContent>{children}</CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+function FlyoutLinkItems({
   links,
   pathname,
   t,
@@ -499,32 +709,83 @@ function FlyoutLinkList({
   onNavigate?: () => void;
 }) {
   return (
-    <ul className="space-y-0.5 p-1.5">
+    <ul className="nav-flyout-list">
       {links.map((link) => {
         const Icon = link.icon;
         const active = isFlyoutLinkActive(link, pathname);
         return (
-          <li key={link.href}>
+          <li key={`${link.labelKey}:${link.href}`}>
+            <ItemDragRow item={link}>
             <Link
               href={link.href}
               prefetch
               onClick={onNavigate}
               onMouseEnter={() => prefetchRoute(link.href)}
-              className={cn(
-                "flex items-center gap-2.5 rounded-full px-3 py-2 text-sm transition-colors",
-                active
-                  ? "bg-primary text-primary-foreground shadow-elevated-xs"
-                  : "text-foreground/80 hover:bg-secondary hover:text-foreground",
-              )}
+              aria-current={active ? "page" : undefined}
+              className="nav-flyout-row"
             >
-              <Icon className="h-4 w-4 shrink-0 stroke-[1.5] opacity-80" aria-hidden />
-              <span className="min-w-0 flex-1 leading-snug font-medium">{t(link.labelKey)}</span>
+              <Icon className="nav-flyout-row__icon" aria-hidden />
+              <span className="nav-flyout-row__label">{t(link.labelKey)}</span>
             </Link>
+            </ItemDragRow>
           </li>
         );
       })}
     </ul>
   );
+}
+
+function FlyoutLinkList({
+  links,
+  pathname,
+  t,
+  prefetchRoute,
+  onNavigate,
+  dragBucket,
+  embedded,
+}: {
+  links: RailFlyoutLink[];
+  pathname: string;
+  t: (key: string) => string;
+  prefetchRoute: (href: string) => void;
+  onNavigate?: () => void;
+  dragBucket?: string;
+  /** Parent already provides the flyout column, so sections are not wrapped again. */
+  embedded?: boolean;
+}) {
+  const blocks = clusterItemsBySection(links);
+  const body = (
+    <div className={embedded ? "contents" : "nav-flyout-body"}>
+      {blocks.map((block) => {
+        const items = (
+          <FlyoutLinkItems
+            links={block.items}
+            pathname={pathname}
+            t={t}
+            prefetchRoute={prefetchRoute}
+            onNavigate={onNavigate}
+          />
+        );
+        if (!block.sectionKey) {
+          return <div key={`plain:${block.items[0]?.href}`}>{items}</div>;
+        }
+        return (
+          <CollapsibleNavSection
+            key={block.sectionKey}
+            label={t(block.sectionKey)}
+            sectionKey={block.sectionKey}
+            pathname={pathname}
+            active={block.items.some((link) => isFlyoutLinkActive(link, pathname))}
+            triggerClassName="nav-flyout-section"
+          >
+            {items}
+          </CollapsibleNavSection>
+        );
+      })}
+    </div>
+  );
+  if (!dragBucket) return body;
+  return <ItemDragBucket bucket={dragBucket}>{body}</ItemDragBucket>;
 }
 
 /** Parent → indented children for department flyouts (HR Time & Attendance, etc.). */
@@ -535,6 +796,7 @@ function DepartmentFlyoutTree({
   prefetchRoute,
   onNavigate,
   compact,
+  flyout,
 }: {
   department: VisibleNavDepartment;
   pathname: string;
@@ -542,8 +804,10 @@ function DepartmentFlyoutTree({
   prefetchRoute: (href: string) => void;
   onNavigate?: () => void;
   compact?: boolean;
+  flyout?: boolean;
 }) {
   const tree = useMemo(() => getDepartmentFlyoutTree(department), [department]);
+  const sectionedItems = tree.items.some((item) => item.sectionKey);
 
   if (tree.groups.length === 0) {
     return (
@@ -553,16 +817,30 @@ function DepartmentFlyoutTree({
         t={t}
         prefetchRoute={prefetchRoute}
         onNavigate={onNavigate}
+        dragBucket={department.id}
       />
     );
   }
 
   return (
-    <div className={cn("space-y-1", compact ? "p-1" : "p-1.5")}>
-      {tree.items.length > 0 && (
-        <ul className="space-y-0.5 pb-1">
+    <div className={cn(flyout ? "nav-flyout-body" : cn("space-y-1", compact ? "p-1" : "p-1.5"))}>
+      {tree.items.length > 0 && sectionedItems ? (
+        <FlyoutLinkList
+          links={tree.items.map((item) => ({ ...item, fromGroup: false }))}
+          pathname={pathname}
+          t={t}
+          prefetchRoute={prefetchRoute}
+          onNavigate={onNavigate}
+          dragBucket={department.id}
+          embedded={flyout}
+        />
+      ) : null}
+      {tree.items.length > 0 && !sectionedItems ? (
+        <ItemDragBucket bucket={department.id}>
+        <ul className={flyout ? "nav-flyout-list" : "space-y-0.5 pb-1"}>
           {tree.items.map((item) => (
-            <li key={item.href}>
+            <li key={`${item.labelKey}:${item.href}`}>
+              <ItemDragRow item={item}>
               <NavLinkRow
                 item={item}
                 pathname={pathname}
@@ -570,12 +848,16 @@ function DepartmentFlyoutTree({
                 prefetchRoute={prefetchRoute}
                 onNavigate={onNavigate}
                 compact={compact}
+                flyout={flyout}
               />
+              </ItemDragRow>
             </li>
           ))}
         </ul>
-      )}
+        </ItemDragBucket>
+      ) : null}
       {tree.groups.map((group) => (
+        <ItemDragBucket key={group.id} bucket={`${department.id}:${group.id}`}>
         <SidebarNavGroupSection
           key={group.id}
           group={group}
@@ -584,7 +866,9 @@ function DepartmentFlyoutTree({
           prefetchRoute={prefetchRoute}
           onNavigate={onNavigate}
           compact={compact}
+          flyout={flyout}
         />
+        </ItemDragBucket>
       ))}
     </div>
   );
@@ -613,7 +897,14 @@ function RailIconWithFlyout({
   const label = t(item.labelKey);
   const groupLabel = department ? t(department.labelKey) : label;
   const { i18n } = useTranslation();
-  const flyoutSide = i18n.dir() === "rtl" ? "left" : "right";
+  const isRtl = i18n.dir() === "rtl";
+  const flyoutSide = isRtl ? "left" : "right";
+  // Collapsed rail is 3.75rem with a 2.75rem icon. 20px offset clears that rail.
+  const flyoutSideOffset = 20;
+  const railGuard = 88;
+  const flyoutCollisionPadding = isRtl
+    ? { top: 16, right: railGuard, bottom: 16, left: 16 }
+    : { top: 16, right: 16, bottom: 16, left: railGuard };
   const links = useMemo(
     () => (department ? getDepartmentFlyoutLinks(department) : []),
     [department],
@@ -626,7 +917,11 @@ function RailIconWithFlyout({
   const hasFlyout = links.length > 0;
   // Only stay open while browsing (hover/click). Navigating must collapse —
   // do not keep the tree open just because the route is under this module.
-  const showInlineTree = expanded && department && hasGroups && open;
+  const showInlineTree =
+    expanded &&
+    department &&
+    open &&
+    (hasGroups || (department.id === "people" && links.length > 0));
 
   const clearClose = useCallback(() => {
     if (closeTimer.current) {
@@ -696,12 +991,16 @@ function RailIconWithFlyout({
               else openFlyout();
             }}
             className={cn(
-              expanded && "h-10 w-full justify-start px-2.5",
-              open && !moduleActive && "bg-sidebar-accent text-sidebar-accent-foreground",
+              expanded && "h-auto min-h-11 w-full justify-start gap-2.5 px-3",
+              open &&
+                !moduleActive &&
+                "bg-sidebar-accent text-sidebar-accent-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
             )}
           >
             <Icon className="h-[18px] w-[18px] stroke-[1.5]" />
-            {expanded ? <span className="truncate">{groupLabel}</span> : null}
+            {expanded ? (
+              <span className="min-w-0 flex-1 whitespace-normal text-start text-sm leading-5">{groupLabel}</span>
+            ) : null}
           </Button>
         </PopoverTrigger>
 
@@ -709,28 +1008,24 @@ function RailIconWithFlyout({
           <PopoverContent
             side={flyoutSide}
             align="start"
-            sideOffset={10}
-            collisionPadding={12}
+            sideOffset={flyoutSideOffset}
+            collisionPadding={flyoutCollisionPadding}
+            dir={isRtl ? "rtl" : "ltr"}
             onOpenAutoFocus={(e) => e.preventDefault()}
             onCloseAutoFocus={(e) => e.preventDefault()}
             onMouseEnter={clearClose}
             onMouseLeave={scheduleClose}
             role="menu"
             aria-label={groupLabel}
-            className={cn(
-              FLYOUT_Z,
-              hasGroups ? "w-[17.5rem]" : "w-[16.5rem]",
-              "border-border/80 bg-popover p-0 text-popover-foreground shadow-elevated-md",
-              "rounded-[1.5rem] outline-none",
-            )}
+            className="nav-rail-flyout w-[19rem] max-w-[calc(100vw-6.5rem)] border-sidebar-border bg-popover p-0 text-popover-foreground shadow-elevated-md outline-none"
           >
-            <div className="border-b border-border/70 bg-surface-2/90 px-3.5 py-2.5">
-              <p className="section-kicker uppercase tracking-wide">{t("nav.subFeatures")}</p>
-              <p className="mt-0.5 text-sm font-semibold leading-snug text-foreground">
-                {groupLabel}
-              </p>
+            <div className="nav-rail-flyout__titlebar">
+              <p className="nav-rail-flyout__title">{groupLabel}</p>
             </div>
-            <div className="max-h-[min(70vh,32rem)] overflow-y-auto overscroll-contain">
+            <div
+              className="nav-rail-flyout__scroll"
+              onDragStartCapture={() => clearClose()}
+            >
               {department && hasGroups ? (
                 <DepartmentFlyoutTree
                   department={department}
@@ -738,6 +1033,7 @@ function RailIconWithFlyout({
                   t={t}
                   prefetchRoute={prefetchRoute}
                   onNavigate={closeAfterNavigate}
+                  flyout
                 />
               ) : (
                 <FlyoutLinkList
@@ -746,6 +1042,7 @@ function RailIconWithFlyout({
                   t={t}
                   prefetchRoute={prefetchRoute}
                   onNavigate={closeAfterNavigate}
+                  dragBucket={department?.id}
                 />
               )}
             </div>
@@ -754,14 +1051,14 @@ function RailIconWithFlyout({
       </Popover>
 
       {showInlineTree && department ? (
-        <div className="ms-1 max-h-[min(50vh,22rem)] overflow-y-auto border-s border-border/60 ps-1.5">
+        <div className="nav-rail-inline">
           <DepartmentFlyoutTree
             department={department}
             pathname={pathname}
             t={t}
             prefetchRoute={prefetchRoute}
             onNavigate={closeAfterNavigate}
-            compact
+            flyout
           />
         </div>
       ) : null}
@@ -810,7 +1107,7 @@ function ModuleSubsSheet({
               t={t}
               prefetchRoute={prefetchRoute}
               onNavigate={() => onOpenChange(false)}
-              compact
+              flyout
             />
           ) : (
             <FlyoutLinkList
@@ -819,11 +1116,59 @@ function ModuleSubsSheet({
               t={t}
               prefetchRoute={prefetchRoute}
               onNavigate={() => onOpenChange(false)}
+              dragBucket={department?.id}
             />
           )}
         </div>
       </SheetContent>
     </Sheet>
+  );
+}
+
+function ReportingManagerRail({
+  items,
+  pathname,
+  t,
+  expanded,
+}: {
+  items: NavItem[];
+  pathname: string;
+  t: (key: string) => string;
+  expanded: boolean;
+}) {
+  if (items.length === 0) return null;
+  return (
+    <div className="mb-2 flex w-full flex-col items-center gap-0.5">
+      {items.map((item) => {
+        const Icon = item.icon;
+        const label = t(item.labelKey);
+        const active =
+          isNavItemActive(item.href, pathname) || (item.href === "/hr/me" && (pathname === "/" || pathname === "/hr/me"));
+        return (
+          <Link
+            key={item.href}
+            href={item.href}
+            title={label}
+            aria-label={label}
+            aria-current={active ? "page" : undefined}
+            className={cn(
+              "flex h-11 items-center gap-2.5 rounded-full text-sm",
+              expanded
+                ? "w-11 justify-center lg:w-full lg:justify-start lg:px-2.5"
+                : "w-11 justify-center",
+              active
+                ? "bg-primary font-semibold text-primary-foreground shadow-elevated-xs"
+                : "text-muted-foreground hover:bg-secondary/80 hover:text-foreground",
+            )}
+          >
+            <Icon className="h-4 w-4 shrink-0 stroke-[1.5]" />
+            <span className={cn("truncate", expanded ? "hidden lg:inline" : "sr-only")}>
+              {label}
+            </span>
+          </Link>
+        );
+      })}
+    </div>
   );
 }
 
@@ -907,7 +1252,11 @@ export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const roles = useUserRoles();
-  const employeeHome = isEmployeeHomeAudience(roles);
+  const { roles: roleRows } = useAuth();
+  const canReorder = canReorderSidebarNav(roleRows);
+  const { order, itemOrders, save, saveItems } = useSidebarNavOrder();
+  const { hasDirectReports } = useHasDirectReports();
+  const showMyDay = showsMyDayNav(roles, hasDirectReports);
   const { t, i18n } = useTranslation();
   const isRtl = i18n.dir() === "rtl";
   const [moreOpen, setMoreOpen] = useState(false);
@@ -921,24 +1270,58 @@ export function AppSidebar() {
 
   const prefetchRoute = useCallback(
     (href: string) => {
-      if (SIDEBAR_HEAVY_ROUTES.has(href) || SIDEBAR_HEAVY_ROUTES.has(href.split("?")[0] ?? href)) {
-        return;
-      }
-      router.prefetch(href);
+      const path = (href.split("#")[0] ?? href).split("?")[0] || "/";
+      if (SIDEBAR_HEAVY_ROUTES.has(path)) return;
+      router.prefetch(path);
     },
     [router],
   );
 
+  const moveDepartment = useCallback(
+    (activeId: string, overId: string) => {
+      if (activeId.startsWith("nav-item:")) return;
+      const next = moveNavDepartment(order, activeId, overId);
+      void save(next).catch((error: Error) => toast.error(error.message));
+    },
+    [order, save],
+  );
+  const moveItem = useCallback(
+    (bucket: string, activeKey: string, overKey: string) => {
+      const next = moveNavItem(itemOrders, bucket, activeKey, overKey);
+      void saveItems(next).catch((error: Error) => toast.error(error.message));
+    },
+    [itemOrders, saveItems],
+  );
   const primary = useMemo(() => {
-    const rail = getPrimaryRailNav(roles);
+    const rail = orderPrimaryRail(getPrimaryRailNav(roles), order);
     const seen = new Set<string>();
     return rail.filter((item) => {
       if (seen.has(item.departmentId)) return false;
       seen.add(item.departmentId);
       return true;
     });
-  }, [roles]);
-  const departments = useMemo(() => getVisibleDepartments(roles), [roles]);
+  }, [order, roles]);
+  const departments = useMemo(
+    () =>
+      applySidebarItemOrder(
+        orderDepartments(mergeReportingManagerDepartments(getVisibleDepartments(roles), hasDirectReports), order),
+        itemOrders,
+      ),
+    [hasDirectReports, itemOrders, order, roles],
+  );
+  const managerRail = useMemo(
+    () => reportingManagerRailItems(hasDirectReports, new Set(primary.map((item) => item.departmentId))),
+    [hasDirectReports, primary],
+  );
+  const employeeFlat = useMemo(
+    () => (usesEmployeeFlatRail(roles, hasDirectReports) ? getEmployeeFlatRail(roles) : []),
+    [hasDirectReports, roles],
+  );
+  const pinnedEssentials = useMemo(
+    () => employeePinnedRailItems(roles, hasDirectReports, new Set(primary.map((item) => item.href))),
+    [hasDirectReports, primary, roles],
+  );
+  const railExtras = useMemo(() => [...managerRail, ...pinnedEssentials], [managerRail, pinnedEssentials]);
   const departmentsById = useMemo(
     () => new Map(departments.map((dept) => [dept.id, dept])),
     [departments],
@@ -986,8 +1369,8 @@ export function AppSidebar() {
   }, [primary, router]);
 
   return (
-    <>
-      {/* Tablet (md–lg) icon rail + desktop (lg+) expandable rail */}
+    <ItemDragScope enabled={canReorder} label={t("sidebarOrder.dragItem")} onMove={moveItem}>
+      {/* Phone uses the bottom nav. Tablet (md–lg) icon rail + desktop (lg+) expandable rail. */}
       <aside
         className={cn(
           "fixed z-40 hidden max-h-[calc(100dvh-1.5rem)] flex-col overflow-hidden md:flex",
@@ -1017,7 +1400,7 @@ export function AppSidebar() {
               <span className={cn(sidebarExpanded && "lg:hidden")}>F</span>
               {sidebarExpanded ? (
                 <span className="hidden lg:inline">
-                  <BitsShine text={t("app.name")} color="#ffffff" shineColor="#f5c518" speed={6} />
+                  <BitsShine text={t("app.name")} color="#ffffff" shineColor="#6d4aff" speed={6} />
                 </span>
               ) : null}
             </Link>
@@ -1039,6 +1422,25 @@ export function AppSidebar() {
               <span className="sr-only">{t("nav.expandMenu")}</span>
             )}
           </Button>
+          {canReorder ? (
+            <Link
+              href="/admin/sidebar#arrange-automatically"
+              title={t("sidebarOrder.arrangeAuto")}
+              aria-label={t("sidebarOrder.arrangeAuto")}
+              className={cn(
+                "mb-2 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-primary/40 bg-primary/10 text-foreground",
+                sidebarExpanded &&
+                  "lg:h-auto lg:w-full lg:justify-start lg:gap-2 lg:rounded-full lg:px-2.5 lg:py-2 lg:text-xs lg:font-semibold",
+              )}
+            >
+              <Sparkles className="h-4 w-4 shrink-0 stroke-[1.5]" aria-hidden />
+              {sidebarExpanded ? (
+                <span className="hidden min-w-0 truncate lg:inline">{t("sidebarOrder.arrangeAuto")}</span>
+              ) : (
+                <span className="sr-only">{t("sidebarOrder.arrangeAuto")}</span>
+              )}
+            </Link>
+          ) : null}
           <nav
             className={cn(
               "flex flex-col items-center",
@@ -1046,7 +1448,16 @@ export function AppSidebar() {
               sidebarExpanded && "lg:items-stretch lg:px-0",
             )}
           >
-            {employeeHome ? (
+            {employeeFlat.length > 0 ? (
+              <ReportingManagerRail
+                items={employeeFlat}
+                pathname={pathname}
+                t={t}
+                expanded={sidebarExpanded}
+              />
+            ) : (
+              <>
+            {showMyDay ? (
               <EmployeeSectionRail
                 roles={roles}
                 pathname={pathname}
@@ -1054,6 +1465,12 @@ export function AppSidebar() {
                 expanded={sidebarExpanded}
               />
             ) : null}
+            <ReportingManagerRail
+              items={railExtras}
+              pathname={pathname}
+              t={t}
+              expanded={sidebarExpanded}
+            />
             {primary.map((item) => {
               const department = departmentsById.get(item.departmentId) ?? null;
               const moduleActive = department ? isDepartmentActive(department, pathname) : false;
@@ -1076,22 +1493,31 @@ export function AppSidebar() {
                     </Button>
                   </div>
                   <div className="hidden lg:block">
-                    <RailIconWithFlyout
-                      item={item}
-                      pathname={pathname}
-                      department={department}
-                      t={t}
-                      prefetchRoute={prefetchRoute}
-                      openId={flyoutId}
-                      setOpenId={setFlyoutId}
-                      expanded={sidebarExpanded}
-                    />
+                    <NavDragRow
+                      id={item.departmentId}
+                      enabled={canReorder && sidebarExpanded}
+                      label={t("sidebarOrder.drag")}
+                      onMove={moveDepartment}
+                    >
+                      <RailIconWithFlyout
+                        item={item}
+                        pathname={pathname}
+                        department={department}
+                        t={t}
+                        prefetchRoute={prefetchRoute}
+                        openId={flyoutId}
+                        setOpenId={setFlyoutId}
+                        expanded={sidebarExpanded}
+                      />
+                    </NavDragRow>
                   </div>
                 </div>
               );
             })}
+              </>
+            )}
           </nav>
-          {hasOverflow && (
+          {employeeFlat.length === 0 && hasOverflow && (
             <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
               <SheetTrigger asChild>
                 <Button
@@ -1125,6 +1551,8 @@ export function AppSidebar() {
                     t={t}
                     prefetchRoute={prefetchRoute}
                     onNavigate={() => setMoreOpen(false)}
+                    canDrag={canReorder}
+                    onMove={moveDepartment}
                   />
                 </div>
               </SheetContent>
@@ -1146,6 +1574,6 @@ export function AppSidebar() {
           }}
         />
       )}
-    </>
+    </ItemDragScope>
   );
 }

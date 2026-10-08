@@ -4,18 +4,24 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { recalculateAttendanceRange } from "@/lib/attendance-hr/process";
 import {
   approverUserIdsForStep,
+  canCorrectStaffPunch,
+  canRequestAttendanceCorrection,
   canUserActOnCorrection,
   correctionIdsForReview,
+  correctionStepSeed,
+  employeeHomeCorrectionRows,
   correctionVisibleToUser,
   isHeadOfOperationsTitle,
   isSiteSupervisorTitle,
-  lineManagerUserIds,
-  missedPunchApprovalSteps,
   missedPunchCopiesExecutives,
+  managerTeamCorrectionNote,
   missedPunchRequestSide,
   nextMissedPunchStep,
   punchAtFromCorrectionValue,
+  punchCorrectionRequestSide,
+  punchCorrectionRoute,
   punchTypeFromCorrectionValue,
+  requesterLineManagerUserIds,
   type ApprovalDirectory,
   type CorrectionApprovalView,
   type MissedPunchQueue,
@@ -23,6 +29,7 @@ import {
 } from "@/lib/attendance-hr/missed-punch-approval";
 import { notifyUsers } from "@/lib/notifications/action-notify";
 import { canUserDo, type AppRole } from "@/lib/rbac";
+import { loadDirectReportStaffIds, loadReportingTreeStaffIds } from "@/lib/reporting-manager-access.server";
 import { ForbiddenError } from "@/lib/server/authorize";
 
 type CorrectionRow = {
@@ -79,13 +86,55 @@ function asStep(value: string | null | undefined): MissedPunchStepRole | null {
   return null;
 }
 
-function toView(row: CorrectionRow): CorrectionApprovalView {
+function toView(row: CorrectionRow, requesterStaffId?: string | null): CorrectionApprovalView {
   return {
     status: String(row.status),
     currentStepRole: asStep(row.current_step_role),
     locationId: String(row.location_id),
     staffId: row.staff_id ? String(row.staff_id) : null,
     requestedBy: String(row.requested_by),
+    requesterStaffId: requesterStaffId ?? null,
+  };
+}
+
+async function loadCallerRoles(userId: string): Promise<AppRole[]> {
+  const { data, error } = await supabaseAdmin.from("user_roles").select("role").eq("user_id", userId);
+  if (error) throw error;
+  return (data ?? []).map((row) => row.role as AppRole);
+}
+
+async function staffIdByUserId(userIds: string[]): Promise<Map<string, string>> {
+  const ids = [...new Set(userIds.filter(Boolean))];
+  const map = new Map<string, string>();
+  if (!ids.length) return map;
+  const { data, error } = await supabaseAdmin
+    .from("staff")
+    .select("id, user_id")
+    .in("user_id", ids)
+    .is("deleted_at", null);
+  if (error) throw error;
+  for (const row of data ?? []) {
+    if (row.user_id && row.id) map.set(String(row.user_id), String(row.id));
+  }
+  return map;
+}
+
+async function callerCorrectionAccess(userId: string) {
+  const [roles, reports, reportingTreeStaffIds] = await Promise.all([
+    loadCallerRoles(userId),
+    loadDirectReportStaffIds(userId),
+    loadReportingTreeStaffIds(userId),
+  ]);
+  return {
+    roles,
+    staffId: reports.staffId,
+    directReportStaffIds: reports.directReportStaffIds,
+    /** Direct reports and everyone who reports through them. */
+    teamStaffIds: [...new Set([...reports.directReportStaffIds, ...reportingTreeStaffIds])],
+    canRequest: canRequestAttendanceCorrection({
+      roles,
+      hasDirectReports: reports.directReportStaffIds.length > 0,
+    }),
   };
 }
 
@@ -296,6 +345,8 @@ export async function listMissedPunchCorrections(args: {
   queue?: MissedPunchQueue;
   locationId?: string | null;
   status?: string | null;
+  /** When set, return only corrections this user can approve. Used by the employee home. */
+  actionableOnly?: boolean;
 }): Promise<MissedPunchQueueRow[]> {
   const queue = args.queue ?? "waiting";
   const access = await loadCallerAccess(args.userId);
@@ -331,7 +382,12 @@ export async function listMissedPunchCorrections(args: {
     if (error) throw error;
     rows = (data ?? []) as CorrectionRow[];
   }
-  const directory = await loadMissedPunchDirectory(rows.map((row) => row.staff_id).filter((id): id is string => Boolean(id)));
+  const requesterStaff = await staffIdByUserId(rows.map((row) => String(row.requested_by)));
+  const directory = await loadMissedPunchDirectory([
+    ...rows.map((row) => row.staff_id).filter((id): id is string => Boolean(id)),
+    ...requesterStaff.values(),
+  ]);
+  const viewOf = (row: CorrectionRow) => toView(row, requesterStaff.get(String(row.requested_by)) ?? null);
   const visible = rows.filter((row) =>
     correctionVisibleToUser({
       queue,
@@ -340,7 +396,7 @@ export async function listMissedPunchCorrections(args: {
       viewAll: access.viewAll,
       canSeeLocation: access.canSeeLocation,
       directory,
-      row: toView(row),
+      row: viewOf(row),
       observeExecutiveSteps: access.observeExecutiveSteps,
     }),
   );
@@ -359,9 +415,10 @@ export async function listMissedPunchCorrections(args: {
       { full_name: (row.full_name as string | null) ?? null, employee_code: (row.employee_code as string | null) ?? null },
     ]),
   );
-  return visible.map((row) =>
-    mapQueueRow(row, steps, staffById, actorNames, canUserActOnCorrection(directory, args.userId, toView(row))),
+  const mapped = visible.map((row) =>
+    mapQueueRow(row, steps, staffById, actorNames, canUserActOnCorrection(directory, args.userId, viewOf(row))),
   );
+  return args.actionableOnly ? employeeHomeCorrectionRows(mapped) : mapped;
 }
 
 export async function countVisiblePendingCorrections(userId: string, locationId?: string | null): Promise<number> {
@@ -462,7 +519,10 @@ export async function submitMissedPunchRequest(args: {
   punchType: "in" | "out";
   punchTime: string;
   reason: string;
-}): Promise<{ id: string; approverCount: number; locationId: string }> {
+  /** Other clocks on this same form, so the HR note can list punch-in and punch-out together. */
+  requestedPunchIn?: string | null;
+  requestedPunchOut?: string | null;
+}): Promise<{ id: string; approverCount: number; locationId: string; routedTo: "line_manager" | "hr" }> {
   const { data: staff, error: staffErr } = await supabaseAdmin
     .from("staff")
     .select("id, full_name, user_id, location_id")
@@ -478,19 +538,31 @@ export async function submitMissedPunchRequest(args: {
     .eq("id", args.summaryId)
     .maybeSingle();
   if (sumErr) throw sumErr;
-  if (!summary || summary.staff_id !== staff.id) {
-    throw new ForbiddenError("You can only request a correction for your own attendance.");
+  if (!summary?.staff_id) throw new Error("This day is not a missed punch.");
+  const access = await callerCorrectionAccess(args.userId);
+  const targetStaffId = String(summary.staff_id);
+  const isSelf = targetStaffId === String(staff.id);
+  const route = punchCorrectionRoute({
+    requesterStaffId: String(staff.id),
+    targetStaffId,
+    teamStaffIds: access.teamStaffIds,
+  });
+  if (route == null || (!isSelf && (!access.canRequest || route !== "hr"))) {
+    throw new ForbiddenError("You can only request a correction for yourself or someone who reports to you.");
   }
 
   const hasIn = Boolean(summary.actual_in);
   const hasOut = Boolean(summary.actual_out);
-  const side = missedPunchRequestSide({
+  const day = {
     missedPunch: Boolean(summary.missed_punch),
     status: String(summary.status ?? ""),
     hasIn,
     hasOut,
-  });
-  if (!side) throw new Error("This day is not a missed punch.");
+  };
+  const side = access.canRequest ? punchCorrectionRequestSide(day) : missedPunchRequestSide(day);
+  if (!side) {
+    throw new Error(access.canRequest ? "This day has no punch to correct." : "This day is not a missed punch.");
+  }
 
   const { data: existing, error: existingErr } = await supabaseAdmin
     .from("attendance_corrections")
@@ -515,28 +587,56 @@ export async function submitMissedPunchRequest(args: {
 
   const workDate = String(summary.work_date).slice(0, 10);
   const punchAt = `${workDate}T${args.punchTime}:00+03:00`;
+  const managerName = String(staff.full_name ?? "").trim() || "The manager";
+  const requestedPunchIn = args.requestedPunchIn ?? (args.punchType === "in" ? args.punchTime : null);
+  const requestedPunchOut = args.requestedPunchOut ?? (args.punchType === "out" ? args.punchTime : null);
+  const approvalNote =
+    route === "hr"
+      ? managerTeamCorrectionNote({
+          managerName,
+          requestedPunchIn,
+          requestedPunchOut,
+          previousPunchIn: summary.actual_in ? String(summary.actual_in) : null,
+          previousPunchOut: summary.actual_out ? String(summary.actual_out) : null,
+        })
+      : null;
+  const typedReason = args.reason.trim();
+  const reason = approvalNote
+    ? [typedReason.length >= 3 ? typedReason : null, approvalNote].filter(Boolean).join(" ")
+    : typedReason.length >= 3
+      ? typedReason
+      : "Missed punch request";
+  const now = new Date().toISOString();
   const { data: created, error: insErr } = await supabaseAdmin
     .from("attendance_corrections")
     .insert({
       location_id: summary.location_id,
-      staff_id: staff.id,
+      staff_id: summary.staff_id,
       work_date: workDate,
       summary_id: summary.id,
       kind: "add_punch",
       original_value: {
         actual_in: summary.actual_in,
         actual_out: summary.actual_out,
-        missed_punch: true,
+        missed_punch: Boolean(summary.missed_punch),
       },
       new_value: {
         punch_at: punchAt,
         punch_type: args.punchType,
         missed_punch_request: true,
+        ...(approvalNote
+          ? {
+              manager_requested_and_approved: true,
+              requested_punch_in: requestedPunchIn,
+              requested_punch_out: requestedPunchOut,
+            }
+          : {}),
       },
-      reason: args.reason.trim().length >= 3 ? args.reason.trim() : "Missed punch request",
+      reason,
+      review_note: approvalNote,
       requested_by: args.userId,
       status: "pending",
-      current_step_role: "manager",
+      current_step_role: route === "hr" ? "hr" : "manager",
     })
     .select("id")
     .single();
@@ -545,23 +645,59 @@ export async function submitMissedPunchRequest(args: {
   const { data: stepRows, error: stepErr } = await supabaseAdmin
     .from("attendance_correction_approvals")
     .insert(
-      missedPunchApprovalSteps().map((step) => ({
+      correctionStepSeed(route).map((step) => ({
         correction_id: created.id,
         step_order: step.stepOrder,
         step_role: step.stepRole,
-        status: "pending",
+        status: step.status,
+        acted_by: step.status === "approved" ? args.userId : null,
+        acted_at: step.status === "pending" ? null : now,
+        comments: step.status === "pending" ? null : approvalNote,
       })),
     )
     .select("id, step_role");
   if (stepErr) throw stepErr;
 
-  const directory = await loadMissedPunchDirectory([staff.id]);
-  const managers = lineManagerUserIds(directory, summary.location_id as string, staff.id).filter(
-    (id) => id !== args.userId,
-  );
+  const directory = await loadMissedPunchDirectory([staff.id as string, targetStaffId]);
+  let subjectName = managerName;
+  if (!isSelf) {
+    const { data: subject } = await supabaseAdmin.from("staff").select("full_name").eq("id", targetStaffId).maybeSingle();
+    if (subject?.full_name) subjectName = String(subject.full_name);
+  }
+  if (route === "hr") {
+    const hrIds = approverUserIdsForStep(directory, "hr", summary.location_id as string, targetStaffId).filter(
+      (id) => id !== args.userId,
+    );
+    const hrStepId = stepRows?.find((step) => step.step_role === "hr")?.id ?? created.id;
+    const hrTitle = "Punch correction waiting for HR";
+    const hrBody = `${managerName} requested and approved a punch correction for ${subjectName} on ${workDate}. ${approvalNote ?? ""}`.trim();
+    await notifyApprovers({
+      userIds: hrIds,
+      locationId: summary.location_id as string,
+      title: hrTitle,
+      body: hrBody,
+      sourceId: hrStepId,
+    });
+    return {
+      id: created.id as string,
+      approverCount: hrIds.length,
+      locationId: summary.location_id as string,
+      routedTo: "hr" as const,
+    };
+  }
+
+  const managers = requesterLineManagerUserIds(directory, {
+    locationId: summary.location_id as string,
+    staffId: targetStaffId,
+    requestedBy: args.userId,
+    requesterStaffId: staff.id as string,
+  });
   const managerStepId = stepRows?.find((step) => step.step_role === "manager")?.id ?? created.id;
-  const managerTitle = "Missed punch request";
-  const managerBody = `${staff.full_name} submitted a missed punch for ${workDate}. It is waiting for the site supervisor.`;
+  const replacing = hasIn && hasOut;
+  const managerTitle = replacing ? "Punch correction request" : "Missed punch request";
+  const managerBody = replacing
+    ? `${subjectName} needs a punch corrected for ${workDate}. It is waiting for their line manager.`
+    : `${subjectName} submitted a missed punch for ${workDate}. It is waiting for their line manager.`;
   await notifyApprovers({
     userIds: managers,
     locationId: summary.location_id as string,
@@ -578,7 +714,12 @@ export async function submitMissedPunchRequest(args: {
     correctionId: created.id as string,
     excludeUserId: args.userId,
   });
-  return { id: created.id as string, approverCount: managers.length, locationId: summary.location_id as string };
+  return {
+    id: created.id as string,
+    approverCount: managers.length,
+    locationId: summary.location_id as string,
+    routedTo: "line_manager" as const,
+  };
 }
 
 async function recalculateCorrectionDay(row: CorrectionRow) {
@@ -606,19 +747,53 @@ async function writeCorrectionPunch(row: CorrectionRow) {
     .filter("raw_payload->>correction_id", "eq", correctionId)
     .limit(1);
   if (findErr) throw findErr;
+  let keepLogId: string | null = existing?.[0]?.id ? String(existing[0].id) : null;
   if (!existing?.length) {
-    const { error } = await supabaseAdmin.from("attendance_logs").insert({
-      location_id: row.location_id,
-      staff_id: row.staff_id ?? null,
-      punch_at: punchAt,
-      punch_type: punchTypeOf(row.new_value) ?? "in",
-      source: "correction",
-      attendance_date: row.work_date ? String(row.work_date).slice(0, 10) : punchAt.slice(0, 10),
-      raw_payload: { correction_id: correctionId, reason: row.reason },
-    });
+    const { data: inserted, error } = await supabaseAdmin
+      .from("attendance_logs")
+      .insert({
+        location_id: row.location_id,
+        staff_id: row.staff_id ?? null,
+        punch_at: punchAt,
+        punch_type: punchTypeOf(row.new_value) ?? "in",
+        source: "correction",
+        attendance_date: row.work_date ? String(row.work_date).slice(0, 10) : punchAt.slice(0, 10),
+        raw_payload: { correction_id: correctionId, reason: row.reason },
+      })
+      .select("id")
+      .single();
     if (error) throw error;
+    keepLogId = inserted?.id ? String(inserted.id) : null;
   }
+  await excludeReplacedPunch(row, keepLogId);
   await recalculateCorrectionDay(row);
+}
+
+/** Drop the clock this request replaces so a wrong punch does not stay as check-in or check-out. */
+async function excludeReplacedPunch(row: CorrectionRow, keepLogId: string | null) {
+  const punchType = punchTypeOf(row.new_value);
+  const original = (row.original_value ?? {}) as Record<string, unknown>;
+  const previous = punchType === "in" ? original.actual_in : punchType === "out" ? original.actual_out : null;
+  if (typeof previous !== "string" || !previous.trim() || !row.staff_id || !row.work_date) return;
+  const previousMs = Date.parse(previous);
+  if (Number.isNaN(previousMs)) return;
+  const { data: logs, error } = await supabaseAdmin
+    .from("attendance_logs")
+    .select("id, punch_at")
+    .eq("staff_id", row.staff_id)
+    .eq("attendance_date", String(row.work_date).slice(0, 10))
+    .eq("excluded_from_calc", false);
+  if (error) throw error;
+  const ids = (logs ?? [])
+    .filter((log) => {
+      if (keepLogId && String(log.id) === keepLogId) return false;
+      const ms = Date.parse(String(log.punch_at));
+      return Number.isFinite(ms) && Math.abs(ms - previousMs) < 1500;
+    })
+    .map((log) => String(log.id));
+  if (!ids.length) return;
+  const { error: updateErr } = await supabaseAdmin.from("attendance_logs").update({ excluded_from_calc: true }).in("id", ids);
+  if (updateErr) throw updateErr;
 }
 
 async function removeCorrectionPunch(row: CorrectionRow) {
@@ -688,8 +863,13 @@ export async function reviewMissedPunchChain(args: {
   if (!step || row.status !== "pending") throw new Error("This request is not waiting for approval.");
   if (row.requested_by === args.userId) throw new ForbiddenError("You cannot approve your own correction.");
 
-  const directory = await loadMissedPunchDirectory(row.staff_id ? [row.staff_id] : []);
-  if (!canUserActOnCorrection(directory, args.userId, toView(row))) {
+  const requesterStaff = await staffIdByUserId([String(row.requested_by)]);
+  const requesterStaffId = requesterStaff.get(String(row.requested_by)) ?? null;
+  const directory = await loadMissedPunchDirectory(
+    [row.staff_id, requesterStaffId].filter((id): id is string => Boolean(id)),
+  );
+  const view = toView(row, requesterStaffId);
+  if (!canUserActOnCorrection(directory, args.userId, view)) {
     throw new ForbiddenError("This request is not waiting for you.");
   }
 
@@ -790,9 +970,10 @@ export async function reviewMissedPunchChain(args: {
     }
   }
 
-  const nextIds = approverUserIdsForStep(directory, next, String(row.location_id), row.staff_id).filter(
-    (id) => id !== row.requested_by && id !== args.userId,
-  );
+  const nextIds = approverUserIdsForStep(directory, next, String(row.location_id), row.staff_id, {
+    requestedBy: String(row.requested_by),
+    requesterStaffId,
+  }).filter((id) => id !== row.requested_by && id !== args.userId);
   const nextStep = (steps ?? []).find((item) => item.step_role === next);
   const { data: person } = row.staff_id
     ? await supabaseAdmin.from("staff").select("full_name").eq("id", row.staff_id).maybeSingle()
@@ -829,7 +1010,7 @@ export async function resubmitMissedPunchRequest(args: {
   correctionId: string;
   punchTime: string;
   reason: string;
-}): Promise<{ id: string; approverCount: number; locationId: string }> {
+}): Promise<{ id: string; approverCount: number; locationId: string; routedTo: "line_manager" | "hr" }> {
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(args.punchTime)) throw new Error("Enter a punch time.");
   const { data, error } = await supabaseAdmin
     .from("attendance_corrections")
@@ -853,20 +1034,73 @@ export async function resubmitMissedPunchRequest(args: {
   const punchType = punchTypeOf(row.new_value) ?? "in";
   const punchAt = `${workDate}T${args.punchTime}:00+03:00`;
   const previous = (row.new_value ?? {}) as Record<string, unknown>;
-  const reason = args.reason.trim().length >= 3 ? args.reason.trim() : "Missed punch request";
+  const original = (row.original_value ?? {}) as Record<string, unknown>;
+  const requesterStaff = await staffIdByUserId([args.userId]);
+  const requesterStaffId = requesterStaff.get(args.userId) ?? null;
+  const access = await callerCorrectionAccess(args.userId);
+  const targetStaffId = row.staff_id ? String(row.staff_id) : "";
+  const route =
+    punchCorrectionRoute({
+      requesterStaffId,
+      targetStaffId,
+      teamStaffIds: access.teamStaffIds,
+    }) ?? "line_manager";
+  const { data: requester } = await supabaseAdmin
+    .from("staff")
+    .select("full_name")
+    .eq("user_id", args.userId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  const managerName = String(requester?.full_name ?? "").trim() || "The manager";
+  const requestedPunchIn =
+    punchType === "in"
+      ? args.punchTime
+      : typeof previous.requested_punch_in === "string"
+        ? previous.requested_punch_in
+        : null;
+  const requestedPunchOut =
+    punchType === "out"
+      ? args.punchTime
+      : typeof previous.requested_punch_out === "string"
+        ? previous.requested_punch_out
+        : null;
+  const approvalNote =
+    route === "hr"
+      ? managerTeamCorrectionNote({
+          managerName,
+          requestedPunchIn,
+          requestedPunchOut,
+          previousPunchIn: typeof original.actual_in === "string" ? original.actual_in : null,
+          previousPunchOut: typeof original.actual_out === "string" ? original.actual_out : null,
+        })
+      : null;
+  const typedReason = args.reason.trim();
+  const reason = approvalNote
+    ? [typedReason.length >= 3 ? typedReason : null, approvalNote].filter(Boolean).join(" ")
+    : typedReason.length >= 3
+      ? typedReason
+      : "Missed punch request";
+  const now = new Date().toISOString();
   const { data: updated, error: updateErr } = await supabaseAdmin
     .from("attendance_corrections")
     .update({
       status: "pending",
-      current_step_role: "manager",
+      current_step_role: route === "hr" ? "hr" : "manager",
       reason,
       new_value: {
         ...previous,
         punch_at: punchAt,
         punch_type: punchType,
         missed_punch_request: true,
+        ...(approvalNote
+          ? {
+              manager_requested_and_approved: true,
+              requested_punch_in: requestedPunchIn,
+              requested_punch_out: requestedPunchOut,
+            }
+          : { manager_requested_and_approved: false }),
       },
-      review_note: null,
+      review_note: approvalNote,
       reviewed_by: null,
       reviewed_at: null,
     })
@@ -877,20 +1111,51 @@ export async function resubmitMissedPunchRequest(args: {
   if (updateErr) throw updateErr;
   if (!updated || updated.length !== 1) throw new Error("This request was already sent again.");
 
-  const { error: stepErr } = await supabaseAdmin
-    .from("attendance_correction_approvals")
-    .update({ status: "pending", acted_by: null, acted_at: null, comments: null })
-    .eq("correction_id", args.correctionId);
-  if (stepErr && !/does not exist|schema cache|relation/i.test(stepErr.message)) throw stepErr;
+  for (const step of correctionStepSeed(route)) {
+    const { error: stepErr } = await supabaseAdmin
+      .from("attendance_correction_approvals")
+      .update({
+        status: step.status,
+        acted_by: step.status === "approved" ? args.userId : null,
+        acted_at: step.status === "pending" ? null : now,
+        comments: step.status === "pending" ? null : approvalNote,
+      })
+      .eq("correction_id", args.correctionId)
+      .eq("step_role", step.stepRole);
+    if (stepErr && !/does not exist|schema cache|relation/i.test(stepErr.message)) throw stepErr;
+  }
 
   const { data: staff } = row.staff_id
     ? await supabaseAdmin.from("staff").select("id, full_name").eq("id", row.staff_id).maybeSingle()
     : { data: null };
-  const directory = await loadMissedPunchDirectory(row.staff_id ? [row.staff_id] : []);
-  const managers = lineManagerUserIds(directory, String(row.location_id), row.staff_id).filter((id) => id !== args.userId);
+  const directory = await loadMissedPunchDirectory(
+    [row.staff_id, requesterStaffId].filter((id): id is string => Boolean(id)),
+  );
   const who = (staff?.full_name as string | null) ?? "Staff";
+  if (route === "hr") {
+    const hrIds = approverUserIdsForStep(directory, "hr", String(row.location_id), row.staff_id).filter(
+      (id) => id !== args.userId,
+    );
+    const hrTitle = "Punch correction waiting for HR";
+    const hrBody = `${managerName} requested and approved a punch correction for ${who} on ${workDate}. ${approvalNote ?? ""}`.trim();
+    await notifyApprovers({
+      userIds: hrIds,
+      locationId: String(row.location_id),
+      title: hrTitle,
+      body: hrBody,
+      sourceId: args.correctionId,
+    });
+    return { id: args.correctionId, approverCount: hrIds.length, locationId: String(row.location_id), routedTo: "hr" };
+  }
+
+  const managers = requesterLineManagerUserIds(directory, {
+    locationId: String(row.location_id),
+    staffId: row.staff_id ? String(row.staff_id) : null,
+    requestedBy: args.userId,
+    requesterStaffId,
+  });
   const managerTitle = "Missed punch request";
-  const managerBody = `${who} updated a missed punch for ${workDate}. It is waiting for the site supervisor.`;
+  const managerBody = `${who} updated a missed punch for ${workDate}. It is waiting for their line manager.`;
   await notifyApprovers({
     userIds: managers,
     locationId: String(row.location_id),
@@ -907,5 +1172,103 @@ export async function resubmitMissedPunchRequest(args: {
     correctionId: args.correctionId,
     excludeUserId: args.userId,
   });
-  return { id: args.correctionId, approverCount: managers.length, locationId: String(row.location_id) };
+  return {
+    id: args.correctionId,
+    approverCount: managers.length,
+    locationId: String(row.location_id),
+    routedTo: "line_manager",
+  };
+}
+
+export type PunchCorrectionSubject = {
+  staffId: string;
+  fullName: string;
+  employeeCode: string | null;
+  self: boolean;
+};
+
+export type PunchCorrectionDay = {
+  summaryId: string | null;
+  workDate: string;
+  actualIn: string | null;
+  actualOut: string | null;
+  status: string;
+  missedPunch: boolean;
+  correctable: boolean;
+};
+
+/** People this login may correct: themselves and everyone who reports to them, including through their team. */
+export async function listPunchCorrectionSubjects(userId: string): Promise<PunchCorrectionSubject[]> {
+  const access = await callerCorrectionAccess(userId);
+  if (!access.canRequest || !access.staffId) return [];
+  const ids = [access.staffId, ...access.teamStaffIds];
+  const { data, error } = await supabaseAdmin
+    .from("staff")
+    .select("id, full_name, employee_code")
+    .in("id", ids)
+    .is("deleted_at", null);
+  if (error) throw error;
+  return (data ?? [])
+    .map((row) => ({
+      staffId: String(row.id),
+      fullName: String(row.full_name ?? "Staff"),
+      employeeCode: row.employee_code ? String(row.employee_code) : null,
+      self: String(row.id) === access.staffId,
+    }))
+    .sort((a, b) => Number(b.self) - Number(a.self) || a.fullName.localeCompare(b.fullName));
+}
+
+/** One attendance day for a person this login may correct. */
+export async function findPunchCorrectionDay(args: {
+  userId: string;
+  staffId: string;
+  workDate: string;
+}): Promise<PunchCorrectionDay> {
+  const access = await callerCorrectionAccess(args.userId);
+  if (
+    !access.canRequest ||
+    !canCorrectStaffPunch({
+      requesterStaffId: access.staffId,
+      targetStaffId: args.staffId,
+      directReportStaffIds: access.teamStaffIds,
+    })
+  ) {
+    throw new ForbiddenError("You can only correct your own punches or punches for people who report to you.");
+  }
+  const { data, error } = await supabaseAdmin
+    .from("attendance_daily_summary")
+    .select("id, work_date, status, missed_punch, actual_in, actual_out")
+    .eq("staff_id", args.staffId)
+    .eq("work_date", args.workDate)
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) {
+    return {
+      summaryId: null,
+      workDate: args.workDate,
+      actualIn: null,
+      actualOut: null,
+      status: "",
+      missedPunch: false,
+      correctable: false,
+    };
+  }
+  const hasIn = Boolean(data.actual_in);
+  const hasOut = Boolean(data.actual_out);
+  return {
+    summaryId: String(data.id),
+    workDate: String(data.work_date).slice(0, 10),
+    actualIn: data.actual_in ? String(data.actual_in) : null,
+    actualOut: data.actual_out ? String(data.actual_out) : null,
+    status: String(data.status ?? ""),
+    missedPunch: Boolean(data.missed_punch),
+    correctable:
+      punchCorrectionRequestSide({
+        missedPunch: Boolean(data.missed_punch),
+        status: String(data.status ?? ""),
+        hasIn,
+        hasOut,
+      }) !== null,
+  };
 }

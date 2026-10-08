@@ -26,8 +26,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect, type SearchableSelectOption } from "@/components/ui/searchable-select";
 import { useSites } from "@/hooks/queries/useSites";
+import { useHasDirectReports } from "@/hooks/use-my-direct-reports";
+import { useUserRoles } from "@/hooks/use-auth";
+import {
+  attendanceListingIsCompanyWide,
+  attendanceMappingIsCompanyWide,
+  canMergeAttendanceMappings,
+  canSeeAttendanceMapping,
+} from "@/lib/attendance-listing-access";
 import {
   getAttendanceHrBootstrap,
+  getAttendanceMappingDirectory,
   listAttendanceHrMappings,
   mapAttendanceBiometricUser,
   mapAttendanceBiometricUsers,
@@ -128,6 +137,12 @@ const StaffSearchSelect = memo(function StaffSearchSelect({
 
 export default function AttendanceHrMappingPage() {
   const { t } = useTranslation();
+  const roles = useUserRoles();
+  const { hasDirectReports, isPending: reportsPending } = useHasDirectReports();
+  const companyWideMapper = attendanceMappingIsCompanyWide(roles);
+  const companyAttendance = attendanceListingIsCompanyWide(roles);
+  const canMap = canSeeAttendanceMapping(roles, hasDirectReports);
+  const canMerge = canMergeAttendanceMappings(roles, hasDirectReports);
   const locationId = useAppStore((s) => s.currentLocationId);
   const setCurrentLocationId = useAppStore((s) => s.setCurrentLocationId);
   const qc = useQueryClient();
@@ -139,37 +154,68 @@ export default function AttendanceHrMappingPage() {
   /** Only the open row builds the full staff option list (closed rows keep the selected label). */
   const [openRowId, setOpenRowId] = useState<string | null>(null);
   const { data: sites } = useSites();
-  const mappingQueryKey = queryKeys.people.attendanceHr({ view: "map", locationId });
   const attendanceHrRootKey = [...queryKeys.people.all, "attendance-hr"] as const;
   const bootstrap = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "bootstrap" }),
     queryFn: () => getAttendanceHrBootstrap(),
     staleTime: STALE.people,
+    enabled: companyAttendance,
+  });
+  const directoryEnabled = !companyWideMapper && (companyAttendance || (!reportsPending && canMap));
+  const directory = useQuery({
+    queryKey: queryKeys.people.attendanceHr({ view: "mapping-directory" }),
+    queryFn: () => getAttendanceMappingDirectory(),
+    staleTime: STALE.people,
+    enabled: directoryEnabled,
+  });
+  const teamDirectory = directory.data && !directory.data.companyWide ? directory.data : null;
+  const teamSiteIds = useMemo(() => {
+    if (companyAttendance || !teamDirectory) return null;
+    return new Set(teamDirectory.sites.map((site) => site.id));
+  }, [companyAttendance, teamDirectory]);
+  const mappingLocationId =
+    companyAttendance || !locationId ? locationId : teamSiteIds?.has(locationId) ? locationId : null;
+  const waitingForDirectory = directoryEnabled && directory.isPending;
+  const mappingQueryKey = queryKeys.people.attendanceHr({
+    view: "map",
+    locationId: mappingLocationId,
+    team: !companyWideMapper,
   });
   const q = useQuery({
     queryKey: mappingQueryKey,
-    queryFn: () => listAttendanceHrMappings({ locationId: locationId || null, unmatchedOnly: false }),
+    queryFn: () => listAttendanceHrMappings({ locationId: mappingLocationId || null, unmatchedOnly: false }),
     staleTime: STALE.people,
+    enabled: companyWideMapper || companyAttendance || (!reportsPending && canMap && !waitingForDirectory),
   });
   const locationOptions = useMemo(() => {
     const byCode = new Map<string, { id: string; code: string; name: string }>();
-    for (const site of sites ?? []) {
-      if (site.status === "active") {
+    if (!companyAttendance && teamDirectory) {
+      for (const site of teamDirectory.sites) {
+        if (site.status && site.status !== "active") continue;
         byCode.set(site.code, { id: site.id, code: site.code, name: site.name });
       }
-    }
-    for (const site of bootstrap.data?.sites ?? []) {
-      const loc = site.location as { id?: string; code?: string; name?: string; status?: string } | null;
-      if (!loc?.id || !loc.code || (loc.status && loc.status !== "active")) continue;
-      if (!byCode.has(loc.code)) {
-        byCode.set(loc.code, { id: loc.id, code: loc.code, name: loc.name ?? loc.code });
+    } else {
+      for (const site of sites ?? []) {
+        if (site.status === "active") {
+          byCode.set(site.code, { id: site.id, code: site.code, name: site.name });
+        }
+      }
+      for (const site of bootstrap.data?.sites ?? []) {
+        const loc = site.location as { id?: string; code?: string; name?: string; status?: string } | null;
+        if (!loc?.id || !loc.code || (loc.status && loc.status !== "active")) continue;
+        if (!byCode.has(loc.code)) {
+          byCode.set(loc.code, { id: loc.id, code: loc.code, name: loc.name ?? loc.code });
+        }
       }
     }
     const ordered = CANONICAL_LOCATION_CODES.flatMap((code) => {
       const loc = byCode.get(code);
       return loc ? [loc] : [];
     });
-    if (locationId) {
+    for (const loc of byCode.values()) {
+      if (!ordered.some((item) => item.id === loc.id)) ordered.push(loc);
+    }
+    if (companyAttendance && locationId) {
       const current =
         [...byCode.values()].find((loc) => loc.id === locationId) ??
         (sites ?? []).find((site) => site.id === locationId);
@@ -178,7 +224,7 @@ export default function AttendanceHrMappingPage() {
       }
     }
     return ordered;
-  }, [sites, bootstrap.data?.sites, locationId]);
+  }, [companyAttendance, teamDirectory, sites, bootstrap.data?.sites, locationId]);
   const headOfficeLocationId = useMemo(
     () => locationOptions.find((loc) => loc.code === "HO")?.id ?? null,
     [locationOptions],
@@ -196,7 +242,10 @@ export default function AttendanceHrMappingPage() {
   const rows = useMemo(() => (q.data ?? []) as unknown as MappingRow[], [q.data]);
   const mappedCount = rows.filter((row) => Boolean(row.staff_id)).length;
   const unmappedCount = rows.length - mappedCount;
-  const allStaff = useMemo(() => (bootstrap.data?.staff ?? []) as StaffOption[], [bootstrap.data?.staff]);
+  const allStaff = useMemo(() => {
+    if (companyWideMapper) return (bootstrap.data?.staff ?? []) as StaffOption[];
+    return (teamDirectory?.staff ?? []) as StaffOption[];
+  }, [companyWideMapper, bootstrap.data?.staff, teamDirectory]);
   const staffNameById = useMemo(() => {
     const map = new Map<string, string>();
     for (const s of allStaff) {
@@ -241,7 +290,7 @@ export default function AttendanceHrMappingPage() {
     const build = (loc: string | null): SearchableSelectOption[] => {
       const out: SearchableSelectOption[] = [];
       for (const s of allStaff) {
-        if (!staffEligibleForBiometricMap(s, loc, headOfficeLocationId)) continue;
+        if (companyWideMapper && !staffEligibleForBiometricMap(s, loc, headOfficeLocationId)) continue;
         const opt = staffOptionById.get(s.id);
         if (opt) out.push(opt);
       }
@@ -253,7 +302,7 @@ export default function AttendanceHrMappingPage() {
       map.set(loc, build(loc));
     }
     return map;
-  }, [allStaff, staffOptionById, rows, locationId, headOfficeLocationId]);
+  }, [allStaff, staffOptionById, rows, locationId, headOfficeLocationId, companyWideMapper]);
 
   // Unique exact name matches → draft selections so Save all can finish the queue.
   useEffect(() => {
@@ -488,7 +537,7 @@ export default function AttendanceHrMappingPage() {
   const anyBusy = Object.keys(busyIds).length > 0;
 
   const applyStaffChoice = (row: MappingRow, staffId: string) => {
-    if (busyIds[row.id]) return;
+    if (!canMerge || busyIds[row.id]) return;
     const saved = String(row.staff_id ?? "");
     if (staffId === saved) {
       clearRowDraft(row.id);
@@ -517,6 +566,25 @@ export default function AttendanceHrMappingPage() {
     </Button>
   );
 
+  if (!companyWideMapper && !companyAttendance && !reportsPending && !canMap) {
+    return (
+      <div className="space-y-6">
+        <FecPageHeader
+          icon={Users}
+          kicker={t("attendanceHr.mapping.kicker")}
+          title={t("attendanceHr.mapping.title")}
+          subtitle={t("attendanceHr.mapping.subtitle")}
+        />
+        <AttendanceHrNav />
+        <p className="text-sm text-muted-foreground">
+          {t("attendanceHr.mapping.teamOnly", {
+            defaultValue: "Attendance mapping is limited to your team.",
+          })}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <FecPageHeader
@@ -524,7 +592,11 @@ export default function AttendanceHrMappingPage() {
         kicker={t("attendanceHr.mapping.kicker")}
         title={t("attendanceHr.mapping.title")}
         subtitle={t("attendanceHr.mapping.subtitle")}
-        actions={<CapabilityGate capability="attendance.map_users">{renderSaveAllButton()}</CapabilityGate>}
+        actions={
+          <CapabilityGate capability="attendance.map_users" alsoAllow={canMerge}>
+            {renderSaveAllButton()}
+          </CapabilityGate>
+        }
       />
       <AttendanceHrNav />
 
@@ -537,8 +609,8 @@ export default function AttendanceHrMappingPage() {
           <div className="flex flex-wrap gap-2" role="group" aria-label={t("attendanceHr.mapping.location")}>
             <button
               type="button"
-              className={cn("filter-chip", !locationId && "filter-chip-active")}
-              aria-pressed={!locationId}
+              className={cn("filter-chip", !mappingLocationId && "filter-chip-active")}
+              aria-pressed={!mappingLocationId}
               onClick={() => setCurrentLocationId(null)}
             >
               {t("common.allLocations")}
@@ -550,8 +622,8 @@ export default function AttendanceHrMappingPage() {
                 key={site.id}
                 type="button"
                 title={label}
-                className={cn("filter-chip max-w-[18rem] truncate", locationId === site.id && "filter-chip-active")}
-                aria-pressed={locationId === site.id}
+                className={cn("filter-chip max-w-[18rem] truncate", mappingLocationId === site.id && "filter-chip-active")}
+                aria-pressed={mappingLocationId === site.id}
                 onClick={() => setCurrentLocationId(site.id)}
               >
                 {label}
@@ -613,7 +685,7 @@ export default function AttendanceHrMappingPage() {
       </NeumorphicCard>
 
       <NeumorphicCard className="overflow-x-auto p-0">
-        <CapabilityGate capability="attendance.map_users">
+        <CapabilityGate capability="attendance.map_users" alsoAllow={canMerge}>
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/50 px-4 py-3">
             <p className="text-xs text-muted-foreground">
               {t("attendanceHr.mapping.pendingCount", { count: pendingMaps.length })}
@@ -633,7 +705,7 @@ export default function AttendanceHrMappingPage() {
             </tr>
           </thead>
           <tbody>
-            {q.isLoading ? (
+            {q.isLoading || waitingForDirectory || (!companyWideMapper && !companyAttendance && reportsPending) ? (
               <tr>
                 <td className="px-4 py-6 text-center" colSpan={6}>
                   <FecLoader density="chip" label={t("common.loading")} />
@@ -689,13 +761,13 @@ export default function AttendanceHrMappingPage() {
                         value={selectedStaff}
                         options={optionsForRow(row, selectedStaff, open)}
                         openSearchSeed={!mapped && deviceName ? deviceName : null}
-                        disabled={busy}
+                        disabled={busy || !canMerge}
                         onOpenChange={(next) => setOpenRowId(next ? id : null)}
                         onChange={(staffId) => applyStaffChoice(row, staffId)}
                       />
                     </td>
                     <td className="px-4 py-2">
-                      <CapabilityGate capability="attendance.map_users">
+                      <CapabilityGate capability="attendance.map_users" alsoAllow={canMerge}>
                         <div className="flex flex-wrap items-center gap-2">
                           {busy ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
                           <Button

@@ -8,15 +8,24 @@ import {
   correctionIdsForReview,
   correctionPunchAccepted,
   correctionVisibleToUser,
+  employeeHomeCorrectionRows,
   isHeadOfOperationsTitle,
   missedPunchCopiesExecutives,
   isSiteSupervisorTitle,
   punchAtFromCorrectionValue,
   punchTimeInputValue,
+  canCorrectStaffPunch,
+  canRequestAttendanceCorrection,
+  correctionStepSeed,
+  correctionWaitingStep,
   lineManagerUserIds,
+  managerTeamCorrectionNote,
+  punchCorrectionRoute,
   missedPunchApprovalSteps,
   missedPunchRequestSide,
   nextMissedPunchStep,
+  punchCorrectionRequestSide,
+  requesterLineManagerUserIds,
   type ApprovalDirectory,
   type CorrectionApprovalView,
 } from "./missed-punch-approval";
@@ -283,6 +292,94 @@ describe("missed punch approval chain", () => {
     ).toBe(true);
   });
 
+  it("lets floor staff request their own correction, and lets managers request one for a team", () => {
+    expect(canRequestAttendanceCorrection({ roles: ["cashier_host"], hasDirectReports: false })).toBe(true);
+    expect(canRequestAttendanceCorrection({ roles: ["technician"], hasDirectReports: false })).toBe(true);
+    expect(canRequestAttendanceCorrection({ roles: ["customer_service"], hasDirectReports: false })).toBe(true);
+    expect(canRequestAttendanceCorrection({ roles: ["cashier_host"], hasDirectReports: true })).toBe(true);
+    expect(canRequestAttendanceCorrection({ roles: ["duty_manager"], hasDirectReports: false })).toBe(true);
+    expect(canRequestAttendanceCorrection({ roles: ["tech_supervisor"], hasDirectReports: false })).toBe(true);
+    expect(canRequestAttendanceCorrection({ roles: ["branch_gm"], hasDirectReports: false })).toBe(true);
+    expect(
+      canCorrectStaffPunch({
+        requesterStaffId: "supervisor-staff",
+        targetStaffId: "supervisor-staff",
+        directReportStaffIds: ["team-member"],
+      }),
+    ).toBe(true);
+    expect(
+      canCorrectStaffPunch({
+        requesterStaffId: "supervisor-staff",
+        targetStaffId: "team-member",
+        directReportStaffIds: ["team-member"],
+      }),
+    ).toBe(true);
+    expect(
+      canCorrectStaffPunch({
+        requesterStaffId: "supervisor-staff",
+        targetStaffId: "someone-else",
+        directReportStaffIds: ["team-member"],
+      }),
+    ).toBe(false);
+  });
+
+  it("allows a wrong punch-in and punch-out to be corrected when both clocks already exist", () => {
+    expect(punchCorrectionRequestSide({ missedPunch: false, status: "present", hasIn: true, hasOut: true })).toBe(
+      "either",
+    );
+    expect(missedPunchRequestSide({ missedPunch: false, status: "present", hasIn: true, hasOut: true })).toBeNull();
+    expect(punchCorrectionRequestSide({ missedPunch: false, status: "weekly_off", hasIn: false, hasOut: false })).toBeNull();
+  });
+
+  it("sends a manager's correction to their line manager, not the CEO", () => {
+    const supervisor = "supervisor-user";
+    const supervisorStaff = "supervisor-staff";
+    const lineManager = "line-manager-user";
+    const teamMember = "team-member";
+    const dir = directory({
+      reportingManagerUserIdByStaffId: new Map([
+        [teamMember, supervisor],
+        [supervisorStaff, lineManager],
+      ]),
+      headOfOperationsUserIds: [RAJAN],
+    });
+    const request = row({
+      staffId: teamMember,
+      requestedBy: supervisor,
+      requesterStaffId: supervisorStaff,
+    });
+    expect(
+      requesterLineManagerUserIds(dir, {
+        locationId: INF,
+        staffId: teamMember,
+        requestedBy: supervisor,
+        requesterStaffId: supervisorStaff,
+      }),
+    ).toEqual([lineManager]);
+    expect(canUserActOnCorrection(dir, lineManager, request)).toBe(true);
+    expect(canUserActOnCorrection(dir, supervisor, request)).toBe(false);
+    expect(canUserActOnCorrection(dir, RAJAN, request)).toBe(false);
+    expect(canUserActOnCorrection(dir, "ceo-user", request)).toBe(false);
+
+    const ownPunch = row({
+      staffId: supervisorStaff,
+      requestedBy: supervisor,
+      requesterStaffId: supervisorStaff,
+    });
+    expect(canUserActOnCorrection(dir, lineManager, ownPunch)).toBe(true);
+    expect(canUserActOnCorrection(dir, supervisor, ownPunch)).toBe(false);
+    expect(canUserActOnCorrection(dir, RAJAN, ownPunch)).toBe(false);
+  });
+
+  it("keeps the employee home to corrections this person must approve", () => {
+    expect(
+      employeeHomeCorrectionRows([
+        { id: "ashfaq-approved", canAct: false },
+        { id: "waiting-on-me", canAct: true },
+      ]).map((row) => row.id),
+    ).toEqual(["waiting-on-me"]);
+  });
+
   it("lets an employee see their own request and hides other sites’ manager queue", () => {
     const dir = directory();
     const fresh = row();
@@ -308,5 +405,142 @@ describe("missed punch approval chain", () => {
         row: fresh,
       }),
     ).toBe(false);
+  });
+
+  it("sends a manager's own correction to their line manager and does not auto-approve it", () => {
+    const managerUser = "manager-user";
+    const managerStaff = "manager-staff";
+    const lineManager = "line-manager-user";
+    const crew = "crew-staff";
+    const dir = directory({
+      reportingManagerUserIdByStaffId: new Map([
+        [managerStaff, lineManager],
+        [crew, managerUser],
+      ]),
+    });
+    const route = punchCorrectionRoute({
+      requesterStaffId: managerStaff,
+      targetStaffId: managerStaff,
+      teamStaffIds: [crew],
+    });
+    expect(route).toBe("line_manager");
+    expect(correctionWaitingStep("line_manager")).toBe("manager");
+    expect(correctionStepSeed("line_manager").map((step) => step.status)).toEqual(["pending", "pending", "pending"]);
+    const ownRequest = row({
+      staffId: managerStaff,
+      requestedBy: managerUser,
+      requesterStaffId: managerStaff,
+      currentStepRole: "manager",
+    });
+    expect(canUserActOnCorrection(dir, lineManager, ownRequest)).toBe(true);
+    expect(canUserActOnCorrection(dir, managerUser, ownRequest)).toBe(false);
+    expect(canUserActOnCorrection(dir, HR, ownRequest)).toBe(false);
+    expect(canUserActOnCorrection(dir, RAJAN, ownRequest)).toBe(false);
+  });
+
+  it("sends a supervisor or other staff member's own correction to their manager", () => {
+    const supervisorUser = "supervisor-user";
+    const supervisorStaff = "supervisor-staff";
+    const theirManager = "their-manager";
+    const dir = directory({
+      reportingManagerUserIdByStaffId: new Map([[supervisorStaff, theirManager]]),
+    });
+    expect(
+      punchCorrectionRoute({
+        requesterStaffId: supervisorStaff,
+        targetStaffId: supervisorStaff,
+        teamStaffIds: ["crew-staff"],
+      }),
+    ).toBe("line_manager");
+    expect(
+      punchCorrectionRoute({
+        requesterStaffId: "crew-staff",
+        targetStaffId: "crew-staff",
+        teamStaffIds: [],
+      }),
+    ).toBe("line_manager");
+    expect(correctionStepSeed("line_manager").every((step) => step.status === "pending")).toBe(true);
+    const request = row({
+      staffId: supervisorStaff,
+      requestedBy: supervisorUser,
+      requesterStaffId: supervisorStaff,
+      currentStepRole: correctionWaitingStep("line_manager"),
+    });
+    expect(canUserActOnCorrection(dir, theirManager, request)).toBe(true);
+    expect(canUserActOnCorrection(dir, supervisorUser, request)).toBe(false);
+    expect(canUserActOnCorrection(dir, HR, request)).toBe(false);
+  });
+
+  it("auto-approves a manager correction for their team and leaves it with HR, including the punches", () => {
+    const managerUser = "manager-user";
+    const managerStaff = "manager-staff";
+    const lineManager = "line-manager-user";
+    const crew = "crew-staff";
+    const through = "under-crew";
+    const outsider = "other-company";
+    const dir = directory({
+      reportingManagerUserIdByStaffId: new Map([
+        [managerStaff, lineManager],
+        [crew, managerUser],
+        [through, crew],
+      ]),
+    });
+    const team = [crew, through];
+    expect(
+      punchCorrectionRoute({
+        requesterStaffId: managerStaff,
+        targetStaffId: crew,
+        teamStaffIds: team,
+      }),
+    ).toBe("hr");
+    expect(
+      punchCorrectionRoute({
+        requesterStaffId: managerStaff,
+        targetStaffId: through,
+        teamStaffIds: team,
+      }),
+    ).toBe("hr");
+    expect(
+      punchCorrectionRoute({
+        requesterStaffId: managerStaff,
+        targetStaffId: outsider,
+        teamStaffIds: team,
+      }),
+    ).toBeNull();
+    expect(correctionWaitingStep("hr")).toBe("hr");
+    expect(correctionStepSeed("hr")).toEqual([
+      { stepOrder: 1, stepRole: "manager", status: "approved" },
+      { stepOrder: 2, stepRole: "ops", status: "skipped" },
+      { stepOrder: 3, stepRole: "hr", status: "pending" },
+    ]);
+    const note = managerTeamCorrectionNote({
+      managerName: "Ruben Yaralyan",
+      requestedPunchIn: "09:05",
+      requestedPunchOut: "18:10",
+      previousPunchIn: "2026-10-08T08:00:00+03:00",
+      previousPunchOut: "2026-10-08T17:30:00+03:00",
+    });
+    expect(note).toBe(
+      "Ruben Yaralyan requested and approved this correction. Requested punch-in 09:05, punch-out 18:10. Previous punch-in 08:00, previous punch-out 17:30.",
+    );
+    expect(
+      managerTeamCorrectionNote({
+        managerName: "Ruben Yaralyan",
+        requestedPunchIn: "09:05",
+        requestedPunchOut: null,
+        previousPunchIn: null,
+        previousPunchOut: null,
+      }),
+    ).toContain("Requested punch-in 09:05, punch-out not on this request. Previous punch-in none, previous punch-out none.");
+    const waitingOnHr = row({
+      staffId: crew,
+      requestedBy: managerUser,
+      requesterStaffId: managerStaff,
+      currentStepRole: "hr",
+    });
+    expect(canUserActOnCorrection(dir, HR, waitingOnHr)).toBe(true);
+    expect(canUserActOnCorrection(dir, lineManager, waitingOnHr)).toBe(false);
+    expect(canUserActOnCorrection(dir, RAJAN, waitingOnHr)).toBe(false);
+    expect(canUserActOnCorrection(dir, managerUser, waitingOnHr)).toBe(false);
   });
 });

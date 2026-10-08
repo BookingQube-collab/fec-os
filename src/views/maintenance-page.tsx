@@ -4,7 +4,7 @@ import { FecLoader, FecPageHeader } from "@/components/fec";
 
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ClipboardList, FileBarChart, LayoutDashboard, Loader2, Pencil, Sparkles, Trash2, Truck, Wrench } from "lucide-react";
+import { Boxes, CalendarDays, ChevronDown, CircleOff, ClipboardList, FileBarChart, LayoutDashboard, ListChecks, Loader2, Pencil, Plus, Sparkles, Trash2, Truck, Wrench } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -131,16 +131,16 @@ function MaintenancePage() {
       />
       <Tabs defaultValue="dashboard">
         <TabsList>
-          <TabsTrigger value="dashboard" className="gap-1.5">
-            <LayoutDashboard className="h-3.5 w-3.5" />
+          <TabsTrigger value="dashboard">
+            <LayoutDashboard aria-hidden />
             {t("maintenancePage.dashboard")}
           </TabsTrigger>
-          <TabsTrigger value="queue">{t("maintenancePage.myQueue")}</TabsTrigger>
-          <TabsTrigger value="orders">{t("maintenancePage.allWorkOrders")}</TabsTrigger>
-          <TabsTrigger value="assets">{t("maintenancePage.assets")}</TabsTrigger>
-          <TabsTrigger value="pm">{t("maintenancePage.pmSchedules")}</TabsTrigger>
-          <TabsTrigger value="downtime">{t("maintenancePage.downtime")}</TabsTrigger>
-          {canSchedule && <TabsTrigger value="new">{t("maintenancePage.newWorkOrder")}</TabsTrigger>}
+          <TabsTrigger value="queue"><ListChecks aria-hidden />{t("maintenancePage.myQueue")}</TabsTrigger>
+          <TabsTrigger value="orders"><ClipboardList aria-hidden />{t("maintenancePage.allWorkOrders")}</TabsTrigger>
+          <TabsTrigger value="assets"><Boxes aria-hidden />{t("maintenancePage.assets")}</TabsTrigger>
+          <TabsTrigger value="pm"><CalendarDays aria-hidden />{t("maintenancePage.pmSchedules")}</TabsTrigger>
+          <TabsTrigger value="downtime"><CircleOff aria-hidden />{t("maintenancePage.downtime")}</TabsTrigger>
+          {canSchedule && <TabsTrigger value="new"><Plus aria-hidden />{t("maintenancePage.newWorkOrder")}</TabsTrigger>}
         </TabsList>
         <TabsContent value="dashboard" className="mt-4">
           <MaintenanceDashboardPanel />

@@ -20,6 +20,7 @@ import {
 import { canUserDo } from "@/lib/rbac";
 import {
   createAuthenticatedAction,
+  createAuthenticatedActionNoInput,
   type AuthContext,
 } from "@/lib/server/create-action";
 import { ForbiddenError } from "@/lib/server/authorize";
@@ -808,6 +809,7 @@ export const listAtsPipeline = createAuthenticatedAction(
         id?: string;
         job_title?: string;
         status?: string;
+        department_id?: string | null;
       } | null;
       let candidate = cand
         ? {
@@ -845,6 +847,14 @@ export const listAtsPipeline = createAuthenticatedAction(
         stageChangedAt: String(r.stage_changed_at),
         jobTitle: vac?.job_title ?? null,
         vacancyStatus: vac?.status ?? null,
+        departmentId: vac?.department_id ?? null,
+        offer: null as {
+          id: string;
+          status: string;
+          salaryQar: number | null;
+          joiningDate: string | null;
+        } | null,
+        latestNote: null as string | null,
         candidate,
       };
     });
@@ -857,6 +867,48 @@ export const listAtsPipeline = createAuthenticatedAction(
         const title = a.jobTitle?.toLowerCase() ?? "";
         return name.includes(term) || skills.includes(term) || title.includes(term);
       });
+    }
+
+    const applicationIds = applications.map((a) => a.id);
+    if (applicationIds.length) {
+      const { data: offerRows } = await context.supabase
+        .from("hr_offers")
+        .select("id, application_id, salary_qar, joining_date, status, created_at")
+        .in("application_id", applicationIds)
+        .order("created_at", { ascending: false });
+      const offerSeen = new Set<string>();
+      for (const row of offerRows ?? []) {
+        const applicationId = String(row.application_id);
+        if (offerSeen.has(applicationId)) continue;
+        offerSeen.add(applicationId);
+        const app = applications.find((a) => a.id === applicationId);
+        if (!app) continue;
+        app.offer = maskOfferSalary(
+          {
+            id: String(row.id),
+            status: String(row.status),
+            salaryQar: row.salary_qar != null ? Number(row.salary_qar) : null,
+            joiningDate: (row.joining_date as string | null) ?? null,
+          },
+          viewSalary,
+        );
+      }
+
+      const { data: noteRows } = await context.supabase
+        .from("hr_application_stage_history")
+        .select("application_id, note, acted_at")
+        .in("application_id", applicationIds)
+        .order("acted_at", { ascending: false })
+        .limit(400);
+      const noteSeen = new Set<string>();
+      for (const row of noteRows ?? []) {
+        const applicationId = String(row.application_id);
+        const note = (row.note as string | null)?.trim();
+        if (!note || noteSeen.has(applicationId)) continue;
+        noteSeen.add(applicationId);
+        const app = applications.find((a) => a.id === applicationId);
+        if (app) app.latestNote = note;
+      }
     }
 
     const byStage = Object.fromEntries(
@@ -970,7 +1022,7 @@ export const createOffer = createAuthenticatedAction(
 export const respondToOffer = createAuthenticatedAction(
   z.object({
     offerId: z.string().uuid(),
-    action: z.enum(["accepted", "declined", "withdrawn"]),
+    action: z.enum(["accepted", "declined", "withdrawn", "expired"]),
     declineReason: z.string().max(1000).nullable().optional(),
   }),
   async (data, context) => {
@@ -998,6 +1050,7 @@ export const respondToOffer = createAuthenticatedAction(
       accepted: "offer_accepted",
       declined: "offer_declined",
       withdrawn: "on_hold",
+      expired: "on_hold",
     } as const;
     const toStage = stageMap[data.action];
     const { data: app } = await context.supabase
@@ -1037,6 +1090,267 @@ export const parseCvPreview = createAuthenticatedAction(
       text = decodeTextBase64(data.dataBase64, data.contentType);
     }
     return parseCvText(text);
+  },
+  { auth: { capability: "recruitment.manage" } },
+);
+
+const DEMO_JOB_TITLE = "Crew / Attendant";
+const DEMO_NOTE = "DEMO recruitment desk sample.";
+
+/** The first seed matched a site named like an arena. Keep the requisition on Operations. */
+async function correctDemoDepartment(context: AuthContext, vacancyId: string) {
+  const { data: vacancy, error } = await context.supabase
+    .from("hr_vacancies")
+    .select("id, department_id, job_request_id")
+    .eq("id", vacancyId)
+    .maybeSingle();
+  if (error || !vacancy?.department_id) return;
+
+  const { data: department } = await context.supabase
+    .from("master_departments")
+    .select("id, name")
+    .eq("id", vacancy.department_id)
+    .maybeSingle();
+  if (!department || !/arena/i.test(String(department.name))) return;
+
+  const { data: operations } = await context.supabase
+    .from("master_departments")
+    .select("id")
+    .eq("active", true)
+    .ilike("name", "operations")
+    .limit(1)
+    .maybeSingle();
+  const departmentId = operations?.id ?? null;
+  await context.supabase.from("hr_vacancies").update({ department_id: departmentId }).eq("id", vacancyId);
+  if (vacancy.job_request_id) {
+    await context.supabase
+      .from("hr_job_requests")
+      .update({ department_id: departmentId })
+      .eq("id", vacancy.job_request_id);
+  }
+}
+
+export const ensureRecruitmentDeskDemo = createAuthenticatedActionNoInput(
+  async (context) => {
+    assertManage(context);
+    const viewSalary = canViewSalary(context.roles);
+
+    const { data: existingVacancy, error: existingErr } = await context.supabase
+      .from("hr_vacancies")
+      .select("id")
+      .eq("job_title", DEMO_JOB_TITLE)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (existingErr) throw existingErr;
+
+    let vacancyId = existingVacancy ? String(existingVacancy.id) : null;
+    if (vacancyId) {
+      const { data: existingApps, error: appErr } = await context.supabase
+        .from("hr_applications")
+        .select("id")
+        .eq("vacancy_id", vacancyId)
+        .limit(1);
+      if (appErr) throw appErr;
+      if (existingApps?.length) {
+        await correctDemoDepartment(context, vacancyId);
+        return { created: false as const, vacancyId };
+      }
+    }
+
+    if (!vacancyId) {
+      const { data: locations, error: locErr } = await context.supabase
+        .from("locations")
+        .select("id, name")
+        .ilike("name", "%urban arena%")
+        .limit(5);
+      if (locErr && !tableMissing(locErr.message)) throw locErr;
+      const location =
+        (locations ?? []).find((row) => String(row.name).trim().toLowerCase() === "urban arena") ??
+        locations?.[0] ??
+        null;
+
+      const { data: departments, error: deptErr } = await context.supabase
+        .from("master_departments")
+        .select("id, name")
+        .eq("active", true)
+        .limit(80);
+      if (deptErr && !tableMissing(deptErr.message)) throw deptErr;
+      const department =
+        (departments ?? []).find((row) => /^operations$/i.test(String(row.name).trim())) ??
+        (departments ?? []).find((row) => /guest|attendant|floor/i.test(String(row.name))) ??
+        null;
+
+      const now = new Date().toISOString();
+      const salaryBudgetQar = viewSalary ? 2500 : null;
+      const { data: request, error: requestErr } = await context.supabase
+        .from("hr_job_requests")
+        .insert({
+          job_title: DEMO_JOB_TITLE,
+          department_id: department ? String(department.id) : null,
+          location_id: location ? String(location.id) : null,
+          vacancies_count: 1,
+          request_type: "new",
+          employment_category: "operations",
+          job_description:
+            "Guest-floor attendant at Urban Arena. Gender requirement: female. Salary budget: 2300–2500 QAR.",
+          skills: "guest service, crowd safety, ticketing, first aid",
+          experience_years: 1,
+          education: "High school",
+          salary_budget_qar: salaryBudgetQar,
+          requires_finance: salaryBudgetQar != null,
+          justification: DEMO_NOTE,
+          priority: "normal",
+          status: "published",
+          requested_by: context.userId,
+        })
+        .select("id")
+        .single();
+      if (requestErr) throw requestErr;
+
+      const { data: vacancy, error: vacancyErr } = await context.supabase
+        .from("hr_vacancies")
+        .insert({
+          job_request_id: request.id,
+          job_title: DEMO_JOB_TITLE,
+          department_id: department ? String(department.id) : null,
+          location_id: location ? String(location.id) : null,
+          vacancies_count: 1,
+          employment_category: "operations",
+          status: "open",
+          required_location: "Urban Arena",
+          published_at: now,
+          created_by: context.userId,
+        })
+        .select("id")
+        .single();
+      if (vacancyErr) throw vacancyErr;
+      vacancyId = String(vacancy.id);
+    }
+
+    if (!vacancyId) throw new Error("Vacancy was not created.");
+
+    const samples = [
+      {
+        fullName: "Layla Al-Kuwari",
+        email: "layla.alkuwari.demo@fec.example",
+        phone: "+97455001001",
+        skills: "guest service, crowd safety, ticketing, first aid",
+        experienceYears: 3,
+        education: "High school",
+        location: "Urban Arena",
+        stage: "hr_interview" as const,
+        note: "DEMO interview with HR at Urban Arena.",
+      },
+      {
+        fullName: "Noor Al-Mohannadi",
+        email: "noor.almohannadi.demo@fec.example",
+        phone: "+97455001002",
+        skills: "guest service, crowd safety, ticketing, first aid",
+        experienceYears: 4,
+        education: "High school",
+        location: "Urban Arena",
+        stage: "offer" as const,
+        note: "DEMO offer pending within the 2300–2500 QAR band.",
+        expectedSalary: 2400,
+      },
+      {
+        fullName: "Maryam Al-Thani",
+        email: "maryam.althani.demo@fec.example",
+        phone: "+97455001003",
+        skills: "guest service, ticketing",
+        experienceYears: 1,
+        education: "High school",
+        location: "Urban Arena",
+        stage: "shortlisted" as const,
+        note: null,
+      },
+      {
+        fullName: "Hessa Al-Sulaiti",
+        email: "hessa.alsulaiti.demo@fec.example",
+        phone: "+97455001004",
+        skills: "accounting, excel",
+        experienceYears: 2,
+        education: "Bachelor",
+        location: "Doha",
+        stage: "new" as const,
+        note: null,
+      },
+    ];
+
+    const now = new Date().toISOString();
+    for (const sample of samples) {
+      const { data: candidate, error: candidateErr } = await context.supabase
+        .from("hr_candidates")
+        .insert({
+          full_name: sample.fullName,
+          email: sample.email,
+          phone: sample.phone,
+          location: sample.location,
+          expected_salary_qar: viewSalary && "expectedSalary" in sample ? sample.expectedSalary : null,
+          experience_years: sample.experienceYears,
+          education: sample.education,
+          skills: sample.skills,
+          notes: DEMO_NOTE,
+          source: "manual",
+          consent_at: now,
+          consent_note: DEMO_NOTE,
+          created_by: context.userId,
+        })
+        .select("id")
+        .single();
+      if (candidateErr) throw candidateErr;
+
+      const applied = await applyCandidateToVacancyInternal(context, {
+        candidateId: String(candidate.id),
+        vacancyId,
+      });
+
+      if (sample.stage === "offer") {
+        const salaryQar = viewSalary ? 2400 : null;
+        const { error: offerErr } = await context.supabase.from("hr_offers").insert({
+          application_id: applied.applicationId,
+          salary_qar: salaryQar,
+          joining_date: "2026-11-02",
+          notes: sample.note,
+          status: "draft",
+          created_by: context.userId,
+        });
+        if (offerErr) throw offerErr;
+        const { error: stageErr } = await context.supabase
+          .from("hr_applications")
+          .update({ stage: "offer_pending", stage_changed_at: now, updated_at: now })
+          .eq("id", applied.applicationId);
+        if (stageErr) throw stageErr;
+        await context.supabase.from("hr_application_stage_history").insert({
+          application_id: applied.applicationId,
+          from_stage: "new",
+          to_stage: "offer_pending",
+          note: sample.note,
+          communication_channel: "note",
+          acted_by: context.userId,
+        });
+        continue;
+      }
+
+      if (sample.stage !== "new") {
+        const { error: stageErr } = await context.supabase
+          .from("hr_applications")
+          .update({ stage: sample.stage, stage_changed_at: now, updated_at: now })
+          .eq("id", applied.applicationId);
+        if (stageErr) throw stageErr;
+        await context.supabase.from("hr_application_stage_history").insert({
+          application_id: applied.applicationId,
+          from_stage: "new",
+          to_stage: sample.stage,
+          note: sample.note,
+          communication_channel: "note",
+          acted_by: context.userId,
+        });
+      }
+    }
+
+    return { created: true as const, vacancyId };
   },
   { auth: { capability: "recruitment.manage" } },
 );

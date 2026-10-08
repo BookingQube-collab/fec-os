@@ -3,9 +3,33 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
-import { Building2 } from "lucide-react";
+import {
+  Building2,
+  ClipboardList,
+  FingerprintPattern,
+  LayoutDashboard,
+  List,
+  MapPinned,
+  Settings,
+  Upload,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
 
 import { PillTabScroller, pillTabItemClass } from "@/components/react-bits/pill-tab-scroller";
+import { useHasDirectReports } from "@/hooks/use-my-direct-reports";
+import { useUserRoles } from "@/hooks/use-auth";
+import { visibleAttendanceNavHrefs } from "@/lib/attendance-listing-access";
+
+const NAV_ICONS: Record<string, LucideIcon> = {
+  "/people/attendance": LayoutDashboard,
+  "/people/attendance/import": Upload,
+  "/people/attendance/reports": List,
+  "/people/attendance/mapping": MapPinned,
+  "/people/attendance/device-logs": FingerprintPattern,
+  "/people/attendance/corrections": Wrench,
+  "/people/attendance/settings": Settings,
+};
 
 /** Same destinations as sidebar `hr-attendance` group — path routes, not query tabs. */
 const TABS = [
@@ -21,11 +45,16 @@ const TABS = [
 export function AttendanceHrNav() {
   const pathname = usePathname();
   const { t } = useTranslation();
+  const roles = useUserRoles();
+  const { hasDirectReports } = useHasDirectReports();
+  const visible = new Set(visibleAttendanceNavHrefs(roles, hasDirectReports));
+  const tabs = TABS.filter((tab) => visible.has(tab.href));
   return (
     <PillTabScroller label={t("attendanceHr.title")}>
-      {TABS.map((tab) => {
+      {tabs.map((tab) => {
         const active =
           tab.href === "/people/attendance" ? pathname === tab.href : pathname.startsWith(tab.href);
+        const Icon = NAV_ICONS[tab.href] ?? ClipboardList;
         return (
           <Link
             key={tab.href}
@@ -33,6 +62,7 @@ export function AttendanceHrNav() {
             aria-current={active ? "page" : undefined}
             className={pillTabItemClass(active)}
           >
+            <Icon aria-hidden />
             {t(tab.labelKey)}
           </Link>
         );

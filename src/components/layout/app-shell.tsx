@@ -39,6 +39,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const employeeChrome = employeeRoute || (employeeAudience && pathname === "/");
   const sidebarExpanded = useAppStore((s) => s.sidebarExpanded);
   const surgeMode = useAppStore((s) => s.surgeMode);
+  const chatRoute = pathname === "/chat";
+  const accountRoute = pathname === "/profile";
   return (
     <ClickSpark sparkColor="#1a1a1a" sparkSize={8} sparkRadius={14} sparkCount={8} className="min-h-screen">
     <div
@@ -51,8 +53,11 @@ export function AppShell({ children }: { children: ReactNode }) {
       <AppSidebar />
       <div
         className={cn(
-          "relative z-[1] flex min-h-screen min-w-0 max-w-full flex-col overflow-x-hidden pb-20 md:pe-5",
-          sidebarExpanded ? "md:ms-[16.25rem]" : "md:ms-[5.25rem]",
+          "relative z-[1] flex min-h-screen min-w-0 max-w-full flex-col overflow-x-hidden md:pe-5",
+          chatRoute
+            ? "h-dvh overflow-hidden pb-[calc(4.75rem+env(safe-area-inset-bottom))] md:pb-4"
+            : "pb-20",
+          sidebarExpanded ? "md:ms-[5.25rem] lg:ms-[16.25rem]" : "md:ms-[5.25rem]",
           surgeMode ? "md:pb-3" : "md:pb-6",
         )}
       >
@@ -60,6 +65,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           className={cn(
             "mx-auto w-full min-w-0 max-w-[1600px] flex-1 px-4 pt-3 md:px-4",
             surgeMode ? "md:pt-3" : "md:pt-5",
+            chatRoute && "flex min-h-0 flex-col overflow-hidden",
           )}
         >
           {employeeChrome ? <EmployeeMobileHeader /> : <MobileAppHeader />}
@@ -67,8 +73,12 @@ export function AppShell({ children }: { children: ReactNode }) {
           <GlobalComplianceExpiryBanner />
           <DashboardPanel
             className={cn(
-              "min-h-[calc(100vh-8rem)] min-w-0 max-w-full overflow-x-hidden",
-              surgeMode ? "mt-2 p-3 md:p-4" : "mt-4",
+              "min-w-0 max-w-full overflow-x-hidden",
+              chatRoute
+                ? "flex min-h-0 flex-1 flex-col overflow-hidden p-3 md:min-h-[calc(100vh-8rem)] md:p-7"
+                : "min-h-[calc(100vh-8rem)]",
+              surgeMode ? "mt-2 p-3 md:p-4" : chatRoute ? "mt-2 md:mt-4" : "mt-4",
+              accountRoute && "account-hub-shell",
             )}
           >
             <AppErrorBoundary>{children}</AppErrorBoundary>

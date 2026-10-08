@@ -42,7 +42,7 @@ export function MobileAppHeader({ className }: { className?: string }) {
         className,
       )}
     >
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex items-center gap-1.5">
         <Link href="/" className="min-w-0 flex-1 touch-manipulation" prefetch>
           <p className="truncate text-sm font-bold tracking-tight text-foreground">
             {t("app.name")}
@@ -79,13 +79,13 @@ export function MobileAppHeader({ className }: { className?: string }) {
 
         <Button
           type="button"
-          size="sm"
-          variant="secondary"
-          className="h-9 shrink-0 px-2"
+          variant="ghost"
+          size="icon"
+          className="h-10 w-10 shrink-0"
+          aria-label={t("common.signOut")}
           onClick={() => void handleSignOut()}
         >
-          <LogOut className="h-4 w-4" />
-          {t("common.signOut")}
+          <LogOut className="h-4 w-4 stroke-[1.5]" />
         </Button>
       </div>
 

@@ -3,12 +3,34 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
-import { ClipboardList } from "lucide-react";
+import {
+  AlertTriangle,
+  CalendarDays,
+  ClipboardList,
+  LayoutDashboard,
+  Megaphone,
+  MessageSquareWarning,
+  Package,
+  ListChecks,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
 import { FecPageHeader, FecSection } from "@/components/fec";
 import { DAILY_OPS_NAV_ITEMS } from "@/lib/daily-ops/constants";
 import { PillTabScroller, pillTabItemClass } from "@/components/react-bits/pill-tab-scroller";
+
+const NAV_ICONS: Record<string, LucideIcon> = {
+  "/daily-ops": LayoutDashboard,
+  "/daily-ops/roster": CalendarDays,
+  "/daily-ops/briefings": Megaphone,
+  "/daily-ops/checklists": ListChecks,
+  "/daily-ops/incidents": AlertTriangle,
+  "/daily-ops/inventory": Package,
+  "/daily-ops/maintenance": Wrench,
+  "/daily-ops/complaints": MessageSquareWarning,
+};
 
 export function DailyOpsLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -32,8 +54,10 @@ export function DailyOpsLayout({ children }: { children: React.ReactNode }) {
             item.href === "/daily-ops"
               ? pathname === item.href
               : pathname === item.href || pathname.startsWith(`${item.href}/`);
+          const Icon = NAV_ICONS[item.href] ?? ClipboardList;
           return (
             <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} className={pillTabItemClass(active)}>
+              <Icon aria-hidden />
               {t(item.labelKey)}
             </Link>
           );
