@@ -1252,6 +1252,7 @@ export function ConversationThread({
             canAttach={canAttach}
             announcement={announcementRoom}
             reply={replyTarget}
+            mentionMembers={mentionMembers}
             mentionsReady={members.isSuccess}
             onCancelReply={() => setReplyTarget(null)}
             onActivity={onActivity}

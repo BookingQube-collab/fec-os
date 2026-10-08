@@ -86,7 +86,7 @@ export function MessageComposer({
   canAttach,
   announcement = false,
   reply,
-  mentionMembers,
+  mentionMembers = [],
   mentionsReady,
   onCancelReply,
   onActivity,
@@ -99,7 +99,7 @@ export function MessageComposer({
   canAttach: boolean;
   announcement?: boolean;
   reply: ComposerReply | null;
-  mentionMembers: readonly ChatMentionCandidate[];
+  mentionMembers?: readonly ChatMentionCandidate[];
   mentionsReady: boolean;
   onCancelReply: () => void;
   onActivity: (active: boolean) => void;
