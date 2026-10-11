@@ -16,13 +16,15 @@ import { cn } from "@/lib/utils";
 type RosterLocationCoverageProps = {
   dateFrom: string;
   dateTo: string;
+  /** When false, wait so a heavier roster grid can use the network first. */
+  enabled?: boolean;
 };
 
 /**
  * Period coverage for every active site the Location filter uses.
  * Grid location, staff, and department filters are intentionally not applied.
  */
-export function RosterLocationCoverage({ dateFrom, dateTo }: RosterLocationCoverageProps) {
+export function RosterLocationCoverage({ dateFrom, dateTo, enabled = true }: RosterLocationCoverageProps) {
   const { t } = useTranslation();
   const sites = useSites();
   const coverage = useQuery({
@@ -36,9 +38,10 @@ export function RosterLocationCoverage({ dateFrom, dateTo }: RosterLocationCover
         dateFrom,
         dateTo,
         sourceUploadOnly: false,
+        coverageOnly: true,
       }),
     staleTime: STALE.people,
-    enabled: Boolean(dateFrom && dateTo),
+    enabled: enabled && Boolean(dateFrom && dateTo),
   });
 
   const items = useMemo(

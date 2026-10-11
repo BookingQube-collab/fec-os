@@ -5736,6 +5736,7 @@ export type Database = {
       arcade_week_tasks: { Row: Record<string, unknown> & { id: string; technician_staff_id: string | null; location_id: string | null; machine_id: string | null; task_date: string; kind: string; title: string; entity_type: string | null; entity_id: string | null; status: string; priority: string; notes: string | null; created_by: string | null; updated_by: string | null; created_at: string; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       arcade_import_queue: { Row: Record<string, unknown> & { id: string; source: string; external_key: string | null; kind: string; payload: unknown; needs_mapping: boolean; mapping_reason: string | null; machine_id: string | null; imported_entity: string | null; imported_id: string | null; created_by: string | null; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       arcade_alert_fires: { Row: Record<string, unknown> & { id: string; user_id: string; rule_key: string; entity_id: string; fired_on: string; notification_id: string | null; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      arcade_list_hides: { Row: Record<string, unknown> & { id: string; location_id: string | null; machine_id: string | null; hidden_by: string | null; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
     }
     Views: {
       arcade_site_health: { Row: { location_id: string; active_machines: number; working: number; down: number; under_repair: number; under_observation: number; waiting_part: number; waiting_supplier: number; out_of_service: number; pm_overdue: number; pm_due: number }; Relationships: [] }
@@ -6336,6 +6337,10 @@ export type Database = {
         Returns: string
       }
       user_can_access_location: {
+        Args: { _location_id: string }
+        Returns: boolean
+      }
+      user_can_read_arcade: {
         Args: { _location_id: string }
         Returns: boolean
       }

@@ -290,12 +290,12 @@ export function useCanAmendShiftRoster(): boolean {
 export function useCanOpenPeopleDirectory(): boolean {
   const { profile } = useAuth();
   const roles = useUserRoles();
-  return canOpenPeopleDirectory(roles, profile?.job_title);
+  return canOpenPeopleDirectory(roles, profile?.job_title, profile?.staff_role);
 }
 
 /** Monthly salary and day rate. Hidden for branch managers and job-title supervisors. */
 export function usePeopleDirectoryShowsSalary(): boolean {
   const { profile } = useAuth();
   const roles = useUserRoles();
-  return peopleDirectoryShowsSalary(roles, profile?.job_title);
+  return peopleDirectoryShowsSalary(roles, profile?.job_title, profile?.staff_role);
 }

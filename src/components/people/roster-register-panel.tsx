@@ -102,6 +102,8 @@ type RosterRegisterPanelProps = {
   maxHeight?: number;
   /** Lets the parent page mirror Delete all in its header. */
   onDeleteAllStateChange?: (state: RosterDeleteAllState) => void;
+  /** Fires once the month grid request has settled so sibling fetches can start. */
+  onGridFetched?: () => void;
 };
 
 type Draft = {
@@ -165,6 +167,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       hideHeader = false,
       maxHeight = 480,
       onDeleteAllStateChange,
+      onGridFetched,
     },
     ref,
   ) {
@@ -219,6 +222,10 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       staleTime: STALE.people,
       enabled: Boolean(dateFrom && dateTo),
     });
+
+    useEffect(() => {
+      if (register.isFetched) onGridFetched?.();
+    }, [register.isFetched, onGridFetched, dateFrom, dateTo]);
 
     const rows = useMemo(() => register.data?.rows ?? [], [register.data?.rows]);
     const teamStaff = register.data?.teamStaff ?? null;

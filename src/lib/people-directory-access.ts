@@ -7,7 +7,8 @@ import {
   isServingNoticeStaffStatus,
   isTerminatedStaffStatus,
 } from "@/lib/staff-status";
-import { canUserDo, isRosterAmendJobTitle, type AppRole } from "@/lib/rbac";
+import { canUploadOwnRosterWithoutReports } from "@/lib/reporting-manager-locations";
+import { canUserDo, type AppRole } from "@/lib/rbac";
 
 /** Roles that already open People and keep salary when they have people.view_salary. */
 const SALARY_LEADERSHIP: readonly AppRole[] = ["ceo", "coo", "cfo", "hr", "regional_ops"];
@@ -27,31 +28,40 @@ export function hasCompanyPeopleDirectory(roles: readonly string[]): boolean {
 
 /**
  * Company roster viewers keep the whole directory.
- * A manager or supervisor job title without that capability sees direct reports only.
+ * A manager or supervisor job title, or a venue-supervisor staff role, without that capability sees direct reports only.
  */
 export function peopleDirectoryScope(
   roles: readonly string[],
   jobTitle?: string | null,
+  staffRole?: string | null,
 ): PeopleDirectoryScope | null {
   if (hasCompanyPeopleDirectory(roles)) return "company";
-  if (isRosterAmendJobTitle(jobTitle)) return "team";
+  if (canUploadOwnRosterWithoutReports(jobTitle, staffRole)) return "team";
   return null;
 }
 
-export function canOpenPeopleDirectory(roles: readonly string[], jobTitle?: string | null): boolean {
-  return peopleDirectoryScope(roles, jobTitle) != null;
+export function canOpenPeopleDirectory(
+  roles: readonly string[],
+  jobTitle?: string | null,
+  staffRole?: string | null,
+): boolean {
+  return peopleDirectoryScope(roles, jobTitle, staffRole) != null;
 }
 
 /**
  * Salary stays with people.view_salary for HR and leadership.
  * Duty managers, tech supervisors, branch GMs, and job-title managers do not receive figures.
  */
-export function peopleDirectoryShowsSalary(roles: readonly string[], jobTitle?: string | null): boolean {
+export function peopleDirectoryShowsSalary(
+  roles: readonly string[],
+  jobTitle?: string | null,
+  staffRole?: string | null,
+): boolean {
   const list = roles as AppRole[];
   if (!canUserDo(list, "people.view_salary")) return false;
   if (list.some((role) => SALARY_LEADERSHIP.includes(role))) return true;
   if (list.some((role) => SALARY_HIDDEN_LOGINS.includes(role))) return false;
-  if (isRosterAmendJobTitle(jobTitle)) return false;
+  if (canUploadOwnRosterWithoutReports(jobTitle, staffRole)) return false;
   return true;
 }
 

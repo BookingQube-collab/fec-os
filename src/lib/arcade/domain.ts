@@ -478,6 +478,227 @@ export function downtimeHours(samples: { startedAt: string; endedAt: string | nu
   }, 0);
 }
 
+/** Hours of downtime that fall inside a calendar window. Open downtime stops at `now`. */
+export function downtimeHoursInWindow(
+  samples: { startedAt: string | null; endedAt: string | null }[],
+  windowStart: string,
+  windowEnd: string,
+  nowIso: string,
+): number {
+  const startMs = Date.parse(`${windowStart}T00:00:00.000Z`);
+  const endMs = Date.parse(`${windowEnd}T23:59:59.999Z`);
+  const nowMs = Date.parse(nowIso);
+  const cap = Number.isFinite(nowMs) ? Math.min(endMs, nowMs) : endMs;
+  let hours = 0;
+  for (const sample of samples) {
+    if (!sample.startedAt) continue;
+    const started = Date.parse(sample.startedAt);
+    if (!Number.isFinite(started)) continue;
+    const rawEnd = sample.endedAt ? Date.parse(sample.endedAt) : nowMs;
+    if (!Number.isFinite(rawEnd)) continue;
+    const from = Math.max(started, startMs);
+    const to = Math.min(rawEnd, cap);
+    if (to > from) hours += (to - from) / 3600000;
+  }
+  return Math.round(hours * 10) / 10;
+}
+
+export function monthWindows(now: Date): {
+  currentStart: string;
+  currentEnd: string;
+  previousStart: string;
+  previousEnd: string;
+} {
+  const year = now.getUTCFullYear();
+  const month = now.getUTCMonth();
+  return {
+    currentStart: new Date(Date.UTC(year, month, 1)).toISOString().slice(0, 10),
+    currentEnd: new Date(Date.UTC(year, month + 1, 0)).toISOString().slice(0, 10),
+    previousStart: new Date(Date.UTC(year, month - 1, 1)).toISOString().slice(0, 10),
+    previousEnd: new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10),
+  };
+}
+
+export type MonthCounts = {
+  repairsOpened: number;
+  repairsFinished: number;
+  downtimeHours: number;
+  checksRecorded: number;
+};
+
+export function monthComparison(current: MonthCounts, previous: MonthCounts) {
+  const round = (value: number) => Math.round(value * 10) / 10;
+  return {
+    current,
+    previous,
+    overall: {
+      repairsOpened: current.repairsOpened + previous.repairsOpened,
+      repairsFinished: current.repairsFinished + previous.repairsFinished,
+      downtimeHours: round(current.downtimeHours + previous.downtimeHours),
+      checksRecorded: current.checksRecorded + previous.checksRecorded,
+    },
+  };
+}
+
+export type ArcadeListHide = {
+  locationId?: string | null;
+  machineId?: string | null;
+};
+
+export type ArcadeListSite = {
+  locationId: string;
+  games: number;
+  working: number;
+  down: number;
+  inRepair: number;
+};
+
+export type ArcadeListGame = {
+  id: string;
+  locationId: string;
+  status: string;
+};
+
+/**
+ * Display membership for the technical list.
+ * A location hide drops that site and every game under it.
+ * A game hide drops only that game and adjusts the site counts.
+ * Callers keep the asset, repair, and checklist rows.
+ */
+export function visibleArcadeList<TSite extends ArcadeListSite, TGame extends ArcadeListGame>(
+  sites: readonly TSite[],
+  games: readonly TGame[],
+  hides: readonly ArcadeListHide[],
+): { sites: TSite[]; games: TGame[] } {
+  const hiddenLocations = new Set<string>();
+  const hiddenGames = new Set<string>();
+  for (const hide of hides) {
+    if (hide.machineId) hiddenGames.add(hide.machineId);
+    else if (hide.locationId) hiddenLocations.add(hide.locationId);
+  }
+  const visibleGames = games.filter((game) => !hiddenLocations.has(game.locationId) && !hiddenGames.has(game.id));
+  const visibleSites = sites
+    .filter((site) => !hiddenLocations.has(site.locationId))
+    .map((site) => {
+      const hiddenHere = games.filter((game) => game.locationId === site.locationId && hiddenGames.has(game.id));
+      if (hiddenHere.length === 0) return site;
+      const count = (status: string) => hiddenHere.filter((game) => game.status === status).length;
+      return {
+        ...site,
+        games: Math.max(0, site.games - hiddenHere.length),
+        working: Math.max(0, site.working - count("WORKING")),
+        down: Math.max(0, site.down - count("DOWN")),
+        inRepair: Math.max(0, site.inRepair - count("UNDER_REPAIR")),
+      };
+    });
+  return { sites: visibleSites, games: visibleGames };
+}
+
+const GAME_ELEMENT_FIELDS = [
+  ["zone", "zone"],
+  ["unit", "unitNumber"],
+  ["maker", "manufacturer"],
+  ["model", "model"],
+  ["serial", "serialNumber"],
+  ["power", "powerRequirement"],
+  ["network", "networkRequirement"],
+  ["controller", "controllerPcb"],
+  ["card", "cardRfidInterface"],
+  ["software", "softwareVersion"],
+] as const;
+
+export type GameElementKey = (typeof GAME_ELEMENT_FIELDS)[number][0] | "notes";
+
+/** Physical details already stored on the game. Missing fields are omitted. */
+export function gameElements(machine: {
+  zone?: string | null;
+  unitNumber?: string | null;
+  manufacturer?: string | null;
+  model?: string | null;
+  serialNumber?: string | null;
+  powerRequirement?: string | null;
+  networkRequirement?: string | null;
+  controllerPcb?: string | null;
+  cardRfidInterface?: string | null;
+  softwareVersion?: string | null;
+  notes?: string | null;
+}): { key: GameElementKey; value: string }[] {
+  const rows: { key: GameElementKey; value: string }[] = [];
+  for (const [key, field] of GAME_ELEMENT_FIELDS) {
+    const value = (machine[field] ?? "").trim();
+    if (value) rows.push({ key, value });
+  }
+  const notes = (machine.notes ?? "").trim();
+  if (notes) rows.push({ key: "notes", value: notes });
+  return rows;
+}
+
+export type RepairSpan = {
+  status: "IN_PROGRESS" | "PAUSED" | "COMPLETED" | string;
+  startedAt: string;
+  pausedAt?: string | null;
+  completedAt?: string | null;
+};
+
+/**
+ * Working time is the sum of each start/resume interval.
+ * A paused interval ends at paused_at. Time after that, until the next resume, is excluded.
+ */
+export function repairWorkingMs(spans: RepairSpan[], nowMs = Date.now()): number {
+  let total = 0;
+  for (const span of spans) {
+    const start = Date.parse(span.startedAt);
+    if (!Number.isFinite(start)) continue;
+    let end: number | null = null;
+    if (span.status === "IN_PROGRESS") {
+      end = nowMs;
+    } else if (span.pausedAt) {
+      end = Date.parse(span.pausedAt);
+    } else if (span.completedAt) {
+      end = Date.parse(span.completedAt);
+    }
+    if (end != null && Number.isFinite(end) && end > start) total += end - start;
+  }
+  return total;
+}
+
+export function repairPhase(spans: RepairSpan[]): "IDLE" | "RUNNING" | "PAUSED" | "FINISHED" {
+  const latest = [...spans].sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt))[0];
+  if (!latest) return "IDLE";
+  if (latest.status === "IN_PROGRESS") return "RUNNING";
+  if (latest.status === "PAUSED") return "PAUSED";
+  if (latest.status === "COMPLETED") return "FINISHED";
+  return "IDLE";
+}
+
+export function formatWorkingDuration(ms: number): { hours: number; minutes: number; seconds: number } {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  return {
+    hours: Math.floor(total / 3600),
+    minutes: Math.floor((total % 3600) / 60),
+    seconds: total % 60,
+  };
+}
+
+/** One sentence from the technician, mapped onto the write-up the database already requires. */
+export function simpleClosureFromNote(input: { description: string; note: string; parts?: string | null }): ClosureInput {
+  const note = normalizeClosureText(input.note);
+  const problem = normalizeClosureText(input.description);
+  const parts = normalizeClosureText(input.parts) || "None";
+  return {
+    problem: problem.length >= CLOSURE_MIN_LENGTH ? problem : note,
+    diagnosis: note,
+    actionTaken: note,
+    partsUsed: parts,
+    testingPerformed: note,
+    finalResult: note,
+    recommendations: note,
+  };
+}
+
+export const DAILY_CHECK_LABEL = "Daily check";
+export const VENDOR_NOTE_PREFIX = "vendor_id:";
+
 export function searchToken(query: string): string | null {
   const cleaned = query.trim().replace(/[%_,]/g, " ").replace(/\s+/g, " ").slice(0, 80);
   return cleaned.length >= 2 ? cleaned : null;

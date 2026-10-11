@@ -5,7 +5,7 @@ import { FecPageHeader } from "@/components/fec";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarDays, Copy, Download, Loader2, Trash2, Upload } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useRegisterHrAssist } from "@/components/hr/hr-people-assist";
@@ -64,7 +64,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { useAppStore } from "@/stores/app-store";
 import { useHasDirectReports } from "@/hooks/use-my-direct-reports";
 import { canSeeShiftRosterUpload } from "@/lib/reporting-manager-locations";
-import { useCanAmendShiftRoster, useUserRoles } from "@/hooks/use-auth";
+import { useAuth, useCanAmendShiftRoster, useUserRoles } from "@/hooks/use-auth";
 
 function todayYmd() {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" });
@@ -88,9 +88,10 @@ export default function StaffRosterRegisterPage() {
   const { t, i18n } = useTranslation();
   const qc = useQueryClient();
   const roles = useUserRoles();
+  const { profile } = useAuth();
   const { hasDirectReports } = useHasDirectReports();
   const canManageRoster = useCanAmendShiftRoster();
-  const canUpload = canSeeShiftRosterUpload(roles, hasDirectReports);
+  const canUpload = canSeeShiftRosterUpload(roles, hasDirectReports, profile?.job_title, profile?.staff_role);
   const storeLocationId = useAppStore((s) => s.currentLocationId);
 
   const registerRef = useRef<RosterRegisterPanelHandle>(null);
@@ -111,6 +112,7 @@ export default function StaffRosterRegisterPage() {
     department: null,
   });
   const [copyReplaceOpen, setCopyReplaceOpen] = useState(false);
+  const [readyPeriod, setReadyPeriod] = useState<string | null>(null);
   const [previousBusy, setPreviousBusy] = useState(false);
   const [copyReplaceMeta, setCopyReplaceMeta] = useState<{
     targetMonth: string;
@@ -127,6 +129,9 @@ export default function StaffRosterRegisterPage() {
       return { dateFrom: weekStart, dateTo: weekStart };
     }
   }, [periodMode, weekStart, month]);
+  const periodKey = `${period.dateFrom}|${period.dateTo}`;
+  const gridReady = readyPeriod === periodKey;
+  const markGridReady = useCallback(() => setReadyPeriod(periodKey), [periodKey]);
   useRegisterHrAssist({
     locationId: storeLocationId ?? null,
     dateFrom: period.dateFrom,
@@ -152,7 +157,7 @@ export default function StaffRosterRegisterPage() {
         includeCopyDepartments: true,
       }),
     staleTime: STALE.people,
-    enabled: Boolean(period.dateFrom && period.dateTo),
+    enabled: copyChoiceOpen && Boolean(period.dateFrom && period.dateTo),
   });
   const uploadedLocations = useMemo(
     () =>
@@ -421,12 +426,13 @@ export default function StaffRosterRegisterPage() {
         </div>
       </div>
 
-      <RosterLocationCoverage dateFrom={period.dateFrom} dateTo={period.dateTo} />
+      <RosterLocationCoverage dateFrom={period.dateFrom} dateTo={period.dateTo} enabled={gridReady} />
 
       <RosterRegisterPanel
         ref={registerRef}
         dateFrom={period.dateFrom}
         dateTo={period.dateTo}
+        onGridFetched={markGridReady}
         defaultLocationId={storeLocationId}
         sourceUploadOnly={false}
         showSourceFilter

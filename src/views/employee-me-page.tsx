@@ -190,39 +190,42 @@ export default function EmployeeMePage() {
   const profile = useMyEmployeeProfile();
   const linked = Boolean(profile.data?.id);
   const selfReady = linked || profile.isError;
-  const attendance = useMyAttendance(selfReady);
-  const roster = useMyRoster(selfReady);
-  const leave = useMyLeaveRequests(linked);
-  const balances = useMyLeaveBalances(linked);
+  const [tab, setTab] = useState<MeTab>("home");
+  const showAttendance = tab === "home" || tab === "attendance";
+  const showRoster = tab === "home" || tab === "roster";
+  const showLeave = tab === "home" || tab === "leave";
+  const attendance = useMyAttendance(showAttendance);
+  const roster = useMyRoster(showRoster);
+  const leave = useMyLeaveRequests(tab === "leave");
+  const balances = useMyLeaveBalances(showLeave);
   const announcements = useQuery({
     queryKey: queryKeys.people.hrAnnouncements({ mine: true }),
     queryFn: () => listAnnouncements({}),
     staleTime: STALE.people,
-    enabled: linked,
+    enabled: tab === "announcements",
   });
   const documents = useQuery({
     queryKey: queryKeys.people.hrDocs({ mine: true }),
     queryFn: () => listEmployeeDocuments({ mineOnly: true }),
     staleTime: STALE.people,
-    enabled: linked,
+    enabled: tab === "documents",
   });
   const airTickets = useQuery({
     queryKey: queryKeys.people.hrAirTickets({ mine: true }),
     queryFn: () => listAirTicketEntitlements({ mineOnly: true }),
     staleTime: STALE.people,
-    enabled: linked,
+    enabled: tab === "tickets",
   });
   const payslips = useQuery({
     queryKey: queryKeys.people.hrMyPayslips(),
     queryFn: () => listMyPayslips({}),
     staleTime: STALE.people,
-    enabled: linked,
+    enabled: tab === "payslips",
   });
 
   const ios = useMemo(() => isIos(), []);
   const person = profile.data;
-  const issues = useMyIssues(Boolean(canIssues && linked));
-  const [tab, setTab] = useState<MeTab>("home");
+  const issues = useMyIssues(Boolean(canIssues && (tab === "home" || tab === "issues")));
 
   useEffect(() => {
     const apply = () => {

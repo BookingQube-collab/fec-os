@@ -32,8 +32,8 @@ export function HeaderSearch({ className }: { className?: string }) {
   const [active, setActive] = useState(0);
 
   const index = useMemo(
-    () => buildNavSearchIndex(roles, hasDirectReports, profile?.job_title),
-    [hasDirectReports, profile?.job_title, roles],
+    () => buildNavSearchIndex(roles, hasDirectReports, profile?.job_title, profile?.staff_role),
+    [hasDirectReports, profile?.job_title, profile?.staff_role, roles],
   );
   const results = useMemo(() => searchNav(query, index, t), [query, index, t]);
 

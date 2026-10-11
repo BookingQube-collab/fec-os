@@ -1,8 +1,15 @@
-import { canUserDo, type Capability } from "@/lib/rbac";
-import { useUserRoles } from "./use-auth";
+import { canActorPerform } from "@/lib/arcade/access";
+import type { Capability } from "@/lib/rbac";
+import { useAuth, useUserRoles } from "./use-auth";
 
-/** Returns true if the current user holds a role permitted to perform `capability`. */
+/** Returns true if the current user may perform `capability`, including job-title arcade and Head of Operations rules. */
 export function usePermission(capability: Capability): boolean {
   const roles = useUserRoles();
-  return canUserDo(roles, capability);
+  const { profile, grantsVersion } = useAuth();
+  void grantsVersion;
+  return canActorPerform(roles, capability, {
+    jobTitle: profile?.job_title,
+    staffRole: profile?.staff_role,
+    department: profile?.department,
+  });
 }

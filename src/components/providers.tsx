@@ -8,7 +8,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { PwaInstallProvider } from "@/hooks/use-pwa-install";
 import { AuthProvider } from "@/hooks/use-auth";
 import { TranslationEditProvider } from "@/components/i18n/translation-edit-provider";
-import { applyAppLanguage } from "@/i18n";
+import { applyAppLanguage, loadEnglishCatalog } from "@/i18n";
 import "@/i18n";
 import { getQueryClient } from "@/lib/query-client";
 import { useAppStore } from "@/stores/app-store";
@@ -42,6 +42,19 @@ export function Providers({ children }: { children: ReactNode }) {
     if (!hydrated) return;
     void applyAppLanguage(language);
   }, [hydrated, language]);
+
+  useEffect(() => {
+    // After first paint, pull the rest of the English dictionary off the shared chunk.
+    const start = () => {
+      void loadEnglishCatalog();
+    };
+    if (typeof requestIdleCallback === "function") {
+      const id = requestIdleCallback(start, { timeout: 1500 });
+      return () => cancelIdleCallback(id);
+    }
+    const id = window.setTimeout(start, 400);
+    return () => window.clearTimeout(id);
+  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>

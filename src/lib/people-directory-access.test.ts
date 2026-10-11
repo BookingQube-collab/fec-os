@@ -24,8 +24,15 @@ describe("people directory for managers and supervisors", () => {
     expect(peopleDirectoryScope(["hr"])).toBe("company");
     expect(peopleDirectoryScope(["ceo"])).toBe("company");
 
-    expect(getEmployeeFlatRail(["cashier_host"], "F&B Manager").map((item) => item.href)).toContain("/people");
-    expect(getEmployeeFlatRail(["cashier_host"], "Cashier").map((item) => item.href)).not.toContain("/people");
+    expect(getEmployeeFlatRail(["cashier_host"], "F&B Manager").map((item) => item.href)).toEqual(
+      expect.arrayContaining(["/people", "/people/roster"]),
+    );
+    expect(getEmployeeFlatRail(["cashier_host"], "Site Supervisor").map((item) => item.href)).toContain(
+      "/people/roster",
+    );
+    const cashierRail = getEmployeeFlatRail(["cashier_host"], "Cashier").map((item) => item.href);
+    expect(cashierRail).not.toContain("/people");
+    expect(cashierRail).not.toContain("/people/roster");
 
     const teamNav = mergePeopleDirectoryDepartments(
       getVisibleDepartments(["cashier_host"]),
@@ -34,6 +41,7 @@ describe("people directory for managers and supervisors", () => {
     );
     const teamHrefs = teamNav.flatMap((dept) => dept.items.map((item) => item.href));
     expect(teamHrefs).toContain("/people");
+    expect(teamHrefs).toContain("/people/roster");
     expect(teamHrefs).not.toContain("/people/payroll");
     expect(teamHrefs).not.toContain("/people/hr/settings");
     expect(teamHrefs).not.toContain("/admin");
@@ -43,7 +51,9 @@ describe("people directory for managers and supervisors", () => {
       ["cashier_host"],
       "Cashier",
     );
-    expect(cashierNav.flatMap((dept) => dept.items.map((item) => item.href))).not.toContain("/people");
+    const cashierHrefs = cashierNav.flatMap((dept) => dept.items.map((item) => item.href));
+    expect(cashierHrefs).not.toContain("/people");
+    expect(cashierHrefs).not.toContain("/people/roster");
   });
 
   it("omits salary for a manager and keeps it for HR and leadership", () => {

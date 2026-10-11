@@ -5,6 +5,7 @@ import {
   buildRosterMatrix,
   chunkIds,
   collectPagedRows,
+  collectPagedRowsInWaves,
   filterRosterRegisterRows,
   isRosterAssignableStaffStatus,
   isWeekendYmd,
@@ -125,6 +126,43 @@ describe("roster register bulk-delete scope", () => {
     ]);
     expect(rows).toHaveLength(ATTENDANCE_DAILY_LIST_PAGE_SIZE + 2);
     expect(rows.slice(-2)).toEqual(["2026-09-15", "2026-09-27"]);
+  });
+
+  it("stops after one short page", async () => {
+    let calls = 0;
+    const rows = await collectPagedRowsInWaves(async () => {
+      calls += 1;
+      return ["only"];
+    }, ATTENDANCE_DAILY_LIST_PAGE_SIZE);
+    expect(calls).toBe(1);
+    expect(rows).toEqual(["only"]);
+  });
+
+  it("loads later pages together and drops anything after the short page", async () => {
+    const calls: number[] = [];
+    const rows = await collectPagedRowsInWaves(
+      async (from) => {
+        calls.push(from);
+        if (from === 0) return Array.from({ length: ATTENDANCE_DAILY_LIST_PAGE_SIZE }, (_, i) => `p0-${i}`);
+        if (from === ATTENDANCE_DAILY_LIST_PAGE_SIZE) {
+          return Array.from({ length: ATTENDANCE_DAILY_LIST_PAGE_SIZE }, (_, i) => `p1-${i}`);
+        }
+        if (from === ATTENDANCE_DAILY_LIST_PAGE_SIZE * 2) return ["2026-09-15", "2026-09-27"];
+        return [`extra-${from}`];
+      },
+      ATTENDANCE_DAILY_LIST_PAGE_SIZE,
+      4,
+    );
+    expect(calls[0]).toBe(0);
+    expect(calls.slice(1, 5).sort((a, b) => a - b)).toEqual([
+      ATTENDANCE_DAILY_LIST_PAGE_SIZE,
+      ATTENDANCE_DAILY_LIST_PAGE_SIZE * 2,
+      ATTENDANCE_DAILY_LIST_PAGE_SIZE * 3,
+      ATTENDANCE_DAILY_LIST_PAGE_SIZE * 4,
+    ]);
+    expect(rows).toHaveLength(ATTENDANCE_DAILY_LIST_PAGE_SIZE * 2 + 2);
+    expect(rows.slice(-2)).toEqual(["2026-09-15", "2026-09-27"]);
+    expect(rows.some((row) => String(row).startsWith("extra-"))).toBe(false);
   });
 
   it("builds a staff × day matrix and stacks same-day multi-location rows", () => {

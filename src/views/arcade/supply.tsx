@@ -52,11 +52,16 @@ export function ArcadeSuppliers() {
       <p className="text-sm text-muted-foreground">{t("arcadeScreens.suppliersHint")}</p>
       <Input value={q} onChange={(event) => setQ(event.target.value)} placeholder={t("arcadeScreens.supplierName")} className="max-w-sm" />
       {(list.data?.rows ?? []).map((row) => (
-        <Link key={row.id} href={`/arcade/suppliers/${row.id}`} className="rounded-lg border p-3">
-          <p className="font-medium">{row.name}</p>
-          <p className="text-sm text-muted-foreground">{row.category} · {row.phone || row.email || t("arcadeScreens.noContact")}</p>
+        <Link key={row.id} href={`/arcade/suppliers/${row.id}`} className="rounded-lg border p-4">
+          <p className="text-lg font-semibold">{row.name}</p>
+          <p className="text-base text-muted-foreground">
+            {t("arcadeSimple.contact")}: {row.phone || row.email || row.profile?.technical_phone || t("arcadeSimple.noContact")}
+            {row.email && row.phone ? ` · ${row.email}` : ""}
+          </p>
         </Link>
       ))}
+      {list.isError ? <p className="text-sm text-destructive">{list.error instanceof Error ? list.error.message : t("arcadeOps.failed")}</p> : null}
+      {list.isSuccess && (list.data?.rows.length ?? 0) === 0 ? <p className="text-muted-foreground">{t("arcadeSimple.noSuppliers")}</p> : null}
       <Pager page={page} total={list.data?.total ?? 0} pageSize={25} onPage={setPage} />
     </div>
   );
@@ -76,8 +81,18 @@ export function ArcadeSupplier({ vendorId }: { vendorId: string }) {
   const perf = row.performance;
   return (
     <div className="grid gap-3">
-      <h1 className="text-xl font-semibold">{row.vendor.name}</h1>
-      <p className="text-sm text-muted-foreground">{row.vendor.contact_person} · {row.vendor.phone} · {row.vendor.email}</p>
+      <h1 className="text-3xl font-semibold">{row.vendor.name}</h1>
+      <p className="text-lg text-muted-foreground">{[row.vendor.contact_person, row.vendor.phone, row.vendor.email, row.profile?.technical_phone].filter(Boolean).join(" · ") || t("arcadeSimple.noContact")}</p>
+      <h2 className="text-xl font-semibold">{t("arcadeSimple.orders")}</h2>
+      {(row.orders ?? []).length === 0 && (row.parts ?? []).length === 0 ? <p className="text-muted-foreground">{t("arcadeSimple.noOrders")}</p> : null}
+      <ul className="grid gap-2">
+        {(row.orders ?? []).map((item) => (
+          <li key={item.id} className="rounded border p-3 text-base">{item.description} · {item.qty} · {arcadeStatusName(t, item.status)}</li>
+        ))}
+        {(row.parts ?? []).map((item) => (
+          <li key={item.id} className="rounded border p-3 text-base">{item.name} · {item.part_code} · {arcadeStatusName(t, item.supply_status)}</li>
+        ))}
+      </ul>
       {perf ? (
         <div className="grid grid-cols-2 gap-2 text-sm md:grid-cols-4">
           <p className="rounded border p-2">{t("arcadeScreens.perfMachines", { n: perf.machines })}</p>

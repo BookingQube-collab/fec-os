@@ -306,3 +306,41 @@ export async function collectPagedRows<T>(
   }
   return out;
 }
+
+/**
+ * Same rows and stop rule as collectPagedRows. A short first page is one round trip.
+ * After a full page, the next pages are requested together so a multi-thousand-row
+ * month does not wait on one PostgREST page at a time.
+ */
+export async function collectPagedRowsInWaves<T>(
+  fetchPage: (from: number, to: number) => PromiseLike<T[] | null | undefined>,
+  pageSize: number,
+  waveSize = 4,
+): Promise<T[]> {
+  if (pageSize < 1) throw new Error("pageSize must be >= 1");
+  if (waveSize < 1) throw new Error("waveSize must be >= 1");
+  const first = (await fetchPage(0, pageSize - 1)) ?? [];
+  const out: T[] = [...first];
+  if (first.length < pageSize) return out;
+  let nextIndex = 1;
+  for (;;) {
+    const indexes = Array.from({ length: waveSize }, (_, offset) => nextIndex + offset);
+    const wave = await Promise.all(
+      indexes.map(async (pageIndex) => {
+        const from = pageIndex * pageSize;
+        return (await fetchPage(from, from + pageSize - 1)) ?? [];
+      }),
+    );
+    let short = false;
+    for (const page of wave) {
+      out.push(...page);
+      if (page.length < pageSize) {
+        short = true;
+        break;
+      }
+    }
+    if (short) break;
+    nextIndex += waveSize;
+  }
+  return out;
+}

@@ -36,8 +36,8 @@ import {
 } from "@/lib/nav-config";
 import { applySidebarItemOrder, orderDepartments } from "@/lib/nav-order";
 import { MOBILE_TABS, isMobileTabActive, type MobileTabId } from "@/lib/mobile-nav";
+import { canActorPerform } from "@/lib/arcade/access";
 import { canOpenPeopleDirectory } from "@/lib/people-directory-access";
-import { canUserDo } from "@/lib/rbac";
 import { cn } from "@/lib/utils";
 
 const TAB_ICONS: Record<Exclude<MobileTabId, "more">, LucideIcon> = {
@@ -50,17 +50,19 @@ const TAB_ICONS: Record<Exclude<MobileTabId, "more">, LucideIcon> = {
 function MobileCollapsibleSection({
   label,
   pathname,
+  defaultOpen = true,
   children,
 }: {
   label: string;
   pathname: string;
+  defaultOpen?: boolean;
   children: ReactNode;
 }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(defaultOpen);
 
   useEffect(() => {
-    setOpen(true);
-  }, [pathname]);
+    setOpen(defaultOpen);
+  }, [pathname, defaultOpen]);
 
   return (
     <li className="col-span-2 min-w-0">
@@ -178,6 +180,13 @@ function MoreModulesList({
                     key={`${dept.id}-${block.sectionKey}`}
                     label={t(block.sectionKey)}
                     pathname={pathname}
+                    defaultOpen={
+                      block.sectionKey !== "nav.arcadeGroupMore" ||
+                      block.items.some((item) => {
+                        const path = navHrefPath(item.href);
+                        return path !== null && isNavItemActive(path, pathname);
+                      })
+                    }
                   >
                     {links}
                   </MobileCollapsibleSection>,
@@ -214,6 +223,10 @@ function MoreModulesList({
                       key={`${group.id}-${block.sectionKey}`}
                       label={t(block.sectionKey)}
                       pathname={pathname}
+                      defaultOpen={
+                        block.sectionKey !== "nav.arcadeGroupMore" ||
+                        block.items.some((item) => isSidebarNavGroupItemActive(item.href, pathname))
+                      }
                     >
                       {links}
                     </MobileCollapsibleSection>,
@@ -238,6 +251,9 @@ export function MobileBottomNav() {
   const roles = useUserRoles();
   const { signOut, profile } = useAuth();
   const jobTitle = profile?.job_title ?? null;
+  const staffRole = profile?.staff_role ?? null;
+  const department = profile?.department ?? null;
+  const navActor = { jobTitle, staffRole, department };
   const { t } = useTranslation();
   const [moreOpen, setMoreOpen] = useState(false);
 
@@ -249,19 +265,19 @@ export function MobileBottomNav() {
 
   const { hasDirectReports } = useHasDirectReports();
   const employeeRail = useMemo(
-    () => (usesEmployeeFlatRail(roles, hasDirectReports) ? getEmployeeFlatRail(roles, jobTitle) : []),
-    [hasDirectReports, jobTitle, roles],
+    () => (usesEmployeeFlatRail(roles, hasDirectReports, navActor) ? getEmployeeFlatRail(roles, jobTitle, staffRole) : []),
+    [department, hasDirectReports, jobTitle, roles, staffRole],
   );
   const employeeTabs = employeeRail.slice(0, 4);
   const employeeOverflow = employeeRail.slice(employeeTabs.length);
   const tabs = useMemo(
     () =>
       MOBILE_TABS.filter((tab) => {
-        if (tab.id === "people" && canOpenPeopleDirectory(roles, jobTitle)) return true;
-        if (tab.capability === null || canUserDo(roles, tab.capability)) return true;
+        if (tab.id === "people" && canOpenPeopleDirectory(roles, jobTitle, staffRole)) return true;
+        if (tab.capability === null || canActorPerform(roles, tab.capability, navActor)) return true;
         return hasDirectReports && tab.id === "attendance";
       }),
-    [hasDirectReports, jobTitle, roles],
+    [department, hasDirectReports, jobTitle, roles, staffRole],
   );
 
   const { order, itemOrders } = useSidebarNavOrder();
@@ -270,15 +286,16 @@ export function MobileBottomNav() {
       applySidebarItemOrder(
         orderDepartments(
           mergePeopleDirectoryDepartments(
-            mergeReportingManagerDepartments(getVisibleDepartments(roles), hasDirectReports),
+            mergeReportingManagerDepartments(getVisibleDepartments(roles, navActor), hasDirectReports),
             roles,
             jobTitle,
+            staffRole,
           ),
           order,
         ),
         itemOrders,
       ),
-    [hasDirectReports, itemOrders, jobTitle, order, roles],
+    [department, hasDirectReports, itemOrders, jobTitle, order, roles, staffRole],
   );
 
   if (tabs.length === 0) return null;

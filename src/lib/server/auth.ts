@@ -25,6 +25,12 @@ export type AuthContext = {
   claims: Record<string, unknown>;
   /** Populated once per server action by enforceActionAuth */
   roles?: AppRole[];
+  /** Linked staff title, staff role, and department. Set when a capability is checked. */
+  access?: {
+    jobTitle: string | null;
+    staffRole: string | null;
+    department: string | null;
+  };
 };
 
 function authTokenFingerprint(cookieStore: Awaited<ReturnType<typeof cookies>>): string | null {

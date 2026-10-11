@@ -80,7 +80,7 @@ import {
 } from "@/lib/attendance-hr/dashboard";
 import { expectedOnDutyStaffIds, expectedRowsForDay, isWorkDateCovered } from "@/lib/attendance-hr/roster-expected";
 import { BIOMETRIC_USER_CONFLICT } from "@/lib/attendance-hr/mapping-merge";
-import { collectPagedRows } from "@/lib/attendance-hr/roster-register-scope";
+import { collectPagedRows, collectPagedRowsInWaves } from "@/lib/attendance-hr/roster-register-scope";
 import { ATTENDANCE_TALLY_UPLOAD_NOTE } from "@/lib/attendance-hr/roster-upload";
 import { recalculateAttendanceRange } from "@/lib/attendance-hr/process";
 import { normalizeName } from "@/lib/staff-roster/values";
@@ -308,6 +308,10 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
     }
     if (data.locationId && fullAttendance) await assertSite(context, data.locationId);
     const today = qatarTodayYmd();
+    // The attendance page always sends the month window. Skip the latest-punch lookup then.
+    const hasExplicitPeriod = Boolean(
+      (data.dateFrom && data.dateTo) || data.date || (data.month && /^\d{4}-\d{2}$/.test(data.month)),
+    );
     // Reporting managers cannot read other sites through RLS. Their team's punches still count.
     const readDb = teamIds ? supabaseAdmin : context.supabase;
     let staffQuery = readDb.from("staff").select("id, location_id, status").is("deleted_at", null);
@@ -319,7 +323,7 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
       .limit(1);
     if (teamIds) latestPunchQ = latestPunchQ.in("staff_id", teamIds);
 
-    const [locRes, settingsRes, staffRes, latestPunchRes] = await Promise.all([
+    const [locRes, settingsRes, staffRes, latestPunchRes, linksOutcome] = await Promise.all([
       teamIds
         ? loadTeamCoverageLocations(teamIds).then((rows) => ({ data: rows, error: null as null }))
         : context.supabase
@@ -329,7 +333,20 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
             .in("code", [...CANONICAL_LOCATION_CODES]),
       context.supabase.from("attendance_site_settings").select("location_id"),
       staffQuery,
-      latestPunchQ.maybeSingle(),
+      hasExplicitPeriod
+        ? Promise.resolve({ data: null as { attendance_date?: string | null; punch_at?: string | null } | null, error: null })
+        : latestPunchQ.maybeSingle(),
+      (async () => {
+        try {
+          let linksQuery = readDb.from("staff_work_locations").select("staff_id, location_id");
+          if (teamIds) linksQuery = linksQuery.in("staff_id", teamIds);
+          const { data: links, error } = await linksQuery;
+          if (error) throw error;
+          return { ok: true as const, links: links ?? [] };
+        } catch {
+          return { ok: false as const, links: [] as Array<{ staff_id: string; location_id: string }> };
+        }
+      })(),
     ]);
     if (locRes.error) throw locRes.error;
     if (staffRes.error) throw staffRes.error;
@@ -358,23 +375,18 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
     );
     let workStaffIds: string[] = [];
     const workByLocation = new Map<string, string[]>();
-    try {
-      let linksQuery = readDb.from("staff_work_locations").select("staff_id, location_id");
-      if (teamIds) linksQuery = linksQuery.in("staff_id", teamIds);
-      const { data: links } = await linksQuery;
-      for (const row of links ?? []) {
+    if (linksOutcome.ok) {
+      for (const row of linksOutcome.links) {
         const list = workByLocation.get(row.location_id) ?? [];
         list.push(row.staff_id);
         workByLocation.set(row.location_id, list);
       }
       if (data.locationId) workStaffIds = workByLocation.get(data.locationId) ?? [];
-    } catch {
-      if (data.locationId) {
-        try {
-          workStaffIds = await fetchStaffIdsWorkingAtLocation(context.supabase, data.locationId);
-        } catch {
-          workStaffIds = [];
-        }
+    } else if (data.locationId) {
+      try {
+        workStaffIds = await fetchStaffIdsWorkingAtLocation(context.supabase, data.locationId);
+      } catch {
+        workStaffIds = [];
       }
     }
     const employees = countRosterEmployees(staffRes.data ?? [], {
@@ -412,29 +424,91 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
       punchQ = punchQ.in("staff_id", teamIds);
       rosterQ = rosterQ.in("staff_id", teamIds);
     }
-    const [summaryRes, punchRes, unmatchedRes, pendingRes, rosterRes, uploadRes] = await Promise.all([
+    const locFilter = data.locationId ?? null;
+    const hist = previousPeriod(dateFrom, dateTo);
+    const next = upcomingPeriod(dateTo, 7);
+    let histQ = readDb
+      .from("attendance_daily_summary")
+      .select("status, late_minutes, missed_punch")
+      .gte("work_date", hist.dateFrom)
+      .lte("work_date", hist.dateTo)
+      .limit(20000);
+    let upcomingQ = readDb
+      .from("attendance_roster_assignments")
+      .select("is_week_off")
+      .gte("work_date", next.dateFrom)
+      .lte("work_date", next.dateTo)
+      .limit(20000);
+    if (teamIds) {
+      histQ = histQ.in("staff_id", teamIds);
+      upcomingQ = upcomingQ.in("staff_id", teamIds);
+    }
+    const histVisitQ = context.supabase
+      .from("staff_location_events")
+      .select("id", { count: "exact", head: true })
+      .gte("recorded_at", `${hist.dateFrom}T00:00:00.000Z`)
+      .lte("recorded_at", `${hist.dateTo}T23:59:59.999Z`);
+    const curVisitQ = context.supabase
+      .from("staff_location_events")
+      .select("id", { count: "exact", head: true })
+      .gte("recorded_at", `${dateFrom}T00:00:00.000Z`)
+      .lte("recorded_at", `${dateTo}T23:59:59.999Z`);
+    const trendsPromise = Promise.all([
+      locFilter ? histQ.eq("location_id", locFilter) : histQ,
+      locFilter ? upcomingQ.eq("location_id", locFilter) : upcomingQ,
+      locFilter ? histVisitQ.eq("location_id", locFilter) : histVisitQ,
+      locFilter ? curVisitQ.eq("location_id", locFilter) : curVisitQ,
+    ]).then(
+      (rows) => rows,
+      () => null,
+    );
+    const pendingVisiblePromise = countVisiblePendingCorrections(context.userId, data.locationId ?? null).then(
+      (count) => count,
+      (error: unknown) => {
+        console.warn("[missed-punch] pending count fallback", error instanceof Error ? error.message : error);
+        return null as number | null;
+      },
+    );
+    const [summaryRes, unmatchedRes, pendingRes] = await Promise.all([
       summaryQ,
-      punchQ,
       context.supabase.from("attendance_biometric_users").select("id", { count: "exact", head: true }).is("staff_id", null),
       pendingQ,
-      rosterQ,
-      context.supabase
-        .from("daily_ops_roster_uploads")
-        .select("location_id, period_start, period_end, notes")
-        .eq("notes", ATTENDANCE_TALLY_UPLOAD_NOTE)
-        .limit(500),
     ]);
-    if (punchRes.error) throw punchRes.error;
+    // Punches, this period's roster, and tally uploads only fill days when summaries are empty.
+    let punchRows: AttendanceDashboardPunch[] = [];
+    let rosterRows: Array<{
+      location_id: string;
+      staff_id: string;
+      work_date: string;
+      shift_template_id: string | null;
+      is_week_off: boolean | null;
+    }> = [];
+    let uploadRows: Array<{ location_id: string; period_start: string | null; period_end: string | null }> = [];
+    if ((summaryRes.data ?? []).length === 0) {
+      const [punchRes, rosterRes, uploadRes] = await Promise.all([
+        punchQ,
+        rosterQ,
+        context.supabase
+          .from("daily_ops_roster_uploads")
+          .select("location_id, period_start, period_end, notes")
+          .eq("notes", ATTENDANCE_TALLY_UPLOAD_NOTE)
+          .limit(500),
+      ]);
+      if (punchRes.error) throw punchRes.error;
+      punchRows = (punchRes.data ?? []) as AttendanceDashboardPunch[];
+      rosterRows = (rosterRes.data ?? []) as typeof rosterRows;
+      uploadRows = (uploadRes.data ?? []) as typeof uploadRows;
+    }
 
     const fromSummaries = (summaryRes.data ?? []).map((row) =>
       summaryToDayRow(row as Parameters<typeof summaryToDayRow>[0]),
     );
-    const fromPunches = dayRowsFromPunchesInRange((punchRes.data ?? []) as AttendanceDashboardPunch[], dateFrom, dateTo);
+    const fromPunches = dayRowsFromPunchesInRange(punchRows, dateFrom, dateTo);
     let dayRows = fromSummaries.length > 0 ? fromSummaries : fromPunches;
     if (fromSummaries.length === 0) {
       const staff = staffRes.data ?? [];
       const coverageByLoc = new Map<string, Array<{ start: string; end: string }>>();
-      for (const row of uploadRes.data ?? []) {
+      for (const row of uploadRows) {
         if (!row.period_start || !row.period_end) continue;
         const list = coverageByLoc.get(row.location_id) ?? [];
         list.push({ start: String(row.period_start).slice(0, 10), end: String(row.period_end).slice(0, 10) });
@@ -447,7 +521,7 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
         });
         const expectedByDate = new Map<string, string[]>();
         for (const day of dates) {
-          const dayRoster = (rosterRes.data ?? [])
+          const dayRoster = rosterRows
             .filter((row) => row.location_id === site.id && String(row.work_date).slice(0, 10) === day)
             .map((row) => ({
               staff_id: String(row.staff_id),
@@ -482,53 +556,19 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
     const frequentLate = frequentExceptionLeaders(dayRows, "late");
     const frequentMissed = frequentExceptionLeaders(dayRows, "missed");
     const watchIds = [...frequentLate, ...frequentMissed].map((row) => row.id);
-    const namedStaff: Array<{ id: string; full_name?: string | null; location_id?: string | null }> = [];
-    if (watchIds.length) {
-      const { data: named } = await readDb
-        .from("staff")
-        .select("id, full_name, location_id")
-        .in("id", watchIds);
-      namedStaff.push(...(named ?? []));
-    }
+    const [namedRes, trendRows, visiblePending] = await Promise.all([
+      watchIds.length
+        ? readDb.from("staff").select("id, full_name, location_id").in("id", watchIds)
+        : Promise.resolve({ data: [] as Array<{ id: string; full_name?: string | null; location_id?: string | null }> }),
+      trendsPromise,
+      pendingVisiblePromise,
+    ]);
+    const namedStaff = namedRes.data ?? [];
     const labelWatch = (leaders: typeof frequentLate) => enrichWatchlistEntries(leaders, namedStaff, sites);
 
     let trends = emptyAvailabilityTrends();
-    try {
-      const hist = previousPeriod(dateFrom, dateTo);
-      const next = upcomingPeriod(dateTo, 7);
-      const locFilter = data.locationId ?? null;
-      let histQ = readDb
-        .from("attendance_daily_summary")
-        .select("status, late_minutes, missed_punch")
-        .gte("work_date", hist.dateFrom)
-        .lte("work_date", hist.dateTo)
-        .limit(20000);
-      let upcomingQ = readDb
-        .from("attendance_roster_assignments")
-        .select("is_week_off")
-        .gte("work_date", next.dateFrom)
-        .lte("work_date", next.dateTo)
-        .limit(20000);
-      if (teamIds) {
-        histQ = histQ.in("staff_id", teamIds);
-        upcomingQ = upcomingQ.in("staff_id", teamIds);
-      }
-      const histVisitQ = context.supabase
-        .from("staff_location_events")
-        .select("id", { count: "exact", head: true })
-        .gte("recorded_at", `${hist.dateFrom}T00:00:00.000Z`)
-        .lte("recorded_at", `${hist.dateTo}T23:59:59.999Z`);
-      const curVisitQ = context.supabase
-        .from("staff_location_events")
-        .select("id", { count: "exact", head: true })
-        .gte("recorded_at", `${dateFrom}T00:00:00.000Z`)
-        .lte("recorded_at", `${dateTo}T23:59:59.999Z`);
-      const [histRes, upcomingRes, histVisits, curVisits] = await Promise.all([
-        locFilter ? histQ.eq("location_id", locFilter) : histQ,
-        locFilter ? upcomingQ.eq("location_id", locFilter) : upcomingQ,
-        locFilter ? histVisitQ.eq("location_id", locFilter) : histVisitQ,
-        locFilter ? curVisitQ.eq("location_id", locFilter) : curVisitQ,
-      ]);
+    if (trendRows) {
+      const [histRes, upcomingRes, histVisits, curVisits] = trendRows;
       trends = buildAvailabilityTrends({
         historyRows: histRes.data ?? [],
         currentRows: dayRows,
@@ -536,8 +576,6 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
         currentVisits: teamIds || curVisits.error ? 0 : curVisits.count ?? 0,
         upcomingRows: upcomingRes.data ?? [],
       });
-    } catch {
-      trends = emptyAvailabilityTrends();
     }
 
     return {
@@ -556,17 +594,7 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
         late: agg.late,
         missedPunches: agg.missedPunches,
         unmatched: teamIds ? 0 : (unmatchedRes.count ?? 0),
-        pendingCorrections: await (async () => {
-          try {
-            return await countVisiblePendingCorrections(context.userId, data.locationId ?? null);
-          } catch (error) {
-            console.warn(
-              "[missed-punch] pending count fallback",
-              error instanceof Error ? error.message : error,
-            );
-            return pendingRes.count ?? 0;
-          }
-        })(),
+        pendingCorrections: visiblePending ?? pendingRes.count ?? 0,
       },
       sites: agg.bySite,
       bySite: agg.bySite.map((site) => ({
@@ -728,79 +756,100 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
       staffFilter !== "none" && staffFilter !== "unmapped" && "ids" in staffFilter ? staffFilter.ids : null;
     const summaryIdGroups: Array<string[] | null> =
       staffFilterIds && !deptStaffIds ? chunkStaffIds(staffFilterIds) : [null];
-    let rows: Array<Record<string, unknown>> = [];
-    for (const idGroup of summaryIdGroups) {
-    for (let from = 0; ; from += ATTENDANCE_DAILY_LIST_PAGE_SIZE) {
-      let q = readContext.supabase
-        .from("attendance_daily_summary")
-        .select(ATTENDANCE_DAILY_LIST_COLUMNS)
-        .gte("work_date", data.dateFrom)
-        .lte("work_date", data.dateTo)
-        .order("work_date", { ascending: false })
-        .order("id", { ascending: false })
-        .range(from, from + ATTENDANCE_DAILY_LIST_PAGE_SIZE - 1);
-      if (data.status) q = q.eq("status", data.status);
-      if (staffFilter === "unmapped") q = q.is("staff_id", null);
-      else if (idGroup) q = q.in("staff_id", idGroup);
-      else if (staffFilter !== "none" && "ids" in staffFilter) q = q.in("staff_id", staffFilter.ids);
-      else if (staffFilter !== "none" && "biometricIlike" in staffFilter) {
-        q = q.ilike("biometric_user_id", staffFilter.biometricIlike);
-      }
-      if (deptStaffIds) q = q.in("staff_id", deptStaffIds);
-      // Site chip always wins: every listed/KPI row must be for this location_id.
-      // Do not widen via home-staff OR or staff-search person rollup (other sites' punches).
-      if (data.locationId) q = q.eq("location_id", data.locationId);
-      const { data: page, error } = await q;
-      if (error) throw error;
-      rows.push(...((page ?? []) as Array<Record<string, unknown>>));
-      if (!page || page.length < ATTENDANCE_DAILY_LIST_PAGE_SIZE) break;
-    }
-    }
+    const deptAllow = deptStaffIds;
+    const gapStaffIdsEarly =
+      staffFilter !== "none" && staffFilter !== "unmapped" && "ids" in staffFilter
+        ? deptAllow
+          ? staffFilter.ids.filter((id) => deptAllow.includes(id))
+          : staffFilter.ids
+        : null;
+    const gapEarly =
+      staffFilter !== "unmapped" && !data.status && (Boolean(data.locationId) || gapStaffIdsEarly != null)
+        ? loadListingGapRosterAndPunchDays(readContext, {
+            staffIds: gapStaffIdsEarly,
+            locationId: data.locationId ?? null,
+            dateFrom: data.dateFrom,
+            dateTo: data.dateTo,
+          })
+        : null;
+    const flexEarly = data.locationId
+      ? flexibleStaffPunchDaysAtLocation(
+          readContext,
+          data.locationId,
+          data.dateFrom,
+          data.dateTo,
+          staffFilter !== "none" && staffFilter !== "unmapped" && "ids" in staffFilter ? staffFilter.ids : null,
+        )
+      : null;
+    const [summaryGroups, flexPunchDays, gapSourcesEarly] = await Promise.all([
+      Promise.all(
+        summaryIdGroups.map((idGroup) =>
+          collectPagedRowsInWaves(async (from, to) => {
+            let q = readContext.supabase
+              .from("attendance_daily_summary")
+              .select(ATTENDANCE_DAILY_LIST_COLUMNS)
+              .gte("work_date", data.dateFrom)
+              .lte("work_date", data.dateTo)
+              .order("work_date", { ascending: false })
+              .order("id", { ascending: false })
+              .range(from, to);
+            if (data.status) q = q.eq("status", data.status);
+            if (staffFilter === "unmapped") q = q.is("staff_id", null);
+            else if (idGroup) q = q.in("staff_id", idGroup);
+            else if (staffFilter !== "none" && "ids" in staffFilter) q = q.in("staff_id", staffFilter.ids);
+            else if (staffFilter !== "none" && "biometricIlike" in staffFilter) {
+              q = q.ilike("biometric_user_id", staffFilter.biometricIlike);
+            }
+            if (deptStaffIds) q = q.in("staff_id", deptStaffIds);
+            // Site chip always wins: every listed/KPI row must be for this location_id.
+            // Do not widen via home-staff OR or staff-search person rollup (other sites' punches).
+            if (data.locationId) q = q.eq("location_id", data.locationId);
+            const { data: page, error } = await q;
+            if (error) throw error;
+            return (page ?? []) as Array<Record<string, unknown>>;
+          }, ATTENDANCE_DAILY_LIST_PAGE_SIZE),
+        ),
+      ),
+      flexEarly ?? Promise.resolve(null),
+      gapEarly ?? Promise.resolve(null),
+    ]);
+    let rows: Array<Record<string, unknown>> = summaryGroups.flat();
 
     // Flexible staff may keep the day at the first-punch site while this chip is only
     // check-in or check-out — pull sibling person-days that punched here, then collapse.
-    if (data.locationId) {
-      const flexPunchDays = await flexibleStaffPunchDaysAtLocation(
-        readContext,
-        data.locationId,
-        data.dateFrom,
-        data.dateTo,
-        staffFilter === "unmapped"
-          ? null
-          : staffFilter !== "none" && "ids" in staffFilter
-            ? staffFilter.ids
-            : null,
-      );
+    if (data.locationId && flexPunchDays) {
       const staffIds = [...flexPunchDays.keys()].filter((id) =>
         deptStaffIds ? deptStaffIds.includes(id) : true,
       );
       if (staffIds.length) {
         const seenIds = new Set(rows.map((r) => String(r.id ?? "")));
-        for (const flexChunk of chunkStaffIds(staffIds)) {
-        for (let from = 0; ; from += ATTENDANCE_DAILY_LIST_PAGE_SIZE) {
-          let q = readContext.supabase
-            .from("attendance_daily_summary")
-            .select(ATTENDANCE_DAILY_LIST_COLUMNS)
-            .in("staff_id", flexChunk)
-            .gte("work_date", data.dateFrom)
-            .lte("work_date", data.dateTo)
-            .order("work_date", { ascending: false })
-            .order("id", { ascending: false })
-            .range(from, from + ATTENDANCE_DAILY_LIST_PAGE_SIZE - 1);
-          if (data.status) q = q.eq("status", data.status);
-          const { data: page, error } = await q;
-          if (error) throw error;
-          for (const row of page ?? []) {
-            const id = String(row.id ?? "");
-            if (id && seenIds.has(id)) continue;
-            const staffId = String(row.staff_id ?? "");
-            const day = String(row.work_date ?? "").slice(0, 10);
-            if (!flexPunchDays.get(staffId)?.has(day)) continue;
-            if (id) seenIds.add(id);
-            rows.push(row as Record<string, unknown>);
-          }
-          if (!page || page.length < ATTENDANCE_DAILY_LIST_PAGE_SIZE) break;
-        }
+        const flexPages = await Promise.all(
+          chunkStaffIds(staffIds).map((flexChunk) =>
+            collectPagedRowsInWaves(async (from, to) => {
+              let q = readContext.supabase
+                .from("attendance_daily_summary")
+                .select(ATTENDANCE_DAILY_LIST_COLUMNS)
+                .in("staff_id", flexChunk)
+                .gte("work_date", data.dateFrom)
+                .lte("work_date", data.dateTo)
+                .order("work_date", { ascending: false })
+                .order("id", { ascending: false })
+                .range(from, to);
+              if (data.status) q = q.eq("status", data.status);
+              const { data: page, error } = await q;
+              if (error) throw error;
+              return (page ?? []) as Array<Record<string, unknown>>;
+            }, ATTENDANCE_DAILY_LIST_PAGE_SIZE),
+          ),
+        );
+        for (const row of flexPages.flat()) {
+          const id = String(row.id ?? "");
+          if (id && seenIds.has(id)) continue;
+          const staffId = String(row.staff_id ?? "");
+          const day = String(row.work_date ?? "").slice(0, 10);
+          if (!flexPunchDays.get(staffId)?.has(day)) continue;
+          if (id) seenIds.add(id);
+          rows.push(row);
         }
       }
     }
@@ -831,12 +880,21 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
             : fillStaffIds.size > 0
               ? [...fillStaffIds]
               : null;
-      const gapSources = await loadListingGapRosterAndPunchDays(readContext, {
-        staffIds: gapStaffIds,
-        locationId: data.locationId ?? null,
-        dateFrom: data.dateFrom,
-        dateTo: data.dateTo,
-      });
+      const earlyCoversGap =
+        gapSourcesEarly != null &&
+        (gapStaffIdsEarly == null
+          ? gapStaffIds == null
+          : gapStaffIds != null &&
+            gapStaffIdsEarly.length === gapStaffIds.length &&
+            gapStaffIdsEarly.every((id) => fillStaffIds.has(id)));
+      const gapSources = earlyCoversGap
+        ? gapSourcesEarly
+        : await loadListingGapRosterAndPunchDays(readContext, {
+            staffIds: gapStaffIds,
+            locationId: data.locationId ?? null,
+            dateFrom: data.dateFrom,
+            dateTo: data.dateTo,
+          });
       rows = appendMissingRosterAndPunchSummaryRows({
         rows,
         roster: gapSources.roster,
@@ -2584,23 +2642,18 @@ async function enrichAttendanceHrDailyRows(
           }>,
         }),
     staffIds.length && dateFrom && dateTo
-      ? (async () => {
-          const rosterRows: Array<Record<string, unknown>> = [];
-          for (let from = 0; ; from += ATTENDANCE_DAILY_LIST_PAGE_SIZE) {
-            const { data: page, error } = await context.supabase
-              .from("attendance_roster_assignments")
-              .select("staff_id, location_id, work_date, shift_template_id, shift_start, shift_end, is_week_off")
-              .in("staff_id", staffIds)
-              .gte("work_date", dateFrom)
-              .lte("work_date", dateTo)
-              .order("id", { ascending: true })
-              .range(from, from + ATTENDANCE_DAILY_LIST_PAGE_SIZE - 1);
-            if (error) throw error;
-            rosterRows.push(...((page ?? []) as Array<Record<string, unknown>>));
-            if (!page || page.length < ATTENDANCE_DAILY_LIST_PAGE_SIZE) break;
-          }
-          return { data: rosterRows };
-        })()
+      ? collectPagedRowsInWaves(async (from, to) => {
+          const { data: page, error } = await context.supabase
+            .from("attendance_roster_assignments")
+            .select("staff_id, location_id, work_date, shift_template_id, shift_start, shift_end, is_week_off")
+            .in("staff_id", staffIds)
+            .gte("work_date", dateFrom)
+            .lte("work_date", dateTo)
+            .order("id", { ascending: true })
+            .range(from, to);
+          if (error) throw error;
+          return (page ?? []) as Array<Record<string, unknown>>;
+        }, ATTENDANCE_DAILY_LIST_PAGE_SIZE).then((rosterRows) => ({ data: rosterRows }))
       : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
     context.supabase
       .from("attendance_shift_templates")
@@ -3305,40 +3358,38 @@ async function loadListingGapRosterAndPunchDays(
   }
 
   const loadRoster = async (): Promise<ListingGapRosterDay[]> => {
-    const roster: ListingGapRosterDay[] = [];
-    for (let from = 0; ; from += ATTENDANCE_DAILY_LIST_PAGE_SIZE) {
+    const pages = await collectPagedRowsInWaves(async (from, to) => {
       let q = context.supabase
         .from("attendance_roster_assignments")
         .select("staff_id, location_id, work_date, is_week_off")
         .gte("work_date", dateFrom)
         .lte("work_date", dateTo)
         .order("id", { ascending: true })
-        .range(from, from + ATTENDANCE_DAILY_LIST_PAGE_SIZE - 1);
+        .range(from, to);
       if (staffIds?.length) q = q.in("staff_id", staffIds);
       else if (locationId) q = q.eq("location_id", locationId);
       const { data: page, error } = await q;
       if (error) throw error;
-      for (const row of page ?? []) {
-        const staffId = String(row.staff_id ?? "");
-        const loc = String(row.location_id ?? "");
-        const day = String(row.work_date ?? "").slice(0, 10);
-        if (!staffId || !loc || !day) continue;
-        roster.push({
-          staff_id: staffId,
-          location_id: loc,
-          work_date: day,
-          is_week_off: Boolean(row.is_week_off),
-        });
-      }
-      if (!page || page.length < ATTENDANCE_DAILY_LIST_PAGE_SIZE) break;
+      return page ?? [];
+    }, ATTENDANCE_DAILY_LIST_PAGE_SIZE);
+    const roster: ListingGapRosterDay[] = [];
+    for (const row of pages) {
+      const staffId = String(row.staff_id ?? "");
+      const loc = String(row.location_id ?? "");
+      const day = String(row.work_date ?? "").slice(0, 10);
+      if (!staffId || !loc || !day) continue;
+      roster.push({
+        staff_id: staffId,
+        location_id: loc,
+        work_date: day,
+        is_week_off: Boolean(row.is_week_off),
+      });
     }
     return roster;
   };
 
   const loadPunchDays = async (): Promise<ListingGapPunchDay[]> => {
-    const punchSeen = new Set<string>();
-    const punchDays: ListingGapPunchDay[] = [];
-    for (let from = 0; ; from += ATTENDANCE_DAILY_LIST_PAGE_SIZE) {
+    const pages = await collectPagedRowsInWaves(async (from, to) => {
       let q = context.supabase
         .from("attendance_logs")
         .select("staff_id, location_id, attendance_date")
@@ -3346,22 +3397,24 @@ async function loadListingGapRosterAndPunchDays(
         .gte("attendance_date", dateFrom)
         .lte("attendance_date", dateTo)
         .order("id", { ascending: true })
-        .range(from, from + ATTENDANCE_DAILY_LIST_PAGE_SIZE - 1);
+        .range(from, to);
       if (staffIds?.length) q = q.in("staff_id", staffIds);
       else if (locationId) q = q.eq("location_id", locationId);
       const { data: page, error } = await q;
       if (error) throw error;
-      for (const row of page ?? []) {
-        const staffId = String(row.staff_id ?? "");
-        const loc = String(row.location_id ?? "");
-        const day = String(row.attendance_date ?? "").slice(0, 10);
-        if (!staffId || !loc || !day) continue;
-        const key = `${staffId}|${loc}|${day}`;
-        if (punchSeen.has(key)) continue;
-        punchSeen.add(key);
-        punchDays.push({ staff_id: staffId, location_id: loc, work_date: day });
-      }
-      if (!page || page.length < ATTENDANCE_DAILY_LIST_PAGE_SIZE) break;
+      return page ?? [];
+    }, ATTENDANCE_DAILY_LIST_PAGE_SIZE);
+    const punchSeen = new Set<string>();
+    const punchDays: ListingGapPunchDay[] = [];
+    for (const row of pages) {
+      const staffId = String(row.staff_id ?? "");
+      const loc = String(row.location_id ?? "");
+      const day = String(row.attendance_date ?? "").slice(0, 10);
+      if (!staffId || !loc || !day) continue;
+      const key = `${staffId}|${loc}|${day}`;
+      if (punchSeen.has(key)) continue;
+      punchSeen.add(key);
+      punchDays.push({ staff_id: staffId, location_id: loc, work_date: day });
     }
     return punchDays;
   };

@@ -5,16 +5,19 @@ import {
   BarChart3,
   Bell,
   BellRing,
+  BookOpen,
   Briefcase,
   Building,
   Building2,
   Calendar,
   CalendarDays,
+  CalendarRange,
   ClipboardCheck,
   ClipboardList,
   Clock,
   Code2,
   Crown,
+  Eye,
   FileBarChart,
   FileText,
   FolderKanban,
@@ -41,13 +44,16 @@ import {
   Phone,
   Presentation,
   Radio,
+  Search,
   Settings,
   Shield,
+  ShieldAlert,
   ShieldCheck,
   ShoppingCart,
   Sparkles,
   TicketCheck,
   TrendingUp,
+  Truck,
   UserRound,
   Users,
   Gamepad2,
@@ -58,6 +64,7 @@ import {
 } from "lucide-react";
 
 import { peopleDirectoryScope } from "@/lib/people-directory-access";
+import { canActorPerform, canUseArcadeTechnical, isFecTechnician, isOperationsSuperAdmin } from "@/lib/arcade/access";
 import { canUserDo, isEmployeeHomeAudience, type AppRole, type Capability } from "@/lib/rbac";
 
 export interface NavItem {
@@ -146,42 +153,27 @@ const MAINTENANCE_NAV_GROUP: SidebarNavGroup = {
   ],
 };
 
-const ARCADE_NAV_GROUP: SidebarNavGroup = {
-  id: "arcade",
-  labelKey: "nav.arcade",
-  icon: Gamepad2,
-  pathPrefix: "/arcade",
-  viewCapability: "arcade.view",
-  items: [
-    { href: "/arcade", labelKey: "nav.arcadeDashboard", capability: "arcade.view" },
-    { href: "/arcade/week", labelKey: "nav.arcadeWeek", capability: "arcade.view" },
-    { href: "/arcade/sites", labelKey: "nav.arcadeSites", capability: "arcade.view" },
-    { href: "/arcade/faults", labelKey: "nav.arcadeFaults", capability: "arcade.view" },
-    ...withSection("nav.arcadeGroupMaintenance", [
-      { href: "/arcade/pm", labelKey: "nav.arcadePm", capability: "arcade.view" },
-      { href: "/arcade/observation", labelKey: "nav.arcadeObservation", capability: "arcade.view" },
-    ]),
-    ...withSection("nav.arcadeGroupSuppliers", [
-      { href: "/arcade/suppliers", labelKey: "nav.arcadeSuppliers", capability: "arcade.view" },
-      { href: "/arcade/support", labelKey: "nav.arcadeSupport", capability: "arcade.view" },
-    ]),
-    ...withSection("nav.arcadeGroupParts", [
-      { href: "/arcade/parts", labelKey: "nav.arcadeParts", capability: "arcade.view" },
-    ]),
-    ...withSection("nav.arcadeGroupManuals", [
-      { href: "/arcade/manuals", labelKey: "nav.arcadeManuals", capability: "arcade.view" },
-      { href: "/arcade/history", labelKey: "nav.arcadeHistory", capability: "arcade.view" },
-    ]),
-    ...withSection("nav.arcadeGroupInstalls", [
-      { href: "/arcade/installations", labelKey: "nav.arcadeInstallations", capability: "arcade.view" },
-      { href: "/arcade/damage", labelKey: "nav.arcadeDamage", capability: "arcade.view" },
-    ]),
-    ...withSection("nav.arcadeGroupMore", [
-      { href: "/arcade/reports", labelKey: "nav.arcadeReports", capability: "arcade.reports" },
-      { href: "/arcade/search", labelKey: "nav.arcadeSearch", capability: "arcade.view" },
-    ]),
-  ],
-};
+const ARCADE_NAV_ITEMS: NavItem[] = [
+  { href: "/arcade", labelKey: "nav.arcadeDashboard", icon: Gamepad2, capability: "arcade.view" },
+  { href: "/arcade/sites", labelKey: "nav.arcadeLocations", icon: Building2, capability: "arcade.view" },
+  { href: "/arcade/checklist", labelKey: "nav.arcadeChecklist", icon: ClipboardCheck, capability: "arcade.view" },
+  { href: "/arcade/repair", labelKey: "nav.arcadeRepair", icon: Wrench, capability: "arcade.view" },
+  { href: "/arcade/suppliers", labelKey: "nav.arcadeSuppliersParts", icon: Truck, capability: "arcade.view" },
+  ...withSection("nav.arcadeGroupMore", [
+    { href: "/arcade/week", labelKey: "nav.arcadeWeek", icon: CalendarRange, capability: "arcade.view" },
+    { href: "/arcade/faults", labelKey: "nav.arcadeFaults", icon: AlertTriangle, capability: "arcade.view" },
+    { href: "/arcade/pm", labelKey: "nav.arcadePm", icon: Wrench, capability: "arcade.view" },
+    { href: "/arcade/observation", labelKey: "nav.arcadeObservation", icon: Eye, capability: "arcade.view" },
+    { href: "/arcade/support", labelKey: "nav.arcadeSupport", icon: LifeBuoy, capability: "arcade.view" },
+    { href: "/arcade/parts", labelKey: "nav.arcadeParts", icon: Package, capability: "arcade.view" },
+    { href: "/arcade/manuals", labelKey: "nav.arcadeManuals", icon: BookOpen, capability: "arcade.view" },
+    { href: "/arcade/history", labelKey: "nav.arcadeHistory", icon: History, capability: "arcade.view" },
+    { href: "/arcade/installations", labelKey: "nav.arcadeInstallations", icon: Hammer, capability: "arcade.view" },
+    { href: "/arcade/damage", labelKey: "nav.arcadeDamage", icon: ShieldAlert, capability: "arcade.view" },
+    { href: "/arcade/reports", labelKey: "nav.arcadeReports", icon: FileBarChart, capability: "arcade.reports" },
+    { href: "/arcade/search", labelKey: "nav.arcadeSearch", icon: Search, capability: "arcade.view" },
+  ] satisfies NavItem[]),
+];
 
 const PROCUREMENT_NAV_GROUP: SidebarNavGroup = {
   id: "procurement",
@@ -278,18 +270,44 @@ const EMPLOYEE_PINNED_RAIL: NavItem[] = [
   { href: "/people/hr/helpdesk", labelKey: "nav.hrHelpdesk", icon: LifeBuoy, capability: "hr.employee_app" },
 ];
 
-export function usesEmployeeFlatRail(roles: AppRole[], hasDirectReports = false): boolean {
+export type NavAccessActor = {
+  jobTitle?: string | null;
+  staffRole?: string | null;
+  department?: string | null;
+};
+
+export function usesEmployeeFlatRail(
+  roles: AppRole[],
+  hasDirectReports = false,
+  actor?: NavAccessActor,
+): boolean {
   if (hasDirectReports) return false;
   if (!isEmployeeHomeAudience(roles)) return false;
   if (roles.some((role) => role === "technician" || role === "tech_supervisor")) return false;
+  if (
+    actor &&
+    (isOperationsSuperAdmin(actor.jobTitle) ||
+      canUseArcadeTechnical({
+        roles,
+        jobTitle: actor.jobTitle,
+        staffRole: actor.staffRole,
+        department: actor.department,
+      }))
+  ) {
+    return false;
+  }
   return roles.some((role) => EMPLOYEE_FLAT_RAIL_ROLES.includes(role));
 }
 
 /** Same modules when the sidebar is collapsed or expanded. */
-export function getEmployeeFlatRail(roles: AppRole[], jobTitle?: string | null): NavItem[] {
+export function getEmployeeFlatRail(
+  roles: AppRole[],
+  jobTitle?: string | null,
+  staffRole?: string | null,
+): NavItem[] {
   if (!usesEmployeeFlatRail(roles)) return [];
   const rail = EMPLOYEE_FLAT_RAIL.filter((item) => canUserDo(roles, item.capability));
-  return withPeopleDirectoryLink(rail, roles, jobTitle);
+  return withPeopleDirectoryLink(rail, roles, jobTitle, staffRole);
 }
 
 /**
@@ -356,7 +374,6 @@ const PEOPLE_NAV_ITEMS: NavItem[] = [
     departmentId: "people",
     sectionKey: PEOPLE_SECTION.admin,
   },
-  { href: "/people/hr/hierarchy", labelKey: "nav.operationsHierarchy", icon: Users, capability: "admin.view", departmentId: "people", sectionKey: PEOPLE_SECTION.people },
   { href: "/people/hr/settings", labelKey: "nav.hrSettings", icon: Settings, capability: "hr.policy.configure", departmentId: "people", sectionKey: PEOPLE_SECTION.admin },
   { href: "/people/employee-app", labelKey: "nav.hrEmployeeApp", icon: UserRound, capability: "attendance.view", departmentId: "people", sectionKey: PEOPLE_SECTION.admin },
   ...EMPLOYEE_SECTION_NAV.map((item) => ({
@@ -502,8 +519,7 @@ export const NAV_DEPARTMENTS: NavDepartment[] = [
     labelKey: "nav.departments.arcade",
     icon: Gamepad2,
     audience: ["executive", "supervisor", "maintenance", "all"],
-    items: [],
-    groups: [ARCADE_NAV_GROUP],
+    items: ARCADE_NAV_ITEMS,
   },
   {
     id: "commercial",
@@ -673,24 +689,26 @@ const SUPERVISOR_ROLES: AppRole[] = ["branch_gm", "duty_manager"];
 const MAINTENANCE_ROLES: AppRole[] = ["tech_supervisor", "technician"];
 
 /** Resolve nav audience from role assignments (Head of Ops / Supervisors / Maintenance). */
-export function navAudienceForRoles(roles: AppRole[]): NavAudience {
-  if (roles.some((r) => EXECUTIVE_ROLES.includes(r))) return "executive";
+export function navAudienceForRoles(roles: AppRole[], actor?: NavAccessActor): NavAudience {
+  if (isOperationsSuperAdmin(actor?.jobTitle) || roles.some((r) => EXECUTIVE_ROLES.includes(r))) return "executive";
   if (roles.some((r) => SUPERVISOR_ROLES.includes(r))) return "supervisor";
-  if (roles.some((r) => MAINTENANCE_ROLES.includes(r))) return "maintenance";
+  if (roles.some((r) => MAINTENANCE_ROLES.includes(r)) || isFecTechnician(actor?.jobTitle, actor?.staffRole)) {
+    return "maintenance";
+  }
   return "all";
 }
 
-function filterNavGroup(group: SidebarNavGroup, roles: AppRole[]): SidebarNavGroup | null {
+function filterNavGroup(group: SidebarNavGroup, roles: AppRole[], actor?: NavAccessActor): SidebarNavGroup | null {
   // Filter by child capabilities only so mixed groups (e.g. HR workforce: payroll +
   // leave + field) stay visible when the user can open any child — even if they lack
   // the group's nominal viewCapability (CFO has payroll.view but not people.view_roster).
-  const items = group.items.filter((item) => canUserDo(roles, item.capability));
+  const items = group.items.filter((item) => canActorPerform(roles, item.capability, actor));
   if (items.length === 0) return null;
   return { ...group, items };
 }
 
-function canSeeAdminModule(roles: AppRole[]): boolean {
-  return canUserDo(roles, "admin.view") || canUserDo(roles, "admin.diagnostics");
+function canSeeAdminModule(roles: AppRole[], actor?: NavAccessActor): boolean {
+  return canActorPerform(roles, "admin.view", actor) || canActorPerform(roles, "admin.diagnostics", actor);
 }
 
 export interface VisibleNavDepartment extends NavDepartment {
@@ -703,16 +721,20 @@ export interface VisibleNavDepartment extends NavDepartment {
  * Audience only ranks the primary rail — it must not hide a department that
  * already has a child the role can open.
  */
-function canSeeNavItem(roles: AppRole[], item: { capability: Capability; anyCapabilities?: readonly Capability[] }) {
+function canSeeNavItem(
+  roles: AppRole[],
+  item: { capability: Capability; anyCapabilities?: readonly Capability[] },
+  actor?: NavAccessActor,
+) {
   const keys = item.anyCapabilities?.length ? item.anyCapabilities : [item.capability];
-  return keys.some((capability) => canUserDo(roles, capability));
+  return keys.some((capability) => canActorPerform(roles, capability, actor));
 }
 
-export function getVisibleDepartments(roles: AppRole[]): VisibleNavDepartment[] {
+export function getVisibleDepartments(roles: AppRole[], actor?: NavAccessActor): VisibleNavDepartment[] {
   return NAV_DEPARTMENTS.flatMap((dept) => {
-    const items = dept.items.filter((item) => canSeeNavItem(roles, item));
+    const items = dept.items.filter((item) => canSeeNavItem(roles, item, actor));
     const groups = (dept.groups ?? [])
-      .map((g) => filterNavGroup(g, roles))
+      .map((g) => filterNavGroup(g, roles, actor))
       .filter((g): g is SidebarNavGroup => g !== null);
 
     if (items.length === 0 && groups.length === 0) return [];
@@ -822,17 +844,17 @@ function uniquePrimaryByDepartment(items: NavItem[]): PrimaryRailItem[] {
 }
 
 /** Icon-only primary sidebar rail — one icon per department, max 8 items. */
-export function getPrimaryRailNav(roles: AppRole[]): PrimaryRailItem[] {
-  const audience = navAudienceForRoles(roles);
+export function getPrimaryRailNav(roles: AppRole[], actor?: NavAccessActor): PrimaryRailItem[] {
+  const audience = navAudienceForRoles(roles, actor);
   const order = PRIMARY_RAIL_ORDER[audience];
-  const visible = getAllVisibleNavItems(roles);
+  const visible = getAllVisibleNavItems(roles, getVisibleDepartments(roles, actor));
   const visibleHrefs = new Set(visible.map((i) => i.href));
 
   const picked: NavItem[] = [];
   for (const href of order) {
     if (!visibleHrefs.has(href)) continue;
     const item = NAV_ITEM_LOOKUP.get(href);
-    if (item && canUserDo(roles, item.capability)) picked.push(item);
+    if (item && canActorPerform(roles, item.capability, actor)) picked.push(item);
   }
 
   const unique = uniquePrimaryByDepartment(picked.length > 0 ? picked : visible);
@@ -843,7 +865,7 @@ export function getPrimaryRailNav(roles: AppRole[]): PrimaryRailItem[] {
   const adminItem = NAV_ITEM_LOOKUP.get(ADMIN_RAIL_HREF);
   if (
     adminItem &&
-    canSeeAdminModule(roles) &&
+    canSeeAdminModule(roles, actor) &&
     visibleHrefs.has(ADMIN_RAIL_HREF) &&
     !rail.some((item) => item.departmentId === "admin")
   ) {
@@ -855,6 +877,28 @@ export function getPrimaryRailNav(roles: AppRole[]): PrimaryRailItem[] {
     }
   }
 
+  const arcadeItem = NAV_ITEM_LOOKUP.get("/arcade");
+  if (
+    arcadeItem &&
+    visibleHrefs.has("/arcade") &&
+    canActorPerform(roles, "arcade.view", actor) &&
+    !rail.some((item) => item.departmentId === "arcade")
+  ) {
+    const pinned: PrimaryRailItem = { ...arcadeItem, departmentId: "arcade" };
+    if (rail.length >= PRIMARY_RAIL_MAX) {
+      let drop = -1;
+      for (let i = rail.length - 1; i >= 0; i -= 1) {
+        if (rail[i]?.departmentId !== "admin") {
+          drop = i;
+          break;
+        }
+      }
+      if (drop >= 0) rail.splice(drop, 1);
+    }
+    const at = rail[0]?.href === "/" ? 1 : 0;
+    rail.splice(at, 0, pinned);
+  }
+
   return rail;
 }
 
@@ -862,7 +906,7 @@ export function getPrimaryRailNav(roles: AppRole[]): PrimaryRailItem[] {
  * Existing people-manager modules a reporting line unlocks.
  * Labels, icons, and routes stay the ones already in the People department.
  * Team overview holds team approvals. Leave, attendance, the monthly roster,
- * and a view-only operations hierarchy are the team-scoped manager surfaces.
+ * and the organization chart are the team-scoped manager surfaces.
  */
 export const REPORTING_MANAGER_MODULE_HREFS = [
   "/people/hr/team",
@@ -885,39 +929,55 @@ function peopleDirectoryNavItem(): NavItem | null {
   return NAV_ITEM_LOOKUP.get("/people") ?? null;
 }
 
-/** Phone and flat employee rail: team directory sits next to My Day. */
-function withPeopleDirectoryLink(rail: NavItem[], roles: AppRole[], jobTitle?: string | null): NavItem[] {
-  if (peopleDirectoryScope(roles, jobTitle) !== "team") return rail;
-  if (rail.some((item) => item.href === "/people")) return rail;
-  const item = peopleDirectoryNavItem();
-  if (!item) return rail;
+function monthlyRosterNavItem(): NavItem | null {
+  return NAV_ITEM_LOOKUP.get("/people/roster") ?? null;
+}
+
+/** Directory plus monthly roster for a manager or supervisor job title. */
+function teamRosterNavItems(): NavItem[] {
+  return [peopleDirectoryNavItem(), monthlyRosterNavItem()].filter((item): item is NavItem => Boolean(item));
+}
+
+/** Phone and flat employee rail: team directory and own roster sit next to My Day. */
+function withPeopleDirectoryLink(
+  rail: NavItem[],
+  roles: AppRole[],
+  jobTitle?: string | null,
+  staffRole?: string | null,
+): NavItem[] {
+  if (peopleDirectoryScope(roles, jobTitle, staffRole) !== "team") return rail;
+  const extras = teamRosterNavItems().filter((item) => !rail.some((entry) => entry.href === item.href));
+  if (extras.length === 0) return rail;
   const next = [...rail];
   const at = next.findIndex((entry) => entry.href === "/hr/me");
-  next.splice(at >= 0 ? at + 1 : 0, 0, item);
+  next.splice(at >= 0 ? at + 1 : 0, 0, ...extras);
   return next;
 }
 
 /**
  * Sidebar People section for a job-title manager who does not already have the company directory.
+ * Adds the employee directory and the monthly roster so a supervisor with no reports can upload their own.
  * Does not add payroll, user admin, or HR policy.
  */
 export function mergePeopleDirectoryDepartments(
   departments: VisibleNavDepartment[],
   roles: AppRole[],
   jobTitle?: string | null,
+  staffRole?: string | null,
 ): VisibleNavDepartment[] {
-  if (peopleDirectoryScope(roles, jobTitle) !== "team") return departments;
-  const item = peopleDirectoryNavItem();
-  if (!item) return departments;
-  if (departments.some((dept) => dept.items.some((entry) => entry.href === "/people"))) return departments;
+  if (peopleDirectoryScope(roles, jobTitle, staffRole) !== "team") return departments;
+  const extras = teamRosterNavItems().filter(
+    (item) => !departments.some((dept) => dept.items.some((entry) => entry.href === item.href)),
+  );
+  if (extras.length === 0) return departments;
   const peopleIndex = departments.findIndex((dept) => dept.id === "people");
   if (peopleIndex < 0) {
     const template = NAV_DEPARTMENTS.find((dept) => dept.id === "people");
     if (!template) return departments;
-    return [...departments, { ...template, items: [item], groups: [] }];
+    return [...departments, { ...template, items: extras, groups: [] }];
   }
   return departments.map((dept, index) =>
-    index === peopleIndex ? { ...dept, items: [item, ...dept.items] } : dept,
+    index === peopleIndex ? { ...dept, items: [...extras, ...dept.items] } : dept,
   );
 }
 
@@ -926,8 +986,9 @@ export function peopleDirectoryRailItems(
   roles: AppRole[],
   jobTitle: string | null | undefined,
   visibleHrefs: ReadonlySet<string>,
+  staffRole?: string | null,
 ): NavItem[] {
-  if (peopleDirectoryScope(roles, jobTitle) !== "team") return [];
+  if (peopleDirectoryScope(roles, jobTitle, staffRole) !== "team") return [];
   if (visibleHrefs.has("/people")) return [];
   const item = peopleDirectoryNavItem();
   return item ? [item] : [];
@@ -996,6 +1057,8 @@ export function isNavItemActive(href: string, pathname: string): boolean {
   if (href === "/people/hr" || href === "/people/attendance" || href === "/people/recruitment") {
     return pathname === href;
   }
+  // Dashboard is the index. Child arcade pages must not light that row.
+  if (href === "/arcade") return pathname === href;
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
@@ -1256,15 +1319,20 @@ export function getDepartmentFlyoutTree(department: VisibleNavDepartment): {
   };
 }
 
-/** One heading per section. Item order inside a section follows the list. Rows without a key stay together at the end. */
+/** One heading per section. Item order inside a section follows the list. Rows without a key stay together where the first one appears. */
 export function clusterItemsBySection<T extends { sectionKey?: string }>(items: readonly T[]) {
   const blocks: { sectionKey: string | null; items: T[] }[] = [];
   const indexByKey = new Map<string, number>();
-  const plain: T[] = [];
+  let plainIndex: number | null = null;
   for (const item of items) {
     const sectionKey = item.sectionKey ?? null;
     if (!sectionKey) {
-      plain.push(item);
+      if (plainIndex == null) {
+        plainIndex = blocks.length;
+        blocks.push({ sectionKey: null, items: [item] });
+      } else {
+        blocks[plainIndex]?.items.push(item);
+      }
       continue;
     }
     const existing = indexByKey.get(sectionKey);
@@ -1275,7 +1343,6 @@ export function clusterItemsBySection<T extends { sectionKey?: string }>(items: 
       blocks[existing]?.items.push(item);
     }
   }
-  if (plain.length > 0) blocks.push({ sectionKey: null, items: plain });
   return blocks;
 }
 

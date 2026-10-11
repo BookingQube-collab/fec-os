@@ -5,7 +5,7 @@ import { z } from "zod";
 import { loadLinkedStaffJobTitle } from "@/lib/linked-staff-job-title.server";
 import { canAmendShiftRoster, canUserDo, type AppRole } from "@/lib/rbac";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { loadDirectReportStaffIds } from "@/lib/reporting-manager-access.server";
+import { loadDirectReportStaffIds, loadSupervisorSelfRosterStaffIds } from "@/lib/reporting-manager-access.server";
 import { createAuthenticatedAction, createAuthenticatedActionNoInput, type AuthContext } from "@/lib/server/create-action";
 import { ForbiddenError } from "@/lib/server/authorize";
 import { assertAttendanceRosterLocation } from "@/lib/attendance-hr/roster-apply";
@@ -16,6 +16,7 @@ import {
   assertRosterDeletePeriod,
   chunkIds,
   collectPagedRows,
+  collectPagedRowsInWaves,
   isRosterAssignableStaffStatus,
   rosterAmendRecalcLocationIds,
   isRosterLeaveType,
@@ -246,6 +247,8 @@ async function fetchStaffRowsByIds(
  * Resigned, terminated, released, deleted, and jokers stay out.
  * Home-site coverage is not included. A team-scoped manager does not see
  * every employee at the sites the team works.
+ * A supervisor with nobody reporting to them is included so they can register
+ * their own roster. They are not added when the team already has people.
  */
 async function loadTeamRosterStaffIds(userId: string): Promise<string[]> {
   const access = await loadDirectReportStaffIds(userId);
@@ -264,13 +267,15 @@ async function loadTeamRosterStaffIds(userId: string): Promise<string[]> {
         .filter((id): id is string => Boolean(id) && id !== access.staffId),
     ),
   ];
-  if (candidateIds.length === 0) return [];
-
-  const rows = await fetchStaffRowsByIds(supabaseAdmin, candidateIds);
-  return rows
-    .filter((row) => isAssignableRosterStaffRow(row))
-    .map((row) => String(row.id))
-    .sort();
+  const reportIds =
+    candidateIds.length === 0
+      ? []
+      : (await fetchStaffRowsByIds(supabaseAdmin, candidateIds))
+          .filter((row) => isAssignableRosterStaffRow(row))
+          .map((row) => String(row.id))
+          .sort();
+  if (reportIds.length > 0) return reportIds;
+  return loadSupervisorSelfRosterStaffIds(access.staffId);
 }
 
 /** Names for team rows that have no assignment in the selected period. */
@@ -483,6 +488,12 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
     source: z.enum(["upload", "amend", "manual", "copied"]).nullable().optional(),
     /** Attach department name/code so the copy dialog can offer F&B Cafe. */
     includeCopyDepartments: z.boolean().optional().default(false),
+    /**
+     * Location coverage chips only need location and staff ids for this date window.
+     * Skips names, shifts, leave, and departments so the month grid is not waiting
+     * on a second full enrich of the same rows.
+     */
+    coverageOnly: z.boolean().optional().default(false),
   }),
   async (data, context) => {
     const roles = (context.roles ?? []) as AppRole[];
@@ -540,33 +551,34 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
     const staffIn = data.staffId ? null : (deptStaffIds ?? teamIds);
     const staffChunks: Array<string[] | null> =
       staffIn == null ? [null] : staffIn.length === 0 ? [] : chunkIds(staffIn, ROSTER_ID_CHUNK);
-    let assignments: AssignmentPageRow[] = [];
-    for (const staffChunk of staffChunks) {
-      const pageRows = await collectPagedRows<AssignmentPageRow>(async (from, to) => {
-        let q = db
-          .from("attendance_roster_assignments")
-          .select(
-            "id, location_id, staff_id, work_date, shift_template_id, shift_start, shift_end, is_week_off, source, created_at",
-          )
-          .gte("work_date", data.dateFrom)
-          .lte("work_date", data.dateTo)
-          .order("work_date", { ascending: true })
-          .order("staff_id", { ascending: true })
-          .order("id", { ascending: true })
-          .range(from, to);
+    const assignmentPages = await Promise.all(
+      staffChunks.map((staffChunk) =>
+        collectPagedRowsInWaves<AssignmentPageRow>(async (from, to) => {
+          let q = db
+            .from("attendance_roster_assignments")
+            .select(
+              "id, location_id, staff_id, work_date, shift_template_id, shift_start, shift_end, is_week_off, source, created_at",
+            )
+            .gte("work_date", data.dateFrom)
+            .lte("work_date", data.dateTo)
+            .order("work_date", { ascending: true })
+            .order("staff_id", { ascending: true })
+            .order("id", { ascending: true })
+            .range(from, to);
 
-        if (data.locationId) q = q.eq("location_id", data.locationId);
-        if (data.staffId) q = q.eq("staff_id", data.staffId);
-        else if (staffChunk) q = q.in("staff_id", staffChunk);
-        if (data.sourceUploadOnly) q = q.in("source", ["upload", "amend"]);
-        else if (data.source) q = q.eq("source", data.source);
+          if (data.locationId) q = q.eq("location_id", data.locationId);
+          if (data.staffId) q = q.eq("staff_id", data.staffId);
+          else if (staffChunk) q = q.in("staff_id", staffChunk);
+          if (data.sourceUploadOnly) q = q.in("source", ["upload", "amend"]);
+          else if (data.source) q = q.eq("source", data.source);
 
-        const { data: page, error } = await q;
-        if (error) throw error;
-        return (page ?? []) as AssignmentPageRow[];
-      }, ATTENDANCE_DAILY_LIST_PAGE_SIZE);
-      assignments.push(...pageRows);
-    }
+          const { data: page, error } = await q;
+          if (error) throw error;
+          return (page ?? []) as AssignmentPageRow[];
+        }, ATTENDANCE_DAILY_LIST_PAGE_SIZE),
+      ),
+    );
+    let assignments: AssignmentPageRow[] = assignmentPages.flat();
 
     let hiddenStaff: Set<string> | null = null;
     let shownStaff: Set<string> | null = null;
@@ -582,6 +594,39 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
       assignments = assignments.filter((row) => shown.has(String(row.staff_id)));
     }
 
+    if (data.coverageOnly) {
+      const rows = assignments.map((row) => ({
+        id: String(row.id),
+        locationId: String(row.location_id),
+        locationCode: null,
+        locationName: null,
+        staffId: String(row.staff_id),
+        staffName: null,
+        employeeCode: null,
+        qid: null,
+        workDate: String(row.work_date).slice(0, 10),
+        shiftStart: row.shift_start ? String(row.shift_start).slice(0, 5) : null,
+        shiftEnd: row.shift_end ? String(row.shift_end).slice(0, 5) : null,
+        shiftTemplateId: row.shift_template_id,
+        isWeekOff: Boolean(row.is_week_off),
+        leaveType: null,
+        compOffForDate: null,
+        compOffNote: null,
+        source: String(row.source ?? "manual"),
+        flexibleAttendance: false,
+        department: null,
+        departmentNames: [] as string[],
+        departmentCodes: [] as string[],
+      }));
+      return {
+        dateFrom: data.dateFrom,
+        dateTo: data.dateTo,
+        count: rows.length,
+        rows,
+        teamStaff: null as RosterMatrixStaff[] | null,
+      };
+    }
+
     const staffIds = [...new Set(assignments.map((row) => String(row.staff_id)).filter(Boolean))];
     const locationIds = [...new Set(assignments.map((row) => String(row.location_id)).filter(Boolean))];
     const shiftIds = [
@@ -592,55 +637,31 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
       ),
     ];
 
-    const staffRows: {
+    type RosterStaffLookup = {
       id: string;
       full_name: string | null;
       employee_code: string | null;
       qid: string | null;
       flexible_attendance: boolean | null;
-    }[] = [];
-    for (const ids of chunkIds(staffIds, ROSTER_ID_CHUNK)) {
-      const { data, error } = await db
-        .from("staff")
-        .select("id, full_name, employee_code, qid, flexible_attendance")
-        .in("id", ids);
-      if (error) throw error;
-      staffRows.push(...((data ?? []) as typeof staffRows));
-    }
-    const [locRes, shiftRes] = await Promise.all([
-      locationIds.length
-        ? db.from("locations").select("id, code, name").in("id", locationIds)
-        : Promise.resolve({ data: [], error: null }),
-      shiftIds.length
-        ? db
-            .from("attendance_shift_templates")
-            .select("id, start_time, end_time, name")
-            .in("id", shiftIds)
-        : Promise.resolve({ data: [], error: null }),
-    ]);
-    if (locRes.error) throw locRes.error;
-    if (shiftRes.error) throw shiftRes.error;
+    };
+    type LeaveHit = {
+      leaveType: RosterLeaveType;
+      compOffForDate: string | null;
+      compOffNote: string | null;
+    };
 
-    const staffById = new Map(staffRows.map((row) => [String(row.id), row]));
-    const locById = new Map((locRes.data ?? []).map((row) => [String(row.id), row]));
-    const shiftById = new Map((shiftRes.data ?? []).map((row) => [String(row.id), row]));
-    const departmentLabels = data.includeCopyDepartments
-      ? await loadRosterCopyDepartmentLabels(db, staffIds)
-      : new Map<string, RosterCopyDepartmentLabel>();
-
-    const leaveByStaffDate = new Map<
-      string,
-      { leaveType: RosterLeaveType; compOffForDate: string | null; compOffNote: string | null }
-    >();
-    if (staffIds.length) {
-      for (const staffChunk of chunkIds(staffIds, 200)) {
-        const leaveRows = await collectPagedRows<{
-          staff_id: string;
-          leave_date: string;
-          leave_type: string;
-          notes: string | null;
-          comp_off_for_date: string | null;
-        }>(async (from, to) => {
+    const loadLeaveByStaffDate = async () => {
+      const leaveByStaffDate = new Map<string, LeaveHit>();
+      if (!staffIds.length) return leaveByStaffDate;
+      const chunkMaps = await Promise.all(
+        chunkIds(staffIds, 200).map(async (staffChunk) => {
+          const leaveRows = await collectPagedRowsInWaves<{
+            staff_id: string;
+            leave_date: string;
+            leave_type: string;
+            notes: string | null;
+            comp_off_for_date: string | null;
+          }>(async (from, to) => {
           type LeavePageRow = {
             staff_id: string;
             leave_date: string;
@@ -679,18 +700,75 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
           if (withDate.error) throw withDate.error;
           return (withDate.data ?? []) as unknown as LeavePageRow[];
         }, ATTENDANCE_DAILY_LIST_PAGE_SIZE);
-        for (const leave of leaveRows) {
-          const leaveType = String(leave.leave_type);
-          if (!isRosterLeaveType(leaveType)) continue;
-          const forDate = leave.comp_off_for_date ? String(leave.comp_off_for_date).slice(0, 10) : null;
-          leaveByStaffDate.set(`${String(leave.staff_id)}|${String(leave.leave_date).slice(0, 10)}`, {
-            leaveType,
-            compOffForDate: leaveType === "comp_off" ? forDate : null,
-            compOffNote: leaveType === "comp_off" ? (leave.notes?.trim() || null) : null,
-          });
-        }
+          const chunkLeaves = new Map<string, LeaveHit>();
+          for (const leave of leaveRows) {
+            const leaveType = String(leave.leave_type);
+            if (!isRosterLeaveType(leaveType)) continue;
+            const forDate = leave.comp_off_for_date ? String(leave.comp_off_for_date).slice(0, 10) : null;
+            chunkLeaves.set(`${String(leave.staff_id)}|${String(leave.leave_date).slice(0, 10)}`, {
+              leaveType,
+              compOffForDate: leaveType === "comp_off" ? forDate : null,
+              compOffNote: leaveType === "comp_off" ? (leave.notes?.trim() || null) : null,
+            });
+          }
+          return chunkLeaves;
+        }),
+      );
+      for (const chunkLeaves of chunkMaps) {
+        for (const [key, value] of chunkLeaves) leaveByStaffDate.set(key, value);
       }
-    }
+      return leaveByStaffDate;
+    };
+
+    const loadTeamStaff = async () => {
+      if (!teamIds) return null as RosterMatrixStaff[] | null;
+      let ids = teamIds;
+      if (data.staffId) ids = ids.filter((id) => id === data.staffId);
+      if (deptStaffIds) {
+        const allow = new Set(deptStaffIds);
+        ids = ids.filter((id) => allow.has(id));
+      }
+      if (hiddenStaff) {
+        const hidden = hiddenStaff;
+        ids = ids.filter((id) => !hidden.has(id));
+      }
+      if (shownStaff) {
+        const shown = shownStaff;
+        ids = ids.filter((id) => shown.has(id));
+      }
+      return loadRosterTeamStaffProfiles(db, ids);
+    };
+
+    const [staffPages, locRes, shiftRes, departmentLabels, leaveByStaffDate, teamStaff] = await Promise.all([
+      Promise.all(
+        chunkIds(staffIds, ROSTER_ID_CHUNK).map(async (ids) => {
+          const { data: staffPage, error } = await db
+            .from("staff")
+            .select("id, full_name, employee_code, qid, flexible_attendance")
+            .in("id", ids);
+          if (error) throw error;
+          return (staffPage ?? []) as RosterStaffLookup[];
+        }),
+      ),
+      locationIds.length
+        ? db.from("locations").select("id, code, name").in("id", locationIds)
+        : Promise.resolve({ data: [], error: null }),
+      shiftIds.length
+        ? db.from("attendance_shift_templates").select("id, start_time, end_time, name").in("id", shiftIds)
+        : Promise.resolve({ data: [], error: null }),
+      data.includeCopyDepartments
+        ? loadRosterCopyDepartmentLabels(db, staffIds)
+        : Promise.resolve(new Map<string, RosterCopyDepartmentLabel>()),
+      loadLeaveByStaffDate(),
+      loadTeamStaff(),
+    ]);
+    if (locRes.error) throw locRes.error;
+    if (shiftRes.error) throw shiftRes.error;
+    const staffRows = staffPages.flat();
+
+    const staffById = new Map(staffRows.map((row) => [String(row.id), row]));
+    const locById = new Map((locRes.data ?? []).map((row) => [String(row.id), row]));
+    const shiftById = new Map((shiftRes.data ?? []).map((row) => [String(row.id), row]));
 
     const mapped: RosterRegisterRow[] = assignments.map((row) => {
       const staff = staffById.get(String(row.staff_id));
@@ -732,25 +810,6 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
         departmentCodes: departmentLabels.get(String(row.staff_id))?.codes ?? [],
       };
     });
-
-    let teamStaff: RosterMatrixStaff[] | null = null;
-    if (teamIds) {
-      let ids = teamIds;
-      if (data.staffId) ids = ids.filter((id) => id === data.staffId);
-      if (deptStaffIds) {
-        const allow = new Set(deptStaffIds);
-        ids = ids.filter((id) => allow.has(id));
-      }
-      if (hiddenStaff) {
-        const hidden = hiddenStaff;
-        ids = ids.filter((id) => !hidden.has(id));
-      }
-      if (shownStaff) {
-        const shown = shownStaff;
-        ids = ids.filter((id) => shown.has(id));
-      }
-      teamStaff = await loadRosterTeamStaffProfiles(db, ids);
-    }
 
     return {
       dateFrom: data.dateFrom,

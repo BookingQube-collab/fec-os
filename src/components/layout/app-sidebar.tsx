@@ -666,19 +666,23 @@ function CollapsibleNavSection({
   children: ReactNode;
 }) {
   const peopleSection = Boolean(sectionKey?.startsWith(PEOPLE_NAV_SECTION_PREFIX));
-  const [open, setOpen] = useState(() =>
-    peopleSection && sectionKey
-      ? peopleNavSectionStartsOpen(sectionKey, active, forceOpen)
-      : true,
-  );
+  const arcadeMore = sectionKey === "nav.arcadeGroupMore";
+  const [open, setOpen] = useState(() => {
+    if (arcadeMore) return Boolean(forceOpen) || active;
+    return peopleSection && sectionKey ? peopleNavSectionStartsOpen(sectionKey, active, forceOpen) : true;
+  });
 
   useEffect(() => {
+    if (arcadeMore) {
+      setOpen(Boolean(forceOpen) || active);
+      return;
+    }
     if (!peopleSection || !sectionKey) {
       setOpen(true);
       return;
     }
     setOpen(peopleNavSectionStartsOpen(sectionKey, active, forceOpen));
-  }, [pathname, forceOpen, peopleSection, sectionKey, active]);
+  }, [pathname, forceOpen, peopleSection, arcadeMore, sectionKey, active]);
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
@@ -1256,6 +1260,9 @@ export function AppSidebar() {
   const roles = useUserRoles();
   const { roles: roleRows, profile } = useAuth();
   const jobTitle = profile?.job_title ?? null;
+  const staffRole = profile?.staff_role ?? null;
+  const department = profile?.department ?? null;
+  const navActor = { jobTitle, staffRole, department };
   const canReorder = canReorderSidebarNav(roleRows);
   const { order, itemOrders, save, saveItems } = useSidebarNavOrder();
   const { hasDirectReports } = useHasDirectReports();
@@ -1296,36 +1303,37 @@ export function AppSidebar() {
     [itemOrders, saveItems],
   );
   const primary = useMemo(() => {
-    const rail = orderPrimaryRail(getPrimaryRailNav(roles), order);
+    const rail = orderPrimaryRail(getPrimaryRailNav(roles, navActor), order);
     const seen = new Set<string>();
     return rail.filter((item) => {
       if (seen.has(item.departmentId)) return false;
       seen.add(item.departmentId);
       return true;
     });
-  }, [order, roles]);
+  }, [department, jobTitle, order, roles, staffRole]);
   const departments = useMemo(
     () =>
       applySidebarItemOrder(
         orderDepartments(
           mergePeopleDirectoryDepartments(
-            mergeReportingManagerDepartments(getVisibleDepartments(roles), hasDirectReports),
+            mergeReportingManagerDepartments(getVisibleDepartments(roles, navActor), hasDirectReports),
             roles,
             jobTitle,
+            staffRole,
           ),
           order,
         ),
         itemOrders,
       ),
-    [hasDirectReports, itemOrders, jobTitle, order, roles],
+    [department, hasDirectReports, itemOrders, jobTitle, order, roles, staffRole],
   );
   const managerRail = useMemo(
     () => reportingManagerRailItems(hasDirectReports, new Set(primary.map((item) => item.departmentId))),
     [hasDirectReports, primary],
   );
   const employeeFlat = useMemo(
-    () => (usesEmployeeFlatRail(roles, hasDirectReports) ? getEmployeeFlatRail(roles, jobTitle) : []),
-    [hasDirectReports, jobTitle, roles],
+    () => (usesEmployeeFlatRail(roles, hasDirectReports, navActor) ? getEmployeeFlatRail(roles, jobTitle, staffRole) : []),
+    [department, hasDirectReports, jobTitle, roles, staffRole],
   );
   const pinnedEssentials = useMemo(
     () => employeePinnedRailItems(roles, hasDirectReports, new Set(primary.map((item) => item.href))),
@@ -1337,8 +1345,9 @@ export function AppSidebar() {
         roles,
         jobTitle,
         new Set([...employeeFlat.map((item) => item.href), ...primary.map((item) => item.href)]),
+        staffRole,
       ),
-    [employeeFlat, jobTitle, primary, roles],
+    [employeeFlat, jobTitle, primary, roles, staffRole],
   );
   const railExtras = useMemo(
     () => [...directoryRail, ...managerRail, ...pinnedEssentials],

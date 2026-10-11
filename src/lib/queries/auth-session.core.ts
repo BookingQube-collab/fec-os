@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { loadLinkedStaffJobTitle } from "@/lib/linked-staff-job-title.server";
+import { loadLinkedStaffIdentity } from "@/lib/linked-staff-job-title.server";
 import type { AuthContext } from "@/lib/server/auth";
 import type { RoleAssignment } from "@/lib/rbac";
 
@@ -14,6 +14,8 @@ export interface AuthSessionPayload {
     preferred_language: string | null;
     avatar_url: string | null;
     job_title: string | null;
+    staff_role: string | null;
+    department: string | null;
   } | null;
   roles: RoleAssignment[];
 }
@@ -79,16 +81,23 @@ export async function fetchAuthSession(context: AuthContext): Promise<AuthSessio
   const email = typeof context.claims.email === "string" ? context.claims.email : null;
   // Job title does not depend on the profile row. Run it with the role lookup so
   // the shell gate is not stuck behind a second staff round trip.
-  const [{ profile, roles }, jobTitle] = await Promise.all([
+  const [{ profile, roles }, identity] = await Promise.all([
     loadProfileAndRoles(context.supabase, context.userId),
-    loadLinkedStaffJobTitle(context.userId).catch((error: unknown) => {
+    loadLinkedStaffIdentity(context.userId).catch((error: unknown) => {
       console.warn("[auth/session] staff job title lookup failed", error);
-      return null;
+      return { jobTitle: null, staffRole: null, department: null };
     }),
   ]);
   return {
     user: { id: context.userId, email },
-    profile: profile ? { ...profile, job_title: jobTitle } : null,
+    profile: profile
+      ? {
+          ...profile,
+          job_title: identity.jobTitle,
+          staff_role: identity.staffRole,
+          department: identity.department,
+        }
+      : null,
     roles,
   };
 }

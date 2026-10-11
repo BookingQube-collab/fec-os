@@ -1,7 +1,7 @@
 import i18n, { type TFunction } from "i18next";
 import { initReactI18next } from "react-i18next";
 
-import en from "./locales/en.json";
+import shell from "./locales/en-shell.json";
 import { overridesToNested, type I18nOverrideRow } from "./overlay";
 
 export const SUPPORTED_LANGUAGES = ["en", "ar"] as const;
@@ -36,7 +36,7 @@ const initialLng = readStoredLanguage();
 let arabicLocaleLoad: Promise<void> | null = null;
 let arabicFileLoaded = false;
 
-/** Load Arabic strings on demand so English-first routes skip ~290KB of JSON. */
+/** Load Arabic strings on demand so English-first routes skip the Arabic JSON. */
 export function loadArabicLocale(): Promise<void> {
   if (arabicFileLoaded) return Promise.resolve();
   arabicLocaleLoad ??= import("./locales/ar.json").then((mod) => {
@@ -53,9 +53,90 @@ export function loadArabicLocale(): Promise<void> {
 let desiredLanguage: SupportedLanguage | null = null;
 let languageFlush: Promise<void> | null = null;
 
+const i18nReady: Promise<void> = i18n.isInitialized
+  ? Promise.resolve()
+  : i18n
+      .use(initReactI18next)
+      .init({
+        resources: {
+          en: { translation: shell },
+        },
+        // Stay on English until the Arabic bundle is in memory. applyAppLanguage switches after.
+        lng: "en",
+        fallbackLng: "en",
+        interpolation: { escapeValue: false },
+        react: {
+          useSuspense: false,
+          bindI18n: "languageChanged",
+          bindI18nStore: "added",
+        },
+      })
+      .then(
+        () => undefined,
+        () => undefined,
+      );
+
+export type EnglishCatalogSnapshot = { ready: boolean; error: string | null };
+
+const ENGLISH_CATALOG_SERVER_SNAPSHOT: EnglishCatalogSnapshot = { ready: false, error: null };
+let englishCatalogSnapshot: EnglishCatalogSnapshot = { ready: false, error: null };
+let englishCatalogLoad: Promise<void> | null = null;
+const englishCatalogListeners = new Set<() => void>();
+
+function publishEnglishCatalog(next: EnglishCatalogSnapshot) {
+  englishCatalogSnapshot = next;
+  for (const listener of englishCatalogListeners) listener();
+}
+
+export function subscribeEnglishCatalog(listener: () => void) {
+  englishCatalogListeners.add(listener);
+  return () => {
+    englishCatalogListeners.delete(listener);
+  };
+}
+
+export function getEnglishCatalogSnapshot() {
+  return englishCatalogSnapshot;
+}
+
+export function getEnglishCatalogServerSnapshot() {
+  return ENGLISH_CATALOG_SERVER_SNAPSHOT;
+}
+
+export function isEnglishCatalogLoaded() {
+  return englishCatalogSnapshot.ready;
+}
+
+/**
+ * Full English dictionary as its own chunk. The shared bundle only has `en-shell.json`
+ * (~5KB) so sign-in and error pages can paint real copy before this arrives.
+ * Never runs during SSR — the server renders with the shell, and the client hydrates
+ * the same strings, then fills in the rest.
+ */
+export function loadEnglishCatalog(): Promise<void> {
+  if (typeof window === "undefined") return Promise.resolve();
+  if (englishCatalogSnapshot.ready) return Promise.resolve();
+  if (!englishCatalogLoad) {
+    if (englishCatalogSnapshot.error) publishEnglishCatalog({ ready: false, error: null });
+    englishCatalogLoad = i18nReady
+      .then(() => import(/* webpackChunkName: "locale-en" */ "./locales/en.json"))
+      .then((mod) => {
+        i18n.addResourceBundle("en", "translation", mod.default, true, true);
+        publishEnglishCatalog({ ready: true, error: null });
+      })
+      .catch((error: unknown) => {
+        englishCatalogLoad = null;
+        const message = error instanceof Error ? error.message : "Failed to load translations";
+        publishEnglishCatalog({ ready: false, error: message });
+      });
+  }
+  return englishCatalogLoad;
+}
+
 export function applyAppLanguage(lang: SupportedLanguage): Promise<void> {
   desiredLanguage = lang;
   applyLanguageToDocument(lang);
+  if (typeof window !== "undefined") void loadEnglishCatalog();
   if (languageFlush) return languageFlush;
   languageFlush = (async () => {
     try {
@@ -77,29 +158,6 @@ export function applyAppLanguage(lang: SupportedLanguage): Promise<void> {
   })();
   return languageFlush;
 }
-
-const i18nReady: Promise<void> = i18n.isInitialized
-  ? Promise.resolve()
-  : i18n
-      .use(initReactI18next)
-      .init({
-        resources: {
-          en: { translation: en },
-        },
-        // Stay on English until the Arabic bundle is in memory. applyAppLanguage switches after.
-        lng: "en",
-        fallbackLng: "en",
-        interpolation: { escapeValue: false },
-        react: {
-          useSuspense: false,
-          bindI18n: "languageChanged",
-          bindI18nStore: "added",
-        },
-      })
-      .then(
-        () => undefined,
-        () => undefined,
-      );
 
 if (typeof document !== "undefined") {
   applyLanguageToDocument(initialLng);

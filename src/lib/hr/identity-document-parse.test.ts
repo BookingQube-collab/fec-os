@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyIdentityExtraction,
   parseIdentityDocument,
+  titleCasePersonName,
   type IdentityFormFields,
 } from "./identity-document-parse";
 
@@ -170,6 +171,19 @@ describe("parseIdentityDocument", () => {
   });
 });
 
+describe("titleCasePersonName", () => {
+  it("capitalizes each word of an all-caps card name", () => {
+    expect(titleCasePersonName("MAURINE WANGUI NJOROGE")).toBe("Maurine Wangui Njoroge");
+    expect(titleCasePersonName("RAJAN PATHAK")).toBe("Rajan Pathak");
+    expect(titleCasePersonName("MAURINE")).toBe("Maurine");
+  });
+
+  it("trims ends, collapses extra spaces, and capitalizes after a hyphen", () => {
+    expect(titleCasePersonName("  RAJAN   PATHAK  ")).toBe("Rajan Pathak");
+    expect(titleCasePersonName("AL-THANI")).toBe("Al-Thani");
+  });
+});
+
 describe("applyIdentityExtraction", () => {
   const qidText = [
     "ID. No. 28412345678",
@@ -178,10 +192,48 @@ describe("applyIdentityExtraction", () => {
     "Date of Expiry 15/03/2028",
   ].join("\n");
 
+  it("writes a QID name onto the form in title case", () => {
+    const parsed = parseIdentityDocument(
+      ["ID. No.", "28412345678", "Name", "MAURINE WANGUI NJOROGE", "Date of Expiry", "15/03/2028"].join("\n"),
+      "qid",
+    );
+    const applied = applyIdentityExtraction(emptyFields(), "qid", parsed);
+    expect(parsed.name?.value).toBe("MAURINE WANGUI NJOROGE");
+    expect(applied.fields.fullName).toBe("Maurine Wangui Njoroge");
+  });
+
+  it("leaves a hand-typed name unchanged when the card spells the same name", () => {
+    const applied = applyIdentityExtraction(
+      { ...emptyFields(), fullName: "rajan pathak" },
+      "qid",
+      {
+        name: { value: "RAJAN PATHAK", confidence: "high" },
+        documentNumber: null,
+        expiryDate: null,
+      },
+    );
+    expect(applied.fields.fullName).toBe("rajan pathak");
+    expect(applied.suggestions.fullName).toBeUndefined();
+  });
+
+  it("offers a different card name in title case", () => {
+    const applied = applyIdentityExtraction(
+      { ...emptyFields(), fullName: "Jane Doe" },
+      "qid",
+      {
+        name: { value: "JANE MARIE DOE", confidence: "high" },
+        documentNumber: null,
+        expiryDate: null,
+      },
+    );
+    expect(applied.fields.fullName).toBe("Jane Doe");
+    expect(applied.suggestions.fullName).toBe("Jane Marie Doe");
+  });
+
   it("fills empty name, QID, and expiry", () => {
     const parsed = parseIdentityDocument(qidText, "qid");
     const applied = applyIdentityExtraction(emptyFields(), "qid", parsed);
-    expect(applied.fields.fullName).toBe("MOHAMMED ALI HASSAN");
+    expect(applied.fields.fullName).toBe("Mohammed Ali Hassan");
     expect(applied.fields.qid).toBe("28412345678");
     expect(applied.fields.qidExpiry).toBe("2028-03-15");
     expect(applied.suggestions).toEqual({});
@@ -223,7 +275,7 @@ describe("applyIdentityExtraction", () => {
       "qid",
     );
     const applied = applyIdentityExtraction(emptyFields(), "qid", parsed);
-    expect(applied.fields.fullName).toBe("JANE MARIE DOE");
+    expect(applied.fields.fullName).toBe("Jane Marie Doe");
     expect(applied.fields.qid).toBe("28511223344");
     expect(applied.fields.qidExpiry).toBe("2028-08-15");
     expect(applied.fields.passportNumber).toBe("P1234567");

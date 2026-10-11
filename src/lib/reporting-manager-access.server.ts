@@ -2,11 +2,16 @@ import "server-only";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { reportingTreeStaffIds } from "@/lib/attendance-listing-access";
+import { isRosterAssignableStaffStatus } from "@/lib/attendance-hr/roster-register-scope";
 import { isPeopleDirectoryTeamRow } from "@/lib/people-directory-access";
-import { unionTeamLocationIds, usesTeamLocationScope } from "@/lib/reporting-manager-locations";
+import {
+  rosterTeamOrSelfStaffIds,
+  unionTeamLocationIds,
+  usesTeamLocationScope,
+} from "@/lib/reporting-manager-locations";
 import type { AppRole } from "@/lib/rbac";
 import { ForbiddenError } from "@/lib/server/authorize";
-import { STAFF_NOT_JOKER_EMPLOYMENT_OR } from "@/lib/staff-status";
+import { isJokerStaff, STAFF_NOT_JOKER_EMPLOYMENT_OR } from "@/lib/staff-status";
 
 /** Same roster the operations chart keeps on Team overview. Resigned, terminated, and jokers are out. */
 const DIRECT_REPORT_STATUSES = ["active", "probation", "secondment", "remote", "serving_notice"] as const;
@@ -263,20 +268,46 @@ export type ShiftRosterUploadScope =
   | { kind: "company" }
   | { kind: "team"; staffIds: string[]; locationIds: string[] };
 
-/** Company upload stays on the existing capability. Reporting managers upload their team only. */
+/**
+ * A supervisor with no direct reports may upload a roster that covers only themselves.
+ * Resigned, terminated, deleted, and jokers stay out. Non-supervisors stay empty.
+ */
+export async function loadSupervisorSelfRosterStaffIds(staffId: string | null): Promise<string[]> {
+  if (!staffId) return [];
+  const { data, error } = await supabaseAdmin
+    .from("staff")
+    .select("id, job_title, staff_role, status, employment_type, deleted_at")
+    .eq("id", staffId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data?.id || data.deleted_at) return [];
+  if (!isRosterAssignableStaffStatus(data.status) || isJokerStaff(data)) return [];
+  return rosterTeamOrSelfStaffIds({
+    staffId: String(data.id),
+    directReportStaffIds: [],
+    jobTitle: data.job_title,
+    staffRole: data.staff_role,
+  });
+}
+
+/** Company upload stays on the existing capability. Reporting managers upload their team only. A supervisor with an empty team uploads themselves only. */
 export async function resolveShiftRosterUploadScope(context: {
   userId: string;
   roles?: AppRole[];
 }): Promise<ShiftRosterUploadScope> {
   if (!usesTeamLocationScope(context.roles ?? [])) return { kind: "company" };
-  const { directReportStaffIds } = await loadDirectReportStaffIds(context.userId);
-  if (directReportStaffIds.length === 0) {
+  const { staffId, directReportStaffIds } = await loadDirectReportStaffIds(context.userId);
+  const staffIds =
+    directReportStaffIds.length > 0
+      ? directReportStaffIds
+      : await loadSupervisorSelfRosterStaffIds(staffId);
+  if (staffIds.length === 0) {
     throw new ForbiddenError("Forbidden: missing capability to upload a shift roster.");
   }
-  const locations = await loadTeamCoverageLocations(directReportStaffIds);
+  const locations = await loadTeamCoverageLocations(staffIds);
   return {
     kind: "team",
-    staffIds: directReportStaffIds,
+    staffIds,
     locationIds: locations.map((loc) => loc.id),
   };
 }

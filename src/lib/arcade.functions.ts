@@ -2,10 +2,11 @@
 
 import { z } from "zod";
 
-import { buildAlertDrafts, firstCoverByLocation, normalizeGamePayment, operationalPercent, searchToken, siteAvailability } from "@/lib/arcade/domain";
+import { buildAlertDrafts, firstCoverByLocation, normalizeGamePayment, operationalPercent, searchToken, siteAvailability, visibleArcadeList } from "@/lib/arcade/domain";
+import { ARCADE_LIST_HIDE_UNAVAILABLE, isMissingHideTable, readArcadeListHides } from "@/lib/arcade/list-membership";
 import { MachineInput, PageQuery, UploadInput } from "@/lib/arcade/schemas";
-import { canUserDo } from "@/lib/rbac";
-import { assertLocationAccess } from "@/lib/server/authorize";
+import { canActorPerform, isArcadeSupervisor, isFecTechnician } from "@/lib/arcade/access";
+import { assertArcadeLocationAccess } from "@/lib/server/authorize";
 import { applyStoredTrainingRules } from "@/lib/training/execute-rules";
 import { createAuthenticatedAction, type AuthContext } from "@/lib/server/create-action";
 import { validateBase64Size } from "@/lib/server/upload-validation";
@@ -65,13 +66,16 @@ async function staffForUser(context: AuthContext) {
 
 function flags(context: AuthContext) {
   const roles = context.roles ?? [];
+  const actor = context.access;
   return {
-    canOperate: canUserDo(roles, "arcade.operate"),
-    canAssign: canUserDo(roles, "arcade.assign"),
-    canClose: canUserDo(roles, "arcade.close"),
-    canPurchase: canUserDo(roles, "arcade.purchase"),
-    canManage: canUserDo(roles, "arcade.manage"),
-    canReport: canUserDo(roles, "arcade.reports"),
+    canOperate: canActorPerform(roles, "arcade.operate", actor),
+    canAssign: canActorPerform(roles, "arcade.assign", actor),
+    canClose: canActorPerform(roles, "arcade.close", actor),
+    canPurchase: canActorPerform(roles, "arcade.purchase", actor),
+    canManage: canActorPerform(roles, "arcade.manage", actor),
+    canReport: canActorPerform(roles, "arcade.reports", actor),
+    isTechnician: isFecTechnician(actor?.jobTitle, actor?.staffRole),
+    isSupervisor: isArcadeSupervisor(actor?.jobTitle, actor?.staffRole),
   };
 }
 
@@ -178,7 +182,21 @@ export const getArcadeDashboard = createAuthenticatedAction(
         context.supabase.from("arcade_pm_records").select("id", { count: "exact", head: true }).eq("confirmed", true).gte("performed_on", pmSince),
       ]);
     if (siteRes.error) throw siteRes.error;
+    const hides = await readArcadeListHides(context.supabase);
+    const listedSites = visibleArcadeList(
+      (siteRes.data ?? []).map((row) => ({
+        locationId: row.location_id,
+        games: row.active_machines,
+        working: row.working,
+        down: row.down,
+        inRepair: row.under_repair,
+      })),
+      [],
+      hides,
+    );
+    const listedIds = new Set(listedSites.sites.map((site) => site.locationId));
     const rows = siteRes.data ?? [];
+    const cardRows = rows.filter((row) => listedIds.has(row.location_id));
     const active = rows.reduce((sum, row) => sum + row.active_machines, 0);
     const working = rows.reduce((sum, row) => sum + row.working, 0);
     const down = rows.reduce((sum, row) => sum + row.down, 0);
@@ -204,7 +222,7 @@ export const getArcadeDashboard = createAuthenticatedAction(
         operationalPercent: operationalPercent(working, active),
         pmCompliance,
       },
-      sites: rows.map((row) => ({
+      sites: cardRows.map((row) => ({
         ...row,
         availability: siteAvailability({ working: row.working, active: row.active_machines }),
       })),
@@ -279,7 +297,7 @@ export const getArcadeMachine = createAuthenticatedAction(
     const { data: machine, error } = await query.maybeSingle();
     if (error) throw error;
     if (!machine) throw new Error("Machine not found");
-    await assertLocationAccess(context, machine.location_id);
+    await assertArcadeLocationAccess(context, machine.location_id);
     const [faults, pm, parts, cases, docs, damage, installs, timeline] = await Promise.all([
       context.supabase.from("arcade_faults").select("id, ticket_number, status, severity, category, reported_at, is_repeat, repeat_count, description").eq("machine_id", machine.id).order("reported_at", { ascending: false }).limit(25),
       context.supabase.from("arcade_pm_records").select("id, performed_on, confirmed, next_pm_on, issues_found, technician_staff_id").eq("machine_id", machine.id).order("performed_on", { ascending: false }).limit(25),
@@ -308,7 +326,7 @@ export const getArcadeMachine = createAuthenticatedAction(
 export const saveArcadeMachine = createAuthenticatedAction(
   MachineInput,
   async (data, context) => {
-    await assertLocationAccess(context, data.locationId);
+    await assertArcadeLocationAccess(context, data.locationId);
     const payload = {
       asset_code: data.assetCode.toUpperCase(),
       name: data.name,
@@ -340,7 +358,7 @@ export const saveArcadeMachine = createAuthenticatedAction(
       updated_by: context.userId,
     };
     if (!data.id) {
-      if (!canUserDo(context.roles ?? [], "arcade.manage")) {
+      if (!canActorPerform(context.roles ?? [], "arcade.manage", context.access)) {
         throw new Error("Creating a machine requires admin master-data access");
       }
       const { data: row, error } = await context.supabase
@@ -366,7 +384,8 @@ export const saveArcadeMachine = createAuthenticatedAction(
         .maybeSingle();
       if (currentError) throw currentError;
       const willAssign =
-        canUserDo(context.roles ?? [], "arcade.manage") || canUserDo(context.roles ?? [], "arcade.assign");
+        canActorPerform(context.roles ?? [], "arcade.manage", context.access) ||
+        canActorPerform(context.roles ?? [], "arcade.assign", context.access);
       if (willAssign && current?.technician_staff_id !== data.technicianStaffId) {
         await applyStoredTrainingRules(context, {
           trigger: "MACHINE_ASSIGNMENT",
@@ -375,7 +394,7 @@ export const saveArcadeMachine = createAuthenticatedAction(
         });
       }
     }
-    const patch = canUserDo(context.roles ?? [], "arcade.manage")
+    const patch = canActorPerform(context.roles ?? [], "arcade.manage", context.access)
       ? payload
       : {
           status: data.status,
@@ -383,7 +402,9 @@ export const saveArcadeMachine = createAuthenticatedAction(
           software_version: data.softwareVersion ?? null,
           ip_address: data.ipAddress ?? null,
           controller_pcb: data.controllerPcb ?? null,
-          technician_staff_id: canUserDo(context.roles ?? [], "arcade.assign") ? data.technicianStaffId ?? null : undefined,
+          technician_staff_id: canActorPerform(context.roles ?? [], "arcade.assign", context.access)
+            ? data.technicianStaffId ?? null
+            : undefined,
           updated_by: context.userId,
         };
     const { data: row, error } = await context.supabase
@@ -439,7 +460,7 @@ export const uploadArcadeFile = createAuthenticatedAction(
   async (data, context) => {
     if (!UPLOAD_MIME.has(data.contentType)) throw new Error(`Unsupported file type: ${data.contentType}`);
     validateBase64Size(data.dataBase64, data.contentType.startsWith("video/") ? 25 * 1024 * 1024 : 12 * 1024 * 1024);
-    if (data.locationId) await assertLocationAccess(context, data.locationId);
+    if (data.locationId) await assertArcadeLocationAccess(context, data.locationId);
     const path = `${data.locationId ?? "shared"}/${data.entityType}/${data.entityId}/${Date.now()}-${data.filename.replace(/[^\w.\-]+/g, "_")}`;
     const bytes = Uint8Array.from(atob(data.dataBase64), (char) => char.charCodeAt(0));
     const { error: upErr } = await context.supabase.storage.from("arcade-technical").upload(path, bytes, {
@@ -598,4 +619,55 @@ export const syncArcadeAlerts = createAuthenticatedAction(
     return { created };
   },
   { defaultInput: {}, auth: { capability: "arcade.view" } },
+);
+
+/** Hide or restore a location or game on the technical list. Does not delete assets or history. */
+export const setArcadeListHidden = createAuthenticatedAction(
+  z.object({
+    kind: z.enum(["location", "game"]),
+    id: z.string().uuid(),
+    hidden: z.boolean(),
+  }),
+  async (data, context) => {
+    if (data.kind === "location") {
+      const { data: location, error } = await context.supabase.from("locations").select("id").eq("id", data.id).maybeSingle();
+      if (error) throw error;
+      if (!location) throw new Error("Location not found");
+      await assertArcadeLocationAccess(context, data.id);
+    } else {
+      const { data: machine, error } = await context.supabase
+        .from("arcade_machines")
+        .select("id, location_id")
+        .eq("id", data.id)
+        .maybeSingle();
+      if (error) throw error;
+      if (!machine) throw new Error("Game not found");
+      await assertArcadeLocationAccess(context, machine.location_id);
+    }
+
+    if (!data.hidden) {
+      const removed =
+        data.kind === "location"
+          ? await context.supabase.from("arcade_list_hides").delete().eq("location_id", data.id).is("machine_id", null)
+          : await context.supabase.from("arcade_list_hides").delete().eq("machine_id", data.id);
+      if (removed.error) {
+        if (isMissingHideTable(removed.error)) throw new Error(ARCADE_LIST_HIDE_UNAVAILABLE);
+        throw removed.error;
+      }
+      return { hidden: false as const };
+    }
+
+    const inserted = await context.supabase.from("arcade_list_hides").insert({
+      location_id: data.kind === "location" ? data.id : null,
+      machine_id: data.kind === "game" ? data.id : null,
+      hidden_by: context.userId,
+    });
+    if (inserted.error) {
+      if (inserted.error.code === "23505") return { hidden: true as const };
+      if (isMissingHideTable(inserted.error)) throw new Error(ARCADE_LIST_HIDE_UNAVAILABLE);
+      throw inserted.error;
+    }
+    return { hidden: true as const };
+  },
+  { auth: { capability: "arcade.manage" } },
 );

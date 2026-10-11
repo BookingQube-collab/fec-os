@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { canSeeShiftRosterUpload, unionTeamLocationIds, usesTeamLocationScope } from "./reporting-manager-locations";
+import {
+  canSeeShiftRosterUpload,
+  rosterTeamOrSelfStaffIds,
+  unionTeamLocationIds,
+  usesTeamLocationScope,
+} from "./reporting-manager-locations";
 
 describe("unionTeamLocationIds", () => {
   it("keeps every site the team is assigned to or punches at", () => {
@@ -34,5 +39,54 @@ describe("team roster access", () => {
     expect(canSeeShiftRosterUpload(["branch_gm"], false)).toBe(true);
     expect(canSeeShiftRosterUpload(["tech_supervisor"], false)).toBe(true);
     expect(canSeeShiftRosterUpload(["technician"], false)).toBe(false);
+  });
+
+  it("lets a supervisor with zero reports upload only their own roster", () => {
+    expect(canSeeShiftRosterUpload(["cashier_host"], false, "Site Supervisor")).toBe(true);
+    expect(canSeeShiftRosterUpload(["cashier_host"], false, "Sr. Site Supervisor")).toBe(true);
+    expect(canSeeShiftRosterUpload(["cashier_host"], false, "F&B Manager")).toBe(true);
+    expect(canSeeShiftRosterUpload(["cashier_host"], false, null, "venue_supervisor")).toBe(true);
+    expect(canSeeShiftRosterUpload(["cashier_host"], false, "Cashier")).toBe(false);
+    expect(canSeeShiftRosterUpload(["cashier_host"], false, "Cashier / Host")).toBe(false);
+    expect(canSeeShiftRosterUpload(["technician"], false, "Technician")).toBe(false);
+    expect(canSeeShiftRosterUpload(["technician"], false, null, "crew")).toBe(false);
+
+    expect(
+      rosterTeamOrSelfStaffIds({
+        staffId: "self",
+        directReportStaffIds: [],
+        jobTitle: "Site Supervisor",
+      }),
+    ).toEqual(["self"]);
+    expect(
+      rosterTeamOrSelfStaffIds({
+        staffId: "self",
+        directReportStaffIds: [],
+        jobTitle: "Attendant",
+        staffRole: "venue_supervisor",
+      }),
+    ).toEqual(["self"]);
+    expect(
+      rosterTeamOrSelfStaffIds({
+        staffId: "cashier",
+        directReportStaffIds: [],
+        jobTitle: "Cashier",
+        staffRole: "cashier",
+      }),
+    ).toEqual([]);
+    expect(
+      rosterTeamOrSelfStaffIds({
+        staffId: null,
+        directReportStaffIds: [],
+        jobTitle: "Site Supervisor",
+      }),
+    ).toEqual([]);
+    expect(
+      rosterTeamOrSelfStaffIds({
+        staffId: "supervisor",
+        directReportStaffIds: ["report-a", "report-b"],
+        jobTitle: "Site Supervisor",
+      }),
+    ).toEqual(["report-a", "report-b"]);
   });
 });

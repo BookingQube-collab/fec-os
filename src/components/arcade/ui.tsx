@@ -9,6 +9,7 @@ import {
   Building2,
   CalendarRange,
   ChevronDown,
+  ClipboardCheck,
   Eye,
   FileBarChart,
   Hammer,
@@ -36,63 +37,25 @@ type ArcadeLink = { href: string; labelKey: string; icon: LucideIcon; exact?: bo
 
 const PRIMARY: ArcadeLink[] = [
   { href: "/arcade", labelKey: "nav.arcadeDashboard", icon: LayoutDashboard, exact: true },
-  { href: "/arcade/week", labelKey: "nav.arcadeWeek", icon: CalendarRange },
-  { href: "/arcade/sites", labelKey: "nav.arcadeSites", icon: Building2 },
-  { href: "/arcade/faults", labelKey: "nav.arcadeFaults", icon: AlertTriangle },
+  { href: "/arcade/sites", labelKey: "nav.arcadeLocations", icon: Building2 },
+  { href: "/arcade/checklist", labelKey: "nav.arcadeChecklist", icon: ClipboardCheck },
+  { href: "/arcade/repair", labelKey: "nav.arcadeRepair", icon: Wrench },
+  { href: "/arcade/suppliers", labelKey: "nav.arcadeSuppliersParts", icon: Truck },
 ];
 
-const GROUPS: { id: string; labelKey: string; icon: LucideIcon; links: ArcadeLink[] }[] = [
-  {
-    id: "maintenance",
-    labelKey: "nav.arcadeGroupMaintenance",
-    icon: Wrench,
-    links: [
-      { href: "/arcade/pm", labelKey: "nav.arcadePm", icon: Wrench },
-      { href: "/arcade/observation", labelKey: "nav.arcadeObservation", icon: Eye },
-    ],
-  },
-  {
-    id: "suppliers",
-    labelKey: "nav.arcadeGroupSuppliers",
-    icon: Truck,
-    links: [
-      { href: "/arcade/suppliers", labelKey: "nav.arcadeSuppliers", icon: Truck },
-      { href: "/arcade/support", labelKey: "nav.arcadeSupport", icon: LifeBuoy },
-    ],
-  },
-  {
-    id: "parts",
-    labelKey: "nav.arcadeGroupParts",
-    icon: Package,
-    links: [{ href: "/arcade/parts", labelKey: "nav.arcadeParts", icon: Package }],
-  },
-  {
-    id: "manuals",
-    labelKey: "nav.arcadeGroupManuals",
-    icon: BookOpen,
-    links: [
-      { href: "/arcade/manuals", labelKey: "nav.arcadeManuals", icon: BookOpen },
-      { href: "/arcade/history", labelKey: "nav.arcadeHistory", icon: History },
-    ],
-  },
-  {
-    id: "installs",
-    labelKey: "nav.arcadeGroupInstalls",
-    icon: Hammer,
-    links: [
-      { href: "/arcade/installations", labelKey: "nav.arcadeInstallations", icon: Hammer },
-      { href: "/arcade/damage", labelKey: "nav.arcadeDamage", icon: ShieldAlert },
-    ],
-  },
-  {
-    id: "more",
-    labelKey: "nav.arcadeGroupMore",
-    icon: FileBarChart,
-    links: [
-      { href: "/arcade/reports", labelKey: "nav.arcadeReports", icon: FileBarChart, report: true },
-      { href: "/arcade/search", labelKey: "nav.arcadeSearch", icon: Search },
-    ],
-  },
+const MORE: ArcadeLink[] = [
+  { href: "/arcade/week", labelKey: "nav.arcadeWeek", icon: CalendarRange },
+  { href: "/arcade/faults", labelKey: "nav.arcadeFaults", icon: AlertTriangle },
+  { href: "/arcade/pm", labelKey: "nav.arcadePm", icon: Wrench },
+  { href: "/arcade/observation", labelKey: "nav.arcadeObservation", icon: Eye },
+  { href: "/arcade/support", labelKey: "nav.arcadeSupport", icon: LifeBuoy },
+  { href: "/arcade/parts", labelKey: "nav.arcadeParts", icon: Package },
+  { href: "/arcade/manuals", labelKey: "nav.arcadeManuals", icon: BookOpen },
+  { href: "/arcade/history", labelKey: "nav.arcadeHistory", icon: History },
+  { href: "/arcade/installations", labelKey: "nav.arcadeInstallations", icon: Hammer },
+  { href: "/arcade/damage", labelKey: "nav.arcadeDamage", icon: ShieldAlert },
+  { href: "/arcade/reports", labelKey: "nav.arcadeReports", icon: FileBarChart, report: true },
+  { href: "/arcade/search", labelKey: "nav.arcadeSearch", icon: Search },
 ];
 
 function isArcadeLinkActive(pathname: string, link: ArcadeLink) {
@@ -221,18 +184,12 @@ export function ArcadeSubnav() {
   const pathname = usePathname();
   const canReport = usePermission("arcade.reports");
   const { t } = useTranslation();
-  const [opened, setOpened] = useState<string | null>(null);
+  const moreLinks = MORE.filter((link) => !link.report || canReport);
+  const moreActive = moreLinks.some((link) => isArcadeLinkActive(pathname, link));
+  const [opened, setOpened] = useState(moreActive);
   useEffect(() => {
-    setOpened(null);
-  }, [pathname]);
-
-  const groups = GROUPS.map((group) => ({
-    ...group,
-    links: group.links.filter((link) => !link.report || canReport),
-  })).filter((group) => group.links.length > 0);
-  const routeGroup = groups.find((group) => group.links.some((link) => isArcadeLinkActive(pathname, link)))?.id ?? null;
-  const openId = opened === "" ? null : (opened ?? routeGroup);
-  const openGroup = groups.find((group) => group.id === openId && group.links.length > 1);
+    setOpened(moreActive);
+  }, [moreActive]);
 
   return (
     <div className="grid gap-2">
@@ -248,50 +205,31 @@ export function ArcadeSubnav() {
           );
         })}
       </PillTabScroller>
-      <PillTabScroller label={t("nav.arcadeMoreSections")}>
-        {groups.map((group) => {
-          const childActive = group.links.some((link) => isArcadeLinkActive(pathname, link));
-          if (group.links.length === 1) {
-            const link = group.links[0];
-            const Icon = group.icon;
-            return (
-              <Link key={group.id} href={link.href} aria-current={childActive ? "page" : undefined} className={pillTabItemClass(childActive)}>
-                <Icon aria-hidden />
-                {t(link.labelKey)}
-              </Link>
-            );
-          }
-          const expanded = group.id === openId;
-          const Icon = group.icon;
-          return (
-            <button
-              key={group.id}
-              type="button"
-              aria-expanded={expanded}
-              className={cn("cursor-pointer border-0", pillTabItemClass(childActive || expanded))}
-              onClick={() => setOpened(expanded ? "" : group.id)}
-            >
-              <Icon aria-hidden />
-              {t(group.labelKey)}
-              <ChevronDown className={cn("size-3.5 transition-transform", expanded && "rotate-180")} aria-hidden />
-            </button>
-          );
-        })}
-      </PillTabScroller>
-      {openGroup ? (
-        <PillTabScroller label={t(openGroup.labelKey)}>
-          {openGroup.links.map((link) => {
-            const active = isArcadeLinkActive(pathname, link);
-            const Icon = link.icon;
-            return (
-              <Link key={link.href} href={link.href} aria-current={active ? "page" : undefined} className={pillTabItemClass(active)}>
-                <Icon aria-hidden />
-                {t(link.labelKey)}
-              </Link>
-            );
-          })}
-        </PillTabScroller>
-      ) : null}
+      <div className="grid gap-2">
+        <button
+          type="button"
+          aria-expanded={opened}
+          className={cn("inline-flex w-fit cursor-pointer items-center gap-1 border-0 bg-transparent px-1 text-sm text-muted-foreground", "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring")}
+          onClick={() => setOpened((value) => !value)}
+        >
+          {t("nav.arcadeGroupMore")}
+          <ChevronDown className={cn("size-3.5 transition-transform motion-reduce:transition-none", opened && "rotate-180")} aria-hidden />
+        </button>
+        {opened ? (
+          <PillTabScroller label={t("nav.arcadeGroupMore")}>
+            {moreLinks.map((link) => {
+              const active = isArcadeLinkActive(pathname, link);
+              const Icon = link.icon;
+              return (
+                <Link key={link.href} href={link.href} aria-current={active ? "page" : undefined} className={pillTabItemClass(active)}>
+                  <Icon aria-hidden />
+                  {t(link.labelKey)}
+                </Link>
+              );
+            })}
+          </PillTabScroller>
+        ) : null}
+      </div>
     </div>
   );
 }

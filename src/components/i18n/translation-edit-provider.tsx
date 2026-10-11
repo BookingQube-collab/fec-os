@@ -19,7 +19,8 @@ import { useAuth } from "@/hooks/use-auth";
 import { usePermission } from "@/hooks/use-permission";
 import { useAppStore } from "@/stores/app-store";
 import { flattenResources, normalizeLabel } from "@/i18n/overlay";
-import { applyResourceOverlay } from "@/i18n";
+import { applyResourceOverlay, loadArabicLocale, loadEnglishCatalog } from "@/i18n";
+import { useEnglishCatalog } from "@/i18n/use-english-catalog";
 import { Button } from "@/components/ui/button";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Textarea } from "@/components/ui/textarea";
@@ -113,6 +114,7 @@ function TranslationEditProviderInner({ children }: { children: ReactNode }) {
   const [hoverEl, setHoverEl] = useState<Element | null>(null);
 
   const [overlaysReady, setOverlaysReady] = useState(false);
+  const catalog = useEnglishCatalog();
   // Arabic overrides are unused on English sessions. Admins still load them for the editor.
   const overlays = useI18nOverrides("ar", {
     enabled: !!user && overlaysReady && (language === "ar" || canEdit),
@@ -122,6 +124,16 @@ function TranslationEditProviderInner({ children }: { children: ReactNode }) {
   useEffect(() => {
     setEditModeState(readEditMode());
   }, []);
+
+  useEffect(() => {
+    if (!canEdit) return;
+    void loadEnglishCatalog();
+  }, [canEdit]);
+
+  useEffect(() => {
+    if (!canEdit || !editMode) return;
+    void loadArabicLocale();
+  }, [canEdit, editMode]);
 
   useEffect(() => {
     if (!user) {
@@ -162,7 +174,7 @@ function TranslationEditProviderInner({ children }: { children: ReactNode }) {
   const overlayItems = overlays.data?.items;
   const reverseIndex = useMemo(() => {
     const map = new Map<string, string[]>();
-    if (!editMode || !canEdit) return map;
+    if (!editMode || !canEdit || !catalog.ready) return map;
     // overlayItems: rebuild after applyResourceOverlay mutates i18n bundles in place.
     void overlayItems;
     const addBundle = (lng: string) => {
@@ -179,7 +191,7 @@ function TranslationEditProviderInner({ children }: { children: ReactNode }) {
     addBundle("en");
     addBundle("ar");
     return map;
-  }, [i18n, overlayItems, editMode, canEdit]);
+  }, [i18n, overlayItems, editMode, canEdit, catalog.ready]);
 
   const lookupKeys = useCallback(
     (el: Element): string[] => {

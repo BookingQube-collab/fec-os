@@ -1046,21 +1046,6 @@ function StaffFormDialog({
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
-                  <Label>{t("people.staff.qid")}</Label>
-                  <Input
-                    value={qid}
-                    onChange={(e) => {
-                      setQid(e.target.value);
-                      if (identity.suggestions.qid) {
-                        const suggestions = { ...identity.suggestions };
-                        delete suggestions.qid;
-                        setIdentity({ ...identity, suggestions });
-                      }
-                    }}
-                    className="font-mono"
-                  />
-                </div>
-                <div>
                   <Label>{t("people.staff.e3")}</Label>
                   <Select value={e3 || "__unset"} onValueChange={(v) => setE3(v === "__unset" ? "" : v)}>
                     <SelectTrigger><SelectValue placeholder={t("people.staff.e3Unset")} /></SelectTrigger>

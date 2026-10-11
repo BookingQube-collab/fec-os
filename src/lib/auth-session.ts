@@ -11,6 +11,10 @@ export interface AuthProfile {
   avatar_url: string | null;
   /** Newest linked staff row's job title. Absent on older cached sessions. */
   job_title?: string | null;
+  /** Newest linked staff row's staff role, such as venue_supervisor. Absent on older cached sessions. */
+  staff_role?: string | null;
+  /** Newest linked staff row's department. Used to keep F&B managers out of Arcade Technical. */
+  department?: string | null;
 }
 
 export interface AuthSessionPayload {

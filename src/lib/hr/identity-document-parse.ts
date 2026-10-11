@@ -426,8 +426,24 @@ function labeledPassportNumber(text: string): string | null {
   return null;
 }
 
-function titleCaseWords(value: string): string {
-  return value.toLowerCase().replace(/(^|[\s-])([a-z])/g, (_lead, gap: string, ch: string) => `${gap}${ch.toUpperCase()}`);
+/**
+ * Person-name casing for values read off an identity card.
+ * Each word, and the letter after a hyphen, starts with a capital; the rest is lowercase.
+ * Trims the ends and collapses runs of whitespace to a single space.
+ */
+export function titleCasePersonName(value: string): string {
+  return value
+    .trim()
+    .replace(/\s+/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((word) =>
+      word
+        .split("-")
+        .map((part) => (part ? part.charAt(0).toUpperCase() + part.slice(1).toLowerCase() : ""))
+        .join("-"),
+    )
+    .join(" ");
 }
 
 function labeledNationality(text: string): string | null {
@@ -439,7 +455,7 @@ function labeledNationality(text: string): string | null {
     for (const candidate of words) {
       const parts = candidate.split(/[ \t]+/);
       if (parts.some((part) => NATIONALITY_STOP.has(part.toLowerCase()))) continue;
-      return titleCaseWords(candidate);
+      return titleCasePersonName(candidate);
     }
   }
   return null;
@@ -603,13 +619,15 @@ export function applyIdentityExtraction(
     if (!field) return;
     delete nextSuggestions[field];
     if (!extracted?.value) return;
+    const value = field === "fullName" ? titleCasePersonName(extracted.value) : extracted.value;
+    if (!value) return;
     const existing = fields[field].trim();
     if (!existing) {
-      if (extracted.confidence === "high") fields[field] = extracted.value;
-      else nextSuggestions[field] = extracted.value;
+      if (extracted.confidence === "high") fields[field] = value;
+      else nextSuggestions[field] = value;
       return;
     }
-    if (!sameIdentityValue(existing, extracted.value)) nextSuggestions[field] = extracted.value;
+    if (!sameIdentityValue(existing, value)) nextSuggestions[field] = value;
   };
 
   consider(map.name, parsed.name);

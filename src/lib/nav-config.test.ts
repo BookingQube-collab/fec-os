@@ -152,10 +152,11 @@ describe("admin sidebar visibility", () => {
     }
   });
 
-  it("places operations hierarchy in HR admin and keeps it off the Administration rail", () => {
+  it("keeps organization charts on People and off the Administration rail", () => {
     const people = getVisibleDepartments(["ceo"]).find((dept) => dept.id === "people");
-    const peopleHrefs = people?.items.map((item) => item.href) ?? [];
-    expect(peopleHrefs).toContain("/people/hr/hierarchy");
+    const hierarchy = people?.items.filter((item) => item.href === "/people/hr/hierarchy") ?? [];
+    expect(hierarchy.map((item) => item.labelKey)).toEqual(["nav.organizationCharts"]);
+    expect(people?.items.some((item) => item.labelKey === "nav.operationsHierarchy")).toBe(false);
 
     const admin = getVisibleDepartments(["ceo"]).find((dept) => dept.id === "admin");
     const adminHrefs = [
@@ -480,12 +481,28 @@ describe("admin sidebar visibility", () => {
 
   it("shows Arcade Technical to technicians and keeps reports off their nav", () => {
     const arcade = getVisibleDepartments(["technician"]).find((dept) => dept.id === "arcade");
-    const hrefs = arcade?.groups.flatMap((group) => group.items.map((item) => item.href)) ?? [];
+    expect(arcade?.groups ?? []).toEqual([]);
+    const hrefs = arcade?.items.map((item) => item.href) ?? [];
     expect(hrefs).toContain("/arcade");
+    expect(hrefs).toContain("/arcade/checklist");
+    expect(hrefs).toContain("/arcade/repair");
     expect(hrefs).toContain("/arcade/faults");
     expect(hrefs).toContain("/arcade/week");
     expect(hrefs).not.toContain("/arcade/reports");
-    expect(getPrimaryRailNav(["technician"]).some((item) => item.departmentId === "arcade")).toBe(true);
+    expect(arcade?.items.some((item) => item.labelKey === "nav.arcade" || item.sectionKey === "nav.arcade")).toBe(false);
+    const blocks = clusterItemsBySection(arcade?.items ?? []);
+    expect(blocks.map((block) => block.sectionKey)).toEqual([null, "nav.arcadeGroupMore"]);
+    expect(blocks[0]?.items.map((item) => item.href)).toEqual([
+      "/arcade",
+      "/arcade/sites",
+      "/arcade/checklist",
+      "/arcade/repair",
+      "/arcade/suppliers",
+    ]);
+    const rail = getPrimaryRailNav(["technician"]).find((item) => item.departmentId === "arcade");
+    expect(rail?.icon).toBe(arcade?.icon);
+    expect(isNavItemActive("/arcade", "/arcade")).toBe(true);
+    expect(isNavItemActive("/arcade", "/arcade/checklist")).toBe(false);
   });
 
   it("keeps a group visible when some children fail capability checks", () => {
@@ -598,5 +615,39 @@ describe("admin sidebar visibility", () => {
     const tech = getVisibleDepartments(["technician"]).find((dept) => dept.id === "operations");
     expect(tech?.items.some((item) => item.href === "/operations/weekly-review")).toBe(false);
     expect(tech?.items.some((item) => item.href === "/operations/corporate-deals")).toBe(false);
+  });
+
+  it("opens Arcade Technical for an FEC technician and a supervisor, and keeps an F&B manager out", () => {
+    const technician = getVisibleDepartments(["cashier_host"], {
+      jobTitle: "FEC Technician",
+      staffRole: "technician",
+    });
+    const arcade = technician.find((dept) => dept.id === "arcade");
+    expect(arcade?.groups ?? []).toEqual([]);
+    const hrefs = arcade?.items.map((item) => item.href) ?? [];
+    expect(hrefs).toContain("/arcade");
+    expect(hrefs).not.toContain("/arcade/reports");
+    expect(arcade?.items.some((item) => item.labelKey === "nav.arcade")).toBe(false);
+    expect(usesEmployeeFlatRail(["cashier_host"], false, { jobTitle: "FEC Technician", staffRole: "technician" })).toBe(
+      false,
+    );
+    expect(
+      getPrimaryRailNav(["cashier_host"], { jobTitle: "FEC Technician", staffRole: "technician" }).some(
+        (item) => item.departmentId === "arcade",
+      ),
+    ).toBe(true);
+
+    const supervisor = getVisibleDepartments(["cashier_host"], {
+      jobTitle: "Site Supervisor",
+      staffRole: "venue_supervisor",
+    });
+    expect(supervisor.some((dept) => dept.id === "arcade")).toBe(true);
+
+    const fnb = getVisibleDepartments(["duty_manager"], { jobTitle: "F&B Manager", department: "F&B" });
+    expect(fnb.some((dept) => dept.id === "arcade")).toBe(false);
+
+    const head = getVisibleDepartments(["cashier_host"], { jobTitle: "Head of Operations" });
+    expect(head.some((dept) => dept.id === "admin")).toBe(true);
+    expect(head.some((dept) => dept.id === "arcade")).toBe(true);
   });
 });

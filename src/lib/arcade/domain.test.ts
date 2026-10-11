@@ -7,8 +7,12 @@ import {
   detectRepeatFault,
   faultsFromPmChecklist,
   fixSummaryFromFault,
+  formatWorkingDuration,
+  gameElements,
   machineFixUpdate,
   matchImportMachine,
+  monthComparison,
+  visibleArcadeList,
   mtbfDays,
   mttrHours,
   nextMachineStatus,
@@ -19,8 +23,114 @@ import {
   operationalPercent,
   patchSupplierCase,
   pmCompliancePercent,
+  repairPhase,
+  repairWorkingMs,
+  simpleClosureFromNote,
   transitionFault,
 } from "./domain";
+
+describe("repair working time", () => {
+  const start = Date.parse("2026-10-11T10:00:00.000Z");
+  const pause = Date.parse("2026-10-11T10:30:00.000Z");
+  const resume = Date.parse("2026-10-11T11:00:00.000Z");
+  const now = Date.parse("2026-10-11T11:20:00.000Z");
+
+  it("sums working intervals and skips the pause", () => {
+    const ms = repairWorkingMs(
+      [
+        { status: "PAUSED", startedAt: "2026-10-11T10:00:00.000Z", pausedAt: "2026-10-11T10:30:00.000Z" },
+        { status: "IN_PROGRESS", startedAt: "2026-10-11T11:00:00.000Z" },
+      ],
+      now,
+    );
+    expect(ms).toBe(pause - start + (now - resume));
+    expect(formatWorkingDuration(ms)).toEqual({ hours: 0, minutes: 50, seconds: 0 });
+  });
+
+  it("does not keep counting after a pause, including on a later read", () => {
+    const spans = [
+      { status: "PAUSED", startedAt: "2026-10-11T10:00:00.000Z", pausedAt: "2026-10-11T10:30:00.000Z" },
+    ];
+    expect(repairWorkingMs(spans, now)).toBe(30 * 60 * 1000);
+    expect(repairWorkingMs(spans, now + 3600000)).toBe(30 * 60 * 1000);
+    expect(repairPhase(spans)).toBe("PAUSED");
+  });
+
+  it("stops a finished job at the last working instant", () => {
+    const spans = [
+      {
+        status: "COMPLETED",
+        startedAt: "2026-10-11T10:00:00.000Z",
+        pausedAt: "2026-10-11T10:30:00.000Z",
+        completedAt: "2026-10-11T10:30:00.000Z",
+      },
+    ];
+    expect(repairWorkingMs(spans, now)).toBe(30 * 60 * 1000);
+    expect(repairPhase(spans)).toBe("FINISHED");
+  });
+
+  it("reads only stored game details", () => {
+    expect(gameElements({ model: "AR Racing", notes: "Track 10x10", zone: "  " })).toEqual([
+      { key: "model", value: "AR Racing" },
+      { key: "notes", value: "Track 10x10" },
+    ]);
+    expect(gameElements({})).toEqual([]);
+  });
+
+  it("adds this month to last month for the overall total", () => {
+    expect(
+      monthComparison(
+        { repairsOpened: 2, repairsFinished: 1, downtimeHours: 1.5, checksRecorded: 4 },
+        { repairsOpened: 3, repairsFinished: 3, downtimeHours: 2, checksRecorded: 0 },
+      ).overall,
+    ).toEqual({ repairsOpened: 5, repairsFinished: 4, downtimeHours: 3.5, checksRecorded: 4 });
+  });
+
+  it("turns one technician sentence into the required write-up", () => {
+    const closure = simpleClosureFromNote({
+      description: "Game stopped during play",
+      note: "Replaced the worn drive belt and tested two laps",
+      parts: "Drive belt",
+    });
+    expect(closureErrors(closure)).toEqual([]);
+    expect(closure.partsUsed).toBe("Drive belt");
+  });
+});
+
+describe("arcade list membership", () => {
+  const sites = [
+    { locationId: "mall-a", games: 2, working: 1, down: 1, inRepair: 0 },
+    { locationId: "mall-b", games: 1, working: 1, down: 0, inRepair: 0 },
+  ];
+  const games = [
+    { id: "game-1", locationId: "mall-a", status: "WORKING" },
+    { id: "game-2", locationId: "mall-a", status: "DOWN" },
+    { id: "game-3", locationId: "mall-b", status: "WORKING" },
+  ];
+
+  it("hides a location and the games under it without touching other sites", () => {
+    const listed = visibleArcadeList(sites, games, [{ locationId: "mall-a" }]);
+    expect(listed.sites.map((site) => site.locationId)).toEqual(["mall-b"]);
+    expect(listed.games.map((game) => game.id)).toEqual(["game-3"]);
+    expect(sites[0].games).toBe(2);
+    expect(games).toHaveLength(3);
+  });
+
+  it("hides one game and reduces that location's counts", () => {
+    const listed = visibleArcadeList(sites, games, [{ machineId: "game-2" }]);
+    expect(listed.games.map((game) => game.id)).toEqual(["game-1", "game-3"]);
+    expect(listed.sites.find((site) => site.locationId === "mall-a")).toMatchObject({
+      games: 1,
+      working: 1,
+      down: 0,
+    });
+    expect(listed.sites.find((site) => site.locationId === "mall-b")?.games).toBe(1);
+  });
+
+  it("keeps the full list when nothing is hidden", () => {
+    expect(visibleArcadeList(sites, games, [])).toEqual({ sites, games });
+  });
+});
 
 describe("arcade closure", () => {
   it("rejects a ticket closed with only the word Resolved", () => {

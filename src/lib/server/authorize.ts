@@ -5,7 +5,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { canUserDo, type AppRole, type Capability } from "@/lib/rbac";
+import { canActorPerform } from "@/lib/arcade/access";
+import { loadLinkedStaffIdentity } from "@/lib/linked-staff-job-title.server";
+import type { AppRole, Capability } from "@/lib/rbac";
 import { createTimer } from "@/lib/performance/timer";
 import { updateAuthRolesCache } from "./auth";
 import type { AuthContext } from "./auth";
@@ -84,6 +86,21 @@ async function ensureUserRoles(context: AuthContext): Promise<AppRole[]> {
   return context.roles;
 }
 
+async function ensureStaffAccess(context: AuthContext) {
+  if (context.access) return context.access;
+  try {
+    const identity = await loadLinkedStaffIdentity(context.userId);
+    context.access = {
+      jobTitle: identity.jobTitle,
+      staffRole: identity.staffRole,
+      department: identity.department,
+    };
+  } catch {
+    context.access = { jobTitle: null, staffRole: null, department: null };
+  }
+  return context.access;
+}
+
 export async function requireCapability(
   context: AuthContext,
   capability: Capability,
@@ -93,7 +110,8 @@ export async function requireCapability(
     throw new ForbiddenError("No role assigned. Contact an administrator.");
   }
   await ensureServerCapabilityGrants();
-  if (!canUserDo(roles, capability)) {
+  const access = await ensureStaffAccess(context);
+  if (!canActorPerform(roles, capability, access)) {
     throw new ForbiddenError(`Forbidden: missing capability ${capability}`);
   }
   return roles;
@@ -108,7 +126,8 @@ export async function requireAnyCapability(
     throw new ForbiddenError("No role assigned. Contact an administrator.");
   }
   await ensureServerCapabilityGrants();
-  const allowed = capabilities.some((c) => canUserDo(roles, c));
+  const access = await ensureStaffAccess(context);
+  const allowed = capabilities.some((c) => canActorPerform(roles, c, access));
   if (!allowed) {
     throw new ForbiddenError("Forbidden: insufficient permissions");
   }
@@ -136,6 +155,21 @@ export async function assertLocationAccess(
     _location_id: locationId,
   });
   if (error) throw error;
+  if (!data) throw new ForbiddenError("Forbidden: cannot access this branch");
+}
+
+/** Arcade Technical branch check. F&B managers fail. Head of Operations passes every branch. */
+export async function assertArcadeLocationAccess(
+  context: AuthContext,
+  locationId: string,
+): Promise<void> {
+  const { data, error } = await context.supabase.rpc("user_can_read_arcade", {
+    _location_id: locationId,
+  });
+  if (error) {
+    await assertLocationAccess(context, locationId);
+    return;
+  }
   if (!data) throw new ForbiddenError("Forbidden: cannot access this branch");
 }
 

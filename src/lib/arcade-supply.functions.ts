@@ -3,7 +3,7 @@
 import { z } from "zod";
 
 import { applyArcadeWorkbookPlan, type ArcadeDb } from "@/lib/arcade/apply-workbook";
-import { matchImportMachine, nextPartSupplyStatus, patchSupplierCase, stockStatus, type PartStatus } from "@/lib/arcade/domain";
+import { matchImportMachine, nextPartSupplyStatus, patchSupplierCase, stockStatus, VENDOR_NOTE_PREFIX, type PartStatus } from "@/lib/arcade/domain";
 import { buildMonthlyArcadeReport, buildSupplierPerformance, buildWeeklyArcadeReport } from "@/lib/arcade/reports";
 import { weekBounds } from "@/lib/arcade/domain";
 import {
@@ -17,8 +17,8 @@ import {
   PartSupplyInput,
   WorkbookPlanInput,
 } from "@/lib/arcade/schemas";
-import { canUserDo } from "@/lib/rbac";
-import { assertLocationAccess } from "@/lib/server/authorize";
+import { canActorPerform } from "@/lib/arcade/access";
+import { assertArcadeLocationAccess } from "@/lib/server/authorize";
 import { createAuthenticatedAction } from "@/lib/server/create-action";
 
 function range(page: number, pageSize: number) {
@@ -55,11 +55,13 @@ export const listArcadeSuppliers = createAuthenticatedAction(
 export const getArcadeSupplier = createAuthenticatedAction(
   z.object({ vendorId: z.string().uuid() }),
   async (data, context) => {
-    const [{ data: vendor, error }, { data: profile }, { data: machines }, { data: cases }] = await Promise.all([
+    const [{ data: vendor, error }, { data: profile }, { data: machines }, { data: cases }, { data: spare }, { data: requests }] = await Promise.all([
       context.supabase.from("vendors").select("id, name, category, contact_person, phone, email, notes, active").eq("id", data.vendorId).single(),
       context.supabase.from("arcade_vendor_profiles").select("*").eq("vendor_id", data.vendorId).maybeSingle(),
       context.supabase.from("arcade_machines").select("id, name, asset_code, location_id, status, warranty_expires_on").eq("vendor_id", data.vendorId).limit(200),
       context.supabase.from("arcade_supplier_cases").select("id, case_number, status, problem, machine_id, location_id, created_at, first_response_at, resolved_at, troubleshooting_done").eq("vendor_id", data.vendorId).order("created_at", { ascending: false }).limit(50),
+      context.supabase.from("arcade_spare_parts").select("id, name, part_code, supply_status, ordered_qty, requested_qty").eq("vendor_id", data.vendorId).order("name").limit(50),
+      context.supabase.from("arcade_part_requests").select("id, description, qty, status, created_at, notes").ilike("notes", `%${VENDOR_NOTE_PREFIX}${data.vendorId}%`).order("created_at", { ascending: false }).limit(50),
     ]);
     if (error) throw error;
     const performance = buildSupplierPerformance({
@@ -78,7 +80,21 @@ export const getArcadeSupplier = createAuthenticatedAction(
         resolvedAt: item.resolved_at,
       })),
     })[0];
-    return { vendor, profile, machines: machines ?? [], cases: cases ?? [], performance };
+    return {
+      vendor,
+      profile,
+      machines: machines ?? [],
+      cases: cases ?? [],
+      performance,
+      parts: spare ?? [],
+      orders: (requests ?? []).map((row) => ({
+        id: row.id,
+        description: row.description,
+        qty: row.qty,
+        status: row.status,
+        createdAt: row.created_at,
+      })),
+    };
   },
   { auth: { capability: "arcade.view" } },
 );
@@ -144,7 +160,7 @@ export const getSupplierCase = createAuthenticatedAction(
   async (data, context) => {
     const { data: row, error } = await context.supabase.from("arcade_supplier_cases").select("*").eq("id", data.id).single();
     if (error) throw error;
-    if (row.location_id) await assertLocationAccess(context, row.location_id);
+    if (row.location_id) await assertArcadeLocationAccess(context, row.location_id);
     const { data: updates } = await context.supabase.from("arcade_supplier_case_updates").select("*").eq("case_id", data.id).order("created_at");
     return { case: row, updates: updates ?? [] };
   },
@@ -154,7 +170,7 @@ export const getSupplierCase = createAuthenticatedAction(
 export const saveSupplierCase = createAuthenticatedAction(
   CaseInput,
   async (data, context) => {
-    if (data.locationId) await assertLocationAccess(context, data.locationId);
+    if (data.locationId) await assertArcadeLocationAccess(context, data.locationId);
     if (data.id) {
       const { data: existing, error: readError } = await context.supabase.from("arcade_supplier_cases").select("*").eq("id", data.id).single();
       if (readError) throw readError;
@@ -262,10 +278,10 @@ export const listSpareParts = createAuthenticatedAction(
 export const saveSparePart = createAuthenticatedAction(
   PartInput,
   async (data, context) => {
-    if (!canUserDo(context.roles ?? [], "arcade.purchase")) {
+    if (!canActorPerform(context.roles ?? [], "arcade.purchase", context.access)) {
       throw new Error("Purchasing changes require operations approval");
     }
-    await assertLocationAccess(context, data.warehouseLocationId);
+    await assertArcadeLocationAccess(context, data.warehouseLocationId);
     let inventoryItemId: string | null = null;
     if (!data.id) {
       const { data: item, error: itemError } = await context.supabase
@@ -344,7 +360,7 @@ export const requestSparePart = createAuthenticatedAction(
     notes: z.string().max(2000).optional().nullable(),
   }),
   async (data, context) => {
-    await assertLocationAccess(context, data.locationId);
+    await assertArcadeLocationAccess(context, data.locationId);
     const { data: row, error } = await context.supabase
       .from("arcade_part_requests")
       .insert({
@@ -404,7 +420,7 @@ export const receiveSparePart = createAuthenticatedAction(
     requestId: z.string().uuid().optional().nullable(),
   }),
   async (data, context) => {
-    await assertLocationAccess(context, data.locationId);
+    await assertArcadeLocationAccess(context, data.locationId);
     const { data: part, error } = await context.supabase.from("arcade_spare_parts").select("*").eq("id", data.partId).single();
     if (error) throw error;
     if (!part.inventory_item_id) throw new Error("This part is not linked to inventory stock");
@@ -452,7 +468,7 @@ export const useSparePart = createAuthenticatedAction(
     notes: z.string().max(500).optional().nullable(),
   }),
   async (data, context) => {
-    await assertLocationAccess(context, data.locationId);
+    await assertArcadeLocationAccess(context, data.locationId);
     const { data: part, error } = await context.supabase.from("arcade_spare_parts").select("id, name, inventory_item_id").eq("id", data.partId).single();
     if (error) throw error;
     if (!part.inventory_item_id) throw new Error("This part is not linked to inventory stock");
@@ -555,7 +571,7 @@ export const listDamageReports = createAuthenticatedAction(
 export const saveDamageReport = createAuthenticatedAction(
   DamageInput,
   async (data, context) => {
-    if (data.locationId) await assertLocationAccess(context, data.locationId);
+    if (data.locationId) await assertArcadeLocationAccess(context, data.locationId);
     const needsMapping = !data.machineId;
     const payload = {
       machine_id: data.machineId ?? null,
@@ -604,7 +620,7 @@ export const listInstallations = createAuthenticatedAction(
 export const saveInstallation = createAuthenticatedAction(
   InstallationInput,
   async (data, context) => {
-    await assertLocationAccess(context, data.locationId);
+    await assertArcadeLocationAccess(context, data.locationId);
     const payload = {
       machine_id: data.machineId ?? null,
       vendor_id: data.vendorId ?? null,

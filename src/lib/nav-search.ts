@@ -60,6 +60,7 @@ export function buildNavSearchIndex(
   roles: AppRole[],
   hasDirectReports = false,
   jobTitle?: string | null,
+  staffRole?: string | null,
 ): NavSearchHit[] {
   const seen = new Set<string>();
   const out: NavSearchHit[] = [];
@@ -69,6 +70,7 @@ export function buildNavSearchIndex(
       mergeReportingManagerDepartments(getVisibleDepartments(roles), hasDirectReports),
       roles,
       jobTitle,
+      staffRole,
     ),
   );
 

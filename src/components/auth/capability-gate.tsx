@@ -2,8 +2,9 @@
 
 import type { ReactNode } from "react";
 
-import { useUserRoles } from "@/hooks/use-auth";
-import { canUserDo, type Capability } from "@/lib/rbac";
+import { useAuth, useUserRoles } from "@/hooks/use-auth";
+import { canActorPerform } from "@/lib/arcade/access";
+import type { Capability } from "@/lib/rbac";
 
 interface CapabilityGateProps {
   capability: Capability;
@@ -16,6 +17,16 @@ interface CapabilityGateProps {
 /** Hides children when the current user lacks the required capability. */
 export function CapabilityGate({ capability, children, fallback = null, alsoAllow = false }: CapabilityGateProps) {
   const roles = useUserRoles();
-  if (alsoAllow || canUserDo(roles, capability)) return children;
+  const { profile } = useAuth();
+  if (
+    alsoAllow ||
+    canActorPerform(roles, capability, {
+      jobTitle: profile?.job_title,
+      staffRole: profile?.staff_role,
+      department: profile?.department,
+    })
+  ) {
+    return children;
+  }
   return fallback;
 }

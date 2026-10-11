@@ -133,13 +133,6 @@ export default function AttendanceHrReportsPage() {
     return () => window.clearTimeout(timer);
   }, [staffQ]);
 
-  const bootstrap = useQuery({
-    queryKey: queryKeys.people.attendanceHr({ view: "bootstrap" }),
-    queryFn: () => getAttendanceHrBootstrap(),
-    staleTime: STALE.people,
-    enabled: companyWide,
-  });
-
   const teamSites = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "listing-sites" }),
     queryFn: () => getAttendanceListingSites(),
@@ -180,6 +173,14 @@ export default function AttendanceHrReportsPage() {
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     placeholderData: keepPreviousData,
+  });
+
+  const bootstrap = useQuery({
+    queryKey: queryKeys.people.attendanceHr({ view: "bootstrap" }),
+    queryFn: () => getAttendanceHrBootstrap(),
+    staleTime: STALE.people,
+    // Bootstrap pages every active employee for the mapper. Let the month grid finish first.
+    enabled: companyWide && q.isFetched,
   });
 
   const listingBusy = q.isFetching && !q.isLoading;
