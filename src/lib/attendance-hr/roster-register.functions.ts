@@ -497,7 +497,7 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
     const staffIn = data.staffId ? null : (deptStaffIds ?? teamIds);
     const staffChunks: Array<string[] | null> =
       staffIn == null ? [null] : staffIn.length === 0 ? [] : chunkIds(staffIn, ROSTER_ID_CHUNK);
-    const assignments: AssignmentPageRow[] = [];
+    let assignments: AssignmentPageRow[] = [];
     for (const staffChunk of staffChunks) {
       const pageRows = await collectPagedRows<AssignmentPageRow>(async (from, to) => {
         let q = db
