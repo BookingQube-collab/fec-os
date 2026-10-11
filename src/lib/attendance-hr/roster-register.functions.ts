@@ -5,8 +5,8 @@ import { z } from "zod";
 import { loadLinkedStaffJobTitle } from "@/lib/linked-staff-job-title.server";
 import { canAmendShiftRoster, canUserDo, type AppRole } from "@/lib/rbac";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { loadDirectReportStaffIds } from "@/lib/reporting-manager-access.server";
-import { createAuthenticatedAction, type AuthContext } from "@/lib/server/create-action";
+import { loadDirectReportStaffIds, loadTeamCoverageLocations } from "@/lib/reporting-manager-access.server";
+import { createAuthenticatedAction, createAuthenticatedActionNoInput, type AuthContext } from "@/lib/server/create-action";
 import { ForbiddenError } from "@/lib/server/authorize";
 import { assertAttendanceRosterLocation } from "@/lib/attendance-hr/roster-apply";
 import { loadActiveShiftTemplates } from "@/lib/attendance-hr/roster-amend";
@@ -16,6 +16,7 @@ import {
   assertRosterDeletePeriod,
   chunkIds,
   collectPagedRows,
+  isRosterAssignableStaffStatus,
   rosterAmendRecalcLocationIds,
   isRosterLeaveType,
   rosterHiddenStaffIds,
@@ -34,6 +35,7 @@ import { mapRosterPeriodByDayIndex, monthBounds, nextPayrollMonth, previousPayro
 import { previousMonthRosterSheetLines } from "@/lib/staff-roster/previous-month-export";
 import { buildPeopleRosterRowsXlsx, peopleRosterSampleFilename } from "@/lib/staff-roster/period-sample";
 import { ATTENDANCE_DAILY_LIST_PAGE_SIZE } from "@/lib/attendance-hr/constants";
+import { isJokerStaff, STAFF_NOT_JOKER_EMPLOYMENT_OR } from "@/lib/staff-status";
 
 const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
@@ -144,11 +146,117 @@ async function assertCanAmendRoster(context: Pick<AuthContext, "userId" | "roles
 }
 
 type RosterActor = {
-  /** Null when this login can read the company roster. Otherwise direct-report staff ids. */
+  /**
+   * Null when this login can read the company roster.
+   * Otherwise direct reports plus assignable staff whose home site the team already covers.
+   */
   teamIds: string[] | null;
   /** Team rows sit at sites the login role cannot open, so those reads and writes use the admin client. */
   db: AuthContext["supabase"];
 };
+
+/** Keep PostgREST `.in()` URLs under the gateway limit. */
+const ROSTER_ID_CHUNK = 80;
+
+type RosterAssignStaffRow = {
+  id: string;
+  employee_code: string | null;
+  full_name: string | null;
+  status: string | null;
+  employment_type: string | null;
+  location_id: string | null;
+};
+
+function rosterAssignStaffOption(row: RosterAssignStaffRow) {
+  return {
+    id: String(row.id),
+    employee_code: row.employee_code ?? null,
+    full_name: row.full_name ?? null,
+  };
+}
+
+function isAssignableRosterStaffRow(row: {
+  status?: string | null;
+  employment_type?: string | null;
+}): boolean {
+  return isRosterAssignableStaffStatus(row.status) && !isJokerStaff(row);
+}
+
+/** Non-deleted, non-joker staff, paged past PostgREST max_rows, then kept when the status is assignable. */
+async function fetchAssignableStaffRows(
+  db: AuthContext["supabase"],
+  locationIds: string[] | null,
+): Promise<RosterAssignStaffRow[]> {
+  const locationChunks = locationIds == null ? [null as string[] | null] : chunkIds(locationIds, ROSTER_ID_CHUNK);
+  const seen = new Set<string>();
+  const out: RosterAssignStaffRow[] = [];
+  for (const locChunk of locationChunks) {
+    if (locChunk && locChunk.length === 0) continue;
+    const page = await collectPagedRows<RosterAssignStaffRow>(async (from, to) => {
+      let q = db
+        .from("staff")
+        .select("id, employee_code, full_name, status, employment_type, location_id")
+        .is("deleted_at", null)
+        .or(STAFF_NOT_JOKER_EMPLOYMENT_OR)
+        .order("id", { ascending: true })
+        .range(from, to);
+      if (locChunk) q = q.in("location_id", locChunk);
+      const { data, error } = await q;
+      if (error) throw error;
+      return (data ?? []) as RosterAssignStaffRow[];
+    }, ATTENDANCE_DAILY_LIST_PAGE_SIZE);
+    for (const row of page) {
+      const id = String(row.id);
+      if (!id || seen.has(id) || !isAssignableRosterStaffRow(row)) continue;
+      seen.add(id);
+      out.push(row);
+    }
+  }
+  return out;
+}
+
+async function fetchStaffRowsByIds(
+  db: AuthContext["supabase"],
+  staffIds: string[],
+): Promise<RosterAssignStaffRow[]> {
+  const out: RosterAssignStaffRow[] = [];
+  for (const ids of chunkIds(staffIds, ROSTER_ID_CHUNK)) {
+    const { data, error } = await db
+      .from("staff")
+      .select("id, employee_code, full_name, status, employment_type, location_id")
+      .in("id", ids)
+      .is("deleted_at", null)
+      .or(STAFF_NOT_JOKER_EMPLOYMENT_OR);
+    if (error) throw error;
+    out.push(...((data ?? []) as RosterAssignStaffRow[]));
+  }
+  return out;
+}
+
+/**
+ * Team-scoped amend set: direct reports, plus assignable people whose home
+ * location is a site this team already covers. The manager's own staff id is
+ * part of the coverage seed so a new hire at that site is included before a
+ * reporting line exists.
+ */
+async function loadTeamRosterStaffIds(userId: string): Promise<string[]> {
+  const access = await loadDirectReportStaffIds(userId);
+  const ids = new Set(access.directReportStaffIds);
+  const seed = [
+    ...new Set([access.staffId, ...access.directReportStaffIds].filter((id): id is string => Boolean(id))),
+  ];
+  if (seed.length > 0) {
+    const sites = await loadTeamCoverageLocations(seed);
+    if (sites.length > 0) {
+      const atSites = await fetchAssignableStaffRows(
+        supabaseAdmin,
+        sites.map((site) => site.id),
+      );
+      for (const row of atSites) ids.add(String(row.id));
+    }
+  }
+  return [...ids].sort();
+}
 
 function canViewCompanyRoster(roles: AppRole[]): boolean {
   return (
@@ -164,7 +272,7 @@ function canViewCompanyRoster(roles: AppRole[]): boolean {
 async function resolveRosterActor(context: AuthContext): Promise<RosterActor> {
   const roles = (context.roles ?? []) as AppRole[];
   if (canViewCompanyRoster(roles)) return { teamIds: null, db: context.supabase };
-  const teamIds = (await loadDirectReportStaffIds(context.userId)).directReportStaffIds;
+  const teamIds = await loadTeamRosterStaffIds(context.userId);
   return { teamIds, db: supabaseAdmin };
 }
 
@@ -348,9 +456,7 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
   async (data, context) => {
     const roles = (context.roles ?? []) as AppRole[];
     const companyRoster = canViewCompanyRoster(roles);
-    const teamIds = companyRoster
-      ? null
-      : (await loadDirectReportStaffIds(context.userId)).directReportStaffIds;
+    const teamIds = companyRoster ? null : await loadTeamRosterStaffIds(context.userId);
     if (!companyRoster && (!teamIds || teamIds.length === 0)) {
       throw new ForbiddenError("Forbidden: missing capability to view the shift roster.");
     }
@@ -388,30 +494,36 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
       source: string | null;
       created_at: string | null;
     };
-    let assignments = await collectPagedRows<AssignmentPageRow>(async (from, to) => {
-      let q = db
-        .from("attendance_roster_assignments")
-        .select(
-          "id, location_id, staff_id, work_date, shift_template_id, shift_start, shift_end, is_week_off, source, created_at",
-        )
-        .gte("work_date", data.dateFrom)
-        .lte("work_date", data.dateTo)
-        .order("work_date", { ascending: true })
-        .order("staff_id", { ascending: true })
-        .order("id", { ascending: true })
-        .range(from, to);
+    const staffIn = data.staffId ? null : (deptStaffIds ?? teamIds);
+    const staffChunks: Array<string[] | null> =
+      staffIn == null ? [null] : staffIn.length === 0 ? [] : chunkIds(staffIn, ROSTER_ID_CHUNK);
+    const assignments: AssignmentPageRow[] = [];
+    for (const staffChunk of staffChunks) {
+      const pageRows = await collectPagedRows<AssignmentPageRow>(async (from, to) => {
+        let q = db
+          .from("attendance_roster_assignments")
+          .select(
+            "id, location_id, staff_id, work_date, shift_template_id, shift_start, shift_end, is_week_off, source, created_at",
+          )
+          .gte("work_date", data.dateFrom)
+          .lte("work_date", data.dateTo)
+          .order("work_date", { ascending: true })
+          .order("staff_id", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, to);
 
-      if (data.locationId) q = q.eq("location_id", data.locationId);
-      if (data.staffId) q = q.eq("staff_id", data.staffId);
-      else if (deptStaffIds) q = q.in("staff_id", deptStaffIds);
-      else if (teamIds) q = q.in("staff_id", teamIds);
-      if (data.sourceUploadOnly) q = q.in("source", ["upload", "amend"]);
-      else if (data.source) q = q.eq("source", data.source);
+        if (data.locationId) q = q.eq("location_id", data.locationId);
+        if (data.staffId) q = q.eq("staff_id", data.staffId);
+        else if (staffChunk) q = q.in("staff_id", staffChunk);
+        if (data.sourceUploadOnly) q = q.in("source", ["upload", "amend"]);
+        else if (data.source) q = q.eq("source", data.source);
 
-      const { data: page, error } = await q;
-      if (error) throw error;
-      return (page ?? []) as AssignmentPageRow[];
-    }, ATTENDANCE_DAILY_LIST_PAGE_SIZE);
+        const { data: page, error } = await q;
+        if (error) throw error;
+        return (page ?? []) as AssignmentPageRow[];
+      }, ATTENDANCE_DAILY_LIST_PAGE_SIZE);
+      assignments.push(...pageRows);
+    }
 
     if (data.excludedDepartmentIds?.length) {
       const hiddenStaff = await hiddenStaffIdsForExcludedDepartments(db, data.excludedDepartmentIds);
@@ -433,13 +545,22 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
       ),
     ];
 
-    const [staffRes, locRes, shiftRes] = await Promise.all([
-      staffIds.length
-        ? db
-            .from("staff")
-            .select("id, full_name, employee_code, qid, flexible_attendance")
-            .in("id", staffIds)
-        : Promise.resolve({ data: [], error: null }),
+    const staffRows: {
+      id: string;
+      full_name: string | null;
+      employee_code: string | null;
+      qid: string | null;
+      flexible_attendance: boolean | null;
+    }[] = [];
+    for (const ids of chunkIds(staffIds, ROSTER_ID_CHUNK)) {
+      const { data, error } = await db
+        .from("staff")
+        .select("id, full_name, employee_code, qid, flexible_attendance")
+        .in("id", ids);
+      if (error) throw error;
+      staffRows.push(...((data ?? []) as typeof staffRows));
+    }
+    const [locRes, shiftRes] = await Promise.all([
       locationIds.length
         ? db.from("locations").select("id, code, name").in("id", locationIds)
         : Promise.resolve({ data: [], error: null }),
@@ -450,11 +571,10 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
             .in("id", shiftIds)
         : Promise.resolve({ data: [], error: null }),
     ]);
-    if (staffRes.error) throw staffRes.error;
     if (locRes.error) throw locRes.error;
     if (shiftRes.error) throw shiftRes.error;
 
-    const staffById = new Map((staffRes.data ?? []).map((row) => [String(row.id), row]));
+    const staffById = new Map(staffRows.map((row) => [String(row.id), row]));
     const locById = new Map((locRes.data ?? []).map((row) => [String(row.id), row]));
     const shiftById = new Map((shiftRes.data ?? []).map((row) => [String(row.id), row]));
     const departmentLabels = data.includeCopyDepartments
@@ -586,6 +706,32 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
     },
   },
 );
+
+/**
+ * Staff the add-shift dialog can place on a day.
+ * Company roster viewers get every assignable employee, paged past 1,000.
+ * A manager who can amend but is team-scoped gets direct reports plus
+ * assignable staff at sites that team already covers.
+ */
+export const listRosterAssignStaff = createAuthenticatedActionNoInput(async (context) => {
+  const roles = (context.roles ?? []) as AppRole[];
+  let rows: RosterAssignStaffRow[];
+  if (canViewCompanyRoster(roles)) {
+    rows = await fetchAssignableStaffRows(supabaseAdmin, null);
+  } else {
+    await assertCanAmendRoster(context);
+    const ids = await loadTeamRosterStaffIds(context.userId);
+    const scoped = await fetchStaffRowsByIds(supabaseAdmin, ids);
+    rows = scoped.filter((row) => isAssignableRosterStaffRow(row));
+  }
+  return rows
+    .map(rosterAssignStaffOption)
+    .sort((a, b) =>
+      (a.full_name || a.employee_code || a.id).localeCompare(b.full_name || b.employee_code || b.id, undefined, {
+        sensitivity: "base",
+      }),
+    );
+}, rosterAmendAuth);
 
 /** Create one assignment on a day that has none yet. Same row the amend pencil edits. */
 export const createRosterAssignment = createAuthenticatedAction(

@@ -6,6 +6,7 @@ import {
   chunkIds,
   collectPagedRows,
   filterRosterRegisterRows,
+  isRosterAssignableStaffStatus,
   isWeekendYmd,
   rosterAmendRecalcLocationIds,
   rosterDayStatusFromRow,
@@ -80,6 +81,21 @@ describe("roster register bulk-delete scope", () => {
     expect(() => assertRosterDeletePeriod("2026-07-28", "2026-08-27")).not.toThrow();
     expect(() => assertRosterDeletePeriod("2026-08-27", "2026-07-28")).toThrow(/period start/i);
     expect(() => assertRosterDeletePeriod("August 2026", "2026-08-27")).toThrow(/required/i);
+  });
+
+  it("treats active, on leave, and serving notice as assignable on the roster", () => {
+    for (const status of [null, "", "active", "probation", "secondment", "remote", "Active"]) {
+      expect(isRosterAssignableStaffStatus(status), String(status)).toBe(true);
+    }
+    for (const status of ["on_leave", "leave", "vacation", "sick_leave", "unpaid_leave", "On Leave"]) {
+      expect(isRosterAssignableStaffStatus(status), status).toBe(true);
+    }
+    for (const status of ["serving_notice", "serving-notice", "Serving Notice"]) {
+      expect(isRosterAssignableStaffStatus(status), status).toBe(true);
+    }
+    for (const status of ["resigned", "terminated", "released", "inactive", "joker"]) {
+      expect(isRosterAssignableStaffStatus(status), status).toBe(false);
+    }
   });
 
   it("chunks delete ids so PostgREST IN lists stay bounded", () => {

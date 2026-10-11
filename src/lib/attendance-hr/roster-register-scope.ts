@@ -1,4 +1,9 @@
 import { enumerateYmd } from "@/lib/attendance-hr/roster-period";
+import {
+  isActiveStaffStatus,
+  isOnLeaveStaffStatus,
+  isServingNoticeStaffStatus,
+} from "@/lib/staff-status";
 
 export type RosterRegisterSource = "upload" | "amend" | "manual" | "copied";
 
@@ -186,6 +191,17 @@ export function assertRosterDeletePeriod(dateFrom: string, dateTo: string) {
   if (dateFrom > dateTo) {
     throw new Error("Period start must be on or before the period end.");
   }
+}
+
+/**
+ * People who can be placed on a day from the monthly roster.
+ * Active includes a blank status, probation, secondment, and remote.
+ * On leave and serving notice stay assignable. Resigned, terminated,
+ * released, inactive, and joker statuses do not.
+ * Callers still drop employment-type jokers and deleted rows.
+ */
+export function isRosterAssignableStaffStatus(status: string | null | undefined): boolean {
+  return isActiveStaffStatus(status) || isOnLeaveStaffStatus(status) || isServingNoticeStaffStatus(status);
 }
 
 export function chunkIds<T>(items: T[], size: number): T[][] {

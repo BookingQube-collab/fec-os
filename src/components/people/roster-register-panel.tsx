@@ -51,11 +51,11 @@ import {
   createRosterAssignment,
   deleteRosterAssignment,
   deleteRosterAssignments,
+  listRosterAssignStaff,
   listUploadedRosterAssignments,
   updateRosterAssignment,
   type RosterRegisterRow,
 } from "@/lib/attendance-hr/roster-register.functions";
-import { listStaff } from "@/lib/people.functions";
 import { formatPayrollRange } from "@/lib/attendance-hr/roster-period";
 import {
   buildRosterMatrix,
@@ -244,8 +244,8 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     );
     const showEmptyDayGrid = rosterEmptyPeriodShowsDayGrid(filtered.length, canAmend);
     const assignStaff = useQuery({
-      queryKey: [...queryKeys.people.all, "roster-create-staff"],
-      queryFn: () => listStaff({}),
+      queryKey: [...queryKeys.people.all, "roster-assign-staff"],
+      queryFn: () => listRosterAssignStaff(),
       enabled: canAmend && Boolean(createWorkDate),
       staleTime: STALE.people,
     });
