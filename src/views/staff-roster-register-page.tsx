@@ -63,9 +63,9 @@ import {
 import { queryKeys } from "@/lib/query-keys";
 import { useAppStore } from "@/stores/app-store";
 import { useHasDirectReports } from "@/hooks/use-my-direct-reports";
-import { usePermission } from "@/hooks/use-permission";
 import { canSeeShiftRosterUpload } from "@/lib/reporting-manager-locations";
 import { useUserRoles } from "@/hooks/use-auth";
+import { canAmendShiftRoster } from "@/lib/rbac";
 
 function todayYmd() {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" });
@@ -88,12 +88,9 @@ function rosterCopyReplaceScope(input: PendingRosterCopy): "all" | "sites" | "pe
 export default function StaffRosterRegisterPage() {
   const { t, i18n } = useTranslation();
   const qc = useQueryClient();
-  const canImportRoster = usePermission("people.import_roster");
-  const canEditRoster = usePermission("people.edit_roster");
-  const canUploadRoster = usePermission("daily_ops.roster.upload");
   const roles = useUserRoles();
   const { hasDirectReports } = useHasDirectReports();
-  const canManageRoster = canImportRoster || canEditRoster || canUploadRoster;
+  const canManageRoster = canAmendShiftRoster(roles);
   const canUpload = canSeeShiftRosterUpload(roles, hasDirectReports);
   const storeLocationId = useAppStore((s) => s.currentLocationId);
 

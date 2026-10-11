@@ -36,7 +36,8 @@ import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { usePermission } from "@/hooks/use-permission";
+import { useUserRoles } from "@/hooks/use-auth";
+import { canAmendShiftRoster } from "@/lib/rbac";
 import { filterDepartmentsForLocation } from "@/lib/department-audience";
 import {
   ALL_ORG_DEPARTMENTS_CHECKED,
@@ -165,10 +166,8 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
   ) {
     const { t, i18n } = useTranslation();
     const qc = useQueryClient();
-    const canImportRoster = usePermission("people.import_roster");
-    const canEditRoster = usePermission("people.edit_roster");
-    const canUploadRoster = usePermission("daily_ops.roster.upload");
-    const canAmend = canImportRoster || canEditRoster || canUploadRoster;
+    const roles = useUserRoles();
+    const canAmend = canAmendShiftRoster(roles);
     const sites = useSites();
     const { data: departments = [] } = useMasterDepartments();
 

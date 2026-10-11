@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 
-import { canUserDo, type AppRole } from "@/lib/rbac";
+import { canAmendShiftRoster, canUserDo, type AppRole } from "@/lib/rbac";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { loadDirectReportStaffIds } from "@/lib/reporting-manager-access.server";
 import { createAuthenticatedAction, type AuthContext } from "@/lib/server/create-action";
@@ -135,16 +135,12 @@ async function syncRosterLeaveRecord(
 }
 
 function assertCanAmendRoster(roles: AppRole[] | string[] | undefined) {
-  const list = (roles ?? []) as AppRole[];
-  if (
-    canUserDo(list, "people.import_roster") ||
-    canUserDo(list, "people.edit_roster") ||
-    canUserDo(list, "daily_ops.roster.upload")
-  ) {
-    return;
-  }
+  if (canAmendShiftRoster(roles ?? [])) return;
   throw new ForbiddenError("Forbidden: missing capability to amend the shift roster.");
 }
+
+/** Role check lives in assertCanAmendRoster so a Roles-page deny cannot block edit/delete. */
+const rosterAmendAuth = { auth: { requireRole: true } } as const;
 
 function assertCanViewRosterRegister(roles: AppRole[] | string[] | undefined) {
   const list = (roles ?? []) as AppRole[];
@@ -689,7 +685,7 @@ export const updateRosterAssignment = createAuthenticatedAction(
       shiftTemplateId: patch.needsShiftTimes ? shiftTemplateId : null,
     };
   },
-  { auth: { anyCapability: ["people.import_roster", "people.edit_roster", "daily_ops.roster.upload"] } },
+  rosterAmendAuth,
 );
 
 export const deleteRosterAssignment = createAuthenticatedAction(
@@ -727,7 +723,7 @@ export const deleteRosterAssignment = createAuthenticatedAction(
 
     return { ok: true as const, id: data.id };
   },
-  { auth: { anyCapability: ["people.import_roster", "people.edit_roster", "daily_ops.roster.upload"] } },
+  rosterAmendAuth,
 );
 
 const rosterScopeInput = z.object({
@@ -897,7 +893,7 @@ export const deleteRosterAssignments = createAuthenticatedAction(
       dateTo: data.dateTo,
     };
   },
-  { auth: { anyCapability: ["people.import_roster", "people.edit_roster", "daily_ops.roster.upload"] } },
+  rosterAmendAuth,
 );
 
 type CopySourceRow = {
@@ -1179,7 +1175,7 @@ export const copyRosterToNextMonth = createAuthenticatedAction(
       target,
     };
   },
-  { auth: { anyCapability: ["people.import_roster", "people.edit_roster", "daily_ops.roster.upload"] } },
+  rosterAmendAuth,
 );
 
 /**

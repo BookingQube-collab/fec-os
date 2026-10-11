@@ -473,6 +473,24 @@ export function canManageAnnouncements(roles: readonly string[]): boolean {
   return canUserDo(list, "hr.manage") || canUserDo(list, "people.edit_roster");
 }
 
+const SHIFT_ROSTER_AMEND_CAPABILITIES = [
+  "people.edit_roster",
+  "people.import_roster",
+  "daily_ops.roster.upload",
+] as const satisfies readonly Capability[];
+
+/**
+ * Pencil, trash, and Delete all on the monthly roster.
+ * Uses the code role list, not a saved Roles-page override. A deny grant was
+ * hiding these controls from duty managers and tech supervisors after the
+ * capability lists already included them. Leadership and HR stay included.
+ * Cashiers, technicians, customer service, auditors, and CFO stay out.
+ */
+export function canAmendShiftRoster(roles: readonly string[]): boolean {
+  const list = roles as AppRole[];
+  return SHIFT_ROSTER_AMEND_CAPABILITIES.some((capability) => canUserDo(list, capability, null));
+}
+
 /** Where a freshly signed-in user should land based on their highest role. */
 export function defaultHomeForRoles(roles: AppRole[]): string {
   if (roles.includes("ceo") || roles.includes("coo") || roles.includes("cfo")) return "/";
