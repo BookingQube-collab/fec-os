@@ -26,6 +26,7 @@ import {
   type OrgChartView,
 } from "@/lib/admin-hierarchy.functions";
 import { provisionStaffLogin } from "@/lib/admin.functions";
+import { isStaffLoginPassword, STAFF_LOGIN_DEFAULT_PASSWORD } from "@/lib/staff-login";
 import { hierarchyAccessMode, staffProfileOpenIds, type HierarchyAccessMode } from "@/lib/hierarchy-access";
 import {
   groupOrgChart,
@@ -95,6 +96,9 @@ function HierarchyEditor({ accessMode }: { accessMode: Exclude<HierarchyAccessMo
   };
   const [view, setView] = useState<"chart" | "logins">("logins");
   const [issued, setIssued] = useState<Record<string, IssuedStaffLogin>>({});
+  const [loginTarget, setLoginTarget] = useState<{ staffId: string; name: string } | null>(null);
+  const [loginPassword, setLoginPassword] = useState(STAFF_LOGIN_DEFAULT_PASSWORD);
+  const [loginPasswordError, setLoginPasswordError] = useState("");
   const query = useQuery({
     queryKey: queryKeys.admin.hierarchy(),
     queryFn: () => getOrgChart(),
@@ -184,17 +188,18 @@ function HierarchyEditor({ accessMode }: { accessMode: Exclude<HierarchyAccessMo
   });
 
   const createLogin = useMutation({
-    mutationFn: async (staffId: string) => {
-      const result = await provisionStaffLogin({ staffId });
+    mutationFn: async (input: { staffId: string; password: string }) => {
+      const result = await provisionStaffLogin({ staffId: input.staffId, password: input.password });
       if (!result.ok) throw new Error(result.error);
       return result.data;
     },
-    onSuccess: (result, staffId) => {
+    onSuccess: (result, input) => {
+      setLoginTarget(null);
       setIssued((current) => ({
         ...current,
-        [staffId]: {
+        [input.staffId]: {
           email: result.email ?? "",
-          password: result.password,
+          password: result.passwordSet ? input.password : null,
           linkedExisting: result.linkedExisting,
         },
       }));
@@ -203,18 +208,38 @@ function HierarchyEditor({ accessMode }: { accessMode: Exclude<HierarchyAccessMo
         return {
           ...current,
           people: current.people.map((person) =>
-            person.staffId === staffId ? { ...person, loginLinked: true, loginEmail: result.email } : person,
+            person.staffId === input.staffId ? { ...person, loginLinked: true, loginEmail: result.email } : person,
           ),
         };
       });
       toast.success(
-        result.linkedExisting && !result.password
+        result.linkedExisting && !result.passwordSet
           ? t("people.profile.login.linkedExisting")
           : t("people.profile.login.created"),
       );
     },
     onError: (error: Error) => toast.error(error.message),
   });
+
+  const openCreateLogin = (staffId: string) => {
+    if (readOnly && !(query.data?.directReportStaffIds ?? []).includes(staffId)) return;
+    if (createLogin.isPending) return;
+    const person = query.data?.people.find((row) => row.staffId === staffId);
+    createLogin.reset();
+    setLoginPassword(STAFF_LOGIN_DEFAULT_PASSWORD);
+    setLoginPasswordError("");
+    setLoginTarget({ staffId, name: person?.fullName ?? "" });
+  };
+
+  const submitCreateLogin = () => {
+    if (!loginTarget || createLogin.isPending) return;
+    if (!isStaffLoginPassword(loginPassword)) {
+      setLoginPasswordError(t("people.profile.login.passwordInvalid"));
+      return;
+    }
+    setLoginPasswordError("");
+    createLogin.mutate({ staffId: loginTarget.staffId, password: loginPassword });
+  };
 
   const saving = place.isPending || move.isPending || remove.isPending;
 
@@ -410,7 +435,7 @@ function HierarchyEditor({ accessMode }: { accessMode: Exclude<HierarchyAccessMo
       {query.data && view === "logins" ? (
         <OrgLoginTree
           people={query.data.people}
-          creatingId={createLogin.isPending ? (createLogin.variables ?? null) : null}
+          creatingId={createLogin.isPending ? (createLogin.variables?.staffId ?? null) : null}
           issued={issued}
           hint={readOnly ? t("hr.hierarchy.teamLoginHint") : undefined}
           createStaffIds={readOnly ? new Set(query.data.directReportStaffIds ?? []) : null}
@@ -423,12 +448,63 @@ function HierarchyEditor({ accessMode }: { accessMode: Exclude<HierarchyAccessMo
                 )
               : null
           }
-          onCreate={(staffId) => {
-            if (readOnly && !(query.data?.directReportStaffIds ?? []).includes(staffId)) return;
-            if (!createLogin.isPending) createLogin.mutate(staffId);
-          }}
+          onCreate={openCreateLogin}
         />
       ) : null}
+      <Dialog
+        open={loginTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !createLogin.isPending) setLoginTarget(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("hr.hierarchy.createLoginTitle", { name: loginTarget?.name ?? "" })}</DialogTitle>
+            <DialogDescription>{t("hr.hierarchy.createLoginBody")}</DialogDescription>
+          </DialogHeader>
+          <form
+            className="space-y-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              submitCreateLogin();
+            }}
+          >
+            <div className="space-y-1.5">
+              <Label htmlFor="staff-create-login-password">{t("people.profile.login.issuedPassword")}</Label>
+              <Input
+                id="staff-create-login-password"
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
+                maxLength={128}
+                value={loginPassword}
+                disabled={createLogin.isPending}
+                aria-invalid={loginPasswordError ? true : undefined}
+                aria-describedby="staff-create-login-password-hint"
+                onChange={(event) => {
+                  setLoginPassword(event.target.value);
+                  if (loginPasswordError) setLoginPasswordError("");
+                }}
+              />
+              <p id="staff-create-login-password-hint" className="text-xs text-muted-foreground">
+                {t("hr.hierarchy.createLoginRule")}
+              </p>
+              {loginPasswordError ? <p className="text-sm text-destructive">{loginPasswordError}</p> : null}
+              {createLogin.isError ? (
+                <p className="text-sm text-destructive">{createLogin.error.message}</p>
+              ) : null}
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" disabled={createLogin.isPending} onClick={() => setLoginTarget(null)}>
+                {t("hr.hierarchy.cancelMove")}
+              </Button>
+              <Button type="submit" disabled={createLogin.isPending}>
+                {createLogin.isPending ? t("people.profile.login.creating") : t("people.profile.login.create")}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
       <Dialog open={pending !== null} onOpenChange={(open) => { if (!open && !saving) setPending(null); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>

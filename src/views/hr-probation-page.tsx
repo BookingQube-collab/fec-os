@@ -2,11 +2,12 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Hourglass } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
+import { FecLoader } from "@/components/fec";
 import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { HrModuleFrame } from "@/components/hr/hr-module-frame";
 import { HrPanel } from "@/components/hr/hr-panel";
@@ -21,6 +22,7 @@ import {
   approveProbationDecision,
   getProbationStaffDetail,
   listProbationDashboard,
+  listProbationReviews,
   openProbationReview,
   submitProbationDecision,
   upsertProbationDates,
@@ -28,6 +30,14 @@ import {
 import { HR_PROBATION_DECISIONS } from "@/lib/hr-probation";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
+
+function reviewBadge(status: string): "warning" | "info" | "success" | "muted" | "outline" {
+  if (status === "pending_approval") return "warning";
+  if (status === "open") return "info";
+  if (status === "decided") return "success";
+  if (status === "cancelled") return "muted";
+  return "outline";
+}
 
 export default function HrProbationPage({ embedded = false }: { embedded?: boolean }) {
   const { t } = useTranslation();
@@ -40,10 +50,17 @@ export default function HrProbationPage({ embedded = false }: { embedded?: boole
   const [comments, setComments] = useState("");
   const [decision, setDecision] = useState<(typeof HR_PROBATION_DECISIONS)[number]>("confirm");
   const [extendEnd, setExtendEnd] = useState("");
+  const autoPicked = useRef(false);
 
   const dash = useQuery({
     queryKey: queryKeys.people.hrProbation({ view: "dashboard" }),
     queryFn: () => listProbationDashboard(),
+    staleTime: STALE.people,
+  });
+
+  const reviews = useQuery({
+    queryKey: queryKeys.people.hrProbation({ view: "reviews", status: "all" }),
+    queryFn: () => listProbationReviews({ status: "all" }),
     staleTime: STALE.people,
   });
 
@@ -125,6 +142,36 @@ export default function HrProbationPage({ embedded = false }: { embedded?: boole
     onError: (e: Error) => toast.error(e.message),
   });
 
+  useEffect(() => {
+    if (autoPicked.current || selectedStaffId) return;
+    const upcoming = dash.data?.upcoming[0];
+    if (upcoming) {
+      autoPicked.current = true;
+      setSelectedStaffId(upcoming.staffId);
+      setProbationStart(upcoming.probationStart);
+      setProbationEnd(upcoming.probationEnd);
+      return;
+    }
+    const open = reviews.data?.find((row) => row.status === "open" || row.status === "pending_approval");
+    if (open) {
+      autoPicked.current = true;
+      setSelectedStaffId(open.staffId);
+    }
+  }, [dash.data, reviews.data, selectedStaffId]);
+
+  useEffect(() => {
+    if (!selectedStaffId || !detail.data) return;
+    setProbationStart((current) => current || detail.data?.probationStart || "");
+    setProbationEnd((current) => current || detail.data?.probationEnd || "");
+  }, [detail.data, selectedStaffId]);
+
+  const openReviewFor = (staffId: string, start?: string, end?: string) => {
+    autoPicked.current = true;
+    setSelectedStaffId(staffId);
+    setProbationStart(start ?? "");
+    setProbationEnd(end ?? "");
+  };
+
   return (
     <CapabilityGate
       capability="hr.probation.manage"
@@ -141,50 +188,104 @@ export default function HrProbationPage({ embedded = false }: { embedded?: boole
         title={t("hr.probation.title")}
         subtitle={t("hr.probation.subtitle")}
       >
-          <HrPanel className="space-y-2">
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              {t("hr.probation.upcomingTitle")}
-            </p>
-            {!dash.data?.upcoming.length ? (
+          <div className="grid items-start gap-4 lg:grid-cols-2">
+          <div className="order-2 min-w-0 space-y-4 lg:order-1">
+          <HrPanel className="space-y-3 p-4">
+            <h2 className="text-sm font-semibold">{t("hr.probation.upcomingTitle")}</h2>
+            {dash.isLoading ? (
+              <FecLoader label={t("common.loading")} />
+            ) : !dash.data?.upcoming.length ? (
               <p className="text-sm text-muted-foreground">{t("hr.probation.upcomingEmpty")}</p>
             ) : (
-              <ul className="divide-y divide-border">
+              <ul className="space-y-2">
                 {dash.data.upcoming.map((row) => (
-                  <li key={row.staffId} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                  <li key={row.staffId}>
                     <button
                       type="button"
-                      className="text-left text-sm font-medium hover:underline"
-                      onClick={() => {
-                        setSelectedStaffId(row.staffId);
-                        setProbationStart(row.probationStart);
-                        setProbationEnd(row.probationEnd);
-                      }}
+                      className={`hr-list-row w-full min-w-0 text-start ${
+                        selectedStaffId === row.staffId ? "bg-secondary" : ""
+                      }`}
+                      aria-pressed={selectedStaffId === row.staffId}
+                      onClick={() => openReviewFor(row.staffId, row.probationStart, row.probationEnd)}
                     >
-                      {row.staffName} ({row.employeeCode})
+                      <span className="min-w-0 text-sm font-medium">
+                        {row.staffName} ({row.employeeCode})
+                      </span>
+                      <span className="flex flex-wrap gap-1">
+                        <Badge variant="secondary">
+                          {t("hr.probation.daysLeft", { days: row.daysRemaining })}
+                        </Badge>
+                        {row.reviewStatus ? (
+                          <Badge variant={reviewBadge(row.reviewStatus)}>
+                            {t(`hr.probation.statuses.${row.reviewStatus}`, {
+                              defaultValue: row.reviewStatus.replace(/_/g, " "),
+                            })}
+                          </Badge>
+                        ) : null}
+                        {row.flagsPhase6Termination ? (
+                          <Badge variant="destructive">{t("hr.probation.phase6Flag")}</Badge>
+                        ) : null}
+                      </span>
                     </button>
-                    <div className="flex flex-wrap gap-1">
-                      <Badge variant="secondary">
-                        {t("hr.probation.daysLeft", { days: row.daysRemaining })}
-                      </Badge>
-                      {row.reviewStatus ? (
-                        <Badge variant="outline">{row.reviewStatus}</Badge>
-                      ) : null}
-                      {row.flagsPhase6Termination ? (
-                        <Badge variant="destructive">{t("hr.probation.phase6Flag")}</Badge>
-                      ) : null}
-                    </div>
                   </li>
                 ))}
               </ul>
             )}
           </HrPanel>
 
-          <HrPanel className="space-y-3">
+          <HrPanel className="space-y-3 p-4">
+            <h2 className="text-sm font-semibold">{t("hr.probation.historyTitle")}</h2>
+            {reviews.isLoading ? (
+              <FecLoader label={t("common.loading")} />
+            ) : reviews.isError ? (
+              <p className="text-sm text-destructive">{t("hrWorkspace.loadFailed")}</p>
+            ) : !reviews.data?.length ? (
+              <p className="text-sm text-muted-foreground">{t("hr.probation.historyEmpty")}</p>
+            ) : (
+              <ul className="space-y-2">
+                {reviews.data.map((row) => (
+                  <li key={row.id}>
+                    <button
+                      type="button"
+                      className={`hr-list-row w-full min-w-0 text-start ${
+                        selectedStaffId === row.staffId ? "bg-secondary" : ""
+                      }`}
+                      aria-pressed={selectedStaffId === row.staffId}
+                      onClick={() => openReviewFor(row.staffId)}
+                    >
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium">
+                          {row.staffName ?? "—"}
+                          {row.employeeCode ? ` · ${row.employeeCode}` : ""}
+                        </span>
+                        <span className="block text-xs text-muted-foreground">
+                          {row.probationStart} – {row.probationEnd}
+                          {row.decision
+                            ? ` · ${t(`hr.probation.decisions.${row.decision}`, { defaultValue: row.decision })}`
+                            : ""}
+                        </span>
+                      </span>
+                      <Badge variant={reviewBadge(row.status)}>
+                        {t(`hr.probation.statuses.${row.status}`, {
+                          defaultValue: row.status.replace(/_/g, " "),
+                        })}
+                      </Badge>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </HrPanel>
+          </div>
+
+          <HrPanel className="order-1 min-w-0 space-y-3 p-4 lg:order-2">
+            <h2 className="text-sm font-semibold">{t("hr.probation.workspaceTitle")}</h2>
             <div className="space-y-1">
               <Label>{t("hr.probation.staff")}</Label>
               <SearchableSelect
                 value={selectedStaffId ?? ""}
                 onValueChange={(next) => {
+                  autoPicked.current = true;
                   setSelectedStaffId(next || null);
                   setProbationStart("");
                   setProbationEnd("");
@@ -197,10 +298,17 @@ export default function HrProbationPage({ embedded = false }: { embedded?: boole
                   keywords: `${s.name} ${s.employeeCode ?? ""}`,
                 }))}
               />
+              {staffOptions.isError ? (
+                <p className="text-sm text-destructive">{t("hrWorkspace.loadFailed")}</p>
+              ) : null}
             </div>
 
             {selectedStaffId ? (
               <>
+                {detail.isLoading ? <FecLoader label={t("common.loading")} /> : null}
+                {detail.isError ? (
+                  <p className="text-sm text-destructive">{t("hrWorkspace.loadFailed")}</p>
+                ) : null}
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-1">
                     <Label>{t("hr.probation.start")}</Label>
@@ -246,7 +354,14 @@ export default function HrProbationPage({ embedded = false }: { embedded?: boole
                       {t("hr.probation.warningsCount", {
                         count: detail.data.warnings.length,
                       })}{" "}
-                      · {t("hr.probation.staffStatus", { status: detail.data.staff?.status ?? "—" })}
+                      ·{" "}
+                      {t("hr.probation.staffStatus", {
+                        status: detail.data.staff?.status
+                          ? t(`hr.me.staffStatus.${detail.data.staff.status}`, {
+                              defaultValue: detail.data.staff.status.replace(/_/g, " "),
+                            })
+                          : "—",
+                      })}
                     </p>
                   </div>
                 ) : null}
@@ -317,10 +432,41 @@ export default function HrProbationPage({ embedded = false }: { embedded?: boole
                       </Button>
                     ))}
                 </div>
+                {(detail.data?.reviews ?? []).length ? (
+                  <div className="space-y-2">
+                    <h3 className="text-sm font-semibold">{t("hr.probation.historyTitle")}</h3>
+                    <ul className="space-y-2">
+                      {detail.data?.reviews.map((row) => (
+                        <li key={row.id} className="min-w-0 space-y-1 rounded-lg border border-border/60 p-3 text-sm">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant={reviewBadge(row.status)}>
+                              {t(`hr.probation.statuses.${row.status}`, {
+                                defaultValue: row.status.replace(/_/g, " "),
+                              })}
+                            </Badge>
+                            {row.decision ? (
+                              <Badge variant="outline">
+                                {t(`hr.probation.decisions.${row.decision}`, { defaultValue: row.decision })}
+                              </Badge>
+                            ) : null}
+                            <span className="text-xs text-muted-foreground">
+                              {row.probationStart} – {row.probationEnd}
+                            </span>
+                          </div>
+                          {row.managerFeedback ? <p>{row.managerFeedback}</p> : null}
+                          {row.decisionNote ? <p className="text-muted-foreground">{row.decisionNote}</p> : null}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
                 <p className="text-xs text-muted-foreground">{t("hr.probation.neverTerminate")}</p>
               </>
-            ) : null}
+            ) : (
+              <p className="text-sm text-muted-foreground">{t("hr.probation.pickToReview")}</p>
+            )}
           </HrPanel>
+          </div>
       </HrModuleFrame>
     </CapabilityGate>
   );

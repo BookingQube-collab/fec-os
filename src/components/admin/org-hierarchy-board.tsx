@@ -13,8 +13,8 @@ import {
   initialCollapsedIds,
   layoutOrgChart,
   legendForChart,
-  ORG_NODE_HEIGHT,
   ORG_NODE_WIDTH,
+  orgChartNodeHeight,
   orgCurvePath,
   orgDragToken,
   orgPanelGroups,
@@ -204,7 +204,9 @@ export function OrgHierarchyBoard({
                                 />
                               ) : null}
                               <span className="min-w-0 flex-1">
-                                <span className="block truncate text-sm font-medium text-foreground">{person.fullName}</span>
+                                <span className="block whitespace-normal break-words text-sm font-medium leading-snug text-foreground">
+                                  {person.fullName}
+                                </span>
                                 <span className="block truncate text-xs text-muted-foreground">
                                   {person.jobTitle || "Staff"}
                                   {grouped.onChart.has(person.staffId) ? " · On chart" : ""}
@@ -371,15 +373,29 @@ function OrgCanvas({
     () => expandedChildIds(tree.rootIds, tree.childIdsOf, collapsedIds),
     [tree, collapsedIds],
   );
-  const layout = useMemo(() => layoutOrgChart(tree.rootIds, visibleChildren), [tree, visibleChildren]);
+  const nodeHeights = useMemo(() => {
+    const heights = new Map<string, number>();
+    for (const [staffId, person] of peopleById) {
+      heights.set(staffId, orgChartNodeHeight(person.fullName, readOnly));
+    }
+    return heights;
+  }, [peopleById, readOnly]);
+  const layout = useMemo(
+    () => layoutOrgChart(tree.rootIds, visibleChildren, nodeHeights),
+    [tree, visibleChildren, nodeHeights],
+  );
   const rootIds = useMemo(() => new Set(tree.rootIds), [tree]);
   const placed = useMemo(
     () =>
       layout.nodes.map((node) => {
         const custom = offsets.get(node.staffId);
-        if (custom) return { staffId: node.staffId, x: custom.x, y: custom.y };
         const baseX = rtl ? layout.width - node.x - ORG_NODE_WIDTH : node.x;
-        return { staffId: node.staffId, x: baseX, y: node.y };
+        return {
+          staffId: node.staffId,
+          x: custom?.x ?? baseX,
+          y: custom?.y ?? node.y,
+          height: node.height,
+        };
       }),
     [layout, offsets, rtl],
   );
@@ -406,7 +422,7 @@ function OrgCanvas({
       minX = Math.min(minX, node.x);
       minY = Math.min(minY, node.y);
       maxX = Math.max(maxX, node.x + ORG_NODE_WIDTH);
-      maxY = Math.max(maxY, node.y + ORG_NODE_HEIGHT);
+      maxY = Math.max(maxY, node.y + node.height);
     }
     return { minX, minY, maxX, maxY, width: maxX - minX, height: maxY - minY };
   }, [placed]);
@@ -737,18 +753,18 @@ function OrgCanvas({
               )}
               style={{
                 width: ORG_NODE_WIDTH,
-                height: ORG_NODE_HEIGHT,
+                height: node.height,
                 left: node.x,
                 top: node.y,
               }}
             >
               <PersonAvatar person={person} className="h-8 w-8 shrink-0 border border-border" />
               <span className="min-w-0 flex-1">
-                <span className="flex min-w-0 items-center gap-1.5">
+                <span className="flex min-w-0 items-start gap-1.5">
                   {person.loginLinked === true || person.loginLinked === false ? (
                     <span
                       className={cn(
-                        "h-2 w-2 shrink-0 rounded-full",
+                        "mt-1 h-2 w-2 shrink-0 rounded-full",
                         person.loginLinked ? "bg-emerald-500" : "bg-amber-500",
                       )}
                       title={
@@ -758,7 +774,7 @@ function OrgCanvas({
                       }
                     />
                   ) : null}
-                  <span className="block min-w-0 flex-1 truncate text-sm font-semibold leading-tight text-foreground" title={person.fullName}>
+                  <span className="block min-w-0 flex-1 whitespace-normal break-words text-sm font-semibold leading-tight text-foreground" title={person.fullName}>
                     {person.fullName}
                   </span>
                 </span>

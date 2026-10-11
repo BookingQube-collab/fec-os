@@ -229,11 +229,13 @@ function StaffProfilePageBody() {
   const [issuedLogin, setIssuedLogin] = useState<{ email: string; password: string } | null>(null);
   const [loginEmailDraft, setLoginEmailDraft] = useState<string | null>(null);
   const [loginPasswordDraft, setLoginPasswordDraft] = useState<string | null>(null);
+  const [loginFieldError, setLoginFieldError] = useState("");
   const [loginDraftStaffId, setLoginDraftStaffId] = useState(id);
   if (loginDraftStaffId !== id) {
     setLoginDraftStaffId(id);
     setLoginEmailDraft(null);
     setLoginPasswordDraft(null);
+    setLoginFieldError("");
     setIssuedLogin(null);
   }
   const [notesDraft, setNotesDraft] = useState<string | null>(null);
@@ -449,9 +451,9 @@ function StaffProfilePageBody() {
       if (!result.ok) throw new Error(result.error);
       return result.data;
     },
-    onSuccess: (result) => {
-      if (result.password && result.email) {
-        setIssuedLogin({ email: result.email, password: result.password });
+    onSuccess: (result, input) => {
+      if (result.passwordSet && result.email) {
+        setIssuedLogin({ email: result.email, password: input.password });
         toast.success(t("people.profile.login.created"));
       } else if (result.linkedExisting) {
         toast.success(t("people.profile.login.linkedExisting"));
@@ -635,13 +637,14 @@ function StaffProfilePageBody() {
               event.preventDefault();
               const email = parseStaffLoginEmail(loginEmailValue);
               if (!email) {
-                toast.error(t("people.profile.login.emailInvalid"));
+                setLoginFieldError(t("people.profile.login.emailInvalid"));
                 return;
               }
               if (!isStaffLoginPassword(loginPasswordValue)) {
-                toast.error(t("people.profile.login.passwordInvalid"));
+                setLoginFieldError(t("people.profile.login.passwordInvalid"));
                 return;
               }
+              setLoginFieldError("");
               createLogin.mutate({ email, password: loginPasswordValue });
             }}
           >
@@ -654,7 +657,10 @@ function StaffProfilePageBody() {
                 spellCheck={false}
                 value={loginEmailValue}
                 disabled={createLogin.isPending}
-                onChange={(event) => setLoginEmailDraft(event.target.value)}
+                onChange={(event) => {
+                  setLoginEmailDraft(event.target.value);
+                  if (loginFieldError) setLoginFieldError("");
+                }}
               />
             </div>
             <div className="min-w-0 space-y-1.5">
@@ -666,7 +672,12 @@ function StaffProfilePageBody() {
                 spellCheck={false}
                 value={loginPasswordValue}
                 disabled={createLogin.isPending}
-                onChange={(event) => setLoginPasswordDraft(event.target.value)}
+                maxLength={128}
+                aria-invalid={loginFieldError ? true : undefined}
+                onChange={(event) => {
+                  setLoginPasswordDraft(event.target.value);
+                  if (loginFieldError) setLoginFieldError("");
+                }}
               />
             </div>
             <Button
@@ -677,6 +688,7 @@ function StaffProfilePageBody() {
               {createLogin.isPending ? t("people.profile.login.creating") : t("people.profile.login.create")}
             </Button>
             <p className="text-xs text-muted-foreground sm:col-span-3">{t("people.profile.login.editHint")}</p>
+            {loginFieldError ? <p className="text-sm text-destructive sm:col-span-3">{loginFieldError}</p> : null}
             {createLogin.isError ? (
               <p className="text-sm text-destructive sm:col-span-3">{createLogin.error.message}</p>
             ) : null}

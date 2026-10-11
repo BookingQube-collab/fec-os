@@ -42,6 +42,7 @@ import { MobileListCard } from "@/components/layout/mobile-list-card";
 import { ResponsiveDataView } from "@/components/layout/responsive-data-view";
 import { StaffAvatar } from "@/components/people/staff-photo-field";
 import { OrgDepartmentsFilter } from "@/components/people/exclude-org-departments-filter";
+import { StaffDuplicateDialog } from "@/components/people/staff-duplicate-dialog";
 import { StaffMasterfileImportDialog } from "@/components/people/staff-masterfile-import-dialog";
 import { filterDepartmentsForLocation } from "@/lib/department-audience";
 import {
@@ -261,6 +262,16 @@ export function StaffDirectory({
   const [pageSize, setPageSize] = useState(loadPageSize);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [quickView, setQuickView] = useState<StaffRow | null>(null);
+  const [duplicatePair, setDuplicatePair] = useState<{
+    anchorId: string;
+    otherId: string | null;
+    anchor?: {
+      fullName: string;
+      employeeCode: string;
+      jobTitle: string | null;
+      locationLabel: string;
+    };
+  } | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [moreFilters, setMoreFilters] = useState(false);
   const [visibleCols, setVisibleCols] = useState<Set<ColKey>>(loadCols);
@@ -672,6 +683,19 @@ export function StaffDirectory({
       <div className="flex flex-wrap items-center gap-2">
         <FecSearch containerClassName="min-w-0 flex-1 md:min-w-[14rem] sm:max-w-md" className="h-10" placeholder={t("people.staff.search", "Search staff…")} value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} />
         <div className="ml-auto flex flex-wrap items-center gap-2">
+          {canEdit && selected.size === 2 ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                const [anchorId, otherId] = [...selected];
+                if (!anchorId || !otherId) return;
+                setDuplicatePair({ anchorId, otherId });
+              }}
+            >
+              {t("people.staff.duplicate.selected")}
+            </Button>
+          ) : null}
           {canEdit && onAdd ? (
             <Button size="sm" onClick={onAdd} className="max-md:h-10 max-md:w-10 max-md:px-0" aria-label={t("people.staff.addEmployee", "Add employee")}>
               <Plus className="h-4 w-4 md:mr-1 md:h-3.5 md:w-3.5" />
@@ -949,8 +973,8 @@ export function StaffDirectory({
                 const displayName = formatStaffDisplayName(s.full_name);
                 const tempCodes = activeTemporaryLocationCodes(s.temporary_site_moves);
                 return (
+                  <div key={s.id} className="space-y-1">
                   <MobileListCard
-                    key={s.id}
                     href={`/people/staff/${s.id}`}
                     title={displayName}
                     subtitle={[s.job_title, formatLocation(s)].filter(Boolean).join(" · ") || s.employee_code}
@@ -971,6 +995,31 @@ export function StaffDirectory({
                       />
                     }
                   />
+                  {canEdit ? (
+                    <div className="flex justify-end">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 px-2 text-xs"
+                        onClick={() =>
+                          setDuplicatePair({
+                            anchorId: s.id,
+                            otherId: null,
+                            anchor: {
+                              fullName: s.full_name,
+                              employeeCode: s.employee_code,
+                              jobTitle: s.job_title,
+                              locationLabel: formatLocation(s),
+                            },
+                          })
+                        }
+                      >
+                        {t("people.staff.duplicate.menu")}
+                      </Button>
+                    </div>
+                  ) : null}
+                  </div>
                 );
               })
             )}
@@ -1203,6 +1252,22 @@ export function StaffDirectory({
                                   {canEdit ? (
                                     <>
                                       <DropdownMenuSeparator />
+                                      <DropdownMenuItem
+                                        onClick={() =>
+                                          setDuplicatePair({
+                                            anchorId: s.id,
+                                            otherId: null,
+                                            anchor: {
+                                              fullName: s.full_name,
+                                              employeeCode: s.employee_code,
+                                              jobTitle: s.job_title,
+                                              locationLabel: formatLocation(s),
+                                            },
+                                          })
+                                        }
+                                      >
+                                        {t("people.staff.duplicate.menu")}
+                                      </DropdownMenuItem>
                                       {s.status === "terminated" ||
                                       s.status === "resigned" ||
                                       s.status === "released" ? (
@@ -1370,6 +1435,27 @@ export function StaffDirectory({
                     {t("people.staff.editEmployee", "Edit")}
                   </Button>
                 ) : null}
+                {canEdit ? (
+                  <Button
+                    variant="secondary"
+                    className="w-full"
+                    onClick={() => {
+                      setDuplicatePair({
+                        anchorId: quickView.id,
+                        otherId: null,
+                        anchor: {
+                          fullName: quickView.full_name,
+                          employeeCode: quickView.employee_code,
+                          jobTitle: quickView.job_title,
+                          locationLabel: formatLocation(quickView),
+                        },
+                      });
+                      setQuickView(null);
+                    }}
+                  >
+                    {t("people.staff.duplicate.menu")}
+                  </Button>
+                ) : null}
               </div>
             </>
           ) : null}
@@ -1377,6 +1463,20 @@ export function StaffDirectory({
       </Sheet>
 
       <StaffMasterfileImportDialog open={importOpen} onOpenChange={setImportOpen} locationId={locationId} />
+      {duplicatePair ? (
+        <StaffDuplicateDialog
+          anchorId={duplicatePair.anchorId}
+          otherId={duplicatePair.otherId}
+          anchor={duplicatePair.anchor}
+          onClose={() => setDuplicatePair(null)}
+          onDone={() => {
+            setDuplicatePair(null);
+            setSelected(new Set());
+            invalidateDirectory();
+            void qc.invalidateQueries({ queryKey: queryKeys.people.dashboard({ locationId }) });
+          }}
+        />
+      ) : null}
     </div>
   );
 }

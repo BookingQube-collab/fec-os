@@ -231,7 +231,11 @@ async function createProvisionedAuthUser(input: {
     email_confirm: true,
     user_metadata: { display_name: input.displayName },
   });
-  if (createErr) throw createErr;
+  if (createErr) {
+    const message = authErrorText(createErr);
+    if (input.password && message.includes(input.password)) throw new Error("User creation failed");
+    throw createErr;
+  }
   if (!created.user) throw new Error("User creation failed");
 
   await saveLoginProfile({
@@ -285,6 +289,21 @@ async function saveLoginProfile(input: {
     .from("profiles")
     .upsert({ id: input.userId, display_name: input.displayName });
   if (retryErr) throw retryErr;
+}
+
+function authErrorText(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object" && "message" in error && typeof error.message === "string") {
+    return error.message;
+  }
+  return "Could not save the login";
+}
+
+/** Auth errors sometimes echo the submitted secret. Never log or rethrow that text. */
+function rethrowWithoutSecret(error: unknown, secret: string): never {
+  const message = authErrorText(error);
+  if (secret && message.includes(secret)) throw new Error("Could not save the login");
+  throw error instanceof Error ? error : new Error(message);
 }
 
 function isDuplicateAuthEmail(error: unknown): boolean {
@@ -448,7 +467,11 @@ export const provisionStaffLogin = createSafeAuthenticatedAction(
   z.object({
     staffId: z.string().uuid(),
     email: z.string().trim().email().max(200).optional(),
-    password: z.string().min(STAFF_LOGIN_PASSWORD_MIN).max(STAFF_LOGIN_PASSWORD_MAX).optional(),
+    password: z
+      .string()
+      .min(STAFF_LOGIN_PASSWORD_MIN, "Password must be 8 to 128 characters.")
+      .max(STAFF_LOGIN_PASSWORD_MAX, "Password must be 8 to 128 characters.")
+      .optional(),
   }),
   async (data, context) => {
     await assertCanProvisionStaffLogin(context, data.staffId);
@@ -469,6 +492,7 @@ export const provisionStaffLogin = createSafeAuthenticatedAction(
         userId: staff.user_id,
         email: await authEmailForUser(staff.user_id),
         password: null,
+        passwordSet: false,
         role: STAFF_LOGIN_ROLE,
         team: await loginTeamForStaff(staff.id),
       };
@@ -534,7 +558,7 @@ export const provisionStaffLogin = createSafeAuthenticatedAction(
       created = true;
       issuedPassword = password;
     } catch (error) {
-      if (!isDuplicateAuthEmail(error)) throw error;
+      if (!isDuplicateAuthEmail(error)) rethrowWithoutSecret(error, password);
       const existingId = await findAuthUserIdByEmail(email);
       if (!existingId) {
         throw new Error("A login with this email already exists, but it could not be found to link");
@@ -593,7 +617,7 @@ export const provisionStaffLogin = createSafeAuthenticatedAction(
           password,
           email_confirm: true,
         });
-        if (pwErr) throw pwErr;
+        if (pwErr) rethrowWithoutSecret(pwErr, password);
         issuedPassword = password;
       }
     }
@@ -629,7 +653,8 @@ export const provisionStaffLogin = createSafeAuthenticatedAction(
       alreadyLinked: false,
       userId,
       email,
-      password: issuedPassword,
+      password: null,
+      passwordSet: issuedPassword !== null,
       role: STAFF_LOGIN_ROLE,
       team: await loginTeamForStaff(staff.id),
     };

@@ -1,6 +1,20 @@
 import { describe, expect, it } from "vitest";
 
-import { chooseStaffLoginEmail, resolveStaffLoginEmail, staffLoginEmailCandidates } from "@/lib/staff-login";
+import {
+  chooseStaffLoginEmail,
+  isStaffLoginPassword,
+  resolveStaffLoginEmail,
+  staffLoginEmailCandidates,
+} from "@/lib/staff-login";
+
+describe("isStaffLoginPassword", () => {
+  it("accepts 8 to 128 characters and rejects anything outside that", () => {
+    expect(isStaffLoginPassword("Demo@FEC2026!")).toBe(true);
+    expect(isStaffLoginPassword("1234567")).toBe(false);
+    expect(isStaffLoginPassword("a".repeat(128))).toBe(true);
+    expect(isStaffLoginPassword("a".repeat(129))).toBe(false);
+  });
+});
 
 describe("resolveStaffLoginEmail", () => {
   it("uses a valid staff email, lowercased", () => {

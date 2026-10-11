@@ -189,7 +189,7 @@ export function OrgLoginTree({
           </Avatar>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <span className="truncate text-sm font-semibold text-foreground">{person.fullName}</span>
+              <span className="min-w-0 break-words text-sm font-semibold leading-snug text-foreground">{person.fullName}</span>
               {person.loginLinked === true ? (
                 <Badge variant="success">{t("people.profile.login.exists")}</Badge>
               ) : person.loginLinked === false ? (

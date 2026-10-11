@@ -9,6 +9,8 @@ import {
   ORG_LEVEL_GAP,
   ORG_NODE_HEIGHT,
   ORG_NODE_WIDTH,
+  orgChartNameLines,
+  orgChartNodeHeight,
   orgCurvePath,
   orgPanelGroups,
   parseOrgDragToken,
@@ -338,6 +340,28 @@ describe("org hierarchy", () => {
     expect(parentCenter).toBeCloseTo(childrenMid);
     expect(layout.connectors).toHaveLength(2);
     expect(layout.connectors[0]).toContain("C ");
+  });
+
+  it("grows a card so a long name can wrap, and keeps the next card below it", () => {
+    expect(orgChartNameLines("Ada")).toBe(1);
+    expect(orgChartNodeHeight("Ada")).toBe(ORG_NODE_HEIGHT);
+    const longName = "Mohamad Ali Hassan Awada";
+    expect(orgChartNameLines(longName)).toBeGreaterThan(1);
+    const tall = orgChartNodeHeight(longName);
+    expect(tall).toBeGreaterThan(ORG_NODE_HEIGHT);
+
+    const heights = new Map([
+      ["a", ORG_NODE_HEIGHT],
+      ["b", tall],
+      ["c", tall],
+    ]);
+    const layout = layoutOrgChart(["a"], new Map([["a", ["b", "c"]]]), heights);
+    const b = layout.nodes.find((node) => node.staffId === "b");
+    const c = layout.nodes.find((node) => node.staffId === "c");
+    expect(b?.height).toBe(tall);
+    expect((c?.y ?? 0) - ((b?.y ?? 0) + (b?.height ?? 0))).toBeGreaterThanOrEqual(0);
+    const childCenter = (b?.y ?? 0) + tall / 2;
+    expect(layout.connectors.some((path) => path.endsWith(`${ORG_NODE_WIDTH + ORG_LEVEL_GAP} ${childCenter}`))).toBe(true);
   });
 
   it("hides a collapsed branch and curves toward the child", () => {

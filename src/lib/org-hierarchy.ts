@@ -59,7 +59,7 @@ export type OrgChartSnapshot = {
 };
 
 export type OrgChartLayout = {
-  nodes: Array<{ staffId: string; x: number; y: number }>;
+  nodes: Array<{ staffId: string; x: number; y: number; height: number }>;
   connectors: string[];
   width: number;
   height: number;
@@ -481,16 +481,71 @@ export function expandedChildIds(
   return result;
 }
 
+/**
+ * Name lines that fit in the org card. The editable card leaves room for the
+ * avatar, status dot, and remove control, so a line holds fewer characters
+ * than the read-only card.
+ */
+const ORG_NAME_CHARS_PER_LINE = 14;
+const ORG_NAME_CHARS_PER_LINE_READONLY = 18;
+const ORG_NAME_LINE_PX = 18;
+
+/** Wrapped name lines for a card that is ORG_NODE_WIDTH wide. */
+export function orgChartNameLines(fullName: string, charsPerLine = ORG_NAME_CHARS_PER_LINE): number {
+  const words = fullName.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return 1;
+  const width = Math.max(1, charsPerLine);
+  let lines = 1;
+  let used = 0;
+  for (const word of words) {
+    const length = word.length;
+    if (used === 0) {
+      if (length <= width) {
+        used = length;
+      } else {
+        const chunks = Math.ceil(length / width);
+        lines += chunks - 1;
+        used = length % width || width;
+      }
+      continue;
+    }
+    if (used + 1 + length <= width) {
+      used += 1 + length;
+      continue;
+    }
+    lines += 1;
+    if (length <= width) {
+      used = length;
+    } else {
+      const chunks = Math.ceil(length / width);
+      lines += chunks - 1;
+      used = length % width || width;
+    }
+  }
+  return lines;
+}
+
+/** Card height that fits the full name on extra lines instead of an ellipsis. */
+export function orgChartNodeHeight(fullName: string, readOnly = false): number {
+  const lines = orgChartNameLines(
+    fullName,
+    readOnly ? ORG_NAME_CHARS_PER_LINE_READONLY : ORG_NAME_CHARS_PER_LINE,
+  );
+  return ORG_NODE_HEIGHT + Math.max(0, lines - 1) * ORG_NAME_LINE_PX;
+}
+
 /** Cubic curve from the parent's outgoing edge to the child's incoming edge. */
 export function orgCurvePath(
-  parent: { x: number; y: number },
-  child: { x: number; y: number },
+  parent: { x: number; y: number; height?: number },
+  child: { x: number; y: number; height?: number },
   rtl = false,
 ): string {
+  const parentHeight = parent.height ?? ORG_NODE_HEIGHT;
+  const childHeight = child.height ?? ORG_NODE_HEIGHT;
   const x1 = rtl ? parent.x : parent.x + ORG_NODE_WIDTH;
-  const y1 = parent.y + ORG_NODE_HEIGHT / 2;
+  const y1 = parent.y + parentHeight / 2;
   const x2 = rtl ? child.x + ORG_NODE_WIDTH : child.x;
-  const y2 = child.y + ORG_NODE_HEIGHT / 2;
+  const y2 = child.y + childHeight / 2;
   const mid = (x1 + x2) / 2;
   return `M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`;
 }
@@ -498,23 +553,28 @@ export function orgCurvePath(
 export function layoutOrgChart(
   rootIds: readonly string[],
   childIdsOf: ReadonlyMap<string, readonly string[]>,
+  nodeHeights?: ReadonlyMap<string, number>,
 ): OrgChartLayout {
+  const cardHeight = (id: string) => {
+    const height = nodeHeights?.get(id);
+    return height != null && height > 0 ? height : ORG_NODE_HEIGHT;
+  };
   const heightMemo = new Map<string, number>();
 
   const subtreeHeight = (id: string, stack: Set<string>): number => {
     const cached = heightMemo.get(id);
     if (cached != null) return cached;
-    if (stack.has(id)) return ORG_NODE_HEIGHT;
+    if (stack.has(id)) return cardHeight(id);
     stack.add(id);
     const kids = childIdsOf.get(id) ?? [];
-    let height = ORG_NODE_HEIGHT;
+    let height = cardHeight(id);
     if (kids.length) {
       let inner = 0;
       kids.forEach((kid, index) => {
         inner += subtreeHeight(kid, stack);
         if (index > 0) inner += ORG_SIBLING_GAP;
       });
-      height = Math.max(ORG_NODE_HEIGHT, inner);
+      height = Math.max(cardHeight(id), inner);
     }
     stack.delete(id);
     heightMemo.set(id, height);
@@ -527,7 +587,8 @@ export function layoutOrgChart(
     stack.add(id);
     const height = subtreeHeight(id, new Set());
     const kids = childIdsOf.get(id) ?? [];
-    nodes.push({ staffId: id, x, y: top + (height - ORG_NODE_HEIGHT) / 2 });
+    const nodeHeight = cardHeight(id);
+    nodes.push({ staffId: id, x, y: top + (height - nodeHeight) / 2, height: nodeHeight });
     if (kids.length) {
       let inner = 0;
       kids.forEach((kid, index) => {
@@ -565,7 +626,7 @@ export function layoutOrgChart(
   }
 
   const width = nodes.reduce((max, node) => Math.max(max, node.x + ORG_NODE_WIDTH), 0);
-  const height = nodes.reduce((max, node) => Math.max(max, node.y + ORG_NODE_HEIGHT), 0);
+  const height = nodes.reduce((max, node) => Math.max(max, node.y + node.height), 0);
   return { nodes, connectors, width, height };
 }
 

@@ -1,13 +1,15 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { TFunction } from "i18next";
 import { LogOut } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
+import { FecLoader } from "@/components/fec";
 import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { HrModuleFrame } from "@/components/hr/hr-module-frame";
 import { HrPanel } from "@/components/hr/hr-panel";
@@ -26,9 +28,35 @@ import {
   submitResignation,
   suggestNoticeForStaff,
 } from "@/lib/hr-exit.functions";
+import { eosNextAction } from "@/lib/hr-eos";
 import { listStaffForLeaveBalances } from "@/lib/hr-leave.functions";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
+
+function exitBadge(status: string): "warning" | "info" | "success" | "muted" | "outline" {
+  if (status === "submitted" || status === "pending_override_approval") return "warning";
+  if (status === "approved" || status === "serving_notice") return "info";
+  if (status === "completed") return "success";
+  if (status === "draft") return "muted";
+  return "outline";
+}
+
+function resignationStatusLabel(t: TFunction, status: string) {
+  return t(`hrWorkspace.eos.status.resignation.${status}`, {
+    defaultValue: status.replace(/_/g, " "),
+  });
+}
+
+function staffStatusLabel(t: TFunction, status: string | null | undefined) {
+  if (!status) return "—";
+  return t(`hr.me.staffStatus.${status}`, { defaultValue: status.replace(/_/g, " ") });
+}
+
+function resignationNextLabel(t: TFunction, status: string) {
+  if (status === "submitted" || status === "pending_override_approval") return t("hr.resignations.approve");
+  if (status === "approved" || status === "serving_notice") return t("hr.resignations.clearance");
+  return null;
+}
 
 async function fileToBase64(file: File): Promise<string> {
   const buf = await file.arrayBuffer();
@@ -149,6 +177,19 @@ export default function HrResignationsPage({ embedded = false }: { embedded?: bo
     onError: (e: Error) => toast.error(e.message),
   });
 
+  useEffect(() => {
+    if (!list.data) return;
+    if (!list.data.length) {
+      setSelectedId(null);
+      return;
+    }
+    setSelectedId((current) =>
+      current && list.data.some((row) => row.id === current) ? current : list.data[0]!.id,
+    );
+  }, [list.data]);
+
+  const selected = list.data?.find((row) => row.id === selectedId) ?? null;
+
   return (
     <CapabilityGate
       capability="hr.resignation.manage"
@@ -187,7 +228,7 @@ export default function HrResignationsPage({ embedded = false }: { embedded?: bo
           </div>
 
           {embedded ? (
-            <p className="text-sm text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               {t("hr.resignations.fromEos")}{" "}
               <Link href="/people/hr/end-of-service" className="font-medium text-foreground underline-offset-4 hover:underline">
                 {t("nav.endOfService")}
@@ -273,89 +314,143 @@ export default function HrResignationsPage({ embedded = false }: { embedded?: bo
           </HrPanel>
           ) : null}
 
-          <HrPanel className="space-y-3">
-            {!list.data?.length ? (
-              <HrEmptyState message={t("hr.resignations.empty")} />
-            ) : (
-              list.data.map((r) => (
-                <div
-                  key={r.id}
-                  className="flex flex-col gap-2 rounded-lg border border-border/60 p-3 sm:flex-row sm:items-start sm:justify-between"
-                >
-                  <div className="min-w-0 space-y-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-medium">
-                        {r.staffName} · {r.employeeCode}
-                      </span>
-                      <Badge variant="secondary">{r.status}</Badge>
-                      {r.noticeOverride ? (
-                        <Badge variant="outline">{t("hr.resignations.overrideBadge")}</Badge>
-                      ) : null}
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      {t("hr.resignations.noticeLine", {
-                        suggested: r.suggestedNoticeDays,
-                        required: r.requiredNoticeDays,
-                        lwd: r.approvedLwd ?? r.proposedLwd ?? "—",
-                      })}
-                    </p>
-                    <p className="text-sm">{r.reason}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {t("hr.resignations.staffStatus", { status: r.staffStatus ?? "—" })}
-                    </p>
+          <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+            <div className={`order-2 min-w-0 space-y-2 lg:order-1 ${selected ? "" : "lg:col-span-2"}`}>
+              <h2 className="text-sm font-semibold">{t("hr.resignations.casesTitle")}</h2>
+              {list.isLoading ? (
+                <FecLoader label={t("common.loading")} />
+              ) : list.isError ? (
+                <p className="text-sm text-destructive">{t("hrWorkspace.loadFailed")}</p>
+              ) : !list.data?.length ? (
+                <HrEmptyState message={t("hr.resignations.empty")} />
+              ) : (
+                <ul className="space-y-2">
+                  {list.data.map((r) => {
+                    const nextLabel = resignationNextLabel(t, r.status);
+                    return (
+                      <li key={r.id}>
+                        <button
+                          type="button"
+                          className={`hr-list-row w-full min-w-0 text-start ${
+                            r.id === selectedId ? "bg-secondary" : ""
+                          }`}
+                          aria-pressed={r.id === selectedId}
+                          onClick={() => setSelectedId(r.id)}
+                        >
+                          <span className="min-w-0">
+                            <span className="block font-medium">
+                              {r.staffName} · {r.employeeCode}
+                            </span>
+                            {nextLabel ? (
+                              <span className="block text-xs text-muted-foreground">
+                                {t("hrWorkspace.eos.nextTitle")}: {nextLabel}
+                              </span>
+                            ) : null}
+                          </span>
+                          <span className="flex flex-wrap gap-1">
+                            <Badge variant={exitBadge(r.status)}>{resignationStatusLabel(t, r.status)}</Badge>
+                            {r.noticeOverride ? (
+                              <Badge variant="outline">{t("hr.resignations.overrideBadge")}</Badge>
+                            ) : null}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+
+            {selected ? (
+              <HrPanel className="order-1 min-w-0 space-y-4 p-4 lg:order-2">
+                <div className="min-w-0 space-y-1">
+                  <p className="truncate text-base font-semibold">
+                    {selected.staffName} · {selected.employeeCode}
+                  </p>
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <Badge variant={exitBadge(selected.status)}>{resignationStatusLabel(t, selected.status)}</Badge>
+                    {selected.noticeOverride ? (
+                      <Badge variant="outline">{t("hr.resignations.overrideBadge")}</Badge>
+                    ) : null}
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setSelectedId(r.id)}
-                    >
-                      {t("hr.resignations.clearance")}
-                    </Button>
-                    {["submitted", "pending_override_approval"].includes(r.status) ? (
+                </div>
+                <div className="hr-notice">
+                  <div className="min-w-0 space-y-2">
+                    <p className="text-sm font-semibold">{t("hrWorkspace.eos.nextTitle")}</p>
+                    <p className="text-sm">
+                      {t(
+                        `hrWorkspace.eos.next.${eosNextAction({
+                          kind: "resignation",
+                          status: selected.status,
+                          assetClearance: selected.assetClearance,
+                          deptClearance: selected.deptClearance,
+                          financeClearance: selected.financeClearance,
+                          clearanceRemaining: clearance.data
+                            ? clearance.data.filter((item) => !item.completed).length
+                            : null,
+                        })}`,
+                      )}
+                    </p>
+                    {["submitted", "pending_override_approval"].includes(selected.status) ? (
                       <Button
                         type="button"
                         size="sm"
                         disabled={approve.isPending}
-                        onClick={() => approve.mutate(r.id)}
+                        onClick={() => approve.mutate(selected.id)}
                       >
                         {t("hr.resignations.approve")}
                       </Button>
                     ) : null}
                   </div>
                 </div>
-              ))
-            )}
-          </HrPanel>
-
-          {selectedId ? (
-            <HrPanel className="space-y-2">
-              <p className="text-sm font-medium">{t("hr.resignations.clearanceTitle")}</p>
-              {(clearance.data ?? []).map((item) => (
-                <div key={item.id} className="flex items-center justify-between gap-2 text-sm">
-                  <span>
-                    {item.label}
-                    {item.completed ? (
-                      <Badge className="ms-2" variant="secondary">
-                        {t("hr.resignations.done")}
-                      </Badge>
-                    ) : null}
-                  </span>
-                  {!item.completed ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => clearItem.mutate(item.id)}
-                    >
-                      {t("hr.resignations.markDone")}
-                    </Button>
-                  ) : null}
-                </div>
-              ))}
-            </HrPanel>
-          ) : null}
+                <p className="text-sm text-muted-foreground">
+                  {t("hr.resignations.noticeLine", {
+                    suggested: selected.suggestedNoticeDays,
+                    required: selected.requiredNoticeDays,
+                    lwd: selected.approvedLwd ?? selected.proposedLwd ?? "—",
+                  })}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {t("hr.resignations.staffStatus", { status: staffStatusLabel(t, selected.staffStatus) })}
+                </p>
+                {selected.reason ? (
+                  <p className="whitespace-pre-wrap break-words text-sm">{selected.reason}</p>
+                ) : null}
+                <section className="space-y-2">
+                  <h2 className="text-sm font-semibold">{t("hr.resignations.clearanceTitle")}</h2>
+                  {clearance.isLoading ? (
+                    <FecLoader label={t("common.loading")} />
+                  ) : (clearance.data ?? []).length === 0 ? (
+                    <p className="text-sm text-muted-foreground">{t("hrWorkspace.eos.clearanceEmpty")}</p>
+                  ) : (
+                    (clearance.data ?? []).map((item) => (
+                      <div key={item.id} className="flex items-center justify-between gap-2 text-sm">
+                        <span className="min-w-0 break-words">
+                          {item.label}
+                          {item.completed ? (
+                            <Badge className="ms-2" variant="success">
+                              {t("hr.resignations.done")}
+                            </Badge>
+                          ) : null}
+                        </span>
+                        {!item.completed ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={clearItem.isPending}
+                            onClick={() => clearItem.mutate(item.id)}
+                          >
+                            {t("hr.resignations.markDone")}
+                          </Button>
+                        ) : null}
+                      </div>
+                    ))
+                  )}
+                </section>
+              </HrPanel>
+            ) : null}
+          </div>
       </HrModuleFrame>
     </CapabilityGate>
   );
