@@ -449,7 +449,7 @@ function OrgCanvas({
   );
   const edges = useMemo(() => {
     const byId = new Map(placed.map((node) => [node.staffId, node]));
-    const paths: Array<{ key: string; d: string }> = [];
+    const paths: Array<{ key: string; d: string; color: string }> = [];
     for (const [parentId, kids] of visibleChildren) {
       const parent = byId.get(parentId);
       if (!parent) continue;
