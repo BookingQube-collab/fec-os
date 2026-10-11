@@ -3,7 +3,7 @@
 import { z } from "zod";
 
 import { createAuthenticatedAction, createAuthenticatedActionNoInput } from "@/lib/server/create-action";
-import { canUserDo } from "@/lib/rbac";
+import { canManageAnnouncements } from "@/lib/rbac";
 
 function tableMissing(message: string | undefined): boolean {
   return Boolean(message && /does not exist|schema cache|relation/i.test(message));
@@ -24,7 +24,7 @@ function mapAnnouncement(row: Record<string, unknown>) {
 export const listAnnouncements = createAuthenticatedAction(
   z.object({ includeInactive: z.boolean().optional() }),
   async (data, context) => {
-    const manage = canUserDo(context.roles ?? [], "hr.manage");
+    const manage = canManageAnnouncements(context.roles ?? []);
     let q = context.supabase
       .from("hr_announcements")
       .select("id, title, body, active, published_at, expires_at, created_at")
@@ -74,7 +74,7 @@ export const createAnnouncement = createAuthenticatedAction(
     if (error) throw error;
     return { id: row.id as string };
   },
-  { auth: { capability: "hr.manage" } },
+  { auth: { anyCapability: ["hr.manage", "people.edit_roster"] } },
 );
 
 export const setAnnouncementActive = createAuthenticatedAction(
@@ -90,7 +90,7 @@ export const setAnnouncementActive = createAuthenticatedAction(
     if (error) throw error;
     return { ok: true };
   },
-  { auth: { capability: "hr.manage" } },
+  { auth: { anyCapability: ["hr.manage", "people.edit_roster"] } },
 );
 
 export const getOtPolicy = createAuthenticatedActionNoInput(async (context) => {

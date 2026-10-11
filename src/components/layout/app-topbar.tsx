@@ -115,8 +115,8 @@ export function AppTopbar() {
         surgeMode ? "pb-2" : "pb-4",
       )}
     >
-      <div className="flex flex-wrap items-center gap-3 md:gap-4">
-        <div className="min-w-0 flex-1">
+      <div className="flex min-w-0 max-w-full flex-wrap items-center gap-3 md:gap-4">
+        <div className="min-w-0 flex-1 basis-full sm:basis-auto">
           <div className="flex flex-wrap items-center gap-2">
             <h1
               className={cn(
@@ -149,7 +149,7 @@ export function AppTopbar() {
 
         <HeaderSearch />
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1.5">
           <SearchableSelect
             value={currentLocationId ?? "__all__"}
             onValueChange={(v) => setCurrentLocationId(v === "__all__" ? null : v)}
@@ -157,8 +157,8 @@ export function AppTopbar() {
               if (open) requestSites();
             }}
             aria-label={t("common.allBranches")}
-            className="hidden sm:block"
-            triggerClassName="w-auto min-w-[12rem]"
+            className="hidden w-full min-w-0 sm:block sm:w-auto"
+            triggerClassName="w-full min-w-0 max-w-full sm:w-auto sm:min-w-[10rem] sm:max-w-[14rem]"
             options={[
               { value: "__all__", label: t("common.allBranches") },
               ...(locations.data ?? [])

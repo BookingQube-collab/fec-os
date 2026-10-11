@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LogOut } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -41,7 +42,7 @@ export default function HrResignationsPage({ embedded = false }: { embedded?: bo
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [filter, setFilter] = useState<"serving" | "all" | "submitted" | "pending_override_approval">(
-    "serving",
+    "all",
   );
   const [staffId, setStaffId] = useState("");
   const [reason, setReason] = useState("");
@@ -60,13 +61,14 @@ export default function HrResignationsPage({ embedded = false }: { embedded?: bo
   const staffOptions = useQuery({
     queryKey: queryKeys.people.hrLeaveBalances({ view: "staff-picker-resign" }),
     queryFn: () => listStaffForLeaveBalances(),
+    enabled: !embedded,
     staleTime: STALE.people,
   });
 
   const suggestion = useQuery({
     queryKey: queryKeys.people.hrResignations({ view: "suggest", staffId }),
     queryFn: () => suggestNoticeForStaff({ staffId }),
-    enabled: Boolean(staffId),
+    enabled: !embedded && Boolean(staffId),
     staleTime: STALE.people,
   });
 
@@ -184,6 +186,16 @@ export default function HrResignationsPage({ embedded = false }: { embedded?: bo
             ))}
           </div>
 
+          {embedded ? (
+            <p className="text-sm text-muted-foreground">
+              {t("hr.resignations.fromEos")}{" "}
+              <Link href="/people/hr/end-of-service" className="font-medium text-foreground underline-offset-4 hover:underline">
+                {t("nav.endOfService")}
+              </Link>
+            </p>
+          ) : null}
+
+          {!embedded ? (
           <HrPanel className="space-y-3">
             <p className="text-sm font-medium">{t("hr.resignations.submitTitle")}</p>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -259,6 +271,7 @@ export default function HrResignationsPage({ embedded = false }: { embedded?: bo
               {t("hr.resignations.submit")}
             </Button>
           </HrPanel>
+          ) : null}
 
           <HrPanel className="space-y-3">
             {!list.data?.length ? (

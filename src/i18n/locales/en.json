@@ -9363,6 +9363,7 @@
       "noticeLine": "Notice {{required}}d (suggested {{suggested}}) · LWD {{lwd}}",
       "staffStatus": "Staff status: {{status}}",
       "formRequired": "Staff and reason are required.",
+      "fromEos": "A separation is created once, on End of Service. It shows here for the next step: approve a submitted resignation, or finish clearance once the employee is serving notice.",
       "filters": {
         "serving": "Serving notice",
         "submitted": "Submitted",
@@ -9376,6 +9377,7 @@
       "subtitle": "Initiate terminations with dual approval (HR + GM/CEO). Probation Phase 6 flags open drafts only — never auto-terminate.",
       "noAccess": "Terminations are restricted to authorized HR / GM / CEO approvers.",
       "neverAuto": "Warnings, roster import, and probation flags never set staff.terminated alone.",
+      "fromEos": "A separation is created once, on End of Service. It shows here for the next step: record HR and GM/CEO approval, then apply the termination.",
       "probationQueue": "Probation Phase 6 flags",
       "probationEmpty": "No decided probation terminate flags awaiting a draft.",
       "needsDraft": "Needs draft",

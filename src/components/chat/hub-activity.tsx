@@ -8,10 +8,11 @@ import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useAuth } from "@/hooks/use-auth";
+import { useAuth, useUserRoles } from "@/hooks/use-auth";
 import { usePermission } from "@/hooks/use-permission";
 import { useActionInbox, useEscalations } from "@/hooks/queries/useNotifications";
 import { listAnnouncements } from "@/lib/hr-announcements.functions";
+import { canManageAnnouncements } from "@/lib/rbac";
 import type { InboxItem } from "@/lib/notifications/inbox";
 import { ackEscalation, markNotificationRead } from "@/lib/notifications.functions";
 import { queryKeys } from "@/lib/query-keys";
@@ -134,7 +135,7 @@ export function HubActivity({ mode }: { mode: "updates" | "inbox" }) {
   const language = useAppStore((s) => s.language);
   const locale = i18n.language || language;
   const { user } = useAuth();
-  const canPublish = usePermission("hr.manage");
+  const canPublish = canManageAnnouncements(useUserRoles());
   const canReadBoard = canPublish || usePermission("hr.employee_app");
   const queryClient = useQueryClient();
   const inbox = useActionInbox(user?.id, { enabled: !!user });

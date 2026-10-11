@@ -44,7 +44,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <ClickSpark sparkColor="#1a1a1a" sparkSize={8} sparkRadius={14} sparkCount={8} className="min-h-screen">
     <div
-      className="relative min-h-screen text-foreground"
+      className="relative min-h-screen w-full max-w-full overflow-x-clip text-foreground"
       data-surge-mode={surgeMode ? "true" : "false"}
     >
       <AuroraBackdrop className="fixed inset-x-0 top-0 z-0 h-[42vh]" />
@@ -53,12 +53,12 @@ export function AppShell({ children }: { children: ReactNode }) {
       <AppSidebar />
       <div
         className={cn(
-          "relative z-[1] flex min-h-screen min-w-0 max-w-full flex-col overflow-x-hidden md:pe-5",
+          "relative z-[1] flex min-h-screen min-w-0 max-w-full flex-col overflow-x-clip lg:pe-5",
           chatRoute
-            ? "h-dvh overflow-hidden pb-[calc(4.75rem+env(safe-area-inset-bottom))] md:pb-4"
-            : "pb-20",
-          sidebarExpanded ? "md:ms-[5.25rem] lg:ms-[16.25rem]" : "md:ms-[5.25rem]",
-          surgeMode ? "md:pb-3" : "md:pb-6",
+            ? "h-dvh max-h-dvh min-h-0 overflow-hidden pb-[calc(4.75rem+env(safe-area-inset-bottom))] lg:pb-4"
+            : "pb-[calc(4.75rem+env(safe-area-inset-bottom))]",
+          sidebarExpanded ? "lg:ms-[16.25rem]" : "lg:ms-[5.25rem]",
+          !chatRoute && (surgeMode ? "lg:pb-3" : "lg:pb-6"),
         )}
       >
         <div
@@ -75,7 +75,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             className={cn(
               "min-w-0 max-w-full overflow-x-hidden",
               chatRoute
-                ? "flex min-h-0 flex-1 flex-col overflow-hidden p-3 md:min-h-[calc(100vh-8rem)] md:p-7"
+                ? "flex min-h-0 min-w-0 flex-1 basis-0 flex-col overflow-hidden p-3 lg:p-7"
                 : "min-h-[calc(100vh-8rem)]",
               surgeMode ? "mt-2 p-3 md:p-4" : chatRoute ? "mt-2 md:mt-4" : "mt-4",
               accountRoute && "account-hub-shell",

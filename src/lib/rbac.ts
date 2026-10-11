@@ -114,7 +114,7 @@ export const CAPABILITIES = {
   // People / HR
   "people.view_roster": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "hr"],
   "people.edit_roster": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "hr"],
-  "people.import_roster": ["ceo", "coo", "regional_ops", "hr", "branch_gm", "duty_manager"],
+  "people.import_roster": ["ceo", "coo", "regional_ops", "hr", "branch_gm", "duty_manager", "tech_supervisor"],
   "people.view_salary": ["ceo", "coo", "cfo", "hr"],
   "people.edit_salary": ["ceo", "coo", "cfo", "hr"],
   "payroll.view": ["ceo", "coo", "cfo", "hr"],
@@ -225,7 +225,7 @@ export const CAPABILITIES = {
   "attendance.import": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "hr"],
   "attendance.manage_devices": ["ceo", "coo", "regional_ops", "branch_gm", "hr"],
   "attendance.correct": ["branch_gm", "duty_manager", "tech_supervisor", "hr"],
-  "attendance.approve": ["branch_gm", "hr", "ceo", "coo"],
+  "attendance.approve": ["branch_gm", "duty_manager", "tech_supervisor", "hr", "ceo", "coo"],
   "attendance.configure": ["ceo", "coo", "regional_ops", "hr"],
   "attendance.export": ["ceo", "coo", "cfo", "regional_ops", "hr", "auditor", "branch_gm"],
   "attendance.map_users": ["hr", "ceo", "coo"],
@@ -344,7 +344,9 @@ export const CAPABILITIES = {
 
   // Chat hub. Desktop nav is /chat (chat.view). Mobile tabs stay the five fixed slots.
   // view/send: floor roles and every role that already uses operations modules.
-  // create_group/manage_members: branch_gm and above, plus hr.
+  // create_group/manage_members: same conversation admin actions as CEO/COO/regional ops.
+  // Duty managers and tech supervisors get those actions. They still only manage a
+  // conversation when they are its OWNER or ADMIN, and they do not read chats they are not in.
   "chat.view": [
     "ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager",
     "tech_supervisor", "technician", "cashier_host", "auditor", "hr", "customer_service",
@@ -353,8 +355,8 @@ export const CAPABILITIES = {
     "ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager",
     "tech_supervisor", "technician", "cashier_host", "auditor", "hr", "customer_service",
   ],
-  "chat.create_group": ["ceo", "coo", "cfo", "regional_ops", "branch_gm", "hr"],
-  "chat.manage_members": ["ceo", "coo", "cfo", "regional_ops", "branch_gm", "hr"],
+  "chat.create_group": ["ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "hr"],
+  "chat.manage_members": ["ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "hr"],
 
   // Training engine. Platform domain, not an HR submodule.
   // Floor roles learn through enrollments; they do not receive training.view.
@@ -458,6 +460,17 @@ export function isEmployeeHomeAudience(roles: AppRole[]): boolean {
 
 export function canViewRevenue(roles: AppRole[]): boolean {
   return canUserDo(roles, "revenue.view");
+}
+
+/**
+ * Publish and deactivate announcements.
+ * HR management stays on hr.manage. Roster editors already include supervisors,
+ * duty managers, branch GMs, and operations leadership, so the board uses that
+ * existing key instead of opening HR settings.
+ */
+export function canManageAnnouncements(roles: readonly string[]): boolean {
+  const list = roles as AppRole[];
+  return canUserDo(list, "hr.manage") || canUserDo(list, "people.edit_roster");
 }
 
 /** Where a freshly signed-in user should land based on their highest role. */

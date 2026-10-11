@@ -90,6 +90,28 @@ export function punchCorrectionRequestSide(summary: {
 const ATTENDANCE_CORRECTION_REQUEST_ROLES = ["branch_gm", "duty_manager", "tech_supervisor"] as const;
 
 /**
+ * First-step approvers at a site, same seat as the branch GM.
+ * Location ids come from user_roles. An empty list does not approve every site.
+ */
+export const SITE_ATTENDANCE_APPROVER_ROLES = ["branch_gm", "duty_manager", "tech_supervisor"] as const;
+
+export function siteApproverLocationMap(
+  rows: readonly { userId: string; role: string; locationIds: readonly string[] }[],
+): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+  for (const row of rows) {
+    if (!(SITE_ATTENDANCE_APPROVER_ROLES as readonly string[]).includes(row.role)) continue;
+    for (const locationId of row.locationIds) {
+      if (!locationId) continue;
+      const list = map.get(locationId) ?? [];
+      if (!list.includes(row.userId)) list.push(row.userId);
+      map.set(locationId, list);
+    }
+  }
+  return map;
+}
+
+/**
  * Floor staff may correct their own punches. A manager still approves that request.
  * Supervisors, and anyone with people reporting to them, may also correct their team.
  * Company-wide correction admin stays on the existing HR tools.

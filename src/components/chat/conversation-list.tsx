@@ -91,7 +91,7 @@ export function ConversationList({
   }, [conversations, favorites, filter, people, query, t]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 min-w-0 max-w-full flex-1 flex-col">
       <div className="flex items-center gap-2 px-4 pb-2 pt-4">
         <h2 className="min-w-0 flex-1 text-base font-semibold">{t("chat.listTitle")}</h2>
         {canCompose ? (
@@ -135,7 +135,7 @@ export function ConversationList({
         </div>
       </div>
 
-      <div className="flex gap-1.5 overflow-x-auto px-4 pb-3" role="toolbar" aria-label={t("chat.listTitle")}>
+      <div className="flex max-w-full gap-1.5 overflow-x-auto px-4 pb-3" role="toolbar" aria-label={t("chat.listTitle")}>
         {FILTERS.map((key) => {
           const active = filter === key;
           return (

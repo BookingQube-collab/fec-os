@@ -18,7 +18,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useUserRoles } from "@/hooks/use-auth";
 import { useSites } from "@/hooks/queries/useSites";
 import { useStaff } from "@/hooks/queries/usePeople";
 import { applyStaffMapToPreviewRows } from "@/lib/attendance-hr/apply-roster-name-map";
@@ -106,9 +105,6 @@ const EMBEDDED_CONFIRM = "bg-electric text-white hover:bg-electric/90";
 
 export function ShiftRosterImport({ embedded = false }: { embedded?: boolean }) {
   const { t, i18n } = useTranslation();
-  const roles = useUserRoles();
-  const venueSafeOnly = roles.some((r) => r === "branch_gm" || r === "duty_manager")
-    && !roles.some((r) => ["ceo", "coo", "cfo", "regional_ops", "hr"].includes(r));
   const qc = useQueryClient();
   const filesRef = useRef<HTMLInputElement>(null);
   const folderRef = useRef<HTMLInputElement>(null);
@@ -129,10 +125,6 @@ export function ShiftRosterImport({ embedded = false }: { embedded?: boolean }) 
   const [registerRefresh, setRegisterRefresh] = useState(0);
   const storeLocationId = useAppStore((s) => s.currentLocationId);
   const sites = useSites();
-
-  useEffect(() => {
-    if (venueSafeOnly) setLocationScope("single");
-  }, [venueSafeOnly]);
 
   useEffect(() => {
     if (!singleLocationId && storeLocationId) setSingleLocationId(storeLocationId);
@@ -354,7 +346,7 @@ export function ShiftRosterImport({ embedded = false }: { embedded?: boolean }) 
         locations={sampleLocations}
         defaultLocationId={storeLocationId}
         downloading={sampleBusy}
-        allowAll={!venueSafeOnly}
+        allowAll
         onConfirm={downloadSample}
       />
 
@@ -400,9 +392,7 @@ export function ShiftRosterImport({ embedded = false }: { embedded?: boolean }) 
               }}
               options={[
                 { value: "single", label: t("people.roster.locationScopeSingle") },
-                ...(!venueSafeOnly
-                  ? [{ value: "multi", label: t("people.roster.locationScopeMulti") }]
-                  : []),
+                { value: "multi", label: t("people.roster.locationScopeMulti") },
               ]}
             />
             <p className="text-xs text-muted-foreground">

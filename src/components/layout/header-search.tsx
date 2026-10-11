@@ -104,7 +104,7 @@ export function HeaderSearch({ className }: { className?: string }) {
   const showList = open && query.trim().length > 0;
 
   return (
-    <div ref={rootRef} className={cn("relative min-w-[200px] flex-1 lg:max-w-sm", className)}>
+    <div ref={rootRef} className={cn("relative min-w-0 w-full max-w-full flex-1 basis-full sm:basis-48 sm:max-w-sm", className)}>
       <Search className="pointer-events-none absolute start-3.5 top-1/2 h-[18px] w-[18px] -translate-y-1/2 stroke-[1.5] text-muted-foreground" />
       <input
         ref={inputRef}

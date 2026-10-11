@@ -1035,11 +1035,11 @@ export function ConversationThread({
 
   return (
     <div className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden">
-      <header className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2.5">
+      <header className="flex min-w-0 shrink-0 items-center gap-2 border-b border-border px-3 py-2.5">
         <Button
           type="button"
           variant="ghost"
-          className="min-h-11 min-w-11 shrink-0 px-2 md:hidden"
+          className="min-h-11 min-w-11 shrink-0 px-2 lg:hidden"
           aria-label={t("chat.back")}
           onClick={onBack}
         >
@@ -1143,7 +1143,7 @@ export function ConversationThread({
 
       {showInfo ? (
         <div className="min-h-0 flex-1 overflow-y-auto bg-card p-4">
-          <div className="mb-3 md:hidden">
+          <div className="mb-3 lg:hidden">
             <Button type="button" variant="outline" className="min-h-11 px-3" onClick={() => setShowInfo(false)}>
               {t("chat.hideInfo")}
             </Button>

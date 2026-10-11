@@ -531,7 +531,9 @@ export const listProbationTerminationQueue = createAuthenticatedAction(
     }
 
     const reviewIds = (reviews ?? []).map((r) => String(r.id));
+    const staffIds = [...new Set((reviews ?? []).map((r) => String(r.staff_id)))];
     let linked = new Set<string>();
+    let staffWithCase = new Set<string>();
     if (reviewIds.length) {
       const { data: terms } = await context.supabase
         .from("hr_terminations")
@@ -544,17 +546,26 @@ export const listProbationTerminationQueue = createAuthenticatedAction(
           .map(String),
       );
     }
+    if (staffIds.length) {
+      const { data: filed } = await context.supabase
+        .from("hr_terminations")
+        .select("staff_id")
+        .in("staff_id", staffIds)
+        .in("status", ["draft", "pending_hr_approval", "pending_exec_approval", "approved", "applied"]);
+      staffWithCase = new Set((filed ?? []).map((row) => String(row.staff_id)));
+    }
 
     return (reviews ?? []).map((r) => {
       const staff = Array.isArray(r.staff) ? r.staff[0] : r.staff;
+      const staffId = String(r.staff_id);
       return {
         probationReviewId: String(r.id),
-        staffId: String(r.staff_id),
+        staffId,
         staffName: (staff as { full_name?: string } | null)?.full_name ?? null,
         employeeCode: (staff as { employee_code?: string } | null)?.employee_code ?? null,
         staffStatus: (staff as { status?: string } | null)?.status ?? null,
         decision: r.decision,
-        hasDraftTermination: linked.has(String(r.id)),
+        hasDraftTermination: linked.has(String(r.id)) || staffWithCase.has(staffId),
         approvedAt: r.approved_at,
       };
     });
@@ -593,6 +604,16 @@ export const openDraftTerminationFromProbation = createAuthenticatedAction(
       .maybeSingle();
     if (existing) {
       throw new Error("A termination draft already exists for this probation review.");
+    }
+    const { data: filed } = await context.supabase
+      .from("hr_terminations")
+      .select("id")
+      .eq("staff_id", review.staff_id)
+      .in("status", ["draft", "pending_hr_approval", "pending_exec_approval", "approved", "applied"])
+      .limit(1)
+      .maybeSingle();
+    if (filed) {
+      throw new Error("A termination case already exists for this employee.");
     }
 
     const { staff, category } = await loadStaffExitContext(context, String(review.staff_id));

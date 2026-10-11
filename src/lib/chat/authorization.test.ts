@@ -177,16 +177,24 @@ describe("audit metadata", () => {
 });
 
 describe("chat capability defaults", () => {
-  it("lets floor roles send and keeps group admin at branch_gm and hr", () => {
+  it("lets floor roles send and gives supervisors the same group admin as leadership", () => {
     expect(canUserDo(["technician"], "chat.view")).toBe(true);
     expect(canUserDo(["technician"], "chat.send")).toBe(true);
     expect(canUserDo(["cashier_host"], "chat.send")).toBe(true);
     expect(canUserDo(["duty_manager"], "chat.send")).toBe(true);
     expect(canUserDo(["customer_service"], "chat.send")).toBe(true);
     expect(canUserDo(["technician"], "chat.create_group")).toBe(false);
-    expect(canUserDo(["duty_manager"], "chat.manage_members")).toBe(false);
+    expect(canUserDo(["cashier_host"], "chat.manage_members")).toBe(false);
+    expect(canUserDo(["customer_service"], "chat.create_group")).toBe(false);
+    expect(canUserDo(["auditor"], "chat.manage_members")).toBe(false);
+    expect(canUserDo(["duty_manager"], "chat.create_group")).toBe(true);
+    expect(canUserDo(["duty_manager"], "chat.manage_members")).toBe(true);
+    expect(canUserDo(["tech_supervisor"], "chat.create_group")).toBe(true);
+    expect(canUserDo(["tech_supervisor"], "chat.manage_members")).toBe(true);
     expect(canUserDo(["branch_gm"], "chat.create_group")).toBe(true);
     expect(canUserDo(["hr"], "chat.manage_members")).toBe(true);
     expect(canUserDo(["cfo"], "chat.create_group")).toBe(true);
+    expect(canUserDo(["ceo"], "chat.manage_members")).toBe(true);
+    expect(canUserDo(["regional_ops"], "chat.create_group")).toBe(true);
   });
 });

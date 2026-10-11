@@ -13,6 +13,7 @@ import {
   correctionVisibleToUser,
   isHeadOfOperationsTitle,
   isSiteSupervisorTitle,
+  siteApproverLocationMap,
   missedPunchCopiesExecutives,
   managerTeamCorrectionNote,
   missedPunchRequestSide,
@@ -141,7 +142,10 @@ async function callerCorrectionAccess(userId: string) {
 export async function loadMissedPunchDirectory(staffIds: string[]): Promise<ApprovalDirectory> {
   const uniqueStaff = [...new Set(staffIds.filter(Boolean))];
   const [rolesRes, supervisorsRes, reportingRes] = await Promise.all([
-    supabaseAdmin.from("user_roles").select("user_id, role, location_ids").in("role", ["branch_gm", "regional_ops", "hr"]),
+    supabaseAdmin
+      .from("user_roles")
+      .select("user_id, role, location_ids")
+      .in("role", ["branch_gm", "duty_manager", "tech_supervisor", "regional_ops", "hr"]),
     supabaseAdmin
       .from("staff")
       .select("id, user_id, location_id, job_title, staff_role, status")
@@ -159,18 +163,18 @@ export async function loadMissedPunchDirectory(staffIds: string[]): Promise<Appr
   if (supervisorsRes.error) throw supervisorsRes.error;
   if (reportingRes.error && !/does not exist|schema cache/i.test(reportingRes.error.message)) throw reportingRes.error;
 
-  const branchGmUserIdsByLocationId = new Map<string, string[]>();
+  const branchGmUserIdsByLocationId = siteApproverLocationMap(
+    (rolesRes.data ?? []).map((role) => ({
+      userId: role.user_id as string,
+      role: String(role.role),
+      locationIds: (role.location_ids as string[] | null) ?? [],
+    })),
+  );
   const head = new Set<string>();
   const hr = new Set<string>();
   for (const role of rolesRes.data ?? []) {
     if (role.role === "regional_ops") head.add(role.user_id as string);
     if (role.role === "hr") hr.add(role.user_id as string);
-    if (role.role !== "branch_gm") continue;
-    for (const locationId of (role.location_ids as string[] | null) ?? []) {
-      const list = branchGmUserIdsByLocationId.get(locationId) ?? [];
-      list.push(role.user_id as string);
-      branchGmUserIdsByLocationId.set(locationId, list);
-    }
   }
 
   const siteSupervisorUserIdsByLocationId = new Map<string, string[]>();

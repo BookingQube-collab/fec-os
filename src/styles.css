@@ -1769,6 +1769,15 @@
   display: none;
 }
 
+/* Communication Hub tabs stay in the column. The shared pill row is max-content
+   and can be clipped by the hub's overflow hidden, which hides Chats. */
+.chat-hub-tabs.fec-inner-tabs {
+  width: 100%;
+  max-width: 100%;
+  flex-wrap: wrap;
+  overflow: visible;
+}
+
 .account-tabs {
   margin-bottom: 1rem;
 }

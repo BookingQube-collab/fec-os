@@ -21,7 +21,7 @@ import { generateEmployeeCode, isQidShapedCode } from "./values";
 
 function venueOnly(roles: AppRole[]): boolean {
   const elevated = roles.some((r) => ["ceo", "coo", "cfo", "regional_ops", "hr"].includes(r));
-  return !elevated && roles.some((r) => ["branch_gm", "duty_manager"].includes(r));
+  return !elevated && roles.some((r) => ["branch_gm", "duty_manager", "tech_supervisor"].includes(r));
 }
 
 function canViewSalary(roles: AppRole[]): boolean {

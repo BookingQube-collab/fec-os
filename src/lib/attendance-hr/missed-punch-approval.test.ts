@@ -19,6 +19,7 @@ import {
   correctionStepSeed,
   correctionWaitingStep,
   lineManagerUserIds,
+  siteApproverLocationMap,
   managerTeamCorrectionNote,
   punchCorrectionRoute,
   missedPunchApprovalSteps,
@@ -542,5 +543,25 @@ describe("missed punch approval chain", () => {
     expect(canUserActOnCorrection(dir, lineManager, waitingOnHr)).toBe(false);
     expect(canUserActOnCorrection(dir, RAJAN, waitingOnHr)).toBe(false);
     expect(canUserActOnCorrection(dir, managerUser, waitingOnHr)).toBe(false);
+  });
+});
+
+describe("site attendance approvers", () => {
+  it("lets a duty manager and tech supervisor approve the manager step at their sites", () => {
+    const duty = "duty-user";
+    const supervisor = "tech-user";
+    const map = siteApproverLocationMap([
+      { userId: duty, role: "duty_manager", locationIds: [INF] },
+      { userId: supervisor, role: "tech_supervisor", locationIds: [INF, ""] },
+      { userId: "cashier-user", role: "cashier_host", locationIds: [INF] },
+      { userId: "hr-user", role: "hr", locationIds: [INF] },
+    ]);
+    expect(map.get(INF)).toEqual([duty, supervisor]);
+    expect(map.has("")).toBe(false);
+    const dir = directory({ branchGmUserIdsByLocationId: map, siteSupervisorUserIdsByLocationId: new Map() });
+    expect(canUserActOnCorrection(dir, duty, row())).toBe(true);
+    expect(canUserActOnCorrection(dir, supervisor, row())).toBe(true);
+    expect(canUserActOnCorrection(dir, duty, row({ locationId: KDS }))).toBe(false);
+    expect(canUserActOnCorrection(dir, duty, row({ requestedBy: duty }))).toBe(false);
   });
 });

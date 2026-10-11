@@ -418,7 +418,7 @@ export function MessageComposer({
           )}
         </div>
       ) : null}
-      <div className="flex shrink-0 items-end gap-2">
+      <div className="flex min-w-0 max-w-full shrink-0 items-end gap-2">
         {canAttach && voice.phase === "idle" ? (
           <AttachmentPicker
             disabled={!canPost}
@@ -513,7 +513,7 @@ export function MessageComposer({
               value={value}
               disabled={!canPost}
               placeholder={announcement ? t("chat.announcementPlaceholder") : t("chat.composerPlaceholder")}
-              className="max-h-32 min-h-11 flex-1 resize-none rounded-full px-4 py-2.5"
+              className="max-h-32 min-h-11 min-w-0 flex-1 resize-none rounded-full px-4 py-2.5"
               onChange={(event) => {
                 const next = event.target.value;
                 setValue(next);

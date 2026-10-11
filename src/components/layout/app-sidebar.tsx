@@ -1370,10 +1370,10 @@ export function AppSidebar() {
 
   return (
     <ItemDragScope enabled={canReorder} label={t("sidebarOrder.dragItem")} onMove={moveItem}>
-      {/* Phone uses the bottom nav. Tablet (md–lg) icon rail + desktop (lg+) expandable rail. */}
+      {/* Below lg the bottom nav is the app navigation. The rail is desktop only. */}
       <aside
         className={cn(
-          "fixed z-40 hidden max-h-[calc(100dvh-1.5rem)] flex-col overflow-hidden md:flex",
+          "fixed z-40 hidden max-h-[calc(100dvh-1.5rem)] flex-col overflow-hidden lg:flex",
           "w-[4.25rem] items-center",
           sidebarExpanded ? "lg:w-[14rem] lg:items-stretch" : "lg:w-[3.75rem] lg:items-center",
         )}
@@ -1384,7 +1384,7 @@ export function AppSidebar() {
       >
         <div
           className={cn(
-            "flex w-full max-h-full flex-col overflow-x-hidden overflow-y-auto rounded-[1.75rem] border border-border/60 bg-sidebar shadow-elevated-sm",
+            "flex h-full min-h-0 w-full max-h-full flex-col overflow-hidden rounded-[1.75rem] border border-border/60 bg-sidebar shadow-elevated-sm",
             surgeMode ? "py-2" : "py-3",
             "items-center px-1.5",
             sidebarExpanded && "lg:items-stretch lg:px-2",
@@ -1394,7 +1394,7 @@ export function AppSidebar() {
             asChild
             variant="default"
             size="icon"
-            className={cn("mb-2 font-bold", sidebarExpanded && "lg:h-10 lg:w-full")}
+            className={cn("mb-2 shrink-0 font-bold", sidebarExpanded && "lg:h-10 lg:w-full")}
           >
             <Link href="/" prefetch title="FEC OS">
               <span className={cn(sidebarExpanded && "lg:hidden")}>F</span>
@@ -1409,7 +1409,7 @@ export function AppSidebar() {
             type="button"
             variant="outline"
             size={sidebarExpanded ? "sm" : "icon"}
-            className={cn("mb-3 hidden lg:inline-flex", sidebarExpanded && "w-full justify-start")}
+            className={cn("mb-3 hidden shrink-0 lg:inline-flex", sidebarExpanded && "w-full justify-start")}
             title={expandLabel}
             aria-label={expandLabel}
             aria-pressed={sidebarExpanded}
@@ -1443,9 +1443,11 @@ export function AppSidebar() {
           ) : null}
           <nav
             className={cn(
-              "flex flex-col items-center",
+              "flex min-h-0 w-full flex-1 flex-col items-center",
               surgeMode ? "gap-0.5" : "gap-1",
-              sidebarExpanded && "lg:items-stretch lg:px-0",
+              sidebarExpanded
+                ? "overflow-y-auto overscroll-y-contain lg:items-stretch lg:px-0"
+                : "overflow-hidden",
             )}
           >
             {employeeFlat.length > 0 ? (
@@ -1527,7 +1529,7 @@ export function AppSidebar() {
                   title={t("nav.moreModules")}
                   aria-label={t("nav.moreModules")}
                   className={cn(
-                    "mt-1.5 h-11 w-11 lg:h-auto lg:w-auto",
+                    "mt-1.5 h-11 w-11 shrink-0 lg:h-auto lg:w-auto",
                     sidebarExpanded && "lg:h-10 lg:w-full lg:justify-start lg:px-2.5",
                   )}
                 >

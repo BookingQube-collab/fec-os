@@ -21,12 +21,14 @@ import {
   listAnnouncements,
   setAnnouncementActive,
 } from "@/lib/hr-announcements.functions";
+import { usePermission } from "@/hooks/use-permission";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 
 export default function HrAnnouncementsPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
+  const canManageBoard = usePermission("hr.manage") || usePermission("people.edit_roster");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [expires, setExpires] = useState("");
@@ -60,6 +62,7 @@ export default function HrAnnouncementsPage() {
   return (
     <CapabilityGate
       capability="hr.manage"
+      alsoAllow={canManageBoard}
       fallback={
         <HrShell>
           <HrPanel>

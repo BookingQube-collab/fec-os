@@ -14,7 +14,7 @@ export function useChatKeyboardInset(ref: RefObject<HTMLElement | null>) {
     if (!el || !viewport) return;
 
     const update = () => {
-      if (window.innerWidth >= 768) {
+      if (window.innerWidth >= 1024) {
         el.style.removeProperty("max-height");
         return;
       }

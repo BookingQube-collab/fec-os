@@ -227,7 +227,7 @@ function MoreModulesList({
 }
 
 /**
- * Phone bottom nav. Always in the DOM for ops shell; `md:hidden` keeps desktop ≥768 untouched.
+ * Phone and tablet bottom nav. Always in the DOM for the ops shell; `lg:hidden` keeps the desktop rail.
  * Do not gate on `useIsMobile` / matchMedia (iOS Safari SSR/hydration traps).
  */
 export function MobileBottomNav() {
@@ -277,7 +277,7 @@ export function MobileBottomNav() {
       <nav
         aria-label={t("nav.mobileNav")}
         data-mobile-nav
-        className="fixed inset-x-0 bottom-0 z-50 border-t border-border/80 bg-background/95 pb-[max(0.35rem,env(safe-area-inset-bottom))] pt-1 backdrop-blur md:hidden"
+        className="fixed inset-x-0 bottom-0 z-50 border-t border-border/80 bg-background/95 pb-[max(0.35rem,env(safe-area-inset-bottom))] pt-1 backdrop-blur lg:hidden"
       >
         <ul className="mx-auto flex max-w-lg items-stretch justify-between gap-0.5 px-1">
           {employeeRail.length > 0
@@ -402,7 +402,7 @@ export function MobileBottomNav() {
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
         <SheetContent
           side="bottom"
-          className="flex max-h-[85dvh] flex-col rounded-t-[1.75rem] border-border bg-background px-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:hidden"
+          className="flex max-h-[85dvh] flex-col rounded-t-[1.75rem] border-border bg-background px-4 pb-[max(1rem,env(safe-area-inset-bottom))] lg:hidden"
         >
           <SheetHeader className="shrink-0">
             <SheetTitle>{t("nav.allModules")}</SheetTitle>

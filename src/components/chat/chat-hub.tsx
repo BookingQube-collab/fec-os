@@ -109,6 +109,12 @@ export function ChatHub() {
     if (searchParams.get("c")) writeConversationQuery(null);
   }
 
+  function selectTab(id: HubTab) {
+    const narrow = typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches;
+    if (id === "chats" && narrow && paneOpen) closeConversation();
+    setTab(id);
+  }
+
   useEffect(() => {
     if (conversations.isLoading) return;
     const urlId = requestedId && CONVERSATION_QUERY.test(requestedId) ? requestedId : null;
@@ -210,14 +216,14 @@ export function ChatHub() {
   ];
 
   return (
-    <div ref={frameRef} className="flex min-h-0 flex-1 flex-col max-md:overflow-hidden">
-      <div className={cn("mb-3 shrink-0 space-y-3", tab === "chats" && paneOpen && "max-md:hidden")}>
+    <div ref={frameRef} className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="mb-3 shrink-0 space-y-3">
         <p className="text-sm text-muted-foreground">
           <span>{t("chat.breadcrumbWorkspace")}</span>
           <span aria-hidden className="px-1.5">/</span>
           <span className="font-medium text-foreground">{t("nav.communicationHub")}</span>
         </p>
-        <div role="tablist" aria-label={t("nav.communicationHub")} className="fec-inner-tabs">
+        <div role="tablist" aria-label={t("nav.communicationHub")} className="chat-hub-tabs fec-inner-tabs">
           {tabs.map((item) => {
             const active = tab === item.id;
             const Icon = item.icon;
@@ -229,7 +235,7 @@ export function ChatHub() {
                 id={`chat-tab-${item.id}`}
                 aria-selected={active}
                 aria-controls={`chat-panel-${item.id}`}
-                onClick={() => setTab(item.id)}
+                onClick={() => selectTab(item.id)}
                 className={cn("fec-inner-tab", active && "is-active")}
               >
                 <Icon aria-hidden />
@@ -255,12 +261,12 @@ export function ChatHub() {
           id="chat-panel-chats"
           role="tabpanel"
           aria-labelledby="chat-tab-chats"
-          className="flex min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-card md:min-h-[32rem]"
+          className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card lg:flex-row"
         >
           <aside
             className={cn(
-              "flex min-h-0 w-full min-w-0 flex-col md:w-[22rem] md:shrink-0 md:border-e md:border-border",
-              paneOpen && "hidden md:flex",
+              "flex min-h-0 w-full min-w-0 flex-1 flex-col lg:w-[22rem] lg:max-w-[22rem] lg:shrink-0 lg:flex-none lg:border-e lg:border-border",
+              paneOpen && "hidden lg:flex",
             )}
           >
             <ConversationList
@@ -284,7 +290,7 @@ export function ChatHub() {
             />
           </aside>
 
-          <section className={cn("flex min-h-0 min-w-0 flex-1 flex-col", !paneOpen && "hidden md:flex")}>
+          <section className={cn("flex min-h-0 min-w-0 flex-1 flex-col", !paneOpen && "hidden lg:flex")}>
             {selected ? (
               <ConversationThread
                 conversation={selected}
@@ -305,7 +311,7 @@ export function ChatHub() {
               />
             ) : unavailable ? (
               <div className="flex min-h-0 flex-1 flex-col">
-                <div className="p-2 md:hidden">
+                <div className="p-2 lg:hidden">
                   <Button type="button" variant="ghost" onClick={() => setUnavailable(null)}>
                     {t("chat.back")}
                   </Button>
@@ -350,7 +356,7 @@ export function ChatHub() {
           id={`chat-panel-${tab}`}
           role="tabpanel"
           aria-labelledby={`chat-tab-${tab}`}
-          className="flex min-h-0 flex-1 flex-col md:min-h-[32rem]"
+          className="flex min-h-0 min-w-0 flex-1 flex-col"
         >
           <HubActivity mode={tab} />
         </div>

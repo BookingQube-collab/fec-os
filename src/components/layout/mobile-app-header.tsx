@@ -42,8 +42,8 @@ export function MobileAppHeader({ className }: { className?: string }) {
         className,
       )}
     >
-      <div className="flex items-center gap-1.5">
-        <Link href="/" className="min-w-0 flex-1 touch-manipulation" prefetch>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Link href="/" className="min-w-0 flex-1 basis-28 touch-manipulation" prefetch>
           <p className="truncate text-sm font-bold tracking-tight text-foreground">
             {t("app.name")}
           </p>

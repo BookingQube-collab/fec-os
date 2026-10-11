@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ShieldAlert } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -75,6 +76,7 @@ export default function HrTerminationsPage({ embedded = false }: { embedded?: bo
   const staffOptions = useQuery({
     queryKey: queryKeys.people.hrLeaveBalances({ view: "staff-picker-term" }),
     queryFn: () => listStaffForLeaveBalances(),
+    enabled: !embedded && canInitiate,
     staleTime: STALE.people,
   });
 
@@ -186,105 +188,13 @@ export default function HrTerminationsPage({ embedded = false }: { embedded?: bo
       >
           <p className="text-xs text-muted-foreground">{t("hr.terminations.neverAuto")}</p>
 
-          <HrPanel className="space-y-2">
-            <p className="text-sm font-medium">{t("hr.terminations.probationQueue")}</p>
-            {!probationQueue.data?.length ? (
-              <p className="text-sm text-muted-foreground">{t("hr.terminations.probationEmpty")}</p>
-            ) : (
-              probationQueue.data.map((p) => (
-                <div
-                  key={p.probationReviewId}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/60 p-3"
-                >
-                  <div>
-                    <span className="font-medium">
-                      {p.staffName} · {p.employeeCode}
-                    </span>
-                    <p className="text-xs text-muted-foreground">
-                      {t("hr.terminations.staffStatus", { status: p.staffStatus ?? "—" })}
-                      {p.hasDraftTermination
-                        ? ` · ${t("hr.terminations.hasDraft")}`
-                        : ` · ${t("hr.terminations.needsDraft")}`}
-                    </p>
-                  </div>
-                  {canInitiate && !p.hasDraftTermination ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={openFromProbation.isPending}
-                      onClick={() => openFromProbation.mutate(p.probationReviewId)}
-                    >
-                      {t("hr.terminations.openDraft")}
-                    </Button>
-                  ) : null}
-                </div>
-              ))
-            )}
-          </HrPanel>
-
-          {canInitiate ? (
-            <HrPanel className="space-y-3">
-              <p className="text-sm font-medium">{t("hr.terminations.initiateTitle")}</p>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-1">
-                  <Label>{t("hr.terminations.staff")}</Label>
-                  <SearchableSelect
-                    value={staffId}
-                    onValueChange={setStaffId}
-                    placeholder={t("hr.terminations.pickStaff")}
-                    emptyOption={{ value: "", label: t("hr.terminations.pickStaff") }}
-                    options={(staffOptions.data ?? []).map((s) => ({
-                      value: s.id,
-                      label: s.employeeCode ? `${s.name} (${s.employeeCode})` : s.name,
-                      keywords: `${s.name} ${s.employeeCode ?? ""}`,
-                    }))}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label>{t("hr.terminations.type")}</Label>
-                  <select
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                    value={termType}
-                    onChange={(e) =>
-                      setTermType(e.target.value as (typeof HR_TERMINATION_TYPES)[number])
-                    }
-                  >
-                    {HR_TERMINATION_TYPES.map((ty) => (
-                      <option key={ty} value={ty}>
-                        {t(`hr.terminations.types.${ty}`)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <Label>{t("hr.terminations.effectiveOn")}</Label>
-                  <Input
-                    type="date"
-                    value={effectiveOn}
-                    onChange={(e) => setEffectiveOn(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label>{t("hr.terminations.lwd")}</Label>
-                  <Input type="date" value={lwd} onChange={(e) => setLwd(e.target.value)} />
-                </div>
-                <div className="space-y-1 sm:col-span-2">
-                  <Label>{t("hr.terminations.reason")}</Label>
-                  <Textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} />
-                </div>
-                <div className="space-y-1 sm:col-span-2">
-                  <Label>{t("hr.terminations.letter")}</Label>
-                  <Input
-                    type="file"
-                    accept=".pdf,image/*"
-                    onChange={(e) => setLetterFile(e.target.files?.[0] ?? null)}
-                  />
-                </div>
-              </div>
-              <Button type="button" disabled={initiate.isPending} onClick={() => initiate.mutate()}>
-                {t("hr.terminations.initiate")}
-              </Button>
-            </HrPanel>
+          {embedded ? (
+            <p className="text-sm text-muted-foreground">
+              {t("hr.terminations.fromEos")}{" "}
+              <Link href="/people/hr/end-of-service" className="font-medium text-foreground underline-offset-4 hover:underline">
+                {t("nav.endOfService")}
+              </Link>
+            </p>
           ) : null}
 
           <HrPanel className="space-y-3">
@@ -354,6 +264,107 @@ export default function HrTerminationsPage({ embedded = false }: { embedded?: bo
               ))
             )}
           </HrPanel>
+
+          <HrPanel className="space-y-2">
+            <p className="text-sm font-medium">{t("hr.terminations.probationQueue")}</p>
+            {!probationQueue.data?.length ? (
+              <p className="text-sm text-muted-foreground">{t("hr.terminations.probationEmpty")}</p>
+            ) : (
+              probationQueue.data.map((p) => (
+                <div
+                  key={p.probationReviewId}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/60 p-3"
+                >
+                  <div>
+                    <span className="font-medium">
+                      {p.staffName} · {p.employeeCode}
+                    </span>
+                    <p className="text-xs text-muted-foreground">
+                      {t("hr.terminations.staffStatus", { status: p.staffStatus ?? "—" })}
+                      {p.hasDraftTermination
+                        ? ` · ${t("hr.terminations.hasDraft")}`
+                        : ` · ${t("hr.terminations.needsDraft")}`}
+                    </p>
+                  </div>
+                  {canInitiate && !p.hasDraftTermination ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={openFromProbation.isPending}
+                      onClick={() => openFromProbation.mutate(p.probationReviewId)}
+                    >
+                      {t("hr.terminations.openDraft")}
+                    </Button>
+                  ) : null}
+                </div>
+              ))
+            )}
+          </HrPanel>
+
+          {canInitiate && !embedded ? (
+            <HrPanel className="space-y-3">
+              <p className="text-sm font-medium">{t("hr.terminations.initiateTitle")}</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label>{t("hr.terminations.staff")}</Label>
+                  <SearchableSelect
+                    value={staffId}
+                    onValueChange={setStaffId}
+                    placeholder={t("hr.terminations.pickStaff")}
+                    emptyOption={{ value: "", label: t("hr.terminations.pickStaff") }}
+                    options={(staffOptions.data ?? []).map((s) => ({
+                      value: s.id,
+                      label: s.employeeCode ? `${s.name} (${s.employeeCode})` : s.name,
+                      keywords: `${s.name} ${s.employeeCode ?? ""}`,
+                    }))}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>{t("hr.terminations.type")}</Label>
+                  <select
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    value={termType}
+                    onChange={(e) =>
+                      setTermType(e.target.value as (typeof HR_TERMINATION_TYPES)[number])
+                    }
+                  >
+                    {HR_TERMINATION_TYPES.map((ty) => (
+                      <option key={ty} value={ty}>
+                        {t(`hr.terminations.types.${ty}`)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <Label>{t("hr.terminations.effectiveOn")}</Label>
+                  <Input
+                    type="date"
+                    value={effectiveOn}
+                    onChange={(e) => setEffectiveOn(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>{t("hr.terminations.lwd")}</Label>
+                  <Input type="date" value={lwd} onChange={(e) => setLwd(e.target.value)} />
+                </div>
+                <div className="space-y-1 sm:col-span-2">
+                  <Label>{t("hr.terminations.reason")}</Label>
+                  <Textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} />
+                </div>
+                <div className="space-y-1 sm:col-span-2">
+                  <Label>{t("hr.terminations.letter")}</Label>
+                  <Input
+                    type="file"
+                    accept=".pdf,image/*"
+                    onChange={(e) => setLetterFile(e.target.files?.[0] ?? null)}
+                  />
+                </div>
+              </div>
+              <Button type="button" disabled={initiate.isPending} onClick={() => initiate.mutate()}>
+                {t("hr.terminations.initiate")}
+              </Button>
+            </HrPanel>
+          ) : null}
 
           {selectedId ? (
             <HrPanel className="space-y-2">
