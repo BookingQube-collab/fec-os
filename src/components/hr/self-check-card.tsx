@@ -1,15 +1,17 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Check } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { formatPunchTime12h } from "@/lib/attendance-display";
+import { formatReportingTime12h } from "@/lib/attendance-display";
 import { getMySelfCheck, recordSelfCheck, type SelfCheckRecordResult } from "@/lib/attendance-hr/self-check-in.functions";
 import { selfCheckButtons, type SelfCheckKind } from "@/lib/attendance-hr/self-check-in";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
+import { cn } from "@/lib/utils";
 
 const REASON_KEY: Record<Exclude<SelfCheckRecordResult, { recorded: true }>["reason"], string> = {
   not_linked: "hr.me.unlinkedHint",
@@ -19,6 +21,8 @@ const REASON_KEY: Record<Exclude<SelfCheckRecordResult, { recorded: true }>["rea
   need_in: "hr.me.selfCheckNeedIn",
   no_location: "hr.me.selfCheckNoLocation",
 };
+
+const actionClass = "min-h-11 w-full whitespace-normal px-4 text-center shadow-none disabled:opacity-100";
 
 /** Check in / Check out for the signed-in employee when their profile allows it. */
 export function SelfCheckCard() {
@@ -46,42 +50,75 @@ export function SelfCheckCard() {
     onError: (error) => toast.error((error as Error).message || t("hr.me.selfCheckFailed")),
   });
 
-  if (state.isLoading) return <p className="hd-note">{t("common.loading")}</p>;
-  if (state.isError) return <p className="hd-note">{t("hr.me.selfCheckFailed")}</p>;
+  if (state.isLoading) {
+    return (
+      <section className="hd-card hd-stack min-w-0 max-w-full" aria-busy="true">
+        <div className="px-4 py-4">
+          <p className="m-0 text-sm text-muted-foreground">{t("common.loading")}</p>
+        </div>
+      </section>
+    );
+  }
+  if (state.isError) {
+    return (
+      <section className="hd-card hd-stack min-w-0 max-w-full">
+        <div className="px-4 py-4">
+          <p className="m-0 text-sm text-destructive">{t("hr.me.selfCheckFailed")}</p>
+        </div>
+      </section>
+    );
+  }
   if (!state.data?.enabled) return null;
 
   const buttons = selfCheckButtons(state.data.punchesToday);
-  const checkedIn = state.data.checkedInAt ? formatPunchTime12h(state.data.checkedInAt) : "";
-  const checkedOut = state.data.checkedOutAt ? formatPunchTime12h(state.data.checkedOutAt) : "";
+  const checkedIn = state.data.checkedInAt ? formatReportingTime12h(state.data.checkedInAt) : "";
+  const checkedOut = state.data.checkedOutAt ? formatReportingTime12h(state.data.checkedOutAt) : "";
+  const status = checkedOut
+    ? { text: t("hr.me.checkedOutAt", { time: checkedOut }), tone: "text-info" }
+    : checkedIn
+      ? { text: t("hr.me.checkedInAt", { time: checkedIn }), tone: "text-success" }
+      : null;
 
   return (
-    <section className="hd-card hd-stack">
-      <div className="hd-card__head">
-        <h2 className="hd-card__title">{t("hr.me.selfCheckTitle")}</h2>
-      </div>
-      <div className="hd-section">
-        <p className="hd-hint">{t("hr.me.selfCheckHint")}</p>
-        <div className="grid grid-cols-2 gap-2">
+    <section className="hd-card hd-stack min-w-0 max-w-full">
+      <div className="min-w-0 px-4 py-4">
+        <h2 className="m-0 text-xs font-bold uppercase tracking-[0.08em]">{t("hr.me.selfCheckTitle")}</h2>
+        <p className="mb-0 mt-1.5 text-sm leading-5 text-muted-foreground">{t("hr.me.selfCheckHint")}</p>
+        <div className="mt-3 grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2">
           <Button
             type="button"
-            className="min-h-11"
+            variant="outline"
+            className={cn(
+              actionClass,
+              buttons.checkIn
+                ? "border-transparent bg-success text-white hover:bg-success/90 hover:text-white"
+                : "border-success/30 bg-success/10 text-success hover:bg-success/10 hover:text-success",
+            )}
             disabled={!buttons.checkIn || punch.isPending}
             onClick={() => punch.mutate("in")}
           >
+            {buttons.checkIn ? null : <Check className="size-4" aria-hidden />}
             {t("hr.me.checkIn")}
           </Button>
           <Button
             type="button"
-            variant="secondary"
-            className="min-h-11"
+            variant="outline"
+            className={cn(
+              actionClass,
+              buttons.checkOut
+                ? "border-transparent bg-warning text-foreground hover:bg-warning/90 hover:text-foreground"
+                : checkedOut
+                  ? "border-info/25 bg-info/10 text-info hover:bg-info/10 hover:text-info"
+                  : "border-border bg-muted/50 text-muted-foreground hover:bg-muted/50 hover:text-muted-foreground",
+            )}
             disabled={!buttons.checkOut || punch.isPending}
             onClick={() => punch.mutate("out")}
           >
+            {checkedOut ? <Check className="size-4" aria-hidden /> : null}
             {t("hr.me.checkOut")}
           </Button>
         </div>
-        {checkedIn ? <p className="hd-note">{t("hr.me.checkedInAt", { time: checkedIn })}</p> : null}
-        {checkedOut ? <p className="hd-note">{t("hr.me.checkedOutAt", { time: checkedOut })}</p> : null}
+        {status ? <p className={cn("mb-0 mt-3 text-sm font-semibold leading-5", status.tone)}>{status.text}</p> : null}
       </div>
     </section>
   );

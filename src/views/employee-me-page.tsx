@@ -488,6 +488,8 @@ export default function EmployeeMePage() {
               </div>
             </section>
 
+            {active === "home" && person?.canSelfCheckIn ? <SelfCheckCard /> : null}
+
             <div className="ess-tabs" role="tablist" aria-label={t("hr.me.jumpTo")}>
               {tabs.map((item) => (
                 <button
@@ -537,7 +539,7 @@ export default function EmployeeMePage() {
                       <span className="hd-stat__label">{t("hr.me.myRoster")}</span>
                     </button>
                   </div>
-                  {person?.canSelfCheckIn ? <SelfCheckCard /> : <p className="hd-note">{t("hr.me.biometricNote")}</p>}
+                  {!person?.canSelfCheckIn ? <p className="hd-note">{t("hr.me.biometricNote")}</p> : null}
                   <div id="me-punch-approvals" className="hd-stack">
                     <MissedPunchApprovalQueue hideWhenEmpty actionableOnly title={t("hr.me.approvalsTitle")} />
                   </div>
