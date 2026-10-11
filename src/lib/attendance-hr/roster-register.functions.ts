@@ -5,7 +5,7 @@ import { z } from "zod";
 import { loadLinkedStaffJobTitle } from "@/lib/linked-staff-job-title.server";
 import { canAmendShiftRoster, canUserDo, type AppRole } from "@/lib/rbac";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { loadDirectReportStaffIds, loadTeamCoverageLocations } from "@/lib/reporting-manager-access.server";
+import { loadDirectReportStaffIds } from "@/lib/reporting-manager-access.server";
 import { createAuthenticatedAction, createAuthenticatedActionNoInput, type AuthContext } from "@/lib/server/create-action";
 import { ForbiddenError } from "@/lib/server/authorize";
 import { assertAttendanceRosterLocation } from "@/lib/attendance-hr/roster-apply";
@@ -24,6 +24,7 @@ import {
   rosterRowMatchesSearch,
   type RosterDayStatus,
   type RosterLeaveType,
+  type RosterMatrixStaff,
 } from "@/lib/attendance-hr/roster-register-scope";
 import {
   filterRosterCopyRows,
@@ -148,7 +149,8 @@ async function assertCanAmendRoster(context: Pick<AuthContext, "userId" | "roles
 type RosterActor = {
   /**
    * Null when this login can read the company roster.
-   * Otherwise direct reports plus assignable staff whose home site the team already covers.
+   * Otherwise direct reports only (`reporting_manager_staff_id`), including
+   * people who have no roster row yet.
    */
   teamIds: string[] | null;
   /** Team rows sit at sites the login role cannot open, so those reads and writes use the admin client. */
@@ -162,6 +164,7 @@ type RosterAssignStaffRow = {
   id: string;
   employee_code: string | null;
   full_name: string | null;
+  qid: string | null;
   status: string | null;
   employment_type: string | null;
   location_id: string | null;
@@ -195,7 +198,7 @@ async function fetchAssignableStaffRows(
     const page = await collectPagedRows<RosterAssignStaffRow>(async (from, to) => {
       let q = db
         .from("staff")
-        .select("id, employee_code, full_name, status, employment_type, location_id")
+        .select("id, employee_code, full_name, qid, status, employment_type, location_id")
         .is("deleted_at", null)
         .or(STAFF_NOT_JOKER_EMPLOYMENT_OR)
         .order("id", { ascending: true })
@@ -223,7 +226,7 @@ async function fetchStaffRowsByIds(
   for (const ids of chunkIds(staffIds, ROSTER_ID_CHUNK)) {
     const { data, error } = await db
       .from("staff")
-      .select("id, employee_code, full_name, status, employment_type, location_id")
+      .select("id, employee_code, full_name, qid, status, employment_type, location_id")
       .in("id", ids)
       .is("deleted_at", null)
       .or(STAFF_NOT_JOKER_EMPLOYMENT_OR);
@@ -234,28 +237,56 @@ async function fetchStaffRowsByIds(
 }
 
 /**
- * Team-scoped amend set: direct reports, plus assignable people whose home
- * location is a site this team already covers. The manager's own staff id is
- * part of the coverage seed so a new hire at that site is included before a
- * reporting line exists.
+ * Team-scoped roster: people whose reporting manager is this login's staff
+ * record. Same line the org chart uses (`loadDirectReportStaffIds` /
+ * `staff_profile_ext.reporting_manager_staff_id`).
+ * Assignable statuses stay: active (blank, active, probation, secondment,
+ * remote), on leave, and serving notice. The org-chart helper drops on-leave
+ * and blank statuses, so this re-reads the same line and keeps those people.
+ * Resigned, terminated, released, deleted, and jokers stay out.
+ * Home-site coverage is not included. A team-scoped manager does not see
+ * every employee at the sites the team works.
  */
 async function loadTeamRosterStaffIds(userId: string): Promise<string[]> {
   const access = await loadDirectReportStaffIds(userId);
-  const ids = new Set(access.directReportStaffIds);
-  const seed = [
-    ...new Set([access.staffId, ...access.directReportStaffIds].filter((id): id is string => Boolean(id))),
+  if (!access.staffId) return [];
+
+  const { data: reports, error: reportErr } = await supabaseAdmin
+    .from("staff_profile_ext")
+    .select("staff_id")
+    .eq("reporting_manager_staff_id", access.staffId);
+  if (reportErr) throw new Error(reportErr.message);
+
+  const candidateIds = [
+    ...new Set(
+      (reports ?? [])
+        .map((row) => row.staff_id)
+        .filter((id): id is string => Boolean(id) && id !== access.staffId),
+    ),
   ];
-  if (seed.length > 0) {
-    const sites = await loadTeamCoverageLocations(seed);
-    if (sites.length > 0) {
-      const atSites = await fetchAssignableStaffRows(
-        supabaseAdmin,
-        sites.map((site) => site.id),
-      );
-      for (const row of atSites) ids.add(String(row.id));
-    }
-  }
-  return [...ids].sort();
+  if (candidateIds.length === 0) return [];
+
+  const rows = await fetchStaffRowsByIds(supabaseAdmin, candidateIds);
+  return rows
+    .filter((row) => isAssignableRosterStaffRow(row))
+    .map((row) => String(row.id))
+    .sort();
+}
+
+/** Names for team rows that have no assignment in the selected period. */
+async function loadRosterTeamStaffProfiles(
+  db: AuthContext["supabase"],
+  staffIds: string[],
+): Promise<RosterMatrixStaff[]> {
+  const rows = await fetchStaffRowsByIds(db, staffIds);
+  return rows
+    .filter((row) => isAssignableRosterStaffRow(row))
+    .map((row) => ({
+      staffId: String(row.id),
+      staffName: row.full_name ?? null,
+      employeeCode: row.employee_code ?? null,
+      qid: row.qid ?? null,
+    }));
 }
 
 function canViewCompanyRoster(roles: AppRole[]): boolean {
@@ -461,7 +492,13 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
       throw new ForbiddenError("Forbidden: missing capability to view the shift roster.");
     }
     if (teamIds && data.staffId && !teamIds.includes(data.staffId)) {
-      return { dateFrom: data.dateFrom, dateTo: data.dateTo, count: 0, rows: [] as RosterRegisterRow[] };
+      return {
+        dateFrom: data.dateFrom,
+        dateTo: data.dateTo,
+        count: 0,
+        rows: [] as RosterRegisterRow[],
+        teamStaff: [] as RosterMatrixStaff[],
+      };
     }
     if (data.locationId && companyRoster) await assertAttendanceRosterLocation(context, data.locationId);
     // Team rows live at the sites people punch, which the manager's role locations do not include.
@@ -475,7 +512,13 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
         deptStaffIds = deptStaffIds.filter((id) => allow.has(id));
       }
       if (deptStaffIds.length === 0) {
-        return { dateFrom: data.dateFrom, dateTo: data.dateTo, count: 0, rows: [] as RosterRegisterRow[] };
+        return {
+          dateFrom: data.dateFrom,
+          dateTo: data.dateTo,
+          count: 0,
+          rows: [] as RosterRegisterRow[],
+          teamStaff: [] as RosterMatrixStaff[],
+        };
       }
     }
 
@@ -525,14 +568,18 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
       assignments.push(...pageRows);
     }
 
+    let hiddenStaff: Set<string> | null = null;
+    let shownStaff: Set<string> | null = null;
     if (data.excludedDepartmentIds?.length) {
-      const hiddenStaff = await hiddenStaffIdsForExcludedDepartments(db, data.excludedDepartmentIds);
-      if (hiddenStaff.size > 0) {
-        assignments = assignments.filter((row) => !hiddenStaff.has(String(row.staff_id)));
+      const hidden = await hiddenStaffIdsForExcludedDepartments(db, data.excludedDepartmentIds);
+      hiddenStaff = hidden;
+      if (hidden.size > 0) {
+        assignments = assignments.filter((row) => !hidden.has(String(row.staff_id)));
       }
     } else if (data.showOnlyDepartmentIds?.length) {
-      const shownStaff = await staffIdsLinkedToDepartments(db, data.showOnlyDepartmentIds);
-      assignments = assignments.filter((row) => shownStaff.has(String(row.staff_id)));
+      const shown = await staffIdsLinkedToDepartments(db, data.showOnlyDepartmentIds);
+      shownStaff = shown;
+      assignments = assignments.filter((row) => shown.has(String(row.staff_id)));
     }
 
     const staffIds = [...new Set(assignments.map((row) => String(row.staff_id)).filter(Boolean))];
@@ -686,11 +733,32 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
       };
     });
 
+    let teamStaff: RosterMatrixStaff[] | null = null;
+    if (teamIds) {
+      let ids = teamIds;
+      if (data.staffId) ids = ids.filter((id) => id === data.staffId);
+      if (deptStaffIds) {
+        const allow = new Set(deptStaffIds);
+        ids = ids.filter((id) => allow.has(id));
+      }
+      if (hiddenStaff) {
+        const hidden = hiddenStaff;
+        ids = ids.filter((id) => !hidden.has(id));
+      }
+      if (shownStaff) {
+        const shown = shownStaff;
+        ids = ids.filter((id) => shown.has(id));
+      }
+      teamStaff = await loadRosterTeamStaffProfiles(db, ids);
+    }
+
     return {
       dateFrom: data.dateFrom,
       dateTo: data.dateTo,
       count: mapped.length,
       rows: mapped,
+      /** Null for company roster viewers. Direct reports for a team-scoped manager, even with no shifts. */
+      teamStaff,
     };
   },
   {
@@ -710,8 +778,8 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
 /**
  * Staff the add-shift dialog can place on a day.
  * Company roster viewers get every assignable employee, paged past 1,000.
- * A manager who can amend but is team-scoped gets direct reports plus
- * assignable staff at sites that team already covers.
+ * A team-scoped manager gets direct reports only, including teammates with
+ * no roster row and a new hire who reports to them.
  */
 export const listRosterAssignStaff = createAuthenticatedActionNoInput(async (context) => {
   const roles = (context.roles ?? []) as AppRole[];

@@ -67,6 +67,7 @@ import {
   rosterMatrixCellKey,
   rosterPatchFromDayStatus,
   rosterRegisterHasExtraFilters,
+  rosterTeamStaffForMatrix,
   type RosterDayStatus,
 } from "@/lib/attendance-hr/roster-register-scope";
 import { STALE } from "@/lib/query-client";
@@ -220,9 +221,13 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     });
 
     const rows = useMemo(() => register.data?.rows ?? [], [register.data?.rows]);
+    const teamStaff = register.data?.teamStaff ?? null;
 
     const staffOptions = useMemo(() => {
       const map = new Map<string, string>();
+      for (const person of teamStaff ?? []) {
+        map.set(person.staffId, person.staffName || person.employeeCode || person.qid || person.staffId);
+      }
       for (const row of rows) {
         if (!map.has(row.staffId)) {
           map.set(row.staffId, row.staffName || row.employeeCode || row.qid || row.staffId);
@@ -231,7 +236,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       return [...map.entries()]
         .map(([value, label]) => ({ value, label }))
         .sort((a, b) => a.label.localeCompare(b.label));
-    }, [rows]);
+    }, [rows, teamStaff]);
 
     const filtered = useMemo(
       () => filterRosterRegisterRows(rows, { staffId, search: query }),
@@ -239,10 +244,17 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     );
 
     const matrix = useMemo(
-      () => buildRosterMatrix(filtered, dateFrom, dateTo),
-      [filtered, dateFrom, dateTo],
+      () =>
+        buildRosterMatrix(
+          filtered,
+          dateFrom,
+          dateTo,
+          rosterTeamStaffForMatrix(teamStaff, { staffId, search: query }),
+        ),
+      [filtered, dateFrom, dateTo, teamStaff, staffId, query],
     );
     const showEmptyDayGrid = rosterEmptyPeriodShowsDayGrid(filtered.length, canAmend);
+    const teamGridWithoutRows = filtered.length === 0 && matrix.staff.length > 0;
     const assignStaff = useQuery({
       queryKey: [...queryKeys.people.all, "roster-assign-staff"],
       queryFn: () => listRosterAssignStaff(),
@@ -800,11 +812,13 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
           <p className="text-sm text-destructive">
             {register.error instanceof Error ? register.error.message : t("people.roster.registerLoadFailed")}
           </p>
-        ) : filtered.length === 0 && !showEmptyDayGrid ? (
+        ) : filtered.length === 0 && !showEmptyDayGrid && !teamGridWithoutRows ? (
           <p className="text-sm text-muted-foreground">{emptyMessage}</p>
-        ) : viewMode === "grid" || showEmptyDayGrid ? (
+        ) : viewMode === "grid" || showEmptyDayGrid || teamGridWithoutRows ? (
           <>
-          {showEmptyDayGrid ? <p className="text-sm text-muted-foreground">{emptyMessage}</p> : null}
+          {showEmptyDayGrid && !teamGridWithoutRows ? (
+            <p className="text-sm text-muted-foreground">{emptyMessage}</p>
+          ) : null}
           <div className="overflow-auto rounded-lg border border-border/70" style={{ maxHeight }}>
             <table className="min-w-max border-collapse text-xs">
               <thead className="sticky top-0 z-20">

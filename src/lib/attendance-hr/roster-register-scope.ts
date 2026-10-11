@@ -82,7 +82,35 @@ export function rosterEmptyDayCanAdd(canAmend: boolean, entryCount: number): boo
   return canAmend && entryCount === 0;
 }
 
-/** Staff × day matrix for the selected period. Multiple rows for the same staff+date stay stacked. */
+/**
+ * Direct reports to place on a team-scoped grid, including people with no
+ * assignment in the period. Null is the company roster: do not add people
+ * who have no shifts. Staff and search filters still apply.
+ */
+export function rosterTeamStaffForMatrix(
+  teamStaff: readonly RosterMatrixStaff[] | null | undefined,
+  filters: Pick<RosterRegisterScopeFilters, "staffId" | "search">,
+): RosterMatrixStaff[] {
+  if (!teamStaff?.length) return [];
+  const staffId = filters.staffId || null;
+  return teamStaff.filter((person) => {
+    if (!person.staffId) return false;
+    if (staffId && person.staffId !== staffId) return false;
+    return rosterRowMatchesSearch(
+      {
+        staffName: person.staffName,
+        employeeCode: person.employeeCode,
+        qid: person.qid,
+      },
+      filters.search,
+    );
+  });
+}
+
+/**
+ * Staff × day matrix for the selected period. Multiple rows for the same staff+date stay stacked.
+ * `teamStaff` adds one row per teammate even when they have no assignment in the period.
+ */
 export function buildRosterMatrix<
   T extends {
     staffId: string;
@@ -91,7 +119,7 @@ export function buildRosterMatrix<
     qid: string | null;
     workDate: string;
   },
->(rows: T[], dateFrom: string, dateTo: string) {
+>(rows: T[], dateFrom: string, dateTo: string, teamStaff?: readonly RosterMatrixStaff[] | null) {
   const dates = enumerateYmd(dateFrom, dateTo);
   const staffMap = new Map<string, RosterMatrixStaff>();
   const byStaffDate = new Map<string, T[]>();
@@ -109,6 +137,16 @@ export function buildRosterMatrix<
     const bucket = byStaffDate.get(key);
     if (bucket) bucket.push(row);
     else byStaffDate.set(key, [row]);
+  }
+
+  for (const person of teamStaff ?? []) {
+    if (!person.staffId || staffMap.has(person.staffId)) continue;
+    staffMap.set(person.staffId, {
+      staffId: person.staffId,
+      staffName: person.staffName,
+      employeeCode: person.employeeCode,
+      qid: person.qid,
+    });
   }
 
   const staff = [...staffMap.values()].sort((a, b) =>

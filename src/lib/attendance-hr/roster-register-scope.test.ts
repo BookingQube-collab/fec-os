@@ -18,6 +18,7 @@ import {
   rosterHiddenStaffIds,
   rosterRegisterHasExtraFilters,
   rosterRowMatchesSearch,
+  rosterTeamStaffForMatrix,
 } from "./roster-register-scope";
 import { ATTENDANCE_DAILY_LIST_PAGE_SIZE } from "./constants";
 
@@ -195,6 +196,45 @@ describe("roster register bulk-delete scope", () => {
   it("recalcs both sites when amend moves location", () => {
     expect(rosterAmendRecalcLocationIds("loc-inf", "loc-inf")).toEqual(["loc-inf"]);
     expect(rosterAmendRecalcLocationIds("loc-inf", "loc-ua")).toEqual(["loc-inf", "loc-ua"]);
+  });
+
+  it("keeps every direct report on the grid when they have no shifts", () => {
+    const ada = {
+      staffId: "staff-1",
+      staffName: "Ada",
+      employeeCode: "A1",
+      qid: null as string | null,
+      workDate: "2026-07-28",
+    };
+    const team = [
+      { staffId: "staff-1", staffName: "Ada", employeeCode: "A1", qid: null },
+      { staffId: "new-hire", staffName: "New Hire", employeeCode: "N1", qid: null },
+      { staffId: "on-leave", staffName: "On Leave", employeeCode: "L1", qid: null },
+    ];
+    const matrix = buildRosterMatrix(
+      [ada],
+      "2026-07-28",
+      "2026-07-29",
+      rosterTeamStaffForMatrix(team, {}),
+    );
+    expect(matrix.dates).toEqual(["2026-07-28", "2026-07-29"]);
+    expect(matrix.staff.map((person) => person.staffName)).toEqual(["Ada", "New Hire", "On Leave"]);
+    expect(matrix.staff.filter((person) => person.staffId === "staff-1")).toHaveLength(1);
+    expect(matrix.byStaffDate.has(rosterMatrixCellKey("new-hire", "2026-07-28"))).toBe(false);
+    expect(matrix.byStaffDate.has(rosterMatrixCellKey("on-leave", "2026-07-29"))).toBe(false);
+    expect(
+      rosterEmptyDayCanAdd(true, matrix.byStaffDate.get(rosterMatrixCellKey("new-hire", "2026-07-28"))?.length ?? 0),
+    ).toBe(true);
+
+    const company = buildRosterMatrix([ada], "2026-07-28", "2026-07-29", rosterTeamStaffForMatrix(null, {}));
+    expect(company.staff.map((person) => person.staffId)).toEqual(["staff-1"]);
+    expect(rosterTeamStaffForMatrix(undefined, {})).toEqual([]);
+    expect(rosterTeamStaffForMatrix(team, { search: "new hire" }).map((person) => person.staffId)).toEqual([
+      "new-hire",
+    ]);
+    expect(rosterTeamStaffForMatrix(team, { staffId: "on-leave" }).map((person) => person.staffId)).toEqual([
+      "on-leave",
+    ]);
   });
 
   it("shows period days and an add action when a manager has no rows yet", () => {
