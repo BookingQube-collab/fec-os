@@ -2,6 +2,7 @@ import "server-only";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { reportingTreeStaffIds } from "@/lib/attendance-listing-access";
+import { isPeopleDirectoryTeamRow } from "@/lib/people-directory-access";
 import { unionTeamLocationIds, usesTeamLocationScope } from "@/lib/reporting-manager-locations";
 import type { AppRole } from "@/lib/rbac";
 import { ForbiddenError } from "@/lib/server/authorize";
@@ -58,6 +59,54 @@ export async function loadDirectReportStaffIds(userId: string): Promise<DirectRe
     staffId: staff.id,
     directReportStaffIds: [...active].sort(),
   };
+}
+
+/**
+ * People directory for a job-title manager: direct reports only.
+ * Includes active, on leave, and serving notice. Omits resigned, terminated, deleted, and jokers.
+ */
+export async function loadPeopleDirectoryTeamStaffIds(userId: string): Promise<string[]> {
+  const { data: staff, error } = await supabaseAdmin
+    .from("staff")
+    .select("id")
+    .eq("user_id", userId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!staff?.id) return [];
+
+  const { data: reports, error: reportErr } = await supabaseAdmin
+    .from("staff_profile_ext")
+    .select("staff_id")
+    .eq("reporting_manager_staff_id", staff.id);
+  if (reportErr) throw new Error(reportErr.message);
+
+  const candidateIds = [
+    ...new Set((reports ?? []).map((row) => row.staff_id).filter((id) => id && id !== staff.id)),
+  ];
+  if (candidateIds.length === 0) return [];
+
+  const visible = new Set<string>();
+  for (let index = 0; index < candidateIds.length; index += 100) {
+    const chunk = candidateIds.slice(index, index + 100);
+    const { data: rows, error: staffErr } = await supabaseAdmin
+      .from("staff")
+      .select("id, status, employment_type, deleted_at")
+      .in("id", chunk);
+    if (staffErr) throw new Error(staffErr.message);
+    for (const row of rows ?? []) {
+      if (
+        isPeopleDirectoryTeamRow({
+          status: row.status,
+          employmentType: row.employment_type,
+          deletedAt: row.deleted_at,
+        })
+      ) {
+        visible.add(row.id);
+      }
+    }
+  }
+  return [...visible].sort();
 }
 
 /**

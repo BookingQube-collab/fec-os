@@ -15,6 +15,7 @@ import { listCapabilityGrants } from "@/lib/admin.functions";
 import { setActiveCapabilityGrants, toGrantMap } from "@/lib/rbac-grants";
 import { supabase } from "@/integrations/supabase/client";
 import { queryKeys } from "@/lib/query-keys";
+import { canOpenPeopleDirectory, peopleDirectoryShowsSalary } from "@/lib/people-directory-access";
 import { canAmendShiftRoster, type AppRole, type RoleAssignment } from "@/lib/rbac";
 
 export type Profile = AuthProfile;
@@ -283,4 +284,18 @@ export function useCanAmendShiftRoster(): boolean {
   const { profile } = useAuth();
   const roles = useUserRoles();
   return canAmendShiftRoster(roles, profile?.job_title);
+}
+
+/** People directory: company roster capability, or a manager/supervisor job title. */
+export function useCanOpenPeopleDirectory(): boolean {
+  const { profile } = useAuth();
+  const roles = useUserRoles();
+  return canOpenPeopleDirectory(roles, profile?.job_title);
+}
+
+/** Monthly salary and day rate. Hidden for branch managers and job-title supervisors. */
+export function usePeopleDirectoryShowsSalary(): boolean {
+  const { profile } = useAuth();
+  const roles = useUserRoles();
+  return peopleDirectoryShowsSalary(roles, profile?.job_title);
 }

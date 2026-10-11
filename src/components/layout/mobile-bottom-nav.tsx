@@ -27,6 +27,7 @@ import {
   getVisibleDepartments,
   isNavItemActive,
   isSidebarNavGroupItemActive,
+  mergePeopleDirectoryDepartments,
   mergeReportingManagerDepartments,
   navHrefPath,
   usesEmployeeFlatRail,
@@ -35,6 +36,7 @@ import {
 } from "@/lib/nav-config";
 import { applySidebarItemOrder, orderDepartments } from "@/lib/nav-order";
 import { MOBILE_TABS, isMobileTabActive, type MobileTabId } from "@/lib/mobile-nav";
+import { canOpenPeopleDirectory } from "@/lib/people-directory-access";
 import { canUserDo } from "@/lib/rbac";
 import { cn } from "@/lib/utils";
 
@@ -234,7 +236,8 @@ export function MobileBottomNav() {
   const pathname = usePathname();
   const router = useRouter();
   const roles = useUserRoles();
-  const { signOut } = useAuth();
+  const { signOut, profile } = useAuth();
+  const jobTitle = profile?.job_title ?? null;
   const { t } = useTranslation();
   const [moreOpen, setMoreOpen] = useState(false);
 
@@ -246,28 +249,36 @@ export function MobileBottomNav() {
 
   const { hasDirectReports } = useHasDirectReports();
   const employeeRail = useMemo(
-    () => (usesEmployeeFlatRail(roles, hasDirectReports) ? getEmployeeFlatRail(roles) : []),
-    [hasDirectReports, roles],
+    () => (usesEmployeeFlatRail(roles, hasDirectReports) ? getEmployeeFlatRail(roles, jobTitle) : []),
+    [hasDirectReports, jobTitle, roles],
   );
   const employeeTabs = employeeRail.slice(0, 4);
   const employeeOverflow = employeeRail.slice(employeeTabs.length);
   const tabs = useMemo(
     () =>
       MOBILE_TABS.filter((tab) => {
+        if (tab.id === "people" && canOpenPeopleDirectory(roles, jobTitle)) return true;
         if (tab.capability === null || canUserDo(roles, tab.capability)) return true;
         return hasDirectReports && tab.id === "attendance";
       }),
-    [hasDirectReports, roles],
+    [hasDirectReports, jobTitle, roles],
   );
 
   const { order, itemOrders } = useSidebarNavOrder();
   const departments = useMemo(
     () =>
       applySidebarItemOrder(
-        orderDepartments(mergeReportingManagerDepartments(getVisibleDepartments(roles), hasDirectReports), order),
+        orderDepartments(
+          mergePeopleDirectoryDepartments(
+            mergeReportingManagerDepartments(getVisibleDepartments(roles), hasDirectReports),
+            roles,
+            jobTitle,
+          ),
+          order,
+        ),
         itemOrders,
       ),
-    [hasDirectReports, itemOrders, order, roles],
+    [hasDirectReports, itemOrders, jobTitle, order, roles],
   );
 
   if (tabs.length === 0) return null;

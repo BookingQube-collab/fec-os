@@ -1,5 +1,7 @@
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { AuthContext } from "@/lib/server/auth";
 import { redactStaffIdentityNumbers } from "@/lib/hr-advanced";
+import { isPeopleDirectoryTeamRow, omitPeopleDirectorySalary, peopleDirectoryShowsSalary } from "@/lib/people-directory-access";
 import { fetchAttendanceMappedStaffIds } from "@/lib/staff-attendance-mapped";
 import { hiddenUnmappedDuplicateIds } from "@/lib/staff-mapped-duplicates";
 import { formatLocationLabel } from "@/lib/locations/normalize";
@@ -498,7 +500,7 @@ export async function fetchMasterDepartments(context: AuthContext): Promise<Mast
 export async function fetchStaff(
   context: AuthContext,
   locationId?: string | null,
-  options?: { includeArchived?: boolean },
+  options?: { includeArchived?: boolean; showSalary?: boolean },
 ): Promise<StaffRow[]> {
   let q = context.supabase
     .from("staff")
@@ -559,10 +561,12 @@ export async function fetchStaff(
   }
 
   const canSensitive = canUserDo(context.roles ?? [], "hr.profile.view_sensitive");
-  const canSalary = canUserDo(context.roles ?? [], "people.view_salary");
+  const canSalary = options?.showSalary ?? peopleDirectoryShowsSalary(context.roles ?? []);
   const identitySafe = mapped.map((s) => redactStaffIdentityNumbers(s, canSensitive));
 
-  if (!canSalary || !identitySafe.length) return identitySafe;
+  if (!canSalary || !identitySafe.length) {
+    return identitySafe.map((row) => omitPeopleDirectorySalary(row));
+  }
 
   const { data: comps } = await context.supabase
     .from("staff_compensation")
@@ -672,38 +676,51 @@ function applyStaffProfileExt(
  * status and expiry (tile shortcuts — they filter the table only).
  * Client receives only the current page of lean rows (not the full roster).
  */
+export type StaffDirectoryReadAccess = {
+  /** Direct-report ids for a job-title manager. Null keeps the company directory. */
+  teamStaffIds?: readonly string[] | null;
+  showSalary?: boolean;
+};
+
 export async function fetchStaffDirectory(
   context: AuthContext,
   filters: StaffDirectoryListFilters = {},
+  access?: StaffDirectoryReadAccess,
 ): Promise<StaffDirectoryListPayload> {
   const pageSizeRaw = filters.pageSize ?? 25;
   const pageSize = pageSizeRaw === 50 || pageSizeRaw === 100 ? pageSizeRaw : 25;
   const page = Math.max(1, filters.page ?? 1);
+  const teamStaffIds = access?.teamStaffIds ?? null;
+  const staffDb = teamStaffIds ? supabaseAdmin : context.supabase;
 
-  let q = context.supabase
-    .from("staff")
-    .select(STAFF_DIRECTORY_SELECT)
-    .order("full_name")
-    .limit(2000);
-  if (!filters.includeArchived) q = q.is("deleted_at", null);
-  if (filters.locationId) {
-    // Home location, or an active temporary move to this site.
-    // Extra dedicated sites and punches are not directory membership.
-    const tempIds = await fetchStaffIdsOnActiveTemporaryMove(context.supabase, filters.locationId);
-    q = tempIds.length
-      ? q.or(`location_id.eq.${filters.locationId},id.in.(${tempIds.join(",")})`)
-      : q.eq("location_id", filters.locationId);
+  const collected: Array<Record<string, unknown>> = [];
+  const chunks: Array<readonly string[] | null> = teamStaffIds == null ? [null] : [];
+  if (teamStaffIds) {
+    for (let index = 0; index < teamStaffIds.length; index += 80) {
+      chunks.push(teamStaffIds.slice(index, index + 80));
+    }
+  }
+  for (const ids of chunks) {
+    let q = staffDb.from("staff").select(STAFF_DIRECTORY_SELECT).order("full_name").limit(2000);
+    // Team scope never includes deleted people, even when the screen asks for archived rows.
+    if (!filters.includeArchived || teamStaffIds) q = q.is("deleted_at", null);
+    if (ids) q = q.in("id", [...ids]);
+    if (filters.locationId) {
+      // Home location, or an active temporary move to this site.
+      // Extra dedicated sites and punches are not directory membership.
+      const tempIds = await fetchStaffIdsOnActiveTemporaryMove(staffDb, filters.locationId);
+      q = tempIds.length
+        ? q.or(`location_id.eq.${filters.locationId},id.in.(${tempIds.join(",")})`)
+        : q.eq("location_id", filters.locationId);
+    }
+    const { data: rows, error } = await q;
+    if (error) throw error;
+    collected.push(...((rows ?? []) as Array<Record<string, unknown>>));
   }
 
-  const { data: rows, error } = await q;
-  if (error) throw error;
+  const visibleRows = await withoutUnmappedStaffDuplicates(staffDb, collected);
 
-  const visibleRows = await withoutUnmappedStaffDuplicates(
-    context.supabase,
-    (rows ?? []) as Array<Record<string, unknown>>,
-  );
-
-  const mapped = visibleRows.map((row) => {
+  let mapped = visibleRows.map((row) => {
     const raw = row as Record<string, unknown> & {
       locations?: { code: string; name: string } | null;
       staff_departments?: StaffDeptJoin[] | null;
@@ -740,13 +757,24 @@ export async function fetchStaffDirectory(
     const { staff_profile_ext: _ext, ...rest } = raw;
     return applyStaffProfileExt(mapStaffRow(rest), ext);
   });
+  if (teamStaffIds) {
+    const allowed = new Set(teamStaffIds);
+    mapped = mapped.filter(
+      (row) =>
+        allowed.has(row.id) &&
+        isPeopleDirectoryTeamRow({
+          status: row.status,
+          employmentType: row.employment_type,
+        }),
+    );
+  }
 
   const workByStaff = await fetchWorkLocationsByStaffId(
-    context.supabase,
+    staffDb,
     mapped.map((s) => s.id),
   );
   const tempByStaff = await fetchActiveTemporaryMovesByStaffId(
-    context.supabase,
+    staffDb,
     mapped.map((s) => s.id),
   );
   for (const row of mapped) {
@@ -815,10 +843,10 @@ export async function fetchStaffDirectory(
   const pageRows = filtered.slice(from, from + pageSize);
 
   // Compensation only for the visible page (edit dialog), not the full roster.
-  const canSalary = canUserDo(context.roles ?? [], "people.view_salary");
-  let data = pageRows;
+  const canSalary = access?.showSalary ?? peopleDirectoryShowsSalary(context.roles ?? []);
+  let data = canSalary ? pageRows : pageRows.map((row) => omitPeopleDirectorySalary(row));
   if (canSalary && pageRows.length) {
-    const { data: comps } = await context.supabase
+    const { data: comps } = await staffDb
       .from("staff_compensation")
       .select("staff_id, monthly_salary_qar, daily_rate_qar")
       .in(

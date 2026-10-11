@@ -38,7 +38,9 @@ import {
   isNavItemActive,
   isSidebarNavGroupActive,
   isSidebarNavGroupItemActive,
+  mergePeopleDirectoryDepartments,
   mergeReportingManagerDepartments,
+  peopleDirectoryRailItems,
   navHrefPath,
   reportingManagerRailItems,
   showsMyDayNav,
@@ -1252,7 +1254,8 @@ export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const roles = useUserRoles();
-  const { roles: roleRows } = useAuth();
+  const { roles: roleRows, profile } = useAuth();
+  const jobTitle = profile?.job_title ?? null;
   const canReorder = canReorderSidebarNav(roleRows);
   const { order, itemOrders, save, saveItems } = useSidebarNavOrder();
   const { hasDirectReports } = useHasDirectReports();
@@ -1304,24 +1307,43 @@ export function AppSidebar() {
   const departments = useMemo(
     () =>
       applySidebarItemOrder(
-        orderDepartments(mergeReportingManagerDepartments(getVisibleDepartments(roles), hasDirectReports), order),
+        orderDepartments(
+          mergePeopleDirectoryDepartments(
+            mergeReportingManagerDepartments(getVisibleDepartments(roles), hasDirectReports),
+            roles,
+            jobTitle,
+          ),
+          order,
+        ),
         itemOrders,
       ),
-    [hasDirectReports, itemOrders, order, roles],
+    [hasDirectReports, itemOrders, jobTitle, order, roles],
   );
   const managerRail = useMemo(
     () => reportingManagerRailItems(hasDirectReports, new Set(primary.map((item) => item.departmentId))),
     [hasDirectReports, primary],
   );
   const employeeFlat = useMemo(
-    () => (usesEmployeeFlatRail(roles, hasDirectReports) ? getEmployeeFlatRail(roles) : []),
-    [hasDirectReports, roles],
+    () => (usesEmployeeFlatRail(roles, hasDirectReports) ? getEmployeeFlatRail(roles, jobTitle) : []),
+    [hasDirectReports, jobTitle, roles],
   );
   const pinnedEssentials = useMemo(
     () => employeePinnedRailItems(roles, hasDirectReports, new Set(primary.map((item) => item.href))),
     [hasDirectReports, primary, roles],
   );
-  const railExtras = useMemo(() => [...managerRail, ...pinnedEssentials], [managerRail, pinnedEssentials]);
+  const directoryRail = useMemo(
+    () =>
+      peopleDirectoryRailItems(
+        roles,
+        jobTitle,
+        new Set([...employeeFlat.map((item) => item.href), ...primary.map((item) => item.href)]),
+      ),
+    [employeeFlat, jobTitle, primary, roles],
+  );
+  const railExtras = useMemo(
+    () => [...directoryRail, ...managerRail, ...pinnedEssentials],
+    [directoryRail, managerRail, pinnedEssentials],
+  );
   const departmentsById = useMemo(
     () => new Map(departments.map((dept) => [dept.id, dept])),
     [departments],

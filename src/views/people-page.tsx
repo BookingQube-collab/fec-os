@@ -96,7 +96,9 @@ import { countsAsActiveStaff, isActiveStaffStatus, reconcileJokerStaffStatus } f
 import { fileToBase64, identityFileContentType } from "@/lib/hr/identity-file";
 import type { StaffRow } from "@/lib/queries/module-queries.core";
 import { queryKeys } from "@/lib/query-keys";
+import { useAuth, useCanOpenPeopleDirectory, usePeopleDirectoryShowsSalary, useUserRoles } from "@/hooks/use-auth";
 import { usePermission } from "@/hooks/use-permission";
+import { hasCompanyPeopleDirectory } from "@/lib/people-directory-access";
 import { useAppStore } from "@/stores/app-store";
 import {
   FecButton as Button,
@@ -276,11 +278,17 @@ function PeoplePageBody() {
   const { t } = useTranslation();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { rolesSettled } = useAuth();
+  const roles = useUserRoles();
+  const canDirectory = useCanOpenPeopleDirectory();
+  const companyDirectory = !rolesSettled || hasCompanyPeopleDirectory(roles);
+  const teamDirectory = rolesSettled && canDirectory && !hasCompanyPeopleDirectory(roles);
   const canEdit = usePermission("people.edit_roster");
   const canImport = usePermission("people.import_roster");
-  const tabParam = searchParams.get("tab") ?? "dashboard";
-  const tab = resolvePeopleTab(tabParam);
-  const hiddenTab = !(PEOPLE_MAIN_TABS as readonly string[]).includes(tab);
+  const tabParam = searchParams.get("tab") ?? (teamDirectory ? "staff" : "dashboard");
+  const tab = teamDirectory ? "staff" : resolvePeopleTab(tabParam);
+  const visibleTabs = teamDirectory ? (["staff"] as const) : PEOPLE_MAIN_TABS;
+  const hiddenTab = !(visibleTabs as readonly string[]).includes(tab);
 
   const setTab = (next: string) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -295,6 +303,14 @@ function PeoplePageBody() {
     const qs = params.toString();
     router.replace(qs ? `/people?${qs}` : "/people", { scroll: false });
   };
+
+  if (rolesSettled && !canDirectory) {
+    return (
+      <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+        {t("people.staff.directoryDenied", "You do not have access to the people directory.")}
+      </div>
+    );
+  }
 
   return (
     <div className="hr-module space-y-5">
@@ -320,7 +336,7 @@ function PeoplePageBody() {
       />
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
-          {PEOPLE_MAIN_TABS.map((value) => {
+          {visibleTabs.map((value) => {
             const Icon = PEOPLE_TAB_ICONS[value];
             return (
             <TabsTrigger key={value} value={value}>
@@ -343,14 +359,18 @@ function PeoplePageBody() {
             </Link>
           </p>
         ) : null}
+        {companyDirectory ? (
         <TabsContent value="dashboard" className="mt-4 data-[state=inactive]:hidden">
           <PeopleDashboardPanel />
         </TabsContent>
+        ) : null}
         {/* forceMount: keep StaffDirectory filter state across tab swaps.
             data-state inactive must stay display:none so force-mounted panels never leak under the active tab. */}
         <TabsContent value="staff" className="mt-4 data-[state=inactive]:hidden" forceMount>
           <StaffTab />
         </TabsContent>
+        {companyDirectory ? (
+          <>
         <TabsContent value="moves" className="mt-4 data-[state=inactive]:hidden">
           <TemporarySiteMovesPanel />
         </TabsContent>
@@ -366,6 +386,8 @@ function PeoplePageBody() {
         <TabsContent value="training" className="mt-4 data-[state=inactive]:hidden">
           <TrainingTab />
         </TabsContent>
+          </>
+        ) : null}
       </Tabs>
     </div>
   );
@@ -510,8 +532,8 @@ function StaffFormDialog({
 }) {
   const { t } = useTranslation();
   const isEdit = !!staff;
-  const canEditSalary = usePermission("people.edit_salary");
-  const canViewSalary = usePermission("people.view_salary");
+  const canViewSalary = usePeopleDirectoryShowsSalary();
+  const canEditSalary = usePermission("people.edit_salary") && canViewSalary;
   const [loc, setLoc] = useState(staff?.location_id ?? locationId ?? "");
   const [employeeCode, setEmployeeCode] = useState(staff?.employee_code ?? "");
   const [fullName, setFullName] = useState(staff?.full_name ?? "");

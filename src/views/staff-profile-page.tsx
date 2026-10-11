@@ -31,6 +31,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useSites } from "@/hooks/queries/useSites";
+import { usePeopleDirectoryShowsSalary } from "@/hooks/use-auth";
 import { usePermission } from "@/hooks/use-permission";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { expiryBand, qatarTodayYmd } from "@/lib/hr-expiry-bands";
@@ -196,8 +197,8 @@ function StaffProfilePageBody() {
   }, [initialTab]);
   const canEdit = usePermission("people.edit_roster");
   const canProvisionLogin = usePermission("admin.provision_users");
-  const canSalary = usePermission("people.edit_salary");
-  const canViewSalaryPerm = usePermission("people.view_salary");
+  const canViewSalaryPerm = usePeopleDirectoryShowsSalary();
+  const canSalary = usePermission("people.edit_salary") && canViewSalaryPerm;
   const canViewSensitive = usePermission("hr.profile.view_sensitive") || canViewSalaryPerm;
   const canConfigure = usePermission("attendance.configure");
   const canManageDocs = usePermission("hr.docs.manage");

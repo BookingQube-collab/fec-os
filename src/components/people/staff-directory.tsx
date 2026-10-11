@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -52,6 +52,7 @@ import {
 } from "@/lib/exclude-org-departments";
 import { useMasterDepartments, usePeopleMasters } from "@/hooks/queries/useDepartments";
 import { useStaffDirectory } from "@/hooks/queries/usePeople";
+import { useCanOpenPeopleDirectory, usePeopleDirectoryShowsSalary } from "@/hooks/use-auth";
 import { usePermission } from "@/hooks/use-permission";
 import { queryKeys } from "@/lib/query-keys";
 import {
@@ -139,14 +140,16 @@ function alertBadgeClass(severity: HrAlertSeverity): string {
 }
 
 const FILTER_TRIGGER = "h-10 min-h-10 w-full font-normal";
-const COLS_STORAGE_KEY = "fec.people.employee-columns.v2";
+const COLS_STORAGE_KEY = "fec.people.employee-columns.v3";
 const PAGE_SIZE_KEY = "fec.people.employee-page-size";
 
 const DEFAULT_COLS = [
   "employee",
   "code",
   "position",
+  "dept",
   "location",
+  "mobile",
   "type",
   "joining",
   "status",
@@ -228,9 +231,12 @@ export function StaffDirectory({
   const { t } = useTranslation();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { data: departments = [] } = useMasterDepartments();
-  const peopleMasters = usePeopleMasters();
-  const canSalary = usePermission("people.view_salary");
+  const companyDirectory = usePermission("people.view_roster");
+  const teamDirectory = useCanOpenPeopleDirectory() && !companyDirectory;
+  const statusTouched = useRef(false);
+  const { data: departments = [] } = useMasterDepartments({ enabled: companyDirectory });
+  const peopleMasters = usePeopleMasters({ enabled: companyDirectory });
+  const canSalary = usePeopleDirectoryShowsSalary();
   const canImport = usePermission("people.import_roster");
   const canSensitive = usePermission("hr.profile.view_sensitive") || canSalary;
   const qc = useQueryClient();
@@ -258,6 +264,12 @@ export function StaffDirectory({
   const [importOpen, setImportOpen] = useState(false);
   const [moreFilters, setMoreFilters] = useState(false);
   const [visibleCols, setVisibleCols] = useState<Set<ColKey>>(loadCols);
+
+  useEffect(() => {
+    if (statusTouched.current || !teamDirectory) return;
+    if (searchParams.get("status") != null) return;
+    setStatus("");
+  }, [searchParams, teamDirectory]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -761,6 +773,7 @@ export function StaffDirectory({
           <SearchableSelect
             value={status}
             onValueChange={(next) => {
+              statusTouched.current = true;
               setStatus(next);
               setPage(1);
             }}

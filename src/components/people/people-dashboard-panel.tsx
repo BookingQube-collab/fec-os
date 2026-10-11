@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePeopleDashboard } from "@/hooks/queries/usePeopleDashboard";
 import { useStaff } from "@/hooks/queries/usePeople";
-import { usePermission } from "@/hooks/use-permission";
+import { usePeopleDirectoryShowsSalary } from "@/hooks/use-auth";
 import { getHrOverview } from "@/lib/hr-overview.functions";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { fmtQar } from "@/lib/currency";
@@ -89,7 +89,7 @@ function employeesHref(filter: {
 export function PeopleDashboardPanel() {
   const { t } = useTranslation();
   const locationId = useAppStore((s) => s.currentLocationId);
-  const canSalary = usePermission("people.view_salary");
+  const canSalary = usePeopleDirectoryShowsSalary();
   const { data, isLoading } = usePeopleDashboard({ locationId: locationId ?? null });
   const { data: staff = [] } = useStaff(locationId ?? null, { includeArchived: true });
   const overview = useQuery({

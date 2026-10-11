@@ -1,6 +1,7 @@
 import {
   getAllVisibleNavItems,
   getVisibleDepartments,
+  mergePeopleDirectoryDepartments,
   mergeReportingManagerDepartments,
 } from "@/lib/nav-config";
 import { canUserDo, type AppRole, type Capability } from "@/lib/rbac";
@@ -55,12 +56,20 @@ const PREFERRED_HREFS = [
   "/people",
 ];
 
-export function buildNavSearchIndex(roles: AppRole[], hasDirectReports = false): NavSearchHit[] {
+export function buildNavSearchIndex(
+  roles: AppRole[],
+  hasDirectReports = false,
+  jobTitle?: string | null,
+): NavSearchHit[] {
   const seen = new Set<string>();
   const out: NavSearchHit[] = [];
   const items = getAllVisibleNavItems(
     roles,
-    mergeReportingManagerDepartments(getVisibleDepartments(roles), hasDirectReports),
+    mergePeopleDirectoryDepartments(
+      mergeReportingManagerDepartments(getVisibleDepartments(roles), hasDirectReports),
+      roles,
+      jobTitle,
+    ),
   );
 
   for (const item of items) {

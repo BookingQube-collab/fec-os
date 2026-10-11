@@ -2,7 +2,7 @@ import type { AuthContext } from "@/lib/server/auth";
 import { CANONICAL_LOCATION_CODES, rosterSheetLabel } from "@/lib/locations/normalize";
 import { fetchAttendanceMappedStaffIds } from "@/lib/staff-attendance-mapped";
 import { hiddenUnmappedDuplicateIds } from "@/lib/staff-mapped-duplicates";
-import { canUserDo } from "@/lib/rbac";
+import { peopleDirectoryShowsSalary } from "@/lib/people-directory-access";
 import { createTimer } from "@/lib/performance/timer";
 import {
   countsAsActiveStaff,
@@ -322,7 +322,7 @@ export async function fetchPeopleDashboard(
       };
     });
 
-  const canViewSalary = canUserDo(context.roles ?? [], "people.view_salary");
+  const canViewSalary = peopleDirectoryShowsSalary(context.roles ?? []);
   let salaryTotal: number | null = null;
   let missingMonthly: number | null = null;
   let dailyRateOnly: number | null = null;

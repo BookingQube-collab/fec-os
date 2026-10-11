@@ -13,7 +13,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 
-import { useUserRoles } from "@/hooks/use-auth";
+import { useAuth, useUserRoles } from "@/hooks/use-auth";
 import { useHasDirectReports } from "@/hooks/use-my-direct-reports";
 import { buildNavSearchIndex, searchNav } from "@/lib/nav-search";
 import { cn } from "@/lib/utils";
@@ -22,6 +22,7 @@ export function HeaderSearch({ className }: { className?: string }) {
   const { t } = useTranslation();
   const router = useRouter();
   const roles = useUserRoles();
+  const { profile } = useAuth();
   const { hasDirectReports } = useHasDirectReports();
   const inputRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -30,7 +31,10 @@ export function HeaderSearch({ className }: { className?: string }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
 
-  const index = useMemo(() => buildNavSearchIndex(roles, hasDirectReports), [hasDirectReports, roles]);
+  const index = useMemo(
+    () => buildNavSearchIndex(roles, hasDirectReports, profile?.job_title),
+    [hasDirectReports, profile?.job_title, roles],
+  );
   const results = useMemo(() => searchNav(query, index, t), [query, index, t]);
 
   useEffect(() => {

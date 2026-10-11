@@ -2,6 +2,8 @@
 
 import { z } from "zod";
 
+import { loadLinkedStaffJobTitle } from "@/lib/linked-staff-job-title.server";
+import { peopleDirectoryShowsSalary } from "@/lib/people-directory-access";
 import { canUserDo } from "@/lib/rbac";
 import {
   createAuthenticatedAction,
@@ -143,6 +145,10 @@ export const updateStaffSalary = createSafeAuthenticatedAction(
   async (data, context) => {
     if (!canUserDo(context.roles ?? [], "people.edit_salary")) {
       throw new ForbiddenError("Forbidden: missing capability people.edit_salary");
+    }
+    const jobTitle = await loadLinkedStaffJobTitle(context.userId);
+    if (!peopleDirectoryShowsSalary(context.roles ?? [], jobTitle)) {
+      throw new ForbiddenError("Forbidden: salary is limited to HR and leadership");
     }
     const existing = await assertStaffLocation(context, data.id);
     await insertSalaryHistoryAndSync(context, {

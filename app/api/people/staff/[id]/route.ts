@@ -3,6 +3,8 @@ import { redactStaffIdentityNumbers } from "@/lib/hr-advanced";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { resolveStaffProfileReadAccess } from "@/lib/staff-profile-access.server";
 import { withAuthRouteRequest, searchParams } from "@/lib/server/api-route";
+import { loadLinkedStaffJobTitle } from "@/lib/linked-staff-job-title.server";
+import { peopleDirectoryShowsSalary } from "@/lib/people-directory-access";
 import { canUserDo } from "@/lib/rbac";
 import { ForbiddenError } from "@/lib/server/authorize";
 import { STAFF_LOGIN_DEFAULT_PASSWORD } from "@/lib/staff-login";
@@ -37,7 +39,8 @@ export async function GET(
 
       const access = await resolveStaffProfileReadAccess(context, id);
       const db = access.scope === "team" ? supabaseAdmin : context.supabase;
-      const includeSalary = canUserDo(context.roles ?? [], "people.view_salary");
+      const jobTitle = await loadLinkedStaffJobTitle(context.userId);
+      const includeSalary = peopleDirectoryShowsSalary(context.roles ?? [], jobTitle);
       const { data: staff, error } = await db
         .from("staff")
         .select(

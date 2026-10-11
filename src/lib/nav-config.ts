@@ -57,6 +57,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import { peopleDirectoryScope } from "@/lib/people-directory-access";
 import { canUserDo, isEmployeeHomeAudience, type AppRole, type Capability } from "@/lib/rbac";
 
 export interface NavItem {
@@ -285,9 +286,10 @@ export function usesEmployeeFlatRail(roles: AppRole[], hasDirectReports = false)
 }
 
 /** Same modules when the sidebar is collapsed or expanded. */
-export function getEmployeeFlatRail(roles: AppRole[]): NavItem[] {
+export function getEmployeeFlatRail(roles: AppRole[], jobTitle?: string | null): NavItem[] {
   if (!usesEmployeeFlatRail(roles)) return [];
-  return EMPLOYEE_FLAT_RAIL.filter((item) => canUserDo(roles, item.capability));
+  const rail = EMPLOYEE_FLAT_RAIL.filter((item) => canUserDo(roles, item.capability));
+  return withPeopleDirectoryLink(rail, roles, jobTitle);
 }
 
 /**
@@ -877,6 +879,58 @@ export function reportingManagerNavItems(): NavItem[] {
     const item = NAV_ITEM_LOOKUP.get(href);
     return item ? [item] : [];
   });
+}
+
+function peopleDirectoryNavItem(): NavItem | null {
+  return NAV_ITEM_LOOKUP.get("/people") ?? null;
+}
+
+/** Phone and flat employee rail: team directory sits next to My Day. */
+function withPeopleDirectoryLink(rail: NavItem[], roles: AppRole[], jobTitle?: string | null): NavItem[] {
+  if (peopleDirectoryScope(roles, jobTitle) !== "team") return rail;
+  if (rail.some((item) => item.href === "/people")) return rail;
+  const item = peopleDirectoryNavItem();
+  if (!item) return rail;
+  const next = [...rail];
+  const at = next.findIndex((entry) => entry.href === "/hr/me");
+  next.splice(at >= 0 ? at + 1 : 0, 0, item);
+  return next;
+}
+
+/**
+ * Sidebar People section for a job-title manager who does not already have the company directory.
+ * Does not add payroll, user admin, or HR policy.
+ */
+export function mergePeopleDirectoryDepartments(
+  departments: VisibleNavDepartment[],
+  roles: AppRole[],
+  jobTitle?: string | null,
+): VisibleNavDepartment[] {
+  if (peopleDirectoryScope(roles, jobTitle) !== "team") return departments;
+  const item = peopleDirectoryNavItem();
+  if (!item) return departments;
+  if (departments.some((dept) => dept.items.some((entry) => entry.href === "/people"))) return departments;
+  const peopleIndex = departments.findIndex((dept) => dept.id === "people");
+  if (peopleIndex < 0) {
+    const template = NAV_DEPARTMENTS.find((dept) => dept.id === "people");
+    if (!template) return departments;
+    return [...departments, { ...template, items: [item], groups: [] }];
+  }
+  return departments.map((dept, index) =>
+    index === peopleIndex ? { ...dept, items: [item, ...dept.items] } : dept,
+  );
+}
+
+/** Collapsed rail icon when People is not already a primary department. */
+export function peopleDirectoryRailItems(
+  roles: AppRole[],
+  jobTitle: string | null | undefined,
+  visibleHrefs: ReadonlySet<string>,
+): NavItem[] {
+  if (peopleDirectoryScope(roles, jobTitle) !== "team") return [];
+  if (visibleHrefs.has("/people")) return [];
+  const item = peopleDirectoryNavItem();
+  return item ? [item] : [];
 }
 
 /** Adds manager modules the role cannot already open. No-op without direct reports. */
