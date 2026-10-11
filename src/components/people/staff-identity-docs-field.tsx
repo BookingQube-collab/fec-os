@@ -63,16 +63,20 @@ export function emptyIdentityDraft(staff?: {
 }
 
 type DraftTextKey = Exclude<IdentityFieldKey, "fullName" | "qid">;
+type BlockFieldKey = DraftTextKey | "qid";
 
 const BLOCKS: Array<{
   docType: IdentityDocType;
   fileKey: string;
-  fields: Array<{ key: DraftTextKey; labelKey: string; date?: boolean }>;
+  fields: Array<{ key: BlockFieldKey; labelKey: string; date?: boolean }>;
 }> = [
   {
     docType: "qid",
     fileKey: "people.staff.qidFile",
-    fields: [{ key: "qidExpiry", labelKey: "people.staff.qidExpiry", date: true }],
+    fields: [
+      { key: "qid", labelKey: "people.staff.qid" },
+      { key: "qidExpiry", labelKey: "people.staff.qidExpiry", date: true },
+    ],
   },
   {
     docType: "passport",
@@ -158,6 +162,14 @@ export function StaffIdentityDocsField({
     onDraft({ ...draft, [key]: value, suggestions });
   }
 
+  function setQidText(value: string) {
+    onApplyFields({ qid: value });
+    if (!draft.suggestions.qid) return;
+    const suggestions = { ...draft.suggestions };
+    delete suggestions.qid;
+    onDraft({ ...draft, suggestions });
+  }
+
   function accept(field: IdentityFieldKey) {
     const value = draft.suggestions[field];
     if (!value) return;
@@ -241,21 +253,6 @@ export function StaffIdentityDocsField({
           block.docType === "qid" ? ["fullName", "qid", "qidExpiry"] : block.fields.map((field) => field.key);
         return (
           <div key={block.docType} className="space-y-2 border-t border-border pt-3">
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {block.fields.map((field) => (
-                <div key={field.key}>
-                  <Label htmlFor={`identity-${field.key}`}>{t(field.labelKey)}</Label>
-                  <Input
-                    id={`identity-${field.key}`}
-                    type={field.date ? "date" : "text"}
-                    value={draft[field.key]}
-                    className={field.date ? undefined : "font-mono"}
-                    disabled={disabled || reading === block.docType}
-                    onChange={(event) => setText(field.key, event.target.value)}
-                  />
-                </div>
-              ))}
-            </div>
             <div>
               <Label htmlFor={`identity-file-${block.docType}`}>{t(block.fileKey)}</Label>
               <Input
@@ -296,19 +293,37 @@ export function StaffIdentityDocsField({
               {draft.manual[block.docType] ? (
                 <p className="mt-1 text-[11px] text-muted-foreground">{t("people.staff.extractManual")}</p>
               ) : null}
-              {suggestionFields.map((field) =>
-                draft.suggestions[field] ? (
-                  <button
-                    key={field}
-                    type="button"
-                    className="mt-1 block text-left text-xs text-primary underline"
-                    onClick={() => accept(field)}
-                  >
-                    {t("people.staff.useExtracted", { value: draft.suggestions[field] })}
-                  </button>
-                ) : null,
-              )}
             </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {block.fields.map((field) => (
+                <div key={field.key}>
+                  <Label htmlFor={`identity-${field.key}`}>{t(field.labelKey)}</Label>
+                  <Input
+                    id={`identity-${field.key}`}
+                    type={field.date ? "date" : "text"}
+                    value={field.key === "qid" ? qid : draft[field.key]}
+                    className={field.date ? undefined : "font-mono"}
+                    disabled={disabled || reading === block.docType}
+                    onChange={(event) => {
+                      if (field.key === "qid") setQidText(event.target.value);
+                      else setText(field.key, event.target.value);
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+            {suggestionFields.map((field) =>
+              draft.suggestions[field] ? (
+                <button
+                  key={field}
+                  type="button"
+                  className="block text-left text-xs text-primary underline"
+                  onClick={() => accept(field)}
+                >
+                  {t("people.staff.useExtracted", { value: draft.suggestions[field] })}
+                </button>
+              ) : null,
+            )}
           </div>
         );
       })}
