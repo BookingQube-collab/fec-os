@@ -64,6 +64,19 @@ export function rosterMonthSpans(dates: string[]): RosterMatrixMonthSpan[] {
   return spans;
 }
 
+/**
+ * An empty period still shows day columns when the viewer can add a shift.
+ * People who cannot amend keep the text empty state.
+ */
+export function rosterEmptyPeriodShowsDayGrid(rowCount: number, canAmend: boolean): boolean {
+  return rowCount === 0 && canAmend;
+}
+
+/** Plus control on a day that has no assignment yet. Hidden from people who cannot amend. */
+export function rosterEmptyDayCanAdd(canAmend: boolean, entryCount: number): boolean {
+  return canAmend && entryCount === 0;
+}
+
 /** Staff × day matrix for the selected period. Multiple rows for the same staff+date stay stacked. */
 export function buildRosterMatrix<
   T extends {

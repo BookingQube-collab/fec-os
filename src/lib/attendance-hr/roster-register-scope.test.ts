@@ -9,6 +9,8 @@ import {
   isWeekendYmd,
   rosterAmendRecalcLocationIds,
   rosterDayStatusFromRow,
+  rosterEmptyDayCanAdd,
+  rosterEmptyPeriodShowsDayGrid,
   rosterMatrixCellKey,
   rosterMonthSpans,
   rosterPatchFromDayStatus,
@@ -177,5 +179,19 @@ describe("roster register bulk-delete scope", () => {
   it("recalcs both sites when amend moves location", () => {
     expect(rosterAmendRecalcLocationIds("loc-inf", "loc-inf")).toEqual(["loc-inf"]);
     expect(rosterAmendRecalcLocationIds("loc-inf", "loc-ua")).toEqual(["loc-inf", "loc-ua"]);
+  });
+
+  it("shows period days and an add action when a manager has no rows yet", () => {
+    const october = buildRosterMatrix([], "2026-09-28", "2026-10-27");
+    expect(october.dates[0]).toBe("2026-09-28");
+    expect(october.dates[october.dates.length - 1]).toBe("2026-10-27");
+    expect(october.dates).toHaveLength(30);
+    expect(october.staff).toEqual([]);
+    expect(rosterEmptyPeriodShowsDayGrid(0, true)).toBe(true);
+    expect(rosterEmptyDayCanAdd(true, 0)).toBe(true);
+    expect(rosterEmptyPeriodShowsDayGrid(0, false)).toBe(false);
+    expect(rosterEmptyDayCanAdd(false, 0)).toBe(false);
+    expect(rosterEmptyPeriodShowsDayGrid(4, true)).toBe(false);
+    expect(rosterEmptyDayCanAdd(true, 1)).toBe(false);
   });
 });

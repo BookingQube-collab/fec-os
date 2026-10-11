@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LayoutGrid, LayoutList, Loader2, Pencil, Trash2 } from "lucide-react";
+import { LayoutGrid, LayoutList, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -48,18 +48,22 @@ import {
 import { useMasterDepartments } from "@/hooks/queries/useDepartments";
 import { useSites } from "@/hooks/queries/useSites";
 import {
+  createRosterAssignment,
   deleteRosterAssignment,
   deleteRosterAssignments,
   listUploadedRosterAssignments,
   updateRosterAssignment,
   type RosterRegisterRow,
 } from "@/lib/attendance-hr/roster-register.functions";
+import { listStaff } from "@/lib/people.functions";
 import { formatPayrollRange } from "@/lib/attendance-hr/roster-period";
 import {
   buildRosterMatrix,
   filterRosterRegisterRows,
   isWeekendYmd,
   rosterDayStatusFromRow,
+  rosterEmptyDayCanAdd,
+  rosterEmptyPeriodShowsDayGrid,
   rosterMatrixCellKey,
   rosterPatchFromDayStatus,
   rosterRegisterHasExtraFilters,
@@ -177,6 +181,8 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     const [query, setQuery] = useState("");
     const [viewMode, setViewMode] = useState<ViewMode>("grid");
     const [editingId, setEditingId] = useState<string | null>(null);
+    const [createWorkDate, setCreateWorkDate] = useState<string | null>(null);
+    const [createStaffId, setCreateStaffId] = useState("");
     const [draft, setDraft] = useState<Draft | null>(null);
     const [deleteAllOpen, setDeleteAllOpen] = useState(false);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
@@ -236,6 +242,27 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       () => buildRosterMatrix(filtered, dateFrom, dateTo),
       [filtered, dateFrom, dateTo],
     );
+    const showEmptyDayGrid = rosterEmptyPeriodShowsDayGrid(filtered.length, canAmend);
+    const assignStaff = useQuery({
+      queryKey: [...queryKeys.people.all, "roster-create-staff"],
+      queryFn: () => listStaff({}),
+      enabled: canAmend && Boolean(createWorkDate),
+      staleTime: STALE.people,
+    });
+    const createStaffOptions = useMemo(() => {
+      const options = (assignStaff.data ?? []).map((person) => ({
+        value: String(person.id),
+        label: person.full_name || person.employee_code || String(person.id),
+      }));
+      if (createStaffId && !options.some((option) => option.value === createStaffId)) {
+        const known = matrix.staff.find((person) => person.staffId === createStaffId);
+        options.unshift({
+          value: createStaffId,
+          label: known?.staffName || known?.employeeCode || createStaffId,
+        });
+      }
+      return options.sort((a, b) => a.label.localeCompare(b.label));
+    }, [assignStaff.data, createStaffId, matrix.staff]);
 
     const editingRow = useMemo(
       () => (editingId ? filtered.find((row) => row.id === editingId) ?? null : null),
@@ -327,6 +354,41 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       onError: (e: Error) => toast.error(e.message),
     });
 
+    const createMut = useMutation({
+      mutationFn: async () => {
+        if (!draft || !createWorkDate) throw new Error(t("people.roster.registerNothingToSave"));
+        if (!createStaffId) throw new Error(t("people.roster.registerPickStaff"));
+        if (!draft.locationId) throw new Error(t("people.roster.registerPickLocation"));
+        const patch = rosterPatchFromDayStatus(draft.dayStatus);
+        if (draft.dayStatus === "comp_off") {
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.compOffForDate)) {
+            throw new Error(t("people.roster.compOffDateRequired"));
+          }
+          if (!draft.compOffNote.trim()) {
+            throw new Error(t("people.roster.compOffNoteRequired"));
+          }
+        }
+        return createRosterAssignment({
+          staffId: createStaffId,
+          locationId: draft.locationId,
+          workDate: createWorkDate,
+          shiftStart: patch.needsShiftTimes ? draft.shiftStart : null,
+          shiftEnd: patch.needsShiftTimes ? draft.shiftEnd : null,
+          dayStatus: draft.dayStatus,
+          compOffForDate: draft.dayStatus === "comp_off" ? draft.compOffForDate : null,
+          compOffNote: draft.dayStatus === "comp_off" ? draft.compOffNote.trim() : null,
+        });
+      },
+      onSuccess: () => {
+        toast.success(t("people.roster.registerAdded"));
+        setCreateWorkDate(null);
+        setCreateStaffId("");
+        setDraft(null);
+        void qc.invalidateQueries({ queryKey: queryKeys.people.all });
+      },
+      onError: (e: Error) => toast.error(e.message),
+    });
+
     const deleteMut = useMutation({
       mutationFn: (id: string) => deleteRosterAssignment({ id }),
       onSuccess: (_result, id) => {
@@ -386,6 +448,8 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     }, [canAmend, deleteAllDisabled, onDeleteAllStateChange, selectedCount]);
 
     const startEdit = (row: RosterRegisterRow) => {
+      setCreateWorkDate(null);
+      setCreateStaffId("");
       setEditingId(row.id);
       setDraft({
         locationId: row.locationId,
@@ -397,8 +461,24 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       });
     };
 
+    const startCreate = (workDate: string, staffId: string | null) => {
+      setEditingId(null);
+      setCreateWorkDate(workDate);
+      setCreateStaffId(staffId ?? "");
+      setDraft({
+        locationId: locationId || defaultLocationId || "",
+        shiftStart: "08:00",
+        shiftEnd: "17:00",
+        dayStatus: "on_duty",
+        compOffForDate: "",
+        compOffNote: "",
+      });
+    };
+
     const cancelEdit = () => {
       setEditingId(null);
+      setCreateWorkDate(null);
+      setCreateStaffId("");
       setDraft(null);
     };
 
@@ -720,9 +800,11 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
           <p className="text-sm text-destructive">
             {register.error instanceof Error ? register.error.message : t("people.roster.registerLoadFailed")}
           </p>
-        ) : filtered.length === 0 ? (
+        ) : filtered.length === 0 && !showEmptyDayGrid ? (
           <p className="text-sm text-muted-foreground">{emptyMessage}</p>
-        ) : viewMode === "grid" ? (
+        ) : viewMode === "grid" || showEmptyDayGrid ? (
+          <>
+          {showEmptyDayGrid ? <p className="text-sm text-muted-foreground">{emptyMessage}</p> : null}
           <div className="overflow-auto rounded-lg border border-border/70" style={{ maxHeight }}>
             <table className="min-w-max border-collapse text-xs">
               <thead className="sticky top-0 z-20">
@@ -785,6 +867,41 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
                 </tr>
               </thead>
               <tbody>
+                {matrix.staff.length === 0 && canAmend ? (
+                  <tr className="border-b border-border/50">
+                    <td className="sticky start-0 z-10 border-e border-border/70 bg-card px-1.5 py-1 text-center tabular-nums text-muted-foreground">
+                      1
+                    </td>
+                    <td className="sticky start-10 z-10 min-w-[11rem] max-w-[14rem] border-e border-border/70 bg-card px-2 py-1.5">
+                      <div className="truncate font-medium leading-tight">{t("people.roster.registerAdd")}</div>
+                    </td>
+                    {matrix.dates.map((ymd) => {
+                      const weekend = isWeekendYmd(ymd);
+                      return (
+                        <td
+                          key={`add-${ymd}`}
+                          className={cn(
+                            "align-top border-border/40 px-0.5 py-0.5",
+                            weekend ? "bg-muted/50" : "bg-card",
+                          )}
+                        >
+                          <div className="flex min-h-[2.75rem] items-center justify-center">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 px-1.5"
+                              onClick={() => startCreate(ymd, null)}
+                              aria-label={t("people.roster.registerAddDay", { date: ymd })}
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ) : null}
                 {matrix.staff.map((person, index) => (
                   <tr key={person.staffId} className="border-b border-border/50">
                     <td className="sticky start-0 z-10 border-e border-border/70 bg-card px-1.5 py-1 text-center tabular-nums text-muted-foreground">
@@ -808,7 +925,22 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
                           )}
                         >
                           {entries.length === 0 ? (
-                            <div className="min-h-[2.75rem]" />
+                            rosterEmptyDayCanAdd(canAmend, entries.length) ? (
+                              <div className="flex min-h-[2.75rem] items-center justify-center">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 px-1.5"
+                                  onClick={() => startCreate(ymd, person.staffId)}
+                                  aria-label={t("people.roster.registerAddDay", { date: ymd })}
+                                >
+                                  <Plus className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+                            ) : (
+                              <div className="min-h-[2.75rem]" />
+                            )
                           ) : (
                             <div className="flex flex-col gap-0.5">
                               {entries.map((entry) => (
@@ -859,6 +991,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
               </tbody>
             </table>
           </div>
+          </>
         ) : (
           <div className="overflow-auto rounded-lg border border-border/70" style={{ maxHeight }}>
             <Table>
@@ -962,45 +1095,83 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
         )}
 
         <Dialog
-          open={viewMode === "grid" && Boolean(editingRow && draft)}
+          open={Boolean(draft) && (Boolean(createWorkDate) || (viewMode === "grid" && Boolean(editingRow)))}
           onOpenChange={(open) => {
-            if (!open && !saveMut.isPending) cancelEdit();
+            if (!open && !saveMut.isPending && !createMut.isPending) cancelEdit();
           }}
         >
           <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle>{t("people.roster.registerAmend")}</DialogTitle>
+              <DialogTitle>
+                {createWorkDate ? t("people.roster.registerAdd") : t("people.roster.registerAmend")}
+              </DialogTitle>
               <DialogDescription>
-                {editingRow
-                  ? `${editingRow.staffName || editingRow.employeeCode || "—"} · ${editingRow.workDate}`
-                  : null}
+                {createWorkDate
+                  ? t("people.roster.registerAddDay", { date: createWorkDate })
+                  : editingRow
+                    ? `${editingRow.staffName || editingRow.employeeCode || "—"} · ${editingRow.workDate}`
+                    : null}
               </DialogDescription>
             </DialogHeader>
-            {editingRow && draft ? (
+            {createWorkDate && draft ? (
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label>{t("people.roster.registerAddStaff")}</Label>
+                  <SearchableSelect
+                    value={createStaffId}
+                    onValueChange={(value) => setCreateStaffId(value || "")}
+                    options={createStaffOptions}
+                    placeholder={t("people.roster.registerPickStaff")}
+                  />
+                  {assignStaff.isError ? (
+                    <p className="text-xs text-destructive">
+                      {assignStaff.error instanceof Error
+                        ? assignStaff.error.message
+                        : t("people.roster.registerLoadFailed")}
+                    </p>
+                  ) : null}
+                </div>
+                {renderDayStatusEditor()}
+              </div>
+            ) : editingRow && draft ? (
               <div className="space-y-4">
                 {renderDayStatusEditor()}
                 <Badge variant="outline">{sourceLabel(editingRow.source, t)}</Badge>
               </div>
             ) : null}
             <DialogFooter className="gap-2 sm:gap-0">
+              {createWorkDate ? null : (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  disabled={!editingRow || deleting}
+                  onClick={() => editingRow && confirmDelete(editingRow.id)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  {t("common.delete")}
+                </Button>
+              )}
               <Button
                 type="button"
-                variant="destructive"
-                disabled={!editingRow || deleting}
-                onClick={() => editingRow && confirmDelete(editingRow.id)}
+                variant="outline"
+                onClick={cancelEdit}
+                disabled={saveMut.isPending || createMut.isPending}
               >
-                <Trash2 className="h-3.5 w-3.5" />
-                {t("common.delete")}
-              </Button>
-              <Button type="button" variant="outline" onClick={cancelEdit} disabled={saveMut.isPending}>
                 {t("common.cancel")}
               </Button>
               <Button
                 type="button"
-                disabled={!editingRow || saveMut.isPending}
-                onClick={() => editingRow && saveMut.mutate(editingRow)}
+                disabled={
+                  createWorkDate
+                    ? createMut.isPending || !createStaffId || !draft?.locationId
+                    : !editingRow || saveMut.isPending
+                }
+                onClick={() => {
+                  if (createWorkDate) createMut.mutate();
+                  else if (editingRow) saveMut.mutate(editingRow);
+                }}
               >
-                {saveMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                {saveMut.isPending || createMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
                 {t("people.roster.registerSave")}
               </Button>
             </DialogFooter>

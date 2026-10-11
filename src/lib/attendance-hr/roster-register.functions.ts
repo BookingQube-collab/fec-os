@@ -143,6 +143,42 @@ async function assertCanAmendRoster(context: Pick<AuthContext, "userId" | "roles
   throw new ForbiddenError("Forbidden: missing capability to amend the shift roster.");
 }
 
+type RosterActor = {
+  /** Null when this login can read the company roster. Otherwise direct-report staff ids. */
+  teamIds: string[] | null;
+  /** Team rows sit at sites the login role cannot open, so those reads and writes use the admin client. */
+  db: AuthContext["supabase"];
+};
+
+function canViewCompanyRoster(roles: AppRole[]): boolean {
+  return (
+    canUserDo(roles, "people.view_roster") ||
+    canUserDo(roles, "people.import_roster") ||
+    canUserDo(roles, "people.edit_roster") ||
+    canUserDo(roles, "daily_ops.roster.upload") ||
+    canUserDo(roles, "attendance.view")
+  );
+}
+
+/** Same split listUploadedRosterAssignments uses: company client, or admin for a reporting manager. */
+async function resolveRosterActor(context: AuthContext): Promise<RosterActor> {
+  const roles = (context.roles ?? []) as AppRole[];
+  if (canViewCompanyRoster(roles)) return { teamIds: null, db: context.supabase };
+  const teamIds = (await loadDirectReportStaffIds(context.userId)).directReportStaffIds;
+  return { teamIds, db: supabaseAdmin };
+}
+
+function assertRosterTeamStaff(actor: RosterActor, staffId: string) {
+  if (actor.teamIds && !actor.teamIds.includes(staffId)) {
+    throw new ForbiddenError("Forbidden: missing capability to amend the shift roster.");
+  }
+}
+
+async function assertRosterWriteLocation(actor: RosterActor, context: AuthContext, locationId: string) {
+  if (actor.teamIds) return;
+  await assertAttendanceRosterLocation(context, locationId);
+}
+
 /** Role check lives in assertCanAmendRoster so a Roles-page deny cannot block edit/delete. */
 const rosterAmendAuth = { auth: { requireRole: true } } as const;
 
@@ -311,22 +347,17 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
   }),
   async (data, context) => {
     const roles = (context.roles ?? []) as AppRole[];
-    const canViewCompanyRoster =
-      canUserDo(roles, "people.view_roster") ||
-      canUserDo(roles, "people.import_roster") ||
-      canUserDo(roles, "people.edit_roster") ||
-      canUserDo(roles, "daily_ops.roster.upload") ||
-      canUserDo(roles, "attendance.view");
-    const teamIds = canViewCompanyRoster
+    const companyRoster = canViewCompanyRoster(roles);
+    const teamIds = companyRoster
       ? null
       : (await loadDirectReportStaffIds(context.userId)).directReportStaffIds;
-    if (!canViewCompanyRoster && (!teamIds || teamIds.length === 0)) {
+    if (!companyRoster && (!teamIds || teamIds.length === 0)) {
       throw new ForbiddenError("Forbidden: missing capability to view the shift roster.");
     }
     if (teamIds && data.staffId && !teamIds.includes(data.staffId)) {
       return { dateFrom: data.dateFrom, dateTo: data.dateTo, count: 0, rows: [] as RosterRegisterRow[] };
     }
-    if (data.locationId && canViewCompanyRoster) await assertAttendanceRosterLocation(context, data.locationId);
+    if (data.locationId && companyRoster) await assertAttendanceRosterLocation(context, data.locationId);
     // Team rows live at the sites people punch, which the manager's role locations do not include.
     const db = teamIds ? supabaseAdmin : context.supabase;
 
@@ -556,6 +587,98 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
   },
 );
 
+/** Create one assignment on a day that has none yet. Same row the amend pencil edits. */
+export const createRosterAssignment = createAuthenticatedAction(
+  z.object({
+    locationId: z.string().uuid(),
+    staffId: z.string().uuid(),
+    workDate: ymd,
+    shiftStart: z.string().nullable().optional(),
+    shiftEnd: z.string().nullable().optional(),
+    dayStatus: z.enum(["on_duty", "weekly_off", "annual_leave", "sick_leave", "comp_off"]),
+    compOffForDate: ymd.nullable().optional(),
+    compOffNote: z.string().max(500).nullable().optional(),
+  }),
+  async (data, context) => {
+    await assertCanAmendRoster(context);
+    const actor = await resolveRosterActor(context);
+    const db = actor.db;
+    assertRosterTeamStaff(actor, data.staffId);
+    await assertRosterWriteLocation(actor, context, data.locationId);
+
+    const patch = rosterPatchFromDayStatus(data.dayStatus);
+    const compOffForDate = data.dayStatus === "comp_off" ? (data.compOffForDate ?? null) : null;
+    const compOffNote = data.dayStatus === "comp_off" ? (data.compOffNote ?? "").trim() : null;
+    if (data.dayStatus === "comp_off") {
+      if (!compOffForDate) throw new Error("Comp off requires the date it is taken for.");
+      if (!compOffNote) throw new Error("Comp off requires a short note.");
+    }
+
+    const { data: existing, error: existingErr } = await db
+      .from("attendance_roster_assignments")
+      .select("id")
+      .eq("staff_id", data.staffId)
+      .eq("work_date", data.workDate)
+      .maybeSingle();
+    if (existingErr) throw existingErr;
+    if (existing) throw new Error("This person already has a roster row on that day.");
+
+    let shiftTemplateId: string | null = null;
+    let shiftStart: string | null = null;
+    let shiftEnd: string | null = null;
+    if (patch.needsShiftTimes) {
+      shiftStart = parseHm(data.shiftStart);
+      shiftEnd = parseHm(data.shiftEnd);
+      if (!shiftStart || !shiftEnd) {
+        throw new Error("On-duty rows need both shift start and end times.");
+      }
+      const shifts = await loadActiveShiftTemplates(db);
+      shiftTemplateId = matchShiftTemplate(shiftStart, shiftEnd, data.locationId, shifts);
+    }
+
+    const { data: inserted, error: insErr } = await db
+      .from("attendance_roster_assignments")
+      .insert({
+        location_id: data.locationId,
+        staff_id: data.staffId,
+        work_date: data.workDate,
+        is_week_off: patch.isWeekOff,
+        shift_template_id: patch.needsShiftTimes ? shiftTemplateId : null,
+        shift_start: patch.needsShiftTimes ? shiftStart : null,
+        shift_end: patch.needsShiftTimes ? shiftEnd : null,
+        source: "manual",
+        created_by: context.userId,
+      })
+      .select("id")
+      .single();
+    if (insErr || !inserted) throw insErr ?? new Error("Could not add the roster row.");
+
+    await syncRosterLeaveRecord(db, {
+      locationId: data.locationId,
+      staffId: data.staffId,
+      workDate: data.workDate,
+      leaveType: patch.leaveType,
+      compOffForDate,
+      compOffNote,
+      userId: context.userId,
+    });
+    await recalculateAttendanceRange(db, data.locationId, data.workDate, data.workDate, {
+      staffIds: [data.staffId],
+    });
+
+    return {
+      id: String(inserted.id),
+      locationId: data.locationId,
+      staffId: data.staffId,
+      workDate: data.workDate,
+      dayStatus: data.dayStatus,
+      shiftStart: patch.needsShiftTimes ? shiftStart : null,
+      shiftEnd: patch.needsShiftTimes ? shiftEnd : null,
+    };
+  },
+  rosterAmendAuth,
+);
+
 export const updateRosterAssignment = createAuthenticatedAction(
   z.object({
     id: z.string().uuid(),
@@ -572,20 +695,23 @@ export const updateRosterAssignment = createAuthenticatedAction(
   }),
   async (data, context) => {
     await assertCanAmendRoster(context);
+    const actor = await resolveRosterActor(context);
+    const db = actor.db;
 
-    const { data: existing, error: fetchErr } = await context.supabase
+    const { data: existing, error: fetchErr } = await db
       .from("attendance_roster_assignments")
       .select("id, location_id, staff_id, work_date, shift_template_id, shift_start, shift_end, is_week_off, source")
       .eq("id", data.id)
       .single();
     if (fetchErr || !existing) throw fetchErr ?? new Error("Roster row not found");
 
+    assertRosterTeamStaff(actor, String(existing.staff_id));
     const existingLocationId = String(existing.location_id);
-    await assertAttendanceRosterLocation(context, existingLocationId);
+    await assertRosterWriteLocation(actor, context, existingLocationId);
 
     const nextLocationId = data.locationId ?? existingLocationId;
     if (nextLocationId !== existingLocationId) {
-      await assertAttendanceRosterLocation(context, nextLocationId);
+      await assertRosterWriteLocation(actor, context, nextLocationId);
     }
 
     const dayStatus: RosterDayStatus | null = data.dayStatus ?? null;
@@ -611,7 +737,7 @@ export const updateRosterAssignment = createAuthenticatedAction(
     let shiftEnd: string | null = null;
 
     if (patch.needsShiftTimes) {
-      const shifts = await loadActiveShiftTemplates(context.supabase);
+      const shifts = await loadActiveShiftTemplates(db);
       const current = shifts.find((s) => s.id === existing.shift_template_id);
       const existingStart = existing.shift_start
         ? String(existing.shift_start).slice(0, 5)
@@ -638,7 +764,7 @@ export const updateRosterAssignment = createAuthenticatedAction(
       shiftTemplateId = matched ?? (timesUnchanged ? ((existing.shift_template_id as string | null) ?? null) : null);
     }
 
-    const { error: updErr } = await context.supabase
+    const { error: updErr } = await db
       .from("attendance_roster_assignments")
       .update({
         location_id: nextLocationId,
@@ -653,7 +779,7 @@ export const updateRosterAssignment = createAuthenticatedAction(
 
     const workDate = String(existing.work_date).slice(0, 10);
     if (syncLeave) {
-      await syncRosterLeaveRecord(context.supabase, {
+      await syncRosterLeaveRecord(db, {
         locationId: nextLocationId,
         staffId: existing.staff_id,
         workDate,
@@ -664,7 +790,7 @@ export const updateRosterAssignment = createAuthenticatedAction(
       });
     } else if (nextLocationId !== existingLocationId) {
       // Location-only amend: keep leave type, move the leave row with the assignment.
-      const { error: leaveMoveErr } = await context.supabase
+      const { error: leaveMoveErr } = await db
         .from("attendance_leave_records")
         .update({ location_id: nextLocationId })
         .eq("staff_id", existing.staff_id)
@@ -673,7 +799,7 @@ export const updateRosterAssignment = createAuthenticatedAction(
     }
 
     for (const locationId of rosterAmendRecalcLocationIds(existingLocationId, nextLocationId)) {
-      await recalculateAttendanceRange(context.supabase, locationId, workDate, workDate, {
+      await recalculateAttendanceRange(db, locationId, workDate, workDate, {
         staffIds: [existing.staff_id],
       });
     }
@@ -696,17 +822,20 @@ export const deleteRosterAssignment = createAuthenticatedAction(
   z.object({ id: z.string().uuid() }),
   async (data, context) => {
     await assertCanAmendRoster(context);
+    const actor = await resolveRosterActor(context);
+    const db = actor.db;
 
-    const { data: existing, error: fetchErr } = await context.supabase
+    const { data: existing, error: fetchErr } = await db
       .from("attendance_roster_assignments")
       .select("id, location_id, staff_id, work_date")
       .eq("id", data.id)
       .single();
     if (fetchErr || !existing) throw fetchErr ?? new Error("Roster row not found");
 
-    await assertAttendanceRosterLocation(context, existing.location_id);
+    assertRosterTeamStaff(actor, String(existing.staff_id));
+    await assertRosterWriteLocation(actor, context, existing.location_id);
 
-    const { error: delErr } = await context.supabase
+    const { error: delErr } = await db
       .from("attendance_roster_assignments")
       .delete()
       .eq("id", data.id);
@@ -714,14 +843,14 @@ export const deleteRosterAssignment = createAuthenticatedAction(
 
     const workDate = String(existing.work_date).slice(0, 10);
     // Clear roster-amend leave only; HR leave stays if the day was leave outside this UI.
-    await context.supabase
+    await db
       .from("attendance_leave_records")
       .delete()
       .eq("staff_id", existing.staff_id)
       .eq("leave_date", workDate)
       .eq("source", "roster_amend");
 
-    await recalculateAttendanceRange(context.supabase, existing.location_id, workDate, workDate, {
+    await recalculateAttendanceRange(db, existing.location_id, workDate, workDate, {
       staffIds: [existing.staff_id],
     });
 
@@ -838,13 +967,18 @@ export const deleteRosterAssignments = createAuthenticatedAction(
   }),
   async (data, context) => {
     await assertCanAmendRoster(context);
+    const actor = await resolveRosterActor(context);
+    const db = actor.db;
     assertRosterDeletePeriod(data.dateFrom, data.dateTo);
-    if (data.locationId) await assertAttendanceRosterLocation(context, data.locationId);
+    if (data.locationId) await assertRosterWriteLocation(actor, context, data.locationId);
 
-    const scoped = await fetchRosterAssignmentsInScope(context.supabase, data);
+    const scopedAll = await fetchRosterAssignmentsInScope(db, data);
+    const teamScoped = actor.teamIds
+      ? scopedAll.filter((row) => actor.teamIds!.includes(String(row.staff_id)))
+      : scopedAll;
     const searched = data.search?.trim()
-      ? await applyRosterSearchFilter(context.supabase, scoped, data.search)
-      : scoped;
+      ? await applyRosterSearchFilter(db, teamScoped, data.search)
+      : teamScoped;
     const allowedIds = data.ids ? new Set(data.ids) : null;
     const toDelete = allowedIds
       ? searched.filter((row) => allowedIds.has(String(row.id)))
@@ -856,11 +990,11 @@ export const deleteRosterAssignments = createAuthenticatedAction(
 
     const locationIds = [...new Set(toDelete.map((row) => String(row.location_id)))];
     for (const locationId of locationIds) {
-      await assertAttendanceRosterLocation(context, locationId);
+      await assertRosterWriteLocation(actor, context, locationId);
     }
 
     for (const ids of chunkIds(toDelete.map((row) => String(row.id)), 200)) {
-      const { error: delErr } = await context.supabase
+      const { error: delErr } = await db
         .from("attendance_roster_assignments")
         .delete()
         .in("id", ids)
@@ -885,7 +1019,7 @@ export const deleteRosterAssignments = createAuthenticatedAction(
     }
 
     for (const [locationId, scope] of byLocation) {
-      await recalculateAttendanceRange(context.supabase, locationId, scope.minDate, scope.maxDate, {
+      await recalculateAttendanceRange(db, locationId, scope.minDate, scope.maxDate, {
         staffIds: [...scope.staffIds],
       });
     }
@@ -937,6 +1071,8 @@ export const copyRosterToNextMonth = createAuthenticatedAction(
   }),
   async (data, context) => {
     await assertCanAmendRoster(context);
+    const actor = await resolveRosterActor(context);
+    const db = actor.db;
 
     const source = monthBounds(data.month);
     const targetMonth = nextPayrollMonth(data.month);
@@ -949,14 +1085,14 @@ export const copyRosterToNextMonth = createAuthenticatedAction(
     const siteWise = siteFilter != null;
     if (siteFilter) {
       for (const locationId of siteFilter) {
-        await assertAttendanceRosterLocation(context, locationId);
+        await assertRosterWriteLocation(actor, context, locationId);
       }
     }
 
     const dateMap = mapRosterPeriodByDayIndex(source.dateFrom, source.dateTo, target.dateFrom, target.dateTo);
 
     const sourceRowsAll = await collectPagedRows<CopySourceRow>(async (from, to) => {
-      const { data: page, error } = await context.supabase
+      const { data: page, error } = await db
         .from("attendance_roster_assignments")
         .select("location_id, staff_id, work_date, shift_template_id, shift_start, shift_end, is_week_off")
         .gte("work_date", source.dateFrom)
@@ -970,7 +1106,7 @@ export const copyRosterToNextMonth = createAuthenticatedAction(
     let sourceRows = filterRosterCopyRows(sourceRowsAll, siteFilter, staffFilter ? { staffIds: staffFilter } : null);
     if (data.department) {
       const labelIds = [...new Set(sourceRows.map((row) => String(row.staff_id)))];
-      const labels = await loadRosterCopyDepartmentLabels(context.supabase, labelIds);
+      const labels = await loadRosterCopyDepartmentLabels(db, labelIds);
       sourceRows = filterRosterCopyRows(
         sourceRows.map((row) => {
           const label = labels.get(String(row.staff_id));
@@ -984,6 +1120,10 @@ export const copyRosterToNextMonth = createAuthenticatedAction(
         null,
         { department: data.department },
       );
+    }
+    if (actor.teamIds) {
+      const allow = new Set(actor.teamIds);
+      sourceRows = sourceRows.filter((row) => allow.has(String(row.staff_id)));
     }
 
     if (!sourceRows.length) {
@@ -999,7 +1139,7 @@ export const copyRosterToNextMonth = createAuthenticatedAction(
       };
     }
 
-    const peopleScoped = staffFilter != null || Boolean(data.department);
+    const peopleScoped = staffFilter != null || Boolean(data.department) || actor.teamIds != null;
     const replaceStaffIds = peopleScoped ? [...new Set(sourceRows.map((row) => String(row.staff_id)))] : null;
     const scopedCopy = siteWise || peopleScoped;
 
@@ -1011,7 +1151,7 @@ export const copyRosterToNextMonth = createAuthenticatedAction(
     let destinationRows: CopyTargetRow[] | null = null;
     if (scopedCopy) {
       destinationRows = await collectPagedRows<CopyTargetRow>(async (from, to) => {
-        const { data: page, error } = await context.supabase
+        const { data: page, error } = await db
           .from("attendance_roster_assignments")
           .select("id, location_id, staff_id, work_date")
           .gte("work_date", target.dateFrom)
@@ -1027,7 +1167,7 @@ export const copyRosterToNextMonth = createAuthenticatedAction(
     if (scopedCopy) {
       targetCount = rowsInCopyScope(destinationRows ?? []).length;
     } else {
-      const { count, error } = await context.supabase
+      const { count, error } = await db
         .from("attendance_roster_assignments")
         .select("id", { count: "exact", head: true })
         .gte("work_date", target.dateFrom)
@@ -1053,21 +1193,21 @@ export const copyRosterToNextMonth = createAuthenticatedAction(
 
     const locationIds = [...new Set(sourceRows.map((row) => String(row.location_id)))];
     for (const locationId of locationIds) {
-      await assertAttendanceRosterLocation(context, locationId);
+      await assertRosterWriteLocation(actor, context, locationId);
     }
 
     let replaced = 0;
     if (targetCount > 0 && data.replace) {
       const existing = scopedCopy
         ? rowsInCopyScope(destinationRows ?? [])
-        : await fetchRosterAssignmentsInScope(context.supabase, {
+        : await fetchRosterAssignmentsInScope(db, {
             dateFrom: target.dateFrom,
             dateTo: target.dateTo,
             sourceUploadOnly: false,
           });
       replaced = existing.length;
       for (const ids of chunkIds(existing.map((row) => String(row.id)), 200)) {
-        const { error: delErr } = await context.supabase
+        const { error: delErr } = await db
           .from("attendance_roster_assignments")
           .delete()
           .in("id", ids)
@@ -1118,7 +1258,7 @@ export const copyRosterToNextMonth = createAuthenticatedAction(
     }
 
     for (const chunk of chunkIds(payload, 400)) {
-      const { error } = await context.supabase
+      const { error } = await db
         .from("attendance_roster_assignments")
         .upsert(chunk, { onConflict: "staff_id,work_date" });
       if (error) throw error;
@@ -1140,12 +1280,12 @@ export const copyRosterToNextMonth = createAuthenticatedAction(
       if (row.work_date > current.maxDate) current.maxDate = row.work_date;
     }
     for (const [locationId, scope] of byLocation) {
-      await recalculateAttendanceRange(context.supabase, locationId, scope.minDate, scope.maxDate, {
+      await recalculateAttendanceRange(db, locationId, scope.minDate, scope.maxDate, {
         staffIds: [...scope.staffIds],
       });
     }
 
-    await context.supabase.from("attendance_audit_events").insert({
+    await db.from("attendance_audit_events").insert({
       actor_id: context.userId,
       action: "roster.copy_to_next_month",
       entity_type: "attendance_roster_assignments",
@@ -1233,6 +1373,7 @@ export const downloadPreviousMonthRoster = createAuthenticatedAction(
         "people.edit_roster",
         "daily_ops.roster.upload",
         "attendance.view",
+        "hr.employee_app",
       ],
     },
   },
