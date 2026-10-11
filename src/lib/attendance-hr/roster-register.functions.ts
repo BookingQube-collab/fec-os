@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 
+import { loadLinkedStaffJobTitle } from "@/lib/linked-staff-job-title.server";
 import { canAmendShiftRoster, canUserDo, type AppRole } from "@/lib/rbac";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { loadDirectReportStaffIds } from "@/lib/reporting-manager-access.server";
@@ -134,8 +135,11 @@ async function syncRosterLeaveRecord(
   if (error) throw error;
 }
 
-function assertCanAmendRoster(roles: AppRole[] | string[] | undefined) {
-  if (canAmendShiftRoster(roles ?? [])) return;
+async function assertCanAmendRoster(context: Pick<AuthContext, "userId" | "roles">) {
+  const roles = context.roles ?? [];
+  if (canAmendShiftRoster(roles)) return;
+  const jobTitle = await loadLinkedStaffJobTitle(context.userId);
+  if (canAmendShiftRoster(roles, jobTitle)) return;
   throw new ForbiddenError("Forbidden: missing capability to amend the shift roster.");
 }
 
@@ -567,7 +571,7 @@ export const updateRosterAssignment = createAuthenticatedAction(
     compOffNote: z.string().max(500).nullable().optional(),
   }),
   async (data, context) => {
-    assertCanAmendRoster(context.roles);
+    await assertCanAmendRoster(context);
 
     const { data: existing, error: fetchErr } = await context.supabase
       .from("attendance_roster_assignments")
@@ -691,7 +695,7 @@ export const updateRosterAssignment = createAuthenticatedAction(
 export const deleteRosterAssignment = createAuthenticatedAction(
   z.object({ id: z.string().uuid() }),
   async (data, context) => {
-    assertCanAmendRoster(context.roles);
+    await assertCanAmendRoster(context);
 
     const { data: existing, error: fetchErr } = await context.supabase
       .from("attendance_roster_assignments")
@@ -833,7 +837,7 @@ export const deleteRosterAssignments = createAuthenticatedAction(
     ids: z.array(z.string().uuid()).max(10000).optional(),
   }),
   async (data, context) => {
-    assertCanAmendRoster(context.roles);
+    await assertCanAmendRoster(context);
     assertRosterDeletePeriod(data.dateFrom, data.dateTo);
     if (data.locationId) await assertAttendanceRosterLocation(context, data.locationId);
 
@@ -932,7 +936,7 @@ export const copyRosterToNextMonth = createAuthenticatedAction(
     department: z.enum(["fb_cafe"]).optional(),
   }),
   async (data, context) => {
-    assertCanAmendRoster(context.roles);
+    await assertCanAmendRoster(context);
 
     const source = monthBounds(data.month);
     const targetMonth = nextPayrollMonth(data.month);

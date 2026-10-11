@@ -480,13 +480,29 @@ const SHIFT_ROSTER_AMEND_CAPABILITIES = [
 ] as const satisfies readonly Capability[];
 
 /**
+ * Job title on the linked staff row that may amend the monthly roster
+ * even when the login role cannot. Matches "manager" or "supervisor" as a
+ * whole word (F&B Manager, Site Supervisor, Sr. Site Supervisor, Duty Manager).
+ * A plain Cashier, Host, or Technician title does not match.
+ */
+export function isRosterAmendJobTitle(jobTitle: string | null | undefined): boolean {
+  const title = jobTitle?.trim().toLowerCase() ?? "";
+  if (!title) return false;
+  return /(?:^|[^a-z])(?:manager|supervisor)(?=$|[^a-z])/.test(title);
+}
+
+/**
  * Pencil, trash, and Delete all on the monthly roster.
  * Uses the code role list, not a saved Roles-page override. A deny grant was
  * hiding these controls from duty managers and tech supervisors after the
  * capability lists already included them. Leadership and HR stay included.
- * Cashiers, technicians, customer service, auditors, and CFO stay out.
+ * A manager or supervisor job title is allowed even when the login role is
+ * cashier_host and a Roles-page deny is saved for that role.
+ * Cashiers, technicians, customer service, auditors, and CFO stay out unless
+ * their staff job title is a manager or supervisor.
  */
-export function canAmendShiftRoster(roles: readonly string[]): boolean {
+export function canAmendShiftRoster(roles: readonly string[], jobTitle?: string | null): boolean {
+  if (isRosterAmendJobTitle(jobTitle)) return true;
   const list = roles as AppRole[];
   return SHIFT_ROSTER_AMEND_CAPABILITIES.some((capability) => canUserDo(list, capability, null));
 }

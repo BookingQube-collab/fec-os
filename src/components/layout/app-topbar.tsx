@@ -22,7 +22,7 @@ import { useSites } from "@/hooks/queries/useSites";
 import { formatLocationRecord } from "@/lib/locations/normalize";
 import { BitsShine } from "@/components/layout/bits-shine";
 import { NotificationBell } from "@/components/layout/notification-bell";
-import { usesOpsCommandSubtitle } from "@/lib/topbar-identity";
+import { topbarIdentityLabel, usesOpsCommandSubtitle } from "@/lib/topbar-identity";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { SearchableSelect } from "@/components/ui/searchable-select";
@@ -103,7 +103,8 @@ export function AppTopbar() {
     .slice(0, 2)
     .map((s) => s[0]?.toUpperCase())
     .join("");
-  const primaryRole = translateRole(t, roles[0]?.role);
+  const roleLabel = translateRole(t, roles[0]?.role);
+  const primaryRole = topbarIdentityLabel(profile?.job_title, roleLabel);
   const showOpsCommand = usesOpsCommandSubtitle(roles[0]?.role);
 
 

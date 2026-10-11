@@ -9,6 +9,8 @@ export interface AuthProfile {
   employee_code: string | null;
   preferred_language: string;
   avatar_url: string | null;
+  /** Newest linked staff row's job title. Absent on older cached sessions. */
+  job_title?: string | null;
 }
 
 export interface AuthSessionPayload {

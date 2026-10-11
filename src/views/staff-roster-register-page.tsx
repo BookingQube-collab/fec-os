@@ -64,8 +64,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { useAppStore } from "@/stores/app-store";
 import { useHasDirectReports } from "@/hooks/use-my-direct-reports";
 import { canSeeShiftRosterUpload } from "@/lib/reporting-manager-locations";
-import { useUserRoles } from "@/hooks/use-auth";
-import { canAmendShiftRoster } from "@/lib/rbac";
+import { useCanAmendShiftRoster, useUserRoles } from "@/hooks/use-auth";
 
 function todayYmd() {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" });
@@ -90,7 +89,7 @@ export default function StaffRosterRegisterPage() {
   const qc = useQueryClient();
   const roles = useUserRoles();
   const { hasDirectReports } = useHasDirectReports();
-  const canManageRoster = canAmendShiftRoster(roles);
+  const canManageRoster = useCanAmendShiftRoster();
   const canUpload = canSeeShiftRosterUpload(roles, hasDirectReports);
   const storeLocationId = useAppStore((s) => s.currentLocationId);
 

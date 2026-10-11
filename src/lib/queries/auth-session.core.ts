@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { loadLinkedStaffJobTitle } from "@/lib/linked-staff-job-title.server";
 import type { AuthContext } from "@/lib/server/auth";
 import type { RoleAssignment } from "@/lib/rbac";
 
@@ -12,6 +13,7 @@ export interface AuthSessionPayload {
     employee_code: string | null;
     preferred_language: string | null;
     avatar_url: string | null;
+    job_title: string | null;
   } | null;
   roles: RoleAssignment[];
 }
@@ -76,9 +78,15 @@ async function loadProfileAndRoles(
 export async function fetchAuthSession(context: AuthContext): Promise<AuthSessionPayload> {
   const { profile, roles } = await loadProfileAndRoles(context.supabase, context.userId);
   const email = typeof context.claims.email === "string" ? context.claims.email : null;
+  let jobTitle: string | null = null;
+  try {
+    jobTitle = await loadLinkedStaffJobTitle(context.userId);
+  } catch (error) {
+    console.warn("[auth/session] staff job title lookup failed", error);
+  }
   return {
     user: { id: context.userId, email },
-    profile,
+    profile: profile ? { ...profile, job_title: jobTitle } : null,
     roles,
   };
 }

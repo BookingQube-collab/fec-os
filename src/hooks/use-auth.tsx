@@ -15,7 +15,7 @@ import { listCapabilityGrants } from "@/lib/admin.functions";
 import { setActiveCapabilityGrants, toGrantMap } from "@/lib/rbac-grants";
 import { supabase } from "@/integrations/supabase/client";
 import { queryKeys } from "@/lib/query-keys";
-import type { AppRole, RoleAssignment } from "@/lib/rbac";
+import { canAmendShiftRoster, type AppRole, type RoleAssignment } from "@/lib/rbac";
 
 export type Profile = AuthProfile;
 
@@ -276,4 +276,11 @@ export function useUserRoles(): AppRole[] {
   const { roles, grantsVersion } = useAuth();
   void grantsVersion;
   return roles.map((r) => r.role);
+}
+
+/** Monthly roster pencil, trash, and Delete all. Job title can allow a cashier login. */
+export function useCanAmendShiftRoster(): boolean {
+  const { profile } = useAuth();
+  const roles = useUserRoles();
+  return canAmendShiftRoster(roles, profile?.job_title);
 }
