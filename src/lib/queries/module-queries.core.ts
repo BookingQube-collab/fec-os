@@ -379,6 +379,8 @@ export interface StaffRow {
   has_photo: boolean;
   photo_updated_at: string | null;
   flexible_attendance?: boolean;
+  /** When true, this person can check in and check out from their own login. */
+  can_self_check_in?: boolean;
   reporting_time_minutes?: number | null;
   buffer_minutes?: number | null;
   expected_hours?: number | null;
@@ -440,6 +442,7 @@ function mapStaffRow(
     staff_role: (rest.staff_role as string | null | undefined) ?? null,
     is_roaming: Boolean(rest.is_roaming),
     flexible_attendance: Boolean(rest.flexible_attendance),
+    can_self_check_in: Boolean(rest.can_self_check_in),
     reporting_time_minutes:
       rest.reporting_time_minutes == null ? null : Number(rest.reporting_time_minutes),
     buffer_minutes: rest.buffer_minutes == null ? null : Number(rest.buffer_minutes),
@@ -500,7 +503,7 @@ export async function fetchStaff(
   let q = context.supabase
     .from("staff")
     .select(
-      "id, user_id, employee_code, full_name, job_title, department, status, location_id, is_roaming, phone, email, hire_date, qid, e3_enrolled, employment_type, staff_role, photo_updated_at, flexible_attendance, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday, locations!staff_location_id_fkey(code, name), staff_departments(department_id, master_departments(id, name, sort_order))",
+      "id, user_id, employee_code, full_name, job_title, department, status, location_id, is_roaming, phone, email, hire_date, qid, e3_enrolled, employment_type, staff_role, photo_updated_at, flexible_attendance, can_self_check_in, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday, locations!staff_location_id_fkey(code, name), staff_departments(department_id, master_departments(id, name, sort_order))",
     )
     .order("full_name")
     .limit(500);
@@ -591,7 +594,7 @@ export async function fetchStaff(
  * Hint both embeds: locations (home vs work M2M) and staff_profile_ext
  * (staff_id vs reporting_manager_staff_id) — otherwise PostgREST PGRST201. */
 const STAFF_DIRECTORY_SELECT =
-  "id, user_id, employee_code, full_name, job_title, department, status, location_id, is_roaming, phone, email, hire_date, qid, e3_enrolled, employment_type, staff_role, photo_updated_at, flexible_attendance, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday, locations!staff_location_id_fkey(code, name), staff_departments(department_id, master_departments(id, name, sort_order)), staff_profile_ext!staff_profile_ext_staff_id_fkey(nationality, gender, sponsorship_info, passport_number, passport_expiry, visa_number, qid_expiry, date_of_birth, contract_end, visa_expiry)";
+  "id, user_id, employee_code, full_name, job_title, department, status, location_id, is_roaming, phone, email, hire_date, qid, e3_enrolled, employment_type, staff_role, photo_updated_at, flexible_attendance, can_self_check_in, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday, locations!staff_location_id_fkey(code, name), staff_departments(department_id, master_departments(id, name, sort_order)), staff_profile_ext!staff_profile_ext_staff_id_fkey(nationality, gender, sponsorship_info, passport_number, passport_expiry, visa_number, qid_expiry, date_of_birth, contract_end, visa_expiry)";
 
 export type StaffDirectoryListFilters = {
   locationId?: string | null;

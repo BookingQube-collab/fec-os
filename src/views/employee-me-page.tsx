@@ -14,6 +14,7 @@ import {
 } from "@/components/attendance-hr/missed-punch-approval-queue";
 import { PunchCorrectionRequest } from "@/components/attendance-hr/punch-correction-request";
 import { EmployeeIssuesList, EmployeeRosterList } from "@/components/hr/employee-self-dashboard";
+import { SelfCheckCard } from "@/components/hr/self-check-card";
 import { HrShell } from "@/components/hr/hr-shell";
 import {
   useMyAttendance,
@@ -536,7 +537,7 @@ export default function EmployeeMePage() {
                       <span className="hd-stat__label">{t("hr.me.myRoster")}</span>
                     </button>
                   </div>
-                  <p className="hd-note">{t("hr.me.biometricNote")}</p>
+                  {person?.canSelfCheckIn ? <SelfCheckCard /> : <p className="hd-note">{t("hr.me.biometricNote")}</p>}
                   <div id="me-punch-approvals" className="hd-stack">
                     <MissedPunchApprovalQueue hideWhenEmpty actionableOnly title={t("hr.me.approvalsTitle")} />
                   </div>
@@ -580,6 +581,7 @@ export default function EmployeeMePage() {
 
               {active === "attendance" ? (
                 <EssPanel id="me-attendance" title={t("hr.me.myAttendance")} hint={attendanceHint}>
+                  {person?.canSelfCheckIn ? <SelfCheckCard /> : null}
                   <div id="me-punch-approvals">
                     <MissedPunchApprovalQueue hideWhenEmpty actionableOnly title={t("hr.me.approvalsTitle")} />
                   </div>

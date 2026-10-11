@@ -779,6 +779,7 @@ export const updateStaff = createSafeAuthenticatedAction(
     e3Enrolled: z.boolean().nullable().optional(),
     employmentType: z.enum(["permanent", "temporary", "secondment", "joker"]).nullable().optional(),
     flexibleAttendance: z.boolean().optional(),
+    canSelfCheckIn: z.boolean().optional(),
     reportingTimeMinutes: z.number().int().min(0).max(180).nullable().optional(),
     bufferMinutes: z.number().int().min(0).max(120).nullable().optional(),
     expectedHours: z.number().min(1).max(16).nullable().optional(),
@@ -823,6 +824,7 @@ export const updateStaff = createSafeAuthenticatedAction(
     if (data.e3Enrolled !== undefined) patch.e3_enrolled = data.e3Enrolled;
     if (data.employmentType !== undefined) patch.employment_type = data.employmentType;
     if (data.flexibleAttendance !== undefined) patch.flexible_attendance = data.flexibleAttendance;
+    if (data.canSelfCheckIn !== undefined) patch.can_self_check_in = data.canSelfCheckIn;
     if (data.reportingTimeMinutes !== undefined) patch.reporting_time_minutes = data.reportingTimeMinutes;
     if (data.bufferMinutes !== undefined) patch.buffer_minutes = data.bufferMinutes;
     if (data.expectedHours !== undefined) patch.expected_hours = data.expectedHours;

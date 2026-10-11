@@ -576,6 +576,7 @@ function StaffFormDialog({
   );
   const [isRoaming, setIsRoaming] = useState(Boolean(staff?.is_roaming));
   const [flexibleAttendance, setFlexibleAttendance] = useState(Boolean(staff?.flexible_attendance));
+  const [canSelfCheckIn, setCanSelfCheckIn] = useState(Boolean(staff?.can_self_check_in));
   const [reportingTimeMinutes, setReportingTimeMinutes] = useState(
     staff?.reporting_time_minutes == null ? "" : String(staff.reporting_time_minutes),
   );
@@ -783,6 +784,7 @@ function StaffFormDialog({
             id: staff!.id,
             ...profilePatch,
             flexibleAttendance,
+            canSelfCheckIn,
             reportingTimeMinutes: reportingParsed,
             bufferMinutes: bufferParsed,
             expectedHours: expectedParsed,
@@ -1061,6 +1063,19 @@ function StaffFormDialog({
                   />
                 </div>
               </div>
+              {isEdit ? (
+                <div className="space-y-1 rounded-md border border-border p-3">
+                  <label className="flex min-h-11 items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={canSelfCheckIn}
+                      onCheckedChange={(v) => setCanSelfCheckIn(Boolean(v))}
+                      disabled={m.isPending}
+                    />
+                    {t("people.staff.selfCheckInEnable")}
+                  </label>
+                  <p className="text-[11px] text-muted-foreground">{t("people.staff.selfCheckInHint")}</p>
+                </div>
+              ) : null}
             </TabsContent>
             <TabsContent value="job" forceMount className="mt-0 space-y-3 data-[state=inactive]:hidden">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

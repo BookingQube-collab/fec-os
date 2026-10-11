@@ -347,9 +347,16 @@ export const getMyEmployeeProfile = createAuthenticatedActionNoInput(
     const fallbackDept = (data.department as string | null)?.trim() || null;
     const locationLabel = loc ? formatLocationLabel(loc.code, loc.name) : null;
     const reporting = await reportingNames(String(data.id));
+    const flag = await supabaseAdmin
+      .from("staff")
+      .select("can_self_check_in")
+      .eq("id", String(data.id))
+      .maybeSingle();
+    const canSelfCheckIn = !flag.error && Boolean(flag.data?.can_self_check_in);
 
     return {
       id: String(data.id),
+      canSelfCheckIn,
       fullName: String(data.full_name ?? ""),
       employeeCode: (data.employee_code as string | null) ?? null,
       jobTitle: (data.job_title as string | null) ?? null,

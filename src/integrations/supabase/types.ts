@@ -2032,6 +2032,7 @@ export type Database = {
           break_minutes: number | null
           weekly_off_weekday: number | null
           flexible_attendance: boolean
+          can_self_check_in: boolean
           flexible_shift_end: string | null
           flexible_shift_start: string | null
           full_name: string
@@ -2065,6 +2066,7 @@ export type Database = {
           break_minutes?: number | null
           weekly_off_weekday?: number | null
           flexible_attendance?: boolean
+          can_self_check_in?: boolean
           flexible_shift_end?: string | null
           flexible_shift_start?: string | null
           full_name: string
@@ -2098,6 +2100,7 @@ export type Database = {
           break_minutes?: number | null
           weekly_off_weekday?: number | null
           flexible_attendance?: boolean
+          can_self_check_in?: boolean
           flexible_shift_end?: string | null
           flexible_shift_start?: string | null
           full_name?: string
