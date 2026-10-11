@@ -6,6 +6,7 @@
 import { expiryBand, qatarTodayYmd, type HrExpiryBand } from "@/lib/hr-expiry-bands";
 import type { StaffRow } from "@/lib/queries/module-queries.core";
 import {
+  isContractFinishedStaffStatus,
   isResignedStaffStatus,
   isServingNoticeStaffStatus,
   isTerminatedStaffStatus,
@@ -137,6 +138,7 @@ export function isExitingStaff(s: StaffRow): boolean {
   return (
     isResignedStaffStatus(s.status) ||
     isTerminatedStaffStatus(s.status) ||
+    isContractFinishedStaffStatus(s.status) ||
     isServingNoticeStaffStatus(s.status)
   );
 }

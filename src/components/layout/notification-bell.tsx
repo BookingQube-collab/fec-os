@@ -16,7 +16,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
-import { ar as arDateLocale } from "date-fns/locale";
+import { ar as arDateLocale } from "date-fns/locale/ar";
 
 import BellToggle from "@/components/react-bits/bell-toggle";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
@@ -27,7 +27,7 @@ import { canViewComplianceExpiryAlerts } from "@/lib/compliance/compliance-expir
 import type { InboxItemKind } from "@/lib/notifications/inbox";
 import { ackEscalation, markNotificationRead } from "@/lib/notifications.functions";
 import { queryKeys } from "@/lib/query-keys";
-import type { AppRole } from "@/lib/rbac";
+import { canUserDo, type AppRole } from "@/lib/rbac";
 import { useAppStore } from "@/stores/app-store";
 
 const INBOX_ICONS: Record<InboxItemKind, typeof Bell> = {
@@ -40,6 +40,21 @@ const INBOX_ICONS: Record<InboxItemKind, typeof Bell> = {
   weekly_report: FileText,
   evaluation: UserCheck,
 };
+
+/**
+ * Let the route's own queries start before the shell inbox fan-out.
+ * Stays true for the rest of the session so later navigations are not delayed again.
+ */
+function useDeferShellInbox(): boolean {
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    const id = window.setTimeout(() => setReady(true), 700);
+    return () => window.clearTimeout(id);
+  }, []);
+
+  return ready;
+}
 
 function relativeTime(iso: string, language: string): string {
   const d = new Date(iso);
@@ -68,6 +83,7 @@ export function NotificationBell({
   const { user, roles } = useAuth();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const shellInboxReady = useDeferShellInbox();
   const anchorRef = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
@@ -76,16 +92,19 @@ export function NotificationBell({
 
   const roleList = roles.map((r) => r.role as AppRole);
   const showComplianceAlerts = canViewComplianceExpiryAlerts(roleList);
+  const canPollInbox =
+    canUserDo(roleList, "notifications.view") || canUserDo(roleList, "issues.view");
+  const pollInbox = !!user && canPollInbox && (shellInboxReady || open);
 
-  const inbox = useActionInbox(user?.id, { enabled: !!user });
-  const escalations = useEscalations({ enabled: !!user });
+  const inbox = useActionInbox(user?.id, { enabled: pollInbox });
+  const escalations = useEscalations({ enabled: pollInbox });
   const complianceAlerts = useComplianceExpiryNotifications(
     { locationId: currentLocationId, limit: 12 },
     { enabled: !!user && showComplianceAlerts && open },
   );
   const complianceSummary = useComplianceExpiryNotifications(
     { locationId: currentLocationId, summaryOnly: true },
-    { enabled: !!user && showComplianceAlerts },
+    { enabled: !!user && showComplianceAlerts && (shellInboxReady || open) },
   );
 
   const ack = useMutation({

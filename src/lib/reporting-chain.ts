@@ -1,6 +1,6 @@
 import { isHeadOfOperationsTitle, isSiteSupervisorTitle } from "@/lib/attendance-hr/missed-punch-approval";
 import { wouldCreateReportingCycle } from "@/lib/org-hierarchy";
-import { isActiveStaffStatus, isResignedStaffStatus, isServingNoticeStaffStatus, isTerminatedStaffStatus } from "@/lib/staff-status";
+import { isActiveStaffStatus, isContractFinishedStaffStatus, isResignedStaffStatus, isServingNoticeStaffStatus, isTerminatedStaffStatus } from "@/lib/staff-status";
 
 /** Adil Bashir Ahmed, employee code 1. Managing Director / Chief Executive Officer. */
 export const CEO_STAFF_ID = "ca3abc00-55ba-44eb-86c7-457173bb98bc";
@@ -40,7 +40,7 @@ export type ProjectedReporting = {
 
 function eligible(row: ChainStaff): boolean {
   if (!row.locationId) return false;
-  if (isTerminatedStaffStatus(row.status) || isResignedStaffStatus(row.status)) return false;
+  if (isTerminatedStaffStatus(row.status) || isResignedStaffStatus(row.status) || isContractFinishedStaffStatus(row.status)) return false;
   if ((row.status ?? "").trim().toLowerCase() === "joker") return false;
   return isActiveStaffStatus(row.status) || isServingNoticeStaffStatus(row.status);
 }

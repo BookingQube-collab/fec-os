@@ -104,6 +104,34 @@ describe("staff directory KPIs follow filters", () => {
     expect(kpis.secondment).toBe(1);
   });
 
+  it("drops a finished temporary or secondment contract from the active list and temporary headcount", () => {
+    const ended = [
+      row({
+        id: "temp-ended",
+        full_name: "Temporary Ended",
+        employee_code: "T-END",
+        employment_type: "temporary",
+        status: "contract_finished",
+      }),
+      row({
+        id: "sec-ended",
+        full_name: "Secondment Ended",
+        employee_code: "S-END",
+        employment_type: "secondment",
+        status: "contract_finished",
+      }),
+    ];
+    expect(filterStaffDirectory(ended, base)).toEqual([]);
+    const kpis = computeStaffDirectoryKpis(ended);
+    expect(kpis.active).toBe(0);
+    expect(kpis.temporary).toBe(0);
+    expect(kpis.exiting).toBe(2);
+    expect(filterStaffDirectory(ended, { ...base, status: "contract_finished" }).map((s) => s.id).sort()).toEqual([
+      "sec-ended",
+      "temp-ended",
+    ]);
+  });
+
   it("does not count a joker as active, and the joker filter shows them", () => {
     const roster = computeStaffDirectoryKpis(staff);
     expect(roster.active).toBe(1);

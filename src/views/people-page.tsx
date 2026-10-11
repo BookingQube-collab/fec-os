@@ -71,7 +71,7 @@ import { DepartmentMultiSelect } from "@/components/people/department-multi-sele
 import { WorkSiteMultiSelect } from "@/components/people/work-site-multi-select";
 import { ManagePeopleMastersDialog } from "@/components/people/manage-people-masters-dialog";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import { alignMasterValue } from "@/lib/people-masters";
+import { alignMasterValue, masterLabelKey, matchNationalityChoice } from "@/lib/people-masters";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -177,7 +177,7 @@ const PeopleDocumentsExpiryPanel = dynamic(
   },
 );
 
-const STAFF_STATUSES = ["active", "on_leave", "terminated", "resigned", "joker"] as const;
+const STAFF_STATUSES = ["active", "on_leave", "terminated", "resigned", "contract_finished", "joker"] as const;
 const ATTENDANCE_STATUSES = ["present", "absent", "late", "early_leave", "missed_punch", "overtime"] as const;
 const TRAINING_STATUSES = ["enrolled", "in_progress", "completed", "overdue"] as const;
 
@@ -549,6 +549,17 @@ function StaffFormDialog({
     () => (peopleMasters.data?.nationalities ?? []).map((row) => row.name),
     [peopleMasters.data?.nationalities],
   );
+  const nationalityOptions = useMemo(() => {
+    const current = alignMasterValue(nationality, nationalityNames);
+    const known = nationalityNames.some((name) => masterLabelKey(name) === masterLabelKey(current));
+    const names = current && !known ? [current, ...nationalityNames] : nationalityNames;
+    return names.map((name) => ({ value: name, label: name }));
+  }, [nationality, nationalityNames]);
+  useEffect(() => {
+    if (!nationality.trim() || nationalityNames.length === 0) return;
+    const matched = matchNationalityChoice(nationality, nationalityNames);
+    if (matched !== nationality) setNationality(matched);
+  }, [nationality, nationalityNames]);
   const { data: departments = [] } = useMasterDepartments({ enabled: open });
   const { data: codeScopeStaff = [] } = useStaff(loc || null, {
     enabled: open && !isEdit && !!loc,
@@ -765,7 +776,7 @@ function StaffFormDialog({
         e3Enrolled,
         employmentType: employment,
         gender: alignMasterValue(gender, genderNames) || null,
-        nationality: alignMasterValue(nationality, nationalityNames) || null,
+        nationality: matchNationalityChoice(nationality, nationalityNames) || null,
       };
 
       const saveSalary = (id: string) => {
@@ -850,7 +861,7 @@ function StaffFormDialog({
           e3Enrolled,
           employmentType: employment,
           gender: alignMasterValue(gender, genderNames) || null,
-          nationality: alignMasterValue(nationality, nationalityNames) || null,
+          nationality: matchNationalityChoice(nationality, nationalityNames) || null,
         });
         if (!created.ok) throw new Error(created.error);
         staffId = created.data.id;
@@ -1077,11 +1088,18 @@ function StaffFormDialog({
                   <Label>{t("people.staff.nationality")}</Label>
                   <SearchableSelect
                     value={alignMasterValue(nationality, nationalityNames)}
-                    onValueChange={setNationality}
+                    onValueChange={(value) => {
+                      setNationality(value);
+                      if (identity.suggestions.nationality) {
+                        const suggestions = { ...identity.suggestions };
+                        delete suggestions.nationality;
+                        setIdentity({ ...identity, suggestions });
+                      }
+                    }}
                     disabled={m.isPending}
                     placeholder={t("people.staff.nationalityUnset")}
                     emptyOption={{ value: "", label: t("people.staff.nationalityUnset") }}
-                    options={nationalityNames.map((name) => ({ value: name, label: name }))}
+                    options={nationalityOptions}
                   />
                 </div>
               </div>
@@ -1149,7 +1167,9 @@ function StaffFormDialog({
                             ? t("people.staff.employmentTypes.joker")
                             : s === "resigned"
                               ? t("hr.me.staffStatus.resigned", "Resigned")
-                              : s.replace("_", " ")}
+                              : s === "contract_finished"
+                                ? t("hr.me.staffStatus.contract_finished", "Contract finished")
+                                : s.replace("_", " ")}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1373,11 +1393,15 @@ function StaffFormDialog({
               <StaffIdentityDocsField
                 fullName={fullName}
                 qid={qid}
+                nationality={nationality}
                 draft={identity}
                 onDraft={setIdentity}
                 onApplyFields={(patch) => {
                   if (patch.fullName != null) setFullName(patch.fullName);
                   if (patch.qid != null) setQid(patch.qid);
+                  if (patch.nationality != null) {
+                    setNationality(matchNationalityChoice(patch.nationality, nationalityNames));
+                  }
                 }}
                 disabled={m.isPending}
               />

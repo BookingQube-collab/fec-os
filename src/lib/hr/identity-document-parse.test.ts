@@ -20,6 +20,7 @@ const emptyFields = (): IdentityFormFields => ({
   visaExpiry: "",
   contractNumber: "",
   contractExpiry: "",
+  nationality: "",
 });
 
 describe("parseIdentityDocument", () => {
@@ -124,6 +125,49 @@ describe("parseIdentityDocument", () => {
     expect(parsed.documentNumber).toEqual({ value: "FEC-CT-2024-014", confidence: "high" });
     expect(parsed.expiryDate).toEqual({ value: "2026-12-31", confidence: "high" });
   });
+
+  it("reads a Qatar residency permit front and back, including passport and nationality", () => {
+    const text = [
+      "State Of Qatar",
+      "Residency Permit",
+      "دولة قطر",
+      "رخصة إقامة",
+      "ID.No: 28511223344 الرقم الشخصي:",
+      "D.O.B: 01/02/1990 تاريخ الميلاد:",
+      "Expiry: 15/08/2028 الصلاحية:",
+      "Nationality: الفلبين",
+      "PHILIPPINES الجنسية:",
+      "Occupation: كاشير المهنة:",
+      "الإسم: جين دو",
+      "Name: JANE MARIE DOE",
+      "Passport Number: P1234567 رقم جواز السفر:",
+      "Passport Expiry: 20/11/2032 تاريخ انتهاء الجواز:",
+      "Serial No: 30130285112233 الرقم المسلسل:",
+      "Residency Type: عمل نوع الرخصة:",
+    ].join("\n");
+
+    const parsed = parseIdentityDocument(text, "qid");
+    expect(parsed.name).toEqual({ value: "JANE MARIE DOE", confidence: "high" });
+    expect(parsed.documentNumber).toEqual({ value: "28511223344", confidence: "high" });
+    expect(parsed.expiryDate).toEqual({ value: "2028-08-15", confidence: "high" });
+    expect(parsed.passportNumber).toEqual({ value: "P1234567", confidence: "high" });
+    expect(parsed.passportExpiry).toEqual({ value: "2032-11-20", confidence: "high" });
+    expect(parsed.nationality).toEqual({ value: "Philippines", confidence: "high" });
+    expect(parsed.expiryDate?.value).not.toBe("1990-02-01");
+    expect(parsed.documentNumber?.value).not.toBe("30130285112");
+  });
+
+  it("reads the same permit when OCR keeps the front and back on one line", () => {
+    const text =
+      "State Of Qatar Residency Permit ID.No: 28511223344 D.O.B: 01/02/1990 Expiry: 15/08/2028 Nationality: PHILIPPINES Name: JANE MARIE DOE Passport Number: P1234567 Passport Expiry: 20/11/2032 Serial No: 30130285112233";
+    const parsed = parseIdentityDocument(text, "qid");
+    expect(parsed.name?.value).toBe("JANE MARIE DOE");
+    expect(parsed.documentNumber?.value).toBe("28511223344");
+    expect(parsed.expiryDate?.value).toBe("2028-08-15");
+    expect(parsed.passportNumber?.value).toBe("P1234567");
+    expect(parsed.passportExpiry?.value).toBe("2032-11-20");
+    expect(parsed.nationality?.value).toBe("Philippines");
+  });
 });
 
 describe("applyIdentityExtraction", () => {
@@ -162,6 +206,45 @@ describe("applyIdentityExtraction", () => {
     expect(applied.fields.visaNumber).toBe("");
     expect(applied.suggestions.visaNumber).toBe("V88421");
     expect(applied.fields.visaExpiry).toBe("2027-12-01");
+  });
+
+  it("fills passport and nationality from a residency permit without touching visa fields", () => {
+    const parsed = parseIdentityDocument(
+      [
+        "ID.No: 28511223344",
+        "Name: JANE MARIE DOE",
+        "Expiry: 15/08/2028",
+        "Nationality: PHILIPPINES",
+        "Passport Number: P1234567",
+        "Passport Expiry: 20/11/2032",
+        "D.O.B: 01/02/1990",
+        "Serial No: 30130285112233",
+      ].join("\n"),
+      "qid",
+    );
+    const applied = applyIdentityExtraction(emptyFields(), "qid", parsed);
+    expect(applied.fields.fullName).toBe("JANE MARIE DOE");
+    expect(applied.fields.qid).toBe("28511223344");
+    expect(applied.fields.qidExpiry).toBe("2028-08-15");
+    expect(applied.fields.passportNumber).toBe("P1234567");
+    expect(applied.fields.passportExpiry).toBe("2032-11-20");
+    expect(applied.fields.nationality).toBe("Philippines");
+    expect(applied.fields.visaNumber).toBe("");
+    expect(applied.fields.visaExpiry).toBe("");
+    expect(applied.suggestions).toEqual({});
+  });
+
+  it("keeps a typed passport number when the residency permit disagrees", () => {
+    const parsed = parseIdentityDocument(
+      ["ID.No: 28511223344", "Passport Number: P1234567", "Expiry: 15/08/2028"].join("\n"),
+      "qid",
+    );
+    const current = { ...emptyFields(), passportNumber: "X999999" };
+    const applied = applyIdentityExtraction(current, "qid", parsed);
+    expect(applied.fields.passportNumber).toBe("X999999");
+    expect(applied.suggestions.passportNumber).toBe("P1234567");
+    expect(applied.fields.qid).toBe("28511223344");
+    expect(applied.fields.qidExpiry).toBe("2028-08-15");
   });
 
   it("fills an empty passport number and expiry without touching a typed name", () => {

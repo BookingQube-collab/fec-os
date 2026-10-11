@@ -114,12 +114,18 @@ function formatStaffDisplayName(name: string): string {
   return trimmed.toLowerCase().replace(/(^|[\s'\-])(\S)/g, (_, sep: string, ch: string) => sep + ch.toUpperCase());
 }
 
+function directoryStatusLabel(status: string, label: (key: string, fallback: string) => string): string {
+  const s = status.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (s === "contract_finished") return label("hr.me.staffStatus.contract_finished", "Contract finished");
+  return status.replace(/_/g, " ");
+}
+
 function staffStatusBadgeVariant(
   status: string,
 ): "success" | "warning" | "destructive" | "info" | "muted" | "outline" {
   const s = status.trim().toLowerCase().replace(/[\s-]+/g, "_");
   if (s === "active" || s === "probation") return "success";
-  if (s === "terminated" || s === "resigned" || s === "released") return "destructive";
+  if (s === "terminated" || s === "resigned" || s === "released" || s === "contract_finished") return "destructive";
   if (s === "secondment" || s === "remote" || s === "serving_notice") return "warning";
   if (s === "on_leave" || s === "vacation" || s === "sick_leave" || s === "unpaid_leave") return "info";
   if (s === "joker") return "muted";
@@ -805,7 +811,12 @@ export function StaffDirectory({
             emptyOption={{ value: "", label: t("people.staff.allStatuses", "All statuses") }}
             options={STAFF_DIRECTORY_STATUSES.map((s) => ({
               value: s,
-              label: s === "joker" ? t("people.staff.employmentTypes.joker") : s.replace(/_/g, " "),
+              label:
+                s === "joker"
+                  ? t("people.staff.employmentTypes.joker")
+                  : s === "contract_finished"
+                    ? t("hr.me.staffStatus.contract_finished", "Contract finished")
+                    : s.replace(/_/g, " "),
             }))}
             triggerClassName={FILTER_TRIGGER}
             className="w-full"
@@ -980,7 +991,11 @@ export function StaffDirectory({
                     subtitle={[s.job_title, formatLocation(s)].filter(Boolean).join(" · ") || s.employee_code}
                     meta={
                       <>
-                        <Badge variant={staffStatusBadgeVariant(s.status)}>{s.status}</Badge>
+                        <Badge variant={staffStatusBadgeVariant(s.status)}>
+                          {s.status.trim().toLowerCase().replace(/[\s-]+/g, "_") === "contract_finished"
+                            ? t("hr.me.staffStatus.contract_finished", "Contract finished")
+                            : s.status}
+                        </Badge>
                         {tempCodes.length ? (
                           <Badge variant="info">{t("people.staff.temporaryMove")}</Badge>
                         ) : null}
@@ -1186,7 +1201,7 @@ export function StaffDirectory({
                             {col("status") ? (
                               <td className="px-3 py-2.5">
                                 <Badge variant={staffStatusBadgeVariant(s.status)} className="uppercase tracking-wide">
-                                  {s.status.replace(/_/g, " ")}
+                                  {directoryStatusLabel(s.status, t)}
                                 </Badge>
                               </td>
                             ) : null}
@@ -1270,7 +1285,8 @@ export function StaffDirectory({
                                       </DropdownMenuItem>
                                       {s.status === "terminated" ||
                                       s.status === "resigned" ||
-                                      s.status === "released" ? (
+                                      s.status === "released" ||
+                                      s.status === "contract_finished" ? (
                                         <DropdownMenuItem onClick={() => restoreMut.mutate(s.id)}>
                                           {t("people.staff.restore")}
                                         </DropdownMenuItem>
@@ -1382,7 +1398,7 @@ export function StaffDirectory({
                   <dt className="text-muted-foreground">{t("people.staff.status")}</dt>
                   <dd>
                     <Badge variant={staffStatusBadgeVariant(quickView.status)} className="uppercase tracking-wide">
-                      {quickView.status.replace(/_/g, " ")}
+                      {directoryStatusLabel(quickView.status, t)}
                     </Badge>
                   </dd>
                 </div>

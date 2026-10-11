@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   departmentColor,
+  collapsibleOrgIds,
   expandedChildIds,
   groupOrgChart,
   initialCollapsedIds,
   layoutOrgChart,
+  layoutOrgChartLevels,
   ORG_LEVEL_GAP,
   ORG_NODE_HEIGHT,
   ORG_NODE_WIDTH,
@@ -383,6 +385,38 @@ describe("org hierarchy", () => {
     const rtl = orgCurvePath(parent, child, true);
     expect(rtl.startsWith(`M 0 ${ORG_NODE_HEIGHT / 2}`)).toBe(true);
     expect(rtl).toContain(`${child.x + ORG_NODE_WIDTH}`);
+  });
+
+  it("expands every branch or leaves only the top rank", () => {
+    const childIds = new Map<string, string[]>([
+      ["a", ["b", "c"]],
+      ["b", ["d"]],
+    ]);
+    const collapsible = collapsibleOrgIds(["a"], childIds);
+    expect([...collapsible].sort()).toEqual(["a", "b"]);
+    expect([...expandedChildIds(["a"], childIds, new Set()).keys()].sort()).toEqual(["a", "b"]);
+    expect(expandedChildIds(["a"], childIds, collapsible).size).toBe(0);
+    const top = layoutOrgChart(["a"], expandedChildIds(["a"], childIds, collapsible));
+    expect(top.nodes.map((node) => node.staffId)).toEqual(["a"]);
+    const full = layoutOrgChart(["a"], expandedChildIds(["a"], childIds, new Set()));
+    expect(full.nodes.map((node) => node.staffId).sort()).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("places reports under their manager in the top-down chart", () => {
+    const layout = layoutOrgChartLevels(["a"], new Map([["a", ["b", "c"]]]));
+    const a = layout.nodes.find((node) => node.staffId === "a");
+    const b = layout.nodes.find((node) => node.staffId === "b");
+    const c = layout.nodes.find((node) => node.staffId === "c");
+    expect(a && b && c).toBeTruthy();
+    expect(b?.y).toBe(c?.y);
+    expect((b?.y ?? 0) > (a?.y ?? 0) + (a?.height ?? 0)).toBe(true);
+    const parentCenter = (a?.x ?? 0) + ORG_NODE_WIDTH / 2;
+    const childrenCenter = ((b?.x ?? 0) + (c?.x ?? 0)) / 2 + ORG_NODE_WIDTH / 2;
+    expect(parentCenter).toBeCloseTo(childrenCenter);
+    expect(layout.connectors).toHaveLength(2);
+    expect(layout.connectors[0]).toContain("C ");
+    expect(layout.width).toBeGreaterThan(ORG_NODE_WIDTH);
+    expect(layout.height).toBeGreaterThan(ORG_NODE_HEIGHT * 2);
   });
 
   it("moves direct reports up when someone leaves the chart", () => {

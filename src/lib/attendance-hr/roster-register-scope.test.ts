@@ -94,7 +94,7 @@ describe("roster register bulk-delete scope", () => {
     for (const status of ["serving_notice", "serving-notice", "Serving Notice"]) {
       expect(isRosterAssignableStaffStatus(status), status).toBe(true);
     }
-    for (const status of ["resigned", "terminated", "released", "inactive", "joker"]) {
+    for (const status of ["resigned", "terminated", "contract_finished", "released", "inactive", "joker"]) {
       expect(isRosterAssignableStaffStatus(status), status).toBe(false);
     }
   });

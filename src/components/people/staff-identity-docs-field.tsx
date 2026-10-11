@@ -1,5 +1,6 @@
 "use client";
 
+import { Loader2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -62,7 +63,7 @@ export function emptyIdentityDraft(staff?: {
   };
 }
 
-type DraftTextKey = Exclude<IdentityFieldKey, "fullName" | "qid">;
+type DraftTextKey = Exclude<IdentityFieldKey, "fullName" | "qid" | "nationality">;
 type BlockFieldKey = DraftTextKey | "qid";
 
 const BLOCKS: Array<{
@@ -107,6 +108,7 @@ const BLOCKS: Array<{
 export function StaffIdentityDocsField({
   fullName,
   qid,
+  nationality,
   draft,
   onDraft,
   onApplyFields,
@@ -114,9 +116,10 @@ export function StaffIdentityDocsField({
 }: {
   fullName: string;
   qid: string;
+  nationality: string;
   draft: StaffIdentityDraft;
   onDraft: (next: StaffIdentityDraft) => void;
-  onApplyFields: (patch: { fullName?: string; qid?: string }) => void;
+  onApplyFields: (patch: { fullName?: string; qid?: string; nationality?: string }) => void;
   disabled?: boolean;
 }) {
   const { t } = useTranslation();
@@ -124,11 +127,18 @@ export function StaffIdentityDocsField({
   const draftRef = useRef(draft);
   const nameRef = useRef(fullName);
   const qidRef = useRef(qid);
+  const nationalityRef = useRef(nationality);
   draftRef.current = draft;
   nameRef.current = fullName;
   qidRef.current = qid;
+  nationalityRef.current = nationality;
 
-  function fieldsFrom(current: StaffIdentityDraft, name: string, qidValue: string): IdentityFormFields {
+  function fieldsFrom(
+    current: StaffIdentityDraft,
+    name: string,
+    qidValue: string,
+    nationalityValue: string,
+  ): IdentityFormFields {
     return {
       fullName: name,
       qid: qidValue,
@@ -139,6 +149,7 @@ export function StaffIdentityDocsField({
       visaExpiry: current.visaExpiry,
       contractNumber: current.contractNumber,
       contractExpiry: current.contractExpiry,
+      nationality: nationalityValue,
     };
   }
 
@@ -185,6 +196,11 @@ export function StaffIdentityDocsField({
       onDraft({ ...draft, suggestions });
       return;
     }
+    if (field === "nationality") {
+      onApplyFields({ nationality: value });
+      onDraft({ ...draft, suggestions });
+      return;
+    }
     onDraft({ ...draft, [field]: value, suggestions });
   }
 
@@ -217,12 +233,16 @@ export function StaffIdentityDocsField({
       });
       const latest = draftRef.current;
       const applied = applyIdentityExtraction(
-        fieldsFrom(latest, nameRef.current, qidRef.current),
+        fieldsFrom(latest, nameRef.current, qidRef.current, nationalityRef.current),
         docType,
         result.parsed,
         latest.suggestions,
       );
-      onApplyFields({ fullName: applied.fields.fullName, qid: applied.fields.qid });
+      onApplyFields({
+        fullName: applied.fields.fullName,
+        qid: applied.fields.qid,
+        ...(applied.fields.nationality ? { nationality: applied.fields.nationality } : {}),
+      });
       onDraft({
         ...draftFromFields(latest, applied.fields, applied.suggestions),
         files: { ...latest.files, [docType]: file },
@@ -250,7 +270,9 @@ export function StaffIdentityDocsField({
       {BLOCKS.map((block) => {
         const file = draft.files[block.docType];
         const suggestionFields: IdentityFieldKey[] =
-          block.docType === "qid" ? ["fullName", "qid", "qidExpiry"] : block.fields.map((field) => field.key);
+          block.docType === "qid"
+            ? ["fullName", "qid", "qidExpiry", "nationality"]
+            : block.fields.map((field) => field.key);
         return (
           <div key={block.docType} className="space-y-2 border-t border-border pt-3">
             <div>
@@ -267,7 +289,10 @@ export function StaffIdentityDocsField({
                 }}
               />
               {reading === block.docType ? (
-                <p className="mt-1 text-[11px] text-muted-foreground">{t("people.staff.readingDocument")}</p>
+                <p className="mt-2 flex items-center gap-2 text-sm text-muted-foreground" role="status" aria-live="polite">
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  {t("people.staff.fetchingDetails")}
+                </p>
               ) : null}
               {file ? (
                 <div className="mt-1 flex items-center justify-between gap-2">

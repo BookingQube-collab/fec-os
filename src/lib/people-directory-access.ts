@@ -1,5 +1,6 @@
 import {
   isActiveStaffStatus,
+  isContractFinishedStaffStatus,
   isJokerEmploymentType,
   isOnLeaveStaffStatus,
   isResignedStaffStatus,
@@ -65,7 +66,7 @@ export function omitPeopleDirectorySalary<
 /**
  * Direct-report rows a job-title manager may see.
  * Active (including probation, secondment, remote), on leave, and serving notice.
- * Resigned, terminated, deleted, and jokers stay out.
+ * Resigned, terminated, contract finished, deleted, and jokers stay out.
  */
 export function isPeopleDirectoryTeamRow(input: {
   status: string | null | undefined;
@@ -76,7 +77,13 @@ export function isPeopleDirectoryTeamRow(input: {
   if (isJokerEmploymentType(input.employmentType)) return false;
   const status = (input.status ?? "").trim().toLowerCase();
   if (status === "joker") return false;
-  if (isResignedStaffStatus(input.status) || isTerminatedStaffStatus(input.status)) return false;
+  if (
+    isResignedStaffStatus(input.status) ||
+    isTerminatedStaffStatus(input.status) ||
+    isContractFinishedStaffStatus(input.status)
+  ) {
+    return false;
+  }
   return (
     isActiveStaffStatus(input.status) ||
     isOnLeaveStaffStatus(input.status) ||

@@ -80,6 +80,8 @@ describe("people directory for managers and supervisors", () => {
     expect(isPeopleDirectoryTeamRow({ status: "serving_notice", employmentType: "permanent" })).toBe(true);
     expect(isPeopleDirectoryTeamRow({ status: "resigned", employmentType: "permanent" })).toBe(false);
     expect(isPeopleDirectoryTeamRow({ status: "terminated", employmentType: "permanent" })).toBe(false);
+    expect(isPeopleDirectoryTeamRow({ status: "contract_finished", employmentType: "temporary" })).toBe(false);
+    expect(isPeopleDirectoryTeamRow({ status: "contract_finished", employmentType: "secondment" })).toBe(false);
     expect(isPeopleDirectoryTeamRow({ status: "active", employmentType: "joker" })).toBe(false);
     expect(isPeopleDirectoryTeamRow({ status: "joker", employmentType: "permanent" })).toBe(false);
     expect(

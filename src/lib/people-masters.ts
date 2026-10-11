@@ -30,6 +30,24 @@ export function alignMasterValue(value: string | null | undefined, names: readon
   return names.find((name) => masterLabelKey(name) === key) ?? raw;
 }
 
+/**
+ * Map a nationality read from a card onto one saved master.
+ * "Kenya" matches a saved "Kenyan" when that is the only longer or shorter label.
+ */
+export function matchNationalityChoice(extracted: string, names: readonly string[]): string {
+  const exact = alignMasterValue(extracted, names);
+  if (!exact) return "";
+  if (names.some((name) => masterLabelKey(name) === masterLabelKey(exact))) return exact;
+  const key = masterLabelKey(exact);
+  if (key.length < 4) return exact;
+  const partial = names.filter((name) => {
+    const master = masterLabelKey(name);
+    if (master.length < 4) return false;
+    return master.startsWith(key) || key.startsWith(master);
+  });
+  return partial.length === 1 ? partial[0]! : exact;
+}
+
 export function masterInUseMessage(name: string, count: number): string {
   const people = count === 1 ? "1 current staff member still uses" : `${count} current staff still use`;
   return `Cannot delete "${name}". ${people} it.`;

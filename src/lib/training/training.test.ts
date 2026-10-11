@@ -156,6 +156,13 @@ describe("training assignment privilege", () => {
     expect(sql).not.toMatch(/NEW\.score|SET status = 'COMPLETED'|completed_at\s*=/);
     expect(staffCanReceiveTraining("probation")).toBe(true);
     expect(staffCanReceiveTraining("terminated")).toBe(false);
+    expect(staffCanReceiveTraining("contract_finished")).toBe(false);
+    const closedSql = readFileSync(
+      path.resolve(process.cwd(), "supabase/migrations/20261011180000_contract_finished_training.sql"),
+      "utf8",
+    );
+    expect(closedSql).toContain("'contract_finished'");
+    expect(closedSql).not.toMatch(/DELETE FROM public\.staff|UPDATE public\.staff/i);
     const staff = {
       id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       status: "active",

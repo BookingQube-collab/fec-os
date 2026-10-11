@@ -197,6 +197,7 @@ export const updateStaffRosterFields = createAuthenticatedAction(
         "on_leave",
         "resigned",
         "terminated",
+        "contract_finished",
         "released",
         "serving_notice",
         "inactive",

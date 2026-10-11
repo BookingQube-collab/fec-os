@@ -1,33 +1,50 @@
 "use client";
 
-import { ChevronDown, ChevronRight, Info, Minus, Plus, Scan, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, Info, Minus, Plus, Scan, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import {
+  collapsibleOrgIds,
   departmentColor,
   expandedChildIds,
   groupOrgChart,
   initialCollapsedIds,
   layoutOrgChart,
+  layoutOrgChartLevels,
   legendForChart,
   ORG_NODE_WIDTH,
   orgChartNodeHeight,
   orgCurvePath,
   orgDragToken,
   orgPanelGroups,
+  orgRankCurvePath,
   parseOrgDragToken,
   personDepartmentKey,
   personInitials,
   type OrgChartSnapshot,
+  type OrgChartViewMode,
 } from "@/lib/org-hierarchy";
+import { orgChartPdfFilename } from "@/lib/org-chart-pdf";
 import { staffPhotoUrl } from "@/lib/staff-photo";
 import { cn } from "@/lib/utils";
 
 type View = { x: number; y: number; zoom: number };
 type NodeOffset = { x: number; y: number };
+
+const CHART_LAYOUT_KEY = "fec-org-chart-layout";
+
+function readStoredChartLayout(): OrgChartViewMode | null {
+  try {
+    const value = sessionStorage.getItem(CHART_LAYOUT_KEY);
+    return value === "levels" || value === "tree" ? value : null;
+  } catch {
+    return null;
+  }
+}
 
 function edgeAnchor(side: "left" | "right") {
   return side === "right"
@@ -59,6 +76,10 @@ export function OrgHierarchyBoard({
   const query = search.trim().toLowerCase();
 
   const grouped = useMemo(() => groupOrgChart(snapshot.people), [snapshot.people]);
+  const departmentKeys = useMemo(
+    () => orgPanelGroups(snapshot.departments, snapshot.people).map((group) => group.key),
+    [snapshot.departments, snapshot.people],
+  );
   const peopleById = useMemo(() => new Map(snapshot.people.map((person) => [person.staffId, person])), [snapshot.people]);
   const legend = useMemo(() => legendForChart(snapshot.people, grouped.onChart), [snapshot.people, grouped.onChart]);
   const groups = useMemo(() => {
@@ -123,9 +144,16 @@ export function OrgHierarchyBoard({
               <button
                 type="button"
                 className="text-xs font-medium text-muted-foreground hover:text-foreground"
-                onClick={() => setOpenKeys(new Set(openKeys.size ? [] : groups.map((group) => group.key)))}
+                onClick={() => setOpenKeys(new Set(groups.map((group) => group.key)))}
               >
-                {openKeys.size ? "Collapse" : "Expand"}
+                {t("hr.hierarchy.expandAll")}
+              </button>
+              <button
+                type="button"
+                className="text-xs font-medium text-muted-foreground hover:text-foreground"
+                onClick={() => setOpenKeys(new Set())}
+              >
+                {t("hr.hierarchy.collapseAll")}
               </button>
               <button
                 type="button"
@@ -239,6 +267,15 @@ export function OrgHierarchyBoard({
         onChart={grouped.onChart}
         onPlace={onPlace}
         onRemove={onRemove}
+        onExpandDepartments={() => {
+          if (readOnly) return;
+          setDepartmentsOpen(true);
+          setOpenKeys(new Set(departmentKeys));
+        }}
+        onCollapseDepartments={() => {
+          if (readOnly) return;
+          setOpenKeys(new Set());
+        }}
       />
     </div>
   );
@@ -315,6 +352,8 @@ function OrgCanvas({
   onChart,
   onPlace,
   onRemove,
+  onExpandDepartments,
+  onCollapseDepartments,
 }: {
   roots: OrgChartSnapshot["people"];
   childrenOf: Map<string, OrgChartSnapshot["people"]>;
@@ -325,6 +364,8 @@ function OrgCanvas({
   onChart: Set<string>;
   onPlace: (staffId: string, managerStaffId: string | null) => void;
   onRemove: (staffId: string) => void;
+  onExpandDepartments?: () => void;
+  onCollapseDepartments?: () => void;
 }) {
   const { t, i18n } = useTranslation();
   const rtl = i18n.dir() === "rtl";
@@ -338,6 +379,9 @@ function OrgCanvas({
   const offsetsRef = useRef<Map<string, NodeOffset>>(new Map());
   const [offsets, setOffsets] = useState<Map<string, NodeOffset>>(offsetsRef.current);
   const [collapsed, setCollapsed] = useState<Set<string> | null>(null);
+  const [chartLayout, setChartLayout] = useState<OrgChartViewMode>("tree");
+  const [fitToken, setFitToken] = useState(0);
+  const appliedFit = useRef(0);
   const [direction, setDirection] = useState(rtl ? "rtl" : "ltr");
   const [dropHover, setDropHover] = useState<string | null>(null);
   const [dragBranch, setDragBranch] = useState<ReadonlySet<string>>(new Set());
@@ -345,6 +389,7 @@ function OrgCanvas({
   const [legendPinned, setLegendPinned] = useState(false);
   const [legendHover, setLegendHover] = useState(false);
   const [legendHoverMode, setLegendHoverMode] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   if ((rtl ? "rtl" : "ltr") !== direction) {
     setDirection(rtl ? "rtl" : "ltr");
@@ -381,8 +426,11 @@ function OrgCanvas({
     return heights;
   }, [peopleById, readOnly]);
   const layout = useMemo(
-    () => layoutOrgChart(tree.rootIds, visibleChildren, nodeHeights),
-    [tree, visibleChildren, nodeHeights],
+    () =>
+      chartLayout === "levels"
+        ? layoutOrgChartLevels(tree.rootIds, visibleChildren, nodeHeights)
+        : layoutOrgChart(tree.rootIds, visibleChildren, nodeHeights),
+    [chartLayout, tree, visibleChildren, nodeHeights],
   );
   const rootIds = useMemo(() => new Set(tree.rootIds), [tree]);
   const placed = useMemo(
@@ -408,11 +456,19 @@ function OrgCanvas({
       for (const kid of kids) {
         const child = byId.get(kid);
         if (!child) continue;
-        paths.push({ key: `${parentId}:${kid}`, d: orgCurvePath(parent, child, rtl) });
+        const parentPerson = peopleById.get(parentId);
+        paths.push({
+          key: `${parentId}:${kid}`,
+          d: chartLayout === "levels" ? orgRankCurvePath(parent, child) : orgCurvePath(parent, child, rtl),
+          color:
+            chartLayout === "levels" && parentPerson
+              ? departmentColor(personDepartmentKey(parentPerson))
+              : "currentColor",
+        });
       }
     }
     return paths;
-  }, [placed, visibleChildren, rtl]);
+  }, [chartLayout, peopleById, placed, visibleChildren, rtl]);
   const bounds = useMemo(() => {
     let minX = 0;
     let minY = 0;
@@ -430,6 +486,46 @@ function OrgCanvas({
   boundsRef.current = bounds;
   const placedRef = useRef(placed);
   placedRef.current = placed;
+
+  useEffect(() => {
+    const stored = readStoredChartLayout();
+    if (!stored || stored === "tree") return;
+    setChartLayout(stored);
+    setFitToken((token) => token + 1);
+  }, []);
+
+  const resetOffsets = () => {
+    if (offsetsRef.current.size === 0) return;
+    const empty = new Map<string, NodeOffset>();
+    offsetsRef.current = empty;
+    setOffsets(empty);
+  };
+
+  const chooseLayout = (next: OrgChartViewMode) => {
+    setChartLayout(next);
+    try {
+      sessionStorage.setItem(CHART_LAYOUT_KEY, next);
+    } catch {
+      // Session storage can be unavailable. The choice still lasts for this view.
+    }
+    resetOffsets();
+    setFitToken((token) => token + 1);
+  };
+
+  const expandAll = () => {
+    setCollapsed(new Set());
+    onExpandDepartments?.();
+    resetOffsets();
+    setFitToken((token) => token + 1);
+  };
+
+  const collapseAll = () => {
+    const currentTree = treeRef.current;
+    setCollapsed(collapsibleOrgIds(currentTree.rootIds, currentTree.childIdsOf));
+    onCollapseDepartments?.();
+    resetOffsets();
+    setFitToken((token) => token + 1);
+  };
 
   const toggleNode = (staffId: string) => {
     const currentTree = treeRef.current;
@@ -535,7 +631,7 @@ function OrgCanvas({
     const zoom = clamp(Math.min((rect.width - pad) / width, (rect.height - pad) / height, 1), 0.04, 1);
     applyView({
       x: (rect.width - width * zoom) / 2 - minX * zoom,
-      y: Math.max(44, (rect.height - height * zoom) / 2 - minY * zoom),
+      y: Math.max(76, (rect.height - height * zoom) / 2 - minY * zoom),
       zoom,
     });
   };
@@ -545,12 +641,13 @@ function OrgCanvas({
       fitted.current = false;
       return;
     }
-    if (fitted.current) return;
+    if (fitted.current && fitToken === appliedFit.current) return;
     fitted.current = true;
+    appliedFit.current = fitToken;
     fit();
-    // Fit the first tree, then leave pan and zoom alone until the chart is cleared or the direction flips.
+    // Fit the first tree, a layout change, or expand/collapse all. A single card toggle leaves the view.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layout.nodes.length, layout.width, layout.height, direction]);
+  }, [layout.nodes.length, layout.width, layout.height, direction, fitToken]);
 
   useEffect(() => {
     const frame = frameRef.current;
@@ -571,6 +668,37 @@ function OrgCanvas({
     frame.addEventListener("wheel", onWheel, { passive: false });
     return () => frame.removeEventListener("wheel", onWheel);
   }, []);
+
+  const downloadPdf = async () => {
+    if (downloadingPdf || tree.rootIds.length === 0) return;
+    const generatedAt = new Date();
+    setDownloadingPdf(true);
+    try {
+      const people = new Map(
+        [...peopleById].map(([staffId, person]) => [
+          staffId,
+          { staffId, fullName: person.fullName, jobTitle: person.jobTitle },
+        ]),
+      );
+      const { downloadOrgChartPdf } = await import("@/lib/pdf/org-chart-pdf");
+      // Full reporting tree: ignore pan, zoom, and collapsed branches.
+      await downloadOrgChartPdf({
+        rootIds: tree.rootIds,
+        childIdsOf: tree.childIdsOf,
+        people,
+        readOnly,
+        rtl,
+        title: t(readOnly ? "hr.hierarchy.teamChartTitle" : "hr.hierarchy.chartTitle"),
+        generatedAt,
+        filename: orgChartPdfFilename(generatedAt, readOnly ? "team" : "company"),
+        layout: chartLayout,
+      });
+    } catch {
+      toast.error(t("hr.hierarchy.downloadPdfError"));
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
 
   const zoomBy = (factor: number) => {
     const frame = frameRef.current;
@@ -604,6 +732,7 @@ function OrgCanvas({
     <div
       ref={frameRef}
       data-org-canvas
+      data-org-chart-layout={chartLayout}
       role="application"
       aria-label={t(readOnly ? "hr.hierarchy.teamCanvasLabel" : "hr.hierarchy.canvasLabel")}
       className={cn(
@@ -655,9 +784,77 @@ function OrgCanvas({
         window.addEventListener("pointerup", up);
       }}
     >
-      <p className="pointer-events-none absolute start-4 top-4 z-20 text-sm text-muted-foreground">
-        {t(readOnly ? "hr.hierarchy.teamChartTitle" : "hr.hierarchy.chartTitle")}
-      </p>
+      <div className="pointer-events-none absolute start-4 top-3 z-20 flex max-w-[calc(100%-4.5rem)] flex-wrap items-center gap-2">
+        <p className="text-sm text-muted-foreground">
+          {t(readOnly ? "hr.hierarchy.teamChartTitle" : "hr.hierarchy.chartTitle")}
+        </p>
+        <div
+          data-org-chrome
+          role="group"
+          aria-label={t("hr.hierarchy.layoutLabel")}
+          className="pointer-events-auto flex rounded-lg border border-border/70 bg-card p-0.5 shadow-elevated-xs"
+        >
+          <button
+            type="button"
+            className={cn(
+              "h-7 rounded-md px-2 text-xs font-semibold",
+              chartLayout === "tree" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted",
+            )}
+            aria-pressed={chartLayout === "tree"}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={() => chooseLayout("tree")}
+          >
+            {t("hr.hierarchy.layoutTree")}
+          </button>
+          <button
+            type="button"
+            className={cn(
+              "h-7 rounded-md px-2 text-xs font-semibold",
+              chartLayout === "levels" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted",
+            )}
+            aria-pressed={chartLayout === "levels"}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={() => chooseLayout("levels")}
+          >
+            {t("hr.hierarchy.layoutLevels")}
+          </button>
+        </div>
+        <button
+          type="button"
+          data-org-chrome
+          className="pointer-events-auto inline-flex h-8 items-center rounded-lg border border-border/70 bg-card px-2.5 text-xs font-semibold text-foreground shadow-elevated-xs hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={tree.rootIds.length === 0}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={expandAll}
+        >
+          {t("hr.hierarchy.expandAll")}
+        </button>
+        <button
+          type="button"
+          data-org-chrome
+          className="pointer-events-auto inline-flex h-8 items-center rounded-lg border border-border/70 bg-card px-2.5 text-xs font-semibold text-foreground shadow-elevated-xs hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={tree.rootIds.length === 0}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={collapseAll}
+        >
+          {t("hr.hierarchy.collapseAll")}
+        </button>
+        <button
+          type="button"
+          data-org-chrome
+          className="pointer-events-auto inline-flex h-8 items-center gap-1.5 rounded-lg border border-border/70 bg-card px-2.5 text-xs font-semibold text-foreground shadow-elevated-xs hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+          aria-label={t("hr.hierarchy.downloadPdf")}
+          aria-busy={downloadingPdf}
+          disabled={downloadingPdf || tree.rootIds.length === 0}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={() => {
+            void downloadPdf();
+          }}
+        >
+          <Download className="h-3.5 w-3.5" aria-hidden />
+          {downloadingPdf ? t("hr.hierarchy.downloadingPdf") : t("hr.hierarchy.downloadPdf")}
+        </button>
+      </div>
       <div
         ref={layerRef}
         className="absolute left-0 top-0"
@@ -674,7 +871,7 @@ function OrgCanvas({
           height={Math.max(bounds.maxY, 1)}
         >
           {edges.map((edge) => (
-            <path key={edge.key} d={edge.d} fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" />
+            <path key={edge.key} d={edge.d} fill="none" stroke={edge.color} strokeWidth={1.5} strokeLinecap="round" />
           ))}
         </svg>
         {placed.map((node) => {
@@ -686,6 +883,7 @@ function OrgCanvas({
           const isRoot = rootIds.has(person.staffId);
           const outgoingSide = rtl ? "left" : "right";
           const incomingSide = rtl ? "right" : "left";
+          const levels = chartLayout === "levels";
           const role = person.jobTitle?.trim() || "Staff";
           return (
             <article
@@ -747,6 +945,7 @@ function OrgCanvas({
               onPointerDown={(event) => onNodePointerDown(event, person.staffId)}
               className={cn(
                 "group absolute z-10 flex touch-none select-none items-center gap-2 rounded-lg border border-border/70 bg-card ps-2 shadow-elevated-xs [&_img]:pointer-events-none",
+                levels && "border-t-[3px]",
                 readOnly ? "cursor-default pe-2" : "cursor-grab pe-7 active:cursor-grabbing",
                 dragBranch.has(person.staffId) && "z-30 opacity-70",
                 dropHover === person.staffId && "ring-2 ring-primary ring-offset-2",
@@ -756,6 +955,7 @@ function OrgCanvas({
                 height: node.height,
                 left: node.x,
                 top: node.y,
+                borderTopColor: levels ? color : undefined,
               }}
             >
               <PersonAvatar person={person} className="h-8 w-8 shrink-0 border border-border" />
@@ -786,7 +986,11 @@ function OrgCanvas({
                 <button
                   type="button"
                   className="absolute z-20 flex h-5 min-w-5 items-center justify-center rounded-full border-2 bg-card px-1 text-[10px] font-semibold leading-none shadow-sm hover:bg-muted"
-                  style={{ ...edgeAnchor(outgoingSide), borderColor: color, color }}
+                  style={
+                    levels
+                      ? { left: "50%", bottom: 0, transform: "translate(-50%, 50%)", borderColor: color, color }
+                      : { ...edgeAnchor(outgoingSide), borderColor: color, color }
+                  }
                   aria-expanded={!isCollapsed}
                   aria-label={t(isCollapsed ? "hr.hierarchy.expandReports" : "hr.hierarchy.collapseReports", {
                     name: person.fullName,
@@ -808,7 +1012,15 @@ function OrgCanvas({
               ) : (
                 <span
                   className="pointer-events-none absolute z-20 h-2.5 w-2.5 rounded-full"
-                  style={{ ...edgeAnchor(isRoot ? outgoingSide : incomingSide), background: color }}
+                  style={
+                    levels
+                      ? {
+                          left: "50%",
+                          ...(isRoot ? { bottom: 0, transform: "translate(-50%, 50%)" } : { top: 0, transform: "translate(-50%, -50%)" }),
+                          background: color,
+                        }
+                      : { ...edgeAnchor(isRoot ? outgoingSide : incomingSide), background: color }
+                  }
                 />
               )}
               {readOnly ? null : (

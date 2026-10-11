@@ -13,6 +13,20 @@ Include every Latin letter, digit, date, and MRZ line (lines made of letters, di
 Do not translate, summarize, or invent labels that are not printed.
 Return plain text only.`;
 
+const QID_OCR_PROMPT = `Transcribe this identity document exactly as printed.
+It may show the front and back of a Qatar residency permit together, in English and Arabic.
+Write one field per line and keep each English label with its value:
+ID.No: <11 digits>
+D.O.B: <date>
+Expiry: <residency expiry>
+Nationality: <English nationality>
+Name: <name in Latin letters>
+Passport Number: <passport number>
+Passport Expiry: <date>
+Serial No: <digits>
+Copy digits and spelling from the card. Omit a line when that field is not visible. Do not invent values.
+Return plain text only.`;
+
 export type IdentityExtractResult = {
   parsed: ParsedIdentityDocument;
   source: "pdf_text" | "vision" | "none";
@@ -21,7 +35,14 @@ export type IdentityExtractResult = {
 };
 
 function hasSignal(parsed: ParsedIdentityDocument): boolean {
-  return Boolean(parsed.name || parsed.documentNumber || parsed.expiryDate);
+  return Boolean(
+    parsed.name ||
+      parsed.documentNumber ||
+      parsed.expiryDate ||
+      parsed.passportNumber ||
+      parsed.passportExpiry ||
+      parsed.nationality,
+  );
 }
 
 async function pdfPlainText(bytes: Buffer): Promise<string> {
@@ -37,17 +58,22 @@ async function pdfPlainText(bytes: Buffer): Promise<string> {
   }
 }
 
-async function visionText(bytes: Buffer, contentType: string): Promise<string | null> {
+async function visionText(
+  bytes: Buffer,
+  contentType: string,
+  docType: IdentityDocType,
+): Promise<string | null> {
   try {
     const result = await analyzeImage({
       moduleSource: "hr.identity_document",
       temperature: 0,
       maxTokens: 4096,
+      timeoutMs: 60_000,
       messages: [
         {
           role: "user",
           content: [
-            { type: "text", text: OCR_PROMPT },
+            { type: "text", text: docType === "qid" ? QID_OCR_PROMPT : OCR_PROMPT },
             { type: "image", mimeType: contentType, data: bytes.toString("base64") },
           ],
         },
@@ -85,7 +111,7 @@ export async function extractIdentityDocumentFromBytes(input: {
   const visionMime = isPdf ? "application/pdf" : input.contentType;
   const canVision = visionMime === "application/pdf" || visionMime.startsWith("image/");
   if (canVision) {
-    const transcribed = await visionText(input.bytes, visionMime);
+    const transcribed = await visionText(input.bytes, visionMime, input.docType);
     if (transcribed) {
       const parsed = parseIdentityDocument(transcribed, input.docType);
       return { parsed, source: "vision", manual: !hasSignal(parsed) };

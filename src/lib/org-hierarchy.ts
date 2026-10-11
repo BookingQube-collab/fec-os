@@ -4,8 +4,13 @@ import { sortDepartmentsTree } from "@/lib/departments";
 export const ORG_NODE_WIDTH = 200;
 export const ORG_NODE_HEIGHT = 58;
 export const ORG_LEVEL_GAP = 108;
+/** Vertical space between ranks in the top-down chart. */
+export const ORG_RANK_GAP = 72;
 const ORG_SIBLING_GAP = 28;
+const ORG_RANK_SIBLING_GAP = 36;
 const ORG_TREE_GAP = 64;
+
+export type OrgChartViewMode = "tree" | "levels";
 
 export const ORG_DRAG_PREFIX = "fec-staff:";
 
@@ -481,6 +486,25 @@ export function expandedChildIds(
   return result;
 }
 
+/** Every person who has reports. Collapse-all hides each of these branches. */
+export function collapsibleOrgIds(
+  rootIds: readonly string[],
+  childIdsOf: ReadonlyMap<string, readonly string[]>,
+): Set<string> {
+  const ids = new Set<string>();
+  const seen = new Set<string>();
+  const walk = (id: string) => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    const kids = childIdsOf.get(id);
+    if (!kids?.length) return;
+    ids.add(id);
+    for (const kid of kids) walk(kid);
+  };
+  for (const rootId of rootIds) walk(rootId);
+  return ids;
+}
+
 /**
  * Name lines that fit in the org card. The editable card leaves room for the
  * avatar, status dot, and remove control, so a line holds fewer characters
@@ -490,39 +514,58 @@ const ORG_NAME_CHARS_PER_LINE = 14;
 const ORG_NAME_CHARS_PER_LINE_READONLY = 18;
 const ORG_NAME_LINE_PX = 18;
 
+/**
+ * Wrapped name lines for a card that is ORG_NODE_WIDTH wide.
+ * A word longer than the line is split so every character stays visible.
+ */
+export function wrapOrgChartName(fullName: string, charsPerLine: number): string[] {
+  const words = fullName.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [""];
+  const width = Math.max(1, charsPerLine);
+  const lines: string[] = [];
+  let current = "";
+
+  const take = (word: string) => {
+    if (word.length <= width) {
+      current = word;
+      return;
+    }
+    let rest = word;
+    while (rest.length > width) {
+      lines.push(rest.slice(0, width));
+      rest = rest.slice(width);
+    }
+    current = rest;
+  };
+
+  for (const word of words) {
+    if (!current) {
+      take(word);
+      continue;
+    }
+    if (current.length + 1 + word.length <= width) {
+      current = `${current} ${word}`;
+      continue;
+    }
+    lines.push(current);
+    current = "";
+    take(word);
+  }
+  if (current) lines.push(current);
+  return lines.length ? lines : [""];
+}
+
+/** Name lines drawn on the org card. `readOnly` matches the wider card. */
+export function orgChartWrappedName(fullName: string, readOnly = false): string[] {
+  return wrapOrgChartName(
+    fullName,
+    readOnly ? ORG_NAME_CHARS_PER_LINE_READONLY : ORG_NAME_CHARS_PER_LINE,
+  );
+}
+
 /** Wrapped name lines for a card that is ORG_NODE_WIDTH wide. */
 export function orgChartNameLines(fullName: string, charsPerLine = ORG_NAME_CHARS_PER_LINE): number {
-  const words = fullName.trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return 1;
-  const width = Math.max(1, charsPerLine);
-  let lines = 1;
-  let used = 0;
-  for (const word of words) {
-    const length = word.length;
-    if (used === 0) {
-      if (length <= width) {
-        used = length;
-      } else {
-        const chunks = Math.ceil(length / width);
-        lines += chunks - 1;
-        used = length % width || width;
-      }
-      continue;
-    }
-    if (used + 1 + length <= width) {
-      used += 1 + length;
-      continue;
-    }
-    lines += 1;
-    if (length <= width) {
-      used = length;
-    } else {
-      const chunks = Math.ceil(length / width);
-      lines += chunks - 1;
-      used = length % width || width;
-    }
-  }
-  return lines;
+  return wrapOrgChartName(fullName, charsPerLine).length;
 }
 
 /** Card height that fits the full name on extra lines instead of an ellipsis. */
@@ -535,11 +578,11 @@ export function orgChartNodeHeight(fullName: string, readOnly = false): number {
 }
 
 /** Cubic curve from the parent's outgoing edge to the child's incoming edge. */
-export function orgCurvePath(
+export function orgCurve(
   parent: { x: number; y: number; height?: number },
   child: { x: number; y: number; height?: number },
   rtl = false,
-): string {
+): { x1: number; y1: number; c1x: number; c1y: number; c2x: number; c2y: number; x2: number; y2: number } {
   const parentHeight = parent.height ?? ORG_NODE_HEIGHT;
   const childHeight = child.height ?? ORG_NODE_HEIGHT;
   const x1 = rtl ? parent.x : parent.x + ORG_NODE_WIDTH;
@@ -547,7 +590,39 @@ export function orgCurvePath(
   const x2 = rtl ? child.x + ORG_NODE_WIDTH : child.x;
   const y2 = child.y + childHeight / 2;
   const mid = (x1 + x2) / 2;
-  return `M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`;
+  return { x1, y1, c1x: mid, c1y: y1, c2x: mid, c2y: y2, x2, y2 };
+}
+
+/** SVG path for the reporting line between a parent card and a child card. */
+export function orgCurvePath(
+  parent: { x: number; y: number; height?: number },
+  child: { x: number; y: number; height?: number },
+  rtl = false,
+): string {
+  const curve = orgCurve(parent, child, rtl);
+  return `M ${curve.x1} ${curve.y1} C ${curve.c1x} ${curve.c1y}, ${curve.c2x} ${curve.c2y}, ${curve.x2} ${curve.y2}`;
+}
+
+/** Curve from the bottom of a parent card to the top of a child card. */
+export function orgRankCurve(
+  parent: { x: number; y: number; height?: number },
+  child: { x: number; y: number; height?: number },
+): { x1: number; y1: number; c1x: number; c1y: number; c2x: number; c2y: number; x2: number; y2: number } {
+  const parentHeight = parent.height ?? ORG_NODE_HEIGHT;
+  const x1 = parent.x + ORG_NODE_WIDTH / 2;
+  const y1 = parent.y + parentHeight;
+  const x2 = child.x + ORG_NODE_WIDTH / 2;
+  const y2 = child.y;
+  const mid = (y1 + y2) / 2;
+  return { x1, y1, c1x: x1, c1y: mid, c2x: x2, c2y: mid, x2, y2 };
+}
+
+export function orgRankCurvePath(
+  parent: { x: number; y: number; height?: number },
+  child: { x: number; y: number; height?: number },
+): string {
+  const curve = orgRankCurve(parent, child);
+  return `M ${curve.x1} ${curve.y1} C ${curve.c1x} ${curve.c1y}, ${curve.c2x} ${curve.c2y}, ${curve.x2} ${curve.y2}`;
 }
 
 export function layoutOrgChart(
@@ -622,6 +697,122 @@ export function layoutOrgChart(
       const child = byId.get(kid);
       if (!child) continue;
       connectors.push(orgCurvePath(parent, child));
+    }
+  }
+
+  const width = nodes.reduce((max, node) => Math.max(max, node.x + ORG_NODE_WIDTH), 0);
+  const height = nodes.reduce((max, node) => Math.max(max, node.y + node.height), 0);
+  return { nodes, connectors, width, height };
+}
+
+/** Top-down ranks. Parents sit above their reports, centered on the row. */
+export function layoutOrgChartLevels(
+  rootIds: readonly string[],
+  childIdsOf: ReadonlyMap<string, readonly string[]>,
+  nodeHeights?: ReadonlyMap<string, number>,
+): OrgChartLayout {
+  const cardHeight = (id: string) => {
+    const height = nodeHeights?.get(id);
+    return height != null && height > 0 ? height : ORG_NODE_HEIGHT;
+  };
+  const widthMemo = new Map<string, number>();
+  const subtreeWidth = (id: string, stack: Set<string>): number => {
+    const cached = widthMemo.get(id);
+    if (cached != null) return cached;
+    if (stack.has(id)) return ORG_NODE_WIDTH;
+    stack.add(id);
+    const kids = childIdsOf.get(id) ?? [];
+    let width = ORG_NODE_WIDTH;
+    if (kids.length) {
+      let inner = 0;
+      kids.forEach((kid, index) => {
+        inner += subtreeWidth(kid, stack);
+        if (index > 0) inner += ORG_RANK_SIBLING_GAP;
+      });
+      width = Math.max(ORG_NODE_WIDTH, inner);
+    }
+    stack.delete(id);
+    widthMemo.set(id, width);
+    return width;
+  };
+
+  const depthOf = new Map<string, number>();
+  const queue: string[] = [];
+  for (const rootId of rootIds) {
+    if (depthOf.has(rootId)) continue;
+    depthOf.set(rootId, 0);
+    queue.push(rootId);
+  }
+  for (let index = 0; index < queue.length; index += 1) {
+    const id = queue[index];
+    if (!id) continue;
+    const depth = depthOf.get(id) ?? 0;
+    for (const kid of childIdsOf.get(id) ?? []) {
+      if (depthOf.has(kid)) continue;
+      depthOf.set(kid, depth + 1);
+      queue.push(kid);
+    }
+  }
+
+  const rowHeight = new Map<number, number>();
+  for (const [id, depth] of depthOf) {
+    rowHeight.set(depth, Math.max(rowHeight.get(depth) ?? 0, cardHeight(id)));
+  }
+  const rowTop = new Map<number, number>();
+  const maxDepth = rowHeight.size ? Math.max(...rowHeight.keys()) : -1;
+  let y = 0;
+  for (let depth = 0; depth <= maxDepth; depth += 1) {
+    rowTop.set(depth, y);
+    y += (rowHeight.get(depth) ?? ORG_NODE_HEIGHT) + ORG_RANK_GAP;
+  }
+
+  const nodes: OrgChartLayout["nodes"] = [];
+  const place = (id: string, left: number, stack: Set<string>) => {
+    if (stack.has(id) || !depthOf.has(id)) return;
+    stack.add(id);
+    const depth = depthOf.get(id) ?? 0;
+    const width = subtreeWidth(id, new Set());
+    const nodeHeight = cardHeight(id);
+    const rowH = rowHeight.get(depth) ?? nodeHeight;
+    nodes.push({
+      staffId: id,
+      x: left + (width - ORG_NODE_WIDTH) / 2,
+      y: (rowTop.get(depth) ?? 0) + (rowH - nodeHeight) / 2,
+      height: nodeHeight,
+    });
+    const kids = childIdsOf.get(id) ?? [];
+    if (kids.length) {
+      let inner = 0;
+      kids.forEach((kid, index) => {
+        inner += subtreeWidth(kid, new Set());
+        if (index > 0) inner += ORG_RANK_SIBLING_GAP;
+      });
+      let cursor = left + Math.max(0, (width - inner) / 2);
+      for (const kid of kids) {
+        place(kid, cursor, stack);
+        cursor += subtreeWidth(kid, new Set()) + ORG_RANK_SIBLING_GAP;
+      }
+    }
+    stack.delete(id);
+  };
+
+  let cursor = 0;
+  const stack = new Set<string>();
+  rootIds.forEach((rootId, index) => {
+    if (index > 0) cursor += ORG_TREE_GAP;
+    place(rootId, cursor, stack);
+    cursor += subtreeWidth(rootId, new Set());
+  });
+
+  const byId = new Map(nodes.map((node) => [node.staffId, node]));
+  const connectors: string[] = [];
+  for (const [parentId, kids] of childIdsOf) {
+    const parent = byId.get(parentId);
+    if (!parent || kids.length === 0) continue;
+    for (const kid of kids) {
+      const child = byId.get(kid);
+      if (!child) continue;
+      connectors.push(orgRankCurvePath(parent, child));
     }
   }
 

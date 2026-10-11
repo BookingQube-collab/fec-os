@@ -46,6 +46,7 @@ export type StaffDirectoryStatus =
   | "on_leave"
   | "resigned"
   | "terminated"
+  | "contract_finished"
   | "released"
   | "serving_notice"
   | "inactive"

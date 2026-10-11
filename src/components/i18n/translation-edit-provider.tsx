@@ -17,6 +17,7 @@ import { Pencil } from "lucide-react";
 import { useI18nOverrides, useSaveI18nOverride } from "@/hooks/queries/useI18nOverrides";
 import { useAuth } from "@/hooks/use-auth";
 import { usePermission } from "@/hooks/use-permission";
+import { useAppStore } from "@/stores/app-store";
 import { flattenResources, normalizeLabel } from "@/i18n/overlay";
 import { applyResourceOverlay } from "@/i18n";
 import { Button } from "@/components/ui/button";
@@ -106,12 +107,16 @@ function TranslationEditProviderInner({ children }: { children: ReactNode }) {
   const { t, i18n } = useTranslation();
   const { user } = useAuth();
   const canEdit = usePermission("admin.view");
+  const language = useAppStore((s) => s.language);
   const [editMode, setEditModeState] = useState(false);
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [hoverEl, setHoverEl] = useState<Element | null>(null);
 
   const [overlaysReady, setOverlaysReady] = useState(false);
-  const overlays = useI18nOverrides("ar", { enabled: !!user && overlaysReady });
+  // Arabic overrides are unused on English sessions. Admins still load them for the editor.
+  const overlays = useI18nOverrides("ar", {
+    enabled: !!user && overlaysReady && (language === "ar" || canEdit),
+  });
   const save = useSaveI18nOverride();
 
   useEffect(() => {

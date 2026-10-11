@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { alignMasterValue, masterInUseMessage, masterLabelKey, normalizeMasterLabel } from "./people-masters";
+import {
+  alignMasterValue,
+  masterInUseMessage,
+  masterLabelKey,
+  matchNationalityChoice,
+  normalizeMasterLabel,
+} from "./people-masters";
 
 describe("people master labels", () => {
   it("treats spacing and case as the same value", () => {
@@ -12,6 +18,13 @@ describe("people master labels", () => {
     expect(alignMasterValue("male", ["Female", "Male"])).toBe("Male");
     expect(alignMasterValue("Qatar", ["India", "Philippines"])).toBe("Qatar");
     expect(alignMasterValue("  ", ["Male"])).toBe("");
+  });
+
+  it("maps a card nationality onto the one saved label that extends it", () => {
+    expect(matchNationalityChoice("KENYA", ["India", "Kenyan"])).toBe("Kenyan");
+    expect(matchNationalityChoice("Kenya", ["Kenya", "India"])).toBe("Kenya");
+    expect(matchNationalityChoice("Oman", ["Romanian"])).toBe("Oman");
+    expect(matchNationalityChoice("  ", ["Kenya"])).toBe("");
   });
 
   it("includes the current-staff count in the delete block", () => {

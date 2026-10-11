@@ -22,7 +22,6 @@ import { BitsShine } from "@/components/layout/bits-shine";
 import { CircularProgressBadge } from "@/components/dashboard/circular-progress-badge";
 import SpotlightCard from "@/components/react-bits/spotlight-panel";
 import { TintedKpiCard, type KpiTint } from "@/components/dashboard/tinted-kpi-card";
-import EmployeeMePage from "@/views/employee-me-page";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -57,6 +56,18 @@ import { fmtQar } from "@/lib/currency";
 import { retryImport } from "@/lib/retry-import";
 import { cn } from "@/lib/utils";
 import type { ComplianceRenewalRow } from "@/lib/queries/amc-queries.core";
+
+const EmployeeMePage = dynamic(
+  () => retryImport(() => import("@/views/employee-me-page")),
+  {
+    loading: () => (
+      <div className="space-y-3">
+        <Skeleton className="h-10 w-48" />
+        <Skeleton className="h-40 w-full rounded-2xl" />
+      </div>
+    ),
+  },
+);
 
 const HomeCommandCharts = dynamic(
   () =>

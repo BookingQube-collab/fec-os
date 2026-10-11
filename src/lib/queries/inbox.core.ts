@@ -397,18 +397,24 @@ async function fetchEvaluationItems(
 
 export async function fetchActionInbox(context: AuthContext): Promise<ActionInboxPayload> {
   const roles = (context.roles ?? []) as AppRole[];
-  const staffId = await settled(currentStaffId(context), null);
+  // Staff id is only needed for event tasks and evaluations. The other inbox
+  // sources start immediately so that lookup is not a serial prefix.
+  const staffPromise = settled(currentStaffId(context), null);
 
-  const [persisted, prs, maint, wos, events, snags, weekly, evals, punches] = await Promise.all([
+  const [persisted, prs, maint, wos, snags, weekly, punches, staffId] = await Promise.all([
     settled(fetchPersisted(context), []),
     settled(fetchPrItems(context, roles), []),
     settled(fetchMaintenanceItems(context, roles), []),
     settled(fetchWorkOrderItems(context, roles), []),
-    settled(fetchEventTaskItems(context, roles, staffId), []),
     settled(fetchSnagItems(context, roles), []),
     settled(fetchWeeklyReportItems(context, roles), []),
-    settled(fetchEvaluationItems(context, roles, staffId), []),
     settled(fetchMissedPunchItems(context, roles), []),
+    staffPromise,
+  ]);
+
+  const [events, evals] = await Promise.all([
+    settled(fetchEventTaskItems(context, roles, staffId), []),
+    settled(fetchEvaluationItems(context, roles, staffId), []),
   ]);
 
   const items = mergeInboxItems(persisted, [...prs, ...maint, ...wos, ...events, ...snags, ...weekly, ...evals, ...punches]);

@@ -4,7 +4,9 @@ import {
   countsAsActiveStaff,
   isActiveRosterStaff,
   isActiveStaffStatus,
+  isContractFinishedStaffStatus,
   isOnLeaveStaffStatus,
+  isResignedStaffStatus,
   isTerminatedStaffStatus,
   reconcileJokerStaffStatus,
 } from "./staff-status";
@@ -46,5 +48,21 @@ describe("staff status helpers", () => {
     expect(isActiveRosterStaff("on_leave")).toBe(true);
     expect(isActiveRosterStaff("terminated")).toBe(false);
     expect(isActiveRosterStaff("inactive")).toBe(false);
+  });
+
+  it("treats a finished temporary or secondment contract as ended, not resigned or terminated", () => {
+    expect(isContractFinishedStaffStatus("contract_finished")).toBe(true);
+    expect(isContractFinishedStaffStatus("Contract Finished")).toBe(true);
+    expect(isContractFinishedStaffStatus("terminated")).toBe(false);
+    expect(isTerminatedStaffStatus("contract_finished")).toBe(false);
+    expect(isResignedStaffStatus("contract_finished")).toBe(false);
+    expect(isActiveStaffStatus("contract_finished")).toBe(false);
+    expect(countsAsActiveStaff("contract_finished", "temporary")).toBe(false);
+    expect(countsAsActiveStaff("contract_finished", "secondment")).toBe(false);
+    expect(countsAsActiveStaff("contract_finished", "permanent")).toBe(false);
+    expect(isActiveRosterStaff("contract_finished")).toBe(false);
+    expect(reconcileJokerStaffStatus("temporary", "contract_finished")).toBe("contract_finished");
+    expect(reconcileJokerStaffStatus("secondment", "contract_finished")).toBe("contract_finished");
+    expect(reconcileJokerStaffStatus("joker", "contract_finished")).toBe("contract_finished");
   });
 });

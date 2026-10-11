@@ -17,6 +17,7 @@ export const STAFF_DIRECTORY_STATUSES = [
   "on_leave",
   "resigned",
   "terminated",
+  "contract_finished",
   "released",
   "serving_notice",
   "joker",
@@ -24,6 +25,13 @@ export const STAFF_DIRECTORY_STATUSES = [
 
 /** Stored staff.status for employment-type jokers who are not active staff. */
 export const JOKER_STAFF_STATUS = "joker";
+
+/**
+ * Stored staff.status when a temporary or secondment contract has ended
+ * (for example the site closed). Distinct from resigned and terminated.
+ * The person row is kept.
+ */
+export const CONTRACT_FINISHED_STAFF_STATUS = "contract_finished";
 
 /**
  * PostgREST `.or()` fragment: drop employment_type joker, keep null types.
@@ -64,6 +72,11 @@ export function isResignedStaffStatus(status: string | null | undefined): boolea
 export function isTerminatedStaffStatus(status: string | null | undefined): boolean {
   const s = normalizeStaffStatus(status);
   return s === "terminated" || s === "inactive" || s === "released";
+}
+
+/** Temporary or secondment contract ended. Not resigned and not terminated. */
+export function isContractFinishedStaffStatus(status: string | null | undefined): boolean {
+  return normalizeStaffStatus(status) === CONTRACT_FINISHED_STAFF_STATUS;
 }
 
 export function isRemoteStaffStatus(status: string | null | undefined): boolean {

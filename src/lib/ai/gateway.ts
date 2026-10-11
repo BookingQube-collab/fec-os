@@ -11,6 +11,7 @@ import {
   AI_PROVIDER_CODES,
   type AiGenerateRequest,
   type AiGenerateResult,
+  type AiMessage,
   type AiModelOption,
   type AiProviderCode,
   type AiProviderPublicConfig,
@@ -22,6 +23,22 @@ import { envApiKeyFor } from "@/lib/ai/env-keys";
 export { toPublicConfig };
 
 type CallOptions = AiGenerateRequest & { jsonMode?: boolean };
+
+function requestHasImage(request: CallOptions): boolean {
+  return request.messages.some(
+    (message) => Array.isArray(message.content) && message.content.some((part) => part.type === "image"),
+  );
+}
+
+/** OpenAI-style content. Image parts must be kept or a photo of a card is transcribed as empty text. */
+function messageContentForChat(message: AiMessage): string | Array<Record<string, unknown>> {
+  if (typeof message.content === "string") return message.content;
+  return message.content.map((part) =>
+    part.type === "text"
+      ? { type: "text", text: part.text }
+      : { type: "image_url", image_url: { url: `data:${part.mimeType};base64,${part.data}` } },
+  );
+}
 
 async function envFallbackGenerate(request: CallOptions): Promise<AiGenerateResult | null> {
   for (const code of AI_PROVIDER_CODES) {
@@ -84,6 +101,7 @@ async function envFallbackGenerate(request: CallOptions): Promise<AiGenerateResu
   if (!attempts.length) return null;
 
   const timeoutMs = request.timeoutMs ?? 30_000;
+  const hasImage = requestHasImage(request);
   for (const attempt of attempts) {
     const started = Date.now();
     try {
@@ -97,10 +115,12 @@ async function envFallbackGenerate(request: CallOptions): Promise<AiGenerateResu
           model: attempt.model,
           messages: request.messages.map((m) => ({
             role: m.role,
-            content: typeof m.content === "string" ? m.content : m.content.filter((p) => p.type === "text").map((p) => p.text).join("\n"),
+            content: messageContentForChat(m),
           })),
           temperature: request.temperature ?? 0.3,
-          ...(attempt.jsonMode || request.jsonMode ? { response_format: { type: "json_object" } } : {}),
+          ...(request.jsonMode || (attempt.jsonMode && !hasImage)
+            ? { response_format: { type: "json_object" } }
+            : {}),
         }),
       }).finally(() => clearTimeout(timer));
       if (!res.ok) continue;

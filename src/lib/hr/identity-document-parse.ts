@@ -17,6 +17,10 @@ export type ParsedIdentityDocument = {
   name: ConfidentValue | null;
   documentNumber: ConfidentValue | null;
   expiryDate: ConfidentValue | null;
+  /** Printed on the back of a Qatar residency permit, when that side is in the image. */
+  passportNumber?: ConfidentValue | null;
+  passportExpiry?: ConfidentValue | null;
+  nationality?: ConfidentValue | null;
 };
 
 export type IdentityFieldKey =
@@ -28,7 +32,8 @@ export type IdentityFieldKey =
   | "visaNumber"
   | "visaExpiry"
   | "contractNumber"
-  | "contractExpiry";
+  | "contractExpiry"
+  | "nationality";
 
 export type IdentityFormFields = Record<IdentityFieldKey, string>;
 
@@ -87,7 +92,14 @@ const DOC_FIELDS: Record<
 };
 
 export function emptyIdentityParse(): ParsedIdentityDocument {
-  return { name: null, documentNumber: null, expiryDate: null };
+  return {
+    name: null,
+    documentNumber: null,
+    expiryDate: null,
+    passportNumber: null,
+    passportExpiry: null,
+    nationality: null,
+  };
 }
 
 export function isIdentityDocType(value: string): value is IdentityDocType {
@@ -153,8 +165,18 @@ export function parseIdentityDate(raw: string): string | null {
   return null;
 }
 
+function tightenDates(text: string): string {
+  let prev = "";
+  let next = text;
+  while (next !== prev) {
+    prev = next;
+    next = next.replace(/(\d)\s*([\/\-.])\s*(\d)/g, "$1$2$3");
+  }
+  return next;
+}
+
 function linesOf(text: string): string[] {
-  return westernDigits(text)
+  return tightenDates(westernDigits(text))
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
@@ -194,8 +216,7 @@ function valueAfterLabel(lines: string[], label: RegExp, accept: (value: string)
 }
 
 function qidDigits(value: string): string | null {
-  const compact = westernDigits(value).replace(/[^\d]/g, "");
-  const match = compact.match(/(\d{11})/);
+  const match = westernDigits(value).match(/(?<!\d)(\d{11})(?!\d)/);
   return match?.[1] ?? null;
 }
 
@@ -214,7 +235,7 @@ function labeledQid(lines: string[]): string | null {
 }
 
 function soleQid(text: string): { value: string; confidence: FieldConfidence } | null {
-  const matches = westernDigits(text).match(/\d{11}/g) ?? [];
+  const matches = westernDigits(text).match(/(?<!\d)\d{11}(?!\d)/g) ?? [];
   const unique = [...new Set(matches)];
   if (unique.length !== 1) return null;
   return { value: unique[0]!, confidence: "high" };
@@ -298,6 +319,205 @@ function high(value: string): ConfidentValue {
   return { value, confidence: "high" };
 }
 
+const LATIN_NAME_STOP = new Set([
+  "state",
+  "qatar",
+  "residency",
+  "permit",
+  "passport",
+  "nationality",
+  "occupation",
+  "employer",
+  "expiry",
+  "serial",
+  "signature",
+  "directorate",
+  "general",
+  "holder",
+  "name",
+  "date",
+  "birth",
+  "number",
+  "type",
+  "work",
+  "id",
+  "no",
+]);
+
+const NATIONALITY_STOP = new Set(
+  [...LATIN_NAME_STOP].filter((word) => word !== "qatar").concat(["of", "no", "id", "dob"]),
+);
+
+const RESIDENCY_NAME_LABEL =
+  /(?:full\s*name|holder\s*name|card\s*holder|(?<![A-Za-z])name(?![A-Za-z])|الإسم|الاسم)/gi;
+const RESIDENCY_QID_LABEL =
+  /(?:id\s*\.?\s*no\.?|i\s*\.?\s*d\s*\.?\s*(?:no\.?|number)|qid(?:\s*(?:no\.?|number))?|الرقم\s*الشخصي|رقم\s*الهوية)/gi;
+const RESIDENCY_PASSPORT_LABEL = /(?:passport\s*(?:no\.?|number|#)|رقم\s*جواز\s*السفر|رقم\s*الجواز)/gi;
+const RESIDENCY_NATIONALITY_LABEL = /(?:nationality|الجنسية)/gi;
+
+function allMatches(text: string, re: RegExp): RegExpExecArray[] {
+  const flags = re.flags.includes("g") ? re.flags : `${re.flags}g`;
+  const copy = new RegExp(re.source, flags);
+  const found: RegExpExecArray[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = copy.exec(text))) {
+    found.push(match);
+    if (match.index === copy.lastIndex) copy.lastIndex += 1;
+  }
+  return found;
+}
+
+function windowAfter(text: string, index: number, labelLength: number): string {
+  const after = text.slice(index + labelLength);
+  return after.split(/\r?\n/).slice(0, 3).join("\n");
+}
+
+function latinPersonName(raw: string): string | null {
+  const tokens = raw.match(/[A-Z][A-Za-z.'-]+/g) ?? [];
+  const kept: string[] = [];
+  for (const token of tokens) {
+    if (LATIN_NAME_STOP.has(token.toLowerCase())) break;
+    kept.push(token);
+    if (kept.length === 8) break;
+  }
+  if (kept.length < 2) return null;
+  const name = cleanName(kept.join(" "));
+  if (!looksLikePersonName(name)) return null;
+  return name;
+}
+
+function bestLatinName(text: string): string | null {
+  let best: string | null = null;
+  for (const match of allMatches(text, RESIDENCY_NAME_LABEL)) {
+    const after = windowAfter(text, match.index, match[0].length);
+    const before = text.slice(Math.max(0, match.index - 80), match.index);
+    const candidate = latinPersonName(after) ?? latinPersonName(before);
+    if (!candidate) continue;
+    if (!best || candidate.split(" ").length > best.split(" ").length) best = candidate;
+  }
+  return best;
+}
+
+function labeledBoundedQid(text: string): string | null {
+  for (const match of allMatches(text, RESIDENCY_QID_LABEL)) {
+    const after = windowAfter(text, match.index, match[0].length).slice(0, 80);
+    const foundAfter = after.match(/(?<!\d)(\d{11})(?!\d)/);
+    if (foundAfter) return foundAfter[1]!;
+    const before = text.slice(Math.max(0, match.index - 40), match.index);
+    const foundBefore = before.match(/(\d{11})(?!\d)\s*$/);
+    if (foundBefore) return foundBefore[1]!;
+  }
+  return null;
+}
+
+function passportToken(window: string): string | null {
+  const token = window.toUpperCase().match(/(?<![A-Z0-9])([A-Z]{1,3}\d{5,9})(?![A-Z0-9])/);
+  return token?.[1] ?? null;
+}
+
+function labeledPassportNumber(text: string): string | null {
+  for (const match of allMatches(text, RESIDENCY_PASSPORT_LABEL)) {
+    const after = passportToken(windowAfter(text, match.index, match[0].length));
+    if (after) return after;
+    const before = text.slice(Math.max(0, match.index - 48), match.index);
+    const prior = passportToken(before);
+    if (prior) return prior;
+  }
+  return null;
+}
+
+function titleCaseWords(value: string): string {
+  return value.toLowerCase().replace(/(^|[\s-])([a-z])/g, (_lead, gap: string, ch: string) => `${gap}${ch.toUpperCase()}`);
+}
+
+function labeledNationality(text: string): string | null {
+  for (const match of allMatches(text, RESIDENCY_NATIONALITY_LABEL)) {
+    const window = (windowAfter(text, match.index, match[0].length).split(
+      /\b(?:name|passport|expiry|occupation|serial|d\.?\s*o\.?\s*b|id\.?\s*no)\b/i,
+    )[0] ?? "");
+    const words = window.match(/\b[A-Z][A-Za-z]{2,}(?:[ \t]+[A-Z][A-Za-z]{2,}){0,3}\b/g) ?? [];
+    for (const candidate of words) {
+      const parts = candidate.split(/[ \t]+/);
+      if (parts.some((part) => NATIONALITY_STOP.has(part.toLowerCase()))) continue;
+      return titleCaseWords(candidate);
+    }
+  }
+  return null;
+}
+
+function lastIndexOfAny(haystack: string, needles: string[]): number {
+  let at = -1;
+  for (const needle of needles) {
+    const found = haystack.lastIndexOf(needle);
+    if (found > at) at = found;
+  }
+  return at;
+}
+
+/** Card expiry, passport expiry, and date of birth sit on the same Qatar residency permit. */
+function residencyDateRoles(text: string): {
+  cardExpiry: string | null;
+  passportExpiry: string | null;
+} {
+  let cardExpiry: string | null = null;
+  let passportExpiry: string | null = null;
+  let dob: string | null = null;
+  const re = /\b(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{4}|\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4}|[A-Za-z]{3,9}\s+\d{1,2}\s+\d{4})\b/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text))) {
+    const iso = parseIdentityDate(match[0]);
+    if (!iso) continue;
+    const context = text.slice(Math.max(0, match.index - 80), match.index).toLowerCase();
+    const passportAt = lastIndexOfAny(context, ["passport", "جواز"]);
+    const birthAt = lastIndexOfAny(context, ["birth", "d.o.b", "dob", "ميلاد"]);
+    const expiryAt = lastIndexOfAny(context, ["expir", "صلاح", "انتهاء"]);
+    const ranked = [
+      { at: passportAt, role: "passport" as const },
+      { at: birthAt, role: "dob" as const },
+      { at: expiryAt, role: "card" as const },
+    ].filter((item) => item.at >= 0);
+    if (!ranked.length) continue;
+    ranked.sort((a, b) => b.at - a.at);
+    let role = ranked[0]!.role;
+    if (role === "card" && passportAt >= 0 && expiryAt - passportAt <= 24 && expiryAt > passportAt) {
+      role = "passport";
+    }
+    if (role === "dob" && !dob) dob = iso;
+    else if (role === "passport" && !passportExpiry) passportExpiry = iso;
+    else if (role === "card" && !cardExpiry) cardExpiry = iso;
+  }
+  if (cardExpiry && cardExpiry === dob) cardExpiry = null;
+  if (passportExpiry && passportExpiry === dob) passportExpiry = null;
+  return { cardExpiry, passportExpiry };
+}
+
+/**
+ * Qatar residency permits print the ID, Latin name, card expiry, and nationality
+ * on the front, and the passport number and passport expiry on the back.
+ * OCR often keeps Arabic and English on the same line, or in one paragraph.
+ */
+function enrichQatarResidency(parsed: ParsedIdentityDocument, text: string): void {
+  const qid = labeledBoundedQid(text);
+  if (qid) parsed.documentNumber = high(qid);
+  else if (!parsed.documentNumber) {
+    const sole = soleQid(text);
+    if (sole) parsed.documentNumber = sole;
+  }
+
+  const dates = residencyDateRoles(text);
+  if (dates.cardExpiry) parsed.expiryDate = high(dates.cardExpiry);
+  if (dates.passportExpiry) parsed.passportExpiry = high(dates.passportExpiry);
+
+  const passport = labeledPassportNumber(text);
+  if (passport) parsed.passportNumber = high(passport);
+
+  const nationality = labeledNationality(text);
+  if (nationality) parsed.nationality = high(nationality);
+
+  const latin = bestLatinName(text);
+  if (latin) parsed.name = high(latin);
+}
+
 export function parseIdentityDocument(text: string, docType: IdentityDocType): ParsedIdentityDocument {
   const lines = linesOf(text);
   const joined = lines.join("\n");
@@ -319,6 +539,7 @@ export function parseIdentityDocument(text: string, docType: IdentityDocType): P
     }
     const name = valueAfterLabel(lines, NAME_LABEL, looksLikePersonName);
     if (name) parsed.name = high(cleanName(name));
+    enrichQatarResidency(parsed, joined);
   }
 
   if (docType === "passport") {
@@ -394,6 +615,11 @@ export function applyIdentityExtraction(
   consider(map.name, parsed.name);
   consider(map.number, parsed.documentNumber);
   consider(map.expiry, parsed.expiryDate);
+  if (docType === "qid") {
+    consider("passportNumber", parsed.passportNumber ?? null);
+    consider("passportExpiry", parsed.passportExpiry ?? null);
+    consider("nationality", parsed.nationality ?? null);
+  }
   return { fields, suggestions: nextSuggestions };
 }
 
@@ -434,6 +660,7 @@ export function applyDocumentEditorExtraction(input: {
     visaExpiry: "",
     contractNumber: "",
     contractExpiry: "",
+    nationality: "",
   };
   const numberKey = NUMBER_FIELD[input.docType];
   const expiryKey = EXPIRY_FIELD[input.docType];

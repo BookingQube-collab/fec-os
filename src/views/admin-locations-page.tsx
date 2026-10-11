@@ -1,7 +1,8 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2, Pencil } from "lucide-react";
+import type { TFunction } from "i18next";
+import { Building2, Pencil, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -17,6 +18,16 @@ import {
   FecModalTitle as DialogTitle,
   FecPageHeader,
 } from "@/components/fec";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -31,7 +42,9 @@ import {
 } from "@/components/ui/table";
 import { usePermission } from "@/hooks/use-permission";
 import { enableSiteChat } from "@/lib/chat/sync.functions";
+import { parseLocationDeleteFailure } from "@/lib/locations/delete-guard";
 import {
+  deleteLocationMaster,
   listLocationMaster,
   setLocationActive,
   updateLocationMaster,
@@ -68,6 +81,8 @@ type Draft = {
   id: string;
   code: string;
   name: string;
+  savedCode: string;
+  savedName: string;
   city: string;
   region: string;
   country: string;
@@ -77,11 +92,31 @@ type Draft = {
   active: boolean;
 };
 
+type DeleteTarget = {
+  id: string;
+  code: string;
+  name: string;
+};
+
+function locationDeleteToast(t: TFunction, error: unknown, code: string) {
+  const message = error instanceof Error ? error.message : "";
+  const parsed = parseLocationDeleteFailure(message);
+  if (parsed?.code === "blocked") {
+    const links = parsed.kinds.map((kind) => t(`locationMaster.deleteLink.${kind}`)).join(", ");
+    return t("locationMaster.deleteBlocked", { code, links });
+  }
+  if (parsed?.code === "foreignKey") return t("locationMaster.deleteBlockedFk", { code });
+  if (parsed?.code === "verify") return t("locationMaster.deleteVerifyFailed", { code });
+  return message || t("locationMaster.deleteFailed");
+}
+
 function draftFromRow(row: LocationMasterRow): Draft {
   return {
     id: row.id,
     code: row.code,
     name: row.name,
+    savedCode: row.code,
+    savedName: row.name,
     city: row.city,
     region: row.region ?? "",
     country: row.country,
@@ -106,6 +141,7 @@ function LocationMasterView() {
   const qc = useQueryClient();
   const [query, setQuery] = useState("");
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
 
   const locations = useQuery({
@@ -173,6 +209,19 @@ function LocationMasterView() {
       await refreshSites();
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : t("locationMaster.saveFailed")),
+  });
+
+  const remove = useMutation({
+    mutationFn: (input: DeleteTarget) => deleteLocationMaster({ id: input.id }),
+    onSuccess: async () => {
+      toast.success(t("locationMaster.deleted"));
+      setDeleteTarget(null);
+      setDraft(null);
+      await refreshSites();
+    },
+    onError: (error) => {
+      toast.error(locationDeleteToast(t, error, deleteTarget?.code ?? ""));
+    },
   });
 
   const rows = useMemo(() => {
@@ -280,6 +329,20 @@ function LocationMasterView() {
                           >
                             <Pencil className="h-4 w-4" />
                           </Button>
+                          {canEdit ? (
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              className="text-destructive hover:text-destructive"
+                              aria-label={t("locationMaster.deleteRow", { code: row.code })}
+                              onClick={() =>
+                                setDeleteTarget({ id: row.id, code: row.code, name: row.name })
+                              }
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          ) : null}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -377,13 +440,26 @@ function LocationMasterView() {
               </div>
             </div>
           ) : null}
-          <DialogFooter>
+          <DialogFooter className="gap-2 sm:justify-between sm:space-x-0">
+            {canEdit && draft ? (
+              <Button
+                type="button"
+                variant="destructive"
+                className="sm:mr-auto"
+                disabled={save.isPending || remove.isPending}
+                onClick={() =>
+                  setDeleteTarget({ id: draft.id, code: draft.savedCode, name: draft.savedName })
+                }
+              >
+                {t("locationMaster.delete")}
+              </Button>
+            ) : null}
             <Button type="button" variant="ghost" onClick={() => setDraft(null)}>
               {t("common.cancel")}
             </Button>
             <Button
               type="button"
-              disabled={!draft || save.isPending}
+              disabled={!draft || save.isPending || remove.isPending}
               onClick={() => draft && save.mutate(draft)}
             >
               {t("common.save")}
@@ -391,6 +467,40 @@ function LocationMasterView() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={deleteTarget != null}
+        onOpenChange={(open) => {
+          if (!open && !remove.isPending) setDeleteTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("locationMaster.deleteTitle", { code: deleteTarget?.code ?? "" })}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("locationMaster.deleteConfirm", {
+                code: deleteTarget?.code ?? "",
+                name: deleteTarget?.name ?? "",
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={remove.isPending}>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={remove.isPending || !deleteTarget}
+              onClick={(event) => {
+                event.preventDefault();
+                if (deleteTarget) remove.mutate(deleteTarget);
+              }}
+            >
+              {t("locationMaster.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

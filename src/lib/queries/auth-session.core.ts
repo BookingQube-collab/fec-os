@@ -76,14 +76,16 @@ async function loadProfileAndRoles(
 
 /** Loads profile + role assignments for the authenticated user. */
 export async function fetchAuthSession(context: AuthContext): Promise<AuthSessionPayload> {
-  const { profile, roles } = await loadProfileAndRoles(context.supabase, context.userId);
   const email = typeof context.claims.email === "string" ? context.claims.email : null;
-  let jobTitle: string | null = null;
-  try {
-    jobTitle = await loadLinkedStaffJobTitle(context.userId);
-  } catch (error) {
-    console.warn("[auth/session] staff job title lookup failed", error);
-  }
+  // Job title does not depend on the profile row. Run it with the role lookup so
+  // the shell gate is not stuck behind a second staff round trip.
+  const [{ profile, roles }, jobTitle] = await Promise.all([
+    loadProfileAndRoles(context.supabase, context.userId),
+    loadLinkedStaffJobTitle(context.userId).catch((error: unknown) => {
+      console.warn("[auth/session] staff job title lookup failed", error);
+      return null;
+    }),
+  ]);
   return {
     user: { id: context.userId, email },
     profile: profile ? { ...profile, job_title: jobTitle } : null,

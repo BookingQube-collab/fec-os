@@ -1,8 +1,12 @@
 "use client";
 
-import Aurora from "@/components/react-bits/aurora";
+import dynamic from "next/dynamic";
+
 import { usePrefersReducedMotion } from "@/hooks/use-prefers-reduced-motion";
 import { cn } from "@/lib/utils";
+
+/** WebGL (ogl) stays out of the shell chunk. The backdrop paints after the chunk arrives. */
+const Aurora = dynamic(() => import("@/components/react-bits/aurora"), { ssr: false });
 
 const FEC_STOPS = ["#efeaff", "#6d4aff", "#ddd4ff"];
 

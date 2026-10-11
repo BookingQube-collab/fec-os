@@ -153,7 +153,7 @@ export const SAVED_RULES_ARE_EXECUTED = true;
 
 /** Employed people receive automatic enrollment. Closed and joker rows do not. */
 export function staffCanReceiveTraining(status: string): boolean {
-  return !["terminated", "resigned", "released", "joker"].includes(status);
+  return !["terminated", "resigned", "released", "contract_finished", "joker"].includes(status);
 }
 
 export type SavedRuleShape = {
