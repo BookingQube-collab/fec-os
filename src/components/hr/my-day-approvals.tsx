@@ -51,7 +51,7 @@ export function MyDayLeaveApprovals({
     staleTime: STALE.people,
   });
   const act = useMutation({
-    mutationFn: actOnLeaveApproval,
+    mutationFn: (input: { leaveId: string; action: "approved" | "rejected" }) => actOnLeaveApproval(input),
     onSuccess: (res) => {
       if (res.final && (res.syncedDays ?? 0) > 0) toast.success(t("hr.leave.synced", { days: res.syncedDays }));
       else if (res.final) toast.success(t("hr.leave.updated"));

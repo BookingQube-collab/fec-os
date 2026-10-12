@@ -13,10 +13,14 @@ import { splitDepartmentTokens } from "@/lib/staff-departments";
  * Exact match after trim, case-fold, and whitespace collapse. "&" and "fnb"
  * are read as "f and b". A name matches only when the whole label is one of
  * the keys below — longer names are left alone (FEC Operations, Site Operations,
- * F&B Operations, F&B Manager, F&B Cashier, Barista, Chef, Maintenance Assistant / Electrician, Food).
+ * F&B Operations, F&B Manager, F&B Supervisor, F&B Cashier, Barista, Chef,
+ * Maintenance Assistant / Electrician, Food, General Manager).
  *
  * Stored master departments this covers:
  * - Operations (OPS), plus the close label Operation
+ * - Site supervision on the operations side: Supervisor, Site Supervisor,
+ *   Sr. Site Supervisor, Senior Site Supervisor, and Venue Supervisor
+ *   (SR_SITE_SUP, SITE_SUP). Not F&B Supervisor or other supervisor titles.
  * - Maintenance (MAINT), plus the close label Maintenace
  * - F&B Cafe (FB_CAFE), plus F&B (FB), FnB Cafe, and F and B Cafe
  */
@@ -33,6 +37,16 @@ export const ALL_ORG_DEPARTMENTS_CHECKED: OrgDepartmentChecks = {
 };
 
 const OPERATIONS_KEYS = new Set(["operations", "operation"]);
+/** Site supervision titles already used on staff. Exact label only, so F&B Supervisor stays out. */
+const OPERATIONS_SUPERVISOR_KEYS = new Set([
+  "supervisor",
+  "site supervisor",
+  "sr. site supervisor",
+  "sr site supervisor",
+  "sr.site supervisor",
+  "senior site supervisor",
+  "venue supervisor",
+]);
 const MAINTENANCE_KEYS = new Set(["maintenance", "maintenace"]);
 const FB_CAFE_KEYS = new Set(["f and b", "f and b cafe"]);
 
@@ -41,6 +55,8 @@ const CODE_TO_FOCUS: Record<string, OrgFocusDepartment> = {
   MAINT: "maintenance",
   FB: "fb_cafe",
   FB_CAFE: "fb_cafe",
+  SR_SITE_SUP: "operations",
+  SITE_SUP: "operations",
 };
 
 export function normalizeOrgDepartmentKey(value: string | null | undefined): string {
@@ -59,7 +75,7 @@ export function orgFocusDepartmentOfName(name: string | null | undefined): OrgFo
   const fromCode = CODE_TO_FOCUS[raw.toUpperCase()];
   if (fromCode) return fromCode;
   const key = normalizeOrgDepartmentKey(raw);
-  if (OPERATIONS_KEYS.has(key)) return "operations";
+  if (OPERATIONS_KEYS.has(key) || OPERATIONS_SUPERVISOR_KEYS.has(key)) return "operations";
   if (MAINTENANCE_KEYS.has(key)) return "maintenance";
   if (FB_CAFE_KEYS.has(key)) return "fb_cafe";
   return null;

@@ -93,8 +93,13 @@ const downloadRows: PreviousMonthRosterDownloadRow[] = [
   downloadRow({ staffName: "Cafe", locationId: "ua", departmentNames: ["F&B Cafe"] }),
   downloadRow({ staffName: "Fb", locationId: "ua", department: "F&B", departmentCodes: ["FB"] }),
   downloadRow({ staffName: "Both sides", locationId: "ua", department: "F&B Cafe + Operations" }),
+  downloadRow({ staffName: "Sr. Site Supervisor", locationId: "ua", departmentNames: ["Sr. Site Supervisor"] }),
+  downloadRow({ staffName: "Supervisor", locationId: "ua", departmentNames: ["Supervisor"] }),
+  downloadRow({ staffName: "Senior Site Supervisor", locationId: "ua", departmentNames: ["Senior Site Supervisor"] }),
+  downloadRow({ staffName: "Site Supervisor", locationId: "ua", departmentCodes: ["SITE_SUP"] }),
   downloadRow({ staffName: "Manager", locationId: "ua", departmentNames: ["F&B Manager"] }),
   downloadRow({ staffName: "Chef", locationId: "ua", departmentNames: ["Chef"] }),
+  downloadRow({ staffName: "General Manager", locationId: "ua", departmentNames: ["General Manager"] }),
   downloadRow({ staffName: "Other site", locationId: "ho", departmentNames: ["Operations"] }),
   downloadRow({ staffName: "Blank", locationId: "ua", department: null, departmentNames: [] }),
 ];
@@ -107,7 +112,15 @@ function namesFor(department: PreviousMonthRosterDepartment) {
 
 describe("previous month roster location and department filter", () => {
   it("keeps one location and the operations side, including maintenance", () => {
-    expect(namesFor("operations")).toEqual(["Ops", "Maint", "Both sides"]);
+    expect(namesFor("operations")).toEqual([
+      "Ops",
+      "Maint",
+      "Both sides",
+      "Sr. Site Supervisor",
+      "Supervisor",
+      "Senior Site Supervisor",
+      "Site Supervisor",
+    ]);
   });
 
   it("keeps food and beverage only, using the roster F&B Cafe group", () => {
@@ -115,7 +128,17 @@ describe("previous month roster location and department filter", () => {
   });
 
   it("keeps operations, maintenance, and F&B together, and drops other departments", () => {
-    expect(namesFor("both")).toEqual(["Ops", "Maint", "Cafe", "Fb", "Both sides"]);
+    expect(namesFor("both")).toEqual([
+      "Ops",
+      "Maint",
+      "Cafe",
+      "Fb",
+      "Both sides",
+      "Sr. Site Supervisor",
+      "Supervisor",
+      "Senior Site Supervisor",
+      "Site Supervisor",
+    ]);
     expect(filterPreviousMonthRosterDownloadRows(downloadRows, { locationId: "  ", department: "both" })).toEqual([]);
   });
 });

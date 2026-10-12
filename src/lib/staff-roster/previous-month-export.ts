@@ -37,7 +37,9 @@ export function previousMonthRosterShiftCell(
  * (operations, maintenance, fb_cafe). This download does not add a Maintenance-only
  * choice. Maintenance stays with Operations, the non-F&B side of that menu.
  * F&B is the existing F&B Cafe focus (F&B, F&B Cafe, FnB Cafe, FB, FB_CAFE),
- * not job titles the roster filter leaves out (F&B Manager, Barista, Chef).
+ * not job titles the roster filter leaves out (F&B Manager, F&B Supervisor, Barista, Chef).
+ * Supervisor, Site Supervisor, Sr. Site Supervisor, Senior Site Supervisor, and
+ * Venue Supervisor belong with Operations, so Operations and Both include them.
  */
 export const PREVIOUS_MONTH_ROSTER_DEPARTMENTS = ["operations", "fb", "both"] as const;
 

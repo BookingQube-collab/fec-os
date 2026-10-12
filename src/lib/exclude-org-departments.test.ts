@@ -24,6 +24,13 @@ const people: { id: string; department_names: string[]; department?: string | nu
   { id: "manager", department_names: ["F&B Manager"] },
   { id: "barista", department_names: ["Barista"] },
   { id: "chef", department_names: ["Chef"] },
+  { id: "supervisor", department_names: ["Supervisor"] },
+  { id: "sr-site", department_names: ["Sr. Site Supervisor"] },
+  { id: "site-sup", department_names: ["Site Supervisor"] },
+  { id: "senior-site", department_names: ["Senior Site Supervisor"] },
+  { id: "venue-sup", department_names: ["Venue Supervisor"] },
+  { id: "fb-sup", department_names: ["F&B Supervisor"] },
+  { id: "gm", department_names: ["General Manager"] },
   { id: "fec-ops", department_names: ["FEC Operations"] },
   { id: "blank", department_names: [], department: null },
   { id: "both", department_names: ["Crew / Attendant", "Operations"], department: "Crew / Attendant" },
@@ -45,6 +52,14 @@ describe("org focus department names", () => {
     expect(orgFocusDepartmentOfName("F and B Cafe")).toBe("fb_cafe");
     expect(orgFocusDepartmentOfName("OPS")).toBe("operations");
     expect(orgFocusDepartmentOfName("FB_CAFE")).toBe("fb_cafe");
+    expect(orgFocusDepartmentOfName("Supervisor")).toBe("operations");
+    expect(orgFocusDepartmentOfName("Sr. Site Supervisor")).toBe("operations");
+    expect(orgFocusDepartmentOfName("Sr Site Supervisor")).toBe("operations");
+    expect(orgFocusDepartmentOfName("Senior Site Supervisor")).toBe("operations");
+    expect(orgFocusDepartmentOfName("Site Supervisor")).toBe("operations");
+    expect(orgFocusDepartmentOfName("Venue Supervisor")).toBe("operations");
+    expect(orgFocusDepartmentOfName("SR_SITE_SUP")).toBe("operations");
+    expect(orgFocusDepartmentOfName("SITE_SUP")).toBe("operations");
   });
 
   it("does not treat lookalikes as F&B Cafe, Operations, or Maintenance", () => {
@@ -56,9 +71,13 @@ describe("org focus department names", () => {
     expect(orgFocusDepartmentOfName("Site Operations")).toBeNull();
     expect(orgFocusDepartmentOfName("F&B Operations")).toBeNull();
     expect(orgFocusDepartmentOfName("F&B Manager")).toBeNull();
+    expect(orgFocusDepartmentOfName("F&B Supervisor")).toBeNull();
     expect(orgFocusDepartmentOfName("F&B Cashier")).toBeNull();
     expect(orgFocusDepartmentOfName("Maintenance Assistant / Electrician")).toBeNull();
     expect(orgFocusDepartmentOfName("Cashier")).toBeNull();
+    expect(orgFocusDepartmentOfName("General Manager")).toBeNull();
+    expect(orgFocusDepartmentOfName("Production Supervisor")).toBeNull();
+    expect(orgFocusDepartmentOfName("AV Specialist / FEC Supervisor")).toBeNull();
   });
 });
 
@@ -76,7 +95,16 @@ describe("show only when a department is unchecked", () => {
   it("shows only Operations when Operations is unchecked", () => {
     const checks: OrgDepartmentChecks = { ...ALL_ORG_DEPARTMENTS_CHECKED, operations: false };
     expect(activeShowOnlyOrgDepartments(checks, "")).toEqual(["operations"]);
-    expect(shown(["operations"])).toEqual(["ops", "operation", "both"]);
+    expect(shown(["operations"])).toEqual([
+      "ops",
+      "operation",
+      "supervisor",
+      "sr-site",
+      "site-sup",
+      "senior-site",
+      "venue-sup",
+      "both",
+    ]);
     expect(displayDepartmentShown("Operations", ["operations"])).toBe(true);
     expect(displayDepartmentShown("F&B Cafe", ["operations"])).toBe(false);
     expect(displayDepartmentShown("F&B Manager", ["operations"])).toBe(false);
@@ -90,7 +118,18 @@ describe("show only when a department is unchecked", () => {
       fb_cafe: true,
     };
     expect(activeShowOnlyOrgDepartments(checks, "all")).toEqual(["operations", "maintenance"]);
-    expect(shown(["operations", "maintenance"])).toEqual(["ops", "operation", "maint", "typo", "both"]);
+    expect(shown(["operations", "maintenance"])).toEqual([
+      "ops",
+      "operation",
+      "maint",
+      "typo",
+      "supervisor",
+      "sr-site",
+      "site-sup",
+      "senior-site",
+      "venue-sup",
+      "both",
+    ]);
     expect(displayDepartmentShown("F&B Cafe + Maintenance", ["operations", "maintenance"])).toBe(true);
     expect(displayDepartmentShown("F&B Cafe", ["operations", "maintenance"])).toBe(false);
     expect(displayDepartmentShown("F&B", ["operations", "maintenance"])).toBe(false);
@@ -100,6 +139,8 @@ describe("show only when a department is unchecked", () => {
   it("does not treat F&B Manager as F&B Cafe", () => {
     expect(shown(["fb_cafe"])).toEqual(["cafe", "fb", "fnb"]);
     expect(staffMatchesOrgShowOnly({ department_names: ["F&B Manager"] }, ["fb_cafe"])).toBe(false);
+    expect(staffMatchesOrgShowOnly({ department_names: ["Sr. Site Supervisor"] }, ["fb_cafe"])).toBe(false);
+    expect(staffMatchesOrgShowOnly({ department_names: ["Supervisor"] }, ["fb_cafe"])).toBe(false);
     expect(staffMatchesOrgShowOnly({ department: "Barista" }, ["fb_cafe"])).toBe(false);
     expect(staffMatchesOrgShowOnly({ department: "Chef" }, ["fb_cafe"])).toBe(false);
     expect(displayDepartmentShown("F&B Manager", ["fb_cafe"])).toBe(false);
@@ -123,10 +164,18 @@ describe("show only when a department is unchecked", () => {
       { id: "crew", name: "Crew / Attendant", code: "CREW" },
       { id: "fec-ops", name: "FEC Operations", code: "FEC_OPS" },
       { id: "manager", name: "F&B Manager", code: "FB_MGR" },
+      { id: "sr-site", name: "Sr. Site Supervisor", code: "SR_SITE_SUP" },
+      { id: "site-sup", name: "Site Supervisor", code: "SITE_SUP" },
+      { id: "gm", name: "General Manager", code: "GM" },
     ];
     expect(orgDepartmentIdsFor(departments, [])).toEqual([]);
-    expect(orgDepartmentIdsFor(departments, ["operations"])).toEqual(["ops"]);
-    expect(orgDepartmentIdsFor(departments, ["operations", "maintenance"])).toEqual(["ops", "maint"]);
+    expect(orgDepartmentIdsFor(departments, ["operations"])).toEqual(["ops", "sr-site", "site-sup"]);
+    expect(orgDepartmentIdsFor(departments, ["operations", "maintenance"])).toEqual([
+      "ops",
+      "maint",
+      "sr-site",
+      "site-sup",
+    ]);
     expect(orgDepartmentIdsFor(departments, ["fb_cafe"])).toEqual(["cafe", "fb"]);
 
     expect(recordMatchesOrgShowOnly({ department: "Maintenance" }, ["maintenance"])).toBe(true);
