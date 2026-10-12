@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { usePermission } from "@/hooks/use-permission";
 import { useSites } from "@/hooks/queries/useSites";
-import { SUPPLIER_CASE_STATUSES } from "@/lib/arcade/domain";
+import { isArcadeVenueLocation, SUPPLIER_CASE_STATUSES } from "@/lib/arcade/domain";
 import { getArcadeContext, listArcadeMachines } from "@/lib/arcade.functions";
 import {
   getArcadeSupplier,
@@ -424,7 +424,7 @@ export function ArcadeInstallations() {
         showTags={false}
         menuWidth={320}
         onChange={setLocationId}
-        options={(sites.data ?? []).map((site) => ({ value: site.id, label: site.name }))}
+        options={(sites.data ?? []).filter(isArcadeVenueLocation).map((site) => ({ value: site.id, label: site.name }))}
       />
       <GlideSelect
         ariaLabel={t("arcadeScreens.machine")}

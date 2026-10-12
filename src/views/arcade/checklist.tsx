@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useSites } from "@/hooks/queries/useSites";
 import { usePermission } from "@/hooks/use-permission";
+import { isArcadeVenueLocation } from "@/lib/arcade/domain";
 import { getArcadeContext } from "@/lib/arcade.functions";
 import { getDailyChecklist, markDailyGameCheck } from "@/lib/arcade-work.functions";
 import { venueTitle } from "@/lib/locations/normalize";
@@ -61,7 +62,7 @@ export function ArcadeChecklist() {
           onChange={(event) => setLocationId(event.target.value)}
         >
           <option value="">{t("arcadeScreens.selectSite")}</option>
-          {(sites.data ?? []).map((site) => (
+          {(sites.data ?? []).filter(isArcadeVenueLocation).map((site) => (
             <option key={site.id} value={site.id}>{venueTitle(site, site.name)}</option>
           ))}
         </select>

@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import { PEOPLE_ROSTER_SAMPLE_HEADERS, buildPeopleRosterSheetMatrix } from "./period-sample";
-import { previousMonthRosterSheetLines, previousMonthRosterShiftCell } from "./previous-month-export";
+import {
+  filterPreviousMonthRosterDownloadRows,
+  previousMonthRosterSheetLines,
+  previousMonthRosterShiftCell,
+  type PreviousMonthRosterDepartment,
+  type PreviousMonthRosterDownloadRow,
+} from "./previous-month-export";
 
 describe("previous month roster sheet", () => {
   it("keeps stored shift text and does not invent a duty time", () => {
@@ -59,5 +65,57 @@ describe("previous month roster sheet", () => {
     expect(empty.rowCount).toBe(0);
     expect([...empty.headers]).toEqual(["DATE", "EMPLOYEE", "LOCATION", "SHIFT"]);
     expect(empty.rows).toEqual([]);
+  });
+});
+
+function downloadRow(
+  partial: Partial<PreviousMonthRosterDownloadRow> & Pick<PreviousMonthRosterDownloadRow, "staffName" | "locationId">,
+): PreviousMonthRosterDownloadRow {
+  return {
+    workDate: "2026-09-01",
+    employeeCode: null,
+    locationCode: "UA-DM",
+    locationName: "Urban Arena",
+    shiftStart: "12:00",
+    shiftEnd: "21:00",
+    isWeekOff: false,
+    leaveType: null,
+    department: null,
+    departmentNames: [],
+    departmentCodes: [],
+    ...partial,
+  };
+}
+
+const downloadRows: PreviousMonthRosterDownloadRow[] = [
+  downloadRow({ staffName: "Ops", locationId: "ua", departmentNames: ["Operations"] }),
+  downloadRow({ staffName: "Maint", locationId: "ua", departmentNames: ["Maintenance"], departmentCodes: ["MAINT"] }),
+  downloadRow({ staffName: "Cafe", locationId: "ua", departmentNames: ["F&B Cafe"] }),
+  downloadRow({ staffName: "Fb", locationId: "ua", department: "F&B", departmentCodes: ["FB"] }),
+  downloadRow({ staffName: "Both sides", locationId: "ua", department: "F&B Cafe + Operations" }),
+  downloadRow({ staffName: "Manager", locationId: "ua", departmentNames: ["F&B Manager"] }),
+  downloadRow({ staffName: "Chef", locationId: "ua", departmentNames: ["Chef"] }),
+  downloadRow({ staffName: "Other site", locationId: "ho", departmentNames: ["Operations"] }),
+  downloadRow({ staffName: "Blank", locationId: "ua", department: null, departmentNames: [] }),
+];
+
+function namesFor(department: PreviousMonthRosterDepartment) {
+  return filterPreviousMonthRosterDownloadRows(downloadRows, { locationId: "ua", department }).map(
+    (row) => row.staffName,
+  );
+}
+
+describe("previous month roster location and department filter", () => {
+  it("keeps one location and the operations side, including maintenance", () => {
+    expect(namesFor("operations")).toEqual(["Ops", "Maint", "Both sides"]);
+  });
+
+  it("keeps food and beverage only, using the roster F&B Cafe group", () => {
+    expect(namesFor("fb")).toEqual(["Cafe", "Fb", "Both sides"]);
+  });
+
+  it("keeps operations, maintenance, and F&B together, and drops other departments", () => {
+    expect(namesFor("both")).toEqual(["Ops", "Maint", "Cafe", "Fb", "Both sides"]);
+    expect(filterPreviousMonthRosterDownloadRows(downloadRows, { locationId: "  ", department: "both" })).toEqual([]);
   });
 });

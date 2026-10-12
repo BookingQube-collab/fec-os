@@ -34,7 +34,11 @@ import {
   rosterCopyProtectedDestinationKeys,
 } from "@/lib/attendance-hr/roster-copy";
 import { mapRosterPeriodByDayIndex, monthBounds, nextPayrollMonth, previousPayrollMonth } from "@/lib/attendance-hr/roster-period";
-import { previousMonthRosterSheetLines } from "@/lib/staff-roster/previous-month-export";
+import {
+  filterPreviousMonthRosterDownloadRows,
+  previousMonthRosterSheetLines,
+  type PreviousMonthRosterDepartment,
+} from "@/lib/staff-roster/previous-month-export";
 import { buildPeopleRosterRowsXlsx, peopleRosterSampleFilename } from "@/lib/staff-roster/period-sample";
 import { ATTENDANCE_DAILY_LIST_PAGE_SIZE } from "@/lib/attendance-hr/constants";
 import { isJokerStaff, STAFF_NOT_JOKER_EMPLOYMENT_OR } from "@/lib/staff-status";
@@ -1595,40 +1599,53 @@ export const copyRosterToNextMonth = createAuthenticatedAction(
   rosterAmendAuth,
 );
 
+async function rosterDownloadLocationCode(
+  supabase: AuthContext["supabase"],
+  locationId: string,
+): Promise<string | null> {
+  const { data, error } = await supabase.from("locations").select("code").eq("id", locationId).maybeSingle();
+  if (error) return null;
+  const code = (data?.code as string | null | undefined)?.trim();
+  return code || null;
+}
+
 /**
- * Excel of roster rows already stored for the FEC month before `month`.
+ * Excel of roster rows already stored for the FEC month before `month`,
+ * for one location and one department group (operations with maintenance, F&B, or both).
  * Same DATE / EMPLOYEE / LOCATION / SHIFT workbook as the shift-roster sample.
- * An empty prior month still returns headers and no invented shifts.
+ * An empty selection still returns headers and no invented shifts.
  */
 export const downloadPreviousMonthRoster = createAuthenticatedAction(
-  z.object({ month: z.string().regex(/^\d{4}-\d{2}$/) }),
-  async (data) => {
+  z.object({
+    month: z.string().regex(/^\d{4}-\d{2}$/),
+    locationId: z.string().uuid(),
+    department: z.enum(["operations", "fb", "both"]),
+  }),
+  async (data, context) => {
     const priorMonth = previousPayrollMonth(data.month);
     const period = monthBounds(priorMonth);
+    const department = data.department as PreviousMonthRosterDepartment;
     const listed = await listUploadedRosterAssignments({
       dateFrom: period.dateFrom,
       dateTo: period.dateTo,
       sourceUploadOnly: false,
+      locationId: data.locationId,
+      includeCopyDepartments: true,
     });
-    const lines = previousMonthRosterSheetLines(
-      listed.rows.map((row) => ({
-        workDate: row.workDate,
-        staffName: row.staffName,
-        employeeCode: row.employeeCode,
-        locationCode: row.locationCode,
-        locationName: row.locationName,
-        shiftStart: row.shiftStart,
-        shiftEnd: row.shiftEnd,
-        isWeekOff: row.isWeekOff,
-        leaveType: row.leaveType,
-      })),
-    );
+    const filtered = filterPreviousMonthRosterDownloadRows(listed.rows, {
+      locationId: data.locationId,
+      department,
+    });
+    const lines = previousMonthRosterSheetLines(filtered);
     const built = await buildPeopleRosterRowsXlsx(lines, period, { periodMode: "month" });
     if (built.truncated) {
       throw new Error("Previous month roster is too large to download in one file.");
     }
+    const locationCode =
+      listed.rows.find((row) => row.locationCode)?.locationCode ??
+      (await rosterDownloadLocationCode(context.supabase, data.locationId));
     return {
-      filename: peopleRosterSampleFilename(period.dateFrom, period.dateTo, null),
+      filename: peopleRosterSampleFilename(period.dateFrom, period.dateTo, locationCode),
       mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       base64: built.buffer.toString("base64"),
       rowCount: built.rowCount,

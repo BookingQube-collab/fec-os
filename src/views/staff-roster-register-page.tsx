@@ -61,6 +61,7 @@ import {
   type AttendanceRosterPeriodMode,
 } from "@/lib/attendance-hr/roster-period";
 import { queryKeys } from "@/lib/query-keys";
+import type { PreviousMonthRosterDepartment } from "@/lib/staff-roster/previous-month-export";
 import { useAppStore } from "@/stores/app-store";
 import { useHasDirectReports } from "@/hooks/use-my-direct-reports";
 import { canSeeShiftRosterUpload } from "@/lib/reporting-manager-locations";
@@ -114,6 +115,10 @@ export default function StaffRosterRegisterPage() {
   const [copyReplaceOpen, setCopyReplaceOpen] = useState(false);
   const [readyPeriod, setReadyPeriod] = useState<string | null>(null);
   const [previousBusy, setPreviousBusy] = useState(false);
+  const [downloadOpen, setDownloadOpen] = useState(false);
+  const [downloadStep, setDownloadStep] = useState<"location" | "department">("location");
+  const [downloadLocationId, setDownloadLocationId] = useState<string | null>(null);
+  const [downloadDepartment, setDownloadDepartment] = useState<PreviousMonthRosterDepartment | null>(null);
   const [copyReplaceMeta, setCopyReplaceMeta] = useState<{
     targetMonth: string;
     targetCount: number;
@@ -196,10 +201,50 @@ export default function StaffRosterRegisterPage() {
   const flexibleOptionNames = flexiblePeople.map((person) => person.staffName || person.staffId).join(", ");
   const fbCafeNames = fbCafePeople.map((person) => person.staffName || person.staffId).join(", ");
 
-  const downloadPrevious = async () => {
+  const previousCoverage = useQuery({
+    queryKey: queryKeys.people.rosterRegister({
+      dateFrom: previousPeriod.dateFrom,
+      dateTo: previousPeriod.dateTo,
+      locationCoverage: true,
+      previousDownload: true,
+    }),
+    queryFn: () =>
+      listUploadedRosterAssignments({
+        dateFrom: previousPeriod.dateFrom,
+        dateTo: previousPeriod.dateTo,
+        sourceUploadOnly: false,
+        coverageOnly: true,
+      }),
+    staleTime: STALE.people,
+    enabled: downloadOpen && Boolean(previousPeriod.dateFrom && previousPeriod.dateTo),
+  });
+  const downloadLocations = useMemo(
+    () =>
+      locationRosterCoverage(
+        sites.data ?? [],
+        (previousCoverage.data?.rows ?? []).map((row) => ({ locationId: row.locationId, staffId: row.staffId })),
+        (site) => formatLocationRecord(site),
+      ),
+    [sites.data, previousCoverage.data?.rows],
+  );
+  const downloadLocation = downloadLocations.find((site) => site.id === downloadLocationId) ?? null;
+  const downloadLocationsLoading = previousCoverage.isLoading || sites.isLoading;
+  const downloadLocationsFailed = previousCoverage.isError || sites.isError;
+
+  const openDownloadChoice = () => {
+    setDownloadStep("location");
+    setDownloadLocationId(null);
+    setDownloadDepartment(null);
+    setDownloadOpen(true);
+  };
+
+  const downloadPrevious = async (
+    locationId: string,
+    department: PreviousMonthRosterDepartment,
+  ): Promise<boolean> => {
     try {
       setPreviousBusy(true);
-      const file = await downloadPreviousMonthRoster({ month });
+      const file = await downloadPreviousMonthRoster({ month, locationId, department });
       const bin = Uint8Array.from(atob(file.base64), (c) => c.charCodeAt(0));
       const blob = new Blob([bin], { type: file.mime });
       const objectUrl = URL.createObjectURL(blob);
@@ -214,11 +259,19 @@ export default function StaffRosterRegisterPage() {
       } else {
         toast.success(t("people.roster.downloadPreviousMonthReady", { range, count: file.rowCount }));
       }
+      return true;
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t("people.roster.previewFailed"));
+      return false;
     } finally {
       setPreviousBusy(false);
     }
+  };
+
+  const confirmDownload = async () => {
+    if (!downloadLocationId || !downloadDepartment) return;
+    const saved = await downloadPrevious(downloadLocationId, downloadDepartment);
+    if (saved) setDownloadOpen(false);
   };
 
   const applyCopyResult = (
@@ -315,6 +368,27 @@ export default function StaffRosterRegisterPage() {
   const fbCafeChoiceBlocked = copyMode === "fb_cafe" && (rosterLoading || rosterFailed || fbCafePeople.length === 0);
 
   const copyDisabled = periodMode !== "month" || copyMut.isPending || !/^\d{4}-\d{2}$/.test(month);
+  const downloadDepartmentChoices: {
+    value: PreviousMonthRosterDepartment;
+    label: string;
+    hint: string;
+  }[] = [
+    {
+      value: "operations",
+      label: t("people.roster.downloadPreviousMonthOperations"),
+      hint: t("people.roster.downloadPreviousMonthOperationsHint"),
+    },
+    {
+      value: "fb",
+      label: t("people.roster.downloadPreviousMonthFb"),
+      hint: t("people.roster.downloadPreviousMonthFbHint"),
+    },
+    {
+      value: "both",
+      label: t("people.roster.downloadPreviousMonthBoth"),
+      hint: t("people.roster.downloadPreviousMonthBothHint"),
+    },
+  ];
 
   return (
     <div className="space-y-6">
@@ -334,7 +408,7 @@ export default function StaffRosterRegisterPage() {
                 title={t("people.roster.downloadPreviousMonthHint", {
                   range: formatPayrollRange(previousPeriod.dateFrom, previousPeriod.dateTo, i18n.language),
                 })}
-                onClick={() => void downloadPrevious()}
+                onClick={openDownloadChoice}
               >
                 {previousBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                 {t("people.roster.downloadPreviousMonth")}
@@ -440,6 +514,143 @@ export default function StaffRosterRegisterPage() {
         maxHeight={640}
         onDeleteAllStateChange={setDeleteAllState}
       />
+
+      <Dialog
+        open={downloadOpen}
+        onOpenChange={(open) => {
+          if (!open && !previousBusy) setDownloadOpen(false);
+        }}
+      >
+        <DialogContent className="max-h-[85vh] max-w-md overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {downloadStep === "location"
+                ? t("people.roster.downloadPreviousMonthChooseLocation")
+                : t("people.roster.downloadPreviousMonthChooseDepartment")}
+            </DialogTitle>
+            <DialogDescription>
+              {downloadStep === "location"
+                ? t("people.roster.downloadPreviousMonthChooseLocationBody", {
+                    range: formatPayrollRange(previousPeriod.dateFrom, previousPeriod.dateTo, i18n.language),
+                  })
+                : t("people.roster.downloadPreviousMonthChooseDepartmentBody", {
+                    location: downloadLocation?.label ?? "",
+                  })}
+            </DialogDescription>
+          </DialogHeader>
+          {downloadStep === "location" ? (
+            downloadLocationsLoading ? (
+              <p className="text-sm text-muted-foreground">{t("people.roster.locationCoverageLoading")}</p>
+            ) : downloadLocationsFailed ? (
+              <p className="text-sm text-destructive">{t("people.roster.locationCoverageLoadFailed")}</p>
+            ) : downloadLocations.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{t("people.roster.downloadPreviousMonthNoLocations")}</p>
+            ) : (
+              <ul className="max-h-64 space-y-2 overflow-y-auto">
+                {downloadLocations.map((site) => {
+                  const checked = downloadLocationId === site.id;
+                  const status = site.uploaded
+                    ? t("people.roster.locationCoverageUploaded")
+                    : t("people.roster.locationCoverageMissingStatus");
+                  return (
+                    <li key={site.id}>
+                      <label
+                        className={cn(
+                          "flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2",
+                          checked ? "border-primary" : "border-border/70",
+                        )}
+                      >
+                        <input
+                          type="radio"
+                          name="roster-download-location"
+                          className="mt-1"
+                          checked={checked}
+                          onChange={() => {
+                            setDownloadLocationId(site.id);
+                            setDownloadDepartment(null);
+                          }}
+                        />
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-medium" title={site.label}>
+                            {site.label}
+                          </span>
+                          <span className="mt-1 flex flex-wrap items-center gap-1.5">
+                            <Badge variant={site.uploaded ? "success" : "warning"}>{status}</Badge>
+                            {site.uploaded ? (
+                              <span className="text-xs text-muted-foreground">
+                                {t("people.roster.registerCount", { count: site.rowCount })}
+                                <span aria-hidden="true"> · </span>
+                                {t("people.roster.registerStaffCount", { count: site.staffCount })}
+                              </span>
+                            ) : null}
+                          </span>
+                        </span>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            )
+          ) : (
+            <div className="space-y-2">
+              {downloadDepartmentChoices.map((choice) => {
+                const checked = downloadDepartment === choice.value;
+                return (
+                  <label
+                    key={choice.value}
+                    className={cn(
+                      "flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2",
+                      checked ? "border-primary" : "border-border/70",
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name="roster-download-department"
+                      className="mt-1"
+                      checked={checked}
+                      onChange={() => setDownloadDepartment(choice.value)}
+                    />
+                    <span>
+                      <span className="block text-sm font-medium">{choice.label}</span>
+                      <span className="block text-xs text-muted-foreground">{choice.hint}</span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+          <DialogFooter>
+            {downloadStep === "department" ? (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={previousBusy}
+                onClick={() => setDownloadStep("location")}
+              >
+                {t("people.roster.downloadPreviousMonthBack")}
+              </Button>
+            ) : (
+              <Button type="button" variant="outline" onClick={() => setDownloadOpen(false)} disabled={previousBusy}>
+                {t("common.cancel")}
+              </Button>
+            )}
+            {downloadStep === "location" ? (
+              <Button
+                type="button"
+                disabled={previousBusy || downloadLocationsLoading || downloadLocationsFailed || !downloadLocationId}
+                onClick={() => setDownloadStep("department")}
+              >
+                {t("people.roster.downloadPreviousMonthContinue")}
+              </Button>
+            ) : (
+              <Button type="button" disabled={previousBusy || !downloadDepartment} onClick={() => void confirmDownload()}>
+                {previousBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {t("people.roster.downloadPreviousMonthConfirm")}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={copyChoiceOpen}

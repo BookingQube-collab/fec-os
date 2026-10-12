@@ -12,6 +12,7 @@ import {
   machineFixUpdate,
   matchImportMachine,
   monthComparison,
+  isArcadeVenueLocation,
   visibleArcadeList,
   mtbfDays,
   mttrHours,
@@ -94,6 +95,21 @@ describe("repair working time", () => {
     });
     expect(closureErrors(closure)).toEqual([]);
     expect(closure.partsUsed).toBe("Drive belt");
+  });
+});
+
+describe("arcade venue locations", () => {
+  it("omits Head Office and keeps other venues, including ones with no games", () => {
+    const sites = [
+      { code: "INF-CC", name: "Inflatapark" },
+      { code: "KDS-DM", name: "Kids Driving School Mini" },
+      { code: "UA-DM", name: "Urban Arena" },
+      { code: "CAR-AP", name: "Carousel" },
+      { code: "HO", name: "Head Office" },
+    ];
+    expect(sites.filter(isArcadeVenueLocation).map((site) => site.code)).toEqual(["INF-CC", "KDS-DM", "UA-DM", "CAR-AP"]);
+    expect(isArcadeVenueLocation({ code: "ho" })).toBe(false);
+    expect(isArcadeVenueLocation({ code: "CAR-AP" })).toBe(true);
   });
 });
 

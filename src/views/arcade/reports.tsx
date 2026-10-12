@@ -46,7 +46,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useSites } from "@/hooks/queries/useSites";
 import { usePermission } from "@/hooks/use-permission";
 import { listArcadeMachines } from "@/lib/arcade.functions";
-import { FAULT_STATUSES } from "@/lib/arcade/domain";
+import { FAULT_STATUSES, isArcadeVenueLocation } from "@/lib/arcade/domain";
 import {
   availabilityForSites,
   faultTileCounts,
@@ -220,6 +220,7 @@ export function ArcadeReports() {
     const locations = sitesQuery.data ?? [];
     if (!locations.length) return siteOptions;
     return locations
+      .filter(isArcadeVenueLocation)
       .map((site) => ({ id: site.id, name: venueTitle(site, t("common.site")) }))
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [siteOptions, sitesQuery.data, t]);

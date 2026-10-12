@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
@@ -26,12 +26,13 @@ import { ArcadeWorkbookImport } from "@/components/arcade/workbook-import";
 import { FecLoader, FecPageHeader } from "@/components/fec";
 import GlideSelect from "@/components/react-bits/glide-select";
 import { PillTabScroller, pillTabItemClass } from "@/components/react-bits/pill-tab-scroller";
+import { pillTrackItemClass } from "@/components/react-bits/pill-tab-scroll";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useSites } from "@/hooks/queries/useSites";
 import { usePermission } from "@/hooks/use-permission";
-import { MACHINE_STATUSES } from "@/lib/arcade/domain";
+import { isArcadeVenueLocation, MACHINE_STATUSES } from "@/lib/arcade/domain";
 import { getArcadeContext, getArcadeFileUrl, getArcadeMachine, getArcadeSiteBoard, listArcadeMachines, saveArcadeMachine, uploadArcadeFile } from "@/lib/arcade.functions";
 import { listArcadeSuppliers } from "@/lib/arcade-supply.functions";
 import { fmtCurrency } from "@/lib/currency";
@@ -41,6 +42,26 @@ import { cn } from "@/lib/utils";
 
 const GAME_PAGE_SIZE = 24;
 
+function machineFollowUp(row: {
+  id: string;
+  status: string;
+  location_id: string;
+  technician_staff_id: string | null;
+}) {
+  const prefill = `machineId=${row.id}&locationId=${row.location_id}&technicianId=${row.technician_staff_id ?? ""}`;
+  switch (row.status) {
+    case "DOWN":
+    case "OUT_OF_SERVICE":
+      return { href: `/arcade/faults/new?${prefill}&startRepair=1`, labelKey: "arcadeScreens.startRepair" };
+    case "WAITING_PART":
+      return { href: `/arcade/parts?machineId=${row.id}&locationId=${row.location_id}`, labelKey: "arcadeScreens.requestPart" };
+    case "WAITING_SUPPLIER":
+      return { href: `/arcade/support/new?${prefill}`, labelKey: "arcadeScreens.contactSupplier" };
+    default:
+      return null;
+  }
+}
+
 export function ArcadeSites() {
   const { t } = useTranslation();
   const sites = useSites();
@@ -48,6 +69,7 @@ export function ArcadeSites() {
   const health = new Map((board.data?.sites ?? []).map((site) => [site.location_id, site]));
   const photos = useArcadePhotoUrls(Object.values(board.data?.covers ?? {}));
   const cards = [...(sites.data ?? [])]
+    .filter(isArcadeVenueLocation)
     .map((site) => {
       const row = health.get(site.id);
       return { site, row, title: venueTitle(site, site.name) };
@@ -95,13 +117,35 @@ export function ArcadeSites() {
 
 export function ArcadeSite({ locationId }: { locationId: string }) {
   const { t } = useTranslation();
+  const router = useRouter();
   const label = useVenueTitle();
   const sites = useSites();
   const location = sites.data?.find((site) => site.id === locationId);
-  const board = useQuery({ queryKey: queryKeys.arcade.siteBoard(locationId), queryFn: () => getArcadeSiteBoard({ locationId }) });
+  const omitted = Boolean(location && !isArcadeVenueLocation(location));
+  const [status, setStatus] = useState("");
+  useEffect(() => {
+    if (omitted) router.replace("/arcade/sites");
+  }, [omitted, router]);
+  useEffect(() => {
+    setStatus("");
+  }, [locationId]);
+  const board = useQuery({ queryKey: queryKeys.arcade.siteBoard(locationId), queryFn: () => getArcadeSiteBoard({ locationId }), enabled: !omitted });
   const site = board.data?.sites[0];
+  if (omitted) return null;
+  const counts = site
+    ? [
+        { status: "", label: t("arcadeScreens.machines"), value: site.active_machines },
+        { status: "WORKING", label: t("arcadeOps.working"), value: site.working },
+        { status: "DOWN", label: t("arcadeOps.down"), value: site.down },
+        { status: "UNDER_REPAIR", label: t("arcadeOps.underRepair"), value: site.under_repair },
+        { status: "UNDER_OBSERVATION", label: t("arcadeScreens.observation"), value: site.under_observation },
+        { status: "WAITING_PART", label: t("arcadeOps.waitingParts"), value: site.waiting_part },
+        { status: null, label: t("arcadeOps.pmDue"), value: site.pm_due + site.pm_overdue },
+        { status: "WAITING_SUPPLIER", label: t("arcadeOps.waitingSupplier"), value: site.waiting_supplier },
+      ]
+    : [];
   return (
-    <div className="grid gap-4">
+    <div className="grid min-w-0 gap-4">
       <FecPageHeader
         icon={Gamepad2}
         kicker={location?.code}
@@ -113,88 +157,166 @@ export function ArcadeSite({ locationId }: { locationId: string }) {
         <div className="grid gap-3">
           <HealthMeter value={site.availability} label={t("arcadeScreens.availability")} />
           <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-            <KpiTile label={t("arcadeScreens.machines")} value={site.active_machines} />
-            <KpiTile label={t("arcadeOps.working")} value={site.working} />
-            <KpiTile label={t("arcadeOps.down")} value={site.down} />
-            <KpiTile label={t("arcadeOps.underRepair")} value={site.under_repair} />
-            <KpiTile label={t("arcadeScreens.observation")} value={site.under_observation} />
-            <KpiTile label={t("arcadeOps.waitingParts")} value={site.waiting_part} />
-            <KpiTile label={t("arcadeOps.pmDue")} value={site.pm_due + site.pm_overdue} />
-            <KpiTile label={t("arcadeOps.waitingSupplier")} value={site.waiting_supplier} />
+            {counts.map((item) =>
+              item.status === null ? (
+                <KpiTile key="pm-due" label={item.label} value={item.value} />
+              ) : (
+                <button
+                  key={item.status || "all"}
+                  type="button"
+                  aria-pressed={status === item.status}
+                  onClick={() => setStatus(status === item.status && item.status !== "" ? "" : item.status)}
+                  className={cn(
+                    "rounded-lg border-0 bg-transparent p-0 text-start focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                    status === item.status && "ring-2 ring-primary",
+                  )}
+                >
+                  <KpiTile label={item.label} value={item.value} />
+                </button>
+              ),
+            )}
           </div>
         </div>
       ) : null}
-      <ArcadeMachines locationId={locationId} />
+      <ArcadeMachines locationId={locationId} status={status} onStatusChange={setStatus} />
     </div>
   );
 }
 
-export function ArcadeMachines({ locationId }: { locationId?: string }) {
+export function ArcadeMachines({
+  locationId,
+  status: statusProp,
+  onStatusChange,
+}: {
+  locationId?: string;
+  status?: string;
+  onStatusChange?: (status: string) => void;
+}) {
   const { t } = useTranslation();
   const [page, setPage] = useState(1);
   const [q, setQ] = useState("");
-  const [status, setStatus] = useState("");
+  const [localStatus, setLocalStatus] = useState("");
+  const status = statusProp ?? localStatus;
   const label = useVenueTitle();
   const canManage = usePermission("arcade.manage");
+  const skipStatusReset = useRef(true);
+  useEffect(() => {
+    if (skipStatusReset.current) {
+      skipStatusReset.current = false;
+      return;
+    }
+    setPage(1);
+  }, [status]);
+  useEffect(() => {
+    setQ("");
+    setPage(1);
+  }, [locationId]);
+  const chooseStatus = (value: string) => {
+    if (onStatusChange) onStatusChange(value);
+    else setLocalStatus(value);
+    setPage(1);
+  };
   const list = useQuery({
     queryKey: queryKeys.arcade.machines({ page, q, status, locationId, pageSize: GAME_PAGE_SIZE }),
     queryFn: () => listArcadeMachines({ page, pageSize: GAME_PAGE_SIZE, q, status: status || null, locationId: locationId ?? null }),
   });
   const photos = useArcadePhotoUrls((list.data?.rows ?? []).map((row) => row.photo_path));
   const rows = list.data?.rows ?? [];
+  const statusFilters = [
+    { value: "", label: t("arcadeScreens.allStatuses") },
+    ...MACHINE_STATUSES.map((item) => ({ value: item, label: arcadeStatusName(t, item) })),
+  ];
   return (
-    <div className="grid gap-3">
+    <div className="grid min-w-0 gap-3">
       {!locationId ? <h1 className="text-xl font-semibold">{t("arcadeScreens.machineList")}</h1> : null}
-      <div className="flex flex-wrap gap-2">
-        <Input value={q} onChange={(event) => { setQ(event.target.value); setPage(1); }} placeholder={t("arcadeScreens.searchMachines")} className="max-w-xs" />
-        <GlideSelect
-          ariaLabel={t("arcadeScreens.status")}
-          value={status}
-          placeholder={t("arcadeScreens.allStatuses")}
-          showTags={false}
-          onChange={(value) => { setStatus(value); setPage(1); }}
-          options={[{ value: "", label: t("arcadeScreens.allStatuses") }, ...MACHINE_STATUSES.map((item) => ({ value: item, label: arcadeStatusName(t, item) }))]}
+      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <Input
+          value={q}
+          type="search"
+          aria-label={t("arcadeScreens.searchMachines")}
+          onChange={(event) => { setQ(event.target.value); setPage(1); }}
+          placeholder={t("arcadeScreens.searchMachines")}
+          className="min-w-0 w-full sm:max-w-xs"
         />
-        {canManage ? <Button asChild><Link href={`/arcade/machines/new${locationId ? `?locationId=${locationId}` : ""}`}>{t("arcadeScreens.addMachine")}</Link></Button> : null}
-        <ArcadeWorkbookImport />
+        <div className="flex flex-wrap gap-2">
+          {canManage ? <Button asChild><Link href={`/arcade/machines/new${locationId ? `?locationId=${locationId}` : ""}`}>{t("arcadeScreens.addMachine")}</Link></Button> : null}
+          <ArcadeWorkbookImport />
+        </div>
+      </div>
+      <div role="group" aria-label={t("arcadeScreens.status")} className="flex max-w-full flex-wrap gap-1 rounded-xl bg-secondary p-1">
+        {statusFilters.map((item) => (
+          <button
+            key={item.value || "all"}
+            type="button"
+            aria-pressed={status === item.value}
+            className={cn(pillTrackItemClass(status === item.value), "h-9 cursor-pointer")}
+            onClick={() => chooseStatus(status === item.value ? "" : item.value)}
+          >
+            {item.label}
+          </button>
+        ))}
       </div>
       {list.isLoading ? <FecLoader label={t("arcadeOps.loading")} density="chip" /> : null}
       {!list.isLoading && rows.length === 0 ? <p className="text-sm text-muted-foreground">{t("arcadeScreens.noMachineRows")}</p> : null}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {rows.map((row) => (
-          <Link key={row.id} href={`/arcade/machines/${row.id}`} className="overflow-hidden rounded-2xl border bg-card shadow-[0_4px_20px_rgba(0,0,0,0.04)] transition hover:-translate-y-0.5">
-            <GamePhoto
-              src={row.photo_path ? photos.data?.urls[row.photo_path] : null}
-              alt={t("arcadeScreens.gamePhoto", { name: row.name })}
-              missingLabel={t("arcadeScreens.photoMissing")}
-              className="aspect-[16/10] w-full"
-            />
-            <div className="grid gap-2 p-3">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="font-medium leading-snug">{row.name}</p>
-                  <p className="font-mono text-xs text-muted-foreground">{row.asset_code}</p>
-                </div>
-                <StatusBadge status={row.status} />
-              </div>
-              {!locationId ? <p className="text-xs text-muted-foreground">{label(row.location_id)}</p> : null}
-              <p className="text-xs text-muted-foreground">
-                {t("arcadeImport.purchaseInvoice")}: {row.supplier_name || "—"} · {formatPaid(row.amount_paid, row.paid_currency)} · {row.paid_on || "—"}
-              </p>
-              <p className="line-clamp-2 text-xs text-muted-foreground">
-                {t("arcadeGames.listFix")}: {row.last_fix_status ? `${arcadeStatusName(t, row.last_fix_status)} · ${row.last_fix_summary ?? ""}` : "—"}
-              </p>
-            </div>
-          </Link>
-        ))}
-      </div>
+      {rows.length > 0 ? (
+        <div className="min-w-0 overflow-hidden rounded-2xl border bg-card">
+          <div className="hidden items-center justify-between gap-3 border-b px-4 py-2 text-xs font-medium text-muted-foreground sm:flex">
+            <span>{t("arcadeScreens.machine")}</span>
+            <span>{t("arcadeScreens.status")}</span>
+          </div>
+          <ul className="divide-y">
+            {rows.map((row) => {
+              const photoUrl = row.photo_path ? photos.data?.urls[row.photo_path] : null;
+              const follow = machineFollowUp(row);
+              const meta = [row.asset_code, row.zone, locationId ? null : label(row.location_id)].filter(Boolean).join(" · ");
+              const paid = displayMoney(row.amount_paid, row.paid_currency);
+              const invoiceParts = [row.supplier_name, paid, row.paid_on].filter((part) => part != null && String(part).trim() !== "");
+              const invoice = invoiceParts.length ? `${t("arcadeImport.purchaseInvoice")}: ${invoiceParts.join(" · ")}` : null;
+              const fixBits = [row.last_fix_status ? arcadeStatusName(t, row.last_fix_status) : null, row.last_fix_summary].filter((part) => part != null && String(part).trim() !== "");
+              const fix = fixBits.length ? `${t("arcadeGames.listFix")}: ${fixBits.join(" · ")}` : null;
+              return (
+                <li key={row.id} className="grid gap-2 px-4 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-3">
+                  <div className="flex min-w-0 items-start gap-3">
+                    {photoUrl ? (
+                      <GamePhoto
+                        src={photoUrl}
+                        alt={t("arcadeScreens.gamePhoto", { name: row.name })}
+                        missingLabel={t("arcadeScreens.photoMissing")}
+                        className="size-10 shrink-0 rounded-md"
+                      />
+                    ) : null}
+                    <div className="min-w-0">
+                      <Link
+                        href={`/arcade/machines/${row.id}`}
+                        className="break-words font-medium leading-snug underline decoration-transparent underline-offset-4 hover:decoration-current focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+                      >
+                        {row.name}
+                      </Link>
+                      <p className="truncate font-mono text-xs text-muted-foreground">{meta}</p>
+                      {invoice ? <p className="truncate text-xs text-muted-foreground">{invoice}</p> : null}
+                      {fix ? <p className="truncate text-xs text-muted-foreground">{fix}</p> : null}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                    <StatusBadge status={row.status} />
+                    {follow ? (
+                      <Button asChild variant="outline" size="sm">
+                        <Link href={follow.href} aria-label={`${t(follow.labelKey)} ${row.name}`}>{t(follow.labelKey)}</Link>
+                      </Button>
+                    ) : null}
+                    <Button asChild size="sm">
+                      <Link href={`/arcade/machines/${row.id}`} aria-label={`${t("arcadeGames.openGame")} ${row.name}`}>{t("arcadeGames.openGame")}</Link>
+                    </Button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ) : null}
       <Pager page={page} pageSize={GAME_PAGE_SIZE} total={list.data?.total ?? 0} onPage={setPage} />
     </div>
   );
-}
-
-function formatPaid(amount: number | string | null | undefined, currency: string | null | undefined) {
-  return displayMoney(amount, currency) ?? "—";
 }
 
 function displayMoney(amount: number | string | null | undefined, currency: string | null | undefined) {
@@ -368,7 +490,7 @@ export function ArcadeMachineForm({ machineId }: { machineId?: string }) {
             showTags={false}
             menuWidth={320}
             onChange={(value) => setForm({ ...form, locationId: value })}
-            options={(sites.data ?? []).map((site) => ({ value: site.id, label: site.name }))}
+            options={(sites.data ?? []).filter(isArcadeVenueLocation).map((site) => ({ value: site.id, label: site.name }))}
           />
         </Field>
         <Field label={t("arcadeScreens.zone")}><Input value={form.zone} onChange={(event) => setForm({ ...form, zone: event.target.value })} /></Field>

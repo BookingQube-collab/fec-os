@@ -3,6 +3,8 @@
  * outcomes; keep the constants aligned with supabase/migrations/20260929120000_arcade_technical.sql.
  */
 
+import { HEAD_OFFICE_LOCATION_CODE } from "@/lib/department-audience";
+
 export const REPEAT_WINDOW_DAYS = 90;
 export const CLOSURE_MIN_LENGTH = 8;
 export const PARTS_USED_MIN_LENGTH = 2;
@@ -558,6 +560,18 @@ export type ArcadeListGame = {
   locationId: string;
   status: string;
 };
+
+/**
+ * Arcade venue lists omit Head Office. The technical board already skips it
+ * because site health only includes locations that have games. The sites grid
+ * and arcade location pickers use this so the corporate site stays out while
+ * other venues, including ones with no machines yet, stay listed.
+ */
+export function isArcadeVenueLocation(location: { code?: string | null } | null | undefined): boolean {
+  const code = location?.code?.trim().toUpperCase() ?? "";
+  if (!code) return true;
+  return code !== HEAD_OFFICE_LOCATION_CODE;
+}
 
 /**
  * Display membership for the technical list.
