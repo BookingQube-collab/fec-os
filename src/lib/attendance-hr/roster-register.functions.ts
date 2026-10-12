@@ -245,25 +245,28 @@ async function fetchStaffRowsByIds(
 /**
  * Team-scoped roster names from `staff_profile_ext.reporting_manager_staff_id`.
  * A manager sees supervisors, each supervisor's team, and direct reports who are
- * not on a supervisor's team. A supervisor sees only the people who report to them.
- * A supervisor with nobody reporting to them is included so they can register
- * their own roster. Assignable statuses stay. Resigned, terminated, deleted, and jokers stay out.
+ * not on a supervisor's team. A supervisor sees their own name and the people
+ * who report to them. Assignable statuses stay. Resigned, terminated, deleted, and jokers stay out.
  */
 async function loadTeamRosterStaffIds(userId: string): Promise<string[]> {
-  const { staffId, members } = await loadManagerTeamMembers(userId);
+  const { staffId, viewerJobTitle, viewerStaffRole, members } = await loadManagerTeamMembers(userId);
   if (!staffId) return [];
-  const ids = members
-    .filter(
-      (member) =>
-        !member.deletedAt &&
-        isAssignableRosterStaffRow({
-          status: member.status,
-          employment_type: member.employmentType,
-        }),
-    )
-    .map((member) => member.staffId)
-    .sort();
-  if (ids.length > 0) return ids;
+  const ids = new Set(
+    members
+      .filter(
+        (member) =>
+          !member.deletedAt &&
+          isAssignableRosterStaffRow({
+            status: member.status,
+            employment_type: member.employmentType,
+          }),
+      )
+      .map((member) => member.staffId),
+  );
+  if (isManagerTeamSupervisor(viewerJobTitle, viewerStaffRole)) {
+    for (const id of await loadSupervisorSelfRosterStaffIds(staffId)) ids.add(id);
+  }
+  if (ids.size > 0) return [...ids].sort();
   return loadSupervisorSelfRosterStaffIds(staffId);
 }
 
@@ -841,7 +844,7 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
  * Staff the add-shift dialog can place on a day.
  * Company roster viewers get every assignable employee, paged past 1,000.
  * A team-scoped manager gets supervisors, their teams, and other direct reports.
- * A supervisor gets the people who report to them.
+ * A supervisor gets their own name and the people who report to them.
  */
 export const listRosterAssignStaff = createAuthenticatedActionNoInput(async (context) => {
   const roles = (context.roles ?? []) as AppRole[];

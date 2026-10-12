@@ -117,6 +117,8 @@ describe("roster copy location filter", () => {
       ["cafe-code", "cafe-code"],
       ["fnb", "fnb"],
       ["and", "and"],
+      ["mgr", "mgr"],
+      ["bar", "bar"],
       ["both", "both"],
     ]);
 
@@ -126,13 +128,13 @@ describe("roster copy location filter", () => {
       { id: "ada", location_id: "kds", staff_id: "ada", work_date: "2026-10-28" },
       { id: "bar", location_id: "fnb", staff_id: "bar", work_date: "2026-10-29" },
     ];
-    expect(filterRosterCopyRows(destination, null, { staffIds }).map((row) => row.id)).toEqual(["cafe-kds"]);
+    expect(filterRosterCopyRows(destination, null, { staffIds }).map((row) => row.id)).toEqual(["cafe-kds", "bar"]);
     expect(fbCafeRosterStaff([
       { staffId: "cafe", staffName: "Cafe Crew", departmentNames: ["F&B Cafe"] },
       { staffId: "mgr", staffName: "F&B Manager", departmentNames: ["F&B Manager"] },
       { staffId: "bar", staffName: "Barista", departmentNames: ["Barista"] },
       { staffId: "fnb", staffName: "FnB", department: "FnB Cafe" },
-    ]).map((person) => person.staffName)).toEqual(["Cafe Crew", "FnB"]);
+    ]).map((person) => person.staffName)).toEqual(["Barista", "Cafe Crew", "F&B Manager", "FnB"]);
   });
 
   it("lists everyone with flexible reporting, including a single site", () => {

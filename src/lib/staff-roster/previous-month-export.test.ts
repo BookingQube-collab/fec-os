@@ -98,6 +98,7 @@ const downloadRows: PreviousMonthRosterDownloadRow[] = [
   downloadRow({ staffName: "Senior Site Supervisor", locationId: "ua", departmentNames: ["Senior Site Supervisor"] }),
   downloadRow({ staffName: "Site Supervisor", locationId: "ua", departmentCodes: ["SITE_SUP"] }),
   downloadRow({ staffName: "Manager", locationId: "ua", departmentNames: ["F&B Manager"] }),
+  downloadRow({ staffName: "F&B Supervisor", locationId: "ua", departmentNames: ["F&B Supervisor"] }),
   downloadRow({ staffName: "Chef", locationId: "ua", departmentNames: ["Chef"] }),
   downloadRow({ staffName: "General Manager", locationId: "ua", departmentNames: ["General Manager"] }),
   downloadRow({ staffName: "Other site", locationId: "ho", departmentNames: ["Operations"] }),
@@ -123,8 +124,8 @@ describe("previous month roster location and department filter", () => {
     ]);
   });
 
-  it("keeps food and beverage only, using the roster F&B Cafe group", () => {
-    expect(namesFor("fb")).toEqual(["Cafe", "Fb", "Both sides"]);
+  it("keeps food and beverage, including F&B managers, supervisors, and their team", () => {
+    expect(namesFor("fb")).toEqual(["Cafe", "Fb", "Both sides", "Manager", "F&B Supervisor", "Chef"]);
   });
 
   it("keeps operations, maintenance, and F&B together, and drops other departments", () => {
@@ -138,6 +139,9 @@ describe("previous month roster location and department filter", () => {
       "Supervisor",
       "Senior Site Supervisor",
       "Site Supervisor",
+      "Manager",
+      "F&B Supervisor",
+      "Chef",
     ]);
     expect(filterPreviousMonthRosterDownloadRows(downloadRows, { locationId: "  ", department: "both" })).toEqual([]);
   });

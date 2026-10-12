@@ -1,21 +1,14 @@
 import { isHeadOfOperationsTitle } from "@/lib/attendance-hr/missed-punch-approval";
 
 /**
- * Site supervision titles a manager walks through.
- * Exact label after trim and case-fold, matching the roster department names:
- * Supervisor, Site Supervisor, Sr. Site Supervisor, Senior Site Supervisor,
- * and Venue Supervisor. F&B Supervisor, Production Supervisor, and cashier
- * titles are not a bridge.
+ * A supervisor bridge is any job title with the whole word "supervisor".
+ * That covers operations titles (Supervisor, Site Supervisor, Sr. Site Supervisor,
+ * Senior Site Supervisor, Venue Supervisor) and F&B titles used on staff
+ * (F&B Supervisor, Barista/Supervisor, Café Supervisor). The same word also
+ * covers maintenance and production supervisors, so the walk is not limited
+ * to Operations. Cashier, host, barista, and chef titles are not a bridge.
  */
-const SUPERVISOR_TITLE_KEYS = new Set([
-  "supervisor",
-  "site supervisor",
-  "sr. site supervisor",
-  "sr site supervisor",
-  "sr.site supervisor",
-  "senior site supervisor",
-  "venue supervisor",
-]);
+const SUPERVISOR_WORD = /(?:^|[^a-z])supervisor(?=$|[^a-z])/;
 
 export type ManagerTeamPerson = {
   staffId: string;
@@ -24,17 +17,15 @@ export type ManagerTeamPerson = {
   reportingManagerStaffId: string | null;
 };
 
-function supervisorTitleKey(jobTitle: string | null | undefined): string {
-  return (jobTitle ?? "").trim().toLowerCase().replace(/\s+/g, " ");
-}
-
-/** Sr. Site Supervisor, Site Supervisor, Supervisor, and the venue-supervisor role. */
+/** Operations and F&B supervisors, plus the venue-supervisor role. Cashier titles are not. */
 export function isManagerTeamSupervisor(
   jobTitle: string | null | undefined,
   staffRole?: string | null,
 ): boolean {
   if (staffRole === "venue_supervisor") return true;
-  return SUPERVISOR_TITLE_KEYS.has(supervisorTitleKey(jobTitle));
+  const title = (jobTitle ?? "").trim().toLowerCase();
+  if (!title) return false;
+  return SUPERVISOR_WORD.test(title);
 }
 
 /**
@@ -55,9 +46,10 @@ export function viewerRollsUpSupervisorTeam(
 
 /**
  * Direct reports, plus the people under a supervisor in this viewer's line.
- * The walk continues only through supervisor titles, one or more levels.
- * A cashier's own reports are not pulled in. People on another manager's
- * line are not included. The viewer is not included.
+ * The walk continues only through supervisor titles, one or more levels,
+ * in every department. A cashier's own reports are not pulled in. People on
+ * another manager's line are not included. A supervisor viewer is included
+ * with their team. A manager viewer is not included.
  */
 export function managerSupervisorTeamIds(input: {
   viewerStaffId: string;
@@ -93,6 +85,9 @@ export function managerSupervisorTeamIds(input: {
     }
     if (!rollup) break;
     frontier = next;
+  }
+  if (isManagerTeamSupervisor(input.viewerJobTitle, input.viewerStaffRole) && input.viewerStaffId) {
+    included.add(input.viewerStaffId);
   }
   return [...included].sort();
 }

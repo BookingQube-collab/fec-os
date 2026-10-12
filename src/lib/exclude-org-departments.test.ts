@@ -60,22 +60,28 @@ describe("org focus department names", () => {
     expect(orgFocusDepartmentOfName("Venue Supervisor")).toBe("operations");
     expect(orgFocusDepartmentOfName("SR_SITE_SUP")).toBe("operations");
     expect(orgFocusDepartmentOfName("SITE_SUP")).toBe("operations");
+    expect(orgFocusDepartmentOfName("F&B Manager")).toBe("fb_cafe");
+    expect(orgFocusDepartmentOfName("F&B Supervisor")).toBe("fb_cafe");
+    expect(orgFocusDepartmentOfName("F&B Cashier")).toBe("fb_cafe");
+    expect(orgFocusDepartmentOfName("F&B Operations")).toBe("fb_cafe");
+    expect(orgFocusDepartmentOfName("Barista")).toBe("fb_cafe");
+    expect(orgFocusDepartmentOfName("Chef")).toBe("fb_cafe");
+    expect(orgFocusDepartmentOfName("Head Chef")).toBe("fb_cafe");
+    expect(orgFocusDepartmentOfName("FB_MANAGER")).toBe("fb_cafe");
+    expect(orgFocusDepartmentOfName("FB_SUPERVISOR")).toBe("fb_cafe");
   });
 
   it("does not treat lookalikes as F&B Cafe, Operations, or Maintenance", () => {
     expect(orgFocusDepartmentOfName("Crew / Attendant")).toBeNull();
-    expect(orgFocusDepartmentOfName("Barista")).toBeNull();
-    expect(orgFocusDepartmentOfName("Chef")).toBeNull();
     expect(orgFocusDepartmentOfName("Food")).toBeNull();
     expect(orgFocusDepartmentOfName("FEC Operations")).toBeNull();
     expect(orgFocusDepartmentOfName("Site Operations")).toBeNull();
-    expect(orgFocusDepartmentOfName("F&B Operations")).toBeNull();
-    expect(orgFocusDepartmentOfName("F&B Manager")).toBeNull();
-    expect(orgFocusDepartmentOfName("F&B Supervisor")).toBeNull();
-    expect(orgFocusDepartmentOfName("F&B Cashier")).toBeNull();
     expect(orgFocusDepartmentOfName("Maintenance Assistant / Electrician")).toBeNull();
     expect(orgFocusDepartmentOfName("Cashier")).toBeNull();
     expect(orgFocusDepartmentOfName("General Manager")).toBeNull();
+    expect(orgFocusDepartmentOfName("Human Resources")).toBeNull();
+    expect(orgFocusDepartmentOfName("Finance")).toBeNull();
+    expect(orgFocusDepartmentOfName("Admin")).toBeNull();
     expect(orgFocusDepartmentOfName("Production Supervisor")).toBeNull();
     expect(orgFocusDepartmentOfName("AV Specialist / FEC Supervisor")).toBeNull();
   });
@@ -136,15 +142,19 @@ describe("show only when a department is unchecked", () => {
     expect(staffMatchesOrgShowOnly({ department_names: ["F&B Manager"] }, ["operations", "maintenance"])).toBe(false);
   });
 
-  it("does not treat F&B Manager as F&B Cafe", () => {
-    expect(shown(["fb_cafe"])).toEqual(["cafe", "fb", "fnb"]);
-    expect(staffMatchesOrgShowOnly({ department_names: ["F&B Manager"] }, ["fb_cafe"])).toBe(false);
+  it("keeps F&B managers, supervisors, and their team on the F&B roster", () => {
+    expect(shown(["fb_cafe"])).toEqual(["cafe", "fb", "fnb", "manager", "barista", "chef", "fb-sup"]);
+    expect(staffMatchesOrgShowOnly({ department_names: ["F&B Manager"] }, ["fb_cafe"])).toBe(true);
+    expect(staffMatchesOrgShowOnly({ department_names: ["F&B Supervisor"] }, ["fb_cafe"])).toBe(true);
     expect(staffMatchesOrgShowOnly({ department_names: ["Sr. Site Supervisor"] }, ["fb_cafe"])).toBe(false);
     expect(staffMatchesOrgShowOnly({ department_names: ["Supervisor"] }, ["fb_cafe"])).toBe(false);
-    expect(staffMatchesOrgShowOnly({ department: "Barista" }, ["fb_cafe"])).toBe(false);
-    expect(staffMatchesOrgShowOnly({ department: "Chef" }, ["fb_cafe"])).toBe(false);
-    expect(displayDepartmentShown("F&B Manager", ["fb_cafe"])).toBe(false);
+    expect(staffMatchesOrgShowOnly({ department: "Barista" }, ["fb_cafe"])).toBe(true);
+    expect(staffMatchesOrgShowOnly({ department: "Chef" }, ["fb_cafe"])).toBe(true);
+    expect(staffMatchesOrgShowOnly({ department: "Human Resources" }, ["fb_cafe"])).toBe(false);
+    expect(staffMatchesOrgShowOnly({ department: "Finance" }, ["fb_cafe"])).toBe(false);
+    expect(displayDepartmentShown("F&B Manager", ["fb_cafe"])).toBe(true);
     expect(displayDepartmentShown("F&B Cafe", ["fb_cafe"])).toBe(true);
+    expect(displayDepartmentShown("General Manager", ["fb_cafe"])).toBe(false);
   });
 
   it("clears the restriction when every box is checked again and yields to a chosen department", () => {
@@ -176,10 +186,12 @@ describe("show only when a department is unchecked", () => {
       "sr-site",
       "site-sup",
     ]);
-    expect(orgDepartmentIdsFor(departments, ["fb_cafe"])).toEqual(["cafe", "fb"]);
+    expect(orgDepartmentIdsFor(departments, ["fb_cafe"])).toEqual(["cafe", "fb", "manager"]);
 
     expect(recordMatchesOrgShowOnly({ department: "Maintenance" }, ["maintenance"])).toBe(true);
-    expect(recordMatchesOrgShowOnly({ department: "F&B Manager" }, ["fb_cafe"])).toBe(false);
+    expect(recordMatchesOrgShowOnly({ department: "F&B Manager" }, ["fb_cafe"])).toBe(true);
+    expect(recordMatchesOrgShowOnly({ department: "F&B Supervisor" }, ["fb_cafe"])).toBe(true);
+    expect(recordMatchesOrgShowOnly({ department: "Finance" }, ["fb_cafe"])).toBe(false);
     expect(recordMatchesOrgShowOnly({ scope: "Inflatapark" }, ["operations"])).toBe(false);
     expect(recordMatchesOrgShowOnly({ note: "stub" }, ["operations"])).toBe(false);
   });

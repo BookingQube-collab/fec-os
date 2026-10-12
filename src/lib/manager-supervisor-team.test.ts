@@ -75,16 +75,53 @@ const people: ManagerTeamPerson[] = [
     staffRole: "cashier",
     reportingManagerStaffId: "other-supervisor",
   }),
+  person({ staffId: "fb-manager", jobTitle: "F&B Manager", staffRole: "other" }),
+  person({
+    staffId: "fb-supervisor",
+    jobTitle: "Barista/Supervisor",
+    staffRole: "other",
+    reportingManagerStaffId: "fb-manager",
+  }),
+  person({
+    staffId: "fb-team",
+    jobTitle: "Barista",
+    staffRole: "other",
+    reportingManagerStaffId: "fb-supervisor",
+  }),
+  person({
+    staffId: "fb-direct",
+    jobTitle: "Chef",
+    staffRole: "other",
+    reportingManagerStaffId: "fb-manager",
+  }),
+  person({
+    staffId: "fb-cashier",
+    jobTitle: "Cashier",
+    staffRole: "cashier",
+    reportingManagerStaffId: "fb-supervisor",
+  }),
+  person({
+    staffId: "fb-cashier-helper",
+    jobTitle: "Attendant",
+    staffRole: "crew",
+    reportingManagerStaffId: "fb-cashier",
+  }),
 ];
 
 const nameById: Record<string, string> = {
   sr: "Sara Supervisor",
+  site: "Site Lead",
   floor: "Pat Supervisor",
   cashier: "Loose Ops",
   crew: "Team Crew",
   "floor-crew": "Plain Team",
   "other-crew": "Other Team",
   "other-supervisor": "Other Supervisor",
+  "fb-supervisor": "Amon Supervisor",
+  "fb-team": "Agnes Team",
+  "fb-direct": "Albert Direct",
+  "fb-cashier": "Cafe Cashier",
+  "fb-cashier-helper": "Cashier Helper",
 };
 
 function rosterNames(ids: readonly string[]) {
@@ -118,7 +155,7 @@ describe("manager supervisor team", () => {
         viewerStaffRole: "venue_supervisor",
         people,
       }),
-    ).toEqual(["crew"]);
+    ).toEqual(["crew", "site"]);
     const siteNames = rosterNames(
       managerSupervisorTeamIds({
         viewerStaffId: "site",
@@ -127,7 +164,7 @@ describe("manager supervisor team", () => {
         people,
       }),
     );
-    expect(siteNames).toContain("Team Crew");
+    expect(siteNames).toEqual(expect.arrayContaining(["Site Lead", "Team Crew"]));
     expect(siteNames).not.toContain("Loose Ops");
     expect(siteNames).not.toContain("Other Team");
     expect(siteNames).not.toContain("Plain Team");
@@ -138,7 +175,43 @@ describe("manager supervisor team", () => {
         viewerStaffRole: "venue_supervisor",
         people,
       }),
-    ).toEqual(["crew", "site"]);
+    ).toEqual(["crew", "site", "sr"]);
+  });
+
+  it("gives an F&B manager the supervisor, that supervisor's team, and a direct report", () => {
+    const scope = managerSupervisorTeamIds({
+      viewerStaffId: "fb-manager",
+      viewerJobTitle: "F&B Manager",
+      viewerStaffRole: "other",
+      people,
+    });
+
+    expect(scope).toEqual(["fb-cashier", "fb-direct", "fb-supervisor", "fb-team"]);
+    expect(rosterNames(scope)).toEqual(
+      expect.arrayContaining(["Amon Supervisor", "Agnes Team", "Albert Direct"]),
+    );
+    expect(scope).not.toContain("fb-manager");
+    expect(scope).not.toContain("fb-cashier-helper");
+    expect(scope).not.toContain("cashier");
+    expect(scope).not.toContain("other-crew");
+    expect(viewerRollsUpSupervisorTeam("F&B Manager", "other")).toBe(true);
+  });
+
+  it("includes a supervisor's own name and team, and not the manager's other staff", () => {
+    const scope = managerSupervisorTeamIds({
+      viewerStaffId: "fb-supervisor",
+      viewerJobTitle: "F&B Supervisor",
+      viewerStaffRole: "other",
+      people,
+    });
+
+    expect(scope).toEqual(["fb-cashier", "fb-supervisor", "fb-team"]);
+    expect(rosterNames(scope)).toEqual(expect.arrayContaining(["Amon Supervisor", "Agnes Team"]));
+    expect(rosterNames(scope)).not.toContain("Albert Direct");
+    expect(scope).not.toContain("fb-direct");
+    expect(scope).not.toContain("fb-cashier-helper");
+    expect(scope).not.toContain("cashier");
+    expect(scope).not.toContain("fb-manager");
   });
 
   it("does not give a cashier the supervisor rollup", () => {
@@ -152,8 +225,13 @@ describe("manager supervisor team", () => {
         people,
       }),
     ).toEqual(["cashier-helper"]);
-    expect(isManagerTeamSupervisor("F&B Supervisor", "other")).toBe(false);
-    expect(isManagerTeamSupervisor("Production Supervisor", "other")).toBe(false);
+    expect(isManagerTeamSupervisor("F&B Supervisor", "other")).toBe(true);
+    expect(isManagerTeamSupervisor("Barista/Supervisor", "other")).toBe(true);
+    expect(isManagerTeamSupervisor("Café Supervisor", "other")).toBe(true);
+    expect(isManagerTeamSupervisor("Production Supervisor", "other")).toBe(true);
+    expect(isManagerTeamSupervisor("F&B Manager", "other")).toBe(false);
+    expect(isManagerTeamSupervisor("Cashier", "cashier")).toBe(false);
+    expect(isManagerTeamSupervisor("Barista", "other")).toBe(false);
     expect(isManagerTeamSupervisor("Supervisor", "other")).toBe(true);
     expect(isManagerTeamSupervisor("Sr. Site Supervisor", null)).toBe(true);
     expect(isManagerTeamSupervisor("Senior Site Supervisor", null)).toBe(true);

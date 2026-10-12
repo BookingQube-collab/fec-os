@@ -191,6 +191,8 @@ async function loadStaffTeamRows(
  */
 export async function loadManagerTeamMembers(userId: string): Promise<{
   staffId: string | null;
+  viewerJobTitle: string | null;
+  viewerStaffRole: string | null;
   members: ManagerTeamMember[];
 }> {
   const { data: staff, error } = await supabaseAdmin
@@ -200,7 +202,7 @@ export async function loadManagerTeamMembers(userId: string): Promise<{
     .is("deleted_at", null)
     .maybeSingle();
   if (error) throw new Error(error.message);
-  if (!staff?.id) return { staffId: null, members: [] };
+  if (!staff?.id) return { staffId: null, viewerJobTitle: null, viewerStaffRole: null, members: [] };
 
   const viewerStaffId = String(staff.id);
   const viewerJobTitle = staff.job_title ?? null;
@@ -241,6 +243,8 @@ export async function loadManagerTeamMembers(userId: string): Promise<{
   );
   return {
     staffId: viewerStaffId,
+    viewerJobTitle,
+    viewerStaffRole,
     members: loaded.filter((member) => allowed.has(member.staffId)),
   };
 }

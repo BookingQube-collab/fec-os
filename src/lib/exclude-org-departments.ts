@@ -13,16 +13,18 @@ import { splitDepartmentTokens } from "@/lib/staff-departments";
  * Exact match after trim, case-fold, and whitespace collapse. "&" and "fnb"
  * are read as "f and b". A name matches only when the whole label is one of
  * the keys below — longer names are left alone (FEC Operations, Site Operations,
- * F&B Operations, F&B Manager, F&B Supervisor, F&B Cashier, Barista, Chef,
- * Maintenance Assistant / Electrician, Food, General Manager).
+ * Maintenance Assistant / Electrician, Food, General Manager, Cashier).
  *
  * Stored master departments this covers:
  * - Operations (OPS), plus the close label Operation
  * - Site supervision on the operations side: Supervisor, Site Supervisor,
  *   Sr. Site Supervisor, Senior Site Supervisor, and Venue Supervisor
- *   (SR_SITE_SUP, SITE_SUP). Not F&B Supervisor or other supervisor titles.
+ *   (SR_SITE_SUP, SITE_SUP).
  * - Maintenance (MAINT), plus the close label Maintenace
  * - F&B Cafe (FB_CAFE), plus F&B (FB), FnB Cafe, and F and B Cafe
+ * - F&B leadership and the F&B team stored under their own department labels:
+ *   F&B Manager, F&B Supervisor, F&B Cashier, F&B Operations, Barista, Chef,
+ *   and Head Chef. HR, finance, and admin labels stay out.
  */
 export const ORG_FOCUS_DEPARTMENTS = ["operations", "maintenance", "fb_cafe"] as const;
 
@@ -37,7 +39,7 @@ export const ALL_ORG_DEPARTMENTS_CHECKED: OrgDepartmentChecks = {
 };
 
 const OPERATIONS_KEYS = new Set(["operations", "operation"]);
-/** Site supervision titles already used on staff. Exact label only, so F&B Supervisor stays out. */
+/** Site supervision titles already used on staff. Exact label only. F&B Supervisor is F&B, not Operations. */
 const OPERATIONS_SUPERVISOR_KEYS = new Set([
   "supervisor",
   "site supervisor",
@@ -48,13 +50,29 @@ const OPERATIONS_SUPERVISOR_KEYS = new Set([
   "venue supervisor",
 ]);
 const MAINTENANCE_KEYS = new Set(["maintenance", "maintenace"]);
-const FB_CAFE_KEYS = new Set(["f and b", "f and b cafe"]);
+const FB_CAFE_KEYS = new Set([
+  "f and b",
+  "f and b cafe",
+  "f and b manager",
+  "f and b supervisor",
+  "f and b cashier",
+  "f and b operations",
+  "barista",
+  "chef",
+  "head chef",
+]);
 
 const CODE_TO_FOCUS: Record<string, OrgFocusDepartment> = {
   OPS: "operations",
   MAINT: "maintenance",
   FB: "fb_cafe",
   FB_CAFE: "fb_cafe",
+  FB_MANAGER: "fb_cafe",
+  FB_SUPERVISOR: "fb_cafe",
+  FB_CASHIER: "fb_cafe",
+  BARISTA: "fb_cafe",
+  CHEF: "fb_cafe",
+  HEAD_CHEF: "fb_cafe",
   SR_SITE_SUP: "operations",
   SITE_SUP: "operations",
 };
