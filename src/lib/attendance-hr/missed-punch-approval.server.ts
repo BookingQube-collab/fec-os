@@ -30,7 +30,11 @@ import {
 } from "@/lib/attendance-hr/missed-punch-approval";
 import { notifyUsers } from "@/lib/notifications/action-notify";
 import { canUserDo, type AppRole } from "@/lib/rbac";
-import { loadDirectReportStaffIds, loadReportingTreeStaffIds } from "@/lib/reporting-manager-access.server";
+import {
+  loadDirectReportStaffIds,
+  loadManagerTeamStaffIds,
+  loadReportingTreeStaffIds,
+} from "@/lib/reporting-manager-access.server";
 import { ForbiddenError } from "@/lib/server/authorize";
 
 type CorrectionRow = {
@@ -132,18 +136,21 @@ async function callerJobTitle(userId: string): Promise<string | null> {
 }
 
 async function callerCorrectionAccess(userId: string) {
-  const [roles, reports, reportingTree, jobTitle] = await Promise.all([
+  const [roles, reports, reportingTree, managerTeam, jobTitle] = await Promise.all([
     loadCallerRoles(userId),
     loadDirectReportStaffIds(userId),
     loadReportingTreeStaffIds(userId),
+    loadManagerTeamStaffIds(userId),
     callerJobTitle(userId),
   ]);
   return {
     roles,
     staffId: reports.staffId,
     directReportStaffIds: reports.directReportStaffIds,
-    /** Direct reports and everyone who reports through them. */
-    teamStaffIds: [...new Set([...reports.directReportStaffIds, ...reportingTree])],
+    /** Direct reports, the reporting tree, and each supervisor's team on this line. */
+    teamStaffIds: [
+      ...new Set([...reports.directReportStaffIds, ...reportingTree, ...managerTeam.teamStaffIds]),
+    ],
     canRequest: canRequestAttendanceCorrection({
       roles,
       hasDirectReports: reports.directReportStaffIds.length > 0,

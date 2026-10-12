@@ -4,7 +4,8 @@ import { z } from "zod";
 
 import { createAuthenticatedAction, createAuthenticatedActionNoInput, type AuthContext } from "@/lib/server/create-action";
 import { ForbiddenError } from "@/lib/server/authorize";
-import { loadDirectReportStaffIds } from "@/lib/reporting-manager-access.server";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { loadManagerTeamStaffIds } from "@/lib/reporting-manager-access.server";
 import { canUserDo } from "@/lib/rbac";
 import { dispatchHrNotify } from "@/lib/attendance-hr/hr-notify-dispatch";
 import { isHeadOfOperationsTitle } from "@/lib/attendance-hr/missed-punch-approval";
@@ -324,12 +325,13 @@ export const listLeaveRequests = createAuthenticatedAction(
     const teamIds =
       canReviewCompany || data.mineOnly
         ? []
-        : (await loadDirectReportStaffIds(context.userId)).directReportStaffIds;
+        : (await loadManagerTeamStaffIds(context.userId)).teamStaffIds;
     const scopedToTeam = !canReviewCompany && !data.mineOnly && teamIds.length > 0;
     const scopedToSelf = Boolean(data.mineOnly) || (!canReviewCompany && !scopedToTeam);
     if (scopedToSelf && !staff?.id) return [];
     if (scopedToTeam && data.staffId && !teamIds.includes(data.staffId)) return [];
-    let query = context.supabase
+    const leaveDb = scopedToTeam ? supabaseAdmin : context.supabase;
+    let query = leaveDb
       .from("hr_leave_requests")
       .select(
         "id, staff_id, leave_type, date_from, date_to, days, reason, status, review_note, current_step_role, payroll_impact, emergency_treatment, compassionate_scope, created_at, staff(full_name, employee_code)",
@@ -671,7 +673,13 @@ export const actOnLeaveApproval = createAuthenticatedAction(
     payrollImpact: z.boolean().optional(),
   }),
   async (data, context) => {
-    const { data: existing, error: readErr } = await context.supabase
+    const manage = canUserDo(context.roles ?? [], "hr.leave.manage");
+    const managerCap = canUserDo(context.roles ?? [], "hr.leave.approve_manager");
+    const mine = await myStaff(context);
+    const companyReview = manage || managerCap;
+    const teamAccess = companyReview ? null : await loadManagerTeamStaffIds(context.userId);
+    const leaveDb = teamAccess ? supabaseAdmin : context.supabase;
+    const { data: existing, error: readErr } = await leaveDb
       .from("hr_leave_requests")
       .select(
         "id, staff_id, leave_type, status, date_from, date_to, current_step_role, staff(full_name, user_id, location_id)",
@@ -681,8 +689,13 @@ export const actOnLeaveApproval = createAuthenticatedAction(
     if (readErr) throw readErr;
     if (!existing) throw new Error("Leave request not found.");
     if (existing.status !== "pending") throw new Error("Leave is not pending approval.");
+    const requestStaffId = String(existing.staff_id);
+    const inTeam = Boolean(teamAccess?.teamStaffIds.includes(requestStaffId));
+    if (teamAccess && !inTeam && mine?.id !== requestStaffId) {
+      throw new Error("Leave request not found.");
+    }
 
-    const { data: steps, error: stepErr } = await context.supabase
+    const { data: steps, error: stepErr } = await leaveDb
       .from("hr_leave_approvals")
       .select("id, step_order, step_role, status")
       .eq("leave_id", data.leaveId)
@@ -693,17 +706,14 @@ export const actOnLeaveApproval = createAuthenticatedAction(
     if (!pending) throw new Error("No pending approval step.");
 
     const stepRole = String(pending.step_role) as HrLeaveApprovalRole;
-    const manage = canUserDo(context.roles ?? [], "hr.leave.manage");
-    const managerCap = canUserDo(context.roles ?? [], "hr.leave.approve_manager");
-    const mine = await myStaff(context);
-    const { data: ext } = await context.supabase
+    const { data: ext } = await leaveDb
       .from("staff_profile_ext")
       .select("reporting_manager_staff_id")
       .eq("staff_id", existing.staff_id)
       .maybeSingle();
     const reportingManager = (ext as { reporting_manager_staff_id?: string | null } | null)
       ?.reporting_manager_staff_id;
-    const lineManager = Boolean(mine?.id && reportingManager === mine.id);
+    const lineManager = Boolean(mine?.id && (reportingManager === mine.id || inTeam));
 
     if (stepRole === "hr" && !manage) {
       throw new ForbiddenError("HR verification requires hr.leave.manage.");
@@ -725,7 +735,7 @@ export const actOnLeaveApproval = createAuthenticatedAction(
 
     if (data.action === "rejected") {
       assertLeaveTransition("pending", "rejected", stepRole === "hr" ? "hr" : stepRole);
-      await context.supabase
+      await leaveDb
         .from("hr_leave_approvals")
         .update({
           status: "rejected",
@@ -734,7 +744,7 @@ export const actOnLeaveApproval = createAuthenticatedAction(
           comments: data.comments ?? null,
         })
         .eq("id", pending.id);
-      await context.supabase
+      await leaveDb
         .from("hr_leave_requests")
         .update({
           status: "rejected",
@@ -765,7 +775,7 @@ export const actOnLeaveApproval = createAuthenticatedAction(
       return { ok: true as const, syncedDays: 0, final: true as const };
     }
 
-    await context.supabase
+    await leaveDb
       .from("hr_leave_approvals")
       .update({
         status: "approved",
@@ -798,7 +808,7 @@ export const actOnLeaveApproval = createAuthenticatedAction(
     }
 
     const nextRole = next ? String(next.step_role) : null;
-    await context.supabase
+    await leaveDb
       .from("hr_leave_requests")
       .update({
         current_step_role: nextRole,

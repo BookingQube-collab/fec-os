@@ -3,6 +3,12 @@ import "server-only";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { reportingTreeStaffIds } from "@/lib/attendance-listing-access";
 import { isRosterAssignableStaffStatus } from "@/lib/attendance-hr/roster-register-scope";
+import {
+  isManagerTeamSupervisor,
+  managerSupervisorTeamIds,
+  viewerRollsUpSupervisorTeam,
+  type ManagerTeamPerson,
+} from "@/lib/manager-supervisor-team";
 import { isPeopleDirectoryTeamRow } from "@/lib/people-directory-access";
 import {
   rosterTeamOrSelfStaffIds,
@@ -11,7 +17,13 @@ import {
 } from "@/lib/reporting-manager-locations";
 import type { AppRole } from "@/lib/rbac";
 import { ForbiddenError } from "@/lib/server/authorize";
-import { isJokerStaff, STAFF_NOT_JOKER_EMPLOYMENT_OR } from "@/lib/staff-status";
+import {
+  isContractFinishedStaffStatus,
+  isJokerStaff,
+  isResignedStaffStatus,
+  isTerminatedStaffStatus,
+  STAFF_NOT_JOKER_EMPLOYMENT_OR,
+} from "@/lib/staff-status";
 
 /** Same roster the operations chart keeps on Team overview. Resigned, terminated, and jokers are out. */
 const DIRECT_REPORT_STATUSES = ["active", "probation", "secondment", "remote", "serving_notice"] as const;
@@ -67,48 +79,22 @@ export async function loadDirectReportStaffIds(userId: string): Promise<DirectRe
 }
 
 /**
- * People directory for a job-title manager: direct reports only.
+ * People directory for a job-title manager.
+ * Direct reports, plus each supervisor's team on this manager's reporting line.
  * Includes active, on leave, and serving notice. Omits resigned, terminated, deleted, and jokers.
  */
 export async function loadPeopleDirectoryTeamStaffIds(userId: string): Promise<string[]> {
-  const { data: staff, error } = await supabaseAdmin
-    .from("staff")
-    .select("id")
-    .eq("user_id", userId)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  if (!staff?.id) return [];
-
-  const { data: reports, error: reportErr } = await supabaseAdmin
-    .from("staff_profile_ext")
-    .select("staff_id")
-    .eq("reporting_manager_staff_id", staff.id);
-  if (reportErr) throw new Error(reportErr.message);
-
-  const candidateIds = [
-    ...new Set((reports ?? []).map((row) => row.staff_id).filter((id) => id && id !== staff.id)),
-  ];
-  if (candidateIds.length === 0) return [];
-
+  const { members } = await loadManagerTeamMembers(userId);
   const visible = new Set<string>();
-  for (let index = 0; index < candidateIds.length; index += 100) {
-    const chunk = candidateIds.slice(index, index + 100);
-    const { data: rows, error: staffErr } = await supabaseAdmin
-      .from("staff")
-      .select("id, status, employment_type, deleted_at")
-      .in("id", chunk);
-    if (staffErr) throw new Error(staffErr.message);
-    for (const row of rows ?? []) {
-      if (
-        isPeopleDirectoryTeamRow({
-          status: row.status,
-          employmentType: row.employment_type,
-          deletedAt: row.deleted_at,
-        })
-      ) {
-        visible.add(row.id);
-      }
+  for (const member of members) {
+    if (
+      isPeopleDirectoryTeamRow({
+        status: member.status,
+        employmentType: member.employmentType,
+        deletedAt: member.deletedAt,
+      })
+    ) {
+      visible.add(member.staffId);
     }
   }
   return [...visible].sort();
@@ -148,6 +134,141 @@ async function reportingChildren(
     }
   }
   return edges;
+}
+
+type ManagerTeamMember = ManagerTeamPerson & {
+  status: string | null;
+  employmentType: string | null;
+  deletedAt: string | null;
+};
+
+/** An active supervisor stays a bridge. Resigned, terminated, deleted, and jokers do not. */
+function supervisorBridgesTeam(member: ManagerTeamMember): boolean {
+  if (member.deletedAt) return false;
+  if (isJokerStaff({ status: member.status, employmentType: member.employmentType })) return false;
+  if (
+    isResignedStaffStatus(member.status) ||
+    isTerminatedStaffStatus(member.status) ||
+    isContractFinishedStaffStatus(member.status)
+  ) {
+    return false;
+  }
+  return isManagerTeamSupervisor(member.jobTitle, member.staffRole);
+}
+
+async function loadStaffTeamRows(
+  staffIds: string[],
+  managerByChild: ReadonlyMap<string, string>,
+): Promise<ManagerTeamMember[]> {
+  const out: ManagerTeamMember[] = [];
+  for (let index = 0; index < staffIds.length; index += 100) {
+    const chunk = staffIds.slice(index, index + 100);
+    const { data, error } = await supabaseAdmin
+      .from("staff")
+      .select("id, job_title, staff_role, status, employment_type, deleted_at")
+      .in("id", chunk);
+    if (error) throw new Error(error.message);
+    for (const row of data ?? []) {
+      const staffId = String(row.id);
+      out.push({
+        staffId,
+        jobTitle: row.job_title ?? null,
+        staffRole: row.staff_role ?? null,
+        reportingManagerStaffId: managerByChild.get(staffId) ?? null,
+        status: row.status ?? null,
+        employmentType: row.employment_type ?? null,
+        deletedAt: row.deleted_at ?? null,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Direct reports, and — for a manager or supervisor — the people under each
+ * supervisor on that same reporting line. Cashiers stay on direct reports.
+ * Another manager's branch is not loaded.
+ */
+export async function loadManagerTeamMembers(userId: string): Promise<{
+  staffId: string | null;
+  members: ManagerTeamMember[];
+}> {
+  const { data: staff, error } = await supabaseAdmin
+    .from("staff")
+    .select("id, job_title, staff_role")
+    .eq("user_id", userId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!staff?.id) return { staffId: null, members: [] };
+
+  const viewerStaffId = String(staff.id);
+  const viewerJobTitle = staff.job_title ?? null;
+  const viewerStaffRole = staff.staff_role ?? null;
+  const rollup = viewerRollsUpSupervisorTeam(viewerJobTitle, viewerStaffRole);
+  const loaded: ManagerTeamMember[] = [];
+  const seen = new Set<string>([viewerStaffId]);
+  let frontier = [viewerStaffId];
+
+  for (let depth = 0; depth < 25 && frontier.length > 0; depth += 1) {
+    const edges = await reportingChildren(frontier);
+    const managerByChild = new Map<string, string>();
+    const childIds: string[] = [];
+    for (const edge of edges) {
+      if (!edge.staffId || edge.staffId === viewerStaffId || seen.has(edge.staffId)) continue;
+      seen.add(edge.staffId);
+      childIds.push(edge.staffId);
+      managerByChild.set(edge.staffId, edge.reportingManagerStaffId);
+    }
+    if (childIds.length === 0) break;
+    const rows = await loadStaffTeamRows(childIds, managerByChild);
+    const next: string[] = [];
+    for (const member of rows) {
+      loaded.push(member);
+      if (rollup && supervisorBridgesTeam(member)) next.push(member.staffId);
+    }
+    if (!rollup) break;
+    frontier = next;
+  }
+
+  const allowed = new Set(
+    managerSupervisorTeamIds({
+      viewerStaffId,
+      viewerJobTitle,
+      viewerStaffRole,
+      people: loaded,
+    }),
+  );
+  return {
+    staffId: viewerStaffId,
+    members: loaded.filter((member) => allowed.has(member.staffId)),
+  };
+}
+
+function isOperationsTeamMember(member: ManagerTeamMember): boolean {
+  if (member.deletedAt) return false;
+  if (isJokerStaff({ status: member.status, employmentType: member.employmentType })) return false;
+  const status = (member.status ?? "").trim().toLowerCase();
+  return (DIRECT_REPORT_STATUSES as readonly string[]).includes(status);
+}
+
+/**
+ * Same people a manager reviews on attendance, leave, and corrections.
+ * Status rules match direct reports. The extra people are the supervisor's team.
+ */
+export async function loadManagerTeamStaffIds(userId: string): Promise<{
+  staffId: string | null;
+  teamStaffIds: string[];
+}> {
+  const { staffId, members } = await loadManagerTeamMembers(userId);
+  if (!staffId) return { staffId: null, teamStaffIds: [] };
+  return {
+    staffId,
+    teamStaffIds: members
+      .filter(isOperationsTeamMember)
+      .map((member) => member.staffId)
+      .sort(),
+  };
 }
 
 export async function loadReportingTreeStaffIds(userId: string): Promise<string[]> {
@@ -280,9 +401,9 @@ export async function mergeReportingManagerSites<T extends { id: string; code: s
   sites: T[],
 ): Promise<T[]> {
   if (!usesTeamLocationScope(context.roles ?? [])) return sites;
-  const { directReportStaffIds } = await loadDirectReportStaffIds(context.userId);
-  if (directReportStaffIds.length === 0) return sites;
-  const extra = await loadTeamCoverageLocations(directReportStaffIds);
+  const { teamStaffIds } = await loadManagerTeamStaffIds(context.userId);
+  if (teamStaffIds.length === 0) return sites;
+  const extra = await loadTeamCoverageLocations(teamStaffIds);
   if (extra.length === 0) return sites;
   const byId = new Map<string, T>();
   for (const site of extra) byId.set(site.id, site as unknown as T);
@@ -324,11 +445,9 @@ export async function resolveShiftRosterUploadScope(context: {
   roles?: AppRole[];
 }): Promise<ShiftRosterUploadScope> {
   if (!usesTeamLocationScope(context.roles ?? [])) return { kind: "company" };
-  const { staffId, directReportStaffIds } = await loadDirectReportStaffIds(context.userId);
+  const { staffId, teamStaffIds } = await loadManagerTeamStaffIds(context.userId);
   const staffIds =
-    directReportStaffIds.length > 0
-      ? directReportStaffIds
-      : await loadSupervisorSelfRosterStaffIds(staffId);
+    teamStaffIds.length > 0 ? teamStaffIds : await loadSupervisorSelfRosterStaffIds(staffId);
   if (staffIds.length === 0) {
     throw new ForbiddenError("Forbidden: missing capability to upload a shift roster.");
   }

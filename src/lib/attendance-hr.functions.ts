@@ -19,7 +19,7 @@ import {
   resolveAttendanceListingStaffConstraint,
 } from "@/lib/attendance-listing-access";
 import {
-  loadDirectReportStaffIds,
+  loadManagerTeamStaffIds,
   loadReportingTreeStaffIds,
   loadTeamCoverageLocations,
 } from "@/lib/reporting-manager-access.server";
@@ -300,9 +300,7 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
   }),
   async (data, context) => {
     const fullAttendance = canUserDo(context.roles ?? [], "attendance.view");
-    const teamIds = fullAttendance
-      ? null
-      : (await loadDirectReportStaffIds(context.userId)).directReportStaffIds;
+    const teamIds = fullAttendance ? null : (await loadManagerTeamStaffIds(context.userId)).teamStaffIds;
     if (!fullAttendance && (!teamIds || teamIds.length === 0)) {
       throw new ForbiddenError("Attendance review is limited to people who report to you.");
     }

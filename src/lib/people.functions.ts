@@ -26,7 +26,7 @@ import { shiftUuid, staffUuid } from "@/lib/staff-import-ids";
 import { createAuthenticatedAction, createSafeAuthenticatedAction } from "@/lib/server/create-action";
 import type { AuthContext } from "@/lib/server/create-action";
 import { ForbiddenError } from "@/lib/server/authorize";
-import { loadDirectReportStaffIds } from "@/lib/reporting-manager-access.server";
+import { loadManagerTeamStaffIds } from "@/lib/reporting-manager-access.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { syncStaffIdentityProfile } from "@/lib/hr/sync-staff-identity";
 import { validateBase64Size, validateUploadMime } from "@/lib/server/upload-validation";
@@ -397,7 +397,7 @@ export const listStaff = createAuthenticatedAction(
   LocFilter,
   async (data, context) => {
     const fullRoster = canUserDo(context.roles ?? [], "people.view_roster");
-    const teamIds = fullRoster ? null : (await loadDirectReportStaffIds(context.userId)).directReportStaffIds;
+    const teamIds = fullRoster ? null : (await loadManagerTeamStaffIds(context.userId)).teamStaffIds;
     if (!fullRoster && (!teamIds || teamIds.length === 0)) {
       throw new ForbiddenError("The employee list is limited to people who report to you.");
     }
@@ -440,7 +440,7 @@ export const listShifts = createAuthenticatedAction(
   ShiftListFilter,
   async (data, context) => {
     const fullRoster = canUserDo(context.roles ?? [], "people.view_roster");
-    const teamIds = fullRoster ? null : (await loadDirectReportStaffIds(context.userId)).directReportStaffIds;
+    const teamIds = fullRoster ? null : (await loadManagerTeamStaffIds(context.userId)).teamStaffIds;
     if (!fullRoster && (!teamIds || teamIds.length === 0)) {
       throw new ForbiddenError("Shifts are limited to people who report to you.");
     }
