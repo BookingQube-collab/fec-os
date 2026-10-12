@@ -13,6 +13,7 @@ import {
   MyMissedPunchRequests,
 } from "@/components/attendance-hr/missed-punch-approval-queue";
 import { PunchCorrectionRequest } from "@/components/attendance-hr/punch-correction-request";
+import { MyDayCorrectionApprovals, MyDayLeaveApprovals } from "@/components/hr/my-day-approvals";
 import { EmployeeIssuesList, EmployeeRosterList } from "@/components/hr/employee-self-dashboard";
 import { SelfCheckCard } from "@/components/hr/self-check-card";
 import { HrShell } from "@/components/hr/hr-shell";
@@ -100,7 +101,9 @@ const TAB_HASH: Record<MeTab, string> = {
 function tabFromHash(hash: string): MeTab | null {
   const id = hash.replace(/^#/, "");
   if (!id) return "home";
-  if (id === "me-punch-approvals") return "attendance";
+  if (id === "me-punch-approvals" || id === "me-leave-approvals") {
+    return id === "me-leave-approvals" ? "leave" : "correction";
+  }
   const match = (Object.entries(TAB_HASH) as Array<[MeTab, string]>).find(([, value]) => value === `#${id}`);
   return match?.[0] ?? null;
 }
@@ -543,7 +546,7 @@ export default function EmployeeMePage() {
                     </button>
                   </div>
                   {!person?.canSelfCheckIn ? <p className="hd-note">{t("hr.me.biometricNote")}</p> : null}
-                  <div id="me-punch-approvals" className="hd-stack">
+                  <div className="hd-stack">
                     <MissedPunchApprovalQueue hideWhenEmpty actionableOnly title={t("hr.me.approvalsTitle")} />
                   </div>
                 </>
@@ -579,7 +582,15 @@ export default function EmployeeMePage() {
 
               {active === "correction" && person ? (
                 <EssPanel id="me-correction" title={t("hr.me.correction")} hint={t("hr.me.correctionHint")}>
-                  <PunchCorrectionRequest />
+                  <MyDayCorrectionApprovals jobTitle={person.jobTitle} />
+                  <PunchCorrectionRequest
+                    jobTitle={person.jobTitle}
+                    selfStaff={{
+                      staffId: person.id,
+                      fullName: person.fullName,
+                      employeeCode: person.employeeCode,
+                    }}
+                  />
                   <MyMissedPunchRequests />
                 </EssPanel>
               ) : null}
@@ -587,9 +598,7 @@ export default function EmployeeMePage() {
               {active === "attendance" ? (
                 <EssPanel id="me-attendance" title={t("hr.me.myAttendance")} hint={attendanceHint}>
                   {person?.canSelfCheckIn ? <SelfCheckCard /> : null}
-                  <div id="me-punch-approvals">
-                    <MissedPunchApprovalQueue hideWhenEmpty actionableOnly title={t("hr.me.approvalsTitle")} />
-                  </div>
+                  <MissedPunchApprovalQueue hideWhenEmpty actionableOnly title={t("hr.me.approvalsTitle")} />
                   {attendance.isError ? <EssEmpty>{t("hr.me.attendanceUnavailable")}</EssEmpty> : null}
                   {!attendance.isLoading && !attendance.isError && attendanceRows.length === 0 ? (
                     <EssEmpty>{t("hr.me.noStatus")}</EssEmpty>
@@ -640,6 +649,7 @@ export default function EmployeeMePage() {
 
               {active === "leave" && person ? (
                 <EssPanel id="me-leave" title={t("hr.leave.requestTitle")}>
+                  <MyDayLeaveApprovals myStaffId={person.id} jobTitle={person.jobTitle} />
                   {leaveBalances.length > 0 ? (
                     <div className="hd-chips">
                       {leaveBalances.slice(0, 4).map((b) => (

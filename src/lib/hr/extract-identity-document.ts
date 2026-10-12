@@ -3,6 +3,8 @@ import "server-only";
 import { analyzeImage } from "@/lib/ai/gateway";
 import {
   emptyIdentityParse,
+  hasIdentitySignal,
+  identityReadFromTranscription,
   parseIdentityDocument,
   type IdentityDocType,
   type ParsedIdentityDocument,
@@ -33,17 +35,6 @@ export type IdentityExtractResult = {
   /** True when nothing readable was found. The file can still be stored. */
   manual: boolean;
 };
-
-function hasSignal(parsed: ParsedIdentityDocument): boolean {
-  return Boolean(
-    parsed.name ||
-      parsed.documentNumber ||
-      parsed.expiryDate ||
-      parsed.passportNumber ||
-      parsed.passportExpiry ||
-      parsed.nationality,
-  );
-}
 
 async function pdfPlainText(bytes: Buffer): Promise<string> {
   const { PDFParse } = await import("pdf-parse");
@@ -104,7 +95,7 @@ export async function extractIdentityDocumentFromBytes(input: {
   }
 
   const fromPdf = pdfText.trim().length >= 20 ? parseIdentityDocument(pdfText, input.docType) : emptyIdentityParse();
-  if (hasSignal(fromPdf)) {
+  if (hasIdentitySignal(fromPdf)) {
     return { parsed: fromPdf, source: "pdf_text", manual: false };
   }
 
@@ -113,8 +104,8 @@ export async function extractIdentityDocumentFromBytes(input: {
   if (canVision) {
     const transcribed = await visionText(input.bytes, visionMime, input.docType);
     if (transcribed) {
-      const parsed = parseIdentityDocument(transcribed, input.docType);
-      return { parsed, source: "vision", manual: !hasSignal(parsed) };
+      const read = identityReadFromTranscription(transcribed, input.docType);
+      return { parsed: read.parsed, source: "vision", manual: read.manual };
     }
   }
 

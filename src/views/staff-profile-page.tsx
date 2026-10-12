@@ -44,8 +44,13 @@ import { StaffAvatar, StaffPhotoField, type StaffPhotoDraft } from "@/components
 import { getStaffFaceEnrollment, saveStaffFaceEnrollment } from "@/lib/attendance-hr-field.functions";
 import { listEmployeeTimeline } from "@/lib/hr-leave.functions";
 import { transferStaffMember, updateStaffSalary, updateStaffWorkLocations } from "@/lib/staff-roster.functions";
-import { previewStaffLogin, provisionStaffLogin } from "@/lib/admin.functions";
-import { isStaffLoginPassword, parseStaffLoginEmail, resolveStaffLoginEmail } from "@/lib/staff-login";
+import { previewStaffLogin, provisionStaffLogin, updateStaffLogin } from "@/lib/admin.functions";
+import {
+  generateStaffLoginPassword,
+  isStaffLoginPassword,
+  parseStaffLoginEmail,
+  resolveStaffLoginEmail,
+} from "@/lib/staff-login";
 import { StaffPayrollPanel } from "@/components/people/staff-payroll-panel";
 import { StaffTrainingPanel } from "@/components/people/staff-training-panel";
 import { Employee360Panel } from "@/components/people/employee-360-panel";
@@ -166,7 +171,6 @@ type ProfileResponse = {
   login?: {
     linked: boolean;
     email: string | null;
-    defaultPassword: string | null;
   };
 };
 
@@ -226,9 +230,12 @@ function StaffProfilePageBody() {
   const [weeklyOffWeekday, setWeeklyOffWeekday] = useState("");
   const [photoDraft, setPhotoDraft] = useState<StaffPhotoDraft>({ dataUrl: null, remove: false });
   const [timelineFilter, setTimelineFilter] = useState<string>("all");
-  const [issuedLogin, setIssuedLogin] = useState<{ email: string; password: string } | null>(null);
+  const [issuedLogin, setIssuedLogin] = useState<{ email: string; password: string; kind: "created" | "reset" } | null>(
+    null,
+  );
   const [loginEmailDraft, setLoginEmailDraft] = useState<string | null>(null);
   const [loginPasswordDraft, setLoginPasswordDraft] = useState<string | null>(null);
+  const [generatedCreatePassword, setGeneratedCreatePassword] = useState(() => generateStaffLoginPassword());
   const [loginFieldError, setLoginFieldError] = useState("");
   const [loginDraftStaffId, setLoginDraftStaffId] = useState(id);
   if (loginDraftStaffId !== id) {
@@ -237,6 +244,7 @@ function StaffProfilePageBody() {
     setLoginPasswordDraft(null);
     setLoginFieldError("");
     setIssuedLogin(null);
+    setGeneratedCreatePassword(generateStaffLoginPassword());
   }
   const [notesDraft, setNotesDraft] = useState<string | null>(null);
 
@@ -452,15 +460,44 @@ function StaffProfilePageBody() {
       return result.data;
     },
     onSuccess: (result, input) => {
-      if (result.passwordSet && result.email) {
-        setIssuedLogin({ email: result.email, password: input.password });
+      const shownPassword = input.password || result.password || "";
+      if (result.passwordSet && result.email && shownPassword) {
+        setIssuedLogin({ email: result.email, password: shownPassword, kind: "created" });
         toast.success(t("people.profile.login.created"));
       } else if (result.linkedExisting) {
         toast.success(t("people.profile.login.linkedExisting"));
       } else {
         toast.success(t("people.profile.login.exists"));
       }
+      setLoginPasswordDraft(null);
+      setGeneratedCreatePassword(generateStaffLoginPassword());
       void qc.invalidateQueries({ queryKey: queryKeys.people.staffProfile(id) });
+      void qc.invalidateQueries({ queryKey: queryKeys.people.staffLoginPreview(id) });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const updateLogin = useMutation({
+    mutationFn: async (input: { email: string; password?: string }) => {
+      const result = await updateStaffLogin({
+        staffId: id,
+        email: input.email,
+        ...(input.password ? { password: input.password } : {}),
+      });
+      if (!result.ok) throw new Error(result.error);
+      return result.data;
+    },
+    onSuccess: (result, input) => {
+      if (input.password) {
+        setIssuedLogin({ email: result.email, password: input.password, kind: "reset" });
+        setLoginPasswordDraft("");
+      } else {
+        setIssuedLogin((current) => (current ? { ...current, email: result.email } : current));
+      }
+      setLoginEmailDraft(result.email);
+      toast.success(t("people.profile.login.saved"));
+      void qc.invalidateQueries({ queryKey: queryKeys.people.staffProfile(id) });
+      void qc.invalidateQueries({ queryKey: queryKeys.people.staffLoginPreview(id) });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -544,7 +581,6 @@ function StaffProfilePageBody() {
   const probationSpan = [ext?.probation_start, ext?.probation_end].filter(Boolean).join(" → ");
   const loginLinked = Boolean(profile.data?.login?.linked) || Boolean(issuedLogin);
   const loginEmail = issuedLogin?.email ?? profile.data?.login?.email ?? null;
-  const defaultPassword = canProvisionLogin ? profile.data?.login?.defaultPassword ?? issuedLogin?.password ?? null : null;
   let suggestedEmail = "";
   try {
     suggestedEmail = resolveStaffLoginEmail(s.email, s.employee_code, { fullName: s.full_name });
@@ -554,8 +590,9 @@ function StaffProfilePageBody() {
   if (loginPreview.data && !loginPreview.data.alreadyLinked && loginPreview.data.email) {
     suggestedEmail = loginPreview.data.email;
   }
-  const loginEmailValue = loginEmailDraft ?? suggestedEmail;
-  const loginPasswordValue = loginPasswordDraft ?? defaultPassword ?? "";
+  const loginEmailValue = loginEmailDraft ?? (loginLinked ? (loginEmail ?? "") : suggestedEmail);
+  const loginPasswordValue = loginLinked ? (loginPasswordDraft ?? "") : (loginPasswordDraft ?? generatedCreatePassword);
+  const loginSaving = createLogin.isPending || updateLogin.isPending;
 
   return (
     <div className="min-w-0 space-y-4">
@@ -590,7 +627,7 @@ function StaffProfilePageBody() {
             <Badge variant={loginLinked ? "success" : "muted"}>
               {loginLinked ? t("people.profile.login.exists") : t("people.profile.login.missing")}
             </Badge>
-            {loginLinked ? (
+            {loginLinked && !canProvisionLogin ? (
               <p className="text-sm">
                 <span className="text-muted-foreground">{t("people.profile.login.email")}: </span>
                 <span className="font-medium">{loginEmail ?? t("people.profile.login.emailUnavailable")}</span>
@@ -598,7 +635,9 @@ function StaffProfilePageBody() {
             ) : null}
             {issuedLogin ? (
               <div className="space-y-1 rounded-xl border border-border bg-secondary/60 px-3 py-2">
-                <p className="text-sm font-medium">{t("people.profile.login.created")}</p>
+                <p className="text-sm font-medium">
+                  {issuedLogin.kind === "reset" ? t("people.profile.login.saved") : t("people.profile.login.created")}
+                </p>
                 <p className="text-sm">
                   {t("people.profile.login.email")}: <span className="font-medium">{issuedLogin.email}</span>
                 </p>
@@ -609,10 +648,8 @@ function StaffProfilePageBody() {
                 <p className="text-xs text-muted-foreground">{t("people.profile.login.shareHint")}</p>
               </div>
             ) : null}
-            {defaultPassword && loginLinked && !issuedLogin ? (
-              <p className="text-sm text-muted-foreground">
-                {t("people.profile.login.defaultPassword", { password: defaultPassword })}
-              </p>
+            {canProvisionLogin && !issuedLogin ? (
+              <p className="text-sm text-muted-foreground">{t("people.profile.login.defaultPassword")}</p>
             ) : null}
             {loginPreview.data?.team ? (
               <p className="text-sm text-muted-foreground">
@@ -656,7 +693,7 @@ function StaffProfilePageBody() {
                 autoComplete="off"
                 spellCheck={false}
                 value={loginEmailValue}
-                disabled={createLogin.isPending}
+                disabled={loginSaving}
                 onChange={(event) => {
                   setLoginEmailDraft(event.target.value);
                   if (loginFieldError) setLoginFieldError("");
@@ -671,7 +708,7 @@ function StaffProfilePageBody() {
                 autoComplete="off"
                 spellCheck={false}
                 value={loginPasswordValue}
-                disabled={createLogin.isPending}
+                disabled={loginSaving}
                 maxLength={128}
                 aria-invalid={loginFieldError ? true : undefined}
                 onChange={(event) => {
@@ -680,17 +717,106 @@ function StaffProfilePageBody() {
                 }}
               />
             </div>
-            <Button
-              type="submit"
-              size="sm"
-              disabled={createLogin.isPending || (loginEmailDraft == null && loginPreview.isPending)}
-            >
-              {createLogin.isPending ? t("people.profile.login.creating") : t("people.profile.login.create")}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={loginSaving}
+                onClick={() => {
+                  setLoginPasswordDraft(generateStaffLoginPassword());
+                  if (loginFieldError) setLoginFieldError("");
+                }}
+              >
+                {t("people.profile.login.generate")}
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={loginSaving || (loginEmailDraft == null && loginPreview.isPending)}
+              >
+                {createLogin.isPending ? t("people.profile.login.creating") : t("people.profile.login.create")}
+              </Button>
+            </div>
             <p className="text-xs text-muted-foreground sm:col-span-3">{t("people.profile.login.editHint")}</p>
             {loginFieldError ? <p className="text-sm text-destructive sm:col-span-3">{loginFieldError}</p> : null}
             {createLogin.isError ? (
               <p className="text-sm text-destructive sm:col-span-3">{createLogin.error.message}</p>
+            ) : null}
+          </form>
+        ) : null}
+        {loginLinked && canProvisionLogin ? (
+          <form
+            className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const email = parseStaffLoginEmail(loginEmailValue);
+              if (!email) {
+                setLoginFieldError(t("people.profile.login.emailInvalid"));
+                return;
+              }
+              const password = loginPasswordValue.trim();
+              if (password && !isStaffLoginPassword(password)) {
+                setLoginFieldError(t("people.profile.login.passwordInvalid"));
+                return;
+              }
+              setLoginFieldError("");
+              updateLogin.mutate({ email, ...(password ? { password } : {}) });
+            }}
+          >
+            <div className="min-w-0 space-y-1.5">
+              <Label htmlFor="staff-login-email">{t("people.profile.login.email")}</Label>
+              <Input
+                id="staff-login-email"
+                type="email"
+                autoComplete="off"
+                spellCheck={false}
+                value={loginEmailValue}
+                disabled={loginSaving}
+                onChange={(event) => {
+                  setLoginEmailDraft(event.target.value);
+                  if (loginFieldError) setLoginFieldError("");
+                }}
+              />
+            </div>
+            <div className="min-w-0 space-y-1.5">
+              <Label htmlFor="staff-login-password">{t("people.profile.login.newPassword")}</Label>
+              <Input
+                id="staff-login-password"
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
+                value={loginPasswordValue}
+                disabled={loginSaving}
+                maxLength={128}
+                aria-invalid={loginFieldError ? true : undefined}
+                onChange={(event) => {
+                  setLoginPasswordDraft(event.target.value);
+                  if (loginFieldError) setLoginFieldError("");
+                }}
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={loginSaving}
+                onClick={() => {
+                  setLoginPasswordDraft(generateStaffLoginPassword());
+                  if (loginFieldError) setLoginFieldError("");
+                }}
+              >
+                {t("people.profile.login.generate")}
+              </Button>
+              <Button type="submit" size="sm" disabled={loginSaving}>
+                {updateLogin.isPending ? t("people.profile.login.saving") : t("people.profile.login.save")}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground sm:col-span-3">{t("people.profile.login.passwordKeep")}</p>
+            {loginFieldError ? <p className="text-sm text-destructive sm:col-span-3">{loginFieldError}</p> : null}
+            {updateLogin.isError ? (
+              <p className="text-sm text-destructive sm:col-span-3">{updateLogin.error.message}</p>
             ) : null}
           </form>
         ) : null}

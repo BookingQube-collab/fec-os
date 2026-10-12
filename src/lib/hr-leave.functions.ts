@@ -7,6 +7,7 @@ import { ForbiddenError } from "@/lib/server/authorize";
 import { loadDirectReportStaffIds } from "@/lib/reporting-manager-access.server";
 import { canUserDo } from "@/lib/rbac";
 import { dispatchHrNotify } from "@/lib/attendance-hr/hr-notify-dispatch";
+import { isHeadOfOperationsTitle } from "@/lib/attendance-hr/missed-punch-approval";
 import {
   assertLeaveTransition,
   countLeaveDays,
@@ -302,16 +303,30 @@ export const listLeaveRequests = createAuthenticatedAction(
     status: z.enum(HR_LEAVE_STATUSES).nullable().optional(),
     mineOnly: z.boolean().optional(),
     staffId: z.string().uuid().nullable().optional(),
+    /** My Day: pending leave this login may approve. Own history stays on mineOnly. */
+    approvals: z.boolean().optional(),
   }),
   async (data, context) => {
     const manage =
       canUserDo(context.roles ?? [], "hr.leave.manage") ||
       canUserDo(context.roles ?? [], "hr.leave.approve_manager");
     const staff = await myStaff(context);
+    let headOfOperations = false;
+    if (data.approvals && !manage && staff?.id) {
+      const { data: titled } = await context.supabase
+        .from("staff")
+        .select("job_title")
+        .eq("id", staff.id)
+        .maybeSingle();
+      headOfOperations = isHeadOfOperationsTitle((titled as { job_title?: string | null } | null)?.job_title);
+    }
+    const canReviewCompany = manage || headOfOperations;
     const teamIds =
-      manage || data.mineOnly ? [] : (await loadDirectReportStaffIds(context.userId)).directReportStaffIds;
-    const scopedToTeam = !manage && !data.mineOnly && teamIds.length > 0;
-    const scopedToSelf = Boolean(data.mineOnly) || (!manage && !scopedToTeam);
+      canReviewCompany || data.mineOnly
+        ? []
+        : (await loadDirectReportStaffIds(context.userId)).directReportStaffIds;
+    const scopedToTeam = !canReviewCompany && !data.mineOnly && teamIds.length > 0;
+    const scopedToSelf = Boolean(data.mineOnly) || (!canReviewCompany && !scopedToTeam);
     if (scopedToSelf && !staff?.id) return [];
     if (scopedToTeam && data.staffId && !teamIds.includes(data.staffId)) return [];
     let query = context.supabase
@@ -324,7 +339,8 @@ export const listLeaveRequests = createAuthenticatedAction(
     if (scopedToTeam) query = query.in("staff_id", data.staffId ? [data.staffId] : teamIds);
     else if (scopedToSelf && staff?.id) query = query.eq("staff_id", staff.id);
     else if (!scopedToSelf && data.staffId) query = query.eq("staff_id", data.staffId);
-    if (data.status) query = query.eq("status", data.status);
+    if (data.approvals) query = query.eq("status", "pending");
+    else if (data.status) query = query.eq("status", data.status);
     const { data: rows, error } = await query;
     if (error) {
       if (tableMissing(error.message)) return [];
@@ -696,7 +712,15 @@ export const actOnLeaveApproval = createAuthenticatedAction(
       throw new ForbiddenError("Manager approval required.");
     }
     if (stepRole === "ops" && !manage && !managerCap) {
-      throw new ForbiddenError("Ops/department approval required.");
+      const { data: titled } = await context.supabase
+        .from("staff")
+        .select("job_title")
+        .eq("user_id", context.userId)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (!isHeadOfOperationsTitle((titled as { job_title?: string | null } | null)?.job_title)) {
+        throw new ForbiddenError("Ops/department approval required.");
+      }
     }
 
     if (data.action === "rejected") {

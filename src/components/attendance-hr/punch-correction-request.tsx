@@ -27,11 +27,17 @@ function clockText(iso: string | null): string {
   return formatPunchTime12h(iso) || "—";
 }
 
-export function PunchCorrectionRequest() {
+export function PunchCorrectionRequest({
+  jobTitle = null,
+  selfStaff = null,
+}: {
+  jobTitle?: string | null;
+  selfStaff?: { staffId: string; fullName: string; employeeCode: string | null } | null;
+}) {
   const { t } = useTranslation();
   const roles = useUserRoles();
   const { hasDirectReports, isPending: reportsPending } = useHasDirectReports();
-  const canRequest = canRequestAttendanceCorrection({ roles, hasDirectReports });
+  const canRequest = canRequestAttendanceCorrection({ roles, hasDirectReports, jobTitle });
   const qc = useQueryClient();
   const [staffId, setStaffId] = useState("");
   const [workDate, setWorkDate] = useState("");
@@ -45,7 +51,8 @@ export function PunchCorrectionRequest() {
     enabled: canRequest && !reportsPending,
     staleTime: STALE.people,
   });
-  const people = subjects.data ?? [];
+  const selfOption = selfStaff ? [{ ...selfStaff, self: true }] : [];
+  const people = subjects.data?.length ? subjects.data : selfOption;
   const selectedStaffId = staffId || people.find((person) => person.self)?.staffId || people[0]?.staffId || "";
   const selectedPerson = people.find((person) => person.staffId === selectedStaffId);
   const forTeam = Boolean(selectedPerson && !selectedPerson.self);
@@ -121,7 +128,9 @@ export function PunchCorrectionRequest() {
           <Label className="text-xs">Person</Label>
           <Select value={selectedStaffId || undefined} onValueChange={setStaffId} disabled={!people.length}>
             <SelectTrigger className="mt-1">
-              <SelectValue placeholder={subjects.isPending ? "Loading people" : "Choose a person"} />
+              <SelectValue
+                placeholder={subjects.isPending && people.length === 0 ? "Loading people" : "Choose a person"}
+              />
             </SelectTrigger>
             <SelectContent>
               {people.map((person) => (
@@ -132,6 +141,14 @@ export function PunchCorrectionRequest() {
               ))}
             </SelectContent>
           </Select>
+          {subjects.isError ? (
+            <p className="mt-1 text-xs text-destructive">
+              {subjects.error.message}
+              <button type="button" className="ms-2 underline" onClick={() => void subjects.refetch()}>
+                Retry
+              </button>
+            </p>
+          ) : null}
         </div>
         <div>
           <Label className="text-xs" htmlFor="correction-date">

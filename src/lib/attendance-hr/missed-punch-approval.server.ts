@@ -120,21 +120,34 @@ async function staffIdByUserId(userIds: string[]): Promise<Map<string, string>> 
   return map;
 }
 
+async function callerJobTitle(userId: string): Promise<string | null> {
+  const { data, error } = await supabaseAdmin
+    .from("staff")
+    .select("job_title")
+    .eq("user_id", userId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) throw error;
+  return (data?.job_title as string | null) ?? null;
+}
+
 async function callerCorrectionAccess(userId: string) {
-  const [roles, reports, reportingTreeStaffIds] = await Promise.all([
+  const [roles, reports, reportingTree, jobTitle] = await Promise.all([
     loadCallerRoles(userId),
     loadDirectReportStaffIds(userId),
     loadReportingTreeStaffIds(userId),
+    callerJobTitle(userId),
   ]);
   return {
     roles,
     staffId: reports.staffId,
     directReportStaffIds: reports.directReportStaffIds,
     /** Direct reports and everyone who reports through them. */
-    teamStaffIds: [...new Set([...reports.directReportStaffIds, ...reportingTreeStaffIds])],
+    teamStaffIds: [...new Set([...reports.directReportStaffIds, ...reportingTree])],
     canRequest: canRequestAttendanceCorrection({
       roles,
       hasDirectReports: reports.directReportStaffIds.length > 0,
+      jobTitle,
     }),
   };
 }
@@ -1206,13 +1219,18 @@ export async function listPunchCorrectionSubjects(userId: string): Promise<Punch
   const access = await callerCorrectionAccess(userId);
   if (!access.canRequest || !access.staffId) return [];
   const ids = [access.staffId, ...access.teamStaffIds];
-  const { data, error } = await supabaseAdmin
-    .from("staff")
-    .select("id, full_name, employee_code")
-    .in("id", ids)
-    .is("deleted_at", null);
-  if (error) throw error;
-  return (data ?? [])
+  const data: Array<{ id: string; full_name: string | null; employee_code: string | null }> = [];
+  for (let index = 0; index < ids.length; index += 100) {
+    const chunk = ids.slice(index, index + 100);
+    const { data: rows, error } = await supabaseAdmin
+      .from("staff")
+      .select("id, full_name, employee_code")
+      .in("id", chunk)
+      .is("deleted_at", null);
+    if (error) throw error;
+    data.push(...(rows ?? []));
+  }
+  return data
     .map((row) => ({
       staffId: String(row.id),
       fullName: String(row.full_name ?? "Staff"),

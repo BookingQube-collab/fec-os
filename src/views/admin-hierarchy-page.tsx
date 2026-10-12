@@ -26,7 +26,7 @@ import {
   type OrgChartView,
 } from "@/lib/admin-hierarchy.functions";
 import { provisionStaffLogin } from "@/lib/admin.functions";
-import { isStaffLoginPassword, STAFF_LOGIN_DEFAULT_PASSWORD } from "@/lib/staff-login";
+import { generateStaffLoginPassword, isStaffLoginPassword } from "@/lib/staff-login";
 import { hierarchyAccessMode, staffProfileOpenIds, type HierarchyAccessMode } from "@/lib/hierarchy-access";
 import {
   groupOrgChart,
@@ -97,7 +97,7 @@ function HierarchyEditor({ accessMode }: { accessMode: Exclude<HierarchyAccessMo
   const [view, setView] = useState<"chart" | "logins">("logins");
   const [issued, setIssued] = useState<Record<string, IssuedStaffLogin>>({});
   const [loginTarget, setLoginTarget] = useState<{ staffId: string; name: string } | null>(null);
-  const [loginPassword, setLoginPassword] = useState(STAFF_LOGIN_DEFAULT_PASSWORD);
+  const [loginPassword, setLoginPassword] = useState("");
   const [loginPasswordError, setLoginPasswordError] = useState("");
   const query = useQuery({
     queryKey: queryKeys.admin.hierarchy(),
@@ -199,7 +199,7 @@ function HierarchyEditor({ accessMode }: { accessMode: Exclude<HierarchyAccessMo
         ...current,
         [input.staffId]: {
           email: result.email ?? "",
-          password: result.passwordSet ? input.password : null,
+          password: result.passwordSet ? input.password || result.password || null : null,
           linkedExisting: result.linkedExisting,
         },
       }));
@@ -226,7 +226,7 @@ function HierarchyEditor({ accessMode }: { accessMode: Exclude<HierarchyAccessMo
     if (createLogin.isPending) return;
     const person = query.data?.people.find((row) => row.staffId === staffId);
     createLogin.reset();
-    setLoginPassword(STAFF_LOGIN_DEFAULT_PASSWORD);
+    setLoginPassword(generateStaffLoginPassword());
     setLoginPasswordError("");
     setLoginTarget({ staffId, name: person?.fullName ?? "" });
   };

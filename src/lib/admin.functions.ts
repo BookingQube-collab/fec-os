@@ -19,11 +19,11 @@ import { loadDirectReportStaffIds } from "@/lib/reporting-manager-access.server"
 import { applyStoredTrainingRules } from "@/lib/training/execute-rules";
 import {
   chooseStaffLoginEmail,
+  generateStaffLoginPassword,
   parseStaffLoginEmail,
   resolveStaffLoginEmail,
   staffLoginCodeEmails,
   staffLoginEmailCandidates,
-  STAFF_LOGIN_DEFAULT_PASSWORD,
   STAFF_LOGIN_PASSWORD_MAX,
   STAFF_LOGIN_PASSWORD_MIN,
   STAFF_LOGIN_ROLE,
@@ -500,7 +500,8 @@ export const provisionStaffLogin = createSafeAuthenticatedAction(
 
     if (!staff.location_id) throw new Error("Staff member has no branch");
 
-    const password = data.password ?? STAFF_LOGIN_DEFAULT_PASSWORD;
+    const passwordWasSupplied = Boolean(data.password);
+    const password = data.password ?? generateStaffLoginPassword();
     const authByEmail = await listAuthUsersByEmail();
     const autoEmails = new Set([
       ...staffLoginEmailCandidates(staff.full_name),
@@ -653,11 +654,85 @@ export const provisionStaffLogin = createSafeAuthenticatedAction(
       alreadyLinked: false,
       userId,
       email,
-      password: null,
+      password: passwordWasSupplied ? null : issuedPassword,
       passwordSet: issuedPassword !== null,
       role: STAFF_LOGIN_ROLE,
       team: await loginTeamForStaff(staff.id),
     };
+  },
+  { auth: { requireRole: true } },
+);
+
+/** Staff.email is the contact address. Keep it in step only when it already is the login. */
+function staffEmailTracksLogin(staffEmail: string | null | undefined, previousLoginEmail: string): boolean {
+  const parsed = parseStaffLoginEmail(staffEmail ?? "");
+  if (!parsed) return true;
+  return parsed === previousLoginEmail.trim().toLowerCase();
+}
+
+/** Change the login email and, when supplied, the password. Same gate as create. */
+export const updateStaffLogin = createSafeAuthenticatedAction(
+  z.object({
+    staffId: z.string().uuid(),
+    email: z.string().trim().email().max(200),
+    password: z
+      .string()
+      .min(STAFF_LOGIN_PASSWORD_MIN, "Password must be 8 to 128 characters.")
+      .max(STAFF_LOGIN_PASSWORD_MAX, "Password must be 8 to 128 characters.")
+      .optional(),
+  }),
+  async (data, context) => {
+    await assertCanProvisionStaffLogin(context, data.staffId);
+
+    const email = parseStaffLoginEmail(data.email);
+    if (!email) throw new Error("Enter a valid email address.");
+    const password = data.password;
+
+    const { data: staff, error: staffErr } = await supabaseAdmin
+      .from("staff")
+      .select("id, user_id, email, deleted_at")
+      .eq("id", data.staffId)
+      .maybeSingle();
+    if (staffErr) throw staffErr;
+    if (!staff || staff.deleted_at) throw new Error("Staff member not found");
+    if (!staff.user_id) throw new Error("Create a login before editing it.");
+
+    const previousEmail = ((await authEmailForUser(staff.user_id)) ?? "").trim().toLowerCase();
+    if (email !== previousEmail) {
+      const takenBy = await findAuthUserIdByEmail(email);
+      if (takenBy && takenBy !== staff.user_id) {
+        throw new Error("A login with this email already exists.");
+      }
+    }
+
+    const { error: updateErr } = await supabaseAdmin.auth.admin.updateUserById(staff.user_id, {
+      email,
+      email_confirm: true,
+      ...(password ? { password } : {}),
+    });
+    if (updateErr) {
+      if (isDuplicateAuthEmail(updateErr)) throw new Error("A login with this email already exists.");
+      rethrowWithoutSecret(updateErr, password ?? "");
+    }
+
+    if (staffEmailTracksLogin(staff.email, previousEmail)) {
+      const current = (staff.email ?? "").trim().toLowerCase();
+      if (current !== email) {
+        const { error: emailErr } = await supabaseAdmin.from("staff").update({ email }).eq("id", staff.id);
+        if (emailErr) throw emailErr;
+      }
+    }
+
+    const { error: auditErr } = await context.supabase.rpc("log_audit", {
+      _action: "admin.staff_login_updated",
+      _table_name: "staff",
+      _row_id: staff.id,
+      _after: { user_id: staff.user_id, email, password_set: Boolean(password) },
+      _metadata: {},
+    });
+    if (auditErr) console.error("[updateStaffLogin] audit log failed");
+
+    return { email, passwordSet: Boolean(password) };
   },
   { auth: { requireRole: true } },
 );

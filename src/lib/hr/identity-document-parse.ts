@@ -91,6 +91,31 @@ const DOC_FIELDS: Record<
   contract: { number: "contractNumber", expiry: "contractExpiry" },
 };
 
+export function hasIdentitySignal(parsed: ParsedIdentityDocument): boolean {
+  return Boolean(
+    parsed.name ||
+      parsed.documentNumber ||
+      parsed.expiryDate ||
+      parsed.passportNumber ||
+      parsed.passportExpiry ||
+      parsed.nationality,
+  );
+}
+
+/**
+ * Turn a transcription into fields. `manual` stays true when the file had
+ * no readable number, date, or name, so the upload can still be saved.
+ */
+export function identityReadFromTranscription(
+  text: string | null | undefined,
+  docType: IdentityDocType,
+): { parsed: ParsedIdentityDocument; manual: boolean } {
+  const transcribed = text?.trim() ?? "";
+  if (!transcribed) return { parsed: emptyIdentityParse(), manual: true };
+  const parsed = parseIdentityDocument(transcribed, docType);
+  return { parsed, manual: !hasIdentitySignal(parsed) };
+}
+
 export function emptyIdentityParse(): ParsedIdentityDocument {
   return {
     name: null,

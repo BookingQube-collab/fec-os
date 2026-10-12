@@ -113,16 +113,26 @@ export function siteApproverLocationMap(
 
 /**
  * Floor staff may correct their own punches. A manager still approves that request.
- * Supervisors, and anyone with people reporting to them, may also correct their team.
- * Company-wide correction admin stays on the existing HR tools.
+ * Supervisors, leadership applying for themselves, and anyone with people reporting to them
+ * may also correct their team. Company-wide correction admin stays on the existing HR tools.
  */
-const OWN_PUNCH_CORRECTION_ROLES = ["cashier_host", "technician", "customer_service", "auditor"] as const;
+const OWN_PUNCH_CORRECTION_ROLES = [
+  "cashier_host",
+  "technician",
+  "customer_service",
+  "auditor",
+  "ceo",
+  "coo",
+  "regional_ops",
+] as const;
 
 export function canRequestAttendanceCorrection(input: {
   roles: readonly string[];
   hasDirectReports: boolean;
+  jobTitle?: string | null;
 }): boolean {
   if (input.hasDirectReports) return true;
+  if (isHeadOfOperationsTitle(input.jobTitle)) return true;
   return input.roles.some(
     (role) =>
       (ATTENDANCE_CORRECTION_REQUEST_ROLES as readonly string[]).includes(role) ||

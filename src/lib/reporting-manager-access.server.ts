@@ -118,27 +118,55 @@ export async function loadPeopleDirectoryTeamStaffIds(userId: string): Promise<s
  * Direct reports and everyone who reports through them.
  * Empty when this login has no direct reports. The viewer is not included.
  */
+async function reportingChildren(
+  managerIds: readonly string[],
+): Promise<Array<{ staffId: string; reportingManagerStaffId: string }>> {
+  const edges: Array<{ staffId: string; reportingManagerStaffId: string }> = [];
+  const seen = new Set<string>();
+  for (let index = 0; index < managerIds.length; index += 80) {
+    const chunk = managerIds.slice(index, index + 80);
+    for (let page = 0; page < 40; page += 1) {
+      const from = page * 1000;
+      const { data, error } = await supabaseAdmin
+        .from("staff_profile_ext")
+        .select("staff_id, reporting_manager_staff_id")
+        .in("reporting_manager_staff_id", [...chunk])
+        .order("staff_id", { ascending: true })
+        .range(from, from + 999);
+      if (error) throw new Error(error.message);
+      const rows = data ?? [];
+      let added = 0;
+      for (const row of rows) {
+        const staffId = row.staff_id ? String(row.staff_id) : "";
+        const managerId = row.reporting_manager_staff_id ? String(row.reporting_manager_staff_id) : "";
+        if (!staffId || !managerId || seen.has(staffId)) continue;
+        seen.add(staffId);
+        edges.push({ staffId, reportingManagerStaffId: managerId });
+        added += 1;
+      }
+      if (rows.length < 1000 || added === 0) break;
+    }
+  }
+  return edges;
+}
+
 export async function loadReportingTreeStaffIds(userId: string): Promise<string[]> {
   const access = await loadDirectReportStaffIds(userId);
   if (!access.staffId || access.directReportStaffIds.length === 0) return [];
 
   const edges: { staffId: string; reportingManagerStaffId: string | null }[] = [];
-  for (let from = 0; ; from += 1000) {
-    const { data, error } = await supabaseAdmin
-      .from("staff_profile_ext")
-      .select("staff_id, reporting_manager_staff_id")
-      .order("staff_id", { ascending: true })
-      .range(from, from + 999);
-    if (error) throw new Error(error.message);
-    const page = data ?? [];
-    for (const row of page) {
-      if (!row.staff_id) continue;
-      edges.push({
-        staffId: row.staff_id,
-        reportingManagerStaffId: row.reporting_manager_staff_id,
-      });
+  const seen = new Set<string>([access.staffId]);
+  let frontier = [access.staffId];
+  for (let depth = 0; depth < 25 && frontier.length > 0; depth += 1) {
+    const children = await reportingChildren(frontier);
+    const next: string[] = [];
+    for (const edge of children) {
+      edges.push(edge);
+      if (seen.has(edge.staffId)) continue;
+      seen.add(edge.staffId);
+      next.push(edge.staffId);
     }
-    if (page.length < 1000) break;
+    frontier = next;
   }
 
   const treeIds = reportingTreeStaffIds(access.staffId, access.directReportStaffIds, edges);

@@ -2,14 +2,34 @@ import { describe, expect, it } from "vitest";
 
 import {
   chooseStaffLoginEmail,
+  generateStaffLoginPassword,
   isStaffLoginPassword,
   resolveStaffLoginEmail,
   staffLoginEmailCandidates,
 } from "@/lib/staff-login";
 
+const EASY_PASSWORD = /^[a-z]+-[a-z]+-\d{4}$/;
+
+describe("generateStaffLoginPassword", () => {
+  it("is easy to read, unique across many calls, and meets the login password rules", () => {
+    const passwords = new Set<string>();
+    for (let i = 0; i < 40; i += 1) {
+      const password = generateStaffLoginPassword();
+      expect(password).toMatch(EASY_PASSWORD);
+      expect(isStaffLoginPassword(password)).toBe(true);
+      expect(password).not.toBe("Demo@FEC2026!");
+      const [first, second, digits] = password.split("-");
+      expect(first).not.toBe(second);
+      expect(digits).toHaveLength(4);
+      passwords.add(password);
+    }
+    expect(passwords.size).toBe(40);
+  });
+});
+
 describe("isStaffLoginPassword", () => {
   it("accepts 8 to 128 characters and rejects anything outside that", () => {
-    expect(isStaffLoginPassword("Demo@FEC2026!")).toBe(true);
+    expect(isStaffLoginPassword(generateStaffLoginPassword())).toBe(true);
     expect(isStaffLoginPassword("1234567")).toBe(false);
     expect(isStaffLoginPassword("a".repeat(128))).toBe(true);
     expect(isStaffLoginPassword("a".repeat(129))).toBe(false);

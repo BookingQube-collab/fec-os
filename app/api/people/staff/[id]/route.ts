@@ -7,7 +7,6 @@ import { loadLinkedStaffJobTitle } from "@/lib/linked-staff-job-title.server";
 import { peopleDirectoryShowsSalary } from "@/lib/people-directory-access";
 import { canUserDo } from "@/lib/rbac";
 import { ForbiddenError } from "@/lib/server/authorize";
-import { STAFF_LOGIN_DEFAULT_PASSWORD } from "@/lib/staff-login";
 import { fetchWorkLocationsByStaffId } from "@/lib/staff-work-locations";
 
 type ProfileSection = "overview" | "attendance" | "training" | "all";
@@ -257,7 +256,6 @@ export async function GET(
         }
       }
 
-      const canProvision = canUserDo(context.roles ?? [], "admin.provision_users");
       let loginEmail: string | null = null;
       if (staff.user_id) {
         try {
@@ -297,7 +295,6 @@ export async function GET(
         login: {
           linked: Boolean(linkedUserId),
           email: loginEmail,
-          defaultPassword: canProvision ? STAFF_LOGIN_DEFAULT_PASSWORD : null,
         },
         profileExt: sensitiveExt,
         managerName,

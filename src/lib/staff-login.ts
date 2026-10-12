@@ -1,11 +1,72 @@
 import { z } from "zod";
 
-/** Same password printed by the demo seed scripts. Shown to provisioners after create. */
-export const STAFF_LOGIN_DEFAULT_PASSWORD = "Demo@FEC2026!";
-
 /** Matches `provisionUser`: do not weaken the existing auth password bounds. */
 export const STAFF_LOGIN_PASSWORD_MIN = 8;
 export const STAFF_LOGIN_PASSWORD_MAX = 128;
+
+/**
+ * Short words a person can say over the phone. Two of these plus four digits
+ * is the staff-login password (`maple-river-4821`).
+ */
+const STAFF_LOGIN_PASSWORD_WORDS = [
+  "amber",
+  "apple",
+  "beach",
+  "berry",
+  "cedar",
+  "cloud",
+  "coral",
+  "daisy",
+  "ember",
+  "field",
+  "flint",
+  "frost",
+  "grape",
+  "harbor",
+  "honey",
+  "ivory",
+  "jade",
+  "lemon",
+  "maple",
+  "meadow",
+  "ocean",
+  "olive",
+  "pearl",
+  "pine",
+  "river",
+  "robin",
+  "silver",
+  "stone",
+  "sunny",
+  "tiger",
+  "willow",
+  "winter",
+] as const;
+
+function randomBelow(limit: number): number {
+  if (limit <= 1) return 0;
+  const max = 0x1_0000_0000;
+  const cutoff = max - (max % limit);
+  const buf = new Uint32Array(1);
+  const random = globalThis.crypto;
+  if (!random?.getRandomValues) throw new Error("Secure random is unavailable");
+  let value = 0;
+  do {
+    random.getRandomValues(buf);
+    value = buf[0] ?? 0;
+  } while (value >= cutoff);
+  return value % limit;
+}
+
+/** Unique readable password for one new or reset staff login. Not a shared constant. */
+export function generateStaffLoginPassword(): string {
+  const words = STAFF_LOGIN_PASSWORD_WORDS;
+  const first = randomBelow(words.length);
+  let second = randomBelow(words.length - 1);
+  if (second >= first) second += 1;
+  const digits = String(randomBelow(10_000)).padStart(4, "0");
+  return `${words[first]}-${words[second]}-${digits}`;
+}
 
 /** Least-privileged floor role that can open the employee app. */
 export const STAFF_LOGIN_ROLE = "cashier_host" as const;

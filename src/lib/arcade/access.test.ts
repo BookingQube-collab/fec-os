@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -7,6 +10,7 @@ import {
   isFecTechnician,
   isFnbManager,
 } from "@/lib/arcade/access";
+import { canUserDo, CAPABILITIES, ROLE_LEVELS, type Capability } from "@/lib/rbac";
 
 const SITE_A = "site-a";
 const SITE_B = "site-b";
@@ -108,11 +112,39 @@ describe("arcade technical access", () => {
     expect(canActorPerform(["cashier_host"], "admin.view", { jobTitle: "Head of Operations" })).toBe(true);
     expect(canActorPerform(["cashier_host"], "admin.manage_roles", { jobTitle: "Head of Operations" })).toBe(true);
     expect(canActorPerform(["ceo"], "admin.view")).toBe(true);
+    expect(ROLE_LEVELS.ceo).toBe(100);
+    expect(canUserDo(["ceo"], "admin.manage_roles")).toBe(true);
+    expect(canUserDo(["ceo"], "admin.manage_users")).toBe(true);
+    expect(canUserDo(["ceo"], "admin.provision_users")).toBe(true);
+    expect(canUserDo(["regional_ops"], "admin.manage_roles")).toBe(false);
+    expect(canUserDo(["regional_ops"], "admin.provision_users")).toBe(false);
+    expect(canUserDo(["ceo", "regional_ops", "cashier_host"], "admin.manage_roles")).toBe(true);
+    for (const capability of Object.keys(CAPABILITIES) as Capability[]) {
+      if (!canUserDo(["ceo"], capability)) continue;
+      expect(
+        canActorPerform(["regional_ops", "cashier_host"], capability, { jobTitle: "Head of Operations" }),
+        capability,
+      ).toBe(true);
+    }
     expect(
       canUseArcadeTechnical(
         { roles: ["cashier_host"], jobTitle: "Head of Operations", locationIds: [] },
         SITE_B,
       ),
     ).toBe(true);
+  });
+
+  it("records the CEO grant on Rajan Pathak only", () => {
+    const sql = readFileSync(
+      path.resolve(process.cwd(), "supabase/migrations/20261012150000_rajan_pathak_ceo_access.sql"),
+      "utf8",
+    );
+    expect(sql).toContain("64cde3a2-90fd-47c1-83cc-fa49900b1f43");
+    expect(sql).toContain("rajan pathak");
+    expect(sql).toContain("employee_code) = '9'");
+    expect(sql).toContain("'ceo'::public.app_role, 100");
+    expect(sql).not.toMatch(/current_user_role_level/i);
+    expect(sql).not.toMatch(/job_title/i);
+    expect(sql).not.toMatch(/UPDATE public\.staff/i);
   });
 });

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyIdentityExtraction,
+  identityReadFromTranscription,
   parseIdentityDocument,
   titleCasePersonName,
   type IdentityFormFields,
@@ -156,6 +157,29 @@ describe("parseIdentityDocument", () => {
     expect(parsed.nationality).toEqual({ value: "Philippines", confidence: "high" });
     expect(parsed.expiryDate?.value).not.toBe("1990-02-01");
     expect(parsed.documentNumber?.value).not.toBe("30130285112");
+  });
+
+  it("fills QID number and expiry from the transcription a JPEG photo returns", () => {
+    const read = identityReadFromTranscription(
+      "ID.No: 28412345678\nExpiry: 15/03/2028\nName: JANE MARIE DOE",
+      "qid",
+    );
+    expect(read.manual).toBe(false);
+    expect(read.parsed.documentNumber?.value).toBe("28412345678");
+    expect(read.parsed.expiryDate?.value).toBe("2028-03-15");
+    const applied = applyIdentityExtraction(emptyFields(), "qid", read.parsed);
+    expect(applied.fields.qid).toBe("28412345678");
+    expect(applied.fields.qidExpiry).toBe("2028-03-15");
+  });
+
+  it("keeps manual entry when the photo transcription has no number or expiry", () => {
+    const read = identityReadFromTranscription("I cannot see a document in this file.", "qid");
+    expect(read.manual).toBe(true);
+    expect(read.parsed.documentNumber).toBeNull();
+    expect(read.parsed.expiryDate).toBeNull();
+    const applied = applyIdentityExtraction(emptyFields(), "qid", read.parsed);
+    expect(applied.fields.qid).toBe("");
+    expect(applied.fields.qidExpiry).toBe("");
   });
 
   it("reads the same permit when OCR keeps the front and back on one line", () => {

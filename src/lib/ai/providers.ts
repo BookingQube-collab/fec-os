@@ -1,4 +1,5 @@
 import { catalogFor, openRouterHeaders } from "@/lib/ai/catalog";
+import { geminiGenerationConfig, geminiVisibleText } from "@/lib/ai/gemini-vision";
 import { ProviderCallError, asProviderError } from "@/lib/ai/provider-error";
 import type {
   AiGenerateRequest,
@@ -77,9 +78,16 @@ function geminiContents(messages: AiMessage[]) {
   return { system, contents };
 }
 
-async function geminiGenerate(
+function requestHasImage(request: AiGenerateRequest): boolean {
+  return request.messages.some(
+    (message) => Array.isArray(message.content) && message.content.some((part) => part.type === "image"),
+  );
+}
+
+async function geminiGenerateOnce(
   ctx: ProviderCallContext,
   request: AiGenerateRequest,
+  disableThinking: boolean,
 ): Promise<AiGenerateResult> {
   const started = Date.now();
   const catalog = catalogFor("gemini");
@@ -98,21 +106,22 @@ async function geminiGenerate(
       body: JSON.stringify({
         contents,
         ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
-        generationConfig: {
-          temperature: request.temperature ?? 0.3,
-          maxOutputTokens: request.maxTokens ?? 4096,
-          ...(request.jsonMode ? { responseMimeType: "application/json" } : {}),
-        },
+        generationConfig: geminiGenerationConfig({
+          temperature: request.temperature,
+          maxTokens: request.maxTokens,
+          jsonMode: request.jsonMode,
+          disableThinking,
+        }),
       }),
     },
     request.timeoutMs ?? 30_000,
   );
   if (!res.ok) throw ProviderCallError.fromHttp(res.status, await readErrorBody(res));
   const json = (await res.json()) as {
-    candidates?: { content?: { parts?: { text?: string }[] } }[];
+    candidates?: { content?: { parts?: { text?: string; thought?: boolean }[] } }[];
     usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
   };
-  const text = json.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
+  const text = geminiVisibleText(json.candidates?.[0]?.content?.parts);
   if (!text) throw new ProviderCallError("invalid", "Empty model response");
   return {
     text,
@@ -122,6 +131,26 @@ async function geminiGenerate(
     outputTokens: json.usageMetadata?.candidatesTokenCount,
     latencyMs: Date.now() - started,
   };
+}
+
+async function geminiGenerate(
+  ctx: ProviderCallContext,
+  request: AiGenerateRequest,
+): Promise<AiGenerateResult> {
+  const hasImage = requestHasImage(request);
+  try {
+    return await geminiGenerateOnce(ctx, request, hasImage);
+  } catch (error) {
+    if (
+      hasImage &&
+      error instanceof ProviderCallError &&
+      error.status === 400 &&
+      /thinking/i.test(error.message)
+    ) {
+      return geminiGenerateOnce(ctx, request, false);
+    }
+    throw error;
+  }
 }
 
 async function geminiListModels(ctx: ProviderCallContext, timeoutMs: number): Promise<AiModelOption[]> {
