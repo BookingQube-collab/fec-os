@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { getEmployeeFlatRail, getVisibleDepartments, mergePeopleDirectoryDepartments } from "@/lib/nav-config";
 import {
   canOpenPeopleDirectory,
+  isAdminPeopleDirectoryRow,
   isPeopleDirectoryTeamRow,
   omitPeopleDirectorySalary,
   peopleDirectoryScope,
@@ -97,5 +98,16 @@ describe("people directory for managers and supervisors", () => {
     expect(
       isPeopleDirectoryTeamRow({ status: "active", employmentType: "permanent", deletedAt: "2026-01-01" }),
     ).toBe(false);
+
+    expect(isAdminPeopleDirectoryRow({ status: "active", employmentType: "permanent" })).toBe(true);
+    expect(isAdminPeopleDirectoryRow({ status: "probation", employmentType: "permanent" })).toBe(true);
+    expect(isAdminPeopleDirectoryRow({ status: "serving_notice", employmentType: "permanent" })).toBe(true);
+    expect(isAdminPeopleDirectoryRow({ status: "Serving Notice", employmentType: "permanent" })).toBe(true);
+    expect(isAdminPeopleDirectoryRow({ status: "on_leave", employmentType: "permanent" })).toBe(false);
+    expect(isAdminPeopleDirectoryRow({ status: "resigned", employmentType: "permanent" })).toBe(false);
+    expect(isAdminPeopleDirectoryRow({ status: "terminated", employmentType: "permanent" })).toBe(false);
+    expect(isAdminPeopleDirectoryRow({ status: "contract_finished", employmentType: "temporary" })).toBe(false);
+    expect(isAdminPeopleDirectoryRow({ status: "serving_notice", employmentType: "joker" })).toBe(false);
+    expect(isAdminPeopleDirectoryRow({ status: "joker", employmentType: "permanent" })).toBe(false);
   });
 });

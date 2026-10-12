@@ -42,6 +42,28 @@ export const STAFF_NOT_JOKER_EMPLOYMENT_OR =
 
 export type StaffDirectoryStatusValue = (typeof STAFF_DIRECTORY_STATUSES)[number];
 
+/**
+ * Statuses an admin can set for one person from People or the staff profile.
+ * Serving notice is included so it can be set, changed, or cleared.
+ */
+export const STAFF_NOTICE_EDIT_STATUSES = [
+  "active",
+  "on_leave",
+  "serving_notice",
+  "resigned",
+  "terminated",
+  "contract_finished",
+  "joker",
+] as const;
+
+export type StaffNoticeEditStatus = (typeof STAFF_NOTICE_EDIT_STATUSES)[number];
+
+/** Map a stored status onto a value `updateStaff` accepts. Unknown text returns null. */
+export function asEditableStaffStatus(status: string | null | undefined): StaffDirectoryStatusValue | null {
+  const key = normalizeStaffStatus(status);
+  return STAFF_DIRECTORY_STATUSES.find((value) => value === key) ?? null;
+}
+
 /** Blank / null roster status defaults to active — same as the Employee Roster import. */
 export function isActiveStaffStatus(status: string | null | undefined): boolean {
   const s = normalizeStaffStatus(status);

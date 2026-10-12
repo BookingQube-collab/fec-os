@@ -1,4 +1,5 @@
 import { isHeadOfOperationsTitle } from "@/lib/attendance-hr/missed-punch-approval";
+import { isActiveStaffStatus, isServingNoticeStaffStatus } from "@/lib/staff-status";
 
 /**
  * A supervisor bridge is any job title with the whole word "supervisor".
@@ -90,4 +91,27 @@ export function managerSupervisorTeamIds(input: {
     included.add(input.viewerStaffId);
   }
   return [...included].sort();
+}
+
+export type TeamOverviewPerson = ManagerTeamPerson & {
+  status?: string | null;
+};
+
+/**
+ * Who appears on Team overview.
+ * A manager sees direct reports, each supervisor by name, and that supervisor's team.
+ * A supervisor sees the people who report to them, including their own row.
+ * Serving notice stays on the list. Resigned, terminated, and other closed statuses do not.
+ */
+export function teamOverviewMemberIds(input: {
+  viewerStaffId: string;
+  viewerJobTitle?: string | null;
+  viewerStaffRole?: string | null;
+  people: readonly TeamOverviewPerson[];
+}): string[] {
+  const roster = input.people.filter((person) => {
+    if (person.staffId === input.viewerStaffId) return true;
+    return isActiveStaffStatus(person.status) || isServingNoticeStaffStatus(person.status);
+  });
+  return managerSupervisorTeamIds({ ...input, people: roster });
 }

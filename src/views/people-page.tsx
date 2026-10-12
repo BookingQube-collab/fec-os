@@ -177,7 +177,15 @@ const PeopleDocumentsExpiryPanel = dynamic(
   },
 );
 
-const STAFF_STATUSES = ["active", "on_leave", "terminated", "resigned", "contract_finished", "joker"] as const;
+const STAFF_STATUSES = [
+  "active",
+  "on_leave",
+  "serving_notice",
+  "terminated",
+  "resigned",
+  "contract_finished",
+  "joker",
+] as const;
 const ATTENDANCE_STATUSES = ["present", "absent", "late", "early_leave", "missed_punch", "overtime"] as const;
 const TRAINING_STATUSES = ["enrolled", "in_progress", "completed", "overdue"] as const;
 
@@ -1150,11 +1158,13 @@ function StaffFormDialog({
                         <SelectItem key={s} value={s}>
                           {s === "joker"
                             ? t("people.staff.employmentTypes.joker")
-                            : s === "resigned"
-                              ? t("hr.me.staffStatus.resigned", "Resigned")
-                              : s === "contract_finished"
-                                ? t("hr.me.staffStatus.contract_finished", "Contract finished")
-                                : s.replace("_", " ")}
+                            : s === "serving_notice"
+                              ? t("hr.me.staffStatus.serving_notice", "Serving notice")
+                              : s === "resigned"
+                                ? t("hr.me.staffStatus.resigned", "Resigned")
+                                : s === "contract_finished"
+                                  ? t("hr.me.staffStatus.contract_finished", "Contract finished")
+                                  : s.replace("_", " ")}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1181,6 +1191,12 @@ function StaffFormDialog({
                   </Select>
                 </div>
               </div>
+              <p className="text-xs text-muted-foreground">
+                {t(
+                  "people.staff.servingNoticeHint",
+                  "Choose Serving notice to mark this person. Choose Active to clear the notice. This saves one person.",
+                )}
+              </p>
               <p className="text-xs text-muted-foreground">{t("people.staff.roleHoursHelp")}</p>
               {employmentType === "joker" ? (
                 <div>

@@ -3,17 +3,19 @@ import { describe, expect, it } from "vitest";
 import {
   isManagerTeamSupervisor,
   managerSupervisorTeamIds,
+  teamOverviewMemberIds,
   viewerRollsUpSupervisorTeam,
-  type ManagerTeamPerson,
+  type TeamOverviewPerson,
 } from "./manager-supervisor-team";
 
 function person(
-  partial: Partial<ManagerTeamPerson> & Pick<ManagerTeamPerson, "staffId">,
-): ManagerTeamPerson {
+  partial: Partial<TeamOverviewPerson> & Pick<TeamOverviewPerson, "staffId">,
+): TeamOverviewPerson {
   return {
     jobTitle: null,
     staffRole: null,
     reportingManagerStaffId: null,
+    status: "active",
     ...partial,
   };
 }
@@ -212,6 +214,52 @@ describe("manager supervisor team", () => {
     expect(scope).not.toContain("fb-cashier-helper");
     expect(scope).not.toContain("cashier");
     expect(scope).not.toContain("fb-manager");
+  });
+
+  it("lists an F&B manager team overview with the supervisor, that supervisor's team, and serving notice", () => {
+    const roster = people.map((row) =>
+      row.staffId === "fb-direct" ? { ...row, status: "serving_notice" } : row,
+    );
+    const scope = teamOverviewMemberIds({
+      viewerStaffId: "fb-manager",
+      viewerJobTitle: "F&B Manager",
+      viewerStaffRole: "other",
+      people: [
+        ...roster,
+        person({
+          staffId: "fb-resigned",
+          jobTitle: "Barista",
+          staffRole: "other",
+          reportingManagerStaffId: "fb-supervisor",
+          status: "resigned",
+        }),
+      ],
+    });
+
+    expect(scope).toEqual(expect.arrayContaining(["fb-supervisor", "fb-team", "fb-direct"]));
+    expect(scope).toContain("fb-supervisor");
+    expect(scope).toContain("fb-team");
+    expect(scope).toContain("fb-direct");
+    expect(scope).not.toContain("fb-manager");
+    expect(scope).not.toContain("fb-resigned");
+    expect(scope).not.toContain("cashier");
+    expect(scope).not.toContain("other-crew");
+  });
+
+  it("lists a supervisor team overview with their team member and not the manager's other branch", () => {
+    const scope = teamOverviewMemberIds({
+      viewerStaffId: "fb-supervisor",
+      viewerJobTitle: "Barista/Supervisor",
+      viewerStaffRole: "other",
+      people,
+    });
+
+    expect(scope).toContain("fb-team");
+    expect(scope).toContain("fb-supervisor");
+    expect(scope).not.toContain("fb-direct");
+    expect(scope).not.toContain("fb-manager");
+    expect(scope).not.toContain("cashier");
+    expect(scope).not.toContain("other-crew");
   });
 
   it("does not give a cashier the supervisor rollup", () => {

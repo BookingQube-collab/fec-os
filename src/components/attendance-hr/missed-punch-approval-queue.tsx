@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { formatPunchTime12h } from "@/lib/attendance-display";
+import { formatPunchTime12h, formatWorkDateDdMmYyyy } from "@/lib/attendance-display";
 import {
   listAttendanceCorrections,
   resubmitMissedPunchRequest,
@@ -75,103 +75,133 @@ export function MissedPunchApprovalQueue({
             correction a manager files for someone on their team is approved and sent straight to HR.
           </p>
         </div>
-      ) : null}
-      {rows.map((row) => {
-        const clocks = correctionCardClocks(row.punchType, row.punchAt);
-        const busy = reviewMut.isPending && reviewMut.variables?.id === row.id;
-        const showActions = row.status === "pending" && row.canAct;
-        const showApproved =
-          row.status === "approved" ||
-          (row.status === "pending" && !row.canAct && row.steps.some((step) => step.status === "approved"));
-        const showReject = row.status === "rejected";
-        const showChange = row.status === "change_required";
-        return (
-        <div key={row.id} className="flex flex-wrap items-start justify-between gap-2 rounded-2xl border border-border/70 bg-card px-3 py-3 text-sm">
-          <div className="min-w-0">
-            <p className="font-medium">
-              {row.staffName ?? "Staff"}
-              {row.employeeCode ? ` · ${row.employeeCode}` : ""} · {row.workDate ?? ""}
-              {row.punchType ? ` · ${row.punchType === "in" ? t("hr.me.punchIn") : t("hr.me.punchOut")}` : ""}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {t("hr.me.punchIn")} {clockText(clocks.punchIn)}
-              <span className="mx-1.5">·</span>
-              {t("hr.me.punchOut")} {clockText(clocks.punchOut)}
-            </p>
-            <p className="text-xs text-muted-foreground">{row.reason}</p>
-            {row.reviewNote && !row.reason.includes(row.reviewNote) ? (
-              <p className="text-xs text-muted-foreground">{row.reviewNote}</p>
-            ) : null}
-            {showActions ? (
-              <p className="mt-1 text-xs text-muted-foreground">
-                {t("hr.me.waitingFor", { who: stepLabel(row.currentStepRole) })}
-              </p>
-            ) : null}
-            {row.steps
-              .filter((step) => step.status === "approved" || step.status === "skipped")
-              .map((step) => (
-                <p key={step.stepRole} className="text-xs text-muted-foreground">
-                  {step.status === "skipped"
-                    ? `${stepLabel(step.stepRole)} skipped`
-                    : `${stepLabel(step.stepRole)} approved`}
-                  {step.actedByName ? ` · ${step.actedByName}` : ""}
-                </p>
-              ))}
-          </div>
-          <div className="flex items-center gap-2">
-            {showActions ? <Badge variant="warning">{stepLabel(row.currentStepRole)}</Badge> : null}
-            {showApproved ? <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">Approved</span> : null}
-            {showReject ? <span className="text-sm font-semibold text-destructive">Reject</span> : null}
-            {showChange ? <span className="text-sm font-semibold text-amber-700 dark:text-amber-300">Change required</span> : null}
-            {showActions ? (
-              <div className="flex flex-col items-end gap-1">
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="min-h-11"
-                    disabled={busy}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      reviewMut.mutate({ id: row.id, decision: "approved" });
-                    }}
-                  >
-                    Approve
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    className="min-h-11"
-                    disabled={busy}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      reviewMut.mutate({ id: row.id, decision: "change_required" });
-                    }}
-                  >
-                    Change required
-                  </Button>
-                </div>
-                <button
-                  type="button"
-                  className="px-1 text-xs font-medium text-destructive/80 underline-offset-2 hover:underline disabled:opacity-50"
-                  disabled={busy}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    reviewMut.mutate({ id: row.id, decision: "rejected" });
-                  }}
-                >
-                  Reject
-                </button>
-              </div>
-            ) : null}
-          </div>
-        </div>
-        );
-      })}
+      ) : (
+        <ul className="hd-approval-list">
+          {rows.map((row) => {
+            const clocks = correctionCardClocks(row.punchType, row.punchAt);
+            const busy = reviewMut.isPending && reviewMut.variables?.id === row.id;
+            const showActions = row.status === "pending" && row.canAct;
+            const showApproved =
+              row.status === "approved" ||
+              (row.status === "pending" && !row.canAct && row.steps.some((step) => step.status === "approved"));
+            const showReject = row.status === "rejected";
+            const showChange = row.status === "change_required";
+            const punchLabel =
+              row.punchType === "in" ? t("hr.me.punchIn") : row.punchType === "out" ? t("hr.me.punchOut") : null;
+            const priorSteps = row.steps.filter((step) => step.status === "approved" || step.status === "skipped");
+            const name = row.staffName ?? "Staff";
+            return (
+              <li key={row.id}>
+                <article className="hd-approval" aria-busy={busy || undefined} aria-labelledby={`punch-approval-${row.id}-name`}>
+                  <header className="hd-approval__top">
+                    <div className="min-w-0">
+                      <h4 id={`punch-approval-${row.id}-name`} className="hd-approval__name">
+                        {name}
+                      </h4>
+                      {row.employeeCode ? <p className="hd-approval__code">{row.employeeCode}</p> : null}
+                    </div>
+                    {punchLabel ? <span className="hd-approval__kind">{punchLabel}</span> : null}
+                  </header>
+                  <dl className="hd-approval__facts">
+                    <div className="hd-approval__fact">
+                      <dt>{t("common.date")}</dt>
+                      <dd>{row.workDate ? formatWorkDateDdMmYyyy(row.workDate) : "—"}</dd>
+                    </div>
+                    <div className="hd-approval__fact">
+                      <dt>{t("hr.me.punchIn")}</dt>
+                      <dd>{clockText(clocks.punchIn)}</dd>
+                    </div>
+                    <div className="hd-approval__fact">
+                      <dt>{t("hr.me.punchOut")}</dt>
+                      <dd>{clockText(clocks.punchOut)}</dd>
+                    </div>
+                  </dl>
+                  {row.reason ? (
+                    <div className="hd-approval__block">
+                      <p className="hd-approval__label">{t("hr.me.approvalReason")}</p>
+                      <p className="hd-approval__reason">{row.reason}</p>
+                    </div>
+                  ) : null}
+                  {row.reviewNote && !row.reason?.includes(row.reviewNote) ? (
+                    <p className="hd-approval__note">{row.reviewNote}</p>
+                  ) : null}
+                  {priorSteps.length > 0 ? (
+                    <div className="hd-approval__block">
+                      <p className="hd-approval__label">{t("hr.me.priorApprovals")}</p>
+                      <ul className="hd-approval__trail">
+                        {priorSteps.map((step) => (
+                          <li key={step.stepRole}>
+                            {step.status === "skipped"
+                              ? `${stepLabel(step.stepRole)} skipped`
+                              : `${stepLabel(step.stepRole)} approved`}
+                            {step.actedByName ? ` · ${step.actedByName}` : ""}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  {showActions || showApproved || showReject || showChange ? (
+                    <div className="hd-approval__step">
+                      {showActions ? (
+                        <p className="hd-approval__waiting">
+                          {t("hr.me.waitingFor", { who: stepLabel(row.currentStepRole) })}
+                        </p>
+                      ) : null}
+                      {showActions ? <Badge variant="warning">{stepLabel(row.currentStepRole)}</Badge> : null}
+                      {showApproved ? <p className="hd-approval__status hd-approval__status--ok">{t("hr.me.punchApproved")}</p> : null}
+                      {showReject ? <p className="hd-approval__status hd-approval__status--no">Reject</p> : null}
+                      {showChange ? <p className="hd-approval__status hd-approval__status--change">Change required</p> : null}
+                    </div>
+                  ) : null}
+                  {showActions ? (
+                    <div className="hd-approval__actions" role="group" aria-label={t("common.actions")}>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="min-h-11"
+                        disabled={busy}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          reviewMut.mutate({ id: row.id, decision: "approved" });
+                        }}
+                      >
+                        Approve
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        className="min-h-11"
+                        disabled={busy}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          reviewMut.mutate({ id: row.id, decision: "change_required" });
+                        }}
+                      >
+                        Change required
+                      </Button>
+                      <button
+                        type="button"
+                        className="hd-approval__reject"
+                        disabled={busy}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          reviewMut.mutate({ id: row.id, decision: "rejected" });
+                        }}
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  ) : null}
+                </article>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }

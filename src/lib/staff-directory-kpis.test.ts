@@ -104,6 +104,35 @@ describe("staff directory KPIs follow filters", () => {
     expect(kpis.secondment).toBe(1);
   });
 
+  it("keeps serving notice out of the general active list and in the admin active list", () => {
+    const notice = row({
+      id: "notice",
+      full_name: "Albert Go",
+      employee_code: "AG",
+      employment_type: "permanent",
+      status: "serving_notice",
+      job_title: "Barista",
+    });
+    const resigned = row({
+      id: "left",
+      full_name: "Former Staff",
+      employee_code: "EX",
+      employment_type: "permanent",
+      status: "resigned",
+    });
+    expect(filterStaffDirectory([notice, resigned, ...staff], base).map((s) => s.id).sort()).toEqual(["1", "3"]);
+    expect(
+      filterStaffDirectory([notice, resigned, ...staff], { ...base, includeServingNotice: true })
+        .map((s) => s.id)
+        .sort(),
+    ).toEqual(["1", "3", "notice"]);
+    expect(
+      filterStaffDirectory([notice], { ...base, status: "serving_notice", includeServingNotice: false }).map(
+        (s) => s.id,
+      ),
+    ).toEqual(["notice"]);
+  });
+
   it("drops a finished temporary or secondment contract from the active list and temporary headcount", () => {
     const ended = [
       row({

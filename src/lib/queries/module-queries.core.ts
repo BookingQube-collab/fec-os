@@ -786,6 +786,8 @@ export async function fetchStaffDirectory(
   const canSensitive = canUserDo(context.roles ?? [], "hr.profile.view_sensitive");
   const identitySafe = mapped.map((s) => redactStaffIdentityNumbers(s, canSensitive));
 
+  const requestedStatus = filters.status ?? "";
+  const companyDirectory = teamStaffIds == null;
   const directoryFilters = {
     q: filters.q ?? "",
     loc: filters.loc ?? "",
@@ -795,7 +797,10 @@ export async function fetchStaffDirectory(
     showOrgDepartments: filters.department ? [] : [...(filters.showOrgDepartments ?? [])],
     type: filters.employmentType ?? "",
     e3: filters.e3 ?? "",
-    status: filters.status ?? "",
+    status: requestedStatus,
+    // Admin Active list keeps serving notice. Team views already include it
+    // through isPeopleDirectoryTeamRow and do not use this flag.
+    includeServingNotice: companyDirectory && requestedStatus === "active",
     showJokers: Boolean(filters.showJokers),
     nationality: filters.nationality ?? "",
     gender: filters.gender ?? "",

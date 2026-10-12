@@ -23,6 +23,7 @@ import {
   hierarchyAccessMode,
   teamHierarchyVisibleIds,
 } from "@/lib/hierarchy-access";
+import { teamOverviewMemberIds } from "@/lib/manager-supervisor-team";
 import { canUserDo } from "@/lib/rbac";
 import { loadDirectReportStaffIds } from "@/lib/reporting-manager-access.server";
 import { createAuthenticatedAction, createAuthenticatedActionNoInput } from "@/lib/server/create-action";
@@ -360,6 +361,8 @@ export const getOrgChart = createAuthenticatedActionNoInput(
 
 export type TeamReportingSnapshot = {
   viewerStaffId: string | null;
+  viewerJobTitle: string | null;
+  viewerStaffRole: string | null;
   viewerOperationsName: string | null;
   departmentHeads: Array<{ staffId: string; fullName: string; locationId: string }>;
   people: ChainStaff[];
@@ -369,10 +372,6 @@ export type TeamReportingSnapshot = {
 export const getTeamReporting = createAuthenticatedActionNoInput(
   async (context): Promise<TeamReportingSnapshot> => {
     const fullRoster = canUserDo(context.roles ?? [], "people.view_roster");
-    const access = fullRoster ? null : await loadDirectReportStaffIds(context.userId);
-    if (!fullRoster && (!access || access.directReportStaffIds.length === 0)) {
-      throw new ForbiddenError("Team overview is limited to people who report to you.");
-    }
     const [staffRows, extRows, viewer] = await Promise.all([
       fetchPages<StaffJoin>((from, to) =>
         supabaseAdmin
@@ -398,18 +397,40 @@ export const getTeamReporting = createAuthenticatedActionNoInput(
     const extByStaff = new Map(extRows.map((row) => [row.staff_id, row]));
     const people = staffRows.map((row) => chainFromStaff(row, extByStaff.get(row.id)));
     const viewerView = reportingViewerView(people, viewer);
-    const keep = access
-      ? new Set([access.staffId, ...access.directReportStaffIds].filter((id): id is string => Boolean(id)))
+    const viewerRow = viewerView.viewerStaffId
+      ? (people.find((row) => row.staffId === viewerView.viewerStaffId) ?? null)
       : null;
-    const visiblePeople = keep ? people.filter((row) => keep.has(row.staffId)) : people;
+    const hasDirectReport = Boolean(
+      viewerView.viewerStaffId &&
+        people.some(
+          (row) => row.reportingManagerStaffId === viewerView.viewerStaffId && row.staffId !== viewerView.viewerStaffId,
+        ),
+    );
+    if (!fullRoster && !hasDirectReport) {
+      throw new ForbiddenError("Team overview is limited to people who report to you.");
+    }
+    const lineIds = new Set(
+      viewerView.viewerStaffId
+        ? teamOverviewMemberIds({
+            viewerStaffId: viewerView.viewerStaffId,
+            viewerJobTitle: viewerRow?.jobTitle,
+            viewerStaffRole: viewerRow?.staffRole,
+            people,
+          })
+        : [],
+    );
+    if (viewerView.viewerStaffId) lineIds.add(viewerView.viewerStaffId);
+    const visiblePeople = fullRoster ? people : people.filter((row) => lineIds.has(row.staffId));
     return {
       viewerStaffId: viewerView.viewerStaffId,
+      viewerJobTitle: viewerRow?.jobTitle ?? null,
+      viewerStaffRole: viewerRow?.staffRole ?? null,
       viewerOperationsName: viewerView.viewerOperationsName,
-      departmentHeads: keep
-        ? []
-        : locationDepartmentHeads(people).flatMap((head) =>
+      departmentHeads: fullRoster
+        ? locationDepartmentHeads(people).flatMap((head) =>
             head.locationId ? [{ staffId: head.staffId, fullName: head.fullName, locationId: head.locationId }] : [],
-          ),
+          )
+        : [],
       people: visiblePeople.map((row) => ({
         ...row,
         userId: null,

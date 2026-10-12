@@ -117,6 +117,7 @@ function formatStaffDisplayName(name: string): string {
 function directoryStatusLabel(status: string, label: (key: string, fallback: string) => string): string {
   const s = status.trim().toLowerCase().replace(/[\s-]+/g, "_");
   if (s === "contract_finished") return label("hr.me.staffStatus.contract_finished", "Contract finished");
+  if (s === "serving_notice") return label("hr.me.staffStatus.serving_notice", "Serving notice");
   return status.replace(/_/g, " ");
 }
 
@@ -992,9 +993,7 @@ export function StaffDirectory({
                     meta={
                       <>
                         <Badge variant={staffStatusBadgeVariant(s.status)}>
-                          {s.status.trim().toLowerCase().replace(/[\s-]+/g, "_") === "contract_finished"
-                            ? t("hr.me.staffStatus.contract_finished", "Contract finished")
-                            : s.status}
+                          {directoryStatusLabel(s.status, t)}
                         </Badge>
                         {tempCodes.length ? (
                           <Badge variant="info">{t("people.staff.temporaryMove")}</Badge>

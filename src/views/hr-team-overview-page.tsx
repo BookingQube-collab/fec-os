@@ -35,7 +35,8 @@ import { listHelpdeskQuestions } from "@/lib/hr-workspace.functions";
 import { formatLocationRecord } from "@/lib/locations/normalize";
 import { listShifts, listStaff } from "@/lib/people.functions";
 import { getTeamReporting } from "@/lib/admin-hierarchy.functions";
-import { isOperationsFunction, operationalTeamIds, reportingTeamIds } from "@/lib/reporting-chain";
+import { teamOverviewMemberIds } from "@/lib/manager-supervisor-team";
+import { isOperationsFunction, operationalTeamIds } from "@/lib/reporting-chain";
 import { listEvaluations } from "@/lib/performance.functions";
 import { STALE } from "@/lib/query-client";
 import { queryKeys } from "@/lib/query-keys";
@@ -229,22 +230,44 @@ export default function HrTeamOverviewPage() {
     return map;
   }, [sites.data]);
 
-  const reportingIds = useMemo(
-    () => reportingTeamIds(reporting.data?.viewerStaffId ?? null, reporting.data?.people ?? []),
-    [reporting.data],
-  );
+  const reportingIds = useMemo(() => {
+    const snapshot = reporting.data;
+    if (!snapshot?.viewerStaffId) return new Set<string>();
+    const viewer = snapshot.people.find((person) => person.staffId === snapshot.viewerStaffId);
+    return new Set(
+      teamOverviewMemberIds({
+        viewerStaffId: snapshot.viewerStaffId,
+        viewerJobTitle: snapshot.viewerJobTitle ?? viewer?.jobTitle,
+        viewerStaffRole: snapshot.viewerStaffRole ?? viewer?.staffRole,
+        people: snapshot.people,
+      }),
+    );
+  }, [reporting.data]);
   const opsMemberIds = useMemo(
     () => (opsTeamId ? operationalTeamIds(opsTeamId, reporting.data?.people ?? []) : new Set<string>()),
     [opsTeamId, reporting.data],
   );
 
   const people = useMemo(() => {
-    return ((staff.data ?? []) as StaffRow[]).filter(
+    return (reporting.data?.people ?? [])
+      .filter((row) => reportingIds.has(row.staffId))
+      .map((row) => ({
+        id: row.staffId,
+        full_name: row.fullName,
+        job_title: row.jobTitle,
+        department: row.department,
+        status: row.status,
+        location_id: row.locationId,
+        employee_code: row.employeeCode,
+      }));
+  }, [reporting.data, reportingIds]);
+
+  const staffById = useMemo(() => {
+    const rows = ((staff.data ?? []) as StaffRow[]).filter(
       (row) => isActiveStaffStatus(row.status) || isServingNoticeStaffStatus(row.status),
     );
+    return new Map(rows.map((row) => [row.id, row]));
   }, [staff.data]);
-
-  const staffById = useMemo(() => new Map(people.map((row) => [row.id, row])), [people]);
 
   const departments = useMemo(() => {
     const names = new Set<string>();
@@ -608,9 +631,9 @@ export default function HrTeamOverviewPage() {
 
               {!rangeOk ? <p className="text-sm text-muted-foreground">{t("hrWorkspace.team.invalidRange")}</p> : null}
 
-              {staff.isLoading || shifts.isLoading || reporting.isLoading ? (
+              {shifts.isLoading || reporting.isLoading ? (
                 <FecLoader density="page" label={t("common.loading")} />
-              ) : staff.isError || shifts.isError || reporting.isError ? (
+              ) : shifts.isError || reporting.isError ? (
                 <HrEmptyState message={t("hrWorkspace.loadFailed")} />
               ) : cards.length === 0 ? (
                 <HrEmptyState message={t("hrWorkspace.team.emptyPeople")} icon={Users} />
@@ -628,7 +651,11 @@ export default function HrTeamOverviewPage() {
                           <Link
                             href={personHref}
                             className="absolute inset-0 z-0 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            aria-label={name}
+                            aria-label={
+                              isServingNoticeStaffStatus(card.row.status)
+                                ? `${name}, ${t("hr.me.staffStatus.serving_notice", "Serving notice")}`
+                                : name
+                            }
                           />
                           <div className="pointer-events-none relative z-10 flex min-w-0 items-start gap-3">
                             <span
@@ -643,6 +670,11 @@ export default function HrTeamOverviewPage() {
                             <div className="min-w-0">
                               <p className="truncate text-sm font-semibold">{name}</p>
                               <p className="truncate text-xs text-muted-foreground">{role || card.row.employee_code}</p>
+                              {isServingNoticeStaffStatus(card.row.status) ? (
+                                <p className="mt-1 inline-flex rounded-full bg-warning/15 px-2 py-0.5 text-[11px] font-semibold text-warning">
+                                  {t("hr.me.staffStatus.serving_notice", "Serving notice")}
+                                </p>
+                              ) : null}
                             </div>
                           </div>
                           <dl className="pointer-events-none relative z-10 mt-4 grid grid-cols-3 gap-2">
@@ -675,7 +707,7 @@ export default function HrTeamOverviewPage() {
                 </ul>
               )}
 
-              {!staff.isLoading && !shifts.isLoading && !reporting.isLoading && !staff.isError && !shifts.isError && !reporting.isError ? (
+              {!shifts.isLoading && !reporting.isLoading && !shifts.isError && !reporting.isError ? (
               <div className="flex flex-wrap items-center justify-between gap-3 pt-1 text-sm">
                 <p className="text-muted-foreground">{t("hrWorkspace.team.members", { count: cards.length })}</p>
                 <div className="flex items-center gap-2">

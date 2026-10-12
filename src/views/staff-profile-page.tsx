@@ -56,6 +56,7 @@ import { StaffTrainingPanel } from "@/components/people/staff-training-panel";
 import { Employee360Panel } from "@/components/people/employee-360-panel";
 import { EDUCATION_DOC_TYPES, employeeProfileGaps } from "@/lib/hr-profile-completeness";
 import { removeStaffPhoto, saveStaffPhoto, updateStaff, updateStaffProfileNotes } from "@/lib/people.functions";
+import { asEditableStaffStatus, STAFF_NOTICE_EDIT_STATUSES } from "@/lib/staff-status";
 import { HrDocumentsWorkspace } from "@/views/hr-documents-page";
 import { HrLeaveWorkspace } from "@/views/hr-leave-page";
 import { HrWarningsWorkspace } from "@/views/hr-warnings-page";
@@ -67,6 +68,19 @@ import { PillTabScroller, pillTrackItemClass } from "@/components/react-bits/pil
 const SECTION_LABEL = "text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground";
 const PANEL = "surface-card min-w-0 space-y-3 p-4";
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+function profileStatusLabel(status: string, label: (key: string, fallback: string) => string): string {
+  const key = status.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return label(`hr.me.staffStatus.${key}`, status.replace(/_/g, " "));
+}
+
+function profileStatusOptions(current: string | null | undefined, selected: string): string[] {
+  const values = new Set<string>(STAFF_NOTICE_EDIT_STATUSES);
+  const currentKey = (current ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (currentKey) values.add(currentKey);
+  if (selected) values.add(selected);
+  return [...values];
+}
 
 type ProfileExt = {
   nationality: string | null;
@@ -222,6 +236,7 @@ function StaffProfilePageBody() {
   const [workLocationIds, setWorkLocationIds] = useState<string[]>([]);
   const [isRoaming, setIsRoaming] = useState(false);
   const [employmentType, setEmploymentType] = useState("");
+  const [staffStatus, setStaffStatus] = useState("active");
   const [flexibleAttendance, setFlexibleAttendance] = useState(false);
   const [reportingTimeMinutes, setReportingTimeMinutes] = useState("");
   const [bufferMinutes, setBufferMinutes] = useState("");
@@ -305,6 +320,7 @@ function StaffProfilePageBody() {
     setWorkLocationIds([...ids]);
     setIsRoaming(Boolean(loaded.is_roaming));
     setEmploymentType(loaded.employment_type ?? "permanent");
+    setStaffStatus(loaded.status ?? "active");
     setFlexibleAttendance(Boolean(loaded.flexible_attendance));
     setReportingTimeMinutes(
       loaded.reporting_time_minutes == null ? "" : String(loaded.reporting_time_minutes),
@@ -382,6 +398,22 @@ function StaffProfilePageBody() {
     },
     onSuccess: () => {
       toast.success(t("people.staff.workLocationsSaved"));
+      void qc.invalidateQueries({ queryKey: queryKeys.people.staffProfile(id) });
+      void qc.invalidateQueries({ queryKey: queryKeys.people.all });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const statusMut = useMutation({
+    mutationFn: async () => {
+      const status = asEditableStaffStatus(staffStatus);
+      if (!status) throw new Error(t("people.staff.servingNoticeInvalid", "Choose a status from the list."));
+      const result = await updateStaff({ id, status });
+      if (!result.ok) throw new Error(result.error);
+      return result.data;
+    },
+    onSuccess: () => {
+      toast.success(t("people.staff.updateSuccess"));
       void qc.invalidateQueries({ queryKey: queryKeys.people.staffProfile(id) });
       void qc.invalidateQueries({ queryKey: queryKeys.people.all });
     },
@@ -610,8 +642,8 @@ function StaffProfilePageBody() {
               photoUpdatedAt={s.photo_updated_at}
               className="h-12 w-12 border border-border"
             />
-            <Badge variant="outline" className="uppercase">
-              {s.status.replace(/_/g, " ")}
+            <Badge variant="outline">
+              {profileStatusLabel(s.status, t)}
             </Badge>
             <Button asChild variant="secondary" size="sm">
               <Link href="/people?tab=staff">{t("people.tabs.staff")}</Link>
@@ -901,6 +933,34 @@ function StaffProfilePageBody() {
                     fact("Probation", probationSpan),
                   ]}
                 />
+                {canEdit ? (
+                  <div className="space-y-2 border-t border-border pt-3">
+                    <Label htmlFor="profile-staff-status">{t("people.staff.status")}</Label>
+                    <SearchableSelect
+                      id="profile-staff-status"
+                      value={staffStatus}
+                      onValueChange={setStaffStatus}
+                      aria-label={t("people.staff.status")}
+                      options={profileStatusOptions(s.status, staffStatus).map((value) => ({
+                        value,
+                        label: profileStatusLabel(value, t),
+                      }))}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {t(
+                        "people.staff.servingNoticeHint",
+                        "Choose Serving notice to mark this person. Choose Active to clear the notice. This saves one person.",
+                      )}
+                    </p>
+                    <Button
+                      size="sm"
+                      onClick={() => statusMut.mutate()}
+                      disabled={statusMut.isPending || staffStatus === (s.status ?? "active")}
+                    >
+                      {statusMut.isPending ? t("common.saving") : t("common.save")}
+                    </Button>
+                  </div>
+                ) : null}
                 {s.is_roaming || (s.work_locations?.length ?? 0) > 1 ? (
                   <div className="flex flex-wrap gap-1">
                     {s.is_roaming ? <Badge variant="outline">{t("people.staff.roaming")}</Badge> : null}
@@ -1253,7 +1313,7 @@ function StaffProfilePageBody() {
           )}
           <Row label={t("people.staff.e3")} value={s.e3_enrolled == null ? null : s.e3_enrolled ? "Yes" : "No"} />
           <Row label={t("people.staff.hireDate")} value={s.hire_date} />
-          <Row label={t("people.staff.status")} value={s.status} />
+          <Row label={t("people.staff.status")} value={profileStatusLabel(s.status, t)} />
           {profile.data?.canViewSalary ? (
             <Row
               label={

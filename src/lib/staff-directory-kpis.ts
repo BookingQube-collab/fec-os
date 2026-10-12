@@ -10,6 +10,7 @@ import {
   staffMatchesOrgShowOnly,
   type OrgFocusDepartment,
 } from "@/lib/exclude-org-departments";
+import { isAdminPeopleDirectoryRow } from "@/lib/people-directory-access";
 import { isExitingStaff, isNewJoiner } from "@/lib/staff-hr-alerts";
 import {
   countsAsActiveStaff,
@@ -41,6 +42,11 @@ export type StaffDirectoryFilters = {
   type: string;
   e3: string;
   status: string;
+  /**
+   * Company / admin Active list only. Keeps serving-notice people in that list
+   * so an admin can open one person. Off for every other directory filter.
+   */
+  includeServingNotice?: boolean;
   /** When true, the directory shows Jokers instead of the active-staff list. Default off. */
   showJokers?: boolean;
   nationality: string;
@@ -160,8 +166,11 @@ export function filterStaffDirectory(staff: StaffRow[], f: StaffDirectoryFilters
       f.type === "joker" ||
       normalizeDirectoryStatus(f.status) === "joker";
     if (jokerOnly && !isJokerStaff(s)) return false;
-    if (!jokerOnly && f.status === "active" && !countsAsActiveStaff(s.status, s.employment_type)) {
-      return false;
+    if (!jokerOnly && f.status === "active") {
+      const onList = f.includeServingNotice
+        ? isAdminPeopleDirectoryRow({ status: s.status, employmentType: s.employment_type })
+        : countsAsActiveStaff(s.status, s.employment_type);
+      if (!onList) return false;
     }
     if (!jokerOnly && f.status === "inactive" && countsAsActiveStaff(s.status, s.employment_type)) {
       return false;

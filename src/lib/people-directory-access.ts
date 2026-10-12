@@ -1,7 +1,9 @@
 import {
+  countsAsActiveStaff,
   isActiveStaffStatus,
   isContractFinishedStaffStatus,
   isJokerEmploymentType,
+  isJokerStaffStatus,
   isOnLeaveStaffStatus,
   isResignedStaffStatus,
   isServingNoticeStaffStatus,
@@ -99,4 +101,18 @@ export function isPeopleDirectoryTeamRow(input: {
     isOnLeaveStaffStatus(input.status) ||
     isServingNoticeStaffStatus(input.status)
   );
+}
+
+/**
+ * Default company / admin people list (the Active status filter).
+ * Active staff stay, and people serving notice stay so an admin can open
+ * one person and change that status. Resigned, terminated, contract finished,
+ * and jokers stay out. Team views use `isPeopleDirectoryTeamRow` instead.
+ */
+export function isAdminPeopleDirectoryRow(input: {
+  status: string | null | undefined;
+  employmentType?: string | null;
+}): boolean {
+  if (isJokerEmploymentType(input.employmentType) || isJokerStaffStatus(input.status)) return false;
+  return countsAsActiveStaff(input.status, input.employmentType) || isServingNoticeStaffStatus(input.status);
 }

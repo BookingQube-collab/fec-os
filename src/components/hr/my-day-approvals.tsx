@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useUserRoles } from "@/hooks/use-auth";
 import { useMyDirectReports } from "@/hooks/use-my-direct-reports";
+import { formatWorkDateDdMmYyyy } from "@/lib/attendance-display";
 import { actOnLeaveApproval, listLeaveRequests } from "@/lib/hr-leave.functions";
 import { canApproveLeaveOnMyDay, mayReviewStaffCorrectionsOnMyDay, mayReviewStaffLeaveOnMyDay } from "@/lib/hr/my-day-approvals";
 import { queryKeys } from "@/lib/query-keys";
@@ -82,50 +83,80 @@ export function MyDayLeaveApprovals({
       {!list.isPending && !list.isError && rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">{t("hr.me.leaveApprovalsEmpty")}</p>
       ) : null}
-      {rows.map((row) => {
-        const busy = act.isPending && act.variables?.leaveId === row.id;
-        return (
-          <div key={row.id} className="flex flex-wrap items-start justify-between gap-2 rounded-2xl border border-border/70 bg-card px-3 py-3 text-sm">
-            <div className="min-w-0">
-              <p className="font-medium">
-                {row.staffName ?? "Staff"}
-                {row.employeeCode ? ` · ${row.employeeCode}` : ""} · {t(`hr.leave.types.${row.leaveType}`)}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {row.dateFrom} → {row.dateTo} · {row.days}d
-                {row.reason ? ` · ${row.reason}` : ""}
-              </p>
-              {row.currentStepRole ? (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {t("hr.leave.waitingStep", { step: t(`hr.leave.steps.${row.currentStepRole}`) })}
-                </p>
-              ) : null}
-            </div>
-            <div className="flex items-center gap-2">
-              <Badge variant="warning">{t(`hr.leave.steps.${row.currentStepRole ?? "manager"}`)}</Badge>
-              <Button
-                type="button"
-                size="sm"
-                className="min-h-11"
-                disabled={busy}
-                onClick={() => act.mutate({ leaveId: row.id, action: "approved" })}
-              >
-                {t("hr.leave.approveStep")}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                className="min-h-11"
-                disabled={busy}
-                onClick={() => act.mutate({ leaveId: row.id, action: "rejected" })}
-              >
-                {t("hr.leave.reject")}
-              </Button>
-            </div>
-          </div>
-        );
-      })}
+      {rows.length > 0 ? (
+        <ul className="hd-approval-list">
+          {rows.map((row) => {
+            const busy = act.isPending && act.variables?.leaveId === row.id;
+            const name = row.staffName ?? "Staff";
+            return (
+              <li key={row.id}>
+                <article className="hd-approval" aria-busy={busy || undefined} aria-labelledby={`leave-approval-${row.id}-name`}>
+                  <header className="hd-approval__top">
+                    <div className="min-w-0">
+                      <h4 id={`leave-approval-${row.id}-name`} className="hd-approval__name">
+                        {name}
+                      </h4>
+                      {row.employeeCode ? <p className="hd-approval__code">{row.employeeCode}</p> : null}
+                    </div>
+                    <span className="hd-approval__kind">{t(`hr.leave.types.${row.leaveType}`)}</span>
+                  </header>
+                  <dl className="hd-approval__facts">
+                    <div className="hd-approval__fact">
+                      <dt>{t("hr.leave.from")}</dt>
+                      <dd>{formatWorkDateDdMmYyyy(row.dateFrom)}</dd>
+                    </div>
+                    <div className="hd-approval__fact">
+                      <dt>{t("hr.leave.to")}</dt>
+                      <dd>{formatWorkDateDdMmYyyy(row.dateTo)}</dd>
+                    </div>
+                    <div className="hd-approval__fact">
+                      <dt>{t("hr.leave.days")}</dt>
+                      <dd>{row.days}</dd>
+                    </div>
+                  </dl>
+                  {row.reason ? (
+                    <div className="hd-approval__block">
+                      <p className="hd-approval__label">{t("hr.me.approvalReason")}</p>
+                      <p className="hd-approval__reason">{row.reason}</p>
+                    </div>
+                  ) : null}
+                  <div className="hd-approval__step">
+                    {row.currentStepRole ? (
+                      <p className="hd-approval__waiting">
+                        {t("hr.leave.waitingStep", { step: t(`hr.leave.steps.${row.currentStepRole}`) })}
+                      </p>
+                    ) : (
+                      <span />
+                    )}
+                    <Badge variant="warning">{t(`hr.leave.steps.${row.currentStepRole ?? "manager"}`)}</Badge>
+                  </div>
+                  <div className="hd-approval__actions" role="group" aria-label={t("common.actions")}>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="min-h-11"
+                      disabled={busy}
+                      onClick={() => act.mutate({ leaveId: row.id, action: "approved" })}
+                    >
+                      {t("hr.leave.approveStep")}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      className="min-h-11"
+                      disabled={busy}
+                      onClick={() => act.mutate({ leaveId: row.id, action: "rejected" })}
+                    >
+                      {t("hr.leave.reject")}
+                    </Button>
+                  </div>
+                </article>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
     </div>
   );
 }
