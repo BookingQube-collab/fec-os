@@ -6,13 +6,22 @@ const MIME_BY_EXT: Record<string, string> = {
   webp: "image/webp",
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
+  jfif: "image/jpeg",
+};
+
+const MIME_ALIASES: Record<string, string> = {
+  "image/jpg": "image/jpeg",
+  "image/pjpeg": "image/jpeg",
+  "image/jfif": "image/jpeg",
 };
 
 export const IDENTITY_FILE_ACCEPT = "application/pdf,image/jpeg,image/png,image/webp,.pdf,.jpg,.jpeg,.png,.webp";
 
 export function identityFileContentType(file: { name: string; type: string }): string | null {
   const allowed = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]);
-  if (file.type && allowed.has(file.type)) return file.type;
+  const raw = file.type.split(";")[0]?.trim().toLowerCase() ?? "";
+  const normalized = MIME_ALIASES[raw] ?? raw;
+  if (normalized && allowed.has(normalized)) return normalized;
   const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
   return MIME_BY_EXT[ext] ?? null;
 }

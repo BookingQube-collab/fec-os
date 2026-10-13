@@ -11,6 +11,7 @@ import { createAuthenticatedAction, type AuthContext } from "@/lib/server/create
 import { ForbiddenError } from "@/lib/server/authorize";
 import { canUserDo, type AppRole } from "@/lib/rbac";
 import { extractIdentityDocumentFromBytes } from "@/lib/hr/extract-identity-document";
+import { identityFileContentType } from "@/lib/hr/identity-file";
 import { isIdentityDocType } from "@/lib/hr/identity-document-parse";
 import { syncStaffIdentityProfile } from "@/lib/hr/sync-staff-identity";
 import { validateBase64Size, validateUploadMime } from "@/lib/server/upload-validation";
@@ -263,14 +264,16 @@ export const extractStaffIdentityDocument = createAuthenticatedAction(
     content_type: z.string().max(100),
   }),
   async (data) => {
-    validateUploadMime(data.content_type, "document");
+    const contentType = identityFileContentType({ name: data.filename, type: data.content_type });
+    if (!contentType) throw new Error(`Unsupported file type: ${data.content_type || data.filename}`);
+    validateUploadMime(contentType, "document");
     validateBase64Size(data.data_base64, 10 * 1024 * 1024);
     const bytes = Buffer.from(data.data_base64, "base64");
     return extractIdentityDocumentFromBytes({
       docType: data.docType,
       filename: data.filename,
       bytes,
-      contentType: data.content_type,
+      contentType,
     });
   },
   { auth: { anyCapability: ["people.edit_roster", "hr.docs.manage", "hr.manage", "hr.employee_app"] } },
