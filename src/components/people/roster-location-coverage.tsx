@@ -21,8 +21,9 @@ type RosterLocationCoverageProps = {
 };
 
 /**
- * Period coverage for every active site the Location filter uses.
- * Grid location, staff, and department filters are intentionally not applied.
+ * Period coverage for the sites this roster can include.
+ * A company roster uses every active site. A team roster uses home branches and extra
+ * dedicated sites for the viewer and the people under them. Grid filters are not applied.
  */
 export function RosterLocationCoverage({ dateFrom, dateTo, enabled = true }: RosterLocationCoverageProps) {
   const { t } = useTranslation();
@@ -44,12 +45,21 @@ export function RosterLocationCoverage({ dateFrom, dateTo, enabled = true }: Ros
     enabled: enabled && Boolean(dateFrom && dateTo),
   });
 
+  const cardSites = useMemo(() => {
+    if (!coverage.data) return null;
+    if (coverage.data.cardLocations != null) return coverage.data.cardLocations;
+    return sites.data ?? null;
+  }, [coverage.data, sites.data]);
+
   const items = useMemo(
-    () => locationRosterCoverage(sites.data ?? [], coverage.data?.rows ?? [], (site) => formatLocationRecord(site)),
-    [sites.data, coverage.data?.rows],
+    () => locationRosterCoverage(cardSites ?? [], coverage.data?.rows ?? [], (site) => formatLocationRecord(site)),
+    [cardSites, coverage.data?.rows],
   );
 
-  if (sites.isError || coverage.isError) {
+  const sitesFailed = coverage.data != null && coverage.data.cardLocations == null && sites.isError;
+  const sitesPending = !coverage.data || (coverage.data.cardLocations == null && !sites.data);
+
+  if (sitesFailed || coverage.isError) {
     return (
       <section className="surface-card p-4" aria-label={t("people.roster.locationCoverageTitle")}>
         <p className="text-sm text-destructive">{t("people.roster.locationCoverageLoadFailed")}</p>
@@ -57,7 +67,7 @@ export function RosterLocationCoverage({ dateFrom, dateTo, enabled = true }: Ros
     );
   }
 
-  if (!sites.data || !coverage.data) {
+  if (sitesPending || !coverage.data) {
     return (
       <section className="surface-card p-4" aria-label={t("people.roster.locationCoverageTitle")}>
         <p className="text-sm text-muted-foreground">{t("people.roster.locationCoverageLoading")}</p>

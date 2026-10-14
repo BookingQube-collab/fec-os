@@ -24,6 +24,37 @@ export type LocationRosterCoverageItem = {
   staffCount: number;
 };
 
+/**
+ * Sites a roster chart is assigned to.
+ * Home branch and extra dedicated sites only. Punch history and shift rows are not inputs.
+ */
+export function rosterScopeAssignedLocationIds(input: {
+  homeLocationIds?: readonly (string | null | undefined)[];
+  extraLocationIds?: readonly (string | null | undefined)[];
+}): string[] {
+  const ids = new Set<string>();
+  for (const id of input.homeLocationIds ?? []) {
+    if (id) ids.add(id);
+  }
+  for (const id of input.extraLocationIds ?? []) {
+    if (id) ids.add(id);
+  }
+  return [...ids].sort();
+}
+
+/**
+ * Location cards for one roster viewer.
+ * Null keeps every site (company roster). A team list keeps sites someone on that roster is assigned to.
+ */
+export function locationsForRosterCards<T extends { id: string }>(
+  sites: readonly T[],
+  assignedLocationIds: readonly string[] | null,
+): T[] {
+  if (assignedLocationIds == null) return [...sites];
+  const allow = new Set(assignedLocationIds.filter(Boolean));
+  return sites.filter((site) => allow.has(site.id));
+}
+
 export function locationRosterCoverage(
   sites: readonly LocationRosterSite[],
   rows: readonly LocationRosterCoverageRow[],

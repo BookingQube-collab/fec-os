@@ -164,14 +164,19 @@ export default function StaffRosterRegisterPage() {
     staleTime: STALE.people,
     enabled: copyChoiceOpen && Boolean(period.dateFrom && period.dateTo),
   });
+  const copyCardSites = useMemo(() => {
+    if (!rosterCoverage.data) return null;
+    if (rosterCoverage.data.cardLocations != null) return rosterCoverage.data.cardLocations;
+    return sites.data ?? null;
+  }, [rosterCoverage.data, sites.data]);
   const uploadedLocations = useMemo(
     () =>
       locationRosterCoverage(
-        sites.data ?? [],
+        copyCardSites ?? [],
         (rosterCoverage.data?.rows ?? []).map((row) => ({ locationId: row.locationId, staffId: row.staffId })),
         (site) => formatLocationRecord(site),
       ).filter((item) => item.uploaded),
-    [sites.data, rosterCoverage.data?.rows],
+    [copyCardSites, rosterCoverage.data?.rows],
   );
   const flexibleStaff = useMemo(
     () => flexibleMultiSiteRosterStaff(rosterCoverage.data?.rows ?? []),
@@ -218,18 +223,25 @@ export default function StaffRosterRegisterPage() {
     staleTime: STALE.people,
     enabled: downloadOpen && Boolean(previousPeriod.dateFrom && previousPeriod.dateTo),
   });
+  const downloadCardSites = useMemo(() => {
+    if (!previousCoverage.data) return null;
+    if (previousCoverage.data.cardLocations != null) return previousCoverage.data.cardLocations;
+    return sites.data ?? null;
+  }, [previousCoverage.data, sites.data]);
   const downloadLocations = useMemo(
     () =>
       locationRosterCoverage(
-        sites.data ?? [],
+        downloadCardSites ?? [],
         (previousCoverage.data?.rows ?? []).map((row) => ({ locationId: row.locationId, staffId: row.staffId })),
         (site) => formatLocationRecord(site),
       ),
-    [sites.data, previousCoverage.data?.rows],
+    [downloadCardSites, previousCoverage.data?.rows],
   );
   const downloadLocation = downloadLocations.find((site) => site.id === downloadLocationId) ?? null;
-  const downloadLocationsLoading = previousCoverage.isLoading || sites.isLoading;
-  const downloadLocationsFailed = previousCoverage.isError || sites.isError;
+  const downloadLocationsLoading =
+    previousCoverage.isLoading || (previousCoverage.data?.cardLocations == null && sites.isLoading);
+  const downloadLocationsFailed =
+    previousCoverage.isError || (previousCoverage.data != null && previousCoverage.data.cardLocations == null && sites.isError);
 
   const openDownloadChoice = () => {
     setDownloadStep("location");
@@ -356,8 +368,10 @@ export default function StaffRosterRegisterPage() {
     copyMut.mutate({ replace: false, ...filter });
   };
 
-  const sitesLoading = rosterCoverage.isLoading || sites.isLoading;
-  const sitesFailed = rosterCoverage.isError || sites.isError;
+  const sitesLoading =
+    rosterCoverage.isLoading || (rosterCoverage.data?.cardLocations == null && sites.isLoading);
+  const sitesFailed =
+    rosterCoverage.isError || (rosterCoverage.data != null && rosterCoverage.data.cardLocations == null && sites.isError);
   const rosterLoading = rosterCoverage.isLoading;
   const rosterFailed = rosterCoverage.isError;
   const flexibleEmpty = !rosterLoading && !rosterFailed && flexiblePeople.length === 0;

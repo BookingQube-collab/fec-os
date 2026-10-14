@@ -6,7 +6,7 @@ import { loadLinkedStaffIdentity, loadLinkedStaffJobTitle } from "@/lib/linked-s
 import { canAmendShiftRoster, canUserDo, type AppRole } from "@/lib/rbac";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { isManagerTeamSupervisor } from "@/lib/manager-supervisor-team";
-import { loadRosterChartStaffIds } from "@/lib/reporting-manager-access.server";
+import { loadAssignedTeamLocations, loadRosterChartStaffIds } from "@/lib/reporting-manager-access.server";
 import { createAuthenticatedAction, createAuthenticatedActionNoInput, type AuthContext } from "@/lib/server/create-action";
 import { ForbiddenError } from "@/lib/server/authorize";
 import { assertAttendanceRosterLocation } from "@/lib/attendance-hr/roster-apply";
@@ -489,6 +489,13 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
     if (!companyRoster && teamIds.length === 0) {
       throw new ForbiddenError("Forbidden: missing capability to view the shift roster.");
     }
+    const cardLocationsPromise =
+      data.coverageOnly || data.includeCopyDepartments
+        ? teamIds
+          ? loadAssignedTeamLocations(teamIds)
+          : Promise.resolve(null)
+        : Promise.resolve(null);
+
     if (teamIds && data.staffId && !teamIds.includes(data.staffId)) {
       return {
         dateFrom: data.dateFrom,
@@ -496,6 +503,7 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
         count: 0,
         rows: [] as RosterRegisterRow[],
         teamStaff: [] as RosterMatrixStaff[],
+        cardLocations: await cardLocationsPromise,
       };
     }
     if (data.locationId && companyRoster) await assertAttendanceRosterLocation(context, data.locationId);
@@ -516,6 +524,7 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
           count: 0,
           rows: [] as RosterRegisterRow[],
           teamStaff: [] as RosterMatrixStaff[],
+          cardLocations: await cardLocationsPromise,
         };
       }
     }
@@ -611,6 +620,8 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
         count: rows.length,
         rows,
         teamStaff: null as RosterMatrixStaff[] | null,
+        /** Null for a company roster. Assigned home and extra sites for a team roster. */
+        cardLocations: await cardLocationsPromise,
       };
     }
 
@@ -805,6 +816,8 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
       rows: mapped,
       /** Null for company roster viewers. Chart subtree plus the viewer for a team-scoped login, even with no shifts. */
       teamStaff,
+      /** Null for a company roster. Assigned home and extra sites for a team roster. */
+      cardLocations: await cardLocationsPromise,
     };
   },
   {

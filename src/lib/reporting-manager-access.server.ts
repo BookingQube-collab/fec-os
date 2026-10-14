@@ -11,6 +11,10 @@ import {
 } from "@/lib/manager-supervisor-team";
 import { isPeopleDirectoryTeamRow } from "@/lib/people-directory-access";
 import {
+  locationsForRosterCards,
+  rosterScopeAssignedLocationIds,
+} from "@/lib/attendance-hr/roster-location-coverage";
+import {
   rosterChartTeamIds,
   rosterTeamOrSelfStaffIds,
   unionTeamLocationIds,
@@ -348,6 +352,55 @@ async function distinctColumnIds(
     }
   }
   return [...ids];
+}
+
+/**
+ * Active sites where these people are assigned today.
+ * Home branch and extra dedicated sites. Punch history and roster rows do not add a site.
+ */
+export async function loadAssignedTeamLocations(staffIds: string[]): Promise<TeamCoverageLocation[]> {
+  if (staffIds.length === 0) return [];
+
+  const homeIds: string[] = [];
+  for (let index = 0; index < staffIds.length; index += 100) {
+    const chunk = staffIds.slice(index, index + 100);
+    const { data, error } = await supabaseAdmin
+      .from("staff")
+      .select("location_id")
+      .in("id", chunk)
+      .is("deleted_at", null);
+    if (error) throw new Error(error.message);
+    for (const row of data ?? []) {
+      if (row.location_id) homeIds.push(String(row.location_id));
+    }
+  }
+
+  const extraIds = await distinctColumnIds("staff_work_locations", staffIds);
+  const locationIds = rosterScopeAssignedLocationIds({
+    homeLocationIds: homeIds,
+    extraLocationIds: extraIds,
+  });
+  if (locationIds.length === 0) return [];
+
+  const { data, error } = await supabaseAdmin
+    .from("locations")
+    .select("id, code, name, city, region, status, timezone")
+    .in("id", locationIds)
+    .eq("status", "active")
+    .order("code");
+  if (error) throw new Error(error.message);
+  return locationsForRosterCards(
+    (data ?? []).map((row) => ({
+      id: String(row.id),
+      code: String(row.code),
+      name: String(row.name),
+      city: row.city ?? null,
+      region: row.region ?? null,
+      status: String(row.status),
+      timezone: String(row.timezone),
+    })),
+    locationIds,
+  );
 }
 
 /** Active sites where these people are assigned, rostered, or have punched. */
