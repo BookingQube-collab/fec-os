@@ -179,6 +179,27 @@ export function parseStaffLoginEmail(value: string): string | null {
   return parsed.success ? parsed.data.toLowerCase() : null;
 }
 
+/** Stored staff email for the org-chart create-login field. Blank when none is saved. */
+export function prefillOrgChartLoginEmail(staffEmail: string | null | undefined): string {
+  return (staffEmail ?? "").trim();
+}
+
+/**
+ * Org-chart create-login payload. A login is not created until the chosen email is valid.
+ */
+export function orgChartCreateLoginRequest(input: {
+  staffId: string;
+  email: string;
+  password: string;
+}):
+  | { ok: true; staffId: string; email: string; password: string }
+  | { ok: false; emailError: boolean; passwordError: boolean } {
+  const email = parseStaffLoginEmail(input.email);
+  const passwordOk = isStaffLoginPassword(input.password);
+  if (!email || !passwordOk) return { ok: false, emailError: !email, passwordError: !passwordOk };
+  return { ok: true, staffId: input.staffId, email, password: input.password };
+}
+
 export type ResolveStaffLoginEmailOptions = {
   fullName?: string | null;
   takenEmails?: Iterable<string>;

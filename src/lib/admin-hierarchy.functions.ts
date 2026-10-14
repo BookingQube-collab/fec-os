@@ -57,6 +57,7 @@ type StaffJoin = {
   status: string | null;
   user_id: string | null;
   photo_updated_at: string | null;
+  email?: string | null;
   staff_departments?: DeptLink[] | DeptLink | null;
 };
 
@@ -103,7 +104,7 @@ async function authEmailsByUserId(userIds: ReadonlySet<string>): Promise<Map<str
 }
 
 const CHAIN_STAFF_SELECT =
-  "id, full_name, employee_code, job_title, department, location_id, staff_role, status, user_id, photo_updated_at, staff_departments(department_id, master_departments(id, name, sort_order))";
+  "id, full_name, employee_code, job_title, department, location_id, staff_role, status, user_id, photo_updated_at, email, staff_departments(department_id, master_departments(id, name, sort_order))";
 
 async function loadViewer(userId: string | null, roles: readonly string[] | undefined) {
   if (!userId) return { userId: null, employeeCode: null, displayName: null, seat: null as "ceo" | null };
@@ -192,6 +193,7 @@ function toOrgChartPerson(
     orgChartPlaced: Boolean(ext?.org_chart_placed),
     loginLinked: Boolean(row.user_id),
     loginEmail: row.user_id ? (loginEmails.get(row.user_id) ?? null) : null,
+    email: row.email?.trim() || null,
     locationId: row.location_id,
     locationName: row.location_id ? (locationNames.get(row.location_id) ?? null) : null,
   };

@@ -27,7 +27,7 @@ import {
   type OrgChartView,
 } from "@/lib/admin-hierarchy.functions";
 import { provisionStaffLogin } from "@/lib/admin.functions";
-import { generateStaffLoginPassword, isStaffLoginPassword } from "@/lib/staff-login";
+import { generateStaffLoginPassword, orgChartCreateLoginRequest, prefillOrgChartLoginEmail } from "@/lib/staff-login";
 import { hierarchyAccessMode, staffProfileOpenIds, type HierarchyAccessMode } from "@/lib/hierarchy-access";
 import {
   groupOrgChart,
@@ -125,6 +125,8 @@ function HierarchyEditor({ accessMode }: { accessMode: Exclude<HierarchyAccessMo
   const [view, setView] = useState<"chart" | "logins">("logins");
   const [issued, setIssued] = useState<Record<string, IssuedStaffLogin>>({});
   const [loginTarget, setLoginTarget] = useState<{ staffId: string; name: string } | null>(null);
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginEmailError, setLoginEmailError] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [loginPasswordError, setLoginPasswordError] = useState("");
   const query = useQuery({
@@ -240,8 +242,12 @@ function HierarchyEditor({ accessMode }: { accessMode: Exclude<HierarchyAccessMo
   });
 
   const createLogin = useMutation({
-    mutationFn: async (input: { staffId: string; password: string }) => {
-      const result = await provisionStaffLogin({ staffId: input.staffId, password: input.password });
+    mutationFn: async (input: { staffId: string; email: string; password: string }) => {
+      const result = await provisionStaffLogin({
+        staffId: input.staffId,
+        email: input.email,
+        password: input.password,
+      });
       if (!result.ok) throw new Error(result.error);
       return result.data;
     },
@@ -260,7 +266,9 @@ function HierarchyEditor({ accessMode }: { accessMode: Exclude<HierarchyAccessMo
         return {
           ...current,
           people: current.people.map((person) =>
-            person.staffId === input.staffId ? { ...person, loginLinked: true, loginEmail: result.email } : person,
+            person.staffId === input.staffId
+              ? { ...person, loginLinked: true, loginEmail: result.email, email: result.email }
+              : person,
           ),
         };
       });
@@ -278,6 +286,8 @@ function HierarchyEditor({ accessMode }: { accessMode: Exclude<HierarchyAccessMo
     if (createLogin.isPending) return;
     const person = query.data?.people.find((row) => row.staffId === staffId);
     createLogin.reset();
+    setLoginEmail(prefillOrgChartLoginEmail(person?.email));
+    setLoginEmailError("");
     setLoginPassword(generateStaffLoginPassword());
     setLoginPasswordError("");
     setLoginTarget({ staffId, name: person?.fullName ?? "" });
@@ -285,12 +295,15 @@ function HierarchyEditor({ accessMode }: { accessMode: Exclude<HierarchyAccessMo
 
   const submitCreateLogin = () => {
     if (!loginTarget || createLogin.isPending) return;
-    if (!isStaffLoginPassword(loginPassword)) {
-      setLoginPasswordError(t("people.profile.login.passwordInvalid"));
-      return;
-    }
-    setLoginPasswordError("");
-    createLogin.mutate({ staffId: loginTarget.staffId, password: loginPassword });
+    const request = orgChartCreateLoginRequest({
+      staffId: loginTarget.staffId,
+      email: loginEmail,
+      password: loginPassword,
+    });
+    setLoginEmailError(request.ok || !request.emailError ? "" : t("people.profile.login.emailInvalid"));
+    setLoginPasswordError(request.ok || !request.passwordError ? "" : t("people.profile.login.passwordInvalid"));
+    if (!request.ok) return;
+    createLogin.mutate(request);
   };
 
   const saving = place.isPending || move.isPending || remove.isPending || appoint.isPending;
@@ -581,6 +594,29 @@ function HierarchyEditor({ accessMode }: { accessMode: Exclude<HierarchyAccessMo
             }}
           >
             <div className="space-y-1.5">
+              <Label htmlFor="staff-create-login-email">{t("people.staff.email")}</Label>
+              <Input
+                id="staff-create-login-email"
+                type="email"
+                autoComplete="off"
+                spellCheck={false}
+                maxLength={200}
+                value={loginEmail}
+                disabled={createLogin.isPending}
+                aria-invalid={loginEmailError ? true : undefined}
+                aria-describedby="staff-create-login-email-hint"
+                onChange={(event) => {
+                  setLoginEmail(event.target.value);
+                  if (loginEmailError) setLoginEmailError("");
+                  if (createLogin.isError) createLogin.reset();
+                }}
+              />
+              <p id="staff-create-login-email-hint" className="text-xs text-muted-foreground">
+                {t("hr.hierarchy.createLoginEmailHint")}
+              </p>
+              {loginEmailError ? <p className="text-sm text-destructive">{loginEmailError}</p> : null}
+            </div>
+            <div className="space-y-1.5">
               <Label htmlFor="staff-create-login-password">{t("people.profile.login.issuedPassword")}</Label>
               <Input
                 id="staff-create-login-password"
@@ -601,10 +637,10 @@ function HierarchyEditor({ accessMode }: { accessMode: Exclude<HierarchyAccessMo
                 {t("hr.hierarchy.createLoginRule")}
               </p>
               {loginPasswordError ? <p className="text-sm text-destructive">{loginPasswordError}</p> : null}
-              {createLogin.isError ? (
-                <p className="text-sm text-destructive">{createLogin.error.message}</p>
-              ) : null}
             </div>
+            {createLogin.isError ? (
+              <p className="text-sm text-destructive">{createLogin.error.message}</p>
+            ) : null}
             <DialogFooter>
               <Button type="button" variant="outline" disabled={createLogin.isPending} onClick={() => setLoginTarget(null)}>
                 {t("hr.hierarchy.cancelMove")}

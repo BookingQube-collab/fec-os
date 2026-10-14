@@ -58,6 +58,8 @@ export type OrgChartPerson = OrgReportingRow & {
   /** Set on the operations chart. Absent means the login was not loaded. */
   loginLinked?: boolean;
   loginEmail?: string | null;
+  /** Contact email on the staff record. The create-login dialog prefills from this. */
+  email?: string | null;
   /** Home location. The org chart uses it when a double-click appoints a team leader. */
   locationId?: string | null;
   locationName?: string | null;

@@ -4,6 +4,8 @@ import {
   chooseStaffLoginEmail,
   generateStaffLoginPassword,
   isStaffLoginPassword,
+  orgChartCreateLoginRequest,
+  prefillOrgChartLoginEmail,
   resolveStaffLoginEmail,
   staffLoginEmailCandidates,
 } from "@/lib/staff-login";
@@ -98,7 +100,43 @@ describe("resolveStaffLoginEmail", () => {
   it("falls back to the employee code when the name has no latin letters", () => {
     expect(resolveStaffLoginEmail(null, "S43", { fullName: "سارة" })).toBe("s43@fec.qa");
   });
+});
 
+describe("org chart create login email", () => {
+  it("prefills a stored staff email and leaves a blank when none is saved", () => {
+    expect(prefillOrgChartLoginEmail("  Agnes@Example.com  ")).toBe("Agnes@Example.com");
+    expect(prefillOrgChartLoginEmail(null)).toBe("");
+    expect(prefillOrgChartLoginEmail(undefined)).toBe("");
+    expect(prefillOrgChartLoginEmail("   ")).toBe("");
+  });
+
+  it("requires a normal email and keeps the edited address for the login", () => {
+    const password = generateStaffLoginPassword();
+    expect(
+      orgChartCreateLoginRequest({ staffId: "staff-1", email: "  Agnes@Example.com ", password }),
+    ).toEqual({ ok: true, staffId: "staff-1", email: "agnes@example.com", password });
+    expect(orgChartCreateLoginRequest({ staffId: "staff-1", email: "", password })).toEqual({
+      ok: false,
+      emailError: true,
+      passwordError: false,
+    });
+    expect(orgChartCreateLoginRequest({ staffId: "staff-1", email: "n/a", password })).toMatchObject({
+      ok: false,
+      emailError: true,
+    });
+    expect(orgChartCreateLoginRequest({ staffId: "staff-1", email: "not-an-email", password })).toMatchObject({
+      ok: false,
+      emailError: true,
+    });
+    expect(orgChartCreateLoginRequest({ staffId: "staff-1", email: "agnes@example.com", password: "short" })).toEqual({
+      ok: false,
+      emailError: false,
+      passwordError: true,
+    });
+  });
+});
+
+describe("chooseStaffLoginEmail", () => {
   it("does not walk backwards when a later generated email is taken", () => {
     expect(
       chooseStaffLoginEmail({

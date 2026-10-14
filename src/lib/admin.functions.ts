@@ -503,6 +503,7 @@ export const provisionStaffLogin = createSafeAuthenticatedAction(
     const passwordWasSupplied = Boolean(data.password);
     const password = data.password ?? generateStaffLoginPassword();
     const authByEmail = await listAuthUsersByEmail();
+    const emailWasChosen = Boolean(data.email);
     const autoEmails = new Set([
       ...staffLoginEmailCandidates(staff.full_name),
       ...staffLoginCodeEmails(staff.employee_code),
@@ -516,7 +517,20 @@ export const provisionStaffLogin = createSafeAuthenticatedAction(
     if (!email) throw new Error("Enter a valid email address.");
 
     const existingForEmail = authByEmail.get(email);
-    if (existingForEmail && autoEmails.has(email)) {
+    if (emailWasChosen && existingForEmail) {
+      const { data: ownerRows, error: ownerErr } = await supabaseAdmin
+        .from("staff")
+        .select("id, full_name, employee_code")
+        .eq("user_id", existingForEmail)
+        .neq("id", staff.id)
+        .is("deleted_at", null)
+        .limit(1);
+      if (ownerErr) throw ownerErr;
+      const owner = ownerRows?.[0];
+      if (owner) {
+        throw new Error(`This login is already linked to ${owner.full_name} (${owner.employee_code})`);
+      }
+    } else if (existingForEmail && autoEmails.has(email)) {
       const { data: ownerRows, error: ownerErr } = await supabaseAdmin
         .from("staff")
         .select("id, full_name, employee_code")
@@ -625,7 +639,7 @@ export const provisionStaffLogin = createSafeAuthenticatedAction(
 
     const { data: linked, error: linkErr } = await supabaseAdmin
       .from("staff")
-      .update({ user_id: userId })
+      .update(emailWasChosen ? { user_id: userId, email } : { user_id: userId })
       .eq("id", staff.id)
       .is("user_id", null)
       .select("id")
