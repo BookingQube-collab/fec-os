@@ -17,10 +17,7 @@ import {
   normalizeDepartmentName,
   splitDepartmentTokens,
 } from "@/lib/staff-departments";
-import {
-  assertInternalEmployeeCode,
-  generateEmployeeCode,
-} from "@/lib/staff-employee-code";
+import { resolveNewEmployeeCode } from "@/lib/staff-employee-code";
 import { fetchStaffIdsWorkingAtLocation } from "@/lib/staff-work-locations";
 import { shiftUuid, staffUuid } from "@/lib/staff-import-ids";
 import { createAuthenticatedAction, createSafeAuthenticatedAction } from "@/lib/server/create-action";
@@ -665,6 +662,27 @@ const STAFF_STATUSES = [
 ] as const;
 const TRAINING_STATUSES = ["enrolled", "in_progress", "completed", "overdue"] as const;
 
+/**
+ * Every employee_code on staff, including soft-deleted rows.
+ * The unique key is not partial, and a code stays reserved after the person moves branch.
+ */
+async function loadUsedEmployeeCodes(): Promise<string[]> {
+  const rows = await fetchAllRows<{ employee_code: string | null }>((from, to) =>
+    supabaseAdmin
+      .from("staff")
+      .select("employee_code")
+      .order("id", { ascending: true })
+      .range(from, to),
+  );
+  return rows.map((row) => String(row.employee_code ?? "").trim().toUpperCase()).filter(Boolean);
+}
+
+export const listStaffEmployeeCodes = createAuthenticatedAction(
+  z.object({}).default({}),
+  async () => loadUsedEmployeeCodes(),
+  { defaultInput: {}, auth: { capability: "people.edit_roster" } },
+);
+
 /** Safe so production toasts show DB/Zod text instead of Next RSC digests. */
 export const createStaff = createSafeAuthenticatedAction(
   z.object({
@@ -695,27 +713,12 @@ export const createStaff = createSafeAuthenticatedAction(
     const locationCode = String(locRow?.code ?? "").trim().toUpperCase();
     if (!locationCode) throw new Error("Branch code not found");
 
-    // Service role for code scan + insert: avoids RLS INSERT…RETURNING edge cases and 1k row caps.
-    const { data: codeRows, error: codesErr } = await supabaseAdmin
-      .from("staff")
-      .select("employee_code")
-      .is("deleted_at", null);
-    if (codesErr) throw codesErr;
-    const usedCodes = new Set(
-      (codeRows ?? []).map((r) => String(r.employee_code ?? "").trim().toUpperCase()).filter(Boolean),
-    );
-
-    const hint = { jobTitle: data.jobTitle };
-    let employee_code: string;
-    const preferred = data.employeeCode?.trim();
-    if (preferred) {
-      employee_code = assertInternalEmployeeCode(preferred, data.qid);
-      if (usedCodes.has(employee_code)) {
-        employee_code = generateEmployeeCode(locationCode, usedCodes, hint);
-      }
-    } else {
-      employee_code = generateEmployeeCode(locationCode, usedCodes, hint);
-    }
+    // Service role so RLS and the PostgREST row cap cannot hide a reserved code.
+    const usedCodes = await loadUsedEmployeeCodes();
+    const employee_code = resolveNewEmployeeCode(locationCode, usedCodes, data.employeeCode, {
+      jobTitle: data.jobTitle,
+      qid: data.qid,
+    });
 
     const names = await departmentNamesForIds(context, data.departmentIds);
     const department = formatDepartmentDisplay(names) || null;

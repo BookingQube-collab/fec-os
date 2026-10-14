@@ -7,6 +7,7 @@ import {
   isPreservableEmployeeCode,
   isQidShapedCode,
   nextEmployeeCode,
+  resolveNewEmployeeCode,
   roleTokenKind,
 } from "./staff-employee-code";
 
@@ -69,6 +70,24 @@ describe("nextEmployeeCode", () => {
     expect(nextEmployeeCode("INF-CC", existing)).toBe("INF-CC-STF01");
     expect(nextEmployeeCode("KDS-CC", existing)).toBe("KDS-CC-STF02");
     expect(existing).toEqual(["KDS-CC-STF01", "KDS-CC-STF05", "INF-CC-STF16"]);
+  });
+});
+
+describe("resolveNewEmployeeCode", () => {
+  it("keeps a free suggestion and does not replace a taken one with a deleted code", () => {
+    const existing = ["UA-DM-STF17", "UA-DM-STF18", "UA-DM-STF19"];
+    expect(nextEmployeeCode("UA-DM", existing)).toBe("UA-DM-STF01");
+    expect(resolveNewEmployeeCode("UA-DM", existing, "UA-DM-STF01")).toBe("UA-DM-STF01");
+    expect(resolveNewEmployeeCode("UA-DM", existing, "")).toBe("UA-DM-STF01");
+    expect(() => resolveNewEmployeeCode("UA-DM", existing, "UA-DM-STF18")).toThrow(/already used/i);
+    expect(() => resolveNewEmployeeCode("UA-DM", existing, "ua-dm-stf17")).toThrow(/already used/i);
+  });
+
+  it("uses the same next code the form would show when every issued code is reserved", () => {
+    const existing = Array.from({ length: 22 }, (_, index) => `UA-DM-STF${String(index + 1).padStart(2, "0")}`);
+    const shown = nextEmployeeCode("UA-DM", existing, { jobTitle: "Crew" });
+    expect(shown).toBe("UA-DM-STF23");
+    expect(resolveNewEmployeeCode("UA-DM", existing, shown, { jobTitle: "Crew" })).toBe(shown);
   });
 });
 

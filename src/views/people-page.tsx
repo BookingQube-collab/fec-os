@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Users,
   Plus,
@@ -52,6 +52,7 @@ import {
   clockOutShift,
   cancelShift,
   createStaff,
+  listStaffEmployeeCodes,
   updateStaff,
   attachStaffIdentityDocuments,
   saveStaffPhoto,
@@ -543,7 +544,6 @@ function StaffFormDialog({
   const canViewSalary = usePeopleDirectoryShowsSalary();
   const canEditSalary = usePermission("people.edit_salary") && canViewSalary;
   const [loc, setLoc] = useState(staff?.location_id ?? locationId ?? "");
-  const [employeeCode, setEmployeeCode] = useState(staff?.employee_code ?? "");
   const [fullName, setFullName] = useState(staff?.full_name ?? "");
   const [jobTitle, setJobTitle] = useState(staff?.job_title ?? "");
   const [gender, setGender] = useState(staff?.gender ?? "");
@@ -569,9 +569,11 @@ function StaffFormDialog({
     if (matched !== nationality) setNationality(matched);
   }, [nationality, nationalityNames]);
   const { data: departments = [] } = useMasterDepartments({ enabled: open });
-  const { data: codeScopeStaff = [] } = useStaff(loc || null, {
-    enabled: open && !isEdit && !!loc,
-    includeArchived: true,
+  const employeeCodesQuery = useQuery({
+    queryKey: queryKeys.people.employeeCodes(),
+    queryFn: () => listStaffEmployeeCodes({}),
+    enabled: open && !isEdit,
+    staleTime: 0,
   });
   const [departmentIds, setDepartmentIds] = useState<string[]>(staff?.department_ids ?? []);
   const [hireDate, setHireDate] = useState(staff?.hire_date ?? "");
@@ -636,7 +638,7 @@ function StaffFormDialog({
   const [photoDraft, setPhotoDraft] = useState<StaffPhotoDraft>({ dataUrl: null, remove: false });
   const [identity, setIdentity] = useState<StaffIdentityDraft>(() => emptyIdentityDraft(staff));
   const [createdStaffId, setCreatedStaffId] = useState<string | null>(null);
-  const [codeNonce, setCodeNonce] = useState(0);
+  const [skippedEmployeeCodes, setSkippedEmployeeCodes] = useState<string[]>([]);
   const titleListOpenRef = useRef(false);
   const homeSiteListOpenRef = useRef(false);
   const workSiteListOpenRef = useRef(false);
@@ -650,30 +652,22 @@ function StaffFormDialog({
     setIdentity(emptyIdentityDraft(staff));
     setCreatedStaffId(null);
     setPhotoDraft({ dataUrl: null, remove: false });
+    setSkippedEmployeeCodes([]);
   }, [open, staff]);
 
-  useEffect(() => {
-    if (!open || isEdit) return;
-    if (!loc) {
-      setEmployeeCode("");
-      return;
-    }
-    const site = sites.find((s) => s.id === loc);
-    if (!site?.code) {
-      setEmployeeCode("");
-      return;
-    }
-    setEmployeeCode(
-      nextEmployeeCode(
-        site.code,
-        codeScopeStaff.map((s) => s.employee_code),
-        { jobTitle: jobTitle || null },
-      ),
-    );
-  }, [open, isEdit, loc, jobTitle, codeScopeStaff, sites, codeNonce]);
+  const branchCode = sites.find((site) => site.id === loc)?.code ?? "";
+  const issuedEmployeeCodes = employeeCodesQuery.data;
+  const employeeCode = useMemo(() => {
+    if (isEdit || !open || !loc || !branchCode || !issuedEmployeeCodes) return "";
+    return nextEmployeeCode(branchCode, [...issuedEmployeeCodes, ...skippedEmployeeCodes], {
+      jobTitle: jobTitle || null,
+    });
+  }, [isEdit, open, loc, branchCode, issuedEmployeeCodes, skippedEmployeeCodes, jobTitle]);
+  const employeeCodePending = !isEdit && (employeeCodesQuery.isLoading || employeeCodesQuery.isFetching);
 
+  const queryClient = useQueryClient();
   const m = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (submittedEmployeeCode: string) => {
       const employment =
         employmentType === ""
           ? null
@@ -855,9 +849,10 @@ function StaffFormDialog({
         staffId = createdStaffId;
       } else {
         if (!loc) throw new Error(t("people.staff.selectBranch"));
+        if (!submittedEmployeeCode) throw new Error(t("people.staff.codeAuto"));
         const created = await createStaff({
           locationId: loc,
-          employeeCode,
+          employeeCode: submittedEmployeeCode,
           fullName,
           jobTitle: jobTitle || undefined,
           departmentIds,
@@ -882,6 +877,9 @@ function StaffFormDialog({
     onSuccess: () => {
       toast.success(isEdit ? t("people.staff.updateSuccess") : t("people.staff.createSuccess"));
       setPhotoDraft({ dataUrl: null, remove: false });
+      if (!isEdit) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.people.employeeCodes() });
+      }
       onOpenChange(false);
       queueMicrotask(() => {
         onSaved();
@@ -977,7 +975,13 @@ function StaffFormDialog({
                 <>
                   <div>
                     <Label>{t("people.staff.branch")}</Label>
-                    <Select value={loc} onValueChange={setLoc}>
+                    <Select
+                      value={loc}
+                      onValueChange={(next) => {
+                        setLoc(next);
+                        setSkippedEmployeeCodes([]);
+                      }}
+                    >
                       <SelectTrigger><SelectValue placeholder={t("people.staff.selectBranch")} /></SelectTrigger>
                       <SelectContent>
                         {sites.map((s) => (
@@ -992,8 +996,15 @@ function StaffFormDialog({
                       <button
                         type="button"
                         className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
-                        onClick={() => setCodeNonce((n) => n + 1)}
-                        disabled={!loc || m.isPending}
+                        onClick={() => {
+                          if (employeeCode) {
+                            setSkippedEmployeeCodes((current) =>
+                              current.includes(employeeCode) ? current : [...current, employeeCode],
+                            );
+                          }
+                          void employeeCodesQuery.refetch();
+                        }}
+                        disabled={!loc || m.isPending || employeeCodePending}
                       >
                         <RefreshCw className="h-3 w-3" />
                         {t("people.staff.codeRegenerate")}
@@ -1005,7 +1016,13 @@ function StaffFormDialog({
                       className="bg-muted/40 font-mono"
                       placeholder={loc ? t("people.staff.codeAuto") : t("people.staff.selectBranch")}
                     />
-                    <p className="mt-1 text-[11px] text-muted-foreground">{t("people.staff.codeAuto")}</p>
+                    {employeeCodesQuery.isError ? (
+                      <p className="mt-1 text-[11px] text-destructive">
+                        {(employeeCodesQuery.error as Error).message}
+                      </p>
+                    ) : (
+                      <p className="mt-1 text-[11px] text-muted-foreground">{t("people.staff.codeAuto")}</p>
+                    )}
                   </div>
                 </>
               ) : (
@@ -1412,8 +1429,12 @@ function StaffFormDialog({
         <DialogFooter className="shrink-0">
           <Button variant="ghost" onClick={() => onOpenChange(false)}>{t("common.cancel")}</Button>
           <Button
-            onClick={() => m.mutate()}
-            disabled={m.isPending || !fullName || (!isEdit && !loc)}
+            onClick={() => m.mutate(employeeCode)}
+            disabled={
+              m.isPending ||
+              !fullName ||
+              (!isEdit && (!loc || !employeeCode || employeeCodePending))
+            }
           >
             {m.isPending ? t("common.saving") : t("common.save")}
           </Button>

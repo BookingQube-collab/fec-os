@@ -172,6 +172,7 @@ export const queryKeys = {
     dashboard: (filters?: object) => [...queryKeys.people.all, "dashboard", filters ?? {}] as const,
     staff: (locationId?: string | null, includeArchived?: boolean) =>
       [...queryKeys.people.all, "staff", locationId ?? null, includeArchived ? "archived" : "active"] as const,
+    employeeCodes: () => [...queryKeys.people.all, "employee-codes"] as const,
     teamReporting: () => [...queryKeys.people.all, "team-reporting"] as const,
     directReports: () => [...queryKeys.people.all, "direct-reports"] as const,
     staffDirectory: (filters?: object) =>

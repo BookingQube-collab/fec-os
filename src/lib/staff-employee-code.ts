@@ -108,9 +108,33 @@ export function nextEmployeeCode(
   existing: Iterable<string>,
   hint?: EmployeeCodeHint,
 ): string {
-  const used = new Set(
-    [...existing].map((c) => String(c).trim().toUpperCase()).filter(Boolean),
-  );
+  const used = usedEmployeeCodeSet(existing);
+  return generateEmployeeCode(locationCode, used, hint);
+}
+
+function usedEmployeeCodeSet(existing: Iterable<string>): Set<string> {
+  return new Set([...existing].map((c) => String(c).trim().toUpperCase()).filter(Boolean));
+}
+
+/**
+ * Code written on insert. A suggested code is kept when it is free.
+ * A taken suggestion is rejected so save cannot swap in a different existing code.
+ */
+export function resolveNewEmployeeCode(
+  locationCode: string,
+  existing: Iterable<string>,
+  preferred?: string | null,
+  hint?: EmployeeCodeHint & { qid?: string | null },
+): string {
+  const used = usedEmployeeCodeSet(existing);
+  const raw = preferred?.trim();
+  if (raw) {
+    const code = assertInternalEmployeeCode(raw, hint?.qid);
+    if (used.has(code)) {
+      throw new Error(`Employee code ${code} is already used. Regenerate and save again.`);
+    }
+    return code;
+  }
   return generateEmployeeCode(locationCode, used, hint);
 }
 
