@@ -24,7 +24,7 @@ import {
   loadTeamCoverageLocations,
 } from "@/lib/reporting-manager-access.server";
 import { canUserDo, type AppRole } from "@/lib/rbac";
-import { STAFF_NOT_JOKER_EMPLOYMENT_OR } from "@/lib/staff-status";
+import { ACTIVE_ROSTER_STAFF_STATUS_OR, STAFF_NOT_JOKER_EMPLOYMENT_OR } from "@/lib/staff-status";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import {
@@ -79,7 +79,7 @@ import {
   type AttendanceDashboardPunch,
 } from "@/lib/attendance-hr/dashboard";
 import { expectedOnDutyStaffIds, expectedRowsForDay, isWorkDateCovered } from "@/lib/attendance-hr/roster-expected";
-import { BIOMETRIC_USER_CONFLICT } from "@/lib/attendance-hr/mapping-merge";
+import { BIOMETRIC_USER_CONFLICT, groupMappedStaffByLocation } from "@/lib/attendance-hr/mapping-merge";
 import { collectPagedRows, collectPagedRowsInWaves } from "@/lib/attendance-hr/roster-register-scope";
 import { ATTENDANCE_TALLY_UPLOAD_NOTE } from "@/lib/attendance-hr/roster-upload";
 import { recalculateAttendanceRange } from "@/lib/attendance-hr/process";
@@ -227,7 +227,7 @@ export const getAttendanceHrBootstrap = createAuthenticatedActionNoInput(
           const { data, error } = await context.supabase
             .from("staff")
             .select("id, full_name, employee_code, qid, department, job_title, location_id, status, is_roaming")
-            .eq("status", "active")
+            .or(ACTIVE_ROSTER_STAFF_STATUS_OR)
             .or(STAFF_NOT_JOKER_EMPLOYMENT_OR)
             .order("full_name", { ascending: true })
             .order("id", { ascending: true })
@@ -1041,6 +1041,41 @@ export const getAttendanceMappingDirectory = createAuthenticatedActionNoInput(as
   };
 }, { auth: { anyCapability: ["attendance.view", "attendance.map_users", "hr.employee_app"] } });
 
+/**
+ * One shared employee list for the mapping dropdown.
+ * Current roster (active, secondment, remote, leave, notice) — not exited staff or jokers.
+ * Company-wide mappers only — team leaders keep the reporting-tree directory.
+ */
+export const listAttendanceMappingEmployees = createAuthenticatedActionNoInput(async (context) => {
+  const roles = context.roles ?? [];
+  if (!attendanceMappingIsCompanyWide(roles)) return [];
+  const rows = await collectPagedRows(async (from, to) => {
+    const { data, error } = await context.supabase
+      .from("staff")
+      .select("id, full_name, employee_code, qid, location_id, status, is_roaming")
+      .or(ACTIVE_ROSTER_STAFF_STATUS_OR)
+      .or(STAFF_NOT_JOKER_EMPLOYMENT_OR)
+      .order("full_name", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, to);
+    if (error) throw error;
+    return data ?? [];
+  }, ATTENDANCE_DAILY_LIST_PAGE_SIZE);
+  const workByStaff = await fetchWorkLocationsByStaffId(
+    context.supabase,
+    rows.map((row) => row.id),
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    full_name: row.full_name ?? "",
+    employee_code: row.employee_code ?? "",
+    qid: row.qid,
+    location_id: row.location_id,
+    is_roaming: row.is_roaming,
+    work_location_ids: (workByStaff.get(row.id) ?? []).map((loc) => loc.id),
+  }));
+}, { auth: { anyCapability: ["attendance.map_users", "attendance.view", "hr.employee_app"] } });
+
 type StaffMapFields = {
   id: string;
   full_name: string | null;
@@ -1116,7 +1151,7 @@ export const mapAttendanceBiometricUser = createAuthenticatedAction(
       staff,
     );
     if (loaded.mapping.location_id) {
-      await recalcRecentAttendance(loaded.writer, loaded.mapping.location_id as string);
+      await recalcRecentAttendance(loaded.writer, loaded.mapping.location_id as string, [staff.id]);
     }
     return { ok: true };
   },
@@ -1168,7 +1203,7 @@ export const mapAttendanceBiometricUsers = createAuthenticatedAction(
 
     let saved = 0;
     const failed: Array<{ mappingId: string; error: string }> = [];
-    const recalcLocations = new Set<string>();
+    const recalcPairs: Array<{ locationId: string | null; staffId: string }> = [];
 
     for (const item of data.mappings) {
       try {
@@ -1198,14 +1233,17 @@ export const mapAttendanceBiometricUsers = createAuthenticatedAction(
           staff,
         );
         saved += 1;
-        if (mapping.location_id) recalcLocations.add(mapping.location_id as string);
+        recalcPairs.push({
+          locationId: (mapping.location_id as string | null) ?? null,
+          staffId: staff.id,
+        });
       } catch (e) {
         failed.push({ mappingId: item.mappingId, error: e instanceof Error ? e.message : "Failed" });
       }
     }
 
-    for (const locationId of recalcLocations) {
-      await recalcRecentAttendance(writer, locationId);
+    for (const group of groupMappedStaffByLocation(recalcPairs)) {
+      await recalcRecentAttendance(writer, group.locationId, group.staffIds);
     }
 
     return { saved, failed };
@@ -1424,10 +1462,13 @@ async function clearMappedLogs(
   throwPg(error);
 }
 
-async function recalcRecentAttendance(context: AuthContext, locationId: string) {
+async function recalcRecentAttendance(context: AuthContext, locationId: string, staffIds?: string[]) {
   const to = new Date().toISOString().slice(0, 10);
   const from = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10);
-  await recalculateAttendanceRange(context.supabase, locationId, from, to);
+  const scope = staffIds?.filter(Boolean);
+  await recalculateAttendanceRange(context.supabase, locationId, from, to, scope?.length
+    ? { staffIds: scope, includeUnmappedPunches: false }
+    : undefined);
 }
 
 export const unmapAttendanceBiometricUser = createAuthenticatedAction(
@@ -1455,7 +1496,13 @@ export const unmapAttendanceBiometricUser = createAuthenticatedAction(
     await audit(loaded.writer, "attendance.unmap_user", "attendance_biometric_users", data.mappingId, mapping.location_id as string | null, {
       previous_staff_id: mapping.staff_id,
     });
-    if (mapping.location_id) await recalcRecentAttendance(loaded.writer, mapping.location_id as string);
+    if (mapping.location_id) {
+      await recalcRecentAttendance(
+        loaded.writer,
+        mapping.location_id as string,
+        mapping.staff_id ? [String(mapping.staff_id)] : undefined,
+      );
+    }
     return { ok: true };
   },
   { auth: { anyCapability: ["attendance.map_users", "attendance.view", "hr.employee_app"] } },
@@ -1486,7 +1533,11 @@ export const removeAttendanceBiometricUser = createSafeAuthenticatedAction(
       console.warn("[attendance-hr] audit after remove failed", e instanceof Error ? e.message : e);
     }
     void (mapping.location_id
-      ? recalcRecentAttendance(loaded.writer, mapping.location_id as string).catch((e) => {
+      ? recalcRecentAttendance(
+          loaded.writer,
+          mapping.location_id as string,
+          mapping.staff_id ? [String(mapping.staff_id)] : undefined,
+        ).catch((e) => {
           console.warn("[attendance-hr] recalc after remove failed", e instanceof Error ? e.message : e);
         })
       : Promise.resolve());

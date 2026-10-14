@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ACTIVE_ROSTER_STAFF_STATUS_OR,
   countsAsActiveStaff,
   isActiveRosterStaff,
   isActiveStaffStatus,
+  isAttendanceMappingStaff,
   isContractFinishedStaffStatus,
   isOnLeaveStaffStatus,
   isResignedStaffStatus,
@@ -48,6 +50,23 @@ describe("staff status helpers", () => {
     expect(isActiveRosterStaff("on_leave")).toBe(true);
     expect(isActiveRosterStaff("terminated")).toBe(false);
     expect(isActiveRosterStaff("inactive")).toBe(false);
+  });
+
+  it("lets a secondment employee be mapped and keeps exited staff out of the picker", () => {
+    expect(isAttendanceMappingStaff({ status: "secondment", employment_type: "secondment" })).toBe(true);
+    expect(isAttendanceMappingStaff({ status: "active", employment_type: "permanent" })).toBe(true);
+    expect(isAttendanceMappingStaff({ status: "remote", employment_type: "permanent" })).toBe(true);
+    expect(isAttendanceMappingStaff({ status: "on_leave", employment_type: "permanent" })).toBe(true);
+    expect(isAttendanceMappingStaff({ status: "terminated", employment_type: "permanent" })).toBe(false);
+    expect(isAttendanceMappingStaff({ status: "terminated", employment_type: "secondment" })).toBe(false);
+    expect(isAttendanceMappingStaff({ status: "resigned", employment_type: "permanent" })).toBe(false);
+    expect(isAttendanceMappingStaff({ status: "contract_finished", employment_type: "secondment" })).toBe(false);
+    expect(isAttendanceMappingStaff({ status: "active", employment_type: "joker" })).toBe(false);
+    expect(isAttendanceMappingStaff({ status: "joker", employment_type: "joker" })).toBe(false);
+    expect(ACTIVE_ROSTER_STAFF_STATUS_OR).toContain("secondment");
+    expect(ACTIVE_ROSTER_STAFF_STATUS_OR).not.toContain("terminated");
+    expect(ACTIVE_ROSTER_STAFF_STATUS_OR).not.toContain("resigned");
+    expect(ACTIVE_ROSTER_STAFF_STATUS_OR).not.toContain("contract_finished");
   });
 
   it("treats a finished temporary or secondment contract as ended, not resigned or terminated", () => {

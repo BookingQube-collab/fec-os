@@ -166,6 +166,29 @@ export function isActiveRosterStaff(status: string | null | undefined): boolean 
   );
 }
 
+/**
+ * PostgREST `.or()` aligned with `isActiveRosterStaff`.
+ * `status = active` alone dropped secondment and remote people the directory still lists.
+ * Terminated, resigned, contract finished, released, inactive, and joker are not in this list.
+ * Pair with `STAFF_NOT_JOKER_EMPLOYMENT_OR` so an active joker employment type stays hidden.
+ */
+export const ACTIVE_ROSTER_STAFF_STATUS_OR = [
+  "status.is.null",
+  "status.eq.",
+  "status.in.(active,probation,secondment,remote,on_leave,leave,vacation,sick_leave,unpaid_leave,serving_notice)",
+  'status.eq."serving-notice"',
+].join(",");
+
+/** Mapping dropdown: current roster, not exited staff and not jokers. */
+export function isAttendanceMappingStaff(staff: {
+  status?: string | null;
+  employment_type?: string | null;
+  employmentType?: string | null;
+}): boolean {
+  if (isJokerStaff(staff)) return false;
+  return isActiveRosterStaff(staff.status);
+}
+
 export function normalizeDirectoryStatus(status: string | null | undefined): string {
   return normalizeStaffStatus(status);
 }

@@ -52,6 +52,7 @@ import {
   mergeBiometricUsersById,
   missingPunchBiometricIds,
   staffByBiometricFromMappings,
+  groupMappedStaffByLocation,
   staffEligibleForBiometricMap,
   stubBiometricUsersForIds,
   suggestStaffIdForDeviceName,
@@ -1166,6 +1167,23 @@ describe("HR report row helpers", () => {
     ]);
     expect(kpis.present).toBe(1);
     expect(kpis.late).toBe(1);
+  });
+});
+
+describe("groupMappedStaffByLocation", () => {
+  it("recalculates each site once for the people just mapped", () => {
+    expect(
+      groupMappedStaffByLocation([
+        { locationId: "inf", staffId: "a" },
+        { locationId: "inf", staffId: "a" },
+        { locationId: "kds", staffId: "b" },
+        { locationId: null, staffId: "c" },
+        { locationId: "inf", staffId: "d" },
+      ]),
+    ).toEqual([
+      { locationId: "inf", staffIds: ["a", "d"] },
+      { locationId: "kds", staffIds: ["b"] },
+    ]);
   });
 });
 

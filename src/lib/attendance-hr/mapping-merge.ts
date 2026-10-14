@@ -55,6 +55,20 @@ export function suggestStaffIdForDeviceName(
   return global.length === 1 ? global[0]!.id : null;
 }
 
+/** One recalc per site, limited to the people just mapped or unmapped. */
+export function groupMappedStaffByLocation(
+  items: ReadonlyArray<{ locationId?: string | null; staffId?: string | null }>,
+): Array<{ locationId: string; staffIds: string[] }> {
+  const map = new Map<string, string[]>();
+  for (const item of items) {
+    if (!item.locationId || !item.staffId) continue;
+    const list = map.get(item.locationId) ?? [];
+    if (!list.includes(item.staffId)) list.push(item.staffId);
+    map.set(item.locationId, list);
+  }
+  return [...map.entries()].map(([locationId, staffIds]) => ({ locationId, staffIds }));
+}
+
 export type ExistingBiometricUser = {
   biometricUserId: string;
   deviceName: string | null;

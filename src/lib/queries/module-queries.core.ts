@@ -14,6 +14,7 @@ import {
   type StaffDirectoryKpis,
   type StaffDirectorySort,
 } from "@/lib/staff-directory-kpis";
+import { staffDirectorySearchNeedle, staffDirectorySearchOrFilter } from "@/lib/staff-directory-search";
 import { distinctJobTitles } from "@/lib/staff-job-titles";
 import {
   fetchActiveTemporaryMovesByStaffId,
@@ -675,7 +676,27 @@ function applyStaffProfileExt(
  * KPI tiles use the same roster and the same filters as the table, except
  * status and expiry (tile shortcuts — they filter the table only).
  * Client receives only the current page of lean rows (not the full roster).
+ * A search first resolves name, code, qid, phone, job title, and passport ids,
+ * then loads directory joins only for those people.
  */
+async function directorySearchOrFilter(
+  db: AuthContext["supabase"],
+  raw: string,
+): Promise<string | null> {
+  const base = staffDirectorySearchOrFilter(raw);
+  if (!base) return null;
+  const safe = staffDirectorySearchNeedle(raw);
+  if (safe.length < 2) return base;
+  const { data, error } = await db
+    .from("staff_profile_ext")
+    .select("staff_id")
+    .ilike("passport_number", `%${safe}%`)
+    .limit(40);
+  if (error) throw error;
+  const ids = (data ?? []).map((row) => String(row.staff_id ?? "")).filter(Boolean);
+  return staffDirectorySearchOrFilter(raw, ids);
+}
+
 export type StaffDirectoryReadAccess = {
   /** Direct-report ids for a job-title manager. Null keeps the company directory. */
   teamStaffIds?: readonly string[] | null;
@@ -700,22 +721,50 @@ export async function fetchStaffDirectory(
       chunks.push(teamStaffIds.slice(index, index + 80));
     }
   }
+  const searchOr = await directorySearchOrFilter(staffDb, filters.q ?? "");
+  // Home location, or an active temporary move to this site.
+  // Extra dedicated sites and punches are not directory membership.
+  const tempMoveIds = filters.locationId
+    ? await fetchStaffIdsOnActiveTemporaryMove(staffDb, filters.locationId)
+    : null;
+  const matchedIds: string[] = [];
   for (const ids of chunks) {
-    let q = staffDb.from("staff").select(STAFF_DIRECTORY_SELECT).order("full_name").limit(2000);
+    let q = staffDb
+      .from("staff")
+      .select(searchOr ? "id" : STAFF_DIRECTORY_SELECT)
+      .order("full_name")
+      .limit(2000);
     // Team scope never includes deleted people, even when the screen asks for archived rows.
     if (!filters.includeArchived || teamStaffIds) q = q.is("deleted_at", null);
     if (ids) q = q.in("id", [...ids]);
     if (filters.locationId) {
-      // Home location, or an active temporary move to this site.
-      // Extra dedicated sites and punches are not directory membership.
-      const tempIds = await fetchStaffIdsOnActiveTemporaryMove(staffDb, filters.locationId);
-      q = tempIds.length
-        ? q.or(`location_id.eq.${filters.locationId},id.in.(${tempIds.join(",")})`)
+      q = tempMoveIds?.length
+        ? q.or(`location_id.eq.${filters.locationId},id.in.(${tempMoveIds.join(",")})`)
         : q.eq("location_id", filters.locationId);
     }
+    if (searchOr) q = q.or(searchOr);
     const { data: rows, error } = await q;
     if (error) throw error;
-    collected.push(...((rows ?? []) as Array<Record<string, unknown>>));
+    if (searchOr) {
+      for (const row of rows ?? []) {
+        const id = (row as { id?: string }).id;
+        if (id) matchedIds.push(id);
+      }
+    } else {
+      collected.push(...((rows ?? []) as unknown as Array<Record<string, unknown>>));
+    }
+  }
+  if (searchOr) {
+    const uniqueIds = [...new Set(matchedIds)];
+    for (let index = 0; index < uniqueIds.length; index += 80) {
+      const idChunk = uniqueIds.slice(index, index + 80);
+      const { data: rows, error } = await staffDb
+        .from("staff")
+        .select(STAFF_DIRECTORY_SELECT)
+        .in("id", idChunk);
+      if (error) throw error;
+      collected.push(...((rows ?? []) as Array<Record<string, unknown>>));
+    }
   }
 
   const visibleRows = await withoutUnmappedStaffDuplicates(staffDb, collected);

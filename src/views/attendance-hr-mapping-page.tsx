@@ -35,9 +35,9 @@ import {
   canSeeAttendanceMapping,
 } from "@/lib/attendance-listing-access";
 import {
-  getAttendanceHrBootstrap,
   getAttendanceMappingDirectory,
   listAttendanceHrMappings,
+  listAttendanceMappingEmployees,
   mapAttendanceBiometricUser,
   mapAttendanceBiometricUsers,
   removeAttendanceBiometricUser,
@@ -154,12 +154,11 @@ export default function AttendanceHrMappingPage() {
   /** Only the open row builds the full staff option list (closed rows keep the selected label). */
   const [openRowId, setOpenRowId] = useState<string | null>(null);
   const { data: sites } = useSites();
-  const attendanceHrRootKey = [...queryKeys.people.all, "attendance-hr"] as const;
-  const bootstrap = useQuery({
-    queryKey: queryKeys.people.attendanceHr({ view: "bootstrap" }),
-    queryFn: () => getAttendanceHrBootstrap(),
+  const employees = useQuery({
+    queryKey: queryKeys.people.attendanceHr({ view: "mapping-employees" }),
+    queryFn: () => listAttendanceMappingEmployees(),
     staleTime: STALE.people,
-    enabled: companyAttendance,
+    enabled: companyWideMapper && companyAttendance,
   });
   const directoryEnabled = !companyWideMapper && (companyAttendance || (!reportsPending && canMap));
   const directory = useQuery({
@@ -200,13 +199,6 @@ export default function AttendanceHrMappingPage() {
           byCode.set(site.code, { id: site.id, code: site.code, name: site.name });
         }
       }
-      for (const site of bootstrap.data?.sites ?? []) {
-        const loc = site.location as { id?: string; code?: string; name?: string; status?: string } | null;
-        if (!loc?.id || !loc.code || (loc.status && loc.status !== "active")) continue;
-        if (!byCode.has(loc.code)) {
-          byCode.set(loc.code, { id: loc.id, code: loc.code, name: loc.name ?? loc.code });
-        }
-      }
     }
     const ordered = CANONICAL_LOCATION_CODES.flatMap((code) => {
       const loc = byCode.get(code);
@@ -224,7 +216,7 @@ export default function AttendanceHrMappingPage() {
       }
     }
     return ordered;
-  }, [companyAttendance, teamDirectory, sites, bootstrap.data?.sites, locationId]);
+  }, [companyAttendance, teamDirectory, sites, locationId]);
   const headOfficeLocationId = useMemo(
     () => locationOptions.find((loc) => loc.code === "HO")?.id ?? null,
     [locationOptions],
@@ -243,9 +235,9 @@ export default function AttendanceHrMappingPage() {
   const mappedCount = rows.filter((row) => Boolean(row.staff_id)).length;
   const unmappedCount = rows.length - mappedCount;
   const allStaff = useMemo(() => {
-    if (companyWideMapper) return (bootstrap.data?.staff ?? []) as StaffOption[];
+    if (companyWideMapper) return (employees.data ?? []) as StaffOption[];
     return (teamDirectory?.staff ?? []) as StaffOption[];
-  }, [companyWideMapper, bootstrap.data?.staff, teamDirectory]);
+  }, [companyWideMapper, employees.data, teamDirectory]);
   const staffNameById = useMemo(() => {
     const map = new Map<string, string>();
     for (const s of allStaff) {
@@ -253,11 +245,29 @@ export default function AttendanceHrMappingPage() {
     }
     return map;
   }, [allStaff]);
-  const staffOptionById = useMemo(() => {
-    const multiSiteLabel = t("attendanceHr.mapping.multiSite");
-    const map = new Map<string, SearchableSelectOption>();
+  /** Stable [selected] arrays so closed rows do not each hold the full employee list. */
+  const closedOptionsByStaffId = useMemo(() => {
+    const map = new Map<string, SearchableSelectOption[]>();
     for (const s of allStaff) {
-      map.set(s.id, {
+      map.set(s.id, [
+        {
+          value: s.id,
+          label: s.full_name,
+          description: `${s.employee_code}${s.qid ? ` · ${s.qid}` : ""}`,
+        },
+      ]);
+    }
+    return map;
+  }, [allStaff]);
+  const openRowOptions = useMemo(() => {
+    if (!openRowId) return EMPTY_STAFF_OPTIONS;
+    const row = rows.find((item) => item.id === openRowId);
+    const loc = row?.location_id || locationId || null;
+    const multiSiteLabel = t("attendanceHr.mapping.multiSite");
+    const out: SearchableSelectOption[] = [];
+    for (const s of allStaff) {
+      if (companyWideMapper && !staffEligibleForBiometricMap(s, loc, headOfficeLocationId)) continue;
+      out.push({
         value: s.id,
         label: s.full_name,
         description: `${s.employee_code}${s.qid ? ` · ${s.qid}` : ""}`,
@@ -269,40 +279,8 @@ export default function AttendanceHrMappingPage() {
         ) : null,
       });
     }
-    return map;
-  }, [allStaff, t]);
-  /** Stable [selected] arrays so closed-row SearchableSelects can skip re-renders. */
-  const closedOptionsByStaffId = useMemo(() => {
-    const map = new Map<string, SearchableSelectOption[]>();
-    for (const [id, opt] of staffOptionById) {
-      map.set(id, [opt]);
-    }
-    return map;
-  }, [staffOptionById]);
-  const optionsByLocationId = useMemo(() => {
-    const map = new Map<string, SearchableSelectOption[]>();
-    const locIds = new Set<string>();
-    for (const row of rows) {
-      if (row.location_id) locIds.add(row.location_id);
-    }
-    if (locationId) locIds.add(locationId);
-
-    const build = (loc: string | null): SearchableSelectOption[] => {
-      const out: SearchableSelectOption[] = [];
-      for (const s of allStaff) {
-        if (companyWideMapper && !staffEligibleForBiometricMap(s, loc, headOfficeLocationId)) continue;
-        const opt = staffOptionById.get(s.id);
-        if (opt) out.push(opt);
-      }
-      return out;
-    };
-
-    map.set("", build(null));
-    for (const loc of locIds) {
-      map.set(loc, build(loc));
-    }
-    return map;
-  }, [allStaff, staffOptionById, rows, locationId, headOfficeLocationId, companyWideMapper]);
+    return out;
+  }, [openRowId, rows, allStaff, locationId, headOfficeLocationId, companyWideMapper, t]);
 
   // Unique exact name matches → draft selections so Save all can finish the queue.
   useEffect(() => {
@@ -359,17 +337,15 @@ export default function AttendanceHrMappingPage() {
     [rows, staffByRow],
   );
 
-  const optionsForRow = (row: MappingRow, selectedStaff: string, open: boolean): SearchableSelectOption[] => {
+  const optionsForRow = (_row: MappingRow, selectedStaff: string, open: boolean): SearchableSelectOption[] => {
     if (!open) {
       if (!selectedStaff) return EMPTY_STAFF_OPTIONS;
       return closedOptionsByStaffId.get(selectedStaff) ?? EMPTY_STAFF_OPTIONS;
     }
-    const locKey = row.location_id || locationId || "";
-    const base = optionsByLocationId.get(locKey) ?? optionsByLocationId.get("") ?? EMPTY_STAFF_OPTIONS;
-    if (!selectedStaff) return base;
-    if (base.some((opt) => opt.value === selectedStaff)) return base;
-    const selected = staffOptionById.get(selectedStaff);
-    return selected ? [selected, ...base] : base;
+    if (!selectedStaff) return openRowOptions;
+    if (openRowOptions.some((opt) => opt.value === selectedStaff)) return openRowOptions;
+    const selected = closedOptionsByStaffId.get(selectedStaff)?.[0];
+    return selected ? [selected, ...openRowOptions] : openRowOptions;
   };
 
   const patchMappings = (updater: (current: MappingRow[]) => MappingRow[]) => {
@@ -397,7 +373,7 @@ export default function AttendanceHrMappingPage() {
   };
 
   const syncMappingsInBackground = () => {
-    void qc.invalidateQueries({ queryKey: attendanceHrRootKey });
+    void qc.invalidateQueries({ queryKey: mappingQueryKey });
   };
 
   const mapMut = useMutation({
@@ -761,7 +737,7 @@ export default function AttendanceHrMappingPage() {
                         value={selectedStaff}
                         options={optionsForRow(row, selectedStaff, open)}
                         openSearchSeed={!mapped && deviceName ? deviceName : null}
-                        disabled={busy || !canMerge}
+                        disabled={busy || !canMerge || (companyWideMapper && employees.isPending)}
                         onOpenChange={(next) => setOpenRowId(next ? id : null)}
                         onChange={(staffId) => applyStaffChoice(row, staffId)}
                       />

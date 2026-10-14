@@ -253,9 +253,10 @@ export async function recalculateAttendanceRange(
   locationId: string,
   dateFrom: string,
   dateTo: string,
-  options?: { staffIds?: string[] },
+  options?: { staffIds?: string[]; includeUnmappedPunches?: boolean },
 ) {
   const staffScope = options?.staffIds?.length ? [...new Set(options.staffIds.filter(Boolean))] : null;
+  const includeUnmappedPunches = options?.includeUnmappedPunches !== false;
 
   const buildLogsQuery = () => {
     let q = supabase
@@ -270,7 +271,9 @@ export async function recalculateAttendanceRange(
     // Staff-scoped confirm must still see unmapped punches so bio / device_name
     // aliasing can attach them to the uploaded cafe staff.
     if (staffScope) {
-      q = q.or(`staff_id.in.(${staffScope.join(",")}),staff_id.is.null`);
+      q = includeUnmappedPunches
+        ? q.or(`staff_id.in.(${staffScope.join(",")}),staff_id.is.null`)
+        : q.in("staff_id", staffScope);
     }
     return q;
   };
