@@ -3,11 +3,11 @@
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
-import { arcadeStatusName, Field, Pager, StatusBadge } from "@/components/arcade/ui";
+import { ArcadeEmpty, ArcadeHero, arcadeStatusName, Field, Pager, StatusBadge } from "@/components/arcade/ui";
 import { ArcadeWorkbookImport } from "@/components/arcade/workbook-import";
 import GlideSelect from "@/components/react-bits/glide-select";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { usePermission } from "@/hooks/use-permission";
 import { useSites } from "@/hooks/queries/useSites";
 import { isArcadeVenueLocation, SUPPLIER_CASE_STATUSES } from "@/lib/arcade/domain";
+import { splitStock, stockValuation } from "@/lib/arcade/stock-ledger";
 import { getArcadeContext, listArcadeMachines } from "@/lib/arcade.functions";
 import {
   getArcadeSupplier,
@@ -34,6 +35,7 @@ import {
   saveInstallation,
   saveSparePart,
   saveSupplierCase,
+  transferSparePart,
   useSparePart,
 } from "@/lib/arcade-supply.functions";
 import { queryKeys } from "@/lib/query-keys";
@@ -47,21 +49,22 @@ export function ArcadeSuppliers() {
     queryFn: () => listArcadeSuppliers({ q, page, pageSize: 25 }),
   });
   return (
-    <div className="grid gap-3">
-      <h1 className="text-xl font-semibold">{t("arcadeScreens.suppliersTitle")}</h1>
-      <p className="text-sm text-muted-foreground">{t("arcadeScreens.suppliersHint")}</p>
-      <Input value={q} onChange={(event) => setQ(event.target.value)} placeholder={t("arcadeScreens.supplierName")} className="max-w-sm" />
+    <div className="arcade-stack">
+      <ArcadeHero kicker={t("nav.arcade")} title={t("arcadeScreens.suppliersTitle")} subtitle={t("arcadeScreens.suppliersHint")} />
+      <Input value={q} onChange={(event) => setQ(event.target.value)} placeholder={t("arcadeScreens.supplierName")} className="max-w-sm bg-card" />
+      <div className="arcade-list">
       {(list.data?.rows ?? []).map((row) => (
-        <Link key={row.id} href={`/arcade/suppliers/${row.id}`} className="rounded-lg border p-4">
-          <p className="text-lg font-semibold">{row.name}</p>
-          <p className="text-base text-muted-foreground">
+        <Link key={row.id} href={`/arcade/suppliers/${row.id}`} className="arcade-row arcade-row--block">
+          <p className="arcade-row__title">{row.name}</p>
+          <p className="arcade-row__meta">
             {t("arcadeSimple.contact")}: {row.phone || row.email || row.profile?.technical_phone || t("arcadeSimple.noContact")}
             {row.email && row.phone ? ` · ${row.email}` : ""}
           </p>
         </Link>
       ))}
+      </div>
       {list.isError ? <p className="text-sm text-destructive">{list.error instanceof Error ? list.error.message : t("arcadeOps.failed")}</p> : null}
-      {list.isSuccess && (list.data?.rows.length ?? 0) === 0 ? <p className="text-muted-foreground">{t("arcadeSimple.noSuppliers")}</p> : null}
+      {list.isSuccess && (list.data?.rows.length ?? 0) === 0 ? <ArcadeEmpty title={t("arcadeFlow.suppliersEmpty")} /> : null}
       <Pager page={page} total={list.data?.total ?? 0} pageSize={25} onPage={setPage} />
     </div>
   );
@@ -80,36 +83,40 @@ export function ArcadeSupplier({ vendorId }: { vendorId: string }) {
   if (!row) return <p className="text-sm text-muted-foreground">{t("arcadeScreens.loadingSupplier")}</p>;
   const perf = row.performance;
   return (
-    <div className="grid gap-3">
-      <h1 className="text-3xl font-semibold">{row.vendor.name}</h1>
-      <p className="text-lg text-muted-foreground">{[row.vendor.contact_person, row.vendor.phone, row.vendor.email, row.profile?.technical_phone].filter(Boolean).join(" · ") || t("arcadeSimple.noContact")}</p>
+    <div className="arcade-stack">
+      <ArcadeHero
+        kicker={t("nav.arcade")}
+        title={row.vendor.name}
+        subtitle={[row.vendor.contact_person, row.vendor.phone, row.vendor.email, row.profile?.technical_phone].filter(Boolean).join(" · ") || t("arcadeSimple.noContact")}
+      />
       <h2 className="text-xl font-semibold">{t("arcadeSimple.orders")}</h2>
       {(row.orders ?? []).length === 0 && (row.parts ?? []).length === 0 ? <p className="text-muted-foreground">{t("arcadeSimple.noOrders")}</p> : null}
       <ul className="grid gap-2">
         {(row.orders ?? []).map((item) => (
-          <li key={item.id} className="rounded border p-3 text-base">{item.description} · {item.qty} · {arcadeStatusName(t, item.status)}</li>
+          <li key={item.id} className="arcade-row text-base">{item.description} · {item.qty} · {arcadeStatusName(t, item.status)}</li>
         ))}
         {(row.parts ?? []).map((item) => (
-          <li key={item.id} className="rounded border p-3 text-base">{item.name} · {item.part_code} · {arcadeStatusName(t, item.supply_status)}</li>
+          <li key={item.id} className="arcade-row text-base">{item.name} · {item.part_code} · {arcadeStatusName(t, item.supply_status)}</li>
         ))}
       </ul>
       {perf ? (
-        <div className="grid grid-cols-2 gap-2 text-sm md:grid-cols-4">
-          <p className="rounded border p-2">{t("arcadeScreens.perfMachines", { n: perf.machines })}</p>
-          <p className="rounded border p-2">{t("arcadeScreens.perfWorking", { n: perf.working })}</p>
-          <p className="rounded border p-2">{t("arcadeScreens.perfDown", { n: perf.down })}</p>
-          <p className="rounded border p-2">{t("arcadeScreens.perfCases", { n: perf.openCases })}</p>
-          <p className="rounded border p-2">{t("arcadeScreens.perfResponse", { n: perf.averageResponseHours ?? "—" })}</p>
-          <p className="rounded border p-2">{t("arcadeScreens.perfResolution", { n: perf.averageResolutionHours ?? "—" })}</p>
-          <p className="rounded border p-2">{t("arcadeScreens.perfParts", { n: perf.pendingParts })}</p>
-          <p className="rounded border p-2">{t("arcadeScreens.perfWarranty", { n: perf.warrantyMachines })}</p>
+        <div className="arcade-stats">
+          <p className="arcade-metric"><span className="arcade-metric__label">{t("arcadeScreens.perfMachines", { n: perf.machines })}</span></p>
+          <p className="arcade-metric"><span className="arcade-metric__label">{t("arcadeScreens.perfWorking", { n: perf.working })}</span></p>
+          <p className="arcade-metric"><span className="arcade-metric__label">{t("arcadeScreens.perfDown", { n: perf.down })}</span></p>
+          <p className="arcade-metric"><span className="arcade-metric__label">{t("arcadeScreens.perfCases", { n: perf.openCases })}</span></p>
+          <p className="arcade-metric"><span className="arcade-metric__label">{t("arcadeScreens.perfResponse", { n: perf.averageResponseHours ?? "—" })}</span></p>
+          <p className="arcade-metric"><span className="arcade-metric__label">{t("arcadeScreens.perfResolution", { n: perf.averageResolutionHours ?? "—" })}</span></p>
+          <p className="arcade-metric"><span className="arcade-metric__label">{t("arcadeScreens.perfParts", { n: perf.pendingParts })}</span></p>
+          <p className="arcade-metric"><span className="arcade-metric__label">{t("arcadeScreens.perfWarranty", { n: perf.warrantyMachines })}</span></p>
         </div>
       ) : null}
       <Field label={t("arcadeScreens.technicalNotes")}><Textarea value={notes || row.profile?.notes || ""} onChange={(event) => setNotes(event.target.value)} /></Field>
-      <Button type="button" onClick={() => save.mutate()}>{t("arcadeScreens.saveProfile")}</Button>
-      <h2 className="font-semibold">{t("arcadeScreens.cases")}</h2>
+      <Button type="button" className="arcade-cta" onClick={() => save.mutate()}>{t("arcadeScreens.saveProfile")}</Button>
+      <h2 className="arcade-panel__title">{t("arcadeScreens.cases")}</h2>
+      {row.cases.length === 0 ? <ArcadeEmpty title={t("arcadeFlow.casesEmpty")} /> : null}
       {row.cases.map((item) => (
-        <Link key={item.id} href={`/arcade/support/${item.id}`} className="rounded border p-2 text-sm">{item.case_number} · {arcadeStatusName(t, item.status)} · {item.problem}</Link>
+        <Link key={item.id} href={`/arcade/support/${item.id}`} className="arcade-row text-sm">{item.case_number} · {arcadeStatusName(t, item.status)} · {item.problem}</Link>
       ))}
     </div>
   );
@@ -123,15 +130,25 @@ export function ArcadeSupport({ id }: { id?: string }) {
 function CaseList() {
   const { t } = useTranslation();
   const list = useQuery({ queryKey: [...queryKeys.arcade.all, "cases"], queryFn: () => listSupplierCases({ page: 1, pageSize: 25 }) });
+  const rows = list.data?.rows ?? [];
   return (
-    <div className="grid gap-3">
-      <div className="flex items-center justify-between"><h1 className="text-xl font-semibold">{t("arcadeScreens.supportTitle")}</h1><Button asChild><Link href="/arcade/support/new">{t("arcadeScreens.newCase")}</Link></Button></div>
-      {(list.data?.rows ?? []).map((row) => (
-        <Link key={row.id} href={`/arcade/support/${row.id}`} className="rounded-lg border p-3">
-          <div className="flex justify-between gap-2"><span className="font-medium">{row.case_number}</span><StatusBadge status={row.status} /></div>
-          <p className="text-sm text-muted-foreground">{row.problem}</p>
+    <div className="arcade-stack">
+      <ArcadeHero
+        kicker={t("nav.arcade")}
+        title={t("arcadeScreens.supportTitle")}
+        actions={<Button asChild className="arcade-cta"><Link href="/arcade/support/new">{t("arcadeScreens.newCase")}</Link></Button>}
+      />
+      {list.isSuccess && rows.length === 0 ? (
+        <ArcadeEmpty title={t("arcadeFlow.casesEmpty")} action={<Button asChild className="arcade-cta"><Link href="/arcade/support/new">{t("arcadeScreens.newCase")}</Link></Button>} />
+      ) : null}
+      <div className="arcade-list">
+      {rows.map((row) => (
+        <Link key={row.id} href={`/arcade/support/${row.id}`} className="arcade-row arcade-row--block">
+          <div className="flex justify-between gap-2"><span className="arcade-row__title">{row.case_number}</span><StatusBadge status={row.status} /></div>
+          <p className="arcade-row__meta">{row.problem}</p>
         </Link>
       ))}
+      </div>
     </div>
   );
 }
@@ -164,16 +181,15 @@ function CaseDetail({ id }: { id: string }) {
   const row = detail.data?.case;
   if (!row) return <p className="text-sm">{t("arcadeScreens.loadingCase")}</p>;
   return (
-    <div className="grid gap-3">
-      <h1 className="text-xl font-semibold">{row.case_number}</h1>
-      <StatusBadge status={row.status} />
+    <div className="arcade-stack">
+      <ArcadeHero kicker={t("nav.arcade")} title={row.case_number} actions={<StatusBadge status={row.status} />} />
       <p>{row.problem}</p>
       <p className="rounded border p-3 text-sm whitespace-pre-wrap"><strong>{t("arcadeScreens.troubleshootingDone")} </strong>{row.troubleshooting_done || "—"}</p>
       <p className="text-sm">{t("arcadeScreens.partsTested", { value: row.parts_tested || "—" })}</p>
       <p className="text-sm">{t("arcadeScreens.findings", { value: row.technician_findings || "—" })}</p>
       <Field label={t("arcadeScreens.supplierResponse")}><Textarea value={response || row.supplier_response || ""} onChange={(event) => setResponse(event.target.value)} /></Field>
       <Field label={t("arcadeScreens.addTrail")}><Textarea value={updateBody} onChange={(event) => setUpdateBody(event.target.value)} /></Field>
-      <Button type="button" onClick={() => save.mutate()}>{t("arcadeScreens.saveUpdate")}</Button>
+      <Button type="button" className="arcade-cta" onClick={() => save.mutate()}>{t("arcadeScreens.saveUpdate")}</Button>
       <div className="grid gap-1 text-sm">
         {(detail.data?.updates ?? []).map((update) => <p key={update.id} className="rounded border p-2">{new Date(update.created_at).toLocaleString()} · {update.body}</p>)}
       </div>
@@ -203,8 +219,9 @@ export function ArcadeSupportForm() {
     onError: (error) => toast.error(error instanceof Error ? error.message : t("arcadeScreens.caseFailed")),
   });
   return (
-    <form className="grid max-w-2xl gap-3" onSubmit={(event) => { event.preventDefault(); save.mutate(); }}>
-      <h1 className="text-xl font-semibold">{t("arcadeScreens.caseTitle")}</h1>
+    <form className="arcade-stack max-w-2xl" onSubmit={(event) => { event.preventDefault(); save.mutate(); }}>
+      <ArcadeHero kicker={t("nav.arcade")} title={t("arcadeScreens.caseTitle")} />
+      <div className="arcade-panel grid gap-3">
       <Field label={t("arcadeScreens.supplier")}>
         <GlideSelect
           ariaLabel={t("arcadeScreens.supplier")}
@@ -218,7 +235,8 @@ export function ArcadeSupportForm() {
       </Field>
       <Field label={t("arcadeScreens.problem")}><Textarea required minLength={8} value={problem} onChange={(event) => setProblem(event.target.value)} /></Field>
       <Field label={t("arcadeScreens.troubleshooting")}><Textarea value={troubleshooting} onChange={(event) => setTroubleshooting(event.target.value)} placeholder={t("arcadeScreens.troubleshootingHint")} /></Field>
-      <Button type="submit">{t("arcadeScreens.createCase")}</Button>
+      <Button type="submit" className="arcade-cta">{t("arcadeScreens.createCase")}</Button>
+      </div>
     </form>
   );
 }
@@ -233,6 +251,10 @@ export function ArcadeParts() {
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [qty, setQty] = useState(1);
+  const [transferPartId, setTransferPartId] = useState("");
+  const [fromLocationId, setFromLocationId] = useState("");
+  const [toLocationId, setToLocationId] = useState("");
+  const [transferQty, setTransferQty] = useState(1);
   const qc = useQueryClient();
   const request = useMutation({
     mutationFn: (partId?: string) => requestSparePart({
@@ -270,26 +292,70 @@ export function ArcadeParts() {
     onSuccess: () => toast.success(t("arcadeScreens.stockUsed")),
     onError: (error) => toast.error(error instanceof Error ? error.message : t("arcadeScreens.stockFailed")),
   });
+  const transfer = useMutation({
+    mutationFn: () => transferSparePart({
+      partId: transferPartId,
+      fromLocationId,
+      toLocationId,
+      qty: transferQty,
+    }),
+    onSuccess: () => { toast.success(t("arcadeScreens.transferred")); void qc.invalidateQueries({ queryKey: queryKeys.arcade.all }); },
+    onError: (error) => toast.error(error instanceof Error ? error.message : t("arcadeScreens.transferFailed")),
+  });
+  const valuation = useMemo(() => {
+    const rows = parts.data?.rows ?? [];
+    const stock = parts.data?.stock ?? [];
+    return stockValuation(rows.map((row) => ({
+      onHand: stock.filter((bin) => bin.item_id === row.inventory_item_id).reduce((sum, bin) => sum + Number(bin.quantity_on_hand), 0),
+      unitCost: row.unit_cost,
+    })));
+  }, [parts.data]);
+  const siteChoices = sites.data ?? [];
   return (
-    <div className="grid gap-4">
-      <h1 className="text-xl font-semibold">{t("arcadeScreens.partsTitle")}</h1>
-      <p className="text-sm text-muted-foreground">{t("arcadeScreens.partsHint")}</p>
+    <div className="arcade-stack">
+      <ArcadeHero kicker={t("nav.arcade")} title={t("arcadeScreens.partsTitle")} subtitle={t("arcadeScreens.partsHint")} />
+      <div className="arcade-panel grid gap-3">
       <div className="grid gap-2 md:grid-cols-3">
         <Input placeholder={t("arcadeScreens.partName")} value={name} onChange={(event) => setName(event.target.value)} />
         <Input placeholder={t("arcadeScreens.partCode")} value={code} onChange={(event) => setCode(event.target.value)} />
         <Input type="number" min={1} value={qty} onChange={(event) => setQty(Number(event.target.value))} />
       </div>
       <div className="flex flex-wrap gap-2">
-        <Button type="button" onClick={() => request.mutate(undefined)}>{t("arcadeScreens.requestPartBtn")}</Button>
+        <Button type="button" className="arcade-cta" onClick={() => request.mutate(undefined)}>{t("arcadeScreens.requestPartBtn")}</Button>
         {canPurchase ? <Button type="button" variant="outline" onClick={() => create.mutate()}>{t("arcadeScreens.createStocked")}</Button> : null}
       </div>
+      <p className="text-sm text-muted-foreground">
+        {t("arcadeScreens.stockValue", { value: valuation.value })}
+        {valuation.unpricedQty > 0 ? ` · ${t("arcadeScreens.stockValueIncomplete", { qty: valuation.unpricedQty })}` : ""}
+      </p>
+      {canPurchase ? (
+        <div className="grid gap-2 md:grid-cols-4">
+          <select className="flex h-11 w-full rounded-lg border border-input bg-card px-3 text-sm" value={transferPartId} aria-label={t("arcadeScreens.partsTitle")} onChange={(event) => setTransferPartId(event.target.value)}>
+            <option value="">{t("arcadeScreens.partsTitle")}</option>
+            {(parts.data?.rows ?? []).map((row) => <option key={row.id} value={row.id}>{row.part_code}</option>)}
+          </select>
+          <select className="flex h-11 w-full rounded-lg border border-input bg-card px-3 text-sm" value={fromLocationId} aria-label={t("arcadeScreens.transferFrom")} onChange={(event) => setFromLocationId(event.target.value)}>
+            <option value="">{t("arcadeScreens.transferFrom")}</option>
+            {siteChoices.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
+          </select>
+          <select className="flex h-11 w-full rounded-lg border border-input bg-card px-3 text-sm" value={toLocationId} aria-label={t("arcadeScreens.transferTo")} onChange={(event) => setToLocationId(event.target.value)}>
+            <option value="">{t("arcadeScreens.transferTo")}</option>
+            {siteChoices.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
+          </select>
+          <div className="flex gap-2">
+            <Input type="number" min={0.01} step="0.01" value={transferQty} aria-label={t("arcadeScreens.transferQty")} onChange={(event) => setTransferQty(Number(event.target.value))} />
+            <Button type="button" variant="outline" disabled={!transferPartId || !fromLocationId || !toLocationId || transfer.isPending} onClick={() => transfer.mutate()}>{t("arcadeScreens.transferStock")}</Button>
+          </div>
+        </div>
+      ) : null}
       <div className="grid gap-2">
         {(parts.data?.rows ?? []).map((row) => {
-          const onHand = (parts.data?.stock ?? []).filter((stock) => stock.item_id === row.inventory_item_id).reduce((sum, stock) => sum + Number(stock.quantity_on_hand), 0);
+          const bins = (parts.data?.stock ?? []).filter((stock) => stock.item_id === row.inventory_item_id).map((stock) => ({ locationId: stock.location_id, onHand: Number(stock.quantity_on_hand) }));
+          const placed = splitStock(bins, row.warehouse_location_id);
           return (
-            <article key={row.id} className="rounded-lg border p-3 text-sm">
+            <article key={row.id} className="arcade-row arcade-row--block text-sm">
               <div className="flex justify-between gap-2"><span className="font-medium">{row.part_code} · {row.name}</span><StatusBadge status={row.supply_status} /></div>
-              <p className="text-muted-foreground">{t("arcadeScreens.onHand", { onHand, min: row.min_stock })}</p>
+              <p className="text-muted-foreground">{t("arcadeScreens.onHand", { onHand: placed.total, min: row.min_stock })} · {t("arcadeScreens.warehouseOnHand", { qty: placed.warehouse })} · {t("arcadeScreens.siteOnHand", { qty: placed.sites })}</p>
               <div className="mt-2 flex gap-2">
                 <Button size="sm" type="button" variant="outline" onClick={() => request.mutate(row.id)}>{t("arcadeScreens.request")}</Button>
                 {search.get("machineId") ? <Button size="sm" type="button" onClick={() => consume.mutate(row.id)}>{t("arcadeScreens.useOnRepair")}</Button> : null}
@@ -298,9 +364,11 @@ export function ArcadeParts() {
           );
         })}
       </div>
-      <h2 className="font-semibold">{t("arcadeScreens.requests")}</h2>
+      {(parts.data?.rows.length ?? 0) === 0 && parts.isSuccess ? <ArcadeEmpty title={t("arcadeFlow.partsEmpty")} /> : null}
+      </div>
+      <h2 className="arcade-panel__title">{t("arcadeScreens.requests")}</h2>
       {(requests.data?.rows ?? []).map((row) => (
-        <p key={row.id} className="text-sm">
+        <p key={row.id} className="arcade-row text-sm">
           {row.machine_name ? `${row.machine_name} · ` : ""}
           {t("arcadeScreens.requestLine", { description: row.description.replace(/^import:\S+\s*/, ""), status: arcadeStatusName(t, row.status), qty: row.qty })}
         </p>
@@ -329,12 +397,13 @@ export function ArcadeManuals() {
     onError: (error) => toast.error(error instanceof Error ? error.message : t("arcadeScreens.manualFailed")),
   });
   return (
-    <div className="grid gap-3">
-      <h1 className="text-xl font-semibold">{t("arcadeScreens.manualsTitle")}</h1>
+    <div className="arcade-stack">
+      <ArcadeHero kicker={t("nav.arcade")} title={t("arcadeScreens.manualsTitle")} subtitle={t("arcadeScreens.manualSearch")} />
       <Input value={q} onChange={(event) => setQ(event.target.value)} placeholder={t("arcadeScreens.manualSearch")} />
-      <div className="flex gap-2"><Input value={title} onChange={(event) => setTitle(event.target.value)} placeholder={t("arcadeScreens.newManual")} /><Button type="button" onClick={() => save.mutate()}>{t("arcadeScreens.add")}</Button></div>
+      <div className="flex gap-2"><Input value={title} onChange={(event) => setTitle(event.target.value)} placeholder={t("arcadeScreens.newManual")} className="bg-card" /><Button type="button" className="arcade-cta" onClick={() => save.mutate()}>{t("arcadeScreens.add")}</Button></div>
+      {list.isSuccess && (list.data?.rows.length ?? 0) === 0 ? <ArcadeEmpty title={t("arcadeFlow.manualsEmpty")} /> : null}
       {(list.data?.rows ?? []).map((row) => (
-        <article key={row.id} className="rounded border p-3 text-sm">
+        <article key={row.id} className="arcade-row arcade-row--block text-sm">
           <p className="font-medium">{row.title}</p>
           <p className="text-muted-foreground">{row.doc_type} · {row.model || row.manufacturer || row.error_code || t("arcadeScreens.general")}</p>
           {row.external_url ? <a className="underline" href={row.external_url}>{t("arcadeScreens.openLink")}</a> : null}
@@ -365,11 +434,8 @@ export function ArcadeDamage() {
     onError: (error) => toast.error(error instanceof Error ? error.message : t("arcadeScreens.damageFailed")),
   });
   return (
-    <div className="grid gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-xl font-semibold">{t("arcadeScreens.damageTitle")}</h1>
-        <ArcadeWorkbookImport />
-      </div>
+    <div className="arcade-stack">
+      <ArcadeHero kicker={t("nav.arcade")} title={t("arcadeScreens.damageTitle")} subtitle={t("arcadeScreens.damageHint")} actions={<ArcadeWorkbookImport />} />
       <GlideSelect
         ariaLabel={t("arcadeScreens.machine")}
         value={machineId}
@@ -381,10 +447,10 @@ export function ArcadeDamage() {
       />
       <Textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder={t("arcadeScreens.whatHappened")} />
       <Field label={t("arcadeScreens.damageType")}><Input value={damageType} onChange={(event) => setDamageType(event.target.value)} /></Field>
-      <Button type="button" onClick={() => save.mutate()}>{t("arcadeScreens.saveReport")}</Button>
-      <p className="text-xs text-muted-foreground">{t("arcadeScreens.damageHint")}</p>
+      <Button type="button" className="arcade-cta" onClick={() => save.mutate()}>{t("arcadeScreens.saveReport")}</Button>
+      {list.isSuccess && (list.data?.rows.length ?? 0) === 0 ? <ArcadeEmpty title={t("arcadeFlow.damageEmpty")} /> : null}
       {(list.data?.rows ?? []).map((row) => (
-        <p key={row.id} className="rounded border p-2 text-sm">
+        <p key={row.id} className="arcade-row arcade-row--block text-sm">
           <span className="font-medium">{row.machine_name || t("arcadeScreens.needsMappingFlag")}</span>
           {row.asset_code ? ` · ${row.asset_code}` : ""} · {row.reported_on} · {row.damage_type}
           <span className="block text-muted-foreground">{row.description}</span>
@@ -415,8 +481,8 @@ export function ArcadeInstallations() {
     onError: (error) => toast.error(error instanceof Error ? error.message : t("arcadeScreens.installFailed")),
   });
   return (
-    <div className="grid gap-3">
-      <h1 className="text-xl font-semibold">{t("arcadeScreens.installTitle")}</h1>
+    <div className="arcade-stack">
+      <ArcadeHero kicker={t("nav.arcade")} title={t("arcadeScreens.installTitle")} />
       <GlideSelect
         ariaLabel={t("common.site")}
         value={locationId}
@@ -435,8 +501,9 @@ export function ArcadeInstallations() {
         onChange={setMachineId}
         options={(machines.data?.rows ?? []).map((row) => ({ value: row.id, label: row.name }))}
       />
-      <Button type="button" onClick={() => save.mutate()}>{t("arcadeScreens.recordDelivery")}</Button>
-      {(list.data?.rows ?? []).map((row) => <p key={row.id} className="text-sm">{t("arcadeScreens.deliveredLine", { status: arcadeStatusName(t, row.status), date: row.delivery_on ?? "—" })}</p>)}
+      <Button type="button" className="arcade-cta" onClick={() => save.mutate()}>{t("arcadeScreens.recordDelivery")}</Button>
+      {list.isSuccess && (list.data?.rows.length ?? 0) === 0 ? <ArcadeEmpty title={t("arcadeFlow.installEmpty")} /> : null}
+      {(list.data?.rows ?? []).map((row) => <p key={row.id} className="arcade-row text-sm">{t("arcadeScreens.deliveredLine", { status: arcadeStatusName(t, row.status), date: row.delivery_on ?? "—" })}</p>)}
     </div>
   );
 }

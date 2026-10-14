@@ -9,6 +9,7 @@ import {
   hasSuperAdminAccess,
   isFecTechnician,
   isFnbManager,
+  isOperationsLead,
 } from "@/lib/arcade/access";
 import { canUserDo, CAPABILITIES, ROLE_LEVELS, type Capability } from "@/lib/rbac";
 
@@ -132,6 +133,36 @@ describe("arcade technical access", () => {
         SITE_B,
       ),
     ).toBe(true);
+  });
+
+  it("follows the arcade role plan without opening reports or stock moves to technicians", () => {
+    expect(isOperationsLead("Operations Manager", null)).toBe(true);
+    expect(isOperationsLead("Duty Manager", "Operations")).toBe(true);
+    expect(isOperationsLead("HR Manager", "People")).toBe(false);
+    expect(isOperationsLead("F&B Manager", "Food & Beverage")).toBe(false);
+
+    expect(canActorPerform(["technician"], "arcade.view")).toBe(true);
+    expect(canActorPerform(["technician"], "arcade.operate")).toBe(true);
+    expect(canActorPerform(["technician"], "arcade.close")).toBe(false);
+    expect(canActorPerform(["technician"], "arcade.reports")).toBe(false);
+    expect(canActorPerform(["technician"], "arcade.purchase")).toBe(false);
+    expect(canActorPerform(["technician"], "arcade.manage")).toBe(false);
+
+    const supervisor = { jobTitle: "Site Supervisor", staffRole: "venue_supervisor" as const };
+    expect(canActorPerform(["cashier_host"], "arcade.close", supervisor)).toBe(true);
+    expect(canActorPerform(["cashier_host"], "arcade.reports", supervisor)).toBe(false);
+    expect(canActorPerform(["cashier_host"], "arcade.purchase", supervisor)).toBe(false);
+    expect(canActorPerform(["cashier_host"], "arcade.manage", supervisor)).toBe(false);
+
+    const operations = { jobTitle: "Operations Manager", department: "Operations" };
+    expect(canActorPerform(["cashier_host"], "arcade.assign", operations)).toBe(true);
+    expect(canActorPerform(["cashier_host"], "arcade.close", operations)).toBe(true);
+    expect(canActorPerform(["cashier_host"], "arcade.reports", operations)).toBe(true);
+    expect(canActorPerform(["cashier_host"], "arcade.purchase", operations)).toBe(true);
+    expect(canActorPerform(["cashier_host"], "arcade.manage", operations)).toBe(false);
+    expect(canActorPerform(["duty_manager"], "arcade.purchase", { jobTitle: "F&B Manager", department: "F&B" })).toBe(
+      false,
+    );
   });
 
   it("records the CEO grant on Rajan Pathak only", () => {

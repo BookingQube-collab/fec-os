@@ -5734,6 +5734,7 @@ export type Database = {
       arcade_installations: { Row: Record<string, unknown> & { id: string; machine_id: string | null; vendor_id: string | null; location_id: string; delivery_on: string | null; installed_on: string | null; technician_staff_id: string | null; supplier_technician: string | null; checks: unknown; issues: string | null; final_acceptance: string | null; status: string; created_by: string | null; updated_by: string | null; created_at: string; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       arcade_attachments: { Row: Record<string, unknown> & { id: string; location_id: string | null; entity_type: string; entity_id: string; kind: string; storage_path: string; file_name: string; mime_type: string | null; created_by: string | null; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       arcade_week_tasks: { Row: Record<string, unknown> & { id: string; technician_staff_id: string | null; location_id: string | null; machine_id: string | null; task_date: string; kind: string; title: string; entity_type: string | null; entity_id: string | null; status: string; priority: string; notes: string | null; created_by: string | null; updated_by: string | null; created_at: string; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      arcade_tasks: { Row: Record<string, unknown> & { id: string; location_id: string | null; technician_staff_id: string | null; machine_id: string | null; title: string; kind: string; span: string; due_on: string; priority: string; estimated_minutes: number | null; actual_minutes: number | null; status: string; depends_on_id: string | null; source_type: string | null; source_id: string | null; evidence: string | null; verification: string; verified_by_staff_id: string | null; verified_at: string | null; verification_note: string | null; notes: string | null; created_by: string | null; updated_by: string | null; created_at: string; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       arcade_import_queue: { Row: Record<string, unknown> & { id: string; source: string; external_key: string | null; kind: string; payload: unknown; needs_mapping: boolean; mapping_reason: string | null; machine_id: string | null; imported_entity: string | null; imported_id: string | null; created_by: string | null; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       arcade_alert_fires: { Row: Record<string, unknown> & { id: string; user_id: string; rule_key: string; entity_id: string; fired_on: string; notification_id: string | null; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       arcade_list_hides: { Row: Record<string, unknown> & { id: string; location_id: string | null; machine_id: string | null; hidden_by: string | null; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
@@ -5820,6 +5821,16 @@ export type Database = {
           p_notes?: string | null
         }
         Returns: string
+      }
+      arcade_transfer_stock: {
+        Args: {
+          p_part_id: string
+          p_from_location_id: string
+          p_to_location_id: string
+          p_qty: number
+          p_notes?: string | null
+        }
+        Returns: Json
       }
       approve_shift_swap: { Args: { _id: string }; Returns: undefined }
       cancel_shift: {

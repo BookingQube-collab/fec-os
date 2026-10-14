@@ -483,21 +483,18 @@ describe("admin sidebar visibility", () => {
     const arcade = getVisibleDepartments(["technician"]).find((dept) => dept.id === "arcade");
     expect(arcade?.groups ?? []).toEqual([]);
     const hrefs = arcade?.items.map((item) => item.href) ?? [];
-    expect(hrefs).toContain("/arcade");
-    expect(hrefs).toContain("/arcade/checklist");
-    expect(hrefs).toContain("/arcade/repair");
-    expect(hrefs).toContain("/arcade/faults");
-    expect(hrefs).toContain("/arcade/week");
+    expect(hrefs).toEqual(["/arcade", "/arcade/checklist", "/arcade/repair", "/arcade/tasks"]);
     expect(hrefs).not.toContain("/arcade/reports");
+    expect(hrefs).not.toContain("/arcade/sites");
+    expect(hrefs).not.toContain("/arcade/faults");
     expect(arcade?.items.some((item) => item.labelKey === "nav.arcade" || item.sectionKey === "nav.arcade")).toBe(false);
     const blocks = clusterItemsBySection(arcade?.items ?? []);
-    expect(blocks.map((block) => block.sectionKey)).toEqual([null, "nav.arcadeGroupMore"]);
+    expect(blocks.map((block) => block.sectionKey)).toEqual([null]);
     expect(blocks[0]?.items.map((item) => item.href)).toEqual([
       "/arcade",
-      "/arcade/sites",
       "/arcade/checklist",
       "/arcade/repair",
-      "/arcade/suppliers",
+      "/arcade/tasks",
     ]);
     const rail = getPrimaryRailNav(["technician"]).find((item) => item.departmentId === "arcade");
     expect(rail?.icon).toBe(arcade?.icon);

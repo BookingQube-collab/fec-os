@@ -127,33 +127,33 @@ export const getArcadeDashboard = createAuthenticatedAction(
       .limit(DASHBOARD_PREVIEW);
     let aged = context.supabase
       .from("arcade_faults")
-      .select("id, ticket_number, location_id, status, description")
+      .select("id, ticket_number, location_id, status, description, severity, technician_staff_id")
       .lt("reported_at", weekAgo)
       .not("status", "in", "(RESOLVED,CLOSED)")
       .order("reported_at")
       .limit(DASHBOARD_PREVIEW);
     let waitingSupplier = context.supabase
       .from("arcade_faults")
-      .select("id, ticket_number, location_id, status, description")
+      .select("id, ticket_number, location_id, status, description, severity, technician_staff_id")
       .eq("status", "WAITING_SUPPLIER")
       .order("reported_at")
       .limit(DASHBOARD_PREVIEW);
     let waitingPart = context.supabase
       .from("arcade_faults")
-      .select("id, ticket_number, location_id, status, description")
+      .select("id, ticket_number, location_id, status, description, severity, technician_staff_id")
       .eq("status", "WAITING_PART")
       .order("reported_at")
       .limit(DASHBOARD_PREVIEW);
     let repeats = context.supabase
       .from("arcade_faults")
-      .select("id, ticket_number, location_id, category, repeat_count")
+      .select("id, ticket_number, location_id, category, repeat_count, status, description, severity, technician_staff_id")
       .eq("is_repeat", true)
       .not("status", "in", "(RESOLVED,CLOSED)")
       .order("reported_at", { ascending: false })
       .limit(DASHBOARD_PREVIEW);
     let resolved = context.supabase
       .from("arcade_faults")
-      .select("id, ticket_number, location_id, category")
+      .select("id, ticket_number, location_id, category, resolved_at")
       .not("resolved_at", "is", null)
       .order("resolved_at", { ascending: false })
       .limit(DASHBOARD_PREVIEW);

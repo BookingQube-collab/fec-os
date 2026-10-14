@@ -494,6 +494,36 @@ export const useSparePart = createAuthenticatedAction(
   { auth: { capability: "arcade.operate" } },
 );
 
+export const transferSparePart = createAuthenticatedAction(
+  z.object({
+    partId: z.string().uuid(),
+    fromLocationId: z.string().uuid(),
+    toLocationId: z.string().uuid(),
+    qty: z.number().positive(),
+    notes: z.string().max(500).optional().nullable(),
+  }),
+  async (data, context) => {
+    if (!canActorPerform(context.roles ?? [], "arcade.purchase", context.access)) {
+      throw new Error("Stock transfers require operations approval");
+    }
+    if (data.fromLocationId === data.toLocationId) {
+      throw new Error("Choose two different locations.");
+    }
+    await assertArcadeLocationAccess(context, data.fromLocationId);
+    await assertArcadeLocationAccess(context, data.toLocationId);
+    const { data: moved, error } = await context.supabase.rpc("arcade_transfer_stock", {
+      p_part_id: data.partId,
+      p_from_location_id: data.fromLocationId,
+      p_to_location_id: data.toLocationId,
+      p_qty: data.qty,
+      p_notes: data.notes ?? null,
+    });
+    if (error) throw new Error(error.message);
+    return moved;
+  },
+  { auth: { capability: "arcade.purchase" } },
+);
+
 export const listArcadeDocuments = createAuthenticatedAction(
   PageQuery,
   async (data, context) => {
@@ -729,7 +759,7 @@ export const getArcadeWeeklyReport = createAuthenticatedAction(
     const [{ data: sites }, { data: locs }, { data: faults }, pmCompleted, pmOverdue, usages] = await Promise.all([
       context.supabase.from("arcade_site_health").select("*"),
       context.supabase.from("locations").select("id, name"),
-      context.supabase.from("arcade_faults").select("id, ticket_number, location_id, machine_id, status, severity, category, description, reported_at, resolved_at, is_repeat").gte("reported_at", `${bounds.start}T00:00:00Z`).lte("reported_at", `${bounds.end}T23:59:59Z`).limit(800),
+      context.supabase.from("arcade_faults").select("id, ticket_number, location_id, machine_id, status, severity, category, description, reported_at, resolved_at, is_repeat, technician_staff_id").gte("reported_at", `${bounds.start}T00:00:00Z`).lte("reported_at", `${bounds.end}T23:59:59Z`).limit(800),
       context.supabase.from("arcade_pm_records").select("id", { count: "exact", head: true }).eq("confirmed", true).gte("performed_on", bounds.start).lte("performed_on", bounds.end),
       context.supabase.from("arcade_machines").select("id", { count: "exact", head: true }).eq("active", true).lt("next_pm_on", bounds.start),
       context.supabase.from("arcade_part_usages").select("machine_id, qty, unit_cost").gte("used_on", bounds.start).lte("used_on", bounds.end),
@@ -743,6 +773,11 @@ export const getArcadeWeeklyReport = createAuthenticatedAction(
     const machineNames = new Map((machines ?? []).map((machine) => [machine.id, machine.name]));
     const machineLocations = new Map((machines ?? []).map((machine) => [machine.id, machine.location_id]));
     const list = faults ?? [];
+    const technicianIds = [...new Set(list.map((fault) => fault.technician_staff_id).filter((id): id is string => Boolean(id)))];
+    const { data: technicians } = technicianIds.length
+      ? await context.supabase.from("staff").select("id, full_name").in("id", technicianIds)
+      : { data: [] as { id: string; full_name: string | null }[] };
+    const technicianNames = new Map((technicians ?? []).map((row) => [row.id, row.full_name ?? ""]));
     const partLines = usageRows.map((row) => ({
       machineId: row.machine_id,
       locationId: machineLocations.get(row.machine_id) ?? "",
@@ -791,6 +826,8 @@ export const getArcadeWeeklyReport = createAuthenticatedAction(
         reportedOn: String(fault.reported_at).slice(0, 10),
         isRepeat: Boolean(fault.is_repeat),
         resolved: Boolean(fault.resolved_at),
+        technicianStaffId: fault.technician_staff_id,
+        technicianName: fault.technician_staff_id ? technicianNames.get(fault.technician_staff_id) || null : null,
       })),
     });
   },

@@ -64,6 +64,17 @@ export function isNonFnbManager(jobTitle?: string | null, department?: string | 
   return !isFnbManager(jobTitle, department);
 }
 
+const OPERATIONS_LEAD = /operations|duty|branch|general|venue/i;
+
+/**
+ * Operations, duty, branch, general, or venue manager.
+ * Other manager titles, including HR, stay out of arcade purchasing and reports.
+ */
+export function isOperationsLead(jobTitle?: string | null, department?: string | null): boolean {
+  if (!isNonFnbManager(jobTitle, department)) return false;
+  return OPERATIONS_LEAD.test(`${jobTitle ?? ""} ${department ?? ""}`);
+}
+
 export function isOperationsSuperAdmin(jobTitle?: string | null): boolean {
   return isHeadOfOperationsTitle(jobTitle);
 }
@@ -116,6 +127,20 @@ export function canActorPerform(
   if (
     (capability === "arcade.view" || capability === "arcade.operate") &&
     jobMayUseArcade({ jobTitle, staffRole, department })
+  ) {
+    return true;
+  }
+
+  if (
+    capability === "arcade.close" &&
+    (isArcadeSupervisor(jobTitle, staffRole) || isOperationsLead(jobTitle, department))
+  ) {
+    return true;
+  }
+
+  if (
+    (capability === "arcade.assign" || capability === "arcade.reports" || capability === "arcade.purchase") &&
+    isOperationsLead(jobTitle, department)
   ) {
     return true;
   }

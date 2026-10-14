@@ -611,6 +611,29 @@ export const listPmSchedules = createAuthenticatedAction(
   { defaultInput: {}, auth: { capability: "arcade.view" } },
 );
 
+export const listPmHistory = createAuthenticatedAction(
+  z.object({ machineId: z.string().uuid() }),
+  async (data, context) => {
+    const { data: machine, error: machineError } = await context.supabase
+      .from("arcade_machines")
+      .select("location_id")
+      .eq("id", data.machineId)
+      .maybeSingle();
+    if (machineError) throw machineError;
+    if (!machine) return { rows: [] };
+    await assertArcadeLocationAccess(context, machine.location_id);
+    const { data: rows, error } = await context.supabase
+      .from("arcade_pm_records")
+      .select("id, performed_on, next_pm_on, issues_found, confirmed")
+      .eq("machine_id", data.machineId)
+      .order("performed_on", { ascending: false })
+      .limit(8);
+    if (error) throw error;
+    return { rows: rows ?? [] };
+  },
+  { auth: { capability: "arcade.view" } },
+);
+
 export const savePmSchedule = createAuthenticatedAction(
   z.object({
     id: z.string().uuid().optional(),

@@ -22,6 +22,8 @@ export type WeeklyFaultRow = {
   reportedOn: string;
   isRepeat: boolean;
   resolved: boolean;
+  technicianStaffId?: string | null;
+  technicianName?: string | null;
 };
 
 export type ArcadePartLine = {
@@ -101,6 +103,8 @@ export function buildWeeklyArcadeReport(input: WeeklyReportInput): WeeklyReport 
 export type ArcadeReportFilters = {
   siteId?: string;
   status?: string;
+  category?: string;
+  technicianStaffId?: string;
   q?: string;
 };
 
@@ -121,9 +125,65 @@ export function filterArcadeReportFaults(faults: WeeklyFaultRow[], filters: Arca
   return faults.filter((fault) => {
     if (filters.siteId && fault.locationId !== filters.siteId) return false;
     if (filters.status && fault.status !== filters.status) return false;
+    if (filters.category && fault.category !== filters.category) return false;
+    if (filters.technicianStaffId && fault.technicianStaffId !== filters.technicianStaffId) return false;
     if (!q) return true;
     return `${fault.machine} ${fault.summary}`.toLowerCase().includes(q);
   });
+}
+
+export function technicianWorkload(
+  faults: readonly Pick<WeeklyFaultRow, "technicianStaffId" | "technicianName" | "resolved">[],
+) {
+  const rows = new Map<string, { staffId: string; name: string; open: number; closed: number }>();
+  let unassigned = 0;
+  for (const fault of faults) {
+    if (!fault.technicianStaffId) {
+      unassigned += 1;
+      continue;
+    }
+    const current = rows.get(fault.technicianStaffId) ?? {
+      staffId: fault.technicianStaffId,
+      name: fault.technicianName?.trim() || fault.technicianStaffId,
+      open: 0,
+      closed: 0,
+    };
+    if (fault.resolved) current.closed += 1;
+    else current.open += 1;
+    rows.set(fault.technicianStaffId, current);
+  }
+  return {
+    unassigned,
+    technicians: [...rows.values()].sort((a, b) => b.open - a.open || a.name.localeCompare(b.name)),
+  };
+}
+
+function csvCell(value: string) {
+  if (/[",\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
+  return value;
+}
+
+/** CSV of the rows currently in view. Blank technician means the fault has no assignee. */
+export function arcadeReportCsv(rows: readonly WeeklyFaultRow[]): string {
+  const header = ["ticket", "machine", "site", "status", "category", "technician", "reported", "summary"];
+  const lines = [header.join(",")];
+  for (const row of rows) {
+    lines.push(
+      [
+        row.ticketNumber,
+        row.machine,
+        row.site,
+        row.status,
+        row.category,
+        row.technicianName ?? "",
+        row.reportedOn,
+        row.summary,
+      ]
+        .map((value) => csvCell(String(value ?? "")))
+        .join(","),
+    );
+  }
+  return lines.join("\n");
 }
 
 export function availabilityForSites(
