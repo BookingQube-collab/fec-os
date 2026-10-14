@@ -1,11 +1,12 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { CircleCheck } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
-import { StatusBadge } from "@/components/arcade/ui";
+import { ArcadeEmpty, StatusBadge } from "@/components/arcade/ui";
 import { FecLoader } from "@/components/fec";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -23,6 +24,12 @@ export function ArcadeChecklist() {
   const canOperate = usePermission("arcade.operate");
   const context = useQuery({ queryKey: queryKeys.arcade.context(), queryFn: () => getArcadeContext({}) });
   const [locationId, setLocationId] = useState("");
+  const [locationTouched, setLocationTouched] = useState(false);
+  useEffect(() => {
+    if (locationTouched || locationId) return;
+    const site = context.data?.staff?.location_id;
+    if (site) setLocationId(site);
+  }, [context.data?.staff?.location_id, locationId, locationTouched]);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const list = useQuery({
     queryKey: [...queryKeys.arcade.all, "checklist", locationId],
@@ -48,18 +55,22 @@ export function ArcadeChecklist() {
   });
 
   return (
-    <div className="grid gap-6">
-      <header className="grid gap-2">
-        <h1 className="text-3xl font-semibold tracking-tight">{t("arcadeSimple.checklistTitle")}</h1>
-        <p className="max-w-2xl text-lg text-muted-foreground">{t("arcadeSimple.checklistHint")}</p>
-        {context.data?.isSupervisor ? <p className="text-base font-medium">{t("arcadeSimple.yourChecklist")}</p> : null}
+    <div className="phone-shell">
+      <header className="phone-head">
+        <p>{t("nav.arcade")}</p>
+        <h1>{t("arcadeSimple.checklistTitle")}</h1>
+        <p>{t("arcadeSimple.checklistHint")}</p>
       </header>
-      <label className="grid max-w-xl gap-2">
-        <span className="text-xl font-medium">{t("arcadeSimple.pickLocation")}</span>
+      {context.data?.isSupervisor ? <p className="cc-note">{t("arcadeSimple.yourChecklist")}</p> : null}
+      <label className="arcade-panel grid max-w-xl gap-2">
+        <span className="font-medium">{t("arcadeSimple.pickLocation")}</span>
         <select
-          className="h-12 rounded-md border bg-background px-3 text-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="arcade-select"
           value={locationId}
-          onChange={(event) => setLocationId(event.target.value)}
+          onChange={(event) => {
+            setLocationTouched(true);
+            setLocationId(event.target.value);
+          }}
         >
           <option value="">{t("arcadeScreens.selectSite")}</option>
           {(sites.data ?? []).filter(isArcadeVenueLocation).map((site) => (
@@ -67,65 +78,92 @@ export function ArcadeChecklist() {
           ))}
         </select>
       </label>
-      {!canOperate ? <p className="text-sm text-muted-foreground">{t("arcadeSimple.lookOnly")}</p> : null}
+      {!locationId ? <ArcadeEmpty title={t("arcadeFlow.checklistPick")} /> : (
+        <article className="phone-asset">
+          <p className="cc-note">{t("arcadeScreens.asset")}</p>
+          <strong>{venueTitle(sites.data?.find((site) => site.id === locationId), t("common.site"))}</strong>
+          {list.data ? (
+            <dl>
+              <div>
+                <dt>{t("arcadeFlow.checklist")}</dt>
+                <dd>{t("arcadeFlow.checkProgress", { done: list.data.games.filter((game) => game.check).length, total: list.data.games.length })}</dd>
+              </div>
+            </dl>
+          ) : null}
+        </article>
+      )}
+      {!canOperate ? <p className="arcade-note">{t("arcadeSimple.lookOnly")}</p> : null}
       {list.isLoading ? <FecLoader label={t("arcadeOps.loading")} /> : null}
       {list.isError ? <p className="text-sm text-destructive">{list.error instanceof Error ? list.error.message : t("arcadeOps.failed")}</p> : null}
       {list.data ? (
-        <section className="grid gap-4">
-          <div>
-            <h2 className="text-lg font-medium">{t("arcadeSimple.supervisor")}</h2>
-            {list.data.supervisors.length === 0 ? <p className="text-muted-foreground">{t("arcadeSimple.noSupervisor")}</p> : (
-              <ul className="mt-1 grid gap-1">
-                {list.data.supervisors.map((person) => (
-                  <li key={person.id} className="text-lg">{person.name}{person.title ? ` · ${person.title}` : ""}{person.phone ? ` · ${person.phone}` : ""}</li>
-                ))}
-              </ul>
-            )}
+        <section className="phone-card">
+          <div className="phone-card__head">
+            <h2>{t("arcadeFlow.checklist")}</h2>
+            <span>{t("arcadeFlow.checkProgress", { done: list.data.games.filter((game) => game.check).length, total: list.data.games.length })}</span>
           </div>
-          <h2 className="text-xl font-medium">{t("arcadeSimple.pickGame")}</h2>
-          {list.data.games.length === 0 ? <p className="text-muted-foreground">{t("arcadeSimple.noGames")}</p> : null}
-          <ul className="grid gap-3">
-            {list.data.games.map((game) => (
-              <li key={game.id} className="grid gap-3 rounded-lg border bg-card p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xl font-semibold">{game.name}</p>
-                  <StatusBadge status={game.check?.result === "PASS" ? "WORKING" : game.check?.result === "FAIL" ? "DOWN" : game.status} />
-                </div>
-                {game.check ? (
-                  <p className="text-sm text-muted-foreground">
-                    {game.check.result === "PASS" ? t("arcadeSimple.checked") : t("arcadeSimple.notOk")}
-                    {game.check.notes ? ` · ${game.check.notes}` : ""}
-                  </p>
-                ) : (
-                  <>
-                    <Textarea
-                      value={notes[game.id] ?? ""}
-                      placeholder={t("arcadeSimple.note")}
-                      onChange={(event) => setNotes({ ...notes, [game.id]: event.target.value })}
-                    />
-                    <div className="flex flex-wrap gap-2">
-                      <Button type="button" disabled={!canOperate || mark.isPending} onClick={() => mark.mutate({ machineId: game.id, ok: true })}>
-                        {t("arcadeSimple.checked")}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={!canOperate || mark.isPending}
-                        onClick={() => {
-                          if (!(notes[game.id] ?? "").trim()) {
-                            toast.error(t("arcadeSimple.noteNeeded"));
-                            return;
-                          }
-                          mark.mutate({ machineId: game.id, ok: false });
-                        }}
-                      >
-                        {t("arcadeSimple.notOk")}
-                      </Button>
+          <div className="arcade-meter" aria-hidden="true">
+            <div
+              className="arcade-meter__bar arcade-meter__bar--ok"
+              style={{ width: list.data.games.length === 0 ? "0%" : `${Math.round((list.data.games.filter((game) => game.check).length / list.data.games.length) * 100)}%` }}
+            />
+          </div>
+          {list.data.supervisors.length > 0 ? (
+            <p className="cc-note">
+              {t("arcadeSimple.supervisor")}: {list.data.supervisors.map((person) => [person.name, person.title].filter(Boolean).join(" · ")).join(", ")}
+            </p>
+          ) : null}
+          {list.data.games.length === 0 ? <ArcadeEmpty title={t("arcadeSimple.noGames")} /> : null}
+          <ul>
+            {list.data.games.map((game) => {
+              const passed = game.check?.result === "PASS";
+              const failed = game.check?.result === "FAIL";
+              return (
+                <li key={game.id} className="phone-row">
+                  <span className={`phone-box${passed ? " is-on" : failed ? " is-bad" : ""}`} aria-hidden="true">
+                    {passed || failed ? <CircleCheck /> : null}
+                  </span>
+                  <div className="grid min-w-0 gap-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="font-semibold">{game.name}</p>
+                      <StatusBadge status={passed ? "WORKING" : failed ? "DOWN" : game.status} />
                     </div>
-                  </>
-                )}
-              </li>
-            ))}
+                    {game.assetCode ? <p className="cc-note">{game.assetCode}</p> : null}
+                    {game.check ? (
+                      <p className="text-sm text-muted-foreground">
+                        {passed ? t("arcadeSimple.checked") : t("arcadeSimple.notOk")}
+                        {game.check.notes ? ` · ${game.check.notes}` : ""}
+                      </p>
+                    ) : (
+                      <>
+                        <Textarea
+                          value={notes[game.id] ?? ""}
+                          placeholder={t("arcadeSimple.note")}
+                          onChange={(event) => setNotes({ ...notes, [game.id]: event.target.value })}
+                        />
+                        <Button type="button" className="arcade-cta phone-submit" disabled={!canOperate || mark.isPending} onClick={() => mark.mutate({ machineId: game.id, ok: true })}>
+                          {t("arcadeSimple.checked")}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="arcade-touch w-full"
+                          disabled={!canOperate || mark.isPending}
+                          onClick={() => {
+                            if (!(notes[game.id] ?? "").trim()) {
+                              toast.error(t("arcadeSimple.noteNeeded"));
+                              return;
+                            }
+                            mark.mutate({ machineId: game.id, ok: false });
+                          }}
+                        >
+                          {t("arcadeSimple.notOk")}
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         </section>
       ) : null}

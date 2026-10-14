@@ -2,24 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import {
-  AlertTriangle,
-  BookOpen,
-  Building2,
-  CalendarRange,
-  ChevronDown,
   ClipboardCheck,
-  Eye,
-  FileBarChart,
-  Hammer,
-  History,
   LayoutDashboard,
-  LifeBuoy,
-  Package,
-  Search,
-  ShieldAlert,
-  Truck,
+  ListChecks,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
@@ -29,7 +16,6 @@ import { PillTabScroller, pillTabItemClass } from "@/components/react-bits/pill-
 import StatusMark, { type StatusMarkStatus } from "@/components/react-bits/status-mark";
 import { Button } from "@/components/ui/button";
 import { useSites } from "@/hooks/queries/useSites";
-import { usePermission } from "@/hooks/use-permission";
 import { venueTitle } from "@/lib/locations/normalize";
 import { cn } from "@/lib/utils";
 
@@ -37,25 +23,9 @@ type ArcadeLink = { href: string; labelKey: string; icon: LucideIcon; exact?: bo
 
 const PRIMARY: ArcadeLink[] = [
   { href: "/arcade", labelKey: "nav.arcadeDashboard", icon: LayoutDashboard, exact: true },
-  { href: "/arcade/sites", labelKey: "nav.arcadeLocations", icon: Building2 },
   { href: "/arcade/checklist", labelKey: "nav.arcadeChecklist", icon: ClipboardCheck },
   { href: "/arcade/repair", labelKey: "nav.arcadeRepair", icon: Wrench },
-  { href: "/arcade/suppliers", labelKey: "nav.arcadeSuppliersParts", icon: Truck },
-];
-
-const MORE: ArcadeLink[] = [
-  { href: "/arcade/week", labelKey: "nav.arcadeWeek", icon: CalendarRange },
-  { href: "/arcade/faults", labelKey: "nav.arcadeFaults", icon: AlertTriangle },
-  { href: "/arcade/pm", labelKey: "nav.arcadePm", icon: Wrench },
-  { href: "/arcade/observation", labelKey: "nav.arcadeObservation", icon: Eye },
-  { href: "/arcade/support", labelKey: "nav.arcadeSupport", icon: LifeBuoy },
-  { href: "/arcade/parts", labelKey: "nav.arcadeParts", icon: Package },
-  { href: "/arcade/manuals", labelKey: "nav.arcadeManuals", icon: BookOpen },
-  { href: "/arcade/history", labelKey: "nav.arcadeHistory", icon: History },
-  { href: "/arcade/installations", labelKey: "nav.arcadeInstallations", icon: Hammer },
-  { href: "/arcade/damage", labelKey: "nav.arcadeDamage", icon: ShieldAlert },
-  { href: "/arcade/reports", labelKey: "nav.arcadeReports", icon: FileBarChart, report: true },
-  { href: "/arcade/search", labelKey: "nav.arcadeSearch", icon: Search },
+  { href: "/arcade/tasks", labelKey: "nav.arcadeTasks", icon: ListChecks },
 ];
 
 function isArcadeLinkActive(pathname: string, link: ArcadeLink) {
@@ -64,22 +34,28 @@ function isArcadeLinkActive(pathname: string, link: ArcadeLink) {
 }
 
 const STATUS_CLASS: Record<string, string> = {
-  WORKING: "bg-emerald-600 text-white",
-  DOWN: "bg-red-600 text-white",
-  UNDER_REPAIR: "bg-amber-500 text-black",
-  UNDER_OBSERVATION: "bg-sky-600 text-white",
-  WAITING_PART: "bg-orange-600 text-white",
-  WAITING_SUPPLIER: "bg-violet-700 text-white",
-  OUT_OF_SERVICE: "bg-rose-800 text-white",
-  DECOMMISSIONED: "bg-slate-500 text-white",
-  CRITICAL: "bg-red-700 text-white",
-  HIGH: "bg-orange-700 text-white",
-  RESOLVED: "bg-emerald-700 text-white",
-  CLOSED: "bg-slate-700 text-white",
-  REPORTED: "bg-blue-700 text-white",
-  LOW_STOCK: "bg-amber-600 text-black",
-  OUT_OF_STOCK: "bg-red-700 text-white",
-  IN_STOCK: "bg-emerald-700 text-white",
+  WORKING: "arcade-status--ok",
+  DOWN: "arcade-status--bad",
+  UNDER_REPAIR: "arcade-status--wait",
+  UNDER_OBSERVATION: "arcade-status--info",
+  WAITING_PART: "arcade-status--wait",
+  WAITING_SUPPLIER: "arcade-status--accent",
+  OUT_OF_SERVICE: "arcade-status--bad",
+  DECOMMISSIONED: "arcade-status--muted",
+  CRITICAL: "arcade-status--bad",
+  HIGH: "arcade-status--wait",
+  RESOLVED: "arcade-status--ok",
+  CLOSED: "arcade-status--muted",
+  REPORTED: "arcade-status--info",
+  LOW_STOCK: "arcade-status--wait",
+  OUT_OF_STOCK: "arcade-status--bad",
+  IN_STOCK: "arcade-status--ok",
+  REPEAT: "arcade-status--accent",
+  PASS: "arcade-status--ok",
+  FAIL: "arcade-status--bad",
+  DONE: "arcade-status--ok",
+  STARTED: "arcade-status--info",
+  PAUSED: "arcade-status--wait",
 };
 
 export function statusLabel(status: string) {
@@ -99,7 +75,7 @@ export function StatusBadge({ status }: { status: string }) {
   const translated = t(key);
   const label = translated === key ? statusLabel(status) : translated;
   return (
-    <span className={cn("inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-semibold tracking-wide", STATUS_CLASS[status] ?? "bg-muted text-foreground")}>
+    <span className={cn("arcade-status", STATUS_CLASS[status] ?? "arcade-status--muted")}>
       <StatusMark status={arcadeMark(status)} size={14} />
       {label}
     </span>
@@ -114,7 +90,7 @@ export function useVenueTitle() {
 
 export function HealthMeter({ value, label }: { value: number | null; label: string }) {
   const width = value == null ? 0 : Math.max(0, Math.min(100, value));
-  const tone = value == null ? "bg-muted-foreground/30" : value >= 80 ? "bg-emerald-600" : value >= 50 ? "bg-amber-500" : "bg-red-600";
+  const tone = value == null ? "muted" : value >= 80 ? "ok" : value >= 50 ? "wait" : "bad";
   return (
     <div className="grid gap-1">
       <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
@@ -122,24 +98,24 @@ export function HealthMeter({ value, label }: { value: number | null; label: str
         <span className="tabular-nums font-medium text-foreground">{value == null ? "—" : `${value}%`}</span>
       </div>
       <div
-        className="h-2 overflow-hidden rounded-full bg-muted"
+        className="arcade-meter"
         role="meter"
         aria-label={label}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={Math.round(width)}
       >
-        <div className={cn("h-full rounded-full", tone)} style={{ width: `${width}%` }} />
+        <div className={cn("arcade-meter__bar", `arcade-meter__bar--${tone}`)} style={{ width: `${width}%` }} />
       </div>
     </div>
   );
 }
 
 function healthEdge(value: number | null) {
-  if (value == null) return "border-s-muted-foreground/30";
-  if (value >= 80) return "border-s-emerald-600";
-  if (value >= 50) return "border-s-amber-500";
-  return "border-s-red-600";
+  if (value == null) return "arcade-health-card--muted";
+  if (value >= 80) return "arcade-health-card--ok";
+  if (value >= 50) return "arcade-health-card--wait";
+  return "arcade-health-card--bad";
 }
 
 export function SiteHealthCard({
@@ -163,7 +139,7 @@ export function SiteHealthCard({
     <Link
       href={href}
       className={cn(
-        "flex h-full flex-col overflow-hidden rounded-2xl border border-s-4 bg-card shadow-[0_4px_20px_rgba(0,0,0,0.04)] transition hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(0,0,0,0.06)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+        "arcade-health-card flex h-full flex-col overflow-hidden rounded-2xl border border-s-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
         healthEdge(availability),
       )}
     >
@@ -182,14 +158,7 @@ export function SiteHealthCard({
 
 export function ArcadeSubnav() {
   const pathname = usePathname();
-  const canReport = usePermission("arcade.reports");
   const { t } = useTranslation();
-  const moreLinks = MORE.filter((link) => !link.report || canReport);
-  const moreActive = moreLinks.some((link) => isArcadeLinkActive(pathname, link));
-  const [opened, setOpened] = useState(moreActive);
-  useEffect(() => {
-    setOpened(moreActive);
-  }, [moreActive]);
 
   return (
     <div className="grid gap-2">
@@ -205,31 +174,6 @@ export function ArcadeSubnav() {
           );
         })}
       </PillTabScroller>
-      <div className="grid gap-2">
-        <button
-          type="button"
-          aria-expanded={opened}
-          className={cn("inline-flex w-fit cursor-pointer items-center gap-1 border-0 bg-transparent px-1 text-sm text-muted-foreground", "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring")}
-          onClick={() => setOpened((value) => !value)}
-        >
-          {t("nav.arcadeGroupMore")}
-          <ChevronDown className={cn("size-3.5 transition-transform motion-reduce:transition-none", opened && "rotate-180")} aria-hidden />
-        </button>
-        {opened ? (
-          <PillTabScroller label={t("nav.arcadeGroupMore")}>
-            {moreLinks.map((link) => {
-              const active = isArcadeLinkActive(pathname, link);
-              const Icon = link.icon;
-              return (
-                <Link key={link.href} href={link.href} aria-current={active ? "page" : undefined} className={pillTabItemClass(active)}>
-                  <Icon aria-hidden />
-                  {t(link.labelKey)}
-                </Link>
-              );
-            })}
-          </PillTabScroller>
-        ) : null}
-      </div>
     </div>
   );
 }
@@ -296,8 +240,91 @@ export function ActionButton({
   variant?: "default" | "outline" | "secondary";
 }) {
   return (
-    <Button asChild variant={variant} className="h-12 w-full text-base">
+    <Button asChild variant={variant} className={cn("h-12 w-full text-base", variant === "default" && "arcade-cta")}>
       <Link href={href}>{children}</Link>
     </Button>
+  );
+}
+
+export function ArcadeHero({
+  kicker,
+  title,
+  subtitle,
+  actions,
+}: {
+  kicker?: ReactNode;
+  title: ReactNode;
+  subtitle?: ReactNode;
+  actions?: ReactNode;
+}) {
+  return (
+    <header className="arcade-hero">
+      <div className="arcade-hero__copy">
+        {kicker ? <p className="arcade-hero__kicker">{kicker}</p> : null}
+        <h1 className="arcade-hero__title">{title}</h1>
+        {subtitle ? <p className="arcade-hero__sub">{subtitle}</p> : null}
+      </div>
+      {actions ? <div className="arcade-hero__actions">{actions}</div> : null}
+    </header>
+  );
+}
+
+export function ArcadeStat({
+  label,
+  value,
+  hint,
+  href,
+  tone,
+}: {
+  label: string;
+  value: ReactNode;
+  hint?: string;
+  href?: string;
+  tone?: "ok" | "wait" | "bad" | "info";
+}) {
+  const className = cn("arcade-stat", tone && `arcade-stat--${tone}`);
+  const body = (
+    <>
+      <span className="arcade-stat__value">{value}</span>
+      <span className="arcade-stat__label">{label}</span>
+      {hint ? <span className="arcade-stat__hint">{hint}</span> : null}
+    </>
+  );
+  if (!href) return <div className={className}>{body}</div>;
+  return (
+    <Link href={href} className={className}>
+      {body}
+    </Link>
+  );
+}
+
+export function ArcadeEmpty({ title, action }: { title: string; action?: ReactNode }) {
+  return (
+    <div className="arcade-empty">
+      <p>{title}</p>
+      {action ? <div className="arcade-empty__action">{action}</div> : null}
+    </div>
+  );
+}
+
+export function ArcadeShortcut({
+  href,
+  icon: Icon,
+  title,
+  meta,
+}: {
+  href: string;
+  icon: LucideIcon;
+  title: string;
+  meta?: ReactNode;
+}) {
+  return (
+    <Link href={href} className="arcade-tile">
+      <span className="arcade-tile__icon">
+        <Icon aria-hidden />
+      </span>
+      <span className="arcade-tile__title">{title}</span>
+      {meta != null && meta !== "" ? <span className="arcade-tile__meta">{meta}</span> : null}
+    </Link>
   );
 }

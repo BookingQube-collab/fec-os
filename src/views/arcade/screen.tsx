@@ -15,12 +15,14 @@ import { ArcadeSearch } from "./search";
 import { ArcadeDamage, ArcadeInstallations, ArcadeManuals, ArcadeParts, ArcadeSupplier, ArcadeSuppliers, ArcadeSupport, ArcadeSupportForm } from "./supply";
 import { ArcadeChecklist } from "./checklist";
 import { ArcadeRepair } from "./repair";
+import { ArcadeTasks } from "./tasks";
 import { ArcadeObservation, ArcadePm, ArcadeWeek } from "./work";
 
 function route(slug: string[]) {
   const [a, b, c] = slug;
   if (!a) return <ArcadeDashboard />;
   if (a === "week") return <ArcadeWeek />;
+  if (a === "tasks") return <ArcadeTasks />;
   if (a === "checklist") return <ArcadeChecklist />;
   if (a === "repair") return <ArcadeRepair />;
   if (a === "sites" && b) return <ArcadeSite locationId={b} />;
@@ -60,8 +62,12 @@ export default function ArcadeScreen() {
   const slug = pathname.split("/").filter(Boolean).slice(1);
   return (
     <FecPage>
-      <ArcadeSubnav />
-      {route(slug)}
+      <div className="arcade-flow">
+        <div className="arcade-shell__nav">
+          <ArcadeSubnav />
+        </div>
+        {route(slug)}
+      </div>
     </FecPage>
   );
 }

@@ -2,7 +2,6 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  BarChart3,
   Boxes,
   CircleCheck,
   ClipboardList,
@@ -20,7 +19,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
-import { arcadeStatusName, Field, StatusBadge } from "@/components/arcade/ui";
+import { ArcadeHero, arcadeStatusName, Field, StatusBadge } from "@/components/arcade/ui";
 import { ArcadeWorkbookImport } from "@/components/arcade/workbook-import";
 import { TintedKpiCard } from "@/components/dashboard/tinted-kpi-card";
 import {
@@ -31,7 +30,6 @@ import {
   FecModalFooter,
   FecModalHeader,
   FecModalTitle,
-  FecPageHeader,
   FecSearch,
   FecTable,
   FecTableBody,
@@ -48,10 +46,12 @@ import { usePermission } from "@/hooks/use-permission";
 import { listArcadeMachines } from "@/lib/arcade.functions";
 import { FAULT_STATUSES, isArcadeVenueLocation } from "@/lib/arcade/domain";
 import {
+  arcadeReportCsv,
   availabilityForSites,
   faultTileCounts,
   filterArcadeReportFaults,
   partTotals,
+  technicianWorkload,
   type WeeklyFaultRow,
   type WeeklyReport,
 } from "@/lib/arcade/reports";
@@ -119,6 +119,8 @@ export function ArcadeReports() {
   const rangeTo = from <= to ? to : from;
   const siteId = search.get("site") ?? "";
   const status = search.get("status") ?? "";
+  const category = search.get("category") ?? "";
+  const technicianId = search.get("technician") ?? "";
   const urlQ = search.get("q") ?? "";
   const [q, setQ] = useState(urlQ);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -186,19 +188,25 @@ export function ArcadeReports() {
   }, [detail.data, draft]);
 
   const rows = useMemo(
-    () => filterArcadeReportFaults(report?.faults ?? [], { siteId: siteId || undefined, status: status || undefined, q }),
-    [q, report?.faults, siteId, status],
+    () => filterArcadeReportFaults(report?.faults ?? [], {
+      siteId: siteId || undefined,
+      status: status || undefined,
+      category: category || undefined,
+      technicianStaffId: technicianId || undefined,
+      q,
+    }),
+    [category, q, report?.faults, siteId, status, technicianId],
   );
   const counts = useMemo(() => faultTileCounts(rows), [rows]);
   const availability = report ? availabilityForSites(report.siteGroups, siteId || undefined) : null;
   const parts = useMemo(() => {
     if (!report) return null;
-    const narrowed = Boolean(status || q.trim());
+    const narrowed = Boolean(status || category || technicianId || q.trim());
     return partTotals(report.partLines, {
       siteId: siteId || undefined,
       machineIds: narrowed ? new Set(rows.map((row) => row.machineId)) : null,
     });
-  }, [q, report, rows, siteId, status]);
+  }, [category, q, report, rows, siteId, status, technicianId]);
   const pm = !siteId && report && report.pmCompliance != null ? report.pmCompliance : null;
 
   const siteOptions = useMemo(() => {
@@ -232,6 +240,22 @@ export function ArcadeReports() {
     const extra = [...present].filter((item) => !isFaultStatus(item)).sort();
     return [...known, ...extra];
   }, [report?.faults, status]);
+
+  const categoryOptions = useMemo(() => {
+    const present = new Set((report?.faults ?? []).map((fault) => fault.category).filter(Boolean));
+    return [...present].sort((a, b) => a.localeCompare(b));
+  }, [report?.faults]);
+
+  const technicianOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const fault of report?.faults ?? []) {
+      if (!fault.technicianStaffId) continue;
+      map.set(fault.technicianStaffId, fault.technicianName?.trim() || fault.technicianStaffId);
+    }
+    return [...map.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [report?.faults]);
+
+  const workload = useMemo(() => technicianWorkload(rows), [rows]);
 
   const qc = useQueryClient();
   const save = useMutation({
@@ -300,9 +324,8 @@ export function ArcadeReports() {
   const closing = draft?.status === "RESOLVED" || draft?.status === "CLOSED";
 
   return (
-    <div className="grid gap-5 print:block">
-      <FecPageHeader
-        icon={BarChart3}
+    <div className="arcade-stack print:block">
+      <ArcadeHero
         kicker={t("nav.arcade")}
         title={t("arcadeScreens.reportsTitle")}
         subtitle={report ? t("arcadeScreens.weekRange", { from: report.weekStart, to: report.weekEnd }) : t("arcadeScreens.buildingReport")}
@@ -310,8 +333,9 @@ export function ArcadeReports() {
           <div className="flex flex-wrap gap-2 print:hidden">
             <ArcadeWorkbookImport />
             <Button type="button" variant="outline" onClick={() => window.print()}>{t("arcadeScreens.print")}</Button>
+            <Button type="button" variant="outline" disabled={!report} onClick={() => downloadReportCsv(rows, report?.weekStart ?? "arcade")}>{t("arcadeScreens.exportCsv")}</Button>
             <Button type="button" variant="outline" disabled={!report} onClick={() => report && void exportExcel(report, rows, t)}>{t("hr.reports.exportExcel")}</Button>
-            <Button type="button" disabled={!report} onClick={() => report && void exportPdf(report, rows, { ...counts, availability, pm, parts: parts?.parts ?? null, cost: parts?.cost ?? null }, t)}>{t("hr.reports.exportPdf")}</Button>
+            <Button type="button" className="arcade-cta" disabled={!report} onClick={() => report && void exportPdf(report, rows, { ...counts, availability, pm, parts: parts?.parts ?? null, cost: parts?.cost ?? null }, t)}>{t("hr.reports.exportPdf")}</Button>
           </div>
         )}
       />
@@ -336,6 +360,18 @@ export function ArcadeReports() {
               {statusOptions.map((item) => <option key={item} value={item}>{arcadeStatusName(t, item)}</option>)}
             </select>
           </Field>
+          <Field label={t("arcadeScreens.categoryFilter")}>
+            <select className={controlClass} value={category} aria-label={t("arcadeScreens.categoryFilter")} onChange={(event) => commit({ category: event.target.value })}>
+              <option value="">{t("arcadeScreens.allCategories")}</option>
+              {categoryOptions.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </Field>
+          <Field label={t("arcadeScreens.technicianFilter")}>
+            <select className={controlClass} value={technicianId} aria-label={t("arcadeScreens.technicianFilter")} onChange={(event) => commit({ technician: event.target.value })}>
+              <option value="">{t("arcadeScreens.allTechnicians")}</option>
+              {technicianOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+            </select>
+          </Field>
           <Field label={t("common.search")}>
             <FecSearch value={q} onChange={(event) => setQ(event.target.value)} placeholder={t("arcadeScreens.searchMachineIssue")} aria-label={t("arcadeScreens.searchMachineIssue")} />
           </Field>
@@ -352,6 +388,17 @@ export function ArcadeReports() {
               <TintedKpiCard key={tile.key} compact tint={tile.tint} icon={tile.icon} title={tile.title} value={tile.value} />
             ))}
           </div>
+          {workload.technicians.length > 0 || workload.unassigned > 0 ? (
+            <FecCard>
+              <h2 className="text-sm font-semibold">{t("arcadeScreens.workloadTitle")}</h2>
+              <div className="mt-2 grid gap-1 text-sm">
+                {workload.technicians.map((row) => (
+                  <p key={row.staffId}>{t("arcadeScreens.workloadLine", { name: row.name, open: row.open, closed: row.closed })}</p>
+                ))}
+                {workload.unassigned > 0 ? <p className="text-muted-foreground">{t("arcadeScreens.unassignedFaults", { count: workload.unassigned })}</p> : null}
+              </div>
+            </FecCard>
+          ) : null}
           <FecCard padded={false}>
             <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
               <h2 className="text-sm font-semibold">{report.title}</h2>
@@ -529,6 +576,16 @@ type ExportTiles = {
   parts: number | null;
   cost: number | null;
 };
+
+function downloadReportCsv(rows: WeeklyFaultRow[], weekStart: string) {
+  const blob = new Blob([arcadeReportCsv(rows)], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `arcade-weekly-${weekStart}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
 
 async function exportExcel(report: WeeklyReport, rows: WeeklyFaultRow[], t: ReportTranslate) {
   const { downloadXlsx, objectsToRows } = await import("@/lib/spreadsheet/workbook");

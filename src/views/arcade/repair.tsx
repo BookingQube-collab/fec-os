@@ -1,11 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
-import { StatusBadge } from "@/components/arcade/ui";
+import { ArcadeEmpty, StatusBadge } from "@/components/arcade/ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -114,16 +116,17 @@ export function ArcadeRepair() {
   const sites = useSites();
   const canOperate = usePermission("arcade.operate");
   const context = useQuery({ queryKey: queryKeys.arcade.context(), queryFn: () => getArcadeContext({}) });
-  const [locationId, setLocationId] = useState("");
-  const [machineId, setMachineId] = useState("");
+  const params = useSearchParams();
+  const [locationId, setLocationId] = useState(() => params.get("locationId") ?? "");
+  const [machineId, setMachineId] = useState(() => params.get("machineId") ?? "");
   const [note, setNote] = useState("");
   const [partName, setPartName] = useState("");
   const [vendorId, setVendorId] = useState("");
   const [photo, setPhoto] = useState<File | null>(null);
   const [tick, setTick] = useState(0);
   const [finished, setFinished] = useState<{ hours: number; minutes: number } | null>(null);
-  const [locationOpen, setLocationOpen] = useState(true);
-  const [gameOpen, setGameOpen] = useState(true);
+  const [locationOpen, setLocationOpen] = useState(() => !params.get("locationId"));
+  const [gameOpen, setGameOpen] = useState(() => !params.get("machineId"));
   const machines = useQuery({
     queryKey: queryKeys.arcade.machines({ repair: locationId }),
     queryFn: () => listArcadeMachines({ locationId, page: 1, pageSize: 200 }),
@@ -242,12 +245,13 @@ export function ArcadeRepair() {
   };
 
   return (
-    <div className="grid min-w-0 max-w-3xl gap-6">
-      <header className="grid gap-2">
-        <h1 className="break-words text-3xl font-semibold tracking-tight">{t("arcadeSimple.repairTitle")}</h1>
-        <p className="break-words text-lg text-muted-foreground">{t("arcadeSimple.repairHint")}</p>
-        {context.data?.isTechnician ? <p className="font-medium">{t("arcadeSimple.youTechnician")}</p> : null}
+    <div className="phone-shell">
+      <header className="phone-head">
+        <p>{t("nav.arcade")}</p>
+        <h1>{t("arcadeSimple.repairTitle")}</h1>
+        <p>{t("arcadeSimple.repairHint")}</p>
       </header>
+      {context.data?.isTechnician ? <p className="arcade-note">{t("arcadeSimple.youTechnician")}</p> : null}
       <section className="grid min-w-0 gap-3" aria-labelledby="repair-location-label" aria-busy={sites.isLoading}>
         <h2 id="repair-location-label" className="break-words text-xl font-medium">{t("arcadeSimple.pickLocation")}</h2>
         {sites.isLoading ? <FecLoader label={t("common.loading")} /> : null}
@@ -260,7 +264,7 @@ export function ArcadeRepair() {
           </div>
         ) : null}
         {!sites.isLoading && !sites.isError && venues.length === 0 ? (
-          <p className="text-base text-muted-foreground">{t("arcadeSimple.noLocations")}</p>
+          <ArcadeEmpty title={t("arcadeSimple.noLocations")} />
         ) : null}
         {showLocationChoices && venues.length > 0 ? (
           <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -297,7 +301,7 @@ export function ArcadeRepair() {
             </div>
           ) : null}
           {!machines.isLoading && !machines.isError && games.length === 0 ? (
-            <p className="text-base text-muted-foreground">{t("arcadeSimple.noGames")}</p>
+            <ArcadeEmpty title={t("arcadeSimple.noGames")} />
           ) : null}
           {showGameChoices && games.length > 0 ? (
             <ul className="grid grid-cols-1 gap-2">
@@ -327,8 +331,23 @@ export function ArcadeRepair() {
       {job.isLoading ? <FecLoader label={t("common.loading")} /> : null}
       {job.isError ? <p className="text-sm text-destructive">{job.error instanceof Error ? job.error.message : t("arcadeOps.failed")}</p> : null}
       {machineId ? (
-        <section className="grid min-w-0 gap-4 rounded-lg border bg-card p-4 sm:p-5">
-          {selectedGame ? <p className="break-words text-lg font-semibold leading-snug">{selectedGame.name}</p> : null}
+        <section className="phone-card">
+          {selectedGame ? (
+            <article className="phone-asset">
+              <p className="cc-note">{t("arcadeScreens.asset")}</p>
+              <strong className="break-words">{selectedGame.name}</strong>
+              <dl>
+                <div><dt>{t("arcadeScreens.assetId")}</dt><dd>{selectedGame.asset_code}</dd></div>
+                {selectedSite ? <div><dt>{t("common.site")}</dt><dd>{venueTitle(selectedSite, selectedSite.name)}</dd></div> : null}
+                {job.data?.fault?.ticket_number ? <div><dt>{t("arcadeOps.fault")}</dt><dd>{job.data.fault.ticket_number}</dd></div> : null}
+              </dl>
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusBadge status={selectedGame.status} />
+              </div>
+              {job.data?.fault?.description ? <p className="text-sm text-muted-foreground">{job.data.fault.description}</p> : null}
+              {job.data?.fault?.id ? <Link className="text-sm font-semibold text-[var(--af-primary)] underline-offset-2 hover:underline" href={`/arcade/faults/${job.data.fault.id}`}>{t("arcadeFlow.openWork")}</Link> : null}
+            </article>
+          ) : null}
           <p className="text-sm text-muted-foreground">{t("arcadeSimple.workingTime")}</p>
           <p className="flex flex-wrap items-baseline gap-x-2 text-4xl font-semibold tabular-nums tracking-tight sm:text-5xl">
             {shown.hours} h {String(shown.minutes).padStart(2, "0")} min
@@ -342,13 +361,13 @@ export function ArcadeRepair() {
           ) : null}
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
             {phase !== "RUNNING" && phase !== "PAUSED" ? (
-              <Button type="button" className="h-12 w-full px-6 text-base sm:w-auto" disabled={!canOperate || busy} onClick={() => start.mutate()}>{t("arcadeSimple.start")}</Button>
+              <Button type="button" className="arcade-cta phone-submit" disabled={!canOperate || busy} onClick={() => start.mutate()}>{t("arcadeSimple.start")}</Button>
             ) : null}
             {phase === "RUNNING" ? (
               <Button type="button" variant="outline" className="h-12 w-full px-6 text-base sm:w-auto" disabled={!canOperate || busy} onClick={() => clock.mutate("PAUSE")}>{t("arcadeSimple.pause")}</Button>
             ) : null}
             {phase === "PAUSED" ? (
-              <Button type="button" className="h-12 w-full px-6 text-base sm:w-auto" disabled={!canOperate || busy} onClick={() => clock.mutate("START")}>{t("arcadeSimple.restart")}</Button>
+              <Button type="button" className="arcade-cta phone-submit" disabled={!canOperate || busy} onClick={() => clock.mutate("START")}>{t("arcadeSimple.restart")}</Button>
             ) : null}
           </div>
           {phase === "RUNNING" || phase === "PAUSED" ? (
@@ -357,7 +376,7 @@ export function ArcadeRepair() {
                 <span className="text-lg font-medium">{t("arcadeSimple.whatFixed")}</span>
                 <Textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder={t("arcadeSimple.whatFixedHint")} />
               </label>
-              <Button type="button" className="h-12 w-full px-6 text-base sm:w-fit" disabled={!canOperate || busy || note.trim().length < 8} onClick={() => finish.mutate()}>
+                <Button type="button" className="arcade-cta phone-submit" disabled={!canOperate || busy || note.trim().length < 8} onClick={() => finish.mutate()}>
                 {t("arcadeSimple.finish")}
               </Button>
             </div>
@@ -365,7 +384,7 @@ export function ArcadeRepair() {
         </section>
       ) : null}
       {job.data?.fault ? (
-        <section className="grid gap-3 rounded-lg border p-5">
+        <section className="phone-card">
           <h2 className="text-2xl font-semibold">{t("arcadeSimple.partTitle")}</h2>
           <p className="text-muted-foreground">{t("arcadeSimple.partHint")}</p>
           <label className="grid gap-2">
