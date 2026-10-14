@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { envProviderCodes } from "@/lib/ai/env-keys";
 import { ProviderCallError } from "@/lib/ai/provider-error";
 import { classifyProviderStatus } from "@/lib/ai/sanitize";
 import { AI_INTEGRATIONS_AUTH, AI_INTEGRATIONS_MIN_LEVEL } from "@/lib/ai/types";
@@ -11,6 +12,13 @@ describe("ai permission", () => {
     expect(AI_INTEGRATIONS_MIN_LEVEL).toBe(95);
     expect(canUserDo(["ceo"], "admin.view")).toBe(true);
     expect(canUserDo(["technician"], "admin.view")).toBe(false);
+  });
+});
+
+describe("image env fallback", () => {
+  it("keeps photo reads on Gemini so a free router cannot pretend to transcribe a card", () => {
+    expect(envProviderCodes(true)).toEqual(["gemini"]);
+    expect(envProviderCodes(false)).toEqual(["gemini", "groq", "openrouter"]);
   });
 });
 

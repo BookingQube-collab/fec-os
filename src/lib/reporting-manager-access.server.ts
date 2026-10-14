@@ -11,6 +11,7 @@ import {
 } from "@/lib/manager-supervisor-team";
 import { isPeopleDirectoryTeamRow } from "@/lib/people-directory-access";
 import {
+  rosterChartTeamIds,
   rosterTeamOrSelfStaffIds,
   unionTeamLocationIds,
   usesTeamLocationScope,
@@ -443,15 +444,86 @@ export async function loadSupervisorSelfRosterStaffIds(staffId: string | null): 
   });
 }
 
-/** Company upload stays on the existing capability. Reporting managers upload their team only. A supervisor with an empty team uploads themselves only. */
+function rosterChartAssignable(member: {
+  deletedAt?: string | null;
+  status?: string | null;
+  employmentType?: string | null;
+}): boolean {
+  return (
+    !member.deletedAt &&
+    isRosterAssignableStaffStatus(member.status) &&
+    !isJokerStaff({ status: member.status, employmentType: member.employmentType })
+  );
+}
+
+/**
+ * Team-scoped monthly roster: the signed-in person plus everyone who reports
+ * to them on `staff_profile_ext.reporting_manager_staff_id`, including crew
+ * under a lead who is not a supervisor. Resigned, terminated, deleted, and
+ * jokers stay off the list. The walk still passes through them.
+ */
+export async function loadRosterChartStaffIds(userId: string): Promise<string[]> {
+  const { data: staff, error } = await supabaseAdmin
+    .from("staff")
+    .select("id, status, employment_type, deleted_at")
+    .eq("user_id", userId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!staff?.id) return [];
+
+  const viewerStaffId = String(staff.id);
+  const people: {
+    staffId: string;
+    reportingManagerStaffId: string | null;
+    assignable: boolean;
+  }[] = [
+    {
+      staffId: viewerStaffId,
+      reportingManagerStaffId: null,
+      assignable: rosterChartAssignable({
+        status: staff.status,
+        employmentType: staff.employment_type,
+      }),
+    },
+  ];
+
+  const seen = new Set<string>([viewerStaffId]);
+  let frontier = [viewerStaffId];
+  for (let depth = 0; depth < 25 && frontier.length > 0; depth += 1) {
+    const edges = await reportingChildren(frontier);
+    const nextIds: string[] = [];
+    const managerByChild = new Map<string, string>();
+    for (const edge of edges) {
+      if (!edge.staffId || seen.has(edge.staffId)) continue;
+      seen.add(edge.staffId);
+      nextIds.push(edge.staffId);
+      if (edge.reportingManagerStaffId) managerByChild.set(edge.staffId, edge.reportingManagerStaffId);
+    }
+    if (nextIds.length === 0) break;
+    const rows = await loadStaffTeamRows(nextIds, managerByChild);
+    const nextFrontier: string[] = [];
+    for (const member of rows) {
+      people.push({
+        staffId: member.staffId,
+        reportingManagerStaffId: member.reportingManagerStaffId,
+        assignable: rosterChartAssignable(member),
+      });
+      nextFrontier.push(member.staffId);
+    }
+    frontier = nextFrontier;
+  }
+
+  return rosterChartTeamIds(viewerStaffId, people);
+}
+
+/** Company upload stays on the existing capability. A team-scoped login uploads the same chart subtree they can see, including themselves. */
 export async function resolveShiftRosterUploadScope(context: {
   userId: string;
   roles?: AppRole[];
 }): Promise<ShiftRosterUploadScope> {
   if (!usesTeamLocationScope(context.roles ?? [])) return { kind: "company" };
-  const { staffId, teamStaffIds } = await loadManagerTeamStaffIds(context.userId);
-  const staffIds =
-    teamStaffIds.length > 0 ? teamStaffIds : await loadSupervisorSelfRosterStaffIds(staffId);
+  const staffIds = await loadRosterChartStaffIds(context.userId);
   if (staffIds.length === 0) {
     throw new ForbiddenError("Forbidden: missing capability to upload a shift roster.");
   }

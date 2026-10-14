@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/use-auth";
 import { useHasDirectReports } from "@/hooks/use-my-direct-reports";
 import {
+  appointLocationTeamLeader,
   applyOrgChartMove,
   getOrgChart,
   placeOrgChartPerson,
@@ -30,15 +31,42 @@ import { generateStaffLoginPassword, isStaffLoginPassword } from "@/lib/staff-lo
 import { hierarchyAccessMode, staffProfileOpenIds, type HierarchyAccessMode } from "@/lib/hierarchy-access";
 import {
   groupOrgChart,
+  planLocationTeamLeader,
   planOrgChartMove,
   reportCandidateIds,
   reportingDrop,
   reportLikeOthersPlacement,
   suggestedOrgMoveMode,
+  type LocationTeamLeaderReason,
   type OrgChartMoveMode,
   type OrgChartSnapshot,
 } from "@/lib/org-hierarchy";
 import { queryKeys } from "@/lib/query-keys";
+
+function teamLeaderRefusal(
+  t: (key: string, options?: Record<string, unknown>) => string,
+  reason: LocationTeamLeaderReason,
+  name: string,
+): string {
+  switch (reason) {
+    case "no-location":
+      return t("hr.hierarchy.teamLeaderNoLocation", { name });
+    case "is-supervisor":
+      return t("hr.hierarchy.teamLeaderIsSupervisor", { name });
+    case "above-team":
+      return t("hr.hierarchy.teamLeaderAbove", { name });
+    case "ambiguous-supervisor":
+      return t("hr.hierarchy.teamLeaderAmbiguous");
+    case "self":
+      return t("hr.hierarchy.selfReport");
+    case "cycle":
+      return t("hr.hierarchy.cycle");
+    case "missing":
+      return t("hr.hierarchy.unknownPerson");
+    case "no-supervisor":
+      return t("hr.hierarchy.teamLeaderNoSupervisor");
+  }
+}
 
 function Forbidden() {
   const { t } = useTranslation();
@@ -105,6 +133,14 @@ function HierarchyEditor({ accessMode }: { accessMode: Exclude<HierarchyAccessMo
   });
   const readOnly = (query.data?.access ?? accessMode) !== "edit";
   const [pending, setPending] = useState<{ staffId: string; targetStaffId: string } | null>(null);
+  const [teamLeader, setTeamLeader] = useState<{
+    staffId: string;
+    name: string;
+    supervisorName: string;
+    locationName: string;
+    reportCount: number;
+  } | null>(null);
+  const [revealStaffIds, setRevealStaffIds] = useState<string[]>([]);
   const [mode, setMode] = useState<OrgChartMoveMode>("reports-to");
   const [chosen, setChosen] = useState<string[]>([]);
   const [designation, setDesignation] = useState("");
@@ -178,6 +214,22 @@ function HierarchyEditor({ accessMode }: { accessMode: Exclude<HierarchyAccessMo
     },
     onError: (error: Error) => toast.error(error.message),
   });
+  const appoint = useMutation({
+    mutationFn: (input: { staffId: string }) => appointLocationTeamLeader(input),
+    onSuccess: (snapshot, variables) => {
+      qc.setQueryData(queryKeys.admin.hierarchy(), keepView(snapshot));
+      const person = snapshot.people.find((row) => row.staffId === variables.staffId);
+      const supervisor = snapshot.people.find((row) => row.staffId === person?.reportingManagerStaffId);
+      toast.success(
+        t("hr.hierarchy.teamLeaderDone", {
+          name: person?.fullName ?? t("hr.hierarchy.unknownPerson"),
+          location: person?.locationName?.trim() || t("hr.hierarchy.locationUnknown"),
+          supervisor: supervisor?.fullName ?? t("hr.hierarchy.unknownManager"),
+        }),
+      );
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
   const remove = useMutation({
     mutationFn: (input: { staffId: string }) => removeOrgChartPerson(input),
     onSuccess: (snapshot) => {
@@ -241,7 +293,64 @@ function HierarchyEditor({ accessMode }: { accessMode: Exclude<HierarchyAccessMo
     createLogin.mutate({ staffId: loginTarget.staffId, password: loginPassword });
   };
 
-  const saving = place.isPending || move.isPending || remove.isPending;
+  const saving = place.isPending || move.isPending || remove.isPending || appoint.isPending;
+
+  const openTeamLeader = (staffId: string) => {
+    const current = query.data;
+    if (!current || saving || readOnly || pending || teamLeader) return;
+    const person = current.people.find((row) => row.staffId === staffId);
+    if (!person) return;
+    const plan = planLocationTeamLeader(current.people, staffId);
+    const name = person.fullName;
+    const locationName = person.locationName?.trim() || t("hr.hierarchy.locationUnknown");
+    if (!plan.ok) {
+      toast.error(teamLeaderRefusal(t, plan.reason, name));
+      return;
+    }
+    if (plan.already) {
+      toast.message(t("hr.hierarchy.teamLeaderAlready", { name, location: locationName }));
+      return;
+    }
+    const supervisor = current.people.find((row) => row.staffId === plan.supervisorStaffId);
+    setTeamLeader({
+      staffId,
+      name,
+      supervisorName: supervisor?.fullName ?? t("hr.hierarchy.unknownManager"),
+      locationName,
+      reportCount: plan.reportCount,
+    });
+  };
+
+  const applyTeamLeader = () => {
+    const current = query.data;
+    if (!teamLeader || !current || saving) return;
+    const plan = planLocationTeamLeader(current.people, teamLeader.staffId);
+    if (!plan.ok) {
+      toast.error(teamLeaderRefusal(t, plan.reason, teamLeader.name));
+      setTeamLeader(null);
+      return;
+    }
+    if (plan.already || plan.updates.length === 0) {
+      toast.message(t("hr.hierarchy.teamLeaderAlready", { name: teamLeader.name, location: teamLeader.locationName }));
+      setTeamLeader(null);
+      return;
+    }
+    const byId = new Map(plan.updates.map((update) => [update.staffId, update.managerStaffId]));
+    const previous = current;
+    qc.setQueryData(queryKeys.admin.hierarchy(), {
+      ...current,
+      people: current.people.map((row) => {
+        const managerStaffId = byId.get(row.staffId);
+        return managerStaffId === undefined
+          ? row
+          : { ...row, reportingManagerStaffId: managerStaffId, orgChartPlaced: true };
+      }),
+    });
+    setRevealStaffIds([plan.supervisorStaffId, plan.leaderStaffId, String(Date.now())]);
+    const request = { staffId: teamLeader.staffId };
+    setTeamLeader(null);
+    appoint.mutate(request, { onError: () => qc.setQueryData(queryKeys.admin.hierarchy(), previous) });
+  };
 
   const onPlace = (staffId: string, managerStaffId: string | null) => {
     const snapshot = query.data;
@@ -426,6 +535,8 @@ function HierarchyEditor({ accessMode }: { accessMode: Exclude<HierarchyAccessMo
           saving={saving}
           readOnly={readOnly}
           onPlace={readOnly ? () => {} : onPlace}
+          onMakeTeamLeader={openTeamLeader}
+          revealStaffIds={revealStaffIds}
           onRemove={(staffId) => {
             if (readOnly || saving) return;
             remove.mutate({ staffId });
@@ -503,6 +614,40 @@ function HierarchyEditor({ accessMode }: { accessMode: Exclude<HierarchyAccessMo
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={teamLeader !== null}
+        onOpenChange={(open) => {
+          if (!open && !saving) setTeamLeader(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("hr.hierarchy.teamLeaderTitle", { name: teamLeader?.name ?? "" })}</DialogTitle>
+            <DialogDescription>
+              {teamLeader && teamLeader.reportCount > 0
+                ? t("hr.hierarchy.teamLeaderBody", {
+                    count: teamLeader.reportCount,
+                    location: teamLeader.locationName,
+                    name: teamLeader.name,
+                    supervisor: teamLeader.supervisorName,
+                  })
+                : t("hr.hierarchy.teamLeaderBodyOnly", {
+                    name: teamLeader?.name ?? "",
+                    supervisor: teamLeader?.supervisorName ?? "",
+                    location: teamLeader?.locationName ?? "",
+                  })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={saving} onClick={() => setTeamLeader(null)}>
+              {t("hr.hierarchy.cancelMove")}
+            </Button>
+            <Button type="button" disabled={saving} onClick={applyTeamLeader}>
+              {t("hr.hierarchy.teamLeaderConfirm")}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
       <Dialog open={pending !== null} onOpenChange={(open) => { if (!open && !saving) setPending(null); }}>

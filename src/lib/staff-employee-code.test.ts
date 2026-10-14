@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   assertInternalEmployeeCode,
+  employeeCodeAfterHomeLocationChange,
+  employeeCodeHasLocationPrefix,
   generateEmployeeCode,
   isGeneratedEmployeeCode,
   isPreservableEmployeeCode,
@@ -70,6 +72,72 @@ describe("nextEmployeeCode", () => {
     expect(nextEmployeeCode("INF-CC", existing)).toBe("INF-CC-STF01");
     expect(nextEmployeeCode("KDS-CC", existing)).toBe("KDS-CC-STF02");
     expect(existing).toEqual(["KDS-CC-STF01", "KDS-CC-STF05", "INF-CC-STF16"]);
+  });
+});
+
+describe("employeeCodeAfterHomeLocationChange", () => {
+  const used = ["UA-DM-STF18", "CAR-AP-STF01", "CAR-AP-STF02", "CAR-AP-STF04"];
+
+  it("mints a code for the new location and keeps the code when the location stays", () => {
+    expect(
+      employeeCodeAfterHomeLocationChange({
+        employeeCode: "UA-DM-STF18",
+        previousLocationCode: "UA-DM",
+        nextLocationCode: "UA-DM",
+        usedCodes: used,
+        hint: { jobTitle: "Crew" },
+      }),
+    ).toBe("UA-DM-STF18");
+
+    expect(
+      employeeCodeAfterHomeLocationChange({
+        employeeCode: "ua-dm-stf18",
+        previousLocationCode: "UA-DM",
+        nextLocationCode: "CAR-AP",
+        usedCodes: used,
+        hint: { jobTitle: "Crew / Attendant" },
+      }),
+    ).toBe("CAR-AP-STF03");
+    expect(used).toEqual(["UA-DM-STF18", "CAR-AP-STF01", "CAR-AP-STF02", "CAR-AP-STF04"]);
+  });
+
+  it("mints when home is already the new branch but the code still has the old prefix, and an extra-site save does not", () => {
+    const used = ["INF-CC-STF11", "KDS-CC-CSH", "KDS-CC-CSH01", "KDS-CC-CSH02"];
+    expect(employeeCodeHasLocationPrefix("INF-CC-STF11", "KDS-CC")).toBe(false);
+    expect(
+      employeeCodeAfterHomeLocationChange({
+        employeeCode: "INF-CC-STF11",
+        previousLocationCode: "KDS-CC",
+        nextLocationCode: "KDS-CC",
+        homeLocationSaved: true,
+        usedCodes: used,
+        hint: { jobTitle: "Cashier / Attendant", staffRole: "cashier" },
+      }),
+    ).toBe("KDS-CC-CSH03");
+    expect(
+      employeeCodeAfterHomeLocationChange({
+        employeeCode: "INF-CC-STF11",
+        previousLocationCode: "KDS-CC",
+        nextLocationCode: "KDS-CC",
+        homeLocationSaved: false,
+        usedCodes: used,
+        hint: { jobTitle: "Cashier / Attendant", staffRole: "cashier" },
+      }),
+    ).toBe("INF-CC-STF11");
+  });
+
+  it("does not mint a second code when the person already has the new location prefix", () => {
+    expect(employeeCodeHasLocationPrefix("CAR-AP-STF09", "CAR-AP")).toBe(true);
+    expect(employeeCodeHasLocationPrefix("UA-DM-STF18", "UA")).toBe(false);
+    expect(
+      employeeCodeAfterHomeLocationChange({
+        employeeCode: "CAR-AP-STF09",
+        previousLocationCode: "UA-DM",
+        nextLocationCode: "CAR-AP",
+        usedCodes: ["CAR-AP-STF01", "CAR-AP-STF09"],
+        hint: { staffRole: "crew" },
+      }),
+    ).toBe("CAR-AP-STF09");
   });
 });
 

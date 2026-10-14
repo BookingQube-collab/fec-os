@@ -6,7 +6,7 @@ import { loadLinkedStaffIdentity, loadLinkedStaffJobTitle } from "@/lib/linked-s
 import { canAmendShiftRoster, canUserDo, type AppRole } from "@/lib/rbac";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { isManagerTeamSupervisor } from "@/lib/manager-supervisor-team";
-import { loadManagerTeamMembers, loadSupervisorSelfRosterStaffIds } from "@/lib/reporting-manager-access.server";
+import { loadRosterChartStaffIds } from "@/lib/reporting-manager-access.server";
 import { createAuthenticatedAction, createAuthenticatedActionNoInput, type AuthContext } from "@/lib/server/create-action";
 import { ForbiddenError } from "@/lib/server/authorize";
 import { assertAttendanceRosterLocation } from "@/lib/attendance-hr/roster-apply";
@@ -244,30 +244,11 @@ async function fetchStaffRowsByIds(
 
 /**
  * Team-scoped roster names from `staff_profile_ext.reporting_manager_staff_id`.
- * A manager sees supervisors, each supervisor's team, and direct reports who are
- * not on a supervisor's team. A supervisor sees their own name and the people
- * who report to them. Assignable statuses stay. Resigned, terminated, deleted, and jokers stay out.
+ * The viewer is included, plus every assignable person under them on the chart.
+ * Resigned, terminated, deleted, and jokers stay out.
  */
 async function loadTeamRosterStaffIds(userId: string): Promise<string[]> {
-  const { staffId, viewerJobTitle, viewerStaffRole, members } = await loadManagerTeamMembers(userId);
-  if (!staffId) return [];
-  const ids = new Set(
-    members
-      .filter(
-        (member) =>
-          !member.deletedAt &&
-          isAssignableRosterStaffRow({
-            status: member.status,
-            employment_type: member.employmentType,
-          }),
-      )
-      .map((member) => member.staffId),
-  );
-  if (isManagerTeamSupervisor(viewerJobTitle, viewerStaffRole)) {
-    for (const id of await loadSupervisorSelfRosterStaffIds(staffId)) ids.add(id);
-  }
-  if (ids.size > 0) return [...ids].sort();
-  return loadSupervisorSelfRosterStaffIds(staffId);
+  return loadRosterChartStaffIds(userId);
 }
 
 /** Names for team rows that have no assignment in the selected period. */
@@ -298,7 +279,7 @@ function canViewCompanyRoster(roles: AppRole[]): boolean {
 
 /**
  * Null means the company roster (every stored row).
- * A supervisor title is limited to their own team even when the role can open the company roster.
+ * A supervisor title is limited to their chart subtree plus themselves, even when the role can open the company roster.
  * A manager keeps the company roster when their role already has it.
  */
 async function resolveRosterTeamIds(userId: string, roles: AppRole[]): Promise<string[] | null> {
@@ -822,7 +803,7 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
       dateTo: data.dateTo,
       count: mapped.length,
       rows: mapped,
-      /** Null for company roster viewers. Direct reports for a team-scoped manager, even with no shifts. */
+      /** Null for company roster viewers. Chart subtree plus the viewer for a team-scoped login, even with no shifts. */
       teamStaff,
     };
   },
@@ -843,8 +824,7 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
 /**
  * Staff the add-shift dialog can place on a day.
  * Company roster viewers get every assignable employee, paged past 1,000.
- * A team-scoped manager gets supervisors, their teams, and other direct reports.
- * A supervisor gets their own name and the people who report to them.
+ * A team-scoped login gets their own name and everyone under them on the chart.
  */
 export const listRosterAssignStaff = createAuthenticatedActionNoInput(async (context) => {
   const roles = (context.roles ?? []) as AppRole[];

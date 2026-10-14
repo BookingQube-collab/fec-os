@@ -22,6 +22,15 @@ export function masterLabelKey(value: string | null | undefined): string {
   return normalizeMasterLabel(value).toLowerCase();
 }
 
+/** Saved spelling to insert when a typed master name is missing. Blank and case-insensitive duplicates return null. */
+export function missingMasterName(query: string, names: readonly string[]): string | null {
+  const name = normalizeMasterLabel(query);
+  if (!name || name.length > 120) return null;
+  const key = masterLabelKey(name);
+  if (names.some((existing) => masterLabelKey(existing) === key)) return null;
+  return name;
+}
+
 /** Pick the saved spelling when the staff text only differs by case or spacing. */
 export function alignMasterValue(value: string | null | undefined, names: readonly string[]): string {
   const raw = normalizeMasterLabel(value);

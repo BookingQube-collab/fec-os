@@ -1,3 +1,5 @@
+import type { AiErrorKind } from "@/lib/ai/types";
+
 /**
  * Image reads (QID, passport, visa photos) go through Gemini.
  * The default Flash model spends the whole request on hidden thinking and
@@ -33,6 +35,24 @@ export function geminiImageReadModel(model: string): string {
   const id = model.replace(/^models\//, "");
   if (/pro/i.test(id) && !/flash/i.test(id)) return "gemini-2.5-flash";
   return id;
+}
+
+/**
+ * Models to try for one photo. `gemini-flash-latest` is a moving alias that
+ * can answer 503 or spend the whole call on thinking. A pinned 2.5 Flash
+ * accepts a zero thinking budget and returns the transcription, so that
+ * alias tries the pinned model first.
+ */
+export function geminiImageModelAttempts(model: string): string[] {
+  const preferred = geminiImageReadModel(model);
+  const stable = "gemini-2.5-flash";
+  if (preferred === "gemini-flash-latest") return [stable, preferred];
+  return [...new Set([preferred, stable])];
+}
+
+/** A rejected API key must not be retried against another Gemini model. */
+export function shouldAdvanceGeminiImageModel(kind: AiErrorKind): boolean {
+  return kind !== "auth";
 }
 
 /**

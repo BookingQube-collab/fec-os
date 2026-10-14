@@ -112,6 +112,48 @@ export function nextEmployeeCode(
   return generateEmployeeCode(locationCode, used, hint);
 }
 
+/**
+ * One segment after the location code: `UA-DM-STF18` belongs to `UA-DM`, not `UA`.
+ * Generated tokens (`STF18`, `BM`, `CSH01`) and any other single suffix count.
+ */
+const LOCATION_CODE_SUFFIX = /^[A-Z0-9]+$/i;
+
+/** True when `employeeCode` was issued for `locationCode` (`CAR-AP-STF03` for `CAR-AP`). */
+export function employeeCodeHasLocationPrefix(
+  employeeCode: string | null | undefined,
+  locationCode: string | null | undefined,
+): boolean {
+  const code = String(employeeCode ?? "").trim().toUpperCase();
+  const loc = String(locationCode ?? "").trim().toUpperCase();
+  if (!code || !loc || !code.startsWith(`${loc}-`)) return false;
+  return LOCATION_CODE_SUFFIX.test(code.slice(loc.length + 1));
+}
+
+/**
+ * Home-location save rewrites the code with the same allocator used at hire.
+ * A code that already uses the home location prefix is kept, including when the
+ * location id did not change on this request. A stale prefix (`INF-CC-STF11` at
+ * `KDS-CC`) is replaced. Extra-site and roaming-only saves pass
+ * `homeLocationSaved: false` and keep the code.
+ */
+export function employeeCodeAfterHomeLocationChange(input: {
+  employeeCode: string | null | undefined;
+  previousLocationCode?: string | null | undefined;
+  nextLocationCode: string | null | undefined;
+  usedCodes: Iterable<string>;
+  hint?: EmployeeCodeHint;
+  /** False when this save does not set the home location. */
+  homeLocationSaved?: boolean;
+}): string {
+  const current = String(input.employeeCode ?? "").trim().toUpperCase();
+  if (input.homeLocationSaved === false) return current;
+  const next = String(input.nextLocationCode ?? "").trim().toUpperCase();
+  if (!next || employeeCodeHasLocationPrefix(current, next)) return current;
+  const used = usedEmployeeCodeSet(input.usedCodes);
+  if (current) used.delete(current);
+  return generateEmployeeCode(next, used, input.hint);
+}
+
 function usedEmployeeCodeSet(existing: Iterable<string>): Set<string> {
   return new Set([...existing].map((c) => String(c).trim().toUpperCase()).filter(Boolean));
 }

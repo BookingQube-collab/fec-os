@@ -61,12 +61,16 @@ export function OrgHierarchyBoard({
   saving,
   onPlace,
   onRemove,
+  onMakeTeamLeader,
+  revealStaffIds = [],
   readOnly = false,
 }: {
   snapshot: OrgChartSnapshot;
   saving: boolean;
   onPlace: (staffId: string, managerStaffId: string | null) => void;
   onRemove: (staffId: string) => void;
+  onMakeTeamLeader?: (staffId: string) => void;
+  revealStaffIds?: readonly string[];
   readOnly?: boolean;
 }) {
   const { t } = useTranslation();
@@ -267,6 +271,8 @@ export function OrgHierarchyBoard({
         onChart={grouped.onChart}
         onPlace={onPlace}
         onRemove={onRemove}
+        onMakeTeamLeader={readOnly ? undefined : onMakeTeamLeader}
+        revealStaffIds={revealStaffIds}
         onExpandDepartments={() => {
           if (readOnly) return;
           setDepartmentsOpen(true);
@@ -352,6 +358,8 @@ function OrgCanvas({
   onChart,
   onPlace,
   onRemove,
+  onMakeTeamLeader,
+  revealStaffIds = [],
   onExpandDepartments,
   onCollapseDepartments,
 }: {
@@ -364,6 +372,8 @@ function OrgCanvas({
   onChart: Set<string>;
   onPlace: (staffId: string, managerStaffId: string | null) => void;
   onRemove: (staffId: string) => void;
+  onMakeTeamLeader?: (staffId: string) => void;
+  revealStaffIds?: readonly string[];
   onExpandDepartments?: () => void;
   onCollapseDepartments?: () => void;
 }) {
@@ -376,6 +386,7 @@ function OrgCanvas({
   const dragCleanup = useRef<(() => void) | null>(null);
   const dragOriginRef = useRef<"chart" | null>(null);
   const draggedCardRef = useRef(false);
+  const lastCardClickRef = useRef<{ staffId: string; at: number } | null>(null);
   const offsetsRef = useRef<Map<string, NodeOffset>>(new Map());
   const [offsets, setOffsets] = useState<Map<string, NodeOffset>>(offsetsRef.current);
   const [collapsed, setCollapsed] = useState<Set<string> | null>(null);
@@ -421,7 +432,7 @@ function OrgCanvas({
   const nodeHeights = useMemo(() => {
     const heights = new Map<string, number>();
     for (const [staffId, person] of peopleById) {
-      heights.set(staffId, orgChartNodeHeight(person.fullName, readOnly));
+      heights.set(staffId, orgChartNodeHeight(person.fullName, readOnly, Boolean(person.locationName?.trim())));
     }
     return heights;
   }, [peopleById, readOnly]);
@@ -547,6 +558,17 @@ function OrgCanvas({
     });
   };
 
+  const revealKey = revealStaffIds.join("\0");
+  useEffect(() => {
+    if (!revealKey) return;
+    const ids = revealKey.split("\0").filter(Boolean);
+    setCollapsed((current) => {
+      const next = new Set(current ?? initialCollapsedIds(treeRef.current.rootIds, treeRef.current.childIdsOf));
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+  }, [revealKey]);
+
   const clearOffsets = (staffIds: Iterable<string>) => {
     const next = new Map(offsetsRef.current);
     let changed = false;
@@ -585,7 +607,22 @@ function OrgCanvas({
       const dragged = moved || draggedCardRef.current;
       draggedCardRef.current = false;
       finish();
-      if (!dragged) toggleNode(staffId);
+      if (dragged) {
+        lastCardClickRef.current = null;
+        return;
+      }
+      // A second click on the same card appoints a location team leader.
+      // The first click already toggled the branch, so toggle again and leave it as it was.
+      const now = Date.now();
+      const last = lastCardClickRef.current;
+      if (onMakeTeamLeader && !saving && last && last.staffId === staffId && now - last.at <= 500) {
+        lastCardClickRef.current = null;
+        toggleNode(staffId);
+        onMakeTeamLeader(staffId);
+        return;
+      }
+      lastCardClickRef.current = onMakeTeamLeader && !saving ? { staffId, at: now } : null;
+      toggleNode(staffId);
     };
     const cancel = (ev: PointerEvent) => {
       if (ev.pointerId !== pointerId) return;
@@ -885,11 +922,12 @@ function OrgCanvas({
           const incomingSide = rtl ? "right" : "left";
           const levels = chartLayout === "levels";
           const role = person.jobTitle?.trim() || "Staff";
+          const location = person.locationName?.trim() || "";
           return (
             <article
               key={person.staffId}
               data-org-staff={person.staffId}
-              aria-label={`${person.fullName}, ${role}${
+              aria-label={`${person.fullName}, ${role}${location ? `, ${location}` : ""}${
                 person.loginLinked === true
                   ? `, ${person.loginEmail ?? t("people.profile.login.exists")}`
                   : person.loginLinked === false
@@ -981,6 +1019,11 @@ function OrgCanvas({
                 <span className="mt-0.5 block truncate text-xs leading-tight text-muted-foreground" title={role}>
                   {role}
                 </span>
+                {location ? (
+                  <span className="block truncate text-[11px] leading-tight text-muted-foreground/70" title={location}>
+                    {location}
+                  </span>
+                ) : null}
               </span>
               {reports > 0 ? (
                 <button

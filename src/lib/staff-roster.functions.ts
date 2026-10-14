@@ -13,6 +13,8 @@ import {
 import { ForbiddenError } from "@/lib/server/authorize";
 import { rollbackRosterBatch } from "@/lib/staff-roster/apply";
 import { insertSalaryHistoryAndSync, insertStatusHistory } from "@/lib/staff-history";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { employeeCodeAfterHomeLocationChange, employeeCodeHasLocationPrefix } from "@/lib/staff-employee-code";
 import { staffHomeWorkSiteIds } from "@/lib/staff-work-locations";
 
 async function assertStaffLocation(context: AuthContext, staffId: string): Promise<{ location_id: string; status: string; deleted_at: string | null }> {
@@ -52,6 +54,188 @@ async function audit(
     _location_id: locationId,
     _metadata: {},
   });
+}
+
+const EMPLOYEE_CODE_PAGE = 1000;
+
+async function pageEmployeeCodes(
+  load: (from: number, to: number) => PromiseLike<{
+    data: Array<{ employee_code?: string | null }> | null;
+    error: { message: string } | null;
+  }>,
+): Promise<string[]> {
+  const codes: string[] = [];
+  for (let from = 0; ; from += EMPLOYEE_CODE_PAGE) {
+    const { data, error } = await load(from, from + EMPLOYEE_CODE_PAGE - 1);
+    if (error) throw new Error(error.message);
+    const rows = data ?? [];
+    for (const row of rows) {
+      const code = String(row.employee_code ?? "").trim().toUpperCase();
+      if (code) codes.push(code);
+    }
+    if (rows.length < EMPLOYEE_CODE_PAGE) return codes;
+  }
+}
+
+/** Staff, login profiles, and device copies. Soft-deleted staff codes stay reserved. */
+async function loadReservedEmployeeCodes(): Promise<string[]> {
+  const [staffCodes, profileCodes, biometricCodes] = await Promise.all([
+    pageEmployeeCodes((from, to) =>
+      supabaseAdmin.from("staff").select("employee_code").order("id", { ascending: true }).range(from, to),
+    ),
+    pageEmployeeCodes((from, to) =>
+      supabaseAdmin.from("profiles").select("employee_code").order("id", { ascending: true }).range(from, to),
+    ),
+    pageEmployeeCodes(async (from, to) => {
+      const { data, error } = await supabaseAdmin
+        .from("attendance_biometric_users")
+        .select("employee_code")
+        .order("id", { ascending: true })
+        .range(from, to);
+      if (error && /employee_code/i.test(error.message)) return { data: [], error: null };
+      return {
+        data: (data ?? []) as Array<{ employee_code?: string | null }>,
+        error: error ? { message: error.message } : null,
+      };
+    }),
+  ]);
+  return [...staffCodes, ...profileCodes, ...biometricCodes];
+}
+
+async function locationCodeForId(supabase: AuthContext["supabase"], locationId: string): Promise<string> {
+  const { data, error } = await supabase.from("locations").select("code").eq("id", locationId).maybeSingle();
+  if (error) throw error;
+  const code = String(data?.code ?? "").trim().toUpperCase();
+  if (!code) throw new Error("Branch code not found");
+  return code;
+}
+
+type HomeCodeAssignment = {
+  employeeCode: string;
+  previousCode: string;
+  changed: boolean;
+  userId: string | null;
+};
+
+async function codeForHomeLocationChange(
+  context: AuthContext,
+  staffId: string,
+  previousLocationId: string,
+  nextLocationId: string,
+  homeLocationSaved: boolean,
+): Promise<HomeCodeAssignment> {
+  const { data, error } = await context.supabase
+    .from("staff")
+    .select("employee_code, job_title, staff_role, user_id")
+    .eq("id", staffId)
+    .single();
+  if (error) throw error;
+  const previousCode = String(data.employee_code ?? "").trim().toUpperCase();
+  if (!homeLocationSaved) {
+    return { employeeCode: previousCode, previousCode, changed: false, userId: data.user_id };
+  }
+  const nextLocationCode = await locationCodeForId(context.supabase, nextLocationId);
+  if (employeeCodeHasLocationPrefix(previousCode, nextLocationCode)) {
+    return { employeeCode: previousCode, previousCode, changed: false, userId: data.user_id };
+  }
+  const previousLocationCode =
+    previousLocationId === nextLocationId
+      ? nextLocationCode
+      : await locationCodeForId(context.supabase, previousLocationId);
+  const employeeCode = employeeCodeAfterHomeLocationChange({
+    employeeCode: previousCode,
+    previousLocationCode,
+    nextLocationCode,
+    homeLocationSaved: true,
+    usedCodes: await loadReservedEmployeeCodes(),
+    hint: { jobTitle: data.job_title, staffRole: data.staff_role },
+  });
+  return {
+    employeeCode,
+    previousCode,
+    changed: employeeCode !== previousCode,
+    userId: data.user_id,
+  };
+}
+
+/** Keep login and device copies on the same person when `staff.employee_code` changes. */
+async function syncEmployeeCodeCopies(input: {
+  staffId: string;
+  userId: string | null;
+  previousCode: string;
+  nextCode: string;
+}) {
+  const previous = input.previousCode.trim().toUpperCase();
+  const next = input.nextCode.trim().toUpperCase();
+  if (!previous || !next || previous === next) return;
+
+  if (input.userId) {
+    const { data: profile, error: readErr } = await supabaseAdmin
+      .from("profiles")
+      .select("id, employee_code")
+      .eq("id", input.userId)
+      .maybeSingle();
+    if (readErr) throw readErr;
+    if (String(profile?.employee_code ?? "").trim().toUpperCase() === previous) {
+      const { error } = await supabaseAdmin.from("profiles").update({ employee_code: next }).eq("id", input.userId);
+      if (error) throw error;
+    }
+  }
+
+  const { data: bios, error: bioErr } = await supabaseAdmin
+    .from("attendance_biometric_users")
+    .select("id, employee_code")
+    .eq("staff_id", input.staffId);
+  if (bioErr) {
+    if (/employee_code/i.test(bioErr.message)) return;
+    throw bioErr;
+  }
+  const ids = (bios ?? [])
+    .filter((row) => String(row.employee_code ?? "").trim().toUpperCase() === previous)
+    .map((row) => row.id);
+  if (!ids.length) return;
+  const { error: updErr } = await supabaseAdmin
+    .from("attendance_biometric_users")
+    .update({ employee_code: next })
+    .in("id", ids);
+  if (updErr) throw updErr;
+}
+
+async function writeHomeLocation(
+  context: AuthContext,
+  staffId: string,
+  nextLocationId: string,
+  assigned: HomeCodeAssignment,
+) {
+  if (assigned.changed) {
+    await syncEmployeeCodeCopies({
+      staffId,
+      userId: assigned.userId,
+      previousCode: assigned.previousCode,
+      nextCode: assigned.employeeCode,
+    });
+  }
+  const { error } = await context.supabase
+    .from("staff")
+    .update({
+      location_id: nextLocationId,
+      ...(assigned.changed ? { employee_code: assigned.employeeCode } : {}),
+    })
+    .eq("id", staffId);
+  if (!error) return;
+  if (assigned.changed) {
+    try {
+      await syncEmployeeCodeCopies({
+        staffId,
+        userId: assigned.userId,
+        previousCode: assigned.employeeCode,
+        nextCode: assigned.previousCode,
+      });
+    } catch {
+      /* Surface the staff update error. */
+    }
+  }
+  throw error;
 }
 
 export const archiveStaffMember = createAuthenticatedAction(
@@ -119,19 +303,28 @@ export const transferStaffMember = createAuthenticatedAction(
     });
     if (trErr) throw trErr;
 
-    const { error } = await context.supabase
-      .from("staff")
-      .update({ location_id: data.toLocationId })
-      .eq("id", data.id);
-    if (error) throw error;
+    const assigned = await codeForHomeLocationChange(
+      context,
+      data.id,
+      existing.location_id,
+      data.toLocationId,
+      true,
+    );
+    await writeHomeLocation(context, data.id, data.toLocationId, assigned);
     await audit(
       context,
       "staff.transferred",
       data.id,
-      { from: existing.location_id, to: data.toLocationId, effectiveOn: data.effectiveOn },
+      {
+        from: existing.location_id,
+        to: data.toLocationId,
+        effectiveOn: data.effectiveOn,
+        employee_code: assigned.employeeCode,
+        previous_employee_code: assigned.changed ? assigned.previousCode : undefined,
+      },
       data.toLocationId,
     );
-    return { ok: true };
+    return { ok: true, employeeCode: assigned.employeeCode, employeeCodeChanged: assigned.changed };
   },
   { auth: { capability: "people.edit_roster" } },
 );
@@ -263,13 +456,19 @@ export const updateStaffWorkLocations = createSafeAuthenticatedAction(
 
     const extraSites = unique.filter((id) => id !== resolved.homeLocationId);
     const isRoaming = data.isRoaming ?? extraSites.length > 0;
-    // Directory listing uses staff.location_id. Punches are left as they are.
-    if (resolved.homeLocationId !== existing.location_id) {
-      const { error: homeErr } = await context.supabase
-        .from("staff")
-        .update({ location_id: resolved.homeLocationId })
-        .eq("id", data.id);
-      if (homeErr) throw homeErr;
+    const homeLocationSaved = data.homeLocationId != null || resolved.homeLocationId !== existing.location_id;
+    const assigned = await codeForHomeLocationChange(
+      context,
+      data.id,
+      existing.location_id,
+      resolved.homeLocationId,
+      homeLocationSaved,
+    );
+    // Directory listing uses staff.location_id. Punches stay on staff_id.
+    // A stale code is rewritten even when this save's home id matches the row,
+    // because an earlier save may have moved the branch without the code.
+    if (resolved.homeLocationId !== existing.location_id || assigned.changed) {
+      await writeHomeLocation(context, data.id, resolved.homeLocationId, assigned);
     }
 
     const { error: delErr } = await context.supabase.from("staff_work_locations").delete().eq("staff_id", data.id);
@@ -300,6 +499,8 @@ export const updateStaffWorkLocations = createSafeAuthenticatedAction(
         is_roaming: isRoaming,
         home_location_id: resolved.homeLocationId,
         previous_home_location_id: existing.location_id,
+        employee_code: assigned.employeeCode,
+        previous_employee_code: assigned.changed ? assigned.previousCode : undefined,
       },
       resolved.homeLocationId,
     );
@@ -308,6 +509,8 @@ export const updateStaffWorkLocations = createSafeAuthenticatedAction(
       isRoaming,
       locationIds: unique,
       homeLocationId: resolved.homeLocationId,
+      employeeCode: assigned.employeeCode,
+      employeeCodeChanged: assigned.changed,
     };
   },
   { auth: { capability: "people.edit_roster" } },

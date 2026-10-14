@@ -3,6 +3,8 @@ import { sortDepartmentsTree } from "@/lib/departments";
 /** Card size used by the org canvas. Layout and the card component share these. */
 export const ORG_NODE_WIDTH = 200;
 export const ORG_NODE_HEIGHT = 58;
+/** Extra card height for the location line under the designation. */
+export const ORG_LOCATION_LINE_PX = 16;
 export const ORG_LEVEL_GAP = 108;
 /** Vertical space between ranks in the top-down chart. */
 export const ORG_RANK_GAP = 72;
@@ -56,6 +58,9 @@ export type OrgChartPerson = OrgReportingRow & {
   /** Set on the operations chart. Absent means the login was not loaded. */
   loginLinked?: boolean;
   loginEmail?: string | null;
+  /** Home location. The org chart uses it when a double-click appoints a team leader. */
+  locationId?: string | null;
+  locationName?: string | null;
 };
 
 export type OrgChartSnapshot = {
@@ -389,6 +394,150 @@ export function planOrgChartMove(
   return { ok: true, updates };
 }
 
+/** Sr. Site Supervisor, including "Senior Site Supervisor". A plain Site Supervisor does not match. */
+export function isSrSiteSupervisorTitle(jobTitle: string | null | undefined): boolean {
+  const title = (jobTitle ?? "").trim();
+  if (!title) return false;
+  return /(?:^|[\s,/])(?:sr\.?\s*|senior\s+)site supervisor\b/i.test(title);
+}
+
+function isAboveLocationTeam(jobTitle: string | null | undefined): boolean {
+  if (isSrSiteSupervisorTitle(jobTitle)) return true;
+  return /head of operations|managing director|\bgeneral manager\b|chief executive/i.test(jobTitle ?? "");
+}
+
+export type LocationTeamStaff = {
+  staffId: string;
+  jobTitle: string | null;
+  locationId?: string | null;
+  reportingManagerStaffId: string | null;
+};
+
+export type LocationTeamLeaderReason =
+  | "missing"
+  | "no-location"
+  | "is-supervisor"
+  | "above-team"
+  | "no-supervisor"
+  | "ambiguous-supervisor"
+  | "self"
+  | "cycle";
+
+export type LocationTeamLeaderPlan =
+  | {
+      ok: true;
+      already: boolean;
+      leaderStaffId: string;
+      supervisorStaffId: string;
+      locationId: string;
+      /** Other people at the location who report to the leader after the plan. */
+      reportCount: number;
+      updates: OrgManagerUpdate[];
+    }
+  | { ok: false; reason: LocationTeamLeaderReason };
+
+function reportingAncestors(reportingManagerByStaffId: ReadonlyMap<string, string | null>, staffId: string): string[] {
+  const ancestors: string[] = [];
+  const seen = new Set<string>();
+  let cursor = reportingManagerByStaffId.get(staffId) ?? null;
+  while (cursor) {
+    if (seen.has(cursor)) break;
+    seen.add(cursor);
+    ancestors.push(cursor);
+    cursor = reportingManagerByStaffId.get(cursor) ?? null;
+  }
+  return ancestors;
+}
+
+/**
+ * Double-click on the org chart makes this person the team leader for their location.
+ * Other people at that location report to them, and they report to the Sr. Site Supervisor
+ * who already supervises that location, or the Sr. Site Supervisor assigned to it.
+ * A failure returns no updates. People above the supervisor are left in place so the chart cannot loop.
+ */
+export function planLocationTeamLeader(
+  people: readonly LocationTeamStaff[],
+  staffId: string,
+): LocationTeamLeaderPlan {
+  const person = people.find((row) => row.staffId === staffId);
+  if (!person) return { ok: false, reason: "missing" };
+  if (isSrSiteSupervisorTitle(person.jobTitle)) return { ok: false, reason: "is-supervisor" };
+  if (isAboveLocationTeam(person.jobTitle)) return { ok: false, reason: "above-team" };
+  const locationId = person.locationId?.trim() || null;
+  if (!locationId) return { ok: false, reason: "no-location" };
+
+  const byId = new Map(people.map((row) => [row.staffId, row]));
+  const managers = new Map(people.map((row) => [row.staffId, row.reportingManagerStaffId]));
+  const locationPeople = people.filter((row) => (row.locationId?.trim() || null) === locationId);
+  const supervisingIds = new Set<string>();
+  for (const row of locationPeople) {
+    for (const ancestorId of reportingAncestors(managers, row.staffId)) {
+      const ancestor = byId.get(ancestorId);
+      if (!ancestor || ancestor.staffId === staffId) continue;
+      if (isSrSiteSupervisorTitle(ancestor.jobTitle)) supervisingIds.add(ancestor.staffId);
+    }
+  }
+
+  const supervising = [...supervisingIds]
+    .map((id) => byId.get(id))
+    .filter((row): row is LocationTeamStaff => Boolean(row))
+    .sort((a, b) => a.staffId.localeCompare(b.staffId));
+  let supervisor: LocationTeamStaff | null = null;
+  if (supervising.length === 1) {
+    supervisor = supervising[0] ?? null;
+  } else if (supervising.length > 1) {
+    const atLocation = supervising.filter((row) => (row.locationId?.trim() || null) === locationId);
+    if (atLocation.length !== 1) return { ok: false, reason: "ambiguous-supervisor" };
+    supervisor = atLocation[0] ?? null;
+  } else {
+    const atLocation = people
+      .filter(
+        (row) =>
+          row.staffId !== staffId &&
+          (row.locationId?.trim() || null) === locationId &&
+          isSrSiteSupervisorTitle(row.jobTitle),
+      )
+      .sort((a, b) => a.staffId.localeCompare(b.staffId));
+    if (atLocation.length !== 1) {
+      return { ok: false, reason: atLocation.length === 0 ? "no-supervisor" : "ambiguous-supervisor" };
+    }
+    supervisor = atLocation[0] ?? null;
+  }
+  if (!supervisor || supervisor.staffId === staffId) return { ok: false, reason: "self" };
+
+  const next = new Map(managers);
+  if (wouldCreateReportingCycle(next, staffId, supervisor.staffId)) return { ok: false, reason: "cycle" };
+
+  const updates: OrgManagerUpdate[] = [];
+  if (next.get(staffId) !== supervisor.staffId) {
+    next.set(staffId, supervisor.staffId);
+    updates.push({ staffId, managerStaffId: supervisor.staffId });
+  }
+
+  const peers = locationPeople
+    .filter((row) => row.staffId !== staffId && row.staffId !== supervisor.staffId && !isAboveLocationTeam(row.jobTitle))
+    .sort((a, b) => a.staffId.localeCompare(b.staffId));
+  for (const row of peers) {
+    if (next.get(row.staffId) === staffId) continue;
+    if (wouldCreateReportingCycle(next, row.staffId, staffId)) continue;
+    next.set(row.staffId, staffId);
+    updates.push({ staffId: row.staffId, managerStaffId: staffId });
+  }
+
+  const reportCount = locationPeople.filter(
+    (row) => row.staffId !== staffId && row.staffId !== supervisor.staffId && next.get(row.staffId) === staffId,
+  ).length;
+  return {
+    ok: true,
+    already: updates.length === 0,
+    leaderStaffId: staffId,
+    supervisorStaffId: supervisor.staffId,
+    locationId,
+    reportCount,
+    updates,
+  };
+}
+
 export function staffOnOrgChart(people: readonly OrgReportingRow[]): Set<string> {
   const known = new Set(people.map((person) => person.staffId));
   const referenced = new Set<string>();
@@ -569,12 +718,16 @@ export function orgChartNameLines(fullName: string, charsPerLine = ORG_NAME_CHAR
 }
 
 /** Card height that fits the full name on extra lines instead of an ellipsis. */
-export function orgChartNodeHeight(fullName: string, readOnly = false): number {
+export function orgChartNodeHeight(fullName: string, readOnly = false, hasLocation = false): number {
   const lines = orgChartNameLines(
     fullName,
     readOnly ? ORG_NAME_CHARS_PER_LINE_READONLY : ORG_NAME_CHARS_PER_LINE,
   );
-  return ORG_NODE_HEIGHT + Math.max(0, lines - 1) * ORG_NAME_LINE_PX;
+  return (
+    ORG_NODE_HEIGHT +
+    Math.max(0, lines - 1) * ORG_NAME_LINE_PX +
+    (hasLocation ? ORG_LOCATION_LINE_PX : 0)
+  );
 }
 
 /** Cubic curve from the parent's outgoing edge to the child's incoming edge. */

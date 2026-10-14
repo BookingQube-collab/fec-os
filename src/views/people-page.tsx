@@ -71,8 +71,9 @@ import { useMasterDepartments, usePeopleMasters } from "@/hooks/queries/useDepar
 import { DepartmentMultiSelect } from "@/components/people/department-multi-select";
 import { WorkSiteMultiSelect } from "@/components/people/work-site-multi-select";
 import { ManagePeopleMastersDialog } from "@/components/people/manage-people-masters-dialog";
+import { StaffNationalityField } from "@/components/people/staff-nationality-field";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import { alignMasterValue, masterLabelKey, matchNationalityChoice } from "@/lib/people-masters";
+import { alignMasterValue, matchNationalityChoice } from "@/lib/people-masters";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -475,7 +476,15 @@ function StaffTab() {
           sites={sites ?? []}
           locationId={locationId}
           staff={editRow}
-          onSaved={() => { setEditRow(null); invalidate(); }}
+          onSaved={(result) => {
+            if (result?.employeeCodeChanged && result.employeeCode) {
+              setEditRow((row) => (row ? { ...row, employee_code: result.employeeCode! } : row));
+              invalidate();
+              return;
+            }
+            setEditRow(null);
+            invalidate();
+          }}
         />
       )}
 
@@ -537,7 +546,7 @@ function StaffFormDialog({
   sites: { id: string; code: string; name: string; status?: string }[];
   locationId: string | null;
   staff?: StaffRow;
-  onSaved: () => void;
+  onSaved: (result?: { employeeCode?: string; employeeCodeChanged?: boolean }) => void;
 }) {
   const { t } = useTranslation();
   const isEdit = !!staff;
@@ -557,12 +566,6 @@ function StaffFormDialog({
     () => (peopleMasters.data?.nationalities ?? []).map((row) => row.name),
     [peopleMasters.data?.nationalities],
   );
-  const nationalityOptions = useMemo(() => {
-    const current = alignMasterValue(nationality, nationalityNames);
-    const known = nationalityNames.some((name) => masterLabelKey(name) === masterLabelKey(current));
-    const names = current && !known ? [current, ...nationalityNames] : nationalityNames;
-    return names.map((name) => ({ value: name, label: name }));
-  }, [nationality, nationalityNames]);
   useEffect(() => {
     if (!nationality.trim() || nationalityNames.length === 0) return;
     const matched = matchNationalityChoice(nationality, nationalityNames);
@@ -639,6 +642,7 @@ function StaffFormDialog({
   const [identity, setIdentity] = useState<StaffIdentityDraft>(() => emptyIdentityDraft(staff));
   const [createdStaffId, setCreatedStaffId] = useState<string | null>(null);
   const [skippedEmployeeCodes, setSkippedEmployeeCodes] = useState<string[]>([]);
+  const [shownEmployeeCode, setShownEmployeeCode] = useState(staff?.employee_code ?? "");
   const titleListOpenRef = useRef(false);
   const homeSiteListOpenRef = useRef(false);
   const workSiteListOpenRef = useRef(false);
@@ -646,7 +650,13 @@ function StaffFormDialog({
 
   const wasOpenRef = useRef(false);
   useEffect(() => {
-    if (open && !wasOpenRef.current) setFormTab("profile");
+    setShownEmployeeCode(staff?.employee_code ?? "");
+  }, [staff?.employee_code]);
+  useEffect(() => {
+    if (open && !wasOpenRef.current) {
+      setFormTab("profile");
+      setShownEmployeeCode(staff?.employee_code ?? "");
+    }
     wasOpenRef.current = open;
     if (open) return;
     setIdentity(emptyIdentityDraft(staff));
@@ -814,7 +824,7 @@ function StaffFormDialog({
         const homeId = editHomeLocationId || staff!.location_id;
         if (!homeId) throw new Error(t("people.staff.selectBranch"));
         const extraIds = [...new Set(workLocationIds.filter((id) => id && id !== homeId))];
-        await Promise.all([
+        const [, workSaved] = await Promise.all([
           updateStaff({
             id: staff!.id,
             ...profilePatch,
@@ -831,12 +841,19 @@ function StaffFormDialog({
             locationIds: [homeId, ...extraIds],
             homeLocationId: homeId,
             isRoaming,
-          }).then(assertSaved),
+          }).then((result) => {
+            assertSaved(result);
+            return result.ok ? result.data : null;
+          }),
           saveSalary(staff!.id),
           savePhoto(staff!.id),
           saveDocuments(staff!.id),
         ]);
-        return;
+        return {
+          employeeCode: workSaved?.employeeCode,
+          employeeCodeChanged: Boolean(workSaved?.employeeCodeChanged),
+          homeLocationId: homeId,
+        };
       }
 
       if (createdStaffId) {
@@ -874,11 +891,51 @@ function StaffFormDialog({
       if (!staffId) return;
       await Promise.all([saveSalary(staffId), savePhoto(staffId), saveDocuments(staffId)]);
     },
-    onSuccess: () => {
-      toast.success(isEdit ? t("people.staff.updateSuccess") : t("people.staff.createSuccess"));
+    onSuccess: (result) => {
+      const nextCode = result?.employeeCode;
+      const codeChanged = Boolean(result?.employeeCodeChanged && nextCode);
+      if (nextCode) setShownEmployeeCode(nextCode);
+      if (codeChanged) setFormTab("profile");
+      if (codeChanged && staff?.id && nextCode) {
+        const homeId = result?.homeLocationId;
+        const home = homeId ? sites.find((site) => site.id === homeId) : undefined;
+        queryClient.setQueriesData<{
+          data?: Array<{
+            id: string;
+            employee_code: string;
+            location_id: string;
+            location_code: string | null;
+            location_name: string | null;
+          }>;
+        }>({ queryKey: ["people", "staff-directory"] }, (current) => {
+          if (!current?.data) return current;
+          return {
+            ...current,
+            data: current.data.map((row) =>
+              row.id === staff.id
+                ? {
+                    ...row,
+                    employee_code: nextCode,
+                    ...(home
+                      ? { location_id: home.id, location_code: home.code, location_name: home.name }
+                      : {}),
+                  }
+                : row,
+            ),
+          };
+        });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.people.employeeCodes() });
+      }
+      toast.success(
+        codeChanged ? `${t("people.staff.updateSuccess")} · ${nextCode}` : isEdit ? t("people.staff.updateSuccess") : t("people.staff.createSuccess"),
+      );
       setPhotoDraft({ dataUrl: null, remove: false });
       if (!isEdit) {
         void queryClient.invalidateQueries({ queryKey: queryKeys.people.employeeCodes() });
+      }
+      if (codeChanged) {
+        onSaved({ employeeCode: nextCode, employeeCodeChanged: true });
+        return;
       }
       onOpenChange(false);
       queueMicrotask(() => {
@@ -921,7 +978,7 @@ function StaffFormDialog({
           <DialogTitle>{isEdit ? t("people.staff.edit") : t("people.staff.add")}</DialogTitle>
           {isEdit ? (
             <p className="truncate text-sm text-muted-foreground">
-              {[fullName.trim() || staff.full_name, staff.employee_code].filter(Boolean).join(" · ")}
+              {[fullName.trim() || staff.full_name, shownEmployeeCode || staff.employee_code].filter(Boolean).join(" · ")}
             </p>
           ) : null}
         </DialogHeader>
@@ -1041,7 +1098,7 @@ function StaffFormDialog({
                   </div>
                   <div>
                     <Label>{t("people.staff.code")}</Label>
-                    <Input readOnly className="bg-muted/40 font-mono" value={staff!.employee_code} />
+                    <Input readOnly className="bg-muted/40 font-mono" value={shownEmployeeCode || staff!.employee_code} />
                   </div>
                 </div>
               )}
@@ -1094,24 +1151,20 @@ function StaffFormDialog({
                     options={genderNames.map((name) => ({ value: name, label: name }))}
                   />
                 </div>
-                <div>
-                  <Label>{t("people.staff.nationality")}</Label>
-                  <SearchableSelect
-                    value={alignMasterValue(nationality, nationalityNames)}
-                    onValueChange={(value) => {
-                      setNationality(value);
-                      if (identity.suggestions.nationality) {
-                        const suggestions = { ...identity.suggestions };
-                        delete suggestions.nationality;
-                        setIdentity({ ...identity, suggestions });
-                      }
-                    }}
-                    disabled={m.isPending}
-                    placeholder={t("people.staff.nationalityUnset")}
-                    emptyOption={{ value: "", label: t("people.staff.nationalityUnset") }}
-                    options={nationalityOptions}
-                  />
-                </div>
+                <StaffNationalityField
+                  value={nationality}
+                  names={nationalityNames}
+                  ready={peopleMasters.isSuccess}
+                  disabled={m.isPending}
+                  onChange={(value) => {
+                    setNationality(value);
+                    if (identity.suggestions.nationality) {
+                      const suggestions = { ...identity.suggestions };
+                      delete suggestions.nationality;
+                      setIdentity({ ...identity, suggestions });
+                    }
+                  }}
+                />
               </div>
               {isEdit ? (
                 <div className="space-y-1 rounded-md border border-border p-3">

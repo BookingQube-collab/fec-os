@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   canSeeShiftRosterUpload,
+  rosterChartTeamIds,
   rosterTeamOrSelfStaffIds,
   unionTeamLocationIds,
   usesTeamLocationScope,
@@ -88,5 +89,55 @@ describe("team roster access", () => {
         jobTitle: "Site Supervisor",
       }),
     ).toEqual(["report-a", "report-b"]);
+  });
+});
+
+describe("rosterChartTeamIds", () => {
+  const chart = [
+    { staffId: "mary", reportingManagerStaffId: "rajan" },
+    { staffId: "ashfaq", reportingManagerStaffId: "mary" },
+    { staffId: "ma-luz", reportingManagerStaffId: "ashfaq" },
+    { staffId: "marissa", reportingManagerStaffId: "ashfaq" },
+    { staffId: "flora", reportingManagerStaffId: "ashfaq" },
+    { staffId: "kds-crew", reportingManagerStaffId: "ma-luz" },
+    { staffId: "inflata-crew", reportingManagerStaffId: "marissa" },
+    { staffId: "ruben", reportingManagerStaffId: "gm" },
+    { staffId: "barista", reportingManagerStaffId: "ruben" },
+    { staffId: "abiola", reportingManagerStaffId: "ashfaq", assignable: false },
+    { staffId: "joker-crew", reportingManagerStaffId: "ma-luz", assignable: false },
+  ];
+
+  it("includes the viewer and everyone under them on the chart", () => {
+    expect(rosterChartTeamIds("mary", chart)).toEqual([
+      "ashfaq",
+      "flora",
+      "inflata-crew",
+      "kds-crew",
+      "ma-luz",
+      "marissa",
+      "mary",
+    ]);
+    expect(rosterChartTeamIds("ashfaq", chart)).toEqual([
+      "ashfaq",
+      "flora",
+      "inflata-crew",
+      "kds-crew",
+      "ma-luz",
+      "marissa",
+    ]);
+    expect(rosterChartTeamIds("ma-luz", chart)).toEqual(["kds-crew", "ma-luz"]);
+    expect(rosterChartTeamIds("marissa", chart)).toEqual(["inflata-crew", "marissa"]);
+    expect(rosterChartTeamIds("ruben", chart)).toEqual(["barista", "ruben"]);
+    expect(rosterChartTeamIds("kds-crew", chart)).toEqual(["kds-crew"]);
+  });
+
+  it("keeps walking through someone the roster cannot list", () => {
+    const throughClosedLead = [
+      { staffId: "mary", reportingManagerStaffId: "rajan" },
+      { staffId: "closed-lead", reportingManagerStaffId: "mary", assignable: false },
+      { staffId: "crew", reportingManagerStaffId: "closed-lead" },
+    ];
+    expect(rosterChartTeamIds("mary", throughClosedLead)).toEqual(["crew", "mary"]);
+    expect(rosterChartTeamIds(null, chart)).toEqual([]);
   });
 });

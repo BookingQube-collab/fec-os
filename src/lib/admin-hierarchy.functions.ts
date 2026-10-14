@@ -4,10 +4,12 @@ import { z } from "zod";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import {
+  planLocationTeamLeader,
   planOrgChartMove,
   planRemoveFromOrgChart,
   staffDepartmentPlacement,
   wouldCreateReportingCycle,
+  type LocationTeamLeaderReason,
   type OrgChartMoveMode,
   type OrgChartPerson,
   type OrgChartSnapshot,
@@ -119,12 +121,48 @@ async function loadViewer(userId: string | null, roles: readonly string[] | unde
   };
 }
 
+async function loadLocationNames(): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  const { data, error } = await supabaseAdmin.from("locations").select("id, name");
+  if (error) {
+    console.error("[org chart] location lookup failed", error.message);
+    return names;
+  }
+  for (const row of data ?? []) {
+    const name = row.name?.trim();
+    if (row.id && name) names.set(row.id, name);
+  }
+  return names;
+}
+
+function locationTeamLeaderMessage(reason: LocationTeamLeaderReason): string {
+  switch (reason) {
+    case "missing":
+      return "Choose someone on the active roster.";
+    case "no-location":
+      return "This person has no location, so they cannot lead a site team.";
+    case "is-supervisor":
+      return "A Sr. Site Supervisor stays above the team.";
+    case "above-team":
+      return "This person stays above the location team.";
+    case "no-supervisor":
+      return "No Sr. Site Supervisor could be found for this location.";
+    case "ambiguous-supervisor":
+      return "More than one Sr. Site Supervisor matches this location.";
+    case "self":
+      return "A person cannot report to themselves.";
+    case "cycle":
+      return "That assignment would create a reporting loop.";
+  }
+}
+
 function toOrgChartPerson(
   row: StaffJoin,
   ext: ExtRow | undefined,
   departments: OrgDepartment[],
   loginEmails: Map<string, string>,
   viewerView: { viewerStaffId: string | null; viewerOperationsName: string | null },
+  locationNames: ReadonlyMap<string, string>,
 ): OrgChartPerson {
   const links = asArray(row.staff_departments)
     .map((link) => {
@@ -154,6 +192,8 @@ function toOrgChartPerson(
     orgChartPlaced: Boolean(ext?.org_chart_placed),
     loginLinked: Boolean(row.user_id),
     loginEmail: row.user_id ? (loginEmails.get(row.user_id) ?? null) : null,
+    locationId: row.location_id,
+    locationName: row.location_id ? (locationNames.get(row.location_id) ?? null) : null,
   };
 }
 
@@ -174,7 +214,7 @@ function chainFromStaff(row: StaffJoin, ext: ExtRow | undefined): ChainStaff {
 }
 
 async function loadOrgChart(viewerUserId: string | null, roles: readonly string[] | undefined): Promise<OrgChartSnapshot> {
-  const [staffRows, extRows, departmentRows, viewer] = await Promise.all([
+  const [staffRows, extRows, departmentRows, locationNames, viewer] = await Promise.all([
     fetchPages<StaffJoin>((from, to) =>
       supabaseAdmin
         .from("staff")
@@ -193,6 +233,7 @@ async function loadOrgChart(viewerUserId: string | null, roles: readonly string[
         .range(from, to) as PromiseLike<{ data: ExtRow[] | null; error: { message: string } | null }>,
     ),
     supabaseAdmin.from("master_departments").select("id, name, parent_id, sort_order, active").eq("active", true).order("sort_order"),
+    loadLocationNames(),
     loadViewer(viewerUserId, roles),
   ]);
 
@@ -219,7 +260,7 @@ async function loadOrgChart(viewerUserId: string | null, roles: readonly string[
   const chainRows = staffRows.map((row) => chainFromStaff(row, extByStaff.get(row.id)));
   const viewerView = reportingViewerView(chainRows, viewer);
   const people = staffRows.map((row) =>
-    toOrgChartPerson(row, extByStaff.get(row.id), departments, loginEmails, viewerView),
+    toOrgChartPerson(row, extByStaff.get(row.id), departments, loginEmails, viewerView, locationNames),
   );
 
   return { departments, people };
@@ -271,7 +312,10 @@ async function loadMissingOrgPeople(
     staffRows.map((row) => chainFromStaff(row, extByStaff.get(row.id))),
     viewer,
   );
-  return staffRows.map((row) => toOrgChartPerson(row, extByStaff.get(row.id), departments, loginEmails, viewerView));
+  const locationNames = await loadLocationNames();
+  return staffRows.map((row) =>
+    toOrgChartPerson(row, extByStaff.get(row.id), departments, loginEmails, viewerView, locationNames),
+  );
 }
 
 function managerMap(people: OrgChartPerson[]): Map<string, string | null> {
@@ -513,6 +557,34 @@ export const applyOrgChartMove = createAuthenticatedAction(
     if (titleChange) {
       const { error } = await supabaseAdmin.from("staff").update({ job_title: nextTitle }).eq("id", data.staffId);
       if (error) throw new Error(error.message);
+    }
+    return loadOrgChart(context.userId, context.roles);
+  },
+  { auth: HIERARCHY_AUTH },
+);
+
+export const appointLocationTeamLeader = createAuthenticatedAction(
+  z.object({
+    staffId: z.string().uuid(),
+  }),
+  async (data, context) => {
+    const chart = await loadOrgChart(context.userId, context.roles);
+    const person = chart.people.find((row) => row.staffId === data.staffId);
+    if (!person) throw new Error("Choose someone on the active roster.");
+
+    const plan = planLocationTeamLeader(chart.people, data.staffId);
+    if (!plan.ok) throw new Error(locationTeamLeaderMessage(plan.reason));
+    if (plan.already || plan.updates.length === 0) return chart;
+
+    const peopleById = new Map(chart.people.map((row) => [row.staffId, row]));
+    for (const update of plan.updates) {
+      if (!peopleById.has(update.staffId)) throw new Error("Choose someone on the active roster.");
+      if (update.managerStaffId && !peopleById.has(update.managerStaffId)) {
+        throw new Error("Choose someone on the active roster.");
+      }
+    }
+    for (const update of plan.updates) {
+      await writeReporting(update.staffId, update.managerStaffId, true, context.userId);
     }
     return loadOrgChart(context.userId, context.roles);
   },

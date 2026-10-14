@@ -8,7 +8,6 @@ import { providerGenerate, providerListModels, providerTestConnection } from "@/
 import { buildFallbackChain, decideAfterFailure, isOverMonthlyLimit } from "@/lib/ai/routing";
 import { getProviderRow, getRoutingSettings, isPrimaryEligible, listProviderRows } from "@/lib/ai/store";
 import {
-  AI_PROVIDER_CODES,
   type AiGenerateRequest,
   type AiGenerateResult,
   type AiMessage,
@@ -18,7 +17,7 @@ import {
 } from "@/lib/ai/types";
 import { monthSpendUsd, toPublicConfig } from "@/lib/ai/store";
 import { recordAiUsage } from "@/lib/ai/usage";
-import { envApiKeyFor } from "@/lib/ai/env-keys";
+import { envApiKeyFor, envProviderCodes } from "@/lib/ai/env-keys";
 
 export { toPublicConfig };
 
@@ -41,7 +40,7 @@ function messageContentForChat(message: AiMessage): string | Array<Record<string
 }
 
 async function envFallbackGenerate(request: CallOptions): Promise<AiGenerateResult | null> {
-  for (const code of AI_PROVIDER_CODES) {
+  for (const code of envProviderCodes(requestHasImage(request))) {
     const apiKey = envApiKeyFor(code);
     if (!apiKey) continue;
     try {

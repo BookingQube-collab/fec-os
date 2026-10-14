@@ -1,9 +1,10 @@
 import { catalogFor, openRouterHeaders } from "@/lib/ai/catalog";
 import {
   geminiGenerationConfig,
-  geminiImageReadModel,
+  geminiImageModelAttempts,
   geminiVisibleText,
   imageThinkingOffAttempts,
+  shouldAdvanceGeminiImageModel,
   shouldRetryImageThinking,
   type ImageThinkingOff,
 } from "@/lib/ai/gemini-vision";
@@ -146,28 +147,24 @@ async function geminiGenerate(
 ): Promise<AiGenerateResult> {
   if (!requestHasImage(request)) return geminiGenerateOnce(ctx, request, "on");
 
-  const preferred = geminiImageReadModel(ctx.model);
-  const models = [...new Set([preferred, "gemini-flash-latest"])];
+  const models = geminiImageModelAttempts(ctx.model);
   let lastError: unknown;
   for (const model of models) {
     const attempts = imageThinkingOffAttempts(model);
-    let tryNextModel = false;
     for (let i = 0; i < attempts.length; i += 1) {
       try {
         return await geminiGenerateOnce({ ...ctx, model }, request, attempts[i]!);
       } catch (error) {
         lastError = error;
+        const mapped = asProviderError(error);
         const retryThinking =
           i < attempts.length - 1 &&
-          error instanceof ProviderCallError &&
-          shouldRetryImageThinking({ status: error.status, message: error.message });
+          shouldRetryImageThinking({ status: mapped.status, message: mapped.message });
         if (retryThinking) continue;
-        tryNextModel = error instanceof ProviderCallError && error.kind === "unavailable_model";
-        if (tryNextModel) break;
-        throw error;
+        if (!shouldAdvanceGeminiImageModel(mapped.kind)) throw mapped;
+        break;
       }
     }
-    if (!tryNextModel) break;
   }
   throw lastError;
 }

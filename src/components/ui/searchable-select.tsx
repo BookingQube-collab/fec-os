@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronsUpDown, Search } from "lucide-react";
+import { Check, ChevronsUpDown, Plus, Search } from "lucide-react";
 import {
   startTransition,
   useCallback,
@@ -120,6 +120,13 @@ type SearchableSelectBaseProps = {
   onOpenChange?: (open: boolean) => void;
   /** Shown when multiple values are selected (e.g. "{{count}} selected"). */
   selectedCountLabel?: (count: number) => ReactNode;
+  /**
+   * When the typed search is not already an option, return the name to create.
+   * Blank and duplicates return null. Called with the live search text.
+   */
+  resolveCreateOption?: (query: string) => string | null;
+  onCreateOption?: (name: string) => Promise<void>;
+  createOptionLabel?: (name: string) => string;
 };
 
 type SearchableSelectSingleProps = SearchableSelectBaseProps & {
@@ -158,6 +165,9 @@ export function SearchableSelect(props: SearchableSelectSingleProps | Searchable
     "aria-label": ariaLabel,
     onOpenChange,
     selectedCountLabel,
+    resolveCreateOption,
+    onCreateOption,
+    createOptionLabel,
   } = props;
   const multiple = props.multiple === true;
   const exclude = props.multiple === true && props.exclude === true;
@@ -170,6 +180,10 @@ export function SearchableSelect(props: SearchableSelectSingleProps | Searchable
   const [listOn, setListOn] = useState(false);
   const [scrollTop, setScrollTop] = useState(0);
   const listRef = useRef<HTMLUListElement>(null);
+  const creatingRef = useRef(false);
+  const [creating, setCreating] = useState(false);
+  const onCreateOptionRef = useRef(onCreateOption);
+  onCreateOptionRef.current = onCreateOption;
   const deferredQuery = useDeferredValue(query);
   // Clearing the field must show every option immediately. A deferred empty string
   // would keep the previous filter for a frame after the menu reopens.
@@ -256,6 +270,27 @@ export function SearchableSelect(props: SearchableSelectSingleProps | Searchable
     [onOpenChange, openSearchSeed],
   );
 
+  const createName = resolveCreateOption && onCreateOption ? resolveCreateOption(query) : null;
+
+  const runCreate = useCallback(
+    async (name: string) => {
+      const create = onCreateOptionRef.current;
+      if (!create || creatingRef.current) return;
+      creatingRef.current = true;
+      setCreating(true);
+      try {
+        await create(name);
+        setOpenState(false);
+      } catch {
+        // The caller reports the error and leaves the menu open.
+      } finally {
+        creatingRef.current = false;
+        setCreating(false);
+      }
+    },
+    [setOpenState],
+  );
+
   useEffect(() => {
     if (!open) {
       setActive(0);
@@ -337,9 +372,12 @@ export function SearchableSelect(props: SearchableSelectSingleProps | Searchable
     if (e.key === "Enter") {
       e.preventDefault();
       const hit = filtered[active] ?? filtered[0];
-      if (!hit || hit.disabled) return;
-      if (multiple) toggleMulti(hit.value);
-      else chooseSingle(hit.value);
+      if (hit && !hit.disabled) {
+        if (multiple) toggleMulti(hit.value);
+        else chooseSingle(hit.value);
+        return;
+      }
+      if (createName) void runCreate(createName);
     }
   };
 
@@ -474,6 +512,19 @@ export function SearchableSelect(props: SearchableSelectSingleProps | Searchable
               </>
             )}
           </ul>
+          {createName ? (
+            <button
+              type="button"
+              disabled={creating}
+              className="mt-1 flex w-full items-center gap-2 rounded-full px-3 py-2 text-start text-sm font-medium text-primary hover:bg-secondary/70 disabled:opacity-50"
+              onClick={() => void runCreate(createName)}
+            >
+              <Plus className="h-3.5 w-3.5 shrink-0" />
+              <span className="min-w-0 flex-1 truncate">
+                {createOptionLabel?.(createName) ?? createName}
+              </span>
+            </button>
+          ) : null}
         </PopoverContent>
       </Popover>
     </div>

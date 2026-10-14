@@ -664,7 +664,7 @@ const TRAINING_STATUSES = ["enrolled", "in_progress", "completed", "overdue"] as
 
 /**
  * Every employee_code on staff, including soft-deleted rows.
- * The unique key is not partial, and a code stays reserved after the person moves branch.
+ * The unique key is not partial, so a deleted row still blocks that code.
  */
 async function loadUsedEmployeeCodes(): Promise<string[]> {
   const rows = await fetchAllRows<{ employee_code: string | null }>((from, to) =>

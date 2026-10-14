@@ -25,6 +25,47 @@ export function canUploadOwnRosterWithoutReports(
 }
 
 /**
+ * Monthly roster names for one person on the Operations chart.
+ * The viewer is included, plus every person who reports to them directly or
+ * through the chain. A person marked not assignable is omitted, and the walk
+ * still continues through them so their team is not hidden.
+ */
+export function rosterChartTeamIds(
+  viewerStaffId: string | null,
+  people: readonly {
+    staffId: string;
+    reportingManagerStaffId: string | null;
+    assignable?: boolean;
+  }[],
+): string[] {
+  if (!viewerStaffId) return [];
+  const children = new Map<string, string[]>();
+  const assignable = new Map<string, boolean>();
+  for (const person of people) {
+    if (!person.staffId) continue;
+    assignable.set(person.staffId, person.assignable !== false);
+    const managerId = person.reportingManagerStaffId;
+    if (!managerId || managerId === person.staffId) continue;
+    const list = children.get(managerId) ?? [];
+    list.push(person.staffId);
+    children.set(managerId, list);
+  }
+
+  const included = new Set<string>();
+  if (assignable.get(viewerStaffId) !== false) included.add(viewerStaffId);
+  const seen = new Set<string>([viewerStaffId]);
+  const stack = [...(children.get(viewerStaffId) ?? [])];
+  while (stack.length > 0) {
+    const staffId = stack.pop();
+    if (!staffId || seen.has(staffId)) continue;
+    seen.add(staffId);
+    if (assignable.get(staffId) !== false) included.add(staffId);
+    for (const childId of children.get(staffId) ?? []) stack.push(childId);
+  }
+  return [...included].sort();
+}
+
+/**
  * Staff a team-scoped login may upload or place on the monthly roster.
  * Direct reports stay the team. The viewer is not added when that team exists.
  * A supervisor with nobody reporting to them may cover only themselves.

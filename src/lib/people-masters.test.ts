@@ -5,6 +5,7 @@ import {
   masterInUseMessage,
   masterLabelKey,
   matchNationalityChoice,
+  missingMasterName,
   normalizeMasterLabel,
 } from "./people-masters";
 
@@ -25,6 +26,16 @@ describe("people master labels", () => {
     expect(matchNationalityChoice("Kenya", ["Kenya", "India"])).toBe("Kenya");
     expect(matchNationalityChoice("Oman", ["Romanian"])).toBe("Oman");
     expect(matchNationalityChoice("  ", ["Kenya"])).toBe("");
+  });
+
+  it("offers a new nationality only when the typed name is missing", () => {
+    expect(missingMasterName("  ", ["India"])).toBeNull();
+    expect(missingMasterName("   Kenya  ", ["Kenya"])).toBeNull();
+    expect(missingMasterName("kenya", ["Kenya"])).toBeNull();
+    expect(missingMasterName("Sri   Lanka", ["India"])).toBe("Sri Lanka");
+    expect(missingMasterName("sri lanka", ["Sri  Lanka"])).toBeNull();
+    expect(missingMasterName("Burundi", ["India", "Kenya"])).toBe("Burundi");
+    expect(missingMasterName("x".repeat(121), [])).toBeNull();
   });
 
   it("includes the current-staff count in the delete block", () => {

@@ -9,6 +9,7 @@ import {
   layoutOrgChart,
   layoutOrgChartLevels,
   ORG_LEVEL_GAP,
+  ORG_LOCATION_LINE_PX,
   ORG_NODE_HEIGHT,
   ORG_NODE_WIDTH,
   orgChartNameLines,
@@ -17,6 +18,8 @@ import {
   orgPanelGroups,
   parseOrgDragToken,
   staffDepartmentPlacement,
+  isSrSiteSupervisorTitle,
+  planLocationTeamLeader,
   planOrgChartMove,
   reportCandidateIds,
   reportLikeOthersPlacement,
@@ -347,6 +350,7 @@ describe("org hierarchy", () => {
   it("grows a card so a long name can wrap, and keeps the next card below it", () => {
     expect(orgChartNameLines("Ada")).toBe(1);
     expect(orgChartNodeHeight("Ada")).toBe(ORG_NODE_HEIGHT);
+    expect(orgChartNodeHeight("Ada", false, true)).toBe(ORG_NODE_HEIGHT + ORG_LOCATION_LINE_PX);
     const longName = "Mohamad Ali Hassan Awada";
     expect(orgChartNameLines(longName)).toBeGreaterThan(1);
     const tall = orgChartNodeHeight(longName);
@@ -486,5 +490,197 @@ describe("org hierarchy", () => {
     expect(parseOrgDragToken(`fec-staff:${STAFF_B}`)).toBe(STAFF_B);
     expect(parseOrgDragToken("fec-staff:not-a-uuid")).toBeNull();
     expect(parseOrgDragToken("hello")).toBeNull();
+  });
+});
+
+describe("location team leader", () => {
+  const kds = "loc-kds";
+  const inf = "loc-inf";
+  const ho = "loc-ho";
+
+  function member(partial: {
+    staffId: string;
+    jobTitle?: string | null;
+    locationId?: string | null;
+    reportingManagerStaffId?: string | null;
+  }) {
+    return {
+      jobTitle: null,
+      locationId: null,
+      reportingManagerStaffId: null,
+      ...partial,
+    };
+  }
+
+  const company = [
+    member({ staffId: "adil", jobTitle: "Managing Director", locationId: ho }),
+    member({ staffId: "ali", jobTitle: "General Manager", locationId: ho, reportingManagerStaffId: "adil" }),
+    member({ staffId: "rajan", jobTitle: "Head of Operations", locationId: ho, reportingManagerStaffId: "ali" }),
+    member({ staffId: "mary", jobTitle: "Sr. Site Supervisor", locationId: ho, reportingManagerStaffId: "rajan" }),
+    member({ staffId: "jerome", jobTitle: "Cleaner / Attendant", locationId: kds, reportingManagerStaffId: "mary" }),
+    member({ staffId: "cashier", jobTitle: "Cashier / Attendant", locationId: kds, reportingManagerStaffId: "mary" }),
+    member({ staffId: "cook", jobTitle: "Cook / Attendant", locationId: inf, reportingManagerStaffId: "mary" }),
+  ];
+
+  it("recognizes a senior site supervisor title and not a plain site supervisor", () => {
+    expect(isSrSiteSupervisorTitle("Sr. Site Supervisor")).toBe(true);
+    expect(isSrSiteSupervisorTitle("Sr Site Supervisor")).toBe(true);
+    expect(isSrSiteSupervisorTitle("Senior Site Supervisor")).toBe(true);
+    expect(isSrSiteSupervisorTitle("Site Supervisor")).toBe(false);
+    expect(isSrSiteSupervisorTitle("Venue Supervisor")).toBe(false);
+  });
+
+  it("puts the location's staff under the double-clicked person and that person under the supervising Sr. Site Supervisor", () => {
+    const before = company.map((row) => ({ ...row }));
+    const plan = planLocationTeamLeader(company, "jerome");
+    expect(company).toEqual(before);
+    expect(plan).toEqual({
+      ok: true,
+      already: false,
+      leaderStaffId: "jerome",
+      supervisorStaffId: "mary",
+      locationId: kds,
+      reportCount: 1,
+      updates: [{ staffId: "cashier", managerStaffId: "jerome" }],
+    });
+  });
+
+  it("moves the new leader under the Sr. Site Supervisor when they currently report elsewhere", () => {
+    const people = company.map((row) =>
+      row.staffId === "jerome" ? { ...row, reportingManagerStaffId: "cook" } : row,
+    );
+    const plan = planLocationTeamLeader(people, "jerome");
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    expect(plan.updates).toEqual([
+      { staffId: "jerome", managerStaffId: "mary" },
+      { staffId: "cashier", managerStaffId: "jerome" },
+    ]);
+    expect(plan.reportCount).toBe(1);
+  });
+
+  it("leaves other locations and people above the supervisor where they are", () => {
+    const people = [
+      ...company.filter((row) => row.staffId !== "rajan"),
+      member({ staffId: "rajan", jobTitle: "Head of Operations", locationId: kds, reportingManagerStaffId: "ali" }),
+      member({ staffId: "lead", jobTitle: "Site Supervisor", locationId: kds, reportingManagerStaffId: "mary" }),
+    ];
+    const plan = planLocationTeamLeader(people, "jerome");
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    expect(plan.updates.map((update) => update.staffId)).toEqual(["cashier", "lead"]);
+    expect(plan.updates).not.toContainEqual({ staffId: "rajan", managerStaffId: "jerome" });
+    expect(plan.updates).not.toContainEqual({ staffId: "cook", managerStaffId: "jerome" });
+    expect(plan.reportCount).toBe(2);
+  });
+
+  it("picks the Sr. Site Supervisor who already supervises the location, then the one assigned there", () => {
+    const sara = member({ staffId: "sara", jobTitle: "Senior Site Supervisor", locationId: kds, reportingManagerStaffId: "rajan" });
+    const split = [
+      ...company,
+      sara,
+      member({ staffId: "angie", jobTitle: "Attendant", locationId: kds, reportingManagerStaffId: "sara" }),
+    ];
+    const atSite = planLocationTeamLeader(split, "jerome");
+    expect(atSite.ok).toBe(true);
+    if (!atSite.ok) return;
+    expect(atSite.supervisorStaffId).toBe("sara");
+
+    const onlyMary = planLocationTeamLeader(
+      split.map((row) => (row.staffId === "angie" ? { ...row, reportingManagerStaffId: "mary" } : row)),
+      "cashier",
+    );
+    expect(onlyMary.ok).toBe(true);
+    if (!onlyMary.ok) return;
+    expect(onlyMary.supervisorStaffId).toBe("mary");
+  });
+
+  it("uses the location's Sr. Site Supervisor when nobody there is supervised yet", () => {
+    const people = [
+      member({ staffId: "mary", jobTitle: "Sr. Site Supervisor", locationId: kds, reportingManagerStaffId: "rajan" }),
+      member({ staffId: "jerome", jobTitle: "Cleaner", locationId: kds }),
+      member({ staffId: "cashier", jobTitle: "Cashier", locationId: kds }),
+    ];
+    const plan = planLocationTeamLeader(people, "jerome");
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    expect(plan.supervisorStaffId).toBe("mary");
+    expect(plan.updates).toEqual([
+      { staffId: "jerome", managerStaffId: "mary" },
+      { staffId: "cashier", managerStaffId: "jerome" },
+    ]);
+  });
+
+  it("does not rewrite lines when the supervisor cannot be resolved", () => {
+    expect(planLocationTeamLeader(company, "missing")).toEqual({ ok: false, reason: "missing" });
+    expect(planLocationTeamLeader(company, "mary")).toEqual({ ok: false, reason: "is-supervisor" });
+    expect(planLocationTeamLeader(company, "rajan")).toEqual({ ok: false, reason: "above-team" });
+    expect(
+      planLocationTeamLeader(
+        [member({ staffId: "jerome", jobTitle: "Cleaner", locationId: null, reportingManagerStaffId: "mary" })],
+        "jerome",
+      ),
+    ).toEqual({ ok: false, reason: "no-location" });
+    expect(
+      planLocationTeamLeader(
+        [
+          member({ staffId: "mary", jobTitle: "Site Supervisor", locationId: kds }),
+          member({ staffId: "jerome", jobTitle: "Cleaner", locationId: kds }),
+        ],
+        "jerome",
+      ),
+    ).toEqual({ ok: false, reason: "no-supervisor" });
+    expect(
+      planLocationTeamLeader(
+        [
+          member({ staffId: "mary", jobTitle: "Sr. Site Supervisor", locationId: kds }),
+          member({ staffId: "sara", jobTitle: "Sr. Site Supervisor", locationId: kds }),
+          member({ staffId: "jerome", jobTitle: "Cleaner", locationId: kds }),
+        ],
+        "jerome",
+      ),
+    ).toEqual({ ok: false, reason: "ambiguous-supervisor" });
+    expect(
+      planLocationTeamLeader(
+        [
+          member({ staffId: "mary", jobTitle: "Sr. Site Supervisor", locationId: ho, reportingManagerStaffId: "jerome" }),
+          member({ staffId: "jerome", jobTitle: "Cleaner", locationId: kds, reportingManagerStaffId: "mary" }),
+        ],
+        "jerome",
+      ),
+    ).toEqual({ ok: false, reason: "cycle" });
+  });
+
+  it("reports no updates when this person is already the location team leader", () => {
+    const people = company.map((row) =>
+      row.staffId === "cashier" ? { ...row, reportingManagerStaffId: "jerome" } : row,
+    );
+    expect(planLocationTeamLeader(people, "jerome")).toMatchObject({
+      ok: true,
+      already: true,
+      supervisorStaffId: "mary",
+      reportCount: 1,
+      updates: [],
+    });
+  });
+
+  it("skips someone whose move would loop and still rewires the rest of the location", () => {
+    const people = [
+      member({ staffId: "mary", jobTitle: "Sr. Site Supervisor", locationId: ho, reportingManagerStaffId: "bridge" }),
+      member({ staffId: "bridge", jobTitle: "Coordinator", locationId: kds, reportingManagerStaffId: "rajan" }),
+      member({ staffId: "rajan", jobTitle: "Operations coordinator", locationId: ho }),
+      member({ staffId: "jerome", jobTitle: "Cleaner", locationId: kds, reportingManagerStaffId: "mary" }),
+      member({ staffId: "cashier", jobTitle: "Cashier", locationId: kds, reportingManagerStaffId: "mary" }),
+    ];
+    const plan = planLocationTeamLeader(people, "jerome");
+    expect(plan).toEqual({
+      ok: true,
+      already: false,
+      leaderStaffId: "jerome",
+      supervisorStaffId: "mary",
+      locationId: kds,
+      reportCount: 1,
+      updates: [{ staffId: "cashier", managerStaffId: "jerome" }],
+    });
   });
 });
