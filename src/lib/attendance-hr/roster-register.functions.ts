@@ -23,6 +23,8 @@ import {
   isRosterLeaveType,
   rosterHiddenStaffIds,
   rosterPatchFromDayStatus,
+  rosterRowsForAssignedStaff,
+  rosterStaffIdsAtLocation,
   rosterRowMatchesSearch,
   type RosterDayStatus,
   type RosterLeaveType,
@@ -249,6 +251,51 @@ async function fetchStaffRowsByIds(
  */
 async function loadTeamRosterStaffIds(userId: string): Promise<string[]> {
   return loadRosterChartStaffIds(userId);
+}
+
+async function loadExtraLocationIdsByStaff(
+  db: AuthContext["supabase"],
+  staffIds: string[],
+): Promise<Map<string, string[]>> {
+  const map = new Map<string, string[]>();
+  for (const ids of chunkIds(staffIds, ROSTER_ID_CHUNK)) {
+    const { data, error } = await db
+      .from("staff_work_locations")
+      .select("staff_id, location_id")
+      .in("staff_id", ids);
+    if (error) throw error;
+    for (const row of data ?? []) {
+      const staffId = row.staff_id ? String(row.staff_id) : "";
+      const locationId = row.location_id ? String(row.location_id) : "";
+      if (!staffId || !locationId) continue;
+      const list = map.get(staffId) ?? [];
+      list.push(locationId);
+      map.set(staffId, list);
+    }
+  }
+  return map;
+}
+
+/** Team members whose home or extra site is the selected location. */
+async function rosterTeamIdsAtLocation(
+  db: AuthContext["supabase"],
+  staffIds: string[],
+  locationId: string,
+): Promise<Set<string>> {
+  if (staffIds.length === 0) return new Set();
+  const [profiles, extras] = await Promise.all([
+    fetchStaffRowsByIds(db, staffIds),
+    loadExtraLocationIdsByStaff(db, staffIds),
+  ]);
+  const allowed = rosterStaffIdsAtLocation(
+    profiles.map((row) => ({
+      staffId: String(row.id),
+      homeLocationId: row.location_id,
+      extraLocationIds: extras.get(String(row.id)) ?? [],
+    })),
+    locationId,
+  );
+  return new Set(allowed ?? []);
 }
 
 /** Names for team rows that have no assignment in the selected period. */
@@ -590,6 +637,16 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
       assignments = assignments.filter((row) => shown.has(String(row.staff_id)));
     }
 
+    let locationStaffIds: Set<string> | null = null;
+    if (teamIds && data.locationId) {
+      locationStaffIds = await rosterTeamIdsAtLocation(db, teamIds, data.locationId);
+      const allowed = locationStaffIds;
+      assignments = rosterRowsForAssignedStaff(
+        assignments.map((row) => ({ ...row, staffId: String(row.staff_id) })),
+        allowed,
+      ).map(({ staffId: _staffId, ...row }) => row);
+    }
+
     if (data.coverageOnly) {
       const rows = assignments.map((row) => ({
         id: String(row.id),
@@ -733,6 +790,10 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
       if (shownStaff) {
         const shown = shownStaff;
         ids = ids.filter((id) => shown.has(id));
+      }
+      if (locationStaffIds) {
+        const allowed = locationStaffIds;
+        ids = ids.filter((id) => allowed.has(id));
       }
       return loadRosterTeamStaffProfiles(db, ids);
     };

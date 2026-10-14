@@ -87,6 +87,45 @@ export function rosterEmptyDayCanAdd(canAmend: boolean, entryCount: number): boo
  * assignment in the period. Null is the company roster: do not add people
  * who have no shifts. Staff and search filters still apply.
  */
+export type RosterStaffSiteAssignment = {
+  staffId: string;
+  homeLocationId?: string | null;
+  extraLocationIds?: readonly (string | null | undefined)[] | null;
+};
+
+/** Home branch or an extra dedicated site. A shift row at some other site does not count. */
+export function staffAssignedToRosterLocation(
+  person: Omit<RosterStaffSiteAssignment, "staffId">,
+  locationId: string,
+): boolean {
+  if (!locationId) return false;
+  if (person.homeLocationId === locationId) return true;
+  return (person.extraLocationIds ?? []).some((id) => id === locationId);
+}
+
+/**
+ * Staff who belong on the grid for one selected site.
+ * Null location means every person passed in (All locations).
+ */
+export function rosterStaffIdsAtLocation(
+  people: readonly RosterStaffSiteAssignment[],
+  locationId: string | null | undefined,
+): string[] | null {
+  if (!locationId) return null;
+  return people
+    .filter((person) => person.staffId && staffAssignedToRosterLocation(person, locationId))
+    .map((person) => person.staffId);
+}
+
+/** Drop shift rows for people who are not assigned to the selected site. Null keeps every row. */
+export function rosterRowsForAssignedStaff<T extends { staffId: string }>(
+  rows: readonly T[],
+  staffIdsAtLocation: ReadonlySet<string> | null,
+): T[] {
+  if (!staffIdsAtLocation) return [...rows];
+  return rows.filter((row) => staffIdsAtLocation.has(row.staffId));
+}
+
 export function rosterTeamStaffForMatrix(
   teamStaff: readonly RosterMatrixStaff[] | null | undefined,
   filters: Pick<RosterRegisterScopeFilters, "staffId" | "search">,

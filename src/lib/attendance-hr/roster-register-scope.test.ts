@@ -16,6 +16,8 @@ import {
   rosterMatrixCellKey,
   rosterMonthSpans,
   rosterPatchFromDayStatus,
+  rosterRowsForAssignedStaff,
+  rosterStaffIdsAtLocation,
   rosterHiddenStaffIds,
   rosterRegisterHasExtraFilters,
   rosterRowMatchesSearch,
@@ -287,5 +289,48 @@ describe("roster register bulk-delete scope", () => {
     expect(rosterEmptyDayCanAdd(false, 0)).toBe(false);
     expect(rosterEmptyPeriodShowsDayGrid(4, true)).toBe(false);
     expect(rosterEmptyDayCanAdd(true, 1)).toBe(false);
+  });
+
+  it("limits a selected location to staff assigned there", () => {
+    const kds = "kds-cc";
+    const inf = "inf-cc";
+    const ua = "ua-dm";
+    const car = "car-ap";
+    const team = [
+      { staffId: "angie", homeLocationId: kds, extraLocationIds: [inf] },
+      { staffId: "azahar", homeLocationId: inf, extraLocationIds: [ua] },
+      { staffId: "wahaj", homeLocationId: car, extraLocationIds: [car] },
+      { staffId: "ashfaq", homeLocationId: kds, extraLocationIds: [] },
+    ];
+
+    expect(rosterStaffIdsAtLocation(team, null)).toBeNull();
+    expect(rosterStaffIdsAtLocation(team, kds)).toEqual(["angie", "ashfaq"]);
+    expect(rosterStaffIdsAtLocation(team, inf)).toEqual(["angie", "azahar"]);
+    expect(rosterStaffIdsAtLocation(team, ua)).toEqual(["azahar"]);
+    expect(rosterStaffIdsAtLocation(team, car)).toEqual(["wahaj"]);
+
+    const rows = [
+      { staffId: "wahaj", workDate: "2026-10-01" },
+      { staffId: "angie", workDate: "2026-10-01" },
+    ];
+    const atUrban = new Set(rosterStaffIdsAtLocation(team, ua) ?? []);
+    expect(rosterRowsForAssignedStaff(rows, atUrban)).toEqual([]);
+
+    const atInflatapark = new Set(rosterStaffIdsAtLocation(team, inf) ?? []);
+    const matrix = buildRosterMatrix(
+      rosterRowsForAssignedStaff(rows, atInflatapark),
+      "2026-10-01",
+      "2026-10-02",
+      rosterTeamStaffForMatrix(
+        [...atInflatapark].map((staffId) => ({
+          staffId,
+          staffName: staffId,
+          employeeCode: null,
+          qid: null,
+        })),
+        {},
+      ),
+    );
+    expect(matrix.staff.map((person) => person.staffId)).toEqual(["angie", "azahar"]);
   });
 });
