@@ -53,72 +53,72 @@ function clip(buffer: Buffer, maxBytes: number) {
   return buffer.subarray(0, maxBytes).toString("utf8");
 }
 
-// A path.join(process.cwd(), dynamicPath) makes the production build trace the
-// whole repo into the server bundle. Keep a static directory on every read.
-async function readLib(relativePath: string, maxBytes: number): Promise<string | null> {
-  try {
-    const buffer = await readFile(path.join(process.cwd(), "src", "lib", relativePath));
-    return clip(buffer, maxBytes);
-  } catch {
-    return null;
-  }
-}
-
-async function readViews(relativePath: string, maxBytes: number): Promise<string | null> {
-  try {
-    const buffer = await readFile(path.join(process.cwd(), "src", "views", relativePath));
-    return clip(buffer, maxBytes);
-  } catch {
-    return null;
-  }
-}
-
-async function readIntegrations(relativePath: string, maxBytes: number): Promise<string | null> {
-  try {
-    const buffer = await readFile(path.join(process.cwd(), "src", "integrations", relativePath));
-    return clip(buffer, maxBytes);
-  } catch {
-    return null;
-  }
-}
-
-async function readRepoRoot(
-  name: "middleware.ts" | "package-lock.json",
-  maxBytes: number,
-): Promise<string | null> {
-  try {
-    if (name === "middleware.ts") {
-      return clip(await readFile(path.join(process.cwd(), "middleware.ts")), maxBytes);
-    }
-    return clip(await readFile(path.join(process.cwd(), "package-lock.json")), maxBytes);
-  } catch {
-    return null;
-  }
-}
-
-async function readNextConfig(maxBytes: number): Promise<string | null> {
-  // next.config.ts sits at the repo root. Tracing that read pulls the whole
-  // project into the server bundle, so opt this one file out of the trace.
-  const filePath = path.join(/*turbopackIgnore: true*/ process.cwd(), "next.config.ts");
-  try {
-    const buffer = await readFile(/*turbopackIgnore: true*/ filePath);
-    return clip(buffer, maxBytes);
-  } catch {
-    return null;
-  }
-}
-
+// A dynamic segment under src/views or src/lib makes the production build trace
+// that whole directory. Client views such as arcade supply then land in the
+// same graph as this module. Each readFile keeps a fully static path so only
+// that file is traced, and the checklist still opens the same sources.
 async function readBounded(relativePath: string, maxBytes: number): Promise<string | null> {
-  if (relativePath.startsWith("src/lib/")) return readLib(relativePath.slice("src/lib/".length), maxBytes);
-  if (relativePath.startsWith("src/views/")) return readViews(relativePath.slice("src/views/".length), maxBytes);
-  if (relativePath.startsWith("src/integrations/")) {
-    return readIntegrations(relativePath.slice("src/integrations/".length), maxBytes);
+  try {
+    let buffer: Buffer;
+    switch (relativePath) {
+      case "src/lib/server/auth.ts":
+        buffer = await readFile(path.join(process.cwd(), "src/lib/server/auth.ts"));
+        break;
+      case "src/lib/server/session-cache.ts":
+        buffer = await readFile(path.join(process.cwd(), "src/lib/server/session-cache.ts"));
+        break;
+      case "src/views/auth-page.tsx":
+        buffer = await readFile(path.join(process.cwd(), "src/views/auth-page.tsx"));
+        break;
+      case "src/lib/server/cron-auth.ts":
+        buffer = await readFile(path.join(process.cwd(), "src/lib/server/cron-auth.ts"));
+        break;
+      case "src/lib/server/adms-auth.ts":
+        buffer = await readFile(path.join(process.cwd(), "src/lib/server/adms-auth.ts"));
+        break;
+      case "src/lib/server/create-action.ts":
+        buffer = await readFile(path.join(process.cwd(), "src/lib/server/create-action.ts"));
+        break;
+      case "src/lib/attendance-ingest-log.ts":
+        buffer = await readFile(path.join(process.cwd(), "src/lib/attendance-ingest-log.ts"));
+        break;
+      case "src/lib/rbac.ts":
+        buffer = await readFile(path.join(process.cwd(), "src/lib/rbac.ts"));
+        break;
+      case "src/lib/diagnostics.functions.ts":
+        buffer = await readFile(path.join(process.cwd(), "src/lib/diagnostics.functions.ts"));
+        break;
+      case "src/lib/attendance-hr/file-crypto.ts":
+        buffer = await readFile(path.join(process.cwd(), "src/lib/attendance-hr/file-crypto.ts"));
+        break;
+      case "src/lib/staff-login.ts":
+        buffer = await readFile(path.join(process.cwd(), "src/lib/staff-login.ts"));
+        break;
+      case "src/integrations/supabase/client.server.ts":
+        buffer = await readFile(path.join(process.cwd(), "src/integrations/supabase/client.server.ts"));
+        break;
+      case "src/integrations/supabase/middleware.ts":
+        buffer = await readFile(path.join(process.cwd(), "src/integrations/supabase/middleware.ts"));
+        break;
+      case "middleware.ts":
+        buffer = await readFile(path.join(process.cwd(), "middleware.ts"));
+        break;
+      case "package-lock.json":
+        buffer = await readFile(path.join(process.cwd(), "package-lock.json"));
+        break;
+      case "next.config.ts": {
+        // Tracing a repo-root config pulls the whole project into the bundle.
+        const filePath = path.join(/*turbopackIgnore: true*/ process.cwd(), "next.config.ts");
+        buffer = await readFile(/*turbopackIgnore: true*/ filePath);
+        break;
+      }
+      default:
+        return null;
+    }
+    return clip(buffer, maxBytes);
+  } catch {
+    return null;
   }
-  if (relativePath === "next.config.ts") return readNextConfig(maxBytes);
-  if (relativePath === "middleware.ts" || relativePath === "package-lock.json") {
-    return readRepoRoot(relativePath, maxBytes);
-  }
-  return null;
 }
 
 function firstNumber(source: string | null, pattern: RegExp): number | null {

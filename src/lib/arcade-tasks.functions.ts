@@ -372,7 +372,7 @@ export const moveTaskBoard = createAuthenticatedAction(
     const chain = await dependencyMap(context, row.depends_on_id);
     chain.set(row.id, toBoardTask(row));
     const evidence = data.status === "DONE" ? (data.evidence ?? row.evidence ?? "") : (data.evidence ?? null);
-    if (data.status === "DONE" && evidence.trim().length < TASK_EVIDENCE_MIN) fail("evidence");
+    if (data.status === "DONE" && (evidence ?? "").trim().length < TASK_EVIDENCE_MIN) fail("evidence");
     const next = applyTaskStatus(toBoardTask(row), data.status, chain, evidence);
     if (!next.ok) fail(next.code);
     const { data: saved, error } = await context.supabase

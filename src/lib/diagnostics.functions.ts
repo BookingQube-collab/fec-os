@@ -11,7 +11,6 @@ import {
   type AuthContext,
 } from "@/lib/server/create-action";
 import { DIAGNOSTICS_TABLES } from "@/lib/diagnostics/constants";
-import { runSecurityChecklistReport } from "@/lib/diagnostics/security-checklist.server";
 import { clearServerSessionCache } from "@/lib/server/auth";
 import { clearRouteCache } from "@/lib/server/route-cache";
 
@@ -472,6 +471,7 @@ export const resolveIncident = createAuthenticatedAction(
 
 export const runSecurityChecklist = createAuthenticatedActionNoInput(
   async (context) => {
+    const { runSecurityChecklistReport } = await import("@/lib/diagnostics/security-checklist.server");
     const report = await runSecurityChecklistReport();
     await logDiagnosticsAudit(
       context,
