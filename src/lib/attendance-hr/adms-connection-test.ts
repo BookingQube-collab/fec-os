@@ -275,6 +275,31 @@ export function isStuckAdmsConnectionTest(row: {
   return row.status === "queued" || row.status === "running";
 }
 
+/**
+ * How an idle poll should treat an open connection-test row.
+ * Not applied on the poll path yet. A live test still records. A row older
+ * than its timeout plus this grace expires once, so later polls stop inserting events.
+ */
+export const ADMS_OPEN_TEST_GRACE_MS = 60_000;
+
+export function admsOpenTestPollAction(
+  row: {
+    status: string;
+    acknowledgedAt?: string | null;
+    queuedAt?: string | null;
+    timeoutMs?: number | null;
+  } | null,
+  now: number,
+): "skip" | "record" | "expire" {
+  if (!row || row.acknowledgedAt) return "skip";
+  if (row.status !== "queued" && row.status !== "running") return "skip";
+  const queued = row.queuedAt ? new Date(row.queuedAt).getTime() : Number.NaN;
+  if (!Number.isFinite(queued)) return "record";
+  const timeoutMs = row.timeoutMs && row.timeoutMs > 0 ? row.timeoutMs : ADMS_CONNECTION_TEST_TIMEOUT_MS;
+  if (now - queued >= timeoutMs + ADMS_OPEN_TEST_GRACE_MS) return "expire";
+  return "record";
+}
+
 function resolveDiagnosis(facts: AdmsConnectionTestFacts): {
   status: AdmsTestStatus;
   diagnosis: AdmsDiagnosis | null;

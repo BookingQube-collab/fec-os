@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "@/integrations/supabase/types";
+import { noteAdmsIngestCounts, noteAdmsRecalc, timeAdmsDb } from "./adms-perf";
 import { DEFAULT_RULES, DEFAULT_SHIFT } from "./constants";
 import {
   buildPunchRows,
@@ -454,7 +455,7 @@ export async function ingestAdmsPayload(
     return empty;
   }
 
-  const companyId = await resolveCompanyId(sb, input.device);
+  const companyId = await timeAdmsDb(() => resolveCompanyId(sb, input.device));
   if (!companyId) {
     throw new Error("Device is not mapped to a company. Set company on the site in Settings.");
   }
@@ -470,14 +471,14 @@ export async function ingestAdmsPayload(
   const punches = input.table === "ATTLOG" ? parseAdmsAttlog(input.body) : [];
 
   if (users.length) {
-    const existing = await loadExistingBiometricUsers(sb, companyId, input.device.location_id, input.device.id);
+    const existing = await timeAdmsDb(() => loadExistingBiometricUsers(sb, companyId, input.device.location_id, input.device.id));
     const merged = mergeBiometricUsersById(existing, users);
-    await persistMergedBiometricUsers(sb, {
+    await timeAdmsDb(() => persistMergedBiometricUsers(sb, {
       companyId,
       locationId: input.device.location_id,
       deviceId: input.device.id,
       merged,
-    });
+    }));
   }
 
   let punchCount = 0;
@@ -486,22 +487,22 @@ export async function ingestAdmsPayload(
   let maxDate: string | null = null;
 
   if (punches.length) {
-    let existing = await loadExistingBiometricUsers(sb, companyId, input.device.location_id, input.device.id);
+    let existing = await timeAdmsDb(() => loadExistingBiometricUsers(sb, companyId, input.device.location_id, input.device.id));
     const missingIds = missingPunchBiometricIds(
       existing,
       punches.map((p) => p.biometricUserId),
     );
     if (missingIds.length) {
       // ATTLOG can arrive before EnrollUser/USERINFO — stub the registry then ask for names.
-      await persistMergedBiometricUsers(sb, {
+      await timeAdmsDb(() => persistMergedBiometricUsers(sb, {
         companyId,
         locationId: input.device.location_id,
         deviceId: input.device.id,
         merged: stubBiometricUsersForIds(missingIds),
-      });
-      existing = await loadExistingBiometricUsers(sb, companyId, input.device.location_id, input.device.id);
+      }));
+      existing = await timeAdmsDb(() => loadExistingBiometricUsers(sb, companyId, input.device.location_id, input.device.id));
       try {
-        await queueAdmsUserInfoQuery(sb, input.device.id, { force: true });
+        await timeAdmsDb(() => queueAdmsUserInfoQuery(sb, input.device.id, { force: true }));
       } catch (e) {
         console.warn(
           "[adms-ingest] USERINFO query queue failed",
@@ -524,27 +525,43 @@ export async function ingestAdmsPayload(
       deviceNameByBiometric,
     });
     const insertFailures: string[] = [];
+    const insertedStaff = new Set<string>();
+    let unmappedInserts = 0;
     for (const row of rows) {
-      const { error } = await sb.from("attendance_logs").insert(row);
+      const { error } = await timeAdmsDb(() => sb.from("attendance_logs").insert(row));
       if (error) {
         if (isIgnorablePunchInsertError(error)) duplicates += 1;
         else insertFailures.push(error.message);
         continue;
       }
       punchCount += 1;
+      const staffId = row.staff_id ? String(row.staff_id) : "";
+      if (staffId) insertedStaff.add(staffId);
+      else unmappedInserts += 1;
       const day = row.attendance_date;
       if (day && (!minDate || day < minDate)) minDate = day;
       if (day && (!maxDate || day > maxDate)) maxDate = day;
     }
+    noteAdmsIngestCounts({
+      punches: punchCount,
+      duplicates,
+      insertedStaffCount: insertedStaff.size,
+      unmappedInserts,
+    });
     if (insertFailures.length) {
       throw new Error(insertFailures[0] ?? "Punch insert failed.");
     }
     if (minDate && maxDate) {
-      await recalculateAttendanceRange(sb, input.device.location_id, minDate, maxDate);
+      const recalcStarted = performance.now();
+      try {
+        await recalculateAttendanceRange(sb, input.device.location_id, minDate, maxDate);
+      } finally {
+        noteAdmsRecalc(performance.now() - recalcStarted);
+      }
     }
   }
 
-  await touchAdmsDevice(sb, input.device.id, {
+  await timeAdmsDb(() => touchAdmsDevice(sb, input.device.id, {
     attlogStamp: input.table === "ATTLOG" ? input.stamp : null,
     operlogStamp:
       input.table === "OPERLOG" || input.table === "USERINFO" || input.table === "USER" ? input.stamp : null,
@@ -554,7 +571,7 @@ export async function ingestAdmsPayload(
     endpoint: input.endpoint,
     sourceIp: input.sourceIp,
     pushver: input.pushver,
-  });
+  }));
 
   const accepted = users.length + punchCount;
   return {

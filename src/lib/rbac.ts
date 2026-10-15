@@ -9,7 +9,7 @@ import {
   grantKey,
   type CapabilityGrantMap,
 } from "@/lib/rbac-grants";
-import { canManageMonthlyRoster } from "@/lib/site-ops-access";
+import { canOpenShiftRoster } from "@/lib/site-ops-access";
 
 export type { CapabilityGrantMap };
 
@@ -486,18 +486,18 @@ export function isRosterAmendJobTitle(jobTitle: string | null | undefined): bool
 }
 
 /**
- * Pencil, trash, upload, copy, and Delete all on the monthly roster.
- * Login role and a direct-report team do not grant this. Only a venue
- * supervisor, Sr. Site Supervisor, or F&B supervisor on the linked staff row.
+ * Pencil, trash, upload, copy, and Delete all on the monthly roster, plus the Shift roster option.
+ * Venue supervisor, Sr. Site Supervisor, and F&B supervisor keep it.
+ * CEO and General Manager logins have it too, as do Managing Director and General Manager job titles.
  * Team Leader (TEAM_LEAD) and Admin Team Leader stay out.
  */
 export function canAmendShiftRoster(
-  _roles: readonly string[],
+  roles: readonly string[],
   jobTitle?: string | null,
   staffRole?: string | null,
   department?: string | null,
 ): boolean {
-  return canManageMonthlyRoster({ jobTitle, staffRole, department });
+  return canOpenShiftRoster({ roles, jobTitle, staffRole, department });
 }
 
 /** Where a freshly signed-in user should land based on their highest role. */

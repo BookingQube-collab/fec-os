@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { loadLinkedStaffIdentity } from "@/lib/linked-staff-job-title.server";
 import { canUserDo, type AppRole } from "@/lib/rbac";
-import { assertCanManageMonthlyRoster } from "@/lib/site-ops-access.server";
+import { assertCanOpenShiftRoster } from "@/lib/site-ops-access.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { isManagerTeamSupervisor } from "@/lib/manager-supervisor-team";
 import { loadAssignedTeamLocations, loadRosterChartStaffIds } from "@/lib/reporting-manager-access.server";
@@ -148,7 +148,7 @@ async function syncRosterLeaveRecord(
 }
 
 async function assertCanAmendRoster(context: Pick<AuthContext, "userId" | "roles">) {
-  await assertCanManageMonthlyRoster(context.userId);
+  await assertCanOpenShiftRoster(context.userId);
 }
 
 type RosterActor = {

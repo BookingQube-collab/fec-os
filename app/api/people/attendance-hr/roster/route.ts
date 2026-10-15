@@ -1,5 +1,5 @@
 import { withAuthRouteRequest } from "@/lib/server/api-route";
-import { assertCanManageMonthlyRoster } from "@/lib/site-ops-access.server";
+import { assertCanOpenShiftRoster } from "@/lib/site-ops-access.server";
 import { listAttendanceRosterUploads } from "@/lib/attendance-hr.functions";
 import { assertAttendanceRosterLocation, assertCanUploadAttendanceRoster } from "@/lib/attendance-hr/roster-apply";
 import { commitLiveShiftRoster, previewLiveShiftRoster } from "@/lib/attendance-hr/roster-run";
@@ -68,7 +68,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   return withAuthRouteRequest(
     async (context, req) => {
-      await assertCanManageMonthlyRoster(context.userId);
+      await assertCanOpenShiftRoster(context.userId);
       assertCanUploadAttendanceRoster(context);
       const form = await req.formData();
       const mode = String(form.get("mode") ?? "preview") === "commit" ? "commit" : "preview";

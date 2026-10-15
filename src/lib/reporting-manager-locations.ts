@@ -1,5 +1,5 @@
 import { canUserDo, isRosterAmendJobTitle, type AppRole, type Capability } from "@/lib/rbac";
-import { canManageMonthlyRoster } from "@/lib/site-ops-access";
+import { canOpenShiftRoster } from "@/lib/site-ops-access";
 
 /** Caps that already open company or role-scoped roster and attendance. */
 const COMPANY_ROSTER_CAPS = [
@@ -84,15 +84,15 @@ export function rosterTeamOrSelfStaffIds(input: {
   return [input.staffId];
 }
 
-/** Monthly roster upload. Same three staff identities as create and edit. Direct reports do not upload. */
+/** Shift roster option. Supervisors, the CEO login, the GM login, and Adil or the General Manager by title. */
 export function canSeeShiftRosterUpload(
-  _roles: readonly AppRole[],
+  roles: readonly AppRole[],
   _hasDirectReports: boolean,
   jobTitle?: string | null,
   staffRole?: string | null,
   department?: string | null,
 ): boolean {
-  return canManageMonthlyRoster({ jobTitle, staffRole, department });
+  return canOpenShiftRoster({ roles, jobTitle, staffRole, department });
 }
 
 /**

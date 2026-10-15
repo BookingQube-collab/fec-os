@@ -15,6 +15,8 @@ import {
   evaluateAdmsConnectionTest,
   isSafeDiagnosticCommand,
   isStuckAdmsConnectionTest,
+  admsOpenTestPollAction,
+  ADMS_OPEN_TEST_GRACE_MS,
   nextDiagnosticCommandId,
   registrationFailureMessage,
   registrationIssues,
@@ -294,6 +296,27 @@ describe("isStuckAdmsConnectionTest", () => {
     expect(isStuckAdmsConnectionTest({ status: "passed", acknowledgedAt: null })).toBe(false);
     expect(isStuckAdmsConnectionTest({ status: "failed", acknowledgedAt: null })).toBe(false);
     expect(isStuckAdmsConnectionTest({ status: "timed_out", acknowledgedAt: null })).toBe(false);
+  });
+
+  it("records a live open test and expires one past the timeout plus grace", () => {
+    const live = admsOpenTestPollAction(
+      { status: "running", acknowledgedAt: null, queuedAt: new Date(NOW - 10_000).toISOString(), timeoutMs: ADMS_CONNECTION_TEST_TIMEOUT_MS },
+      NOW,
+    );
+    const expired = admsOpenTestPollAction(
+      {
+        status: "queued",
+        acknowledgedAt: null,
+        queuedAt: new Date(NOW - ADMS_CONNECTION_TEST_TIMEOUT_MS - ADMS_OPEN_TEST_GRACE_MS).toISOString(),
+        timeoutMs: ADMS_CONNECTION_TEST_TIMEOUT_MS,
+      },
+      NOW,
+    );
+    expect(live).toBe("record");
+    expect(expired).toBe("expire");
+    expect(admsOpenTestPollAction(null, NOW)).toBe("skip");
+    expect(admsOpenTestPollAction({ status: "running", acknowledgedAt: "2026-10-04T16:00:00.000Z", queuedAt: null }, NOW)).toBe("skip");
+    expect(admsOpenTestPollAction({ status: "queued", acknowledgedAt: null, queuedAt: null }, NOW)).toBe("record");
   });
 });
 

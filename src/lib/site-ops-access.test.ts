@@ -4,6 +4,7 @@ import {
   canCorrectTeamAttendance,
   canEditAttendanceMapping,
   canManageMonthlyRoster,
+  canOpenShiftRoster,
   isTeamLeaderTitle,
 } from "@/lib/site-ops-access";
 
@@ -42,6 +43,8 @@ describe("monthly roster, mapping, and team corrections", () => {
       { staffRole: "crew" },
       { staffRole: "cashier" },
       { jobTitle: "Head of Operations" },
+      { jobTitle: "General Manager" },
+      { jobTitle: "Managing Director" },
       {},
       null,
     ];
@@ -50,5 +53,23 @@ describe("monthly roster, mapping, and team corrections", () => {
       expect(canEditAttendanceMapping(identity), JSON.stringify(identity)).toBe(false);
       expect(canCorrectTeamAttendance(identity), JSON.stringify(identity)).toBe(false);
     }
+  });
+
+  it("opens the shift roster for the General Manager and Adil without opening mapping", () => {
+    const allowed = [
+      { roles: ["ceo"] },
+      { roles: ["branch_gm"] },
+      { jobTitle: "General Manager" },
+      { department: "General Manager" },
+      { jobTitle: "Managing Director" },
+      { jobTitle: "Managing Director / Chief Executive Officer" },
+    ];
+    for (const identity of allowed) {
+      expect(canOpenShiftRoster(identity), JSON.stringify(identity)).toBe(true);
+      expect(canManageMonthlyRoster(identity), JSON.stringify(identity)).toBe(false);
+      expect(canEditAttendanceMapping(identity), JSON.stringify(identity)).toBe(false);
+    }
+    expect(canOpenShiftRoster({ jobTitle: "Head of Operations" })).toBe(false);
+    expect(canOpenShiftRoster({ roles: ["coo"] })).toBe(false);
   });
 });

@@ -33,13 +33,18 @@ describe("team roster access", () => {
     expect(usesTeamLocationScope([])).toBe(true);
   });
 
-  it("shows shift roster upload only to venue, sr. site, and F&B supervisors", () => {
+  it("shows the shift roster option to venue, sr. site, and F&B supervisors, and to the CEO and GM", () => {
     expect(canSeeShiftRosterUpload(["cashier_host"], true)).toBe(false);
     expect(canSeeShiftRosterUpload(["cashier_host"], true, "Team Leader")).toBe(false);
     expect(canSeeShiftRosterUpload(["duty_manager"], false)).toBe(false);
-    expect(canSeeShiftRosterUpload(["branch_gm"], false)).toBe(false);
     expect(canSeeShiftRosterUpload(["hr"], false)).toBe(false);
     expect(canSeeShiftRosterUpload(["technician"], false)).toBe(false);
+    expect(canSeeShiftRosterUpload(["ceo"], false)).toBe(true);
+    expect(canSeeShiftRosterUpload(["branch_gm"], false)).toBe(true);
+    expect(canSeeShiftRosterUpload(["cashier_host"], false, "General Manager")).toBe(true);
+    expect(canSeeShiftRosterUpload(["cashier_host"], false, "Managing Director")).toBe(true);
+    expect(canSeeShiftRosterUpload(["cashier_host"], false, "Managing Director / Chief Executive Officer")).toBe(true);
+    expect(canSeeShiftRosterUpload(["hr"], false, "Head of Operations")).toBe(false);
   });
 
   it("lets a supervisor with zero reports upload only their own roster", () => {

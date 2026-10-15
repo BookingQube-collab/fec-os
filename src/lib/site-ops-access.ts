@@ -45,6 +45,19 @@ function isFbSupervisorTitle(value: string | null | undefined): boolean {
   return key === "f and b supervisor" || key === "f and supervisor" || key === "fb supervisor" || key === "fb_supervisor";
 }
 
+/**
+ * Adil (Managing Director / Chief Executive) and the General Manager.
+ * Same people the org chart treats as above the site team, except Head of Operations.
+ */
+export function isExecutiveRosterLabel(value: string | null | undefined): boolean {
+  const key = labelKey(value);
+  if (!key) return false;
+  if (/(^| )general manager($| )/.test(key)) return true;
+  if (key.includes("managing director")) return true;
+  if (key.includes("chief executive")) return true;
+  return false;
+}
+
 /** Catalog title Team Leader, including an "admin team leader" label. Not an allow. */
 export function isTeamLeaderTitle(value: string | null | undefined): boolean {
   const key = labelKey(value);
@@ -59,6 +72,16 @@ export function canManageMonthlyRoster(identity: SiteOpsIdentity | null | undefi
   if (matchesAny(identity, isSrSiteSupervisorTitle)) return true;
   if (matchesAny(identity, isFbSupervisorTitle)) return true;
   return false;
+}
+
+/** Shift roster upload and the monthly roster controls. CEO and GM logins, plus Adil and the General Manager by title. */
+export function canOpenShiftRoster(
+  identity: (SiteOpsIdentity & { roles?: readonly string[] | null }) | null | undefined,
+): boolean {
+  if (!identity) return false;
+  if (canManageMonthlyRoster(identity)) return true;
+  if (matchesAny(identity, isExecutiveRosterLabel)) return true;
+  return (identity.roles ?? []).some((role) => role === "ceo" || role === "branch_gm");
 }
 
 /** Save, unmap, and remove on Attendance mapping. Same people as the monthly roster. */

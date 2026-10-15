@@ -12,11 +12,20 @@ describe("supervisor and manager operational edit", () => {
   });
 
   it("does not open monthly roster edit from a login role or a denied capability", () => {
-    const roles = ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "hr", "cashier_host"] as const;
+    const roles = ["coo", "regional_ops", "duty_manager", "tech_supervisor", "hr", "cashier_host"] as const;
     for (const role of roles) {
       expect(canAmendShiftRoster([role]), role).toBe(false);
     }
     expect(canAmendShiftRoster([])).toBe(false);
+    expect(canAmendShiftRoster(["ceo"])).toBe(true);
+    expect(canAmendShiftRoster(["branch_gm"])).toBe(true);
+  });
+
+  it("shows the shift roster option for the General Manager and Adil", () => {
+    expect(canAmendShiftRoster(["cashier_host"], "General Manager")).toBe(true);
+    expect(canAmendShiftRoster(["cashier_host"], "Managing Director")).toBe(true);
+    expect(canAmendShiftRoster(["cashier_host"], "Managing Director / Chief Executive Officer")).toBe(true);
+    expect(canAmendShiftRoster(["hr"], "Head of Operations")).toBe(false);
   });
 
   it("lets only venue, sr. site, and F&B supervisors amend when the login is cashier_host", () => {

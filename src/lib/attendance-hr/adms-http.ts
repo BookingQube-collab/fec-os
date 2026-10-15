@@ -26,6 +26,7 @@ import {
 } from "@/lib/attendance-hr/parse-adms";
 import { decodeAttendanceText } from "@/lib/attendance-hr/parse-attlog";
 import { shouldTouchAdmsHeartbeat } from "@/lib/attendance-hr/constants";
+import { runWithAdmsPerf, setAdmsPerfCategory, timeAdmsDb } from "@/lib/attendance-hr/adms-perf";
 import { admsAuthFailureMessage, validateAdmsCommKey, validateAdmsIp } from "@/lib/server/adms-auth";
 
 /** Identity cache for idle polls. Pending commands wait at most this long on a warm instance. */
@@ -57,12 +58,12 @@ async function touchHeartbeat(
   if (!shouldTouchAdmsHeartbeat(prev, now)) return;
   lastHeartbeatTouch.set(deviceId, now);
   try {
-    await touchAdmsDevice(supabaseAdmin, deviceId, {
+    await timeAdmsDb(() => touchAdmsDevice(supabaseAdmin, deviceId, {
       error: null,
       endpoint: meta?.endpoint,
       sourceIp: meta?.sourceIp,
       pushver: meta?.pushver,
-    });
+    }));
   } catch (e) {
     lastHeartbeatTouch.delete(deviceId);
     throw e;
@@ -85,14 +86,14 @@ async function observeDevice(
   } catch (e) {
     console.error("adms heartbeat touch failed:", e);
   }
-  await noteAdmsDeviceRequest(supabaseAdmin, {
+  await timeAdmsDb(() => noteAdmsDeviceRequest(supabaseAdmin, {
     deviceId: device.id,
     serialNumber: device.serial_number,
     locationId: device.location_id,
     endpoint,
     sourceIp: meta.sourceIp,
     pushver,
-  });
+  }));
 }
 
 function admsText(body: string, status = 200) {
@@ -141,7 +142,7 @@ async function noteRejectedSerial(sn: string, reason: string) {
   if (now - prev < 60_000) return;
   lastAuthRejectionNote.set(key, now);
   try {
-    await recordAdmsAuthRejection(supabaseAdmin, serial, admsAuthFailureMessage(reason));
+    await timeAdmsDb(() => recordAdmsAuthRejection(supabaseAdmin, serial, admsAuthFailureMessage(reason)));
   } catch (e) {
     lastAuthRejectionNote.delete(key);
     console.error("adms auth rejection note failed:", e);
@@ -167,14 +168,14 @@ async function authorize(request: Request, sn: string, queryKey: string | null, 
     if (!cached) return { error: admsText("AUTH_ERROR", 403), device: null };
     return { error: null, device: cached };
   }
-  const device = await findAdmsDeviceBySerial(supabaseAdmin, sn);
+  const device = await timeAdmsDb(() => findAdmsDeviceBySerial(supabaseAdmin, sn));
   rememberDevice(sn, device);
   if (!device) {
-    await recordUnknownAdmsSerial(supabaseAdmin, {
+    await timeAdmsDb(() => recordUnknownAdmsSerial(supabaseAdmin, {
       serialNumber: sn,
       sourceIp: getRequestSourceIp(request),
       endpoint,
-    });
+    }));
     return { error: admsText("AUTH_ERROR", 403), device: null };
   }
   return { error: null, device };
@@ -188,7 +189,7 @@ async function handleGetRequest(request: Request, sn: string, queryKey: string |
   const command = pendingAdmsCommandLine(auth.device);
   if (!command) return admsText("OK");
   try {
-    await markAdmsCommandDelivered(supabaseAdmin, auth.device.id, auth.device.adms_cmd_id || 1);
+    await timeAdmsDb(() => markAdmsCommandDelivered(supabaseAdmin, auth.device.id, auth.device.adms_cmd_id || 1));
     rememberDevice(sn, { ...auth.device, adms_pending_cmd: null });
   } catch (e) {
     console.error("adms getrequest consume failed:", e);
@@ -197,6 +198,10 @@ async function handleGetRequest(request: Request, sn: string, queryKey: string |
 }
 
 export async function handleAdmsGet(request: Request, slug?: string[]) {
+  return runWithAdmsPerf("idle_poll", () => handleAdmsGetInner(request, slug));
+}
+
+async function handleAdmsGetInner(request: Request, slug?: string[]) {
   const url = new URL(request.url);
   const q = parseAdmsQuery(url);
   const endpoint = parseAdmsEndpoint(slug);
@@ -225,6 +230,15 @@ export async function handleAdmsGet(request: Request, slug?: string[]) {
 }
 
 export async function handleAdmsPost(request: Request, slug?: string[]) {
+  return runWithAdmsPerf("other", async () => {
+    const endpoint = parseAdmsEndpoint(slug);
+    if (endpoint === "getrequest") setAdmsPerfCategory("idle_poll");
+    else if (endpoint === "devicecmd") setAdmsPerfCategory("command_ack");
+    return handleAdmsPostInner(request, slug);
+  });
+}
+
+async function handleAdmsPostInner(request: Request, slug?: string[]) {
   const url = new URL(request.url);
   const q = parseAdmsQuery(url);
   const endpoint = parseAdmsEndpoint(slug);
@@ -242,13 +256,13 @@ export async function handleAdmsPost(request: Request, slug?: string[]) {
     const ack = parseAdmsDeviceCmdAck(body);
     if (ack) {
       try {
-        await ackAdmsCommand(supabaseAdmin, auth.device.id, ack.id);
-        await acknowledgeAdmsDiagnosticCommand(supabaseAdmin, {
+        await timeAdmsDb(() => ackAdmsCommand(supabaseAdmin, auth.device.id, ack.id));
+        await timeAdmsDb(() => acknowledgeAdmsDiagnosticCommand(supabaseAdmin, {
           deviceId: auth.device.id,
           serialNumber: auth.device.serial_number ?? q.sn,
           commandId: ack.id,
           returnCode: ack.returnCode,
-        });
+        }));
       } catch (e) {
         console.error("adms command ack failed:", e);
       }
@@ -258,6 +272,9 @@ export async function handleAdmsPost(request: Request, slug?: string[]) {
 
   const body = await readBodyText(request);
   const table = q.table === "unknown" && body ? "ATTLOG" : q.table;
+  if (table === "ATTLOG") setAdmsPerfCategory("attlog");
+  else if (table === "OPERLOG" || table === "USERINFO" || table === "USER") setAdmsPerfCategory("user_sync");
+  else if (endpoint !== "devicecmd") setAdmsPerfCategory("idle_poll");
 
   try {
     const result = await ingestAdmsPayload(supabaseAdmin, {
@@ -278,9 +295,9 @@ export async function handleAdmsPost(request: Request, slug?: string[]) {
   } catch (e) {
     console.error("adms ingest failed:", e);
     try {
-      await touchAdmsDevice(supabaseAdmin, auth.device.id, {
+      await timeAdmsDb(() => touchAdmsDevice(supabaseAdmin, auth.device.id, {
         error: e instanceof Error ? e.message : "ingest failed",
-      });
+      }));
     } catch {
       /* ignore */
     }

@@ -23,7 +23,7 @@ import {
   loadTeamCoverageLocations,
 } from "@/lib/reporting-manager-access.server";
 import { canUserDo, type AppRole } from "@/lib/rbac";
-import { assertCanManageMonthlyRoster } from "@/lib/site-ops-access.server";
+import { assertCanManageMonthlyRoster, assertCanOpenShiftRoster } from "@/lib/site-ops-access.server";
 import { ACTIVE_ROSTER_STAFF_STATUS_OR, STAFF_NOT_JOKER_EMPLOYMENT_OR } from "@/lib/staff-status";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
@@ -1262,7 +1262,7 @@ export const mapAttendanceRosterSheetName = createAuthenticatedAction(
     staffId: z.string().uuid(),
   }),
   async (data, context) => {
-    await assertCanManageMonthlyRoster(context.userId);
+    await assertCanOpenShiftRoster(context.userId);
     await assertSite(context, data.locationId);
 
     const deviceName = data.deviceName.trim();
