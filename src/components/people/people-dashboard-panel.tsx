@@ -10,20 +10,12 @@ import { KpiSkeletonStrip } from "@/components/loading/page-skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePeopleDashboard } from "@/hooks/queries/usePeopleDashboard";
-import { useStaff } from "@/hooks/queries/usePeople";
+import { useStaffDirectory } from "@/hooks/queries/usePeople";
 import { usePeopleDirectoryShowsSalary } from "@/hooks/use-auth";
 import { getHrOverview } from "@/lib/hr-overview.functions";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { fmtQar } from "@/lib/currency";
-import {
-  computeStaffDirectoryKpis,
-  filterStaffDirectory,
-} from "@/lib/staff-directory-kpis";
-import {
-  computeHrAttention,
-  hrAlertSeverityLabel,
-  type HrAlertSeverity,
-} from "@/lib/staff-hr-alerts";
+import { hrAlertSeverityLabel, type HrAlertSeverity } from "@/lib/staff-hr-alerts";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { useAppStore } from "@/stores/app-store";
@@ -91,7 +83,14 @@ export function PeopleDashboardPanel() {
   const locationId = useAppStore((s) => s.currentLocationId);
   const canSalary = usePeopleDirectoryShowsSalary();
   const { data, isLoading } = usePeopleDashboard({ locationId: locationId ?? null });
-  const { data: staff = [] } = useStaff(locationId ?? null, { includeArchived: true });
+  // Same location membership and Active filter as the Employees list.
+  const directory = useStaffDirectory({
+    locationId: locationId ?? null,
+    includeArchived: true,
+    page: 1,
+    pageSize: 25,
+    status: "active",
+  });
   const overview = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "hr-overview", locationId: locationId ?? null }),
     queryFn: () => getHrOverview({ locationId: locationId || null }),
@@ -99,31 +98,11 @@ export function PeopleDashboardPanel() {
   });
 
   const k = data?.kpis;
+  const rosterKpis = directory.data?.kpis;
+  const attention = (directory.data?.attention ?? []).filter((b) => b.count > 0);
+  const completionPct = directory.data?.profileCompletionPct ?? 100;
 
-  // Primary headcount KPIs from full roster (not status-filtered) so Overview reflects org truth
-  const rosterKpis = computeStaffDirectoryKpis(staff);
-  const attention = computeHrAttention(staff).filter((b) => b.count > 0);
-  const missingFiltered = filterStaffDirectory(staff, {
-    q: "",
-    loc: "",
-    position: "",
-    department: "",
-    type: "",
-    e3: "",
-    status: "",
-    nationality: "",
-    gender: "",
-    sponsorship: "",
-    missing: true,
-    expiry: "",
-    sort: "name",
-  });
-  const completionPct =
-    staff.length === 0
-      ? 100
-      : Math.round(((staff.length - missingFiltered.length) / staff.length) * 100);
-
-  if (isLoading) {
+  if (isLoading || directory.isLoading) {
     return (
       <div className="space-y-4">
         <KpiSkeletonStrip count={6} />
@@ -147,38 +126,38 @@ export function PeopleDashboardPanel() {
   const primary = [
     {
       label: t("people.dashboard.kpiTotal", "Total"),
-      value: rosterKpis.total || k?.total_staff || 0,
+      value: rosterKpis?.total ?? k?.total_staff ?? 0,
       tint: "sky" as const,
-      href: employeesHref({ allStatuses: true }),
+      href: employeesHref({ status: "active" }),
     },
     {
       label: t("people.dashboard.kpiActive", "Active"),
-      value: rosterKpis.active || k?.active_staff || 0,
+      value: rosterKpis?.active ?? k?.active_staff ?? 0,
       tint: "green" as const,
       href: employeesHref({ status: "active" }),
     },
     {
       label: t("people.dashboard.kpiSecondment", "Secondment"),
-      value: rosterKpis.secondment,
+      value: rosterKpis?.secondment ?? 0,
       tint: "orange" as const,
       href: employeesHref({ status: "secondment" }),
     },
     {
       label: t("people.dashboard.kpiTemporary", "Temporary / project"),
-      value: rosterKpis.temporary || k?.temporary || 0,
+      value: rosterKpis?.temporary ?? k?.temporary ?? 0,
       tint: "amber" as const,
       href: employeesHref({ type: "temporary", allStatuses: true }),
     },
     {
       label: t("people.dashboard.kpiNewJoiners", "New joiners (90d)"),
-      value: rosterKpis.newJoiners,
+      value: rosterKpis?.newJoiners ?? 0,
       tint: "sky" as const,
       href: employeesHref({ expiry: "new_joiners" }),
     },
     {
       label: t("people.dashboard.kpiExiting", "Exiting"),
-      value: rosterKpis.exiting,
-      tint: (rosterKpis.exiting > 0 ? "amber" : "slate") as KpiTint,
+      value: rosterKpis?.exiting ?? 0,
+      tint: ((rosterKpis?.exiting ?? 0) > 0 ? "amber" : "slate") as KpiTint,
       href: employeesHref({ expiry: "exiting" }),
     },
   ];
@@ -189,7 +168,7 @@ export function PeopleDashboardPanel() {
         <div>
           <h2 className="text-sm font-semibold">{t("people.dashboard.headcountTitle", "Headcount")}</h2>
           <p className="text-xs text-muted-foreground">
-            {t("people.dashboard.headcountHint", "Primary workforce snapshot. Click a card to open Employees with that filter.")}
+            {t("people.dashboard.headcountHint", "Same people as the Employees list for this location. Click a card to open that filter.")}
           </p>
         </div>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">

@@ -8,6 +8,7 @@ import { formatLocationLabel } from "@/lib/locations/normalize";
 import { canUserDo } from "@/lib/rbac";
 import type { OrgFocusDepartment } from "@/lib/exclude-org-departments";
 import type { MasterDepartmentRow } from "@/lib/staff-departments";
+import { computeHrAttention, type HrAttentionBucket } from "@/lib/staff-hr-alerts";
 import {
   computeStaffDirectoryTileKpis,
   filterStaffDirectory,
@@ -630,6 +631,10 @@ export type StaffDirectoryListPayload = {
   data: StaffRow[];
   pagination: { page: number; pageSize: number; total: number; totalPages: number };
   kpis: StaffDirectoryKpis;
+  /** Attention buckets for the same rows the KPI total counts. */
+  attention: HrAttentionBucket[];
+  /** Share of those rows that have QID, phone, and joining date. */
+  profileCompletionPct: number;
   facets: {
     positions: string[];
     nationalities: string[];
@@ -889,6 +894,9 @@ export async function fetchStaffDirectory(
     .map(([code, label]) => ({ code, label }));
 
   const filtered = filterStaffDirectory(identitySafe, directoryFilters);
+  const missingProfiles = filtered.filter((s) => !s.qid || !s.phone || !s.hire_date).length;
+  const profileCompletionPct =
+    filtered.length === 0 ? 100 : Math.round(((filtered.length - missingProfiles) / filtered.length) * 100);
 
   const total = filtered.length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -930,6 +938,8 @@ export async function fetchStaffDirectory(
     data,
     pagination: { page: safePage, pageSize, total, totalPages },
     kpis,
+    attention: computeHrAttention(filtered),
+    profileCompletionPct,
     facets: {
       positions,
       nationalities,

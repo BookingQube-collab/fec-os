@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   aggregateActiveRosterSalary,
+  countsTowardLocationHeadcount,
   stripPeopleDashboardSalary,
   type PeopleDashboardPayload,
 } from "./people-dashboard.core";
@@ -10,6 +11,17 @@ const locations = [
   { id: "inf", code: "INF-CC", name: "Inflatapark" },
   { id: "kds", code: "KDS-CC", name: "Kids Driving School" },
 ];
+
+describe("countsTowardLocationHeadcount", () => {
+  it("keeps the same people the Employees list shows for a location", () => {
+    expect(countsTowardLocationHeadcount({ status: "active", employment_type: "permanent" })).toBe(true);
+    expect(countsTowardLocationHeadcount({ status: "secondment", employment_type: "secondment" })).toBe(true);
+    expect(countsTowardLocationHeadcount({ status: "serving_notice", employment_type: "permanent" })).toBe(true);
+    expect(countsTowardLocationHeadcount({ status: "terminated", employment_type: "permanent" })).toBe(false);
+    expect(countsTowardLocationHeadcount({ status: "active", employment_type: "joker" })).toBe(false);
+    expect(countsTowardLocationHeadcount({ status: "on_leave", employment_type: "permanent" })).toBe(false);
+  });
+});
 
 describe("aggregateActiveRosterSalary", () => {
   it("sums monthly salary for active roster only and flags daily-rate staff as missing", () => {

@@ -4671,7 +4671,7 @@
     "dashboard": {
       "loadError": "Unable to load people overview.",
       "headcountTitle": "Headcount",
-      "headcountHint": "Primary workforce snapshot. Click a card to open Employees with that filter.",
+      "headcountHint": "Same people as the Employees list for this location. Click a card to open that filter.",
       "attentionTitle": "HR attention required",
       "attentionHint": "Document expiry, missing fields, and probation — severity is labeled, not color-only.",
       "attentionEmpty": "Nothing urgent in the current roster scope.",

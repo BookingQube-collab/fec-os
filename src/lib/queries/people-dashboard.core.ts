@@ -2,7 +2,8 @@ import type { AuthContext } from "@/lib/server/auth";
 import { CANONICAL_LOCATION_CODES, rosterSheetLabel } from "@/lib/locations/normalize";
 import { fetchAttendanceMappedStaffIds } from "@/lib/staff-attendance-mapped";
 import { hiddenUnmappedDuplicateIds } from "@/lib/staff-mapped-duplicates";
-import { peopleDirectoryShowsSalary } from "@/lib/people-directory-access";
+import { isAdminPeopleDirectoryRow, peopleDirectoryShowsSalary } from "@/lib/people-directory-access";
+import { fetchStaffIdsOnActiveTemporaryMove } from "@/lib/staff-temporary-moves-query";
 import { createTimer } from "@/lib/performance/timer";
 import {
   countsAsActiveStaff,
@@ -117,6 +118,21 @@ export function stripPeopleDashboardSalary(payload: PeopleDashboardPayload): Peo
   };
 }
 
+/**
+ * Location headcount uses the same people as the Employees list:
+ * active, probation, secondment, and remote staff, plus anyone serving notice.
+ * Jokers, people on leave, and people who have left are not in that list.
+ */
+export function countsTowardLocationHeadcount(staff: {
+  status: string | null;
+  employment_type?: string | null;
+}): boolean {
+  return isAdminPeopleDirectoryRow({
+    status: staff.status,
+    employmentType: staff.employment_type,
+  });
+}
+
 type CompRow = {
   staff_id: string;
   monthly_salary_qar: number | null;
@@ -218,11 +234,21 @@ export async function fetchPeopleDashboard(
     return emptyPayload();
   }
 
-  const { data: staffRows, error: staffErr } = await context.supabase
+  // Home branch, plus someone whose active temporary move is the selected site.
+  // Extra work sites are not membership — same rule as the Employees list.
+  const temporaryMoveIds = filters.locationId
+    ? await fetchStaffIdsOnActiveTemporaryMove(context.supabase, filters.locationId)
+    : [];
+  let staffQ = context.supabase
     .from("staff")
     .select("id, user_id, employee_code, full_name, job_title, department, status, hire_date, location_id, qid, phone, e3_enrolled, employment_type, staff_departments(department_id, master_departments(name, sort_order))")
-    .in("location_id", locationIds)
     .is("deleted_at", null);
+  staffQ = filters.locationId
+    ? temporaryMoveIds.length
+      ? staffQ.or(`location_id.eq.${filters.locationId},id.in.(${temporaryMoveIds.join(",")})`)
+      : staffQ.eq("location_id", filters.locationId)
+    : staffQ.in("location_id", locationIds);
+  const { data: staffRows, error: staffErr } = await staffQ;
   if (staffErr) throw staffErr;
 
   const loaded = (staffRows ?? []) as Array<
@@ -278,12 +304,15 @@ export async function fetchPeopleDashboard(
     const typeKey = s.employment_type?.trim() || "unspecified";
     typeCounts.set(typeKey, (typeCounts.get(typeKey) ?? 0) + 1);
 
-    if (!countsAsActiveStaff(s.status, s.employment_type)) continue;
+    if (!countsTowardLocationHeadcount(s)) continue;
 
-    const loc = locById.get(s.location_id);
+    const headcountLocationId =
+      filters.locationId && s.location_id !== filters.locationId ? filters.locationId : s.location_id;
+    const loc = locById.get(headcountLocationId);
     const code = loc?.code ?? "—";
     const name = rosterSheetLabel(code, loc?.name ?? "Unknown");
-    // Headcount and salary use primary location_id only (roaming techs are not double-counted).
+    // One person, one site: home branch, or the selected site while a temporary move is active.
+    // Salary stays on the home branch so a move is not paid twice.
     const locBucket = locCounts.get(code) ?? { code, name, count: 0 };
     locBucket.count += 1;
     locCounts.set(code, locBucket);
