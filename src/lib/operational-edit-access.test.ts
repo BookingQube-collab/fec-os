@@ -11,51 +11,26 @@ describe("supervisor and manager operational edit", () => {
     setActiveCapabilityGrants(null);
   });
 
-  it("shows monthly roster edit, delete, and Delete all even when a grant denies the capability", () => {
-    const shown = ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "hr"] as const;
-    const hidden = ["cashier_host", "customer_service", "technician", "auditor", "cfo"] as const;
-    setActiveCapabilityGrants(
-      toGrantMap(
-        shown.flatMap((role) =>
-          (["people.edit_roster", "people.import_roster", "daily_ops.roster.upload"] as const).map((capability) => ({
-            role,
-            capability,
-            allowed: false,
-          })),
-        ),
-      ),
-    );
-    for (const role of shown) {
-      expect(canUserDo([role], "people.edit_roster"), role).toBe(false);
-      expect(canAmendShiftRoster([role]), role).toBe(true);
-    }
-    for (const role of hidden) {
+  it("does not open monthly roster edit from a login role or a denied capability", () => {
+    const roles = ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "hr", "cashier_host"] as const;
+    for (const role of roles) {
       expect(canAmendShiftRoster([role]), role).toBe(false);
     }
     expect(canAmendShiftRoster([])).toBe(false);
   });
 
-  it("lets a manager or supervisor job title amend even when the login role is cashier_host", () => {
-    setActiveCapabilityGrants(
-      toGrantMap(
-        (["people.edit_roster", "people.import_roster", "daily_ops.roster.upload"] as const).map((capability) => ({
-          role: "cashier_host" as const,
-          capability,
-          allowed: false,
-        })),
-      ),
-    );
-    expect(canUserDo(["cashier_host"], "people.edit_roster")).toBe(false);
-    expect(canAmendShiftRoster(["cashier_host"], "F&B Manager")).toBe(true);
-    expect(canAmendShiftRoster(["cashier_host"], "Site Supervisor")).toBe(true);
+  it("lets only venue, sr. site, and F&B supervisors amend when the login is cashier_host", () => {
+    expect(canAmendShiftRoster(["cashier_host"], "F&B Supervisor")).toBe(true);
     expect(canAmendShiftRoster(["cashier_host"], "Sr. Site Supervisor")).toBe(true);
-    expect(canAmendShiftRoster(["cashier_host"], "Duty Manager")).toBe(true);
+    expect(canAmendShiftRoster(["cashier_host"], "Venue Supervisor")).toBe(true);
+    expect(canAmendShiftRoster(["cashier_host"], null, "venue_supervisor")).toBe(true);
+    expect(canAmendShiftRoster(["cashier_host"], "F&B Manager")).toBe(false);
+    expect(canAmendShiftRoster(["cashier_host"], "Site Supervisor")).toBe(false);
+    expect(canAmendShiftRoster(["cashier_host"], "Duty Manager")).toBe(false);
+    expect(canAmendShiftRoster(["cashier_host"], "Team Leader")).toBe(false);
+    expect(canAmendShiftRoster(["cashier_host"], "Admin Team Leader")).toBe(false);
     expect(canAmendShiftRoster(["cashier_host"], "Cashier")).toBe(false);
-    expect(canAmendShiftRoster(["cashier_host"], "Cashier / Host")).toBe(false);
-    expect(canAmendShiftRoster(["cashier_host"], "Host")).toBe(false);
-    expect(canAmendShiftRoster(["technician"], "Technician")).toBe(false);
-    expect(canAmendShiftRoster(["cashier_host"], "  ")).toBe(false);
-    expect(canAmendShiftRoster(["cashier_host"], null)).toBe(false);
+    expect(canAmendShiftRoster(["hr"], "Team Leader")).toBe(false);
   });
 
   it("keeps monthly roster create, edit, delete, and import", () => {

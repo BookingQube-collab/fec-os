@@ -33,19 +33,21 @@ describe("team roster access", () => {
     expect(usesTeamLocationScope([])).toBe(true);
   });
 
-  it("shows shift roster upload to reporting managers and supervisors only", () => {
-    expect(canSeeShiftRosterUpload(["cashier_host"], true)).toBe(true);
-    expect(canSeeShiftRosterUpload(["cashier_host"], false)).toBe(false);
-    expect(canSeeShiftRosterUpload(["duty_manager"], false)).toBe(true);
-    expect(canSeeShiftRosterUpload(["branch_gm"], false)).toBe(true);
-    expect(canSeeShiftRosterUpload(["tech_supervisor"], false)).toBe(true);
+  it("shows shift roster upload only to venue, sr. site, and F&B supervisors", () => {
+    expect(canSeeShiftRosterUpload(["cashier_host"], true)).toBe(false);
+    expect(canSeeShiftRosterUpload(["cashier_host"], true, "Team Leader")).toBe(false);
+    expect(canSeeShiftRosterUpload(["duty_manager"], false)).toBe(false);
+    expect(canSeeShiftRosterUpload(["branch_gm"], false)).toBe(false);
+    expect(canSeeShiftRosterUpload(["hr"], false)).toBe(false);
     expect(canSeeShiftRosterUpload(["technician"], false)).toBe(false);
   });
 
   it("lets a supervisor with zero reports upload only their own roster", () => {
-    expect(canSeeShiftRosterUpload(["cashier_host"], false, "Site Supervisor")).toBe(true);
+    expect(canSeeShiftRosterUpload(["cashier_host"], false, "Site Supervisor")).toBe(false);
+    expect(canSeeShiftRosterUpload(["cashier_host"], false, "F&B Manager")).toBe(false);
     expect(canSeeShiftRosterUpload(["cashier_host"], false, "Sr. Site Supervisor")).toBe(true);
-    expect(canSeeShiftRosterUpload(["cashier_host"], false, "F&B Manager")).toBe(true);
+    expect(canSeeShiftRosterUpload(["cashier_host"], false, "F&B Supervisor")).toBe(true);
+    expect(canSeeShiftRosterUpload(["cashier_host"], false, "Venue Supervisor")).toBe(true);
     expect(canSeeShiftRosterUpload(["cashier_host"], false, null, "venue_supervisor")).toBe(true);
     expect(canSeeShiftRosterUpload(["cashier_host"], false, "Cashier")).toBe(false);
     expect(canSeeShiftRosterUpload(["cashier_host"], false, "Cashier / Host")).toBe(false);

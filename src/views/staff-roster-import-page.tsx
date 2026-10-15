@@ -42,6 +42,7 @@ import {
   qatarWeekBounds,
   type AttendanceRosterPeriodMode,
 } from "@/lib/attendance-hr/roster-period";
+import { useCanAmendShiftRoster } from "@/hooks/use-auth";
 import { useAppStore } from "@/stores/app-store";
 
 type UploadArg = { mode: "preview" | "commit" };
@@ -105,6 +106,7 @@ const EMBEDDED_CONFIRM = "bg-electric text-white hover:bg-electric/90";
 
 export function ShiftRosterImport({ embedded = false }: { embedded?: boolean }) {
   const { t, i18n } = useTranslation();
+  const canUploadRoster = useCanAmendShiftRoster();
   const qc = useQueryClient();
   const filesRef = useRef<HTMLInputElement>(null);
   const folderRef = useRef<HTMLInputElement>(null);
@@ -320,6 +322,25 @@ export function ShiftRosterImport({ embedded = false }: { embedded?: boolean }) 
 
   const surface = embedded ? "hr-panel min-w-0" : "surface-card";
   const confirmClass = embedded ? EMBEDDED_CONFIRM : undefined;
+
+  if (!canUploadRoster) {
+    if (embedded) return null;
+    return (
+      <div className="space-y-6">
+        <FecPageHeader
+          icon={CalendarDays}
+          kicker={t("people.roster.viewKicker")}
+          title={t("people.roster.viewTitle")}
+          subtitle={t("people.roster.viewSubtitle")}
+          actions={
+            <Button asChild variant="outline" size="sm">
+              <Link href="/people/roster">{t("nav.monthlyRoster")}</Link>
+            </Button>
+          }
+        />
+      </div>
+    );
+  }
 
   return (
     <div className={embedded ? "min-w-0 space-y-4" : "space-y-6"}>

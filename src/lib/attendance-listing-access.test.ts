@@ -120,7 +120,7 @@ describe("attendance mapping access", () => {
     expect(canSeeAttendanceMapping(["cashier_host"], false)).toBe(false);
   });
 
-  it("keeps full-staff mapping for admin and GM, and team merge for reporting managers", () => {
+  it("keeps company mapping view for admin and GM, and edit for the three supervisor identities", () => {
     expect(attendanceMappingIsCompanyWide(["hr"])).toBe(true);
     expect(attendanceMappingIsCompanyWide(["ceo"])).toBe(true);
     expect(attendanceMappingIsCompanyWide(["coo"])).toBe(true);
@@ -128,12 +128,15 @@ describe("attendance mapping access", () => {
     expect(attendanceMappingIsCompanyWide(["duty_manager"])).toBe(false);
     expect(attendanceMappingIsCompanyWide(["cashier_host"])).toBe(false);
 
-    expect(canMergeAttendanceMappings(["branch_gm"], false)).toBe(true);
-    expect(canMergeAttendanceMappings(["hr"], false)).toBe(true);
-    expect(canMergeAttendanceMappings(["cashier_host"], true)).toBe(true);
-    expect(canMergeAttendanceMappings(["duty_manager"], false)).toBe(true);
+    expect(canMergeAttendanceMappings(["branch_gm"], false)).toBe(false);
+    expect(canMergeAttendanceMappings(["hr"], false)).toBe(false);
+    expect(canMergeAttendanceMappings(["cashier_host"], true)).toBe(false);
+    expect(canMergeAttendanceMappings(["cashier_host"], true, { jobTitle: "Team Leader" })).toBe(false);
+    expect(canMergeAttendanceMappings(["duty_manager"], false)).toBe(false);
     expect(canMergeAttendanceMappings(["auditor"], false)).toBe(false);
-    expect(canMergeAttendanceMappings(["cashier_host"], false)).toBe(false);
+    expect(canMergeAttendanceMappings(["cashier_host"], false, { jobTitle: "F&B Supervisor" })).toBe(true);
+    expect(canMergeAttendanceMappings(["cashier_host"], false, { staffRole: "venue_supervisor" })).toBe(true);
+    expect(canMergeAttendanceMappings(["hr"], false, { jobTitle: "Sr. Site Supervisor" })).toBe(true);
   });
 
   it("limits merge targets and unmapped ids to the team", () => {

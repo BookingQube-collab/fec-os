@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { CapabilityGate } from "@/components/auth/capability-gate";
+import { TeamTodayPanel } from "@/components/hr/team-today-panel";
 import { HrDayBoard, type HrDayOverview } from "@/components/hr/hr-day-board";
 import { useRegisterHrAssist } from "@/components/hr/hr-people-assist";
 import { OrgDepartmentsFilter } from "@/components/people/exclude-org-departments-filter";
@@ -150,7 +151,8 @@ export default function HrDashboardPage() {
         </div>
       }
     >
-      <div className="min-w-0">
+      <div className="min-w-0 space-y-4">
+        <TeamTodayPanel />
         {overviewState === "error" ? (
           <div className="space-y-4">
             {filters}

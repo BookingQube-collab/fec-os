@@ -63,9 +63,7 @@ import {
 import { queryKeys } from "@/lib/query-keys";
 import type { PreviousMonthRosterDepartment } from "@/lib/staff-roster/previous-month-export";
 import { useAppStore } from "@/stores/app-store";
-import { useHasDirectReports } from "@/hooks/use-my-direct-reports";
-import { canSeeShiftRosterUpload } from "@/lib/reporting-manager-locations";
-import { useAuth, useCanAmendShiftRoster, useUserRoles } from "@/hooks/use-auth";
+import { useCanAmendShiftRoster } from "@/hooks/use-auth";
 
 function todayYmd() {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" });
@@ -88,11 +86,8 @@ function rosterCopyReplaceScope(input: PendingRosterCopy): "all" | "sites" | "pe
 export default function StaffRosterRegisterPage() {
   const { t, i18n } = useTranslation();
   const qc = useQueryClient();
-  const roles = useUserRoles();
-  const { profile } = useAuth();
-  const { hasDirectReports } = useHasDirectReports();
   const canManageRoster = useCanAmendShiftRoster();
-  const canUpload = canSeeShiftRosterUpload(roles, hasDirectReports, profile?.job_title, profile?.staff_role);
+  const canUpload = canManageRoster;
   const storeLocationId = useAppStore((s) => s.currentLocationId);
 
   const registerRef = useRef<RosterRegisterPanelHandle>(null);

@@ -1,7 +1,8 @@
 "use client";
 
-import { ChevronDown, ChevronRight, Download, Info, Minus, Plus, Scan, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, Info, Maximize2, Minus, Plus, Scan, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -77,6 +78,9 @@ export function OrgHierarchyBoard({
   const [search, setSearch] = useState("");
   const [openKeys, setOpenKeys] = useState<Set<string>>(() => new Set());
   const [departmentsOpen, setDepartmentsOpen] = useState(false);
+  const [fullPage, setFullPage] = useState(false);
+  const collapsedSession = useRef<Set<string> | null>(null);
+  const layoutSession = useRef<OrgChartViewMode | null>(null);
   const query = search.trim().toLowerCase();
 
   const grouped = useMemo(() => groupOrgChart(snapshot.people), [snapshot.people]);
@@ -110,14 +114,56 @@ export function OrgHierarchyBoard({
     });
   };
 
-  return (
-    <div className="flex h-[calc(100vh-14.5rem)] min-h-[36rem] flex-col gap-3 lg:flex-row">
+  useEffect(() => {
+    if (!fullPage) return;
+    const previousOverflow = document.body.style.overflow;
+    const scrollY = window.scrollY;
+    document.body.style.overflow = "hidden";
+    const overlay = document.querySelector("[data-org-full-page='true']");
+    const inerted: Element[] = [];
+    if (overlay) {
+      for (const node of document.body.children) {
+        if (node === overlay || node.hasAttribute("inert")) continue;
+        node.setAttribute("inert", "");
+        inerted.push(node);
+      }
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (document.querySelector("[role='dialog'][data-state='open'], [role='menu'][data-state='open'], [role='listbox'][data-state='open']")) {
+        return;
+      }
+      setFullPage(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.scrollTo(0, scrollY);
+      window.removeEventListener("keydown", onKeyDown);
+      for (const node of inerted) node.removeAttribute("inert");
+    };
+  }, [fullPage]);
+
+  const board = (
+    <div
+      data-org-full-page={fullPage ? "true" : undefined}
+      role={fullPage ? "dialog" : undefined}
+      aria-modal={fullPage ? true : undefined}
+      aria-label={fullPage ? t("hr.hierarchy.fullPage") : undefined}
+      className={cn(
+        "flex min-h-0 flex-col lg:flex-row",
+        fullPage
+          ? "fixed inset-0 z-[45] h-dvh w-dvw bg-background"
+          : "h-[calc(100vh-14.5rem)] min-h-[36rem] gap-3",
+      )}
+    >
       {readOnly ? null : <>
       <button
         type="button"
         className={cn(
           "inline-flex min-h-11 shrink-0 items-center gap-1.5 self-start rounded-xl border border-border/60 bg-card px-3 text-sm font-semibold text-foreground shadow-elevated-xs hover:bg-muted",
           departmentsOpen && "hidden",
+          fullPage && "absolute bottom-16 start-3 z-30",
         )}
         aria-expanded={departmentsOpen}
         aria-controls="org-departments-panel"
@@ -129,7 +175,10 @@ export function OrgHierarchyBoard({
       <aside
         id="org-departments-panel"
         className={cn(
-          "flex max-h-[40vh] w-full shrink-0 flex-col overflow-hidden rounded-2xl border border-border/60 bg-card shadow-elevated-xs lg:max-h-none lg:w-80",
+          "flex w-full shrink-0 flex-col overflow-hidden border border-border/60 bg-card shadow-elevated-xs",
+          fullPage
+            ? "absolute inset-y-0 start-0 z-30 h-full max-h-none w-[min(100%,20rem)] rounded-none"
+            : "max-h-[40vh] rounded-2xl lg:max-h-none lg:w-80",
           !departmentsOpen && "hidden",
         )}
       >
@@ -268,6 +317,10 @@ export function OrgHierarchyBoard({
         legend={legend}
         saving={saving}
         readOnly={readOnly}
+        fullPage={fullPage}
+        onFullPageChange={setFullPage}
+        collapsedSession={collapsedSession}
+        layoutSession={layoutSession}
         onChart={grouped.onChart}
         onPlace={onPlace}
         onRemove={onRemove}
@@ -283,8 +336,22 @@ export function OrgHierarchyBoard({
           setOpenKeys(new Set());
         }}
       />
+      {fullPage ? (
+        <button
+          type="button"
+          className="absolute end-3 top-3 z-40 inline-flex h-8 items-center gap-1.5 rounded-lg border border-border/70 bg-card px-2.5 text-xs font-semibold text-foreground shadow-elevated-xs hover:bg-muted"
+          autoFocus
+          onClick={() => setFullPage(false)}
+        >
+          <X className="h-3.5 w-3.5" aria-hidden />
+          {t("hr.hierarchy.closeFullPage")}
+        </button>
+      ) : null}
     </div>
   );
+
+  if (fullPage) return createPortal(board, document.body);
+  return board;
 }
 
 function branchStaffIds(rootId: string, childIdsOf: ReadonlyMap<string, readonly string[]>): string[] {
@@ -355,6 +422,10 @@ function OrgCanvas({
   legend,
   saving,
   readOnly,
+  fullPage,
+  onFullPageChange,
+  collapsedSession,
+  layoutSession,
   onChart,
   onPlace,
   onRemove,
@@ -369,6 +440,10 @@ function OrgCanvas({
   legend: ReturnType<typeof legendForChart>;
   saving: boolean;
   readOnly: boolean;
+  fullPage: boolean;
+  onFullPageChange: (next: boolean) => void;
+  collapsedSession: { current: Set<string> | null };
+  layoutSession: { current: OrgChartViewMode | null };
   onChart: Set<string>;
   onPlace: (staffId: string, managerStaffId: string | null) => void;
   onRemove: (staffId: string) => void;
@@ -389,8 +464,15 @@ function OrgCanvas({
   const lastCardClickRef = useRef<{ staffId: string; at: number } | null>(null);
   const offsetsRef = useRef<Map<string, NodeOffset>>(new Map());
   const [offsets, setOffsets] = useState<Map<string, NodeOffset>>(offsetsRef.current);
-  const [collapsed, setCollapsed] = useState<Set<string> | null>(null);
-  const [chartLayout, setChartLayout] = useState<OrgChartViewMode>("tree");
+  const [collapsed, setCollapsedState] = useState<Set<string> | null>(() => collapsedSession.current);
+  const setCollapsed = (value: Set<string> | null | ((current: Set<string> | null) => Set<string> | null)) => {
+    setCollapsedState((current) => {
+      const next = typeof value === "function" ? value(current) : value;
+      collapsedSession.current = next;
+      return next;
+    });
+  };
+  const [chartLayout, setChartLayout] = useState<OrgChartViewMode>(() => layoutSession.current ?? "tree");
   const [fitToken, setFitToken] = useState(0);
   const appliedFit = useRef(0);
   const [direction, setDirection] = useState(rtl ? "rtl" : "ltr");
@@ -499,10 +581,13 @@ function OrgCanvas({
   placedRef.current = placed;
 
   useEffect(() => {
-    const stored = readStoredChartLayout();
-    if (!stored || stored === "tree") return;
+    const stored = layoutSession.current ?? readStoredChartLayout();
+    if (!stored || stored === chartLayout) return;
+    layoutSession.current = stored;
     setChartLayout(stored);
     setFitToken((token) => token + 1);
+    // Restore a saved layout once. Later changes go through chooseLayout.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const resetOffsets = () => {
@@ -513,6 +598,7 @@ function OrgCanvas({
   };
 
   const chooseLayout = (next: OrgChartViewMode) => {
+    layoutSession.current = next;
     setChartLayout(next);
     try {
       sessionStorage.setItem(CHART_LAYOUT_KEY, next);
@@ -773,7 +859,8 @@ function OrgCanvas({
       role="application"
       aria-label={t(readOnly ? "hr.hierarchy.teamCanvasLabel" : "hr.hierarchy.canvasLabel")}
       className={cn(
-        "relative min-h-[28rem] flex-1 touch-none overflow-hidden rounded-2xl border border-border/60 bg-card",
+        "relative min-w-0 flex-1 touch-none overflow-hidden bg-card",
+        fullPage ? "h-full min-h-0 rounded-none border-0" : "min-h-[28rem] rounded-2xl border border-border/60",
         panning ? "cursor-grabbing" : "cursor-grab",
         dropHover === "canvas" && "ring-2 ring-inset ring-primary/50",
       )}
@@ -821,7 +908,12 @@ function OrgCanvas({
         window.addEventListener("pointerup", up);
       }}
     >
-      <div className="pointer-events-none absolute start-4 top-3 z-20 flex max-w-[calc(100%-4.5rem)] flex-wrap items-center gap-2">
+      <div
+        className={cn(
+          "pointer-events-none absolute start-4 top-3 z-20 flex flex-wrap items-center gap-2",
+          fullPage ? "max-w-[calc(100%-8.5rem)]" : "max-w-[calc(100%-4.5rem)]",
+        )}
+      >
         <p className="text-sm text-muted-foreground">
           {t(readOnly ? "hr.hierarchy.teamChartTitle" : "hr.hierarchy.chartTitle")}
         </p>
@@ -891,6 +983,18 @@ function OrgCanvas({
           <Download className="h-3.5 w-3.5" aria-hidden />
           {downloadingPdf ? t("hr.hierarchy.downloadingPdf") : t("hr.hierarchy.downloadPdf")}
         </button>
+        {fullPage ? null : (
+          <button
+            type="button"
+            data-org-chrome
+            className="pointer-events-auto inline-flex h-8 items-center gap-1.5 rounded-lg border border-border/70 bg-card px-2.5 text-xs font-semibold text-foreground shadow-elevated-xs hover:bg-muted"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={() => onFullPageChange(true)}
+          >
+            <Maximize2 className="h-3.5 w-3.5" aria-hidden />
+            {t("hr.hierarchy.fullPage")}
+          </button>
+        )}
       </div>
       <div
         ref={layerRef}
@@ -1113,7 +1217,7 @@ function OrgCanvas({
       {legend.length > 0 ? (
         <div
           data-org-chrome
-          className="org-legend absolute end-3 top-3 z-20"
+          className={cn("org-legend absolute end-3 z-20", fullPage ? "top-14" : "top-3")}
           onPointerEnter={() => {
             if (legendHoverMode) setLegendHover(true);
           }}

@@ -33,7 +33,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
+import { TeamTodayPanel } from "@/components/hr/team-today-panel";
 import { useAuth } from "@/hooks/use-auth";
+import { showsSupervisorTeamToday } from "@/lib/hr/team-today";
 import { useDashboardKpis, useDashboardCharts } from "@/hooks/queries/useDashboardKpis";
 import { useDashboardSecondary } from "@/hooks/queries/useDashboardSecondary";
 import { useComplianceRenewals } from "@/hooks/queries/useInspections";
@@ -153,7 +155,7 @@ function pickAttentionItems(rows: ComplianceRenewalRow[] | undefined, limit = 5)
 
 function OpsCommandHome() {
   const { t } = useTranslation();
-  const { roles } = useAuth();
+  const { roles, profile } = useAuth();
   const roleList = roles.map((r) => r.role as AppRole);
   const view = dashboardViewForRoles(roleList);
   const showRevenue = canViewRevenue(roleList);
@@ -165,6 +167,7 @@ function OpsCommandHome() {
   const year = new Date().getFullYear();
   const showCompliance = view === "estate" || view === "branch";
   const rolesReady = roleList.length > 0;
+  const showTeamToday = showsSupervisorTeamToday(roleList, profile?.job_title, profile?.staff_role);
 
   const kpisQ = useDashboardKpis({
     period,
@@ -275,6 +278,8 @@ function OpsCommandHome() {
           ) : null}
         </div>
       </header>
+
+      {showTeamToday ? <TeamTodayPanel /> : null}
 
       {kpisQ.isLoading ? (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">

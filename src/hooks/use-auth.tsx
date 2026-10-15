@@ -279,11 +279,11 @@ export function useUserRoles(): AppRole[] {
   return roles.map((r) => r.role);
 }
 
-/** Monthly roster pencil, trash, and Delete all. Job title can allow a cashier login. */
+/** Monthly roster, mapping, and team-correction edits. Own punch requests stay separate. */
 export function useCanAmendShiftRoster(): boolean {
   const { profile } = useAuth();
   const roles = useUserRoles();
-  return canAmendShiftRoster(roles, profile?.job_title);
+  return canAmendShiftRoster(roles, profile?.job_title, profile?.staff_role, profile?.department);
 }
 
 /** People directory: company roster capability, or a manager/supervisor job title. */

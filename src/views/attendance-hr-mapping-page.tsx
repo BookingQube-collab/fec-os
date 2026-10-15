@@ -9,7 +9,6 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { AttendanceHrNav } from "@/components/attendance-hr/attendance-hr-nav";
-import { CapabilityGate } from "@/components/auth/capability-gate";
 import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
 import {
   AlertDialog,
@@ -27,7 +26,7 @@ import { Label } from "@/components/ui/label";
 import { SearchableSelect, type SearchableSelectOption } from "@/components/ui/searchable-select";
 import { useSites } from "@/hooks/queries/useSites";
 import { useHasDirectReports } from "@/hooks/use-my-direct-reports";
-import { useUserRoles } from "@/hooks/use-auth";
+import { useAuth, useUserRoles } from "@/hooks/use-auth";
 import {
   attendanceListingIsCompanyWide,
   attendanceMappingIsCompanyWide,
@@ -138,11 +137,16 @@ const StaffSearchSelect = memo(function StaffSearchSelect({
 export default function AttendanceHrMappingPage() {
   const { t } = useTranslation();
   const roles = useUserRoles();
+  const { profile } = useAuth();
   const { hasDirectReports, isPending: reportsPending } = useHasDirectReports();
   const companyWideMapper = attendanceMappingIsCompanyWide(roles);
   const companyAttendance = attendanceListingIsCompanyWide(roles);
   const canMap = canSeeAttendanceMapping(roles, hasDirectReports);
-  const canMerge = canMergeAttendanceMappings(roles, hasDirectReports);
+  const canMerge = canMergeAttendanceMappings(roles, hasDirectReports, {
+    jobTitle: profile?.job_title,
+    staffRole: profile?.staff_role,
+    department: profile?.department,
+  });
   const locationId = useAppStore((s) => s.currentLocationId);
   const setCurrentLocationId = useAppStore((s) => s.setCurrentLocationId);
   const qc = useQueryClient();
@@ -568,11 +572,7 @@ export default function AttendanceHrMappingPage() {
         kicker={t("attendanceHr.mapping.kicker")}
         title={t("attendanceHr.mapping.title")}
         subtitle={t("attendanceHr.mapping.subtitle")}
-        actions={
-          <CapabilityGate capability="attendance.map_users" alsoAllow={canMerge}>
-            {renderSaveAllButton()}
-          </CapabilityGate>
-        }
+        actions={canMerge ? renderSaveAllButton() : null}
       />
       <AttendanceHrNav />
 
@@ -661,14 +661,14 @@ export default function AttendanceHrMappingPage() {
       </NeumorphicCard>
 
       <NeumorphicCard className="overflow-x-auto p-0">
-        <CapabilityGate capability="attendance.map_users" alsoAllow={canMerge}>
+        {canMerge ? (
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/50 px-4 py-3">
             <p className="text-xs text-muted-foreground">
               {t("attendanceHr.mapping.pendingCount", { count: pendingMaps.length })}
             </p>
             {renderSaveAllButton()}
           </div>
-        </CapabilityGate>
+        ) : null}
         <table className="w-full text-sm">
           <thead className="text-left text-xs text-muted-foreground">
             <tr>
@@ -743,7 +743,7 @@ export default function AttendanceHrMappingPage() {
                       />
                     </td>
                     <td className="px-4 py-2">
-                      <CapabilityGate capability="attendance.map_users" alsoAllow={canMerge}>
+                      {canMerge ? (
                         <div className="flex flex-wrap items-center gap-2">
                           {busy ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}
                           <Button
@@ -770,7 +770,7 @@ export default function AttendanceHrMappingPage() {
                             {t("attendanceHr.mapping.removeName")}
                           </Button>
                         </div>
-                      </CapabilityGate>
+                      ) : null}
                     </td>
                   </tr>
                 );

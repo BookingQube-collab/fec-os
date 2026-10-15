@@ -1,4 +1,5 @@
 import { canUserDo, isRosterAmendJobTitle, type AppRole, type Capability } from "@/lib/rbac";
+import { canManageMonthlyRoster } from "@/lib/site-ops-access";
 
 /** Caps that already open company or role-scoped roster and attendance. */
 const COMPANY_ROSTER_CAPS = [
@@ -83,22 +84,15 @@ export function rosterTeamOrSelfStaffIds(input: {
   return [input.staffId];
 }
 
-/** Company upload capability, a login with direct reports, or a supervisor uploading their own roster. */
+/** Monthly roster upload. Same three staff identities as create and edit. Direct reports do not upload. */
 export function canSeeShiftRosterUpload(
-  roles: readonly AppRole[],
-  hasDirectReports: boolean,
+  _roles: readonly AppRole[],
+  _hasDirectReports: boolean,
   jobTitle?: string | null,
   staffRole?: string | null,
+  department?: string | null,
 ): boolean {
-  if (hasDirectReports) return true;
-  if (
-    canUserDo(roles as AppRole[], "people.import_roster") ||
-    canUserDo(roles as AppRole[], "people.edit_roster") ||
-    canUserDo(roles as AppRole[], "daily_ops.roster.upload")
-  ) {
-    return true;
-  }
-  return canUploadOwnRosterWithoutReports(jobTitle, staffRole);
+  return canManageMonthlyRoster({ jobTitle, staffRole, department });
 }
 
 /**

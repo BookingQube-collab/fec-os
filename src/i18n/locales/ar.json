@@ -8889,6 +8889,27 @@
         "all": "الكل"
       }
     },
+    "teamToday": {
+      "title": "الفريق اليوم",
+      "subtitle": "من الحاضر، ومن في إجازة، ومن الغائب اليوم.",
+      "subtitleSite": "{{site}} · {{date}}",
+      "subtitleLocations": "{{date}} · حسب الموقع",
+      "subtitleCompany": "كل الفروع · {{date}}",
+      "summary": "{{present}} حاضر · {{annual}} إجازة سنوية · {{sick}} إجازة مرضية · {{absent}} غائب",
+      "colName": "الاسم",
+      "colRole": "المسمى",
+      "colToday": "اليوم",
+      "colAnnual": "المتبقي السنوي",
+      "noSite": "بدون موقع",
+      "empty": "لا أحد في هذا الفريق اليوم.",
+      "loadError": "تعذر تحميل الفريق اليوم.",
+      "status": {
+        "present": "حاضر",
+        "annualLeave": "إجازة سنوية",
+        "sickLeave": "إجازة مرضية",
+        "notPresent": "غائب"
+      }
+    },
     "dashboard": {
       "kicker": "الموظفون",
       "title": "لوحة المعلومات الذكية",
@@ -9697,6 +9718,8 @@
       "downloadPdfError": "تعذر تنزيل المخطط التنظيمي.",
       "expandAll": "توسيع الكل",
       "collapseAll": "طي الكل",
+      "fullPage": "صفحة كاملة",
+      "closeFullPage": "إغلاق",
       "layoutLabel": "طريقة العرض",
       "layoutTree": "شجرة",
       "layoutLevels": "من الأعلى للأسفل",

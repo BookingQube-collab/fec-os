@@ -26,7 +26,11 @@ import {
   useMyLeaveRequests,
   useMyRoster,
 } from "@/hooks/queries/use-employee-self";
+import { useAuth } from "@/hooks/use-auth";
 import { usePermission } from "@/hooks/use-permission";
+import { showsSupervisorTeamToday } from "@/lib/hr/team-today";
+import { isEmployeeHomeAudience, type AppRole } from "@/lib/rbac";
+import { TeamTodayPanel } from "@/components/hr/team-today-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -163,6 +167,11 @@ function ProfileFacts({ rows }: { rows: Array<[string, string | null | undefined
 
 export default function EmployeeMePage() {
   const { t } = useTranslation();
+  const { roles, profile: sessionProfile } = useAuth();
+  const roleList = roles.map((role) => role.role as AppRole);
+  const showTeamToday =
+    isEmployeeHomeAudience(roleList) &&
+    showsSupervisorTeamToday(roleList, sessionProfile?.job_title, sessionProfile?.staff_role);
   const qc = useQueryClient();
   const canIssues = usePermission("issues.view");
   const [leaveType, setLeaveType] = useState<(typeof HR_LEAVE_TYPES)[number]>("annual");
@@ -547,6 +556,7 @@ export default function EmployeeMePage() {
                     </button>
                   </div>
                   {!person?.canSelfCheckIn ? <p className="hd-note">{t("hr.me.biometricNote")}</p> : null}
+                  {showTeamToday ? <TeamTodayPanel /> : null}
                   <div className="hd-stack">
                     <MissedPunchApprovalQueue hideWhenEmpty actionableOnly title={t("hr.me.approvalsTitle")} />
                   </div>

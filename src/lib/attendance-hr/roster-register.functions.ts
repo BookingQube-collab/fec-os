@@ -2,8 +2,9 @@
 
 import { z } from "zod";
 
-import { loadLinkedStaffIdentity, loadLinkedStaffJobTitle } from "@/lib/linked-staff-job-title.server";
-import { canAmendShiftRoster, canUserDo, type AppRole } from "@/lib/rbac";
+import { loadLinkedStaffIdentity } from "@/lib/linked-staff-job-title.server";
+import { canUserDo, type AppRole } from "@/lib/rbac";
+import { assertCanManageMonthlyRoster } from "@/lib/site-ops-access.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { isManagerTeamSupervisor } from "@/lib/manager-supervisor-team";
 import { loadAssignedTeamLocations, loadRosterChartStaffIds } from "@/lib/reporting-manager-access.server";
@@ -147,11 +148,7 @@ async function syncRosterLeaveRecord(
 }
 
 async function assertCanAmendRoster(context: Pick<AuthContext, "userId" | "roles">) {
-  const roles = context.roles ?? [];
-  if (canAmendShiftRoster(roles)) return;
-  const jobTitle = await loadLinkedStaffJobTitle(context.userId);
-  if (canAmendShiftRoster(roles, jobTitle)) return;
-  throw new ForbiddenError("Forbidden: missing capability to amend the shift roster.");
+  await assertCanManageMonthlyRoster(context.userId);
 }
 
 type RosterActor = {

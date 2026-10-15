@@ -1,5 +1,6 @@
 import { reportingDescendants } from "@/lib/reporting-chain";
 import { canUserDo, type AppRole } from "@/lib/rbac";
+import { canEditAttendanceMapping, type SiteOpsIdentity } from "@/lib/site-ops-access";
 
 /** Person-by-person attendance listing. Same route the Attendance listing tab already uses. */
 export const ATTENDANCE_LISTING_HREF = "/people/attendance/reports";
@@ -56,14 +57,17 @@ export function canSeeAttendanceMapping(roles: readonly AppRole[], hasDirectRepo
 }
 
 /**
- * Save/unmap on the existing mapper.
- * Auditors and other company viewers stay read-only unless they lead a team.
+ * Save, unmap, and remove on Attendance mapping.
+ * Viewing the list stays with canSeeAttendanceMapping. A team leader, HR login,
+ * or company role does not edit unless the linked staff row is a venue
+ * supervisor, Sr. Site Supervisor, or F&B supervisor.
  */
-export function canMergeAttendanceMappings(roles: readonly AppRole[], hasDirectReports: boolean): boolean {
-  if (attendanceMappingIsCompanyWide(roles)) return true;
-  if (!canSeeAttendanceMapping(roles, hasDirectReports)) return false;
-  if (hasDirectReports) return true;
-  return roles.some((role) => (MANAGER_SUPERVISOR_ROLES as readonly AppRole[]).includes(role));
+export function canMergeAttendanceMappings(
+  _roles: readonly AppRole[],
+  _hasDirectReports: boolean,
+  identity?: SiteOpsIdentity | null,
+): boolean {
+  return canEditAttendanceMapping(identity);
 }
 
 /** Dashboard and Corrections stay. Listing and Mapping open for team leaders. Import and devices stay on company access. */

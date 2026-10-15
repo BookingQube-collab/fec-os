@@ -9,6 +9,7 @@ import {
   grantKey,
   type CapabilityGrantMap,
 } from "@/lib/rbac-grants";
+import { canManageMonthlyRoster } from "@/lib/site-ops-access";
 
 export type { CapabilityGrantMap };
 
@@ -473,17 +474,10 @@ export function canManageAnnouncements(roles: readonly string[]): boolean {
   return canUserDo(list, "hr.manage") || canUserDo(list, "people.edit_roster");
 }
 
-const SHIFT_ROSTER_AMEND_CAPABILITIES = [
-  "people.edit_roster",
-  "people.import_roster",
-  "daily_ops.roster.upload",
-] as const satisfies readonly Capability[];
-
 /**
- * Job title on the linked staff row that may amend the monthly roster
- * even when the login role cannot. Matches "manager" or "supervisor" as a
- * whole word (F&B Manager, Site Supervisor, Sr. Site Supervisor, Duty Manager).
- * A plain Cashier, Host, or Technician title does not match.
+ * Manager or supervisor job title used by the people directory.
+ * Monthly roster, mapping, and team corrections use canManageMonthlyRoster
+ * instead, which does not treat every manager or team leader as an editor.
  */
 export function isRosterAmendJobTitle(jobTitle: string | null | undefined): boolean {
   const title = jobTitle?.trim().toLowerCase() ?? "";
@@ -492,19 +486,18 @@ export function isRosterAmendJobTitle(jobTitle: string | null | undefined): bool
 }
 
 /**
- * Pencil, trash, and Delete all on the monthly roster.
- * Uses the code role list, not a saved Roles-page override. A deny grant was
- * hiding these controls from duty managers and tech supervisors after the
- * capability lists already included them. Leadership and HR stay included.
- * A manager or supervisor job title is allowed even when the login role is
- * cashier_host and a Roles-page deny is saved for that role.
- * Cashiers, technicians, customer service, auditors, and CFO stay out unless
- * their staff job title is a manager or supervisor.
+ * Pencil, trash, upload, copy, and Delete all on the monthly roster.
+ * Login role and a direct-report team do not grant this. Only a venue
+ * supervisor, Sr. Site Supervisor, or F&B supervisor on the linked staff row.
+ * Team Leader (TEAM_LEAD) and Admin Team Leader stay out.
  */
-export function canAmendShiftRoster(roles: readonly string[], jobTitle?: string | null): boolean {
-  if (isRosterAmendJobTitle(jobTitle)) return true;
-  const list = roles as AppRole[];
-  return SHIFT_ROSTER_AMEND_CAPABILITIES.some((capability) => canUserDo(list, capability, null));
+export function canAmendShiftRoster(
+  _roles: readonly string[],
+  jobTitle?: string | null,
+  staffRole?: string | null,
+  department?: string | null,
+): boolean {
+  return canManageMonthlyRoster({ jobTitle, staffRole, department });
 }
 
 /** Where a freshly signed-in user should land based on their highest role. */

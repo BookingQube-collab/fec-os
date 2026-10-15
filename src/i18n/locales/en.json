@@ -9031,6 +9031,27 @@
         "all": "All"
       }
     },
+    "teamToday": {
+      "title": "Team today",
+      "subtitle": "Who is in, on leave, or absent today.",
+      "subtitleSite": "{{site}} · {{date}}",
+      "subtitleLocations": "{{date}} · by location",
+      "subtitleCompany": "All branches · {{date}}",
+      "summary": "{{present}} present · {{annual}} annual leave · {{sick}} sick leave · {{absent}} absent",
+      "colName": "Name",
+      "colRole": "Role",
+      "colToday": "Today",
+      "colAnnual": "Annual left",
+      "noSite": "No site",
+      "empty": "No one on this team today.",
+      "loadError": "Unable to load team today.",
+      "status": {
+        "present": "Present",
+        "annualLeave": "Annual leave",
+        "sickLeave": "Sick leave",
+        "notPresent": "Absent"
+      }
+    },
     "dashboard": {
       "kicker": "People",
       "title": "AI Smart Dashboard",
@@ -9930,6 +9951,8 @@
       "downloadPdfError": "Could not download the organization chart.",
       "expandAll": "Expand all",
       "collapseAll": "Collapse all",
+      "fullPage": "Full page",
+      "closeFullPage": "Close",
       "layoutLabel": "Chart layout",
       "layoutTree": "Tree",
       "layoutLevels": "Top-down",

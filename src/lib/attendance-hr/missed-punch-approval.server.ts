@@ -1,6 +1,8 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { loadLinkedStaffIdentity } from "@/lib/linked-staff-job-title.server";
+import { canCorrectTeamAttendance } from "@/lib/site-ops-access";
 import { recalculateAttendanceRange } from "@/lib/attendance-hr/process";
 import {
   approverUserIdsForStep,
@@ -124,24 +126,13 @@ async function staffIdByUserId(userIds: string[]): Promise<Map<string, string>> 
   return map;
 }
 
-async function callerJobTitle(userId: string): Promise<string | null> {
-  const { data, error } = await supabaseAdmin
-    .from("staff")
-    .select("job_title")
-    .eq("user_id", userId)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (error) throw error;
-  return (data?.job_title as string | null) ?? null;
-}
-
 async function callerCorrectionAccess(userId: string) {
-  const [roles, reports, reportingTree, managerTeam, jobTitle] = await Promise.all([
+  const [roles, reports, reportingTree, managerTeam, identity] = await Promise.all([
     loadCallerRoles(userId),
     loadDirectReportStaffIds(userId),
     loadReportingTreeStaffIds(userId),
     loadManagerTeamStaffIds(userId),
-    callerJobTitle(userId),
+    loadLinkedStaffIdentity(userId),
   ]);
   return {
     roles,
@@ -154,8 +145,10 @@ async function callerCorrectionAccess(userId: string) {
     canRequest: canRequestAttendanceCorrection({
       roles,
       hasDirectReports: reports.directReportStaffIds.length > 0,
-      jobTitle,
+      jobTitle: identity.jobTitle,
     }),
+    /** Corrections for other people. Own punch requests do not use this flag. */
+    canCorrectTeam: canCorrectTeamAttendance(identity),
   };
 }
 
@@ -569,9 +562,9 @@ export async function submitMissedPunchRequest(args: {
   const route = punchCorrectionRoute({
     requesterStaffId: String(staff.id),
     targetStaffId,
-    teamStaffIds: access.teamStaffIds,
+    teamStaffIds: access.canCorrectTeam ? access.teamStaffIds : [],
   });
-  if (route == null || (!isSelf && (!access.canRequest || route !== "hr"))) {
+  if (route == null || (!isSelf && !access.canCorrectTeam)) {
     throw new ForbiddenError("You can only request a correction for yourself or someone who reports to you.");
   }
 
@@ -1221,11 +1214,11 @@ export type PunchCorrectionDay = {
   correctable: boolean;
 };
 
-/** People this login may correct: themselves and everyone who reports to them, including through their team. */
+/** People this login may correct. Team members only for venue, Sr. Site, and F&B supervisors. */
 export async function listPunchCorrectionSubjects(userId: string): Promise<PunchCorrectionSubject[]> {
   const access = await callerCorrectionAccess(userId);
   if (!access.canRequest || !access.staffId) return [];
-  const ids = [access.staffId, ...access.teamStaffIds];
+  const ids = access.canCorrectTeam ? [access.staffId, ...access.teamStaffIds] : [access.staffId];
   const data: Array<{ id: string; full_name: string | null; employee_code: string | null }> = [];
   for (let index = 0; index < ids.length; index += 100) {
     const chunk = ids.slice(index, index + 100);
@@ -1254,12 +1247,13 @@ export async function findPunchCorrectionDay(args: {
   workDate: string;
 }): Promise<PunchCorrectionDay> {
   const access = await callerCorrectionAccess(args.userId);
+  const teamIds = access.canCorrectTeam ? access.teamStaffIds : [];
   if (
     !access.canRequest ||
     !canCorrectStaffPunch({
       requesterStaffId: access.staffId,
       targetStaffId: args.staffId,
-      directReportStaffIds: access.teamStaffIds,
+      directReportStaffIds: teamIds,
     })
   ) {
     throw new ForbiddenError("You can only correct your own punches or punches for people who report to you.");

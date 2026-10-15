@@ -14,7 +14,6 @@ import {
   attendanceMappingIsCompanyWide,
   attendanceMappingRowAllowed,
   attendanceMappingStaffAllowed,
-  canMergeAttendanceMappings,
   canSeeAttendanceMapping,
   resolveAttendanceListingStaffConstraint,
 } from "@/lib/attendance-listing-access";
@@ -24,6 +23,7 @@ import {
   loadTeamCoverageLocations,
 } from "@/lib/reporting-manager-access.server";
 import { canUserDo, type AppRole } from "@/lib/rbac";
+import { assertCanManageMonthlyRoster } from "@/lib/site-ops-access.server";
 import { ACTIVE_ROSTER_STAFF_STATUS_OR, STAFF_NOT_JOKER_EMPLOYMENT_OR } from "@/lib/staff-status";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
@@ -1262,10 +1262,7 @@ export const mapAttendanceRosterSheetName = createAuthenticatedAction(
     staffId: z.string().uuid(),
   }),
   async (data, context) => {
-    const roles = (context.roles ?? []) as AppRole[];
-    if (!canUserDo(roles, "attendance.map_users") && !canUserDo(roles, "people.import_roster")) {
-      throw new ForbiddenError("Roster mapping permission required");
-    }
+    await assertCanManageMonthlyRoster(context.userId);
     await assertSite(context, data.locationId);
 
     const deviceName = data.deviceName.trim();
@@ -1386,15 +1383,11 @@ export const mapAttendanceRosterSheetName = createAuthenticatedAction(
 );
 
 async function assertMapUsers(context: AuthContext) {
-  const roles = context.roles ?? [];
-  if (attendanceMappingIsCompanyWide(roles)) return;
-  const staffIds = await loadReportingTreeStaffIds(context.userId);
-  if (!canMergeAttendanceMappings(roles, staffIds.length > 0)) {
-    throw new ForbiddenError("Attendance mapping is limited to your team.");
-  }
+  await assertCanManageMonthlyRoster(context.userId);
 }
 
 async function loadBiometricMappingForWriter(context: AuthContext, mappingId: string) {
+  await assertCanManageMonthlyRoster(context.userId);
   const roles = context.roles ?? [];
   const companyWide = attendanceMappingIsCompanyWide(roles);
   const db = companyWide ? context.supabase : (supabaseAdmin as AuthContext["supabase"]);
@@ -1406,9 +1399,6 @@ async function loadBiometricMappingForWriter(context: AuthContext, mappingId: st
     return { mapping, writer: context, companyWide: true, staffIds: [] as string[] };
   }
   const staffIds = await loadReportingTreeStaffIds(context.userId);
-  if (!canMergeAttendanceMappings(roles, staffIds.length > 0)) {
-    throw new ForbiddenError("Attendance mapping is limited to your team.");
-  }
   const locationIds = (await loadTeamCoverageLocations(staffIds)).map((site) => site.id);
   if (
     !attendanceMappingRowAllowed(false, staffIds, locationIds, {
@@ -2181,6 +2171,7 @@ export const submitAttendanceCorrection = createAuthenticatedAction(
     reason: z.string().min(3).max(1000),
   }),
   async (data, context) => {
+    await assertCanManageMonthlyRoster(context.userId);
     await assertSite(context, data.locationId);
     const { data: row, error } = await context.supabase
       .from("attendance_corrections")

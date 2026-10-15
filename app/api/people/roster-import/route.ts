@@ -1,4 +1,5 @@
 import { logger } from "@/core/logger";
+import { assertCanManageMonthlyRoster } from "@/lib/site-ops-access.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { resolveShiftRosterUploadScope } from "@/lib/reporting-manager-access.server";
 import { withAuthRouteRequest, searchParams } from "@/lib/server/api-route";
@@ -135,6 +136,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   return withAuthRouteRequest(
     async (context, req) => {
+      await assertCanManageMonthlyRoster(context.userId);
       const scope = await resolveShiftRosterUploadScope(context);
       const team = scope.kind === "team" ? { staffIds: scope.staffIds, locationIds: scope.locationIds } : undefined;
       const batchDb = team ? supabaseAdmin : context.supabase;
