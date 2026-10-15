@@ -69,7 +69,8 @@ function createIsolateId(): string {
 
 type PerfSink = (line: AdmsPerfLog) => void;
 let sink: PerfSink = (line) => {
-  console.info(JSON.stringify(line));
+  // warn survives the production build, which strips console.info.
+  console.warn(JSON.stringify(line));
 };
 
 export type AdmsPerfLog = {
@@ -90,8 +91,11 @@ export function setAdmsPerfCategory(category: AdmsPerfCategory): void {
   if (trace) trace.category = category;
 }
 
-/** Times one database region. Nested recalculation must use noteAdmsRecalc instead. */
-export async function timeAdmsDb<T>(work: () => Promise<T>): Promise<T> {
+/**
+ * Times one database region. Nested recalculation must use noteAdmsRecalc instead.
+ * Accepts a Supabase builder, which is thenable but not a full Promise.
+ */
+export async function timeAdmsDb<T>(work: () => PromiseLike<T>): Promise<T> {
   const trace = currentTrace();
   const started = performance.now();
   try {
