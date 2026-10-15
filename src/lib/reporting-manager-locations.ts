@@ -35,7 +35,7 @@ export function rosterChartTeamIds(
   viewerStaffId: string | null,
   people: readonly {
     staffId: string;
-    reportingManagerStaffId: string | null;
+    reportingManagerStaffId?: string | null;
     assignable?: boolean;
   }[],
 ): string[] {
