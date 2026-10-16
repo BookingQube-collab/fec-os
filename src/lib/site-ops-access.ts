@@ -1,3 +1,4 @@
+import { isManagerTeamSupervisor } from "@/lib/manager-supervisor-team";
 import { isSrSiteSupervisorTitle } from "@/lib/org-hierarchy";
 
 /**
@@ -12,7 +13,21 @@ import { isSrSiteSupervisorTitle } from "@/lib/org-hierarchy";
  * There is no team_leader login role. The site catalog title "Team Leader"
  * (department code TEAM_LEAD), "Admin Team Leader", and a login that only
  * has direct reports are not on this list.
+ *
+ * Site Supervisor and other *Supervisor* titles open the monthly roster through
+ * canOpenShiftRoster. Mapping and team corrections stay on this narrower list.
  */
+
+/** Same default roles as people.edit_roster — kept here so this file does not import rbac. */
+const ROSTER_SAVE_ROLES = new Set([
+  "ceo",
+  "coo",
+  "regional_ops",
+  "branch_gm",
+  "duty_manager",
+  "tech_supervisor",
+  "hr",
+]);
 export type SiteOpsIdentity = {
   jobTitle?: string | null;
   staffRole?: string | null;
@@ -74,14 +89,21 @@ export function canManageMonthlyRoster(identity: SiteOpsIdentity | null | undefi
   return false;
 }
 
-/** Shift roster upload and the monthly roster controls. CEO and GM logins, plus Adil and the General Manager by title. */
+/**
+ * Shift roster upload and monthly roster create / edit / delete.
+ * Venue, Sr. Site, F&B, and Site Supervisor titles; any other *Supervisor* title;
+ * CEO / GM / Adil; and every login that already has people.edit_roster
+ * (duty manager, tech supervisor, HR, and the rest).
+ * Team Leader stays out unless that login also has people.edit_roster.
+ */
 export function canOpenShiftRoster(
   identity: (SiteOpsIdentity & { roles?: readonly string[] | null }) | null | undefined,
 ): boolean {
   if (!identity) return false;
   if (canManageMonthlyRoster(identity)) return true;
   if (matchesAny(identity, isExecutiveRosterLabel)) return true;
-  return (identity.roles ?? []).some((role) => role === "ceo" || role === "branch_gm");
+  if (isManagerTeamSupervisor(identity.jobTitle, identity.staffRole)) return true;
+  return (identity.roles ?? []).some((role) => ROSTER_SAVE_ROLES.has(role));
 }
 
 /** Save, unmap, and remove on Attendance mapping. Same people as the monthly roster. */

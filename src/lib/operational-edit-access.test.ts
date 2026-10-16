@@ -11,35 +11,33 @@ describe("supervisor and manager operational edit", () => {
     setActiveCapabilityGrants(null);
   });
 
-  it("does not open monthly roster edit from a login role or a denied capability", () => {
-    const roles = ["coo", "regional_ops", "duty_manager", "tech_supervisor", "hr", "cashier_host"] as const;
-    for (const role of roles) {
-      expect(canAmendShiftRoster([role]), role).toBe(false);
+  it("opens monthly roster edit for every login that already has people.edit_roster", () => {
+    for (const role of ["coo", "regional_ops", "duty_manager", "tech_supervisor", "hr", "ceo", "branch_gm"] as const) {
+      expect(canAmendShiftRoster([role]), role).toBe(true);
     }
     expect(canAmendShiftRoster([])).toBe(false);
-    expect(canAmendShiftRoster(["ceo"])).toBe(true);
-    expect(canAmendShiftRoster(["branch_gm"])).toBe(true);
+    expect(canAmendShiftRoster(["cashier_host"])).toBe(false);
   });
 
   it("shows the shift roster option for the General Manager and Adil", () => {
     expect(canAmendShiftRoster(["cashier_host"], "General Manager")).toBe(true);
     expect(canAmendShiftRoster(["cashier_host"], "Managing Director")).toBe(true);
     expect(canAmendShiftRoster(["cashier_host"], "Managing Director / Chief Executive Officer")).toBe(true);
-    expect(canAmendShiftRoster(["hr"], "Head of Operations")).toBe(false);
+    expect(canAmendShiftRoster(["cashier_host"], "Head of Operations")).toBe(false);
   });
 
-  it("lets only venue, sr. site, and F&B supervisors amend when the login is cashier_host", () => {
+  it("lets site supervisors and other supervisor titles amend the monthly roster", () => {
     expect(canAmendShiftRoster(["cashier_host"], "F&B Supervisor")).toBe(true);
     expect(canAmendShiftRoster(["cashier_host"], "Sr. Site Supervisor")).toBe(true);
     expect(canAmendShiftRoster(["cashier_host"], "Venue Supervisor")).toBe(true);
+    expect(canAmendShiftRoster(["cashier_host"], "Site Supervisor")).toBe(true);
     expect(canAmendShiftRoster(["cashier_host"], null, "venue_supervisor")).toBe(true);
     expect(canAmendShiftRoster(["cashier_host"], "F&B Manager")).toBe(false);
-    expect(canAmendShiftRoster(["cashier_host"], "Site Supervisor")).toBe(false);
     expect(canAmendShiftRoster(["cashier_host"], "Duty Manager")).toBe(false);
     expect(canAmendShiftRoster(["cashier_host"], "Team Leader")).toBe(false);
     expect(canAmendShiftRoster(["cashier_host"], "Admin Team Leader")).toBe(false);
     expect(canAmendShiftRoster(["cashier_host"], "Cashier")).toBe(false);
-    expect(canAmendShiftRoster(["hr"], "Team Leader")).toBe(false);
+    expect(canAmendShiftRoster(["cashier_host"], "Team Leader")).toBe(false);
   });
 
   it("keeps monthly roster create, edit, delete, and import", () => {

@@ -8,7 +8,12 @@ import { assertCanOpenShiftRoster } from "@/lib/site-ops-access.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { isManagerTeamSupervisor } from "@/lib/manager-supervisor-team";
 import { loadAssignedTeamLocations, loadRosterChartStaffIds } from "@/lib/reporting-manager-access.server";
-import { createAuthenticatedAction, createAuthenticatedActionNoInput, type AuthContext } from "@/lib/server/create-action";
+import {
+  createAuthenticatedAction,
+  createAuthenticatedActionNoInput,
+  createSafeAuthenticatedAction,
+  type AuthContext,
+} from "@/lib/server/create-action";
 import { ForbiddenError } from "@/lib/server/authorize";
 import { assertAttendanceRosterLocation } from "@/lib/attendance-hr/roster-apply";
 import { loadActiveShiftTemplates } from "@/lib/attendance-hr/roster-amend";
@@ -919,7 +924,7 @@ export const listRosterAssignStaff = createAuthenticatedActionNoInput(async (con
 }, rosterAmendAuth);
 
 /** Create one assignment on a day that has none yet. Same row the amend pencil edits. */
-export const createRosterAssignment = createAuthenticatedAction(
+export const createRosterAssignment = createSafeAuthenticatedAction(
   z.object({
     locationId: z.string().uuid(),
     staffId: z.string().uuid(),
@@ -1010,7 +1015,7 @@ export const createRosterAssignment = createAuthenticatedAction(
   rosterAmendAuth,
 );
 
-export const updateRosterAssignment = createAuthenticatedAction(
+export const updateRosterAssignment = createSafeAuthenticatedAction(
   z.object({
     id: z.string().uuid(),
     locationId: z.string().uuid().optional(),
@@ -1149,7 +1154,7 @@ export const updateRosterAssignment = createAuthenticatedAction(
   rosterAmendAuth,
 );
 
-export const deleteRosterAssignment = createAuthenticatedAction(
+export const deleteRosterAssignment = createSafeAuthenticatedAction(
   z.object({ id: z.string().uuid() }),
   async (data, context) => {
     await assertCanAmendRoster(context);
@@ -1185,7 +1190,7 @@ export const deleteRosterAssignment = createAuthenticatedAction(
       staffIds: [existing.staff_id],
     });
 
-    return { ok: true as const, id: data.id };
+    return { id: data.id };
   },
   rosterAmendAuth,
 );

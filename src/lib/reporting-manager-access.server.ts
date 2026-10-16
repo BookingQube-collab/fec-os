@@ -3,6 +3,7 @@ import "server-only";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { reportingTreeStaffIds } from "@/lib/attendance-listing-access";
 import { isRosterAssignableStaffStatus } from "@/lib/attendance-hr/roster-register-scope";
+import { loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
 import {
   isManagerTeamSupervisor,
   managerSupervisorTeamIds,
@@ -43,13 +44,7 @@ export type DirectReportAccess = {
  * points at the signed-in user's staff record. Direct reports only.
  */
 export async function loadDirectReportStaffIds(userId: string): Promise<DirectReportAccess> {
-  const { data: staff, error } = await supabaseAdmin
-    .from("staff")
-    .select("id")
-    .eq("user_id", userId)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
+  const staff = await loadLinkedStaffRecord(userId);
   if (!staff?.id) return { staffId: null, directReportStaffIds: [] };
 
   const { data: reports, error: reportErr } = await supabaseAdmin
@@ -516,16 +511,11 @@ function rosterChartAssignable(member: {
  * jokers stay off the list. The walk still passes through them.
  */
 export async function loadRosterChartStaffIds(userId: string): Promise<string[]> {
-  const { data: staff, error } = await supabaseAdmin
-    .from("staff")
-    .select("id, status, employment_type, deleted_at")
-    .eq("user_id", userId)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
+  // One login can link to more than one staff row. Use the newest only.
+  const staff = await loadLinkedStaffRecord(userId);
   if (!staff?.id) return [];
 
-  const viewerStaffId = String(staff.id);
+  const viewerStaffId = staff.id;
   const people: {
     staffId: string;
     reportingManagerStaffId: string | null;
@@ -536,7 +526,7 @@ export async function loadRosterChartStaffIds(userId: string): Promise<string[]>
       reportingManagerStaffId: null,
       assignable: rosterChartAssignable({
         status: staff.status,
-        employmentType: staff.employment_type,
+        employmentType: staff.employmentType,
       }),
     },
   ];

@@ -354,7 +354,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
             throw new Error(t("people.roster.compOffNoteRequired"));
           }
         }
-        return updateRosterAssignment({
+        const result = await updateRosterAssignment({
           id: row.id,
           locationId: draft.locationId,
           shiftStart: patch.needsShiftTimes ? draft.shiftStart : null,
@@ -363,6 +363,8 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
           compOffForDate: draft.dayStatus === "comp_off" ? draft.compOffForDate : null,
           compOffNote: draft.dayStatus === "comp_off" ? draft.compOffNote.trim() : null,
         });
+        if (!result.ok) throw new Error(result.error);
+        return result.data;
       },
       onSuccess: () => {
         toast.success(t("people.roster.registerSaved"));
@@ -387,7 +389,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
             throw new Error(t("people.roster.compOffNoteRequired"));
           }
         }
-        return createRosterAssignment({
+        const result = await createRosterAssignment({
           staffId: createStaffId,
           locationId: draft.locationId,
           workDate: createWorkDate,
@@ -397,6 +399,8 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
           compOffForDate: draft.dayStatus === "comp_off" ? draft.compOffForDate : null,
           compOffNote: draft.dayStatus === "comp_off" ? draft.compOffNote.trim() : null,
         });
+        if (!result.ok) throw new Error(result.error);
+        return result.data;
       },
       onSuccess: () => {
         toast.success(t("people.roster.registerAdded"));
@@ -409,7 +413,11 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     });
 
     const deleteMut = useMutation({
-      mutationFn: (id: string) => deleteRosterAssignment({ id }),
+      mutationFn: async (id: string) => {
+        const result = await deleteRosterAssignment({ id });
+        if (!result.ok) throw new Error(result.error);
+        return result.data;
+      },
       onSuccess: (_result, id) => {
         toast.success(t("people.roster.registerDeleted"));
         setEditingId(null);

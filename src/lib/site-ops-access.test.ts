@@ -55,14 +55,19 @@ describe("monthly roster, mapping, and team corrections", () => {
     }
   });
 
-  it("opens the shift roster for the General Manager and Adil without opening mapping", () => {
+  it("opens the shift roster for Site Supervisor, Adil, GM, and edit-roster logins without opening mapping", () => {
     const allowed = [
       { roles: ["ceo"] },
       { roles: ["branch_gm"] },
+      { roles: ["duty_manager"] },
+      { roles: ["tech_supervisor"] },
+      { roles: ["hr"] },
+      { roles: ["coo"] },
       { jobTitle: "General Manager" },
       { department: "General Manager" },
       { jobTitle: "Managing Director" },
       { jobTitle: "Managing Director / Chief Executive Officer" },
+      { jobTitle: "Site Supervisor" },
     ];
     for (const identity of allowed) {
       expect(canOpenShiftRoster(identity), JSON.stringify(identity)).toBe(true);
@@ -70,6 +75,7 @@ describe("monthly roster, mapping, and team corrections", () => {
       expect(canEditAttendanceMapping(identity), JSON.stringify(identity)).toBe(false);
     }
     expect(canOpenShiftRoster({ jobTitle: "Head of Operations" })).toBe(false);
-    expect(canOpenShiftRoster({ roles: ["coo"] })).toBe(false);
+    expect(canOpenShiftRoster({ roles: ["cashier_host"] })).toBe(false);
+    expect(canOpenShiftRoster({ jobTitle: "Team Leader" })).toBe(false);
   });
 });
