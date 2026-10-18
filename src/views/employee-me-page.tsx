@@ -9,13 +9,13 @@ import { toast } from "sonner";
 import { FecLoader } from "@/components/fec";
 import {
   MissedPunchApprovalQueue,
-  MissedPunchRequestButton,
   MyMissedPunchRequests,
 } from "@/components/attendance-hr/missed-punch-approval-queue";
 import { PunchCorrectionRequest } from "@/components/attendance-hr/punch-correction-request";
 import { MyDayCorrectionApprovals, MyDayLeaveApprovals } from "@/components/hr/my-day-approvals";
 import { IncompletePunchRosterSelf } from "@/components/hr/incomplete-punch-roster-self";
 import { RosterPunchFill } from "@/components/hr/roster-punch-fill";
+import { EmployeeAttendanceCalendar } from "@/components/hr/employee-attendance-calendar";
 import { EmployeeIssuesList, EmployeeRosterList } from "@/components/hr/employee-self-dashboard";
 import { SelfCheckCard } from "@/components/hr/self-check-card";
 import { HrShell } from "@/components/hr/hr-shell";
@@ -27,6 +27,7 @@ import {
   useMyLeaveRequests,
   useMyRoster,
 } from "@/hooks/queries/use-employee-self";
+import { monthDateRange } from "@/lib/daily-ops/roster-calendar-utils";
 import { useAuth } from "@/hooks/use-auth";
 import { usePermission } from "@/hooks/use-permission";
 import { showsSupervisorTeamToday } from "@/lib/hr/team-today";
@@ -45,12 +46,11 @@ import { listAnnouncements } from "@/lib/hr-announcements.functions";
 import { listAirTicketEntitlements } from "@/lib/hr-air-ticket.functions";
 import { listMyPayslips } from "@/lib/hr-payroll.functions";
 import { MyKraScorecards } from "@/components/people/my-kra-scorecard";
-import { formatWorkDateDdMmYyyy, formatPunchTime12h, formatHoursValue, computeHoursWorked } from "@/lib/attendance-display";
+import { formatWorkDateDdMmYyyy } from "@/lib/attendance-display";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { HR_LEAVE_TYPES } from "@/lib/hr-leave";
 import { type LeaveConflict } from "@/lib/hr-advanced";
-import { cn } from "@/lib/utils";
 
 const INSTALL_DISMISS_KEY = "fec-employee-install-dismissed";
 const EMPLOYEE_DOC_TYPES = ["qid", "passport", "visa", "cv", "educational_certificate", "medical_certificate", "leave_document", "other"] as const;
@@ -142,13 +142,6 @@ function EssEmpty({ children }: { children: ReactNode }) {
   return <p className="hd-empty">{children}</p>;
 }
 
-function attendanceTone(status: string, missedPunch: boolean): "destructive" | "warning" | "success" | "muted" {
-  if (missedPunch || status === "absent" || status === "missed_punch") return "destructive";
-  if (status === "late" || status === "early_leave" || status === "early_departure") return "warning";
-  if (status === "present" || status === "overtime") return "success";
-  return "muted";
-}
-
 function ProfileFacts({ rows }: { rows: Array<[string, string | null | undefined]> }) {
   const filled = rows.filter((entry): entry is [string, string] => Boolean(entry[1]));
   if (filled.length === 0) return null;
@@ -205,10 +198,17 @@ export default function EmployeeMePage() {
   const linked = Boolean(profile.data?.id);
   const selfReady = linked || profile.isError;
   const [tab, setTab] = useState<MeTab>("home");
-  const showAttendance = tab === "home" || tab === "attendance";
+  const todayQatarYmd = useMemo(
+    () => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" }),
+    [],
+  );
+  const [attendanceMonth, setAttendanceMonth] = useState(() => todayQatarYmd.slice(0, 7));
+  const [attendanceSelectedDate, setAttendanceSelectedDate] = useState<string | null>(null);
+  const attendanceMonthRange = useMemo(() => monthDateRange(attendanceMonth), [attendanceMonth]);
   const showRoster = tab === "home" || tab === "roster";
   const showLeave = tab === "home" || tab === "leave";
-  const attendance = useMyAttendance(showAttendance);
+  const homeAttendance = useMyAttendance(tab === "home");
+  const attendance = useMyAttendance(tab === "attendance", attendanceMonthRange);
   const roster = useMyRoster(showRoster);
   const leave = useMyLeaveRequests(tab === "leave");
   const balances = useMyLeaveBalances(showLeave);
@@ -390,11 +390,11 @@ export default function EmployeeMePage() {
   const unlinked = profileReady && !profile.isError && !linked;
   const displayName = person?.fullName || t("hr.me.title");
 
-  const todayQatar = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" });
+  const homeAttendanceRows = homeAttendance.data?.rows ?? [];
   const attendanceRows = attendance.data?.rows ?? [];
   const leaveBalances = balances.data?.balances ?? [];
   const primaryLeave = leaveBalances.find((row) => row.leaveType === "annual") ?? leaveBalances[0] ?? null;
-  const nextRoster = (roster.data?.rows ?? []).find((row) => row.workDate >= todayQatar) ?? null;
+  const nextRoster = (roster.data?.rows ?? []).find((row) => row.workDate >= todayQatarYmd) ?? null;
   const openIssueCount = (issues.data?.items ?? []).filter(
     (row) => row.status === "open" || row.status === "assigned" || row.status === "in_progress" || row.status === "blocked",
   ).length;
@@ -531,7 +531,9 @@ export default function EmployeeMePage() {
                   <div className="hd-stats">
                     <button type="button" className="hd-stat" onClick={() => selectTab("attendance")}>
                       <span className="hd-stat__value">
-                        {attendance.isLoading || attendance.isError ? "—" : String(attendanceRows.length)}
+                        {homeAttendance.isLoading || homeAttendance.isError
+                          ? "—"
+                          : String(homeAttendanceRows.length)}
                       </span>
                       <span className="hd-stat__label">{t("hr.me.daysThisMonth")}</span>
                     </button>
@@ -614,42 +616,22 @@ export default function EmployeeMePage() {
                   {person?.canSelfCheckIn ? <SelfCheckCard /> : null}
                   <MissedPunchApprovalQueue hideWhenEmpty actionableOnly title={t("hr.me.approvalsTitle")} />
                   {attendance.isError ? <EssEmpty>{t("hr.me.attendanceUnavailable")}</EssEmpty> : null}
+                  {!attendance.isError ? (
+                    <EmployeeAttendanceCalendar
+                      yearMonth={attendanceMonth}
+                      onYearMonthChange={(ym) => {
+                        setAttendanceMonth(ym);
+                        setAttendanceSelectedDate(null);
+                      }}
+                      rows={attendanceRows}
+                      isLoading={attendance.isLoading}
+                      selectedDate={attendanceSelectedDate}
+                      onSelectDate={setAttendanceSelectedDate}
+                      todayYmd={todayQatarYmd}
+                    />
+                  ) : null}
                   {!attendance.isLoading && !attendance.isError && attendanceRows.length === 0 ? (
                     <EssEmpty>{t("hr.me.noStatus")}</EssEmpty>
-                  ) : null}
-                  {attendanceRows.length > 0 ? (
-                    <ul>
-                      {attendanceRows.map((row) => {
-                        const needsPunch =
-                          row.missedPunch ||
-                          row.status === "missed_punch" ||
-                          Boolean(row.actualIn) !== Boolean(row.actualOut);
-                        return (
-                          <li key={row.id}>
-                            <div className={cn("hd-row", needsPunch && "bg-amber-500/10")}>
-                              <div className="min-w-0">
-                                <p className="hd-row__title">{formatWorkDateDdMmYyyy(row.workDate)}</p>
-                                <p className="hd-row__meta">
-                                  {row.locationLabel} · {formatPunchTime12h(row.actualIn) || "—"} –{" "}
-                                  {formatPunchTime12h(row.actualOut) || "—"} ·{" "}
-                                  {formatHoursValue(computeHoursWorked(row.actualIn, row.actualOut))}h
-                                </p>
-                                <MissedPunchRequestButton
-                                  summaryId={row.id}
-                                  missedPunch={row.missedPunch}
-                                  status={row.status}
-                                  actualIn={row.actualIn}
-                                  actualOut={row.actualOut}
-                                />
-                              </div>
-                              <Badge variant={attendanceTone(row.status, row.missedPunch)}>
-                                {labelOrRaw(`attendanceHr.reports.statuses.${row.status}`, row.status)}
-                              </Badge>
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ul>
                   ) : null}
                   <MyMissedPunchRequests />
                 </EssPanel>

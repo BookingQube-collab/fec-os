@@ -19,11 +19,19 @@ export function useMyEmployeeProfile(enabled = true) {
   });
 }
 
-/** Own biometric attendance for the current FEC month. */
-export function useMyAttendance(enabled = true) {
+/** Own biometric attendance for a date range (defaults to the current FEC month). */
+export function useMyAttendance(
+  enabled = true,
+  range?: { dateFrom: string; dateTo: string } | null,
+) {
   return useQuery({
-    queryKey: queryKeys.people.attendanceHr({ view: "my-attendance" }),
-    queryFn: () => getMyAttendance({}),
+    queryKey: queryKeys.people.attendanceHr({
+      view: "my-attendance",
+      dateFrom: range?.dateFrom ?? null,
+      dateTo: range?.dateTo ?? null,
+    }),
+    queryFn: () =>
+      getMyAttendance(range ? { dateFrom: range.dateFrom, dateTo: range.dateTo } : {}),
     staleTime: STALE.people,
     enabled,
   });

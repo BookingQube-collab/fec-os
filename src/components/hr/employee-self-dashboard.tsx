@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { CalendarDays, CalendarRange, Clock, Palmtree, TicketCheck } from "lucide-react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { EmployeeAttendanceCalendar } from "@/components/hr/employee-attendance-calendar";
 import { EmployeeRosterCalendar } from "@/components/hr/employee-roster-calendar";
 import { IncompletePunchRosterSelf } from "@/components/hr/incomplete-punch-roster-self";
 import { HrEmptyState } from "@/components/hr/hr-empty-state";
@@ -21,23 +23,14 @@ import {
   useMyLeaveRequests,
   useMyRoster,
 } from "@/hooks/queries/use-employee-self";
-import { MissedPunchRequestButton } from "@/components/attendance-hr/missed-punch-approval-queue";
 import { usePermission } from "@/hooks/use-permission";
-import { computeHoursWorked, formatHoursValue, formatPunchTime12h, formatWorkDateDdMmYyyy } from "@/lib/attendance-display";
+import { formatWorkDateDdMmYyyy } from "@/lib/attendance-display";
+import { monthDateRange } from "@/lib/daily-ops/roster-calendar-utils";
 import { cn } from "@/lib/utils";
 
 function labelOrRaw(t: (key: string) => string, key: string, raw: string) {
   const label = t(key);
   return label === key ? raw.replace(/_/g, " ") : label;
-}
-
-function attendanceBadgeVariant(status: string, missedPunch: boolean): "destructive" | "warning" | "success" | "muted" {
-  if (missedPunch || status === "absent" || status === "missed_punch") return "destructive";
-  if (status === "late" || status === "early_departure" || status === "short_hours" || status === "review_required") {
-    return "warning";
-  }
-  if (status === "present" || status === "overtime") return "success";
-  return "muted";
 }
 
 function issueBadgeVariant(status: string): "destructive" | "warning" | "success" | "muted" | "outline" {
@@ -174,7 +167,14 @@ function LeavePanel() {
 
 function AttendancePanel() {
   const { t } = useTranslation();
-  const attendance = useMyAttendance(true);
+  const todayYmd = useMemo(
+    () => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" }),
+    [],
+  );
+  const [yearMonth, setYearMonth] = useState(() => todayYmd.slice(0, 7));
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const range = useMemo(() => monthDateRange(yearMonth), [yearMonth]);
+  const attendance = useMyAttendance(true, range);
   const rows = attendance.data?.rows ?? [];
 
   return (
@@ -183,43 +183,23 @@ function AttendancePanel() {
         <Clock className="h-4 w-4 text-muted-foreground" strokeWidth={1.5} />
         {t("hr.me.myAttendance")}
       </h2>
-      <p className="mt-0.5 text-xs text-muted-foreground">
-        {attendance.isLoading
-          ? t("common.loading")
-          : attendance.isError
-            ? t("hr.me.attendanceUnavailable")
-            : attendance.data
-              ? `${formatWorkDateDdMmYyyy(attendance.data.dateFrom)} → ${formatWorkDateDdMmYyyy(attendance.data.dateTo)}`
-              : t("hr.me.biometricNote")}
-      </p>
-      <p className="mt-2 text-xs text-muted-foreground">{t("hr.me.biometricNote")}</p>
-      <div className="mt-3 max-h-[28rem] space-y-2 overflow-y-auto">
-        {attendance.isLoading ? (
-          <Skeleton className="h-16 rounded-2xl" />
-        ) : attendance.isError || rows.length === 0 ? (
-          attendance.isError ? null : <p className="text-sm text-muted-foreground">{t("hr.me.noStatus")}</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">{t("hr.me.biometricNote")}</p>
+      <div className="mt-3">
+        {attendance.isError ? (
+          <p className="text-sm text-muted-foreground">{t("hr.me.attendanceUnavailable")}</p>
         ) : (
-          rows.map((row) => (
-            <div key={row.id} className="hr-list-row !items-start">
-              <div className="min-w-0">
-                <p className="font-medium">{formatWorkDateDdMmYyyy(row.workDate)}</p>
-                <p className="text-xs text-muted-foreground">
-                  {row.locationLabel} · {formatPunchTime12h(row.actualIn) || "—"} – {formatPunchTime12h(row.actualOut) || "—"} ·{" "}
-                  {formatHoursValue(computeHoursWorked(row.actualIn, row.actualOut))}h
-                </p>
-                <MissedPunchRequestButton
-                  summaryId={row.id}
-                  missedPunch={row.missedPunch}
-                  status={row.status}
-                  actualIn={row.actualIn}
-                  actualOut={row.actualOut}
-                />
-              </div>
-              <Badge variant={attendanceBadgeVariant(row.status, row.missedPunch)}>
-                {labelOrRaw(t, `attendanceHr.reports.statuses.${row.status}`, row.status)}
-              </Badge>
-            </div>
-          ))
+          <EmployeeAttendanceCalendar
+            yearMonth={yearMonth}
+            onYearMonthChange={(ym) => {
+              setYearMonth(ym);
+              setSelectedDate(null);
+            }}
+            rows={rows}
+            isLoading={attendance.isLoading}
+            selectedDate={selectedDate}
+            onSelectDate={setSelectedDate}
+            todayYmd={todayYmd}
+          />
         )}
       </div>
     </HrPanel>

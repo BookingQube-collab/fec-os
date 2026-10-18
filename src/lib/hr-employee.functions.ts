@@ -46,7 +46,7 @@ export const getMyAttendance = createAuthenticatedAction(
       .gte("work_date", dateFrom)
       .lte("work_date", dateTo)
       .order("work_date", { ascending: false })
-      .limit(40);
+      .limit(62);
     if (error) {
       if (tableMissing(error.message)) return { staffId, dateFrom, dateTo, rows: [] };
       throw error;
