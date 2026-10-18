@@ -8,7 +8,7 @@ import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 
 /** Topbar inbox + escalations share one poll cadence; pause while tab hidden. */
-const INBOX_POLL_MS = 120_000;
+const INBOX_POLL_MS = 20_000;
 
 export function useEscalations(options?: { enabled?: boolean }) {
   return useQuery({

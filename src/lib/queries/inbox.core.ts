@@ -310,47 +310,153 @@ async function fetchWeeklyReportItems(context: AuthContext, roles: AppRole[]): P
   );
 }
 
-async function fetchMissedPunchItems(context: AuthContext, roles: AppRole[]): Promise<InboxItem[]> {
-  if (!roles.includes("ceo")) return [];
-  const { data, error } = await context.supabase
-    .from("attendance_corrections")
-    .select("id, staff_id, work_date, current_step_role, requested_at")
-    .eq("status", "pending")
-    .in("current_step_role", ["manager", "ops"])
-    .order("requested_at", { ascending: false })
-    .limit(20);
-  if (error) throw error;
-  const rows = data ?? [];
-  const staffIds = [...new Set(rows.map((row) => row.staff_id).filter((id): id is string => Boolean(id)))];
-  const names = new Map<string, string>();
-  if (staffIds.length) {
-    const { data: staff } = await context.supabase.from("staff").select("id, full_name").in("id", staffIds);
-    for (const person of staff ?? []) {
-      if (person.full_name) names.set(person.id as string, String(person.full_name));
-    }
-  }
-  return rows.slice(0, 12).map((row) => {
-    const ops = row.current_step_role === "ops";
-    const who = (row.staff_id && names.get(row.staff_id)) || "Staff";
-    const date = row.work_date ? String(row.work_date).slice(0, 10) : "";
-    return item({
-      id: `punch:${row.id}`,
-      kind: "notification",
-      category: "people",
-      title: ops ? "Missed punch waiting for operations approval" : "Missed punch request",
-      titleKey: null,
-      body: ops
-        ? `${who}'s missed punch${date ? ` on ${date}` : ""} was approved by their supervisor.`
-        : `${who} submitted a missed punch${date ? ` for ${date}` : ""}. It is waiting for their line manager.`,
-      severity: "warning",
-      actionUrl: "/people/attendance/corrections",
-      readAt: null,
-      createdAt: asIso(row.requested_at),
-      sourceType: "attendance_corrections",
-      sourceId: row.id,
-      persisted: false,
-    });
+function mapPunchInboxRow(
+  row: {
+    id: string;
+    staff_id: string | null;
+    work_date: string | null;
+    current_step_role: string | null;
+    requested_at: string | null;
+    staffName?: string | null;
+  },
+  actionUrl: string,
+): InboxItem {
+  const ops = row.current_step_role === "ops";
+  const who = (row.staffName ?? "").trim() || "Staff";
+  const date = row.work_date ? String(row.work_date).slice(0, 10) : "";
+  return item({
+    id: `punch:${row.id}`,
+    kind: "notification",
+    category: "people",
+    title: ops ? "Missed punch waiting for operations approval" : "Missed punch request",
+    titleKey: null,
+    body: ops
+      ? `${who}'s missed punch${date ? ` on ${date}` : ""} was approved by their supervisor.`
+      : `${who} submitted a missed punch${date ? ` for ${date}` : ""}. It is waiting for their line manager.`,
+    severity: "warning",
+    actionUrl,
+    readAt: null,
+    createdAt: asIso(row.requested_at),
+    sourceType: "attendance_corrections",
+    sourceId: row.id,
+    persisted: false,
   });
+}
+
+async function fetchMissedPunchItems(context: AuthContext, roles: AppRole[]): Promise<InboxItem[]> {
+  // Estate-wide copy for Admin/CEO observers.
+  if (roles.includes("ceo")) {
+    const { data, error } = await context.supabase
+      .from("attendance_corrections")
+      .select("id, staff_id, work_date, current_step_role, requested_at")
+      .eq("status", "pending")
+      .in("current_step_role", ["manager", "ops"])
+      .order("requested_at", { ascending: false })
+      .limit(20);
+    if (error) throw error;
+    const rows = data ?? [];
+    const staffIds = [...new Set(rows.map((row) => row.staff_id).filter((id): id is string => Boolean(id)))];
+    const names = new Map<string, string>();
+    if (staffIds.length) {
+      const { data: staff } = await context.supabase.from("staff").select("id, full_name").in("id", staffIds);
+      for (const person of staff ?? []) {
+        if (person.full_name) names.set(person.id as string, String(person.full_name));
+      }
+    }
+    return rows.slice(0, 12).map((row) =>
+      mapPunchInboxRow(
+        {
+          ...row,
+          staffName: (row.staff_id && names.get(row.staff_id)) || "Staff",
+        },
+        "/people/attendance/corrections",
+      ),
+    );
+  }
+
+  // Line managers / site supervisors / ops: only corrections they can act on.
+  try {
+    const { listMissedPunchCorrections } = await import(
+      "@/lib/attendance-hr/missed-punch-approval.server"
+    );
+    const rows = await listMissedPunchCorrections({
+      userId: context.userId,
+      queue: "waiting",
+      actionableOnly: true,
+    });
+    return rows
+      .filter((row) => row.status === "pending")
+      .slice(0, 12)
+      .map((row) => {
+        const ops = row.currentStepRole === "ops" || row.currentStepRole === "hr";
+        return mapPunchInboxRow(
+          {
+            id: row.id,
+            staff_id: row.staffId,
+            work_date: row.workDate,
+            current_step_role: row.currentStepRole,
+            requested_at: row.requestedAt,
+            staffName: row.staffName,
+          },
+          ops ? "/people/attendance/corrections" : "/hr/me#me-punch-approvals",
+        );
+      });
+  } catch {
+    return [];
+  }
+}
+
+async function fetchLeaveApprovalItems(context: AuthContext, roles: AppRole[]): Promise<InboxItem[]> {
+  const manage = canUserDo(roles, "hr.leave.manage");
+  const managerCap = canUserDo(roles, "hr.leave.approve_manager");
+  try {
+    const { loadManagerTeamStaffIds } = await import("@/lib/reporting-manager-access.server");
+    const { teamStaffIds } = await loadManagerTeamStaffIds(context.userId);
+    if (!manage && !managerCap && teamStaffIds.length === 0) return [];
+
+    let query = context.supabase
+      .from("hr_leave_requests")
+      .select("id, staff_id, leave_type, date_from, current_step_role, created_at, updated_at")
+      .eq("status", "pending")
+      .order("created_at", { ascending: false })
+      .limit(40);
+    if (!manage && !managerCap) {
+      query = query.in("staff_id", teamStaffIds).eq("current_step_role", "manager");
+    }
+    const { data, error } = await query;
+    if (error) throw error;
+    const rows = (data ?? []).slice(0, 12);
+    const staffIds = [...new Set(rows.map((row) => row.staff_id).filter((id): id is string => Boolean(id)))];
+    const names = new Map<string, string>();
+    if (staffIds.length) {
+      const { data: staff } = await context.supabase.from("staff").select("id, full_name").in("id", staffIds);
+      for (const person of staff ?? []) {
+        if (person.full_name) names.set(person.id as string, String(person.full_name));
+      }
+    }
+    return rows.map((row) => {
+      const who = (row.staff_id && names.get(row.staff_id)) || "Staff";
+      const date = row.date_from ? String(row.date_from).slice(0, 10) : "";
+      const step = row.current_step_role ? String(row.current_step_role) : "manager";
+      return item({
+        id: `leave:${row.id}`,
+        kind: "notification",
+        category: "hr_leave",
+        title: "Leave request needs your approval",
+        titleKey: null,
+        body: `${who} submitted a leave request${date ? ` from ${date}` : ""}. Waiting on ${step}.`,
+        severity: "warning",
+        actionUrl: "/hr/me#me-leave-approvals",
+        readAt: null,
+        createdAt: asIso(row.updated_at ?? row.created_at),
+        sourceType: "hr_leave",
+        sourceId: row.id,
+        persisted: false,
+      });
+    });
+  } catch {
+    return [];
+  }
 }
 
 async function fetchEvaluationItems(
@@ -401,7 +507,7 @@ export async function fetchActionInbox(context: AuthContext): Promise<ActionInbo
   // sources start immediately so that lookup is not a serial prefix.
   const staffPromise = settled(currentStaffId(context), null);
 
-  const [persisted, prs, maint, wos, snags, weekly, punches, staffId] = await Promise.all([
+  const [persisted, prs, maint, wos, snags, weekly, punches, leaves, staffId] = await Promise.all([
     settled(fetchPersisted(context), []),
     settled(fetchPrItems(context, roles), []),
     settled(fetchMaintenanceItems(context, roles), []),
@@ -409,6 +515,7 @@ export async function fetchActionInbox(context: AuthContext): Promise<ActionInbo
     settled(fetchSnagItems(context, roles), []),
     settled(fetchWeeklyReportItems(context, roles), []),
     settled(fetchMissedPunchItems(context, roles), []),
+    settled(fetchLeaveApprovalItems(context, roles), []),
     staffPromise,
   ]);
 
@@ -417,7 +524,17 @@ export async function fetchActionInbox(context: AuthContext): Promise<ActionInbo
     settled(fetchEvaluationItems(context, roles, staffId), []),
   ]);
 
-  const items = mergeInboxItems(persisted, [...prs, ...maint, ...wos, ...events, ...snags, ...weekly, ...evals, ...punches]);
+  const items = mergeInboxItems(persisted, [
+    ...prs,
+    ...maint,
+    ...wos,
+    ...events,
+    ...snags,
+    ...weekly,
+    ...evals,
+    ...punches,
+    ...leaves,
+  ]);
   return {
     items,
     unreadCount: inboxUnreadCount(items),

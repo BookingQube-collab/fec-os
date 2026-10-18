@@ -43,7 +43,7 @@ const TITLES: Record<HrNotifyKind, string> = {
   correction_submitted: "Attendance correction submitted",
   correction_approved: "Attendance correction approved",
   correction_rejected: "Attendance correction rejected",
-  leave_submitted: "Leave request submitted",
+  leave_submitted: "Leave request needs your approval",
   leave_approved: "Leave approved",
   leave_rejected: "Leave rejected",
 };
@@ -56,9 +56,9 @@ export function mapHrNotifyEvent(event: HrNotifyEvent): HrNotifyPayload {
     ? "/people/attendance/corrections"
     : event.kind.startsWith("leave")
       ? event.kind === "leave_submitted"
-        ? "/people/leave"
+        ? "/hr/me#me-leave-approvals"
         : "/hr/me"
-    : event.kind === "geofence_exit" || event.kind === "restricted"
+      : event.kind === "geofence_exit" || event.kind === "restricted"
       ? "/people/field"
       : "/people/attendance/reports";
 
@@ -93,7 +93,7 @@ export function mapHrNotifyEvent(event: HrNotifyEvent): HrNotifyPayload {
       body = `Your correction for ${staff}${date ? ` on ${date}` : ""} was rejected.`;
       break;
     case "leave_submitted":
-      body = `${staff} submitted a leave request${date ? ` from ${date}` : ""}.`;
+      body = `${staff} submitted a leave request${date ? ` from ${date}` : ""}. It is waiting for their line manager.`;
       break;
     case "leave_approved":
       body = `Leave for ${staff}${date ? ` from ${date}` : ""} was approved.`;
@@ -131,6 +131,8 @@ export const DEFAULT_HR_NOTIFY_TOGGLES: HrNotifyToggles = {
 };
 
 export function shouldSendHrNotify(kind: HrNotifyKind, toggles: HrNotifyToggles): boolean {
+  // Leave approval workflow always notifies the next actor (line manager / employee).
+  if (kind.startsWith("leave_")) return true;
   if (kind === "missed_punch") return toggles.notifyMissedPunch;
   if (kind === "late") return toggles.notifyLate;
   if (kind === "geofence_exit" || kind === "restricted") return toggles.notifyGeofenceExit;

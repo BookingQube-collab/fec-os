@@ -38,21 +38,41 @@ export function sourceKey(sourceType: string | null | undefined, sourceId: strin
   return `${sourceType}:${sourceId}`;
 }
 
+/**
+ * Merge stored notifications with derived open-work.
+ * Same source key: unread persisted wins (keeps the bell badge), else derived
+ * open-work wins over a read notification so approvals stay visible.
+ */
 export function mergeInboxItems(persisted: InboxItem[], derived: InboxItem[], limit = 40): InboxItem[] {
-  const seen = new Set<string>();
-  const out: InboxItem[] = [];
+  const byId = new Map<string, InboxItem>();
+  const bySource = new Map<string, InboxItem[]>();
+  const unkeyed: InboxItem[] = [];
 
-  const take = (item: InboxItem) => {
-    if (seen.has(item.id)) return;
+  const add = (item: InboxItem) => {
+    if (byId.has(item.id)) return;
+    byId.set(item.id, item);
     const key = sourceKey(item.sourceType, item.sourceId);
-    if (key && seen.has(key)) return;
-    seen.add(item.id);
-    if (key) seen.add(key);
-    out.push(item);
+    if (!key) {
+      unkeyed.push(item);
+      return;
+    }
+    const group = bySource.get(key) ?? [];
+    group.push(item);
+    bySource.set(key, group);
   };
 
-  for (const item of derived) take(item);
-  for (const item of persisted) take(item);
+  for (const item of derived) add(item);
+  for (const item of persisted) add(item);
+
+  const pickFromGroup = (group: InboxItem[]): InboxItem => {
+    const unreadPersisted = group.find((row) => row.persisted && !row.readAt);
+    if (unreadPersisted) return unreadPersisted;
+    const openWork = group.find((row) => !row.persisted);
+    if (openWork) return openWork;
+    return [...group].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]!;
+  };
+
+  const out = [...unkeyed, ...[...bySource.values()].map(pickFromGroup)];
 
   return out
     .sort((a, b) => {

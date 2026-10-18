@@ -24,6 +24,11 @@ import { useAuth } from "@/hooks/use-auth";
 import { useComplianceExpiryNotifications } from "@/hooks/queries/useComplianceExpiryNotifications";
 import { useActionInbox, useEscalations, useMarkAllNotificationsRead } from "@/hooks/queries/useNotifications";
 import { canViewComplianceExpiryAlerts } from "@/lib/compliance/compliance-expiry-access";
+import {
+  decideInboxAlert,
+  playInboxNotificationSound,
+  type InboxAlertState,
+} from "@/lib/notifications/inbox-alert";
 import type { InboxItemKind } from "@/lib/notifications/inbox";
 import { ackEscalation, markNotificationRead } from "@/lib/notifications.functions";
 import { queryKeys } from "@/lib/query-keys";
@@ -85,6 +90,7 @@ export function NotificationBell({
   const [open, setOpen] = useState(false);
   const shellInboxReady = useDeferShellInbox();
   const anchorRef = useRef<HTMLSpanElement>(null);
+  const alertState = useRef<InboxAlertState>({ primed: false, lastUnread: 0 });
 
   useEffect(() => {
     if (dismissed) setOpen(false);
@@ -122,6 +128,19 @@ export function NotificationBell({
   const escalationCount = escalations.data?.length ?? 0;
   const complianceCount = complianceSummary.data?.summary.total ?? 0;
   const unread = inboxUnread + escalationCount;
+
+  // Sound only for new in-app notification arrivals after baseline (not old unread on load).
+  useEffect(() => {
+    if (!inbox.isSuccess || !pollInbox) return;
+    const decision = decideInboxAlert(alertState.current, inboxUnread);
+    alertState.current = decision.next;
+    if (decision.shouldAlert) playInboxNotificationSound();
+  }, [inbox.isSuccess, pollInbox, inboxUnread]);
+
+  // Reset baseline when the signed-in user changes.
+  useEffect(() => {
+    alertState.current = { primed: false, lastUnread: 0 };
+  }, [user?.id]);
 
   const severityLabel = useMemo(
     () =>

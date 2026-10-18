@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { applyMarkAllRead, inboxUnreadCount, type InboxItem } from "./inbox";
+import { applyMarkAllRead, inboxUnreadCount, mergeInboxItems, type InboxItem } from "./inbox";
 
 function row(partial: Partial<InboxItem> & Pick<InboxItem, "id" | "persisted">): InboxItem {
   return {
@@ -29,6 +29,60 @@ describe("inboxUnreadCount", () => {
     ];
 
     expect(inboxUnreadCount(items)).toBe(1);
+  });
+});
+
+describe("mergeInboxItems", () => {
+  it("keeps unread persisted notifications over derived open-work for the same source", () => {
+    const merged = mergeInboxItems(
+      [
+        row({
+          id: "notif:1",
+          persisted: true,
+          sourceType: "attendance_corrections",
+          sourceId: "c1",
+          title: "stored",
+        }),
+      ],
+      [
+        row({
+          id: "punch:c1",
+          persisted: false,
+          sourceType: "attendance_corrections",
+          sourceId: "c1",
+          title: "derived",
+        }),
+      ],
+    );
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.id).toBe("notif:1");
+    expect(inboxUnreadCount(merged)).toBe(1);
+  });
+
+  it("keeps derived open-work when the stored notification was already read", () => {
+    const merged = mergeInboxItems(
+      [
+        row({
+          id: "notif:1",
+          persisted: true,
+          readAt: "2026-10-07T01:00:00.000Z",
+          sourceType: "hr_leave",
+          sourceId: "l1",
+        }),
+      ],
+      [
+        row({
+          id: "leave:l1",
+          persisted: false,
+          sourceType: "hr_leave",
+          sourceId: "l1",
+        }),
+      ],
+    );
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.id).toBe("leave:l1");
   });
 });
 

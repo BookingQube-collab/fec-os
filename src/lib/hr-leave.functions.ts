@@ -14,7 +14,11 @@ import {
   type OpsApprovalLane,
 } from "@/lib/approval-ops-routing";
 import { dispatchHrNotify } from "@/lib/attendance-hr/hr-notify-dispatch";
-import { isHeadOfOperationsTitle } from "@/lib/attendance-hr/missed-punch-approval";
+import {
+  isHeadOfOperationsTitle,
+  requesterLineManagerUserIds,
+} from "@/lib/attendance-hr/missed-punch-approval";
+import { loadMissedPunchDirectory } from "@/lib/attendance-hr/missed-punch-approval.server";
 import {
   assertLeaveTransition,
   countLeaveDays,
@@ -672,13 +676,32 @@ export const submitLeaveRequest = createAuthenticatedAction(
 
     await seedLeaveApprovalSteps(context, row.id as string);
 
-    await dispatchHrNotify({
-      kind: "leave_submitted",
-      staffName: staff.full_name,
-      workDate: data.dateFrom,
-      locationId: staff.location_id,
-      sourceId: row.id,
-    });
+    // Line manager (or site-supervisor fallback) — not attendance.view_all / HR desk.
+    let managerUserIds: string[] = [];
+    try {
+      const directory = await loadMissedPunchDirectory([staff.id as string]);
+      managerUserIds = requesterLineManagerUserIds(directory, {
+        locationId: (staff.location_id as string | null) ?? "",
+        staffId: staff.id as string,
+        requestedBy: context.userId,
+        requesterStaffId: staff.id as string,
+      });
+    } catch (error) {
+      console.warn(
+        "[hr-leave] manager notify lookup failed",
+        error instanceof Error ? error.message : error,
+      );
+    }
+    await dispatchHrNotify(
+      {
+        kind: "leave_submitted",
+        staffName: staff.full_name,
+        workDate: data.dateFrom,
+        locationId: staff.location_id,
+        sourceId: row.id,
+      },
+      managerUserIds,
+    );
     return {
       id: row.id as string,
       days,

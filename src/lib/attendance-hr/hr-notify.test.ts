@@ -39,7 +39,7 @@ describe("mapHrNotifyEvent", () => {
     expect(rejected.severity).toBe("warning");
     expect(rejected.title).toBe("Attendance correction rejected");
   });
-  it("maps leave events to hr_leave category", () => {
+  it("maps leave events to hr_leave category for the line-manager My Day queue", () => {
     const payload = mapHrNotifyEvent({
       kind: "leave_submitted",
       staffName: "Sara",
@@ -47,7 +47,9 @@ describe("mapHrNotifyEvent", () => {
     });
     expect(payload.category).toBe("hr_leave");
     expect(payload.sourceType).toBe("hr_leave");
-    expect(payload.actionUrl).toBe("/people/leave");
+    expect(payload.title).toBe("Leave request needs your approval");
+    expect(payload.body).toContain("line manager");
+    expect(payload.actionUrl).toBe("/hr/me#me-leave-approvals");
   });
 });
 
@@ -57,5 +59,11 @@ describe("shouldSendHrNotify", () => {
     expect(shouldSendHrNotify("late", { ...DEFAULT_HR_NOTIFY_TOGGLES, notifyLate: false })).toBe(false);
     expect(shouldSendHrNotify("geofence_exit", { ...DEFAULT_HR_NOTIFY_TOGGLES, notifyGeofenceExit: false })).toBe(false);
     expect(shouldSendHrNotify("correction_submitted", { ...DEFAULT_HR_NOTIFY_TOGGLES, notifyCorrections: false })).toBe(false);
+  });
+
+  it("always sends leave workflow notifies", () => {
+    expect(
+      shouldSendHrNotify("leave_submitted", { ...DEFAULT_HR_NOTIFY_TOGGLES, notifyCorrections: false }),
+    ).toBe(true);
   });
 });

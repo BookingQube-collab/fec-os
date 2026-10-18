@@ -255,8 +255,8 @@ export const CAPABILITIES = {
   "compliance.edit_e3_tracker": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor"],
 
   // Notifications
-  "notifications.view": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "technician", "cashier_host", "hr", "customer_service", "auditor"],
-  "notifications.manage_preferences": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "technician", "cashier_host", "hr", "customer_service", "auditor"],
+  "notifications.view": ["ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "technician", "cashier_host", "hr", "customer_service", "auditor"],
+  "notifications.manage_preferences": ["ceo", "coo", "cfo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "technician", "cashier_host", "hr", "customer_service", "auditor"],
   "notifications.dispatch": ["ceo", "coo", "regional_ops", "branch_gm"],
 
   // Inventory

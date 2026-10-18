@@ -519,7 +519,10 @@ async function notifyApprovers(args: {
   locationId: string;
   title: string;
   body: string;
+  /** Correction id — matches derived inbox rows for dedupe + badge. */
   sourceId: string;
+  /** Manager / My Day queue vs ops/HR corrections desk. */
+  actionUrl?: string;
 }) {
   try {
     await notifyUsers({
@@ -529,8 +532,8 @@ async function notifyApprovers(args: {
       title: args.title,
       body: args.body,
       severity: "warning",
-      actionUrl: "/hr/me#me-punch-approvals",
-      sourceType: "attendance_correction_approval",
+      actionUrl: args.actionUrl ?? "/hr/me#me-punch-approvals",
+      sourceType: "attendance_corrections",
       sourceId: args.sourceId,
     });
   } catch (error) {
@@ -764,7 +767,6 @@ export async function submitMissedPunchRequest(args: {
     const hrIds = approverUserIdsForStep(directory, "hr", summary.location_id as string, targetStaffId).filter(
       (id) => id !== args.userId,
     );
-    const hrStepId = stepRows?.find((step) => step.step_role === "hr")?.id ?? created.id;
     const hrTitle = "Missed punch waiting for HR";
     const hrBody = `${managerName} requested and approved a punch correction for ${subjectName} on ${workDate}. It is waiting for HR.`;
     await notifyApprovers({
@@ -772,7 +774,8 @@ export async function submitMissedPunchRequest(args: {
       locationId: summary.location_id as string,
       title: hrTitle,
       body: hrBody,
-      sourceId: hrStepId,
+      sourceId: created.id as string,
+      actionUrl: "/people/attendance/corrections",
     });
     return {
       id: created.id as string,
@@ -817,7 +820,6 @@ export async function submitMissedPunchRequest(args: {
     const opsIds = approverUserIdsForStep(directory, "ops", summary.location_id as string, targetStaffId).filter(
       (id) => id !== args.userId,
     );
-    const opsStepId = stepRows?.find((step) => step.step_role === "ops")?.id ?? created.id;
     const opsLabel = opsStepApproverLabel(correctionOpsLane(directory, targetStaffId));
     const opsTitle = `Missed punch waiting for ${opsLabel}`;
     const opsBody = `${managerName} requested and approved a punch correction for ${subjectName} on ${workDate}. It is waiting for ${opsLabel}.`;
@@ -826,7 +828,8 @@ export async function submitMissedPunchRequest(args: {
       locationId: summary.location_id as string,
       title: opsTitle,
       body: opsBody,
-      sourceId: opsStepId,
+      sourceId: created.id as string,
+      actionUrl: "/people/attendance/corrections",
     });
     await notifyExecutiveObservers({
       step: "ops",
@@ -851,7 +854,6 @@ export async function submitMissedPunchRequest(args: {
     requestedBy: args.userId,
     requesterStaffId: staff.id as string,
   });
-  const managerStepId = stepRows?.find((step) => step.step_role === "manager")?.id ?? created.id;
   const replacing = hasIn && hasOut;
   const managerTitle = replacing ? "Punch correction request" : "Missed punch request";
   const managerBody = replacing
@@ -862,7 +864,7 @@ export async function submitMissedPunchRequest(args: {
     locationId: summary.location_id as string,
     title: managerTitle,
     body: managerBody,
-    sourceId: managerStepId,
+    sourceId: created.id as string,
   });
   await notifyExecutiveObservers({
     step: "manager",
@@ -1077,7 +1079,8 @@ export async function reviewMissedPunchChain(args: {
       body: sendingBack
         ? `Your missed punch request${when} needs a change. Update it and send it again.`
         : `Your missed punch request${when} was rejected.`,
-      sourceId: pending?.id ?? row.id,
+      sourceId: row.id,
+      actionUrl: "/hr/me",
     });
     return { ok: true, final: true, nextStep: null, locationId: String(row.location_id) };
   }
@@ -1107,7 +1110,8 @@ export async function reviewMissedPunchChain(args: {
       locationId: String(row.location_id),
       title: "Missed punch request approved",
       body: `Your missed punch request${row.work_date ? ` for ${String(row.work_date).slice(0, 10)}` : ""} was approved.`,
-      sourceId: pending?.id ?? row.id,
+      sourceId: row.id,
+      actionUrl: "/hr/me",
     });
     return { ok: true, final: true, nextStep: null, locationId: String(row.location_id) };
   }
@@ -1133,7 +1137,6 @@ export async function reviewMissedPunchChain(args: {
     requestedBy: String(row.requested_by),
     requesterStaffId,
   }).filter((id) => id !== row.requested_by && id !== args.userId);
-  const nextStep = (steps ?? []).find((item) => item.step_role === next);
   const { data: person } = row.staff_id
     ? await supabaseAdmin.from("staff").select("full_name").eq("id", row.staff_id).maybeSingle()
     : { data: null };
@@ -1150,7 +1153,8 @@ export async function reviewMissedPunchChain(args: {
     locationId: String(row.location_id),
     title: nextTitle,
     body: nextBody,
-    sourceId: nextStep?.id ?? row.id,
+    sourceId: row.id,
+    actionUrl: "/people/attendance/corrections",
   });
   await notifyExecutiveObservers({
     step: next,
@@ -1348,6 +1352,7 @@ export async function resubmitMissedPunchRequest(args: {
         ? `${managerName} requested and approved a punch correction for ${who} on ${workDate}. It is waiting for HR.`
         : `${who} ${updatedVerb} a punch correction for ${workDate}. It is still waiting for HR.`,
       sourceId: args.correctionId,
+      actionUrl: "/people/attendance/corrections",
     });
     return { id: args.correctionId, approverCount: hrIds.length, locationId: String(row.location_id), routedTo: "hr" };
   }
@@ -1369,6 +1374,7 @@ export async function resubmitMissedPunchRequest(args: {
       title: opsTitle,
       body: opsBody,
       sourceId: args.correctionId,
+      actionUrl: "/people/attendance/corrections",
     });
     await notifyExecutiveObservers({
       step: "ops",
