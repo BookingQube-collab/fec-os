@@ -58,15 +58,16 @@ export function canSeeAttendanceMapping(roles: readonly AppRole[], hasDirectRepo
 
 /**
  * Save, unmap, and remove on Attendance mapping.
- * Viewing the list stays with canSeeAttendanceMapping. A team leader, HR login,
- * or company role does not edit unless the linked staff row is a venue
- * supervisor, Sr. Site Supervisor, or F&B supervisor.
+ * Company-wide mappers (CEO, HR, COO, GM with map_users) keep edit — Adil must
+ * be able to finish unmapped device users. Everyone else needs a venue /
+ * Sr. Site / F&B supervisor identity on the linked staff row.
  */
 export function canMergeAttendanceMappings(
-  _roles: readonly AppRole[],
+  roles: readonly AppRole[],
   _hasDirectReports: boolean,
   identity?: SiteOpsIdentity | null,
 ): boolean {
+  if (attendanceMappingIsCompanyWide(roles)) return true;
   return canEditAttendanceMapping(identity);
 }
 

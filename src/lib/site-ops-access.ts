@@ -11,8 +11,9 @@ import { isSrSiteSupervisorTitle } from "@/lib/org-hierarchy";
  * - Any other *Supervisor* title (Site Supervisor, Operations Supervisor, …)
  * - Non-F&B / non-crew direct reports of Head of Operations (Louie / Russell)
  *
- * Attendance mapping stays narrower — Venue / Sr. Site / F&B only
- * (`canEditAttendanceMapping`). Cashiers, crew, and team leaders stay out.
+ * Attendance mapping identity check stays Venue / Sr. Site / F&B only
+ * (`canEditAttendanceMapping`); company-wide roles (CEO/HR/GM) bypass via
+ * `canMergeAttendanceMappings`. Cashiers, crew, and team leaders stay out.
  *
  * Shift roster upload also uses `canOpenShiftRoster`, which includes executives
  * and people.edit_roster logins in addition to everyone on the monthly roster.

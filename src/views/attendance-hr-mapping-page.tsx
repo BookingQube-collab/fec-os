@@ -49,7 +49,6 @@ import {
   suggestStaffIdForDeviceName,
 } from "@/lib/attendance-hr/mapping-merge";
 import { CANONICAL_LOCATION_CODES, formatLocationLabel, rosterSheetLabel } from "@/lib/locations/normalize";
-import { matchesSearchQuery } from "@/lib/searchable-select";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { cn } from "@/lib/utils";
@@ -746,7 +745,7 @@ export default function AttendanceHrMappingPage() {
                       allStaff,
                       row.location_id || locationId || null,
                       headOfficeLocationId,
-                      { rosterStaffIds, matchesQuery: matchesSearchQuery },
+                      { rosterStaffIds },
                     )
                   : null;
                 return (

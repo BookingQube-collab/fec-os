@@ -46,8 +46,9 @@ export function staffEligibleForBiometricMap(
 }
 
 /**
- * Seed the mapping employee search with the device name only when it still finds someone.
- * Nicknames like "Maria" must not hide "Ma luz Jesus Romeo".
+ * Seed the mapping employee search only when the device name uniquely identifies
+ * one eligible employee (exact normalized name). Substring hits like "Maria" →
+ * "Mariam" must not pre-filter the list and hide "Ma luz Jesus Romeo".
  */
 export function mappingOpenSearchSeed(
   deviceName: string | null | undefined,
@@ -55,24 +56,16 @@ export function mappingOpenSearchSeed(
   deviceLocationId: string | null,
   headOfficeLocationId: string | null,
   options?: BiometricMapEligibilityOptions & {
+    /** @deprecated Ignored — seed uses unique exact name match only. */
     matchesQuery?: (query: string, ...parts: Array<string | null | undefined>) => boolean;
   },
 ): string | null {
   const seed = deviceName?.trim() || "";
   if (!seed) return null;
-  const matches =
-    options?.matchesQuery ??
-    ((query: string, ...parts: Array<string | null | undefined>) => {
-      const q = query.trim().toLowerCase();
-      if (!q) return true;
-      return parts.some((part) => (part ?? "").toLowerCase().includes(q));
-    });
-  const hit = staff.some(
-    (s) =>
-      staffEligibleForBiometricMap(s, deviceLocationId, headOfficeLocationId, options) &&
-      matches(seed, s.full_name),
+  const eligible = staff.filter((s) =>
+    staffEligibleForBiometricMap(s, deviceLocationId, headOfficeLocationId, options),
   );
-  return hit ? seed : null;
+  return suggestStaffIdForDeviceName(seed, deviceLocationId, eligible) ? seed : null;
 }
 
 /**

@@ -5,6 +5,8 @@ import { isHeadOfOperationsTitle } from "@/lib/attendance-hr/missed-punch-approv
 import { loadLinkedStaffIdentity, loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
 import { ForbiddenError, getUserRoles } from "@/lib/server/authorize";
 
+import { attendanceMappingIsCompanyWide } from "@/lib/attendance-listing-access";
+import type { AppRole } from "@/lib/rbac";
 import {
   canCorrectTeamAttendance,
   canEditAttendanceMapping,
@@ -50,9 +52,17 @@ export async function assertCanManageMonthlyRoster(userId: string): Promise<void
   }
 }
 
-/** Attendance mapping save / unmap / remove. Venue / Sr. Site / F&B Supervisor only. */
+/**
+ * Attendance mapping save / unmap / remove.
+ * Company-wide mappers (CEO / HR / COO / GM) keep edit; otherwise Venue /
+ * Sr. Site / F&B Supervisor only.
+ */
 export async function assertCanEditAttendanceMapping(userId: string): Promise<void> {
-  const identity = await loadLinkedStaffIdentity(userId);
+  const [identity, roles] = await Promise.all([
+    loadLinkedStaffIdentity(userId),
+    getUserRoles(supabaseAdmin, userId),
+  ]);
+  if (attendanceMappingIsCompanyWide(roles as AppRole[])) return;
   if (!canEditAttendanceMapping(identity)) {
     throw new ForbiddenError("Forbidden: missing capability to change attendance mapping.");
   }

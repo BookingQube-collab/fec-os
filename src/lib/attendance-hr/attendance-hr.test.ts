@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { parseEncryptionKey } from "@/lib/ai/crypto";
+import { matchesSearchQuery } from "@/lib/searchable-select";
 
 import { calculateDailyAttendance, markProbableDuplicates } from "./calculate";
 import {
@@ -1737,8 +1738,31 @@ describe("mappingOpenSearchSeed", () => {
     expect(mappingOpenSearchSeed("Maria", staff, kds, ho)).toBeNull();
   });
 
-  it("seeds when the device name still matches an eligible employee", () => {
-    expect(mappingOpenSearchSeed("Sara", staff, kds, ho)).toBe("Sara");
+  it("does not seed Maria when a substring-hit Mariam at HO would otherwise hide Ma Luz", () => {
+    const withMariam = [
+      ...staff,
+      {
+        id: "mariam",
+        full_name: "Mariam Staff",
+        location_id: ho,
+        work_location_ids: [] as string[],
+      },
+    ];
+    expect(mappingOpenSearchSeed("Maria", withMariam, kds, ho)).toBeNull();
+  });
+
+  it("Maria→Ma Luz KDS picker path: eligible, unseeded, and findable by ma luz", () => {
+    const deviceName = "Maria";
+    const maLuz = staff[0]!;
+    expect(staffEligibleForBiometricMap(maLuz, kds, ho)).toBe(true);
+    expect(mappingOpenSearchSeed(deviceName, staff, kds, ho)).toBeNull();
+    // After open with empty seed, typing "ma luz" must hit the employee code + name.
+    expect(matchesSearchQuery("ma luz", maLuz.full_name, "KDS-CC-STF13")).toBe(true);
+    expect(matchesSearchQuery(deviceName, maLuz.full_name)).toBe(false);
+  });
+
+  it("seeds only when the device name uniquely matches an eligible employee exactly", () => {
+    expect(mappingOpenSearchSeed("Sara", staff, kds, ho)).toBeNull();
     expect(mappingOpenSearchSeed("Sara Khan", staff, kds, ho)).toBe("Sara Khan");
   });
 });
