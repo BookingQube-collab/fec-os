@@ -111,3 +111,17 @@ export function teamHierarchyVisibleIds(
   }
   return visible;
 }
+
+/**
+ * Supervisor / manager Operations hierarchy: same reporting edges as the company
+ * chart, limited to the viewer's line (ancestors + subtree). Does not invent
+ * people or parents from a separate direct-report list — directory/team lists
+ * may still include those people elsewhere.
+ */
+export function teamScopedOrgChartPeople<T extends { staffId: string; reportingManagerStaffId: string | null }>(
+  people: readonly T[],
+  viewerStaffId: string,
+): T[] {
+  const visible = teamHierarchyVisibleIds(people, viewerStaffId);
+  return people.filter((person) => visible.has(person.staffId));
+}

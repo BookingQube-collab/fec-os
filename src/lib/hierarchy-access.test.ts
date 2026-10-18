@@ -7,7 +7,9 @@ import {
   reportingAncestorIds,
   staffProfileOpenIds,
   teamHierarchyVisibleIds,
+  teamScopedOrgChartPeople,
 } from "./hierarchy-access";
+import { groupOrgChart } from "./org-hierarchy";
 
 describe("hierarchyAccessMode", () => {
   it("lets the CEO and COO edit the company chart", () => {
@@ -183,5 +185,43 @@ describe("teamHierarchyVisibleIds", () => {
     );
 
     expect([...visible].sort()).toEqual(["cashier", "ceo", "crew", "gm", "lead", "ruben"]);
+  });
+});
+
+describe("teamScopedOrgChartPeople", () => {
+  const companyChart = [
+    { staffId: "mary", fullName: "Mary", reportingManagerStaffId: null as string | null, orgChartPlaced: true },
+    { staffId: "waqar", fullName: "Waqar", reportingManagerStaffId: "mary", orgChartPlaced: true },
+    { staffId: "sachin", fullName: "Sachin", reportingManagerStaffId: "waqar", orgChartPlaced: true },
+    { staffId: "sarah", fullName: "Sarah", reportingManagerStaffId: "sachin", orgChartPlaced: true },
+    { staffId: "crew", fullName: "Crew", reportingManagerStaffId: "sachin", orgChartPlaced: true },
+    { staffId: "other-branch", fullName: "Other", reportingManagerStaffId: "mary", orgChartPlaced: true },
+  ];
+
+  it("keeps company-chart parents for a supervisor (Sarah under Sachin, not Waqar)", () => {
+    const scoped = teamScopedOrgChartPeople(companyChart, "waqar");
+    expect(scoped.map((row) => row.staffId).sort()).toEqual(["crew", "mary", "sachin", "sarah", "waqar"]);
+    expect(scoped.find((row) => row.staffId === "sarah")?.reportingManagerStaffId).toBe("sachin");
+
+    const chart = groupOrgChart(scoped);
+    expect(chart.childrenOf.get("waqar")?.map((row) => row.staffId)).toEqual(["sachin"]);
+    expect(chart.childrenOf.get("sachin")?.map((row) => row.staffId).sort()).toEqual(["crew", "sarah"]);
+  });
+
+  it("does not invent a Waqar→Sarah edge for someone missing from the company chart", () => {
+    const withoutSarah = companyChart.filter((row) => row.staffId !== "sarah");
+    // Simulates the old bug: force-adding a directReportStaffId that the HoO chart never listed.
+    const invented = [
+      ...withoutSarah,
+      { staffId: "sarah", fullName: "Sarah", reportingManagerStaffId: "waqar", orgChartPlaced: true },
+    ];
+    const inventedChart = groupOrgChart(teamScopedOrgChartPeople(invented, "waqar"));
+    expect(inventedChart.childrenOf.get("waqar")?.map((row) => row.staffId).sort()).toEqual(["sachin", "sarah"]);
+
+    // Scoped company chart alone must match HoO: only Sachin under Waqar.
+    const scoped = teamScopedOrgChartPeople(withoutSarah, "waqar");
+    expect(scoped.some((row) => row.staffId === "sarah")).toBe(false);
+    const chart = groupOrgChart(scoped);
+    expect(chart.childrenOf.get("waqar")?.map((row) => row.staffId)).toEqual(["sachin"]);
   });
 });

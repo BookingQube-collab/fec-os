@@ -23,7 +23,7 @@ import {
 import {
   HIERARCHY_EDIT_ROLE_LEVEL,
   hierarchyAccessMode,
-  teamHierarchyVisibleIds,
+  teamScopedOrgChartPeople,
 } from "@/lib/hierarchy-access";
 import { teamOverviewMemberIds } from "@/lib/manager-supervisor-team";
 import { canUserDo } from "@/lib/rbac";
@@ -270,56 +270,6 @@ async function loadOrgChart(viewerUserId: string | null, roles: readonly string[
 
 const TEAM_CHAIN_STATUSES = ["active", "probation", "secondment", "remote", "serving_notice"] as const;
 
-async function loadMissingOrgPeople(
-  ids: readonly string[],
-  departments: OrgDepartment[],
-  viewerUserId: string | null,
-  roles: readonly string[] | undefined,
-): Promise<OrgChartPerson[]> {
-  const unique = [...new Set(ids)].filter(Boolean);
-  if (unique.length === 0) return [];
-  const staffRows: StaffJoin[] = [];
-  for (let index = 0; index < unique.length; index += 100) {
-    const chunk = unique.slice(index, index + 100);
-    const { data, error } = await supabaseAdmin
-      .from("staff")
-      .select(CHAIN_STAFF_SELECT)
-      .in("id", chunk)
-      .in("status", [...TEAM_CHAIN_STATUSES])
-      .or(STAFF_NOT_JOKER_EMPLOYMENT_OR)
-      .is("deleted_at", null);
-    if (error) throw new Error(error.message);
-    staffRows.push(...((data ?? []) as StaffJoin[]));
-  }
-  if (staffRows.length === 0) return [];
-
-  const { data: extRows, error: extError } = await supabaseAdmin
-    .from("staff_profile_ext")
-    .select("staff_id, reporting_manager_staff_id, org_chart_placed")
-    .in(
-      "staff_id",
-      staffRows.map((row) => row.id),
-    );
-  if (extError) throw new Error(extError.message);
-  const extByStaff = new Map((extRows ?? []).map((row) => [row.staff_id, row as ExtRow]));
-  const linkedUserIds = new Set(staffRows.map((row) => row.user_id).filter((id): id is string => Boolean(id)));
-  let loginEmails = new Map<string, string>();
-  try {
-    loginEmails = await authEmailsByUserId(linkedUserIds);
-  } catch (error) {
-    console.error("[org chart] login email lookup failed", error instanceof Error ? error.message : "unknown");
-  }
-  const viewer = await loadViewer(viewerUserId, roles);
-  const viewerView = reportingViewerView(
-    staffRows.map((row) => chainFromStaff(row, extByStaff.get(row.id))),
-    viewer,
-  );
-  const locationNames = await loadLocationNames();
-  return staffRows.map((row) =>
-    toOrgChartPerson(row, extByStaff.get(row.id), departments, loginEmails, viewerView, locationNames),
-  );
-}
-
 function managerMap(people: OrgChartPerson[]): Map<string, string | null> {
   return new Map(people.map((person) => [person.staffId, person.reportingManagerStaffId]));
 }
@@ -387,16 +337,12 @@ export const getOrgChart = createAuthenticatedActionNoInput(
     }
 
     const viewerStaffId = teamAccess.staffId;
-    const missing = [viewerStaffId, ...teamAccess.directReportStaffIds].filter(
-      (id) => !chart.people.some((person) => person.staffId === id),
-    );
-    const extra = await loadMissingOrgPeople(missing, chart.departments, context.userId, context.roles);
-    const people = extra.length ? [...chart.people, ...extra] : chart.people;
-    const visible = teamHierarchyVisibleIds(people, viewerStaffId);
-    for (const id of teamAccess.directReportStaffIds) visible.add(id);
     return {
       departments: chart.departments,
-      people: people.filter((person) => visible.has(person.staffId)),
+      // Same company-chart edges as HoO/admin — scope only. Do not inject
+      // directReportStaffIds that are missing from the company chart (that
+      // invents parents the admin chart never shows).
+      people: teamScopedOrgChartPeople(chart.people, viewerStaffId),
       access: "team",
       viewerStaffId,
       directReportStaffIds: teamAccess.directReportStaffIds,
