@@ -1,3 +1,4 @@
+import { isSiteSupervisorTitle } from "@/lib/attendance-hr/missed-punch-approval";
 import { HEAD_OFFICE_LOCATION_CODE } from "@/lib/department-audience";
 import { isSrSiteSupervisorTitle } from "@/lib/org-hierarchy";
 import { canUserDo, isRosterAmendJobTitle, type AppRole, type Capability } from "@/lib/rbac";
@@ -34,7 +35,10 @@ export function isHeadOfficeLocation(location: {
  *   person's home + dedicated work sites (e.g. Waqar → UA-DM + KDS-DM). Never expand
  *   via descendant punches or roster rows at Inflata / KDS-CC / etc.
  * - `team_assigned_except_ho` — Sr. Site / Senior Site Supervisor: home + dedicated
- *   work sites for the viewer and everyone under them, excluding Head Office.
+ *   work sites for everyone in her reporting subtree, plus every Venue/Site
+ *   supervisor's managed venues (all supervisors report through Sr. Site), then
+ *   drop Head Office. This keeps UA-DM / KDS-DM / KDS-CC / CB-VM / … even when
+ *   most crew rows are still home’d at INF-CC.
  */
 export type AttendanceLocationScopeMode = "viewer_assigned" | "team_assigned_except_ho";
 
@@ -50,8 +54,21 @@ export function attendanceLocationScopeMode(
 }
 
 /**
+ * Venue / Site supervisors who manage operational venues (Waqar, Ma Luz, …).
+ * Sr. Site itself is excluded — her span is the union of those managers' sites.
+ */
+export function isVenueOrSiteSupervisorManager(
+  jobTitle?: string | null,
+  staffRole?: string | null,
+): boolean {
+  if (isSrSiteSupervisorTitle(jobTitle)) return false;
+  return isSiteSupervisorTitle(jobTitle, staffRole);
+}
+
+/**
  * Staff ids whose home / dedicated work sites feed the location chip list.
- * Venue supervisors: viewer only. Sr. Site: viewer plus reporting subtree.
+ * Venue supervisors: viewer only. Sr. Site: viewer plus reporting subtree, and
+ * callers also union Venue/Site supervisor managers (see span helpers below).
  */
 export function locationDiscoveryStaffIds(
   mode: AttendanceLocationScopeMode,
@@ -66,6 +83,39 @@ export function locationDiscoveryStaffIds(
     if (id) ids.add(id);
   }
   if (viewerStaffId) ids.add(viewerStaffId);
+  return [...ids].sort();
+}
+
+export type OrgChartLocationPerson = {
+  staffId: string;
+  locationId?: string | null;
+  workLocationIds?: readonly (string | null | undefined)[];
+  jobTitle?: string | null;
+  staffRole?: string | null;
+};
+
+/**
+ * Distinct home + dedicated work location ids for a Sr. Site span.
+ * Unions everyone in `discoveryStaffIds` with every Venue/Site supervisor
+ * manager in `people` (supervisors report through Sr. Site even when crew under
+ * them is still home’d at one flagship site).
+ */
+export function collectSrSiteSpanLocationIds(
+  people: readonly OrgChartLocationPerson[],
+  discoveryStaffIds: readonly string[],
+): string[] {
+  const discovery = new Set(discoveryStaffIds.filter(Boolean));
+  const ids = new Set<string>();
+  for (const person of people) {
+    if (!person.staffId) continue;
+    const inSubtree = discovery.has(person.staffId);
+    const venueManager = isVenueOrSiteSupervisorManager(person.jobTitle, person.staffRole);
+    if (!inSubtree && !venueManager) continue;
+    if (person.locationId) ids.add(person.locationId);
+    for (const locationId of person.workLocationIds ?? []) {
+      if (locationId) ids.add(locationId);
+    }
+  }
   return [...ids].sort();
 }
 

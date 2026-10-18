@@ -32,7 +32,7 @@ export const getAttendanceListingSites = createAuthenticatedActionNoInput(
     // Same staff set as the listing (tree + viewer for supervisor/manager rollups).
     const { teamStaffIds } = await loadAttendanceListingStaffIds(context.userId);
     if (teamStaffIds.length === 0) return { companyWide: false, sites: [] };
-    // Venue/Site: viewer's managed sites. Sr. Site: team span minus HO.
+    // Venue/Site: viewer's managed sites. Sr. Site: subtree ∪ Venue/Site managers, minus HO.
     return {
       companyWide: false,
       sites: await loadViewerScopedTeamLocations(context.userId, teamStaffIds),

@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   attendanceLocationScopeMode,
   canSeeShiftRosterUpload,
+  collectSrSiteSpanLocationIds,
   filterLocationsForJobTitleScope,
   isHeadOfficeLocation,
+  isVenueOrSiteSupervisorManager,
   locationDiscoveryStaffIds,
   rosterChartTeamIds,
   rosterTeamOrSelfStaffIds,
@@ -84,6 +86,86 @@ describe("attendance location scope (org chart)", () => {
     expect(
       filterLocationsForJobTitleScope(venues, "Senior Site Supervisor").map((site) => site.code),
     ).toEqual(["INF-CC", "KDS-CC", "UA-DM", "KDS-DM", "CB-VM"]);
+  });
+
+  it("treats Venue/Site supervisors as venue managers but not Sr. Site", () => {
+    expect(isVenueOrSiteSupervisorManager("Venue Supervisor", "venue_supervisor")).toBe(true);
+    expect(isVenueOrSiteSupervisorManager("Site Supervisor", null)).toBe(true);
+    expect(isVenueOrSiteSupervisorManager(null, "venue_supervisor")).toBe(true);
+    expect(isVenueOrSiteSupervisorManager("Sr. Site Supervisor", "venue_supervisor")).toBe(false);
+    expect(isVenueOrSiteSupervisorManager("Senior Site Supervisor", null)).toBe(false);
+    expect(isVenueOrSiteSupervisorManager("Cashier", "cashier")).toBe(false);
+  });
+
+  it("gives Sr. Site multiple venue codes from subtree + Venue/Site managers (Mary)", () => {
+    // Crew under Mary may all be home’d at INF-CC; Venue supervisors still contribute UA/KDS/…
+    const people = [
+      {
+        staffId: "mary",
+        locationId: "ho",
+        workLocationIds: ["inf"],
+        jobTitle: "Sr. Site Supervisor",
+        staffRole: "venue_supervisor",
+      },
+      {
+        staffId: "inf-crew",
+        locationId: "inf",
+        workLocationIds: [],
+        jobTitle: "Crew / Attendant",
+        staffRole: "crew",
+      },
+      {
+        staffId: "waqar",
+        locationId: "ua",
+        workLocationIds: ["kdsMini"],
+        jobTitle: "Venue Supervisor",
+        staffRole: "venue_supervisor",
+      },
+      {
+        staffId: "ma-luz",
+        locationId: "kds",
+        workLocationIds: [],
+        jobTitle: "Site Supervisor",
+        staffRole: "venue_supervisor",
+      },
+      {
+        staffId: "cb-lead",
+        locationId: "cb",
+        workLocationIds: [],
+        jobTitle: "Venue Supervisor",
+        staffRole: "venue_supervisor",
+      },
+      {
+        staffId: "other-gm-branch",
+        locationId: "ho-name",
+        workLocationIds: [],
+        jobTitle: "Cashier",
+        staffRole: "cashier",
+      },
+    ];
+
+    // Discovery = Mary + INF crew only (tree collapsed to Inflata homes).
+    const span = collectSrSiteSpanLocationIds(people, ["mary", "inf-crew"]);
+    expect(span).toEqual(["cb", "ho", "inf", "kds", "kdsMini", "ua"]);
+
+    const chips = filterLocationsForJobTitleScope(
+      venues.filter((site) => span.includes(site.id)),
+      "Sr. Site Supervisor",
+    ).map((site) => site.code);
+    expect(chips).toEqual(["INF-CC", "KDS-CC", "UA-DM", "KDS-DM", "CB-VM"]);
+    expect(chips).not.toContain("HO");
+    expect(chips).not.toContain("HQ");
+  });
+
+  it("keeps Venue Supervisor discovery on viewer only (Waqar: 2 sites)", () => {
+    expect(
+      locationDiscoveryStaffIds("viewer_assigned", "waqar", ["crew-inf", "crew-ua", "crew-cb"]),
+    ).toEqual(["waqar"]);
+    const waqarManaged = venues.filter((site) => site.code === "UA-DM" || site.code === "KDS-DM");
+    expect(filterLocationsForJobTitleScope(waqarManaged, "Venue Supervisor").map((s) => s.code)).toEqual([
+      "UA-DM",
+      "KDS-DM",
+    ]);
   });
 });
 

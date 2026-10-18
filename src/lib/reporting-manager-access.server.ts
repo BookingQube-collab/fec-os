@@ -20,6 +20,7 @@ import {
 import {
   attendanceLocationScopeMode,
   filterLocationsForJobTitleScope,
+  isVenueOrSiteSupervisorManager,
   locationDiscoveryStaffIds,
   rosterChartTeamIds,
   rosterTeamOrSelfStaffIds,
@@ -471,9 +472,41 @@ export async function loadTeamCoverageLocations(staffIds: string[]): Promise<Tea
 }
 
 /**
+ * Active Venue / Site supervisors (not Sr. Site) — each manages one or more venues.
+ * Sr. Site chips union these managers' home + dedicated work sites so the span
+ * matches the org chart even when crew under them is still home’d at INF-CC.
+ */
+async function loadVenueOrSiteSupervisorManagerIds(): Promise<string[]> {
+  const ids = new Set<string>();
+  let from = 0;
+  for (let page = 0; page < 40; page += 1) {
+    const { data, error } = await supabaseAdmin
+      .from("staff")
+      .select("id, job_title, staff_role")
+      .in("status", [...DIRECT_REPORT_STATUSES])
+      .is("deleted_at", null)
+      .order("id", { ascending: true })
+      .range(from, from + 999);
+    if (error) throw new Error(error.message);
+    const rows = data ?? [];
+    for (const row of rows) {
+      const jobTitle = (row.job_title as string | null) ?? null;
+      const staffRole = (row.staff_role as string | null) ?? null;
+      if (!isVenueOrSiteSupervisorManager(jobTitle, staffRole)) continue;
+      if (row.id) ids.add(String(row.id));
+    }
+    if (rows.length < 1000) break;
+    from += 1000;
+  }
+  return [...ids].sort();
+}
+
+/**
  * Location chips for attendance / roster pickers (org-chart rule).
  * Uses home + dedicated work sites only — never punch or roster history.
- * Venue / Site Supervisor: viewer's managed sites. Sr. Site: team span minus HO.
+ * Venue / Site Supervisor: viewer's managed sites only.
+ * Sr. Site: reporting subtree assigned sites ∪ every Venue/Site supervisor's
+ * managed venues, minus Head Office (All locations aggregates that set).
  */
 export async function loadViewerScopedTeamLocations(
   userId: string,
@@ -486,7 +519,14 @@ export async function loadViewerScopedTeamLocations(
     linked?.staffRole,
   );
   const discoveryIds = locationDiscoveryStaffIds(scopeMode, linked?.id, teamStaffIds);
-  const sites = await loadAssignedTeamLocations(discoveryIds);
+  if (scopeMode === "viewer_assigned") {
+    return loadAssignedTeamLocations(discoveryIds);
+  }
+
+  // Sr. Site: subtree homes/work plus every Venue/Site supervisor's managed sites.
+  const supervisorIds = await loadVenueOrSiteSupervisorManagerIds();
+  const spanIds = [...new Set([...discoveryIds, ...supervisorIds])].sort();
+  const sites = await loadAssignedTeamLocations(spanIds);
   return filterLocationsForJobTitleScope(
     sites,
     linked?.jobTitle,

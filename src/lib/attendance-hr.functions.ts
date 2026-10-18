@@ -694,7 +694,7 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
     if (!companyWide && (!teamStaffIds || teamStaffIds.length === 0)) {
       throw new ForbiddenError("Attendance listing is limited to people who report to you.");
     }
-    // Venue/Site: managed sites only. Sr. Site: team span minus HO. Never punch expansion.
+    // Venue/Site: managed sites only. Sr. Site: subtree ∪ Venue/Site managers, minus HO.
     // Discovery still includes the viewer's home/work sites so their own attendance appears.
     const teamLocationIds = teamStaffIds
       ? (await loadViewerScopedTeamLocations(context.userId, teamStaffIds)).map((site) => site.id)
