@@ -20,6 +20,7 @@ import { useHasDirectReports } from "@/hooks/use-my-direct-reports";
 import { formatPunchTime12h } from "@/lib/attendance-display";
 import { findCorrectionDay, listCorrectionSubjects, submitMissedPunchRequest } from "@/lib/attendance-hr.functions";
 import { canRequestAttendanceCorrection } from "@/lib/attendance-hr/missed-punch-approval";
+import { opsApprovalLaneForStaff, opsStepApproverLabel } from "@/lib/approval-ops-routing";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 
@@ -29,9 +30,11 @@ function clockText(iso: string | null): string {
 
 export function PunchCorrectionRequest({
   jobTitle = null,
+  department = null,
   selfStaff = null,
 }: {
   jobTitle?: string | null;
+  department?: string | null;
   selfStaff?: { staffId: string; fullName: string; employeeCode: string | null } | null;
 }) {
   const { t } = useTranslation();
@@ -51,11 +54,25 @@ export function PunchCorrectionRequest({
     enabled: canRequest && !reportsPending,
     staleTime: STALE.people,
   });
-  const selfOption = selfStaff ? [{ ...selfStaff, self: true }] : [];
+  const selfOpsLane = opsApprovalLaneForStaff(jobTitle, department);
+  const selfOption = selfStaff
+    ? [
+        {
+          ...selfStaff,
+          jobTitle,
+          department,
+          opsLane: selfOpsLane,
+          self: true as const,
+        },
+      ]
+    : [];
   const people = subjects.data?.length ? subjects.data : selfOption;
   const selectedStaffId = staffId || people.find((person) => person.self)?.staffId || people[0]?.staffId || "";
   const selectedPerson = people.find((person) => person.staffId === selectedStaffId);
   const forTeam = Boolean(selectedPerson && !selectedPerson.self);
+  const opsLabel = opsStepApproverLabel(
+    selectedPerson?.opsLane ?? selfOpsLane,
+  );
   const day = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "correction-day", staffId: selectedStaffId, workDate }),
     queryFn: () => findCorrectionDay({ staffId: selectedStaffId, workDate }),
@@ -73,7 +90,7 @@ export function PunchCorrectionRequest({
       ].filter((side): side is readonly ["in" | "out", string] => side !== null);
       if (!sides.length) throw new Error("Enter the corrected punch-in, punch-out, or both.");
       let approverCount = 0;
-      let routedTo: "line_manager" | "hr" = "line_manager";
+      let routedTo: "line_manager" | "ops" | "hr" = "line_manager";
       for (const [punchType, punchTime] of sides) {
         const result = await submitMissedPunchRequest({
           summaryId,
@@ -94,6 +111,12 @@ export function PunchCorrectionRequest({
           result.approverCount === 0
             ? "Approved and waiting for HR. No HR login is linked yet."
             : "Approved and sent to HR.",
+        );
+      } else if (result.routedTo === "ops") {
+        toast.success(
+          result.approverCount === 0
+            ? `Approved and waiting for ${opsLabel}. No ${opsLabel} login is linked yet.`
+            : `Approved and sent to ${opsLabel}.`,
         );
       } else if (result.approverCount === 0) toast.message(t("hr.me.savedNoSupervisor"));
       else toast.success("Sent to your line manager.");
@@ -119,8 +142,8 @@ export function PunchCorrectionRequest({
         <h3 className="text-sm font-semibold">Request a punch correction</h3>
         <p className="mt-1 text-xs text-muted-foreground">
           {forTeam
-            ? "This person reports to you. You request and approve the correction, and it goes to HR with the punch-in and punch-out you enter, plus the previous punches. It does not wait for your line manager or Head of Operations."
-            : "Correct a wrong punch-in or punch-out for yourself. Your line manager approves it, then Head of Operations, then HR."}
+            ? `This person reports to you. You request and approve as their supervisor; ${opsLabel} gives the final operations approval, then HR.`
+            : `Correct a wrong punch-in or punch-out for yourself. Your line manager / supervisor approves first, then ${opsLabel}, then HR.`}
         </p>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
@@ -218,7 +241,7 @@ export function PunchCorrectionRequest({
           (!punchIn && !punchOut)
         }
       >
-        {forTeam ? "Approve and send to HR" : "Send to line manager"}
+        {forTeam ? `Approve and send to ${opsLabel}` : "Send to line manager"}
       </Button>
     </form>
   );

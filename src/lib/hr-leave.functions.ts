@@ -7,6 +7,12 @@ import { ForbiddenError } from "@/lib/server/authorize";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { loadManagerTeamStaffIds } from "@/lib/reporting-manager-access.server";
 import { canUserDo } from "@/lib/rbac";
+import { isFnbManager } from "@/lib/arcade/access";
+import {
+  canActOnOpsApprovalStep,
+  opsApprovalLaneForStaff,
+  type OpsApprovalLane,
+} from "@/lib/approval-ops-routing";
 import { dispatchHrNotify } from "@/lib/attendance-hr/hr-notify-dispatch";
 import { isHeadOfOperationsTitle } from "@/lib/attendance-hr/missed-punch-approval";
 import {
@@ -54,11 +60,17 @@ function tableMissing(message: string | undefined): boolean {
 
 function mapLeaveRow(row: Record<string, unknown>) {
   const staff = Array.isArray(row.staff) ? row.staff[0] : row.staff;
+  const jobTitle = (staff as { job_title?: string | null } | null)?.job_title ?? null;
+  const department = (staff as { department?: string | null } | null)?.department ?? null;
+  const opsLane: OpsApprovalLane = opsApprovalLaneForStaff(jobTitle, department);
   return {
     id: String(row.id),
     staffId: String(row.staff_id),
     staffName: (staff as { full_name?: string } | null)?.full_name ?? null,
     employeeCode: (staff as { employee_code?: string } | null)?.employee_code ?? null,
+    jobTitle,
+    department,
+    opsLane,
     leaveType: String(row.leave_type),
     dateFrom: String(row.date_from).slice(0, 10),
     dateTo: String(row.date_to).slice(0, 10),
@@ -313,15 +325,19 @@ export const listLeaveRequests = createAuthenticatedAction(
       canUserDo(context.roles ?? [], "hr.leave.approve_manager");
     const staff = await myStaff(context);
     let headOfOperations = false;
+    let fnbManager = false;
     if (data.approvals && !manage && staff?.id) {
       const { data: titled } = await context.supabase
         .from("staff")
-        .select("job_title")
+        .select("job_title, department")
         .eq("id", staff.id)
         .maybeSingle();
-      headOfOperations = isHeadOfOperationsTitle((titled as { job_title?: string | null } | null)?.job_title);
+      const title = (titled as { job_title?: string | null } | null)?.job_title;
+      const department = (titled as { department?: string | null } | null)?.department;
+      headOfOperations = isHeadOfOperationsTitle(title);
+      fnbManager = isFnbManager(title, department);
     }
-    const canReviewCompany = manage || headOfOperations;
+    const canReviewCompany = manage || headOfOperations || fnbManager;
     const teamIds =
       canReviewCompany || data.mineOnly
         ? []
@@ -334,7 +350,7 @@ export const listLeaveRequests = createAuthenticatedAction(
     let query = leaveDb
       .from("hr_leave_requests")
       .select(
-        "id, staff_id, leave_type, date_from, date_to, days, reason, status, review_note, current_step_role, payroll_impact, emergency_treatment, compassionate_scope, created_at, staff(full_name, employee_code)",
+        "id, staff_id, leave_type, date_from, date_to, days, reason, status, review_note, current_step_role, payroll_impact, emergency_treatment, compassionate_scope, created_at, staff(full_name, employee_code, job_title, department)",
       )
       .order("created_at", { ascending: false })
       .limit(200);
@@ -348,7 +364,16 @@ export const listLeaveRequests = createAuthenticatedAction(
       if (tableMissing(error.message)) return [];
       throw error;
     }
-    return (rows ?? []).map((row) => mapLeaveRow(row as Record<string, unknown>));
+    let mapped = (rows ?? []).map((row) => mapLeaveRow(row as Record<string, unknown>));
+    // Lane-scoped company review: HoO sees Operations; F&B Manager sees F&B. Manage keeps all.
+    if (data.approvals && !manage) {
+      if (headOfOperations && !fnbManager) {
+        mapped = mapped.filter((row) => row.opsLane === "head_of_operations");
+      } else if (fnbManager && !headOfOperations) {
+        mapped = mapped.filter((row) => row.opsLane === "fnb_manager");
+      }
+    }
+    return mapped;
   },
   { auth: { anyCapability: ["hr.leave.manage", "hr.leave.approve_manager", "hr.employee_app"] } },
 );
@@ -721,15 +746,37 @@ export const actOnLeaveApproval = createAuthenticatedAction(
     if (stepRole === "manager" && !managerCap && !manage && !lineManager) {
       throw new ForbiddenError("Manager approval required.");
     }
-    if (stepRole === "ops" && !manage && !managerCap) {
-      const { data: titled } = await context.supabase
-        .from("staff")
-        .select("job_title")
-        .eq("user_id", context.userId)
-        .is("deleted_at", null)
-        .maybeSingle();
-      if (!isHeadOfOperationsTitle((titled as { job_title?: string | null } | null)?.job_title)) {
-        throw new ForbiddenError("Ops/department approval required.");
+    if (stepRole === "ops" && !manage) {
+      const [{ data: actor }, { data: subject }] = await Promise.all([
+        context.supabase
+          .from("staff")
+          .select("job_title, department")
+          .eq("user_id", context.userId)
+          .is("deleted_at", null)
+          .maybeSingle(),
+        leaveDb
+          .from("staff")
+          .select("job_title, department")
+          .eq("id", existing.staff_id)
+          .maybeSingle(),
+      ]);
+      const lane = opsApprovalLaneForStaff(
+        (subject as { job_title?: string | null } | null)?.job_title,
+        (subject as { department?: string | null } | null)?.department,
+      );
+      if (
+        !canActOnOpsApprovalStep({
+          manage: false,
+          lane,
+          actorJobTitle: (actor as { job_title?: string | null } | null)?.job_title,
+          actorDepartment: (actor as { department?: string | null } | null)?.department,
+        })
+      ) {
+        throw new ForbiddenError(
+          lane === "fnb_manager"
+            ? "F&B Manager approval required."
+            : "Head of Operations approval required.",
+        );
       }
     }
 

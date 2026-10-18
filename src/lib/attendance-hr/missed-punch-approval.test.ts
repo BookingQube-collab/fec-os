@@ -18,6 +18,7 @@ import {
   canRequestAttendanceCorrection,
   correctionStepSeed,
   correctionWaitingStep,
+  teamCorrectionRouteAfterOpsCheck,
   lineManagerUserIds,
   siteApproverLocationMap,
   managerTeamCorrectionNote,
@@ -41,6 +42,9 @@ const RAJAN = "rajan-user";
 const HR = "c65fd020-47d5-4bc8-a5a3-27b0926dc7bd";
 const STAFF = "staff-1";
 
+const RUBEN = "ruben-fnb-manager";
+const BARISTA = "barista-staff";
+
 function directory(partial?: Partial<ApprovalDirectory>): ApprovalDirectory {
   return {
     reportingManagerUserIdByStaffId: new Map(),
@@ -53,6 +57,8 @@ function directory(partial?: Partial<ApprovalDirectory>): ApprovalDirectory {
       [KDS, [ASHFAQ]],
     ]),
     headOfOperationsUserIds: [RAJAN],
+    fnbManagerUserIds: [RUBEN],
+    fnbStaffIds: new Set(),
     opsManagerUserIdsByLocationId: new Map(),
     hrUserIds: [HR],
     ...partial,
@@ -117,14 +123,29 @@ describe("missed punch approval chain", () => {
     expect(lineManagerUserIds(dir, INF, STAFF)).toEqual([MARY]);
   });
 
-  it("routes the operations step through the supervisor's reporting manager", () => {
+  it("routes the operations step only to Head of Operations for Operations staff", () => {
     const dir = directory({
-      headOfOperationsUserIds: [],
-      opsManagerUserIdsByLocationId: new Map([[INF, [RAJAN]]]),
+      headOfOperationsUserIds: [RAJAN],
+      opsManagerUserIdsByLocationId: new Map([[INF, ["louie-user"]]]),
     });
     expect(approverUserIdsForStep(dir, "ops", INF, STAFF)).toEqual([RAJAN]);
     expect(canUserActOnCorrection(dir, RAJAN, row({ currentStepRole: "ops" }))).toBe(true);
+    expect(canUserActOnCorrection(dir, "louie-user", row({ currentStepRole: "ops" }))).toBe(false);
     expect(canUserActOnCorrection(dir, MARY, row({ currentStepRole: "ops" }))).toBe(false);
+    expect(canUserActOnCorrection(dir, RUBEN, row({ currentStepRole: "ops" }))).toBe(false);
+  });
+
+  it("routes the operations step to F&B Manager for F&B staff, not Head of Operations", () => {
+    const dir = directory({
+      fnbStaffIds: new Set([BARISTA]),
+      fnbManagerUserIds: [RUBEN],
+      headOfOperationsUserIds: [RAJAN],
+    });
+    expect(approverUserIdsForStep(dir, "ops", INF, BARISTA)).toEqual([RUBEN]);
+    expect(approverUserIdsForStep(dir, "ops", INF, STAFF)).toEqual([RAJAN]);
+    expect(canUserActOnCorrection(dir, RUBEN, row({ staffId: BARISTA, currentStepRole: "ops" }))).toBe(true);
+    expect(canUserActOnCorrection(dir, RAJAN, row({ staffId: BARISTA, currentStepRole: "ops" }))).toBe(false);
+    expect(canUserActOnCorrection(dir, RUBEN, row({ staffId: STAFF, currentStepRole: "ops" }))).toBe(false);
   });
 
   it("shows a new request only to the site supervisor, then HoO, then HR", () => {
@@ -472,7 +493,24 @@ describe("missed punch approval chain", () => {
     expect(canUserActOnCorrection(dir, HR, request)).toBe(false);
   });
 
-  it("auto-approves a manager correction for their team and leaves it with HR, including the punches", () => {
+  it("advances an F&B Manager team correction past ops to HR", () => {
+    const dir = directory({
+      fnbStaffIds: new Set([BARISTA]),
+      fnbManagerUserIds: [RUBEN],
+      headOfOperationsUserIds: [RAJAN],
+    });
+    expect(teamCorrectionRouteAfterOpsCheck(dir, BARISTA, RUBEN)).toBe("hr");
+    expect(teamCorrectionRouteAfterOpsCheck(dir, BARISTA, RAJAN)).toBe("ops");
+    expect(teamCorrectionRouteAfterOpsCheck(dir, STAFF, RAJAN)).toBe("hr");
+    expect(correctionStepSeed("hr")).toEqual([
+      { stepOrder: 1, stepRole: "manager", status: "approved" },
+      { stepOrder: 2, stepRole: "ops", status: "approved" },
+      { stepOrder: 3, stepRole: "hr", status: "pending" },
+    ]);
+    expect(correctionWaitingStep("hr")).toBe("hr");
+  });
+
+  it("auto-approves a manager correction for their team and sends it to Head of Operations, then HR", () => {
     const managerUser = "manager-user";
     const managerStaff = "manager-staff";
     const lineManager = "line-manager-user";
@@ -493,14 +531,14 @@ describe("missed punch approval chain", () => {
         targetStaffId: crew,
         teamStaffIds: team,
       }),
-    ).toBe("hr");
+    ).toBe("ops");
     expect(
       punchCorrectionRoute({
         requesterStaffId: managerStaff,
         targetStaffId: through,
         teamStaffIds: team,
       }),
-    ).toBe("hr");
+    ).toBe("ops");
     expect(
       punchCorrectionRoute({
         requesterStaffId: managerStaff,
@@ -508,10 +546,10 @@ describe("missed punch approval chain", () => {
         teamStaffIds: team,
       }),
     ).toBeNull();
-    expect(correctionWaitingStep("hr")).toBe("hr");
-    expect(correctionStepSeed("hr")).toEqual([
+    expect(correctionWaitingStep("ops")).toBe("ops");
+    expect(correctionStepSeed("ops")).toEqual([
       { stepOrder: 1, stepRole: "manager", status: "approved" },
-      { stepOrder: 2, stepRole: "ops", status: "skipped" },
+      { stepOrder: 2, stepRole: "ops", status: "pending" },
       { stepOrder: 3, stepRole: "hr", status: "pending" },
     ]);
     const note = managerTeamCorrectionNote({
@@ -533,6 +571,16 @@ describe("missed punch approval chain", () => {
         previousPunchOut: null,
       }),
     ).toContain("Requested punch-in 09:05, punch-out not on this request. Previous punch-in none, previous punch-out none.");
+    const waitingOnOps = row({
+      staffId: crew,
+      requestedBy: managerUser,
+      requesterStaffId: managerStaff,
+      currentStepRole: "ops",
+    });
+    expect(canUserActOnCorrection(dir, RAJAN, waitingOnOps)).toBe(true);
+    expect(canUserActOnCorrection(dir, HR, waitingOnOps)).toBe(false);
+    expect(canUserActOnCorrection(dir, lineManager, waitingOnOps)).toBe(false);
+    expect(canUserActOnCorrection(dir, managerUser, waitingOnOps)).toBe(false);
     const waitingOnHr = row({
       staffId: crew,
       requestedBy: managerUser,
@@ -540,9 +588,7 @@ describe("missed punch approval chain", () => {
       currentStepRole: "hr",
     });
     expect(canUserActOnCorrection(dir, HR, waitingOnHr)).toBe(true);
-    expect(canUserActOnCorrection(dir, lineManager, waitingOnHr)).toBe(false);
     expect(canUserActOnCorrection(dir, RAJAN, waitingOnHr)).toBe(false);
-    expect(canUserActOnCorrection(dir, managerUser, waitingOnHr)).toBe(false);
   });
 });
 

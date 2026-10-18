@@ -35,15 +35,17 @@ export function MyDayCorrectionApprovals({ jobTitle }: { jobTitle?: string | nul
 export function MyDayLeaveApprovals({
   myStaffId,
   jobTitle,
+  department,
 }: {
   myStaffId: string;
   jobTitle?: string | null;
+  department?: string | null;
 }) {
   const { t } = useTranslation();
   const roles = useUserRoles();
   const reports = useMyDirectReports();
   const hasDirectReports = (reports.data?.directReportStaffIds.length ?? 0) > 0;
-  const show = mayReviewStaffLeaveOnMyDay({ roles, hasDirectReports, jobTitle });
+  const show = mayReviewStaffLeaveOnMyDay({ roles, hasDirectReports, jobTitle, department });
   const qc = useQueryClient();
   const list = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "my-day-leave-approvals" }),
@@ -72,8 +74,17 @@ export function MyDayLeaveApprovals({
       isOwnRequest: row.staffId === myStaffId,
       isLineManager: directIds.has(row.staffId),
       jobTitle,
+      department,
+      opsLane: row.opsLane,
     }),
   );
+
+  function leaveStepLabel(stepRole: string | null | undefined, opsLane: string | null | undefined): string {
+    if (stepRole === "ops" && opsLane === "fnb_manager") {
+      return t("hr.leave.steps.opsFnb", { defaultValue: "F&B Manager" });
+    }
+    return t(`hr.leave.steps.${stepRole ?? "manager"}`);
+  }
 
   return (
     <div id="me-leave-approvals" className="space-y-3">
@@ -123,12 +134,14 @@ export function MyDayLeaveApprovals({
                   <div className="hd-approval__step">
                     {row.currentStepRole ? (
                       <p className="hd-approval__waiting">
-                        {t("hr.leave.waitingStep", { step: t(`hr.leave.steps.${row.currentStepRole}`) })}
+                        {t("hr.leave.waitingStep", {
+                          step: leaveStepLabel(row.currentStepRole, row.opsLane),
+                        })}
                       </p>
                     ) : (
                       <span />
                     )}
-                    <Badge variant="warning">{t(`hr.leave.steps.${row.currentStepRole ?? "manager"}`)}</Badge>
+                    <Badge variant="warning">{leaveStepLabel(row.currentStepRole, row.opsLane)}</Badge>
                   </div>
                   <div className="hd-approval__actions" role="group" aria-label={t("common.actions")}>
                     <Button

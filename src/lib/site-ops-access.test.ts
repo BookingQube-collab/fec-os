@@ -9,7 +9,7 @@ import {
 } from "@/lib/site-ops-access";
 
 describe("monthly roster, mapping, and team corrections", () => {
-  it("allows venue supervisor, Sr. Site Supervisor, and F&B supervisor", () => {
+  it("allows venue supervisor, Sr. Site Supervisor, and F&B supervisor on the monthly roster", () => {
     const allowed = [
       { staffRole: "venue_supervisor" },
       { jobTitle: "Venue Supervisor" },
@@ -23,8 +23,25 @@ describe("monthly roster, mapping, and team corrections", () => {
     for (const identity of allowed) {
       expect(canManageMonthlyRoster(identity), JSON.stringify(identity)).toBe(true);
       expect(canEditAttendanceMapping(identity), JSON.stringify(identity)).toBe(true);
+    }
+  });
+
+  it("lets Operations and F&B supervisors correct team punches", () => {
+    const allowed = [
+      { staffRole: "venue_supervisor" },
+      { jobTitle: "Venue Supervisor" },
+      { jobTitle: "Sr. Site Supervisor" },
+      { jobTitle: "Site Supervisor" },
+      { jobTitle: "Supervisor" },
+      { jobTitle: "F&B Supervisor" },
+      { jobTitle: "F& Supervisor" },
+      { department: "F&B Supervisor" },
+    ];
+    for (const identity of allowed) {
       expect(canCorrectTeamAttendance(identity), JSON.stringify(identity)).toBe(true);
     }
+    expect(canCorrectTeamAttendance({ jobTitle: "Barista" })).toBe(false);
+    expect(canCorrectTeamAttendance({ jobTitle: "F&B Manager", department: "F&B" })).toBe(true);
   });
 
   it("rejects team leaders and everyone outside the three roles", () => {
@@ -51,6 +68,16 @@ describe("monthly roster, mapping, and team corrections", () => {
     for (const identity of denied) {
       expect(canManageMonthlyRoster(identity), JSON.stringify(identity)).toBe(false);
       expect(canEditAttendanceMapping(identity), JSON.stringify(identity)).toBe(false);
+    }
+    const correctionDenied = denied.filter(
+      (identity) =>
+        identity &&
+        !(
+          ("jobTitle" in identity && identity.jobTitle === "Site Supervisor") ||
+          ("jobTitle" in identity && identity.jobTitle === "F&B Manager")
+        ),
+    );
+    for (const identity of correctionDenied) {
       expect(canCorrectTeamAttendance(identity), JSON.stringify(identity)).toBe(false);
     }
   });

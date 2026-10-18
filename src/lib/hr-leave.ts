@@ -66,7 +66,10 @@ export function countLeaveDays(dateFrom: string, dateTo: string): number {
   return Math.round((to - from) / 86_400_000) + 1;
 }
 
-/** Default approval ladder: manager → ops → HR (final syncs attendance). */
+/**
+ * Default approval ladder: manager → ops → HR (final syncs attendance).
+ * Ops is Head of Operations for Operations staff, F&B Manager for F&B staff.
+ */
 export function defaultLeaveApprovalSteps(): Array<{
   stepOrder: number;
   stepRole: HrLeaveApprovalRole;

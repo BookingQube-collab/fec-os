@@ -1,3 +1,4 @@
+import { isFnbManager } from "@/lib/arcade/access";
 import { isManagerTeamSupervisor } from "@/lib/manager-supervisor-team";
 import { isSrSiteSupervisorTitle } from "@/lib/org-hierarchy";
 
@@ -111,7 +112,18 @@ export function canEditAttendanceMapping(identity: SiteOpsIdentity | null | unde
   return canManageMonthlyRoster(identity);
 }
 
-/** File or change a correction for someone other than yourself. Own punches stay separate. */
+/**
+ * File or change a correction for someone other than yourself. Own punches stay separate.
+ * Operations supervisors (venue / Sr. Site / Site), F&B Supervisor, and F&B Manager.
+ * F&B team corrections route to the F&B Manager; Operations route to Head of Operations.
+ */
 export function canCorrectTeamAttendance(identity: SiteOpsIdentity | null | undefined): boolean {
-  return canManageMonthlyRoster(identity);
+  if (!identity) return false;
+  if ((identity.staffRole ?? "").trim() === VENUE_SUPERVISOR_ROLE) return true;
+  if (matchesAny(identity, isVenueSupervisorTitle)) return true;
+  if (matchesAny(identity, isSrSiteSupervisorTitle)) return true;
+  if (matchesAny(identity, isFbSupervisorTitle)) return true;
+  if (isFnbManager(identity.jobTitle, identity.department)) return true;
+  if (isManagerTeamSupervisor(identity.jobTitle, identity.staffRole)) return true;
+  return false;
 }

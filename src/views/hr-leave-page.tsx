@@ -288,7 +288,12 @@ export function HrLeaveWorkspace({
                         <p className="text-xs text-muted-foreground">
                           {row.employeeCode ?? "—"} · {row.dateFrom} → {row.dateTo} · {row.days} {t("hr.leave.days")}
                           {row.currentStepRole
-                            ? ` · ${t("hr.leave.waitingStep", { step: t(`hr.leave.steps.${row.currentStepRole}`) })}`
+                            ? ` · ${t("hr.leave.waitingStep", {
+                                step:
+                                  row.currentStepRole === "ops" && row.opsLane === "fnb_manager"
+                                    ? t("hr.leave.steps.opsFnb", { defaultValue: "F&B Manager" })
+                                    : t(`hr.leave.steps.${row.currentStepRole}`),
+                              })}`
                             : ""}
                           {row.payrollImpact ? ` · ${t("hr.leave.payrollImpact")}` : ""}
                           {row.reason ? ` · ${row.reason}` : ""}

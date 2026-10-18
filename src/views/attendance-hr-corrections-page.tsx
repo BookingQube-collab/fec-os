@@ -18,7 +18,7 @@ export default function AttendanceHrCorrectionsPage() {
         icon={ClipboardCheck}
         kicker="Time & Attendance"
         title="Corrections"
-        subtitle="Your own correction goes to your line manager, then Head of Operations, then HR. A correction for someone on your team is approved and sent to HR."
+        subtitle="Your own correction goes to your line manager, then Head of Operations (or F&B Manager for F&B staff), then HR. A team correction is approved by the supervisor and sent to that same ops step, then HR."
       />
       <AttendanceHrNav />
       <NeumorphicCard className="space-y-3 p-5">

@@ -27,6 +27,8 @@ function directory(partial?: Partial<ApprovalDirectory>): ApprovalDirectory {
     branchGmUserIdsByLocationId: new Map([[SITE, [GM]]]),
     siteSupervisorUserIdsByLocationId: new Map(),
     headOfOperationsUserIds: [HOO],
+    fnbManagerUserIds: [],
+    fnbStaffIds: new Set(),
     opsManagerUserIdsByLocationId: new Map(),
     hrUserIds: [HR],
     ...partial,
@@ -162,6 +164,7 @@ describe("who may approve from My Day", () => {
         isOwnRequest: false,
         isLineManager: false,
         jobTitle: "Head of Operations - HO — Head Office",
+        opsLane: "head_of_operations",
       }),
     ).toBe(true);
     expect(
@@ -206,6 +209,67 @@ describe("who may approve from My Day", () => {
         jobTitle: "Head of Operations",
       }),
     ).toBe(true);
+  });
+
+  it("lets F&B Manager approve the ops step for F&B leave only, not Operations", () => {
+    expect(
+      canApproveLeaveOnMyDay({
+        roles: ["cashier_host"],
+        stepRole: "ops",
+        isOwnRequest: false,
+        isLineManager: false,
+        jobTitle: "F&B Manager",
+        department: "F&B",
+        opsLane: "fnb_manager",
+      }),
+    ).toBe(true);
+    expect(
+      canApproveLeaveOnMyDay({
+        roles: ["cashier_host"],
+        stepRole: "ops",
+        isOwnRequest: false,
+        isLineManager: false,
+        jobTitle: "F&B Manager",
+        department: "F&B",
+        opsLane: "head_of_operations",
+      }),
+    ).toBe(false);
+    expect(
+      canApproveLeaveOnMyDay({
+        roles: ["cashier_host"],
+        stepRole: "ops",
+        isOwnRequest: false,
+        isLineManager: false,
+        jobTitle: "Head of Operations",
+        opsLane: "fnb_manager",
+      }),
+    ).toBe(false);
+    expect(
+      mayReviewStaffLeaveOnMyDay({
+        roles: ["cashier_host"],
+        hasDirectReports: false,
+        jobTitle: "F&B Manager",
+        department: "F&B",
+      }),
+    ).toBe(true);
+    expect(
+      mayReviewStaffCorrectionsOnMyDay({
+        roles: ["cashier_host"],
+        hasDirectReports: false,
+        jobTitle: "F&B Manager",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not let a duty manager approve the ops step by manager capability alone", () => {
+    expect(
+      canApproveLeaveOnMyDay({
+        roles: ["duty_manager"],
+        stepRole: "ops",
+        isOwnRequest: false,
+        isLineManager: true,
+      }),
+    ).toBe(false);
   });
 
   it("does not let a cashier or unrelated employee approve other people", () => {

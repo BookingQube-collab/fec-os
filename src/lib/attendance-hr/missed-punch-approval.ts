@@ -1,7 +1,13 @@
+import {
+  opsApprovalLaneForStaffId,
+  opsStepApproverUserIds,
+  type OpsApprovalLane,
+} from "@/lib/approval-ops-routing";
 import { defaultLeaveApprovalSteps, type HrLeaveApprovalRole } from "@/lib/hr-leave";
 
-/** Same ladder as leave: site supervisor → Head of Operations → HR. */
+/** Same ladder as leave: line manager → ops (HoO or F&B Manager) → HR. */
 export type MissedPunchStepRole = HrLeaveApprovalRole;
+export type { OpsApprovalLane };
 
 export type MissedPunchQueue = "waiting" | "mine";
 
@@ -21,9 +27,13 @@ export type ApprovalDirectory = {
   branchGmUserIdsByLocationId: ReadonlyMap<string, readonly string[]>;
   siteSupervisorUserIdsByLocationId: ReadonlyMap<string, readonly string[]>;
   headOfOperationsUserIds: readonly string[];
+  /** Logins with an F&B Manager title. Ops step for F&B staff. */
+  fnbManagerUserIds: readonly string[];
+  /** Staff on the F&B lane; missing id means Operations (Head of Operations). */
+  fnbStaffIds: ReadonlySet<string>;
   /**
    * Logins of the people site supervisors at a location report to.
-   * The operations step uses this hierarchy together with Head of Operations.
+   * Kept for hierarchy display; the ops step uses HoO or F&B Manager only.
    */
   opsManagerUserIdsByLocationId: ReadonlyMap<string, readonly string[]>;
   hrUserIds: readonly string[];
@@ -156,31 +166,34 @@ export function canCorrectStaffPunch(input: {
 }
 
 /**
- * Own requests wait for the requester's line manager.
- * A correction for someone on the requester's team is already approved and waits on HR.
- * Null means the target does not report to the requester, so it must not be auto-approved.
+ * Own requests wait for the requester's line manager, then ops (HoO or F&B Manager), then HR.
+ * A correction for someone on the requester's team is already approved by that supervisor
+ * and waits on the ops step, then HR. Null means the target is outside the team.
  */
 export function punchCorrectionRoute(input: {
   requesterStaffId: string | null;
   targetStaffId: string;
   teamStaffIds: readonly string[];
-}): "line_manager" | "hr" | null {
+}): "line_manager" | "ops" | null {
   if (!input.requesterStaffId) return null;
   if (input.targetStaffId === input.requesterStaffId) return "line_manager";
-  if (input.teamStaffIds.includes(input.targetStaffId)) return "hr";
+  if (input.teamStaffIds.includes(input.targetStaffId)) return "ops";
   return null;
 }
 
 /** The step the request is waiting on after it is saved. */
-export function correctionWaitingStep(route: "line_manager" | "hr"): MissedPunchStepRole {
-  return route === "hr" ? "hr" : "manager";
+export function correctionWaitingStep(route: "line_manager" | "ops" | "hr"): MissedPunchStepRole {
+  if (route === "hr") return "hr";
+  return route === "ops" ? "ops" : "manager";
 }
 
 /**
- * Team corrections record the manager step as approved and skip Head of Operations.
- * HR stays pending. Own requests leave every step pending.
+ * Team corrections record the manager step as approved; ops and HR stay pending.
+ * When the submitter is already the ops approver (e.g. F&B Manager), manager and ops
+ * are approved and the request waits on HR.
+ * Own requests leave every step pending (line manager → ops → HR).
  */
-export function correctionStepSeed(route: "line_manager" | "hr"): Array<{
+export function correctionStepSeed(route: "line_manager" | "ops" | "hr"): Array<{
   stepOrder: number;
   stepRole: MissedPunchStepRole;
   status: "pending" | "approved" | "skipped";
@@ -189,11 +202,14 @@ export function correctionStepSeed(route: "line_manager" | "hr"): Array<{
     if (route === "line_manager") {
       return { stepOrder: step.stepOrder, stepRole: step.stepRole, status: "pending" };
     }
-    if (step.stepRole === "manager") {
+    if (route === "hr") {
+      if (step.stepRole === "hr") {
+        return { stepOrder: step.stepOrder, stepRole: step.stepRole, status: "pending" };
+      }
       return { stepOrder: step.stepOrder, stepRole: step.stepRole, status: "approved" };
     }
-    if (step.stepRole === "ops") {
-      return { stepOrder: step.stepOrder, stepRole: step.stepRole, status: "skipped" };
+    if (step.stepRole === "manager") {
+      return { stepOrder: step.stepOrder, stepRole: step.stepRole, status: "approved" };
     }
     return { stepOrder: step.stepOrder, stepRole: step.stepRole, status: "pending" };
   });
@@ -292,10 +308,30 @@ export function approverUserIdsForStep(
     return lineManagerUserIds(directory, locationId, staffId);
   }
   if (step === "ops") {
-    const fromHierarchy = directory.opsManagerUserIdsByLocationId.get(locationId) ?? [];
-    return [...new Set([...directory.headOfOperationsUserIds, ...fromHierarchy])];
+    // Operations staff → Head of Operations. F&B staff → F&B Manager. Never both.
+    return opsStepApproverUserIds(directory, staffId);
   }
   return [...directory.hrUserIds];
+}
+
+/** Ops-step lane for this correction's staff (HoO vs F&B Manager). */
+export function correctionOpsLane(
+  directory: ApprovalDirectory,
+  staffId: string | null,
+): OpsApprovalLane {
+  return opsApprovalLaneForStaffId(directory, staffId);
+}
+
+/** Team submitter who already holds the ops seat advances straight to HR. */
+export function teamCorrectionRouteAfterOpsCheck(
+  directory: ApprovalDirectory,
+  staffId: string | null,
+  requesterUserId: string,
+): "ops" | "hr" {
+  if (approverUserIdsForStep(directory, "ops", "", staffId).includes(requesterUserId)) {
+    return "hr";
+  }
+  return "ops";
 }
 
 /**

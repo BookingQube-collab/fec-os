@@ -8971,7 +8971,8 @@
       "compassionateOutside": "Compassionate (outside Qatar)",
       "steps": {
         "manager": "Reporting manager",
-        "ops": "Ops / department",
+        "ops": "Head of Operations",
+        "opsFnb": "F&B Manager",
         "hr": "HR verification"
       },
       "status": {
@@ -10350,6 +10351,7 @@
       "step": {
         "manager": "site supervisor",
         "ops": "Head of Operations",
+        "opsFnb": "F&B Manager",
         "hr": "HR"
       },
       "staffStatus": {

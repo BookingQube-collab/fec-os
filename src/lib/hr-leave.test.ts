@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  canActOnOpsApprovalStep,
+  opsApprovalLaneForStaff,
+} from "./approval-ops-routing";
+import {
   assertLeaveTransition,
   canTransitionLeave,
   countLeaveDays,
@@ -46,6 +50,33 @@ describe("leave status transitions", () => {
 
   it("seeds manager → ops → hr approval ladder", () => {
     expect(defaultLeaveApprovalSteps().map((s) => s.stepRole)).toEqual(["manager", "ops", "hr"]);
+  });
+
+  it("routes Operations leave ops step to Head of Operations and F&B to F&B Manager", () => {
+    expect(opsApprovalLaneForStaff("Site Supervisor", "Operations")).toBe("head_of_operations");
+    expect(opsApprovalLaneForStaff("Barista", "F&B Cafe")).toBe("fnb_manager");
+    expect(
+      canActOnOpsApprovalStep({
+        manage: false,
+        lane: "head_of_operations",
+        actorJobTitle: "Head of Operations",
+      }),
+    ).toBe(true);
+    expect(
+      canActOnOpsApprovalStep({
+        manage: false,
+        lane: "fnb_manager",
+        actorJobTitle: "F&B Manager",
+        actorDepartment: "F&B",
+      }),
+    ).toBe(true);
+    expect(
+      canActOnOpsApprovalStep({
+        manage: false,
+        lane: "fnb_manager",
+        actorJobTitle: "Head of Operations",
+      }),
+    ).toBe(false);
   });
 });
 

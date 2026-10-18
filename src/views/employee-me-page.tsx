@@ -598,6 +598,7 @@ export default function EmployeeMePage() {
                   <RosterPunchFill jobTitle={person.jobTitle} />
                   <PunchCorrectionRequest
                     jobTitle={person.jobTitle}
+                    department={person.department}
                     selfStaff={{
                       staffId: person.id,
                       fullName: person.fullName,
@@ -665,7 +666,11 @@ export default function EmployeeMePage() {
 
               {active === "leave" && person ? (
                 <EssPanel id="me-leave" title={t("hr.leave.requestTitle")}>
-                  <MyDayLeaveApprovals myStaffId={person.id} jobTitle={person.jobTitle} />
+                  <MyDayLeaveApprovals
+                    myStaffId={person.id}
+                    jobTitle={person.jobTitle}
+                    department={person.department}
+                  />
                   {leaveBalances.length > 0 ? (
                     <div className="hd-chips">
                       {leaveBalances.slice(0, 4).map((b) => (

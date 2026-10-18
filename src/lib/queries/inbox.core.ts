@@ -337,11 +337,11 @@ async function fetchMissedPunchItems(context: AuthContext, roles: AppRole[]): Pr
       id: `punch:${row.id}`,
       kind: "notification",
       category: "people",
-      title: ops ? "Missed punch waiting for Head of Operations" : "Missed punch request",
+      title: ops ? "Missed punch waiting for operations approval" : "Missed punch request",
       titleKey: null,
       body: ops
-        ? `${who}'s missed punch${date ? ` on ${date}` : ""} was approved by the site supervisor.`
-        : `${who} submitted a missed punch${date ? ` for ${date}` : ""}. It is waiting for the site supervisor.`,
+        ? `${who}'s missed punch${date ? ` on ${date}` : ""} was approved by their supervisor.`
+        : `${who} submitted a missed punch${date ? ` for ${date}` : ""}. It is waiting for their line manager.`,
       severity: "warning",
       actionUrl: "/people/attendance/corrections",
       readAt: null,
