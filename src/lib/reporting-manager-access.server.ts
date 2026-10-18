@@ -5,7 +5,6 @@ import { reportingTreeStaffIds } from "@/lib/attendance-listing-access";
 import { isRosterAssignableStaffStatus } from "@/lib/attendance-hr/roster-register-scope";
 import { loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
 import {
-  isManagerTeamSupervisor,
   managerSupervisorTeamIds,
   viewerRollsUpSupervisorTeam,
   type ManagerTeamPerson,
@@ -23,12 +22,7 @@ import {
 } from "@/lib/reporting-manager-locations";
 import type { AppRole } from "@/lib/rbac";
 import { ForbiddenError } from "@/lib/server/authorize";
-import {
-  isContractFinishedStaffStatus,
-  isJokerStaffStatus,
-  isResignedStaffStatus,
-  isTerminatedStaffStatus,
-} from "@/lib/staff-status";
+import { isJokerStaffStatus } from "@/lib/staff-status";
 
 /** Same roster the operations chart keeps on Team overview. Resigned, terminated, and status=joker are out. */
 const DIRECT_REPORT_STATUSES = ["active", "probation", "secondment", "remote", "serving_notice"] as const;
@@ -77,8 +71,8 @@ export async function loadDirectReportStaffIds(userId: string): Promise<DirectRe
 }
 
 /**
- * People directory for a job-title manager.
- * Direct reports, plus each supervisor's team on this manager's reporting line.
+ * People directory for a rollup manager or supervisor.
+ * Self plus the full reporting subtree (Shift Lead → crew included).
  * Includes active, on leave, and serving notice. Omits resigned, terminated,
  * deleted, and status=joker. Employment type joker stays listable when status allows.
  */
@@ -141,20 +135,6 @@ type ManagerTeamMember = ManagerTeamPerson & {
   deletedAt: string | null;
 };
 
-/** An active supervisor stays a bridge. Resigned, terminated, deleted, and status=joker do not. */
-function supervisorBridgesTeam(member: ManagerTeamMember): boolean {
-  if (member.deletedAt) return false;
-  if (isJokerStaffStatus(member.status)) return false;
-  if (
-    isResignedStaffStatus(member.status) ||
-    isTerminatedStaffStatus(member.status) ||
-    isContractFinishedStaffStatus(member.status)
-  ) {
-    return false;
-  }
-  return isManagerTeamSupervisor(member.jobTitle, member.staffRole);
-}
-
 async function loadStaffTeamRows(
   staffIds: string[],
   managerByChild: ReadonlyMap<string, string>,
@@ -184,9 +164,9 @@ async function loadStaffTeamRows(
 }
 
 /**
- * Direct reports, and — for a manager or supervisor — the people under each
- * supervisor on that same reporting line. Cashiers stay on direct reports.
- * Another manager's branch is not loaded.
+ * Direct reports and — for a rollup manager or supervisor — the full reporting
+ * subtree (Shift Lead → crew, cashier lead → helper). Cashiers stay on direct
+ * reports. Another manager's branch is not loaded.
  */
 export async function loadManagerTeamMembers(userId: string): Promise<{
   staffId: string | null;
@@ -194,18 +174,13 @@ export async function loadManagerTeamMembers(userId: string): Promise<{
   viewerStaffRole: string | null;
   members: ManagerTeamMember[];
 }> {
-  const { data: staff, error } = await supabaseAdmin
-    .from("staff")
-    .select("id, job_title, staff_role")
-    .eq("user_id", userId)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
+  // staff.user_id is not unique — same helper as monthly roster / directory scope.
+  const staff = await loadLinkedStaffRecord(userId);
   if (!staff?.id) return { staffId: null, viewerJobTitle: null, viewerStaffRole: null, members: [] };
 
-  const viewerStaffId = String(staff.id);
-  const viewerJobTitle = staff.job_title ?? null;
-  const viewerStaffRole = staff.staff_role ?? null;
+  const viewerStaffId = staff.id;
+  const viewerJobTitle = staff.jobTitle;
+  const viewerStaffRole = staff.staffRole;
   const rollup = viewerRollsUpSupervisorTeam(viewerJobTitle, viewerStaffRole);
   const loaded: ManagerTeamMember[] = [];
   const seen = new Set<string>([viewerStaffId]);
@@ -226,7 +201,8 @@ export async function loadManagerTeamMembers(userId: string): Promise<{
     const next: string[] = [];
     for (const member of rows) {
       loaded.push(member);
-      if (rollup && supervisorBridgesTeam(member)) next.push(member.staffId);
+      // Match managerSupervisorTeamIds: rollup viewers walk every descendant edge.
+      if (rollup) next.push(member.staffId);
     }
     if (!rollup) break;
     frontier = next;
@@ -240,11 +216,24 @@ export async function loadManagerTeamMembers(userId: string): Promise<{
       people: loaded,
     }),
   );
+  const members = loaded.filter((member) => allowed.has(member.staffId));
+  // Rollup viewers include themselves on People / team lists.
+  if (allowed.has(viewerStaffId) && !members.some((member) => member.staffId === viewerStaffId)) {
+    members.push({
+      staffId: viewerStaffId,
+      jobTitle: viewerJobTitle,
+      staffRole: viewerStaffRole,
+      reportingManagerStaffId: null,
+      status: staff.status,
+      employmentType: staff.employmentType,
+      deletedAt: null,
+    });
+  }
   return {
     staffId: viewerStaffId,
     viewerJobTitle,
     viewerStaffRole,
-    members: loaded.filter((member) => allowed.has(member.staffId)),
+    members,
   };
 }
 

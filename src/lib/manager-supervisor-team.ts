@@ -30,9 +30,10 @@ export function isManagerTeamSupervisor(
 }
 
 /**
- * Who may see past a supervisor to that supervisor's team.
- * Managers, head of operations, and these supervisor titles may.
- * A cashier, host, or other title stays on direct reports only.
+ * Who may see their full reporting subtree (not only direct reports).
+ * Venue / Site / Sr. Site / Operations / F&B supervisors, F&B and other
+ * managers, and Head of Operations. A cashier, host, or other front-line
+ * title stays on direct reports only.
  */
 export function viewerRollsUpSupervisorTeam(
   jobTitle: string | null | undefined,
@@ -46,11 +47,12 @@ export function viewerRollsUpSupervisorTeam(
 }
 
 /**
- * Direct reports, plus the people under a supervisor in this viewer's line.
- * The walk continues only through supervisor titles, one or more levels,
- * in every department. A cashier's own reports are not pulled in. People on
- * another manager's line are not included. A supervisor viewer is included
- * with their team. A manager viewer is not included.
+ * The viewer plus everyone who reports through them on the org chart.
+ *
+ * Venue / Site / Sr. Site / Operations supervisors, F&B Supervisor, F&B Manager,
+ * and other rollup titles walk every reporting edge (Shift Lead → crew, cashier
+ * lead → helper). Cashiers and other front-line titles keep direct reports only.
+ * People on another manager's line are not included.
  */
 export function managerSupervisorTeamIds(input: {
   viewerStaffId: string;
@@ -79,15 +81,14 @@ export function managerSupervisorTeamIds(input: {
         if (seen.has(person.staffId)) continue;
         seen.add(person.staffId);
         included.add(person.staffId);
-        if (rollup && isManagerTeamSupervisor(person.jobTitle, person.staffRole)) {
-          next.push(person.staffId);
-        }
+        // Rollup viewers keep every descendant edge (Shift Lead, cashier lead, …).
+        if (rollup) next.push(person.staffId);
       }
     }
     if (!rollup) break;
     frontier = next;
   }
-  if (isManagerTeamSupervisor(input.viewerJobTitle, input.viewerStaffRole) && input.viewerStaffId) {
+  if (rollup && input.viewerStaffId) {
     included.add(input.viewerStaffId);
   }
   return [...included].sort();
@@ -99,9 +100,9 @@ export type TeamOverviewPerson = ManagerTeamPerson & {
 
 /**
  * Who appears on Team overview.
- * A manager sees direct reports, each supervisor by name, and that supervisor's team.
- * A supervisor sees the people who report to them, including their own row.
- * Serving notice stays on the list. Resigned, terminated, and other closed statuses do not.
+ * A rollup manager or supervisor sees themselves and their full reporting subtree
+ * (including crew under a Shift Lead). Serving notice stays on the list.
+ * Resigned, terminated, and other closed statuses do not.
  */
 export function teamOverviewMemberIds(input: {
   viewerStaffId: string;

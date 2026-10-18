@@ -1,5 +1,5 @@
 import { parseShowOrgDepartmentsParam } from "@/lib/exclude-org-departments";
-import { loadLinkedStaffJobTitle } from "@/lib/linked-staff-job-title.server";
+import { loadLinkedStaffIdentity, loadLinkedStaffJobTitle } from "@/lib/linked-staff-job-title.server";
 import {
   hasCompanyPeopleDirectory,
   peopleDirectoryScope,
@@ -9,6 +9,7 @@ import { loadPeopleDirectoryTeamStaffIds } from "@/lib/reporting-manager-access.
 import { withAuthRouteRequest, searchParams } from "@/lib/server/api-route";
 import { ForbiddenError } from "@/lib/server/authorize";
 import { fetchStaff, fetchStaffDirectory, fetchStaffJobTitles } from "@/lib/queries/module-queries.core";
+import { loadReportsToHeadOfOperations } from "@/lib/site-ops-access.server";
 
 export async function GET(request: Request) {
   return withAuthRouteRequest(async (context, req) => {
@@ -26,8 +27,17 @@ export async function GET(request: Request) {
 
     // Paginated directory (People Employees tab). Legacy array kept for other callers.
     if (view === "directory" || pageParam != null) {
-      const jobTitle = await loadLinkedStaffJobTitle(context.userId);
-      const scope = peopleDirectoryScope(roles, jobTitle);
+      const [identity, reportsToHeadOfOperations] = await Promise.all([
+        loadLinkedStaffIdentity(context.userId),
+        loadReportsToHeadOfOperations(context.userId),
+      ]);
+      const scope = peopleDirectoryScope(
+        roles,
+        identity.jobTitle,
+        identity.staffRole,
+        identity.department,
+        reportsToHeadOfOperations,
+      );
       if (!scope) throw new ForbiddenError("Missing capability: people.view_roster");
       const teamStaffIds = scope === "team" ? await loadPeopleDirectoryTeamStaffIds(context.userId) : null;
       const pageSize = Number(params.get("pageSize") ?? "25");
@@ -57,7 +67,13 @@ export async function GET(request: Request) {
         },
         {
           teamStaffIds,
-          showSalary: peopleDirectoryShowsSalary(roles, jobTitle),
+          showSalary: peopleDirectoryShowsSalary(
+            roles,
+            identity.jobTitle,
+            identity.staffRole,
+            identity.department,
+            reportsToHeadOfOperations,
+          ),
         },
       );
     }
