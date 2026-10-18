@@ -29,15 +29,20 @@ export function hasCompanyPeopleDirectory(roles: readonly string[]): boolean {
 
 /**
  * Company roster viewers keep the whole directory.
- * A manager or supervisor job title, or a venue-supervisor staff role, without that capability sees direct reports only.
+ * A manager or supervisor job title, venue-supervisor staff role, or HoO ops peer
+ * without that capability sees direct reports only.
  */
 export function peopleDirectoryScope(
   roles: readonly string[],
   jobTitle?: string | null,
   staffRole?: string | null,
+  department?: string | null,
+  reportsToHeadOfOperations?: boolean,
 ): PeopleDirectoryScope | null {
   if (hasCompanyPeopleDirectory(roles)) return "company";
-  if (canUploadOwnRosterWithoutReports(jobTitle, staffRole)) return "team";
+  if (canUploadOwnRosterWithoutReports(jobTitle, staffRole, department, reportsToHeadOfOperations)) {
+    return "team";
+  }
   return null;
 }
 
@@ -45,8 +50,10 @@ export function canOpenPeopleDirectory(
   roles: readonly string[],
   jobTitle?: string | null,
   staffRole?: string | null,
+  department?: string | null,
+  reportsToHeadOfOperations?: boolean,
 ): boolean {
-  return peopleDirectoryScope(roles, jobTitle, staffRole) != null;
+  return peopleDirectoryScope(roles, jobTitle, staffRole, department, reportsToHeadOfOperations) != null;
 }
 
 /**
@@ -57,12 +64,16 @@ export function peopleDirectoryShowsSalary(
   roles: readonly string[],
   jobTitle?: string | null,
   staffRole?: string | null,
+  department?: string | null,
+  reportsToHeadOfOperations?: boolean,
 ): boolean {
   const list = roles as AppRole[];
   if (!canUserDo(list, "people.view_salary")) return false;
   if (list.some((role) => SALARY_LEADERSHIP.includes(role))) return true;
   if (list.some((role) => SALARY_HIDDEN_LOGINS.includes(role))) return false;
-  if (canUploadOwnRosterWithoutReports(jobTitle, staffRole)) return false;
+  if (canUploadOwnRosterWithoutReports(jobTitle, staffRole, department, reportsToHeadOfOperations)) {
+    return false;
+  }
   return true;
 }
 

@@ -23,7 +23,11 @@ import {
   loadTeamCoverageLocations,
 } from "@/lib/reporting-manager-access.server";
 import { canUserDo, type AppRole } from "@/lib/rbac";
-import { assertCanManageMonthlyRoster, assertCanOpenShiftRoster } from "@/lib/site-ops-access.server";
+import {
+  assertCanEditAttendanceMapping,
+  assertCanManageMonthlyRoster,
+  assertCanOpenShiftRoster,
+} from "@/lib/site-ops-access.server";
 import { ACTIVE_ROSTER_STAFF_STATUS_OR } from "@/lib/staff-status";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
@@ -1396,11 +1400,11 @@ export const mapAttendanceRosterSheetName = createAuthenticatedAction(
 );
 
 async function assertMapUsers(context: AuthContext) {
-  await assertCanManageMonthlyRoster(context.userId);
+  await assertCanEditAttendanceMapping(context.userId);
 }
 
 async function loadBiometricMappingForWriter(context: AuthContext, mappingId: string) {
-  await assertCanManageMonthlyRoster(context.userId);
+  await assertCanEditAttendanceMapping(context.userId);
   const roles = context.roles ?? [];
   const companyWide = attendanceMappingIsCompanyWide(roles);
   const db = companyWide ? context.supabase : (supabaseAdmin as AuthContext["supabase"]);

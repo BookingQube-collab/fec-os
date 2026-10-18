@@ -1,5 +1,5 @@
 import { canUserDo, isRosterAmendJobTitle, type AppRole, type Capability } from "@/lib/rbac";
-import { canOpenShiftRoster } from "@/lib/site-ops-access";
+import { canManageMonthlyRoster, canOpenShiftRoster } from "@/lib/site-ops-access";
 
 /** Caps that already open company or role-scoped roster and attendance. */
 const COMPANY_ROSTER_CAPS = [
@@ -16,13 +16,17 @@ export function usesTeamLocationScope(roles: readonly AppRole[]): boolean {
 
 /**
  * Same people who may amend the monthly roster without a company capability:
- * a manager or supervisor job title, or the venue-supervisor staff role.
+ * a manager or supervisor job title, the venue-supervisor staff role, or an
+ * HoO ops peer (Louie / Russell) who reports to Head of Operations.
  */
 export function canUploadOwnRosterWithoutReports(
   jobTitle?: string | null,
   staffRole?: string | null,
+  department?: string | null,
+  reportsToHeadOfOperations?: boolean,
 ): boolean {
-  return isRosterAmendJobTitle(jobTitle) || staffRole === "venue_supervisor";
+  if (isRosterAmendJobTitle(jobTitle) || staffRole === "venue_supervisor") return true;
+  return canManageMonthlyRoster({ jobTitle, staffRole, department, reportsToHeadOfOperations });
 }
 
 /**
@@ -77,10 +81,21 @@ export function rosterTeamOrSelfStaffIds(input: {
   directReportStaffIds: readonly string[];
   jobTitle?: string | null;
   staffRole?: string | null;
+  department?: string | null;
+  reportsToHeadOfOperations?: boolean;
 }): string[] {
   if (input.directReportStaffIds.length > 0) return [...input.directReportStaffIds];
   if (!input.staffId) return [];
-  if (!canUploadOwnRosterWithoutReports(input.jobTitle, input.staffRole)) return [];
+  if (
+    !canUploadOwnRosterWithoutReports(
+      input.jobTitle,
+      input.staffRole,
+      input.department,
+      input.reportsToHeadOfOperations,
+    )
+  ) {
+    return [];
+  }
   return [input.staffId];
 }
 

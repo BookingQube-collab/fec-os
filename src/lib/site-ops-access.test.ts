@@ -12,7 +12,7 @@ import {
 } from "@/lib/site-ops-access";
 
 describe("monthly roster, mapping, and team corrections", () => {
-  it("allows venue supervisor, Sr. Site Supervisor, and F&B supervisor on the monthly roster", () => {
+  it("allows venue supervisor, Sr. Site Supervisor, and F&B supervisor on the monthly roster and mapping", () => {
     const allowed = [
       { staffRole: "venue_supervisor" },
       { jobTitle: "Venue Supervisor" },
@@ -26,6 +26,19 @@ describe("monthly roster, mapping, and team corrections", () => {
     for (const identity of allowed) {
       expect(canManageMonthlyRoster(identity), JSON.stringify(identity)).toBe(true);
       expect(canEditAttendanceMapping(identity), JSON.stringify(identity)).toBe(true);
+    }
+  });
+
+  it("lets Site Supervisor and Operations Supervisor manage the monthly roster without opening mapping", () => {
+    const supervisors = [
+      { jobTitle: "Site Supervisor" },
+      { jobTitle: "Supervisor" },
+      { jobTitle: "Operations Supervisor" },
+    ];
+    for (const identity of supervisors) {
+      expect(canManageMonthlyRoster(identity), JSON.stringify(identity)).toBe(true);
+      expect(canOpenShiftRoster(identity), JSON.stringify(identity)).toBe(true);
+      expect(canEditAttendanceMapping(identity), JSON.stringify(identity)).toBe(false);
     }
   });
 
@@ -47,7 +60,7 @@ describe("monthly roster, mapping, and team corrections", () => {
     expect(canCorrectTeamAttendance({ jobTitle: "F&B Manager", department: "F&B" })).toBe(true);
   });
 
-  it("rejects team leaders and everyone outside the three roles", () => {
+  it("rejects cashiers, team leaders, and non-supervisor titles for monthly roster and mapping", () => {
     expect(isTeamLeaderTitle("Team Leader")).toBe(true);
     expect(isTeamLeaderTitle("Admin Team Leader")).toBe(true);
     const denied = [
@@ -56,7 +69,6 @@ describe("monthly roster, mapping, and team corrections", () => {
       { jobTitle: "Admin Team Leader" },
       { jobTitle: "Administration Team Leader" },
       { staffRole: "shift_lead", jobTitle: "Team Leader" },
-      { jobTitle: "Site Supervisor" },
       { jobTitle: "F&B Manager" },
       { jobTitle: "Duty Manager" },
       { jobTitle: "Cashier" },
@@ -73,19 +85,14 @@ describe("monthly roster, mapping, and team corrections", () => {
       expect(canEditAttendanceMapping(identity), JSON.stringify(identity)).toBe(false);
     }
     const correctionDenied = denied.filter(
-      (identity) =>
-        identity &&
-        !(
-          ("jobTitle" in identity && identity.jobTitle === "Site Supervisor") ||
-          ("jobTitle" in identity && identity.jobTitle === "F&B Manager")
-        ),
+      (identity) => identity && !("jobTitle" in identity && identity.jobTitle === "F&B Manager"),
     );
     for (const identity of correctionDenied) {
       expect(canCorrectTeamAttendance(identity), JSON.stringify(identity)).toBe(false);
     }
   });
 
-  it("opens the shift roster for Site Supervisor, Adil, GM, and edit-roster logins without opening mapping", () => {
+  it("opens the shift roster for Adil, GM, and edit-roster logins without opening monthly roster or mapping", () => {
     const allowed = [
       { roles: ["ceo"] },
       { roles: ["branch_gm"] },
@@ -97,7 +104,6 @@ describe("monthly roster, mapping, and team corrections", () => {
       { department: "General Manager" },
       { jobTitle: "Managing Director" },
       { jobTitle: "Managing Director / Chief Executive Officer" },
-      { jobTitle: "Site Supervisor" },
     ];
     for (const identity of allowed) {
       expect(canOpenShiftRoster(identity), JSON.stringify(identity)).toBe(true);
@@ -109,7 +115,7 @@ describe("monthly roster, mapping, and team corrections", () => {
     expect(canOpenShiftRoster({ jobTitle: "Team Leader" })).toBe(false);
   });
 
-  it("opens shift roster and team corrections for HoO direct-report ops peers (any non-crew title)", () => {
+  it("opens monthly roster, shift roster, and team corrections for HoO peers without opening mapping", () => {
     const peers = [
       { jobTitle: "Operations Manager", reportsToHeadOfOperations: true },
       { jobTitle: "Operations Coordinator", reportsToHeadOfOperations: true },
@@ -133,8 +139,7 @@ describe("monthly roster, mapping, and team corrections", () => {
       expect(canOpenShiftRosterAsHoOPeer(identity)).toBe(true);
       expect(canOpenShiftRoster(identity), JSON.stringify(identity)).toBe(true);
       expect(canCorrectTeamAttendance(identity), JSON.stringify(identity)).toBe(true);
-      // Same as Site Supervisor: roster yes, mapping no.
-      expect(canManageMonthlyRoster(identity), JSON.stringify(identity)).toBe(false);
+      expect(canManageMonthlyRoster(identity), JSON.stringify(identity)).toBe(true);
       expect(canEditAttendanceMapping(identity), JSON.stringify(identity)).toBe(false);
     }
   });

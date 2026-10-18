@@ -81,6 +81,23 @@ describe("team roster access", () => {
       rosterTeamOrSelfStaffIds({
         staffId: "self",
         directReportStaffIds: [],
+        jobTitle: "Operations Supervisor",
+      }),
+    ).toEqual(["self"]);
+    expect(
+      rosterTeamOrSelfStaffIds({
+        staffId: "russell",
+        directReportStaffIds: [],
+        jobTitle: "Technician",
+        staffRole: "technician",
+        department: "Maintenance",
+        reportsToHeadOfOperations: true,
+      }),
+    ).toEqual(["russell"]);
+    expect(
+      rosterTeamOrSelfStaffIds({
+        staffId: "self",
+        directReportStaffIds: [],
         jobTitle: "Attendant",
         staffRole: "venue_supervisor",
       }),
@@ -91,6 +108,14 @@ describe("team roster access", () => {
         directReportStaffIds: [],
         jobTitle: "Cashier",
         staffRole: "cashier",
+      }),
+    ).toEqual([]);
+    expect(
+      rosterTeamOrSelfStaffIds({
+        staffId: "cashier",
+        directReportStaffIds: [],
+        jobTitle: "Cashier",
+        reportsToHeadOfOperations: true,
       }),
     ).toEqual([]);
     expect(

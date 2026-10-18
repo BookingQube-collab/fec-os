@@ -5,7 +5,12 @@ import { isHeadOfOperationsTitle } from "@/lib/attendance-hr/missed-punch-approv
 import { loadLinkedStaffIdentity, loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
 import { ForbiddenError, getUserRoles } from "@/lib/server/authorize";
 
-import { canCorrectTeamAttendance, canManageMonthlyRoster, canOpenShiftRoster } from "@/lib/site-ops-access";
+import {
+  canCorrectTeamAttendance,
+  canEditAttendanceMapping,
+  canManageMonthlyRoster,
+  canOpenShiftRoster,
+} from "@/lib/site-ops-access";
 
 /** Direct report of a Head of Operations title on the ops reporting chart. */
 export async function viewerReportsToHeadOfOperations(staffId: string): Promise<boolean> {
@@ -34,10 +39,22 @@ export async function loadReportsToHeadOfOperations(userId: string): Promise<boo
   return viewerReportsToHeadOfOperations(linked.id);
 }
 
+/** Monthly roster create / edit / delete. Site / Operations supervisors and HoO peers included. */
 export async function assertCanManageMonthlyRoster(userId: string): Promise<void> {
+  const [identity, reportsToHeadOfOperations] = await Promise.all([
+    loadLinkedStaffIdentity(userId),
+    loadReportsToHeadOfOperations(userId),
+  ]);
+  if (!canManageMonthlyRoster({ ...identity, reportsToHeadOfOperations })) {
+    throw new ForbiddenError("Forbidden: missing capability to change the monthly roster.");
+  }
+}
+
+/** Attendance mapping save / unmap / remove. Venue / Sr. Site / F&B Supervisor only. */
+export async function assertCanEditAttendanceMapping(userId: string): Promise<void> {
   const identity = await loadLinkedStaffIdentity(userId);
-  if (!canManageMonthlyRoster(identity)) {
-    throw new ForbiddenError("Forbidden: missing capability to change the roster, mapping, or team corrections.");
+  if (!canEditAttendanceMapping(identity)) {
+    throw new ForbiddenError("Forbidden: missing capability to change attendance mapping.");
   }
 }
 

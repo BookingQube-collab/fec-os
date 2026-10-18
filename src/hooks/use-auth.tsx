@@ -280,7 +280,7 @@ export function useUserRoles(): AppRole[] {
   return roles.map((r) => r.role);
 }
 
-/** Monthly roster, mapping, and team-correction edits. Own punch requests stay separate. */
+/** Monthly roster create / edit / upload (and shift roster). Mapping stays narrower. */
 export function useCanAmendShiftRoster(): boolean {
   const { profile } = useAuth();
   const roles = useUserRoles();
@@ -293,16 +293,28 @@ export function useCanAmendShiftRoster(): boolean {
   );
 }
 
-/** People directory: company roster capability, or a manager/supervisor job title. */
+/** People directory: company roster capability, supervisor title, or HoO ops peer. */
 export function useCanOpenPeopleDirectory(): boolean {
   const { profile } = useAuth();
   const roles = useUserRoles();
-  return canOpenPeopleDirectory(roles, profile?.job_title, profile?.staff_role);
+  return canOpenPeopleDirectory(
+    roles,
+    profile?.job_title,
+    profile?.staff_role,
+    profile?.department,
+    profile?.reports_to_head_of_operations,
+  );
 }
 
 /** Monthly salary and day rate. Hidden for branch managers and job-title supervisors. */
 export function usePeopleDirectoryShowsSalary(): boolean {
   const { profile } = useAuth();
   const roles = useUserRoles();
-  return peopleDirectoryShowsSalary(roles, profile?.job_title, profile?.staff_role);
+  return peopleDirectoryShowsSalary(
+    roles,
+    profile?.job_title,
+    profile?.staff_role,
+    profile?.department,
+    profile?.reports_to_head_of_operations,
+  );
 }

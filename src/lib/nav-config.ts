@@ -283,10 +283,12 @@ export function getEmployeeFlatRail(
   roles: AppRole[],
   jobTitle?: string | null,
   staffRole?: string | null,
+  department?: string | null,
+  reportsToHeadOfOperations?: boolean,
 ): NavItem[] {
   if (!usesEmployeeFlatRail(roles)) return [];
   const rail = EMPLOYEE_FLAT_RAIL.filter((item) => canUserDo(roles, item.capability));
-  return withPeopleDirectoryLink(rail, roles, jobTitle, staffRole);
+  return withPeopleDirectoryLink(rail, roles, jobTitle, staffRole, department, reportsToHeadOfOperations);
 }
 
 /**
@@ -923,8 +925,12 @@ function withPeopleDirectoryLink(
   roles: AppRole[],
   jobTitle?: string | null,
   staffRole?: string | null,
+  department?: string | null,
+  reportsToHeadOfOperations?: boolean,
 ): NavItem[] {
-  if (peopleDirectoryScope(roles, jobTitle, staffRole) !== "team") return rail;
+  if (peopleDirectoryScope(roles, jobTitle, staffRole, department, reportsToHeadOfOperations) !== "team") {
+    return rail;
+  }
   const extras = teamRosterNavItems().filter((item) => !rail.some((entry) => entry.href === item.href));
   if (extras.length === 0) return rail;
   const next = [...rail];
@@ -943,8 +949,12 @@ export function mergePeopleDirectoryDepartments(
   roles: AppRole[],
   jobTitle?: string | null,
   staffRole?: string | null,
+  department?: string | null,
+  reportsToHeadOfOperations?: boolean,
 ): VisibleNavDepartment[] {
-  if (peopleDirectoryScope(roles, jobTitle, staffRole) !== "team") return departments;
+  if (peopleDirectoryScope(roles, jobTitle, staffRole, department, reportsToHeadOfOperations) !== "team") {
+    return departments;
+  }
   const extras = teamRosterNavItems().filter(
     (item) => !departments.some((dept) => dept.items.some((entry) => entry.href === item.href)),
   );
@@ -966,8 +976,12 @@ export function peopleDirectoryRailItems(
   jobTitle: string | null | undefined,
   visibleHrefs: ReadonlySet<string>,
   staffRole?: string | null,
+  department?: string | null,
+  reportsToHeadOfOperations?: boolean,
 ): NavItem[] {
-  if (peopleDirectoryScope(roles, jobTitle, staffRole) !== "team") return [];
+  if (peopleDirectoryScope(roles, jobTitle, staffRole, department, reportsToHeadOfOperations) !== "team") {
+    return [];
+  }
   if (visibleHrefs.has("/people")) return [];
   const item = peopleDirectoryNavItem();
   return item ? [item] : [];

@@ -15,10 +15,19 @@ describe("people directory for managers and supervisors", () => {
     expect(canOpenPeopleDirectory(["cashier_host"], "F&B Manager")).toBe(true);
     expect(peopleDirectoryScope(["cashier_host"], "F&B Manager")).toBe("team");
     expect(canOpenPeopleDirectory(["cashier_host"], "Site Supervisor")).toBe(true);
+    expect(canOpenPeopleDirectory(["cashier_host"], "Operations Supervisor")).toBe(true);
     expect(canOpenPeopleDirectory(["cashier_host"], "Cashier")).toBe(false);
     expect(canOpenPeopleDirectory(["cashier_host"], "Host")).toBe(false);
     expect(canOpenPeopleDirectory(["cashier_host"], "Cashier / Host")).toBe(false);
     expect(canOpenPeopleDirectory(["technician"], "Technician")).toBe(false);
+    // Russell / Louie: HoO peer gets team directory + monthly roster nav.
+    expect(
+      canOpenPeopleDirectory(["technician"], "Technician", "technician", "Maintenance", true),
+    ).toBe(true);
+    expect(peopleDirectoryScope(["technician"], "Technician", "technician", "Maintenance", true)).toBe(
+      "team",
+    );
+    expect(canOpenPeopleDirectory(["cashier_host"], "Cashier", null, null, true)).toBe(false);
     expect(peopleDirectoryScope(["duty_manager"])).toBe("company");
     expect(peopleDirectoryScope(["tech_supervisor"])).toBe("company");
     expect(peopleDirectoryScope(["branch_gm"])).toBe("company");
@@ -55,6 +64,18 @@ describe("people directory for managers and supervisors", () => {
     const cashierHrefs = cashierNav.flatMap((dept) => dept.items.map((item) => item.href));
     expect(cashierHrefs).not.toContain("/people");
     expect(cashierHrefs).not.toContain("/people/roster");
+
+    const hooPeerNav = mergePeopleDirectoryDepartments(
+      getVisibleDepartments(["technician"]),
+      ["technician"],
+      "Technician",
+      "technician",
+      "Maintenance",
+      true,
+    );
+    const hooPeerHrefs = hooPeerNav.flatMap((dept) => dept.items.map((item) => item.href));
+    expect(hooPeerHrefs).toContain("/people");
+    expect(hooPeerHrefs).toContain("/people/roster");
   });
 
   it("omits salary for a manager and keeps it for HR and leadership", () => {

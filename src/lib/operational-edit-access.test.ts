@@ -31,6 +31,7 @@ describe("supervisor and manager operational edit", () => {
     expect(canAmendShiftRoster(["cashier_host"], "Sr. Site Supervisor")).toBe(true);
     expect(canAmendShiftRoster(["cashier_host"], "Venue Supervisor")).toBe(true);
     expect(canAmendShiftRoster(["cashier_host"], "Site Supervisor")).toBe(true);
+    expect(canAmendShiftRoster(["cashier_host"], "Operations Supervisor")).toBe(true);
     expect(canAmendShiftRoster(["cashier_host"], null, "venue_supervisor")).toBe(true);
     expect(canAmendShiftRoster(["cashier_host"], "F&B Manager")).toBe(false);
     expect(canAmendShiftRoster(["cashier_host"], "Duty Manager")).toBe(false);

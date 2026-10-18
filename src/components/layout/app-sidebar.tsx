@@ -1262,6 +1262,7 @@ export function AppSidebar() {
   const jobTitle = profile?.job_title ?? null;
   const staffRole = profile?.staff_role ?? null;
   const department = profile?.department ?? null;
+  const reportsToHeadOfOperations = profile?.reports_to_head_of_operations ?? false;
   const navActor = { jobTitle, staffRole, department };
   const canReorder = canReorderSidebarNav(roleRows);
   const { order, itemOrders, save, saveItems } = useSidebarNavOrder();
@@ -1320,20 +1321,25 @@ export function AppSidebar() {
             roles,
             jobTitle,
             staffRole,
+            department,
+            reportsToHeadOfOperations,
           ),
           order,
         ),
         itemOrders,
       ),
-    [department, hasDirectReports, itemOrders, jobTitle, order, roles, staffRole],
+    [department, hasDirectReports, itemOrders, jobTitle, order, reportsToHeadOfOperations, roles, staffRole],
   );
   const managerRail = useMemo(
     () => reportingManagerRailItems(hasDirectReports, new Set(primary.map((item) => item.departmentId))),
     [hasDirectReports, primary],
   );
   const employeeFlat = useMemo(
-    () => (usesEmployeeFlatRail(roles, hasDirectReports, navActor) ? getEmployeeFlatRail(roles, jobTitle, staffRole) : []),
-    [department, hasDirectReports, jobTitle, roles, staffRole],
+    () =>
+      usesEmployeeFlatRail(roles, hasDirectReports, navActor)
+        ? getEmployeeFlatRail(roles, jobTitle, staffRole, department, reportsToHeadOfOperations)
+        : [],
+    [department, hasDirectReports, jobTitle, reportsToHeadOfOperations, roles, staffRole],
   );
   const pinnedEssentials = useMemo(
     () => employeePinnedRailItems(roles, hasDirectReports, new Set(primary.map((item) => item.href))),
@@ -1346,8 +1352,10 @@ export function AppSidebar() {
         jobTitle,
         new Set([...employeeFlat.map((item) => item.href), ...primary.map((item) => item.href)]),
         staffRole,
+        department,
+        reportsToHeadOfOperations,
       ),
-    [employeeFlat, jobTitle, primary, roles, staffRole],
+    [department, employeeFlat, jobTitle, primary, reportsToHeadOfOperations, roles, staffRole],
   );
   const railExtras = useMemo(
     () => [...directoryRail, ...managerRail, ...pinnedEssentials],

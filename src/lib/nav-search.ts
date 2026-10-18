@@ -61,6 +61,8 @@ export function buildNavSearchIndex(
   hasDirectReports = false,
   jobTitle?: string | null,
   staffRole?: string | null,
+  department?: string | null,
+  reportsToHeadOfOperations?: boolean,
 ): NavSearchHit[] {
   const seen = new Set<string>();
   const out: NavSearchHit[] = [];
@@ -71,6 +73,8 @@ export function buildNavSearchIndex(
       roles,
       jobTitle,
       staffRole,
+      department,
+      reportsToHeadOfOperations,
     ),
   );
 

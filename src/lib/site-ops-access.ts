@@ -3,26 +3,19 @@ import { isManagerTeamSupervisor } from "@/lib/manager-supervisor-team";
 import { isSrSiteSupervisorTitle } from "@/lib/org-hierarchy";
 
 /**
- * Who may create or change the monthly roster, attendance mapping, and
- * corrections filed for someone else.
+ * Who may create or change the monthly roster (and team-correction writes that
+ * reuse the same assert).
  *
- * Stored keys already used on staff:
- * - staff_role `venue_supervisor`, or job title / department "Venue Supervisor"
- * - job title or department "Sr. Site Supervisor" / "Senior Site Supervisor"
- * - job title or department "F&B Supervisor" (also "F& Supervisor")
+ * Monthly roster allows:
+ * - Venue / Sr. Site / F&B Supervisor (title, department, or venue_supervisor role)
+ * - Any other *Supervisor* title (Site Supervisor, Operations Supervisor, …)
+ * - Non-F&B / non-crew direct reports of Head of Operations (Louie / Russell)
  *
- * There is no team_leader login role. The site catalog title "Team Leader"
- * (department code TEAM_LEAD), "Admin Team Leader", and a login that only
- * has direct reports are not on this list.
+ * Attendance mapping stays narrower — Venue / Sr. Site / F&B only
+ * (`canEditAttendanceMapping`). Cashiers, crew, and team leaders stay out.
  *
- * Site Supervisor and other *Supervisor* titles open the monthly roster through
- * canOpenShiftRoster. Mapping and team corrections stay on this narrower list.
- *
- * Direct reports of Head of Operations (ops function) open shift roster and
- * team corrections the same way as a Site Supervisor (not mapping). F&B,
- * cashiers, crew hosts, and team leaders stay out of that peer path. Titles
- * need not be Manager/Lead/Coordinator — Technician and untitled ops peers
- * (Louie / Russell under Rajan) qualify when they report to HoO.
+ * Shift roster upload also uses `canOpenShiftRoster`, which includes executives
+ * and people.edit_roster logins in addition to everyone on the monthly roster.
  */
 
 /** Same default roles as people.edit_roster — kept here so this file does not import rbac. */
@@ -145,8 +138,8 @@ export function canOpenShiftRosterAsHoOPeer(input: {
   return isHoOOperationsPeerTitle(input.jobTitle, input.department, input.staffRole);
 }
 
-export function canManageMonthlyRoster(identity: SiteOpsIdentity | null | undefined): boolean {
-  if (!identity) return false;
+/** Venue / Sr. Site / F&B only — attendance mapping editors. */
+function isClassicSiteOpsRosterSupervisor(identity: SiteOpsIdentity): boolean {
   if ((identity.staffRole ?? "").trim() === VENUE_SUPERVISOR_ROLE) return true;
   if (matchesAny(identity, isVenueSupervisorTitle)) return true;
   if (matchesAny(identity, isSrSiteSupervisorTitle)) return true;
@@ -154,33 +147,46 @@ export function canManageMonthlyRoster(identity: SiteOpsIdentity | null | undefi
   return false;
 }
 
-export type ShiftRosterIdentity = SiteOpsIdentity & {
-  roles?: readonly string[] | null;
+export type MonthlyRosterIdentity = SiteOpsIdentity & {
   /** Direct report of a Head of Operations title on the ops reporting chart. */
   reportsToHeadOfOperations?: boolean;
 };
 
 /**
+ * Monthly roster create / edit / delete / upload for the team chart.
+ * Venue / Sr. Site / F&B, every *Supervisor* title (Site, Operations, …), and
+ * HoO ops peers. Mapping stays on canEditAttendanceMapping.
+ */
+export function canManageMonthlyRoster(identity: MonthlyRosterIdentity | null | undefined): boolean {
+  if (!identity) return false;
+  if (isClassicSiteOpsRosterSupervisor(identity)) return true;
+  if (isManagerTeamSupervisor(identity.jobTitle, identity.staffRole)) return true;
+  if (canOpenShiftRosterAsHoOPeer(identity)) return true;
+  return false;
+}
+
+export type ShiftRosterIdentity = MonthlyRosterIdentity & {
+  roles?: readonly string[] | null;
+};
+
+/**
  * Shift roster upload and monthly roster create / edit / delete.
- * Venue, Sr. Site, F&B, and Site Supervisor titles; any other *Supervisor* title;
- * CEO / GM / Adil; every login that already has people.edit_roster
- * (duty manager, tech supervisor, HR, and the rest); and non-F&B / non-crew
- * direct reports of Head of Operations (Technician peers included).
+ * Everyone on canManageMonthlyRoster; CEO / GM / Adil; every login that already
+ * has people.edit_roster (duty manager, tech supervisor, HR, and the rest).
  * Team Leader stays out unless that login also has people.edit_roster.
- * Mapping stays on canManageMonthlyRoster (narrower).
+ * Mapping stays on canEditAttendanceMapping (narrower).
  */
 export function canOpenShiftRoster(identity: ShiftRosterIdentity | null | undefined): boolean {
   if (!identity) return false;
   if (canManageMonthlyRoster(identity)) return true;
   if (matchesAny(identity, isExecutiveRosterLabel)) return true;
-  if (isManagerTeamSupervisor(identity.jobTitle, identity.staffRole)) return true;
-  if (canOpenShiftRosterAsHoOPeer(identity)) return true;
   return (identity.roles ?? []).some((role) => ROSTER_SAVE_ROLES.has(role));
 }
 
-/** Save, unmap, and remove on Attendance mapping. Same people as the monthly roster. */
+/** Save, unmap, and remove on Attendance mapping. Venue / Sr. Site / F&B only. */
 export function canEditAttendanceMapping(identity: SiteOpsIdentity | null | undefined): boolean {
-  return canManageMonthlyRoster(identity);
+  if (!identity) return false;
+  return isClassicSiteOpsRosterSupervisor(identity);
 }
 
 /**

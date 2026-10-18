@@ -476,8 +476,8 @@ export function canManageAnnouncements(roles: readonly string[]): boolean {
 
 /**
  * Manager or supervisor job title used by the people directory.
- * Monthly roster, mapping, and team corrections use canManageMonthlyRoster
- * instead, which does not treat every manager or team leader as an editor.
+ * Monthly roster uses canManageMonthlyRoster (supervisors + HoO peers).
+ * Mapping stays on canEditAttendanceMapping (Venue / Sr. Site / F&B only).
  */
 export function isRosterAmendJobTitle(jobTitle: string | null | undefined): boolean {
   const title = jobTitle?.trim().toLowerCase() ?? "";

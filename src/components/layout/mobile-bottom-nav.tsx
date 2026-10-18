@@ -253,6 +253,7 @@ export function MobileBottomNav() {
   const jobTitle = profile?.job_title ?? null;
   const staffRole = profile?.staff_role ?? null;
   const department = profile?.department ?? null;
+  const reportsToHeadOfOperations = profile?.reports_to_head_of_operations ?? false;
   const navActor = { jobTitle, staffRole, department };
   const { t } = useTranslation();
   const [moreOpen, setMoreOpen] = useState(false);
@@ -265,19 +266,27 @@ export function MobileBottomNav() {
 
   const { hasDirectReports } = useHasDirectReports();
   const employeeRail = useMemo(
-    () => (usesEmployeeFlatRail(roles, hasDirectReports, navActor) ? getEmployeeFlatRail(roles, jobTitle, staffRole) : []),
-    [department, hasDirectReports, jobTitle, roles, staffRole],
+    () =>
+      usesEmployeeFlatRail(roles, hasDirectReports, navActor)
+        ? getEmployeeFlatRail(roles, jobTitle, staffRole, department, reportsToHeadOfOperations)
+        : [],
+    [department, hasDirectReports, jobTitle, reportsToHeadOfOperations, roles, staffRole],
   );
   const employeeTabs = employeeRail.slice(0, 4);
   const employeeOverflow = employeeRail.slice(employeeTabs.length);
   const tabs = useMemo(
     () =>
       MOBILE_TABS.filter((tab) => {
-        if (tab.id === "people" && canOpenPeopleDirectory(roles, jobTitle, staffRole)) return true;
+        if (
+          tab.id === "people" &&
+          canOpenPeopleDirectory(roles, jobTitle, staffRole, department, reportsToHeadOfOperations)
+        ) {
+          return true;
+        }
         if (tab.capability === null || canActorPerform(roles, tab.capability, navActor)) return true;
         return hasDirectReports && tab.id === "attendance";
       }),
-    [department, hasDirectReports, jobTitle, roles, staffRole],
+    [department, hasDirectReports, jobTitle, reportsToHeadOfOperations, roles, staffRole],
   );
 
   const { order, itemOrders } = useSidebarNavOrder();
@@ -290,12 +299,14 @@ export function MobileBottomNav() {
             roles,
             jobTitle,
             staffRole,
+            department,
+            reportsToHeadOfOperations,
           ),
           order,
         ),
         itemOrders,
       ),
-    [department, hasDirectReports, itemOrders, jobTitle, order, roles, staffRole],
+    [department, hasDirectReports, itemOrders, jobTitle, order, reportsToHeadOfOperations, roles, staffRole],
   );
 
   if (tabs.length === 0) return null;
