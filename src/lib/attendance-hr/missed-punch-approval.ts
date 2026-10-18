@@ -550,3 +550,25 @@ export function punchTimeInputValue(punchAt: string | null | undefined): string 
   if (!hour || !minute) return "";
   return `${hour.padStart(2, "0")}:${minute.padStart(2, "0")}`;
 }
+
+/** Statuses where the requester may still fix punch time / reason on the same correction id. */
+export const EDITABLE_MISSED_PUNCH_STATUSES = ["pending", "change_required"] as const;
+
+export type EditableMissedPunchStatus = (typeof EDITABLE_MISSED_PUNCH_STATUSES)[number];
+
+export function isEditableMissedPunchStatus(status: string): status is EditableMissedPunchStatus {
+  return (EDITABLE_MISSED_PUNCH_STATUSES as readonly string[]).includes(status);
+}
+
+/**
+ * Only the person who submitted may edit, and only while the request is still open
+ * (waiting on an approver, or sent back for change). Approved / rejected are locked.
+ */
+export function canRequesterEditMissedPunch(args: {
+  userId: string;
+  requestedBy: string;
+  status: string;
+}): boolean {
+  if (args.userId !== args.requestedBy) return false;
+  return isEditableMissedPunchStatus(args.status);
+}

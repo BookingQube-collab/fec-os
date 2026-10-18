@@ -2391,6 +2391,7 @@ export const reviewAttendanceCorrection = createAuthenticatedAction(
   { auth: { anyCapability: ["attendance.approve", "attendance.view", "hr.employee_app"] } },
 );
 
+/** Edit own pending correction, or resubmit after change_required. */
 export const resubmitMissedPunchRequest = createAuthenticatedAction(
   z.object({
     correctionId: z.string().uuid(),
@@ -2405,7 +2406,7 @@ export const resubmitMissedPunchRequest = createAuthenticatedAction(
       reason: data.reason?.trim() ?? "",
     });
     await audit(context, "attendance.correction_submitted", "attendance_corrections", updated.id, updated.locationId, {
-      missed_punch_resubmit: true,
+      missed_punch_edit: true,
       approverCount: updated.approverCount,
       routedTo: updated.routedTo,
     });

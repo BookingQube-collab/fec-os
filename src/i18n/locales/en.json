@@ -10341,11 +10341,13 @@
       "approvalReason": "Reason",
       "priorApprovals": "Already approved",
       "sendToSupervisor": "Send to supervisor",
+      "savePunchEdit": "Save changes",
       "requestSent": "Request sent",
       "waitingFor": "Waiting for {{who}}",
       "punchRejected": "Rejected",
       "punchApproved": "Approved",
       "yourPunchRequests": "Your punch requests",
+      "punchEditSaved": "Punch correction updated.",
       "savedNoSupervisor": "Request saved. No site supervisor login is linked for this location yet.",
       "sentToSupervisor": "Missed punch request sent to your site supervisor",
       "step": {

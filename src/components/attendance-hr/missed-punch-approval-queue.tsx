@@ -16,7 +16,12 @@ import {
   reviewAttendanceCorrection,
   submitMissedPunchRequest,
 } from "@/lib/attendance-hr.functions";
-import { correctionCardClocks, missedPunchRequestSide, punchTimeInputValue } from "@/lib/attendance-hr/missed-punch-approval";
+import {
+  correctionCardClocks,
+  isEditableMissedPunchStatus,
+  missedPunchRequestSide,
+  punchTimeInputValue,
+} from "@/lib/attendance-hr/missed-punch-approval";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 
@@ -210,10 +215,25 @@ export function MissedPunchApprovalQueue({
 export function MyMissedPunchRequests() {
   const { t } = useTranslation();
   const stepLabel = useStepLabel();
+  const qc = useQueryClient();
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [punchTime, setPunchTime] = useState("");
+  const [reason, setReason] = useState("");
   const q = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "missed-punch-mine" }),
     queryFn: () => listAttendanceCorrections({ queue: "mine" }),
     staleTime: STALE.people,
+  });
+  const saveEdit = useMutation({
+    mutationFn: resubmitMissedPunchRequest,
+    onSuccess: () => {
+      toast.success(t("hr.me.punchEditSaved"));
+      setEditingId(null);
+      setPunchTime("");
+      setReason("");
+      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+    },
+    onError: (e: Error) => toast.error(e.message),
   });
   const rows = (q.data ?? []).filter(
     (row) =>
@@ -228,27 +248,97 @@ export function MyMissedPunchRequests() {
       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("hr.me.yourPunchRequests")}</p>
       {rows.slice(0, 8).map((row) => {
         const clocks = correctionCardClocks(row.punchType, row.punchAt);
+        const editable = isEditableMissedPunchStatus(row.status);
+        const editing = editingId === row.id;
         return (
-        <div key={row.id} className="flex items-center justify-between gap-2 rounded-xl border border-border/60 px-3 py-2 text-xs">
-          <span className="min-w-0">
-            {row.workDate ?? "—"}
-            {row.punchType ? ` · ${row.punchType === "in" ? t("hr.me.punchIn") : t("hr.me.punchOut")}` : ""}
-            <span className="mt-0.5 block text-muted-foreground">
-              {t("hr.me.punchIn")} {clockText(clocks.punchIn)} · {t("hr.me.punchOut")} {clockText(clocks.punchOut)}
-            </span>
-          </span>
-          {row.status === "rejected" ? (
-            <span className="font-semibold text-destructive">Reject</span>
-          ) : row.status === "change_required" ? (
-            <span className="font-semibold text-amber-700 dark:text-amber-300">Change required</span>
-          ) : (
-            <Badge variant={row.status === "approved" ? "success" : "warning"}>
-              {row.status === "pending"
-                ? t("hr.me.waitingFor", { who: stepLabel(row.currentStepRole) })
-                : t("hr.me.punchApproved")}
-            </Badge>
-          )}
-        </div>
+          <div key={row.id} className="space-y-2 rounded-xl border border-border/60 px-3 py-2 text-xs">
+            <div className="flex items-center justify-between gap-2">
+              <span className="min-w-0">
+                {row.workDate ?? "—"}
+                {row.punchType ? ` · ${row.punchType === "in" ? t("hr.me.punchIn") : t("hr.me.punchOut")}` : ""}
+                <span className="mt-0.5 block text-muted-foreground">
+                  {t("hr.me.punchIn")} {clockText(clocks.punchIn)} · {t("hr.me.punchOut")} {clockText(clocks.punchOut)}
+                </span>
+              </span>
+              <div className="flex shrink-0 flex-col items-end gap-1">
+                {row.status === "rejected" ? (
+                  <span className="font-semibold text-destructive">Reject</span>
+                ) : row.status === "change_required" ? (
+                  <span className="font-semibold text-amber-700 dark:text-amber-300">Change required</span>
+                ) : (
+                  <Badge variant={row.status === "approved" ? "success" : "warning"}>
+                    {row.status === "pending"
+                      ? t("hr.me.waitingFor", { who: stepLabel(row.currentStepRole) })
+                      : t("hr.me.punchApproved")}
+                  </Badge>
+                )}
+                {editable && !editing ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="min-h-9"
+                    onClick={() => {
+                      setEditingId(row.id);
+                      setPunchTime(punchTimeInputValue(row.punchAt));
+                      setReason(row.reason ?? "");
+                    }}
+                  >
+                    {t("common.edit")}
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+            {editing ? (
+              <div className="space-y-2 border-t border-border/50 pt-2">
+                <div>
+                  <Label className="text-xs">{t("hr.me.punchTime")}</Label>
+                  <Input
+                    className="mt-1 min-h-11"
+                    type="time"
+                    value={punchTime}
+                    onChange={(e) => setPunchTime(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">{t("hr.me.punchReason")}</Label>
+                  <Input
+                    className="mt-1 min-h-11"
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                  />
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    className="min-h-11"
+                    disabled={!punchTime || saveEdit.isPending}
+                    onClick={() =>
+                      saveEdit.mutate({
+                        correctionId: row.id,
+                        punchTime,
+                        reason: reason.trim() || undefined,
+                      })
+                    }
+                  >
+                    {row.status === "change_required" ? t("hr.me.sendToSupervisor") : t("hr.me.savePunchEdit")}
+                  </Button>
+                  <Button
+                    type="button"
+                    className="min-h-11"
+                    variant="secondary"
+                    onClick={() => {
+                      setEditingId(null);
+                      setPunchTime("");
+                      setReason("");
+                    }}
+                  >
+                    {t("common.cancel")}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </div>
         );
       })}
     </div>
@@ -280,7 +370,6 @@ export function MissedPunchRequestButton({
     queryKey: queryKeys.people.attendanceHr({ view: "missed-punch-mine" }),
     queryFn: () => listAttendanceCorrections({ queue: "mine" }),
     staleTime: STALE.people,
-    enabled: side !== null,
   });
   const pendingRows = (mine.data ?? []).filter((row) => row.summaryId === summaryId && row.status === "pending");
   const changeRows = (mine.data ?? []).filter((row) => row.summaryId === summaryId && row.status === "change_required");
@@ -308,8 +397,10 @@ export function MissedPunchRequestButton({
   });
   const resubmit = useMutation({
     mutationFn: resubmitMissedPunchRequest,
-    onSuccess: (result) => {
-      if (result.approverCount === 0) toast.message(t("hr.me.savedNoSupervisor"));
+    onSuccess: (_result, variables) => {
+      const edited = (mine.data ?? []).find((row) => row.id === variables.correctionId);
+      if (edited?.status === "pending") toast.success(t("hr.me.punchEditSaved"));
+      else if (_result.approverCount === 0) toast.message(t("hr.me.savedNoSupervisor"));
       else toast.success(t("hr.me.sentToSupervisor"));
       setOpenSide(null);
       setEditingId(null);
@@ -320,80 +411,90 @@ export function MissedPunchRequestButton({
     onError: (e: Error) => toast.error(e.message),
   });
 
-  if (!side && changeRows.length === 0) return null;
+  const editableRows = [...pendingRows, ...changeRows];
+  if (!side && editableRows.length === 0) return null;
 
   const choices: Array<"in" | "out"> = side ? (["in", "out"] as const).filter((choice) => !pendingFor(choice)) : [];
 
-  return (
-    <div className="mt-2 space-y-2">
-      {pendingRows.map((pending) => (
-        <Badge key={pending.id} variant="warning">
-          {pending.punchType === "out" ? t("hr.me.punchOut") : t("hr.me.punchIn")}
-          {" · "}
-          {t("hr.me.waitingFor", { who: stepLabel(pending.currentStepRole) })}
-        </Badge>
-      ))}
-      {changeRows.map((row) => {
-        const clocks = correctionCardClocks(row.punchType, row.punchAt);
-        const editing = editingId === row.id;
-        return (
-          <div key={row.id} className="space-y-2 rounded-xl border border-amber-300/80 bg-background/80 p-3">
-            <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">Change required</p>
-            <p className="text-xs text-muted-foreground">
-              {t("hr.me.punchIn")} {clockText(clocks.punchIn)}
-              <span className="mx-1.5">·</span>
-              {t("hr.me.punchOut")} {clockText(clocks.punchOut)}
-            </p>
-            {row.reason ? <p className="text-xs text-muted-foreground">{row.reason}</p> : null}
-            {editing ? (
-              <div className="space-y-2">
-                <div>
-                  <Label className="text-xs">{t("hr.me.punchTime")}</Label>
-                  <Input className="mt-1 min-h-11" type="time" value={punchTime} onChange={(e) => setPunchTime(e.target.value)} />
-                </div>
-                <div>
-                  <Label className="text-xs">{t("hr.me.punchReason")}</Label>
-                  <Input className="mt-1 min-h-11" value={reason} onChange={(e) => setReason(e.target.value)} />
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    className="min-h-11"
-                    disabled={!punchTime || resubmit.isPending}
-                    onClick={() =>
-                      resubmit.mutate({
-                        correctionId: row.id,
-                        punchTime,
-                        reason: reason.trim() || undefined,
-                      })
-                    }
-                  >
-                    {t("hr.me.sendToSupervisor")}
-                  </Button>
-                  <Button type="button" className="min-h-11" variant="secondary" onClick={() => setEditingId(null)}>
-                    {t("common.cancel")}
-                  </Button>
-                </div>
-              </div>
-            ) : (
+  const renderEditableCard = (row: (typeof editableRows)[number]) => {
+    const clocks = correctionCardClocks(row.punchType, row.punchAt);
+    const editing = editingId === row.id;
+    const changeRequired = row.status === "change_required";
+    return (
+      <div
+        key={row.id}
+        className={`space-y-2 rounded-xl border bg-background/80 p-3 ${
+          changeRequired ? "border-amber-300/80" : "border-border/70"
+        }`}
+      >
+        {changeRequired ? (
+          <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">Change required</p>
+        ) : (
+          <Badge variant="warning">
+            {row.punchType === "out" ? t("hr.me.punchOut") : t("hr.me.punchIn")}
+            {" · "}
+            {t("hr.me.waitingFor", { who: stepLabel(row.currentStepRole) })}
+          </Badge>
+        )}
+        <p className="text-xs text-muted-foreground">
+          {t("hr.me.punchIn")} {clockText(clocks.punchIn)}
+          <span className="mx-1.5">·</span>
+          {t("hr.me.punchOut")} {clockText(clocks.punchOut)}
+        </p>
+        {row.reason ? <p className="text-xs text-muted-foreground">{row.reason}</p> : null}
+        {editing ? (
+          <div className="space-y-2">
+            <div>
+              <Label className="text-xs">{t("hr.me.punchTime")}</Label>
+              <Input className="mt-1 min-h-11" type="time" value={punchTime} onChange={(e) => setPunchTime(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs">{t("hr.me.punchReason")}</Label>
+              <Input className="mt-1 min-h-11" value={reason} onChange={(e) => setReason(e.target.value)} />
+            </div>
+            <div className="flex flex-wrap gap-2">
               <Button
                 type="button"
-                size="sm"
-                variant="outline"
                 className="min-h-11"
-                onClick={() => {
-                  setEditingId(row.id);
-                  setOpenSide(null);
-                  setPunchTime(punchTimeInputValue(row.punchAt));
-                  setReason(row.reason ?? "");
-                }}
+                disabled={!punchTime || resubmit.isPending}
+                onClick={() =>
+                  resubmit.mutate({
+                    correctionId: row.id,
+                    punchTime,
+                    reason: reason.trim() || undefined,
+                  })
+                }
               >
-                Update and send again
+                {changeRequired ? t("hr.me.sendToSupervisor") : t("hr.me.savePunchEdit")}
               </Button>
-            )}
+              <Button type="button" className="min-h-11" variant="secondary" onClick={() => setEditingId(null)}>
+                {t("common.cancel")}
+              </Button>
+            </div>
           </div>
-        );
-      })}
+        ) : (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="min-h-11"
+            onClick={() => {
+              setEditingId(row.id);
+              setOpenSide(null);
+              setPunchTime(punchTimeInputValue(row.punchAt));
+              setReason(row.reason ?? "");
+            }}
+          >
+            {changeRequired ? "Update and send again" : t("common.edit")}
+          </Button>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="mt-2 space-y-2">
+      {editableRows.map(renderEditableCard)}
       {rejected && !openSide ? (
         <span className="text-sm font-semibold text-destructive">Reject</span>
       ) : null}

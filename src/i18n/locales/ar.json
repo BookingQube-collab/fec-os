@@ -10107,11 +10107,13 @@
       "approvalReason": "السبب",
       "priorApprovals": "تم الاعتماد سابقاً",
       "sendToSupervisor": "إرسال إلى المشرف",
+      "savePunchEdit": "حفظ التعديلات",
       "requestSent": "تم إرسال الطلب",
       "waitingFor": "بانتظار {{who}}",
       "punchRejected": "مرفوض",
       "punchApproved": "موافق عليه",
       "yourPunchRequests": "طلبات البصمة",
+      "punchEditSaved": "تم تحديث تصحيح البصمة.",
       "savedNoSupervisor": "تم حفظ الطلب. لا يوجد حساب مشرف موقع مربوط بهذا الفرع بعد.",
       "sentToSupervisor": "أُرسل طلب البصمة الناقصة إلى مشرف الموقع",
       "step": {

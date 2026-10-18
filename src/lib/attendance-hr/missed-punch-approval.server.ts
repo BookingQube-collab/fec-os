@@ -14,6 +14,7 @@ import {
   approverUserIdsForStep,
   canCorrectStaffPunch,
   canRequestAttendanceCorrection,
+  canRequesterEditMissedPunch,
   canUserActOnCorrection,
   correctionIdsForReview,
   correctionOpsLane,
@@ -1163,7 +1164,11 @@ export async function reviewMissedPunchChain(args: {
   return { ok: true, final: false, nextStep: next, locationId: String(row.location_id) };
 }
 
-/** Employee edits a change-required request and sends that same id back to the site supervisor. */
+/**
+ * Employee edits their own punch correction while it is still open
+ * (`pending` or `change_required`). Pending edits keep the current approval step;
+ * change-required resubmits restart the chain like a fresh send.
+ */
 export async function resubmitMissedPunchRequest(args: {
   userId: string;
   correctionId: string;
@@ -1179,11 +1184,17 @@ export async function resubmitMissedPunchRequest(args: {
   if (error) throw error;
   const row = data as CorrectionRow | null;
   if (!row) throw new Error("Correction not found.");
-  if (String(row.requested_by) !== args.userId) {
-    throw new ForbiddenError("You can only update your own punch request.");
-  }
-  if (row.status !== "change_required") {
-    throw new Error("This request is not waiting for a change.");
+  if (
+    !canRequesterEditMissedPunch({
+      userId: args.userId,
+      requestedBy: String(row.requested_by),
+      status: String(row.status),
+    })
+  ) {
+    if (String(row.requested_by) !== args.userId) {
+      throw new ForbiddenError("You can only update your own punch request.");
+    }
+    throw new Error("This request can no longer be edited.");
   }
   const ids = correctionIdsForReview([{ id: String(row.id) }], args.correctionId);
   if (ids.length !== 1) throw new Error("This update is not scoped to one request.");
@@ -1247,48 +1258,67 @@ export async function resubmitMissedPunchRequest(args: {
       ? typedReason
       : "Missed punch request";
   const now = new Date().toISOString();
-  const { data: updated, error: updateErr } = await supabaseAdmin
-    .from("attendance_corrections")
-    .update({
-      status: "pending",
-      current_step_role: correctionWaitingStep(route),
-      reason,
-      new_value: {
-        ...previous,
-        punch_at: punchAt,
-        punch_type: punchType,
-        missed_punch_request: true,
-        ...(approvalNote
-          ? {
-              manager_requested_and_approved: true,
-              requested_punch_in: requestedPunchIn,
-              requested_punch_out: requestedPunchOut,
-            }
-          : { manager_requested_and_approved: false }),
-      },
-      review_note: approvalNote,
-      reviewed_by: null,
-      reviewed_at: null,
-    })
-    .eq("id", args.correctionId)
-    .eq("status", "change_required")
-    .eq("requested_by", args.userId)
-    .select("id");
-  if (updateErr) throw updateErr;
-  if (!updated || updated.length !== 1) throw new Error("This request was already sent again.");
+  const wasChangeRequired = row.status === "change_required";
+  const newValue = {
+    ...previous,
+    punch_at: punchAt,
+    punch_type: punchType,
+    missed_punch_request: true,
+    ...(approvalNote
+      ? {
+          manager_requested_and_approved: true,
+          requested_punch_in: requestedPunchIn,
+          requested_punch_out: requestedPunchOut,
+        }
+      : { manager_requested_and_approved: false }),
+  };
 
-  for (const step of correctionStepSeed(route)) {
-    const { error: stepErr } = await supabaseAdmin
-      .from("attendance_correction_approvals")
+  if (wasChangeRequired) {
+    const { data: updated, error: updateErr } = await supabaseAdmin
+      .from("attendance_corrections")
       .update({
-        status: step.status,
-        acted_by: step.status === "approved" ? args.userId : null,
-        acted_at: step.status === "pending" ? null : now,
-        comments: step.status === "pending" ? null : approvalNote,
+        status: "pending",
+        current_step_role: correctionWaitingStep(route),
+        reason,
+        new_value: newValue,
+        review_note: approvalNote,
+        reviewed_by: null,
+        reviewed_at: null,
       })
-      .eq("correction_id", args.correctionId)
-      .eq("step_role", step.stepRole);
-    if (stepErr && !/does not exist|schema cache|relation/i.test(stepErr.message)) throw stepErr;
+      .eq("id", args.correctionId)
+      .eq("status", "change_required")
+      .eq("requested_by", args.userId)
+      .select("id");
+    if (updateErr) throw updateErr;
+    if (!updated || updated.length !== 1) throw new Error("This request was already sent again.");
+
+    for (const step of correctionStepSeed(route)) {
+      const { error: stepErr } = await supabaseAdmin
+        .from("attendance_correction_approvals")
+        .update({
+          status: step.status,
+          acted_by: step.status === "approved" ? args.userId : null,
+          acted_at: step.status === "pending" ? null : now,
+          comments: step.status === "pending" ? null : approvalNote,
+        })
+        .eq("correction_id", args.correctionId)
+        .eq("step_role", step.stepRole);
+      if (stepErr && !/does not exist|schema cache|relation/i.test(stepErr.message)) throw stepErr;
+    }
+  } else {
+    const { data: updated, error: updateErr } = await supabaseAdmin
+      .from("attendance_corrections")
+      .update({
+        reason,
+        new_value: newValue,
+        ...(approvalNote ? { review_note: approvalNote } : {}),
+      })
+      .eq("id", args.correctionId)
+      .eq("status", "pending")
+      .eq("requested_by", args.userId)
+      .select("id");
+    if (updateErr) throw updateErr;
+    if (!updated || updated.length !== 1) throw new Error("This request can no longer be edited.");
   }
 
   const { data: staff } = row.staff_id
@@ -1296,27 +1326,43 @@ export async function resubmitMissedPunchRequest(args: {
     : { data: null };
   const directory = directoryEarly;
   const who = (staff?.full_name as string | null) ?? "Staff";
-  if (route === "hr") {
+  const notifyRoute =
+    wasChangeRequired
+      ? route
+      : row.current_step_role === "hr"
+        ? ("hr" as const)
+        : row.current_step_role === "ops"
+          ? ("ops" as const)
+          : ("line_manager" as const);
+  const updatedVerb = wasChangeRequired ? "updated" : "edited";
+
+  if (notifyRoute === "hr") {
     const hrIds = approverUserIdsForStep(directory, "hr", String(row.location_id), targetStaffId || null).filter(
       (id) => id !== args.userId,
     );
     await notifyApprovers({
       userIds: hrIds,
       locationId: String(row.location_id),
-      title: "Missed punch waiting for HR",
-      body: `${managerName} requested and approved a punch correction for ${who} on ${workDate}. It is waiting for HR.`,
+      title: wasChangeRequired ? "Missed punch waiting for HR" : "Missed punch updated — HR",
+      body: wasChangeRequired
+        ? `${managerName} requested and approved a punch correction for ${who} on ${workDate}. It is waiting for HR.`
+        : `${who} ${updatedVerb} a punch correction for ${workDate}. It is still waiting for HR.`,
       sourceId: args.correctionId,
     });
     return { id: args.correctionId, approverCount: hrIds.length, locationId: String(row.location_id), routedTo: "hr" };
   }
-  if (route === "ops") {
+  if (notifyRoute === "ops") {
     const targetId = row.staff_id ? String(row.staff_id) : null;
     const opsIds = approverUserIdsForStep(directory, "ops", String(row.location_id), targetId).filter(
       (id) => id !== args.userId,
     );
     const opsLabel = opsStepApproverLabel(correctionOpsLane(directory, targetId));
-    const opsTitle = `Missed punch waiting for ${opsLabel}`;
-    const opsBody = `${managerName} requested and approved a punch correction for ${who} on ${workDate}. It is waiting for ${opsLabel}.`;
+    const opsTitle = wasChangeRequired
+      ? `Missed punch waiting for ${opsLabel}`
+      : `Missed punch updated — ${opsLabel}`;
+    const opsBody = wasChangeRequired
+      ? `${managerName} requested and approved a punch correction for ${who} on ${workDate}. It is waiting for ${opsLabel}.`
+      : `${who} ${updatedVerb} a punch correction for ${workDate}. It is still waiting for ${opsLabel}.`;
     await notifyApprovers({
       userIds: opsIds,
       locationId: String(row.location_id),
@@ -1342,8 +1388,8 @@ export async function resubmitMissedPunchRequest(args: {
     requestedBy: args.userId,
     requesterStaffId,
   });
-  const managerTitle = "Missed punch request";
-  const managerBody = `${who} updated a missed punch for ${workDate}. It is waiting for their line manager.`;
+  const managerTitle = wasChangeRequired ? "Missed punch request" : "Missed punch updated";
+  const managerBody = `${who} ${updatedVerb} a missed punch for ${workDate}. It is waiting for their line manager.`;
   await notifyApprovers({
     userIds: managers,
     locationId: String(row.location_id),

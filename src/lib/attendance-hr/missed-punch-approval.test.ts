@@ -16,8 +16,10 @@ import {
   punchTimeInputValue,
   canCorrectStaffPunch,
   canRequestAttendanceCorrection,
+  canRequesterEditMissedPunch,
   correctionStepSeed,
   correctionWaitingStep,
+  isEditableMissedPunchStatus,
   teamCorrectionRouteAfterOpsCheck,
   lineManagerUserIds,
   siteApproverLocationMap,
@@ -283,6 +285,40 @@ describe("missed punch approval chain", () => {
     );
     expect(punchAtFromCorrectionValue({})).toBeNull();
     expect(punchTimeInputValue("2026-09-24T22:59:00+03:00")).toBe("22:59");
+  });
+
+  it("lets only the requester edit while pending or change_required", () => {
+    expect(isEditableMissedPunchStatus("pending")).toBe(true);
+    expect(isEditableMissedPunchStatus("change_required")).toBe(true);
+    expect(isEditableMissedPunchStatus("approved")).toBe(false);
+    expect(isEditableMissedPunchStatus("rejected")).toBe(false);
+
+    expect(
+      canRequesterEditMissedPunch({ userId: "employee-1", requestedBy: "employee-1", status: "pending" }),
+    ).toBe(true);
+    expect(
+      canRequesterEditMissedPunch({
+        userId: "employee-1",
+        requestedBy: "employee-1",
+        status: "change_required",
+      }),
+    ).toBe(true);
+    expect(
+      canRequesterEditMissedPunch({ userId: "employee-1", requestedBy: "employee-1", status: "approved" }),
+    ).toBe(false);
+    expect(
+      canRequesterEditMissedPunch({ userId: "employee-1", requestedBy: "employee-1", status: "rejected" }),
+    ).toBe(false);
+    expect(
+      canRequesterEditMissedPunch({ userId: "other-user", requestedBy: "employee-1", status: "pending" }),
+    ).toBe(false);
+    expect(
+      canRequesterEditMissedPunch({
+        userId: "other-user",
+        requestedBy: "employee-1",
+        status: "change_required",
+      }),
+    ).toBe(false);
   });
 
   it("lets the site supervisor see a row after their step without letting them act again", () => {
