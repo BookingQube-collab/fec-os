@@ -580,9 +580,11 @@ function roamingRowLooksAbsent(row: { status?: unknown }): boolean {
  * - any of their roster sites marks the day as week-off / rest → set status
  *   to weekly_off (do not drop — blank cells hide the rest day on the grid), or
  * - the roster has them on duty at a different location that day → drop the
- *   punch-less ABSENT filler (they are covered by the other site).
- * Keeps leave / punched / already-off days. Used under a location filter so
- * home fillers do not mark staff Absent while resting or rostered elsewhere.
+ *   punch-less ABSENT filler at the filtered site (they are covered elsewhere), or
+ * - under a site chip, sibling punch-less ABSENT from another site was merged in
+ *   (e.g. ABSENT CAR-AP while viewing INF-CC) → drop it; that Absent belongs on
+ *   the destination site's own filter, not as a false cell here.
+ * Keeps leave / punched / already-off / Present from other sites.
  */
 export function suppressRoamingFalseAbsentForRosterElsewhere(input: {
   rows: Array<Record<string, unknown>>;
@@ -592,7 +594,10 @@ export function suppressRoamingFalseAbsentForRosterElsewhere(input: {
 }): Array<Record<string, unknown>> {
   if (!input.crossSiteStaffIds.size || input.rows.length === 0) return input.rows;
 
+  /** staffId|day — on-duty roster at a site other than the location filter. */
   const onDutyElsewhere = new Set<string>();
+  /** staffId|day — on-duty roster at the filtered site (true Absent may apply). */
+  const onDutyAtFilter = new Set<string>();
   /** staffId|day — rest/off uploaded at any site that day. */
   const weekOffAnySite = new Set<string>();
   for (const r of input.roster) {
@@ -605,11 +610,19 @@ export function suppressRoamingFalseAbsentForRosterElsewhere(input: {
       weekOffAnySite.add(`${staffId}|${day}`);
       continue;
     }
-    if (input.locationId && loc === input.locationId) continue;
+    if (input.locationId && loc === input.locationId) {
+      onDutyAtFilter.add(`${staffId}|${day}`);
+      continue;
+    }
     onDutyElsewhere.add(`${staffId}|${day}`);
   }
-  if (onDutyElsewhere.size === 0 && weekOffAnySite.size === 0) return input.rows;
+  if (onDutyElsewhere.size === 0 && weekOffAnySite.size === 0 && !input.locationId) {
+    return input.rows;
+  }
+  // Under a location filter we still walk rows to drop other-site Absents even
+  // when onDutyElsewhere / weekOff are empty (stale sibling ABSENT only).
 
+  const filterLoc = input.locationId?.trim() || "";
   const out: Array<Record<string, unknown>> = [];
   for (const row of input.rows) {
     const staffId = typeof row.staff_id === "string" ? row.staff_id : "";
@@ -633,16 +646,23 @@ export function suppressRoamingFalseAbsentForRosterElsewhere(input: {
       });
       continue;
     }
-    if (!onDutyElsewhere.has(`${staffId}|${day}`)) {
-      out.push(row);
-      continue;
-    }
     const loc = String(row.location_id ?? "").trim();
-    if (input.locationId && loc && loc !== input.locationId) {
-      out.push(row);
+    // Under a site chip: never surface punch-less ABSENT from another site
+    // (Mani/Maanaliza: ABSENT CAR-AP must not appear on the INF-CC report).
+    // Destination-site Absent is valid only when filtering that destination.
+    if (filterLoc && loc && loc !== filterLoc) {
       continue;
     }
-    // On duty elsewhere + punch-less ABSENT at the filtered site → drop filler.
+    // Under a site chip: rostered on duty only elsewhere → drop punch-less ABSENT
+    // at this site. If also on duty here, keep (true Absent at the rostered site).
+    if (
+      filterLoc &&
+      onDutyElsewhere.has(`${staffId}|${day}`) &&
+      !onDutyAtFilter.has(`${staffId}|${day}`)
+    ) {
+      continue;
+    }
+    out.push(row);
   }
   return out;
 }

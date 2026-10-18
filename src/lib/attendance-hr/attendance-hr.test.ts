@@ -829,6 +829,143 @@ describe("HR report row helpers", () => {
     expect(filtered.map((r) => r.id)).toEqual(["ua-present", "true-absent"]);
   });
 
+  it("drops ABSENT CAR-AP under INF-CC filter when Mani/Maanaliza are rostered on duty at CAR-AP", () => {
+    // Screenshot bug: prior fix kept other-site punch-less ABSENT siblings after
+    // roaming merge, so INF-CC showed "ABSENT CAR-AP" for moved staff.
+    const cross = new Set(["mani", "maanaliza", "mary"]);
+    const rows = [
+      {
+        id: "mani-car-absent-sep28",
+        location_id: "car-ap",
+        staff_id: "mani",
+        work_date: "2026-09-28",
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        punch_count: 0,
+      },
+      {
+        id: "mani-home-absent-sep28",
+        location_id: "inf-cc",
+        staff_id: "mani",
+        work_date: "2026-09-28",
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        punch_count: 0,
+      },
+      {
+        id: "mani-car-absent-oct5",
+        location_id: "car-ap",
+        staff_id: "mani",
+        work_date: "2026-10-05",
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        punch_count: 0,
+      },
+      {
+        id: "maanaliza-car-absent",
+        location_id: "car-ap",
+        staff_id: "maanaliza",
+        work_date: "2026-09-29",
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        punch_count: 0,
+      },
+      {
+        id: "maanaliza-inf-rostered-absent",
+        location_id: "inf-cc",
+        staff_id: "maanaliza",
+        work_date: "2026-10-13",
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        punch_count: 0,
+      },
+      {
+        id: "mary-inf-absent",
+        location_id: "inf-cc",
+        staff_id: "mary",
+        work_date: "2026-09-28",
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        punch_count: 0,
+      },
+      {
+        id: "mani-true-inf-absent",
+        location_id: "inf-cc",
+        staff_id: "mani",
+        work_date: "2026-10-12",
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        punch_count: 0,
+      },
+    ];
+    const filtered = suppressRoamingFalseAbsentForRosterElsewhere({
+      rows,
+      roster: [
+        // Moved / extra site on-duty — no punches → CAR-AP may Absent on CAR-AP filter only.
+        { staff_id: "mani", location_id: "car-ap", work_date: "2026-09-28", is_week_off: false },
+        { staff_id: "mani", location_id: "car-ap", work_date: "2026-10-05", is_week_off: false },
+        { staff_id: "maanaliza", location_id: "car-ap", work_date: "2026-09-29", is_week_off: false },
+        // Mary rostered only at CAR-AP → home INF-CC ABSENT is false.
+        { staff_id: "mary", location_id: "car-ap", work_date: "2026-09-28", is_week_off: false },
+        // True Absent: on duty at the filtered site with no punches.
+        { staff_id: "maanaliza", location_id: "inf-cc", work_date: "2026-10-13", is_week_off: false },
+        { staff_id: "mani", location_id: "inf-cc", work_date: "2026-10-12", is_week_off: false },
+      ],
+      crossSiteStaffIds: cross,
+      locationId: "inf-cc",
+    });
+    expect(filtered.map((r) => r.id).sort()).toEqual([
+      "maanaliza-inf-rostered-absent",
+      "mani-true-inf-absent",
+    ]);
+    // CAR-AP Absents must not appear under INF-CC; home fillers when rostered only
+    // at CAR-AP must not appear either.
+    expect(filtered.some((r) => String(r.location_id) === "car-ap")).toBe(false);
+    expect(filtered.find((r) => r.id === "mani-home-absent-sep28")).toBeUndefined();
+    expect(filtered.find((r) => r.id === "mary-inf-absent")).toBeUndefined();
+  });
+
+  it("keeps destination-site Absent when filtering that destination (CAR-AP)", () => {
+    const cross = new Set(["mani"]);
+    const filtered = suppressRoamingFalseAbsentForRosterElsewhere({
+      rows: [
+        {
+          id: "car-absent",
+          location_id: "car-ap",
+          staff_id: "mani",
+          work_date: "2026-09-28",
+          status: "absent",
+          actual_in: null,
+          actual_out: null,
+          punch_count: 0,
+        },
+        {
+          id: "inf-absent",
+          location_id: "inf-cc",
+          staff_id: "mani",
+          work_date: "2026-09-28",
+          status: "absent",
+          actual_in: null,
+          actual_out: null,
+          punch_count: 0,
+        },
+      ],
+      roster: [
+        { staff_id: "mani", location_id: "car-ap", work_date: "2026-09-28", is_week_off: false },
+      ],
+      crossSiteStaffIds: cross,
+      locationId: "car-ap",
+    });
+    expect(filtered.map((r) => r.id)).toEqual(["car-absent"]);
+  });
+
   it("converts ABSENT to weekly_off when roaming staff have rest/off on any roster site", () => {
     // Mani: home INF-CC + extra CAR-AP. Rest uploaded at CAR-AP must not leave
     // ABSENT INF-CC on the reports grid — convert to weekly_off (not blank).
@@ -889,7 +1026,14 @@ describe("HR report row helpers", () => {
       crossSiteStaffIds: cross,
       locationId: "inf-cc",
     });
-    expect(filtered.map((r) => r.id).sort()).toEqual(["car-off", "inf-absent", "kds-absent", "true-absent"]);
+    // Week-off conversion runs before other-site Absent drop, so Off cells stay
+    // (including CAR-AP / KDS-CC rest) while punch-less Absents do not.
+    expect(filtered.map((r) => r.id).sort()).toEqual([
+      "car-off",
+      "inf-absent",
+      "kds-absent",
+      "true-absent",
+    ]);
     expect(filtered.find((r) => r.id === "inf-absent")?.status).toBe("weekly_off");
     expect(filtered.find((r) => r.id === "kds-absent")?.status).toBe("weekly_off");
     expect(filtered.find((r) => r.id === "true-absent")?.status).toBe("absent");

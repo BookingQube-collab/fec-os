@@ -503,6 +503,8 @@ export async function recalculateAttendanceRange(
   const crossPunchesByStaffDay = new Map<string, Array<FlexibleCrossSitePunch & { id?: string; device_id?: string | null; biometric_user_id?: string | null }>>();
   /** staffId|workDate → roster row from any site (prefer this location). */
   const crossRosterByStaffDay = new Map<string, RosterDayRow>();
+  /** staffId|workDate → location ids with on-duty (non week-off) roster that day. */
+  const crossOnDutyLocationsByStaffDay = new Map<string, Set<string>>();
 
   if (crossSiteStaffIds.length) {
     const buildCrossLogsQuery = () =>
@@ -694,6 +696,11 @@ export async function recalculateAttendanceRange(
       };
       const existing = crossRosterByStaffDay.get(key);
       const rowLoc = String((r as { location_id?: string }).location_id ?? "");
+      if (rowLoc && !row.is_week_off) {
+        const locs = crossOnDutyLocationsByStaffDay.get(key) ?? new Set<string>();
+        locs.add(rowLoc);
+        crossOnDutyLocationsByStaffDay.set(key, locs);
+      }
       // Prefer this location; otherwise prefer week-off over an on-duty sibling site.
       if (
         !existing ||
@@ -1265,8 +1272,13 @@ export async function recalculateAttendanceRange(
         const homeId = homeLocationByStaffId.get(staffId) || "";
         // After cross-site week-off wins, treat local on-duty siblings as not rostered here.
         const rosteredHere = Boolean(fromUpload && !fromUpload.is_week_off && !isWeekOff);
+        // Prefer multi-site on-duty set — preferred crossRosterRow can be THIS location
+        // and hide that they also (or only) have on-duty roster elsewhere (Mani CAR-AP).
+        const onDutyLocs = crossOnDutyLocationsByStaffDay.get(`${staffId}|${workDate}`);
         const rosteredOnDutyElsewhere = Boolean(
-          !rosteredHere && crossRosterRow && !crossRosterRow.is_week_off,
+          !rosteredHere &&
+            ((onDutyLocs && [...onDutyLocs].some((loc) => loc !== locationId)) ||
+              (crossRosterRow && !crossRosterRow.is_week_off)),
         );
         const writeDecision = flexibleNoPunchWriteAtLocation({
           isHomeLocation: !homeId || homeId === locationId,

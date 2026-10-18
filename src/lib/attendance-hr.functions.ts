@@ -901,7 +901,8 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
     }
 
     // Location chip: pull other-site person-days for roaming/multisite staff already in
-    // view, then drop home ABSENT fillers when the roster has them on duty elsewhere.
+    // view, then drop false Absents (home fillers when rostered elsewhere, and
+    // sibling punch-less ABSENT from other sites e.g. ABSENT CAR-AP on INF-CC).
     if (data.locationId && staffFilter !== "unmapped") {
       rows = await applyRoamingLocationFilterAdjustments(readContext, {
         rows,
@@ -3395,8 +3396,9 @@ async function enrichAttendanceHrDailyRows(
 /** Roster + mapped punch days for listing gap fill (summary-only days otherwise vanish). */
 /**
  * Under a site chip: include punched/rostered person-days at other sites for
- * roaming staff already listed here, and suppress false ABSENT at this site when
- * the roster has them on duty elsewhere that day.
+ * roaming staff already listed here, suppress false ABSENT at this site when
+ * the roster has them on duty only elsewhere, and drop sibling punch-less
+ * ABSENT rows from other sites (ABSENT CAR-AP must not show on INF-CC).
  */
 async function applyRoamingLocationFilterAdjustments(
   context: AuthContext,
