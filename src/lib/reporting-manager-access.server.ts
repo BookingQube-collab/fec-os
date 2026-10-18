@@ -1,7 +1,10 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { reportingTreeStaffIds } from "@/lib/attendance-listing-access";
+import {
+  attendanceListingTeamStaffIds,
+  reportingTreeStaffIds,
+} from "@/lib/attendance-listing-access";
 import { isRosterAssignableStaffStatus } from "@/lib/attendance-hr/roster-register-scope";
 import { loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
 import {
@@ -301,6 +304,34 @@ export async function loadReportingTreeStaffIds(userId: string): Promise<string[
     for (const row of rows ?? []) active.add(row.id);
   }
   return [...active].sort();
+}
+
+/**
+ * Attendance listing staff scope for team-scoped supervisors and managers.
+ * Reporting tree plus the viewer's own staff_id when they roll up a team
+ * (Venue / Site / Sr. Site / Operations / F&B supervisor or manager).
+ * Cashiers with reports keep the tree only (no self). Mapping still uses
+ * {@link loadReportingTreeStaffIds} without the viewer.
+ */
+export async function loadAttendanceListingStaffIds(userId: string): Promise<{
+  staffId: string | null;
+  teamStaffIds: string[];
+}> {
+  const staff = await loadLinkedStaffRecord(userId);
+  const treeIds = await loadReportingTreeStaffIds(userId);
+  if (!staff?.id) return { staffId: null, teamStaffIds: treeIds };
+
+  const viewerActive =
+    (DIRECT_REPORT_STATUSES as readonly string[]).includes((staff.status ?? "").trim().toLowerCase()) &&
+    !isJokerStaffStatus(staff.status);
+
+  const teamStaffIds = attendanceListingTeamStaffIds({
+    viewerStaffId: viewerActive ? staff.id : null,
+    viewerJobTitle: staff.jobTitle,
+    viewerStaffRole: staff.staffRole,
+    reportingTreeStaffIds: treeIds,
+  });
+  return { staffId: staff.id, teamStaffIds };
 }
 
 export type TeamCoverageLocation = {

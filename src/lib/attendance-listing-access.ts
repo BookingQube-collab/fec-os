@@ -1,4 +1,5 @@
 import { reportingDescendants } from "@/lib/reporting-chain";
+import { viewerRollsUpSupervisorTeam } from "@/lib/manager-supervisor-team";
 import { canUserDo, type AppRole } from "@/lib/rbac";
 import { canEditAttendanceMapping, type SiteOpsIdentity } from "@/lib/site-ops-access";
 
@@ -155,5 +156,28 @@ export function reportingTreeStaffIds(
     if (id && id !== viewerStaffId) ids.add(id);
   }
   ids.delete(viewerStaffId);
+  return [...ids].sort();
+}
+
+/**
+ * Staff ids for the Attendance listing tab (team-scoped logins).
+ * Starts from the reporting tree (viewer excluded), then unions the viewer
+ * for Venue / Site / Sr. Site / Operations / F&B supervisors and managers so
+ * their own punches appear next to the team. Cashier team leaders stay on
+ * reports only. Company-wide HR/exec paths do not use this helper.
+ */
+export function attendanceListingTeamStaffIds(input: {
+  viewerStaffId: string | null;
+  viewerJobTitle?: string | null;
+  viewerStaffRole?: string | null;
+  reportingTreeStaffIds: readonly string[];
+}): string[] {
+  const ids = new Set(input.reportingTreeStaffIds.filter(Boolean));
+  if (
+    input.viewerStaffId &&
+    viewerRollsUpSupervisorTeam(input.viewerJobTitle, input.viewerStaffRole)
+  ) {
+    ids.add(input.viewerStaffId);
+  }
   return [...ids].sort();
 }

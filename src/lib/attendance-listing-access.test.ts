@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   attendanceListingIsCompanyWide,
+  attendanceListingTeamStaffIds,
   attendanceMappingIsCompanyWide,
   attendanceMappingRowAllowed,
   attendanceMappingStaffAllowed,
@@ -105,6 +106,54 @@ describe("attendance listing access", () => {
         unmappedOnly: false,
       }),
     ).toEqual({ mode: "company" });
+  });
+
+  it("unions the viewer onto the listing set for supervisors and managers (Waqar / Mary)", () => {
+    const tree = ["crew-a", "host-a"];
+    expect(
+      attendanceListingTeamStaffIds({
+        viewerStaffId: "waqar",
+        viewerJobTitle: "Venue Supervisor",
+        viewerStaffRole: "venue_supervisor",
+        reportingTreeStaffIds: tree,
+      }),
+    ).toEqual(["crew-a", "host-a", "waqar"]);
+
+    expect(
+      attendanceListingTeamStaffIds({
+        viewerStaffId: "mary",
+        viewerJobTitle: "Sr. Site Supervisor",
+        viewerStaffRole: "venue_supervisor",
+        reportingTreeStaffIds: ["ashfaq", "marissa"],
+      }),
+    ).toEqual(["ashfaq", "marissa", "mary"]);
+
+    expect(
+      attendanceListingTeamStaffIds({
+        viewerStaffId: "ops-mgr",
+        viewerJobTitle: "Operations Manager",
+        reportingTreeStaffIds: ["lead"],
+      }),
+    ).toEqual(["lead", "ops-mgr"]);
+
+    expect(
+      attendanceListingTeamStaffIds({
+        viewerStaffId: "fb-mgr",
+        viewerJobTitle: "F&B Manager",
+        reportingTreeStaffIds: [],
+      }),
+    ).toEqual(["fb-mgr"]);
+  });
+
+  it("keeps cashier team leaders on reports only (no self on listing)", () => {
+    expect(
+      attendanceListingTeamStaffIds({
+        viewerStaffId: "cashier-lead",
+        viewerJobTitle: "Cashier",
+        viewerStaffRole: "cashier",
+        reportingTreeStaffIds: ["helper"],
+      }),
+    ).toEqual(["helper"]);
   });
 });
 

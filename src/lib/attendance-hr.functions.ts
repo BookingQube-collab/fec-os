@@ -18,6 +18,7 @@ import {
   resolveAttendanceListingStaffConstraint,
 } from "@/lib/attendance-listing-access";
 import {
+  loadAttendanceListingStaffIds,
   loadManagerTeamStaffIds,
   loadReportingTreeStaffIds,
   loadTeamCoverageLocations,
@@ -686,11 +687,15 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
   }),
   async (data, context) => {
     const companyWide = attendanceListingIsCompanyWide(context.roles ?? []);
-    const teamStaffIds = companyWide ? null : await loadReportingTreeStaffIds(context.userId);
+    // Supervisors/managers: reporting tree plus own staff_id. Cashiers with reports: tree only.
+    const teamStaffIds = companyWide
+      ? null
+      : (await loadAttendanceListingStaffIds(context.userId)).teamStaffIds;
     if (!companyWide && (!teamStaffIds || teamStaffIds.length === 0)) {
       throw new ForbiddenError("Attendance listing is limited to people who report to you.");
     }
     // Venue/Site: managed sites only. Sr. Site: team span minus HO. Never punch expansion.
+    // Discovery still includes the viewer's home/work sites so their own attendance appears.
     const teamLocationIds = teamStaffIds
       ? (await loadViewerScopedTeamLocations(context.userId, teamStaffIds)).map((site) => site.id)
       : null;
