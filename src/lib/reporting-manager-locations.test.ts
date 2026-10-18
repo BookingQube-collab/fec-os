@@ -4,15 +4,18 @@ import {
   attendanceLocationScopeMode,
   canSeeShiftRosterUpload,
   collectSrSiteSpanLocationIds,
+  filterLocationsForFnbManagerScope,
   filterLocationsForJobTitleScope,
   isHeadOfficeLocation,
   isVenueOrSiteSupervisorManager,
+  locationAccessIsCompanyWide,
   locationDiscoveryStaffIds,
   rosterChartTeamIds,
   rosterTeamOrSelfStaffIds,
   unionTeamLocationIds,
   usesTeamLocationScope,
 } from "./reporting-manager-locations";
+import { FNB_MANAGER_VENUE_CODES } from "./supervisor-managed-venues";
 
 describe("unionTeamLocationIds", () => {
   it("keeps every site the team is assigned to or punches at", () => {
@@ -39,6 +42,8 @@ describe("attendance location scope (org chart)", () => {
     { id: "ua", code: "UA-DM", name: "Urban Arena - Doha Mall" },
     { id: "kdsMini", code: "KDS-DM", name: "Kids Driving School Mini - Doha Mall" },
     { id: "cb", code: "CB-VM", name: "Crayons & Bricks - Vendome Mall" },
+    { id: "cbDsm", code: "CB-DSM", name: "Crayons & Bricks - Dar Al Salam Mall" },
+    { id: "car", code: "CAR-AP", name: "Aspire Carousel" },
     { id: "ho-name", code: "HQ", name: "Head Office" },
   ];
 
@@ -49,26 +54,42 @@ describe("attendance location scope (org chart)", () => {
     expect(isHeadOfficeLocation({ code: "INF-CC", name: "Inflatapark" })).toBe(false);
   });
 
-  it("scopes Venue / Site Supervisor to viewer-assigned sites only (Waqar: UA-DM + KDS-DM)", () => {
+  it("treats HoO (Rajan) as company-wide like admin / Adil", () => {
+    expect(attendanceLocationScopeMode("Head of Operations")).toBe("company");
+    expect(attendanceLocationScopeMode("Head of Operations / FEC-IT")).toBe("company");
+    expect(locationAccessIsCompanyWide(["cashier_host"], "Head of Operations")).toBe(true);
+    expect(locationAccessIsCompanyWide(["ceo"], null)).toBe(true);
+    expect(usesTeamLocationScope(["cashier_host"], "Head of Operations")).toBe(false);
+  });
+
+  it("scopes Venue / Site Supervisor to viewer-assigned sites only", () => {
     expect(attendanceLocationScopeMode("Venue Supervisor")).toBe("viewer_assigned");
     expect(attendanceLocationScopeMode("Site Supervisor")).toBe("viewer_assigned");
     expect(attendanceLocationScopeMode("Cashier")).toBe("viewer_assigned");
 
-    // Discovery uses Waqar alone — not the reporting tree — so INF/KDS-CC/CB never appear.
+    // Discovery uses Waqar alone — not the reporting tree — so CB never appears from crew.
     expect(
       locationDiscoveryStaffIds("viewer_assigned", "waqar", ["crew-inf", "crew-ua", "crew-cb"]),
     ).toEqual(["waqar"]);
 
-    const waqarManaged = venues.filter((site) => site.code === "UA-DM" || site.code === "KDS-DM");
+    // Waqar estate includes INF-CC (mapped) in addition to UA-DM + KDS-DM.
+    const waqarManaged = venues.filter(
+      (site) => site.code === "UA-DM" || site.code === "KDS-DM" || site.code === "INF-CC",
+    );
     expect(filterLocationsForJobTitleScope(waqarManaged, "Venue Supervisor").map((s) => s.code)).toEqual([
+      "INF-CC",
       "UA-DM",
       "KDS-DM",
     ]);
-    // Even if a bad coverage list leaked in, Venue Supervisor does not strip by title —
-    // callers must not pass punch-expanded sites. Discovery above keeps the list to Waqar.
-    expect(
-      filterLocationsForJobTitleScope(venues, "Venue Supervisor").map((site) => site.code),
-    ).toEqual(["HO", "INF-CC", "KDS-CC", "UA-DM", "KDS-DM", "CB-VM", "HQ"]);
+  });
+
+  it("scopes F&B Manager to INF-CC, KDS-CC, UA-DM", () => {
+    expect(attendanceLocationScopeMode("F&B Manager", "F&B")).toBe("fnb_manager_venues");
+    expect(filterLocationsForFnbManagerScope(venues, FNB_MANAGER_VENUE_CODES).map((s) => s.code)).toEqual([
+      "INF-CC",
+      "KDS-CC",
+      "UA-DM",
+    ]);
   });
 
   it("scopes Sr. Site to team assigned sites and drops Head Office (Mary)", () => {
@@ -82,10 +103,10 @@ describe("attendance location scope (org chart)", () => {
 
     expect(
       filterLocationsForJobTitleScope(venues, "Sr. Site Supervisor").map((site) => site.code),
-    ).toEqual(["INF-CC", "KDS-CC", "UA-DM", "KDS-DM", "CB-VM"]);
+    ).toEqual(["INF-CC", "KDS-CC", "UA-DM", "KDS-DM", "CB-VM", "CB-DSM", "CAR-AP"]);
     expect(
       filterLocationsForJobTitleScope(venues, "Senior Site Supervisor").map((site) => site.code),
-    ).toEqual(["INF-CC", "KDS-CC", "UA-DM", "KDS-DM", "CB-VM"]);
+    ).toEqual(["INF-CC", "KDS-CC", "UA-DM", "KDS-DM", "CB-VM", "CB-DSM", "CAR-AP"]);
   });
 
   it("treats Venue/Site supervisors as venue managers but not Sr. Site", () => {
@@ -97,8 +118,7 @@ describe("attendance location scope (org chart)", () => {
     expect(isVenueOrSiteSupervisorManager("Cashier", "cashier")).toBe(false);
   });
 
-  it("gives Sr. Site multiple venue codes from subtree + Venue/Site managers (Mary)", () => {
-    // Crew under Mary may all be home’d at INF-CC; Venue supervisors still contribute UA/KDS/…
+  it("gives Sr. Site chips only from people under her on the chart (Mary)", () => {
     const people = [
       {
         staffId: "mary",
@@ -108,64 +128,61 @@ describe("attendance location scope (org chart)", () => {
         staffRole: "venue_supervisor",
       },
       {
-        staffId: "inf-crew",
-        locationId: "inf",
-        workLocationIds: [],
-        jobTitle: "Crew / Attendant",
-        staffRole: "crew",
-      },
-      {
-        staffId: "waqar",
-        locationId: "ua",
-        workLocationIds: ["kdsMini"],
+        staffId: "ashfaq",
+        locationId: "kds",
+        workLocationIds: ["inf", "car"],
         jobTitle: "Venue Supervisor",
         staffRole: "venue_supervisor",
       },
       {
-        staffId: "ma-luz",
-        locationId: "kds",
-        workLocationIds: [],
-        jobTitle: "Site Supervisor",
+        staffId: "waqar",
+        locationId: "ua",
+        workLocationIds: ["kdsMini", "inf"],
+        jobTitle: "Venue Supervisor",
         staffRole: "venue_supervisor",
       },
       {
-        staffId: "cb-lead",
+        staffId: "rosebelt",
         locationId: "cb",
         workLocationIds: [],
         jobTitle: "Venue Supervisor",
         staffRole: "venue_supervisor",
       },
       {
-        staffId: "other-gm-branch",
+        staffId: "romel",
+        locationId: "cbDsm",
+        workLocationIds: [],
+        jobTitle: "Venue Supervisor",
+        staffRole: "venue_supervisor",
+      },
+      {
+        // Outside Mary's chart — must not appear on her chips.
+        staffId: "winter-mirage",
         locationId: "ho-name",
         workLocationIds: [],
-        jobTitle: "Cashier",
-        staffRole: "cashier",
+        jobTitle: "Venue Supervisor",
+        staffRole: "venue_supervisor",
       },
     ];
 
-    // Discovery = Mary + INF crew only (tree collapsed to Inflata homes).
-    const span = collectSrSiteSpanLocationIds(people, ["mary", "inf-crew"]);
-    expect(span).toEqual(["cb", "ho", "inf", "kds", "kdsMini", "ua"]);
+    const discovery = ["mary", "ashfaq", "waqar", "rosebelt", "romel"];
+    const span = collectSrSiteSpanLocationIds(people, discovery);
+    expect(span).toEqual(["car", "cb", "cbDsm", "ho", "inf", "kds", "kdsMini", "ua"]);
+    expect(span).not.toContain("ho-name");
 
     const chips = filterLocationsForJobTitleScope(
       venues.filter((site) => span.includes(site.id)),
       "Sr. Site Supervisor",
     ).map((site) => site.code);
-    expect(chips).toEqual(["INF-CC", "KDS-CC", "UA-DM", "KDS-DM", "CB-VM"]);
+    expect(chips).toEqual(["INF-CC", "KDS-CC", "UA-DM", "KDS-DM", "CB-VM", "CB-DSM", "CAR-AP"]);
     expect(chips).not.toContain("HO");
     expect(chips).not.toContain("HQ");
   });
 
-  it("keeps Venue Supervisor discovery on viewer only (Waqar: 2 sites)", () => {
+  it("keeps Venue Supervisor discovery on viewer only (Waqar)", () => {
     expect(
       locationDiscoveryStaffIds("viewer_assigned", "waqar", ["crew-inf", "crew-ua", "crew-cb"]),
     ).toEqual(["waqar"]);
-    const waqarManaged = venues.filter((site) => site.code === "UA-DM" || site.code === "KDS-DM");
-    expect(filterLocationsForJobTitleScope(waqarManaged, "Venue Supervisor").map((s) => s.code)).toEqual([
-      "UA-DM",
-      "KDS-DM",
-    ]);
   });
 });
 
@@ -175,6 +192,7 @@ describe("team roster access", () => {
     expect(usesTeamLocationScope(["duty_manager"])).toBe(false);
     expect(usesTeamLocationScope(["hr"])).toBe(false);
     expect(usesTeamLocationScope([])).toBe(true);
+    expect(usesTeamLocationScope(["cashier_host"], "Head of Operations")).toBe(false);
   });
 
   it("shows the shift roster option to supervisors and every people.edit_roster login", () => {

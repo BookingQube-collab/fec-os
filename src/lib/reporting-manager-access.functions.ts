@@ -1,6 +1,8 @@
 "use server";
 
 import { attendanceListingIsCompanyWide } from "@/lib/attendance-listing-access";
+import { loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
+import { locationAccessIsCompanyWide } from "@/lib/reporting-manager-locations";
 import { createAuthenticatedActionNoInput } from "@/lib/server/create-action";
 import {
   loadAttendanceListingStaffIds,
@@ -26,13 +28,17 @@ export type AttendanceListingSites = {
 /** Sites where a team leader's reporting line works. Company attendance roles keep the existing site list. */
 export const getAttendanceListingSites = createAuthenticatedActionNoInput(
   async (context): Promise<AttendanceListingSites> => {
-    if (attendanceListingIsCompanyWide(context.roles ?? [])) {
+    const linked = await loadLinkedStaffRecord(context.userId);
+    if (
+      attendanceListingIsCompanyWide(context.roles ?? []) ||
+      locationAccessIsCompanyWide(context.roles ?? [], linked?.jobTitle)
+    ) {
       return { companyWide: true, sites: [] };
     }
     // Same staff set as the listing (tree + viewer for supervisor/manager rollups).
     const { teamStaffIds } = await loadAttendanceListingStaffIds(context.userId);
     if (teamStaffIds.length === 0) return { companyWide: false, sites: [] };
-    // Venue/Site: viewer's managed sites. Sr. Site: subtree ∪ Venue/Site managers, minus HO.
+    // Venue/Site: managed sites. Sr. Site: subtree minus HO. F&B Manager: INF/KDS/UA.
     return {
       companyWide: false,
       sites: await loadViewerScopedTeamLocations(context.userId, teamStaffIds),

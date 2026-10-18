@@ -1,4 +1,5 @@
-import { isSiteSupervisorTitle } from "@/lib/attendance-hr/missed-punch-approval";
+import { isHeadOfOperationsTitle, isSiteSupervisorTitle } from "@/lib/attendance-hr/missed-punch-approval";
+import { isFnbManager } from "@/lib/arcade/access";
 import { HEAD_OFFICE_LOCATION_CODE } from "@/lib/department-audience";
 import { isSrSiteSupervisorTitle } from "@/lib/org-hierarchy";
 import { canUserDo, isRosterAmendJobTitle, type AppRole, type Capability } from "@/lib/rbac";
@@ -13,8 +14,23 @@ const COMPANY_ROSTER_CAPS = [
   "daily_ops.roster.upload",
 ] as const satisfies readonly Capability[];
 
-export function usesTeamLocationScope(roles: readonly AppRole[]): boolean {
-  return !COMPANY_ROSTER_CAPS.some((cap) => canUserDo(roles as AppRole[], cap));
+/**
+ * Company-wide location chips (same as Adil / admin): RBAC company caps, or
+ * Head of Operations title (Rajan), even when a secondary role is team-scoped.
+ */
+export function locationAccessIsCompanyWide(
+  roles: readonly AppRole[],
+  jobTitle?: string | null,
+): boolean {
+  if (isHeadOfOperationsTitle(jobTitle)) return true;
+  return COMPANY_ROSTER_CAPS.some((cap) => canUserDo(roles as AppRole[], cap));
+}
+
+export function usesTeamLocationScope(
+  roles: readonly AppRole[],
+  jobTitle?: string | null,
+): boolean {
+  return !locationAccessIsCompanyWide(roles, jobTitle);
 }
 
 /** Head Office by code or name — not an operational venue for Sr. Site scope. */
@@ -31,25 +47,32 @@ export function isHeadOfficeLocation(location: {
 /**
  * How attendance / roster location chips are built from the org chart.
  *
- * - `viewer_assigned` — Venue / Site Supervisor (and other team leaders): only that
- *   person's home + dedicated work sites (e.g. Waqar → UA-DM + KDS-DM). Never expand
- *   via descendant punches or roster rows at Inflata / KDS-CC / etc.
- * - `team_assigned_except_ho` — Sr. Site / Senior Site Supervisor: home + dedicated
- *   work sites for everyone in her reporting subtree, plus every Venue/Site
- *   supervisor's managed venues (all supervisors report through Sr. Site), then
- *   drop Head Office. This keeps UA-DM / KDS-DM / KDS-CC / CB-VM / … even when
- *   most crew rows are still home’d at INF-CC.
+ * - `company` — HoO / admin: every active venue (caller skips team filter).
+ * - `viewer_assigned` — Venue / Site Supervisor: home + dedicated work sites
+ *   (and maintainable map when work sites are empty). Never expand via descendant
+ *   punches. Waqar → KDS-DM + UA-DM + INF-CC; Ashfaq → INF-CC + KDS-CC + CAR-AP;
+ *   Romel → CB-DSM; Rosebelt → CB-VM.
+ * - `team_assigned_except_ho` — Sr. Site: home + dedicated work sites for everyone
+ *   in her reporting subtree (all supervisor venues under her), then drop Head Office.
+ * - `fnb_manager_venues` — F&B Manager: INF-CC + KDS-CC + UA-DM (F&B team staff
+ *   stay on the reporting tree).
  */
-export type AttendanceLocationScopeMode = "viewer_assigned" | "team_assigned_except_ho";
+export type AttendanceLocationScopeMode =
+  | "company"
+  | "viewer_assigned"
+  | "team_assigned_except_ho"
+  | "fnb_manager_venues";
 
 export function attendanceLocationScopeMode(
   jobTitle?: string | null,
   department?: string | null,
   _staffRole?: string | null,
 ): AttendanceLocationScopeMode {
+  if (isHeadOfOperationsTitle(jobTitle)) return "company";
   if (isSrSiteSupervisorTitle(jobTitle) || isSrSiteSupervisorTitle(department)) {
     return "team_assigned_except_ho";
   }
+  if (isFnbManager(jobTitle, department)) return "fnb_manager_venues";
   return "viewer_assigned";
 }
 
@@ -75,6 +98,9 @@ export function locationDiscoveryStaffIds(
   viewerStaffId: string | null | undefined,
   teamStaffIds: readonly string[],
 ): string[] {
+  if (mode === "company" || mode === "fnb_manager_venues") {
+    return [];
+  }
   if (mode === "viewer_assigned") {
     return viewerStaffId ? [viewerStaffId] : [];
   }
@@ -96,9 +122,8 @@ export type OrgChartLocationPerson = {
 
 /**
  * Distinct home + dedicated work location ids for a Sr. Site span.
- * Unions everyone in `discoveryStaffIds` with every Venue/Site supervisor
- * manager in `people` (supervisors report through Sr. Site even when crew under
- * them is still home’d at one flagship site).
+ * Only people in `discoveryStaffIds` (viewer + reporting subtree under her).
+ * Venue supervisors outside her chart do not contribute chips.
  */
 export function collectSrSiteSpanLocationIds(
   people: readonly OrgChartLocationPerson[],
@@ -107,16 +132,22 @@ export function collectSrSiteSpanLocationIds(
   const discovery = new Set(discoveryStaffIds.filter(Boolean));
   const ids = new Set<string>();
   for (const person of people) {
-    if (!person.staffId) continue;
-    const inSubtree = discovery.has(person.staffId);
-    const venueManager = isVenueOrSiteSupervisorManager(person.jobTitle, person.staffRole);
-    if (!inSubtree && !venueManager) continue;
+    if (!person.staffId || !discovery.has(person.staffId)) continue;
     if (person.locationId) ids.add(person.locationId);
     for (const locationId of person.workLocationIds ?? []) {
       if (locationId) ids.add(locationId);
     }
   }
   return [...ids].sort();
+}
+
+/** Keep only the F&B Manager estate codes (INF-CC, KDS-CC, UA-DM). */
+export function filterLocationsForFnbManagerScope<T extends { code?: string | null }>(
+  sites: readonly T[],
+  allowedCodes: readonly string[],
+): T[] {
+  const allow = new Set(allowedCodes.map((code) => code.trim().toUpperCase()).filter(Boolean));
+  return sites.filter((site) => allow.has((site.code ?? "").trim().toUpperCase()));
 }
 
 /** Drop Head Office for Sr. Site scope. Other titles keep every assigned site. */

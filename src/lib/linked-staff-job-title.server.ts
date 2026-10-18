@@ -12,6 +12,8 @@ export type LinkedStaffRecord = LinkedStaffIdentity & {
   id: string;
   status: string | null;
   employmentType: string | null;
+  employeeCode: string | null;
+  fullName: string | null;
 };
 
 /**
@@ -21,7 +23,7 @@ export type LinkedStaffRecord = LinkedStaffIdentity & {
 export async function loadLinkedStaffRecord(userId: string): Promise<LinkedStaffRecord | null> {
   const { data, error } = await supabaseAdmin
     .from("staff")
-    .select("id, job_title, staff_role, department, status, employment_type")
+    .select("id, job_title, staff_role, department, status, employment_type, employee_code, full_name")
     .eq("user_id", userId)
     .is("deleted_at", null)
     .order("created_at", { ascending: false, nullsFirst: false })
@@ -33,6 +35,8 @@ export async function loadLinkedStaffRecord(userId: string): Promise<LinkedStaff
   const raw = row.job_title;
   const title = typeof raw === "string" ? raw.trim() : "";
   const department = typeof row.department === "string" ? row.department.trim() : "";
+  const employeeCode = typeof row.employee_code === "string" ? row.employee_code.trim() : "";
+  const fullName = typeof row.full_name === "string" ? row.full_name.trim() : "";
   return {
     id: String(row.id),
     jobTitle: title || null,
@@ -40,6 +44,8 @@ export async function loadLinkedStaffRecord(userId: string): Promise<LinkedStaff
     department: department || null,
     status: row.status ?? null,
     employmentType: row.employment_type ?? null,
+    employeeCode: employeeCode || null,
+    fullName: fullName || null,
   };
 }
 

@@ -17,6 +17,7 @@ import {
   canSeeAttendanceMapping,
   resolveAttendanceListingStaffConstraint,
 } from "@/lib/attendance-listing-access";
+import { loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
 import {
   loadAttendanceListingStaffIds,
   loadManagerTeamStaffIds,
@@ -24,6 +25,7 @@ import {
   loadTeamCoverageLocations,
   loadViewerScopedTeamLocations,
 } from "@/lib/reporting-manager-access.server";
+import { locationAccessIsCompanyWide } from "@/lib/reporting-manager-locations";
 import { canUserDo, type AppRole } from "@/lib/rbac";
 import {
   assertCanEditAttendanceMapping,
@@ -686,7 +688,10 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
     departmentIds: z.array(z.string().uuid()).optional(),
   }),
   async (data, context) => {
-    const companyWide = attendanceListingIsCompanyWide(context.roles ?? []);
+    const linked = await loadLinkedStaffRecord(context.userId);
+    const companyWide =
+      attendanceListingIsCompanyWide(context.roles ?? []) ||
+      locationAccessIsCompanyWide(context.roles ?? [], linked?.jobTitle);
     // Supervisors/managers: reporting tree plus own staff_id. Cashiers with reports: tree only.
     const teamStaffIds = companyWide
       ? null
@@ -694,7 +699,7 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
     if (!companyWide && (!teamStaffIds || teamStaffIds.length === 0)) {
       throw new ForbiddenError("Attendance listing is limited to people who report to you.");
     }
-    // Venue/Site: managed sites only. Sr. Site: subtree ∪ Venue/Site managers, minus HO.
+    // Venue/Site: managed sites only. Sr. Site: subtree minus HO. F&B: INF/KDS/UA.
     // Discovery still includes the viewer's home/work sites so their own attendance appears.
     const teamLocationIds = teamStaffIds
       ? (await loadViewerScopedTeamLocations(context.userId, teamStaffIds)).map((site) => site.id)
@@ -820,7 +825,7 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
             }
             if (deptStaffIds) q = q.in("staff_id", deptStaffIds);
             // Site chip always wins. All locations for a team login stays inside scoped sites
-            // (Waqar: UA-DM + KDS-DM only — not every venue a descendant punched at).
+            // (Waqar: KDS-DM + UA-DM + INF-CC only — not every venue a descendant punched at).
             if (data.locationId) q = q.eq("location_id", data.locationId);
             else if (teamLocationIds && teamLocationIds.length > 0) {
               q = q.in("location_id", teamLocationIds);

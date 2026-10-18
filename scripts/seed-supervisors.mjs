@@ -35,7 +35,8 @@ const SUPERVISORS = [
     displayName: "Ashfaq Noori",
     employeeCode: "KDS-CC-VS",
     qidHint: "29735603636",
-    locationCodes: ["KDS-CC"],
+    // Product matrix: Inflata + KDS City Center + Aspire Carousel
+    locationCodes: ["INF-CC", "KDS-CC", "CAR-AP"],
   },
   {
     email: "rosebelt.supervisor@fec.test",
@@ -64,7 +65,8 @@ const SUPERVISORS = [
     displayName: "Waqar Asghar",
     employeeCode: "UA-DM-VS",
     qidHint: "29658611062",
-    locationCodes: ["UA-DM", "KDS-DM"],
+    // Product matrix: Doha Mall venues + Inflata (prior Inflata coverage)
+    locationCodes: ["UA-DM", "KDS-DM", "INF-CC"],
   },
   {
     email: "wm.supervisor@fec.test",
@@ -352,15 +354,34 @@ async function verifyStaffLink(employeeCode, displayName) {
 
   if (error) {
     console.warn(`  Warning: could not verify staff link for ${employeeCode}: ${error.message}`);
-    return;
+    return null;
   }
   if (!data) {
     console.warn(`  Warning: no staff row for employee_code ${employeeCode}`);
-    return;
+    return null;
   }
   if (data.full_name !== displayName) {
     console.warn(`  Warning: staff name "${data.full_name}" differs from "${displayName}"`);
   }
+  return data;
+}
+
+/**
+ * Mirror user_roles.location_ids onto staff_work_locations so attendance chips
+ * and monthly roster use the same estate (home stays staff.location_id).
+ */
+async function ensureStaffWorkLocations(staffId, locationIds) {
+  if (!staffId || !locationIds?.length) return;
+  const rows = locationIds.map((location_id) => ({ staff_id: staffId, location_id }));
+  const { error } = await admin.from("staff_work_locations").upsert(rows, {
+    onConflict: "staff_id,location_id",
+    ignoreDuplicates: true,
+  });
+  if (error) {
+    console.warn(`  Warning: could not upsert staff_work_locations: ${error.message}`);
+    return;
+  }
+  console.log(`  Ensured ${locationIds.length} staff_work_locations row(s)`);
 }
 
 /** Corporate / non-venue sites — Admin/HR scoped, not per-site branch_gm. */
@@ -405,7 +426,10 @@ async function main() {
     await ensureProfile(userId, linked);
     await ensureRole(userId, locationIds);
     await ensureSyntheticStaff(linked, locationIds[0], userId);
-    await verifyStaffLink(profileCode, supervisor.displayName);
+    const staffRow = await verifyStaffLink(profileCode, supervisor.displayName);
+    if (staffRow?.id) {
+      await ensureStaffWorkLocations(staffRow.id, locationIds);
+    }
 
     results.push({
       email: supervisor.email,

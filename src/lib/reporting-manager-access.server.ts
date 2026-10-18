@@ -19,14 +19,18 @@ import {
 } from "@/lib/attendance-hr/roster-location-coverage";
 import {
   attendanceLocationScopeMode,
+  filterLocationsForFnbManagerScope,
   filterLocationsForJobTitleScope,
-  isVenueOrSiteSupervisorManager,
   locationDiscoveryStaffIds,
   rosterChartTeamIds,
   rosterTeamOrSelfStaffIds,
   unionTeamLocationIds,
   usesTeamLocationScope,
 } from "@/lib/reporting-manager-locations";
+import {
+  FNB_MANAGER_VENUE_CODES,
+  managedVenueCodesForPerson,
+} from "@/lib/supervisor-managed-venues";
 import type { AppRole } from "@/lib/rbac";
 import { ForbiddenError } from "@/lib/server/authorize";
 import { isJokerStaffStatus } from "@/lib/staff-status";
@@ -471,42 +475,58 @@ export async function loadTeamCoverageLocations(staffIds: string[]): Promise<Tea
   }));
 }
 
+/** Active locations whose codes match (case-insensitive). */
+async function loadActiveLocationsByCodes(codes: readonly string[]): Promise<TeamCoverageLocation[]> {
+  const wanted = [...new Set(codes.map((code) => code.trim().toUpperCase()).filter(Boolean))];
+  if (wanted.length === 0) return [];
+  const { data, error } = await supabaseAdmin
+    .from("locations")
+    .select("id, code, name, city, region, status, timezone")
+    .eq("status", "active")
+    .in("code", wanted)
+    .order("code");
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((row) => ({
+    id: String(row.id),
+    code: String(row.code),
+    name: String(row.name),
+    city: row.city ?? null,
+    region: row.region ?? null,
+    status: String(row.status),
+    timezone: String(row.timezone),
+  }));
+}
+
 /**
- * Active Venue / Site supervisors (not Sr. Site) — each manages one or more venues.
- * Sr. Site chips union these managers' home + dedicated work sites so the span
- * matches the org chart even when crew under them is still home’d at INF-CC.
+ * Viewer home + dedicated work sites, plus maintainable mapped estate codes when
+ * staff_work_locations is incomplete (Ashfaq / Romel / Rosebelt / Waqar / Ruben).
  */
-async function loadVenueOrSiteSupervisorManagerIds(): Promise<string[]> {
-  const ids = new Set<string>();
-  let from = 0;
-  for (let page = 0; page < 40; page += 1) {
-    const { data, error } = await supabaseAdmin
-      .from("staff")
-      .select("id, job_title, staff_role")
-      .in("status", [...DIRECT_REPORT_STATUSES])
-      .is("deleted_at", null)
-      .order("id", { ascending: true })
-      .range(from, from + 999);
-    if (error) throw new Error(error.message);
-    const rows = data ?? [];
-    for (const row of rows) {
-      const jobTitle = (row.job_title as string | null) ?? null;
-      const staffRole = (row.staff_role as string | null) ?? null;
-      if (!isVenueOrSiteSupervisorManager(jobTitle, staffRole)) continue;
-      if (row.id) ids.add(String(row.id));
-    }
-    if (rows.length < 1000) break;
-    from += 1000;
-  }
-  return [...ids].sort();
+async function loadViewerAssignedLocations(linked: {
+  id: string;
+  employeeCode: string | null;
+  fullName: string | null;
+}): Promise<TeamCoverageLocation[]> {
+  const assigned = await loadAssignedTeamLocations([linked.id]);
+  const mappedCodes = managedVenueCodesForPerson({
+    employeeCode: linked.employeeCode,
+    fullName: linked.fullName,
+  });
+  if (!mappedCodes || mappedCodes.length === 0) return assigned;
+  const mapped = await loadActiveLocationsByCodes(mappedCodes);
+  if (mapped.length === 0) return assigned;
+  const byId = new Map<string, TeamCoverageLocation>();
+  for (const site of assigned) byId.set(site.id, site);
+  for (const site of mapped) byId.set(site.id, site);
+  return [...byId.values()].sort((a, b) => a.code.localeCompare(b.code));
 }
 
 /**
  * Location chips for attendance / roster pickers (org-chart rule).
  * Uses home + dedicated work sites only — never punch or roster history.
- * Venue / Site Supervisor: viewer's managed sites only.
- * Sr. Site: reporting subtree assigned sites ∪ every Venue/Site supervisor's
- * managed venues, minus Head Office (All locations aggregates that set).
+ * Venue / Site Supervisor: viewer's managed sites only (mapped estate as fallback).
+ * Sr. Site: reporting subtree assigned sites, minus Head Office.
+ * F&B Manager: INF-CC + KDS-CC + UA-DM.
+ * HoO / company: caller should not use this path (returns all active venues).
  */
 export async function loadViewerScopedTeamLocations(
   userId: string,
@@ -518,15 +538,34 @@ export async function loadViewerScopedTeamLocations(
     linked?.department,
     linked?.staffRole,
   );
-  const discoveryIds = locationDiscoveryStaffIds(scopeMode, linked?.id, teamStaffIds);
+  if (scopeMode === "company") {
+    const { data, error } = await supabaseAdmin
+      .from("locations")
+      .select("id, code, name, city, region, status, timezone")
+      .eq("status", "active")
+      .order("code");
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((row) => ({
+      id: String(row.id),
+      code: String(row.code),
+      name: String(row.name),
+      city: row.city ?? null,
+      region: row.region ?? null,
+      status: String(row.status),
+      timezone: String(row.timezone),
+    }));
+  }
+  if (scopeMode === "fnb_manager_venues") {
+    return loadActiveLocationsByCodes(FNB_MANAGER_VENUE_CODES);
+  }
   if (scopeMode === "viewer_assigned") {
-    return loadAssignedTeamLocations(discoveryIds);
+    if (!linked?.id) return [];
+    return loadViewerAssignedLocations(linked);
   }
 
-  // Sr. Site: subtree homes/work plus every Venue/Site supervisor's managed sites.
-  const supervisorIds = await loadVenueOrSiteSupervisorManagerIds();
-  const spanIds = [...new Set([...discoveryIds, ...supervisorIds])].sort();
-  const sites = await loadAssignedTeamLocations(spanIds);
+  // Sr. Site: only her reporting subtree (viewer + descendants), minus Head Office.
+  const discoveryIds = locationDiscoveryStaffIds(scopeMode, linked?.id, teamStaffIds);
+  const sites = await loadAssignedTeamLocations(discoveryIds);
   return filterLocationsForJobTitleScope(
     sites,
     linked?.jobTitle,
@@ -539,10 +578,23 @@ export async function mergeReportingManagerSites<T extends { id: string; code: s
   context: { userId: string; roles?: AppRole[] },
   sites: T[],
 ): Promise<T[]> {
-  if (!usesTeamLocationScope(context.roles ?? [])) return sites;
   const linked = await loadLinkedStaffRecord(context.userId);
+  if (!usesTeamLocationScope(context.roles ?? [], linked?.jobTitle)) return sites;
+  const scopeMode = attendanceLocationScopeMode(
+    linked?.jobTitle,
+    linked?.department,
+    linked?.staffRole,
+  );
+  if (scopeMode === "fnb_manager_venues") {
+    return filterLocationsForFnbManagerScope(sites, FNB_MANAGER_VENUE_CODES);
+  }
   const { teamStaffIds } = await loadManagerTeamStaffIds(context.userId);
   if (teamStaffIds.length === 0) {
+    if (scopeMode === "viewer_assigned" && linked?.id) {
+      const assigned = await loadViewerAssignedLocations(linked);
+      const allow = new Set(assigned.map((site) => site.id));
+      return sites.filter((site) => allow.has(site.id)).sort((a, b) => a.code.localeCompare(b.code));
+    }
     return filterLocationsForJobTitleScope(
       sites,
       linked?.jobTitle,
@@ -559,13 +611,11 @@ export async function mergeReportingManagerSites<T extends { id: string; code: s
       linked?.staffRole,
     );
   }
-  const byId = new Map<string, T>();
-  for (const site of extra) byId.set(site.id, site as unknown as T);
-  for (const site of sites) {
-    if (!byId.has(site.id)) byId.set(site.id, site);
-  }
+  const allow = new Set(extra.map((site) => site.id));
+  // Team-scoped viewers only keep sites they may open — do not re-merge the
+  // full company list (that used to leak Inflata onto every Venue Supervisor).
   return filterLocationsForJobTitleScope(
-    [...byId.values()].sort((a, b) => a.code.localeCompare(b.code)),
+    sites.filter((site) => allow.has(site.id)).sort((a, b) => a.code.localeCompare(b.code)),
     linked?.jobTitle,
     linked?.department,
     linked?.staffRole,
@@ -671,7 +721,8 @@ export async function resolveShiftRosterUploadScope(context: {
   userId: string;
   roles?: AppRole[];
 }): Promise<ShiftRosterUploadScope> {
-  if (!usesTeamLocationScope(context.roles ?? [])) return { kind: "company" };
+  const linked = await loadLinkedStaffRecord(context.userId);
+  if (!usesTeamLocationScope(context.roles ?? [], linked?.jobTitle)) return { kind: "company" };
   const staffIds = await loadRosterChartStaffIds(context.userId);
   if (staffIds.length === 0) {
     throw new ForbiddenError("Forbidden: missing capability to upload a shift roster.");
