@@ -1357,10 +1357,16 @@ export function AppSidebar() {
       ),
     [department, employeeFlat, jobTitle, primary, reportsToHeadOfOperations, roles, staffRole],
   );
-  const railExtras = useMemo(
-    () => [...directoryRail, ...managerRail, ...pinnedEssentials],
-    [directoryRail, managerRail, pinnedEssentials],
-  );
+  const railExtras = useMemo(() => {
+    const seen = new Set<string>();
+    const extras: NavItem[] = [];
+    for (const item of [...directoryRail, ...managerRail, ...pinnedEssentials]) {
+      if (seen.has(item.href)) continue;
+      seen.add(item.href);
+      extras.push(item);
+    }
+    return extras;
+  }, [directoryRail, managerRail, pinnedEssentials]);
   const departmentsById = useMemo(
     () => new Map(departments.map((dept) => [dept.id, dept])),
     [departments],

@@ -970,7 +970,11 @@ export function mergePeopleDirectoryDepartments(
   );
 }
 
-/** Collapsed rail icon when People is not already a primary department. */
+/**
+ * Collapsed (and expanded) rail pins for team-scoped supervisors/managers.
+ * Same destinations as mergePeopleDirectoryDepartments / the employee flat rail:
+ * directory + monthly roster, skipping hrefs already on the primary rail.
+ */
 export function peopleDirectoryRailItems(
   roles: AppRole[],
   jobTitle: string | null | undefined,
@@ -982,9 +986,7 @@ export function peopleDirectoryRailItems(
   if (peopleDirectoryScope(roles, jobTitle, staffRole, department, reportsToHeadOfOperations) !== "team") {
     return [];
   }
-  if (visibleHrefs.has("/people")) return [];
-  const item = peopleDirectoryNavItem();
-  return item ? [item] : [];
+  return teamRosterNavItems().filter((item) => !visibleHrefs.has(item.href));
 }
 
 /** Adds manager modules the role cannot already open. No-op without direct reports. */

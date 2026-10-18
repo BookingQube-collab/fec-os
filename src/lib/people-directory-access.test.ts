@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { getEmployeeFlatRail, getVisibleDepartments, mergePeopleDirectoryDepartments } from "@/lib/nav-config";
+import {
+  getEmployeeFlatRail,
+  getPrimaryRailNav,
+  getVisibleDepartments,
+  mergePeopleDirectoryDepartments,
+  peopleDirectoryRailItems,
+} from "@/lib/nav-config";
 import {
   canOpenPeopleDirectory,
   isAdminPeopleDirectoryRow,
@@ -76,6 +82,58 @@ describe("people directory for managers and supervisors", () => {
     const hooPeerHrefs = hooPeerNav.flatMap((dept) => dept.items.map((item) => item.href));
     expect(hooPeerHrefs).toContain("/people");
     expect(hooPeerHrefs).toContain("/people/roster");
+
+    // Collapsed rail must keep the same team pins as the expanded People section
+    // (Venue / Site / Ops supervisors and HoO peers — not only the directory link).
+    const venuePrimary = new Set(
+      getPrimaryRailNav(["cashier_host"], {
+        jobTitle: "Venue Supervisor",
+        staffRole: "venue_supervisor",
+      }).map((item) => item.href),
+    );
+    expect(
+      peopleDirectoryRailItems(
+        ["cashier_host"],
+        "Venue Supervisor",
+        venuePrimary,
+        "venue_supervisor",
+      ).map((item) => item.href),
+    ).toEqual(["/people", "/people/roster"]);
+    expect(
+      peopleDirectoryRailItems(
+        ["cashier_host"],
+        "Site Supervisor",
+        venuePrimary,
+        "venue_supervisor",
+      ).map((item) => item.href),
+    ).toEqual(["/people", "/people/roster"]);
+    expect(
+      peopleDirectoryRailItems(
+        ["cashier_host"],
+        "Operations Supervisor",
+        venuePrimary,
+      ).map((item) => item.href),
+    ).toEqual(["/people", "/people/roster"]);
+    expect(
+      peopleDirectoryRailItems(
+        ["technician"],
+        "Technician",
+        venuePrimary,
+        "technician",
+        "Maintenance",
+        true,
+      ).map((item) => item.href),
+    ).toEqual(["/people", "/people/roster"]);
+    expect(
+      peopleDirectoryRailItems(
+        ["cashier_host"],
+        "Venue Supervisor",
+        new Set(["/people", "/people/roster"]),
+        "venue_supervisor",
+      ),
+    ).toEqual([]);
+    expect(peopleDirectoryRailItems(["duty_manager"], null, venuePrimary)).toEqual([]);
+    expect(peopleDirectoryRailItems(["ceo"], null, venuePrimary)).toEqual([]);
   });
 
   it("omits salary for a manager and keeps it for HR and leadership", () => {
