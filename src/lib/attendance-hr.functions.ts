@@ -900,13 +900,14 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
       });
     }
 
-    // Location chip: pull other-site person-days for roaming/multisite staff already in
-    // view, then drop false Absents (home fillers when rostered elsewhere, and
-    // sibling punch-less ABSENT from other sites e.g. ABSENT CAR-AP on INF-CC).
-    if (data.locationId && staffFilter !== "unmapped") {
+    // Roaming / multisite: under a site chip pull other-site person-days, then drop
+    // false Absents (home fillers when rostered elsewhere; sibling punch-less ABSENT
+    // from other sites e.g. ABSENT CAR-AP on INF-CC). Under All locations still run
+    // suppress so home KDS fillers do not blank the grid when rostered at INF-CC.
+    if (staffFilter !== "unmapped") {
       rows = await applyRoamingLocationFilterAdjustments(readContext, {
         rows,
-        locationId: data.locationId,
+        locationId: data.locationId ?? null,
         dateFrom: data.dateFrom,
         dateTo: data.dateTo,
         status: data.status ?? null,
@@ -3395,16 +3396,18 @@ async function enrichAttendanceHrDailyRows(
 
 /** Roster + mapped punch days for listing gap fill (summary-only days otherwise vanish). */
 /**
- * Under a site chip: include punched/rostered person-days at other sites for
- * roaming staff already listed here, suppress false ABSENT at this site when
- * the roster has them on duty only elsewhere, and drop sibling punch-less
- * ABSENT rows from other sites (ABSENT CAR-AP must not show on INF-CC).
+ * Roaming / multisite listing cleanup:
+ * - Site chip: include punched/rostered person-days at other sites, suppress false
+ *   ABSENT at this site when rostered only elsewhere, drop sibling punch-less
+ *   ABSENT from other sites (ABSENT CAR-AP must not show on INF-CC).
+ * - All locations: still suppress home fillers / convert week-off so move-site
+ *   Present/Absent/Off remain visible (Ma luz KDS home + INF-CC roster).
  */
 async function applyRoamingLocationFilterAdjustments(
   context: AuthContext,
   opts: {
     rows: Array<Record<string, unknown>>;
-    locationId: string;
+    locationId: string | null;
     dateFrom: string;
     dateTo: string;
     status: string | null;
@@ -3440,47 +3443,43 @@ async function applyRoamingLocationFilterAdjustments(
   if (!crossSiteStaffIds.size) return opts.rows;
 
   const crossIds = [...crossSiteStaffIds];
-  const seenIds = new Set(opts.rows.map((r) => String(r.id ?? "")));
-  const seenPersonDays = new Set<string>();
-  for (const row of opts.rows) {
-    const staffId = typeof row.staff_id === "string" ? row.staff_id : "";
-    const day = String(row.work_date ?? "").slice(0, 10);
-    if (staffId && day) seenPersonDays.add(`${staffId}|${day}`);
-  }
-
-  const siblingPages = await Promise.all(
-    chunkStaffIds(crossIds).map((chunk) =>
-      collectPagedRowsInWaves(async (from, to) => {
-        let q = context.supabase
-          .from("attendance_daily_summary")
-          .select(ATTENDANCE_DAILY_LIST_COLUMNS)
-          .in("staff_id", chunk)
-          .gte("work_date", opts.dateFrom)
-          .lte("work_date", opts.dateTo)
-          .order("work_date", { ascending: false })
-          .order("id", { ascending: false })
-          .range(from, to);
-        if (opts.status) q = q.eq("status", opts.status);
-        const { data: page, error } = await q;
-        if (error) throw error;
-        return (page ?? []) as Array<Record<string, unknown>>;
-      }, ATTENDANCE_DAILY_LIST_PAGE_SIZE),
-    ),
-  );
-
   let rows = [...opts.rows];
-  for (const row of siblingPages.flat()) {
-    const id = String(row.id ?? "");
-    if (id && seenIds.has(id)) continue;
-    const staffId = String(row.staff_id ?? "");
-    const day = String(row.work_date ?? "").slice(0, 10);
-    const loc = String(row.location_id ?? "");
-    if (!staffId || !day || !crossSiteStaffIds.has(staffId)) continue;
-    // Other-site person-days only — same-site rows are already in `opts.rows`.
-    if (!loc || loc === opts.locationId) continue;
-    if (id) seenIds.add(id);
-    seenPersonDays.add(`${staffId}|${day}`);
-    rows.push(row);
+
+  // Sibling merge only under a site chip — All locations already has every site's rows.
+  if (opts.locationId) {
+    const seenIds = new Set(opts.rows.map((r) => String(r.id ?? "")));
+    const siblingPages = await Promise.all(
+      chunkStaffIds(crossIds).map((chunk) =>
+        collectPagedRowsInWaves(async (from, to) => {
+          let q = context.supabase
+            .from("attendance_daily_summary")
+            .select(ATTENDANCE_DAILY_LIST_COLUMNS)
+            .in("staff_id", chunk)
+            .gte("work_date", opts.dateFrom)
+            .lte("work_date", opts.dateTo)
+            .order("work_date", { ascending: false })
+            .order("id", { ascending: false })
+            .range(from, to);
+          if (opts.status) q = q.eq("status", opts.status);
+          const { data: page, error } = await q;
+          if (error) throw error;
+          return (page ?? []) as Array<Record<string, unknown>>;
+        }, ATTENDANCE_DAILY_LIST_PAGE_SIZE),
+      ),
+    );
+
+    for (const row of siblingPages.flat()) {
+      const id = String(row.id ?? "");
+      if (id && seenIds.has(id)) continue;
+      const staffId = String(row.staff_id ?? "");
+      const day = String(row.work_date ?? "").slice(0, 10);
+      const loc = String(row.location_id ?? "");
+      if (!staffId || !day || !crossSiteStaffIds.has(staffId)) continue;
+      // Other-site person-days only — same-site rows are already in `opts.rows`.
+      if (!loc || loc === opts.locationId) continue;
+      if (id) seenIds.add(id);
+      rows.push(row);
+    }
   }
 
   const rosterPages = await collectPagedRowsInWaves(async (from, to) => {

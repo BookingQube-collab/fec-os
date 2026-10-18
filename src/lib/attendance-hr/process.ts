@@ -28,6 +28,7 @@ import {
   expandFlexibleBiometricPairsByDeviceName,
   flexibleDayHasQualifyingPunches,
   flexibleDayRecalcAction,
+  flexibleNoPunchRosterFlags,
   flexibleNoPunchWriteAtLocation,
   preferCrossSiteWeekOffRoster,
   staffUsesCrossSiteDayMerge,
@@ -1271,15 +1272,15 @@ export async function recalculateAttendanceRange(
         }
         const homeId = homeLocationByStaffId.get(staffId) || "";
         // After cross-site week-off wins, treat local on-duty siblings as not rostered here.
-        const rosteredHere = Boolean(fromUpload && !fromUpload.is_week_off && !isWeekOff);
-        // Prefer multi-site on-duty set — preferred crossRosterRow can be THIS location
-        // and hide that they also (or only) have on-duty roster elsewhere (Mani CAR-AP).
+        // Honor crossOnDutyLocations — local rosterByKey can miss a row that still
+        // exists in the multi-site map (Ma luz INF-CC while home is KDS-CC).
         const onDutyLocs = crossOnDutyLocationsByStaffDay.get(`${staffId}|${workDate}`);
-        const rosteredOnDutyElsewhere = Boolean(
-          !rosteredHere &&
-            ((onDutyLocs && [...onDutyLocs].some((loc) => loc !== locationId)) ||
-              (crossRosterRow && !crossRosterRow.is_week_off)),
-        );
+        const { rosteredHere, rosteredOnDutyElsewhere } = flexibleNoPunchRosterFlags({
+          locationId,
+          isWeekOff,
+          localOnDuty: Boolean(fromUpload && !fromUpload.is_week_off),
+          onDutyLocationIds: onDutyLocs,
+        });
         const writeDecision = flexibleNoPunchWriteAtLocation({
           isHomeLocation: !homeId || homeId === locationId,
           isWeekOff,

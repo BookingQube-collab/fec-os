@@ -220,6 +220,29 @@ export function flexibleNoPunchWriteAtLocation(input: {
   return input.isHomeLocation ? "write" : "suppress";
 }
 
+/**
+ * Resolve on-duty-here vs only-elsewhere for a no-punch roaming day.
+ * Prefer the multi-site on-duty location set — a preferred cross roster row is
+ * often THIS location and must not be treated as "elsewhere" (Ma luz INF-CC).
+ */
+export function flexibleNoPunchRosterFlags(input: {
+  locationId: string;
+  isWeekOff: boolean;
+  /** Local upload / site roster on-duty row for this location. */
+  localOnDuty: boolean;
+  /** Location ids with on-duty (non week-off) roster that day across sites. */
+  onDutyLocationIds?: ReadonlySet<string> | null;
+}): { rosteredHere: boolean; rosteredOnDutyElsewhere: boolean } {
+  const onDuty = input.onDutyLocationIds;
+  const rosteredHere = Boolean(
+    !input.isWeekOff && (input.localOnDuty || onDuty?.has(input.locationId)),
+  );
+  const rosteredOnDutyElsewhere = Boolean(
+    !rosteredHere && onDuty && [...onDuty].some((loc) => loc !== input.locationId),
+  );
+  return { rosteredHere, rosteredOnDutyElsewhere };
+}
+
 /** True when usable punches exist on any site for the day. */
 export function flexibleDayHasQualifyingPunches(
   punches: FlexibleCrossSitePunch[],

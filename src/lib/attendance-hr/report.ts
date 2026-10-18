@@ -579,12 +579,13 @@ function roamingRowLooksAbsent(row: { status?: unknown }): boolean {
  * Fix false ABSENT person-days for roaming / multisite staff when:
  * - any of their roster sites marks the day as week-off / rest → set status
  *   to weekly_off (do not drop — blank cells hide the rest day on the grid), or
- * - the roster has them on duty at a different location that day → drop the
- *   punch-less ABSENT filler at the filtered site (they are covered elsewhere), or
+ * - the roster has them on duty only at a different location → drop the
+ *   punch-less ABSENT filler at this row's site (covered at the move site), or
  * - under a site chip, sibling punch-less ABSENT from another site was merged in
  *   (e.g. ABSENT CAR-AP while viewing INF-CC) → drop it; that Absent belongs on
  *   the destination site's own filter, not as a false cell here.
- * Keeps leave / punched / already-off / Present from other sites.
+ * Keeps leave / punched / already-off / Present, and keeps punch-less ABSENT at
+ * the site where they are actually rostered on duty (All locations + that site).
  */
 export function suppressRoamingFalseAbsentForRosterElsewhere(input: {
   rows: Array<Record<string, unknown>>;
@@ -594,35 +595,34 @@ export function suppressRoamingFalseAbsentForRosterElsewhere(input: {
 }): Array<Record<string, unknown>> {
   if (!input.crossSiteStaffIds.size || input.rows.length === 0) return input.rows;
 
-  /** staffId|day — on-duty roster at a site other than the location filter. */
-  const onDutyElsewhere = new Set<string>();
-  /** staffId|day — on-duty roster at the filtered site (true Absent may apply). */
-  const onDutyAtFilter = new Set<string>();
-  /** staffId|day — rest/off uploaded at any site that day. */
-  const weekOffAnySite = new Set<string>();
+  /** staffId|day → location ids with on-duty (non week-off) roster that day. */
+  const onDutyLocsByStaffDay = new Map<string, Set<string>>();
+  /** staffId|day → location ids that uploaded rest/off that day. */
+  const weekOffLocsByStaffDay = new Map<string, Set<string>>();
   for (const r of input.roster) {
     const staffId = String(r.staff_id ?? "").trim();
     const day = String(r.work_date ?? "").slice(0, 10);
     const loc = String(r.location_id ?? "").trim();
     if (!staffId || !day || !loc) continue;
     if (!input.crossSiteStaffIds.has(staffId)) continue;
+    const key = `${staffId}|${day}`;
     if (r.is_week_off) {
-      weekOffAnySite.add(`${staffId}|${day}`);
+      const locs = weekOffLocsByStaffDay.get(key) ?? new Set<string>();
+      locs.add(loc);
+      weekOffLocsByStaffDay.set(key, locs);
       continue;
     }
-    if (input.locationId && loc === input.locationId) {
-      onDutyAtFilter.add(`${staffId}|${day}`);
-      continue;
-    }
-    onDutyElsewhere.add(`${staffId}|${day}`);
+    const locs = onDutyLocsByStaffDay.get(key) ?? new Set<string>();
+    locs.add(loc);
+    onDutyLocsByStaffDay.set(key, locs);
   }
-  if (onDutyElsewhere.size === 0 && weekOffAnySite.size === 0 && !input.locationId) {
+  const filterLoc = input.locationId?.trim() || "";
+  if (onDutyLocsByStaffDay.size === 0 && weekOffLocsByStaffDay.size === 0 && !filterLoc) {
     return input.rows;
   }
   // Under a location filter we still walk rows to drop other-site Absents even
-  // when onDutyElsewhere / weekOff are empty (stale sibling ABSENT only).
+  // when on-duty / weekOff maps are empty (stale sibling ABSENT only).
 
-  const filterLoc = input.locationId?.trim() || "";
   const out: Array<Record<string, unknown>> = [];
   for (const row of input.rows) {
     const staffId = typeof row.staff_id === "string" ? row.staff_id : "";
@@ -635,8 +635,17 @@ export function suppressRoamingFalseAbsentForRosterElsewhere(input: {
       out.push(row);
       continue;
     }
+    const key = `${staffId}|${day}`;
+    const weekOffLocs = weekOffLocsByStaffDay.get(key);
     // Rest/off on any roster site wins — show weekly_off, never Absent.
-    if (weekOffAnySite.has(`${staffId}|${day}`)) {
+    if (weekOffLocs && weekOffLocs.size > 0) {
+      const loc = String(row.location_id ?? "").trim();
+      const weekOffAtRow = Boolean(loc && weekOffLocs.has(loc));
+      // All locations: keep Off at the site that uploaded rest; drop home fillers
+      // (Ma luz KDS absent + INF rest → one Off cell, not a duplicate home Off).
+      if (!filterLoc && loc && !weekOffAtRow) {
+        continue;
+      }
       out.push({
         ...row,
         status: "weekly_off",
@@ -649,17 +658,22 @@ export function suppressRoamingFalseAbsentForRosterElsewhere(input: {
     const loc = String(row.location_id ?? "").trim();
     // Under a site chip: never surface punch-less ABSENT from another site
     // (Mani/Maanaliza: ABSENT CAR-AP must not appear on the INF-CC report).
-    // Destination-site Absent is valid only when filtering that destination.
+    // Destination-site Absent is valid on All locations and on that destination filter.
     if (filterLoc && loc && loc !== filterLoc) {
       continue;
     }
-    // Under a site chip: rostered on duty only elsewhere → drop punch-less ABSENT
-    // at this site. If also on duty here, keep (true Absent at the rostered site).
-    if (
-      filterLoc &&
-      onDutyElsewhere.has(`${staffId}|${day}`) &&
-      !onDutyAtFilter.has(`${staffId}|${day}`)
-    ) {
+    const onDutyLocs = onDutyLocsByStaffDay.get(key);
+    const onDutyAtRowSite = Boolean(loc && onDutyLocs?.has(loc));
+    const onDutyOnlyElsewhere = Boolean(
+      onDutyLocs &&
+        onDutyLocs.size > 0 &&
+        !onDutyAtRowSite &&
+        [...onDutyLocs].some((l) => l !== loc),
+    );
+    // Home / wrong-site punch-less ABSENT while rostered on duty only elsewhere → drop.
+    // Keep when this row's site is an on-duty roster site (true Absent, visible under
+    // All locations and under that site's chip).
+    if (onDutyOnlyElsewhere) {
       continue;
     }
     out.push(row);

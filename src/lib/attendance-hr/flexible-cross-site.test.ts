@@ -13,6 +13,7 @@ import {
   flexibleDayHasQualifyingPunches,
   flexibleDayNonAnchorPunchLocations,
   flexibleDayRecalcAction,
+  flexibleNoPunchRosterFlags,
   flexibleNoPunchWriteAtLocation,
   formatFlexibleCrossSiteDeviceUserLabel,
   formatFlexibleCrossSiteLocationLabel,
@@ -206,6 +207,51 @@ describe("flexible cross-site attendance", () => {
     expect(
       flexibleNoPunchWriteAtLocation({ isHomeLocation: true, isWeekOff: false, hasLeave: false }),
     ).toBe("write");
+    // Ma luz: move-site INF with on-duty roster must write, even when home is KDS.
+    // Process must set rosteredHere from onDutyLocs.has(INF) — not treat preferred
+    // crossRosterRow as "elsewhere" (that blanked the All-locations grid after c5115f1).
+    expect(
+      flexibleNoPunchWriteAtLocation({
+        isHomeLocation: false,
+        isWeekOff: false,
+        hasLeave: false,
+        rosteredHere: true,
+        rosteredOnDutyElsewhere: false,
+      }),
+    ).toBe("write");
+  });
+
+  it("Ma luz flags: on-duty at INF is rosteredHere even without local upload row", () => {
+    const inf = "inf-cc";
+    const kds = "kds-cc";
+    const onDutyInf = new Set([inf]);
+    // Recalc at INF with only the multi-site on-duty map (local rosterByKey miss).
+    expect(
+      flexibleNoPunchRosterFlags({
+        locationId: inf,
+        isWeekOff: false,
+        localOnDuty: false,
+        onDutyLocationIds: onDutyInf,
+      }),
+    ).toEqual({ rosteredHere: true, rosteredOnDutyElsewhere: false });
+    // Recalc at home KDS while rostered only at INF → suppress false home Absent.
+    expect(
+      flexibleNoPunchRosterFlags({
+        locationId: kds,
+        isWeekOff: false,
+        localOnDuty: false,
+        onDutyLocationIds: onDutyInf,
+      }),
+    ).toEqual({ rosteredHere: false, rosteredOnDutyElsewhere: true });
+    // c5115f1 regression: preferred cross roster at THIS site must not flip elsewhere.
+    expect(
+      flexibleNoPunchRosterFlags({
+        locationId: inf,
+        isWeekOff: false,
+        localOnDuty: false,
+        onDutyLocationIds: onDutyInf,
+      }).rosteredOnDutyElsewhere,
+    ).toBe(false);
   });
 
   it("requires a summary write at the punch-anchor when groups never wrote", () => {

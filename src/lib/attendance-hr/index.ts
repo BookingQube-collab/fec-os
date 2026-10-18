@@ -63,6 +63,8 @@ export {
   crossSiteAnchorNeedsSummaryWrite,
   flexibleDayHasQualifyingPunches,
   flexibleDayNonAnchorPunchLocations,
+  flexibleNoPunchRosterFlags,
+  flexibleNoPunchWriteAtLocation,
   formatFlexibleCrossSiteLocationLabel,
   formatFlexibleCrossSiteDeviceUserLabel,
 } from "./flexible-cross-site";

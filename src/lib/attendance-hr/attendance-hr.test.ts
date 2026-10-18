@@ -58,6 +58,11 @@ import {
   suggestStaffIdForDeviceName,
 } from "./mapping-merge";
 import {
+  attendanceGridTone,
+  buildAttendanceMatrix,
+  rosterMatrixCellKey,
+} from "./attendance-matrix";
+import {
   attendanceHrIncludesStaffInListing,
   attendanceHrDisplayStaffName,
   attendanceHrListingDeviceUserId,
@@ -1038,6 +1043,137 @@ describe("HR report row helpers", () => {
     expect(filtered.find((r) => r.id === "kds-absent")?.status).toBe("weekly_off");
     expect(filtered.find((r) => r.id === "true-absent")?.status).toBe("absent");
     expect(filtered.find((r) => r.id === "car-off")?.status).toBe("weekly_off");
+  });
+
+  it("All locations Ma luz: home KDS filler dropped; INF Present/Absent/Off stay visible", () => {
+    // Screenshot regression after c5115f1: home KDS-CC-STF13 rostered at INF-CC.
+    // All-locations listing must keep move-site days (not blank the grid) while
+    // still dropping false home Absents. Mani-style wrong-site Absent stays suppressed
+    // under a site chip (covered by the INF-CC filter tests above).
+    const cross = new Set(["maluz"]);
+    const rows = [
+      {
+        id: "kds-home-absent-sep28",
+        location_id: "kds-cc",
+        staff_id: "maluz",
+        work_date: "2026-09-28",
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        punch_count: 0,
+      },
+      {
+        id: "inf-present-sep28",
+        location_id: "inf-cc",
+        staff_id: "maluz",
+        work_date: "2026-09-28",
+        status: "present",
+        actual_in: "2026-09-28T10:00:00.000Z",
+        actual_out: "2026-09-28T19:00:00.000Z",
+        punch_count: 2,
+      },
+      {
+        id: "kds-home-absent-sep30",
+        location_id: "kds-cc",
+        staff_id: "maluz",
+        work_date: "2026-09-30",
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        punch_count: 0,
+      },
+      {
+        id: "inf-off-sep30",
+        location_id: "inf-cc",
+        staff_id: "maluz",
+        work_date: "2026-09-30",
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        punch_count: 0,
+      },
+      {
+        id: "kds-home-absent-oct1",
+        location_id: "kds-cc",
+        staff_id: "maluz",
+        work_date: "2026-10-01",
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        punch_count: 0,
+      },
+      {
+        id: "inf-absent-oct1",
+        location_id: "inf-cc",
+        staff_id: "maluz",
+        work_date: "2026-10-01",
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        punch_count: 0,
+      },
+    ];
+    const filtered = suppressRoamingFalseAbsentForRosterElsewhere({
+      rows,
+      roster: [
+        { staff_id: "maluz", location_id: "inf-cc", work_date: "2026-09-28", is_week_off: false },
+        { staff_id: "maluz", location_id: "inf-cc", work_date: "2026-09-30", is_week_off: true },
+        { staff_id: "maluz", location_id: "inf-cc", work_date: "2026-10-01", is_week_off: false },
+      ],
+      crossSiteStaffIds: cross,
+      locationId: null,
+    });
+    expect(filtered.map((r) => r.id).sort()).toEqual([
+      "inf-absent-oct1",
+      "inf-off-sep30",
+      "inf-present-sep28",
+    ]);
+    expect(filtered.find((r) => r.id === "inf-off-sep30")?.status).toBe("weekly_off");
+    expect(filtered.find((r) => r.id === "inf-absent-oct1")?.status).toBe("absent");
+    expect(filtered.find((r) => r.id === "inf-present-sep28")?.status).toBe("present");
+    expect(filtered.some((r) => String(r.location_id) === "kds-cc")).toBe(false);
+
+    // Collapse + month grid must paint Off / Present / Absent — not blank cells.
+    const reportRows: AttendanceHrReportRow[] = filtered.map((r) => ({
+      id: String(r.id),
+      location_id: String(r.location_id),
+      staff_id: "maluz",
+      biometric_user_id: null,
+      work_date: String(r.work_date),
+      status: String(r.status),
+      actual_in: (r.actual_in as string | null) ?? null,
+      actual_out: (r.actual_out as string | null) ?? null,
+      late_minutes: 0,
+      early_leave_minutes: 0,
+      overtime_minutes: 0,
+      missed_punch: false,
+      punch_count: Number(r.punch_count ?? 0),
+      worked_minutes: r.actual_in && r.actual_out ? 540 : 0,
+      employment_type: "permanent",
+      staff_name: "Ma luz Jesus Romeo",
+      employee_code: "KDS-CC-STF13",
+      qid: null,
+      location_code: String(r.location_id) === "inf-cc" ? "INF-CC" : "KDS-CC",
+      location_name: null,
+      location_region: null,
+      flexible_attendance: false,
+      cross_site_day_merge: true,
+    }));
+    const listing = collapseFlexibleAttendanceReportRows(reportRows).map((row) =>
+      attendanceHrToListingSource(row),
+    );
+    const matrix = buildAttendanceMatrix(listing, "2026-09-28", "2026-10-01");
+    const staffId = "staff:maluz";
+    expect(matrix.byStaffDate.get(rosterMatrixCellKey(staffId, "2026-09-28"))).toHaveLength(1);
+    expect(
+      attendanceGridTone(matrix.byStaffDate.get(rosterMatrixCellKey(staffId, "2026-09-28"))![0]!),
+    ).toBe("present");
+    expect(
+      attendanceGridTone(matrix.byStaffDate.get(rosterMatrixCellKey(staffId, "2026-09-30"))![0]!),
+    ).toBe("weekly_off");
+    expect(
+      attendanceGridTone(matrix.byStaffDate.get(rosterMatrixCellKey(staffId, "2026-10-01"))![0]!),
+    ).toBe("absent");
   });
 
   it("matches KPI card filters using the same rules as KPI totals", () => {
