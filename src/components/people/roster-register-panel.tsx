@@ -134,6 +134,7 @@ function sourceLabel(source: string, t: (key: string) => string) {
   if (source === "upload") return t("people.roster.registerSourceUpload");
   if (source === "manual") return t("people.roster.registerSourceManual");
   if (source === "copied") return t("people.roster.registerSourceCopied");
+  if (source === "device_punch") return t("people.roster.registerSourceDevicePunch");
   return source;
 }
 

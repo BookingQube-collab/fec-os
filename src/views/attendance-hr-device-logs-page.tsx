@@ -355,8 +355,6 @@ export default function AttendanceHrDeviceLogsPage() {
         <RosterFromPunchesPanel
           dateFrom={from}
           dateTo={to}
-          locationId={locationId}
-          deviceId={deviceId || null}
           deviceUserKeys={deviceUserKeys}
         />
       </NeumorphicCard>

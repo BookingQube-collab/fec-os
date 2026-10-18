@@ -82,6 +82,7 @@ export type RoamingStaffOption = {
 
 export type SaveRosterFromPunchesResult = RosterFromPunchPlan & {
   inserted: number;
+  corrected: number;
 };
 
 export type SelfIncompleteRosterDay = IncompletePunchRosterDay & {
@@ -94,18 +95,76 @@ function parseHm(value: string | null | undefined): string | null {
   return parseTimeCell(value) ?? (/^\d{2}:\d{2}/.test(value) ? value.slice(0, 5) : null);
 }
 
-async function loadByIds<T extends { id: string }>(
-  table: string,
-  columns: string,
+async function loadDevicesByIds(
   ids: string[],
-): Promise<T[]> {
+): Promise<Array<{ id: string; device_name: string | null; serial_number: string | null; device_code: string | null }>> {
   if (!ids.length) return [];
-  const out: T[] = [];
+  const out: Array<{
+    id: string;
+    device_name: string | null;
+    serial_number: string | null;
+    device_code: string | null;
+  }> = [];
   for (let i = 0; i < ids.length; i += 200) {
     const chunk = ids.slice(i, i + 200);
-    const { data, error } = await supabaseAdmin.from(table).select(columns).in("id", chunk);
+    const { data, error } = await supabaseAdmin
+      .from("attendance_devices")
+      .select("id, device_name, serial_number, device_code")
+      .in("id", chunk);
     if (error) throw new Error(error.message);
-    out.push(...((data ?? []) as T[]));
+    for (const row of data ?? []) {
+      out.push({
+        id: String(row.id),
+        device_name: row.device_name == null ? null : String(row.device_name),
+        serial_number: row.serial_number == null ? null : String(row.serial_number),
+        device_code: row.device_code == null ? null : String(row.device_code),
+      });
+    }
+  }
+  return out;
+}
+
+async function loadLocationsByIds(
+  ids: string[],
+): Promise<Array<{ id: string; code: string | null; name: string | null }>> {
+  if (!ids.length) return [];
+  const out: Array<{ id: string; code: string | null; name: string | null }> = [];
+  for (let i = 0; i < ids.length; i += 200) {
+    const chunk = ids.slice(i, i + 200);
+    const { data, error } = await supabaseAdmin
+      .from("locations")
+      .select("id, code, name")
+      .in("id", chunk);
+    if (error) throw new Error(error.message);
+    for (const row of data ?? []) {
+      out.push({
+        id: String(row.id),
+        code: row.code == null ? null : String(row.code),
+        name: row.name == null ? null : String(row.name),
+      });
+    }
+  }
+  return out;
+}
+
+async function loadStaffNamesByIds(
+  ids: string[],
+): Promise<Array<{ id: string; full_name: string | null }>> {
+  if (!ids.length) return [];
+  const out: Array<{ id: string; full_name: string | null }> = [];
+  for (let i = 0; i < ids.length; i += 200) {
+    const chunk = ids.slice(i, i + 200);
+    const { data, error } = await supabaseAdmin
+      .from("staff")
+      .select("id, full_name")
+      .in("id", chunk);
+    if (error) throw new Error(error.message);
+    for (const row of data ?? []) {
+      out.push({
+        id: String(row.id),
+        full_name: row.full_name == null ? null : String(row.full_name),
+      });
+    }
   }
   return out;
 }
@@ -248,12 +307,8 @@ async function enrichDeviceLogDays(punches: RawPunch[]): Promise<PunchDayForRost
   const deviceIds = [...new Set(punches.map((row) => row.device_id).filter((id): id is string => Boolean(id)))];
   const locationIds = [...new Set(punches.map((row) => row.location_id))];
   const [devices, locations, bioRes] = await Promise.all([
-    loadByIds<{ id: string; device_name: string | null; serial_number: string | null; device_code: string | null }>(
-      "attendance_devices",
-      "id, device_name, serial_number, device_code",
-      deviceIds,
-    ),
-    loadByIds<{ id: string; code: string | null; name: string | null }>("locations", "id, code, name", locationIds),
+    loadDevicesByIds(deviceIds),
+    loadLocationsByIds(locationIds),
     locationIds.length
       ? supabaseAdmin
           .from("attendance_biometric_users")
@@ -288,11 +343,7 @@ async function enrichDeviceLogDays(punches: RawPunch[]): Promise<PunchDayForRost
       ],
     ),
   ];
-  const staffNameRows = await loadByIds<{ id: string; full_name: string | null }>(
-    "staff",
-    "id, full_name",
-    staffIdsForName,
-  );
+  const staffNameRows = await loadStaffNamesByIds(staffIdsForName);
   const staffNameById = new Map(staffNameRows.map((row) => [row.id, row.full_name]));
   const deviceById = new Map(devices.map((row) => [row.id, row]));
   const locationById = new Map(locations.map((row) => [row.id, row]));
@@ -334,7 +385,9 @@ async function enrichDeviceLogDays(punches: RawPunch[]): Promise<PunchDayForRost
   return collapseCrossSiteDeviceLogDays(rollupDeviceLogDays(listed)).map((day) => ({
     staffId: day.staffId ?? null,
     workDate: day.dateYmd,
+    // Check-in / anchor site (earliest punch-in). Never the last-only site.
     locationId: day.locationId,
+    checkOutLocationId: day.checkOutLocationId?.trim() || day.locationId,
     punchInAt: day.punchInAt,
     punchOutAt: day.punchOutAt,
   }));
@@ -344,26 +397,50 @@ async function loadExistingRosterDays(
   staffIds: readonly string[],
   dateFrom: string,
   dateTo: string,
-): Promise<Array<{ staffId: string; workDate: string }>> {
+): Promise<
+  Array<{ staffId: string; workDate: string; id: string; locationId: string; source: string | null }>
+> {
   if (!staffIds.length) return [];
-  const out: Array<{ staffId: string; workDate: string }> = [];
+  const out: Array<{
+    staffId: string;
+    workDate: string;
+    id: string;
+    locationId: string;
+    source: string | null;
+  }> = [];
   for (let i = 0; i < staffIds.length; i += 100) {
     const chunk = staffIds.slice(i, i + 100);
     const { data, error } = await supabaseAdmin
       .from("attendance_roster_assignments")
-      .select("staff_id, work_date")
+      .select("id, staff_id, work_date, location_id, source")
       .in("staff_id", chunk)
       .gte("work_date", dateFrom)
       .lte("work_date", dateTo);
     if (error) throw new Error(error.message);
     for (const row of data ?? []) {
       out.push({
+        id: String(row.id),
         staffId: String(row.staff_id),
         workDate: String(row.work_date).slice(0, 10),
+        locationId: String(row.location_id),
+        source: row.source == null ? null : String(row.source),
       });
     }
   }
   return out;
+}
+
+function emptyRosterFromPunchPlan(): RosterFromPunchPlan {
+  return {
+    rows: [],
+    locationFixes: [],
+    savedEligible: 0,
+    correctedEligible: 0,
+    skippedIncomplete: 0,
+    skippedExisting: 0,
+    skippedUnmapped: 0,
+    skippedInvalid: 0,
+  };
 }
 
 async function planForRoamingStaff(
@@ -372,7 +449,9 @@ async function planForRoamingStaff(
     dateFrom: string;
     dateTo: string;
     staffIds?: string[];
+    /** Ignored for punch→roster: cross-site days need punches from every site. */
     locationId?: string | null;
+    /** Ignored for punch→roster: device filter would drop the other site. */
     deviceId?: string | null;
     deviceUserKeys?: string[];
   },
@@ -391,24 +470,13 @@ async function planForRoamingStaff(
     roamingIds = new Set((await loadRoamingStaffOptions()).map((row) => row.staffId));
   }
   if (!roamingIds.size) {
-    return {
-      plan: {
-        rows: [],
-        savedEligible: 0,
-        skippedIncomplete: 0,
-        skippedExisting: 0,
-        skippedUnmapped: 0,
-        skippedInvalid: 0,
-      },
-      roamingIds,
-    };
+    return { plan: emptyRosterFromPunchPlan(), roamingIds };
   }
 
+  // Never filter by page location/device — multi-site days need punches from all sites.
   const punches = await fetchRawDevicePunches({
     dateFrom: input.dateFrom,
     dateTo: input.dateTo,
-    locationId: input.locationId,
-    deviceId: input.deviceId,
     deviceUserKeys: input.deviceUserKeys,
     // Always scope to roaming staff (or their biometric pairs) unless device users are explicit.
     staffIds: input.deviceUserKeys?.length ? undefined : [...roamingIds],
@@ -455,8 +523,8 @@ export async function saveRosterFromPunches(
   },
 ): Promise<SaveRosterFromPunchesResult> {
   const { plan } = await planForRoamingStaff(context, input);
-  if (!plan.rows.length) {
-    return { ...plan, inserted: 0 };
+  if (!plan.rows.length && !plan.locationFixes.length) {
+    return { ...plan, inserted: 0, corrected: 0 };
   }
 
   let shifts = await loadActiveShiftTemplates(supabaseAdmin);
@@ -493,7 +561,7 @@ export async function saveRosterFromPunches(
     });
   }
 
-  // Create-only: plan already skipped existing days; unique races are ignored.
+  // Create-only inserts; unique races are ignored.
   let inserted = 0;
   for (let i = 0; i < payload.length; i += 200) {
     const chunk = payload.slice(i, i + 200);
@@ -523,7 +591,34 @@ export async function saveRosterFromPunches(
     inserted += data?.length ?? 0;
   }
 
-  const staffIds = [...new Set(plan.rows.map((row) => row.staffId))];
+  // Correct prior punch-derived rows that stored the wrong check-in site.
+  let corrected = 0;
+  for (const fix of plan.locationFixes) {
+    const resolved = await resolveOrCreateShiftTemplate(supabaseAdmin, {
+      locationId: fix.locationId,
+      shiftStart: fix.shiftStart,
+      shiftEnd: fix.shiftEnd,
+      shifts,
+    });
+    shifts = resolved.shifts;
+    const { data, error } = await supabaseAdmin
+      .from("attendance_roster_assignments")
+      .update({
+        location_id: fix.locationId,
+        shift_template_id: resolved.shiftTemplateId,
+        shift_start: fix.shiftStart,
+        shift_end: fix.shiftEnd,
+      })
+      .eq("id", fix.id)
+      .eq("source", ROSTER_FROM_PUNCH_SOURCE)
+      .select("id")
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (data) corrected += 1;
+  }
+
+  const touchedRows = [...plan.rows, ...plan.locationFixes];
+  const staffIds = [...new Set(touchedRows.map((row) => row.staffId))];
   const homeByStaff = new Map<string, string | null>();
   const workByStaff = new Map<string, string[]>();
   if (staffIds.length) {
@@ -551,25 +646,31 @@ export async function saveRosterFromPunches(
   }
 
   const byLocation = new Map<string, { from: string; to: string; staffIds: Set<string> }>();
-  for (const row of plan.rows) {
+  const pushRecalc = (locationId: string, staffId: string, workDate: string) => {
+    const current = byLocation.get(locationId);
+    if (!current) {
+      byLocation.set(locationId, {
+        from: workDate,
+        to: workDate,
+        staffIds: new Set([staffId]),
+      });
+    } else {
+      if (workDate < current.from) current.from = workDate;
+      if (workDate > current.to) current.to = workDate;
+      current.staffIds.add(staffId);
+    }
+  };
+  for (const row of touchedRows) {
     const locs = attendanceRecalcLocationsAfterRosterUpsert({
       uploadLocationId: row.locationId,
       staffHomeLocationIds: [homeByStaff.get(row.staffId)],
-      staffWorkLocationIds: workByStaff.get(row.staffId) ?? [],
+      staffWorkLocationIds: [
+        ...(workByStaff.get(row.staffId) ?? []),
+        row.checkOutLocationId,
+      ],
     });
     for (const locationId of locs) {
-      const current = byLocation.get(locationId);
-      if (!current) {
-        byLocation.set(locationId, {
-          from: row.workDate,
-          to: row.workDate,
-          staffIds: new Set([row.staffId]),
-        });
-      } else {
-        if (row.workDate < current.from) current.from = row.workDate;
-        if (row.workDate > current.to) current.to = row.workDate;
-        current.staffIds.add(row.staffId);
-      }
+      pushRecalc(locationId, row.staffId, row.workDate);
     }
   }
 
@@ -588,12 +689,14 @@ export async function saveRosterFromPunches(
     action: "attendance.roster_from_punches",
     entity_type: "attendance_roster_assignments",
     entity_id: null,
-    location_id: plan.rows[0]?.locationId ?? null,
+    location_id: touchedRows[0]?.locationId ?? null,
     after: {
       dateFrom: input.dateFrom,
       dateTo: input.dateTo,
       inserted,
+      corrected,
       savedEligible: plan.savedEligible,
+      correctedEligible: plan.correctedEligible,
       skippedIncomplete: plan.skippedIncomplete,
       skippedExisting: plan.skippedExisting,
       source: ROSTER_FROM_PUNCH_SOURCE,
@@ -601,7 +704,7 @@ export async function saveRosterFromPunches(
   });
   if (auditError) console.warn("[roster-from-punches] audit failed", auditError.message);
 
-  return { ...plan, inserted };
+  return { ...plan, inserted, corrected };
 }
 
 async function myLinkedStaff(context: AuthContext): Promise<{
@@ -642,11 +745,7 @@ export async function listMyIncompletePunchRosterDays(
   const existing = await loadExistingRosterDays([staffId], input.dateFrom, input.dateTo);
   const incomplete = listIncompletePunchRosterDays({ days, existing });
   const locationIds = [...new Set(incomplete.map((row) => row.locationId))];
-  const locations = await loadByIds<{ id: string; code: string | null; name: string | null }>(
-    "locations",
-    "id, code, name",
-    locationIds,
-  );
+  const locations = await loadLocationsByIds(locationIds);
   const locById = new Map(locations.map((row) => [row.id, row]));
   return incomplete.map((row) => {
     const loc = locById.get(row.locationId);

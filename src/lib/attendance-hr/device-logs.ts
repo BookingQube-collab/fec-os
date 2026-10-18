@@ -54,6 +54,8 @@ export type AttendanceDeviceLogDayRow = {
   /** Cross-site merge: check-in / check-out site codes + device user ids. */
   checkInLocationCode?: string | null;
   checkOutLocationCode?: string | null;
+  /** Check-out site id when cross-site (same as locationId on single-site days). */
+  checkOutLocationId?: string | null;
   checkInBiometricUserId?: string | null;
   checkOutBiometricUserId?: string | null;
   checkInDeviceSerial?: string | null;
@@ -388,6 +390,7 @@ export function collapseCrossSiteDeviceLogDays(
       punchCount,
       checkInLocationCode,
       checkOutLocationCode,
+      checkOutLocationId: outRow.locationId,
       checkInBiometricUserId,
       checkOutBiometricUserId,
       checkInDeviceSerial,

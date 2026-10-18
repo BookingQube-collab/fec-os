@@ -18,6 +18,7 @@ const INF = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
 const UA = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
 const LOUIE = "cccccccc-cccc-cccc-cccc-cccccccccccc";
 const RUSSELL = "dddddddd-dddd-dddd-dddd-dddddddddddd";
+const EXISTING_ID = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee";
 
 describe("qatarHmFromIso", () => {
   it("reads Qatar local HH:MM from an ISO punch", () => {
@@ -82,6 +83,7 @@ describe("planRosterFromPunches", () => {
 
     expect(ROSTER_FROM_PUNCH_SOURCE).toBe("device_punch");
     expect(plan.savedEligible).toBe(2);
+    expect(plan.correctedEligible).toBe(0);
     expect(plan.skippedIncomplete).toBe(1);
     expect(plan.skippedExisting).toBe(1);
     expect(plan.skippedUnmapped).toBe(1);
@@ -90,6 +92,7 @@ describe("planRosterFromPunches", () => {
         staffId: LOUIE,
         workDate: "2026-10-17",
         locationId: INF,
+        checkOutLocationId: INF,
         shiftStart: "11:17",
         shiftEnd: "16:35",
       },
@@ -97,26 +100,120 @@ describe("planRosterFromPunches", () => {
         staffId: RUSSELL,
         workDate: "2026-10-17",
         locationId: UA,
+        checkOutLocationId: UA,
         shiftStart: "09:00",
         shiftEnd: "18:00",
       },
     ]);
   });
 
-  it("keeps the check-in location for a cross-site collapsed day", () => {
+  it("keeps the check-in location for a cross-site collapsed day (UA-DM → INF-CC)", () => {
     const plan = planRosterFromPunches({
       days: [
         {
           staffId: LOUIE,
-          workDate: "2026-10-10",
-          locationId: INF,
-          punchInAt: scheduledIsoFromHm("2026-10-10", "11:00"),
-          punchOutAt: scheduledIsoFromHm("2026-10-10", "17:00"),
+          workDate: "2026-10-08",
+          locationId: UA,
+          checkOutLocationId: INF,
+          punchInAt: scheduledIsoFromHm("2026-10-08", "11:00"),
+          punchOutAt: scheduledIsoFromHm("2026-10-08", "17:00"),
         },
       ],
       existing: [],
     });
-    expect(plan.rows[0]?.locationId).toBe(INF);
+    expect(plan.rows).toHaveLength(1);
+    expect(plan.rows[0]).toMatchObject({
+      locationId: UA,
+      checkOutLocationId: INF,
+      shiftStart: "11:00",
+      shiftEnd: "17:00",
+    });
+  });
+
+  it("keeps the check-in location for INF-CC → UA-DM days", () => {
+    const plan = planRosterFromPunches({
+      days: [
+        {
+          staffId: LOUIE,
+          workDate: "2026-10-09",
+          locationId: INF,
+          checkOutLocationId: UA,
+          punchInAt: scheduledIsoFromHm("2026-10-09", "10:30"),
+          punchOutAt: scheduledIsoFromHm("2026-10-09", "18:00"),
+        },
+      ],
+      existing: [],
+    });
+    expect(plan.rows[0]).toMatchObject({
+      locationId: INF,
+      checkOutLocationId: UA,
+    });
+  });
+
+  it("queues a location fix for existing device_punch rows with the wrong check-in site", () => {
+    const plan = planRosterFromPunches({
+      days: [
+        {
+          staffId: LOUIE,
+          workDate: "2026-10-08",
+          locationId: UA,
+          checkOutLocationId: INF,
+          punchInAt: scheduledIsoFromHm("2026-10-08", "11:00"),
+          punchOutAt: scheduledIsoFromHm("2026-10-08", "17:00"),
+        },
+      ],
+      existing: [
+        {
+          id: EXISTING_ID,
+          staffId: LOUIE,
+          workDate: "2026-10-08",
+          locationId: INF,
+          source: ROSTER_FROM_PUNCH_SOURCE,
+        },
+      ],
+    });
+
+    expect(plan.savedEligible).toBe(0);
+    expect(plan.correctedEligible).toBe(1);
+    expect(plan.skippedExisting).toBe(0);
+    expect(plan.locationFixes).toEqual([
+      {
+        id: EXISTING_ID,
+        staffId: LOUIE,
+        workDate: "2026-10-08",
+        locationId: UA,
+        checkOutLocationId: INF,
+        shiftStart: "11:00",
+        shiftEnd: "17:00",
+      },
+    ]);
+  });
+
+  it("does not overwrite uploaded or manual roster days", () => {
+    const plan = planRosterFromPunches({
+      days: [
+        {
+          staffId: LOUIE,
+          workDate: "2026-10-08",
+          locationId: UA,
+          checkOutLocationId: INF,
+          punchInAt: scheduledIsoFromHm("2026-10-08", "11:00"),
+          punchOutAt: scheduledIsoFromHm("2026-10-08", "17:00"),
+        },
+      ],
+      existing: [
+        {
+          id: EXISTING_ID,
+          staffId: LOUIE,
+          workDate: "2026-10-08",
+          locationId: INF,
+          source: "upload",
+        },
+      ],
+    });
+    expect(plan.correctedEligible).toBe(0);
+    expect(plan.skippedExisting).toBe(1);
+    expect(plan.locationFixes).toEqual([]);
   });
 });
 

@@ -5396,6 +5396,7 @@
       "registerSourceAmend": "معدَّل",
       "registerSourceManual": "يدوي",
       "registerSourceCopied": "منسوخ",
+      "registerSourceDevicePunch": "بصمة الجهاز",
       "registerActions": "إجراءات",
       "registerAmend": "تعديل",
       "registerAdd": "إضافة وردية",
@@ -8075,8 +8076,8 @@
       "rosterFromPunchesStaff": "الموظفون المتنقلون",
       "rosterFromPunchesAllRoaming": "كل الموظفين المتنقلين",
       "rosterFromPunchesSave": "حفظ جدول الشهر",
-      "rosterFromPunchesPreview": "{{eligible}} يوم جاهز · {{incomplete}} غير مكتمل (بدون خروج) · {{existing}} موجود مسبقاً",
-      "rosterFromPunchesResult": "تم حفظ {{inserted}} يوم في الجدول. تُرك {{incomplete}} غير مكتمل لإدخال الموظف. تُخطي {{existing}} موجود مسبقاً.",
+      "rosterFromPunchesPreview": "{{eligible}} يوم جاهز · {{corrected}} تصحيح موقع · {{incomplete}} غير مكتمل (بدون خروج) · {{existing}} موجود مسبقاً",
+      "rosterFromPunchesResult": "تم حفظ {{inserted}} يوم في الجدول، وتصحيح {{corrected}} موقع مشتق من البصمة. تُرك {{incomplete}} غير مكتمل لإدخال الموظف. تُخطي {{existing}} موجود مسبقاً.",
       "states": {
         "in": "بصمة دخول",
         "out": "بصمة خروج",

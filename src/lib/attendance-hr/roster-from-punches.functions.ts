@@ -36,8 +36,9 @@ export const previewPunchRosterMonth = createAuthenticatedAction(
 );
 
 /**
- * Admin: one-click monthly save — complete punch in+out only, create-only.
- * Incomplete punch-out days are skipped for staff self-entry.
+ * Admin: one-click monthly save — complete punch in+out only.
+ * Create-only for new days; corrects location on existing device_punch rows
+ * that stored the wrong check-in site. Incomplete punch-out days stay for self-entry.
  */
 export const savePunchRosterMonth = createAuthenticatedAction(
   adminRange,

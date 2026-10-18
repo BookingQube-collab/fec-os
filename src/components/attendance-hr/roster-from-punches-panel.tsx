@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarPlus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -20,18 +20,10 @@ import { STALE } from "@/lib/query-client";
 type Props = {
   dateFrom: string;
   dateTo: string;
-  locationId?: string | null;
-  deviceId?: string | null;
   deviceUserKeys?: string[];
 };
 
-export function RosterFromPunchesPanel({
-  dateFrom,
-  dateTo,
-  locationId,
-  deviceId,
-  deviceUserKeys,
-}: Props) {
+export function RosterFromPunchesPanel({ dateFrom, dateTo, deviceUserKeys }: Props) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [staffIds, setStaffIds] = useState<string[]>([]);
@@ -40,6 +32,7 @@ export function RosterFromPunchesPanel({
     queryKey: queryKeys.people.attendanceHr({ view: "roster-from-punches-staff" }),
     queryFn: () => listRoamingStaffForPunchRoster(),
     staleTime: STALE.people,
+    placeholderData: keepPreviousData,
     retry: false,
   });
 
@@ -67,20 +60,23 @@ export function RosterFromPunchesPanel({
   }, [staffIds, options]);
 
   // Explicit roaming staff selection wins over the device-user filter on the page.
+  // Never pass page location/device — cross-site days need punches from every site.
   const filter = {
     dateFrom,
     dateTo,
     staffIds: staffIds.length ? staffIds : undefined,
-    locationId: locationId || null,
-    deviceId: deviceId || null,
     deviceUserKeys: staffIds.length ? undefined : deviceUserKeys?.length ? deviceUserKeys : undefined,
   };
 
   const preview = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "roster-from-punches-preview", ...filter }),
     queryFn: () => previewPunchRosterMonth(filter),
-    enabled: Boolean(roaming.data?.length) && /^\d{4}-\d{2}-\d{2}$/.test(dateFrom) && /^\d{4}-\d{2}-\d{2}$/.test(dateTo),
+    enabled:
+      Boolean(roaming.data?.length) &&
+      /^\d{4}-\d{2}-\d{2}$/.test(dateFrom) &&
+      /^\d{4}-\d{2}-\d{2}$/.test(dateTo),
     staleTime: STALE.people,
+    placeholderData: keepPreviousData,
   });
 
   const save = useMutation({
@@ -89,22 +85,34 @@ export function RosterFromPunchesPanel({
       toast.success(
         t("attendanceHr.deviceLogs.rosterFromPunchesResult", {
           inserted: result.inserted,
+          corrected: result.corrected,
           incomplete: result.skippedIncomplete,
           existing: result.skippedExisting,
         }),
       );
-      void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+      // Narrow invalidation — broad attendanceHr() made the panel vanish (isPending) and
+      // the device-log table show a stuck "wait / loading" overlay.
+      void qc.invalidateQueries({
+        predicate: (query) => {
+          const filters = query.queryKey[2];
+          if (!filters || typeof filters !== "object") return false;
+          return (filters as { view?: string }).view === "roster-from-punches-preview";
+        },
+      });
       void qc.invalidateQueries({ queryKey: queryKeys.people.rosterRegister() });
     },
     onError: (error: Error) => toast.error(error.message),
   });
 
-  if (forbidden || roaming.isPending) return null;
+  // Keep the panel mounted while roaming staff refetch (avoid flash / "wait" blank state).
+  if (forbidden) return null;
+  if (roaming.isPending && !roaming.data) return null;
   if (roaming.isError) return null;
   if (!options.length) return null;
 
   const plan = preview.data;
-  const ready = Boolean(plan && plan.savedEligible > 0) && !save.isPending;
+  const canSave =
+    Boolean(plan && (plan.savedEligible > 0 || plan.correctedEligible > 0)) && !save.isPending;
 
   return (
     <div className="space-y-3 rounded-xl border border-border/70 bg-card/60 p-4">
@@ -121,7 +129,7 @@ export function RosterFromPunchesPanel({
         <Button
           type="button"
           className="min-h-10 shrink-0"
-          disabled={!ready}
+          disabled={!canSave}
           onClick={() => save.mutate()}
         >
           {save.isPending
@@ -156,6 +164,7 @@ export function RosterFromPunchesPanel({
         <p className="text-xs text-muted-foreground">
           {t("attendanceHr.deviceLogs.rosterFromPunchesPreview", {
             eligible: plan.savedEligible,
+            corrected: plan.correctedEligible,
             incomplete: plan.skippedIncomplete,
             existing: plan.skippedExisting,
           })}

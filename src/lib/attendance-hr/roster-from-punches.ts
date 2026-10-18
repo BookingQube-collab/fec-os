@@ -57,7 +57,10 @@ export function canUploadPunchDerivedRoster(input: {
 export type PunchDayForRoster = {
   staffId: string | null | undefined;
   workDate: string;
+  /** Check-in / anchor site (earliest punch-in location). */
   locationId: string;
+  /** Check-out site when cross-site; same as locationId on single-site days. */
+  checkOutLocationId?: string | null;
   punchInAt: string | null;
   punchOutAt: string | null;
 };
@@ -65,23 +68,45 @@ export type PunchDayForRoster = {
 export type ExistingRosterDay = {
   staffId: string;
   workDate: string;
+  /** Present when loaded from DB — used to correct punch-derived locations. */
+  id?: string;
+  locationId?: string;
+  source?: string | null;
 };
 
 export type RosterFromPunchRow = {
   staffId: string;
   workDate: string;
+  /** Check-in / anchor site stored on attendance_roster_assignments.location_id. */
   locationId: string;
+  /** Check-out site (may equal locationId). Used for attendance recalc scope. */
+  checkOutLocationId: string;
+  shiftStart: string;
+  shiftEnd: string;
+};
+
+/** Existing device_punch row whose check-in location (or times) should be corrected. */
+export type RosterFromPunchLocationFix = {
+  id: string;
+  staffId: string;
+  workDate: string;
+  locationId: string;
+  checkOutLocationId: string;
   shiftStart: string;
   shiftEnd: string;
 };
 
 export type RosterFromPunchPlan = {
   rows: RosterFromPunchRow[];
+  /** Punch-derived rows already saved with the wrong check-in site (safe to update). */
+  locationFixes: RosterFromPunchLocationFix[];
   /** Complete in+out days that will be inserted. */
   savedEligible: number;
+  /** Existing device_punch rows that will have location/times corrected. */
+  correctedEligible: number;
   /** Punch-in without punch-out (staff may self-enter). */
   skippedIncomplete: number;
-  /** Day already has a roster assignment. */
+  /** Day already has a non-correctable roster assignment. */
   skippedExisting: number;
   /** Day with no mapped staff_id. */
   skippedUnmapped: number;
@@ -147,17 +172,19 @@ export function rosterFromPunchDates(dateFrom: string, dateTo: string): void {
 
 /**
  * Create-only plan: complete punch pairs → roster rows at the check-in site.
- * Skips incomplete out, existing roster days, and unmapped punches.
+ * Cross-site days keep check-in as location_id and record check-out for recalc.
+ * Existing device_punch rows with the wrong check-in site are queued for correction.
  */
 export function planRosterFromPunches(input: {
   days: readonly PunchDayForRoster[];
   existing: readonly ExistingRosterDay[];
 }): RosterFromPunchPlan {
-  const existing = new Set(
-    input.existing.map((row) => `${row.staffId}|${row.workDate.slice(0, 10)}`),
+  const existingByKey = new Map(
+    input.existing.map((row) => [`${row.staffId}|${row.workDate.slice(0, 10)}`, row] as const),
   );
 
   const rows: RosterFromPunchRow[] = [];
+  const locationFixes: RosterFromPunchLocationFix[] = [];
   let skippedIncomplete = 0;
   let skippedExisting = 0;
   let skippedUnmapped = 0;
@@ -196,18 +223,38 @@ export function planRosterFromPunches(input: {
       skippedInvalid += 1;
       continue;
     }
-    if (existing.has(`${staffId}|${workDate}`)) {
-      skippedExisting += 1;
-      continue;
-    }
     const locationId = day.locationId?.trim() || "";
+    const checkOutLocationId = day.checkOutLocationId?.trim() || locationId;
     const shiftStart = qatarHmFromIso(day.punchInAt);
     const shiftEnd = qatarHmFromIso(day.punchOutAt);
     if (!locationId || !shiftStart || !shiftEnd) {
       skippedInvalid += 1;
       continue;
     }
-    rows.push({ staffId, workDate, locationId, shiftStart, shiftEnd });
+
+    const existing = existingByKey.get(`${staffId}|${workDate}`);
+    if (existing) {
+      const canCorrect =
+        existing.source === ROSTER_FROM_PUNCH_SOURCE &&
+        Boolean(existing.id?.trim()) &&
+        (existing.locationId?.trim() || "") !== locationId;
+      if (canCorrect) {
+        locationFixes.push({
+          id: existing.id!.trim(),
+          staffId,
+          workDate,
+          locationId,
+          checkOutLocationId,
+          shiftStart,
+          shiftEnd,
+        });
+        continue;
+      }
+      skippedExisting += 1;
+      continue;
+    }
+
+    rows.push({ staffId, workDate, locationId, checkOutLocationId, shiftStart, shiftEnd });
   }
 
   rows.sort(
@@ -216,10 +263,18 @@ export function planRosterFromPunches(input: {
       a.staffId.localeCompare(b.staffId) ||
       a.locationId.localeCompare(b.locationId),
   );
+  locationFixes.sort(
+    (a, b) =>
+      a.workDate.localeCompare(b.workDate) ||
+      a.staffId.localeCompare(b.staffId) ||
+      a.locationId.localeCompare(b.locationId),
+  );
 
   return {
     rows,
+    locationFixes,
     savedEligible: rows.length,
+    correctedEligible: locationFixes.length,
     skippedIncomplete,
     skippedExisting,
     skippedUnmapped,
