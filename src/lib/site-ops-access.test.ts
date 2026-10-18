@@ -109,15 +109,27 @@ describe("monthly roster, mapping, and team corrections", () => {
     expect(canOpenShiftRoster({ jobTitle: "Team Leader" })).toBe(false);
   });
 
-  it("opens shift roster and team corrections for HoO direct-report Operations managers/leads", () => {
+  it("opens shift roster and team corrections for HoO direct-report ops peers (any non-crew title)", () => {
     const peers = [
       { jobTitle: "Operations Manager", reportsToHeadOfOperations: true },
       { jobTitle: "Operations Coordinator", reportsToHeadOfOperations: true },
       { jobTitle: "Operations Lead", reportsToHeadOfOperations: true },
       { jobTitle: "Manager", department: "Operations", reportsToHeadOfOperations: true },
+      // Russell: seeded as Technician / Maintenance under HoO — prior Manager/Lead gate blocked him.
+      {
+        jobTitle: "Technician",
+        department: "Maintenance",
+        staffRole: "technician",
+        reportsToHeadOfOperations: true,
+      },
+      // Louie-style: Operations peer with blank / informal title under Rajan.
+      { jobTitle: null, department: "Operations", reportsToHeadOfOperations: true },
+      { jobTitle: "Operations", department: null, reportsToHeadOfOperations: true },
     ];
     for (const identity of peers) {
-      expect(isHoOOperationsPeerTitle(identity.jobTitle, identity.department)).toBe(true);
+      expect(
+        isHoOOperationsPeerTitle(identity.jobTitle, identity.department, identity.staffRole ?? null),
+      ).toBe(true);
       expect(canOpenShiftRosterAsHoOPeer(identity)).toBe(true);
       expect(canOpenShiftRoster(identity), JSON.stringify(identity)).toBe(true);
       expect(canCorrectTeamAttendance(identity), JSON.stringify(identity)).toBe(true);
@@ -130,6 +142,7 @@ describe("monthly roster, mapping, and team corrections", () => {
   it("keeps F&B, cashiers, and crew under a supervisor out of the HoO-peer roster path", () => {
     expect(isOperationsManagerOrLeadTitle("Operations Manager")).toBe(true);
     expect(isOperationsManagerOrLeadTitle("Cashier")).toBe(false);
+    expect(isOperationsManagerOrLeadTitle("Technician")).toBe(false);
 
     expect(
       canOpenShiftRoster({
@@ -151,6 +164,19 @@ describe("monthly roster, mapping, and team corrections", () => {
       }),
     ).toBe(false);
     expect(
+      canOpenShiftRoster({
+        jobTitle: "Team Leader",
+        reportsToHeadOfOperations: true,
+      }),
+    ).toBe(false);
+    expect(
+      canOpenShiftRoster({
+        staffRole: "crew",
+        jobTitle: "Attendant",
+        reportsToHeadOfOperations: true,
+      }),
+    ).toBe(false);
+    expect(
       canCorrectTeamAttendance({
         jobTitle: "Cashier",
         reportsToHeadOfOperations: true,
@@ -167,12 +193,20 @@ describe("monthly roster, mapping, and team corrections", () => {
     ).toBe(false);
     expect(
       canOpenShiftRosterAsHoOPeer({
-        jobTitle: "Operations Manager",
+        jobTitle: "Technician",
+        department: "Maintenance",
         reportsToHeadOfOperations: false,
       }),
     ).toBe(false);
     // Title alone without the HoO reporting line is not enough.
     expect(canOpenShiftRoster({ jobTitle: "Operations Manager" })).toBe(false);
     expect(canOpenShiftRoster({ jobTitle: "Operations Coordinator" })).toBe(false);
+    expect(
+      canOpenShiftRoster({
+        jobTitle: "Technician",
+        department: "Maintenance",
+        staffRole: "technician",
+      }),
+    ).toBe(false);
   });
 });

@@ -61,6 +61,10 @@ describe("team roster access", () => {
     expect(canSeeShiftRosterUpload(["cashier_host"], false, "Operations Manager", null, null, true)).toBe(
       true,
     );
+    // Russell: Technician under HoO (not Manager/Lead title).
+    expect(
+      canSeeShiftRosterUpload(["technician"], false, "Technician", "technician", "Maintenance", true),
+    ).toBe(true);
     expect(canSeeShiftRosterUpload(["cashier_host"], false, "Operations Manager", null, null, false)).toBe(
       false,
     );

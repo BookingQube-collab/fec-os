@@ -1,4 +1,4 @@
-import { isFnbManager, isFoodBeverageText, isOperationsLead } from "@/lib/arcade/access";
+import { isFnbManager, isFoodBeverageText } from "@/lib/arcade/access";
 import { isManagerTeamSupervisor } from "@/lib/manager-supervisor-team";
 import { isSrSiteSupervisorTitle } from "@/lib/org-hierarchy";
 
@@ -18,9 +18,11 @@ import { isSrSiteSupervisorTitle } from "@/lib/org-hierarchy";
  * Site Supervisor and other *Supervisor* titles open the monthly roster through
  * canOpenShiftRoster. Mapping and team corrections stay on this narrower list.
  *
- * Direct reports of Head of Operations with an Operations manager / lead /
- * coordinator title open shift roster and team corrections the same way as a
- * Site Supervisor (not mapping). F&B and cashiers stay out of that peer path.
+ * Direct reports of Head of Operations (ops function) open shift roster and
+ * team corrections the same way as a Site Supervisor (not mapping). F&B,
+ * cashiers, crew hosts, and team leaders stay out of that peer path. Titles
+ * need not be Manager/Lead/Coordinator — Technician and untitled ops peers
+ * (Louie / Russell under Rajan) qualify when they report to HoO.
  */
 
 /** Same default roles as people.edit_roster — kept here so this file does not import rbac. */
@@ -94,9 +96,15 @@ function isFrontlineCrewTitle(value: string | null | undefined): boolean {
   return false;
 }
 
+/** Login / staff_role values that are front-of-house crew, not ops peers. */
+function isFrontlineCrewStaffRole(value: string | null | undefined): boolean {
+  const key = (value ?? "").trim().toLowerCase();
+  return key === "crew" || key === "cashier" || key === "cashier_host" || key === "host";
+}
+
 /**
  * Operations Manager / Lead / Coordinator (and Ops … variants).
- * Used with reportsToHeadOfOperations for Louie/Russell-style HoO peers.
+ * Kept for callers/tests; HoO-peer roster access no longer requires this title.
  */
 export function isOperationsManagerOrLeadTitle(value: string | null | undefined): boolean {
   const key = labelKey(value);
@@ -107,32 +115,34 @@ export function isOperationsManagerOrLeadTitle(value: string | null | undefined)
 }
 
 /**
- * Title/department that may receive Site Supervisor–like roster tools when the
- * person reports directly to Head of Operations. F&B, cashiers, crew, and team
- * leaders stay out. Ordinary crew under a site supervisor never reach this path
- * because reportsToHeadOfOperations is false for them.
+ * Seat that may receive Site Supervisor–like roster tools when the person
+ * reports directly to Head of Operations. Any non-F&B, non-crew, non-team-leader
+ * ops peer — including Technician (Russell) and untitled Operations peers (Louie).
+ * Ordinary crew under a site supervisor never reach this path because
+ * reportsToHeadOfOperations is false for them.
  */
 export function isHoOOperationsPeerTitle(
   jobTitle?: string | null,
   department?: string | null,
+  staffRole?: string | null,
 ): boolean {
   if (isFoodBeverageText(jobTitle) || isFoodBeverageText(department)) return false;
   if (isFrontlineCrewTitle(jobTitle)) return false;
+  if (isFrontlineCrewStaffRole(staffRole)) return false;
   if (isTeamLeaderTitle(jobTitle) || isTeamLeaderTitle(department)) return false;
-  if (isOperationsManagerOrLeadTitle(jobTitle)) return true;
-  // Duty / branch / venue / Operations manager titles (non-F&B).
-  if (isOperationsLead(jobTitle, department)) return true;
-  return false;
+  // Any remaining HoO direct report (Technician, blank title, Manager/Lead, etc.).
+  return true;
 }
 
-/** Direct report of HoO with an Operations manager/lead title — same roster openers as Site Supervisor. */
+/** Direct report of HoO in an ops (non-F&B / non-crew) seat — same roster openers as Site Supervisor. */
 export function canOpenShiftRosterAsHoOPeer(input: {
   jobTitle?: string | null;
   department?: string | null;
+  staffRole?: string | null;
   reportsToHeadOfOperations?: boolean;
 }): boolean {
   if (!input.reportsToHeadOfOperations) return false;
-  return isHoOOperationsPeerTitle(input.jobTitle, input.department);
+  return isHoOOperationsPeerTitle(input.jobTitle, input.department, input.staffRole);
 }
 
 export function canManageMonthlyRoster(identity: SiteOpsIdentity | null | undefined): boolean {
@@ -154,8 +164,8 @@ export type ShiftRosterIdentity = SiteOpsIdentity & {
  * Shift roster upload and monthly roster create / edit / delete.
  * Venue, Sr. Site, F&B, and Site Supervisor titles; any other *Supervisor* title;
  * CEO / GM / Adil; every login that already has people.edit_roster
- * (duty manager, tech supervisor, HR, and the rest); and Operations
- * managers/leads who report to Head of Operations.
+ * (duty manager, tech supervisor, HR, and the rest); and non-F&B / non-crew
+ * direct reports of Head of Operations (Technician peers included).
  * Team Leader stays out unless that login also has people.edit_roster.
  * Mapping stays on canManageMonthlyRoster (narrower).
  */
@@ -176,7 +186,7 @@ export function canEditAttendanceMapping(identity: SiteOpsIdentity | null | unde
 /**
  * File or change a correction for someone other than yourself. Own punches stay separate.
  * Operations supervisors (venue / Sr. Site / Site), F&B Supervisor, and F&B Manager.
- * Operations managers/leads who report to Head of Operations match Site Supervisor.
+ * Non-F&B / non-crew HoO direct reports match Site Supervisor.
  * F&B team corrections route to the F&B Manager; Operations route to Head of Operations.
  */
 export function canCorrectTeamAttendance(

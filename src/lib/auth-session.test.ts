@@ -2,6 +2,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  authSessionProfileIsCurrent,
   clearAuthSessionCache,
   fetchAuthSession,
   isAuthSessionHydrated,
@@ -46,6 +47,7 @@ describe("auth-session hydration", () => {
         employee_code: null,
         preferred_language: "en",
         avatar_url: null,
+        reports_to_head_of_operations: false,
       },
       roles: [{ role: "ceo", role_level: null, location_ids: null }],
     };
@@ -80,6 +82,50 @@ describe("auth-session hydration", () => {
     expect(qc.getQueryData(queryKeys.auth.roles(uid))).toBeUndefined();
   });
 
+  it("refetches when cached profile lacks reports_to_head_of_operations", async () => {
+    const qc = new QueryClient();
+    const uid = "user-russell";
+    qc.setQueryData(queryKeys.auth.profile(uid), {
+      id: uid,
+      display_name: "Russell",
+      employee_code: "FEC-TEC01",
+      preferred_language: "en",
+      avatar_url: null,
+      job_title: "Technician",
+      // pre-deploy cache: flag missing
+    });
+    qc.setQueryData(queryKeys.auth.roles(uid), [{ role: "technician", role_level: null, location_ids: null }]);
+    expect(authSessionProfileIsCurrent(qc.getQueryData(queryKeys.auth.profile(uid)))).toBe(false);
+
+    const payload = {
+      user: { id: uid, email: "russell@example.com" },
+      profile: {
+        id: uid,
+        display_name: "Russell",
+        employee_code: "FEC-TEC01",
+        preferred_language: "en",
+        avatar_url: null,
+        job_title: "Technician",
+        staff_role: "technician",
+        department: "Maintenance",
+        reports_to_head_of_operations: true,
+      },
+      roles: [{ role: "technician", role_level: null, location_ids: null }],
+    };
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const data = await fetchAuthSession(uid, qc);
+    expect(fetchMock).toHaveBeenCalled();
+    expect(data.profile?.reports_to_head_of_operations).toBe(true);
+    expect(authSessionProfileIsCurrent(data.profile)).toBe(true);
+  });
+
   it("retries 401 then accepts a later session payload", async () => {
     const qc = new QueryClient();
     const uid = "user-admin";
@@ -91,6 +137,7 @@ describe("auth-session hydration", () => {
         employee_code: null,
         preferred_language: "en",
         avatar_url: null,
+        reports_to_head_of_operations: false,
       },
       roles: [{ role: "ceo", role_level: null, location_ids: null }],
     };

@@ -38,7 +38,7 @@ export function canSelfUploadPunchRoster(input: { fullName?: string | null }): b
  * Builds on shift-roster openers (supervisors, Sr. Site / Site / F&B Supervisor,
  * venue_supervisor, CEO/GM/HR/duty manager, HoO Operations peers, etc.), plus:
  * - F&B Manager (not on the general shift-roster open list alone)
- * - Operations managers/leads whose reporting manager is Head of Operations
+ * - Non-F&B / non-crew peers whose reporting manager is Head of Operations
  *   (also covered by canOpenShiftRoster when reportsToHeadOfOperations is set)
  */
 export function canUploadPunchDerivedRoster(input: {

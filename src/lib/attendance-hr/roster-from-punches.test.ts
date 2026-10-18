@@ -286,7 +286,7 @@ describe("canUploadPunchDerivedRoster", () => {
     expect(canUploadPunchDerivedRoster({ staffRole: "venue_supervisor" })).toBe(true);
   });
 
-  it("allows HoO direct-report Operations titles even without a supervisor title", () => {
+  it("allows HoO direct-report ops peers even without a supervisor title", () => {
     expect(
       canUploadPunchDerivedRoster({
         roles: ["cashier_host"],
@@ -298,6 +298,16 @@ describe("canUploadPunchDerivedRoster", () => {
       canUploadPunchDerivedRoster({
         roles: ["cashier_host"],
         jobTitle: "Operations Manager",
+        reportsToHeadOfOperations: true,
+      }),
+    ).toBe(true);
+    // Russell seed: Technician / Maintenance reporting to HoO.
+    expect(
+      canUploadPunchDerivedRoster({
+        roles: ["technician"],
+        jobTitle: "Technician",
+        staffRole: "technician",
+        department: "Maintenance",
         reportsToHeadOfOperations: true,
       }),
     ).toBe(true);

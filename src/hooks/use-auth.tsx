@@ -5,6 +5,7 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import type { AuthChangeEvent, Session, User } from "@supabase/supabase-js";
 
 import {
+  authSessionProfileIsCurrent,
   clearAuthSessionCache,
   fetchAuthSession,
   isAuthSessionHydrated,
@@ -80,7 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const applyUserData = (uid: string): boolean => {
       const cachedProfile = queryClient.getQueryData<Profile | null>(queryKeys.auth.profile(uid));
       const cachedRoles = queryClient.getQueryData<RoleAssignment[]>(queryKeys.auth.roles(uid));
-      if (cachedProfile !== undefined && cachedRoles !== undefined) {
+      if (cachedProfile !== undefined && cachedRoles !== undefined && authSessionProfileIsCurrent(cachedProfile)) {
         setProfile(cachedProfile);
         setRoles(cachedRoles);
         setRolesSettled(true);

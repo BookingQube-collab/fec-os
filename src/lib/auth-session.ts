@@ -30,10 +30,25 @@ const AUTH_STALE_MS = 10 * 60_000;
 const inflight = new Map<string, Promise<AuthSessionPayload>>();
 let hydratedUserId: string | null = null;
 
+/**
+ * Profiles cached before reports_to_head_of_operations existed would keep the
+ * UI from seeing HoO-peer roster access until sign-out. Treat that shape as a miss.
+ */
+export function authSessionProfileIsCurrent(profile: AuthProfile | null | undefined): boolean {
+  if (profile === undefined) return false;
+  if (!profile) return true;
+  return typeof profile.reports_to_head_of_operations === "boolean";
+}
+
 function readCachedSession(queryClient: QueryClient, userId: string): AuthSessionPayload | null {
   const profile = queryClient.getQueryData<AuthProfile | null>(queryKeys.auth.profile(userId));
   const roles = queryClient.getQueryData<RoleAssignment[]>(queryKeys.auth.roles(userId));
   if (profile === undefined || roles === undefined) return null;
+  if (!authSessionProfileIsCurrent(profile)) {
+    queryClient.removeQueries({ queryKey: queryKeys.auth.profile(userId) });
+    queryClient.removeQueries({ queryKey: queryKeys.auth.roles(userId) });
+    return null;
+  }
   return { user: { id: userId }, profile, roles };
 }
 
