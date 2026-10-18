@@ -204,7 +204,10 @@ export default function EmployeeMePage() {
   );
   const [attendanceMonth, setAttendanceMonth] = useState(() => todayQatarYmd.slice(0, 7));
   const [attendanceSelectedDate, setAttendanceSelectedDate] = useState<string | null>(null);
-  const attendanceMonthRange = useMemo(() => monthDateRange(attendanceMonth), [attendanceMonth]);
+  const attendanceMonthRange = useMemo(() => {
+    const { from, to } = monthDateRange(attendanceMonth);
+    return { dateFrom: from, dateTo: to };
+  }, [attendanceMonth]);
   const showRoster = tab === "home" || tab === "roster";
   const showLeave = tab === "home" || tab === "leave";
   const homeAttendance = useMyAttendance(tab === "home");

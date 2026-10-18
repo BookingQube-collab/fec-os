@@ -173,7 +173,10 @@ function AttendancePanel() {
   );
   const [yearMonth, setYearMonth] = useState(() => todayYmd.slice(0, 7));
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const range = useMemo(() => monthDateRange(yearMonth), [yearMonth]);
+  const range = useMemo(() => {
+    const { from, to } = monthDateRange(yearMonth);
+    return { dateFrom: from, dateTo: to };
+  }, [yearMonth]);
   const attendance = useMyAttendance(true, range);
   const rows = attendance.data?.rows ?? [];
 
