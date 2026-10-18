@@ -54,6 +54,7 @@ export {
 } from "./shift-policy";
 export {
   staffUsesCrossSiteDayMerge,
+  preferCrossSiteWeekOffRoster,
   flexibleDayAnchorLocationId,
   flexibleDayFirstLastLocationIds,
   flexibleDayFirstLastPunchAt,

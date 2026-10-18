@@ -616,7 +616,7 @@ export type StaffDirectoryListFilters = {
   position?: string;
   employmentType?: string;
   status?: string;
-  /** Joker chip. Default off — active directory excludes jokers. */
+  /** Joker chip. When on, the table shows only joker employment / status rows. */
   showJokers?: boolean;
   nationality?: string;
   gender?: string;

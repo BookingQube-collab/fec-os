@@ -2,7 +2,6 @@ import {
   countsAsActiveStaff,
   isActiveStaffStatus,
   isContractFinishedStaffStatus,
-  isJokerEmploymentType,
   isJokerStaffStatus,
   isOnLeaveStaffStatus,
   isResignedStaffStatus,
@@ -78,7 +77,8 @@ export function omitPeopleDirectorySalary<
 /**
  * Direct-report rows a job-title manager may see.
  * Active (including probation, secondment, remote), on leave, and serving notice.
- * Resigned, terminated, contract finished, deleted, and jokers stay out.
+ * Resigned, terminated, contract finished, deleted, and status=joker stay out.
+ * Employment type joker does not hide an otherwise listable person.
  */
 export function isPeopleDirectoryTeamRow(input: {
   status: string | null | undefined;
@@ -86,9 +86,7 @@ export function isPeopleDirectoryTeamRow(input: {
   deletedAt?: string | null;
 }): boolean {
   if (input.deletedAt) return false;
-  if (isJokerEmploymentType(input.employmentType)) return false;
-  const status = (input.status ?? "").trim().toLowerCase();
-  if (status === "joker") return false;
+  if (isJokerStaffStatus(input.status)) return false;
   if (
     isResignedStaffStatus(input.status) ||
     isTerminatedStaffStatus(input.status) ||
@@ -107,12 +105,13 @@ export function isPeopleDirectoryTeamRow(input: {
  * Default company / admin people list (the Active status filter).
  * Active staff stay, and people serving notice stay so an admin can open
  * one person and change that status. Resigned, terminated, contract finished,
- * and jokers stay out. Team views use `isPeopleDirectoryTeamRow` instead.
+ * and status=joker stay out. Employment type joker stays listable when status
+ * is active or serving notice. Team views use `isPeopleDirectoryTeamRow`.
  */
 export function isAdminPeopleDirectoryRow(input: {
   status: string | null | undefined;
   employmentType?: string | null;
 }): boolean {
-  if (isJokerEmploymentType(input.employmentType) || isJokerStaffStatus(input.status)) return false;
+  if (isJokerStaffStatus(input.status)) return false;
   return countsAsActiveStaff(input.status, input.employmentType) || isServingNoticeStaffStatus(input.status);
 }

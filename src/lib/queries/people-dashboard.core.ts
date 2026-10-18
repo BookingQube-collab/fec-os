@@ -121,7 +121,8 @@ export function stripPeopleDashboardSalary(payload: PeopleDashboardPayload): Peo
 /**
  * Location headcount uses the same people as the Employees list:
  * active, probation, secondment, and remote staff, plus anyone serving notice.
- * Jokers, people on leave, and people who have left are not in that list.
+ * Status=joker, people on leave, and people who have left are not in that list.
+ * Employment type joker stays when status is listable.
  */
 export function countsTowardLocationHeadcount(staff: {
   status: string | null;

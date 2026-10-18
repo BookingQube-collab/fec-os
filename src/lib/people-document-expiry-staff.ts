@@ -2,7 +2,8 @@
  * Staff-status scope for People → Documents & expiry.
  * The default "active" choice is the Employees directory active cohort
  * (`countsAsActiveStaff`): blank, active, probation, secondment, remote.
- * Jokers are not active. An empty filter is every status.
+ * Employment type joker stays when status is active; status=joker does not.
+ * An empty filter is every status.
  */
 
 import {

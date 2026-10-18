@@ -97,9 +97,10 @@ describe("staff directory KPIs follow filters", () => {
   it("matches table rows for active default scope", () => {
     const filtered = filterStaffDirectory(staff, base);
     const kpis = computeStaffDirectoryKpis(filtered);
-    expect(filtered.map((s) => s.id).sort()).toEqual(["1", "3"]);
-    expect(kpis.total).toBe(2);
-    expect(kpis.active).toBe(1);
+    // Active employment-type jokers stay in the default People list.
+    expect(filtered.map((s) => s.id).sort()).toEqual(["1", "2", "3"]);
+    expect(kpis.total).toBe(3);
+    expect(kpis.active).toBe(2);
     expect(kpis.permanent).toBe(1);
     expect(kpis.secondment).toBe(1);
   });
@@ -120,12 +121,16 @@ describe("staff directory KPIs follow filters", () => {
       employment_type: "permanent",
       status: "resigned",
     });
-    expect(filterStaffDirectory([notice, resigned, ...staff], base).map((s) => s.id).sort()).toEqual(["1", "3"]);
+    expect(filterStaffDirectory([notice, resigned, ...staff], base).map((s) => s.id).sort()).toEqual([
+      "1",
+      "2",
+      "3",
+    ]);
     expect(
       filterStaffDirectory([notice, resigned, ...staff], { ...base, includeServingNotice: true })
         .map((s) => s.id)
         .sort(),
-    ).toEqual(["1", "3", "notice"]);
+    ).toEqual(["1", "2", "3", "notice"]);
     expect(
       filterStaffDirectory([notice], { ...base, status: "serving_notice", includeServingNotice: false }).map(
         (s) => s.id,
@@ -161,16 +166,23 @@ describe("staff directory KPIs follow filters", () => {
     ]);
   });
 
-  it("does not count a joker as active, and the joker filter shows them", () => {
+  it("lists active employment-type jokers by default; status=joker stays out; Joker chip narrows", () => {
+    const statusJoker = row({
+      id: "status-joker",
+      full_name: "Status Joker",
+      employee_code: "EJ",
+      employment_type: "joker",
+      status: "joker",
+    });
     const roster = computeStaffDirectoryKpis(staff);
-    expect(roster.active).toBe(1);
+    expect(roster.active).toBe(2);
     expect(roster.permanent).toBe(2);
-    expect(filterStaffDirectory(staff, base).some((s) => s.employment_type === "joker")).toBe(false);
+    expect(filterStaffDirectory(staff, base).some((s) => s.employment_type === "joker")).toBe(true);
+    expect(filterStaffDirectory([statusJoker, ...staff], base).map((s) => s.id)).not.toContain("status-joker");
     const shown = filterStaffDirectory(staff, { ...base, showJokers: true });
     expect(shown.map((s) => s.id)).toEqual(["2"]);
-    expect(computeStaffDirectoryKpis(shown).active).toBe(0);
+    expect(computeStaffDirectoryKpis(shown).active).toBe(1);
   });
-
   it("updates when location / position / search change", () => {
     const byLoc = filterStaffDirectory(staff, { ...base, loc: "KDS" });
     expect(computeStaffDirectoryKpis(byLoc).total).toBe(2);
@@ -375,12 +387,12 @@ describe("staff directory KPIs follow filters", () => {
     expect(tiles.temporary).toBe(roster.temporary);
     expect(tiles.exiting).toBe(roster.exiting);
     expect(tiles.total).toBe(filterStaffDirectory(staff, base).length);
-    expect(tiles.total).toBe(2);
+    expect(tiles.total).toBe(3);
     expect(tiles.permanent).toBe(1);
     expect(computeStaffDirectoryTileKpis(staff, { ...base, status: "" }).permanent).toBe(2);
   });
 
-  it("leaves a person who fails the active status filter out of Total", () => {
+  it("lists an active employment-type joker in Total; status=joker stays out", () => {
     const carousel: StaffRow[] = [
       row({
         id: "flora",
@@ -403,7 +415,17 @@ describe("staff directory KPIs follow filters", () => {
       row({
         id: "beth",
         full_name: "Beth Wangechi",
-        employee_code: "CAR-AP-STF01",
+        employee_code: "INF-CC-STF11",
+        status: "active",
+        employment_type: "joker",
+        location_code: "CAR-AP",
+        department: "Operations",
+        department_names: ["Operations"],
+      }),
+      row({
+        id: "status-joker",
+        full_name: "Legacy Joker Status",
+        employee_code: "CAR-AP-JOK",
         status: "joker",
         employment_type: "joker",
         location_code: "CAR-AP",
@@ -420,9 +442,10 @@ describe("staff directory KPIs follow filters", () => {
     const table = filterStaffDirectory(carousel, filters);
     const kpis = computeStaffDirectoryTileKpis(carousel, filters);
 
-    expect(table.map((s) => s.id).sort()).toEqual(["flora", "zaryab"]);
-    expect(kpis.total).toBe(2);
-    expect(kpis.active).toBe(2);
+    expect(table.map((s) => s.id).sort()).toEqual(["beth", "flora", "zaryab"]);
+    expect(kpis.total).toBe(3);
+    expect(kpis.active).toBe(3);
+    // Joker employment type is not Permanent.
     expect(kpis.permanent).toBe(0);
     expect(kpis.secondment).toBe(0);
     expect(kpis.temporary).toBe(0);
@@ -430,8 +453,8 @@ describe("staff directory KPIs follow filters", () => {
     expect(kpis.exiting).toBe(0);
 
     const allStatuses = computeStaffDirectoryTileKpis(carousel, { ...filters, status: "" });
-    expect(allStatuses.total).toBe(3);
-    expect(allStatuses.active).toBe(2);
+    expect(allStatuses.total).toBe(4);
+    expect(allStatuses.active).toBe(3);
     expect(allStatuses.permanent).toBe(0);
   });
 

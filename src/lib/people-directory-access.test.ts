@@ -93,8 +93,10 @@ describe("people directory for managers and supervisors", () => {
     expect(isPeopleDirectoryTeamRow({ status: "terminated", employmentType: "permanent" })).toBe(false);
     expect(isPeopleDirectoryTeamRow({ status: "contract_finished", employmentType: "temporary" })).toBe(false);
     expect(isPeopleDirectoryTeamRow({ status: "contract_finished", employmentType: "secondment" })).toBe(false);
-    expect(isPeopleDirectoryTeamRow({ status: "active", employmentType: "joker" })).toBe(false);
+    expect(isPeopleDirectoryTeamRow({ status: "active", employmentType: "joker" })).toBe(true);
+    expect(isPeopleDirectoryTeamRow({ status: "serving_notice", employmentType: "joker" })).toBe(true);
     expect(isPeopleDirectoryTeamRow({ status: "joker", employmentType: "permanent" })).toBe(false);
+    expect(isPeopleDirectoryTeamRow({ status: "joker", employmentType: "joker" })).toBe(false);
     expect(
       isPeopleDirectoryTeamRow({ status: "active", employmentType: "permanent", deletedAt: "2026-01-01" }),
     ).toBe(false);
@@ -103,11 +105,13 @@ describe("people directory for managers and supervisors", () => {
     expect(isAdminPeopleDirectoryRow({ status: "probation", employmentType: "permanent" })).toBe(true);
     expect(isAdminPeopleDirectoryRow({ status: "serving_notice", employmentType: "permanent" })).toBe(true);
     expect(isAdminPeopleDirectoryRow({ status: "Serving Notice", employmentType: "permanent" })).toBe(true);
+    expect(isAdminPeopleDirectoryRow({ status: "active", employmentType: "joker" })).toBe(true);
     expect(isAdminPeopleDirectoryRow({ status: "on_leave", employmentType: "permanent" })).toBe(false);
     expect(isAdminPeopleDirectoryRow({ status: "resigned", employmentType: "permanent" })).toBe(false);
     expect(isAdminPeopleDirectoryRow({ status: "terminated", employmentType: "permanent" })).toBe(false);
     expect(isAdminPeopleDirectoryRow({ status: "contract_finished", employmentType: "temporary" })).toBe(false);
-    expect(isAdminPeopleDirectoryRow({ status: "serving_notice", employmentType: "joker" })).toBe(false);
+    expect(isAdminPeopleDirectoryRow({ status: "serving_notice", employmentType: "joker" })).toBe(true);
     expect(isAdminPeopleDirectoryRow({ status: "joker", employmentType: "permanent" })).toBe(false);
+    expect(isAdminPeopleDirectoryRow({ status: "joker", employmentType: "joker" })).toBe(false);
   });
 });

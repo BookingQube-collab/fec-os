@@ -186,8 +186,21 @@ export function crossSiteAnchorNeedsSummaryWrite(opts: {
 }
 
 /**
+ * When roaming / multisite staff have roster rows on more than one site the same
+ * day, rest/week-off at any site wins over an on-duty sibling (never schedule
+ * ABSENT from leftover shift times on another dedicated site).
+ */
+export function preferCrossSiteWeekOffRoster<
+  T extends { is_week_off?: boolean | null },
+>(local: T | null | undefined, cross: T | null | undefined): T | null {
+  if (cross?.is_week_off && !local?.is_week_off) return cross;
+  return local ?? cross ?? null;
+}
+
+/**
  * No-punch flexible / roaming day write decision:
- * - Week-off / leave must still write here (roster was amended at this site).
+ * - Week-off / leave must still write here (rest from any site is applied by the
+ *   caller before this — isWeekOff true → weekly_off, never ABSENT).
  * - On-duty roster at THIS site → write ABSENT (expected here, even if not home).
  * - On-duty roster only elsewhere → suppress (never false ABSENT at home/work sites).
  * - No roster anywhere: home keeps the fallback ABSENT; other sites suppress.

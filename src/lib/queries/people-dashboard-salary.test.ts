@@ -18,7 +18,8 @@ describe("countsTowardLocationHeadcount", () => {
     expect(countsTowardLocationHeadcount({ status: "secondment", employment_type: "secondment" })).toBe(true);
     expect(countsTowardLocationHeadcount({ status: "serving_notice", employment_type: "permanent" })).toBe(true);
     expect(countsTowardLocationHeadcount({ status: "terminated", employment_type: "permanent" })).toBe(false);
-    expect(countsTowardLocationHeadcount({ status: "active", employment_type: "joker" })).toBe(false);
+    expect(countsTowardLocationHeadcount({ status: "active", employment_type: "joker" })).toBe(true);
+    expect(countsTowardLocationHeadcount({ status: "joker", employment_type: "joker" })).toBe(false);
     expect(countsTowardLocationHeadcount({ status: "on_leave", employment_type: "permanent" })).toBe(false);
   });
 });

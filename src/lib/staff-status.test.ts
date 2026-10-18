@@ -31,11 +31,12 @@ describe("staff status helpers", () => {
     expect(isActiveStaffStatus("terminated")).toBe(false);
   });
 
-  it("does not treat a joker as active staff", () => {
+  it("treats active employment-type jokers as active staff; status=joker stays out", () => {
     expect(isActiveStaffStatus("joker")).toBe(false);
-    expect(countsAsActiveStaff("active", "joker")).toBe(false);
-    expect(countsAsActiveStaff("active", "Joker")).toBe(false);
+    expect(countsAsActiveStaff("active", "joker")).toBe(true);
+    expect(countsAsActiveStaff("active", "Joker")).toBe(true);
     expect(countsAsActiveStaff("joker", "permanent")).toBe(false);
+    expect(countsAsActiveStaff("joker", "joker")).toBe(false);
     expect(countsAsActiveStaff("active", "permanent")).toBe(true);
     expect(countsAsActiveStaff("probation", null)).toBe(true);
     // Active status is allowed while employment type stays joker.
@@ -67,7 +68,8 @@ describe("staff status helpers", () => {
     expect(isAttendanceMappingStaff({ status: "terminated", employment_type: "secondment" })).toBe(false);
     expect(isAttendanceMappingStaff({ status: "resigned", employment_type: "permanent" })).toBe(false);
     expect(isAttendanceMappingStaff({ status: "contract_finished", employment_type: "secondment" })).toBe(false);
-    expect(isAttendanceMappingStaff({ status: "active", employment_type: "joker" })).toBe(false);
+    expect(isAttendanceMappingStaff({ status: "active", employment_type: "joker" })).toBe(true);
+    expect(isAttendanceMappingStaff({ status: "serving_notice", employment_type: "joker" })).toBe(true);
     expect(isAttendanceMappingStaff({ status: "joker", employment_type: "joker" })).toBe(false);
     expect(ACTIVE_ROSTER_STAFF_STATUS_OR).toContain("secondment");
     expect(ACTIVE_ROSTER_STAFF_STATUS_OR).not.toContain("terminated");

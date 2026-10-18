@@ -17,6 +17,7 @@ import {
   formatFlexibleCrossSiteDeviceUserLabel,
   formatFlexibleCrossSiteLocationLabel,
   attendanceRecalcLocationsAfterRosterUpsert,
+  preferCrossSiteWeekOffRoster,
   staffUsesCrossSiteDayMerge,
 } from "./flexible-cross-site";
 
@@ -151,6 +152,32 @@ describe("flexible cross-site attendance", () => {
     expect(
       flexibleNoPunchWriteAtLocation({ isHomeLocation: true, isWeekOff: false, hasLeave: false }),
     ).toBe("write");
+  });
+
+  it("writes weekly_off (not ABSENT) when caller applied cross-site rest over local on-duty", () => {
+    // Process prefers is_week_off from any dedicated site before this decision.
+    // Rest at CAR-AP + on-duty row at INF-CC → isWeekOff true → write weekly_off.
+    expect(
+      flexibleNoPunchWriteAtLocation({
+        isHomeLocation: true,
+        isWeekOff: true,
+        hasLeave: false,
+        rosteredHere: false,
+        rosteredOnDutyElsewhere: false,
+      }),
+    ).toBe("write");
+  });
+
+  it("prefers rest/off roster from any site over on-duty sibling (Mani INF-CC / CAR-AP)", () => {
+    const onDutyInf = { location_id: "inf-cc", is_week_off: false, shift_start: "09:00" };
+    const restCar = { location_id: "car-ap", is_week_off: true, shift_start: null };
+    expect(preferCrossSiteWeekOffRoster(onDutyInf, restCar)).toEqual(restCar);
+    expect(preferCrossSiteWeekOffRoster(restCar, onDutyInf)).toEqual(restCar);
+    expect(preferCrossSiteWeekOffRoster(onDutyInf, { ...onDutyInf, location_id: "car-ap" })).toEqual(
+      onDutyInf,
+    );
+    expect(preferCrossSiteWeekOffRoster(null, restCar)).toEqual(restCar);
+    expect(preferCrossSiteWeekOffRoster(onDutyInf, null)).toEqual(onDutyInf);
   });
 
   it("writes ABSENT at the rostered site (even non-home) and suppresses false home ABSENT", () => {

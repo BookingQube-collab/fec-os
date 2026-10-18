@@ -25,13 +25,12 @@ import type { AppRole } from "@/lib/rbac";
 import { ForbiddenError } from "@/lib/server/authorize";
 import {
   isContractFinishedStaffStatus,
-  isJokerStaff,
+  isJokerStaffStatus,
   isResignedStaffStatus,
   isTerminatedStaffStatus,
-  STAFF_NOT_JOKER_EMPLOYMENT_OR,
 } from "@/lib/staff-status";
 
-/** Same roster the operations chart keeps on Team overview. Resigned, terminated, and jokers are out. */
+/** Same roster the operations chart keeps on Team overview. Resigned, terminated, and status=joker are out. */
 const DIRECT_REPORT_STATUSES = ["active", "probation", "secondment", "remote", "serving_notice"] as const;
 
 export type DirectReportAccess = {
@@ -66,7 +65,6 @@ export async function loadDirectReportStaffIds(userId: string): Promise<DirectRe
       .select("id")
       .in("id", chunk)
       .in("status", [...DIRECT_REPORT_STATUSES])
-      .or(STAFF_NOT_JOKER_EMPLOYMENT_OR)
       .is("deleted_at", null);
     if (staffErr) throw new Error(staffErr.message);
     for (const row of rows ?? []) active.add(row.id);
@@ -81,7 +79,8 @@ export async function loadDirectReportStaffIds(userId: string): Promise<DirectRe
 /**
  * People directory for a job-title manager.
  * Direct reports, plus each supervisor's team on this manager's reporting line.
- * Includes active, on leave, and serving notice. Omits resigned, terminated, deleted, and jokers.
+ * Includes active, on leave, and serving notice. Omits resigned, terminated,
+ * deleted, and status=joker. Employment type joker stays listable when status allows.
  */
 export async function loadPeopleDirectoryTeamStaffIds(userId: string): Promise<string[]> {
   const { members } = await loadManagerTeamMembers(userId);
@@ -142,10 +141,10 @@ type ManagerTeamMember = ManagerTeamPerson & {
   deletedAt: string | null;
 };
 
-/** An active supervisor stays a bridge. Resigned, terminated, deleted, and jokers do not. */
+/** An active supervisor stays a bridge. Resigned, terminated, deleted, and status=joker do not. */
 function supervisorBridgesTeam(member: ManagerTeamMember): boolean {
   if (member.deletedAt) return false;
-  if (isJokerStaff({ status: member.status, employmentType: member.employmentType })) return false;
+  if (isJokerStaffStatus(member.status)) return false;
   if (
     isResignedStaffStatus(member.status) ||
     isTerminatedStaffStatus(member.status) ||
@@ -251,7 +250,7 @@ export async function loadManagerTeamMembers(userId: string): Promise<{
 
 function isOperationsTeamMember(member: ManagerTeamMember): boolean {
   if (member.deletedAt) return false;
-  if (isJokerStaff({ status: member.status, employmentType: member.employmentType })) return false;
+  if (isJokerStaffStatus(member.status)) return false;
   const status = (member.status ?? "").trim().toLowerCase();
   return (DIRECT_REPORT_STATUSES as readonly string[]).includes(status);
 }
@@ -305,7 +304,6 @@ export async function loadReportingTreeStaffIds(userId: string): Promise<string[
       .select("id")
       .in("id", chunk)
       .in("status", [...DIRECT_REPORT_STATUSES])
-      .or(STAFF_NOT_JOKER_EMPLOYMENT_OR)
       .is("deleted_at", null);
     if (staffErr) throw new Error(staffErr.message);
     for (const row of rows ?? []) active.add(row.id);
@@ -472,7 +470,7 @@ export type ShiftRosterUploadScope =
 
 /**
  * A supervisor with no direct reports may upload a roster that covers only themselves.
- * Resigned, terminated, deleted, and jokers stay out. Non-supervisors stay empty.
+ * Resigned, terminated, deleted, and status=joker stay out. Non-supervisors stay empty.
  */
 export async function loadSupervisorSelfRosterStaffIds(staffId: string | null): Promise<string[]> {
   if (!staffId) return [];
@@ -483,7 +481,7 @@ export async function loadSupervisorSelfRosterStaffIds(staffId: string | null): 
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!data?.id || data.deleted_at) return [];
-  if (!isRosterAssignableStaffStatus(data.status) || isJokerStaff(data)) return [];
+  if (!isRosterAssignableStaffStatus(data.status) || isJokerStaffStatus(data.status)) return [];
   return rosterTeamOrSelfStaffIds({
     staffId: String(data.id),
     directReportStaffIds: [],
@@ -500,7 +498,7 @@ function rosterChartAssignable(member: {
   return (
     !member.deletedAt &&
     isRosterAssignableStaffStatus(member.status) &&
-    !isJokerStaff({ status: member.status, employmentType: member.employmentType })
+    !isJokerStaffStatus(member.status)
   );
 }
 
@@ -508,7 +506,7 @@ function rosterChartAssignable(member: {
  * Team-scoped monthly roster: the signed-in person plus everyone who reports
  * to them on `staff_profile_ext.reporting_manager_staff_id`, including crew
  * under a lead who is not a supervisor. Resigned, terminated, deleted, and
- * jokers stay off the list. The walk still passes through them.
+ * status=joker stay off the list. Employment type joker stays when status allows.
  */
 export async function loadRosterChartStaffIds(userId: string): Promise<string[]> {
   // One login can link to more than one staff row. Use the newest only.

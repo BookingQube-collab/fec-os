@@ -576,10 +576,13 @@ function roamingRowLooksAbsent(row: { status?: unknown }): boolean {
 }
 
 /**
- * Drop false ABSENT person-days for roaming / multisite staff when the roster
- * has them on duty at a different location that day and this row has no punches.
- * Keeps week-off / leave / punched days. Used under a location filter so home
- * fillers do not mark Russell/Louie Absent while they are rostered elsewhere.
+ * Fix false ABSENT person-days for roaming / multisite staff when:
+ * - any of their roster sites marks the day as week-off / rest → set status
+ *   to weekly_off (do not drop — blank cells hide the rest day on the grid), or
+ * - the roster has them on duty at a different location that day → drop the
+ *   punch-less ABSENT filler (they are covered by the other site).
+ * Keeps leave / punched / already-off days. Used under a location filter so
+ * home fillers do not mark staff Absent while resting or rostered elsewhere.
  */
 export function suppressRoamingFalseAbsentForRosterElsewhere(input: {
   rows: Array<Record<string, unknown>>;
@@ -590,28 +593,58 @@ export function suppressRoamingFalseAbsentForRosterElsewhere(input: {
   if (!input.crossSiteStaffIds.size || input.rows.length === 0) return input.rows;
 
   const onDutyElsewhere = new Set<string>();
+  /** staffId|day — rest/off uploaded at any site that day. */
+  const weekOffAnySite = new Set<string>();
   for (const r of input.roster) {
     const staffId = String(r.staff_id ?? "").trim();
     const day = String(r.work_date ?? "").slice(0, 10);
     const loc = String(r.location_id ?? "").trim();
-    if (!staffId || !day || !loc || r.is_week_off) continue;
+    if (!staffId || !day || !loc) continue;
     if (!input.crossSiteStaffIds.has(staffId)) continue;
+    if (r.is_week_off) {
+      weekOffAnySite.add(`${staffId}|${day}`);
+      continue;
+    }
     if (input.locationId && loc === input.locationId) continue;
     onDutyElsewhere.add(`${staffId}|${day}`);
   }
-  if (onDutyElsewhere.size === 0) return input.rows;
+  if (onDutyElsewhere.size === 0 && weekOffAnySite.size === 0) return input.rows;
 
-  return input.rows.filter((row) => {
+  const out: Array<Record<string, unknown>> = [];
+  for (const row of input.rows) {
     const staffId = typeof row.staff_id === "string" ? row.staff_id : "";
-    if (!staffId || !input.crossSiteStaffIds.has(staffId)) return true;
+    if (!staffId || !input.crossSiteStaffIds.has(staffId)) {
+      out.push(row);
+      continue;
+    }
     const day = String(row.work_date ?? "").slice(0, 10);
-    if (!day || !onDutyElsewhere.has(`${staffId}|${day}`)) return true;
+    if (!day || roamingRowHasUsablePunch(row) || !roamingRowLooksAbsent(row)) {
+      out.push(row);
+      continue;
+    }
+    // Rest/off on any roster site wins — show weekly_off, never Absent.
+    if (weekOffAnySite.has(`${staffId}|${day}`)) {
+      out.push({
+        ...row,
+        status: "weekly_off",
+        missed_punch: false,
+        late_minutes: 0,
+        worked_minutes: 0,
+      });
+      continue;
+    }
+    if (!onDutyElsewhere.has(`${staffId}|${day}`)) {
+      out.push(row);
+      continue;
+    }
     const loc = String(row.location_id ?? "").trim();
-    if (input.locationId && loc && loc !== input.locationId) return true;
-    if (roamingRowHasUsablePunch(row)) return true;
-    if (!roamingRowLooksAbsent(row)) return true;
-    return false;
-  });
+    if (input.locationId && loc && loc !== input.locationId) {
+      out.push(row);
+      continue;
+    }
+    // On duty elsewhere + punch-less ABSENT at the filtered site → drop filler.
+  }
+  return out;
 }
 
 export type ListingGapRosterDay = {

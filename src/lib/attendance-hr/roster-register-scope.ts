@@ -274,8 +274,8 @@ export function assertRosterDeletePeriod(dateFrom: string, dateTo: string) {
  * People who can be placed on a day from the monthly roster.
  * Active includes a blank status, probation, secondment, and remote.
  * On leave and serving notice stay assignable. Resigned, terminated,
- * contract finished, released, inactive, and joker statuses do not.
- * Callers still drop employment-type jokers and deleted rows.
+ * contract finished, released, inactive, and status=joker do not.
+ * Employment type joker does not block assignability; callers drop deleted rows.
  */
 export function isRosterAssignableStaffStatus(status: string | null | undefined): boolean {
   return isActiveStaffStatus(status) || isOnLeaveStaffStatus(status) || isServingNoticeStaffStatus(status);

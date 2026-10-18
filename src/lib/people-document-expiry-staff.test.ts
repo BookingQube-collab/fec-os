@@ -36,6 +36,7 @@ describe("document expiry staff filter", () => {
       "Blank",
       "Secondment",
       "Remote",
+      "Joker type",
     ]);
   });
 

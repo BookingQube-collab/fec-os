@@ -100,6 +100,8 @@ describe("roster register bulk-delete scope", () => {
     for (const status of ["resigned", "terminated", "contract_finished", "released", "inactive", "joker"]) {
       expect(isRosterAssignableStaffStatus(status), status).toBe(false);
     }
+    // Employment type is not consulted — active jokers stay assignable via status alone.
+    expect(isRosterAssignableStaffStatus("active")).toBe(true);
   });
 
   it("chunks delete ids so PostgREST IN lists stay bounded", () => {

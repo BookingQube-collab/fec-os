@@ -47,7 +47,7 @@ export type StaffDirectoryFilters = {
    * so an admin can open one person. Off for every other directory filter.
    */
   includeServingNotice?: boolean;
-  /** When true, the directory shows Jokers instead of the active-staff list. Default off. */
+  /** When true, the directory shows only joker employment / status rows. */
   showJokers?: boolean;
   nationality: string;
   gender: string;
@@ -57,7 +57,7 @@ export type StaffDirectoryFilters = {
    * KPI / attention quick filter:
    * qid_expiring | qid_expired | passport_expiring | passport_expired |
    * contract_expiring | visa_expiring | new_joiners | exiting |
-   * temporary_project (active temporary staff; jokers are not active)
+   * temporary_project (active temporary staff; employment type joker is separate)
    */
   expiry: string;
   sort: StaffDirectorySort;

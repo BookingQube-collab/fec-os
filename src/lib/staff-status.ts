@@ -35,7 +35,9 @@ export const CONTRACT_FINISHED_STAFF_STATUS = "contract_finished";
 
 /**
  * PostgREST `.or()` fragment: drop employment_type joker, keep null types.
- * Pair with `.eq("status", "active")` on active-staff pickers.
+ * Prefer status-based filters for People directory and roster pickers — an
+ * active person with employment_type=joker must stay listable. Keep this
+ * fragment only where product rules still hide employment-type jokers.
  */
 export const STAFF_NOT_JOKER_EMPLOYMENT_OR =
   "employment_type.is.null,employment_type.not.ilike.joker";
@@ -130,13 +132,16 @@ export function isJokerStaff(staff: {
 }
 
 /**
- * Active headcount. Jokers are not active staff, including a stale status=active row.
+ * Active headcount / directory cohort.
+ * Status=joker stays out. Employment type joker does not — an active (or
+ * probation / secondment / remote) person must still appear in People search
+ * and roster lists. `employmentType` is kept for call-site compatibility.
  */
 export function countsAsActiveStaff(
   status: string | null | undefined,
-  employmentType?: string | null,
+  _employmentType?: string | null,
 ): boolean {
-  if (isJokerEmploymentType(employmentType) || isJokerStaffStatus(status)) return false;
+  if (isJokerStaffStatus(status)) return false;
   return isActiveStaffStatus(status);
 }
 
@@ -186,8 +191,8 @@ export function isActiveRosterStaff(status: string | null | undefined): boolean 
 /**
  * PostgREST `.or()` aligned with `isActiveRosterStaff`.
  * `status = active` alone dropped secondment and remote people the directory still lists.
- * Terminated, resigned, contract finished, released, inactive, and joker are not in this list.
- * Pair with `STAFF_NOT_JOKER_EMPLOYMENT_OR` so an active joker employment type stays hidden.
+ * Terminated, resigned, contract finished, released, inactive, and status=joker are not in this list.
+ * Employment type joker is allowed when status is still on the roster.
  */
 export const ACTIVE_ROSTER_STAFF_STATUS_OR = [
   "status.is.null",
@@ -196,13 +201,16 @@ export const ACTIVE_ROSTER_STAFF_STATUS_OR = [
   'status.eq."serving-notice"',
 ].join(",");
 
-/** Mapping dropdown: current roster, not exited staff and not jokers. */
+/**
+ * Mapping dropdown: current roster (active cohort, leave, notice).
+ * Exited staff and status=joker stay out. Employment type joker does not.
+ */
 export function isAttendanceMappingStaff(staff: {
   status?: string | null;
   employment_type?: string | null;
   employmentType?: string | null;
 }): boolean {
-  if (isJokerStaff(staff)) return false;
+  if (isJokerStaffStatus(staff.status)) return false;
   return isActiveRosterStaff(staff.status);
 }
 

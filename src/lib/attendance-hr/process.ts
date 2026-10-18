@@ -29,6 +29,7 @@ import {
   flexibleDayHasQualifyingPunches,
   flexibleDayRecalcAction,
   flexibleNoPunchWriteAtLocation,
+  preferCrossSiteWeekOffRoster,
   staffUsesCrossSiteDayMerge,
   type FlexibleCrossSitePunch,
 } from "./flexible-cross-site";
@@ -869,16 +870,17 @@ export async function recalculateAttendanceRange(
     let rosterRow = staffId ? rosterByKey.get(`${staffId}|${workDate}`) : undefined;
     const crossRosterRow = crossKey ? crossRosterByStaffDay.get(crossKey) : undefined;
     // Week-off at any site wins — leftover times on an on-duty sibling must not schedule Absent.
-    if (crossRosterRow?.is_week_off && !rosterRow?.is_week_off) {
+    const preferred = preferCrossSiteWeekOffRoster(rosterRow, crossRosterRow);
+    if (preferred?.is_week_off && !rosterRow?.is_week_off) {
       rosterRow = {
-        ...crossRosterRow,
+        ...preferred,
         shift_template_id: null,
         shift_start: null,
         shift_end: null,
         is_week_off: true,
       };
-    } else if (!rosterRow && crossRosterRow) {
-      rosterRow = crossRosterRow;
+    } else if (!rosterRow && preferred) {
+      rosterRow = preferred;
     }
 
     if (staffId && workDate && crossSiteStaffIdSet.has(staffId)) {
@@ -1005,16 +1007,17 @@ export async function recalculateAttendanceRange(
   ) {
     let rosterRow = rosterByKey.get(`${staffId}|${workDate}`);
     const crossRosterRow = crossRosterByStaffDay.get(`${staffId}|${workDate}`);
-    if (crossRosterRow?.is_week_off && !rosterRow?.is_week_off) {
+    const preferred = preferCrossSiteWeekOffRoster(rosterRow, crossRosterRow);
+    if (preferred?.is_week_off && !rosterRow?.is_week_off) {
       rosterRow = {
-        ...crossRosterRow,
+        ...preferred,
         shift_template_id: null,
         shift_start: null,
         shift_end: null,
         is_week_off: true,
       };
-    } else if (!rosterRow && crossRosterRow) {
-      rosterRow = crossRosterRow;
+    } else if (!rosterRow && preferred) {
+      rosterRow = preferred;
     }
     const leaveRow = leaveByKey.get(`${staffId}|${workDate}`);
     const punchSource = crossPunches.map((p) => ({
@@ -1218,18 +1221,31 @@ export async function recalculateAttendanceRange(
       const crossRosterRow = crossRosterByStaffDay.get(`${staffId}|${workDate}`);
       const hasLeave = Boolean(leaveRow?.leave_type);
       const fromUpload = dayRoster.find((r) => String(r.staff_id) === staffId);
-      const realRoster: RosterDayRow | null = fromUpload
-        ? fromUpload
-        : crossRosterRow
+      const crossAsRoster: RosterDayRow | null = crossRosterRow
+        ? {
+            staff_id: staffId,
+            work_date: workDate,
+            shift_template_id: (crossRosterRow.shift_template_id as string | null) ?? null,
+            shift_start: (crossRosterRow as { shift_start?: string | null }).shift_start ?? null,
+            shift_end: (crossRosterRow as { shift_end?: string | null }).shift_end ?? null,
+            is_week_off: Boolean(crossRosterRow.is_week_off),
+          }
+        : null;
+      // Prefer local upload, then any-site roster — but week-off at any site wins
+      // (same rule as the punch path). Otherwise rest at CAR-AP + on-duty at INF-CC
+      // still emitted ABSENT INF-CC for roaming staff.
+      const preferredRoster = preferCrossSiteWeekOffRoster(fromUpload ?? null, crossAsRoster);
+      const realRoster: RosterDayRow | null =
+        preferredRoster?.is_week_off && !fromUpload?.is_week_off
           ? {
               staff_id: staffId,
               work_date: workDate,
-              shift_template_id: (crossRosterRow.shift_template_id as string | null) ?? null,
-              shift_start: (crossRosterRow as { shift_start?: string | null }).shift_start ?? null,
-              shift_end: (crossRosterRow as { shift_end?: string | null }).shift_end ?? null,
-              is_week_off: Boolean(crossRosterRow.is_week_off),
+              shift_template_id: null,
+              shift_start: null,
+              shift_end: null,
+              is_week_off: true,
             }
-          : null;
+          : preferredRoster;
       const isWeekOff = weekOffForDay(staffId, workDate, realRoster, hasLeave);
       if (crossSiteStaffIdSet.has(staffId)) {
         const cross = crossPunchesByStaffDay.get(`${staffId}|${workDate}`) ?? [];
@@ -1247,7 +1263,8 @@ export async function recalculateAttendanceRange(
           continue;
         }
         const homeId = homeLocationByStaffId.get(staffId) || "";
-        const rosteredHere = Boolean(fromUpload && !fromUpload.is_week_off);
+        // After cross-site week-off wins, treat local on-duty siblings as not rostered here.
+        const rosteredHere = Boolean(fromUpload && !fromUpload.is_week_off && !isWeekOff);
         const rosteredOnDutyElsewhere = Boolean(
           !rosteredHere && crossRosterRow && !crossRosterRow.is_week_off,
         );

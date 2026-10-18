@@ -829,6 +829,73 @@ describe("HR report row helpers", () => {
     expect(filtered.map((r) => r.id)).toEqual(["ua-present", "true-absent"]);
   });
 
+  it("converts ABSENT to weekly_off when roaming staff have rest/off on any roster site", () => {
+    // Mani: home INF-CC + extra CAR-AP. Rest uploaded at CAR-AP must not leave
+    // ABSENT INF-CC on the reports grid — convert to weekly_off (not blank).
+    // Ma Luz: only ABSENT at home with rest on roster elsewhere → weekly_off.
+    const cross = new Set(["mani", "maluz"]);
+    const rows = [
+      {
+        id: "inf-absent",
+        location_id: "inf-cc",
+        staff_id: "mani",
+        work_date: "2026-10-05",
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        punch_count: 0,
+      },
+      {
+        id: "car-off",
+        location_id: "car-ap",
+        staff_id: "mani",
+        work_date: "2026-10-05",
+        status: "weekly_off",
+        actual_in: null,
+        actual_out: null,
+        punch_count: 0,
+      },
+      {
+        id: "kds-absent",
+        location_id: "kds-cc",
+        staff_id: "maluz",
+        work_date: "2026-10-15",
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        punch_count: 0,
+      },
+      {
+        id: "true-absent",
+        location_id: "inf-cc",
+        staff_id: "mani",
+        work_date: "2026-10-06",
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        punch_count: 0,
+      },
+    ];
+    const filtered = suppressRoamingFalseAbsentForRosterElsewhere({
+      rows,
+      roster: [
+        { staff_id: "mani", location_id: "car-ap", work_date: "2026-10-05", is_week_off: true },
+        // Conflicting on-duty sibling at home — rest still wins over ABSENT.
+        { staff_id: "mani", location_id: "inf-cc", work_date: "2026-10-05", is_week_off: false },
+        { staff_id: "maluz", location_id: "kds-cc", work_date: "2026-10-15", is_week_off: true },
+        // No rest on Oct 6 — true ABSENT stays.
+        { staff_id: "mani", location_id: "inf-cc", work_date: "2026-10-06", is_week_off: false },
+      ],
+      crossSiteStaffIds: cross,
+      locationId: "inf-cc",
+    });
+    expect(filtered.map((r) => r.id).sort()).toEqual(["car-off", "inf-absent", "kds-absent", "true-absent"]);
+    expect(filtered.find((r) => r.id === "inf-absent")?.status).toBe("weekly_off");
+    expect(filtered.find((r) => r.id === "kds-absent")?.status).toBe("weekly_off");
+    expect(filtered.find((r) => r.id === "true-absent")?.status).toBe("absent");
+    expect(filtered.find((r) => r.id === "car-off")?.status).toBe("weekly_off");
+  });
+
   it("matches KPI card filters using the same rules as KPI totals", () => {
     const base = {
       id: "1",

@@ -50,7 +50,7 @@ import {
 } from "@/lib/staff-roster/previous-month-export";
 import { buildPeopleRosterRowsXlsx, peopleRosterSampleFilename } from "@/lib/staff-roster/period-sample";
 import { ATTENDANCE_DAILY_LIST_PAGE_SIZE } from "@/lib/attendance-hr/constants";
-import { isJokerStaff, STAFF_NOT_JOKER_EMPLOYMENT_OR } from "@/lib/staff-status";
+import { isJokerStaffStatus } from "@/lib/staff-status";
 
 const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
@@ -192,10 +192,11 @@ function isAssignableRosterStaffRow(row: {
   status?: string | null;
   employment_type?: string | null;
 }): boolean {
-  return isRosterAssignableStaffStatus(row.status) && !isJokerStaff(row);
+  // Employment type joker stays assignable when status is on the roster.
+  return isRosterAssignableStaffStatus(row.status) && !isJokerStaffStatus(row.status);
 }
 
-/** Non-deleted, non-joker staff, paged past PostgREST max_rows, then kept when the status is assignable. */
+/** Non-deleted staff, paged past PostgREST max_rows, then kept when the status is assignable. */
 async function fetchAssignableStaffRows(
   db: AuthContext["supabase"],
   locationIds: string[] | null,
@@ -210,7 +211,6 @@ async function fetchAssignableStaffRows(
         .from("staff")
         .select("id, employee_code, full_name, qid, status, employment_type, location_id")
         .is("deleted_at", null)
-        .or(STAFF_NOT_JOKER_EMPLOYMENT_OR)
         .order("id", { ascending: true })
         .range(from, to);
       if (locChunk) q = q.in("location_id", locChunk);
@@ -238,8 +238,7 @@ async function fetchStaffRowsByIds(
       .from("staff")
       .select("id, employee_code, full_name, qid, status, employment_type, location_id")
       .in("id", ids)
-      .is("deleted_at", null)
-      .or(STAFF_NOT_JOKER_EMPLOYMENT_OR);
+      .is("deleted_at", null);
     if (error) throw error;
     out.push(...((data ?? []) as RosterAssignStaffRow[]));
   }
@@ -249,7 +248,7 @@ async function fetchStaffRowsByIds(
 /**
  * Team-scoped roster names from `staff_profile_ext.reporting_manager_staff_id`.
  * The viewer is included, plus every assignable person under them on the chart.
- * Resigned, terminated, deleted, and jokers stay out.
+ * Resigned, terminated, deleted, and status=joker stay out.
  */
 async function loadTeamRosterStaffIds(userId: string): Promise<string[]> {
   return loadRosterChartStaffIds(userId);

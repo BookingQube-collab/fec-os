@@ -24,7 +24,7 @@ import {
 } from "@/lib/reporting-manager-access.server";
 import { canUserDo, type AppRole } from "@/lib/rbac";
 import { assertCanManageMonthlyRoster, assertCanOpenShiftRoster } from "@/lib/site-ops-access.server";
-import { ACTIVE_ROSTER_STAFF_STATUS_OR, STAFF_NOT_JOKER_EMPLOYMENT_OR } from "@/lib/staff-status";
+import { ACTIVE_ROSTER_STAFF_STATUS_OR } from "@/lib/staff-status";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import {
@@ -229,7 +229,6 @@ export const getAttendanceHrBootstrap = createAuthenticatedActionNoInput(
             .from("staff")
             .select("id, full_name, employee_code, qid, department, job_title, location_id, status, is_roaming")
             .or(ACTIVE_ROSTER_STAFF_STATUS_OR)
-            .or(STAFF_NOT_JOKER_EMPLOYMENT_OR)
             .order("full_name", { ascending: true })
             .order("id", { ascending: true })
             .range(from, to);
@@ -630,8 +629,7 @@ export const getAttendanceHrSite = createAuthenticatedAction(
         context.supabase
           .from("staff")
           .select("id, full_name, employee_code, department, job_title, status, location_id, is_roaming")
-          .eq("status", "active")
-          .or(STAFF_NOT_JOKER_EMPLOYMENT_OR),
+          .eq("status", "active"),
         context.supabase.from("attendance_daily_summary").select("*").eq("location_id", data.locationId).eq("work_date", date),
         context.supabase.from("attendance_biometric_users").select("*").eq("location_id", data.locationId).is("staff_id", null),
         context.supabase
@@ -1056,7 +1054,8 @@ export const getAttendanceMappingDirectory = createAuthenticatedActionNoInput(as
 
 /**
  * One shared employee list for the mapping dropdown.
- * Current roster (active, secondment, remote, leave, notice) — not exited staff or jokers.
+ * Current roster (active, secondment, remote, leave, notice) — not exited staff
+ * or status=joker. Employment type joker stays when status is on the roster.
  * Company-wide mappers only — team leaders keep the reporting-tree directory.
  */
 export const listAttendanceMappingEmployees = createAuthenticatedActionNoInput(async (context) => {
@@ -1067,7 +1066,6 @@ export const listAttendanceMappingEmployees = createAuthenticatedActionNoInput(a
       .from("staff")
       .select("id, full_name, employee_code, qid, location_id, status, is_roaming")
       .or(ACTIVE_ROSTER_STAFF_STATUS_OR)
-      .or(STAFF_NOT_JOKER_EMPLOYMENT_OR)
       .order("full_name", { ascending: true })
       .order("id", { ascending: true })
       .range(from, to);
