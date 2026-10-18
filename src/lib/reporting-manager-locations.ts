@@ -15,13 +15,33 @@ const COMPANY_ROSTER_CAPS = [
 ] as const satisfies readonly Capability[];
 
 /**
+ * Venue / Site / Sr. Site / F&B Manager titles must use org-chart location chips
+ * even when `user_roles` is `branch_gm` (which carries `attendance.view`).
+ * Otherwise Mary is treated as company-wide while RLS still only allows INF-CC
+ * in `user_roles.location_ids`, so chips collapse to All + INF-CC.
+ */
+export function orgTitleForcesTeamLocationScope(
+  jobTitle?: string | null,
+  department?: string | null,
+  staffRole?: string | null,
+): boolean {
+  if (isHeadOfOperationsTitle(jobTitle)) return false;
+  if (isSrSiteSupervisorTitle(jobTitle) || isSrSiteSupervisorTitle(department)) return true;
+  if (isFnbManager(jobTitle, department)) return true;
+  return isVenueOrSiteSupervisorManager(jobTitle, staffRole);
+}
+
+/**
  * Company-wide location chips (same as Adil / admin): RBAC company caps, or
- * Head of Operations title (Rajan), even when a secondary role is team-scoped.
+ * Head of Operations title (Rajan). Org-title supervisors stay team-scoped.
  */
 export function locationAccessIsCompanyWide(
   roles: readonly AppRole[],
   jobTitle?: string | null,
+  department?: string | null,
+  staffRole?: string | null,
 ): boolean {
+  if (orgTitleForcesTeamLocationScope(jobTitle, department, staffRole)) return false;
   if (isHeadOfOperationsTitle(jobTitle)) return true;
   return COMPANY_ROSTER_CAPS.some((cap) => canUserDo(roles as AppRole[], cap));
 }
@@ -29,8 +49,10 @@ export function locationAccessIsCompanyWide(
 export function usesTeamLocationScope(
   roles: readonly AppRole[],
   jobTitle?: string | null,
+  department?: string | null,
+  staffRole?: string | null,
 ): boolean {
-  return !locationAccessIsCompanyWide(roles, jobTitle);
+  return !locationAccessIsCompanyWide(roles, jobTitle, department, staffRole);
 }
 
 /** Head Office by code or name — not an operational venue for Sr. Site scope. */

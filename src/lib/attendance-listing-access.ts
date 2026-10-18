@@ -1,5 +1,6 @@
 import { reportingDescendants } from "@/lib/reporting-chain";
 import { viewerRollsUpSupervisorTeam } from "@/lib/manager-supervisor-team";
+import { orgTitleForcesTeamLocationScope } from "@/lib/reporting-manager-locations";
 import { canUserDo, type AppRole } from "@/lib/rbac";
 import { canEditAttendanceMapping, type SiteOpsIdentity } from "@/lib/site-ops-access";
 
@@ -25,8 +26,19 @@ const ATTENDANCE_NAV_HREFS = [
  */
 const MANAGER_SUPERVISOR_ROLES = ["duty_manager", "tech_supervisor"] as const satisfies readonly AppRole[];
 
-/** Admin, GM, CEO, COO, and the other roles that already open every attendance page. */
-export function attendanceListingIsCompanyWide(roles: readonly AppRole[]): boolean {
+/**
+ * Admin, GM, CEO, COO, and other roles that open every attendance page.
+ * Sr. Site / Venue / Site / F&B Manager titles stay team-scoped even on
+ * `branch_gm` (which includes `attendance.view`) so chips use the org chart
+ * instead of RLS-limited `user_roles.location_ids`.
+ */
+export function attendanceListingIsCompanyWide(
+  roles: readonly AppRole[],
+  jobTitle?: string | null,
+  department?: string | null,
+  staffRole?: string | null,
+): boolean {
+  if (orgTitleForcesTeamLocationScope(jobTitle, department, staffRole)) return false;
   const list = roles as AppRole[];
   return (
     canUserDo(list, "attendance.view") ||

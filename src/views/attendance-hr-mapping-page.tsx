@@ -143,7 +143,12 @@ export default function AttendanceHrMappingPage() {
   const { profile } = useAuth();
   const { hasDirectReports, isPending: reportsPending } = useHasDirectReports();
   const companyWideMapper = attendanceMappingIsCompanyWide(roles);
-  const companyAttendance = attendanceListingIsCompanyWide(roles);
+  const companyAttendance = attendanceListingIsCompanyWide(
+    roles,
+    profile?.job_title,
+    profile?.department,
+    profile?.staff_role,
+  );
   const canMap = canSeeAttendanceMapping(roles, hasDirectReports);
   const canMerge = canMergeAttendanceMappings(roles, hasDirectReports, {
     jobTitle: profile?.job_title,

@@ -54,7 +54,7 @@ import {
   type OrgDepartmentChecks,
 } from "@/lib/exclude-org-departments";
 import { useMasterDepartments } from "@/hooks/queries/useDepartments";
-import { useUserRoles } from "@/hooks/use-auth";
+import { useAuth, useUserRoles } from "@/hooks/use-auth";
 import {
   attendanceListingIsCompanyWide,
   canSeeAttendanceListing,
@@ -98,8 +98,16 @@ export default function AttendanceHrReportsPage() {
   const setCurrentLocationId = useAppStore((s) => s.setCurrentLocationId);
   const qc = useQueryClient();
   const roles = useUserRoles();
+  const { profile } = useAuth();
   const { hasDirectReports, isPending: reportsPending } = useHasDirectReports();
-  const companyWide = attendanceListingIsCompanyWide(roles);
+  // Pass job title so Sr. Site / Venue supervisors on branch_gm are not treated as
+  // company-wide (that path used RLS-limited /api/sites → All + INF-CC only).
+  const companyWide = attendanceListingIsCompanyWide(
+    roles,
+    profile?.job_title,
+    profile?.department,
+    profile?.staff_role,
+  );
   const canList = canSeeAttendanceListing(roles, hasDirectReports);
   const listingEnabled = companyWide || (!reportsPending && canList);
   const canMapUsers = canUserDo(roles, "attendance.map_users");

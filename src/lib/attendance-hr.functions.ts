@@ -690,8 +690,18 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
   async (data, context) => {
     const linked = await loadLinkedStaffRecord(context.userId);
     const companyWide =
-      attendanceListingIsCompanyWide(context.roles ?? []) ||
-      locationAccessIsCompanyWide(context.roles ?? [], linked?.jobTitle);
+      attendanceListingIsCompanyWide(
+        context.roles ?? [],
+        linked?.jobTitle,
+        linked?.department,
+        linked?.staffRole,
+      ) ||
+      locationAccessIsCompanyWide(
+        context.roles ?? [],
+        linked?.jobTitle,
+        linked?.department,
+        linked?.staffRole,
+      );
     // Supervisors/managers: reporting tree plus own staff_id. Cashiers with reports: tree only.
     const teamStaffIds = companyWide
       ? null
@@ -999,7 +1009,18 @@ function teamMappingOrFilter(staffIds: string[], locationIds: string[]): string 
 /** Null keeps the company-wide mapping list. A reporting tree scopes team leaders. */
 async function mappingTeamScope(context: AuthContext): Promise<{ staffIds: string[]; locationIds: string[] } | null> {
   const roles = context.roles ?? [];
-  if (attendanceListingIsCompanyWide(roles) || attendanceMappingIsCompanyWide(roles)) return null;
+  const linked = await loadLinkedStaffRecord(context.userId);
+  if (
+    attendanceListingIsCompanyWide(
+      roles,
+      linked?.jobTitle,
+      linked?.department,
+      linked?.staffRole,
+    ) ||
+    attendanceMappingIsCompanyWide(roles)
+  ) {
+    return null;
+  }
   const staffIds = await loadReportingTreeStaffIds(context.userId);
   if (staffIds.length === 0 || !canSeeAttendanceMapping(roles, true)) {
     throw new ForbiddenError("Attendance mapping is limited to people who report to you.");

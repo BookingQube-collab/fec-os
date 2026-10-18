@@ -30,8 +30,18 @@ export const getAttendanceListingSites = createAuthenticatedActionNoInput(
   async (context): Promise<AttendanceListingSites> => {
     const linked = await loadLinkedStaffRecord(context.userId);
     if (
-      attendanceListingIsCompanyWide(context.roles ?? []) ||
-      locationAccessIsCompanyWide(context.roles ?? [], linked?.jobTitle)
+      attendanceListingIsCompanyWide(
+        context.roles ?? [],
+        linked?.jobTitle,
+        linked?.department,
+        linked?.staffRole,
+      ) ||
+      locationAccessIsCompanyWide(
+        context.roles ?? [],
+        linked?.jobTitle,
+        linked?.department,
+        linked?.staffRole,
+      )
     ) {
       return { companyWide: true, sites: [] };
     }

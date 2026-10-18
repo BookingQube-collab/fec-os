@@ -28,7 +28,9 @@ const SUPERVISORS = [
     displayName: "Mary Wangare Muiruri",
     employeeCode: "INF-CC-VS",
     qidHint: "29440401619",
-    locationCodes: ["INF-CC"],
+    // Sr. Site span: every operational venue under her org chart (not HO).
+    // RLS still keys off user_roles.location_ids; keep in sync with her chip set.
+    locationCodes: ["CAR-AP", "CB-DSM", "CB-VM", "INF-CC", "KDS-CC", "KDS-DM", "UA-DM"],
   },
   {
     email: "ashfaq.supervisor@fec.test",
@@ -428,6 +430,17 @@ async function main() {
     await ensureSyntheticStaff(linked, locationIds[0], userId);
     const staffRow = await verifyStaffLink(profileCode, supervisor.displayName);
     if (staffRow?.id) {
+      // Keep staff.user_id on the test login so Sr. Site / Venue scope resolves
+      // (mary.supervisor@fec.test must not stay linked only to srsupervisor@fec.qa).
+      const { error: linkErr } = await admin
+        .from("staff")
+        .update({ user_id: userId })
+        .eq("id", staffRow.id);
+      if (linkErr) {
+        console.warn(`  Warning: could not link staff.user_id: ${linkErr.message}`);
+      } else {
+        console.log(`  Linked staff.user_id → ${supervisor.email}`);
+      }
       await ensureStaffWorkLocations(staffRow.id, locationIds);
     }
 

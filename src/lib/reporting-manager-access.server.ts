@@ -521,6 +521,43 @@ async function loadViewerAssignedLocations(linked: {
 }
 
 /**
+ * Home + dedicated work sites for these people, plus mapped estate codes for any
+ * known Venue / Site supervisor in the set (Ashfaq → CAR-AP, Waqar → UA-DM, …).
+ * Sr. Site chips use this so a missing staff_work_locations row cannot hide a venue.
+ */
+async function loadAssignedTeamLocationsWithManagedVenues(
+  staffIds: string[],
+): Promise<TeamCoverageLocation[]> {
+  const assigned = await loadAssignedTeamLocations(staffIds);
+  if (staffIds.length === 0) return assigned;
+
+  const mappedCodes = new Set<string>();
+  for (let index = 0; index < staffIds.length; index += 100) {
+    const chunk = staffIds.slice(index, index + 100);
+    const { data, error } = await supabaseAdmin
+      .from("staff")
+      .select("employee_code, full_name")
+      .in("id", chunk)
+      .is("deleted_at", null);
+    if (error) throw new Error(error.message);
+    for (const row of data ?? []) {
+      const codes = managedVenueCodesForPerson({
+        employeeCode: row.employee_code ?? null,
+        fullName: row.full_name ?? null,
+      });
+      for (const code of codes ?? []) mappedCodes.add(code);
+    }
+  }
+  if (mappedCodes.size === 0) return assigned;
+  const mapped = await loadActiveLocationsByCodes([...mappedCodes]);
+  if (mapped.length === 0) return assigned;
+  const byId = new Map<string, TeamCoverageLocation>();
+  for (const site of assigned) byId.set(site.id, site);
+  for (const site of mapped) byId.set(site.id, site);
+  return [...byId.values()].sort((a, b) => a.code.localeCompare(b.code));
+}
+
+/**
  * Location chips for attendance / roster pickers (org-chart rule).
  * Uses home + dedicated work sites only — never punch or roster history.
  * Venue / Site Supervisor: viewer's managed sites only (mapped estate as fallback).
@@ -563,9 +600,9 @@ export async function loadViewerScopedTeamLocations(
     return loadViewerAssignedLocations(linked);
   }
 
-  // Sr. Site: only her reporting subtree (viewer + descendants), minus Head Office.
+  // Sr. Site: reporting subtree homes/work ∪ mapped supervisor estates, minus Head Office.
   const discoveryIds = locationDiscoveryStaffIds(scopeMode, linked?.id, teamStaffIds);
-  const sites = await loadAssignedTeamLocations(discoveryIds);
+  const sites = await loadAssignedTeamLocationsWithManagedVenues(discoveryIds);
   return filterLocationsForJobTitleScope(
     sites,
     linked?.jobTitle,
@@ -579,7 +616,16 @@ export async function mergeReportingManagerSites<T extends { id: string; code: s
   sites: T[],
 ): Promise<T[]> {
   const linked = await loadLinkedStaffRecord(context.userId);
-  if (!usesTeamLocationScope(context.roles ?? [], linked?.jobTitle)) return sites;
+  if (
+    !usesTeamLocationScope(
+      context.roles ?? [],
+      linked?.jobTitle,
+      linked?.department,
+      linked?.staffRole,
+    )
+  ) {
+    return sites;
+  }
   const scopeMode = attendanceLocationScopeMode(
     linked?.jobTitle,
     linked?.department,
@@ -591,9 +637,14 @@ export async function mergeReportingManagerSites<T extends { id: string; code: s
   const { teamStaffIds } = await loadManagerTeamStaffIds(context.userId);
   if (teamStaffIds.length === 0) {
     if (scopeMode === "viewer_assigned" && linked?.id) {
+      // Admin-resolved estate — do not intersect RLS-limited fetchSites.
       const assigned = await loadViewerAssignedLocations(linked);
-      const allow = new Set(assigned.map((site) => site.id));
-      return sites.filter((site) => allow.has(site.id)).sort((a, b) => a.code.localeCompare(b.code));
+      return filterLocationsForJobTitleScope(
+        assigned as unknown as T[],
+        linked?.jobTitle,
+        linked?.department,
+        linked?.staffRole,
+      );
     }
     return filterLocationsForJobTitleScope(
       sites,
@@ -611,11 +662,12 @@ export async function mergeReportingManagerSites<T extends { id: string; code: s
       linked?.staffRole,
     );
   }
-  const allow = new Set(extra.map((site) => site.id));
-  // Team-scoped viewers only keep sites they may open — do not re-merge the
-  // full company list (that used to leak Inflata onto every Venue Supervisor).
+  // Return org-scoped sites from admin. Intersecting with fetchSites (user RLS)
+  // used to keep only user_roles.location_ids — Mary (branch_gm + INF-CC only)
+  // lost every venue under her chart even when loadViewerScopedTeamLocations
+  // already had CAR-AP / UA-DM / ….
   return filterLocationsForJobTitleScope(
-    sites.filter((site) => allow.has(site.id)).sort((a, b) => a.code.localeCompare(b.code)),
+    (extra as unknown as T[]).sort((a, b) => a.code.localeCompare(b.code)),
     linked?.jobTitle,
     linked?.department,
     linked?.staffRole,
@@ -722,7 +774,16 @@ export async function resolveShiftRosterUploadScope(context: {
   roles?: AppRole[];
 }): Promise<ShiftRosterUploadScope> {
   const linked = await loadLinkedStaffRecord(context.userId);
-  if (!usesTeamLocationScope(context.roles ?? [], linked?.jobTitle)) return { kind: "company" };
+  if (
+    !usesTeamLocationScope(
+      context.roles ?? [],
+      linked?.jobTitle,
+      linked?.department,
+      linked?.staffRole,
+    )
+  ) {
+    return { kind: "company" };
+  }
   const staffIds = await loadRosterChartStaffIds(context.userId);
   if (staffIds.length === 0) {
     throw new ForbiddenError("Forbidden: missing capability to upload a shift roster.");

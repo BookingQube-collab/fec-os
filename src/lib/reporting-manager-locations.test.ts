@@ -10,11 +10,13 @@ import {
   isVenueOrSiteSupervisorManager,
   locationAccessIsCompanyWide,
   locationDiscoveryStaffIds,
+  orgTitleForcesTeamLocationScope,
   rosterChartTeamIds,
   rosterTeamOrSelfStaffIds,
   unionTeamLocationIds,
   usesTeamLocationScope,
 } from "./reporting-manager-locations";
+import { attendanceListingIsCompanyWide } from "./attendance-listing-access";
 import { FNB_MANAGER_VENUE_CODES } from "./supervisor-managed-venues";
 
 describe("unionTeamLocationIds", () => {
@@ -60,6 +62,77 @@ describe("attendance location scope (org chart)", () => {
     expect(locationAccessIsCompanyWide(["cashier_host"], "Head of Operations")).toBe(true);
     expect(locationAccessIsCompanyWide(["ceo"], null)).toBe(true);
     expect(usesTeamLocationScope(["cashier_host"], "Head of Operations")).toBe(false);
+  });
+
+  it("keeps Sr. Site on team scope even when branch_gm has attendance.view (Mary)", () => {
+    // Regression: branch_gm + INF-CC-only user_roles made chips All+INF-CC while
+    // roster cards (admin loadViewerScopedTeamLocations) still listed UA-DM etc.
+    expect(orgTitleForcesTeamLocationScope("Sr. Site Supervisor")).toBe(true);
+    expect(locationAccessIsCompanyWide(["branch_gm"], "Sr. Site Supervisor")).toBe(false);
+    expect(usesTeamLocationScope(["branch_gm"], "Sr. Site Supervisor")).toBe(true);
+    expect(attendanceListingIsCompanyWide(["branch_gm"], "Sr. Site Supervisor")).toBe(false);
+    expect(attendanceListingIsCompanyWide(["branch_gm"])).toBe(true);
+
+    const discovery = locationDiscoveryStaffIds(
+      "team_assigned_except_ho",
+      "mary",
+      ["ashfaq", "waqar", "rosebelt", "romel"],
+    );
+    expect(discovery).toEqual(["ashfaq", "mary", "romel", "rosebelt", "waqar"]);
+
+    const people = [
+      {
+        staffId: "mary",
+        locationId: "ho",
+        workLocationIds: ["inf"],
+        jobTitle: "Sr. Site Supervisor",
+      },
+      {
+        staffId: "ashfaq",
+        locationId: "kds",
+        workLocationIds: ["inf", "car"],
+        jobTitle: "Venue Supervisor",
+      },
+      {
+        staffId: "waqar",
+        locationId: "ua",
+        workLocationIds: ["kdsMini", "inf"],
+        jobTitle: "Venue Supervisor",
+      },
+      {
+        staffId: "rosebelt",
+        locationId: "cb",
+        workLocationIds: [],
+        jobTitle: "Venue Supervisor",
+      },
+      {
+        staffId: "romel",
+        locationId: "cbDsm",
+        workLocationIds: [],
+        jobTitle: "Venue Supervisor",
+      },
+    ];
+    const span = collectSrSiteSpanLocationIds(people, discovery);
+    const chips = filterLocationsForJobTitleScope(
+      venues.filter((site) => span.includes(site.id)),
+      "Sr. Site Supervisor",
+    ).map((site) => site.code);
+    expect(chips).toEqual(["INF-CC", "KDS-CC", "UA-DM", "KDS-DM", "CB-VM", "CB-DSM", "CAR-AP"]);
+    expect(chips).not.toEqual(["INF-CC"]);
+    expect(chips).toContain("UA-DM");
+  });
+
+  it("keeps Venue Supervisor on viewer-assigned scope under branch_gm (Waqar)", () => {
+    expect(orgTitleForcesTeamLocationScope("Venue Supervisor", null, "venue_supervisor")).toBe(true);
+    expect(locationAccessIsCompanyWide(["branch_gm"], "Venue Supervisor", null, "venue_supervisor")).toBe(
+      false,
+    );
+    expect(attendanceListingIsCompanyWide(["branch_gm"], "Venue Supervisor", null, "venue_supervisor")).toBe(
+      false,
+    );
+    expect(locationDiscoveryStaffIds("viewer_assigned", "waqar", ["crew-ua", "crew-cb"])).toEqual([
+      "waqar",
+    ]);
   });
 
   it("scopes Venue / Site Supervisor to viewer-assigned sites only", () => {
