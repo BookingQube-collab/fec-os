@@ -79,10 +79,11 @@ import type { AttendanceListingSource } from "@/lib/attendance-display";
 import {
   attendanceHrReportsUseListView,
   attendanceHrToListingSource,
-  attendanceHrRowMatchesLocation,
+  attendanceHrRowMatchesKpiFilter,
   computeAttendanceHrReportKpis,
   formatAttendanceHrLocation,
   isMappedAttendanceHrRow,
+  type AttendanceHrKpiFilter,
   type AttendanceHrReportRow,
 } from "@/lib/attendance-hr/report";
 import { CANONICAL_LOCATION_CODES, formatLocationLabel, rosterSheetLabel } from "@/lib/locations/normalize";
@@ -108,6 +109,7 @@ export default function AttendanceHrReportsPage() {
     defaultPayrollPeriod(new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" })),
   );
   const [status, setStatus] = useState("");
+  const [kpiFilter, setKpiFilter] = useState<AttendanceHrKpiFilter | null>(null);
   const [departmentIds, setDepartmentIds] = useState<string[]>([]);
   const [orgChecks, setOrgChecks] = useState<OrgDepartmentChecks>(ALL_ORG_DEPARTMENTS_CHECKED);
   const [staffQ, setStaffQ] = useState("");
@@ -233,28 +235,33 @@ export default function AttendanceHrReportsPage() {
         departments: showOrgDepartments.map((key) => t(`common.orgDepartment.${key}`)).join(", "),
       })
     : "";
-  const rows = useMemo(
-    () => {
-      const located = ((q.data ?? []) as AttendanceHrReportRow[]).filter((row) =>
-        attendanceHrRowMatchesLocation(row, listingLocationId),
-      );
-      if (!showOrgDepartments.length) return located;
-      return located.filter((row) => displayDepartmentShown(row.department, showOrgDepartments));
-    },
-    [q.data, listingLocationId, showOrgDepartments],
-  );
+  // Location scope (incl. roaming sibling person-days) is applied in getAttendanceHrDaily.
+  const rows = useMemo(() => {
+    const base = (q.data ?? []) as AttendanceHrReportRow[];
+    if (!showOrgDepartments.length) return base;
+    return base.filter((row) => displayDepartmentShown(row.department, showOrgDepartments));
+  }, [q.data, showOrgDepartments]);
   const deferredRows = useDeferredValue(rows);
+  // KPI totals stay on the unfiltered-by-card set; card click only narrows the table.
+  const kpis = useMemo(() => computeAttendanceHrReportKpis(deferredRows), [deferredRows]);
+  const tableRows = useMemo(
+    () =>
+      kpiFilter
+        ? deferredRows.filter((row) => attendanceHrRowMatchesKpiFilter(row, kpiFilter))
+        : deferredRows,
+    [deferredRows, kpiFilter],
+  );
   const listingRows = useMemo(
-    () => deferredRows.map((row) => attendanceHrToListingSource(row, t("attendanceHr.reports.unmapped"))),
-    [deferredRows, t],
+    () => tableRows.map((row) => attendanceHrToListingSource(row, t("attendanceHr.reports.unmapped"))),
+    [tableRows, t],
   );
   /** Month grid is a staff roster view — unmapped device users stay on list for mapping only. */
   const gridListingRows = useMemo(
     () =>
-      deferredRows
+      tableRows
         .filter(isMappedAttendanceHrRow)
         .map((row) => attendanceHrToListingSource(row, t("attendanceHr.reports.unmapped"))),
-    [deferredRows, t],
+    [tableRows, t],
   );
   // Status=Unscheduled is often 100% unmapped (Staff KPI 0). Grid would show the import-empty
   // shell while KPIs still count those rows — fall back to list so table matches the strip.
@@ -268,7 +275,6 @@ export default function AttendanceHrReportsPage() {
     return (bootstrap.data?.staff ?? []) as AttendanceMapStaffOption[];
   }, [bootstrap.data?.staff, canMapUsers]);
   const mappingBusySet = useMemo(() => new Set(Object.keys(mappingBusyIds)), [mappingBusyIds]);
-  const kpis = useMemo(() => computeAttendanceHrReportKpis(deferredRows), [deferredRows]);
   const isTableDeferred = deferredRows !== rows;
   const showSearchBusy =
     isStaffSearchPending ||
@@ -516,7 +522,13 @@ export default function AttendanceHrReportsPage() {
           </div>
           <div className="min-w-44 space-y-1.5">
             <Label>{t("attendanceHr.reports.status")}</Label>
-            <Select value={status || "all"} onValueChange={(value) => setStatus(value === "all" ? "" : value)}>
+            <Select
+              value={status || "all"}
+              onValueChange={(value) => {
+                setStatus(value === "all" ? "" : value);
+                setKpiFilter(null);
+              }}
+            >
               <SelectTrigger aria-label={t("attendanceHr.reports.status")}>
                 <SelectValue placeholder={t("attendanceHr.reports.allStatuses")} />
               </SelectTrigger>
@@ -727,7 +739,17 @@ export default function AttendanceHrReportsPage() {
         </div>
       </NeumorphicCard>
 
-      <AttendanceHrReportsKpiStrip kpis={kpis} isLoading={q.isLoading || listingBlocked} />
+      <AttendanceHrReportsKpiStrip
+        kpis={kpis}
+        isLoading={q.isLoading || listingBlocked}
+        activeFilter={kpiFilter}
+        onFilterChange={(next) => {
+          setKpiFilter(next);
+          // Card filters are client-side (Present includes undertime/OT). Clear the
+          // status dropdown so API status and card filter do not fight.
+          if (next) setStatus("");
+        }}
+      />
 
       <div className="relative" aria-busy={showListingBusy}>
         {showListingBusy && !q.isLoading ? (

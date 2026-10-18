@@ -141,20 +141,37 @@ export function countsAsActiveStaff(
 }
 
 /**
- * Joker employment cannot stay on an active status. Leaving joker employment
- * clears a joker status back to active. Leave / exit statuses are kept.
+ * Align staff.status with employment_type for jokers.
+ *
+ * employment_type=joker may use status=active (or leave / exit). Blank status
+ * defaults to joker for imports/creates that omit it. Leaving joker employment
+ * clears a joker status back to active.
  */
 export function reconcileJokerStaffStatus(
   employmentType: string | null | undefined,
   status: string | null | undefined,
 ): string {
   if (isJokerEmploymentType(employmentType)) {
-    if (status == null || status.trim() === "" || isActiveStaffStatus(status)) return JOKER_STAFF_STATUS;
-    return status.trim();
+    const trimmed = (status ?? "").trim();
+    return trimmed || JOKER_STAFF_STATUS;
   }
   if (isJokerStaffStatus(status)) return "active";
   const trimmed = (status ?? "").trim();
   return trimmed || "active";
+}
+
+/**
+ * Status=joker always stores employment_type=joker. Active + joker employment
+ * is allowed; callers that clear employment away from joker should also clear
+ * joker status (see updateStaff).
+ */
+export function reconcileJokerEmploymentType(
+  employmentType: string | null | undefined,
+  status: string | null | undefined,
+): string | null {
+  if (isJokerStaffStatus(status)) return "joker";
+  if (employmentType == null || String(employmentType).trim() === "") return null;
+  return String(employmentType).trim();
 }
 
 /** Active roster for payroll: active cohort, on leave, serving notice, or blank. Excludes exited. */

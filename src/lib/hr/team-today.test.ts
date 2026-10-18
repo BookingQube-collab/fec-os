@@ -4,7 +4,10 @@ import {
   attendanceRowCountsAsPresent,
   buildTeamToday,
   classifyTeamTodayStatus,
+  countTeamTodayPeople,
+  filterTeamTodayByLocation,
   showsSupervisorTeamToday,
+  summarizeTeamTodayByLocation,
   teamTodayCompanyWide,
   type TeamTodayMember,
 } from "@/lib/hr/team-today";
@@ -94,6 +97,31 @@ describe("team today scope", () => {
     expect(ids).toContain("ruben");
     expect(ids).toContain("mary");
     expect(ids).not.toContain("abiola");
+  });
+});
+
+describe("team today location filter", () => {
+  it("keeps one site when a location is selected and summarizes sites when it is not", () => {
+    const view = buildTeamToday({
+      viewerStaffId: "ashfaq",
+      companyWide: false,
+      today: TODAY,
+      people: chart,
+      punchedStaffIds: ["flora", "kds-crew"],
+      locations: LOCATIONS,
+    });
+    const filtered = filterTeamTodayByLocation(view, "kds");
+    expect(filtered.singleLocation).toBe(true);
+    expect(filtered.groups).toHaveLength(1);
+    expect(filtered.groups[0]?.locationId).toBe("kds");
+    expect(countTeamTodayPeople(filtered.groups).present).toBe(2);
+
+    const summaries = summarizeTeamTodayByLocation(view.groups);
+    expect(summaries.map((row) => row.locationId)).toEqual(["car", "inf", "kds", "ua"]);
+    expect(summaries.find((row) => row.locationId === "kds")).toMatchObject({
+      present: 2,
+      total: 4,
+    });
   });
 });
 

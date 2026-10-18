@@ -263,6 +263,49 @@ export const listSpareParts = createAuthenticatedAction(
       const token = data.q.trim().replace(/[%_]/g, "");
       query = query.or(`name.ilike.%${token}%,part_code.ilike.%${token}%,part_number.ilike.%${token}%`);
     }
+    if (data.machineId) {
+      const { data: links, error: linkError } = await context.supabase
+        .from("arcade_part_machines")
+        .select("part_id")
+        .eq("machine_id", data.machineId);
+      if (linkError) throw linkError;
+      const partIds = [...new Set((links ?? []).map((row) => row.part_id))];
+      if (partIds.length === 0) {
+        return { rows: [], stock: [], total: 0, page: data.page, pageSize: data.pageSize };
+      }
+      query = query.in("id", partIds);
+    } else if (data.locationId) {
+      await assertArcadeLocationAccess(context, data.locationId);
+      const { data: atSite, error: siteError } = await context.supabase
+        .from("arcade_machines")
+        .select("id")
+        .eq("location_id", data.locationId)
+        .eq("active", true)
+        .limit(2000);
+      if (siteError) throw siteError;
+      const machineIds = (atSite ?? []).map((row) => row.id);
+      const { data: links, error: linkError } = machineIds.length
+        ? await context.supabase.from("arcade_part_machines").select("part_id").in("machine_id", machineIds)
+        : { data: [] as Array<{ part_id: string }>, error: null };
+      if (linkError) throw linkError;
+      const linkedIds = [...new Set((links ?? []).map((row) => row.part_id))];
+      if (linkedIds.length === 0) {
+        query = query.eq("warehouse_location_id", data.locationId);
+      } else {
+        // Parts warehoused at the site, or already linked to a game there.
+        const { data: warehouseRows, error: warehouseError } = await context.supabase
+          .from("arcade_spare_parts")
+          .select("id")
+          .eq("warehouse_location_id", data.locationId)
+          .limit(2000);
+        if (warehouseError) throw warehouseError;
+        const allowed = [...new Set([...linkedIds, ...(warehouseRows ?? []).map((row) => row.id)])];
+        if (allowed.length === 0) {
+          return { rows: [], stock: [], total: 0, page: data.page, pageSize: data.pageSize };
+        }
+        query = query.in("id", allowed);
+      }
+    }
     const { from, to } = range(data.page, data.pageSize);
     const { data: rows, error, count } = await query.range(from, to);
     if (error) throw error;
@@ -273,6 +316,39 @@ export const listSpareParts = createAuthenticatedAction(
     return { rows: rows ?? [], stock: stock ?? [], total: count ?? 0, page: data.page, pageSize: data.pageSize };
   },
   { defaultInput: {}, auth: { capability: "arcade.view" } },
+);
+
+export const setArcadeMachineParts = createAuthenticatedAction(
+  z.object({
+    machineId: z.string().uuid(),
+    partIds: z.array(z.string().uuid()).max(100),
+  }),
+  async (data, context) => {
+    if (!canActorPerform(context.roles ?? [], "arcade.manage", context.access)) {
+      throw new Error("Linking spare parts to a game requires admin master-data access");
+    }
+    const { data: machine, error: machineError } = await context.supabase
+      .from("arcade_machines")
+      .select("id, location_id")
+      .eq("id", data.machineId)
+      .maybeSingle();
+    if (machineError) throw machineError;
+    if (!machine) throw new Error("Machine not found");
+    await assertArcadeLocationAccess(context, machine.location_id);
+    const unique = [...new Set(data.partIds)];
+    const { error: clearError } = await context.supabase
+      .from("arcade_part_machines")
+      .delete()
+      .eq("machine_id", data.machineId);
+    if (clearError) throw clearError;
+    if (unique.length === 0) return { machineId: data.machineId, partIds: [] as string[] };
+    const { error: insertError } = await context.supabase
+      .from("arcade_part_machines")
+      .insert(unique.map((partId) => ({ part_id: partId, machine_id: data.machineId })));
+    if (insertError) throw insertError;
+    return { machineId: data.machineId, partIds: unique };
+  },
+  { auth: { capability: "arcade.manage" } },
 );
 
 export const saveSparePart = createAuthenticatedAction(

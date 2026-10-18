@@ -110,7 +110,10 @@ export {
   isMappedAttendanceHrRow,
   attendanceHrReportsUseListView,
   attendanceHrRowMatchesLocation,
+  attendanceHrRowMatchesKpiFilter,
+  suppressRoamingFalseAbsentForRosterElsewhere,
 } from "./report";
+export type { AttendanceHrKpiFilter } from "./report";
 export {
   persistOriginalFile,
   persistMergedBiometricUsers,

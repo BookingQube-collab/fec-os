@@ -30,7 +30,12 @@ import { validateBase64Size, validateUploadMime } from "@/lib/server/upload-vali
 import type { TablesUpdate } from "@/integrations/supabase/types";
 import { redactAuditPayload } from "@/lib/hr-sensitive-audit";
 import { insertStatusHistory } from "@/lib/staff-history";
-import { reconcileJokerStaffStatus } from "@/lib/staff-status";
+import {
+  isJokerEmploymentType,
+  isJokerStaffStatus,
+  reconcileJokerEmploymentType,
+  reconcileJokerStaffStatus,
+} from "@/lib/staff-status";
 import { applyStoredTrainingRules } from "@/lib/training/execute-rules";
 import {
   decodeImageDataUrl,
@@ -723,6 +728,9 @@ export const createStaff = createSafeAuthenticatedAction(
     const names = await departmentNamesForIds(context, data.departmentIds);
     const department = formatDepartmentDisplay(names) || null;
 
+    const employmentType = reconcileJokerEmploymentType(data.employmentType, data.status);
+    const status = reconcileJokerStaffStatus(employmentType, data.status);
+
     const { data: row, error } = await supabaseAdmin
       .from("staff")
       .insert({
@@ -732,12 +740,12 @@ export const createStaff = createSafeAuthenticatedAction(
         job_title: data.jobTitle ?? null,
         department,
         hire_date: data.hireDate ?? null,
-        status: reconcileJokerStaffStatus(data.employmentType, data.status),
+        status,
         phone: data.phone ?? null,
         email: data.email || null,
         qid: data.qid ?? null,
         e3_enrolled: data.e3Enrolled ?? null,
-        employment_type: data.employmentType ?? null,
+        employment_type: employmentType,
       })
       .select("id")
       .single();
@@ -802,12 +810,19 @@ export const updateStaff = createSafeAuthenticatedAction(
     if (fetchErr) throw fetchErr;
     await assertLocationAccess(context, existing.location_id);
 
-    const nextEmploymentType =
+    let nextEmploymentType =
       data.employmentType !== undefined ? data.employmentType : existing.employment_type;
-    const nextStatus = reconcileJokerStaffStatus(
-      nextEmploymentType,
-      data.status !== undefined ? data.status : existing.status,
-    );
+    let nextStatus = data.status !== undefined ? data.status : existing.status;
+    // Explicitly leaving joker employment clears a lingering joker status.
+    if (
+      data.employmentType !== undefined &&
+      !isJokerEmploymentType(nextEmploymentType) &&
+      isJokerStaffStatus(nextStatus)
+    ) {
+      nextStatus = "active";
+    }
+    nextEmploymentType = reconcileJokerEmploymentType(nextEmploymentType, nextStatus);
+    nextStatus = reconcileJokerStaffStatus(nextEmploymentType, nextStatus);
 
     if (data.jobTitle !== undefined && data.jobTitle !== existing.job_title && data.jobTitle) {
       await applyStoredTrainingRules(context, {
@@ -826,7 +841,7 @@ export const updateStaff = createSafeAuthenticatedAction(
     if (data.email !== undefined) patch.email = data.email || null;
     if (data.qid !== undefined) patch.qid = data.qid;
     if (data.e3Enrolled !== undefined) patch.e3_enrolled = data.e3Enrolled;
-    if (data.employmentType !== undefined) patch.employment_type = data.employmentType;
+    if (nextEmploymentType !== existing.employment_type) patch.employment_type = nextEmploymentType;
     if (data.flexibleAttendance !== undefined) patch.flexible_attendance = data.flexibleAttendance;
     if (data.canSelfCheckIn !== undefined) patch.can_self_check_in = data.canSelfCheckIn;
     if (data.reportingTimeMinutes !== undefined) patch.reporting_time_minutes = data.reportingTimeMinutes;

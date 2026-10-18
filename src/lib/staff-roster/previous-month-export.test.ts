@@ -88,21 +88,37 @@ function downloadRow(
 }
 
 const downloadRows: PreviousMonthRosterDownloadRow[] = [
-  downloadRow({ staffName: "Ops", locationId: "ua", departmentNames: ["Operations"] }),
-  downloadRow({ staffName: "Maint", locationId: "ua", departmentNames: ["Maintenance"], departmentCodes: ["MAINT"] }),
-  downloadRow({ staffName: "Cafe", locationId: "ua", departmentNames: ["F&B Cafe"] }),
-  downloadRow({ staffName: "Fb", locationId: "ua", department: "F&B", departmentCodes: ["FB"] }),
-  downloadRow({ staffName: "Both sides", locationId: "ua", department: "F&B Cafe + Operations" }),
-  downloadRow({ staffName: "Sr. Site Supervisor", locationId: "ua", departmentNames: ["Sr. Site Supervisor"] }),
-  downloadRow({ staffName: "Supervisor", locationId: "ua", departmentNames: ["Supervisor"] }),
-  downloadRow({ staffName: "Senior Site Supervisor", locationId: "ua", departmentNames: ["Senior Site Supervisor"] }),
-  downloadRow({ staffName: "Site Supervisor", locationId: "ua", departmentCodes: ["SITE_SUP"] }),
-  downloadRow({ staffName: "Manager", locationId: "ua", departmentNames: ["F&B Manager"] }),
-  downloadRow({ staffName: "F&B Supervisor", locationId: "ua", departmentNames: ["F&B Supervisor"] }),
-  downloadRow({ staffName: "Chef", locationId: "ua", departmentNames: ["Chef"] }),
-  downloadRow({ staffName: "General Manager", locationId: "ua", departmentNames: ["General Manager"] }),
-  downloadRow({ staffName: "Other site", locationId: "ho", departmentNames: ["Operations"] }),
-  downloadRow({ staffName: "Blank", locationId: "ua", department: null, departmentNames: [] }),
+  downloadRow({ staffName: "Ops", locationId: "ua", staffId: "s-ops", departmentNames: ["Operations"] }),
+  downloadRow({ staffName: "Maint", locationId: "ua", staffId: "s-maint", departmentNames: ["Maintenance"], departmentCodes: ["MAINT"] }),
+  downloadRow({ staffName: "Cafe", locationId: "ua", staffId: "s-cafe", departmentNames: ["F&B Cafe"] }),
+  downloadRow({ staffName: "Fb", locationId: "ua", staffId: "s-fb", department: "F&B", departmentCodes: ["FB"] }),
+  downloadRow({ staffName: "Both sides", locationId: "ua", staffId: "s-both", department: "F&B Cafe + Operations" }),
+  downloadRow({ staffName: "Sr. Site Supervisor", locationId: "ua", staffId: "s-sr", departmentNames: ["Sr. Site Supervisor"] }),
+  downloadRow({ staffName: "Supervisor", locationId: "ua", staffId: "s-sup", departmentNames: ["Supervisor"] }),
+  downloadRow({ staffName: "Senior Site Supervisor", locationId: "ua", staffId: "s-senior", departmentNames: ["Senior Site Supervisor"] }),
+  downloadRow({ staffName: "Site Supervisor", locationId: "ua", staffId: "s-site", departmentCodes: ["SITE_SUP"] }),
+  downloadRow({ staffName: "Manager", locationId: "ua", staffId: "s-mgr", departmentNames: ["F&B Manager"] }),
+  downloadRow({ staffName: "F&B Supervisor", locationId: "ua", staffId: "s-fb-sup", departmentNames: ["F&B Supervisor"] }),
+  downloadRow({ staffName: "Chef", locationId: "ua", staffId: "s-chef", departmentNames: ["Chef"] }),
+  downloadRow({ staffName: "General Manager", locationId: "ua", staffId: "s-gm", departmentNames: ["General Manager"] }),
+  downloadRow({ staffName: "Other site", locationId: "ho", staffId: "s-other", departmentNames: ["Operations"] }),
+  downloadRow({ staffName: "Blank", locationId: "ua", staffId: "s-blank", department: null, departmentNames: [] }),
+  downloadRow({
+    staffName: "Russell",
+    locationId: "ua",
+    staffId: "s-russell",
+    locationCode: "UA-DM",
+    workDate: "2026-09-02",
+    departmentNames: ["Operations"],
+  }),
+  downloadRow({
+    staffName: "Russell",
+    locationId: "inf",
+    staffId: "s-russell",
+    locationCode: "INF-CC",
+    workDate: "2026-09-01",
+    departmentNames: ["Operations"],
+  }),
 ];
 
 function namesFor(department: PreviousMonthRosterDepartment) {
@@ -121,6 +137,7 @@ describe("previous month roster location and department filter", () => {
       "Supervisor",
       "Senior Site Supervisor",
       "Site Supervisor",
+      "Russell",
     ]);
   });
 
@@ -142,7 +159,39 @@ describe("previous month roster location and department filter", () => {
       "Manager",
       "F&B Supervisor",
       "Chef",
+      "Russell",
     ]);
     expect(filterPreviousMonthRosterDownloadRows(downloadRows, { locationId: "  ", department: "both" })).toEqual([]);
+  });
+
+  it("keeps one person across every location and ignores department grouping", () => {
+    const rows = filterPreviousMonthRosterDownloadRows(downloadRows, { staffId: "s-russell" });
+    expect(rows.map((row) => `${row.workDate}:${row.locationCode}`)).toEqual([
+      "2026-09-02:UA-DM",
+      "2026-09-01:INF-CC",
+    ]);
+    expect(filterPreviousMonthRosterDownloadRows(downloadRows, { staffId: "  " })).toEqual([]);
+  });
+});
+
+describe("previous month roster sheet lines for multi-site staff", () => {
+  it("orders one person's shifts by date then location", () => {
+    const lines = previousMonthRosterSheetLines(
+      filterPreviousMonthRosterDownloadRows(downloadRows, { staffId: "s-russell" }),
+    );
+    expect(lines).toEqual([
+      {
+        date: "2026-09-01",
+        employee: "Russell",
+        location: "Inflatapark - City Center",
+        shift: "12:00-21:00",
+      },
+      {
+        date: "2026-09-02",
+        employee: "Russell",
+        location: "Urban Arena - Doha Mall",
+        shift: "12:00-21:00",
+      },
+    ]);
   });
 });

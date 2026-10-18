@@ -298,7 +298,7 @@ export const getArcadeMachine = createAuthenticatedAction(
     if (error) throw error;
     if (!machine) throw new Error("Machine not found");
     await assertArcadeLocationAccess(context, machine.location_id);
-    const [faults, pm, parts, cases, docs, damage, installs, timeline] = await Promise.all([
+    const [faults, pm, parts, cases, docs, damage, installs, timeline, partLinks, photos] = await Promise.all([
       context.supabase.from("arcade_faults").select("id, ticket_number, status, severity, category, reported_at, is_repeat, repeat_count, description").eq("machine_id", machine.id).order("reported_at", { ascending: false }).limit(25),
       context.supabase.from("arcade_pm_records").select("id, performed_on, confirmed, next_pm_on, issues_found, technician_staff_id").eq("machine_id", machine.id).order("performed_on", { ascending: false }).limit(25),
       context.supabase.from("arcade_part_usages").select("id, part_id, qty, used_on, fault_id, unit_cost").eq("machine_id", machine.id).order("used_on", { ascending: false }).limit(25),
@@ -307,12 +307,41 @@ export const getArcadeMachine = createAuthenticatedAction(
       context.supabase.from("arcade_damage_reports").select("id, reported_on, damage_type, description, estimated_cost, needs_mapping").eq("machine_id", machine.id).order("reported_on", { ascending: false }).limit(25),
       context.supabase.from("arcade_installations").select("id, status, installed_on, delivery_on, vendor_id").eq("machine_id", machine.id).order("created_at", { ascending: false }).limit(10),
       context.supabase.from("arcade_status_history").select("id, previous_status, new_status, notes, created_at, entity_type").eq("machine_id", machine.id).order("created_at", { ascending: false }).limit(40),
+      context.supabase.from("arcade_part_machines").select("part_id").eq("machine_id", machine.id),
+      context.supabase
+        .from("arcade_attachments")
+        .select("id, kind, storage_path, file_name, mime_type, created_at")
+        .eq("entity_type", "machine")
+        .eq("entity_id", machine.id)
+        .order("created_at", { ascending: false })
+        .limit(40),
     ]);
+    const linkedPartIds = [...new Set((partLinks.data ?? []).map((row) => row.part_id))];
+    const { data: spareParts, error: spareError } = linkedPartIds.length
+      ? await context.supabase
+          .from("arcade_spare_parts")
+          .select("id, part_code, name, part_number, manufacturer, supply_status, unit_cost, warehouse_location_id, photo_path")
+          .in("id", linkedPartIds)
+          .order("name")
+      : { data: [] as Array<{
+          id: string;
+          part_code: string;
+          name: string;
+          part_number: string | null;
+          manufacturer: string | null;
+          supply_status: string;
+          unit_cost: number | null;
+          warehouse_location_id: string | null;
+          photo_path: string | null;
+        }>, error: null };
+    if (spareError) throw spareError;
     return {
       machine,
       faults: faults.data ?? [],
       pm: pm.data ?? [],
       parts: parts.data ?? [],
+      spareParts: spareParts ?? [],
+      photos: photos.data ?? [],
       cases: cases.data ?? [],
       documents: docs.data ?? [],
       damage: damage.data ?? [],

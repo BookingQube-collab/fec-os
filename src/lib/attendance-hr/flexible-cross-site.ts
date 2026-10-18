@@ -186,16 +186,24 @@ export function crossSiteAnchorNeedsSummaryWrite(opts: {
 }
 
 /**
- * No-punch flexible day at a non-home work site:
+ * No-punch flexible / roaming day write decision:
  * - Week-off / leave must still write here (roster was amended at this site).
- * - Plain scheduled days only emit ABSENT at home — suppress fillers elsewhere.
+ * - On-duty roster at THIS site → write ABSENT (expected here, even if not home).
+ * - On-duty roster only elsewhere → suppress (never false ABSENT at home/work sites).
+ * - No roster anywhere: home keeps the fallback ABSENT; other sites suppress.
  */
 export function flexibleNoPunchWriteAtLocation(input: {
   isHomeLocation: boolean;
   isWeekOff: boolean;
   hasLeave: boolean;
+  /** Local on-duty roster row for this location+day (upload / site roster). */
+  rosteredHere?: boolean;
+  /** On-duty roster exists only at another location that day. */
+  rosteredOnDutyElsewhere?: boolean;
 }): "write" | "suppress" {
   if (input.isWeekOff || input.hasLeave) return "write";
+  if (input.rosteredHere) return "write";
+  if (input.rosteredOnDutyElsewhere) return "suppress";
   return input.isHomeLocation ? "write" : "suppress";
 }
 

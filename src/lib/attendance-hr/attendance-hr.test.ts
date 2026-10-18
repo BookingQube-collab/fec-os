@@ -62,6 +62,7 @@ import {
   attendanceHrDisplayStaffName,
   attendanceHrListingDeviceUserId,
   attendanceHrListingLocation,
+  attendanceHrRowMatchesKpiFilter,
   attendanceHrRowMatchesLocation,
   attendanceHrStaffMatches,
   attendanceHrToListingSource,
@@ -70,6 +71,7 @@ import {
   computeAttendanceHrReportKpis,
   attendanceHrReportsUseListView,
   formatAttendanceHrLocation,
+  suppressRoamingFalseAbsentForRosterElsewhere,
   type AttendanceHrReportRow,
 } from "./report";
 
@@ -779,6 +781,93 @@ describe("HR report row helpers", () => {
         "ua-dm",
       ),
     ).toBe(true);
+  });
+
+  it("suppresses false ABSENT for roaming staff rostered on duty elsewhere", () => {
+    const cross = new Set(["russell", "angie"]);
+    const rows = [
+      {
+        id: "home-absent",
+        location_id: "inf-cc",
+        staff_id: "russell",
+        work_date: "2026-10-05",
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        punch_count: 0,
+      },
+      {
+        id: "ua-present",
+        location_id: "ua-dm",
+        staff_id: "russell",
+        work_date: "2026-10-05",
+        status: "present",
+        actual_in: "2026-10-05T05:00:00.000Z",
+        actual_out: "2026-10-05T14:00:00.000Z",
+        punch_count: 2,
+      },
+      {
+        id: "true-absent",
+        location_id: "inf-cc",
+        staff_id: "angie",
+        work_date: "2026-10-05",
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        punch_count: 0,
+      },
+    ];
+    const filtered = suppressRoamingFalseAbsentForRosterElsewhere({
+      rows,
+      roster: [
+        { staff_id: "russell", location_id: "ua-dm", work_date: "2026-10-05", is_week_off: false },
+        { staff_id: "angie", location_id: "inf-cc", work_date: "2026-10-05", is_week_off: false },
+      ],
+      crossSiteStaffIds: cross,
+      locationId: "inf-cc",
+    });
+    expect(filtered.map((r) => r.id)).toEqual(["ua-present", "true-absent"]);
+  });
+
+  it("matches KPI card filters using the same rules as KPI totals", () => {
+    const base = {
+      id: "1",
+      location_id: "inf",
+      staff_id: "s1",
+      biometric_user_id: null,
+      work_date: "2026-10-05",
+      early_leave_minutes: 0,
+      overtime_minutes: 0,
+      missed_punch: false,
+      punch_count: 2,
+      worked_minutes: 480,
+      employment_type: "permanent",
+      staff_name: "A",
+      employee_code: "1",
+      qid: null,
+      location_code: "INF-CC",
+      location_name: null,
+      location_region: null,
+      late_minutes: 0,
+      actual_in: "2026-10-05T05:00:00.000Z",
+      actual_out: "2026-10-05T13:00:00.000Z",
+    } satisfies Partial<AttendanceHrReportRow>;
+    const present = { ...base, status: "present" } as AttendanceHrReportRow;
+    const absent = {
+      ...base,
+      status: "absent",
+      actual_in: null,
+      actual_out: null,
+      punch_count: 0,
+      worked_minutes: null,
+    } as AttendanceHrReportRow;
+    const late = { ...base, status: "present", late_minutes: 12 } as AttendanceHrReportRow;
+    expect(attendanceHrRowMatchesKpiFilter(present, "present")).toBe(true);
+    expect(attendanceHrRowMatchesKpiFilter(absent, "absent")).toBe(true);
+    expect(attendanceHrRowMatchesKpiFilter(absent, "present")).toBe(false);
+    expect(attendanceHrRowMatchesKpiFilter(late, "late")).toBe(true);
+    expect(attendanceHrRowMatchesKpiFilter(present, null)).toBe(true);
+    expect(attendanceHrRowMatchesKpiFilter(present, "total")).toBe(true);
   });
 
   it("fills listing gaps for roster and punch days missing from daily_summary", () => {

@@ -248,7 +248,7 @@ export function ArcadeDashboard() {
           <p>{t("arcadeFlow.commandSubtitle")}</p>
           <p className="cc-links">
             <Link href="/arcade/faults/new">{t("arcadeScreens.reportFault")}</Link>
-            {canManage ? <Link href="/arcade/machines/new">{t("arcadeFlow.addGame")}</Link> : null}
+            {canManage ? <Link href={siteId ? `/arcade/machines/new?locationId=${siteId}` : "/arcade/machines/new"}>{t("arcadeFlow.addGame")}</Link> : null}
           </p>
         </div>
         <time className="cc-date" dateTime={localDay(new Date())}>

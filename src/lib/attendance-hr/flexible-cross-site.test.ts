@@ -153,9 +153,26 @@ describe("flexible cross-site attendance", () => {
     ).toBe("write");
   });
 
-  it("documents home ABSENT when multisite staff are rostered only at a non-home site", () => {
-    // Non-home site suppresses the filler; home must still write (process.ts pulls
-    // on-duty cross-roster into expected at home — Maheraj blank-cell bug).
+  it("writes ABSENT at the rostered site (even non-home) and suppresses false home ABSENT", () => {
+    // Rostered on duty at UA (not home): UA must still emit ABSENT when no punches.
+    expect(
+      flexibleNoPunchWriteAtLocation({
+        isHomeLocation: false,
+        isWeekOff: false,
+        hasLeave: false,
+        rosteredHere: true,
+      }),
+    ).toBe("write");
+    // Home with on-duty roster only elsewhere: never false ABSENT (Russell / Louie).
+    expect(
+      flexibleNoPunchWriteAtLocation({
+        isHomeLocation: true,
+        isWeekOff: false,
+        hasLeave: false,
+        rosteredOnDutyElsewhere: true,
+      }),
+    ).toBe("suppress");
+    // No roster anywhere: home still writes the fallback ABSENT; other sites suppress.
     expect(
       flexibleNoPunchWriteAtLocation({ isHomeLocation: false, isWeekOff: false, hasLeave: false }),
     ).toBe("suppress");

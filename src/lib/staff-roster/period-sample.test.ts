@@ -142,6 +142,9 @@ describe("people roster period sample", () => {
       "e3-date-wise-roster-inf-cc-2026-08-16-to-2026-08-22.xlsx",
     );
     expect(peopleRosterSampleFilename("2026-07-28", "2026-08-27", null)).toContain("all-");
+    expect(peopleRosterSampleFilename("2026-08-28", "2026-09-27", "Russell Multi")).toBe(
+      "e3-date-wise-roster-russell-multi-2026-08-28-to-2026-09-27.xlsx",
+    );
   });
 
   it("formats E3 dates and weekdays the way the source roster does", () => {

@@ -145,6 +145,66 @@ export type TeamTodayView = {
   groups: TeamTodayGroup[];
 };
 
+export type TeamTodayLocationSummary = {
+  locationId: string | null;
+  label: string;
+  present: number;
+  annualLeave: number;
+  sickLeave: number;
+  notPresent: number;
+  total: number;
+};
+
+export type TeamTodayCounts = {
+  present: number;
+  annual_leave: number;
+  sick_leave: number;
+  not_present: number;
+};
+
+/** Unique people across groups (a multi-site person counts once). */
+export function countTeamTodayPeople(groups: readonly TeamTodayGroup[]): TeamTodayCounts {
+  const unique = new Map<string, TeamTodayStatus>();
+  for (const group of groups) {
+    for (const row of group.people) unique.set(row.staffId, row.status);
+  }
+  const counts: TeamTodayCounts = { present: 0, annual_leave: 0, sick_leave: 0, not_present: 0 };
+  for (const status of unique.values()) counts[status] += 1;
+  return counts;
+}
+
+/** One site only. Null locationId keeps every group. */
+export function filterTeamTodayByLocation(
+  view: TeamTodayView,
+  locationId: string | null | undefined,
+): TeamTodayView {
+  if (!locationId) return view;
+  const groups = view.groups.filter((group) => group.locationId === locationId);
+  return {
+    ...view,
+    singleLocation: true,
+    groups,
+  };
+}
+
+/** Compact location chips when no site is selected. */
+export function summarizeTeamTodayByLocation(
+  groups: readonly TeamTodayGroup[],
+): TeamTodayLocationSummary[] {
+  return groups.map((group) => {
+    const counts = countTeamTodayPeople([group]);
+    return {
+      locationId: group.locationId,
+      label: group.label,
+      present: counts.present,
+      annualLeave: counts.annual_leave,
+      sickLeave: counts.sick_leave,
+      notPresent: counts.not_present,
+      total: group.people.length,
+    };
+  });
+}
+
 function assignedLocationIds(person: TeamTodayMember): string[] {
   const ids = new Set<string>();
   if (person.homeLocationId) ids.add(person.homeLocationId);

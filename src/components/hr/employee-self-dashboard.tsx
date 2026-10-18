@@ -5,6 +5,7 @@ import { CalendarDays, CalendarRange, Clock, Palmtree, TicketCheck } from "lucid
 import { useTranslation } from "react-i18next";
 
 import { EmployeeRosterCalendar } from "@/components/hr/employee-roster-calendar";
+import { IncompletePunchRosterSelf } from "@/components/hr/incomplete-punch-roster-self";
 import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { HrPanel } from "@/components/hr/hr-panel";
 import { HrSection } from "@/components/hr/hr-section";
@@ -256,7 +257,8 @@ function RosterPanel() {
             ? `${formatWorkDateDdMmYyyy(roster.data.dateFrom)} → ${formatWorkDateDdMmYyyy(roster.data.dateTo)}`
             : null}
       </p>
-      <div className="mt-3">
+      <div className="mt-3 space-y-4">
+        <IncompletePunchRosterSelf />
         <EmployeeRosterList />
       </div>
     </HrPanel>

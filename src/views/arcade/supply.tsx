@@ -9,6 +9,7 @@ import { toast } from "sonner";
 
 import { ArcadeEmpty, ArcadeHero, arcadeStatusName, Field, Pager, StatusBadge } from "@/components/arcade/ui";
 import { ArcadeWorkbookImport } from "@/components/arcade/workbook-import";
+import { FecLoader } from "@/components/fec";
 import GlideSelect from "@/components/react-bits/glide-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -245,7 +246,21 @@ export function ArcadeParts() {
   const { t } = useTranslation();
   const search = useSearchParams();
   const canPurchase = usePermission("arcade.purchase");
-  const parts = useQuery({ queryKey: [...queryKeys.arcade.all, "parts"], queryFn: () => listSpareParts({ page: 1, pageSize: 50 }) });
+  const machineId = search.get("machineId");
+  const locationId = search.get("locationId");
+  const linkedParts = useQuery({
+    queryKey: queryKeys.arcade.parts({ page: 1, pageSize: 50, machineId, linked: true }),
+    queryFn: () => listSpareParts({ page: 1, pageSize: 50, machineId: machineId || null }),
+    enabled: Boolean(machineId),
+  });
+  const parts = useQuery({
+    queryKey: queryKeys.arcade.parts({ page: 1, pageSize: 50, locationId: machineId ? null : locationId }),
+    queryFn: () => listSpareParts({
+      page: 1,
+      pageSize: 50,
+      locationId: machineId ? null : locationId || null,
+    }),
+  });
   const requests = useQuery({ queryKey: [...queryKeys.arcade.all, "part-requests"], queryFn: () => listPartRequests({ page: 1, pageSize: 100 }) });
   const sites = useSites();
   const [name, setName] = useState("");
@@ -314,6 +329,25 @@ export function ArcadeParts() {
   return (
     <div className="arcade-stack">
       <ArcadeHero kicker={t("nav.arcade")} title={t("arcadeScreens.partsTitle")} subtitle={t("arcadeScreens.partsHint")} />
+      {machineId ? (
+        <section className="arcade-panel grid gap-2">
+          <h2 className="font-semibold">{t("arcadeGames.sparePartsTitle")}</h2>
+          <p className="text-sm text-muted-foreground">{t("arcadeGames.sparePartsHint")}</p>
+          {linkedParts.isLoading ? <FecLoader label={t("arcadeOps.loading")} density="chip" /> : null}
+          {(linkedParts.data?.rows ?? []).map((row) => (
+            <article key={row.id} className="arcade-row arcade-row--block text-sm">
+              <div className="flex justify-between gap-2"><span className="font-medium">{row.part_code} · {row.name}</span><StatusBadge status={row.supply_status} /></div>
+              <div className="mt-2 flex gap-2">
+                <Button size="sm" type="button" variant="outline" onClick={() => request.mutate(row.id)}>{t("arcadeScreens.request")}</Button>
+                <Button size="sm" type="button" onClick={() => consume.mutate(row.id)}>{t("arcadeScreens.useOnRepair")}</Button>
+              </div>
+            </article>
+          ))}
+          {!linkedParts.isLoading && (linkedParts.data?.rows.length ?? 0) === 0 ? (
+            <p className="text-sm text-muted-foreground">{t("arcadeGames.sparePartsEmpty")}</p>
+          ) : null}
+        </section>
+      ) : null}
       <div className="arcade-panel grid gap-3">
       <div className="grid gap-2 md:grid-cols-3">
         <Input placeholder={t("arcadeScreens.partName")} value={name} onChange={(event) => setName(event.target.value)} />

@@ -14,6 +14,7 @@ import {
 } from "@/components/attendance-hr/missed-punch-approval-queue";
 import { PunchCorrectionRequest } from "@/components/attendance-hr/punch-correction-request";
 import { MyDayCorrectionApprovals, MyDayLeaveApprovals } from "@/components/hr/my-day-approvals";
+import { IncompletePunchRosterSelf } from "@/components/hr/incomplete-punch-roster-self";
 import { RosterPunchFill } from "@/components/hr/roster-punch-fill";
 import { EmployeeIssuesList, EmployeeRosterList } from "@/components/hr/employee-self-dashboard";
 import { SelfCheckCard } from "@/components/hr/self-check-card";
@@ -556,7 +557,7 @@ export default function EmployeeMePage() {
                     </button>
                   </div>
                   {!person?.canSelfCheckIn ? <p className="hd-note">{t("hr.me.biometricNote")}</p> : null}
-                  {showTeamToday ? <TeamTodayPanel /> : null}
+                  {showTeamToday ? <TeamTodayPanel embedded /> : null}
                   <div className="hd-stack">
                     <MissedPunchApprovalQueue hideWhenEmpty actionableOnly title={t("hr.me.approvalsTitle")} />
                   </div>
@@ -655,7 +656,10 @@ export default function EmployeeMePage() {
 
               {active === "roster" ? (
                 <EssPanel id="me-roster" title={t("hr.me.myRoster")} hint={rosterHint}>
-                  <EmployeeRosterList />
+                  <div className="space-y-4">
+                    <IncompletePunchRosterSelf />
+                    <EmployeeRosterList />
+                  </div>
                 </EssPanel>
               ) : null}
 

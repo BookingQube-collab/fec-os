@@ -521,6 +521,99 @@ export function attendanceHrRowMatchesLocation(
   return false;
 }
 
+/** KPI strip keys that filter the reports table when clicked. */
+export type AttendanceHrKpiFilter =
+  | "total"
+  | "staff"
+  | "present"
+  | "absent"
+  | "late"
+  | "missed_punch"
+  | "unscheduled";
+
+/**
+ * Match a row to a KPI-strip filter using the same rules as
+ * {@link computeAttendanceHrReportKpis}. `total` / `staff` keep every row.
+ */
+export function attendanceHrRowMatchesKpiFilter(
+  row: AttendanceHrReportRow,
+  filter: AttendanceHrKpiFilter | null | undefined,
+): boolean {
+  if (!filter || filter === "total" || filter === "staff") return true;
+  const listing = attendanceHrToListingSource(row);
+  const resolved = resolveHoursBasedAttendanceStatus(listing);
+  switch (filter) {
+    case "present":
+      return resolved === "present" || resolved === "overtime" || resolved === "short_hours";
+    case "absent":
+      return resolved === "absent";
+    case "late":
+      return resolved === "late" || Number(row.late_minutes) > 0;
+    case "missed_punch":
+      return resolved === "missed_punch";
+    case "unscheduled":
+      return resolved === "unscheduled";
+    default:
+      return true;
+  }
+}
+
+function roamingRowHasUsablePunch(row: {
+  actual_in?: unknown;
+  actual_out?: unknown;
+  punch_count?: unknown;
+}): boolean {
+  if (row.actual_in || row.actual_out) return true;
+  return Number(row.punch_count ?? 0) > 0;
+}
+
+function roamingRowLooksAbsent(row: { status?: unknown }): boolean {
+  const status = String(row.status ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_");
+  return !status || status === "absent";
+}
+
+/**
+ * Drop false ABSENT person-days for roaming / multisite staff when the roster
+ * has them on duty at a different location that day and this row has no punches.
+ * Keeps week-off / leave / punched days. Used under a location filter so home
+ * fillers do not mark Russell/Louie Absent while they are rostered elsewhere.
+ */
+export function suppressRoamingFalseAbsentForRosterElsewhere(input: {
+  rows: Array<Record<string, unknown>>;
+  roster: ListingGapRosterDay[];
+  crossSiteStaffIds: ReadonlySet<string>;
+  locationId?: string | null;
+}): Array<Record<string, unknown>> {
+  if (!input.crossSiteStaffIds.size || input.rows.length === 0) return input.rows;
+
+  const onDutyElsewhere = new Set<string>();
+  for (const r of input.roster) {
+    const staffId = String(r.staff_id ?? "").trim();
+    const day = String(r.work_date ?? "").slice(0, 10);
+    const loc = String(r.location_id ?? "").trim();
+    if (!staffId || !day || !loc || r.is_week_off) continue;
+    if (!input.crossSiteStaffIds.has(staffId)) continue;
+    if (input.locationId && loc === input.locationId) continue;
+    onDutyElsewhere.add(`${staffId}|${day}`);
+  }
+  if (onDutyElsewhere.size === 0) return input.rows;
+
+  return input.rows.filter((row) => {
+    const staffId = typeof row.staff_id === "string" ? row.staff_id : "";
+    if (!staffId || !input.crossSiteStaffIds.has(staffId)) return true;
+    const day = String(row.work_date ?? "").slice(0, 10);
+    if (!day || !onDutyElsewhere.has(`${staffId}|${day}`)) return true;
+    const loc = String(row.location_id ?? "").trim();
+    if (input.locationId && loc && loc !== input.locationId) return true;
+    if (roamingRowHasUsablePunch(row)) return true;
+    if (!roamingRowLooksAbsent(row)) return true;
+    return false;
+  });
+}
+
 export type ListingGapRosterDay = {
   staff_id: string;
   location_id: string;

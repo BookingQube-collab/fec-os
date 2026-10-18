@@ -96,6 +96,7 @@ import {
   attendanceHrStaffMatches,
   collapseFlexibleAttendanceReportRows,
   isAttendanceHrUnmappedSearch,
+  suppressRoamingFalseAbsentForRosterElsewhere,
   type AttendanceHrReportRow,
   type ListingGapPunchDay,
   type ListingGapRosterDay,
@@ -898,6 +899,18 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
         roster: gapSources.roster,
         punchDays: gapSources.punchDays,
         locationId: data.locationId ?? null,
+      });
+    }
+
+    // Location chip: pull other-site person-days for roaming/multisite staff already in
+    // view, then drop home ABSENT fillers when the roster has them on duty elsewhere.
+    if (data.locationId && staffFilter !== "unmapped") {
+      rows = await applyRoamingLocationFilterAdjustments(readContext, {
+        rows,
+        locationId: data.locationId,
+        dateFrom: data.dateFrom,
+        dateTo: data.dateTo,
+        status: data.status ?? null,
       });
     }
 
@@ -3382,6 +3395,129 @@ async function enrichAttendanceHrDailyRows(
 }
 
 /** Roster + mapped punch days for listing gap fill (summary-only days otherwise vanish). */
+/**
+ * Under a site chip: include punched/rostered person-days at other sites for
+ * roaming staff already listed here, and suppress false ABSENT at this site when
+ * the roster has them on duty elsewhere that day.
+ */
+async function applyRoamingLocationFilterAdjustments(
+  context: AuthContext,
+  opts: {
+    rows: Array<Record<string, unknown>>;
+    locationId: string;
+    dateFrom: string;
+    dateTo: string;
+    status: string | null;
+  },
+): Promise<Array<Record<string, unknown>>> {
+  const staffIds = [
+    ...new Set(
+      opts.rows
+        .map((row) => (typeof row.staff_id === "string" ? row.staff_id : ""))
+        .filter(Boolean),
+    ),
+  ];
+  if (!staffIds.length) return opts.rows;
+
+  const { data: staffRows, error: staffErr } = await context.supabase
+    .from("staff")
+    .select("id, is_roaming, flexible_attendance")
+    .in("id", staffIds)
+    .is("deleted_at", null);
+  if (staffErr) throw staffErr;
+  const workByStaff = await fetchWorkLocationsByStaffId(context.supabase, staffIds);
+  const crossSiteStaffIds = new Set(
+    (staffRows ?? [])
+      .filter((row) =>
+        staffUsesCrossSiteDayMerge({
+          flexibleAttendance: (row as { flexible_attendance?: boolean | null }).flexible_attendance,
+          isRoaming: (row as { is_roaming?: boolean | null }).is_roaming,
+          workLocationCount: workByStaff.get(String(row.id))?.length ?? 0,
+        }),
+      )
+      .map((row) => String(row.id)),
+  );
+  if (!crossSiteStaffIds.size) return opts.rows;
+
+  const crossIds = [...crossSiteStaffIds];
+  const seenIds = new Set(opts.rows.map((r) => String(r.id ?? "")));
+  const seenPersonDays = new Set<string>();
+  for (const row of opts.rows) {
+    const staffId = typeof row.staff_id === "string" ? row.staff_id : "";
+    const day = String(row.work_date ?? "").slice(0, 10);
+    if (staffId && day) seenPersonDays.add(`${staffId}|${day}`);
+  }
+
+  const siblingPages = await Promise.all(
+    chunkStaffIds(crossIds).map((chunk) =>
+      collectPagedRowsInWaves(async (from, to) => {
+        let q = context.supabase
+          .from("attendance_daily_summary")
+          .select(ATTENDANCE_DAILY_LIST_COLUMNS)
+          .in("staff_id", chunk)
+          .gte("work_date", opts.dateFrom)
+          .lte("work_date", opts.dateTo)
+          .order("work_date", { ascending: false })
+          .order("id", { ascending: false })
+          .range(from, to);
+        if (opts.status) q = q.eq("status", opts.status);
+        const { data: page, error } = await q;
+        if (error) throw error;
+        return (page ?? []) as Array<Record<string, unknown>>;
+      }, ATTENDANCE_DAILY_LIST_PAGE_SIZE),
+    ),
+  );
+
+  let rows = [...opts.rows];
+  for (const row of siblingPages.flat()) {
+    const id = String(row.id ?? "");
+    if (id && seenIds.has(id)) continue;
+    const staffId = String(row.staff_id ?? "");
+    const day = String(row.work_date ?? "").slice(0, 10);
+    const loc = String(row.location_id ?? "");
+    if (!staffId || !day || !crossSiteStaffIds.has(staffId)) continue;
+    // Other-site person-days only — same-site rows are already in `opts.rows`.
+    if (!loc || loc === opts.locationId) continue;
+    if (id) seenIds.add(id);
+    seenPersonDays.add(`${staffId}|${day}`);
+    rows.push(row);
+  }
+
+  const rosterPages = await collectPagedRowsInWaves(async (from, to) => {
+    const { data: page, error } = await context.supabase
+      .from("attendance_roster_assignments")
+      .select("staff_id, location_id, work_date, is_week_off")
+      .in("staff_id", crossIds)
+      .gte("work_date", opts.dateFrom)
+      .lte("work_date", opts.dateTo)
+      .order("id", { ascending: true })
+      .range(from, to);
+    if (error) throw error;
+    return page ?? [];
+  }, ATTENDANCE_DAILY_LIST_PAGE_SIZE);
+
+  const roster: ListingGapRosterDay[] = [];
+  for (const row of rosterPages) {
+    const staffId = String(row.staff_id ?? "");
+    const loc = String(row.location_id ?? "");
+    const day = String(row.work_date ?? "").slice(0, 10);
+    if (!staffId || !loc || !day) continue;
+    roster.push({
+      staff_id: staffId,
+      location_id: loc,
+      work_date: day,
+      is_week_off: Boolean(row.is_week_off),
+    });
+  }
+
+  return suppressRoamingFalseAbsentForRosterElsewhere({
+    rows,
+    roster,
+    crossSiteStaffIds,
+    locationId: opts.locationId,
+  });
+}
+
 async function loadListingGapRosterAndPunchDays(
   context: AuthContext,
   opts: {

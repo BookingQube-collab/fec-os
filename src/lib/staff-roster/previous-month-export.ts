@@ -48,10 +48,16 @@ export type PreviousMonthRosterDepartment = (typeof PREVIOUS_MONTH_ROSTER_DEPART
 
 export type PreviousMonthRosterDownloadRow = PreviousMonthRosterSourceRow & {
   locationId: string;
+  staffId?: string | null;
   department?: string | null;
   departmentNames?: readonly (string | null)[] | null;
   departmentCodes?: readonly (string | null)[] | null;
 };
+
+/** Location + department group, or one person across every location. */
+export type PreviousMonthRosterDownloadScope =
+  | { locationId: string; department: PreviousMonthRosterDepartment }
+  | { staffId: string };
 
 /** Focus departments included for one download choice. */
 export function previousMonthRosterDepartmentFocus(
@@ -75,11 +81,22 @@ export function previousMonthRosterRowInDepartment(
   );
 }
 
-/** Keep rows for one location and one download department group. */
+function isStaffDownloadScope(
+  scope: PreviousMonthRosterDownloadScope,
+): scope is { staffId: string } {
+  return "staffId" in scope;
+}
+
+/** Keep rows for one location + department group, or one staff member across sites. */
 export function filterPreviousMonthRosterDownloadRows<T extends PreviousMonthRosterDownloadRow>(
   rows: readonly T[],
-  scope: { locationId: string; department: PreviousMonthRosterDepartment },
+  scope: PreviousMonthRosterDownloadScope,
 ): T[] {
+  if (isStaffDownloadScope(scope)) {
+    const staffId = scope.staffId.trim();
+    if (!staffId) return [];
+    return rows.filter((row) => String(row.staffId ?? "") === staffId);
+  }
   const locationId = scope.locationId.trim();
   if (!locationId) return [];
   return rows.filter(
@@ -92,6 +109,8 @@ export function previousMonthRosterSheetLines(rows: PreviousMonthRosterSourceRow
     .sort((a, b) => {
       const date = a.workDate.localeCompare(b.workDate);
       if (date) return date;
+      const loc = (a.locationCode ?? "").localeCompare(b.locationCode ?? "");
+      if (loc) return loc;
       const nameA = (a.staffName ?? a.employeeCode ?? "").trim();
       const nameB = (b.staffName ?? b.employeeCode ?? "").trim();
       return nameA.localeCompare(nameB);

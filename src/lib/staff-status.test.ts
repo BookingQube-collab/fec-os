@@ -10,6 +10,7 @@ import {
   isOnLeaveStaffStatus,
   isResignedStaffStatus,
   isTerminatedStaffStatus,
+  reconcileJokerEmploymentType,
   reconcileJokerStaffStatus,
 } from "./staff-status";
 
@@ -37,11 +38,16 @@ describe("staff status helpers", () => {
     expect(countsAsActiveStaff("joker", "permanent")).toBe(false);
     expect(countsAsActiveStaff("active", "permanent")).toBe(true);
     expect(countsAsActiveStaff("probation", null)).toBe(true);
-    expect(reconcileJokerStaffStatus("joker", "active")).toBe("joker");
-    expect(reconcileJokerStaffStatus("Joker", "probation")).toBe("joker");
+    // Active status is allowed while employment type stays joker.
+    expect(reconcileJokerStaffStatus("joker", "active")).toBe("active");
+    expect(reconcileJokerStaffStatus("Joker", "probation")).toBe("probation");
     expect(reconcileJokerStaffStatus("joker", "on_leave")).toBe("on_leave");
     expect(reconcileJokerStaffStatus("joker", "terminated")).toBe("terminated");
+    expect(reconcileJokerStaffStatus("joker", "")).toBe("joker");
     expect(reconcileJokerStaffStatus("permanent", "joker")).toBe("active");
+    expect(reconcileJokerEmploymentType("permanent", "joker")).toBe("joker");
+    expect(reconcileJokerEmploymentType("joker", "active")).toBe("joker");
+    expect(reconcileJokerEmploymentType("permanent", "active")).toBe("permanent");
   });
 
   it("counts active and on-leave as the payroll roster", () => {

@@ -1215,11 +1215,9 @@ function StaffFormDialog({
                     value={status}
                     onValueChange={(v) => {
                       const next = v as (typeof STAFF_STATUSES)[number];
-                      if (employmentType === "joker" && isActiveStaffStatus(next)) {
-                        setStatus("joker");
-                        return;
-                      }
                       setStatus(next);
+                      // Status=joker requires joker employment; Active may keep joker type.
+                      if (next === "joker") setEmploymentType("joker");
                     }}
                   >
                     <SelectTrigger><SelectValue /></SelectTrigger>

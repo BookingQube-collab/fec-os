@@ -370,6 +370,7 @@ export function HrDayBoard({
   recentHires,
   directoryDepartments = [],
   directoryLocations = [],
+  teamToday = null,
 }: {
   data: HrDayOverview;
   canPayroll: boolean;
@@ -380,6 +381,8 @@ export function HrDayBoard({
   recentHires: HrDayHire[];
   directoryDepartments?: Array<{ department: string; count: number }>;
   directoryLocations?: Array<{ code: string; name: string; count: number }>;
+  /** Compact team strip under Your day. */
+  teamToday?: ReactNode;
 }) {
   const { t } = useTranslation();
   const reduce = useReduceMotion();
@@ -536,6 +539,8 @@ export function HrDayBoard({
       </div>
 
       {filters ? <div className="hr-day__filters">{filters}</div> : null}
+
+      {teamToday ? <div className="hr-day__team-today">{teamToday}</div> : null}
 
       <section className="hr-day__card">
         <h2 className="hr-day__section-title">{t("hr.dashboard.day.nextTitle")}</h2>

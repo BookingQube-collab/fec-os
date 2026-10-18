@@ -2242,6 +2242,16 @@
   min-width: 0;
 }
 
+.hr-day__team-today {
+  min-width: 0;
+}
+
+/* Team today site rows — denser scan inside the day board card shell. */
+.hr-day__team-today > section {
+  background: var(--hr-day-card);
+  border-color: var(--hr-day-line);
+}
+
 .hr-day__card {
   min-width: 0;
   background: var(--hr-day-card);

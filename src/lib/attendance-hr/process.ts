@@ -1247,10 +1247,16 @@ export async function recalculateAttendanceRange(
           continue;
         }
         const homeId = homeLocationByStaffId.get(staffId) || "";
+        const rosteredHere = Boolean(fromUpload && !fromUpload.is_week_off);
+        const rosteredOnDutyElsewhere = Boolean(
+          !rosteredHere && crossRosterRow && !crossRosterRow.is_week_off,
+        );
         const writeDecision = flexibleNoPunchWriteAtLocation({
           isHomeLocation: !homeId || homeId === locationId,
           isWeekOff,
           hasLeave,
+          rosteredHere,
+          rosteredOnDutyElsewhere,
         });
         if (writeDecision === "suppress") {
           queueSummaryDelete(locationId, staffId, workDate);

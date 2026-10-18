@@ -111,8 +111,10 @@ export default function StaffRosterRegisterPage() {
   const [readyPeriod, setReadyPeriod] = useState<string | null>(null);
   const [previousBusy, setPreviousBusy] = useState(false);
   const [downloadOpen, setDownloadOpen] = useState(false);
-  const [downloadStep, setDownloadStep] = useState<"location" | "department">("location");
+  const [downloadStep, setDownloadStep] = useState<"scope" | "location" | "department" | "staff">("scope");
+  const [downloadScope, setDownloadScope] = useState<"location" | "person" | null>(null);
   const [downloadLocationId, setDownloadLocationId] = useState<string | null>(null);
+  const [downloadStaffId, setDownloadStaffId] = useState("");
   const [downloadDepartment, setDownloadDepartment] = useState<PreviousMonthRosterDepartment | null>(null);
   const [copyReplaceMeta, setCopyReplaceMeta] = useState<{
     targetMonth: string;
@@ -237,21 +239,36 @@ export default function StaffRosterRegisterPage() {
     previousCoverage.isLoading || (previousCoverage.data?.cardLocations == null && sites.isLoading);
   const downloadLocationsFailed =
     previousCoverage.isError || (previousCoverage.data != null && previousCoverage.data.cardLocations == null && sites.isError);
+  const downloadStaffOptions = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const row of previousCoverage.data?.rows ?? []) {
+      if (!row.staffId || byId.has(row.staffId)) continue;
+      byId.set(row.staffId, row.staffName || row.employeeCode || row.staffId);
+    }
+    return [...byId.entries()]
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
+  }, [previousCoverage.data?.rows]);
+  const downloadStaffLoading = previousCoverage.isLoading;
+  const downloadStaffFailed = previousCoverage.isError;
 
   const openDownloadChoice = () => {
-    setDownloadStep("location");
+    setDownloadStep("scope");
+    setDownloadScope(null);
     setDownloadLocationId(null);
+    setDownloadStaffId("");
     setDownloadDepartment(null);
     setDownloadOpen(true);
   };
 
-  const downloadPrevious = async (
-    locationId: string,
-    department: PreviousMonthRosterDepartment,
-  ): Promise<boolean> => {
+  const downloadPrevious = async (input: {
+    locationId?: string;
+    department?: PreviousMonthRosterDepartment;
+    staffId?: string;
+  }): Promise<boolean> => {
     try {
       setPreviousBusy(true);
-      const file = await downloadPreviousMonthRoster({ month, locationId, department });
+      const file = await downloadPreviousMonthRoster({ month, ...input });
       const bin = Uint8Array.from(atob(file.base64), (c) => c.charCodeAt(0));
       const blob = new Blob([bin], { type: file.mime });
       const objectUrl = URL.createObjectURL(blob);
@@ -276,9 +293,83 @@ export default function StaffRosterRegisterPage() {
   };
 
   const confirmDownload = async () => {
+    if (downloadScope === "person") {
+      if (!downloadStaffId) return;
+      const saved = await downloadPrevious({ staffId: downloadStaffId });
+      if (saved) setDownloadOpen(false);
+      return;
+    }
     if (!downloadLocationId || !downloadDepartment) return;
-    const saved = await downloadPrevious(downloadLocationId, downloadDepartment);
+    const saved = await downloadPrevious({ locationId: downloadLocationId, department: downloadDepartment });
     if (saved) setDownloadOpen(false);
+  };
+
+  const downloadScopeChoices: {
+    value: "location" | "person";
+    label: string;
+    hint: string;
+  }[] = [
+    {
+      value: "location",
+      label: t("people.roster.downloadPreviousMonthScopeLocation"),
+      hint: t("people.roster.downloadPreviousMonthScopeLocationHint"),
+    },
+    {
+      value: "person",
+      label: t("people.roster.downloadPreviousMonthScopePerson"),
+      hint: t("people.roster.downloadPreviousMonthScopePersonHint"),
+    },
+  ];
+
+  const downloadDialogTitle =
+    downloadStep === "scope"
+      ? t("people.roster.downloadPreviousMonthChooseScope")
+      : downloadStep === "location"
+        ? t("people.roster.downloadPreviousMonthChooseLocation")
+        : downloadStep === "staff"
+          ? t("people.roster.downloadPreviousMonthChooseStaff")
+          : t("people.roster.downloadPreviousMonthChooseDepartment");
+
+  const downloadDialogDescription =
+    downloadStep === "scope"
+      ? t("people.roster.downloadPreviousMonthChooseScopeBody", {
+          range: formatPayrollRange(previousPeriod.dateFrom, previousPeriod.dateTo, i18n.language),
+        })
+      : downloadStep === "location"
+        ? t("people.roster.downloadPreviousMonthChooseLocationBody", {
+            range: formatPayrollRange(previousPeriod.dateFrom, previousPeriod.dateTo, i18n.language),
+          })
+        : downloadStep === "staff"
+          ? t("people.roster.downloadPreviousMonthChooseStaffBody", {
+              range: formatPayrollRange(previousPeriod.dateFrom, previousPeriod.dateTo, i18n.language),
+            })
+          : t("people.roster.downloadPreviousMonthChooseDepartmentBody", {
+              location: downloadLocation?.label ?? "",
+            });
+
+  const downloadBackStep = () => {
+    if (downloadStep === "department" || downloadStep === "staff") {
+      setDownloadStep(downloadScope === "person" ? "scope" : "location");
+      if (downloadScope === "person") setDownloadStaffId("");
+      setDownloadDepartment(null);
+      return;
+    }
+    if (downloadStep === "location") {
+      setDownloadStep("scope");
+      setDownloadLocationId(null);
+      setDownloadScope(null);
+      return;
+    }
+    setDownloadOpen(false);
+  };
+
+  const downloadContinue = () => {
+    if (downloadStep === "scope") {
+      if (downloadScope === "person") setDownloadStep("staff");
+      else if (downloadScope === "location") setDownloadStep("location");
+      return;
+    }
+    if (downloadStep === "location" && downloadLocationId) setDownloadStep("department");
   };
 
   const applyCopyResult = (
@@ -532,22 +623,42 @@ export default function StaffRosterRegisterPage() {
       >
         <DialogContent className="max-h-[85vh] max-w-md overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>
-              {downloadStep === "location"
-                ? t("people.roster.downloadPreviousMonthChooseLocation")
-                : t("people.roster.downloadPreviousMonthChooseDepartment")}
-            </DialogTitle>
-            <DialogDescription>
-              {downloadStep === "location"
-                ? t("people.roster.downloadPreviousMonthChooseLocationBody", {
-                    range: formatPayrollRange(previousPeriod.dateFrom, previousPeriod.dateTo, i18n.language),
-                  })
-                : t("people.roster.downloadPreviousMonthChooseDepartmentBody", {
-                    location: downloadLocation?.label ?? "",
-                  })}
-            </DialogDescription>
+            <DialogTitle>{downloadDialogTitle}</DialogTitle>
+            <DialogDescription>{downloadDialogDescription}</DialogDescription>
           </DialogHeader>
-          {downloadStep === "location" ? (
+          {downloadStep === "scope" ? (
+            <div className="space-y-2">
+              {downloadScopeChoices.map((choice) => {
+                const checked = downloadScope === choice.value;
+                return (
+                  <label
+                    key={choice.value}
+                    className={cn(
+                      "flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-2",
+                      checked ? "border-primary" : "border-border/70",
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name="roster-download-scope"
+                      className="mt-1"
+                      checked={checked}
+                      onChange={() => {
+                        setDownloadScope(choice.value);
+                        setDownloadLocationId(null);
+                        setDownloadStaffId("");
+                        setDownloadDepartment(null);
+                      }}
+                    />
+                    <span>
+                      <span className="block text-sm font-medium">{choice.label}</span>
+                      <span className="block text-xs text-muted-foreground">{choice.hint}</span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          ) : downloadStep === "location" ? (
             downloadLocationsLoading ? (
               <p className="text-sm text-muted-foreground">{t("people.roster.locationCoverageLoading")}</p>
             ) : downloadLocationsFailed ? (
@@ -600,6 +711,24 @@ export default function StaffRosterRegisterPage() {
                 })}
               </ul>
             )
+          ) : downloadStep === "staff" ? (
+            downloadStaffLoading ? (
+              <p className="text-sm text-muted-foreground">{t("people.roster.locationCoverageLoading")}</p>
+            ) : downloadStaffFailed ? (
+              <p className="text-sm text-destructive">{t("people.roster.locationCoverageLoadFailed")}</p>
+            ) : downloadStaffOptions.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{t("people.roster.downloadPreviousMonthNoStaff")}</p>
+            ) : (
+              <div className="space-y-1.5">
+                <Label>{t("people.roster.downloadPreviousMonthChooseStaffLabel")}</Label>
+                <SearchableSelect
+                  value={downloadStaffId}
+                  onValueChange={setDownloadStaffId}
+                  emptyOption={{ value: "", label: t("people.roster.registerPickStaff") }}
+                  options={downloadStaffOptions}
+                />
+              </div>
+            )
           ) : (
             <div className="space-y-2">
               {downloadDepartmentChoices.map((choice) => {
@@ -629,32 +758,39 @@ export default function StaffRosterRegisterPage() {
             </div>
           )}
           <DialogFooter>
-            {downloadStep === "department" ? (
-              <Button
-                type="button"
-                variant="outline"
-                disabled={previousBusy}
-                onClick={() => setDownloadStep("location")}
-              >
-                {t("people.roster.downloadPreviousMonthBack")}
-              </Button>
-            ) : (
+            {downloadStep === "scope" ? (
               <Button type="button" variant="outline" onClick={() => setDownloadOpen(false)} disabled={previousBusy}>
                 {t("common.cancel")}
               </Button>
+            ) : (
+              <Button type="button" variant="outline" disabled={previousBusy} onClick={downloadBackStep}>
+                {t("people.roster.downloadPreviousMonthBack")}
+              </Button>
             )}
-            {downloadStep === "location" ? (
+            {downloadStep === "department" || downloadStep === "staff" ? (
               <Button
                 type="button"
-                disabled={previousBusy || downloadLocationsLoading || downloadLocationsFailed || !downloadLocationId}
-                onClick={() => setDownloadStep("department")}
+                disabled={
+                  previousBusy ||
+                  (downloadStep === "department" ? !downloadDepartment : !downloadStaffId || downloadStaffLoading || downloadStaffFailed)
+                }
+                onClick={() => void confirmDownload()}
               >
-                {t("people.roster.downloadPreviousMonthContinue")}
-              </Button>
-            ) : (
-              <Button type="button" disabled={previousBusy || !downloadDepartment} onClick={() => void confirmDownload()}>
                 {previousBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                 {t("people.roster.downloadPreviousMonthConfirm")}
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                disabled={
+                  previousBusy ||
+                  (downloadStep === "scope"
+                    ? !downloadScope
+                    : downloadLocationsLoading || downloadLocationsFailed || !downloadLocationId)
+                }
+                onClick={downloadContinue}
+              >
+                {t("people.roster.downloadPreviousMonthContinue")}
               </Button>
             )}
           </DialogFooter>

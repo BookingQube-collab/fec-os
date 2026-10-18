@@ -650,29 +650,48 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
     }
 
     if (data.coverageOnly) {
-      const rows = assignments.map((row) => ({
-        id: String(row.id),
-        locationId: String(row.location_id),
-        locationCode: null,
-        locationName: null,
-        staffId: String(row.staff_id),
-        staffName: null,
-        employeeCode: null,
-        qid: null,
-        workDate: String(row.work_date).slice(0, 10),
-        shiftStart: row.shift_start ? String(row.shift_start).slice(0, 5) : null,
-        shiftEnd: row.shift_end ? String(row.shift_end).slice(0, 5) : null,
-        shiftTemplateId: row.shift_template_id,
-        isWeekOff: Boolean(row.is_week_off),
-        leaveType: null,
-        compOffForDate: null,
-        compOffNote: null,
-        source: String(row.source ?? "manual"),
-        flexibleAttendance: false,
-        department: null,
-        departmentNames: [] as string[],
-        departmentCodes: [] as string[],
-      }));
+      const coverageStaffIds = [...new Set(assignments.map((row) => String(row.staff_id)).filter(Boolean))];
+      const coverageStaffPages = await Promise.all(
+        chunkIds(coverageStaffIds, ROSTER_ID_CHUNK).map(async (ids) => {
+          const { data: staffPage, error } = await db
+            .from("staff")
+            .select("id, full_name, employee_code")
+            .in("id", ids);
+          if (error) throw error;
+          return (staffPage ?? []) as Array<{
+            id: string;
+            full_name: string | null;
+            employee_code: string | null;
+          }>;
+        }),
+      );
+      const coverageStaffById = new Map(coverageStaffPages.flat().map((row) => [String(row.id), row]));
+      const rows = assignments.map((row) => {
+        const staff = coverageStaffById.get(String(row.staff_id));
+        return {
+          id: String(row.id),
+          locationId: String(row.location_id),
+          locationCode: null,
+          locationName: null,
+          staffId: String(row.staff_id),
+          staffName: staff?.full_name ?? null,
+          employeeCode: staff?.employee_code ?? null,
+          qid: null,
+          workDate: String(row.work_date).slice(0, 10),
+          shiftStart: row.shift_start ? String(row.shift_start).slice(0, 5) : null,
+          shiftEnd: row.shift_end ? String(row.shift_end).slice(0, 5) : null,
+          shiftTemplateId: row.shift_template_id,
+          isWeekOff: Boolean(row.is_week_off),
+          leaveType: null,
+          compOffForDate: null,
+          compOffNote: null,
+          source: String(row.source ?? "manual"),
+          flexibleAttendance: false,
+          department: null,
+          departmentNames: [] as string[],
+          departmentCodes: [] as string[],
+        };
+      });
       return {
         dateFrom: data.dateFrom,
         dateTo: data.dateTo,
@@ -1669,30 +1688,73 @@ async function rosterDownloadLocationCode(
 }
 
 /**
- * Excel of roster rows already stored for the FEC month before `month`,
- * for one location and one department group (operations with maintenance, F&B, or both).
+ * Excel of roster rows already stored for the FEC month before `month`.
+ * Pass locationId + department for one site (operations with maintenance, F&B, or both),
+ * or staffId for one person across every location they worked.
  * Same DATE / EMPLOYEE / LOCATION / SHIFT workbook as the shift-roster sample.
  * An empty selection still returns headers and no invented shifts.
  */
 export const downloadPreviousMonthRoster = createAuthenticatedAction(
-  z.object({
-    month: z.string().regex(/^\d{4}-\d{2}$/),
-    locationId: z.string().uuid(),
-    department: z.enum(["operations", "fb", "both"]),
-  }),
+  z
+    .object({
+      month: z.string().regex(/^\d{4}-\d{2}$/),
+      locationId: z.string().uuid().optional(),
+      department: z.enum(["operations", "fb", "both"]).optional(),
+      staffId: z.string().uuid().optional(),
+    })
+    .superRefine((value, ctx) => {
+      if (value.staffId) return;
+      if (!value.locationId) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "locationId is required", path: ["locationId"] });
+      }
+      if (!value.department) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "department is required", path: ["department"] });
+      }
+    }),
   async (data, context) => {
     const priorMonth = previousPayrollMonth(data.month);
     const period = monthBounds(priorMonth);
+
+    if (data.staffId) {
+      const listed = await listUploadedRosterAssignments({
+        dateFrom: period.dateFrom,
+        dateTo: period.dateTo,
+        sourceUploadOnly: false,
+        staffId: data.staffId,
+      });
+      const filtered = filterPreviousMonthRosterDownloadRows(listed.rows, { staffId: data.staffId });
+      const lines = previousMonthRosterSheetLines(filtered);
+      const built = await buildPeopleRosterRowsXlsx(lines, period, { periodMode: "month" });
+      if (built.truncated) {
+        throw new Error("Previous month roster is too large to download in one file.");
+      }
+      const employeeToken =
+        listed.rows.find((row) => row.employeeCode?.trim())?.employeeCode?.trim() ||
+        listed.rows.find((row) => row.staffName?.trim())?.staffName?.trim() ||
+        "person";
+      return {
+        filename: peopleRosterSampleFilename(period.dateFrom, period.dateTo, employeeToken),
+        mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        base64: built.buffer.toString("base64"),
+        rowCount: built.rowCount,
+        empty: built.rowCount === 0,
+        month: priorMonth,
+        dateFrom: period.dateFrom,
+        dateTo: period.dateTo,
+      };
+    }
+
+    const locationId = data.locationId!;
     const department = data.department as PreviousMonthRosterDepartment;
     const listed = await listUploadedRosterAssignments({
       dateFrom: period.dateFrom,
       dateTo: period.dateTo,
       sourceUploadOnly: false,
-      locationId: data.locationId,
+      locationId,
       includeCopyDepartments: true,
     });
     const filtered = filterPreviousMonthRosterDownloadRows(listed.rows, {
-      locationId: data.locationId,
+      locationId,
       department,
     });
     const lines = previousMonthRosterSheetLines(filtered);
@@ -1702,7 +1764,7 @@ export const downloadPreviousMonthRoster = createAuthenticatedAction(
     }
     const locationCode =
       listed.rows.find((row) => row.locationCode)?.locationCode ??
-      (await rosterDownloadLocationCode(context.supabase, data.locationId));
+      (await rosterDownloadLocationCode(context.supabase, locationId));
     return {
       filename: peopleRosterSampleFilename(period.dateFrom, period.dateTo, locationCode),
       mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

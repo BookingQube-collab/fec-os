@@ -204,7 +204,8 @@ export const queryKeys = {
     attendanceIngestLogs: () => [...queryKeys.people.all, "attendance-ingest-logs"] as const,
     attendanceHr: (filters?: object) => [...queryKeys.people.all, "attendance-hr", filters ?? {}] as const,
     hrOverview: (filters?: object) => [...queryKeys.people.all, "hr-overview", filters ?? {}] as const,
-    teamToday: () => [...queryKeys.people.all, "team-today"] as const,
+    teamToday: (locationId?: string | null) =>
+      [...queryKeys.people.all, "team-today", locationId ?? null] as const,
     hrDocs: (filters?: object) => [...queryKeys.people.all, "hr-docs", filters ?? {}] as const,
     hrDocPreview: (id: string) => [...queryKeys.people.all, "hr-doc-preview", id] as const,
     hrChecklists: (filters?: object) => [...queryKeys.people.all, "hr-checklists", filters ?? {}] as const,
@@ -416,6 +417,7 @@ export const queryKeys = {
     photos: (paths: readonly string[]) => [...queryKeys.arcade.all, "photos", paths] as const,
     machines: (filters?: object) => [...queryKeys.arcade.all, "machines", filters ?? {}] as const,
     machine: (id?: string | null) => [...queryKeys.arcade.all, "machine", id ?? null] as const,
+    parts: (filters?: object) => [...queryKeys.arcade.all, "parts", filters ?? {}] as const,
     faults: (filters?: object) => [...queryKeys.arcade.all, "faults", filters ?? {}] as const,
     fault: (id?: string | null) => [...queryKeys.arcade.all, "fault", id ?? null] as const,
     context: () => [...queryKeys.arcade.all, "context"] as const,

@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { AttendanceHrNav } from "@/components/attendance-hr/attendance-hr-nav";
+import { RosterFromPunchesPanel } from "@/components/attendance-hr/roster-from-punches-panel";
 import { TintedKpiCard } from "@/components/dashboard/tinted-kpi-card";
 import { NeumorphicCard } from "@/components/dashboard/neumorphic-card";
 import { Button } from "@/components/ui/button";
@@ -350,6 +351,14 @@ export default function AttendanceHrDeviceLogsPage() {
             <a href={`${exportHref}&format=pdf`}>{t("attendanceHr.reports.exportPdf")}</a>
           </Button>
         </div>
+
+        <RosterFromPunchesPanel
+          dateFrom={from}
+          dateTo={to}
+          locationId={locationId}
+          deviceId={deviceId || null}
+          deviceUserKeys={deviceUserKeys}
+        />
       </NeumorphicCard>
 
       <div className="relative space-y-6" aria-busy={listingBusy || logs.isLoading}>

@@ -79,7 +79,13 @@ export function peopleRosterSampleFilename(
   dateTo: string,
   locationCode: string | null,
 ): string {
-  const loc = locationCode ? locationCode.toLowerCase() : "all";
+  const loc = locationCode
+    ? locationCode
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "") || "all"
+    : "all";
   return `e3-date-wise-roster-${loc}-${dateFrom}-to-${dateTo}.xlsx`;
 }
 

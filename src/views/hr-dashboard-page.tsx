@@ -152,7 +152,6 @@ export default function HrDashboardPage() {
       }
     >
       <div className="min-w-0 space-y-4">
-        <TeamTodayPanel />
         {overviewState === "error" ? (
           <div className="space-y-4">
             {filters}
@@ -178,6 +177,13 @@ export default function HrDashboardPage() {
             recentHires={directory.data?.recent_hires ?? []}
             directoryDepartments={directory.data?.staff_by_department ?? []}
             directoryLocations={directory.data?.staff_by_location ?? []}
+            teamToday={
+              <TeamTodayPanel
+                locationId={locationFilter}
+                embedded
+                onSelectLocation={(id) => setLocationId(id ?? "all")}
+              />
+            }
           />
         )}
       </div>

@@ -34,7 +34,7 @@ import { useSites } from "@/hooks/queries/useSites";
 import { usePermission } from "@/hooks/use-permission";
 import { isArcadeVenueLocation, MACHINE_STATUSES } from "@/lib/arcade/domain";
 import { getArcadeContext, getArcadeFileUrl, getArcadeMachine, getArcadeSiteBoard, listArcadeMachines, saveArcadeMachine, uploadArcadeFile } from "@/lib/arcade.functions";
-import { listArcadeSuppliers } from "@/lib/arcade-supply.functions";
+import { listArcadeSuppliers, listSpareParts, setArcadeMachineParts } from "@/lib/arcade-supply.functions";
 import { fmtCurrency } from "@/lib/currency";
 import { venueTitle } from "@/lib/locations/normalize";
 import { queryKeys } from "@/lib/query-keys";
@@ -405,8 +405,22 @@ export function ArcadeMachineForm({ machineId }: { machineId?: string }) {
   });
   const qc = useQueryClient();
   const search = useSearchParams();
-  const [form, setForm] = useState({ ...emptyMachineForm, locationId: search.get("locationId") ?? "" });
+  const seedLocation = search.get("locationId") ?? "";
+  const [form, setForm] = useState({ ...emptyMachineForm, locationId: seedLocation });
   const [hydrated, setHydrated] = useState(false);
+  const [partIds, setPartIds] = useState<string[]>([]);
+  const [partsHydrated, setPartsHydrated] = useState(false);
+  const [pendingPhoto, setPendingPhoto] = useState<File | null>(null);
+  const [pendingPreview, setPendingPreview] = useState<string | null>(null);
+  const pendingPhotoRef = useRef<HTMLInputElement>(null);
+  const catalog = useQuery({
+    queryKey: queryKeys.arcade.parts({ page: 1, pageSize: 100, catalog: true }),
+    queryFn: () => listSpareParts({ page: 1, pageSize: 100 }),
+  });
+  useEffect(() => {
+    if (machineId || !seedLocation || form.locationId) return;
+    setForm((current) => ({ ...current, locationId: seedLocation }));
+  }, [machineId, seedLocation, form.locationId]);
   useEffect(() => {
     const row = existing.data?.machine;
     if (!row || hydrated) return;
@@ -443,39 +457,73 @@ export function ArcadeMachineForm({ machineId }: { machineId?: string }) {
     });
     setHydrated(true);
   }, [existing.data, hydrated]);
+  useEffect(() => {
+    if (!existing.data || partsHydrated) return;
+    setPartIds((existing.data.spareParts ?? []).map((part) => part.id));
+    setPartsHydrated(true);
+  }, [existing.data, partsHydrated]);
+  useEffect(() => {
+    if (!pendingPhoto) {
+      setPendingPreview(null);
+      return;
+    }
+    const url = URL.createObjectURL(pendingPhoto);
+    setPendingPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [pendingPhoto]);
   const save = useMutation({
-    mutationFn: () => saveArcadeMachine({
-      id: machineId,
-      assetCode: form.assetCode,
-      name: form.name,
-      gameCategory: form.gameCategory,
-      locationId: form.locationId,
-      zone: form.zone || null,
-      unitNumber: form.unitNumber || null,
-      manufacturer: form.manufacturer || null,
-      vendorId: form.vendorId || null,
-      supplierName: form.supplierName || null,
-      model: form.model || null,
-      serialNumber: form.serialNumber || null,
-      installedOn: form.installedOn || null,
-      purchasedOn: form.purchasedOn || null,
-      warrantyStart: form.warrantyStart || null,
-      warrantyExpiresOn: form.warrantyExpiresOn || null,
-      machineCost: form.machineCost ? Number(form.machineCost) : null,
-      amountPaid: form.amountPaid === "" ? null : Number(form.amountPaid),
-      paidCurrency: form.paidCurrency || null,
-      paidOn: form.paidOn || null,
-      status: form.status as "WORKING",
-      technicianStaffId: form.technicianStaffId || null,
-      powerRequirement: form.powerRequirement || null,
-      networkRequirement: form.networkRequirement || null,
-      ipAddress: form.ipAddress || null,
-      softwareVersion: form.softwareVersion || null,
-      controllerPcb: form.controllerPcb || null,
-      cardRfidInterface: form.cardRfidInterface || null,
-      nextPmOn: form.nextPmOn || null,
-      notes: form.notes || null,
-    }),
+    mutationFn: async () => {
+      if (!form.locationId) throw new Error(t("arcadeScreens.selectSite"));
+      const row = await saveArcadeMachine({
+        id: machineId,
+        assetCode: form.assetCode,
+        name: form.name,
+        gameCategory: form.gameCategory,
+        locationId: form.locationId,
+        zone: form.zone || null,
+        unitNumber: form.unitNumber || null,
+        manufacturer: form.manufacturer || null,
+        vendorId: form.vendorId || null,
+        supplierName: form.supplierName || null,
+        model: form.model || null,
+        serialNumber: form.serialNumber || null,
+        installedOn: form.installedOn || null,
+        purchasedOn: form.purchasedOn || null,
+        warrantyStart: form.warrantyStart || null,
+        warrantyExpiresOn: form.warrantyExpiresOn || null,
+        machineCost: form.machineCost ? Number(form.machineCost) : null,
+        amountPaid: form.amountPaid === "" ? null : Number(form.amountPaid),
+        paidCurrency: form.paidCurrency || null,
+        paidOn: form.paidOn || null,
+        status: form.status as "WORKING",
+        technicianStaffId: form.technicianStaffId || null,
+        powerRequirement: form.powerRequirement || null,
+        networkRequirement: form.networkRequirement || null,
+        ipAddress: form.ipAddress || null,
+        softwareVersion: form.softwareVersion || null,
+        controllerPcb: form.controllerPcb || null,
+        cardRfidInterface: form.cardRfidInterface || null,
+        nextPmOn: form.nextPmOn || null,
+        notes: form.notes || null,
+      });
+      if (pendingPhoto) {
+        const dataBase64 = await readBase64(pendingPhoto);
+        await uploadArcadeFile({
+          entityType: "machine",
+          entityId: row.id,
+          locationId: form.locationId,
+          kind: pendingPhoto.type.startsWith("video/") ? "video" : "photo",
+          filename: pendingPhoto.name || "game.jpg",
+          contentType: pendingPhoto.type || "image/jpeg",
+          dataBase64,
+        });
+      }
+      // On edit, wait until linked parts are loaded so we never wipe the list with [].
+      if (!machineId || partsHydrated) {
+        await setArcadeMachineParts({ machineId: row.id, partIds });
+      }
+      return row;
+    },
     onSuccess: (row) => {
       toast.success(t("arcadeScreens.savedMachine", { code: row.asset_code }));
       void qc.invalidateQueries({ queryKey: queryKeys.arcade.all });
@@ -484,6 +532,11 @@ export function ArcadeMachineForm({ machineId }: { machineId?: string }) {
     onError: (error) => toast.error(error instanceof Error ? error.message : t("arcadeScreens.saveMachineFailed")),
   });
   if (machineId && existing.isLoading) return <p className="text-sm text-muted-foreground">{t("arcadeScreens.loadingMachine")}</p>;
+  const selectedParts = new Set(partIds);
+  const catalogRows = catalog.data?.rows ?? [];
+  const togglePart = (partId: string) => {
+    setPartIds((current) => (current.includes(partId) ? current.filter((id) => id !== partId) : [...current, partId]));
+  };
   return (
     <form className="arcade-stack max-w-3xl" onSubmit={(event) => { event.preventDefault(); save.mutate(); }}>
       <ArcadeHero title={machineId ? t("arcadeGames.editGame") : t("arcadeScreens.machineMaster")} subtitle={t("arcadeScreens.machineMasterHint")} />
@@ -567,8 +620,101 @@ export function ArcadeMachineForm({ machineId }: { machineId?: string }) {
       </div>
       <p className="text-xs text-muted-foreground">{t("arcadeGames.supplierHint")}</p>
       <Field label={t("arcadeScreens.notes")}><Textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} /></Field>
-      <Button type="submit" className="arcade-cta" disabled={save.isPending}>{t("arcadeGames.saveGame")}</Button>
       </div>
+      <section className="arcade-panel grid gap-3">
+        <div>
+          <h2 className="font-semibold">{t("arcadeGames.imagesTitle")}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">{t("arcadeGames.imagesHint")}</p>
+        </div>
+        {machineId && existing.data?.machine ? (
+          <PhotoUpload
+            machineId={machineId}
+            locationId={form.locationId || existing.data.machine.location_id}
+            photoPath={existing.data.machine.photo_path}
+            name={form.name || existing.data.machine.name}
+            plain
+          />
+        ) : (
+          <div className="grid min-w-0 gap-3">
+            <GamePhoto
+              src={pendingPreview}
+              alt={t("arcadeScreens.gamePhoto", { name: form.name || t("arcadeFlow.addGame") })}
+              missingLabel={t("arcadeScreens.photoMissing")}
+              className="aspect-[4/3] w-full max-w-sm rounded-lg"
+            />
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" onClick={() => pendingPhotoRef.current?.click()}>
+                <Camera aria-hidden />
+                {pendingPhoto ? t("arcadeGames.changePhoto") : t("arcadeScreens.addPhoto")}
+              </Button>
+              {pendingPhoto ? (
+                <Button type="button" variant="ghost" onClick={() => setPendingPhoto(null)}>
+                  {t("arcadeGames.clearPhoto")}
+                </Button>
+              ) : null}
+            </div>
+            <input
+              ref={pendingPhotoRef}
+              tabIndex={-1}
+              className="sr-only"
+              type="file"
+              accept="image/*,video/*"
+              capture="environment"
+              aria-label={t("arcadeScreens.addPhoto")}
+              onChange={(event) => {
+                const file = event.target.files?.[0] ?? null;
+                event.target.value = "";
+                setPendingPhoto(file);
+              }}
+            />
+          </div>
+        )}
+        {machineId && (existing.data?.photos?.length ?? 0) > 0 ? (
+          <GamePhotoRail
+            coverPath={existing.data?.machine.photo_path ?? null}
+            photos={existing.data?.photos ?? []}
+            name={form.name || existing.data?.machine.name || ""}
+          />
+        ) : null}
+      </section>
+      <section className="arcade-panel grid gap-3">
+        <div>
+          <h2 className="font-semibold">{t("arcadeGames.sparePartsTitle")}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">{t("arcadeGames.sparePartsHint")}</p>
+        </div>
+        {!form.locationId ? <p className="text-sm text-muted-foreground">{t("arcadeGames.sparePartsNeedSite")}</p> : null}
+        {form.locationId && catalog.isLoading ? <FecLoader label={t("arcadeOps.loading")} density="chip" /> : null}
+        {form.locationId && !catalog.isLoading && catalogRows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">{t("arcadeFlow.partsEmpty")}</p>
+        ) : null}
+        {form.locationId && catalogRows.length > 0 ? (
+          <ul className="grid gap-2">
+            {catalogRows.map((part) => {
+              const checked = selectedParts.has(part.id);
+              return (
+                <li key={part.id}>
+                  <label className={cn("arcade-row arcade-row--block flex cursor-pointer items-start gap-3 text-sm", checked && "ring-1 ring-primary")}>
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={checked}
+                      onChange={() => togglePart(part.id)}
+                    />
+                    <span className="min-w-0">
+                      <span className="block font-medium">{part.part_code} · {part.name}</span>
+                      <span className="text-muted-foreground">
+                        {[part.manufacturer, part.part_number, arcadeStatusName(t, part.supply_status)].filter(Boolean).join(" · ")}
+                      </span>
+                    </span>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+        {partIds.length > 0 ? <p className="text-xs text-muted-foreground">{t("arcadeGames.sparePartsSelected", { count: partIds.length })}</p> : null}
+      </section>
+      <Button type="submit" className="arcade-cta" disabled={save.isPending || !form.locationId || Boolean(machineId && !partsHydrated)}>{t("arcadeGames.saveGame")}</Button>
     </form>
   );
 }
@@ -643,6 +789,9 @@ export function ArcadeMachineDetail({ id }: { id: string }) {
         <section className="cc-card gp-identity">
           <div className="grid gap-3">
             <PhotoUpload machineId={row.id} locationId={row.location_id} photoPath={row.photo_path} name={row.name} compact />
+            {(machine.data.photos?.length ?? 0) > 0 || row.photo_path ? (
+              <GamePhotoRail coverPath={row.photo_path} photos={machine.data.photos ?? []} name={row.name} compact />
+            ) : null}
             <MachineQr assetCode={row.asset_code} compact />
           </div>
           <div className="min-w-0">
@@ -704,6 +853,7 @@ export function ArcadeMachineDetail({ id }: { id: string }) {
         technicians={context.data?.technicians ?? []}
         techniciansReady={context.isFetched}
         links={links}
+        canManage={canManage}
       />
     </div>
   );
@@ -766,11 +916,13 @@ function MachineTabs({
   technicians,
   techniciansReady,
   links,
+  canManage: canManagePartsLink,
 }: {
   data: MachineDetail;
   technicians: Technician[];
   techniciansReady: boolean;
   links: MachineLinks;
+  canManage: boolean;
 }) {
   const { t } = useTranslation();
   const [tab, setTab] = useState<DetailTab>("Overview");
@@ -868,19 +1020,58 @@ function MachineTabs({
           })
         ) : null}
         {tab === "Parts" ? (
-          data.parts.length === 0 ? <TabEmpty message={t("arcadeScreens.emptyParts")} href={links.part} label={t("arcadeScreens.requestPart")} variant="outline" /> : data.parts.map((item) => {
-            const cost = displayMoney(item.unit_cost, "QAR");
-            return (
-              <article key={item.id} className={detailCard}>
-                <p className="font-medium">{formatDay(item.used_on) ?? t("arcadeScreens.notRecorded")}</p>
-                <p className="mt-1 text-muted-foreground">
-                  {t("arcadeScreens.qty", { qty: item.qty })}
-                  {cost ? ` · ${t("arcadeScreens.unitCost", { cost })}` : ""}
+          <>
+            <section className={detailCard}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="font-semibold">{t("arcadeGames.sparePartsTitle")}</h2>
+                <ActionButton href={links.part} variant="outline">{t("arcadeScreens.requestPart")}</ActionButton>
+              </div>
+              {(data.spareParts?.length ?? 0) === 0 ? (
+                <p className="mt-2 text-muted-foreground">{t("arcadeGames.sparePartsEmpty")}</p>
+              ) : (
+                <ul className="mt-2 grid gap-2">
+                  {data.spareParts.map((part) => (
+                    <li key={part.id} className="arcade-row arcade-row--block text-sm">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="font-medium">{part.part_code} · {part.name}</p>
+                        <StatusBadge status={part.supply_status} />
+                      </div>
+                      <p className="mt-1 text-muted-foreground">
+                        {[part.manufacturer, part.part_number, displayMoney(part.unit_cost, "QAR")].filter(Boolean).join(" · ") || t("arcadeScreens.notRecorded")}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {canManagePartsLink ? (
+                <p className="mt-3">
+                  <Link className="underline underline-offset-2" href={`/arcade/machines/${data.machine.id}/edit`}>
+                    {t("arcadeGames.editSpareParts")}
+                  </Link>
                 </p>
-                {item.fault_id ? <Link href={`/arcade/faults/${item.fault_id}`} className="mt-2 inline-flex min-h-11 items-center underline underline-offset-2">{t("arcadeOps.fault")}</Link> : null}
-              </article>
-            );
-          })
+              ) : null}
+            </section>
+            <h2 className="font-semibold">{t("arcadeScreens.partsUsed")}</h2>
+            {data.parts.length === 0 ? (
+              <TabEmpty message={t("arcadeScreens.emptyParts")} href={links.part} label={t("arcadeScreens.requestPart")} variant="outline" />
+            ) : (
+              data.parts.map((item) => {
+                const cost = displayMoney(item.unit_cost, "QAR");
+                const linked = data.spareParts?.find((part) => part.id === item.part_id);
+                return (
+                  <article key={item.id} className={detailCard}>
+                    <p className="font-medium">
+                      {linked ? `${linked.part_code} · ${linked.name}` : formatDay(item.used_on) ?? t("arcadeScreens.notRecorded")}
+                    </p>
+                    <p className="mt-1 text-muted-foreground">
+                      {[formatDay(item.used_on), t("arcadeScreens.qty", { qty: item.qty }), cost ? t("arcadeScreens.unitCost", { cost }) : null].filter(Boolean).join(" · ")}
+                    </p>
+                    {item.fault_id ? <Link href={`/arcade/faults/${item.fault_id}`} className="mt-2 inline-flex min-h-11 items-center underline underline-offset-2">{t("arcadeOps.fault")}</Link> : null}
+                  </article>
+                );
+              })
+            )}
+          </>
         ) : null}
         {tab === "SupplierCases" ? (
           data.cases.length === 0 ? <TabEmpty message={t("arcadeScreens.emptyCases")} href={links.supplier} label={t("arcadeScreens.contactSupplier")} variant="secondary" /> : data.cases.map((item) => (
@@ -1147,6 +1338,41 @@ function machineSpecs(
     { label: t("arcadeScreens.lastRepair"), value: formatStamp(row.last_repair_at) },
   ].filter((item): item is { label: string; value: string } => Boolean(item.value));
   return [...core, ...extra];
+}
+
+function GamePhotoRail({
+  coverPath,
+  photos,
+  name,
+  compact = false,
+}: {
+  coverPath: string | null;
+  photos: Array<{ id: string; storage_path: string; kind: string; mime_type: string | null; file_name: string | null }>;
+  name: string;
+  compact?: boolean;
+}) {
+  const { t } = useTranslation();
+  const imagePaths = [
+    coverPath,
+    ...photos
+      .filter((file) => file.storage_path && file.storage_path !== coverPath && (file.kind === "photo" || file.mime_type?.startsWith("image/")))
+      .map((file) => file.storage_path),
+  ].filter((path): path is string => Boolean(path));
+  const gallery = useArcadePhotoUrls(imagePaths);
+  if (imagePaths.length === 0) return null;
+  return (
+    <div className={cn("flex gap-2 overflow-x-auto", compact ? "max-w-full" : "max-w-3xl")} aria-label={t("arcadeGames.imagesTitle")}>
+      {imagePaths.map((path) => (
+        <GamePhoto
+          key={path}
+          src={gallery.data?.urls[path]}
+          alt={t("arcadeScreens.gamePhoto", { name })}
+          missingLabel={t("arcadeFlow.noPhoto")}
+          className={compact ? "size-16 shrink-0 rounded-md" : "size-24 shrink-0 rounded-lg"}
+        />
+      ))}
+    </div>
+  );
 }
 
 function PhotoUpload({ machineId, locationId, photoPath, name, plain = false, compact = false }: { machineId: string; locationId: string; photoPath: string | null; name: string; plain?: boolean; compact?: boolean }) {
