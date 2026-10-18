@@ -9,28 +9,70 @@ export type SuggestableStaff = {
   location_id?: string | null;
   is_roaming?: boolean | null;
   work_location_ids?: string[] | null;
+  /** Active temporary move destinations (today inside starts_on..ends_on). */
+  temporary_location_ids?: string[] | null;
 };
 
 export function staffAvailableAtLocation(s: SuggestableStaff, locationId: string | null) {
   if (!locationId) return true;
   if (s.location_id === locationId) return true;
   if (s.is_roaming) return true;
-  return Boolean(s.work_location_ids?.includes(locationId));
+  if (s.work_location_ids?.includes(locationId)) return true;
+  return Boolean(s.temporary_location_ids?.includes(locationId));
 }
+
+export type BiometricMapEligibilityOptions = {
+  /** Staff with a roster row at the device site in the current payroll month. */
+  rosterStaffIds?: ReadonlySet<string> | null;
+};
 
 /**
  * Mapping picker: staff who work at the device site, plus Head Office employees.
  * HO home/work location is included for every site so corporate names stay searchable
  * under All locations and when the HO pill is selected. Other venues stay site-scoped.
+ * Roster presence covers people home elsewhere who still appear on this site's roster
+ * (e.g. Ma Luz home KDS while also rostered at INF — and the reverse when mapping KDS).
  */
 export function staffEligibleForBiometricMap(
   staff: SuggestableStaff,
   deviceLocationId: string | null,
   headOfficeLocationId: string | null,
+  options?: BiometricMapEligibilityOptions,
 ): boolean {
   if (staffAvailableAtLocation(staff, deviceLocationId)) return true;
+  if (deviceLocationId && options?.rosterStaffIds?.has(staff.id)) return true;
   if (!headOfficeLocationId || headOfficeLocationId === deviceLocationId) return false;
   return staff.location_id === headOfficeLocationId || Boolean(staff.work_location_ids?.includes(headOfficeLocationId));
+}
+
+/**
+ * Seed the mapping employee search with the device name only when it still finds someone.
+ * Nicknames like "Maria" must not hide "Ma luz Jesus Romeo".
+ */
+export function mappingOpenSearchSeed(
+  deviceName: string | null | undefined,
+  staff: SuggestableStaff[],
+  deviceLocationId: string | null,
+  headOfficeLocationId: string | null,
+  options?: BiometricMapEligibilityOptions & {
+    matchesQuery?: (query: string, ...parts: Array<string | null | undefined>) => boolean;
+  },
+): string | null {
+  const seed = deviceName?.trim() || "";
+  if (!seed) return null;
+  const matches =
+    options?.matchesQuery ??
+    ((query: string, ...parts: Array<string | null | undefined>) => {
+      const q = query.trim().toLowerCase();
+      if (!q) return true;
+      return parts.some((part) => (part ?? "").toLowerCase().includes(q));
+    });
+  const hit = staff.some(
+    (s) =>
+      staffEligibleForBiometricMap(s, deviceLocationId, headOfficeLocationId, options) &&
+      matches(seed, s.full_name),
+  );
+  return hit ? seed : null;
 }
 
 /**

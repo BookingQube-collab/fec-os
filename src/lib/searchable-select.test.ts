@@ -11,6 +11,14 @@ describe("searchable select matching", () => {
     expect(matchesSearchQuery("missing", "INF-CC")).toBe(false);
   });
 
+  it("matches multi-word names with every token, order-independent", () => {
+    expect(matchesSearchQuery("ma luz", "Ma luz Jesus Romeo", "KDS-CC-STF13")).toBe(true);
+    expect(matchesSearchQuery("luz ma", "Ma luz Jesus Romeo")).toBe(true);
+    expect(matchesSearchQuery("jesus romeo", "Ma luz Jesus Romeo")).toBe(true);
+    expect(matchesSearchQuery("ma maria", "Ma luz Jesus Romeo")).toBe(false);
+    expect(matchesSearchQuery("Maria", "Ma luz Jesus Romeo")).toBe(false);
+  });
+
   it("treats blank query as match-all", () => {
     expect(matchesSearchQuery("  ", "Anything")).toBe(true);
     expect(normalizeSearchQuery("  Hello ").raw).toBe("hello");

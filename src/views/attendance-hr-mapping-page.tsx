@@ -37,16 +37,19 @@ import {
   getAttendanceMappingDirectory,
   listAttendanceHrMappings,
   listAttendanceMappingEmployees,
+  listAttendanceMappingRosterStaffIds,
   mapAttendanceBiometricUser,
   mapAttendanceBiometricUsers,
   removeAttendanceBiometricUser,
   unmapAttendanceBiometricUser,
 } from "@/lib/attendance-hr.functions";
 import {
+  mappingOpenSearchSeed,
   staffEligibleForBiometricMap,
   suggestStaffIdForDeviceName,
 } from "@/lib/attendance-hr/mapping-merge";
 import { CANONICAL_LOCATION_CODES, formatLocationLabel, rosterSheetLabel } from "@/lib/locations/normalize";
+import { matchesSearchQuery } from "@/lib/searchable-select";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { cn } from "@/lib/utils";
@@ -72,6 +75,7 @@ type StaffOption = {
   location_id?: string | null;
   is_roaming?: boolean | null;
   work_location_ids?: string[] | null;
+  temporary_location_ids?: string[] | null;
 };
 
 const EMPTY_STAFF_OPTIONS: SearchableSelectOption[] = [];
@@ -242,6 +246,24 @@ export default function AttendanceHrMappingPage() {
     if (companyWideMapper) return (employees.data ?? []) as StaffOption[];
     return (teamDirectory?.staff ?? []) as StaffOption[];
   }, [companyWideMapper, employees.data, teamDirectory]);
+  const openRow = useMemo(
+    () => (openRowId ? rows.find((item) => item.id === openRowId) ?? null : null),
+    [openRowId, rows],
+  );
+  const openRowLocationId = openRow?.location_id || locationId || null;
+  const rosterStaffAtSite = useQuery({
+    queryKey: queryKeys.people.attendanceHr({
+      view: "mapping-roster-staff",
+      locationId: openRowLocationId,
+    }),
+    queryFn: () => listAttendanceMappingRosterStaffIds({ locationId: openRowLocationId! }),
+    staleTime: STALE.people,
+    enabled: Boolean(openRowId && openRowLocationId && companyWideMapper),
+  });
+  const rosterStaffIds = useMemo(() => {
+    if (!rosterStaffAtSite.data?.length) return null;
+    return new Set(rosterStaffAtSite.data);
+  }, [rosterStaffAtSite.data]);
   const staffNameById = useMemo(() => {
     const map = new Map<string, string>();
     for (const s of allStaff) {
@@ -265,12 +287,14 @@ export default function AttendanceHrMappingPage() {
   }, [allStaff]);
   const openRowOptions = useMemo(() => {
     if (!openRowId) return EMPTY_STAFF_OPTIONS;
-    const row = rows.find((item) => item.id === openRowId);
-    const loc = row?.location_id || locationId || null;
+    const loc = openRowLocationId;
     const multiSiteLabel = t("attendanceHr.mapping.multiSite");
+    const eligibility = { rosterStaffIds };
     const out: SearchableSelectOption[] = [];
     for (const s of allStaff) {
-      if (companyWideMapper && !staffEligibleForBiometricMap(s, loc, headOfficeLocationId)) continue;
+      if (companyWideMapper && !staffEligibleForBiometricMap(s, loc, headOfficeLocationId, eligibility)) {
+        continue;
+      }
       out.push({
         value: s.id,
         label: s.full_name,
@@ -284,7 +308,15 @@ export default function AttendanceHrMappingPage() {
       });
     }
     return out;
-  }, [openRowId, rows, allStaff, locationId, headOfficeLocationId, companyWideMapper, t]);
+  }, [
+    openRowId,
+    openRowLocationId,
+    allStaff,
+    headOfficeLocationId,
+    companyWideMapper,
+    rosterStaffIds,
+    t,
+  ]);
 
   // Unique exact name matches → draft selections so Save all can finish the queue.
   useEffect(() => {
@@ -708,6 +740,15 @@ export default function AttendanceHrMappingPage() {
                 const site = row.location_id ? siteById.get(row.location_id) : undefined;
                 const deviceName = String(row.device_name ?? row.full_name ?? "").trim();
                 const open = openRowId === id;
+                const searchSeed = !mapped
+                  ? mappingOpenSearchSeed(
+                      deviceName,
+                      allStaff,
+                      row.location_id || locationId || null,
+                      headOfficeLocationId,
+                      { rosterStaffIds, matchesQuery: matchesSearchQuery },
+                    )
+                  : null;
                 return (
                   <tr key={id} aria-busy={busy} className="border-t border-border/50">
                     <td className="px-4 py-2 font-mono">{String(row.biometric_user_id)}</td>
@@ -736,7 +777,7 @@ export default function AttendanceHrMappingPage() {
                       <StaffSearchSelect
                         value={selectedStaff}
                         options={optionsForRow(row, selectedStaff, open)}
-                        openSearchSeed={!mapped && deviceName ? deviceName : null}
+                        openSearchSeed={searchSeed}
                         disabled={busy || !canMerge || (companyWideMapper && employees.isPending)}
                         onOpenChange={(next) => setOpenRowId(next ? id : null)}
                         onChange={(staffId) => applyStaffChoice(row, staffId)}

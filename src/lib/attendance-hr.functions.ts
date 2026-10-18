@@ -28,7 +28,8 @@ import {
   assertCanManageMonthlyRoster,
   assertCanOpenShiftRoster,
 } from "@/lib/site-ops-access.server";
-import { ACTIVE_ROSTER_STAFF_STATUS_OR } from "@/lib/staff-status";
+import { ACTIVE_ROSTER_STAFF_STATUS_OR, isAttendanceMappingStaff } from "@/lib/staff-status";
+import { fetchActiveTemporaryMovesByStaffId } from "@/lib/staff-temporary-moves-query";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import {
@@ -1013,6 +1014,38 @@ export const listAttendanceHrMappings = createAuthenticatedAction(
   { auth: { anyCapability: ["attendance.view", "attendance.map_users", "hr.employee_app"] } },
 );
 
+function mappingStaffPayload(
+  rows: Array<{
+    id: string;
+    full_name: string | null;
+    employee_code: string | null;
+    qid: string | null;
+    location_id: string | null;
+    is_roaming: boolean | null;
+    status?: string | null;
+    employment_type?: string | null;
+  }>,
+  workByStaff: Map<string, Array<{ id: string }>>,
+  tempByStaff: Map<string, Array<{ to_location_id: string }>>,
+) {
+  return rows
+    .filter((row) =>
+      row.status === undefined
+        ? true
+        : isAttendanceMappingStaff({ status: row.status, employment_type: row.employment_type }),
+    )
+    .map((row) => ({
+      id: row.id,
+      full_name: row.full_name ?? "",
+      employee_code: row.employee_code ?? "",
+      qid: row.qid,
+      location_id: row.location_id,
+      is_roaming: row.is_roaming,
+      work_location_ids: (workByStaff.get(row.id) ?? []).map((loc) => loc.id),
+      temporary_location_ids: (tempByStaff.get(row.id) ?? []).map((move) => move.to_location_id),
+    }));
+}
+
 export const getAttendanceMappingDirectory = createAuthenticatedActionNoInput(async (context) => {
   const roles = context.roles ?? [];
   if (attendanceMappingIsCompanyWide(roles)) {
@@ -1030,31 +1063,29 @@ export const getAttendanceMappingDirectory = createAuthenticatedActionNoInput(as
     qid: string | null;
     location_id: string | null;
     is_roaming: boolean | null;
+    status: string | null;
+    employment_type: string | null;
   }> = [];
   for (let index = 0; index < staffIds.length; index += 100) {
     const chunk = staffIds.slice(index, index + 100);
     const { data, error } = await db
       .from("staff")
-      .select("id, full_name, employee_code, qid, location_id, is_roaming")
+      .select("id, full_name, employee_code, qid, location_id, is_roaming, status, employment_type")
       .in("id", chunk)
       .is("deleted_at", null);
     if (error) throw error;
     staffRows.push(...(data ?? []));
   }
-  const workByStaff = await fetchWorkLocationsByStaffId(db, staffRows.map((row) => row.id));
+  const ids = staffRows.map((row) => row.id);
+  const [workByStaff, tempByStaff] = await Promise.all([
+    fetchWorkLocationsByStaffId(db, ids),
+    fetchActiveTemporaryMovesByStaffId(db, ids),
+  ]);
   const sites = await loadTeamCoverageLocations(staffIds);
   return {
     companyWide: false as const,
     sites,
-    staff: staffRows.map((row) => ({
-      id: row.id,
-      full_name: row.full_name ?? "",
-      employee_code: row.employee_code ?? "",
-      qid: row.qid,
-      location_id: row.location_id,
-      is_roaming: row.is_roaming,
-      work_location_ids: (workByStaff.get(row.id) ?? []).map((loc) => loc.id),
-    })),
+    staff: mappingStaffPayload(staffRows, workByStaff, tempByStaff),
   };
 }, { auth: { anyCapability: ["attendance.view", "attendance.map_users", "hr.employee_app"] } });
 
@@ -1070,7 +1101,8 @@ export const listAttendanceMappingEmployees = createAuthenticatedActionNoInput(a
   const rows = await collectPagedRows(async (from, to) => {
     const { data, error } = await context.supabase
       .from("staff")
-      .select("id, full_name, employee_code, qid, location_id, status, is_roaming")
+      .select("id, full_name, employee_code, qid, location_id, status, employment_type, is_roaming")
+      .is("deleted_at", null)
       .or(ACTIVE_ROSTER_STAFF_STATUS_OR)
       .order("full_name", { ascending: true })
       .order("id", { ascending: true })
@@ -1078,20 +1110,49 @@ export const listAttendanceMappingEmployees = createAuthenticatedActionNoInput(a
     if (error) throw error;
     return data ?? [];
   }, ATTENDANCE_DAILY_LIST_PAGE_SIZE);
-  const workByStaff = await fetchWorkLocationsByStaffId(
-    context.supabase,
-    rows.map((row) => row.id),
-  );
-  return rows.map((row) => ({
-    id: row.id,
-    full_name: row.full_name ?? "",
-    employee_code: row.employee_code ?? "",
-    qid: row.qid,
-    location_id: row.location_id,
-    is_roaming: row.is_roaming,
-    work_location_ids: (workByStaff.get(row.id) ?? []).map((loc) => loc.id),
-  }));
+  const ids = rows.map((row) => row.id);
+  const [workByStaff, tempByStaff] = await Promise.all([
+    fetchWorkLocationsByStaffId(context.supabase, ids),
+    fetchActiveTemporaryMovesByStaffId(context.supabase, ids),
+  ]);
+  return mappingStaffPayload(rows, workByStaff, tempByStaff);
 }, { auth: { anyCapability: ["attendance.map_users", "attendance.view", "hr.employee_app"] } });
+
+/**
+ * Staff ids with a roster assignment at the device site in the current payroll month.
+ * Lets the mapping picker include people home elsewhere who still appear on that site's roster.
+ */
+export const listAttendanceMappingRosterStaffIds = createAuthenticatedAction(
+  z.object({ locationId: z.string().uuid() }),
+  async (data, context) => {
+    const teamScope = await mappingTeamScope(context);
+    if (!teamScope) await assertSite(context, data.locationId);
+    else if (!teamScope.locationIds.includes(data.locationId)) return [] as string[];
+
+    const { dateFrom, dateTo } = defaultPayrollPeriod(qatarTodayYmd());
+    const db = teamScope ? (supabaseAdmin as AuthContext["supabase"]) : context.supabase;
+    const ids = new Set<string>();
+    for (let from = 0; ; from += ATTENDANCE_DAILY_LIST_PAGE_SIZE) {
+      const { data: page, error } = await db
+        .from("attendance_roster_assignments")
+        .select("staff_id")
+        .eq("location_id", data.locationId)
+        .gte("work_date", dateFrom)
+        .lte("work_date", dateTo)
+        .not("staff_id", "is", null)
+        .range(from, from + ATTENDANCE_DAILY_LIST_PAGE_SIZE - 1);
+      if (error) throw error;
+      for (const row of page ?? []) {
+        if (row.staff_id) ids.add(String(row.staff_id));
+      }
+      if (!page || page.length < ATTENDANCE_DAILY_LIST_PAGE_SIZE) break;
+    }
+    if (!teamScope) return [...ids];
+    const allowed = new Set(teamScope.staffIds);
+    return [...ids].filter((id) => allowed.has(id));
+  },
+  { auth: { anyCapability: ["attendance.view", "attendance.map_users", "hr.employee_app"] } },
+);
 
 type StaffMapFields = {
   id: string;

@@ -49,6 +49,7 @@ import { previewAttendanceFile } from "./preview";
 import { buildPunchRows } from "./build-punch-rows";
 import {
   deviceNameByBiometricFromMappings,
+  mappingOpenSearchSeed,
   mergeBiometricUsersById,
   missingPunchBiometricIds,
   staffByBiometricFromMappings,
@@ -1657,6 +1658,25 @@ describe("staffEligibleForBiometricMap", () => {
   const headOffice = { id: "ho", full_name: "Shah Head Office", location_id: ho, work_location_ids: [] as string[] };
   const hoWork = { id: "ho-work", full_name: "Works At HO", location_id: inf, work_location_ids: [ho] };
   const roaming = { id: "roam", full_name: "Roaming Tech", location_id: inf, is_roaming: true, work_location_ids: [] as string[] };
+  const maLuz = {
+    id: "ma-luz",
+    full_name: "Ma luz Jesus Romeo",
+    location_id: kds,
+    work_location_ids: [] as string[],
+  };
+  const tempAtKds = {
+    id: "temp",
+    full_name: "Temp Visitor",
+    location_id: inf,
+    work_location_ids: [] as string[],
+    temporary_location_ids: [kds],
+  };
+  const rosterOnlyAtKds = {
+    id: "roster-only",
+    full_name: "Roster Only",
+    location_id: inf,
+    work_location_ids: [] as string[],
+  };
 
   it("includes the device site and Head Office, and leaves other venues out", () => {
     expect(staffEligibleForBiometricMap(venue, kds, ho)).toBe(true);
@@ -1679,6 +1699,47 @@ describe("staffEligibleForBiometricMap", () => {
   it("does not widen a venue picker when Head Office is unknown", () => {
     expect(staffEligibleForBiometricMap(headOffice, kds, null)).toBe(false);
     expect(staffEligibleForBiometricMap(venue, kds, null)).toBe(true);
+  });
+
+  it("includes Ma Luz at KDS home and people on an active temporary move to the device site", () => {
+    expect(staffEligibleForBiometricMap(maLuz, kds, ho)).toBe(true);
+    expect(staffEligibleForBiometricMap(tempAtKds, kds, ho)).toBe(true);
+    expect(staffEligibleForBiometricMap(tempAtKds, inf, ho)).toBe(true);
+    expect(staffEligibleForBiometricMap(rosterOnlyAtKds, kds, ho)).toBe(false);
+  });
+
+  it("includes staff with roster presence at the device site even when home is elsewhere", () => {
+    const rosterStaffIds = new Set(["roster-only", "ma-luz"]);
+    expect(staffEligibleForBiometricMap(rosterOnlyAtKds, kds, ho, { rosterStaffIds })).toBe(true);
+    expect(staffEligibleForBiometricMap(otherSite, kds, ho, { rosterStaffIds })).toBe(false);
+  });
+});
+
+describe("mappingOpenSearchSeed", () => {
+  const kds = "loc-kds";
+  const ho = "loc-ho";
+  const staff = [
+    {
+      id: "ma-luz",
+      full_name: "Ma luz Jesus Romeo",
+      location_id: kds,
+      work_location_ids: [] as string[],
+    },
+    {
+      id: "sara",
+      full_name: "Sara Khan",
+      location_id: kds,
+      work_location_ids: [] as string[],
+    },
+  ];
+
+  it("does not seed Maria when only Ma Luz is eligible (nickname would hide her)", () => {
+    expect(mappingOpenSearchSeed("Maria", staff, kds, ho)).toBeNull();
+  });
+
+  it("seeds when the device name still matches an eligible employee", () => {
+    expect(mappingOpenSearchSeed("Sara", staff, kds, ho)).toBe("Sara");
+    expect(mappingOpenSearchSeed("Sara Khan", staff, kds, ho)).toBe("Sara Khan");
   });
 });
 
