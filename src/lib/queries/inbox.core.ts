@@ -366,7 +366,11 @@ async function fetchMissedPunchItems(context: AuthContext, roles: AppRole[]): Pr
     return rows.slice(0, 12).map((row) =>
       mapPunchInboxRow(
         {
-          ...row,
+          id: row.id,
+          staff_id: row.staff_id ?? null,
+          work_date: row.work_date ?? null,
+          current_step_role: row.current_step_role ?? null,
+          requested_at: row.requested_at ?? null,
           staffName: (row.staff_id && names.get(row.staff_id)) || "Staff",
         },
         "/people/attendance/corrections",

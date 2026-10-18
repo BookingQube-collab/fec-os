@@ -398,7 +398,10 @@ export function MissedPunchRequestButton({
   });
   const resubmit = useMutation({
     mutationFn: resubmitMissedPunchRequest,
-    onSuccess: (_result, variables) => {
+    onSuccess: (
+      _result,
+      variables: { correctionId: string; punchTime: string; reason?: string },
+    ) => {
       const edited = (mine.data ?? []).find((row) => row.id === variables.correctionId);
       if (edited?.status === "pending") toast.success(t("hr.me.punchEditSaved"));
       else if (_result.approverCount === 0) toast.message(t("hr.me.savedNoSupervisor"));
