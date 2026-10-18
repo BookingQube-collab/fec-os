@@ -283,7 +283,13 @@ export function useUserRoles(): AppRole[] {
 export function useCanAmendShiftRoster(): boolean {
   const { profile } = useAuth();
   const roles = useUserRoles();
-  return canAmendShiftRoster(roles, profile?.job_title, profile?.staff_role, profile?.department);
+  return canAmendShiftRoster(
+    roles,
+    profile?.job_title,
+    profile?.staff_role,
+    profile?.department,
+    profile?.reports_to_head_of_operations,
+  );
 }
 
 /** People directory: company roster capability, or a manager/supervisor job title. */

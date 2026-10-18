@@ -286,7 +286,7 @@ describe("canUploadPunchDerivedRoster", () => {
     expect(canUploadPunchDerivedRoster({ staffRole: "venue_supervisor" })).toBe(true);
   });
 
-  it("allows people who report to Head of Operations even without a supervisor title", () => {
+  it("allows HoO direct-report Operations titles even without a supervisor title", () => {
     expect(
       canUploadPunchDerivedRoster({
         roles: ["cashier_host"],
@@ -297,7 +297,38 @@ describe("canUploadPunchDerivedRoster", () => {
     expect(
       canUploadPunchDerivedRoster({
         roles: ["cashier_host"],
+        jobTitle: "Operations Manager",
+        reportsToHeadOfOperations: true,
+      }),
+    ).toBe(true);
+    expect(
+      canUploadPunchDerivedRoster({
+        roles: ["cashier_host"],
         jobTitle: "Operations Coordinator",
+        reportsToHeadOfOperations: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps F&B, cashiers, and crew out of the HoO-peer punch-roster path", () => {
+    expect(
+      canUploadPunchDerivedRoster({
+        roles: ["cashier_host"],
+        jobTitle: "Cashier",
+        reportsToHeadOfOperations: true,
+      }),
+    ).toBe(false);
+    expect(
+      canUploadPunchDerivedRoster({
+        jobTitle: "F&B Manager",
+        department: "F&B",
+        reportsToHeadOfOperations: true,
+      }),
+    ).toBe(true); // F&B Manager still has its own allow, independent of HoO peer
+    expect(
+      canUploadPunchDerivedRoster({
+        jobTitle: "Crew / Attendant",
+        department: "Operations",
         reportsToHeadOfOperations: false,
       }),
     ).toBe(false);

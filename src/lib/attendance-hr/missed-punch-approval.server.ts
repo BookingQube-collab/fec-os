@@ -8,7 +8,7 @@ import {
   opsStepApproverLabel,
 } from "@/lib/approval-ops-routing";
 import { loadLinkedStaffIdentity } from "@/lib/linked-staff-job-title.server";
-import { canCorrectTeamAttendance } from "@/lib/site-ops-access";
+import { loadCanCorrectTeamAttendance } from "@/lib/site-ops-access.server";
 import { recalculateAttendanceRange } from "@/lib/attendance-hr/process";
 import {
   approverUserIdsForStep,
@@ -136,12 +136,13 @@ async function staffIdByUserId(userIds: string[]): Promise<Map<string, string>> 
 }
 
 async function callerCorrectionAccess(userId: string) {
-  const [roles, reports, reportingTree, managerTeam, identity] = await Promise.all([
+  const [roles, reports, reportingTree, managerTeam, identity, canCorrectTeam] = await Promise.all([
     loadCallerRoles(userId),
     loadDirectReportStaffIds(userId),
     loadReportingTreeStaffIds(userId),
     loadManagerTeamStaffIds(userId),
     loadLinkedStaffIdentity(userId),
+    loadCanCorrectTeamAttendance(userId),
   ]);
   return {
     roles,
@@ -157,7 +158,7 @@ async function callerCorrectionAccess(userId: string) {
       jobTitle: identity.jobTitle,
     }),
     /** Corrections for other people. Own punch requests do not use this flag. */
-    canCorrectTeam: canCorrectTeamAttendance(identity),
+    canCorrectTeam,
   };
 }
 

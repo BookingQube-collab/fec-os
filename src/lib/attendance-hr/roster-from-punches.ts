@@ -4,7 +4,7 @@
  */
 
 import { isFnbManager } from "@/lib/arcade/access";
-import { canOpenShiftRoster } from "@/lib/site-ops-access";
+import { canOpenShiftRoster, canOpenShiftRosterAsHoOPeer } from "@/lib/site-ops-access";
 
 export const ROSTER_FROM_PUNCH_SOURCE = "device_punch";
 
@@ -36,9 +36,10 @@ export function canSelfUploadPunchRoster(input: { fullName?: string | null }): b
 /**
  * Who may save punch-derived monthly rosters for roaming staff (Device logs).
  * Builds on shift-roster openers (supervisors, Sr. Site / Site / F&B Supervisor,
- * venue_supervisor, CEO/GM/HR/duty manager, etc.), plus:
+ * venue_supervisor, CEO/GM/HR/duty manager, HoO Operations peers, etc.), plus:
  * - F&B Manager (not on the general shift-roster open list alone)
- * - Anyone whose reporting manager is Head of Operations (resolved server-side)
+ * - Operations managers/leads whose reporting manager is Head of Operations
+ *   (also covered by canOpenShiftRoster when reportsToHeadOfOperations is set)
  */
 export function canUploadPunchDerivedRoster(input: {
   roles?: readonly string[] | null;
@@ -50,7 +51,7 @@ export function canUploadPunchDerivedRoster(input: {
 }): boolean {
   if (canOpenShiftRoster(input)) return true;
   if (isFnbManager(input.jobTitle, input.department)) return true;
-  if (input.reportsToHeadOfOperations) return true;
+  if (canOpenShiftRosterAsHoOPeer(input)) return true;
   return false;
 }
 

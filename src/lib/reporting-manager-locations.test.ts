@@ -58,6 +58,13 @@ describe("team roster access", () => {
     expect(canSeeShiftRosterUpload(["cashier_host"], false, "Cashier / Host")).toBe(false);
     expect(canSeeShiftRosterUpload(["technician"], false, "Technician")).toBe(false);
     expect(canSeeShiftRosterUpload(["technician"], false, null, "crew")).toBe(false);
+    expect(canSeeShiftRosterUpload(["cashier_host"], false, "Operations Manager", null, null, true)).toBe(
+      true,
+    );
+    expect(canSeeShiftRosterUpload(["cashier_host"], false, "Operations Manager", null, null, false)).toBe(
+      false,
+    );
+    expect(canSeeShiftRosterUpload(["cashier_host"], false, "Cashier", null, null, true)).toBe(false);
 
     expect(
       rosterTeamOrSelfStaffIds({

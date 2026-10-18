@@ -15,6 +15,8 @@ export interface AuthProfile {
   staff_role?: string | null;
   /** Newest linked staff row's department. Used to keep F&B managers out of Arcade Technical. */
   department?: string | null;
+  /** Direct report of Head of Operations. Used for shift-roster openers (Louie/Russell peers). */
+  reports_to_head_of_operations?: boolean;
 }
 
 export interface AuthSessionPayload {

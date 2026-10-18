@@ -488,6 +488,7 @@ export function isRosterAmendJobTitle(jobTitle: string | null | undefined): bool
 /**
  * Pencil, trash, upload, copy, and Delete all on the monthly roster, plus the Shift roster option.
  * Site supervisors and other *Supervisor* titles keep it, as do Venue / Sr. Site / F&B.
+ * Operations managers/leads who report to Head of Operations keep it too.
  * Logins with people.edit_roster (duty manager, tech supervisor, HR, CEO, GM) keep it too.
  * Team Leader (TEAM_LEAD) and Admin Team Leader stay out unless that login has people.edit_roster.
  */
@@ -496,8 +497,9 @@ export function canAmendShiftRoster(
   jobTitle?: string | null,
   staffRole?: string | null,
   department?: string | null,
+  reportsToHeadOfOperations?: boolean,
 ): boolean {
-  return canOpenShiftRoster({ roles, jobTitle, staffRole, department });
+  return canOpenShiftRoster({ roles, jobTitle, staffRole, department, reportsToHeadOfOperations });
 }
 
 /** Where a freshly signed-in user should land based on their highest role. */

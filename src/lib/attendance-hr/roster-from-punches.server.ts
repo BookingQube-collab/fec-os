@@ -16,7 +16,6 @@ import {
 import { attendanceRecalcLocationsAfterRosterUpsert } from "@/lib/attendance-hr/flexible-cross-site";
 import { recalculateAttendanceRange } from "@/lib/attendance-hr/process";
 import { loadActiveShiftTemplates, resolveOrCreateShiftTemplate } from "@/lib/attendance-hr/roster-amend";
-import { isHeadOfOperationsTitle } from "@/lib/attendance-hr/missed-punch-approval";
 import {
   canSelfUploadPunchRoster,
   canUploadPunchDerivedRoster,
@@ -30,39 +29,17 @@ import {
 } from "@/lib/attendance-hr/roster-from-punches";
 import { parseTimeCell } from "@/lib/attendance-hr/roster-upload";
 import { resolveSelfStaffId } from "@/lib/attendance-hr/self-staff";
-import { loadLinkedStaffIdentity, loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
+import { loadLinkedStaffIdentity } from "@/lib/linked-staff-job-title.server";
 import type { AuthContext } from "@/lib/server/auth";
 import { ForbiddenError, getUserRoles } from "@/lib/server/authorize";
-
-/** Direct report of a Head of Operations title on the ops reporting chart. */
-async function viewerReportsToHeadOfOperations(staffId: string): Promise<boolean> {
-  const { data: ext, error: extErr } = await supabaseAdmin
-    .from("staff_profile_ext")
-    .select("reporting_manager_staff_id")
-    .eq("staff_id", staffId)
-    .maybeSingle();
-  if (extErr) throw new Error(extErr.message);
-  const managerId = ext?.reporting_manager_staff_id ? String(ext.reporting_manager_staff_id) : "";
-  if (!managerId) return false;
-  const { data: manager, error: managerErr } = await supabaseAdmin
-    .from("staff")
-    .select("job_title")
-    .eq("id", managerId)
-    .is("deleted_at", null)
-    .maybeSingle();
-  if (managerErr) throw new Error(managerErr.message);
-  return isHeadOfOperationsTitle(manager?.job_title ? String(manager.job_title) : null);
-}
+import { loadReportsToHeadOfOperations } from "@/lib/site-ops-access.server";
 
 async function assertCanUploadPunchDerivedRoster(userId: string): Promise<void> {
-  const [identity, roles, linked] = await Promise.all([
+  const [identity, roles, reportsToHeadOfOperations] = await Promise.all([
     loadLinkedStaffIdentity(userId),
     getUserRoles(supabaseAdmin, userId),
-    loadLinkedStaffRecord(userId),
+    loadReportsToHeadOfOperations(userId),
   ]);
-  const reportsToHeadOfOperations = linked?.id
-    ? await viewerReportsToHeadOfOperations(linked.id)
-    : false;
   if (
     !canUploadPunchDerivedRoster({
       ...identity,

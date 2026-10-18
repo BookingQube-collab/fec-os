@@ -84,15 +84,16 @@ export function rosterTeamOrSelfStaffIds(input: {
   return [input.staffId];
 }
 
-/** Shift roster option. Supervisors, the CEO login, the GM login, and Adil or the General Manager by title. */
+/** Shift roster option. Supervisors, HoO Operations peers, the CEO login, the GM login, and Adil or the General Manager by title. */
 export function canSeeShiftRosterUpload(
   roles: readonly AppRole[],
   _hasDirectReports: boolean,
   jobTitle?: string | null,
   staffRole?: string | null,
   department?: string | null,
+  reportsToHeadOfOperations?: boolean,
 ): boolean {
-  return canOpenShiftRoster({ roles, jobTitle, staffRole, department });
+  return canOpenShiftRoster({ roles, jobTitle, staffRole, department, reportsToHeadOfOperations });
 }
 
 /**

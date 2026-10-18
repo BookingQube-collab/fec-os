@@ -40,6 +40,14 @@ describe("supervisor and manager operational edit", () => {
     expect(canAmendShiftRoster(["cashier_host"], "Team Leader")).toBe(false);
   });
 
+  it("lets HoO direct-report Operations managers amend the shift roster", () => {
+    expect(canAmendShiftRoster(["cashier_host"], "Operations Manager", null, null, true)).toBe(true);
+    expect(canAmendShiftRoster(["cashier_host"], "Operations Coordinator", null, null, true)).toBe(true);
+    expect(canAmendShiftRoster(["cashier_host"], "Operations Manager", null, null, false)).toBe(false);
+    expect(canAmendShiftRoster(["cashier_host"], "Cashier", null, null, true)).toBe(false);
+    expect(canAmendShiftRoster(["cashier_host"], "F&B Manager", null, "F&B", true)).toBe(false);
+  });
+
   it("keeps monthly roster create, edit, delete, and import", () => {
     for (const role of SUPERVISOR_ROLES) {
       expect(canUserDo([role], "people.view_roster"), role).toBe(true);

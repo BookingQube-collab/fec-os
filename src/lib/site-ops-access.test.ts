@@ -5,6 +5,9 @@ import {
   canEditAttendanceMapping,
   canManageMonthlyRoster,
   canOpenShiftRoster,
+  canOpenShiftRosterAsHoOPeer,
+  isHoOOperationsPeerTitle,
+  isOperationsManagerOrLeadTitle,
   isTeamLeaderTitle,
 } from "@/lib/site-ops-access";
 
@@ -104,5 +107,72 @@ describe("monthly roster, mapping, and team corrections", () => {
     expect(canOpenShiftRoster({ jobTitle: "Head of Operations" })).toBe(false);
     expect(canOpenShiftRoster({ roles: ["cashier_host"] })).toBe(false);
     expect(canOpenShiftRoster({ jobTitle: "Team Leader" })).toBe(false);
+  });
+
+  it("opens shift roster and team corrections for HoO direct-report Operations managers/leads", () => {
+    const peers = [
+      { jobTitle: "Operations Manager", reportsToHeadOfOperations: true },
+      { jobTitle: "Operations Coordinator", reportsToHeadOfOperations: true },
+      { jobTitle: "Operations Lead", reportsToHeadOfOperations: true },
+      { jobTitle: "Manager", department: "Operations", reportsToHeadOfOperations: true },
+    ];
+    for (const identity of peers) {
+      expect(isHoOOperationsPeerTitle(identity.jobTitle, identity.department)).toBe(true);
+      expect(canOpenShiftRosterAsHoOPeer(identity)).toBe(true);
+      expect(canOpenShiftRoster(identity), JSON.stringify(identity)).toBe(true);
+      expect(canCorrectTeamAttendance(identity), JSON.stringify(identity)).toBe(true);
+      // Same as Site Supervisor: roster yes, mapping no.
+      expect(canManageMonthlyRoster(identity), JSON.stringify(identity)).toBe(false);
+      expect(canEditAttendanceMapping(identity), JSON.stringify(identity)).toBe(false);
+    }
+  });
+
+  it("keeps F&B, cashiers, and crew under a supervisor out of the HoO-peer roster path", () => {
+    expect(isOperationsManagerOrLeadTitle("Operations Manager")).toBe(true);
+    expect(isOperationsManagerOrLeadTitle("Cashier")).toBe(false);
+
+    expect(
+      canOpenShiftRoster({
+        jobTitle: "F&B Manager",
+        department: "F&B",
+        reportsToHeadOfOperations: true,
+      }),
+    ).toBe(false);
+    expect(
+      canOpenShiftRoster({
+        jobTitle: "Cashier",
+        reportsToHeadOfOperations: true,
+      }),
+    ).toBe(false);
+    expect(
+      canOpenShiftRoster({
+        jobTitle: "Cashier / Host",
+        reportsToHeadOfOperations: true,
+      }),
+    ).toBe(false);
+    expect(
+      canCorrectTeamAttendance({
+        jobTitle: "Cashier",
+        reportsToHeadOfOperations: true,
+      }),
+    ).toBe(false);
+
+    // Ordinary crew report to a site supervisor, not HoO — no peer flag, no access.
+    expect(
+      canOpenShiftRoster({
+        jobTitle: "Crew / Attendant",
+        department: "Operations",
+        reportsToHeadOfOperations: false,
+      }),
+    ).toBe(false);
+    expect(
+      canOpenShiftRosterAsHoOPeer({
+        jobTitle: "Operations Manager",
+        reportsToHeadOfOperations: false,
+      }),
+    ).toBe(false);
+    // Title alone without the HoO reporting line is not enough.
+    expect(canOpenShiftRoster({ jobTitle: "Operations Manager" })).toBe(false);
+    expect(canOpenShiftRoster({ jobTitle: "Operations Coordinator" })).toBe(false);
   });
 });
