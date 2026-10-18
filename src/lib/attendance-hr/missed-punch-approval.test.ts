@@ -24,12 +24,14 @@ import {
   lineManagerUserIds,
   siteApproverLocationMap,
   managerTeamCorrectionNote,
+  ownCorrectionRouteAfterLineManagerCheck,
   punchCorrectionRoute,
   missedPunchApprovalSteps,
   missedPunchRequestSide,
   nextMissedPunchStep,
   punchCorrectionRequestSide,
   requesterLineManagerUserIds,
+  shouldHealOwnCorrectionToOpsFirst,
   type ApprovalDirectory,
   type CorrectionApprovalView,
 } from "./missed-punch-approval";
@@ -518,6 +520,14 @@ describe("missed punch approval chain", () => {
       }),
     ).toBe("line_manager");
     expect(correctionStepSeed("line_manager").every((step) => step.status === "pending")).toBe(true);
+    expect(
+      ownCorrectionRouteAfterLineManagerCheck(dir, {
+        locationId: INF,
+        staffId: supervisorStaff,
+        requestedBy: supervisorUser,
+        requesterStaffId: supervisorStaff,
+      }),
+    ).toBe("line_manager");
     const request = row({
       staffId: supervisorStaff,
       requestedBy: supervisorUser,
@@ -527,6 +537,115 @@ describe("missed punch approval chain", () => {
     expect(canUserActOnCorrection(dir, theirManager, request)).toBe(true);
     expect(canUserActOnCorrection(dir, supervisorUser, request)).toBe(false);
     expect(canUserActOnCorrection(dir, HR, request)).toBe(false);
+  });
+
+  it("sends Mary’s own correction straight to Head of Operations when she reports to HoO", () => {
+    const maryStaff = "mary-staff";
+    const dir = directory({
+      reportingManagerUserIdByStaffId: new Map([[maryStaff, RAJAN]]),
+      headOfOperationsUserIds: [RAJAN],
+    });
+    expect(
+      punchCorrectionRoute({
+        requesterStaffId: maryStaff,
+        targetStaffId: maryStaff,
+        teamStaffIds: [STAFF],
+      }),
+    ).toBe("line_manager");
+    expect(
+      ownCorrectionRouteAfterLineManagerCheck(dir, {
+        locationId: INF,
+        staffId: maryStaff,
+        requestedBy: MARY,
+        requesterStaffId: maryStaff,
+      }),
+    ).toBe("ops_first");
+    expect(correctionWaitingStep("ops_first")).toBe("ops");
+    expect(correctionStepSeed("ops_first")).toEqual([
+      { stepOrder: 1, stepRole: "manager", status: "skipped" },
+      { stepOrder: 2, stepRole: "ops", status: "pending" },
+      { stepOrder: 3, stepRole: "hr", status: "pending" },
+    ]);
+    const request = row({
+      staffId: maryStaff,
+      requestedBy: MARY,
+      requesterStaffId: maryStaff,
+      currentStepRole: correctionWaitingStep("ops_first"),
+    });
+    expect(canUserActOnCorrection(dir, RAJAN, request)).toBe(true);
+    expect(canUserActOnCorrection(dir, MARY, request)).toBe(false);
+    expect(canUserActOnCorrection(dir, HR, request)).toBe(false);
+    expect(
+      shouldHealOwnCorrectionToOpsFirst(
+        dir,
+        row({
+          staffId: maryStaff,
+          requestedBy: MARY,
+          requesterStaffId: maryStaff,
+          currentStepRole: "manager",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      shouldHealOwnCorrectionToOpsFirst(
+        dir,
+        row({
+          staffId: STAFF,
+          requestedBy: "employee-1",
+          requesterStaffId: STAFF,
+          currentStepRole: "manager",
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps crew under a site supervisor on the manager → HoO → HR ladder", () => {
+    const dir = directory({
+      reportingManagerUserIdByStaffId: new Map([[STAFF, MARY]]),
+      headOfOperationsUserIds: [RAJAN],
+    });
+    expect(
+      ownCorrectionRouteAfterLineManagerCheck(dir, {
+        locationId: INF,
+        staffId: STAFF,
+        requestedBy: "employee-1",
+        requesterStaffId: STAFF,
+      }),
+    ).toBe("line_manager");
+    const request = row({
+      staffId: STAFF,
+      requestedBy: "employee-1",
+      requesterStaffId: STAFF,
+      currentStepRole: "manager",
+    });
+    expect(canUserActOnCorrection(dir, MARY, request)).toBe(true);
+    expect(canUserActOnCorrection(dir, RAJAN, request)).toBe(false);
+  });
+
+  it("sends an F&B peer who reports to the F&B Manager straight to the F&B ops seat", () => {
+    const peerStaff = "fnb-supervisor-staff";
+    const dir = directory({
+      reportingManagerUserIdByStaffId: new Map([[peerStaff, RUBEN]]),
+      fnbStaffIds: new Set([peerStaff]),
+      fnbManagerUserIds: [RUBEN],
+      headOfOperationsUserIds: [RAJAN],
+    });
+    expect(
+      ownCorrectionRouteAfterLineManagerCheck(dir, {
+        locationId: INF,
+        staffId: peerStaff,
+        requestedBy: "fnb-peer-user",
+        requesterStaffId: peerStaff,
+      }),
+    ).toBe("ops_first");
+    const request = row({
+      staffId: peerStaff,
+      requestedBy: "fnb-peer-user",
+      requesterStaffId: peerStaff,
+      currentStepRole: "ops",
+    });
+    expect(canUserActOnCorrection(dir, RUBEN, request)).toBe(true);
+    expect(canUserActOnCorrection(dir, RAJAN, request)).toBe(false);
   });
 
   it("advances an F&B Manager team correction past ops to HR", () => {

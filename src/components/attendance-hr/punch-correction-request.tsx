@@ -90,7 +90,7 @@ export function PunchCorrectionRequest({
       ].filter((side): side is readonly ["in" | "out", string] => side !== null);
       if (!sides.length) throw new Error("Enter the corrected punch-in, punch-out, or both.");
       let approverCount = 0;
-      let routedTo: "line_manager" | "ops" | "hr" = "line_manager";
+      let routedTo: "line_manager" | "ops" | "ops_first" | "hr" = "line_manager";
       for (const [punchType, punchTime] of sides) {
         const result = await submitMissedPunchRequest({
           summaryId,
@@ -117,6 +117,12 @@ export function PunchCorrectionRequest({
           result.approverCount === 0
             ? `Approved and waiting for ${opsLabel}. No ${opsLabel} login is linked yet.`
             : `Approved and sent to ${opsLabel}.`,
+        );
+      } else if (result.routedTo === "ops_first") {
+        toast.success(
+          result.approverCount === 0
+            ? `Request saved. No ${opsLabel} login is linked yet.`
+            : `Sent to ${opsLabel}.`,
         );
       } else if (result.approverCount === 0) toast.message(t("hr.me.savedNoSupervisor"));
       else toast.success("Sent to your line manager.");

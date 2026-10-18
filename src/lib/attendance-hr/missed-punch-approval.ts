@@ -165,10 +165,14 @@ export function canCorrectStaffPunch(input: {
   return input.directReportStaffIds.includes(input.targetStaffId);
 }
 
+/** Where a saved correction waits: line manager, ops after team approve, ops as first seat, or HR. */
+export type PunchCorrectionRoutedTo = "line_manager" | "ops" | "ops_first" | "hr";
+
 /**
  * Own requests wait for the requester's line manager, then ops (HoO or F&B Manager), then HR.
  * A correction for someone on the requester's team is already approved by that supervisor
  * and waits on the ops step, then HR. Null means the target is outside the team.
+ * Callers upgrade own `line_manager` to `ops_first` when the line manager already holds ops.
  */
 export function punchCorrectionRoute(input: {
   requesterStaffId: string | null;
@@ -181,25 +185,71 @@ export function punchCorrectionRoute(input: {
   return null;
 }
 
+/**
+ * Own punch corrections skip the manager step when the reporting manager already is the
+ * ops seat (Head of Operations for Operations staff, F&B Manager for F&B). That avoids a
+ * fake "site supervisor" wait and a double approve by the same person.
+ */
+export function ownCorrectionRouteAfterLineManagerCheck(
+  directory: ApprovalDirectory,
+  args: {
+    locationId: string;
+    staffId: string | null;
+    requestedBy: string;
+    requesterStaffId?: string | null;
+  },
+): "line_manager" | "ops_first" {
+  const managers = requesterLineManagerUserIds(directory, args);
+  if (!managers.length) return "line_manager";
+  const opsIds = new Set(approverUserIdsForStep(directory, "ops", args.locationId, args.staffId));
+  if (managers.every((id) => opsIds.has(id))) return "ops_first";
+  return "line_manager";
+}
+
+/** True when a pending manager-step row should already be waiting on ops (legacy mis-route). */
+export function shouldHealOwnCorrectionToOpsFirst(
+  directory: ApprovalDirectory,
+  row: CorrectionApprovalView,
+): boolean {
+  if (row.status !== "pending" || row.currentStepRole !== "manager") return false;
+  if (!row.requesterStaffId || !row.staffId || row.requesterStaffId !== row.staffId) return false;
+  return (
+    ownCorrectionRouteAfterLineManagerCheck(directory, {
+      locationId: row.locationId,
+      staffId: row.staffId,
+      requestedBy: row.requestedBy,
+      requesterStaffId: row.requesterStaffId,
+    }) === "ops_first"
+  );
+}
+
 /** The step the request is waiting on after it is saved. */
-export function correctionWaitingStep(route: "line_manager" | "ops" | "hr"): MissedPunchStepRole {
+export function correctionWaitingStep(route: PunchCorrectionRoutedTo): MissedPunchStepRole {
   if (route === "hr") return "hr";
-  return route === "ops" ? "ops" : "manager";
+  if (route === "ops" || route === "ops_first") return "ops";
+  return "manager";
 }
 
 /**
  * Team corrections record the manager step as approved; ops and HR stay pending.
  * When the submitter is already the ops approver (e.g. F&B Manager), manager and ops
  * are approved and the request waits on HR.
- * Own requests leave every step pending (line manager → ops → HR).
+ * Own requests leave every step pending (line manager → ops → HR), unless the line
+ * manager is already the ops seat — then manager is skipped and ops is first.
  */
-export function correctionStepSeed(route: "line_manager" | "ops" | "hr"): Array<{
+export function correctionStepSeed(route: PunchCorrectionRoutedTo): Array<{
   stepOrder: number;
   stepRole: MissedPunchStepRole;
   status: "pending" | "approved" | "skipped";
 }> {
   return missedPunchApprovalSteps().map((step) => {
     if (route === "line_manager") {
+      return { stepOrder: step.stepOrder, stepRole: step.stepRole, status: "pending" };
+    }
+    if (route === "ops_first") {
+      if (step.stepRole === "manager") {
+        return { stepOrder: step.stepOrder, stepRole: step.stepRole, status: "skipped" };
+      }
       return { stepOrder: step.stepOrder, stepRole: step.stepRole, status: "pending" };
     }
     if (route === "hr") {

@@ -31,14 +31,17 @@ import {
   nextMissedPunchStep,
   punchAtFromCorrectionValue,
   punchCorrectionRequestSide,
+  ownCorrectionRouteAfterLineManagerCheck,
   punchCorrectionRoute,
   punchTypeFromCorrectionValue,
   requesterLineManagerUserIds,
+  shouldHealOwnCorrectionToOpsFirst,
   teamCorrectionRouteAfterOpsCheck,
   type ApprovalDirectory,
   type CorrectionApprovalView,
   type MissedPunchQueue,
   type MissedPunchStepRole,
+  type PunchCorrectionRoutedTo,
 } from "@/lib/attendance-hr/missed-punch-approval";
 import { notifyUsers } from "@/lib/notifications/action-notify";
 import { canUserDo, type AppRole } from "@/lib/rbac";
@@ -449,6 +452,7 @@ export async function listMissedPunchCorrections(args: {
     ...requesterStaff.values(),
   ]);
   const viewOf = (row: CorrectionRow) => toView(row, requesterStaff.get(String(row.requested_by)) ?? null);
+  rows = await healOwnCorrectionsWaitingOnOpsManager(rows, directory, viewOf);
   const visible = rows.filter((row) =>
     correctionVisibleToUser({
       queue,
@@ -490,6 +494,49 @@ export async function countVisiblePendingCorrections(userId: string, locationId?
     status: "pending",
   });
   return rows.length;
+}
+
+/**
+ * Legacy own corrections that waited on the manager step while the line manager was
+ * already HoO / F&B Manager: move them to ops and mark manager skipped so the UI
+ * shows Head of Operations (or F&B Manager) instead of site supervisor.
+ */
+async function healOwnCorrectionsWaitingOnOpsManager(
+  rows: CorrectionRow[],
+  directory: ApprovalDirectory,
+  viewOf: (row: CorrectionRow) => CorrectionApprovalView,
+): Promise<CorrectionRow[]> {
+  const now = new Date().toISOString();
+  const healed: CorrectionRow[] = [];
+  for (const row of rows) {
+    const view = viewOf(row);
+    if (!shouldHealOwnCorrectionToOpsFirst(directory, view)) {
+      healed.push(row);
+      continue;
+    }
+    const { error: corrErr } = await supabaseAdmin
+      .from("attendance_corrections")
+      .update({ current_step_role: "ops" })
+      .eq("id", row.id)
+      .eq("status", "pending")
+      .eq("current_step_role", "manager");
+    if (corrErr) {
+      console.warn("[missed-punch] heal to ops_first failed", corrErr.message);
+      healed.push(row);
+      continue;
+    }
+    const { error: stepErr } = await supabaseAdmin
+      .from("attendance_correction_approvals")
+      .update({ status: "skipped", acted_by: null, acted_at: now, comments: null })
+      .eq("correction_id", row.id)
+      .eq("step_role", "manager")
+      .eq("status", "pending");
+    if (stepErr && !/does not exist|schema cache|relation/i.test(stepErr.message)) {
+      console.warn("[missed-punch] heal manager step failed", stepErr.message);
+    }
+    healed.push({ ...row, current_step_role: "ops" });
+  }
+  return healed;
 }
 
 const EXECUTIVE_NOTICE_SOURCE = "attendance_corrections";
@@ -586,7 +633,7 @@ export async function submitMissedPunchRequest(args: {
   /** Other clocks on this same form, so the HR note can list punch-in and punch-out together. */
   requestedPunchIn?: string | null;
   requestedPunchOut?: string | null;
-}): Promise<{ id: string; approverCount: number; locationId: string; routedTo: "line_manager" | "ops" | "hr" }> {
+}): Promise<{ id: string; approverCount: number; locationId: string; routedTo: PunchCorrectionRoutedTo }> {
   const { data: staff, error: staffErr } = await supabaseAdmin
     .from("staff")
     .select("id, full_name, user_id, location_id")
@@ -615,10 +662,17 @@ export async function submitMissedPunchRequest(args: {
     throw new ForbiddenError("You can only request a correction for yourself or someone who reports to you.");
   }
   const directory = await loadMissedPunchDirectory([staff.id as string, targetStaffId]);
-  const route =
+  const route: PunchCorrectionRoutedTo =
     baseRoute === "ops"
       ? teamCorrectionRouteAfterOpsCheck(directory, targetStaffId, args.userId)
-      : baseRoute;
+      : isSelf
+        ? ownCorrectionRouteAfterLineManagerCheck(directory, {
+            locationId: summary.location_id as string,
+            staffId: targetStaffId,
+            requestedBy: args.userId,
+            requesterStaffId: staff.id as string,
+          })
+        : baseRoute;
 
   const hasIn = Boolean(summary.actual_in);
   const hasOut = Boolean(summary.actual_out);
@@ -845,6 +899,42 @@ export async function submitMissedPunchRequest(args: {
       approverCount: opsIds.length,
       locationId: summary.location_id as string,
       routedTo: "ops" as const,
+    };
+  }
+
+  if (route === "ops_first") {
+    // Own request; line manager is already HoO / F&B Manager. Do not apply the punch yet.
+    const opsIds = approverUserIdsForStep(directory, "ops", summary.location_id as string, targetStaffId).filter(
+      (id) => id !== args.userId,
+    );
+    const opsLabel = opsStepApproverLabel(correctionOpsLane(directory, targetStaffId));
+    const replacing = hasIn && hasOut;
+    const opsTitle = replacing ? "Punch correction request" : "Missed punch request";
+    const opsBody = replacing
+      ? `${subjectName} needs a punch corrected for ${workDate}. It is waiting for ${opsLabel}.`
+      : `${subjectName} submitted a missed punch for ${workDate}. It is waiting for ${opsLabel}.`;
+    await notifyApprovers({
+      userIds: opsIds,
+      locationId: summary.location_id as string,
+      title: opsTitle,
+      body: opsBody,
+      sourceId: created.id as string,
+      actionUrl: "/people/attendance/corrections",
+    });
+    await notifyExecutiveObservers({
+      step: "ops",
+      approverIds: opsIds,
+      locationId: summary.location_id as string,
+      title: opsTitle,
+      body: opsBody,
+      correctionId: created.id as string,
+      excludeUserId: args.userId,
+    });
+    return {
+      id: created.id as string,
+      approverCount: opsIds.length,
+      locationId: summary.location_id as string,
+      routedTo: "ops_first" as const,
     };
   }
 
@@ -1178,7 +1268,7 @@ export async function resubmitMissedPunchRequest(args: {
   correctionId: string;
   punchTime: string;
   reason: string;
-}): Promise<{ id: string; approverCount: number; locationId: string; routedTo: "line_manager" | "ops" | "hr" }> {
+}): Promise<{ id: string; approverCount: number; locationId: string; routedTo: PunchCorrectionRoutedTo }> {
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(args.punchTime)) throw new Error("Enter a punch time.");
   const { data, error } = await supabaseAdmin
     .from("attendance_corrections")
@@ -1222,10 +1312,18 @@ export async function resubmitMissedPunchRequest(args: {
       targetStaffId,
       teamStaffIds: access.canCorrectTeam ? access.teamStaffIds : [],
     }) ?? "line_manager";
-  const route =
+  const isSelf = Boolean(requesterStaffId && targetStaffId && requesterStaffId === targetStaffId);
+  const route: PunchCorrectionRoutedTo =
     baseRoute === "ops"
       ? teamCorrectionRouteAfterOpsCheck(directoryEarly, targetStaffId || null, args.userId)
-      : baseRoute;
+      : isSelf
+        ? ownCorrectionRouteAfterLineManagerCheck(directoryEarly, {
+            locationId: String(row.location_id ?? ""),
+            staffId: targetStaffId || null,
+            requestedBy: args.userId,
+            requesterStaffId,
+          })
+        : baseRoute;
   const { data: requester } = await supabaseAdmin
     .from("staff")
     .select("full_name")
@@ -1330,14 +1428,15 @@ export async function resubmitMissedPunchRequest(args: {
     : { data: null };
   const directory = directoryEarly;
   const who = (staff?.full_name as string | null) ?? "Staff";
-  const notifyRoute =
-    wasChangeRequired
-      ? route
-      : row.current_step_role === "hr"
-        ? ("hr" as const)
-        : row.current_step_role === "ops"
-          ? ("ops" as const)
-          : ("line_manager" as const);
+  const notifyRoute: PunchCorrectionRoutedTo = wasChangeRequired
+    ? route
+    : row.current_step_role === "hr"
+      ? "hr"
+      : row.current_step_role === "ops"
+        ? route === "ops_first"
+          ? "ops_first"
+          : "ops"
+        : "line_manager";
   const updatedVerb = wasChangeRequired ? "updated" : "edited";
 
   if (notifyRoute === "hr") {
@@ -1356,18 +1455,20 @@ export async function resubmitMissedPunchRequest(args: {
     });
     return { id: args.correctionId, approverCount: hrIds.length, locationId: String(row.location_id), routedTo: "hr" };
   }
-  if (notifyRoute === "ops") {
+  if (notifyRoute === "ops" || notifyRoute === "ops_first") {
     const targetId = row.staff_id ? String(row.staff_id) : null;
     const opsIds = approverUserIdsForStep(directory, "ops", String(row.location_id), targetId).filter(
       (id) => id !== args.userId,
     );
     const opsLabel = opsStepApproverLabel(correctionOpsLane(directory, targetId));
+    const teamApproved = notifyRoute === "ops" && wasChangeRequired && route === "ops";
     const opsTitle = wasChangeRequired
       ? `Missed punch waiting for ${opsLabel}`
       : `Missed punch updated — ${opsLabel}`;
-    const opsBody = wasChangeRequired
-      ? `${managerName} requested and approved a punch correction for ${who} on ${workDate}. It is waiting for ${opsLabel}.`
-      : `${who} ${updatedVerb} a punch correction for ${workDate}. It is still waiting for ${opsLabel}.`;
+    const opsBody =
+      teamApproved
+        ? `${managerName} requested and approved a punch correction for ${who} on ${workDate}. It is waiting for ${opsLabel}.`
+        : `${who} ${updatedVerb} a missed punch for ${workDate}. It is waiting for ${opsLabel}.`;
     await notifyApprovers({
       userIds: opsIds,
       locationId: String(row.location_id),
@@ -1385,7 +1486,12 @@ export async function resubmitMissedPunchRequest(args: {
       correctionId: args.correctionId,
       excludeUserId: args.userId,
     });
-    return { id: args.correctionId, approverCount: opsIds.length, locationId: String(row.location_id), routedTo: "ops" };
+    return {
+      id: args.correctionId,
+      approverCount: opsIds.length,
+      locationId: String(row.location_id),
+      routedTo: notifyRoute === "ops_first" ? "ops_first" : "ops",
+    };
   }
 
   const managers = requesterLineManagerUserIds(directory, {

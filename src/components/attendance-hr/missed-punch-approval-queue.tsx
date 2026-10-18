@@ -77,8 +77,9 @@ export function MissedPunchApprovalQueue({
           <p className="font-medium">No missed punch requests are waiting on you.</p>
           <p className="text-muted-foreground">
             A correction for yourself goes to your line manager, then Head of Operations (or F&B
-            Manager for F&B staff), then HR. A correction a manager files for someone on their team
-            is approved and sent to that same ops step, then HR.
+            Manager for F&B staff), then HR. When your reporting manager is already that ops seat,
+            the request waits there first. A team correction a manager files is approved and sent to
+            that same ops step, then HR.
           </p>
         </div>
       ) : (

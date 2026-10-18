@@ -331,7 +331,7 @@ function mapPunchInboxRow(
     title: ops ? "Missed punch waiting for operations approval" : "Missed punch request",
     titleKey: null,
     body: ops
-      ? `${who}'s missed punch${date ? ` on ${date}` : ""} was approved by their supervisor.`
+      ? `${who} submitted a missed punch${date ? ` for ${date}` : ""}. It is waiting for operations approval.`
       : `${who} submitted a missed punch${date ? ` for ${date}` : ""}. It is waiting for their line manager.`,
     severity: "warning",
     actionUrl,
