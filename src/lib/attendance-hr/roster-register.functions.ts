@@ -7,7 +7,7 @@ import { canUserDo, type AppRole } from "@/lib/rbac";
 import { assertCanOpenShiftRoster } from "@/lib/site-ops-access.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { isManagerTeamSupervisor } from "@/lib/manager-supervisor-team";
-import { loadAssignedTeamLocations, loadRosterChartStaffIds } from "@/lib/reporting-manager-access.server";
+import { loadRosterChartStaffIds, loadViewerScopedTeamLocations } from "@/lib/reporting-manager-access.server";
 import {
   createAuthenticatedAction,
   createAuthenticatedActionNoInput,
@@ -540,7 +540,7 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
     const cardLocationsPromise =
       data.coverageOnly || data.includeCopyDepartments
         ? teamIds
-          ? loadAssignedTeamLocations(teamIds)
+          ? loadViewerScopedTeamLocations(context.userId, teamIds)
           : Promise.resolve(null)
         : Promise.resolve(null);
 

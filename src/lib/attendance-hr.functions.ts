@@ -21,6 +21,7 @@ import {
   loadManagerTeamStaffIds,
   loadReportingTreeStaffIds,
   loadTeamCoverageLocations,
+  loadViewerScopedTeamLocations,
 } from "@/lib/reporting-manager-access.server";
 import { canUserDo, type AppRole } from "@/lib/rbac";
 import {
@@ -328,7 +329,10 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
 
     const [locRes, settingsRes, staffRes, latestPunchRes, linksOutcome] = await Promise.all([
       teamIds
-        ? loadTeamCoverageLocations(teamIds).then((rows) => ({ data: rows, error: null as null }))
+        ? loadViewerScopedTeamLocations(context.userId, teamIds).then((rows) => ({
+            data: rows,
+            error: null as null,
+          }))
         : context.supabase
             .from("locations")
             .select("id, code, name, region, status")
@@ -686,7 +690,14 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
     if (!companyWide && (!teamStaffIds || teamStaffIds.length === 0)) {
       throw new ForbiddenError("Attendance listing is limited to people who report to you.");
     }
+    // Venue/Site: managed sites only. Sr. Site: team span minus HO. Never punch expansion.
+    const teamLocationIds = teamStaffIds
+      ? (await loadViewerScopedTeamLocations(context.userId, teamStaffIds)).map((site) => site.id)
+      : null;
     if (data.locationId && companyWide) await assertSite(context, data.locationId);
+    if (data.locationId && teamLocationIds && !teamLocationIds.includes(data.locationId)) {
+      return [];
+    }
     const readContext: AuthContext = teamStaffIds
       ? { ...context, supabase: supabaseAdmin as AuthContext["supabase"] }
       : context;
@@ -803,9 +814,12 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
               q = q.ilike("biometric_user_id", staffFilter.biometricIlike);
             }
             if (deptStaffIds) q = q.in("staff_id", deptStaffIds);
-            // Site chip always wins: every listed/KPI row must be for this location_id.
-            // Do not widen via home-staff OR or staff-search person rollup (other sites' punches).
+            // Site chip always wins. All locations for a team login stays inside scoped sites
+            // (Waqar: UA-DM + KDS-DM only — not every venue a descendant punched at).
             if (data.locationId) q = q.eq("location_id", data.locationId);
+            else if (teamLocationIds && teamLocationIds.length > 0) {
+              q = q.in("location_id", teamLocationIds);
+            }
             const { data: page, error } = await q;
             if (error) throw error;
             return (page ?? []) as Array<Record<string, unknown>>;
@@ -923,6 +937,12 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
       const allow = new Set(teamStaffIds);
       rows = rows.filter((row) => typeof row.staff_id === "string" && allow.has(row.staff_id));
     }
+    if (teamLocationIds && teamLocationIds.length > 0) {
+      const allowLoc = new Set(teamLocationIds);
+      rows = rows.filter(
+        (row) => typeof row.location_id === "string" && allowLoc.has(row.location_id),
+      );
+    }
 
     return enrichAttendanceHrDailyRows(readContext, rows);
   },
@@ -974,7 +994,7 @@ async function mappingTeamScope(context: AuthContext): Promise<{ staffIds: strin
   if (staffIds.length === 0 || !canSeeAttendanceMapping(roles, true)) {
     throw new ForbiddenError("Attendance mapping is limited to people who report to you.");
   }
-  const sites = await loadTeamCoverageLocations(staffIds);
+  const sites = await loadViewerScopedTeamLocations(context.userId, staffIds);
   return { staffIds, locationIds: sites.map((site) => site.id) };
 }
 
@@ -1081,7 +1101,7 @@ export const getAttendanceMappingDirectory = createAuthenticatedActionNoInput(as
     fetchWorkLocationsByStaffId(db, ids),
     fetchActiveTemporaryMovesByStaffId(db, ids),
   ]);
-  const sites = await loadTeamCoverageLocations(staffIds);
+  const sites = await loadViewerScopedTeamLocations(context.userId, staffIds);
   return {
     companyWide: false as const,
     sites,
@@ -1252,7 +1272,7 @@ export const mapAttendanceBiometricUsers = createAuthenticatedAction(
     const teamStaffIds = companyWide ? [] : await loadReportingTreeStaffIds(context.userId);
     const teamLocationIds = companyWide
       ? []
-      : (await loadTeamCoverageLocations(teamStaffIds)).map((site) => site.id);
+      : (await loadViewerScopedTeamLocations(context.userId, teamStaffIds)).map((site) => site.id);
     const db = companyWide ? context.supabase : (supabaseAdmin as AuthContext["supabase"]);
     const writer = companyWide ? context : ({ ...context, supabase: db } as AuthContext);
 
@@ -1477,7 +1497,9 @@ async function loadBiometricMappingForWriter(context: AuthContext, mappingId: st
     return { mapping, writer: context, companyWide: true, staffIds: [] as string[] };
   }
   const staffIds = await loadReportingTreeStaffIds(context.userId);
-  const locationIds = (await loadTeamCoverageLocations(staffIds)).map((site) => site.id);
+  const locationIds = (await loadViewerScopedTeamLocations(context.userId, staffIds)).map(
+    (site) => site.id,
+  );
   if (
     !attendanceMappingRowAllowed(false, staffIds, locationIds, {
       staffId: mapping.staff_id == null ? null : String(mapping.staff_id),

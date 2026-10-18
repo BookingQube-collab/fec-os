@@ -15,6 +15,9 @@ import {
   rosterScopeAssignedLocationIds,
 } from "@/lib/attendance-hr/roster-location-coverage";
 import {
+  attendanceLocationScopeMode,
+  filterLocationsForJobTitleScope,
+  locationDiscoveryStaffIds,
   rosterChartTeamIds,
   rosterTeamOrSelfStaffIds,
   unionTeamLocationIds,
@@ -436,21 +439,66 @@ export async function loadTeamCoverageLocations(staffIds: string[]): Promise<Tea
   }));
 }
 
-export async function mergeReportingManagerSites<T extends { id: string; code: string }>(
+/**
+ * Location chips for attendance / roster pickers (org-chart rule).
+ * Uses home + dedicated work sites only — never punch or roster history.
+ * Venue / Site Supervisor: viewer's managed sites. Sr. Site: team span minus HO.
+ */
+export async function loadViewerScopedTeamLocations(
+  userId: string,
+  teamStaffIds: string[],
+): Promise<TeamCoverageLocation[]> {
+  const linked = await loadLinkedStaffRecord(userId);
+  const scopeMode = attendanceLocationScopeMode(
+    linked?.jobTitle,
+    linked?.department,
+    linked?.staffRole,
+  );
+  const discoveryIds = locationDiscoveryStaffIds(scopeMode, linked?.id, teamStaffIds);
+  const sites = await loadAssignedTeamLocations(discoveryIds);
+  return filterLocationsForJobTitleScope(
+    sites,
+    linked?.jobTitle,
+    linked?.department,
+    linked?.staffRole,
+  );
+}
+
+export async function mergeReportingManagerSites<T extends { id: string; code: string; name?: string | null }>(
   context: { userId: string; roles?: AppRole[] },
   sites: T[],
 ): Promise<T[]> {
   if (!usesTeamLocationScope(context.roles ?? [])) return sites;
+  const linked = await loadLinkedStaffRecord(context.userId);
   const { teamStaffIds } = await loadManagerTeamStaffIds(context.userId);
-  if (teamStaffIds.length === 0) return sites;
-  const extra = await loadTeamCoverageLocations(teamStaffIds);
-  if (extra.length === 0) return sites;
+  if (teamStaffIds.length === 0) {
+    return filterLocationsForJobTitleScope(
+      sites,
+      linked?.jobTitle,
+      linked?.department,
+      linked?.staffRole,
+    );
+  }
+  const extra = await loadViewerScopedTeamLocations(context.userId, teamStaffIds);
+  if (extra.length === 0) {
+    return filterLocationsForJobTitleScope(
+      sites,
+      linked?.jobTitle,
+      linked?.department,
+      linked?.staffRole,
+    );
+  }
   const byId = new Map<string, T>();
   for (const site of extra) byId.set(site.id, site as unknown as T);
   for (const site of sites) {
     if (!byId.has(site.id)) byId.set(site.id, site);
   }
-  return [...byId.values()].sort((a, b) => a.code.localeCompare(b.code));
+  return filterLocationsForJobTitleScope(
+    [...byId.values()].sort((a, b) => a.code.localeCompare(b.code)),
+    linked?.jobTitle,
+    linked?.department,
+    linked?.staffRole,
+  );
 }
 
 export type ShiftRosterUploadScope =
@@ -557,7 +605,7 @@ export async function resolveShiftRosterUploadScope(context: {
   if (staffIds.length === 0) {
     throw new ForbiddenError("Forbidden: missing capability to upload a shift roster.");
   }
-  const locations = await loadTeamCoverageLocations(staffIds);
+  const locations = await loadViewerScopedTeamLocations(context.userId, staffIds);
   return {
     kind: "team",
     staffIds,

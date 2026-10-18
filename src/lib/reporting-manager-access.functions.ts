@@ -5,7 +5,7 @@ import { createAuthenticatedActionNoInput } from "@/lib/server/create-action";
 import {
   loadDirectReportStaffIds,
   loadReportingTreeStaffIds,
-  loadTeamCoverageLocations,
+  loadViewerScopedTeamLocations,
   type DirectReportAccess,
   type TeamCoverageLocation,
 } from "@/lib/reporting-manager-access.server";
@@ -31,7 +31,11 @@ export const getAttendanceListingSites = createAuthenticatedActionNoInput(
     }
     const staffIds = await loadReportingTreeStaffIds(context.userId);
     if (staffIds.length === 0) return { companyWide: false, sites: [] };
-    return { companyWide: false, sites: await loadTeamCoverageLocations(staffIds) };
+    // Venue/Site: viewer's managed sites. Sr. Site: team span minus HO.
+    return {
+      companyWide: false,
+      sites: await loadViewerScopedTeamLocations(context.userId, staffIds),
+    };
   },
   { auth: { anyCapability: ["attendance.view", "hr.employee_app"] } },
 );

@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  attendanceLocationScopeMode,
   canSeeShiftRosterUpload,
+  filterLocationsForJobTitleScope,
+  isHeadOfficeLocation,
+  locationDiscoveryStaffIds,
   rosterChartTeamIds,
   rosterTeamOrSelfStaffIds,
   unionTeamLocationIds,
@@ -22,6 +26,64 @@ describe("unionTeamLocationIds", () => {
 
   it("does not invent a site when the team has no locations", () => {
     expect(unionTeamLocationIds({ homeLocationIds: [null], punchLocationIds: [] })).toEqual([]);
+  });
+});
+
+describe("attendance location scope (org chart)", () => {
+  const venues = [
+    { id: "ho", code: "HO", name: "Head Office" },
+    { id: "inf", code: "INF-CC", name: "Inflatapark - City Center" },
+    { id: "kds", code: "KDS-CC", name: "Kids Driving School - City Center" },
+    { id: "ua", code: "UA-DM", name: "Urban Arena - Doha Mall" },
+    { id: "kdsMini", code: "KDS-DM", name: "Kids Driving School Mini - Doha Mall" },
+    { id: "cb", code: "CB-VM", name: "Crayons & Bricks - Vendome Mall" },
+    { id: "ho-name", code: "HQ", name: "Head Office" },
+  ];
+
+  it("recognizes Head Office by code or name", () => {
+    expect(isHeadOfficeLocation({ code: "HO", name: "Anything" })).toBe(true);
+    expect(isHeadOfficeLocation({ code: "ho", name: null })).toBe(true);
+    expect(isHeadOfficeLocation({ code: "HQ", name: "Head Office" })).toBe(true);
+    expect(isHeadOfficeLocation({ code: "INF-CC", name: "Inflatapark" })).toBe(false);
+  });
+
+  it("scopes Venue / Site Supervisor to viewer-assigned sites only (Waqar: UA-DM + KDS-DM)", () => {
+    expect(attendanceLocationScopeMode("Venue Supervisor")).toBe("viewer_assigned");
+    expect(attendanceLocationScopeMode("Site Supervisor")).toBe("viewer_assigned");
+    expect(attendanceLocationScopeMode("Cashier")).toBe("viewer_assigned");
+
+    // Discovery uses Waqar alone — not the reporting tree — so INF/KDS-CC/CB never appear.
+    expect(
+      locationDiscoveryStaffIds("viewer_assigned", "waqar", ["crew-inf", "crew-ua", "crew-cb"]),
+    ).toEqual(["waqar"]);
+
+    const waqarManaged = venues.filter((site) => site.code === "UA-DM" || site.code === "KDS-DM");
+    expect(filterLocationsForJobTitleScope(waqarManaged, "Venue Supervisor").map((s) => s.code)).toEqual([
+      "UA-DM",
+      "KDS-DM",
+    ]);
+    // Even if a bad coverage list leaked in, Venue Supervisor does not strip by title —
+    // callers must not pass punch-expanded sites. Discovery above keeps the list to Waqar.
+    expect(
+      filterLocationsForJobTitleScope(venues, "Venue Supervisor").map((site) => site.code),
+    ).toEqual(["HO", "INF-CC", "KDS-CC", "UA-DM", "KDS-DM", "CB-VM", "HQ"]);
+  });
+
+  it("scopes Sr. Site to team assigned sites and drops Head Office (Mary)", () => {
+    expect(attendanceLocationScopeMode("Sr. Site Supervisor")).toBe("team_assigned_except_ho");
+    expect(attendanceLocationScopeMode("Senior Site Supervisor")).toBe("team_assigned_except_ho");
+    expect(attendanceLocationScopeMode(null, "Sr. Site Supervisor")).toBe("team_assigned_except_ho");
+
+    expect(
+      locationDiscoveryStaffIds("team_assigned_except_ho", "mary", ["ashfaq", "ma-luz"]),
+    ).toEqual(["ashfaq", "ma-luz", "mary"]);
+
+    expect(
+      filterLocationsForJobTitleScope(venues, "Sr. Site Supervisor").map((site) => site.code),
+    ).toEqual(["INF-CC", "KDS-CC", "UA-DM", "KDS-DM", "CB-VM"]);
+    expect(
+      filterLocationsForJobTitleScope(venues, "Senior Site Supervisor").map((site) => site.code),
+    ).toEqual(["INF-CC", "KDS-CC", "UA-DM", "KDS-DM", "CB-VM"]);
   });
 });
 

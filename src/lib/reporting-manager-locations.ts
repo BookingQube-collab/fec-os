@@ -1,3 +1,5 @@
+import { HEAD_OFFICE_LOCATION_CODE } from "@/lib/department-audience";
+import { isSrSiteSupervisorTitle } from "@/lib/org-hierarchy";
 import { canUserDo, isRosterAmendJobTitle, type AppRole, type Capability } from "@/lib/rbac";
 import { canManageMonthlyRoster, canOpenShiftRoster } from "@/lib/site-ops-access";
 
@@ -12,6 +14,71 @@ const COMPANY_ROSTER_CAPS = [
 
 export function usesTeamLocationScope(roles: readonly AppRole[]): boolean {
   return !COMPANY_ROSTER_CAPS.some((cap) => canUserDo(roles as AppRole[], cap));
+}
+
+/** Head Office by code or name — not an operational venue for Sr. Site scope. */
+export function isHeadOfficeLocation(location: {
+  code?: string | null;
+  name?: string | null;
+}): boolean {
+  const code = (location.code ?? "").trim().toUpperCase();
+  if (code === HEAD_OFFICE_LOCATION_CODE) return true;
+  const name = (location.name ?? "").trim().toLowerCase();
+  return name === "head office" || name.startsWith("head office ");
+}
+
+/**
+ * How attendance / roster location chips are built from the org chart.
+ *
+ * - `viewer_assigned` — Venue / Site Supervisor (and other team leaders): only that
+ *   person's home + dedicated work sites (e.g. Waqar → UA-DM + KDS-DM). Never expand
+ *   via descendant punches or roster rows at Inflata / KDS-CC / etc.
+ * - `team_assigned_except_ho` — Sr. Site / Senior Site Supervisor: home + dedicated
+ *   work sites for the viewer and everyone under them, excluding Head Office.
+ */
+export type AttendanceLocationScopeMode = "viewer_assigned" | "team_assigned_except_ho";
+
+export function attendanceLocationScopeMode(
+  jobTitle?: string | null,
+  department?: string | null,
+  _staffRole?: string | null,
+): AttendanceLocationScopeMode {
+  if (isSrSiteSupervisorTitle(jobTitle) || isSrSiteSupervisorTitle(department)) {
+    return "team_assigned_except_ho";
+  }
+  return "viewer_assigned";
+}
+
+/**
+ * Staff ids whose home / dedicated work sites feed the location chip list.
+ * Venue supervisors: viewer only. Sr. Site: viewer plus reporting subtree.
+ */
+export function locationDiscoveryStaffIds(
+  mode: AttendanceLocationScopeMode,
+  viewerStaffId: string | null | undefined,
+  teamStaffIds: readonly string[],
+): string[] {
+  if (mode === "viewer_assigned") {
+    return viewerStaffId ? [viewerStaffId] : [];
+  }
+  const ids = new Set<string>();
+  for (const id of teamStaffIds) {
+    if (id) ids.add(id);
+  }
+  if (viewerStaffId) ids.add(viewerStaffId);
+  return [...ids].sort();
+}
+
+/** Drop Head Office for Sr. Site scope. Other titles keep every assigned site. */
+export function filterLocationsForJobTitleScope<T extends { code?: string | null; name?: string | null }>(
+  sites: readonly T[],
+  jobTitle?: string | null,
+  department?: string | null,
+  staffRole?: string | null,
+): T[] {
+  const mode = attendanceLocationScopeMode(jobTitle, department, staffRole);
+  if (mode !== "team_assigned_except_ho") return [...sites];
+  return sites.filter((site) => !isHeadOfficeLocation(site));
 }
 
 /**
