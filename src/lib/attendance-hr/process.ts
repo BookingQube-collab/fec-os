@@ -1184,6 +1184,9 @@ export async function recalculateAttendanceRange(
     }
   }
 
+  /** Days with a real roster upload — purge punch-less Absents for people not on that day. */
+  const rosterCoveredDays = new Map<string, Set<string>>();
+
   for (const workDate of enumerateYmd(dateFrom, dateTo)) {
     const dayRoster = (roster ?? [])
       .filter((row) => String(row.work_date).slice(0, 10) === workDate)
@@ -1195,13 +1198,20 @@ export async function recalculateAttendanceRange(
         shift_end: (row as { shift_end?: string | null }).shift_end ?? null,
         is_week_off: Boolean(row.is_week_off),
       }));
+    const dayCoveredByUpload = staffScope ? false : isWorkDateCovered(workDate, coveragePeriods);
     const expected = expectedRowsForDay({
       workDate,
       dayRoster,
       fallbackStaffIds,
       // Staff patches do not own location coverage — avoid clearing other staff as unexpected.
-      coveredByUpload: staffScope ? false : isWorkDateCovered(workDate, coveragePeriods),
+      coveredByUpload: dayCoveredByUpload,
     });
+    if ((dayRoster.length > 0 || dayCoveredByUpload) && !staffScope) {
+      rosterCoveredDays.set(
+        workDate,
+        new Set(expected.map((row) => String(row.staff_id)).filter(Boolean)),
+      );
+    }
     // Leave days must still produce summaries when roster coverage omitted the person (common for annual leave).
     const expectedIds = new Set(expected.map((row) => row.staff_id));
     for (const leaveKey of leaveByKey.keys()) {
@@ -1360,9 +1370,16 @@ export async function recalculateAttendanceRange(
       const holidayName = holidayByDate.get(workDate) ?? null;
       const leaveType =
         (leaveRow?.leave_type as "annual_leave" | "sick_leave" | "unpaid_leave" | null) ?? null;
+      // Fallback home-directory rows are not a real roster — never invent Absent.
+      const hasRealRosterAssignment = Boolean(realRoster);
+      if (!hasRealRosterAssignment && !hasLeave && !isWeekOff && !holidayName) {
+        queueSummaryDelete(locationId, staffId, workDate);
+        covered.add(`${staffId}|${workDate}`);
+        continue;
+      }
       const calc = calculateDailyAttendance([], {
         workDate,
-        scheduled: !isWeekOff,
+        scheduled: hasRealRosterAssignment && !isWeekOff,
         weekOff: isWeekOff,
         holidayName,
         leaveType,
@@ -1378,7 +1395,7 @@ export async function recalculateAttendanceRange(
         leaveType,
         holidayName,
       });
-      if (suppressJokerAbsent && calc.status === "absent") {
+      if ((suppressJokerAbsent || !hasRealRosterAssignment) && calc.status === "absent") {
         queueSummaryDelete(locationId, staffId, workDate);
         covered.add(`${staffId}|${workDate}`);
         continue;
@@ -1408,6 +1425,15 @@ export async function recalculateAttendanceRange(
       });
       covered.add(`${staffId}|${workDate}`);
       processed += 1;
+    }
+
+    // Leave / standing weekly-off / cross-site expected rows expand the keep set.
+    const keep = rosterCoveredDays.get(workDate);
+    if (keep) {
+      for (const row of expected) {
+        const id = String(row.staff_id ?? "").trim();
+        if (id) keep.add(id);
+      }
     }
   }
 
@@ -1439,6 +1465,38 @@ export async function recalculateAttendanceRange(
         if (delError) throw delError;
       }),
     );
+  }
+
+  // Roster-covered days: delete punch-less Absents for staff who are not expected
+  // (Ruben Yaralyan stale ABSENT INF-CC while never on the cafe roster).
+  for (const [workDate, keepStaff] of rosterCoveredDays) {
+    const { data: staleAbsents, error: staleErr } = await supabase
+      .from("attendance_daily_summary")
+      .select("staff_id")
+      .eq("location_id", locationId)
+      .eq("work_date", workDate)
+      .eq("punch_count", 0)
+      .eq("status", "absent");
+    if (staleErr) throw staleErr;
+    const toDrop = [
+      ...new Set(
+        (staleAbsents ?? [])
+          .map((row) => String(row.staff_id ?? "").trim())
+          .filter((id) => id && !keepStaff.has(id)),
+      ),
+    ];
+    for (let i = 0; i < toDrop.length; i += 40) {
+      const chunk = toDrop.slice(i, i + 40);
+      const { error: delError } = await supabase
+        .from("attendance_daily_summary")
+        .delete()
+        .eq("location_id", locationId)
+        .eq("work_date", workDate)
+        .eq("punch_count", 0)
+        .eq("status", "absent")
+        .in("staff_id", chunk);
+      if (delError) throw delError;
+    }
   }
 
   const keepSeen = new Set<string>();

@@ -110,7 +110,10 @@ import {
   type ListingGapPunchDay,
   type ListingGapRosterDay,
 } from "@/lib/attendance-hr/report";
-import { suppressAbsentWhenPunchedSameDay } from "@/lib/attendance-hr/punch-over-absent";
+import {
+  suppressAbsentWhenPunchedSameDay,
+  suppressAbsentWithoutOnDutyRoster,
+} from "@/lib/attendance-hr/punch-over-absent";
 import {
   expandFlexibleBiometricPairsByDeviceName,
   flexibleDayFirstLastBiometricUserIds,
@@ -3597,17 +3600,12 @@ async function applyRoamingLocationFilterAdjustments(
       )
       .map((row) => String(row.id)),
   );
-  if (!crossSiteStaffIds.size) {
-    // Still drop punch-less Absent when a punched sibling exists the same day
-    // (non-flexible cafe staff such as Ronald KDS Absent + INF Present).
-    return suppressAbsentWhenPunchedSameDay(opts.rows);
-  }
 
   const crossIds = [...crossSiteStaffIds];
   let rows = [...opts.rows];
 
   // Sibling merge only under a site chip — All locations already has every site's rows.
-  if (opts.locationId) {
+  if (opts.locationId && crossIds.length) {
     const seenIds = new Set(opts.rows.map((r) => String(r.id ?? "")));
     const siblingPages = await Promise.all(
       chunkStaffIds(crossIds).map((chunk) =>
@@ -3643,21 +3641,28 @@ async function applyRoamingLocationFilterAdjustments(
     }
   }
 
-  const rosterPages = await collectPagedRowsInWaves(async (from, to) => {
-    const { data: page, error } = await context.supabase
-      .from("attendance_roster_assignments")
-      .select("staff_id, location_id, work_date, is_week_off")
-      .in("staff_id", crossIds)
-      .gte("work_date", opts.dateFrom)
-      .lte("work_date", opts.dateTo)
-      .order("id", { ascending: true })
-      .range(from, to);
-    if (error) throw error;
-    return page ?? [];
-  }, ATTENDANCE_DAILY_LIST_PAGE_SIZE);
+  // Roster for every listed person — needed to drop unrostered Absents (Ruben)
+  // and to suppress roaming false Absents.
+  const rosterStaffIds = [...new Set([...staffIds, ...crossIds])];
+  const rosterPages = await Promise.all(
+    chunkStaffIds(rosterStaffIds).map((chunk) =>
+      collectPagedRowsInWaves(async (from, to) => {
+        const { data: page, error } = await context.supabase
+          .from("attendance_roster_assignments")
+          .select("staff_id, location_id, work_date, is_week_off")
+          .in("staff_id", chunk)
+          .gte("work_date", opts.dateFrom)
+          .lte("work_date", opts.dateTo)
+          .order("id", { ascending: true })
+          .range(from, to);
+        if (error) throw error;
+        return page ?? [];
+      }, ATTENDANCE_DAILY_LIST_PAGE_SIZE),
+    ),
+  );
 
   const roster: ListingGapRosterDay[] = [];
-  for (const row of rosterPages) {
+  for (const row of rosterPages.flat()) {
     const staffId = String(row.staff_id ?? "");
     const loc = String(row.location_id ?? "");
     const day = String(row.work_date ?? "").slice(0, 10);
@@ -3670,12 +3675,21 @@ async function applyRoamingLocationFilterAdjustments(
     });
   }
 
-  return suppressRoamingFalseAbsentForRosterElsewhere({
-    rows,
-    roster,
-    crossSiteStaffIds,
-    locationId: opts.locationId,
-  });
+  if (crossSiteStaffIds.size) {
+    rows = suppressRoamingFalseAbsentForRosterElsewhere({
+      rows,
+      roster,
+      crossSiteStaffIds,
+      locationId: opts.locationId,
+    });
+  } else {
+    // Still drop punch-less Absent when a punched sibling exists the same day
+    // (non-flexible cafe staff such as Ronald KDS Absent + INF Present).
+    rows = suppressAbsentWhenPunchedSameDay(rows);
+  }
+
+  // Unrostered staff must never show Absent (Ruben Yaralyan ABSENT INF-CC).
+  return suppressAbsentWithoutOnDutyRoster({ rows, roster });
 }
 
 async function loadListingGapRosterAndPunchDays(

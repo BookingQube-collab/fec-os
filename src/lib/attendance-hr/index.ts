@@ -119,6 +119,7 @@ export {
 export {
   preferPunchedDailySummaryRows,
   suppressAbsentWhenPunchedSameDay,
+  suppressAbsentWithoutOnDutyRoster,
 } from "./punch-over-absent";
 export type { AttendanceHrKpiFilter } from "./report";
 export {

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   preferPunchedDailySummaryRows,
   suppressAbsentWhenPunchedSameDay,
+  suppressAbsentWithoutOnDutyRoster,
 } from "./punch-over-absent";
 
 describe("preferPunchedDailySummaryRows", () => {
@@ -96,5 +97,67 @@ describe("suppressAbsentWhenPunchedSameDay", () => {
       },
     ];
     expect(suppressAbsentWhenPunchedSameDay(rows)).toEqual(rows);
+  });
+});
+
+describe("suppressAbsentWithoutOnDutyRoster", () => {
+  it("drops Ruben-style ABSENT INF-CC when staff has no roster that day", () => {
+    const filtered = suppressAbsentWithoutOnDutyRoster({
+      rows: [
+        {
+          id: "ruben-sep28",
+          staff_id: "ruben",
+          work_date: "2026-09-28",
+          location_id: "inf",
+          status: "absent",
+          punch_count: 0,
+          actual_in: null,
+          actual_out: null,
+        },
+        {
+          id: "agnes-present",
+          staff_id: "agnes",
+          work_date: "2026-09-28",
+          location_id: "inf",
+          status: "present",
+          punch_count: 2,
+          actual_in: "x",
+          actual_out: "y",
+        },
+        {
+          id: "agnes-true-absent",
+          staff_id: "agnes",
+          work_date: "2026-10-05",
+          location_id: "inf",
+          status: "absent",
+          punch_count: 0,
+          actual_in: null,
+          actual_out: null,
+        },
+      ],
+      roster: [
+        { staff_id: "agnes", work_date: "2026-09-28", is_week_off: false },
+        { staff_id: "agnes", work_date: "2026-10-05", is_week_off: false },
+      ],
+    });
+    expect(filtered.map((r) => r.id)).toEqual(["agnes-present", "agnes-true-absent"]);
+  });
+
+  it("converts week-off-only punch-less Absent to weekly_off", () => {
+    const filtered = suppressAbsentWithoutOnDutyRoster({
+      rows: [
+        {
+          id: "off-day",
+          staff_id: "lester",
+          work_date: "2026-10-03",
+          location_id: "inf",
+          status: "absent",
+          punch_count: 0,
+        },
+      ],
+      roster: [{ staff_id: "lester", work_date: "2026-10-03", is_week_off: true }],
+    });
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]?.status).toBe("weekly_off");
   });
 });

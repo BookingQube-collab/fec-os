@@ -97,3 +97,58 @@ export function suppressAbsentWhenPunchedSameDay(
     return !punchedKeys.has(`${staffId}|${day}`);
   });
 }
+
+export type RosterDutyDay = {
+  staff_id: string;
+  work_date: string;
+  is_week_off: boolean;
+};
+
+/**
+ * Punch-less Absent requires an on-duty roster that day.
+ * Ruben (unrostered) must not show ABSENT INF-CC; week-off-only becomes weekly_off.
+ */
+export function suppressAbsentWithoutOnDutyRoster(input: {
+  rows: Array<Record<string, unknown>>;
+  roster: readonly RosterDutyDay[];
+}): Array<Record<string, unknown>> {
+  if (input.rows.length === 0) return input.rows;
+
+  const onDutyKeys = new Set<string>();
+  const weekOffKeys = new Set<string>();
+  for (const r of input.roster) {
+    const staffId = String(r.staff_id ?? "").trim();
+    const day = String(r.work_date ?? "").slice(0, 10);
+    if (!staffId || !day) continue;
+    const key = `${staffId}|${day}`;
+    if (r.is_week_off) weekOffKeys.add(key);
+    else onDutyKeys.add(key);
+  }
+
+  const out: Array<Record<string, unknown>> = [];
+  for (const row of input.rows) {
+    const staffId = typeof row.staff_id === "string" ? row.staff_id : "";
+    const day = String(row.work_date ?? "").slice(0, 10);
+    if (!staffId || !day || rowHasUsablePunch(row) || !looksAbsentStatus(row.status)) {
+      out.push(row);
+      continue;
+    }
+    const key = `${staffId}|${day}`;
+    if (onDutyKeys.has(key)) {
+      out.push(row);
+      continue;
+    }
+    if (weekOffKeys.has(key)) {
+      out.push({
+        ...row,
+        status: "weekly_off",
+        missed_punch: false,
+        late_minutes: 0,
+        worked_minutes: 0,
+      });
+      continue;
+    }
+    // No roster that day — drop false Absent (e.g. Ruben Yaralyan INF-CC).
+  }
+  return out;
+}
