@@ -15,14 +15,21 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { useUserRoles } from "@/hooks/use-auth";
 import {
   actOnOtClaim,
   getOtMonthlySummaries,
   getOtPolicySnapshot,
   listOtClaims,
+  searchStaffForSupervisorOt,
+  setStaffContractWorkingDays,
+  submitSupervisorOtClaim,
 } from "@/lib/hr-ot.functions";
+import { HR_OT_RATE_TYPES, type HrOtRateType } from "@/lib/hr-ot";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
+import { canUserDo } from "@/lib/rbac";
 import { cn } from "@/lib/utils";
 
 function fmtMins(m: number | null | undefined) {
@@ -35,6 +42,273 @@ function fmtMins(m: number | null | undefined) {
 function currentMonth() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function todayIso() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+type OtStaffPick = {
+  id: string;
+  fullName: string;
+  employeeCode: string | null;
+  phone: string | null;
+  department: string | null;
+  jobTitle: string | null;
+  locationName: string | null;
+  contractWorkingDays: number | null;
+  supervisorContract: boolean;
+};
+
+function SupervisorOtRequest({ onSubmitted }: { onSubmitted: () => void }) {
+  const { t } = useTranslation();
+  const roles = useUserRoles();
+  const canSetContract = canUserDo(roles, "hr.profile.edit");
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [staff, setStaff] = useState<OtStaffPick | null>(null);
+  const [contractDraft, setContractDraft] = useState<"26" | "28">("26");
+  const [dates, setDates] = useState<string[]>([todayIso()]);
+  const [dateDraft, setDateDraft] = useState(todayIso());
+  const [hours, setHours] = useState("1");
+  const [purpose, setPurpose] = useState("");
+  const [rateType, setRateType] = useState<HrOtRateType>("weekday");
+
+  const search = useQuery({
+    queryKey: queryKeys.people.attendanceHr({ view: "ot-staff", query }),
+    queryFn: () => searchStaffForSupervisorOt({ query: query.trim() }),
+    enabled: open && query.trim().length >= 2,
+    staleTime: STALE.people,
+  });
+
+  const saveContract = useMutation({
+    mutationFn: setStaffContractWorkingDays,
+    onSuccess: (result) => {
+      toast.success(t("hr.ot.contractSaved"));
+      setStaff((current) =>
+        current && current.id === result.staffId
+          ? {
+              ...current,
+              contractWorkingDays: result.contractWorkingDays,
+              supervisorContract: result.contractWorkingDays === 26 || result.contractWorkingDays === 28,
+            }
+          : current,
+      );
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const submit = useMutation({
+    mutationFn: submitSupervisorOtClaim,
+    onSuccess: (result) => {
+      toast.success(t("hr.ot.submittedMany", { count: result.count }));
+      setPurpose("");
+      setStaff(null);
+      setQuery("");
+      onSubmitted();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  function addDate() {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateDraft)) return;
+    setDates((current) => (current.includes(dateDraft) ? current : [...current, dateDraft].sort()));
+  }
+
+  return (
+    <HrPanel delay={1}>
+      <div className="space-y-3 p-4 sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-semibold">{t("hr.ot.supervisorTitle")}</h3>
+            <p className="text-xs text-muted-foreground">{t("hr.ot.supervisorHint")}</p>
+          </div>
+          <Button type="button" size="sm" variant={open ? "secondary" : "default"} onClick={() => setOpen((v) => !v)}>
+            {open ? t("hr.ot.cancel") : t("hr.ot.newRequest")}
+          </Button>
+        </div>
+        {open ? (
+          <div className="space-y-3">
+            <div>
+              <Label htmlFor="ot-staff-search">{t("hr.ot.staffSearch")}</Label>
+              <Input
+                id="ot-staff-search"
+                value={query}
+                placeholder={t("hr.ot.staffSearchPlaceholder")}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+              {(search.data ?? []).length > 0 && !staff ? (
+                <div className="mt-2 space-y-1">
+                  {(search.data ?? []).map((row) => (
+                    <button
+                      key={row.id}
+                      type="button"
+                      className="hr-list-row w-full text-start"
+                      onClick={() => {
+                        setStaff(row);
+                        setQuery("");
+                        if (row.contractWorkingDays === 28) setContractDraft("28");
+                        else setContractDraft("26");
+                      }}
+                    >
+                      <span className="font-medium">{row.fullName}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {row.employeeCode ?? "—"}
+                        {row.contractWorkingDays ? ` · ${row.contractWorkingDays}d` : ""}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              {query.trim().length >= 2 && (search.data ?? []).length === 0 && !search.isFetching ? (
+                <p className="mt-1 text-xs text-muted-foreground">{t("hr.ot.noStaff")}</p>
+              ) : null}
+            </div>
+
+            {staff ? (
+              <div className="rounded-md border border-[var(--hr-border)] p-3 text-sm">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <p className="font-medium">{staff.fullName}</p>
+                  <Button type="button" size="sm" variant="secondary" onClick={() => setStaff(null)}>
+                    {t("hr.ot.changeStaff")}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {t("hr.ot.employeeId")}: {staff.employeeCode ?? "—"} · {t("hr.ot.phone")}: {staff.phone ?? "—"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {t("hr.ot.department")}: {staff.department ?? "—"} · {t("hr.ot.jobTitle")}: {staff.jobTitle ?? "—"}
+                  {staff.locationName ? ` · ${staff.locationName}` : ""}
+                </p>
+                <p className="mt-1 text-xs">
+                  {t("hr.ot.contractDays")}: {staff.contractWorkingDays ?? "—"}
+                </p>
+                {!staff.supervisorContract && canSetContract ? (
+                  <div className="mt-2 flex flex-wrap items-end gap-2">
+                    <div>
+                      <Label htmlFor="ot-contract-days">{t("hr.ot.contractDays")}</Label>
+                      <select
+                        id="ot-contract-days"
+                        className="flex h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+                        value={contractDraft}
+                        onChange={(e) => setContractDraft(e.target.value as "26" | "28")}
+                      >
+                        <option value="26">26</option>
+                        <option value="28">28</option>
+                      </select>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={saveContract.isPending}
+                      onClick={() =>
+                        saveContract.mutate({
+                          staffId: staff.id,
+                          contractWorkingDays: Number(contractDraft) as 26 | 28,
+                        })
+                      }
+                    >
+                      {t("hr.ot.saveContract")}
+                    </Button>
+                  </div>
+                ) : null}
+                {!staff.supervisorContract ? (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {staff.contractWorkingDays == null ? t("hr.ot.contractMissing") : t("hr.ot.contractOther")}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+
+            <div className="flex flex-wrap items-end gap-3">
+              <div>
+                <Label htmlFor="ot-date">{t("hr.ot.dates")}</Label>
+                <Input id="ot-date" type="date" value={dateDraft} onChange={(e) => setDateDraft(e.target.value)} />
+              </div>
+              <Button type="button" size="sm" variant="secondary" onClick={addDate}>
+                {t("hr.ot.addDate")}
+              </Button>
+              <div className="flex flex-wrap gap-1">
+                {dates.map((date) => (
+                  <button
+                    key={date}
+                    type="button"
+                    className="hr-chip"
+                    onClick={() => setDates((current) => current.filter((item) => item !== date))}
+                  >
+                    {date} ×
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="ot-hours">{t("hr.ot.requiredHours")}</Label>
+                <Input
+                  id="ot-hours"
+                  type="number"
+                  min={1}
+                  max={24}
+                  step={0.5}
+                  value={hours}
+                  onChange={(e) => setHours(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="ot-rate">{t("hr.ot.rateType")}</Label>
+                <select
+                  id="ot-rate"
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                  value={rateType}
+                  onChange={(e) => setRateType(e.target.value as HrOtRateType)}
+                >
+                  {HR_OT_RATE_TYPES.map((rate) => (
+                    <option key={rate} value={rate}>
+                      {t(`hr.ot.rateTypes.${rate}`)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <Label htmlFor="ot-purpose">{t("hr.ot.purpose")}</Label>
+              <Textarea
+                id="ot-purpose"
+                value={purpose}
+                maxLength={1000}
+                onChange={(e) => setPurpose(e.target.value)}
+              />
+            </div>
+
+            <Button
+              type="button"
+              disabled={submit.isPending || !staff?.supervisorContract || dates.length === 0 || purpose.trim().length < 3}
+              onClick={() => {
+                if (!staff) return;
+                const requiredHours = Number(hours);
+                if (!Number.isFinite(requiredHours) || requiredHours <= 0) {
+                  toast.error(t("hr.ot.hoursInvalid"));
+                  return;
+                }
+                submit.mutate({
+                  staffId: staff.id,
+                  workDates: dates,
+                  requiredHours,
+                  purpose: purpose.trim(),
+                  rateType,
+                });
+              }}
+            >
+              {t("hr.ot.submit")}
+            </Button>
+          </div>
+        ) : null}
+      </div>
+    </HrPanel>
+  );
 }
 
 export default function HrOtPage() {
@@ -118,6 +392,8 @@ export default function HrOtPage() {
             </p>
           ) : null}
 
+          <SupervisorOtRequest onSubmitted={invalidate} />
+
           <div className="hr-filter-bar hr-enter">
             {filters.map((f) => (
               <button
@@ -145,14 +421,22 @@ export default function HrOtPage() {
                       <p className="font-medium">
                         {row.staffName} · {row.workDate} · {t(`hr.ot.rateTypes.${row.rateType}`)}
                       </p>
-                      <p className="text-xs text-muted-foreground">
-                        {row.locationName ?? "—"} · {t("hr.ot.scheduled")}:{" "}
-                        {row.scheduledIn ? new Date(row.scheduledIn).toLocaleTimeString() : "—"}–
-                        {row.scheduledOut ? new Date(row.scheduledOut).toLocaleTimeString() : "—"} ·{" "}
-                        {t("hr.ot.attendance")}:{" "}
-                        {row.actualIn ? new Date(row.actualIn).toLocaleTimeString() : "—"}–
-                        {row.actualOut ? new Date(row.actualOut).toLocaleTimeString() : "—"}
-                      </p>
+                      {row.claimSource === "supervisor" ? (
+                        <p className="text-xs text-muted-foreground">
+                          {row.locationName ?? "—"} · {t("hr.ot.sourceSupervisor")}
+                          {row.contractWorkingDays ? ` · ${row.contractWorkingDays}d` : ""}
+                          {row.purpose ? ` · ${row.purpose}` : ""}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          {row.locationName ?? "—"} · {t("hr.ot.scheduled")}:{" "}
+                          {row.scheduledIn ? new Date(row.scheduledIn).toLocaleTimeString() : "—"}–
+                          {row.scheduledOut ? new Date(row.scheduledOut).toLocaleTimeString() : "—"} ·{" "}
+                          {t("hr.ot.attendance")}:{" "}
+                          {row.actualIn ? new Date(row.actualIn).toLocaleTimeString() : "—"}–
+                          {row.actualOut ? new Date(row.actualOut).toLocaleTimeString() : "—"}
+                        </p>
+                      )}
                       <p className="text-xs text-muted-foreground">
                         {t("hr.ot.eligible")}: {fmtMins(row.eligibleMinutes)} · {t("hr.ot.claimed")}:{" "}
                         {fmtMins(row.claimedMinutes)} · {t("hr.ot.approved")}:{" "}

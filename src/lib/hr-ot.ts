@@ -115,6 +115,32 @@ export function resolveOtRateMultiplier(
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
+/**
+ * Monthly contracts of 26 or 28 working days are claimed by a supervisor.
+ * Attendance overtime minutes are not the eligibility source for these contracts.
+ * There is no older column for this; it lives on staff_profile_ext.contract_working_days.
+ */
+export const SUPERVISOR_OT_CONTRACT_DAYS = [26, 28] as const;
+export type SupervisorOtContractDays = (typeof SUPERVISOR_OT_CONTRACT_DAYS)[number];
+
+export function isSupervisorOtContract(days: number | null | undefined): days is SupervisorOtContractDays {
+  return days === 26 || days === 28;
+}
+
+export function supervisorOtContractMessage(days: number): string {
+  return `This staff contract is ${days} working days. A supervisor requests the overtime.`;
+}
+
+/** Hourly divisor: 26/28-day contracts use the contract; everyone else uses OT policy (default 30). */
+export function otPayDaysPerMonth(input: {
+  contractWorkingDays?: number | null;
+  policyDaysPerMonth?: number | null;
+}): number {
+  if (isSupervisorOtContract(input.contractWorkingDays)) return input.contractWorkingDays;
+  const policy = Number(input.policyDaysPerMonth);
+  return Number.isFinite(policy) && policy > 0 ? policy : 30;
+}
+
 export function isOtEligible(input: {
   employmentCategory?: string | null;
   staffId?: string | null;

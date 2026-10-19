@@ -55,6 +55,7 @@ import { StaffPayrollPanel } from "@/components/people/staff-payroll-panel";
 import { StaffTrainingPanel } from "@/components/people/staff-training-panel";
 import { Employee360Panel } from "@/components/people/employee-360-panel";
 import { EDUCATION_DOC_TYPES, employeeProfileGaps } from "@/lib/hr-profile-completeness";
+import { setStaffContractWorkingDays } from "@/lib/hr-ot.functions";
 import { removeStaffPhoto, saveStaffPhoto, updateStaff, updateStaffProfileNotes } from "@/lib/people.functions";
 import { asEditableStaffStatus, STAFF_NOTICE_EDIT_STATUSES } from "@/lib/staff-status";
 import { HrDocumentsWorkspace } from "@/views/hr-documents-page";
@@ -97,6 +98,7 @@ type ProfileExt = {
   ticket_amount: number | null;
   contract_start: string | null;
   contract_end: string | null;
+  contract_working_days?: number | null;
   notes: string | null;
   skills?: string | null;
   emergency_contact_name: string | null;
@@ -225,6 +227,8 @@ function StaffProfilePageBody() {
   const canViewPayrollLines = usePermission("payroll.view");
   const canPerformance = usePermission("performance.view");
   const canHrManage = usePermission("hr.manage");
+  const canSetContractDays = usePermission("hr.profile.edit");
+  const [contractDaysDraft, setContractDaysDraft] = useState("");
   const canEditNotes = canEdit || canHrManage || canManageDocs;
   const [enrollOpen, setEnrollOpen] = useState(false);
   const { data: sites } = useSites();
@@ -312,6 +316,20 @@ function StaffProfilePageBody() {
     },
     onError: (e: Error) => toast.error(e.message),
   });
+
+  const contractDaysMut = useMutation({
+    mutationFn: (days: 26 | 28 | null) => setStaffContractWorkingDays({ staffId: id, contractWorkingDays: days }),
+    onSuccess: () => {
+      toast.success(t("hr.ot.contractSaved"));
+      refreshProfile();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const loadedContractDays = profile.data?.profileExt?.contract_working_days;
+  useEffect(() => {
+    setContractDaysDraft(loadedContractDays == null ? "" : String(loadedContractDays));
+  }, [loadedContractDays]);
 
   useEffect(() => {
     const loaded = profile.data?.staff;
@@ -939,9 +957,37 @@ function StaffProfilePageBody() {
                     fact("Joined", s.hire_date),
                     fact("Service", serviceLabel),
                     fact("Contract", contractSpan),
+                    fact(t("hr.ot.contractDays"), ext?.contract_working_days ?? null),
                     fact("Probation", probationSpan),
                   ]}
                 />
+                {canSetContractDays ? (
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div>
+                      <Label htmlFor="profile-contract-days">{t("hr.ot.contractDays")}</Label>
+                      <select
+                        id="profile-contract-days"
+                        className="flex h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+                        value={contractDaysDraft}
+                        onChange={(e) => setContractDaysDraft(e.target.value)}
+                      >
+                        <option value="">{t("hr.ot.attendancePath")}</option>
+                        <option value="26">26</option>
+                        <option value="28">28</option>
+                      </select>
+                    </div>
+                    <Button
+                      size="sm"
+                      disabled={contractDaysMut.isPending}
+                      onClick={() => {
+                        const days = contractDaysDraft === "26" ? 26 : contractDaysDraft === "28" ? 28 : null;
+                        contractDaysMut.mutate(days);
+                      }}
+                    >
+                      {contractDaysMut.isPending ? t("common.saving") : t("hr.ot.saveContract")}
+                    </Button>
+                  </div>
+                ) : null}
                 {canEdit ? (
                   <div className="space-y-2 border-t border-border pt-3">
                     <Label htmlFor="profile-staff-status">{t("people.staff.status")}</Label>

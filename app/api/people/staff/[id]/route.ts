@@ -181,16 +181,26 @@ export async function GET(
 
       if (loadOverview || legacyFull) {
         const profileExtSelect =
-          "nationality, gender, date_of_birth, emergency_contact_name, emergency_contact_phone, emergency_contact_relation, reporting_manager_staff_id, employment_category, probation_start, probation_end, passport_number, passport_expiry, visa_number, visa_expiry, sponsorship_info, qid_expiry, ticket_eligibility, ticket_eligibility_months, ticket_amount, contract_start, contract_end, notes, payment_method, bank_name, iban, last_working_date, releasing_date, exit_reason";
+          "nationality, gender, date_of_birth, emergency_contact_name, emergency_contact_phone, emergency_contact_relation, reporting_manager_staff_id, employment_category, probation_start, probation_end, passport_number, passport_expiry, visa_number, visa_expiry, sponsorship_info, qid_expiry, ticket_eligibility, ticket_eligibility_months, ticket_amount, contract_start, contract_end, contract_working_days, notes, payment_method, bank_name, iban, last_working_date, releasing_date, exit_reason";
         let ext: Record<string, unknown> | null = null;
         if (access.scope === "team") {
-          const { data: legacy, error: legacyErr } = await db
+          const firstExt = await db
             .from("staff_profile_ext")
             .select(profileExtSelect)
             .eq("staff_id", id)
             .maybeSingle();
-          if (legacyErr) throw legacyErr;
-          ext = legacy;
+          if (firstExt.error && /contract_working_days/i.test(firstExt.error.message)) {
+            const fallback = await db
+              .from("staff_profile_ext")
+              .select(profileExtSelect.replace(", contract_working_days", ""))
+              .eq("staff_id", id)
+              .maybeSingle();
+            if (fallback.error) throw fallback.error;
+            ext = (fallback.data ?? null) as Record<string, unknown> | null;
+          } else {
+            if (firstExt.error) throw firstExt.error;
+            ext = (firstExt.data ?? null) as Record<string, unknown> | null;
+          }
           if (ext && access.viewerStaffId !== id) {
             ext = {
               ...ext,

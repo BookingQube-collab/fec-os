@@ -12,7 +12,10 @@ import {
   computeOtAmountQar,
   hourlyRateFromPay,
   isOtEligible,
+  isSupervisorOtContract,
+  otPayDaysPerMonth,
   resolveEligibleOtMinutes,
+  supervisorOtContractMessage,
   resolveOtRateMultiplier,
   roundOtMinutes,
 } from "./hr-ot";
@@ -106,6 +109,24 @@ describe("OT amount", () => {
     expect(
       computeOtAmountQar({ approvedMinutes: 120, rateMultiplier: 1.25, hourlyRateQar: hourly }),
     ).toBe(50);
+  });
+});
+
+describe("26 and 28 day supervisor contracts", () => {
+  it("treats only 26 and 28 as the supervisor claim path", () => {
+    expect(isSupervisorOtContract(26)).toBe(true);
+    expect(isSupervisorOtContract(28)).toBe(true);
+    expect(isSupervisorOtContract(30)).toBe(false);
+    expect(isSupervisorOtContract(null)).toBe(false);
+    expect(supervisorOtContractMessage(26)).toMatch(/supervisor/i);
+  });
+
+  it("uses the contract as the monthly pay divisor", () => {
+    expect(otPayDaysPerMonth({ contractWorkingDays: 26, policyDaysPerMonth: 30 })).toBe(26);
+    expect(otPayDaysPerMonth({ contractWorkingDays: 28, policyDaysPerMonth: 30 })).toBe(28);
+    expect(otPayDaysPerMonth({ contractWorkingDays: null, policyDaysPerMonth: 30 })).toBe(30);
+    const hourly = hourlyRateFromPay({ monthlyBasicQar: 5200, hoursPerDay: 8, daysPerMonth: 26 });
+    expect(hourly).toBe(25);
   });
 });
 
