@@ -12,6 +12,7 @@ import {
   useImperativeHandle,
   useMemo,
   useState,
+  type UIEvent,
 } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -92,7 +93,12 @@ import {
 import { STALE } from "@/lib/query-client";
 import { queryKeys } from "@/lib/query-keys";
 import { formatLocationLabel } from "@/lib/locations/normalize";
+import { shouldVirtualizeMatrixStaff, virtualWindowRange } from "@/lib/staff-roster/virtual-window";
 import { cn } from "@/lib/utils";
+
+/** Approx staff row height (day cell min-h + padding). Used for windowing only. */
+const MATRIX_STAFF_ROW_PX = 52;
+const MATRIX_STAFF_OVERSCAN = 4;
 
 export type RosterSourceFilter = "all" | "upload" | "amend" | "manual" | "copied";
 
@@ -341,6 +347,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     const [draft, setDraft] = useState<Draft | null>(null);
     const [deleteAllOpen, setDeleteAllOpen] = useState(false);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+    const [matrixScrollTop, setMatrixScrollTop] = useState(0);
 
     // Branch switcher seeds the Location filter. Keep them aligned when the
     // switcher changes so supervisors cannot query all managed sites while the
@@ -441,6 +448,35 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     }, [filtered, dateFrom, dateTo, teamStaff, deferredStaffId, deferredQuery, selectedLocationCode]);
     const showEmptyDayGrid = rosterEmptyPeriodShowsDayGrid(filtered.length, canAmend);
     const teamGridWithoutRows = filtered.length === 0 && matrix.staff.length > 0;
+
+    const matrixStaffWindow = useMemo(
+      () =>
+        virtualWindowRange(
+          matrix.staff.length,
+          matrixScrollTop,
+          MATRIX_STAFF_ROW_PX,
+          maxHeight,
+          MATRIX_STAFF_OVERSCAN,
+        ),
+      [matrix.staff.length, matrixScrollTop, maxHeight],
+    );
+    const virtualizeMatrixStaff = shouldVirtualizeMatrixStaff(
+      matrix.staff.length,
+      matrixStaffWindow.fullyInWindow,
+    );
+    const visibleMatrixStaff = virtualizeMatrixStaff
+      ? matrix.staff.slice(matrixStaffWindow.start, matrixStaffWindow.end)
+      : matrix.staff;
+    const matrixColSpan = 2 + matrix.dates.length;
+
+    useEffect(() => {
+      setMatrixScrollTop(0);
+    }, [dateFrom, dateTo, deferredStaffId, deferredLocationId, deferredQuery, showOnlyDepartmentIds, excludedDepartmentIds]);
+
+    const onMatrixScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
+      const top = event.currentTarget.scrollTop;
+      setMatrixScrollTop((prev) => (prev === top ? prev : top));
+    }, []);
     const assignStaff = useQuery({
       queryKey: [...queryKeys.people.all, "roster-assign-staff"],
       queryFn: () => listRosterAssignStaff(),
@@ -1120,11 +1156,12 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
           ) : null}
           <div
             className={cn(
-              "overflow-auto rounded-lg border border-border/70",
+              "overflow-auto rounded-lg border border-border/70 [contain:layout_paint]",
               gridPending && "opacity-70 transition-opacity",
             )}
             style={{ maxHeight }}
             aria-busy={gridPending}
+            onScroll={virtualizeMatrixStaff ? onMatrixScroll : undefined}
           >
             <table className="min-w-max border-collapse text-xs">
               <thead className="sticky top-0 z-20">
@@ -1220,23 +1257,42 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
                     })}
                   </tr>
                 ) : null}
-                {matrix.staff.map((person, index) => (
-                  <RosterMatrixStaffRow
-                    key={person.staffId}
-                    person={person}
-                    index={index}
-                    dates={matrix.dates}
-                    byStaffDate={matrix.byStaffDate}
-                    canAmend={canAmend}
-                    onEdit={startEdit}
-                    onCreate={startCreate}
-                    offLabel={cellOffLabel}
-                    annualLabel={cellAnnualLabel}
-                    sickLabel={cellSickLabel}
-                    compOffLabel={cellCompOffLabel}
-                    addDayLabel={addDayLabel}
-                  />
-                ))}
+                {virtualizeMatrixStaff && matrixStaffWindow.topPad > 0 ? (
+                  <tr aria-hidden="true">
+                    <td
+                      colSpan={matrixColSpan}
+                      style={{ height: matrixStaffWindow.topPad, padding: 0, border: 0 }}
+                    />
+                  </tr>
+                ) : null}
+                {visibleMatrixStaff.map((person, offset) => {
+                  const index = virtualizeMatrixStaff ? matrixStaffWindow.start + offset : offset;
+                  return (
+                    <RosterMatrixStaffRow
+                      key={person.staffId}
+                      person={person}
+                      index={index}
+                      dates={matrix.dates}
+                      byStaffDate={matrix.byStaffDate}
+                      canAmend={canAmend}
+                      onEdit={startEdit}
+                      onCreate={startCreate}
+                      offLabel={cellOffLabel}
+                      annualLabel={cellAnnualLabel}
+                      sickLabel={cellSickLabel}
+                      compOffLabel={cellCompOffLabel}
+                      addDayLabel={addDayLabel}
+                    />
+                  );
+                })}
+                {virtualizeMatrixStaff && matrixStaffWindow.bottomPad > 0 ? (
+                  <tr aria-hidden="true">
+                    <td
+                      colSpan={matrixColSpan}
+                      style={{ height: matrixStaffWindow.bottomPad, padding: 0, border: 0 }}
+                    />
+                  </tr>
+                ) : null}
               </tbody>
             </table>
           </div>

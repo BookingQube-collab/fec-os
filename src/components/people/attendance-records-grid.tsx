@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useMemo, useState, type ReactNode } from "react";
+import { memo, useCallback, useMemo, useState, type ReactNode, type UIEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import { AttendanceRecordsTable } from "@/components/people/attendance-records-table";
@@ -24,7 +24,11 @@ import {
   rosterMatrixCellKey,
   type AttendanceMatrixRow,
 } from "@/lib/attendance-hr/attendance-matrix";
+import { shouldVirtualizeMatrixStaff, virtualWindowRange } from "@/lib/staff-roster/virtual-window";
 import { cn } from "@/lib/utils";
+
+const MATRIX_STAFF_ROW_PX = 52;
+const MATRIX_STAFF_OVERSCAN = 4;
 
 function weekdayShort(ymd: string, locale: string) {
   const intlLocale = locale.toLowerCase().startsWith("ar") ? "ar" : "en-GB";
@@ -150,10 +154,24 @@ export const AttendanceRecordsGrid = memo(function AttendanceRecordsGrid({
 }) {
   const { t, i18n } = useTranslation();
   const [detail, setDetail] = useState<AttendanceMatrixRow | null>(null);
+  const [scrollTop, setScrollTop] = useState(0);
 
   const matrix = useMemo(() => buildAttendanceMatrix(rows, dateFrom, dateTo), [rows, dateFrom, dateTo]);
   const offLabel = t("attendanceHr.reports.cellOff");
   const notJoinedLabel = t("attendanceHr.reports.statuses.not_joined");
+  const staffWindow = useMemo(
+    () => virtualWindowRange(matrix.staff.length, scrollTop, MATRIX_STAFF_ROW_PX, maxHeight, MATRIX_STAFF_OVERSCAN),
+    [matrix.staff.length, scrollTop, maxHeight],
+  );
+  const virtualizeStaff = shouldVirtualizeMatrixStaff(matrix.staff.length, staffWindow.fullyInWindow);
+  const visibleStaff = virtualizeStaff
+    ? matrix.staff.slice(staffWindow.start, staffWindow.end)
+    : matrix.staff;
+  const colSpan = 2 + matrix.dates.length;
+  const onScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
+    const top = event.currentTarget.scrollTop;
+    setScrollTop((prev) => (prev === top ? prev : top));
+  }, []);
 
   if (rows.length === 0) {
     return (
@@ -173,7 +191,11 @@ export const AttendanceRecordsGrid = memo(function AttendanceRecordsGrid({
 
   return (
     <>
-      <div className="overflow-auto rounded-lg border border-border/70" style={{ maxHeight }}>
+      <div
+        className="overflow-auto rounded-lg border border-border/70 [contain:layout_paint]"
+        style={{ maxHeight }}
+        onScroll={virtualizeStaff ? onScroll : undefined}
+      >
         <table className="min-w-max border-collapse text-xs">
           <thead className="sticky top-0 z-20">
             <tr className="bg-muted/80">
@@ -235,18 +257,31 @@ export const AttendanceRecordsGrid = memo(function AttendanceRecordsGrid({
             </tr>
           </thead>
           <tbody>
-            {matrix.staff.map((person, index) => (
-              <AttendanceStaffRow
-                key={person.staffId}
-                person={person}
-                index={index}
-                dates={matrix.dates}
-                byStaffDate={matrix.byStaffDate}
-                offLabel={offLabel}
-                notJoinedLabel={notJoinedLabel}
-                onOpen={setDetail}
-              />
-            ))}
+            {virtualizeStaff && staffWindow.topPad > 0 ? (
+              <tr aria-hidden="true">
+                <td colSpan={colSpan} style={{ height: staffWindow.topPad, padding: 0, border: 0 }} />
+              </tr>
+            ) : null}
+            {visibleStaff.map((person, offset) => {
+              const index = virtualizeStaff ? staffWindow.start + offset : offset;
+              return (
+                <AttendanceStaffRow
+                  key={person.staffId}
+                  person={person}
+                  index={index}
+                  dates={matrix.dates}
+                  byStaffDate={matrix.byStaffDate}
+                  offLabel={offLabel}
+                  notJoinedLabel={notJoinedLabel}
+                  onOpen={setDetail}
+                />
+              );
+            })}
+            {virtualizeStaff && staffWindow.bottomPad > 0 ? (
+              <tr aria-hidden="true">
+                <td colSpan={colSpan} style={{ height: staffWindow.bottomPad, padding: 0, border: 0 }} />
+              </tr>
+            ) : null}
           </tbody>
         </table>
       </div>

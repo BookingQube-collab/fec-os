@@ -30,3 +30,15 @@ export function shouldVirtualizePreviewRows(
 ) {
   return count >= minRowsToVirtualize && !fullyInWindow;
 }
+
+/**
+ * Month matrices mount ~30 day cells per staff row. Virtualize earlier than import
+ * previews so open-filter INP is not fighting a full company grid in the DOM.
+ */
+export function shouldVirtualizeMatrixStaff(
+  count: number,
+  fullyInWindow: boolean,
+  minRowsToVirtualize = 12,
+) {
+  return count >= minRowsToVirtualize && !fullyInWindow;
+}

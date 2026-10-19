@@ -432,106 +432,108 @@ export function SearchableSelect(props: SearchableSelectSingleProps | Searchable
             <ChevronsUpDown className="shrink-0 opacity-70" />
           </button>
         </PopoverTrigger>
-        <PopoverContent
-          align="start"
-          className="w-[var(--radix-popover-trigger-width)] min-w-[12rem] p-1.5"
-          onOpenAutoFocus={(e) => {
-            e.preventDefault();
-            inputRef.current?.focus();
-          }}
-        >
-          <SearchableSelectSearchInput
-            inputRef={inputRef}
-            value={query}
-            onChange={setQuery}
-            onKeyDown={onSearchKeyDown}
-            placeholder={searchPh}
-            listId={listId}
-            expanded={open}
-            activeId={activeId}
-          />
-          <ul
-            ref={listRef}
-            id={listId}
-            role="listbox"
-            aria-multiselectable={multiple || undefined}
-            className="mt-1.5 max-h-64 overflow-y-auto overscroll-contain p-0"
-            onScroll={(e) => {
-              const top = e.currentTarget.scrollTop;
-              setScrollTop((prev) => (prev === top ? prev : top));
+        {open ? (
+          <PopoverContent
+            align="start"
+            className="w-[var(--radix-popover-trigger-width)] min-w-[12rem] p-1.5"
+            onOpenAutoFocus={(e) => {
+              e.preventDefault();
+              inputRef.current?.focus();
             }}
           >
-            {!listOn ? null : filtered.length === 0 ? (
-              <li className="px-3 py-3 text-sm text-muted-foreground">{emptyLabel}</li>
-            ) : (
-              <>
-                {windowed.topPad > 0 ? <li aria-hidden style={{ height: windowed.topPad }} /> : null}
-                {visible.map((item, offset) => {
-                  const i = visibleStart + offset;
-                  const isActive = i === active;
-                  const isClear = Boolean(emptyOption && item.value === emptyOption.value);
-                  const isSelected = isClear
-                    ? selectedValues.length === 0
-                    : exclude
-                      ? !selectedSet.has(item.value)
-                      : selectedSet.has(item.value);
-                  return (
-                    <li key={`${item.value}-${i}`} role="presentation" className="overflow-hidden" style={{ height: rowHeight }}>
-                      <button
-                        type="button"
-                        id={`${listId}-${i}`}
-                        role="option"
-                        aria-selected={isSelected}
-                        disabled={item.disabled}
-                        onClick={() => (multiple ? toggleMulti(item.value) : chooseSingle(item.value))}
-                        className={cn(
-                          "flex h-full w-full items-center gap-2 rounded-full px-3 py-2 text-start text-sm",
-                          isActive ? "bg-secondary font-medium text-foreground" : "text-foreground hover:bg-secondary/70",
-                          item.disabled && "pointer-events-none opacity-50",
-                        )}
-                      >
-                        {multiple && !isClear ? (
-                          <span
-                            aria-hidden
-                            className={cn(
-                              "grid h-4 w-4 shrink-0 place-content-center rounded-sm border border-primary shadow",
-                              isSelected && "bg-primary text-primary-foreground",
-                            )}
-                          >
-                            <Check className={cn("h-4 w-4", isSelected ? "opacity-100" : "opacity-0")} />
-                          </span>
-                        ) : (
-                          <Check className={cn("h-3.5 w-3.5 shrink-0", isSelected ? "opacity-100" : "opacity-0")} />
-                        )}
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate">{item.label}</span>
-                          {item.description ? (
-                            <span className="block truncate text-xs font-normal text-muted-foreground">{item.description}</span>
-                          ) : null}
-                        </span>
-                        {item.suffix}
-                      </button>
-                    </li>
-                  );
-                })}
-                {windowed.bottomPad > 0 ? <li aria-hidden style={{ height: windowed.bottomPad }} /> : null}
-              </>
-            )}
-          </ul>
-          {createName ? (
-            <button
-              type="button"
-              disabled={creating}
-              className="mt-1 flex w-full items-center gap-2 rounded-full px-3 py-2 text-start text-sm font-medium text-primary hover:bg-secondary/70 disabled:opacity-50"
-              onClick={() => void runCreate(createName)}
+            <SearchableSelectSearchInput
+              inputRef={inputRef}
+              value={query}
+              onChange={setQuery}
+              onKeyDown={onSearchKeyDown}
+              placeholder={searchPh}
+              listId={listId}
+              expanded={open}
+              activeId={activeId}
+            />
+            <ul
+              ref={listRef}
+              id={listId}
+              role="listbox"
+              aria-multiselectable={multiple || undefined}
+              className="mt-1.5 max-h-64 overflow-y-auto overscroll-contain p-0"
+              onScroll={(e) => {
+                const top = e.currentTarget.scrollTop;
+                setScrollTop((prev) => (prev === top ? prev : top));
+              }}
             >
-              <Plus className="h-3.5 w-3.5 shrink-0" />
-              <span className="min-w-0 flex-1 truncate">
-                {createOptionLabel?.(createName) ?? createName}
-              </span>
-            </button>
-          ) : null}
-        </PopoverContent>
+              {!listOn ? null : filtered.length === 0 ? (
+                <li className="px-3 py-3 text-sm text-muted-foreground">{emptyLabel}</li>
+              ) : (
+                <>
+                  {windowed.topPad > 0 ? <li aria-hidden style={{ height: windowed.topPad }} /> : null}
+                  {visible.map((item, offset) => {
+                    const i = visibleStart + offset;
+                    const isActive = i === active;
+                    const isClear = Boolean(emptyOption && item.value === emptyOption.value);
+                    const isSelected = isClear
+                      ? selectedValues.length === 0
+                      : exclude
+                        ? !selectedSet.has(item.value)
+                        : selectedSet.has(item.value);
+                    return (
+                      <li key={`${item.value}-${i}`} role="presentation" className="overflow-hidden" style={{ height: rowHeight }}>
+                        <button
+                          type="button"
+                          id={`${listId}-${i}`}
+                          role="option"
+                          aria-selected={isSelected}
+                          disabled={item.disabled}
+                          onClick={() => (multiple ? toggleMulti(item.value) : chooseSingle(item.value))}
+                          className={cn(
+                            "flex h-full w-full items-center gap-2 rounded-full px-3 py-2 text-start text-sm",
+                            isActive ? "bg-secondary font-medium text-foreground" : "text-foreground hover:bg-secondary/70",
+                            item.disabled && "pointer-events-none opacity-50",
+                          )}
+                        >
+                          {multiple && !isClear ? (
+                            <span
+                              aria-hidden
+                              className={cn(
+                                "grid h-4 w-4 shrink-0 place-content-center rounded-sm border border-primary shadow",
+                                isSelected && "bg-primary text-primary-foreground",
+                              )}
+                            >
+                              <Check className={cn("h-4 w-4", isSelected ? "opacity-100" : "opacity-0")} />
+                            </span>
+                          ) : (
+                            <Check className={cn("h-3.5 w-3.5 shrink-0", isSelected ? "opacity-100" : "opacity-0")} />
+                          )}
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate">{item.label}</span>
+                            {item.description ? (
+                              <span className="block truncate text-xs font-normal text-muted-foreground">{item.description}</span>
+                            ) : null}
+                          </span>
+                          {item.suffix}
+                        </button>
+                      </li>
+                    );
+                  })}
+                  {windowed.bottomPad > 0 ? <li aria-hidden style={{ height: windowed.bottomPad }} /> : null}
+                </>
+              )}
+            </ul>
+            {createName ? (
+              <button
+                type="button"
+                disabled={creating}
+                className="mt-1 flex w-full items-center gap-2 rounded-full px-3 py-2 text-start text-sm font-medium text-primary hover:bg-secondary/70 disabled:opacity-50"
+                onClick={() => void runCreate(createName)}
+              >
+                <Plus className="h-3.5 w-3.5 shrink-0" />
+                <span className="min-w-0 flex-1 truncate">
+                  {createOptionLabel?.(createName) ?? createName}
+                </span>
+              </button>
+            ) : null}
+          </PopoverContent>
+        ) : null}
       </Popover>
     </div>
   );

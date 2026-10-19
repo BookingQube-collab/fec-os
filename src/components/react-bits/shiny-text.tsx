@@ -1,11 +1,11 @@
 "use client";
 
 /**
- * Official React Bits ShinyText-TS-TW (https://reactbits.dev/r/ShinyText-TS-TW.json).
- * Source repo: https://github.com/DavidHDev/react-bits
+ * Official React Bits ShinyText look (https://reactbits.dev/r/ShinyText-TS-TW.json),
+ * implemented with CSS animation + IntersectionObserver so idle pages do not run
+ * per-frame JS (motion useAnimationFrame) that blocks pointer input delay / INP.
  */
-import React, { useState, useCallback, useEffect, useRef } from "react";
-import { motion, useMotionValue, useAnimationFrame, useTransform } from "motion/react";
+import React, { useEffect, useRef, useState } from "react";
 
 interface ShinyTextProps {
   text: string;
@@ -34,105 +34,54 @@ const ShinyText: React.FC<ShinyTextProps> = ({
   direction = "left",
   delay = 0,
 }) => {
-  const [isPaused, setIsPaused] = useState(false);
-  const progress = useMotionValue(0);
-  const elapsedRef = useRef(0);
-  const lastTimeRef = useRef<number | null>(null);
-  const directionRef = useRef(direction === "left" ? 1 : -1);
-
-  const animationDuration = speed * 1000;
-  const delayDuration = delay * 1000;
-
-  useAnimationFrame((time) => {
-    if (disabled || isPaused) {
-      lastTimeRef.current = null;
-      return;
-    }
-
-    if (lastTimeRef.current === null) {
-      lastTimeRef.current = time;
-      return;
-    }
-
-    const deltaTime = time - lastTimeRef.current;
-    lastTimeRef.current = time;
-
-    elapsedRef.current += deltaTime;
-
-    // Animation goes from 0 to 100
-    if (yoyo) {
-      const cycleDuration = animationDuration + delayDuration;
-      const fullCycle = cycleDuration * 2;
-      const cycleTime = elapsedRef.current % fullCycle;
-
-      if (cycleTime < animationDuration) {
-        // Forward animation: 0 -> 100
-        const p = (cycleTime / animationDuration) * 100;
-        progress.set(directionRef.current === 1 ? p : 100 - p);
-      } else if (cycleTime < cycleDuration) {
-        // Delay at end
-        progress.set(directionRef.current === 1 ? 100 : 0);
-      } else if (cycleTime < cycleDuration + animationDuration) {
-        // Reverse animation: 100 -> 0
-        const reverseTime = cycleTime - cycleDuration;
-        const p = 100 - (reverseTime / animationDuration) * 100;
-        progress.set(directionRef.current === 1 ? p : 100 - p);
-      } else {
-        // Delay at start
-        progress.set(directionRef.current === 1 ? 0 : 100);
-      }
-    } else {
-      const cycleDuration = animationDuration + delayDuration;
-      const cycleTime = elapsedRef.current % cycleDuration;
-
-      if (cycleTime < animationDuration) {
-        // Animation phase: 0 -> 100
-        const p = (cycleTime / animationDuration) * 100;
-        progress.set(directionRef.current === 1 ? p : 100 - p);
-      } else {
-        // Delay phase - hold at end (shine off-screen)
-        progress.set(directionRef.current === 1 ? 100 : 0);
-      }
-    }
-  });
+  const ref = useRef<HTMLSpanElement>(null);
+  const [inView, setInView] = useState(false);
+  const [hovered, setHovered] = useState(false);
 
   useEffect(() => {
-    directionRef.current = direction === "left" ? 1 : -1;
-    elapsedRef.current = 0;
-    progress.set(0);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [direction]);
+    const el = ref.current;
+    if (!el || disabled) {
+      setInView(false);
+      return;
+    }
+    const io = new IntersectionObserver(
+      ([entry]) => setInView(Boolean(entry?.isIntersecting)),
+      { rootMargin: "48px", threshold: 0.01 },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [disabled]);
 
-  // Transform: p=0 -> 150% (shine off right), p=100 -> -50% (shine off left)
-  const backgroundPosition = useTransform(progress, (p) => `${150 - p * 2}% center`);
+  const animate = !disabled && inView && !(pauseOnHover && hovered);
+  const durationSec = Math.max(0.35, speed);
+  const delaySec = Math.max(0, delay);
 
-  const handleMouseEnter = useCallback(() => {
-    if (pauseOnHover) setIsPaused(true);
-  }, [pauseOnHover]);
-
-  const handleMouseLeave = useCallback(() => {
-    if (pauseOnHover) setIsPaused(false);
-  }, [pauseOnHover]);
-
-  const gradientStyle: React.CSSProperties = {
+  const style: React.CSSProperties = {
     backgroundImage: `linear-gradient(${spread}deg, ${color} 0%, ${color} 35%, ${shineColor} 50%, ${color} 65%, ${color} 100%)`,
     backgroundSize: "200% auto",
     WebkitBackgroundClip: "text",
     backgroundClip: "text",
-    WebkitTextFillColor: "transparent",
+    WebkitTextFillColor: disabled ? color : "transparent",
+    color: disabled ? color : undefined,
+    // Compositor-friendly custom props for the keyframes in styles.css
+    ["--fec-shiny-duration" as string]: `${durationSec}s`,
+    ["--fec-shiny-delay" as string]: `${delaySec}s`,
   };
 
   return (
-    <motion.span
-      // Always block + full width: inline-block/min-content collapses to ~1ch
-      // beside wide flex siblings and paints titles as vertical letter columns.
-      className={`block w-full max-w-full min-w-0 whitespace-normal [overflow-wrap:normal] [word-break:normal] ${className}`}
-      style={{ ...gradientStyle, backgroundPosition }}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
+    <span
+      ref={ref}
+      className={`block w-full max-w-full min-w-0 whitespace-normal [overflow-wrap:normal] [word-break:normal] ${
+        animate ? "fec-shiny-text" : ""
+      } ${yoyo && animate ? "fec-shiny-text-yoyo" : ""} ${
+        direction === "right" && animate ? "fec-shiny-text-reverse" : ""
+      } ${className}`}
+      style={style}
+      onMouseEnter={pauseOnHover ? () => setHovered(true) : undefined}
+      onMouseLeave={pauseOnHover ? () => setHovered(false) : undefined}
     >
       {text}
-    </motion.span>
+    </span>
   );
 };
 

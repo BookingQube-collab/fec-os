@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { virtualWindowRange, shouldVirtualizePreviewRows } from "./virtual-window";
+import {
+  virtualWindowRange,
+  shouldVirtualizePreviewRows,
+  shouldVirtualizeMatrixStaff,
+} from "./virtual-window";
 
 describe("virtualWindowRange", () => {
   const rowHeight = 68;
@@ -35,5 +39,20 @@ describe("virtualWindowRange", () => {
     expect(range.fullyInWindow).toBe(false);
     expect(shouldVirtualizePreviewRows(31, range.fullyInWindow)).toBe(false);
     expect(shouldVirtualizePreviewRows(413, false)).toBe(true);
+  });
+});
+
+describe("shouldVirtualizeMatrixStaff", () => {
+  it("keeps a single Maintenance staff row fully mounted (no pad artifacts)", () => {
+    const range = virtualWindowRange(1, 0, 52, 480, 4);
+    expect(range.fullyInWindow).toBe(true);
+    expect(shouldVirtualizeMatrixStaff(1, range.fullyInWindow)).toBe(false);
+  });
+
+  it("windows company-sized month grids so filter opens are not fighting the full DOM", () => {
+    const range = virtualWindowRange(80, 0, 52, 480, 4);
+    expect(range.fullyInWindow).toBe(false);
+    expect(shouldVirtualizeMatrixStaff(80, range.fullyInWindow)).toBe(true);
+    expect(shouldVirtualizeMatrixStaff(8, false)).toBe(false);
   });
 });

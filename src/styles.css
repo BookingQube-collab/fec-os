@@ -1318,6 +1318,45 @@
   }
 }
 
+/* BitsShine / ShinyText — CSS only (no per-frame JS). Compositor paints the sweep. */
+@keyframes fec-shiny-text {
+  0% {
+    background-position: 150% center;
+  }
+  100% {
+    background-position: -50% center;
+  }
+}
+
+.fec-shiny-text {
+  animation: fec-shiny-text var(--fec-shiny-duration, 2s) linear var(--fec-shiny-delay, 0s) infinite;
+  will-change: background-position;
+}
+
+.fec-shiny-text-yoyo {
+  animation-direction: alternate;
+}
+
+.fec-shiny-text-reverse {
+  animation-direction: reverse;
+}
+
+.fec-shiny-text-yoyo.fec-shiny-text-reverse {
+  animation-direction: alternate-reverse;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fec-shiny-text,
+  .fec-shiny-text-yoyo,
+  .fec-shiny-text-reverse {
+    animation: none !important;
+    will-change: auto;
+    -webkit-text-fill-color: unset;
+    background-image: none !important;
+    color: inherit;
+  }
+}
+
 /* StarBorder focus — traveling gold edge on the control itself (no wrapper, no canvas). */
 @keyframes fec-star-border {
   0% {

@@ -32,6 +32,8 @@ export function OrgDepartmentsFilter({
   const { t } = useTranslation();
   // Keep the menu label/checkboxes urgent; defer the parent grid rebuild (INP).
   const [localChecks, setLocalChecks] = useState(checks);
+  const [open, setOpen] = useState(false);
+
   useEffect(() => {
     setLocalChecks(checks);
   }, [checks]);
@@ -49,7 +51,15 @@ export function OrgDepartmentsFilter({
   }
 
   return (
-    <DropdownMenu>
+    <DropdownMenu
+      // Avoid body scroll-lock / padding reflow across the wide sticky month grid.
+      modal={false}
+      open={open}
+      onOpenChange={(next) => {
+        if (disabled) return;
+        setOpen(next);
+      }}
+    >
       <DropdownMenuTrigger asChild disabled={disabled}>
         <button
           type="button"
@@ -65,22 +75,25 @@ export function OrgDepartmentsFilter({
           <ChevronDown className="h-4 w-4 shrink-0 opacity-60" aria-hidden />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="start"
-        className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-[12rem] max-w-[calc(100vw-1.5rem)]"
-      >
-        {ORG_FOCUS_DEPARTMENTS.map((key) => (
-          <DropdownMenuCheckboxItem
-            key={key}
-            checked={localChecks[key]}
-            disabled={disabled}
-            onSelect={(event) => event.preventDefault()}
-            onCheckedChange={(value) => toggle(key, value === true)}
-          >
-            {t(`common.orgDepartment.${key}`)}
-          </DropdownMenuCheckboxItem>
-        ))}
-      </DropdownMenuContent>
+      {/* Only portal while open — no idle Presence/measure work on a mounted month grid. */}
+      {open ? (
+        <DropdownMenuContent
+          align="start"
+          className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-[12rem] max-w-[calc(100vw-1.5rem)]"
+        >
+          {ORG_FOCUS_DEPARTMENTS.map((key) => (
+            <DropdownMenuCheckboxItem
+              key={key}
+              checked={localChecks[key]}
+              disabled={disabled}
+              onSelect={(event) => event.preventDefault()}
+              onCheckedChange={(value) => toggle(key, value === true)}
+            >
+              {t(`common.orgDepartment.${key}`)}
+            </DropdownMenuCheckboxItem>
+          ))}
+        </DropdownMenuContent>
+      ) : null}
     </DropdownMenu>
   );
 }
