@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { LayoutGrid, LayoutList, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { LayoutGrid, LayoutList, Loader2, Pencil, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -34,6 +34,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import {
+  Sheet,
+  SheetContent,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useCanAmendShiftRoster } from "@/hooks/use-auth";
@@ -185,6 +192,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     const [sourceFilter, setSourceFilter] = useState<RosterSourceFilter>("all");
     const [query, setQuery] = useState("");
     const [viewMode, setViewMode] = useState<ViewMode>("grid");
+    const [filtersOpen, setFiltersOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [createWorkDate, setCreateWorkDate] = useState<string | null>(null);
     const [createStaffId, setCreateStaffId] = useState("");
@@ -533,19 +541,21 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
         ? t("people.roster.registerDeleteSelected", { count: selectedCount })
         : t("people.roster.registerDeleteAll");
 
-    const deleteAllButton = canAmend ? (
-      <Button
-        type="button"
-        size="sm"
-        variant="destructive"
-        className="shrink-0"
-        disabled={deleteAllDisabled}
-        onClick={() => setDeleteAllOpen(true)}
-      >
-        {deleteAllMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-        {deleteActionLabel}
-      </Button>
-    ) : null;
+    // When the parent page owns Delete all (hideHeader), keep it off this card on phone/desktop.
+    const deleteAllButton =
+      canAmend && !hideHeader ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="destructive"
+          className="hidden shrink-0 sm:inline-flex"
+          disabled={deleteAllDisabled}
+          onClick={() => setDeleteAllOpen(true)}
+        >
+          {deleteAllMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+          {deleteActionLabel}
+        </Button>
+      ) : null;
 
     const dayStatusOptions = [
       { value: "on_duty", label: t("people.roster.dutyYes") },
@@ -668,23 +678,25 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
           type="button"
           size="sm"
           variant={viewMode === "grid" ? "secondary" : "ghost"}
-          className="h-8 gap-1.5 px-2.5"
+          className="h-9 gap-1.5 px-2.5 sm:h-8"
           onClick={() => setViewMode("grid")}
           aria-pressed={viewMode === "grid"}
+          aria-label={t("people.roster.registerViewGrid")}
         >
           <LayoutGrid className="h-3.5 w-3.5" />
-          {t("people.roster.registerViewGrid")}
+          <span className="hidden sm:inline">{t("people.roster.registerViewGrid")}</span>
         </Button>
         <Button
           type="button"
           size="sm"
           variant={viewMode === "list" ? "secondary" : "ghost"}
-          className="h-8 gap-1.5 px-2.5"
+          className="h-9 gap-1.5 px-2.5 sm:h-8"
           onClick={() => setViewMode("list")}
           aria-pressed={viewMode === "list"}
+          aria-label={t("people.roster.registerViewList")}
         >
           <LayoutList className="h-3.5 w-3.5" />
-          {t("people.roster.registerViewList")}
+          <span className="hidden sm:inline">{t("people.roster.registerViewList")}</span>
         </Button>
       </div>
     );
@@ -733,15 +745,104 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       );
     };
 
+    const filtersActive = hasExtraFilters;
+
+    const renderFilterFields = (idPrefix: string, stacked = false) => (
+      <>
+        <div className="space-y-1.5">
+          <Label>{t("people.roster.registerFilterLocation")}</Label>
+          <SearchableSelect
+            value={locationId}
+            onValueChange={setLocationId}
+            emptyOption={{ value: "", label: t("people.roster.registerAllLocations") }}
+            options={(sites.data ?? []).map((loc) => ({
+              value: loc.id,
+              label: formatLocationLabel(loc.code, loc.name),
+            }))}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label>{t("people.roster.registerFilterStaff")}</Label>
+          <SearchableSelect
+            value={staffId}
+            onValueChange={setStaffId}
+            emptyOption={{ value: "", label: t("people.roster.registerAllStaff") }}
+            options={staffOptions}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label>{t("people.roster.registerFilterDepartment")}</Label>
+          <SearchableSelect
+            multiple
+            exclude
+            values={excludedDepartmentIds}
+            onValuesChange={setExcludedDepartmentIds}
+            placeholder={t("people.roster.registerAllDepartments")}
+            emptyOption={{ value: "", label: t("people.roster.registerAllDepartments") }}
+            selectedCountLabel={(count) => t("people.roster.registerDepartmentsExcluding", { count })}
+            options={departmentOptions}
+            aria-label={t("people.roster.registerFilterDepartment")}
+          />
+        </div>
+        <div className="min-w-0 space-y-1.5">
+          <Label className="sr-only">{t("common.orgDepartmentsMenu")}</Label>
+          <div className={stacked ? undefined : "md:pt-6"}>
+            <OrgDepartmentsFilter
+              checks={orgChecks}
+              disabled={!orgDepartmentSelectionIsAll(excludedDepartmentIds)}
+              onChange={setOrgChecks}
+            />
+          </div>
+        </div>
+        {showSource ? (
+          <div className="space-y-1.5">
+            <Label>{t("people.roster.registerFilterSource")}</Label>
+            <SearchableSelect
+              value={sourceFilter}
+              onValueChange={(value) => setSourceFilter((value || "all") as RosterSourceFilter)}
+              options={[
+                { value: "all", label: t("people.roster.registerAllSources") },
+                { value: "upload", label: t("people.roster.registerSourceUpload") },
+                { value: "amend", label: t("people.roster.registerSourceAmend") },
+                { value: "manual", label: t("people.roster.registerSourceManual") },
+                { value: "copied", label: t("people.roster.registerSourceCopied") },
+              ]}
+            />
+          </div>
+        ) : null}
+        <div className={cn("space-y-1.5", !showSource && !stacked && "sm:col-span-2")}>
+          <Label htmlFor={`${idPrefix}-search`}>{t("people.roster.searchRows")}</Label>
+          <Input
+            id={`${idPrefix}-search`}
+            className="min-h-10"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={t("people.roster.searchRows")}
+          />
+        </div>
+      </>
+    );
+
+    const clearMobileFilters = () => {
+      setLocationId(defaultLocationId ?? "");
+      setStaffId("");
+      setExcludedDepartmentIds([]);
+      setOrgChecks(ALL_ORG_DEPARTMENTS_CHECKED);
+      setSourceFilter("all");
+      setQuery("");
+    };
+
     return (
-      <div className="surface-card space-y-4 overflow-visible p-5">
+      <div className="surface-card space-y-3 overflow-visible p-4 md:space-y-4 md:p-5">
         <div className="space-y-1">
-          <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-3">
+          <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-2 md:gap-3">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               {!hideHeader ? <h2 className="text-sm font-semibold">{t("people.roster.registerTitle")}</h2> : null}
-              <Badge variant="outline">{periodRange}</Badge>
+              <Badge variant="outline" className="max-w-full truncate">
+                {periodRange}
+              </Badge>
               <Badge variant="secondary">{t("people.roster.registerCount", { count: filtered.length })}</Badge>
-              <Badge variant="outline">
+              <Badge variant="outline" className="hidden sm:inline-flex">
                 {t("people.roster.registerStaffCount", { count: matrix.staff.length })}
               </Badge>
             </div>
@@ -751,84 +852,58 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
             </div>
           </div>
           {!hideHeader ? (
-            <p className="text-xs text-muted-foreground">
+            <p className="hidden text-xs text-muted-foreground sm:block">
               {sourceUploadOnly ? t("people.roster.registerHelp") : t("people.roster.registerHelpAll")}
             </p>
           ) : null}
         </div>
 
-        <div className={`grid gap-3 sm:grid-cols-2 ${showSource ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}>
-          <div className="space-y-1.5">
-            <Label>{t("people.roster.registerFilterLocation")}</Label>
-            <SearchableSelect
-              value={locationId}
-              onValueChange={setLocationId}
-              emptyOption={{ value: "", label: t("people.roster.registerAllLocations") }}
-              options={(sites.data ?? []).map((loc) => ({
-                value: loc.id,
-                label: formatLocationLabel(loc.code, loc.name),
-              }))}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>{t("people.roster.registerFilterStaff")}</Label>
-            <SearchableSelect
-              value={staffId}
-              onValueChange={setStaffId}
-              emptyOption={{ value: "", label: t("people.roster.registerAllStaff") }}
-              options={staffOptions}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>{t("people.roster.registerFilterDepartment")}</Label>
-            <SearchableSelect
-              multiple
-              exclude
-              values={excludedDepartmentIds}
-              onValuesChange={setExcludedDepartmentIds}
-              placeholder={t("people.roster.registerAllDepartments")}
-              emptyOption={{ value: "", label: t("people.roster.registerAllDepartments") }}
-              selectedCountLabel={(count) => t("people.roster.registerDepartmentsExcluding", { count })}
-              options={departmentOptions}
-              aria-label={t("people.roster.registerFilterDepartment")}
-            />
-          </div>
-          <div className="min-w-0 space-y-1.5">
-            <Label className="sr-only">{t("common.orgDepartmentsMenu")}</Label>
-            <div className="sm:pt-6">
-              <OrgDepartmentsFilter
-                checks={orgChecks}
-                disabled={!orgDepartmentSelectionIsAll(excludedDepartmentIds)}
-                onChange={setOrgChecks}
-              />
-            </div>
-          </div>
-          {showSource ? (
-            <div className="space-y-1.5">
-              <Label>{t("people.roster.registerFilterSource")}</Label>
-              <SearchableSelect
-                value={sourceFilter}
-                onValueChange={(value) => setSourceFilter((value || "all") as RosterSourceFilter)}
-                options={[
-                  { value: "all", label: t("people.roster.registerAllSources") },
-                  { value: "upload", label: t("people.roster.registerSourceUpload") },
-                  { value: "amend", label: t("people.roster.registerSourceAmend") },
-                  { value: "manual", label: t("people.roster.registerSourceManual") },
-                  { value: "copied", label: t("people.roster.registerSourceCopied") },
-                ]}
-              />
-            </div>
-          ) : null}
-          <div className={`space-y-1.5 ${showSource ? "" : "sm:col-span-2"}`}>
-            <Label htmlFor="roster-register-search">{t("people.roster.searchRows")}</Label>
-            <Input
-              id="roster-register-search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={t("people.roster.searchRows")}
-            />
-          </div>
+        <div className="md:hidden">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="min-h-10 w-full justify-start gap-2"
+            onClick={() => setFiltersOpen(true)}
+          >
+            <SlidersHorizontal className="h-4 w-4 shrink-0" />
+            <span className="truncate">{t("common.filters")}</span>
+            {filtersActive ? (
+              <span className="ms-auto inline-flex h-2 w-2 shrink-0 rounded-full bg-primary" aria-hidden />
+            ) : null}
+          </Button>
         </div>
+
+        <div
+          className={cn(
+            "hidden gap-3 md:grid md:grid-cols-2",
+            showSource ? "lg:grid-cols-5" : "lg:grid-cols-4",
+          )}
+        >
+          {renderFilterFields("roster-desktop")}
+        </div>
+
+        <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
+          <SheetContent
+            side="bottom"
+            className="flex max-h-[85dvh] flex-col gap-0 overflow-hidden rounded-t-2xl p-0 sm:max-w-none"
+          >
+            <SheetHeader className="shrink-0 border-b border-border/60 px-4 py-3 text-start">
+              <SheetTitle>{t("common.filters")}</SheetTitle>
+            </SheetHeader>
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
+              {renderFilterFields("roster-mobile", true)}
+            </div>
+            <SheetFooter className="shrink-0 !flex-row gap-2 border-t border-border/60 px-4 py-3 sm:justify-stretch sm:space-x-0">
+              <Button type="button" variant="outline" className="min-h-10 flex-1" onClick={clearMobileFilters}>
+                {t("common.clear")}
+              </Button>
+              <Button type="button" className="min-h-10 flex-1" onClick={() => setFiltersOpen(false)}>
+                {t("common.apply")}
+              </Button>
+            </SheetFooter>
+          </SheetContent>
+        </Sheet>
 
         {register.isLoading ? (
           <FecLoader density="chip" label={t("people.roster.registerLoading")} />

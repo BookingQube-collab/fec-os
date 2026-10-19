@@ -10,17 +10,13 @@ export interface FecPageHeaderProps {
   subtitle?: ReactNode;
   actions?: ReactNode;
   className?: string;
+  /** @deprecated Prefer primaryAction + overflow; kept for call-site compatibility. */
   withMobile?: boolean;
   primaryAction?: ReactNode;
   overflow?: ReactNode;
 }
 
 /** Thin wrap of PageHeader — one place to restyle page chrome. */
-export function FecPageHeader({
-  withMobile: _withMobile,
-  primaryAction: _primaryAction,
-  overflow: _overflow,
-  ...props
-}: FecPageHeaderProps) {
+export function FecPageHeader({ withMobile: _withMobile, ...props }: FecPageHeaderProps) {
   return <PageHeader {...props} />;
 }

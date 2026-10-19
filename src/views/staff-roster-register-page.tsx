@@ -4,7 +4,7 @@ import { FecPageHeader } from "@/components/fec";
 
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarDays, Copy, Download, Loader2, Trash2, Upload } from "lucide-react";
+import { CalendarDays, Copy, Download, Loader2, MoreHorizontal, Trash2, Upload } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -36,6 +36,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
@@ -490,74 +496,127 @@ export default function StaffRosterRegisterPage() {
     },
   ];
 
+  const downloadPrevDisabled = previousBusy || !/^\d{4}-\d{2}$/.test(month);
+  const deleteAllLabel =
+    deleteAllState.selectedCount > 0
+      ? t("people.roster.registerDeleteSelected", { count: deleteAllState.selectedCount })
+      : t("people.roster.registerDeleteAll");
+
+  const desktopActions = (
+    <>
+      {periodMode === "month" ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={downloadPrevDisabled}
+          title={t("people.roster.downloadPreviousMonthHint", {
+            range: formatPayrollRange(previousPeriod.dateFrom, previousPeriod.dateTo, i18n.language),
+          })}
+          onClick={openDownloadChoice}
+        >
+          {previousBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+          {t("people.roster.downloadPreviousMonth")}
+        </Button>
+      ) : null}
+      {canManageRoster && periodMode === "month" ? (
+        <Button type="button" size="sm" variant="outline" disabled={copyDisabled} onClick={openCopyChoice}>
+          {copyMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Copy className="h-4 w-4" />}
+          {t("people.roster.copyNextMonth")}
+        </Button>
+      ) : null}
+      {canManageRoster ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="destructive"
+          disabled={deleteAllState.disabled}
+          onClick={() => registerRef.current?.openDeleteAll()}
+        >
+          <Trash2 className="h-4 w-4" />
+          {deleteAllLabel}
+        </Button>
+      ) : null}
+      {canUpload ? (
+        <Button asChild variant="outline" size="sm">
+          <Link href="/people/import">
+            <Upload className="h-4 w-4" />
+            {t("nav.importRoster")}
+          </Link>
+        </Button>
+      ) : null}
+    </>
+  );
+
+  const mobilePrimary = canUpload ? (
+    <Button asChild variant="outline" size="sm" className="min-h-10 flex-1">
+      <Link href="/people/import">
+        <Upload className="h-4 w-4" />
+        {t("nav.importRoster")}
+      </Link>
+    </Button>
+  ) : periodMode === "month" ? (
+    <Button
+      type="button"
+      size="sm"
+      variant="outline"
+      className="min-h-10 flex-1"
+      disabled={downloadPrevDisabled}
+      onClick={openDownloadChoice}
+    >
+      {previousBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+      {t("people.roster.downloadPreviousMonth")}
+    </Button>
+  ) : null;
+
+  const mobileOverflow = canManageRoster ? (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button type="button" size="sm" variant="outline" className="min-h-10 min-w-10 px-2.5" aria-label={t("nav.more")}>
+          <MoreHorizontal className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-[14rem]">
+        {periodMode === "month" && canUpload ? (
+          <DropdownMenuItem disabled={downloadPrevDisabled} onSelect={() => openDownloadChoice()}>
+            <Download className="h-4 w-4" />
+            {t("people.roster.downloadPreviousMonth")}
+          </DropdownMenuItem>
+        ) : null}
+        {canManageRoster && periodMode === "month" ? (
+          <DropdownMenuItem disabled={copyDisabled} onSelect={() => openCopyChoice()}>
+            <Copy className="h-4 w-4" />
+            {t("people.roster.copyNextMonth")}
+          </DropdownMenuItem>
+        ) : null}
+        {canManageRoster ? (
+          <DropdownMenuItem
+            disabled={deleteAllState.disabled}
+            className="text-destructive focus:text-destructive"
+            onSelect={() => registerRef.current?.openDeleteAll()}
+          >
+            <Trash2 className="h-4 w-4" />
+            {deleteAllLabel}
+          </DropdownMenuItem>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  ) : null;
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       <FecPageHeader
         icon={CalendarDays}
         kicker={t("people.roster.viewKicker")}
         title={t("people.roster.viewTitle")}
         subtitle={t("people.roster.viewSubtitle")}
-        actions={
-          <>
-            {periodMode === "month" ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={previousBusy || !/^\d{4}-\d{2}$/.test(month)}
-                title={t("people.roster.downloadPreviousMonthHint", {
-                  range: formatPayrollRange(previousPeriod.dateFrom, previousPeriod.dateTo, i18n.language),
-                })}
-                onClick={openDownloadChoice}
-              >
-                {previousBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                {t("people.roster.downloadPreviousMonth")}
-              </Button>
-            ) : null}
-            {canManageRoster && periodMode === "month" ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={copyDisabled}
-                onClick={openCopyChoice}
-              >
-                {copyMut.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Copy className="h-4 w-4" />
-                )}
-                {t("people.roster.copyNextMonth")}
-              </Button>
-            ) : null}
-            {canManageRoster ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="destructive"
-                disabled={deleteAllState.disabled}
-                onClick={() => registerRef.current?.openDeleteAll()}
-              >
-                <Trash2 className="h-4 w-4" />
-                {deleteAllState.selectedCount > 0
-                  ? t("people.roster.registerDeleteSelected", { count: deleteAllState.selectedCount })
-                  : t("people.roster.registerDeleteAll")}
-              </Button>
-            ) : null}
-            {canUpload ? (
-              <Button asChild variant="outline" size="sm">
-                <Link href="/people/import">
-                  <Upload className="h-4 w-4" />
-                  {t("nav.importRoster")}
-                </Link>
-              </Button>
-            ) : null}
-          </>
-        }
+        actions={desktopActions}
+        primaryAction={mobilePrimary}
+        overflow={mobileOverflow}
       />
 
-      <div className="surface-card space-y-4 p-5">
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="surface-card space-y-3 p-4 md:space-y-4 md:p-5">
+        <div className="grid gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
           <div className="space-y-1.5">
             <Label htmlFor="roster-view-period">{t("people.roster.stepPeriod")}</Label>
             <SearchableSelect
@@ -568,7 +627,7 @@ export default function StaffRosterRegisterPage() {
                 { value: "week", label: t("people.roster.periodWeek") },
               ]}
             />
-            <p className="text-xs text-muted-foreground">{t("people.roster.periodHelp")}</p>
+            <p className="hidden text-xs text-muted-foreground sm:block">{t("people.roster.periodHelp")}</p>
           </div>
           {periodMode === "week" ? (
             <div className="space-y-1.5">
@@ -576,6 +635,7 @@ export default function StaffRosterRegisterPage() {
               <Input
                 id="roster-view-week"
                 type="date"
+                className="min-h-10"
                 value={weekStart}
                 onChange={(e) => setWeekStart(e.target.value)}
               />
@@ -586,21 +646,25 @@ export default function StaffRosterRegisterPage() {
               <Input
                 id="roster-view-month"
                 type="month"
+                className="min-h-10"
                 value={month}
                 onChange={(e) => setMonth(e.target.value)}
               />
             </div>
           )}
-          <div className="space-y-1.5">
-            <Label>{t("people.roster.viewRangeLabel")}</Label>
-            <p className="rounded-md border border-border/70 bg-muted/30 px-3 py-2 text-sm">
+          <div className="space-y-1.5 sm:col-span-2 lg:col-span-1">
+            <Label className="hidden sm:block">{t("people.roster.viewRangeLabel")}</Label>
+            <p className="rounded-md border border-border/70 bg-muted/30 px-3 py-2.5 text-sm leading-snug">
+              <span className="sm:hidden text-muted-foreground">{t("people.roster.viewRangeLabel")}: </span>
               {formatPayrollRange(period.dateFrom, period.dateTo, i18n.language)}
             </p>
           </div>
         </div>
       </div>
 
-      <RosterLocationCoverage dateFrom={period.dateFrom} dateTo={period.dateTo} enabled={gridReady} />
+      <div className="hidden md:block">
+        <RosterLocationCoverage dateFrom={period.dateFrom} dateTo={period.dateTo} enabled={gridReady} />
+      </div>
 
       <RosterRegisterPanel
         // Remount when the branch switcher changes so the Location filter

@@ -29,7 +29,7 @@ export function BitsShine({
       spread={112}
       color={color}
       shineColor={shineColor}
-      className={cn("max-w-full", className)}
+      className={cn("min-w-0 max-w-full", className)}
     />
   );
 }
