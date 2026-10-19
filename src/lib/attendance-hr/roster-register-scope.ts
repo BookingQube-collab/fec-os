@@ -126,6 +126,37 @@ export function rosterRowsForAssignedStaff<T extends { staffId: string }>(
   return rows.filter((row) => staffIdsAtLocation.has(row.staffId));
 }
 
+/**
+ * Locations a Venue / Site Supervisor may read on the monthly roster.
+ * A selected site must sit in the managed estate; All locations → every managed site.
+ */
+export function venueSupervisorRosterQueryLocationIds(input: {
+  managedLocationIds: readonly string[];
+  selectedLocationId?: string | null;
+}): { locationIds: string[]; outsideManagedEstate: boolean } {
+  const managed = [...new Set(input.managedLocationIds.filter(Boolean))];
+  const selected = input.selectedLocationId || null;
+  if (selected) {
+    if (!managed.includes(selected)) {
+      return { locationIds: [], outsideManagedEstate: true };
+    }
+    return { locationIds: [selected], outsideManagedEstate: false };
+  }
+  return { locationIds: managed, outsideManagedEstate: false };
+}
+
+/**
+ * Staff set for a Venue / Site Supervisor monthly roster at managed sites:
+ * people assigned there today, plus anyone who still has roster rows in the
+ * period (terminated / resigned who worked). Matches admin for that location.
+ */
+export function venueSupervisorRosterStaffIds(input: {
+  assignedStaffIds: readonly string[];
+  rosteredStaffIds: readonly string[];
+}): string[] {
+  return [...new Set([...input.assignedStaffIds, ...input.rosteredStaffIds].filter(Boolean))].sort();
+}
+
 export function rosterTeamStaffForMatrix(
   teamStaff: readonly RosterMatrixStaff[] | null | undefined,
   filters: Pick<RosterRegisterScopeFilters, "staffId" | "search">,

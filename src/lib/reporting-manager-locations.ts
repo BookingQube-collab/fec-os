@@ -111,6 +111,18 @@ export function isVenueOrSiteSupervisorManager(
 }
 
 /**
+ * Venue / Site Supervisor monthly roster is location-scoped (full site roster),
+ * not a truncated reporting-tree subset. Sr. Site and other supervisors stay
+ * on the chart walk.
+ */
+export function usesVenueSupervisorLocationRoster(
+  jobTitle?: string | null,
+  staffRole?: string | null,
+): boolean {
+  return isVenueOrSiteSupervisorManager(jobTitle, staffRole);
+}
+
+/**
  * Staff ids whose home / dedicated work sites feed the location chip list.
  * Venue supervisors: viewer only. Sr. Site: viewer plus reporting subtree, and
  * callers also union Venue/Site supervisor managers (see span helpers below).

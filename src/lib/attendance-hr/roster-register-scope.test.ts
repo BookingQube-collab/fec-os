@@ -22,6 +22,8 @@ import {
   rosterRegisterHasExtraFilters,
   rosterRowMatchesSearch,
   rosterTeamStaffForMatrix,
+  venueSupervisorRosterQueryLocationIds,
+  venueSupervisorRosterStaffIds,
 } from "./roster-register-scope";
 import { ATTENDANCE_DAILY_LIST_PAGE_SIZE } from "./constants";
 
@@ -334,5 +336,73 @@ describe("roster register bulk-delete scope", () => {
       ),
     );
     expect(matrix.staff.map((person) => person.staffId)).toEqual(["angie", "azahar"]);
+  });
+
+  it("scopes Venue Supervisor monthly roster to managed sites like admin", () => {
+    const managed = ["kds-cc", "inf-cc", "car-ap"];
+    expect(
+      venueSupervisorRosterQueryLocationIds({
+        managedLocationIds: managed,
+        selectedLocationId: "kds-cc",
+      }),
+    ).toEqual({ locationIds: ["kds-cc"], outsideManagedEstate: false });
+    expect(
+      venueSupervisorRosterQueryLocationIds({
+        managedLocationIds: managed,
+        selectedLocationId: null,
+      }),
+    ).toEqual({ locationIds: managed, outsideManagedEstate: false });
+    expect(
+      venueSupervisorRosterQueryLocationIds({
+        managedLocationIds: managed,
+        selectedLocationId: "cb9",
+      }),
+    ).toEqual({ locationIds: [], outsideManagedEstate: true });
+  });
+
+  it("keeps terminated people who still have roster rows on the venue supervisor staff set", () => {
+    // Ashfaq at KDS: Atif + Mary assigned; terminated Louie still rostered this month.
+    // Chart-only Azahar (CB9) must not invent themselves onto the KDS grid.
+    const staffIds = venueSupervisorRosterStaffIds({
+      assignedStaffIds: ["atif", "mary", "ashfaq", "abigail"],
+      rosteredStaffIds: ["atif", "mary", "ashfaq", "abigail", "terminated-louie"],
+    });
+    expect(staffIds).toEqual(["abigail", "ashfaq", "atif", "mary", "terminated-louie"]);
+    expect(staffIds).not.toContain("azahar");
+
+    const matrix = buildRosterMatrix(
+      [
+        {
+          staffId: "atif",
+          staffName: "Atif Ali Munir Ahmed",
+          employeeCode: "KDS-CC-CSH",
+          qid: null,
+          workDate: "2026-09-28",
+        },
+        {
+          staffId: "terminated-louie",
+          staffName: "Louie Terminated",
+          employeeCode: "KDS-CC-OLD",
+          qid: null,
+          workDate: "2026-09-28",
+        },
+      ],
+      "2026-09-28",
+      "2026-09-29",
+      rosterTeamStaffForMatrix(
+        [
+          { staffId: "atif", staffName: "Atif Ali Munir Ahmed", employeeCode: "KDS-CC-CSH", qid: null },
+          { staffId: "mary", staffName: "Mary Nyambura", employeeCode: "KDS-CC-STF08", qid: null },
+          // Assignable placeholders only — terminated stays via assignment cells above.
+        ],
+        {},
+      ),
+    );
+    expect(matrix.staff.map((person) => person.staffId).sort()).toEqual([
+      "atif",
+      "mary",
+      "terminated-louie",
+    ]);
+    expect(matrix.byStaffDate.get(rosterMatrixCellKey("terminated-louie", "2026-09-28"))).toHaveLength(1);
   });
 });

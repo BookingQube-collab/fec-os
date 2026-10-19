@@ -7,7 +7,13 @@ import { canUserDo, type AppRole } from "@/lib/rbac";
 import { assertCanOpenShiftRoster } from "@/lib/site-ops-access.server";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { isManagerTeamSupervisor } from "@/lib/manager-supervisor-team";
-import { loadRosterChartStaffIds, loadViewerScopedTeamLocations } from "@/lib/reporting-manager-access.server";
+import {
+  loadRosterChartStaffIds,
+  loadStaffIdsAssignedToLocations,
+  loadVenueSupervisorManagedLocationIds,
+  loadViewerScopedTeamLocations,
+} from "@/lib/reporting-manager-access.server";
+import { usesVenueSupervisorLocationRoster } from "@/lib/reporting-manager-locations";
 import {
   createAuthenticatedAction,
   createAuthenticatedActionNoInput,
@@ -32,6 +38,8 @@ import {
   rosterRowsForAssignedStaff,
   rosterStaffIdsAtLocation,
   rosterRowMatchesSearch,
+  venueSupervisorRosterQueryLocationIds,
+  venueSupervisorRosterStaffIds,
   type RosterDayStatus,
   type RosterLeaveType,
   type RosterMatrixStaff,
@@ -161,8 +169,15 @@ type RosterActor = {
    * Null when this login can read the company roster.
    * Otherwise this manager's reporting line: direct reports and each
    * supervisor's team, including people who have no roster row yet.
+   * Venue / Site Supervisors: staff assigned to managed venues (any status
+   * except deleted/joker), not a truncated reporting-tree subset.
    */
   teamIds: string[] | null;
+  /**
+   * Venue / Site Supervisor managed venue ids. Null when not on that path.
+   * Reads and writes for those logins stay inside this estate.
+   */
+  managedLocationIds: string[] | null;
   /** Team rows sit at sites the login role cannot open, so those reads and writes use the admin client. */
   db: AuthContext["supabase"];
 };
@@ -248,10 +263,28 @@ async function fetchStaffRowsByIds(
 /**
  * Team-scoped roster names from `staff_profile_ext.reporting_manager_staff_id`.
  * The viewer is included, plus every assignable person under them on the chart.
- * Resigned, terminated, deleted, and status=joker stay out.
+ * Resigned, terminated, deleted, and status=joker stay out of the chart walk.
+ * Venue / Site Supervisors use {@link loadVenueSupervisorRosterStaffIds} instead.
  */
 async function loadTeamRosterStaffIds(userId: string): Promise<string[]> {
   return loadRosterChartStaffIds(userId);
+}
+
+/**
+ * Full location roster staff for a Venue / Site Supervisor's managed sites.
+ * Includes terminated / resigned people still assigned to those sites so their
+ * period rows stay visible. Status=joker stays out.
+ */
+async function loadVenueSupervisorRosterStaffIds(userId: string): Promise<{
+  managedLocationIds: string[];
+  teamIds: string[];
+}> {
+  const managedLocationIds = await loadVenueSupervisorManagedLocationIds(userId);
+  if (managedLocationIds.length === 0) {
+    return { managedLocationIds: [], teamIds: [] };
+  }
+  const teamIds = await loadStaffIdsAssignedToLocations(managedLocationIds);
+  return { managedLocationIds, teamIds };
 }
 
 async function loadExtraLocationIdsByStaff(
@@ -325,35 +358,65 @@ function canViewCompanyRoster(roles: AppRole[]): boolean {
   );
 }
 
+type ResolvedRosterScope = {
+  teamIds: string[] | null;
+  managedLocationIds: string[] | null;
+};
+
 /**
- * Null means the company roster (every stored row).
- * A supervisor title is limited to their chart subtree plus themselves, even when the role can open the company roster.
- * A manager keeps the company roster when their role already has it.
+ * Null teamIds means the company roster (every stored row).
+ * Venue / Site Supervisors get every staff assigned to their managed venues
+ * (Ashfaq → INF-CC / KDS-CC / CAR-AP), matching admin for those sites.
+ * Other supervisor titles stay on the chart subtree. A non-supervisor manager
+ * keeps the company roster when their role already has it.
  */
-async function resolveRosterTeamIds(userId: string, roles: AppRole[]): Promise<string[] | null> {
+async function resolveRosterScope(userId: string, roles: AppRole[]): Promise<ResolvedRosterScope> {
   const viewer = await loadLinkedStaffIdentity(userId);
-  if (isManagerTeamSupervisor(viewer.jobTitle, viewer.staffRole)) {
-    return loadTeamRosterStaffIds(userId);
+  if (usesVenueSupervisorLocationRoster(viewer.jobTitle, viewer.staffRole)) {
+    const venue = await loadVenueSupervisorRosterStaffIds(userId);
+    return { teamIds: venue.teamIds, managedLocationIds: venue.managedLocationIds };
   }
-  if (canViewCompanyRoster(roles)) return null;
-  return loadTeamRosterStaffIds(userId);
+  if (isManagerTeamSupervisor(viewer.jobTitle, viewer.staffRole)) {
+    return { teamIds: await loadTeamRosterStaffIds(userId), managedLocationIds: null };
+  }
+  if (canViewCompanyRoster(roles)) return { teamIds: null, managedLocationIds: null };
+  return { teamIds: await loadTeamRosterStaffIds(userId), managedLocationIds: null };
+}
+
+async function resolveRosterTeamIds(userId: string, roles: AppRole[]): Promise<string[] | null> {
+  return (await resolveRosterScope(userId, roles)).teamIds;
 }
 
 /** Same split listUploadedRosterAssignments uses: company client, or admin for a reporting manager. */
 async function resolveRosterActor(context: AuthContext): Promise<RosterActor> {
   const roles = (context.roles ?? []) as AppRole[];
-  const teamIds = await resolveRosterTeamIds(context.userId, roles);
-  if (teamIds == null) return { teamIds: null, db: context.supabase };
-  return { teamIds, db: supabaseAdmin };
+  const scope = await resolveRosterScope(context.userId, roles);
+  if (scope.teamIds == null && scope.managedLocationIds == null) {
+    return { teamIds: null, managedLocationIds: null, db: context.supabase };
+  }
+  return {
+    teamIds: scope.teamIds,
+    managedLocationIds: scope.managedLocationIds,
+    db: supabaseAdmin,
+  };
 }
 
 function assertRosterTeamStaff(actor: RosterActor, staffId: string) {
-  if (actor.teamIds && !actor.teamIds.includes(staffId)) {
-    throw new ForbiddenError("Forbidden: missing capability to amend the shift roster.");
-  }
+  if (!actor.teamIds) return;
+  if (actor.teamIds.includes(staffId)) return;
+  // Venue supervisors may still amend someone rostered at a managed site who is
+  // terminated or no longer on the assigned-staff list; estate check is the location.
+  if (actor.managedLocationIds) return;
+  throw new ForbiddenError("Forbidden: missing capability to amend the shift roster.");
 }
 
 async function assertRosterWriteLocation(actor: RosterActor, context: AuthContext, locationId: string) {
+  if (actor.managedLocationIds) {
+    if (!actor.managedLocationIds.includes(locationId)) {
+      throw new ForbiddenError("Forbidden: missing capability to amend the shift roster.");
+    }
+    return;
+  }
   if (actor.teamIds) return;
   await assertAttendanceRosterLocation(context, locationId);
 }
@@ -532,19 +595,44 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
   }),
   async (data, context) => {
     const roles = (context.roles ?? []) as AppRole[];
-    const teamIds = await resolveRosterTeamIds(context.userId, roles);
-    const companyRoster = teamIds == null;
-    if (!companyRoster && teamIds.length === 0) {
+    const scope = await resolveRosterScope(context.userId, roles);
+    const teamIds = scope.teamIds;
+    const managedLocationIds = scope.managedLocationIds;
+    const venueLocationRoster = managedLocationIds != null;
+    const companyRoster = teamIds == null && !venueLocationRoster;
+    if (venueLocationRoster && managedLocationIds.length === 0) {
+      throw new ForbiddenError("Forbidden: missing capability to view the shift roster.");
+    }
+    if (!companyRoster && !venueLocationRoster && (!teamIds || teamIds.length === 0)) {
       throw new ForbiddenError("Forbidden: missing capability to view the shift roster.");
     }
     const cardLocationsPromise =
       data.coverageOnly || data.includeCopyDepartments
-        ? teamIds
-          ? loadViewerScopedTeamLocations(context.userId, teamIds)
+        ? teamIds || venueLocationRoster
+          ? loadViewerScopedTeamLocations(context.userId, teamIds ?? [])
           : Promise.resolve(null)
         : Promise.resolve(null);
 
-    if (teamIds && data.staffId && !teamIds.includes(data.staffId)) {
+    const venueQueryLocations = venueLocationRoster
+      ? venueSupervisorRosterQueryLocationIds({
+          managedLocationIds,
+          selectedLocationId: data.locationId,
+        })
+      : null;
+    if (venueQueryLocations?.outsideManagedEstate) {
+      return {
+        dateFrom: data.dateFrom,
+        dateTo: data.dateTo,
+        count: 0,
+        rows: [] as RosterRegisterRow[],
+        teamStaff: [] as RosterMatrixStaff[],
+        cardLocations: await cardLocationsPromise,
+      };
+    }
+
+    // Chart-scoped supervisors: unknown staff id → empty. Venue supervisors still
+    // load by managed location so terminated people with period rows are not dropped.
+    if (teamIds && data.staffId && !teamIds.includes(data.staffId) && !venueLocationRoster) {
       return {
         dateFrom: data.dateFrom,
         dateTo: data.dateTo,
@@ -555,13 +643,13 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
       };
     }
     if (data.locationId && companyRoster) await assertAttendanceRosterLocation(context, data.locationId);
-    // Team rows live at the sites people punch, which the manager's role locations do not include.
-    const db = teamIds ? supabaseAdmin : context.supabase;
+    // Team / venue rows live at the sites people punch, which the manager's role locations do not include.
+    const db = teamIds || venueLocationRoster ? supabaseAdmin : context.supabase;
 
     let deptStaffIds: string[] | null = null;
     if (data.departmentId) {
       deptStaffIds = await staffIdsForDepartment(db, data.departmentId);
-      if (teamIds) {
+      if (teamIds && !venueLocationRoster) {
         const allow = new Set(teamIds);
         deptStaffIds = deptStaffIds.filter((id) => allow.has(id));
       }
@@ -592,34 +680,57 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
       source: string | null;
       created_at: string | null;
     };
-    const staffIn = data.staffId ? null : (deptStaffIds ?? teamIds);
+    // Venue supervisors: query by managed location(s) like admin for that site — not by
+    // reporting-tree staff ids (that dropped Atif/Mary and pulled in off-site chart people).
+    const venueLocationChunks: Array<string[] | null> | null = venueQueryLocations
+      ? venueQueryLocations.locationIds.length === 0
+        ? []
+        : chunkIds(venueQueryLocations.locationIds, ROSTER_ID_CHUNK)
+      : null;
+    const staffIn = venueLocationRoster
+      ? data.staffId
+        ? null
+        : deptStaffIds
+      : data.staffId
+        ? null
+        : (deptStaffIds ?? teamIds);
     const staffChunks: Array<string[] | null> =
-      staffIn == null ? [null] : staffIn.length === 0 ? [] : chunkIds(staffIn, ROSTER_ID_CHUNK);
+      venueLocationChunks != null
+        ? [null]
+        : staffIn == null
+          ? [null]
+          : staffIn.length === 0
+            ? []
+            : chunkIds(staffIn, ROSTER_ID_CHUNK);
+    const locationChunksForQuery = venueLocationChunks ?? [null];
     const assignmentPages = await Promise.all(
-      staffChunks.map((staffChunk) =>
-        collectPagedRowsInWaves<AssignmentPageRow>(async (from, to) => {
-          let q = db
-            .from("attendance_roster_assignments")
-            .select(
-              "id, location_id, staff_id, work_date, shift_template_id, shift_start, shift_end, is_week_off, source, created_at",
-            )
-            .gte("work_date", data.dateFrom)
-            .lte("work_date", data.dateTo)
-            .order("work_date", { ascending: true })
-            .order("staff_id", { ascending: true })
-            .order("id", { ascending: true })
-            .range(from, to);
+      locationChunksForQuery.flatMap((locationChunk) =>
+        staffChunks.map((staffChunk) =>
+          collectPagedRowsInWaves<AssignmentPageRow>(async (from, to) => {
+            let q = db
+              .from("attendance_roster_assignments")
+              .select(
+                "id, location_id, staff_id, work_date, shift_template_id, shift_start, shift_end, is_week_off, source, created_at",
+              )
+              .gte("work_date", data.dateFrom)
+              .lte("work_date", data.dateTo)
+              .order("work_date", { ascending: true })
+              .order("staff_id", { ascending: true })
+              .order("id", { ascending: true })
+              .range(from, to);
 
-          if (data.locationId) q = q.eq("location_id", data.locationId);
-          if (data.staffId) q = q.eq("staff_id", data.staffId);
-          else if (staffChunk) q = q.in("staff_id", staffChunk);
-          if (data.sourceUploadOnly) q = q.in("source", ["upload", "amend"]);
-          else if (data.source) q = q.eq("source", data.source);
+            if (locationChunk) q = q.in("location_id", locationChunk);
+            else if (data.locationId) q = q.eq("location_id", data.locationId);
+            if (data.staffId) q = q.eq("staff_id", data.staffId);
+            else if (staffChunk) q = q.in("staff_id", staffChunk);
+            if (data.sourceUploadOnly) q = q.in("source", ["upload", "amend"]);
+            else if (data.source) q = q.eq("source", data.source);
 
-          const { data: page, error } = await q;
-          if (error) throw error;
-          return (page ?? []) as AssignmentPageRow[];
-        }, ATTENDANCE_DAILY_LIST_PAGE_SIZE),
+            const { data: page, error } = await q;
+            if (error) throw error;
+            return (page ?? []) as AssignmentPageRow[];
+          }, ATTENDANCE_DAILY_LIST_PAGE_SIZE),
+        ),
       ),
     );
     let assignments: AssignmentPageRow[] = assignmentPages.flat();
@@ -638,14 +749,26 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
       assignments = assignments.filter((row) => shown.has(String(row.staff_id)));
     }
 
+    // Chart-scoped supervisors still narrow a selected site to people assigned there.
+    // Venue supervisors already queried by managed location — keep every rostered person
+    // (including terminated) so cells match admin for that site.
     let locationStaffIds: Set<string> | null = null;
-    if (teamIds && data.locationId) {
+    if (teamIds && data.locationId && !venueLocationRoster) {
       locationStaffIds = await rosterTeamIdsAtLocation(db, teamIds, data.locationId);
       const allowed = locationStaffIds;
       assignments = rosterRowsForAssignedStaff(
         assignments.map((row) => ({ ...row, staffId: String(row.staff_id) })),
         allowed,
       ).map(({ staffId: _staffId, ...row }) => row);
+    } else if (venueLocationRoster && venueQueryLocations) {
+      const assignedAtSites = await loadStaffIdsAssignedToLocations(venueQueryLocations.locationIds);
+      const rosteredIds = assignments.map((row) => String(row.staff_id));
+      locationStaffIds = new Set(
+        venueSupervisorRosterStaffIds({
+          assignedStaffIds: assignedAtSites,
+          rosteredStaffIds: rosteredIds,
+        }),
+      );
     }
 
     if (data.coverageOnly) {
@@ -796,8 +919,15 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
     };
 
     const loadTeamStaff = async () => {
-      if (!teamIds) return null as RosterMatrixStaff[] | null;
-      let ids = teamIds;
+      // Company roster: names come from assignment rows only.
+      if (!teamIds && !venueLocationRoster) return null as RosterMatrixStaff[] | null;
+      // Venue supervisors: placeholders = people assigned to the queried sites
+      // (plus anyone already rostered there). loadRosterTeamStaffProfiles keeps
+      // only assignable statuses for empty rows; terminated stay visible via cells.
+      let ids =
+        venueLocationRoster && locationStaffIds
+          ? [...locationStaffIds]
+          : [...(teamIds ?? [])];
       if (data.staffId) ids = ids.filter((id) => id === data.staffId);
       if (deptStaffIds) {
         const allow = new Set(deptStaffIds);
@@ -811,7 +941,7 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
         const shown = shownStaff;
         ids = ids.filter((id) => shown.has(id));
       }
-      if (locationStaffIds) {
+      if (locationStaffIds && !venueLocationRoster) {
         const allowed = locationStaffIds;
         ids = ids.filter((id) => allowed.has(id));
       }
@@ -923,12 +1053,15 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
 export const listRosterAssignStaff = createAuthenticatedActionNoInput(async (context) => {
   const roles = (context.roles ?? []) as AppRole[];
   let rows: RosterAssignStaffRow[];
-  const teamIds = await resolveRosterTeamIds(context.userId, roles);
-  if (teamIds == null) {
+  const scope = await resolveRosterScope(context.userId, roles);
+  if (scope.teamIds == null && scope.managedLocationIds == null) {
     rows = await fetchAssignableStaffRows(supabaseAdmin, null);
   } else {
     await assertCanAmendRoster(context);
-    const ids = teamIds;
+    const ids =
+      scope.managedLocationIds && scope.managedLocationIds.length > 0
+        ? (scope.teamIds ?? (await loadStaffIdsAssignedToLocations(scope.managedLocationIds)))
+        : (scope.teamIds ?? []);
     const scoped = await fetchStaffRowsByIds(supabaseAdmin, ids);
     rows = scoped.filter((row) => isAssignableRosterStaffRow(row));
   }
@@ -1327,9 +1460,11 @@ export const deleteRosterAssignments = createAuthenticatedAction(
     if (data.locationId) await assertRosterWriteLocation(actor, context, data.locationId);
 
     const scopedAll = await fetchRosterAssignmentsInScope(db, data);
-    const teamScoped = actor.teamIds
-      ? scopedAll.filter((row) => actor.teamIds!.includes(String(row.staff_id)))
-      : scopedAll;
+    const teamScoped = actor.managedLocationIds
+      ? scopedAll.filter((row) => actor.managedLocationIds!.includes(String(row.location_id)))
+      : actor.teamIds
+        ? scopedAll.filter((row) => actor.teamIds!.includes(String(row.staff_id)))
+        : scopedAll;
     const searched = data.search?.trim()
       ? await applyRosterSearchFilter(db, teamScoped, data.search)
       : teamScoped;
@@ -1475,7 +1610,10 @@ export const copyRosterToNextMonth = createAuthenticatedAction(
         { department: data.department },
       );
     }
-    if (actor.teamIds) {
+    if (actor.managedLocationIds) {
+      const allowLocations = new Set(actor.managedLocationIds);
+      sourceRows = sourceRows.filter((row) => allowLocations.has(String(row.location_id)));
+    } else if (actor.teamIds) {
       const allow = new Set(actor.teamIds);
       sourceRows = sourceRows.filter((row) => allow.has(String(row.staff_id)));
     }
@@ -1493,7 +1631,10 @@ export const copyRosterToNextMonth = createAuthenticatedAction(
       };
     }
 
-    const peopleScoped = staffFilter != null || Boolean(data.department) || actor.teamIds != null;
+    const peopleScoped =
+      staffFilter != null ||
+      Boolean(data.department) ||
+      (actor.teamIds != null && actor.managedLocationIds == null);
     const replaceStaffIds = peopleScoped ? [...new Set(sourceRows.map((row) => String(row.staff_id)))] : null;
     const scopedCopy = siteWise || peopleScoped;
 

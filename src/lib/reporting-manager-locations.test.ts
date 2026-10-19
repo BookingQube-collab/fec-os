@@ -15,6 +15,7 @@ import {
   rosterTeamOrSelfStaffIds,
   unionTeamLocationIds,
   usesTeamLocationScope,
+  usesVenueSupervisorLocationRoster,
 } from "./reporting-manager-locations";
 import { attendanceListingIsCompanyWide } from "./attendance-listing-access";
 import { FNB_MANAGER_VENUE_CODES } from "./supervisor-managed-venues";
@@ -189,6 +190,13 @@ describe("attendance location scope (org chart)", () => {
     expect(isVenueOrSiteSupervisorManager("Sr. Site Supervisor", "venue_supervisor")).toBe(false);
     expect(isVenueOrSiteSupervisorManager("Senior Site Supervisor", null)).toBe(false);
     expect(isVenueOrSiteSupervisorManager("Cashier", "cashier")).toBe(false);
+  });
+
+  it("uses full managed-location roster for Venue Supervisors (Ashfaq), not chart-only", () => {
+    expect(usesVenueSupervisorLocationRoster("Venue Supervisor", "venue_supervisor")).toBe(true);
+    expect(usesVenueSupervisorLocationRoster("Site Supervisor", null)).toBe(true);
+    expect(usesVenueSupervisorLocationRoster("Sr. Site Supervisor", null)).toBe(false);
+    expect(usesVenueSupervisorLocationRoster("F&B Manager", null)).toBe(false);
   });
 
   it("gives Sr. Site chips only from people under her on the chart (Mary)", () => {

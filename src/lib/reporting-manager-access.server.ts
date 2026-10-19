@@ -26,6 +26,7 @@ import {
   rosterTeamOrSelfStaffIds,
   unionTeamLocationIds,
   usesTeamLocationScope,
+  usesVenueSupervisorLocationRoster,
 } from "@/lib/reporting-manager-locations";
 import {
   FNB_MANAGER_VENUE_CODES,
@@ -518,6 +519,74 @@ async function loadViewerAssignedLocations(linked: {
   for (const site of assigned) byId.set(site.id, site);
   for (const site of mapped) byId.set(site.id, site);
   return [...byId.values()].sort((a, b) => a.code.localeCompare(b.code));
+}
+
+/**
+ * Managed venue ids for a Venue / Site Supervisor (home + work + mapped estate).
+ * Empty when the login is not that title or has no sites.
+ */
+export async function loadVenueSupervisorManagedLocationIds(userId: string): Promise<string[]> {
+  const linked = await loadLinkedStaffRecord(userId);
+  if (!linked?.id || !usesVenueSupervisorLocationRoster(linked.jobTitle, linked.staffRole)) {
+    return [];
+  }
+  const sites = await loadViewerAssignedLocations(linked);
+  return sites.map((site) => site.id);
+}
+
+/**
+ * Non-deleted staff whose home or dedicated work site is one of these locations.
+ * Includes terminated / resigned so period roster rows still resolve. Status=joker stays out.
+ */
+export async function loadStaffIdsAssignedToLocations(locationIds: readonly string[]): Promise<string[]> {
+  const ids = [...new Set(locationIds.filter(Boolean))];
+  if (ids.length === 0) return [];
+
+  const found = new Set<string>();
+  for (let index = 0; index < ids.length; index += 80) {
+    const chunk = ids.slice(index, index + 80);
+    const { data, error } = await supabaseAdmin
+      .from("staff")
+      .select("id, status")
+      .in("location_id", chunk)
+      .is("deleted_at", null);
+    if (error) throw new Error(error.message);
+    for (const row of data ?? []) {
+      if (!row.id || isJokerStaffStatus(row.status)) continue;
+      found.add(String(row.id));
+    }
+  }
+
+  const workStaffIds = new Set<string>();
+  for (let index = 0; index < ids.length; index += 80) {
+    const chunk = ids.slice(index, index + 80);
+    const { data, error } = await supabaseAdmin
+      .from("staff_work_locations")
+      .select("staff_id")
+      .in("location_id", chunk);
+    if (error) throw new Error(error.message);
+    for (const row of data ?? []) {
+      if (row.staff_id) workStaffIds.add(String(row.staff_id));
+    }
+  }
+  if (workStaffIds.size > 0) {
+    const workIds = [...workStaffIds];
+    for (let index = 0; index < workIds.length; index += 100) {
+      const chunk = workIds.slice(index, index + 100);
+      const { data, error } = await supabaseAdmin
+        .from("staff")
+        .select("id, status")
+        .in("id", chunk)
+        .is("deleted_at", null);
+      if (error) throw new Error(error.message);
+      for (const row of data ?? []) {
+        if (!row.id || isJokerStaffStatus(row.status)) continue;
+        found.add(String(row.id));
+      }
+    }
+  }
+
+  return [...found].sort();
 }
 
 /**
