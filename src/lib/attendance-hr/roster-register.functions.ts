@@ -35,7 +35,6 @@ import {
   chunkIds,
   collectPagedRows,
   collectPagedRowsInWaves,
-  employeeCodeBelongsToLocation,
   isRosterAssignableStaffStatus,
   rosterAmendRecalcLocationIds,
   isRosterLeaveType,
@@ -812,7 +811,7 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
       }
     }
 
-    // Selected Location=KDS-CC must not keep INF-CC-* staff (home code / placeholders).
+    // Code prefix gates empty teamStaff placeholders only (not assignment rows).
     const selectedLocationCode = data.locationId ? await loadLocationCodeById(db, data.locationId) : null;
 
     // Chart-scoped supervisors still narrow a selected site to people assigned there.
@@ -1086,12 +1085,10 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
       };
     });
 
-    // Location filter: drop cross-site employee codes (Agnes INF-CC-* under KDS-CC)
-    // even when the shift row's location_id matched (roaming / mis-assigned work site).
-    const locationScopedRows = selectedLocationCode
-      ? mapped.filter((row) => employeeCodeBelongsToLocation(row.employeeCode, selectedLocationCode))
-      : mapped;
-    const rowStaffIds = new Set(locationScopedRows.map((row) => row.staffId));
+    // Keep every assignment whose location_id already matched the selected site
+    // (moved / re-coded staff still show their KDS days). Drop only empty
+    // placeholders whose employee code belongs to another venue.
+    const rowStaffIds = new Set(mapped.map((row) => row.staffId));
     const locationScopedTeamStaff = selectedLocationCode
       ? rosterTeamStaffForLocationCode(teamStaff, selectedLocationCode, rowStaffIds)
       : teamStaff;
@@ -1099,8 +1096,8 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
     return {
       dateFrom: data.dateFrom,
       dateTo: data.dateTo,
-      count: locationScopedRows.length,
-      rows: locationScopedRows,
+      count: mapped.length,
+      rows: mapped,
       /** Null for company roster viewers. Chart subtree plus the viewer for a team-scoped login, even with no shifts. */
       teamStaff: locationScopedTeamStaff,
       /** Null for a company roster. Assigned home and extra sites for a team roster. */

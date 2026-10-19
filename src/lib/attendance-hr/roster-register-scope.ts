@@ -303,6 +303,8 @@ export function rosterRowMatchesSearch(row: RosterRegisterSearchRow, search: str
 /**
  * Employee codes like KDS-CC-STF01 / INF-CC-STF16 encode the home venue.
  * Numeric or free-form codes (534) are not venue-prefixed and stay visible.
+ * Use for empty teamStaff placeholders only — never drop assignment rows
+ * whose location_id already matches the selected site (moved / re-coded staff).
  */
 export function employeeCodeBelongsToLocation(
   employeeCode: string | null | undefined,
@@ -333,18 +335,17 @@ export function rosterTeamStaffForLocationCode(
   });
 }
 
+/**
+ * Client filter for the monthly register. Location is by assignment location_id
+ * only — employee-code prefix must not hide KDS days for staff who later moved
+ * (or were re-coded) to INF / another site.
+ */
 export function filterRosterRegisterRows<
   T extends { staffId: string; locationId?: string | null } & RosterRegisterSearchRow,
->(
-  rows: T[],
-  filters: Pick<RosterRegisterScopeFilters, "staffId" | "search" | "locationId"> & {
-    locationCode?: string | null;
-  },
-): T[] {
+>(rows: T[], filters: Pick<RosterRegisterScopeFilters, "staffId" | "search" | "locationId">): T[] {
   const staffId = filters.staffId || null;
   const locationId = filters.locationId?.trim() || null;
   const locationKey = locationId?.toLowerCase() ?? null;
-  const locationCode = filters.locationCode?.trim() || null;
   return rows.filter((row) => {
     if (staffId && row.staffId !== staffId) return false;
     if (locationKey) {
@@ -354,7 +355,6 @@ export function filterRosterRegisterRows<
       // Missing locationId must not bypass a selected site filter.
       if (!rowLoc || rowLoc !== locationKey) return false;
     }
-    if (locationCode && !employeeCodeBelongsToLocation(row.employeeCode, locationCode)) return false;
     return rosterRowMatchesSearch(row, filters.search);
   });
 }

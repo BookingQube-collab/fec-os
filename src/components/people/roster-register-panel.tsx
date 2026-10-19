@@ -285,9 +285,8 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
           staffId,
           search: query,
           locationId: locationId || null,
-          locationCode: selectedLocationCode,
         }),
-      [rows, query, staffId, locationId, selectedLocationCode],
+      [rows, query, staffId, locationId],
     );
 
     const matrix = useMemo(() => {

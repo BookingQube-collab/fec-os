@@ -412,9 +412,10 @@ describe("roster register bulk-delete scope", () => {
     ]);
   });
 
-  it("drops Agnes INF-CC under Location=KDS even when the shift row is at KDS (Ashfaq case)", () => {
-    // 808dd77 filtered by assignment location_id only. Roaming / mis-tagged INF
-    // staff still appeared when location_id=KDS or as teamStaff placeholders.
+  it("keeps moved/cross-code staff with KDS rows under Location=KDS; drops pure INF placeholders", () => {
+    // location_id is the source of truth for worked days. A staff member who
+    // later moved (or was re-coded INF-CC-*) must still show their KDS days.
+    // Empty teamStaff placeholders with another venue's code stay out.
     const rows = [
       {
         ...row,
@@ -422,13 +423,23 @@ describe("roster register bulk-delete scope", () => {
         staffName: "Abigial Danso kumi",
         locationId: "kds-uuid",
         employeeCode: "KDS-CC-STF01",
+        workDate: "2026-09-28",
       },
       {
         ...row,
-        staffId: "agnes",
-        staffName: "AGNES KIRORIO",
+        staffId: "moved-to-inf",
+        staffName: "Moved Worker",
         locationId: "kds-uuid",
+        employeeCode: "INF-CC-STF99",
+        workDate: "2026-09-28",
+      },
+      {
+        ...row,
+        staffId: "agnes-inf-only",
+        staffName: "AGNES KIRORIO",
+        locationId: "inf-uuid",
         employeeCode: "INF-CC-STF16",
+        workDate: "2026-09-28",
       },
       {
         ...row,
@@ -436,30 +447,42 @@ describe("roster register bulk-delete scope", () => {
         staffName: "Amon Kakuru",
         locationId: "kds-uuid",
         employeeCode: "534",
+        workDate: "2026-09-28",
       },
     ];
     expect(employeeCodeBelongsToLocation("INF-CC-STF16", "KDS-CC")).toBe(false);
+    expect(employeeCodeBelongsToLocation("INF-CC-STF99", "KDS-CC")).toBe(false);
     expect(employeeCodeBelongsToLocation("KDS-CC-STF01", "KDS-CC")).toBe(true);
     expect(employeeCodeBelongsToLocation("534", "KDS-CC")).toBe(true);
 
-    const filtered = filterRosterRegisterRows(rows, {
-      locationId: "kds-uuid",
-      locationCode: "KDS-CC",
-    });
-    expect(filtered.map((r) => r.staffId)).toEqual(["abigail", "amon"]);
+    const filtered = filterRosterRegisterRows(rows, { locationId: "kds-uuid" });
+    expect(filtered.map((r) => r.staffId).sort()).toEqual(["abigail", "amon", "moved-to-inf"]);
+    expect(filtered.some((r) => r.staffId === "agnes-inf-only")).toBe(false);
 
     const team = [
       { staffId: "abigail", staffName: "Abigial", employeeCode: "KDS-CC-STF01", qid: null },
-      { staffId: "agnes", staffName: "AGNES KIRORIO", employeeCode: "INF-CC-STF16", qid: null },
+      { staffId: "moved-to-inf", staffName: "Moved Worker", employeeCode: "INF-CC-STF99", qid: null },
+      { staffId: "agnes-inf-only", staffName: "AGNES KIRORIO", employeeCode: "INF-CC-STF16", qid: null },
       { staffId: "mohamed", staffName: "Mohamed Joker", employeeCode: "KDS-CC-STF03", qid: null },
     ];
     const rowStaffIds = new Set(filtered.map((r) => r.staffId));
     const scopedTeam = rosterTeamStaffForLocationCode(team, "KDS-CC", rowStaffIds);
-    expect(scopedTeam.map((p) => p.staffId).sort()).toEqual(["abigail", "mohamed"]);
+    // moved-to-inf kept via rowStaffIds; agnes placeholder (no KDS rows) dropped.
+    expect(scopedTeam.map((p) => p.staffId).sort()).toEqual([
+      "abigail",
+      "mohamed",
+      "moved-to-inf",
+    ]);
 
     const matrix = buildRosterMatrix(filtered, "2026-09-28", "2026-09-29", scopedTeam);
-    expect(matrix.staff.map((p) => p.staffId).sort()).toEqual(["abigail", "amon", "mohamed"]);
-    expect(matrix.staff.some((p) => p.employeeCode === "INF-CC-STF16")).toBe(false);
+    expect(matrix.staff.map((p) => p.staffId).sort()).toEqual([
+      "abigail",
+      "amon",
+      "mohamed",
+      "moved-to-inf",
+    ]);
+    expect(matrix.byStaffDate.get(rosterMatrixCellKey("moved-to-inf", "2026-09-28"))).toHaveLength(1);
+    expect(matrix.staff.some((p) => p.staffId === "agnes-inf-only")).toBe(false);
   });
 
   it("does not let a missing row.locationId bypass a selected Location filter", () => {
