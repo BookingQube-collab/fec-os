@@ -1,6 +1,7 @@
 import { enumerateYmd } from "@/lib/attendance-hr/roster-period";
 import {
   isActiveStaffStatus,
+  isJokerStaffStatus,
   isOnLeaveStaffStatus,
   isServingNoticeStaffStatus,
 } from "@/lib/staff-status";
@@ -304,12 +305,18 @@ export function assertRosterDeletePeriod(dateFrom: string, dateTo: string) {
 /**
  * People who can be placed on a day from the monthly roster.
  * Active includes a blank status, probation, secondment, and remote.
- * On leave and serving notice stay assignable. Resigned, terminated,
- * contract finished, released, inactive, and status=joker do not.
+ * On leave, serving notice, and status=joker stay assignable (matches Attendance
+ * listing — employment-type jokers were migrated onto status=joker).
+ * Resigned, terminated, contract finished, released, and inactive do not.
  * Employment type joker does not block assignability; callers drop deleted rows.
  */
 export function isRosterAssignableStaffStatus(status: string | null | undefined): boolean {
-  return isActiveStaffStatus(status) || isOnLeaveStaffStatus(status) || isServingNoticeStaffStatus(status);
+  return (
+    isActiveStaffStatus(status) ||
+    isOnLeaveStaffStatus(status) ||
+    isServingNoticeStaffStatus(status) ||
+    isJokerStaffStatus(status)
+  );
 }
 
 export function chunkIds<T>(items: T[], size: number): T[][] {

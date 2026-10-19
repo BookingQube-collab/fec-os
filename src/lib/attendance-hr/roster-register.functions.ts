@@ -58,8 +58,6 @@ import {
 } from "@/lib/staff-roster/previous-month-export";
 import { buildPeopleRosterRowsXlsx, peopleRosterSampleFilename } from "@/lib/staff-roster/period-sample";
 import { ATTENDANCE_DAILY_LIST_PAGE_SIZE } from "@/lib/attendance-hr/constants";
-import { isJokerStaffStatus } from "@/lib/staff-status";
-
 const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 function missingCompOffColumn(error: { message?: string } | null | undefined): boolean {
@@ -170,7 +168,7 @@ type RosterActor = {
    * Otherwise this manager's reporting line: direct reports and each
    * supervisor's team, including people who have no roster row yet.
    * Venue / Site Supervisors: staff assigned to managed venues (any status
-   * except deleted/joker), not a truncated reporting-tree subset.
+   * except deleted; status=joker stays), not a truncated reporting-tree subset.
    */
   teamIds: string[] | null;
   /**
@@ -207,8 +205,8 @@ function isAssignableRosterStaffRow(row: {
   status?: string | null;
   employment_type?: string | null;
 }): boolean {
-  // Employment type joker stays assignable when status is on the roster.
-  return isRosterAssignableStaffStatus(row.status) && !isJokerStaffStatus(row.status);
+  // Status and employment-type jokers stay assignable (same as Attendance listing).
+  return isRosterAssignableStaffStatus(row.status);
 }
 
 /** Non-deleted staff, paged past PostgREST max_rows, then kept when the status is assignable. */
@@ -263,7 +261,8 @@ async function fetchStaffRowsByIds(
 /**
  * Team-scoped roster names from `staff_profile_ext.reporting_manager_staff_id`.
  * The viewer is included, plus every assignable person under them on the chart.
- * Resigned, terminated, deleted, and status=joker stay out of the chart walk.
+ * Resigned, terminated, and deleted stay out of the chart walk.
+ * Status=joker stays assignable (Attendance listing parity).
  * Venue / Site Supervisors use {@link loadVenueSupervisorRosterStaffIds} instead.
  */
 async function loadTeamRosterStaffIds(userId: string): Promise<string[]> {
@@ -273,7 +272,7 @@ async function loadTeamRosterStaffIds(userId: string): Promise<string[]> {
 /**
  * Full location roster staff for a Venue / Site Supervisor's managed sites.
  * Includes terminated / resigned people still assigned to those sites so their
- * period rows stay visible. Status=joker stays out.
+ * period rows stay visible. Status=joker stays on the list (Attendance parity).
  */
 async function loadVenueSupervisorRosterStaffIds(userId: string): Promise<{
   managedLocationIds: string[];

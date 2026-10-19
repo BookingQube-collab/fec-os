@@ -14,7 +14,6 @@ import {
 import { formatLocationRecord } from "@/lib/locations/normalize";
 import { loadRosterChartStaffIds } from "@/lib/reporting-manager-access.server";
 import { createAuthenticatedAction } from "@/lib/server/create-action";
-import { isJokerStaffStatus } from "@/lib/staff-status";
 import { isRosterAssignableStaffStatus } from "@/lib/attendance-hr/roster-register-scope";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
@@ -41,10 +40,7 @@ function memberFromRow(row: StaffRow, reportingManagerStaffId: string | null): T
     jobTitle: row.job_title,
     homeLocationId: row.location_id,
     reportingManagerStaffId,
-    assignable:
-      !row.deleted_at &&
-      isRosterAssignableStaffStatus(row.status) &&
-      !isJokerStaffStatus(row.status),
+    assignable: !row.deleted_at && isRosterAssignableStaffStatus(row.status),
   };
 }
 

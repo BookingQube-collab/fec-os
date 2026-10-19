@@ -89,7 +89,7 @@ describe("roster register bulk-delete scope", () => {
     expect(() => assertRosterDeletePeriod("August 2026", "2026-08-27")).toThrow(/required/i);
   });
 
-  it("treats active, on leave, and serving notice as assignable on the roster", () => {
+  it("treats active, on leave, serving notice, and status=joker as assignable on the roster", () => {
     for (const status of [null, "", "active", "probation", "secondment", "remote", "Active"]) {
       expect(isRosterAssignableStaffStatus(status), String(status)).toBe(true);
     }
@@ -99,10 +99,14 @@ describe("roster register bulk-delete scope", () => {
     for (const status of ["serving_notice", "serving-notice", "Serving Notice"]) {
       expect(isRosterAssignableStaffStatus(status), status).toBe(true);
     }
-    for (const status of ["resigned", "terminated", "contract_finished", "released", "inactive", "joker"]) {
+    // Status=joker matches Attendance listing (employment-type jokers migrated here).
+    for (const status of ["joker", "Joker"]) {
+      expect(isRosterAssignableStaffStatus(status), status).toBe(true);
+    }
+    for (const status of ["resigned", "terminated", "contract_finished", "released", "inactive"]) {
       expect(isRosterAssignableStaffStatus(status), status).toBe(false);
     }
-    // Employment type is not consulted — active jokers stay assignable via status alone.
+    // Employment type is not consulted — active and status=joker both stay assignable.
     expect(isRosterAssignableStaffStatus("active")).toBe(true);
   });
 
@@ -404,5 +408,43 @@ describe("roster register bulk-delete scope", () => {
       "terminated-louie",
     ]);
     expect(matrix.byStaffDate.get(rosterMatrixCellKey("terminated-louie", "2026-09-28"))).toHaveLength(1);
+  });
+
+  it("keeps status=joker placeholders on the location roster like Attendance listing", () => {
+    // Mohamed-style Active/Joker: employment type joker was migrated to status=joker.
+    // He shows ABSENT on Attendance but must still appear on Monthly roster empty rows.
+    const staffIds = venueSupervisorRosterStaffIds({
+      assignedStaffIds: ["atif", "mohamed-joker"],
+      rosteredStaffIds: ["atif"],
+    });
+    expect(staffIds).toEqual(["atif", "mohamed-joker"]);
+
+    const matrix = buildRosterMatrix(
+      [
+        {
+          staffId: "atif",
+          staffName: "Atif Ali Munir Ahmed",
+          employeeCode: "KDS-CC-CSH",
+          qid: null,
+          workDate: "2026-09-28",
+        },
+      ],
+      "2026-09-28",
+      "2026-09-29",
+      rosterTeamStaffForMatrix(
+        [
+          { staffId: "atif", staffName: "Atif Ali Munir Ahmed", employeeCode: "KDS-CC-CSH", qid: null },
+          {
+            staffId: "mohamed-joker",
+            staffName: "Mohamed Abdalmutalab Abdalla Izzo",
+            employeeCode: "KDS-CC-STF03",
+            qid: null,
+          },
+        ],
+        {},
+      ),
+    );
+    expect(matrix.staff.map((person) => person.staffId).sort()).toEqual(["atif", "mohamed-joker"]);
+    expect(isRosterAssignableStaffStatus("joker")).toBe(true);
   });
 });

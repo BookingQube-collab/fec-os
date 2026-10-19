@@ -536,7 +536,8 @@ export async function loadVenueSupervisorManagedLocationIds(userId: string): Pro
 
 /**
  * Non-deleted staff whose home or dedicated work site is one of these locations.
- * Includes terminated / resigned so period roster rows still resolve. Status=joker stays out.
+ * Includes terminated / resigned so period roster rows still resolve.
+ * Status=joker stays on the list (Attendance listing parity for location rosters).
  */
 export async function loadStaffIdsAssignedToLocations(locationIds: readonly string[]): Promise<string[]> {
   const ids = [...new Set(locationIds.filter(Boolean))];
@@ -552,7 +553,7 @@ export async function loadStaffIdsAssignedToLocations(locationIds: readonly stri
       .is("deleted_at", null);
     if (error) throw new Error(error.message);
     for (const row of data ?? []) {
-      if (!row.id || isJokerStaffStatus(row.status)) continue;
+      if (!row.id) continue;
       found.add(String(row.id));
     }
   }
@@ -580,7 +581,7 @@ export async function loadStaffIdsAssignedToLocations(locationIds: readonly stri
         .is("deleted_at", null);
       if (error) throw new Error(error.message);
       for (const row of data ?? []) {
-        if (!row.id || isJokerStaffStatus(row.status)) continue;
+        if (!row.id) continue;
         found.add(String(row.id));
       }
     }
@@ -749,7 +750,8 @@ export type ShiftRosterUploadScope =
 
 /**
  * A supervisor with no direct reports may upload a roster that covers only themselves.
- * Resigned, terminated, deleted, and status=joker stay out. Non-supervisors stay empty.
+ * Resigned, terminated, and deleted stay out. Status=joker stays (Attendance parity).
+ * Non-supervisors stay empty.
  */
 export async function loadSupervisorSelfRosterStaffIds(staffId: string | null): Promise<string[]> {
   if (!staffId) return [];
@@ -760,7 +762,7 @@ export async function loadSupervisorSelfRosterStaffIds(staffId: string | null): 
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!data?.id || data.deleted_at) return [];
-  if (!isRosterAssignableStaffStatus(data.status) || isJokerStaffStatus(data.status)) return [];
+  if (!isRosterAssignableStaffStatus(data.status)) return [];
   return rosterTeamOrSelfStaffIds({
     staffId: String(data.id),
     directReportStaffIds: [],
@@ -774,18 +776,14 @@ function rosterChartAssignable(member: {
   status?: string | null;
   employmentType?: string | null;
 }): boolean {
-  return (
-    !member.deletedAt &&
-    isRosterAssignableStaffStatus(member.status) &&
-    !isJokerStaffStatus(member.status)
-  );
+  return !member.deletedAt && isRosterAssignableStaffStatus(member.status);
 }
 
 /**
  * Team-scoped monthly roster: the signed-in person plus everyone who reports
  * to them on `staff_profile_ext.reporting_manager_staff_id`, including crew
- * under a lead who is not a supervisor. Resigned, terminated, deleted, and
- * status=joker stay off the list. Employment type joker stays when status allows.
+ * under a lead who is not a supervisor. Resigned, terminated, and deleted stay
+ * off the list. Status=joker and employment type joker stay when status allows.
  */
 export async function loadRosterChartStaffIds(userId: string): Promise<string[]> {
   // One login can link to more than one staff row. Use the newest only.
