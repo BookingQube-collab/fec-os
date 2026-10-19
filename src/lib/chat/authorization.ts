@@ -14,8 +14,9 @@
  * staff_id when that staff row is soft-deleted or not linked to the same user.
  *
  * Owner transfer and vote changes are deferred. Authenticated cannot SELECT
- * body or metadata on chat_messages. Readers use chat_messages_visible, which
- * masks content_hidden for everyone and a SELF delete for the deleter only.
+ * body or metadata on chat_messages. Readers use chat_messages_visible
+ * (security_invoker + chat_visible_message_content), which masks
+ * content_hidden for everyone and a SELF delete for the deleter only.
  */
 import type { AuthContext } from "@/lib/server/auth";
 import { z } from "zod";
