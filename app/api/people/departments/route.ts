@@ -5,6 +5,18 @@ export async function GET(request: Request) {
   return withAuthRouteRequest(
     async (context) => fetchMasterDepartments(context),
     request,
-    { capability: "people.view_roster" },
+    // Same caps as monthly roster — Venue Supervisors often reach the grid via
+    // attendance.view / title gates without people.view_roster, and an empty
+    // department catalog silently disables the Operations show-only filter.
+    {
+      anyCapability: [
+        "people.view_roster",
+        "people.import_roster",
+        "people.edit_roster",
+        "daily_ops.roster.upload",
+        "attendance.view",
+        "hr.employee_app",
+      ],
+    },
   );
 }

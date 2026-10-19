@@ -74,6 +74,7 @@ import {
   rosterMatrixCellKey,
   rosterPatchFromDayStatus,
   rosterRegisterHasExtraFilters,
+  rosterTeamStaffForLocationCode,
   rosterTeamStaffForMatrix,
   type RosterDayStatus,
 } from "@/lib/attendance-hr/roster-register-scope";
@@ -207,9 +208,17 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       setLocationId(defaultLocationId ?? "");
     }, [defaultLocationId]);
 
+    const showOnlyOrgDepartments = useMemo(
+      () => activeShowOnlyOrgDepartments(orgChecks, excludedDepartmentIds),
+      [orgChecks, excludedDepartmentIds],
+    );
     const showOnlyDepartmentIds = useMemo(
-      () => orgDepartmentIdsFor(departments, activeShowOnlyOrgDepartments(orgChecks, excludedDepartmentIds)),
-      [departments, orgChecks, excludedDepartmentIds],
+      () => orgDepartmentIdsFor(departments, showOnlyOrgDepartments),
+      [departments, showOnlyOrgDepartments],
+    );
+    const selectedLocationCode = useMemo(
+      () => (sites.data ?? []).find((site) => site.id === locationId)?.code ?? null,
+      [sites.data, locationId],
     );
     const filters = useMemo(
       () => ({
@@ -217,6 +226,9 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
         staffId: staffId || null,
         excludedDepartmentIds: excludedDepartmentIds.length ? excludedDepartmentIds : undefined,
         showOnlyDepartmentIds: showOnlyDepartmentIds.length ? showOnlyDepartmentIds : undefined,
+        // Always send focus keys so Operations still applies when master-department
+        // UUIDs failed to load (Venue Supervisor without people.view_roster).
+        showOnlyOrgDepartments: showOnlyOrgDepartments.length ? showOnlyOrgDepartments : undefined,
         dateFrom,
         dateTo,
         sourceUploadOnly,
@@ -225,7 +237,17 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
             ? (sourceFilter as "upload" | "amend" | "manual" | "copied")
             : null,
       }),
-      [locationId, staffId, excludedDepartmentIds, showOnlyDepartmentIds, dateFrom, dateTo, sourceUploadOnly, sourceFilter],
+      [
+        locationId,
+        staffId,
+        excludedDepartmentIds,
+        showOnlyDepartmentIds,
+        showOnlyOrgDepartments,
+        dateFrom,
+        dateTo,
+        sourceUploadOnly,
+        sourceFilter,
+      ],
     );
 
     const register = useQuery({
@@ -263,20 +285,20 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
           staffId,
           search: query,
           locationId: locationId || null,
+          locationCode: selectedLocationCode,
         }),
-      [rows, query, staffId, locationId],
+      [rows, query, staffId, locationId, selectedLocationCode],
     );
 
-    const matrix = useMemo(
-      () =>
-        buildRosterMatrix(
-          filtered,
-          dateFrom,
-          dateTo,
-          rosterTeamStaffForMatrix(teamStaff, { staffId, search: query }),
-        ),
-      [filtered, dateFrom, dateTo, teamStaff, staffId, query],
-    );
+    const matrix = useMemo(() => {
+      const rowStaffIds = new Set(filtered.map((row) => row.staffId));
+      const scopedTeam = rosterTeamStaffForLocationCode(
+        rosterTeamStaffForMatrix(teamStaff, { staffId, search: query }),
+        selectedLocationCode,
+        rowStaffIds,
+      );
+      return buildRosterMatrix(filtered, dateFrom, dateTo, scopedTeam);
+    }, [filtered, dateFrom, dateTo, teamStaff, staffId, query, selectedLocationCode]);
     const showEmptyDayGrid = rosterEmptyPeriodShowsDayGrid(filtered.length, canAmend);
     const teamGridWithoutRows = filtered.length === 0 && matrix.staff.length > 0;
     const assignStaff = useQuery({

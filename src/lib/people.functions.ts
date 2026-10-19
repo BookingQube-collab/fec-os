@@ -1022,7 +1022,19 @@ export const listMasterDepartments = createAuthenticatedAction(
       parent_id: (row.parent_id as string | null) ?? null,
     }));
   },
-  { defaultInput: {}, auth: { capability: "people.view_roster" } },
+  {
+    defaultInput: {},
+    auth: {
+      anyCapability: [
+        "people.view_roster",
+        "people.import_roster",
+        "people.edit_roster",
+        "daily_ops.roster.upload",
+        "attendance.view",
+        "hr.employee_app",
+      ],
+    },
+  },
 );
 
 async function assertDepartmentParent(

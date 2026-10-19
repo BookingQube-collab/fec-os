@@ -15,6 +15,11 @@ import {
 } from "@/lib/reporting-manager-access.server";
 import { usesVenueSupervisorLocationRoster } from "@/lib/reporting-manager-locations";
 import {
+  ORG_FOCUS_DEPARTMENTS,
+  orgDepartmentIdsFor,
+  type OrgFocusDepartment,
+} from "@/lib/exclude-org-departments";
+import {
   createAuthenticatedAction,
   createAuthenticatedActionNoInput,
   createSafeAuthenticatedAction,
@@ -30,6 +35,7 @@ import {
   chunkIds,
   collectPagedRows,
   collectPagedRowsInWaves,
+  employeeCodeBelongsToLocation,
   isRosterAssignableStaffStatus,
   rosterAmendRecalcLocationIds,
   isRosterLeaveType,
@@ -39,6 +45,7 @@ import {
   rosterStaffIdsAtLocation,
   rosterRowMatchesSearch,
   filterRosterAssignmentsByLocationIds,
+  rosterTeamStaffForLocationCode,
   venueSupervisorRosterQueryLocationIds,
   venueSupervisorRosterStaffIds,
   type RosterDayStatus,
@@ -503,6 +510,39 @@ async function staffIdsLinkedToDepartments(
   return shown;
 }
 
+const orgFocusDepartmentSchema = z.enum(
+  ORG_FOCUS_DEPARTMENTS as unknown as [OrgFocusDepartment, ...OrgFocusDepartment[]],
+);
+
+/** Resolve show-only master department ids (client UUIDs, or org focus keys via admin). */
+async function resolveShowOnlyDepartmentIds(input: {
+  showOnlyDepartmentIds?: readonly string[] | null;
+  showOnlyOrgDepartments?: readonly OrgFocusDepartment[] | null;
+}): Promise<string[]> {
+  if (input.showOnlyDepartmentIds?.length) {
+    return [...new Set(input.showOnlyDepartmentIds.filter(Boolean))];
+  }
+  const focus = [...new Set((input.showOnlyOrgDepartments ?? []).filter(Boolean))];
+  if (focus.length === 0) return [];
+  const { data, error } = await supabaseAdmin
+    .from("master_departments")
+    .select("id, name, code")
+    .eq("active", true);
+  if (error) throw error;
+  return orgDepartmentIdsFor(data ?? [], focus);
+}
+
+async function loadLocationCodeById(
+  db: AuthContext["supabase"],
+  locationId: string | null | undefined,
+): Promise<string | null> {
+  if (!locationId) return null;
+  const { data, error } = await db.from("locations").select("code").eq("id", locationId).maybeSingle();
+  if (error) throw error;
+  const code = (data?.code as string | null | undefined)?.trim() || null;
+  return code;
+}
+
 type RosterCopyDepartmentLabel = {
   legacy: string | null;
   names: string[];
@@ -578,6 +618,12 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
      * staff linked to one of these master departments.
      */
     showOnlyDepartmentIds: z.array(z.string().uuid()).optional(),
+    /**
+     * Same show-only filter as keys (operations / maintenance / fb_cafe).
+     * Used when the client could not resolve master-department UUIDs (common for
+     * Venue Supervisors without people.view_roster on the departments API).
+     */
+    showOnlyOrgDepartments: z.array(orgFocusDepartmentSchema).optional(),
     dateFrom: ymd,
     dateTo: ymd,
     /** When true, only upload + amend rows (legacy import register). */
@@ -754,11 +800,20 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
       if (hidden.size > 0) {
         assignments = assignments.filter((row) => !hidden.has(String(row.staff_id)));
       }
-    } else if (data.showOnlyDepartmentIds?.length) {
-      const shown = await staffIdsLinkedToDepartments(db, data.showOnlyDepartmentIds);
-      shownStaff = shown;
-      assignments = assignments.filter((row) => shown.has(String(row.staff_id)));
+    } else {
+      const showOnlyIds = await resolveShowOnlyDepartmentIds({
+        showOnlyDepartmentIds: data.showOnlyDepartmentIds,
+        showOnlyOrgDepartments: data.showOnlyOrgDepartments,
+      });
+      if (showOnlyIds.length) {
+        const shown = await staffIdsLinkedToDepartments(db, showOnlyIds);
+        shownStaff = shown;
+        assignments = assignments.filter((row) => shown.has(String(row.staff_id)));
+      }
     }
+
+    // Selected Location=KDS-CC must not keep INF-CC-* staff (home code / placeholders).
+    const selectedLocationCode = data.locationId ? await loadLocationCodeById(db, data.locationId) : null;
 
     // Chart-scoped supervisors still narrow a selected site to people assigned there.
     // Venue supervisors already queried by managed location — keep every rostered person
@@ -1031,13 +1086,23 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
       };
     });
 
+    // Location filter: drop cross-site employee codes (Agnes INF-CC-* under KDS-CC)
+    // even when the shift row's location_id matched (roaming / mis-assigned work site).
+    const locationScopedRows = selectedLocationCode
+      ? mapped.filter((row) => employeeCodeBelongsToLocation(row.employeeCode, selectedLocationCode))
+      : mapped;
+    const rowStaffIds = new Set(locationScopedRows.map((row) => row.staffId));
+    const locationScopedTeamStaff = selectedLocationCode
+      ? rosterTeamStaffForLocationCode(teamStaff, selectedLocationCode, rowStaffIds)
+      : teamStaff;
+
     return {
       dateFrom: data.dateFrom,
       dateTo: data.dateTo,
-      count: mapped.length,
-      rows: mapped,
+      count: locationScopedRows.length,
+      rows: locationScopedRows,
       /** Null for company roster viewers. Chart subtree plus the viewer for a team-scoped login, even with no shifts. */
-      teamStaff,
+      teamStaff: locationScopedTeamStaff,
       /** Null for a company roster. Assigned home and extra sites for a team roster. */
       cardLocations: await cardLocationsPromise,
     };

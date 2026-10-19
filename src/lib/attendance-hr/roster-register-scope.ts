@@ -300,14 +300,61 @@ export function rosterRowMatchesSearch(row: RosterRegisterSearchRow, search: str
   );
 }
 
+/**
+ * Employee codes like KDS-CC-STF01 / INF-CC-STF16 encode the home venue.
+ * Numeric or free-form codes (534) are not venue-prefixed and stay visible.
+ */
+export function employeeCodeBelongsToLocation(
+  employeeCode: string | null | undefined,
+  locationCode: string | null | undefined,
+): boolean {
+  const loc = (locationCode ?? "").trim().toUpperCase();
+  if (!loc) return true;
+  const code = (employeeCode ?? "").trim().toUpperCase();
+  if (!code || !code.includes("-")) return true;
+  return code === loc || code.startsWith(`${loc}-`);
+}
+
+/**
+ * Drop matrix placeholders whose employee code belongs to another venue.
+ * People who already have a row in `rowStaffIds` stay (caller decides row set).
+ */
+export function rosterTeamStaffForLocationCode(
+  teamStaff: readonly RosterMatrixStaff[] | null | undefined,
+  locationCode: string | null | undefined,
+  rowStaffIds?: ReadonlySet<string> | null,
+): RosterMatrixStaff[] {
+  if (!teamStaff?.length) return [];
+  const loc = locationCode?.trim() || null;
+  if (!loc) return [...teamStaff];
+  return teamStaff.filter((person) => {
+    if (rowStaffIds?.has(person.staffId)) return true;
+    return employeeCodeBelongsToLocation(person.employeeCode, loc);
+  });
+}
+
 export function filterRosterRegisterRows<
   T extends { staffId: string; locationId?: string | null } & RosterRegisterSearchRow,
->(rows: T[], filters: Pick<RosterRegisterScopeFilters, "staffId" | "search" | "locationId">): T[] {
+>(
+  rows: T[],
+  filters: Pick<RosterRegisterScopeFilters, "staffId" | "search" | "locationId"> & {
+    locationCode?: string | null;
+  },
+): T[] {
   const staffId = filters.staffId || null;
-  const locationId = filters.locationId || null;
+  const locationId = filters.locationId?.trim() || null;
+  const locationKey = locationId?.toLowerCase() ?? null;
+  const locationCode = filters.locationCode?.trim() || null;
   return rows.filter((row) => {
     if (staffId && row.staffId !== staffId) return false;
-    if (locationId && row.locationId && row.locationId !== locationId) return false;
+    if (locationKey) {
+      const rowLoc = String(row.locationId ?? "")
+        .trim()
+        .toLowerCase();
+      // Missing locationId must not bypass a selected site filter.
+      if (!rowLoc || rowLoc !== locationKey) return false;
+    }
+    if (locationCode && !employeeCodeBelongsToLocation(row.employeeCode, locationCode)) return false;
     return rosterRowMatchesSearch(row, filters.search);
   });
 }

@@ -6,9 +6,11 @@ import {
   chunkIds,
   collectPagedRows,
   collectPagedRowsInWaves,
+  employeeCodeBelongsToLocation,
   filterRosterAssignmentsByLocationIds,
   filterRosterRegisterRows,
   isRosterAssignableStaffStatus,
+  rosterTeamStaffForLocationCode,
   isWeekendYmd,
   rosterAmendRecalcLocationIds,
   rosterDayStatusFromRow,
@@ -404,6 +406,66 @@ describe("roster register bulk-delete scope", () => {
         locationId: "inf-cc",
         employeeCode: "INF-CC-STF16",
       },
+    ];
+    expect(filterRosterRegisterRows(rows, { locationId: "kds-cc" }).map((r) => r.staffId)).toEqual([
+      "abigail",
+    ]);
+  });
+
+  it("drops Agnes INF-CC under Location=KDS even when the shift row is at KDS (Ashfaq case)", () => {
+    // 808dd77 filtered by assignment location_id only. Roaming / mis-tagged INF
+    // staff still appeared when location_id=KDS or as teamStaff placeholders.
+    const rows = [
+      {
+        ...row,
+        staffId: "abigail",
+        staffName: "Abigial Danso kumi",
+        locationId: "kds-uuid",
+        employeeCode: "KDS-CC-STF01",
+      },
+      {
+        ...row,
+        staffId: "agnes",
+        staffName: "AGNES KIRORIO",
+        locationId: "kds-uuid",
+        employeeCode: "INF-CC-STF16",
+      },
+      {
+        ...row,
+        staffId: "amon",
+        staffName: "Amon Kakuru",
+        locationId: "kds-uuid",
+        employeeCode: "534",
+      },
+    ];
+    expect(employeeCodeBelongsToLocation("INF-CC-STF16", "KDS-CC")).toBe(false);
+    expect(employeeCodeBelongsToLocation("KDS-CC-STF01", "KDS-CC")).toBe(true);
+    expect(employeeCodeBelongsToLocation("534", "KDS-CC")).toBe(true);
+
+    const filtered = filterRosterRegisterRows(rows, {
+      locationId: "kds-uuid",
+      locationCode: "KDS-CC",
+    });
+    expect(filtered.map((r) => r.staffId)).toEqual(["abigail", "amon"]);
+
+    const team = [
+      { staffId: "abigail", staffName: "Abigial", employeeCode: "KDS-CC-STF01", qid: null },
+      { staffId: "agnes", staffName: "AGNES KIRORIO", employeeCode: "INF-CC-STF16", qid: null },
+      { staffId: "mohamed", staffName: "Mohamed Joker", employeeCode: "KDS-CC-STF03", qid: null },
+    ];
+    const rowStaffIds = new Set(filtered.map((r) => r.staffId));
+    const scopedTeam = rosterTeamStaffForLocationCode(team, "KDS-CC", rowStaffIds);
+    expect(scopedTeam.map((p) => p.staffId).sort()).toEqual(["abigail", "mohamed"]);
+
+    const matrix = buildRosterMatrix(filtered, "2026-09-28", "2026-09-29", scopedTeam);
+    expect(matrix.staff.map((p) => p.staffId).sort()).toEqual(["abigail", "amon", "mohamed"]);
+    expect(matrix.staff.some((p) => p.employeeCode === "INF-CC-STF16")).toBe(false);
+  });
+
+  it("does not let a missing row.locationId bypass a selected Location filter", () => {
+    const rows = [
+      { ...row, staffId: "abigail", locationId: "kds-cc", employeeCode: "KDS-CC-STF01" },
+      { ...row, staffId: "ghost", locationId: null, employeeCode: "INF-CC-STF99" },
     ];
     expect(filterRosterRegisterRows(rows, { locationId: "kds-cc" }).map((r) => r.staffId)).toEqual([
       "abigail",
