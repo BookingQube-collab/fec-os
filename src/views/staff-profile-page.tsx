@@ -362,8 +362,17 @@ function StaffProfilePageBody() {
 
   const faceQ = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "face", staffId: id }),
-    queryFn: () => getStaffFaceEnrollment({ staffId: id }),
+    queryFn: async () => {
+      const result = await getStaffFaceEnrollment({ staffId: id });
+      if (!result.ok) throw new Error(result.error);
+      return result.data;
+    },
     staleTime: STALE.people,
+    retry: (count, err) => {
+      const msg = err instanceof Error ? err.message : "";
+      if (/cannot view|forbidden|not authorized/i.test(msg)) return false;
+      return count < 1;
+    },
   });
 
   const timeline = useQuery({
@@ -1130,9 +1139,13 @@ function StaffProfilePageBody() {
           <div className="space-y-2 border-t pt-3">
             <h3 className="text-xs font-medium">{t("people.profile.face")}</h3>
             <p className="text-xs text-muted-foreground">{t("attendanceHr.field.faceHint")}</p>
-            <Badge variant={faceQ.data?.status === "enrolled" ? "success" : "muted"}>
-              {faceQ.data?.status === "enrolled" ? t("attendanceHr.field.enrolledBadge") : t("attendanceHr.field.notEnrolled")}
-            </Badge>
+            {faceQ.isError ? (
+              <p className="text-xs text-destructive">{faceQ.error.message}</p>
+            ) : (
+              <Badge variant={faceQ.data?.status === "enrolled" ? "success" : "muted"}>
+                {faceQ.data?.status === "enrolled" ? t("attendanceHr.field.enrolledBadge") : t("attendanceHr.field.notEnrolled")}
+              </Badge>
+            )}
             {canEdit || canConfigure ? (
               <Button size="sm" variant="secondary" onClick={() => setEnrollOpen(true)}>
                 {t("attendanceHr.field.enrollFace")}

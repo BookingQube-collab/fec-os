@@ -19,6 +19,7 @@ import { formatLocationLabel } from "@/lib/locations/normalize";
 import { DEFAULT_RULES } from "@/lib/attendance-hr/constants";
 import { resolveSelfStaffId } from "@/lib/attendance-hr/self-staff";
 import { resolveFaceEnrollmentTarget } from "@/lib/attendance-hr/face-enrollment";
+import { resolveStaffProfileReadAccess } from "@/lib/staff-profile-access.server";
 
 const FACE_BUCKET = "staff-faces";
 
@@ -450,16 +451,22 @@ export const submitFieldCheckIn = createAuthenticatedAction(
   { auth: { anyCapability: ["attendance.view", "hr.employee_app"] } },
 );
 
-export const getStaffFaceEnrollment = createAuthenticatedAction(
+/** Safe action: never throws across the wire (avoids Next.js production 500 POSTs / RSC digests). */
+export const getStaffFaceEnrollment = createSafeAuthenticatedAction(
   z.object({ staffId: z.string().uuid().nullable().optional() }),
   async (data, context) => {
     const mine = await myStaff(context);
     const staffId = data.staffId ?? mine?.id ?? null;
-    if (!staffId) return { staffId: null, status: "none" as const, enrolledAt: null, livenessPassed: false };
-    if (data.staffId && data.staffId !== mine?.id && !canUserDo(context.roles ?? [], "attendance.configure") && !canUserDo(context.roles ?? [], "people.edit_roster")) {
-      throw new ForbiddenError("You cannot view another employee's face enrollment.");
+    if (!staffId) {
+      return { staffId: null, status: "none" as const, enrolledAt: null, livenessPassed: false, hasPhoto: false };
     }
-    const { data: row, error } = await context.supabase
+    const viewingOther = Boolean(data.staffId && data.staffId !== mine?.id);
+    if (viewingOther) {
+      // Same gate as staff profile GET — roster editors, HR, HoO, linked managers.
+      await resolveStaffProfileReadAccess(context, staffId);
+    }
+    // Service role after access check: RLS is self-or-level≥55; team managers may be below that.
+    const { data: row, error } = await supabaseAdmin
       .from("staff_face_enrollments")
       .select("staff_id, status, enrolled_at, liveness_passed, storage_path")
       .eq("staff_id", staffId)
