@@ -5,7 +5,7 @@ import { FecLoader, FecPageHeader } from "@/components/fec";
 import { useMutation, useQuery, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import Link from "next/link";
 import { ChevronDown, FileBarChart, LayoutGrid, LayoutList, Loader2, MapPin, Search, Trash2, Upload } from "lucide-react";
-import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -142,6 +142,25 @@ export default function AttendanceHrReportsPage() {
     }, 350);
     return () => window.clearTimeout(timer);
   }, [staffQ]);
+
+  const onDepartmentsChange = useCallback((values: string[]) => {
+    startTransition(() => setDepartmentIds(values));
+  }, []);
+  const onOrgChecksChange = useCallback((next: OrgDepartmentChecks) => {
+    startTransition(() => setOrgChecks(next));
+  }, []);
+  const onStatusChange = useCallback((value: string) => {
+    startTransition(() => {
+      setStatus(value === "all" ? "" : value);
+      setKpiFilter(null);
+    });
+  }, []);
+  const onLocationChip = useCallback(
+    (id: string | null) => {
+      startTransition(() => setCurrentLocationId(id));
+    },
+    [setCurrentLocationId],
+  );
 
   const teamSites = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "listing-sites" }),
@@ -437,7 +456,7 @@ export default function AttendanceHrReportsPage() {
               type="button"
               className={cn("filter-chip", !listingLocationId && "filter-chip-active")}
               aria-pressed={!listingLocationId}
-              onClick={() => setCurrentLocationId(null)}
+              onClick={() => onLocationChip(null)}
             >
               {t("common.allLocations")}
             </button>
@@ -450,7 +469,7 @@ export default function AttendanceHrReportsPage() {
                 title={label}
                 className={cn("filter-chip max-w-[18rem] truncate", listingLocationId === site.id && "filter-chip-active")}
                 aria-pressed={listingLocationId === site.id}
-                onClick={() => setCurrentLocationId(site.id)}
+                onClick={() => onLocationChip(site.id)}
               >
                 {label}
               </button>
@@ -530,13 +549,7 @@ export default function AttendanceHrReportsPage() {
           </div>
           <div className="min-w-44 space-y-1.5">
             <Label>{t("attendanceHr.reports.status")}</Label>
-            <Select
-              value={status || "all"}
-              onValueChange={(value) => {
-                setStatus(value === "all" ? "" : value);
-                setKpiFilter(null);
-              }}
-            >
+            <Select value={status || "all"} onValueChange={onStatusChange}>
               <SelectTrigger aria-label={t("attendanceHr.reports.status")}>
                 <SelectValue placeholder={t("attendanceHr.reports.allStatuses")} />
               </SelectTrigger>
@@ -555,7 +568,7 @@ export default function AttendanceHrReportsPage() {
             <SearchableSelect
               multiple
               values={departmentIds}
-              onValuesChange={setDepartmentIds}
+              onValuesChange={onDepartmentsChange}
               placeholder={t("attendanceHr.reports.allDepartments")}
               emptyOption={{ value: "", label: t("attendanceHr.reports.allDepartments") }}
               selectedCountLabel={(count) => t("attendanceHr.reports.departmentsSelected", { count })}
@@ -569,7 +582,7 @@ export default function AttendanceHrReportsPage() {
             <OrgDepartmentsFilter
               checks={orgChecks}
               disabled={!orgDepartmentSelectionIsAll(departmentIds)}
-              onChange={setOrgChecks}
+              onChange={onOrgChecksChange}
             />
           </div>
         </div>
@@ -752,10 +765,12 @@ export default function AttendanceHrReportsPage() {
         isLoading={q.isLoading || listingBlocked}
         activeFilter={kpiFilter}
         onFilterChange={(next) => {
-          setKpiFilter(next);
-          // Card filters are client-side (Present includes undertime/OT). Clear the
-          // status dropdown so API status and card filter do not fight.
-          if (next) setStatus("");
+          startTransition(() => {
+            setKpiFilter(next);
+            // Card filters are client-side (Present includes undertime/OT). Clear the
+            // status dropdown so API status and card filter do not fight.
+            if (next) setStatus("");
+          });
         }}
       />
 

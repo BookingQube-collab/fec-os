@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { memo, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { AttendanceRecordsTable } from "@/components/people/attendance-records-table";
@@ -44,7 +44,98 @@ function dayNumber(ymd: string) {
   return Number(ymd.slice(8, 10));
 }
 
-export function AttendanceRecordsGrid({
+type AttendanceStaffRowProps = {
+  person: { staffId: string; staffName: string | null; employeeCode: string | null; qid: string | null };
+  index: number;
+  dates: readonly string[];
+  byStaffDate: Map<string, AttendanceMatrixRow[]>;
+  offLabel: string;
+  notJoinedLabel: string;
+  onOpen: (entry: AttendanceMatrixRow) => void;
+};
+
+const AttendanceStaffRow = memo(function AttendanceStaffRow({
+  person,
+  index,
+  dates,
+  byStaffDate,
+  offLabel,
+  notJoinedLabel,
+  onOpen,
+}: AttendanceStaffRowProps) {
+  return (
+    <tr className="border-b border-border/50" style={{ contentVisibility: "auto", containIntrinsicSize: "auto 3rem" }}>
+      <td className="sticky start-0 z-10 border-e border-border/70 bg-card px-1.5 py-1 text-center tabular-nums text-muted-foreground">
+        {index + 1}
+      </td>
+      <td className="sticky start-10 z-10 min-w-[11rem] max-w-[14rem] border-e border-border/70 bg-card px-2 py-1.5">
+        <div className="truncate font-medium leading-tight">{person.staffName || "—"}</div>
+        <div className="truncate text-[10px] text-muted-foreground">
+          {person.employeeCode || person.qid || ""}
+        </div>
+      </td>
+      {dates.map((ymd) => {
+        const weekend = isWeekendYmd(ymd);
+        const entries = byStaffDate.get(rosterMatrixCellKey(person.staffId, ymd)) ?? [];
+        return (
+          <td
+            key={`${person.staffId}-${ymd}`}
+            className={cn("align-top border-border/40 px-0.5 py-0.5", weekend ? "bg-muted/50" : "bg-card")}
+          >
+            {entries.length === 0 ? (
+              <div className="min-h-[2.75rem]" />
+            ) : (
+              <div className="flex flex-col gap-0.5">
+                {entries.map((entry) => {
+                  const content = attendanceGridCellContent(entry);
+                  const primary =
+                    content.tone === "weekly_off"
+                      ? offLabel
+                      : content.tone === "not_joined"
+                        ? notJoinedLabel
+                        : content.primary;
+                  return (
+                    <button
+                      key={entry.id ?? `${entry.staffId}-${entry.workDate}`}
+                      type="button"
+                      className={cn(
+                        "w-full rounded-md px-1 py-1 text-center leading-tight transition-colors hover:ring-1 hover:ring-border",
+                        attendanceGridCellClass(content.tone),
+                      )}
+                      onClick={() => onOpen(entry)}
+                      aria-label={`${person.staffName || "—"} · ${ymd} · ${content.statusLabel}`}
+                    >
+                      {content.secondary == null ? (
+                        <div className="text-[11px] font-semibold uppercase tracking-wide">{primary}</div>
+                      ) : (
+                        <div className="tabular-nums">
+                          <div className={cn(content.tone === "late" && "font-semibold text-rose-700 dark:text-rose-300")}>
+                            {primary}
+                          </div>
+                          <div className="text-muted-foreground">{content.secondary}</div>
+                        </div>
+                      )}
+                      {content.meta ? (
+                        <div className="mt-0.5 text-[9px] tabular-nums text-muted-foreground">{content.meta}</div>
+                      ) : null}
+                      {entry.locationLabel ? (
+                        <div className="mt-0.5 truncate text-[9px] text-muted-foreground">
+                          {entry.locationLabel.split("—")[0]?.trim() || entry.locationLabel}
+                        </div>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </td>
+        );
+      })}
+    </tr>
+  );
+});
+
+export const AttendanceRecordsGrid = memo(function AttendanceRecordsGrid({
   rows,
   dateFrom,
   dateTo,
@@ -61,6 +152,8 @@ export function AttendanceRecordsGrid({
   const [detail, setDetail] = useState<AttendanceMatrixRow | null>(null);
 
   const matrix = useMemo(() => buildAttendanceMatrix(rows, dateFrom, dateTo), [rows, dateFrom, dateTo]);
+  const offLabel = t("attendanceHr.reports.cellOff");
+  const notJoinedLabel = t("attendanceHr.reports.statuses.not_joined");
 
   if (rows.length === 0) {
     return (
@@ -143,77 +236,16 @@ export function AttendanceRecordsGrid({
           </thead>
           <tbody>
             {matrix.staff.map((person, index) => (
-              <tr key={person.staffId} className="border-b border-border/50">
-                <td className="sticky start-0 z-10 border-e border-border/70 bg-card px-1.5 py-1 text-center tabular-nums text-muted-foreground">
-                  {index + 1}
-                </td>
-                <td className="sticky start-10 z-10 min-w-[11rem] max-w-[14rem] border-e border-border/70 bg-card px-2 py-1.5">
-                  <div className="truncate font-medium leading-tight">{person.staffName || "—"}</div>
-                  <div className="truncate text-[10px] text-muted-foreground">
-                    {person.employeeCode || person.qid || ""}
-                  </div>
-                </td>
-                {matrix.dates.map((ymd) => {
-                  const weekend = isWeekendYmd(ymd);
-                  const entries = matrix.byStaffDate.get(rosterMatrixCellKey(person.staffId, ymd)) ?? [];
-                  return (
-                    <td
-                      key={`${person.staffId}-${ymd}`}
-                      className={cn(
-                        "align-top border-border/40 px-0.5 py-0.5",
-                        weekend ? "bg-muted/50" : "bg-card",
-                      )}
-                    >
-                      {entries.length === 0 ? (
-                        <div className="min-h-[2.75rem]" />
-                      ) : (
-                        <div className="flex flex-col gap-0.5">
-                          {entries.map((entry) => {
-                            const content = attendanceGridCellContent(entry);
-                            const primary =
-                              content.tone === "weekly_off"
-                                ? t("attendanceHr.reports.cellOff")
-                                : content.tone === "not_joined"
-                                  ? t("attendanceHr.reports.statuses.not_joined")
-                                  : content.primary;
-                            return (
-                              <button
-                                key={entry.id ?? `${entry.staffId}-${entry.workDate}`}
-                                type="button"
-                                className={cn(
-                                  "w-full rounded-md px-1 py-1 text-center leading-tight transition-colors hover:ring-1 hover:ring-border",
-                                  attendanceGridCellClass(content.tone),
-                                )}
-                                onClick={() => setDetail(entry)}
-                                aria-label={`${person.staffName || "—"} · ${ymd} · ${content.statusLabel}`}
-                              >
-                                {content.secondary == null ? (
-                                  <div className="text-[11px] font-semibold uppercase tracking-wide">{primary}</div>
-                                ) : (
-                                  <div className="tabular-nums">
-                                    <div className={cn(content.tone === "late" && "font-semibold text-rose-700 dark:text-rose-300")}>
-                                      {primary}
-                                    </div>
-                                    <div className="text-muted-foreground">{content.secondary}</div>
-                                  </div>
-                                )}
-                                {content.meta ? (
-                                  <div className="mt-0.5 text-[9px] tabular-nums text-muted-foreground">{content.meta}</div>
-                                ) : null}
-                                {entry.locationLabel ? (
-                                  <div className="mt-0.5 truncate text-[9px] text-muted-foreground">
-                                    {entry.locationLabel.split("—")[0]?.trim() || entry.locationLabel}
-                                  </div>
-                                ) : null}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
+              <AttendanceStaffRow
+                key={person.staffId}
+                person={person}
+                index={index}
+                dates={matrix.dates}
+                byStaffDate={matrix.byStaffDate}
+                offLabel={offLabel}
+                notJoinedLabel={notJoinedLabel}
+                onOpen={setDetail}
+              />
             ))}
           </tbody>
         </table>
@@ -261,4 +293,4 @@ export function AttendanceRecordsGrid({
       </Dialog>
     </>
   );
-}
+});

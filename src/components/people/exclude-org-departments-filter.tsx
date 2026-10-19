@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronDown } from "lucide-react";
+import { startTransition, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -29,14 +30,22 @@ export function OrgDepartmentsFilter({
   className?: string;
 }) {
   const { t } = useTranslation();
-  const unchecked = ORG_FOCUS_DEPARTMENTS.filter((key) => !checks[key]);
+  // Keep the menu label/checkboxes urgent; defer the parent grid rebuild (INP).
+  const [localChecks, setLocalChecks] = useState(checks);
+  useEffect(() => {
+    setLocalChecks(checks);
+  }, [checks]);
+
+  const unchecked = ORG_FOCUS_DEPARTMENTS.filter((key) => !localChecks[key]);
   const showing = !disabled && unchecked.length > 0;
   const departments = unchecked.map((key) => t(`common.orgDepartment.${key}`)).join(", ");
   const menuLabel = t("common.orgDepartmentsMenu");
   const triggerLabel = showing ? t("common.showingOrgDepartments", { departments }) : menuLabel;
 
   function toggle(key: OrgFocusDepartment, checked: boolean) {
-    onChange({ ...checks, [key]: checked });
+    const next = { ...localChecks, [key]: checked };
+    setLocalChecks(next);
+    startTransition(() => onChange(next));
   }
 
   return (
@@ -63,7 +72,7 @@ export function OrgDepartmentsFilter({
         {ORG_FOCUS_DEPARTMENTS.map((key) => (
           <DropdownMenuCheckboxItem
             key={key}
-            checked={checks[key]}
+            checked={localChecks[key]}
             disabled={disabled}
             onSelect={(event) => event.preventDefault()}
             onCheckedChange={(value) => toggle(key, value === true)}

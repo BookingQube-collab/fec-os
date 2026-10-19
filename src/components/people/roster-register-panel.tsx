@@ -2,7 +2,17 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LayoutGrid, LayoutList, Loader2, Pencil, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from "react";
+import {
+  forwardRef,
+  memo,
+  startTransition,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -77,6 +87,7 @@ import {
   rosterTeamStaffForLocationCode,
   rosterTeamStaffForMatrix,
   type RosterDayStatus,
+  type RosterMatrixStaff,
 } from "@/lib/attendance-hr/roster-register-scope";
 import { STALE } from "@/lib/query-client";
 import { queryKeys } from "@/lib/query-keys";
@@ -164,6 +175,132 @@ function dayNumber(ymd: string) {
   return Number(ymd.slice(8, 10));
 }
 
+type RosterMatrixStaffRowProps = {
+  person: RosterMatrixStaff;
+  index: number;
+  dates: readonly string[];
+  byStaffDate: Map<string, RosterRegisterRow[]>;
+  canAmend: boolean;
+  onEdit: (row: RosterRegisterRow) => void;
+  onCreate: (workDate: string, staffId: string | null) => void;
+  offLabel: string;
+  annualLabel: string;
+  sickLabel: string;
+  compOffLabel: string;
+  addDayLabel: (ymd: string) => string;
+};
+
+/** One staff × month row — memoized so filter UI updates do not remount every cell. */
+const RosterMatrixStaffRow = memo(function RosterMatrixStaffRow({
+  person,
+  index,
+  dates,
+  byStaffDate,
+  canAmend,
+  onEdit,
+  onCreate,
+  offLabel,
+  annualLabel,
+  sickLabel,
+  compOffLabel,
+  addDayLabel,
+}: RosterMatrixStaffRowProps) {
+  return (
+    <tr className="border-b border-border/50" style={{ contentVisibility: "auto", containIntrinsicSize: "auto 3rem" }}>
+      <td className="sticky start-0 z-10 border-e border-border/70 bg-card px-1.5 py-1 text-center tabular-nums text-muted-foreground">
+        {index + 1}
+      </td>
+      <td className="sticky start-10 z-10 min-w-[11rem] max-w-[14rem] border-e border-border/70 bg-card px-2 py-1.5">
+        <div className="truncate font-medium leading-tight">{person.staffName || "—"}</div>
+        <div className="truncate text-[10px] text-muted-foreground">
+          {person.employeeCode || person.qid || ""}
+        </div>
+      </td>
+      {dates.map((ymd) => {
+        const weekend = isWeekendYmd(ymd);
+        const entries = byStaffDate.get(rosterMatrixCellKey(person.staffId, ymd)) ?? [];
+        return (
+          <td
+            key={`${person.staffId}-${ymd}`}
+            className={cn("align-top border-border/40 px-0.5 py-0.5", weekend ? "bg-muted/50" : "bg-card")}
+          >
+            {entries.length === 0 ? (
+              rosterEmptyDayCanAdd(canAmend, entries.length) ? (
+                <div className="flex min-h-[2.75rem] items-center justify-center">
+                  <button
+                    type="button"
+                    className="inline-flex h-7 items-center justify-center rounded-md px-1.5 text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                    onClick={() => onCreate(ymd, person.staffId)}
+                    aria-label={addDayLabel(ymd)}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <div className="min-h-[2.75rem]" />
+              )
+            ) : (
+              <div className="flex flex-col gap-0.5">
+                {entries.map((entry) => {
+                  const status = rosterDayStatusFromRow(entry);
+                  const offDuty = status !== "on_duty";
+                  const body = (
+                    <>
+                      {offDuty ? (
+                        <div className="text-center text-[11px] font-semibold uppercase tracking-wide">
+                          {entry.leaveType === "annual_leave"
+                            ? annualLabel
+                            : entry.leaveType === "sick_leave"
+                              ? sickLabel
+                              : entry.leaveType === "comp_off"
+                                ? compOffLabel
+                                : offLabel}
+                        </div>
+                      ) : (
+                        <div className="text-center leading-tight tabular-nums">
+                          <div>{entry.shiftStart || "—"}</div>
+                          <div className="text-muted-foreground">{entry.shiftEnd || "—"}</div>
+                        </div>
+                      )}
+                      {entry.locationCode ? (
+                        <div className="mt-0.5 text-center text-[9px] text-muted-foreground">{entry.locationCode}</div>
+                      ) : null}
+                    </>
+                  );
+                  // Click-to-amend avoids mounting Pencil/Trash Button trees in every cell (INP).
+                  if (canAmend) {
+                    return (
+                      <button
+                        key={entry.id}
+                        type="button"
+                        onClick={() => onEdit(entry)}
+                        className={cn(
+                          "w-full rounded-md px-1 py-1 text-start transition-colors hover:ring-1 hover:ring-border",
+                          offDuty ? "bg-destructive/10 text-destructive" : "hover:bg-muted/60",
+                        )}
+                      >
+                        {body}
+                      </button>
+                    );
+                  }
+                  return (
+                    <div
+                      key={entry.id}
+                      className={cn("rounded-md px-1 py-1", offDuty ? "bg-destructive/10 text-destructive" : undefined)}
+                    >
+                      {body}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </td>
+        );
+      })}
+    </tr>
+  );
+});
+
 export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterRegisterPanelProps>(
   function RosterRegisterPanel(
     {
@@ -192,6 +329,10 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     const [orgChecks, setOrgChecks] = useState<OrgDepartmentChecks>(ALL_ORG_DEPARTMENTS_CHECKED);
     const [sourceFilter, setSourceFilter] = useState<RosterSourceFilter>("all");
     const [query, setQuery] = useState("");
+    // Search / filter highlight must not sync-rebuild the month matrix on every keystroke.
+    const deferredQuery = useDeferredValue(query);
+    const deferredStaffId = useDeferredValue(staffId);
+    const deferredLocationId = useDeferredValue(locationId);
     const [viewMode, setViewMode] = useState<ViewMode>("grid");
     const [filtersOpen, setFiltersOpen] = useState(false);
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -217,8 +358,8 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       [departments, showOnlyOrgDepartments],
     );
     const selectedLocationCode = useMemo(
-      () => (sites.data ?? []).find((site) => site.id === locationId)?.code ?? null,
-      [sites.data, locationId],
+      () => (sites.data ?? []).find((site) => site.id === deferredLocationId)?.code ?? null,
+      [sites.data, deferredLocationId],
     );
     const filters = useMemo(
       () => ({
@@ -282,22 +423,22 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     const filtered = useMemo(
       () =>
         filterRosterRegisterRows(rows, {
-          staffId,
-          search: query,
-          locationId: locationId || null,
+          staffId: deferredStaffId,
+          search: deferredQuery,
+          locationId: deferredLocationId || null,
         }),
-      [rows, query, staffId, locationId],
+      [rows, deferredQuery, deferredStaffId, deferredLocationId],
     );
 
     const matrix = useMemo(() => {
       const rowStaffIds = new Set(filtered.map((row) => row.staffId));
       const scopedTeam = rosterTeamStaffForLocationCode(
-        rosterTeamStaffForMatrix(teamStaff, { staffId, search: query }),
+        rosterTeamStaffForMatrix(teamStaff, { staffId: deferredStaffId, search: deferredQuery }),
         selectedLocationCode,
         rowStaffIds,
       );
       return buildRosterMatrix(filtered, dateFrom, dateTo, scopedTeam);
-    }, [filtered, dateFrom, dateTo, teamStaff, staffId, query, selectedLocationCode]);
+    }, [filtered, dateFrom, dateTo, teamStaff, deferredStaffId, deferredQuery, selectedLocationCode]);
     const showEmptyDayGrid = rosterEmptyPeriodShowsDayGrid(filtered.length, canAmend);
     const teamGridWithoutRows = filtered.length === 0 && matrix.staff.length > 0;
     const assignStaff = useQuery({
@@ -335,6 +476,8 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       search: query,
     });
     const periodRange = formatPayrollRange(dateFrom, dateTo, i18n.language);
+    const gridPending =
+      deferredQuery !== query || deferredStaffId !== staffId || deferredLocationId !== locationId;
 
     const selectionScopeKey = [
       dateFrom,
@@ -345,7 +488,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       showOnlyDepartmentIds.join(","),
       sourceFilter,
       sourceUploadOnly ? "upload" : "all",
-      query,
+      deferredQuery,
     ].join("|");
 
     useEffect(() => {
@@ -512,7 +655,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       onDeleteAllStateChange?.({ canDelete: canAmend, disabled: deleteAllDisabled, selectedCount });
     }, [canAmend, deleteAllDisabled, onDeleteAllStateChange, selectedCount]);
 
-    const startEdit = (row: RosterRegisterRow) => {
+    const startEdit = useCallback((row: RosterRegisterRow) => {
       setCreateWorkDate(null);
       setCreateStaffId("");
       setEditingId(row.id);
@@ -524,21 +667,24 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
         compOffForDate: row.compOffForDate ?? "",
         compOffNote: row.compOffNote ?? "",
       });
-    };
+    }, []);
 
-    const startCreate = (workDate: string, staffId: string | null) => {
-      setEditingId(null);
-      setCreateWorkDate(workDate);
-      setCreateStaffId(staffId ?? "");
-      setDraft({
-        locationId: locationId || defaultLocationId || "",
-        shiftStart: "08:00",
-        shiftEnd: "17:00",
-        dayStatus: "on_duty",
-        compOffForDate: "",
-        compOffNote: "",
-      });
-    };
+    const startCreate = useCallback(
+      (workDate: string, nextStaffId: string | null) => {
+        setEditingId(null);
+        setCreateWorkDate(workDate);
+        setCreateStaffId(nextStaffId ?? "");
+        setDraft({
+          locationId: locationId || defaultLocationId || "",
+          shiftStart: "08:00",
+          shiftEnd: "17:00",
+          dayStatus: "on_duty",
+          compOffForDate: "",
+          compOffNote: "",
+        });
+      },
+      [defaultLocationId, locationId],
+    );
 
     const cancelEdit = () => {
       setEditingId(null);
@@ -547,11 +693,41 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       setDraft(null);
     };
 
-    const confirmDelete = (id: string) => {
-      if (window.confirm(t("people.roster.registerDeleteConfirm"))) {
-        deleteMut.mutate(id);
-      }
-    };
+    const confirmDelete = useCallback(
+      (id: string) => {
+        if (window.confirm(t("people.roster.registerDeleteConfirm"))) {
+          deleteMut.mutate(id);
+        }
+      },
+      [deleteMut, t],
+    );
+
+    const onLocationFilter = useCallback((value: string) => {
+      startTransition(() => setLocationId(value));
+    }, []);
+    const onStaffFilter = useCallback((value: string) => {
+      startTransition(() => setStaffId(value));
+    }, []);
+    const onDepartmentsFilter = useCallback((values: string[]) => {
+      startTransition(() => setExcludedDepartmentIds(values));
+    }, []);
+    const onSourceFilter = useCallback((value: string) => {
+      startTransition(() => setSourceFilter((value || "all") as RosterSourceFilter));
+    }, []);
+    const onOrgChecksFilter = useCallback((next: OrgDepartmentChecks) => {
+      startTransition(() => setOrgChecks(next));
+    }, []);
+    const onSearchFilter = useCallback((value: string) => {
+      setQuery(value);
+    }, []);
+    const addDayLabel = useCallback(
+      (ymd: string) => t("people.roster.registerAddDay", { date: ymd }),
+      [t],
+    );
+    const cellOffLabel = t("people.roster.registerCellOff");
+    const cellAnnualLabel = t("people.roster.registerCellAnnual");
+    const cellSickLabel = t("people.roster.registerCellSick");
+    const cellCompOffLabel = t("people.roster.registerCellCompOff");
 
     const emptyMessage = sourceUploadOnly
       ? t("people.roster.registerEmpty")
@@ -774,7 +950,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
           <Label>{t("people.roster.registerFilterLocation")}</Label>
           <SearchableSelect
             value={locationId}
-            onValueChange={setLocationId}
+            onValueChange={onLocationFilter}
             emptyOption={{ value: "", label: t("people.roster.registerAllLocations") }}
             options={(sites.data ?? []).map((loc) => ({
               value: loc.id,
@@ -786,7 +962,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
           <Label>{t("people.roster.registerFilterStaff")}</Label>
           <SearchableSelect
             value={staffId}
-            onValueChange={setStaffId}
+            onValueChange={onStaffFilter}
             emptyOption={{ value: "", label: t("people.roster.registerAllStaff") }}
             options={staffOptions}
           />
@@ -797,7 +973,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
             multiple
             exclude
             values={excludedDepartmentIds}
-            onValuesChange={setExcludedDepartmentIds}
+            onValuesChange={onDepartmentsFilter}
             placeholder={t("people.roster.registerAllDepartments")}
             emptyOption={{ value: "", label: t("people.roster.registerAllDepartments") }}
             selectedCountLabel={(count) => t("people.roster.registerDepartmentsExcluding", { count })}
@@ -811,7 +987,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
             <OrgDepartmentsFilter
               checks={orgChecks}
               disabled={!orgDepartmentSelectionIsAll(excludedDepartmentIds)}
-              onChange={setOrgChecks}
+              onChange={onOrgChecksFilter}
             />
           </div>
         </div>
@@ -820,7 +996,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
             <Label>{t("people.roster.registerFilterSource")}</Label>
             <SearchableSelect
               value={sourceFilter}
-              onValueChange={(value) => setSourceFilter((value || "all") as RosterSourceFilter)}
+              onValueChange={onSourceFilter}
               options={[
                 { value: "all", label: t("people.roster.registerAllSources") },
                 { value: "upload", label: t("people.roster.registerSourceUpload") },
@@ -837,20 +1013,23 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
             id={`${idPrefix}-search`}
             className="min-h-10"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => onSearchFilter(e.target.value)}
             placeholder={t("people.roster.searchRows")}
+            aria-busy={gridPending}
           />
         </div>
       </>
     );
 
     const clearMobileFilters = () => {
-      setLocationId(defaultLocationId ?? "");
-      setStaffId("");
-      setExcludedDepartmentIds([]);
-      setOrgChecks(ALL_ORG_DEPARTMENTS_CHECKED);
-      setSourceFilter("all");
-      setQuery("");
+      startTransition(() => {
+        setLocationId(defaultLocationId ?? "");
+        setStaffId("");
+        setExcludedDepartmentIds([]);
+        setOrgChecks(ALL_ORG_DEPARTMENTS_CHECKED);
+        setSourceFilter("all");
+        setQuery("");
+      });
     };
 
     return (
@@ -939,7 +1118,14 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
           {showEmptyDayGrid && !teamGridWithoutRows ? (
             <p className="text-sm text-muted-foreground">{emptyMessage}</p>
           ) : null}
-          <div className="overflow-auto rounded-lg border border-border/70" style={{ maxHeight }}>
+          <div
+            className={cn(
+              "overflow-auto rounded-lg border border-border/70",
+              gridPending && "opacity-70 transition-opacity",
+            )}
+            style={{ maxHeight }}
+            aria-busy={gridPending}
+          >
             <table className="min-w-max border-collapse text-xs">
               <thead className="sticky top-0 z-20">
                 <tr className="bg-muted/80">
@@ -1002,7 +1188,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
               </thead>
               <tbody>
                 {matrix.staff.length === 0 && canAmend ? (
-                  <tr className="border-b border-border/50">
+                  <tr className="border-b border-border/50" style={{ contentVisibility: "auto" }}>
                     <td className="sticky start-0 z-10 border-e border-border/70 bg-card px-1.5 py-1 text-center tabular-nums text-muted-foreground">
                       1
                     </td>
@@ -1020,16 +1206,14 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
                           )}
                         >
                           <div className="flex min-h-[2.75rem] items-center justify-center">
-                            <Button
+                            <button
                               type="button"
-                              size="sm"
-                              variant="ghost"
-                              className="h-7 px-1.5"
+                              className="inline-flex h-7 items-center justify-center rounded-md px-1.5 text-muted-foreground hover:bg-muted/70 hover:text-foreground"
                               onClick={() => startCreate(ymd, null)}
                               aria-label={t("people.roster.registerAddDay", { date: ymd })}
                             >
                               <Plus className="h-3.5 w-3.5" />
-                            </Button>
+                            </button>
                           </div>
                         </td>
                       );
@@ -1037,90 +1221,21 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
                   </tr>
                 ) : null}
                 {matrix.staff.map((person, index) => (
-                  <tr key={person.staffId} className="border-b border-border/50">
-                    <td className="sticky start-0 z-10 border-e border-border/70 bg-card px-1.5 py-1 text-center tabular-nums text-muted-foreground">
-                      {index + 1}
-                    </td>
-                    <td className="sticky start-10 z-10 min-w-[11rem] max-w-[14rem] border-e border-border/70 bg-card px-2 py-1.5">
-                      <div className="truncate font-medium leading-tight">{person.staffName || "—"}</div>
-                      <div className="truncate text-[10px] text-muted-foreground">
-                        {person.employeeCode || person.qid || ""}
-                      </div>
-                    </td>
-                    {matrix.dates.map((ymd) => {
-                      const weekend = isWeekendYmd(ymd);
-                      const entries = matrix.byStaffDate.get(rosterMatrixCellKey(person.staffId, ymd)) ?? [];
-                      return (
-                        <td
-                          key={`${person.staffId}-${ymd}`}
-                          className={cn(
-                            "align-top border-border/40 px-0.5 py-0.5",
-                            weekend ? "bg-muted/50" : "bg-card",
-                          )}
-                        >
-                          {entries.length === 0 ? (
-                            rosterEmptyDayCanAdd(canAmend, entries.length) ? (
-                              <div className="flex min-h-[2.75rem] items-center justify-center">
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-7 px-1.5"
-                                  onClick={() => startCreate(ymd, person.staffId)}
-                                  aria-label={t("people.roster.registerAddDay", { date: ymd })}
-                                >
-                                  <Plus className="h-3.5 w-3.5" />
-                                </Button>
-                              </div>
-                            ) : (
-                              <div className="min-h-[2.75rem]" />
-                            )
-                          ) : (
-                            <div className="flex flex-col gap-0.5">
-                              {entries.map((entry) => (
-                                <div
-                                  key={entry.id}
-                                  className={cn(
-                                    "group relative rounded-md px-1 py-1",
-                                    rosterDayStatusFromRow(entry) !== "on_duty"
-                                      ? "bg-destructive/10 text-destructive"
-                                      : "hover:bg-muted/60",
-                                  )}
-                                >
-                                  {rosterDayStatusFromRow(entry) !== "on_duty" ? (
-                                    <div className="text-center text-[11px] font-semibold uppercase tracking-wide">
-                                      {entry.leaveType === "annual_leave"
-                                        ? t("people.roster.registerCellAnnual")
-                                        : entry.leaveType === "sick_leave"
-                                          ? t("people.roster.registerCellSick")
-                                          : entry.leaveType === "comp_off"
-                                            ? t("people.roster.registerCellCompOff")
-                                            : t("people.roster.registerCellOff")}
-                                    </div>
-                                  ) : (
-                                    <div className="text-center leading-tight tabular-nums">
-                                      <div>{entry.shiftStart || "—"}</div>
-                                      <div className="text-muted-foreground">{entry.shiftEnd || "—"}</div>
-                                    </div>
-                                  )}
-                                  {entry.locationCode ? (
-                                    <div className="mt-0.5 text-center text-[9px] text-muted-foreground">
-                                      {entry.locationCode}
-                                    </div>
-                                  ) : null}
-                                  {canAmend ? (
-                                    <div className="mt-1 flex justify-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
-                                      {renderAmendActions(entry, true)}
-                                    </div>
-                                  ) : null}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
+                  <RosterMatrixStaffRow
+                    key={person.staffId}
+                    person={person}
+                    index={index}
+                    dates={matrix.dates}
+                    byStaffDate={matrix.byStaffDate}
+                    canAmend={canAmend}
+                    onEdit={startEdit}
+                    onCreate={startCreate}
+                    offLabel={cellOffLabel}
+                    annualLabel={cellAnnualLabel}
+                    sickLabel={cellSickLabel}
+                    compOffLabel={cellCompOffLabel}
+                    addDayLabel={addDayLabel}
+                  />
                 ))}
               </tbody>
             </table>

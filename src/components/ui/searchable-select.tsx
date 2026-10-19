@@ -331,11 +331,17 @@ export function SearchableSelect(props: SearchableSelectSingleProps | Searchable
     (next: string) => {
       if (!multiple) return;
       if (emptyOption && next === emptyOption.value) {
-        props.onValuesChange([]);
+        startTransition(() => {
+          props.onValuesChange([]);
+        });
         return;
       }
       const current = props.values;
-      props.onValuesChange(current.includes(next) ? current.filter((v) => v !== next) : [...current, next]);
+      const nextValues = current.includes(next) ? current.filter((v) => v !== next) : [...current, next];
+      // Keep the menu responsive; parent month grids are the expensive part.
+      startTransition(() => {
+        props.onValuesChange(nextValues);
+      });
     },
     [emptyOption, multiple, props],
   );
