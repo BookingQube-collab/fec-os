@@ -834,6 +834,17 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
           rosteredStaffIds: rosteredIds,
         }),
       );
+    } else if (companyRoster && data.locationId) {
+      // HoO / admin company roster: when a site is selected, show assigned people
+      // as empty rows (including Active Jokers) — same as Venue Supervisor for that site.
+      const assignedAtSite = await loadStaffIdsAssignedToLocations([data.locationId]);
+      const rosteredIds = assignments.map((row) => String(row.staff_id));
+      locationStaffIds = new Set(
+        venueSupervisorRosterStaffIds({
+          assignedStaffIds: assignedAtSite,
+          rosteredStaffIds: rosteredIds,
+        }),
+      );
     }
 
     if (data.coverageOnly) {
@@ -984,8 +995,28 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
     };
 
     const loadTeamStaff = async () => {
-      // Company roster: names come from assignment rows only.
-      if (!teamIds && !venueLocationRoster) return null as RosterMatrixStaff[] | null;
+      // Company roster without a site: names come from assignment rows only.
+      // With a site selected (HoO / admin), placeholders = people assigned there
+      // (Active Jokers included via isRosterAssignableStaffStatus).
+      if (!teamIds && !venueLocationRoster) {
+        if (!data.locationId || !locationStaffIds) return null as RosterMatrixStaff[] | null;
+        let ids = [...locationStaffIds];
+        if (data.staffId) ids = ids.filter((id) => id === data.staffId);
+        if (deptStaffIds) {
+          const allow = new Set(deptStaffIds);
+          ids = ids.filter((id) => allow.has(id));
+        }
+        if (hiddenStaff) {
+          const hidden = hiddenStaff;
+          ids = ids.filter((id) => !hidden.has(id));
+        }
+        if (shownStaff) {
+          const shown = shownStaff;
+          ids = ids.filter((id) => shown.has(id));
+        }
+        // Admin client: same as Venue Supervisor — user RLS must not hide Active Jokers.
+        return loadRosterTeamStaffProfiles(supabaseAdmin as AuthContext["supabase"], ids);
+      }
       // Venue supervisors: placeholders = people assigned to the queried sites
       // (plus anyone already rostered there). loadRosterTeamStaffProfiles keeps
       // only assignable statuses for empty rows; terminated stay visible via cells.

@@ -1,7 +1,8 @@
 import type { AuthContext } from "@/lib/server/auth";
 import { ForbiddenError, assertLocationAccess } from "@/lib/server/authorize";
 import { canUserDo, type AppRole } from "@/lib/rbac";
-import { isActiveRosterStaff } from "@/lib/staff-status";
+import { isActiveRosterStaff, isJokerStaff } from "@/lib/staff-status";
+import { shouldSuppressPunchlessJokerAbsent } from "@/lib/attendance-hr/joker-attendance";
 
 import { calculateDailyAttendance, markProbableDuplicates } from "./calculate";
 import {
@@ -365,6 +366,9 @@ export async function recalculateAttendanceRange(
   const jokerHours = sitePolicy?.joker_hours != null ? Number(sitePolicy.joker_hours) : null;
   const employmentByStaffId = new Map(
     (staffRows ?? []).map((row) => [String(row.id), (row as { employment_type?: string | null }).employment_type ?? null]),
+  );
+  const statusByStaffId = new Map(
+    (staffRows ?? []).map((row) => [String(row.id), (row as { status?: string | null }).status ?? null]),
   );
   const homeLocationByStaffId = new Map(
     (staffRows ?? []).map((row) => [
@@ -1103,7 +1107,19 @@ export async function recalculateAttendanceRange(
   const fallbackStaffIds = staffScope
     ? []
     : (staffRows ?? [])
-      .filter((row) => isActiveRosterStaff(row.status) && (row.location_id === locationId || workIdSet.has(row.id)))
+      .filter((row) => {
+        if (!isActiveRosterStaff(row.status)) return false;
+        // Active Jokers must not fill every home-site day as Absent when they have no punches.
+        if (
+          isJokerStaff({
+            status: row.status,
+            employment_type: (row as { employment_type?: string | null }).employment_type,
+          })
+        ) {
+          return false;
+        }
+        return row.location_id === locationId || workIdSet.has(row.id);
+      })
       .map((row) => row.id);
   const covered = new Set<string>();
   for (const [key, punches] of groups) {
@@ -1314,15 +1330,32 @@ export async function recalculateAttendanceRange(
       const shiftForCalc: ShiftTemplateInput = rosterShift
         ? { ...shift, startTime: rosterShift.startTime, endTime: rosterShift.endTime, overnight: rosterShift.overnight }
         : { ...shift, startTime: "", endTime: "" };
+      const holidayName = holidayByDate.get(workDate) ?? null;
+      const leaveType =
+        (leaveRow?.leave_type as "annual_leave" | "sick_leave" | "unpaid_leave" | null) ?? null;
       const calc = calculateDailyAttendance([], {
         workDate,
         scheduled: !isWeekOff,
         weekOff: isWeekOff,
-        holidayName: holidayByDate.get(workDate) ?? null,
-        leaveType: (leaveRow?.leave_type as "annual_leave" | "sick_leave" | "unpaid_leave" | null) ?? null,
+        holidayName,
+        leaveType,
         shift: shiftForCalc,
         rules,
       });
+      // Jokers with no punches are not Absent — keep leave / week-off / holiday.
+      const suppressJokerAbsent = shouldSuppressPunchlessJokerAbsent({
+        status: statusByStaffId.get(staffId),
+        employment_type: employmentByStaffId.get(staffId),
+        hasPunches: false,
+        weekOff: isWeekOff,
+        leaveType,
+        holidayName,
+      });
+      if (suppressJokerAbsent && calc.status === "absent") {
+        queueSummaryDelete(locationId, staffId, workDate);
+        covered.add(`${staffId}|${workDate}`);
+        continue;
+      }
       summaryRows.push({
         location_id: locationId,
         staff_id: staffId,

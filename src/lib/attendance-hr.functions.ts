@@ -321,7 +321,10 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
     );
     // Reporting managers cannot read other sites through RLS. Their team's punches still count.
     const readDb = teamIds ? supabaseAdmin : context.supabase;
-    let staffQuery = readDb.from("staff").select("id, location_id, status").is("deleted_at", null);
+    let staffQuery = readDb
+      .from("staff")
+      .select("id, location_id, status, employment_type")
+      .is("deleted_at", null);
     staffQuery = teamIds ? staffQuery.in("id", teamIds) : staffQuery.limit(5000);
     let latestPunchQ = readDb
       .from("attendance_logs")

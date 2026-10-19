@@ -1,5 +1,5 @@
 import { CANONICAL_LOCATION_CODES, formatLocationLabel, formatLocationName } from "@/lib/locations/normalize";
-import { isActiveRosterStaff } from "@/lib/staff-status";
+import { isActiveRosterStaff, isJokerStaff } from "@/lib/staff-status";
 
 import { assignAttendanceDate, calculateDailyAttendance } from "./calculate";
 import { DEFAULT_SHIFT } from "./constants";
@@ -46,6 +46,7 @@ export type RosterStaffRow = {
   id: string;
   location_id: string;
   status: string | null;
+  employment_type?: string | null;
 };
 
 export function qatarTodayYmd(now = new Date()): string {
@@ -145,6 +146,8 @@ export function expectedStaffIds(
   const ids: string[] = [];
   for (const row of staff) {
     if (!isActiveRosterStaff(row.status)) continue;
+    // Punchless jokers are not expected Absent on the live dashboard tally.
+    if (isJokerStaff({ status: row.status, employment_type: row.employment_type })) continue;
     if (locationId && row.location_id !== locationId && !workIds.has(row.id)) continue;
     ids.push(row.id);
   }

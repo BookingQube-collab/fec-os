@@ -1,6 +1,7 @@
 import { defaultPayrollPeriod } from "@/lib/attendance-hr/roster-period";
 import { reportingClockIso } from "@/lib/attendance-hr/late-punch";
 import { computeAttendanceOvertimeMinutes } from "@/lib/attendance-hr/overtime";
+import { resolvePunchlessJokerListingStatus } from "@/lib/attendance-hr/joker-attendance";
 import {
   FLEXIBLE_MIN_WORK_MINUTES,
   expectedShiftMinutes,
@@ -450,10 +451,17 @@ export function resolveHoursBasedAttendanceStatus(
     if (row.missed_punch || hasIn !== hasOut) return "missed_punch";
     if (!hasIn && !hasOut) {
       const next = statusKey === "absent" ? "absent" : statusKey || "absent";
-      return applyPreJoinAttendanceStatus({
+      const afterPreJoin = applyPreJoinAttendanceStatus({
         status: next,
         workDate: row.work_date,
         hireDate: row.hire_date,
+      });
+      // Jokers with no times are not Absent (on-call / day labour).
+      return resolvePunchlessJokerListingStatus({
+        status: afterPreJoin,
+        employment_type: row.employment_type,
+        hasIn: false,
+        hasOut: false,
       });
     }
   }

@@ -543,7 +543,7 @@ describe("roster register bulk-delete scope", () => {
 
   it("keeps status=joker placeholders on the location roster like Attendance listing", () => {
     // Mohamed-style Active/Joker: employment type joker was migrated to status=joker.
-    // He shows ABSENT on Attendance but must still appear on Monthly roster empty rows.
+    // He must still appear on Monthly roster empty rows (Venue Supervisor + HoO site view).
     const staffIds = venueSupervisorRosterStaffIds({
       assignedStaffIds: ["atif", "mohamed-joker"],
       rosteredStaffIds: ["atif"],
@@ -577,5 +577,17 @@ describe("roster register bulk-delete scope", () => {
     );
     expect(matrix.staff.map((person) => person.staffId).sort()).toEqual(["atif", "mohamed-joker"]);
     expect(isRosterAssignableStaffStatus("joker")).toBe(true);
+  });
+
+  it("includes Active Jokers in HoO/location staff sets the same way as Venue Supervisor", () => {
+    // Company roster (HoO) with Location=KDS-CC reuses this merge so Mohamed appears
+    // even when he has no assignment cells in the period.
+    const atKds = venueSupervisorRosterStaffIds({
+      assignedStaffIds: ["atif", "mohamed-joker", "mary"],
+      rosteredStaffIds: ["atif"],
+    });
+    expect(atKds).toContain("mohamed-joker");
+    expect(isRosterAssignableStaffStatus("joker")).toBe(true);
+    expect(isRosterAssignableStaffStatus("active")).toBe(true);
   });
 });

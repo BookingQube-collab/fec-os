@@ -94,6 +94,15 @@ describe("countRosterEmployees", () => {
     expect(countRosterEmployees(staff, { locationId: INF, workStaffIds: ["f"] })).toBe(4);
     expect(countRosterEmployees(staff, { locationId: KDS })).toBe(1);
   });
+
+  it("excludes Active Jokers from expected Absent headcount", () => {
+    const withJoker = [
+      ...staff,
+      { id: "joker-active", location_id: KDS, status: "active", employment_type: "joker" },
+      { id: "joker-status", location_id: KDS, status: "joker", employment_type: "joker" },
+    ];
+    expect(countRosterEmployees(withJoker, { locationId: KDS })).toBe(1);
+  });
 });
 
 describe("dayRowsFromPunches", () => {

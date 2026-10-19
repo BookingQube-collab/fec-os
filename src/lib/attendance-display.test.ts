@@ -584,6 +584,28 @@ describe("pre-join attendance status", () => {
     ).toBe("absent");
   });
 
+  it("does not show punchless jokers as Absent", () => {
+    expect(
+      resolveHoursBasedAttendanceStatus({
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        employment_type: "joker",
+        work_date: "2026-09-20",
+      }),
+    ).toBe("unscheduled");
+    expect(
+      getAttendanceStatusDisplay({
+        status: "absent",
+        missed_punch: false,
+        actual_in: null,
+        actual_out: null,
+        employment_type: "joker",
+        work_date: "2026-09-20",
+      }).label,
+    ).toBe("Unscheduled");
+  });
+
   it("does not count not-joined days in the absent total", () => {
     const kpis = computeAttendanceKpis([
       summaryRow({ work_date: "2026-09-01", status: "absent", hire_date: hire }),
