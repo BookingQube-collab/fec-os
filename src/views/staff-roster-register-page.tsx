@@ -603,6 +603,9 @@ export default function StaffRosterRegisterPage() {
       <RosterLocationCoverage dateFrom={period.dateFrom} dateTo={period.dateTo} enabled={gridReady} />
 
       <RosterRegisterPanel
+        // Remount when the branch switcher changes so the Location filter
+        // re-seeds from it (avoids All-locations queries while the top bar shows KDS-CC).
+        key={storeLocationId ?? "all-locations"}
         ref={registerRef}
         dateFrom={period.dateFrom}
         dateTo={period.dateTo}

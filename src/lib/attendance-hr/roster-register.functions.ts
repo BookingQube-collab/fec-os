@@ -38,6 +38,7 @@ import {
   rosterRowsForAssignedStaff,
   rosterStaffIdsAtLocation,
   rosterRowMatchesSearch,
+  filterRosterAssignmentsByLocationIds,
   venueSupervisorRosterQueryLocationIds,
   venueSupervisorRosterStaffIds,
   type RosterDayStatus,
@@ -718,8 +719,13 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
               .order("id", { ascending: true })
               .range(from, to);
 
-            if (locationChunk) q = q.in("location_id", locationChunk);
-            else if (data.locationId) q = q.eq("location_id", data.locationId);
+            // Single-site filter matches admin (.eq). Multi-site "All managed" uses .in.
+            if (locationChunk) {
+              if (locationChunk.length === 1) q = q.eq("location_id", locationChunk[0]!);
+              else q = q.in("location_id", locationChunk);
+            } else if (data.locationId) {
+              q = q.eq("location_id", data.locationId);
+            }
             if (data.staffId) q = q.eq("staff_id", data.staffId);
             else if (staffChunk) q = q.in("staff_id", staffChunk);
             if (data.sourceUploadOnly) q = q.in("source", ["upload", "amend"]);
@@ -733,6 +739,12 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
       ),
     );
     let assignments: AssignmentPageRow[] = assignmentPages.flat();
+
+    // Venue supervisors: never keep rows outside the selected / managed site set
+    // (Location=KDS-CC must not include INF-CC staff even if a query chunk misfires).
+    if (venueQueryLocations) {
+      assignments = filterRosterAssignmentsByLocationIds(assignments, venueQueryLocations.locationIds);
+    }
 
     let hiddenStaff: Set<string> | null = null;
     let shownStaff: Set<string> | null = null;

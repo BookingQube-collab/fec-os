@@ -192,9 +192,12 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     const [deleteAllOpen, setDeleteAllOpen] = useState(false);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
 
+    // Branch switcher seeds the Location filter. Keep them aligned when the
+    // switcher changes so supervisors cannot query all managed sites while the
+    // top bar still shows a single venue (KDS-CC vs INF+KDS+CAR double count).
     useEffect(() => {
-      if (defaultLocationId && !locationId) setLocationId(defaultLocationId);
-    }, [defaultLocationId, locationId]);
+      setLocationId(defaultLocationId ?? "");
+    }, [defaultLocationId]);
 
     const showOnlyDepartmentIds = useMemo(
       () => orgDepartmentIdsFor(departments, activeShowOnlyOrgDepartments(orgChecks, excludedDepartmentIds)),
@@ -247,8 +250,13 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     }, [rows, teamStaff]);
 
     const filtered = useMemo(
-      () => filterRosterRegisterRows(rows, { staffId, search: query }),
-      [rows, query, staffId],
+      () =>
+        filterRosterRegisterRows(rows, {
+          staffId,
+          search: query,
+          locationId: locationId || null,
+        }),
+      [rows, query, staffId, locationId],
     );
 
     const matrix = useMemo(

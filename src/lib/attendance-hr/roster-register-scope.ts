@@ -130,20 +130,38 @@ export function rosterRowsForAssignedStaff<T extends { staffId: string }>(
 /**
  * Locations a Venue / Site Supervisor may read on the monthly roster.
  * A selected site must sit in the managed estate; All locations → every managed site.
+ * Comparison is case-insensitive so UUID casing from the branch switcher cannot
+ * accidentally widen the query to the full managed estate.
  */
 export function venueSupervisorRosterQueryLocationIds(input: {
   managedLocationIds: readonly string[];
   selectedLocationId?: string | null;
 }): { locationIds: string[]; outsideManagedEstate: boolean } {
   const managed = [...new Set(input.managedLocationIds.filter(Boolean))];
-  const selected = input.selectedLocationId || null;
+  const selected = input.selectedLocationId?.trim() || null;
   if (selected) {
-    if (!managed.includes(selected)) {
+    const selectedKey = selected.toLowerCase();
+    const canonical = managed.find((id) => id.toLowerCase() === selectedKey);
+    if (!canonical) {
       return { locationIds: [], outsideManagedEstate: true };
     }
-    return { locationIds: [selected], outsideManagedEstate: false };
+    return { locationIds: [canonical], outsideManagedEstate: false };
   }
   return { locationIds: managed, outsideManagedEstate: false };
+}
+
+/** Keep only assignment rows whose location_id is in the allowed set. */
+export function filterRosterAssignmentsByLocationIds<T extends { location_id?: string | null; locationId?: string | null }>(
+  rows: readonly T[],
+  locationIds: readonly string[] | null | undefined,
+): T[] {
+  if (locationIds == null) return [...rows];
+  if (locationIds.length === 0) return [];
+  const allow = new Set(locationIds.map((id) => id.toLowerCase()).filter(Boolean));
+  return rows.filter((row) => {
+    const id = String(row.location_id ?? row.locationId ?? "").toLowerCase();
+    return Boolean(id) && allow.has(id);
+  });
 }
 
 /**
@@ -282,13 +300,14 @@ export function rosterRowMatchesSearch(row: RosterRegisterSearchRow, search: str
   );
 }
 
-export function filterRosterRegisterRows<T extends { staffId: string } & RosterRegisterSearchRow>(
-  rows: T[],
-  filters: Pick<RosterRegisterScopeFilters, "staffId" | "search">,
-): T[] {
+export function filterRosterRegisterRows<
+  T extends { staffId: string; locationId?: string | null } & RosterRegisterSearchRow,
+>(rows: T[], filters: Pick<RosterRegisterScopeFilters, "staffId" | "search" | "locationId">): T[] {
   const staffId = filters.staffId || null;
+  const locationId = filters.locationId || null;
   return rows.filter((row) => {
     if (staffId && row.staffId !== staffId) return false;
+    if (locationId && row.locationId && row.locationId !== locationId) return false;
     return rosterRowMatchesSearch(row, filters.search);
   });
 }

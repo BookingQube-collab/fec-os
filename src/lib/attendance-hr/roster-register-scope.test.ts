@@ -6,6 +6,7 @@ import {
   chunkIds,
   collectPagedRows,
   collectPagedRowsInWaves,
+  filterRosterAssignmentsByLocationIds,
   filterRosterRegisterRows,
   isRosterAssignableStaffStatus,
   isWeekendYmd,
@@ -362,6 +363,51 @@ describe("roster register bulk-delete scope", () => {
         selectedLocationId: "cb9",
       }),
     ).toEqual({ locationIds: [], outsideManagedEstate: true });
+    // UUID casing from the branch switcher must not widen to the full estate.
+    expect(
+      venueSupervisorRosterQueryLocationIds({
+        managedLocationIds: managed,
+        selectedLocationId: "KDS-CC",
+      }),
+    ).toEqual({ locationIds: ["kds-cc"], outsideManagedEstate: false });
+  });
+
+  it("drops off-site rows when Venue Supervisor Location filter is a single site", () => {
+    // Ashfaq with Location=KDS-CC must not keep Agnes (INF-CC) period rows.
+    const rows = [
+      { id: "1", location_id: "kds-cc", staff_id: "abigail" },
+      { id: "2", location_id: "inf-cc", staff_id: "agnes" },
+      { id: "3", location_id: "kds-cc", staff_id: "angie" },
+    ];
+    const kdsOnly = venueSupervisorRosterQueryLocationIds({
+      managedLocationIds: ["kds-cc", "inf-cc", "car-ap"],
+      selectedLocationId: "kds-cc",
+    });
+    expect(filterRosterAssignmentsByLocationIds(rows, kdsOnly.locationIds)).toEqual([
+      { id: "1", location_id: "kds-cc", staff_id: "abigail" },
+      { id: "3", location_id: "kds-cc", staff_id: "angie" },
+    ]);
+    const allManaged = venueSupervisorRosterQueryLocationIds({
+      managedLocationIds: ["kds-cc", "inf-cc", "car-ap"],
+      selectedLocationId: null,
+    });
+    expect(filterRosterAssignmentsByLocationIds(rows, allManaged.locationIds)).toHaveLength(3);
+  });
+
+  it("client-filters register rows by locationId so INF staff cannot linger under KDS", () => {
+    const rows = [
+      { ...row, staffId: "abigail", locationId: "kds-cc", employeeCode: "KDS-CC-STF01" },
+      {
+        ...row,
+        staffId: "agnes",
+        staffName: "AGNES KIRORIO",
+        locationId: "inf-cc",
+        employeeCode: "INF-CC-STF16",
+      },
+    ];
+    expect(filterRosterRegisterRows(rows, { locationId: "kds-cc" }).map((r) => r.staffId)).toEqual([
+      "abigail",
+    ]);
   });
 
   it("keeps terminated people who still have roster rows on the venue supervisor staff set", () => {
