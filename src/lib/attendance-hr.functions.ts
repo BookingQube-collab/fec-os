@@ -705,10 +705,14 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
         linked?.department,
         linked?.staffRole,
       );
+    // Company-wide: assert site while supervisors resolve team scope (linked-staff is cached).
     // Supervisors/managers: reporting tree plus own staff_id. Cashiers with reports: tree only.
-    const teamStaffIds = companyWide
-      ? null
-      : (await loadAttendanceListingStaffIds(context.userId)).teamStaffIds;
+    const teamScopePromise = companyWide
+      ? Promise.resolve(null as string[] | null)
+      : loadAttendanceListingStaffIds(context.userId).then((scope) => scope.teamStaffIds);
+    const siteAssertPromise =
+      data.locationId && companyWide ? assertSite(context, data.locationId) : Promise.resolve();
+    const [teamStaffIds] = await Promise.all([teamScopePromise, siteAssertPromise]);
     if (!companyWide && (!teamStaffIds || teamStaffIds.length === 0)) {
       throw new ForbiddenError("Attendance listing is limited to people who report to you.");
     }
@@ -717,7 +721,6 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
     const teamLocationIds = teamStaffIds
       ? (await loadViewerScopedTeamLocations(context.userId, teamStaffIds)).map((site) => site.id)
       : null;
-    if (data.locationId && companyWide) await assertSite(context, data.locationId);
     if (data.locationId && teamLocationIds && !teamLocationIds.includes(data.locationId)) {
       return [];
     }

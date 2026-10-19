@@ -1,5 +1,7 @@
 import "server-only";
 
+import { cache } from "react";
+
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 
 export type LinkedStaffIdentity = {
@@ -53,8 +55,11 @@ function mapStaffRow(row: StaffRow): LinkedStaffRecord {
  * Prefer staff.user_id. When that is missing (test login desynced from the
  * live staff row — e.g. mary.supervisor@fec.test vs srsupervisor@fec.qa),
  * fall back through auth email, profile employee_code/qid, then unique name.
+ *
+ * Request-scoped via React cache(): attendance/roster hot paths call this
+ * several times (listing scope, locations, chart) — one lookup per action.
  */
-export async function loadLinkedStaffRecord(userId: string): Promise<LinkedStaffRecord | null> {
+export const loadLinkedStaffRecord = cache(async (userId: string): Promise<LinkedStaffRecord | null> => {
   const byUser = await supabaseAdmin
     .from("staff")
     .select(STAFF_SELECT)
@@ -134,7 +139,7 @@ export async function loadLinkedStaffRecord(userId: string): Promise<LinkedStaff
   }
 
   return null;
-}
+});
 
 /**
  * Job title and staff role on the newest non-deleted staff row linked to this login.

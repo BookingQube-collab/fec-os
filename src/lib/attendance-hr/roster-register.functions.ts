@@ -298,20 +298,23 @@ async function loadExtraLocationIdsByStaff(
   staffIds: string[],
 ): Promise<Map<string, string[]>> {
   const map = new Map<string, string[]>();
-  for (const ids of chunkIds(staffIds, ROSTER_ID_CHUNK)) {
-    const { data, error } = await db
-      .from("staff_work_locations")
-      .select("staff_id, location_id")
-      .in("staff_id", ids);
-    if (error) throw error;
-    for (const row of data ?? []) {
-      const staffId = row.staff_id ? String(row.staff_id) : "";
-      const locationId = row.location_id ? String(row.location_id) : "";
-      if (!staffId || !locationId) continue;
-      const list = map.get(staffId) ?? [];
-      list.push(locationId);
-      map.set(staffId, list);
-    }
+  const pages = await Promise.all(
+    chunkIds(staffIds, ROSTER_ID_CHUNK).map(async (ids) => {
+      const { data, error } = await db
+        .from("staff_work_locations")
+        .select("staff_id, location_id")
+        .in("staff_id", ids);
+      if (error) throw error;
+      return data ?? [];
+    }),
+  );
+  for (const row of pages.flat()) {
+    const staffId = row.staff_id ? String(row.staff_id) : "";
+    const locationId = row.location_id ? String(row.location_id) : "";
+    if (!staffId || !locationId) continue;
+    const list = map.get(staffId) ?? [];
+    list.push(locationId);
+    map.set(staffId, list);
   }
   return map;
 }
@@ -465,27 +468,33 @@ async function hiddenStaffIdsForExcludedDepartments(
   const excluded = [...new Set((excludedDepartmentIds ?? []).filter(Boolean))];
   if (excluded.length === 0) return new Set();
 
+  const candidatePages = await Promise.all(
+    chunkIds(excluded, 200).map(async (ids) => {
+      const { data, error } = await supabase.from("staff_departments").select("staff_id").in("department_id", ids);
+      if (error) throw error;
+      return data ?? [];
+    }),
+  );
   const candidateIds = new Set<string>();
-  for (const ids of chunkIds(excluded, 200)) {
-    const { data, error } = await supabase.from("staff_departments").select("staff_id").in("department_id", ids);
-    if (error) throw error;
-    for (const row of data ?? []) {
-      if (row.staff_id) candidateIds.add(String(row.staff_id));
-    }
+  for (const row of candidatePages.flat()) {
+    if (row.staff_id) candidateIds.add(String(row.staff_id));
   }
   if (candidateIds.size === 0) return new Set();
 
+  const linkPages = await Promise.all(
+    chunkIds([...candidateIds], 200).map(async (ids) => {
+      const { data, error } = await supabase
+        .from("staff_departments")
+        .select("staff_id, department_id")
+        .in("staff_id", ids);
+      if (error) throw error;
+      return data ?? [];
+    }),
+  );
   const links: { staffId: string; departmentId: string }[] = [];
-  for (const ids of chunkIds([...candidateIds], 200)) {
-    const { data, error } = await supabase
-      .from("staff_departments")
-      .select("staff_id, department_id")
-      .in("staff_id", ids);
-    if (error) throw error;
-    for (const row of data ?? []) {
-      if (row.staff_id && row.department_id) {
-        links.push({ staffId: String(row.staff_id), departmentId: String(row.department_id) });
-      }
+  for (const row of linkPages.flat()) {
+    if (row.staff_id && row.department_id) {
+      links.push({ staffId: String(row.staff_id), departmentId: String(row.department_id) });
     }
   }
   return rosterHiddenStaffIds(links, excluded);
@@ -499,12 +508,15 @@ async function staffIdsLinkedToDepartments(
   const ids = [...new Set(departmentIds.filter(Boolean))];
   const shown = new Set<string>();
   if (ids.length === 0) return shown;
-  for (const chunk of chunkIds(ids, 200)) {
-    const { data, error } = await supabase.from("staff_departments").select("staff_id").in("department_id", chunk);
-    if (error) throw error;
-    for (const row of data ?? []) {
-      if (row.staff_id) shown.add(String(row.staff_id));
-    }
+  const pages = await Promise.all(
+    chunkIds(ids, 200).map(async (chunk) => {
+      const { data, error } = await supabase.from("staff_departments").select("staff_id").in("department_id", chunk);
+      if (error) throw error;
+      return data ?? [];
+    }),
+  );
+  for (const row of pages.flat()) {
+    if (row.staff_id) shown.add(String(row.staff_id));
   }
   return shown;
 }
@@ -577,31 +589,32 @@ async function loadRosterCopyDepartmentLabels(
   const labels = new Map<string, RosterCopyDepartmentLabel>();
   const ids = [...new Set(staffIds.filter(Boolean))];
   for (const id of ids) labels.set(id, emptyDepartmentLabel());
-  for (const chunk of chunkIds(ids, 200)) {
-    const { data: staffRows, error: staffError } = await supabase.from("staff").select("id, department").in("id", chunk);
-    if (staffError) throw staffError;
-    for (const row of staffRows ?? []) {
-      const bucket = labels.get(String(row.id));
-      if (bucket) bucket.legacy = (row.department as string | null) ?? null;
-    }
-    const { data: links, error: linkError } = await supabase
-      .from("staff_departments")
-      .select("staff_id, master_departments(name, code)")
-      .in("staff_id", chunk);
-    if (linkError) throw linkError;
-    for (const link of links ?? []) {
-      const bucket = labels.get(String(link.staff_id));
-      if (!bucket) continue;
-      const department = masterDepartmentJoin(
-        link.master_departments as
-          | { name?: string | null; code?: string | null }
-          | { name?: string | null; code?: string | null }[]
-          | null,
-      );
-      pushUniqueLabel(bucket.names, department?.name);
-      pushUniqueLabel(bucket.codes, department?.code);
-    }
-  }
+  await Promise.all(
+    chunkIds(ids, 200).map(async (chunk) => {
+      const [{ data: staffRows, error: staffError }, { data: links, error: linkError }] = await Promise.all([
+        supabase.from("staff").select("id, department").in("id", chunk),
+        supabase.from("staff_departments").select("staff_id, master_departments(name, code)").in("staff_id", chunk),
+      ]);
+      if (staffError) throw staffError;
+      if (linkError) throw linkError;
+      for (const row of staffRows ?? []) {
+        const bucket = labels.get(String(row.id));
+        if (bucket) bucket.legacy = (row.department as string | null) ?? null;
+      }
+      for (const link of links ?? []) {
+        const bucket = labels.get(String(link.staff_id));
+        if (!bucket) continue;
+        const department = masterDepartmentJoin(
+          link.master_departments as
+            | { name?: string | null; code?: string | null }
+            | { name?: string | null; code?: string | null }[]
+            | null,
+        );
+        pushUniqueLabel(bucket.names, department?.name);
+        pushUniqueLabel(bucket.codes, department?.code);
+      }
+    }),
+  );
   return labels;
 }
 
@@ -748,41 +761,80 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
             ? []
             : chunkIds(staffIn, ROSTER_ID_CHUNK);
     const locationChunksForQuery = venueLocationChunks ?? [null];
-    const assignmentPages = await Promise.all(
-      locationChunksForQuery.flatMap((locationChunk) =>
-        staffChunks.map((staffChunk) =>
-          collectPagedRowsInWaves<AssignmentPageRow>(async (from, to) => {
-            let q = db
-              .from("attendance_roster_assignments")
-              .select(
-                "id, location_id, staff_id, work_date, shift_template_id, shift_start, shift_end, is_week_off, source, created_at",
-              )
-              .gte("work_date", data.dateFrom)
-              .lte("work_date", data.dateTo)
-              .order("work_date", { ascending: true })
-              .order("staff_id", { ascending: true })
-              .order("id", { ascending: true })
-              .range(from, to);
+    // Prefetch site assignees / chart-at-location while paging assignments (independent I/O).
+    const chartLocationStaffPromise =
+      teamIds && data.locationId && !venueLocationRoster
+        ? rosterTeamIdsAtLocation(db, teamIds, data.locationId)
+        : Promise.resolve(null as Set<string> | null);
+    const assignedAtSitesPromise =
+      venueLocationRoster && venueQueryLocations
+        ? loadStaffIdsAssignedToLocations(venueQueryLocations.locationIds)
+        : companyRoster && data.locationId
+          ? loadStaffIdsAssignedToLocations([data.locationId])
+          : Promise.resolve(null as string[] | null);
+    const departmentFilterPromise = (async (): Promise<{
+      hidden: Set<string> | null;
+      shown: Set<string> | null;
+    }> => {
+      if (data.excludedDepartmentIds?.length) {
+        return {
+          hidden: await hiddenStaffIdsForExcludedDepartments(db, data.excludedDepartmentIds),
+          shown: null,
+        };
+      }
+      const showOnlyIds = await resolveShowOnlyDepartmentIds({
+        showOnlyDepartmentIds: data.showOnlyDepartmentIds,
+        showOnlyOrgDepartments: data.showOnlyOrgDepartments,
+      });
+      if (!showOnlyIds.length) return { hidden: null, shown: null };
+      return { hidden: null, shown: await staffIdsLinkedToDepartments(db, showOnlyIds) };
+    })();
+    const locationCodePromise = data.locationId
+      ? loadLocationCodeById(db, data.locationId)
+      : Promise.resolve(null as string | null);
 
-            // Single-site filter matches admin (.eq). Multi-site "All managed" uses .in.
-            if (locationChunk) {
-              if (locationChunk.length === 1) q = q.eq("location_id", locationChunk[0]!);
-              else q = q.in("location_id", locationChunk);
-            } else if (data.locationId) {
-              q = q.eq("location_id", data.locationId);
-            }
-            if (data.staffId) q = q.eq("staff_id", data.staffId);
-            else if (staffChunk) q = q.in("staff_id", staffChunk);
-            if (data.sourceUploadOnly) q = q.in("source", ["upload", "amend"]);
-            else if (data.source) q = q.eq("source", data.source);
+    const [assignmentPages, chartLocationStaffIds, assignedAtSites, deptFilter, selectedLocationCode] =
+      await Promise.all([
+        Promise.all(
+          locationChunksForQuery.flatMap((locationChunk) =>
+            staffChunks.map((staffChunk) =>
+              collectPagedRowsInWaves<AssignmentPageRow>(async (from, to) => {
+                let q = db
+                  .from("attendance_roster_assignments")
+                  .select(
+                    "id, location_id, staff_id, work_date, shift_template_id, shift_start, shift_end, is_week_off, source, created_at",
+                  )
+                  .gte("work_date", data.dateFrom)
+                  .lte("work_date", data.dateTo)
+                  .order("work_date", { ascending: true })
+                  .order("staff_id", { ascending: true })
+                  .order("id", { ascending: true })
+                  .range(from, to);
 
-            const { data: page, error } = await q;
-            if (error) throw error;
-            return (page ?? []) as AssignmentPageRow[];
-          }, ATTENDANCE_DAILY_LIST_PAGE_SIZE),
+                // Single-site filter matches admin (.eq). Multi-site "All managed" uses .in.
+                if (locationChunk) {
+                  if (locationChunk.length === 1) q = q.eq("location_id", locationChunk[0]!);
+                  else q = q.in("location_id", locationChunk);
+                } else if (data.locationId) {
+                  q = q.eq("location_id", data.locationId);
+                }
+                if (data.staffId) q = q.eq("staff_id", data.staffId);
+                else if (staffChunk) q = q.in("staff_id", staffChunk);
+                if (data.sourceUploadOnly) q = q.in("source", ["upload", "amend"]);
+                else if (data.source) q = q.eq("source", data.source);
+
+                const { data: page, error } = await q;
+                if (error) throw error;
+                return (page ?? []) as AssignmentPageRow[];
+              }, ATTENDANCE_DAILY_LIST_PAGE_SIZE),
+            ),
+          ),
         ),
-      ),
-    );
+        chartLocationStaffPromise,
+        assignedAtSitesPromise,
+        departmentFilterPromise,
+        locationCodePromise,
+      ]);
     let assignments: AssignmentPageRow[] = assignmentPages.flat();
 
     // Venue supervisors: never keep rows outside the selected / managed site set
@@ -791,57 +843,32 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
       assignments = filterRosterAssignmentsByLocationIds(assignments, venueQueryLocations.locationIds);
     }
 
-    let hiddenStaff: Set<string> | null = null;
-    let shownStaff: Set<string> | null = null;
-    if (data.excludedDepartmentIds?.length) {
-      const hidden = await hiddenStaffIdsForExcludedDepartments(db, data.excludedDepartmentIds);
-      hiddenStaff = hidden;
-      if (hidden.size > 0) {
-        assignments = assignments.filter((row) => !hidden.has(String(row.staff_id)));
-      }
-    } else {
-      const showOnlyIds = await resolveShowOnlyDepartmentIds({
-        showOnlyDepartmentIds: data.showOnlyDepartmentIds,
-        showOnlyOrgDepartments: data.showOnlyOrgDepartments,
-      });
-      if (showOnlyIds.length) {
-        const shown = await staffIdsLinkedToDepartments(db, showOnlyIds);
-        shownStaff = shown;
-        assignments = assignments.filter((row) => shown.has(String(row.staff_id)));
-      }
+    const hiddenStaff: Set<string> | null = deptFilter.hidden;
+    const shownStaff: Set<string> | null = deptFilter.shown;
+    if (hiddenStaff && hiddenStaff.size > 0) {
+      assignments = assignments.filter((row) => !hiddenStaff!.has(String(row.staff_id)));
+    } else if (shownStaff) {
+      assignments = assignments.filter((row) => shownStaff!.has(String(row.staff_id)));
     }
-
-    // Code prefix gates empty teamStaff placeholders only (not assignment rows).
-    const selectedLocationCode = data.locationId ? await loadLocationCodeById(db, data.locationId) : null;
 
     // Chart-scoped supervisors still narrow a selected site to people assigned there.
     // Venue supervisors already queried by managed location — keep every rostered person
     // (including terminated) so cells match admin for that site.
     let locationStaffIds: Set<string> | null = null;
     if (teamIds && data.locationId && !venueLocationRoster) {
-      locationStaffIds = await rosterTeamIdsAtLocation(db, teamIds, data.locationId);
-      const allowed = locationStaffIds;
-      assignments = rosterRowsForAssignedStaff(
-        assignments.map((row) => ({ ...row, staffId: String(row.staff_id) })),
-        allowed,
-      ).map(({ staffId: _staffId, ...row }) => row);
-    } else if (venueLocationRoster && venueQueryLocations) {
-      const assignedAtSites = await loadStaffIdsAssignedToLocations(venueQueryLocations.locationIds);
+      locationStaffIds = chartLocationStaffIds;
+      if (locationStaffIds) {
+        const allowed = locationStaffIds;
+        assignments = rosterRowsForAssignedStaff(
+          assignments.map((row) => ({ ...row, staffId: String(row.staff_id) })),
+          allowed,
+        ).map(({ staffId: _staffId, ...row }) => row);
+      }
+    } else if ((venueLocationRoster && venueQueryLocations) || (companyRoster && data.locationId)) {
       const rosteredIds = assignments.map((row) => String(row.staff_id));
       locationStaffIds = new Set(
         venueSupervisorRosterStaffIds({
-          assignedStaffIds: assignedAtSites,
-          rosteredStaffIds: rosteredIds,
-        }),
-      );
-    } else if (companyRoster && data.locationId) {
-      // HoO / admin company roster: when a site is selected, show assigned people
-      // as empty rows (including Active Jokers) — same as Venue Supervisor for that site.
-      const assignedAtSite = await loadStaffIdsAssignedToLocations([data.locationId]);
-      const rosteredIds = assignments.map((row) => String(row.staff_id));
-      locationStaffIds = new Set(
-        venueSupervisorRosterStaffIds({
-          assignedStaffIds: assignedAtSite,
+          assignedStaffIds: assignedAtSites ?? [],
           rosteredStaffIds: rosteredIds,
         }),
       );
@@ -849,29 +876,38 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
 
     if (data.coverageOnly) {
       const coverageStaffIds = [...new Set(assignments.map((row) => String(row.staff_id)).filter(Boolean))];
-      const coverageStaffPages = await Promise.all(
-        chunkIds(coverageStaffIds, ROSTER_ID_CHUNK).map(async (ids) => {
-          const { data: staffPage, error } = await db
-            .from("staff")
-            .select("id, full_name, employee_code")
-            .in("id", ids);
-          if (error) throw error;
-          return (staffPage ?? []) as Array<{
-            id: string;
-            full_name: string | null;
-            employee_code: string | null;
-          }>;
-        }),
-      );
+      const [coverageStaffPages, departmentLabels, cardLocations] = await Promise.all([
+        Promise.all(
+          chunkIds(coverageStaffIds, ROSTER_ID_CHUNK).map(async (ids) => {
+            const { data: staffPage, error } = await db
+              .from("staff")
+              .select("id, full_name, employee_code, flexible_attendance")
+              .in("id", ids);
+            if (error) throw error;
+            return (staffPage ?? []) as Array<{
+              id: string;
+              full_name: string | null;
+              employee_code: string | null;
+              flexible_attendance: boolean | null;
+            }>;
+          }),
+        ),
+        data.includeCopyDepartments
+          ? loadRosterCopyDepartmentLabels(db, coverageStaffIds)
+          : Promise.resolve(new Map<string, RosterCopyDepartmentLabel>()),
+        cardLocationsPromise,
+      ]);
       const coverageStaffById = new Map(coverageStaffPages.flat().map((row) => [String(row.id), row]));
       const rows = assignments.map((row) => {
         const staff = coverageStaffById.get(String(row.staff_id));
+        const staffId = String(row.staff_id);
+        const departments = departmentLabels.get(staffId);
         return {
           id: String(row.id),
           locationId: String(row.location_id),
           locationCode: null,
           locationName: null,
-          staffId: String(row.staff_id),
+          staffId,
           staffName: staff?.full_name ?? null,
           employeeCode: staff?.employee_code ?? null,
           qid: null,
@@ -884,10 +920,10 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
           compOffForDate: null,
           compOffNote: null,
           source: String(row.source ?? "manual"),
-          flexibleAttendance: false,
-          department: null,
-          departmentNames: [] as string[],
-          departmentCodes: [] as string[],
+          flexibleAttendance: Boolean(staff?.flexible_attendance),
+          department: departments?.legacy ?? null,
+          departmentNames: departments?.names ?? [],
+          departmentCodes: departments?.codes ?? [],
         };
       });
       return {
@@ -897,7 +933,7 @@ export const listUploadedRosterAssignments = createAuthenticatedAction(
         rows,
         teamStaff: null as RosterMatrixStaff[] | null,
         /** Null for a company roster. Assigned home and extra sites for a team roster. */
-        cardLocations: await cardLocationsPromise,
+        cardLocations,
       };
     }
 

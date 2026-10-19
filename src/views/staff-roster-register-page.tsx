@@ -3,13 +3,13 @@
 import { FecPageHeader } from "@/components/fec";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarDays, Copy, Download, Loader2, MoreHorizontal, Trash2, Upload } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { useRegisterHrAssist } from "@/components/hr/hr-people-assist";
-import { RosterLocationCoverage } from "@/components/people/roster-location-coverage";
 import {
   RosterRegisterPanel,
   type RosterDeleteAllState,
@@ -70,6 +70,15 @@ import { queryKeys } from "@/lib/query-keys";
 import type { PreviousMonthRosterDepartment } from "@/lib/staff-roster/previous-month-export";
 import { useAppStore } from "@/stores/app-store";
 import { useCanAmendShiftRoster } from "@/hooks/use-auth";
+
+/** Coverage chips load after the month grid — keep them off the critical JS path. */
+const RosterLocationCoverage = dynamic(
+  () =>
+    import("@/components/people/roster-location-coverage").then((mod) => ({
+      default: mod.RosterLocationCoverage,
+    })),
+  { ssr: false },
+);
 
 function todayYmd() {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" });
@@ -156,12 +165,16 @@ export default function StaffRosterRegisterPage() {
       dateTo: period.dateTo,
       locationCoverage: true,
       includeCopyDepartments: true,
+      coverageOnly: true,
     }),
     queryFn: () =>
       listUploadedRosterAssignments({
         dateFrom: period.dateFrom,
         dateTo: period.dateTo,
         sourceUploadOnly: false,
+        // Skip leave / shifts / teamStaff enrich — copy dialog only needs sites,
+        // flexible flags, and department labels for F&B Cafe.
+        coverageOnly: true,
         includeCopyDepartments: true,
       }),
     staleTime: STALE.people,

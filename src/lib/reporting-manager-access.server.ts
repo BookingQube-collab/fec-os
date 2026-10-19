@@ -323,8 +323,11 @@ export async function loadAttendanceListingStaffIds(userId: string): Promise<{
   staffId: string | null;
   teamStaffIds: string[];
 }> {
-  const staff = await loadLinkedStaffRecord(userId);
-  const treeIds = await loadReportingTreeStaffIds(userId);
+  // Tree walk reuses the cached linked-staff lookup; start both together.
+  const [staff, treeIds] = await Promise.all([
+    loadLinkedStaffRecord(userId),
+    loadReportingTreeStaffIds(userId),
+  ]);
   if (!staff?.id) return { staffId: null, teamStaffIds: treeIds };
 
   const viewerActive =
@@ -543,47 +546,64 @@ export async function loadStaffIdsAssignedToLocations(locationIds: readonly stri
   const ids = [...new Set(locationIds.filter(Boolean))];
   if (ids.length === 0) return [];
 
-  const found = new Set<string>();
+  const locationChunks: string[][] = [];
   for (let index = 0; index < ids.length; index += 80) {
-    const chunk = ids.slice(index, index + 80);
-    const { data, error } = await supabaseAdmin
-      .from("staff")
-      .select("id, status")
-      .in("location_id", chunk)
-      .is("deleted_at", null);
-    if (error) throw new Error(error.message);
-    for (const row of data ?? []) {
-      if (!row.id) continue;
-      found.add(String(row.id));
-    }
+    locationChunks.push(ids.slice(index, index + 80));
+  }
+
+  const found = new Set<string>();
+  const [homePages, workPages] = await Promise.all([
+    Promise.all(
+      locationChunks.map(async (chunk) => {
+        const { data, error } = await supabaseAdmin
+          .from("staff")
+          .select("id, status")
+          .in("location_id", chunk)
+          .is("deleted_at", null);
+        if (error) throw new Error(error.message);
+        return data ?? [];
+      }),
+    ),
+    Promise.all(
+      locationChunks.map(async (chunk) => {
+        const { data, error } = await supabaseAdmin
+          .from("staff_work_locations")
+          .select("staff_id")
+          .in("location_id", chunk);
+        if (error) throw new Error(error.message);
+        return data ?? [];
+      }),
+    ),
+  ]);
+  for (const row of homePages.flat()) {
+    if (!row.id) continue;
+    found.add(String(row.id));
   }
 
   const workStaffIds = new Set<string>();
-  for (let index = 0; index < ids.length; index += 80) {
-    const chunk = ids.slice(index, index + 80);
-    const { data, error } = await supabaseAdmin
-      .from("staff_work_locations")
-      .select("staff_id")
-      .in("location_id", chunk);
-    if (error) throw new Error(error.message);
-    for (const row of data ?? []) {
-      if (row.staff_id) workStaffIds.add(String(row.staff_id));
-    }
+  for (const row of workPages.flat()) {
+    if (row.staff_id) workStaffIds.add(String(row.staff_id));
   }
   if (workStaffIds.size > 0) {
     const workIds = [...workStaffIds];
+    const workChunks: string[][] = [];
     for (let index = 0; index < workIds.length; index += 100) {
-      const chunk = workIds.slice(index, index + 100);
-      const { data, error } = await supabaseAdmin
-        .from("staff")
-        .select("id, status")
-        .in("id", chunk)
-        .is("deleted_at", null);
-      if (error) throw new Error(error.message);
-      for (const row of data ?? []) {
-        if (!row.id) continue;
-        found.add(String(row.id));
-      }
+      workChunks.push(workIds.slice(index, index + 100));
+    }
+    const workStaffPages = await Promise.all(
+      workChunks.map(async (chunk) => {
+        const { data, error } = await supabaseAdmin
+          .from("staff")
+          .select("id, status")
+          .in("id", chunk)
+          .is("deleted_at", null);
+        if (error) throw new Error(error.message);
+        return data ?? [];
+      }),
+    );
+    for (const row of workStaffPages.flat()) {
+      if (!row.id) continue;
+      found.add(String(row.id));
     }
   }
 
