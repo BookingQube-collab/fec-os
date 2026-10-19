@@ -277,6 +277,8 @@ export function StaffDirectory({
       employeeCode: string;
       jobTitle: string | null;
       locationLabel: string;
+      employmentType: string | null;
+      status: string | null;
     };
   } | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -1025,6 +1027,8 @@ export function StaffDirectory({
                               employeeCode: s.employee_code,
                               jobTitle: s.job_title,
                               locationLabel: formatLocation(s),
+                              employmentType: s.employment_type,
+                              status: s.status,
                             },
                           })
                         }
@@ -1276,6 +1280,8 @@ export function StaffDirectory({
                                               employeeCode: s.employee_code,
                                               jobTitle: s.job_title,
                                               locationLabel: formatLocation(s),
+                                              employmentType: s.employment_type,
+                                              status: s.status,
                                             },
                                           })
                                         }
@@ -1463,6 +1469,8 @@ export function StaffDirectory({
                           employeeCode: quickView.employee_code,
                           jobTitle: quickView.job_title,
                           locationLabel: formatLocation(quickView),
+                          employmentType: quickView.employment_type,
+                          status: quickView.status,
                         },
                       });
                       setQuickView(null);

@@ -22,6 +22,8 @@ import {
   mergeStaffDuplicatePair,
   previewStaffDuplicatePair,
   searchStaffDuplicateCandidates,
+  suggestStaffDuplicateCandidates,
+  type StaffDuplicateCandidate,
   type StaffDuplicatePerson,
 } from "@/lib/staff-duplicate-pair.functions";
 import { cn } from "@/lib/utils";
@@ -31,6 +33,8 @@ type AnchorSummary = {
   employeeCode: string;
   jobTitle: string | null;
   locationLabel: string;
+  employmentType?: string | null;
+  status?: string | null;
 };
 
 function displayName(name: string): string {
@@ -54,6 +58,46 @@ function duplicateErrorMessage(message: string, t: (key: string, options?: Recor
   if (code === "same_person") return t("people.staff.duplicate.samePerson");
   if (code === "linked_records") return t("people.staff.duplicate.linkedRecords");
   return t("people.staff.duplicate.failed");
+}
+
+function statusLabel(value: string | null | undefined): string {
+  if (!value) return "";
+  return value.replace(/_/g, " ").toUpperCase();
+}
+
+function typeLabel(value: string | null | undefined): string {
+  if (!value) return "";
+  return value.replace(/_/g, " ");
+}
+
+function personMeta(person: Pick<StaffDuplicateCandidate, "jobTitle" | "employmentType" | "status" | "locationLabel">): string {
+  const bits = [
+    person.jobTitle,
+    typeLabel(person.employmentType),
+    statusLabel(person.status),
+    person.locationLabel,
+  ].filter(Boolean);
+  return bits.join(" · ") || "—";
+}
+
+function CandidateButton({
+  row,
+  onSelect,
+}: {
+  row: StaffDuplicateCandidate;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="w-full rounded-lg px-2 py-2 text-start hover:bg-muted"
+      onClick={onSelect}
+    >
+      <div className="text-sm font-medium">{displayName(row.fullName)}</div>
+      <div className="font-mono text-[11px] text-muted-foreground">{row.employeeCode}</div>
+      <div className="text-xs text-muted-foreground">{personMeta(row)}</div>
+    </button>
+  );
 }
 
 function PersonCard({
@@ -83,9 +127,7 @@ function PersonCard({
         <div className="min-w-0">
           <div className="truncate text-sm font-medium">{displayName(person.fullName)}</div>
           <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">{person.employeeCode}</div>
-          <div className="mt-1 text-xs text-muted-foreground">
-            {[person.jobTitle, person.locationLabel].filter(Boolean).join(" · ") || "—"}
-          </div>
+          <div className="mt-1 text-xs text-muted-foreground">{personMeta(person)}</div>
         </div>
         <div className="shrink-0 text-end">
           <div className="text-lg font-semibold tabular-nums leading-none">{person.punchCount}</div>
@@ -121,6 +163,12 @@ export function StaffDuplicateDialog({
     const timer = window.setTimeout(() => setDebounced(query.trim()), 300);
     return () => window.clearTimeout(timer);
   }, [query]);
+
+  const suggestions = useQuery({
+    queryKey: ["staff-duplicate-suggest", anchorId],
+    queryFn: () => suggestStaffDuplicateCandidates({ anchorId }),
+    enabled: !otherId,
+  });
 
   const search = useQuery({
     queryKey: ["staff-duplicate-search", debounced, anchorId],
@@ -198,10 +246,33 @@ export function StaffDuplicateDialog({
                 <div className="mt-1 font-medium">{displayName(anchor.fullName)}</div>
                 <div className="font-mono text-[11px] text-muted-foreground">{anchor.employeeCode}</div>
                 <div className="text-xs text-muted-foreground">
-                  {[anchor.jobTitle, anchor.locationLabel].filter(Boolean).join(" · ") || "—"}
+                  {personMeta({
+                    jobTitle: anchor.jobTitle,
+                    employmentType: anchor.employmentType ?? null,
+                    status: anchor.status ?? null,
+                    locationLabel: anchor.locationLabel,
+                  })}
                 </div>
               </div>
             ) : null}
+
+            {(suggestions.data ?? []).length > 0 ? (
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">
+                  {t("people.staff.duplicate.suggestions")}
+                </p>
+                <p className="text-[11px] text-muted-foreground">{t("people.staff.duplicate.suggestionsHint")}</p>
+                <div className="max-h-40 space-y-1 overflow-y-auto">
+                  {(suggestions.data ?? []).map((row) => (
+                    <CandidateButton key={row.id} row={row} onSelect={() => setOtherId(row.id)} />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {suggestions.isFetching ? (
+              <p className="text-sm text-muted-foreground">{t("people.staff.duplicate.suggestionsLoading")}</p>
+            ) : null}
+
             <div>
               <Label htmlFor="duplicate-staff-search">{t("people.staff.duplicate.otherEmployee")}</Label>
               <Input
@@ -220,18 +291,7 @@ export function StaffDuplicateDialog({
                   <p className="px-1 text-sm text-muted-foreground">{t("people.staff.duplicate.searching")}</p>
                 ) : null}
                 {(search.data ?? []).map((row) => (
-                  <button
-                    key={row.id}
-                    type="button"
-                    className="w-full rounded-lg px-2 py-2 text-start hover:bg-muted"
-                    onClick={() => setOtherId(row.id)}
-                  >
-                    <div className="text-sm font-medium">{displayName(row.fullName)}</div>
-                    <div className="font-mono text-[11px] text-muted-foreground">{row.employeeCode}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {[row.jobTitle, row.locationLabel].filter(Boolean).join(" · ") || "—"}
-                    </div>
-                  </button>
+                  <CandidateButton key={row.id} row={row} onSelect={() => setOtherId(row.id)} />
                 ))}
                 {search.isSuccess && (search.data ?? []).length === 0 ? (
                   <p className="px-1 text-sm text-muted-foreground">{t("people.staff.duplicate.noMatches")}</p>

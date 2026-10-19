@@ -10,6 +10,7 @@ import {
   fieldsCopiedOnMerge,
   suggestDuplicateKeepId,
 } from "@/lib/staff-duplicate-action";
+import { rankLikelyStaffDuplicates } from "@/lib/staff-duplicate-match";
 import { createAuthenticatedAction } from "@/lib/server/create-action";
 import type { AuthContext } from "@/lib/server/create-action";
 
@@ -28,7 +29,7 @@ const mergeSchema = z
   .refine((value) => value.keepId !== value.dropId, { message: "duplicate:same_person" });
 
 const STAFF_COLUMNS =
-  "id, full_name, employee_code, job_title, department, phone, email, qid, employment_type, hire_date, user_id, location_id, locations!staff_location_id_fkey(code, name)";
+  "id, full_name, employee_code, job_title, department, phone, email, qid, employment_type, status, hire_date, user_id, location_id, locations!staff_location_id_fkey(code, name)";
 
 const PROFILE_COLUMNS =
   "staff_id, nationality, passport_number, gender, sponsorship_info, date_of_birth, ticket_eligibility, passport_expiry, qid_expiry";
@@ -43,6 +44,7 @@ type StaffPreviewRow = {
   email: string | null;
   qid: string | null;
   employment_type: string | null;
+  status: string | null;
   hire_date: string | null;
   user_id: string | null;
   location_id: string;
@@ -54,6 +56,8 @@ export type StaffDuplicateCandidate = {
   fullName: string;
   employeeCode: string;
   jobTitle: string | null;
+  employmentType: string | null;
+  status: string | null;
   locationLabel: string;
 };
 
@@ -143,13 +147,21 @@ function mergeFieldSource(staff: StaffPreviewRow, profile: Record<string, unknow
   };
 }
 
-function toPerson(staff: StaffPreviewRow, punchCount: number): StaffDuplicatePerson {
+function toCandidate(staff: Pick<StaffPreviewRow, "id" | "full_name" | "employee_code" | "job_title" | "employment_type" | "status" | "locations">): StaffDuplicateCandidate {
   return {
     id: staff.id,
     fullName: staff.full_name,
     employeeCode: staff.employee_code,
     jobTitle: staff.job_title,
+    employmentType: staff.employment_type,
+    status: staff.status,
     locationLabel: locationLabel(staff.locations),
+  };
+}
+
+function toPerson(staff: StaffPreviewRow, punchCount: number): StaffDuplicatePerson {
+  return {
+    ...toCandidate(staff),
     punchCount,
   };
 }
@@ -177,7 +189,9 @@ export const searchStaffDuplicateCandidates = createAuthenticatedAction(
     if (safe.length < 2) return [] as StaffDuplicateCandidate[];
     let request = context.supabase
       .from("staff")
-      .select("id, full_name, employee_code, job_title, locations!staff_location_id_fkey(code, name)")
+      .select(
+        "id, full_name, employee_code, job_title, employment_type, status, locations!staff_location_id_fkey(code, name)",
+      )
       .is("deleted_at", null)
       .or(`full_name.ilike.%${safe}%,employee_code.ilike.%${safe}%`)
       .order("full_name")
@@ -185,13 +199,78 @@ export const searchStaffDuplicateCandidates = createAuthenticatedAction(
     if (excludeId) request = request.neq("id", excludeId);
     const { data, error } = await request;
     if (error) throw new Error(error.message);
-    return (data ?? []).map((row) => ({
-      id: row.id,
-      fullName: row.full_name,
-      employeeCode: row.employee_code,
-      jobTitle: row.job_title,
-      locationLabel: locationLabel(row.locations as StaffPreviewRow["locations"]),
-    }));
+    return (data ?? []).map((row) =>
+      toCandidate({
+        id: row.id,
+        full_name: row.full_name,
+        employee_code: row.employee_code,
+        job_title: row.job_title,
+        employment_type: row.employment_type,
+        status: row.status,
+        locations: row.locations as StaffPreviewRow["locations"],
+      }),
+    );
+  },
+  { auth: { capability: "people.edit_roster" } },
+);
+
+/**
+ * Likely duplicates for the merge dialog (near name + same site/phone).
+ * Does not merge — admin still picks keep/drop and confirms.
+ */
+export const suggestStaffDuplicateCandidates = createAuthenticatedAction(
+  z.object({
+    anchorId: z.string().uuid(),
+  }),
+  async ({ anchorId }, context) => {
+    const anchor = await requireVisibleStaff(context, anchorId);
+    const locationId = String(anchor.location_id ?? "").trim();
+    let request = context.supabase
+      .from("staff")
+      .select(
+        "id, full_name, employee_code, job_title, employment_type, status, phone, location_id, locations!staff_location_id_fkey(code, name)",
+      )
+      .is("deleted_at", null)
+      .neq("id", anchorId)
+      .order("full_name")
+      .limit(200);
+    if (locationId) request = request.eq("location_id", locationId);
+    const { data, error } = await request;
+    if (error) throw new Error(error.message);
+
+    const ranked = rankLikelyStaffDuplicates(
+      {
+        id: anchor.id,
+        full_name: anchor.full_name,
+        employee_code: anchor.employee_code,
+        location_id: anchor.location_id,
+        phone: anchor.phone,
+      },
+      (data ?? []).map((row) => ({
+        id: row.id,
+        full_name: row.full_name,
+        employee_code: row.employee_code,
+        location_id: row.location_id,
+        phone: row.phone,
+      })),
+    );
+
+    const byId = new Map((data ?? []).map((row) => [row.id, row]));
+    return ranked.slice(0, 8).flatMap((match) => {
+      const row = byId.get(match.id);
+      if (!row) return [];
+      return [
+        toCandidate({
+          id: row.id,
+          full_name: row.full_name,
+          employee_code: row.employee_code,
+          job_title: row.job_title,
+          employment_type: row.employment_type,
+          status: row.status,
+          locations: row.locations as StaffPreviewRow["locations"],
+        }),
+      ];
+    });
   },
   { auth: { capability: "people.edit_roster" } },
 );
