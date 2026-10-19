@@ -22,7 +22,12 @@ import BellToggle from "@/components/react-bits/bell-toggle";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { useAuth } from "@/hooks/use-auth";
 import { useComplianceExpiryNotifications } from "@/hooks/queries/useComplianceExpiryNotifications";
-import { useActionInbox, useEscalations, useMarkAllNotificationsRead } from "@/hooks/queries/useNotifications";
+import {
+  useActionInbox,
+  useActionInboxBadge,
+  useEscalations,
+  useMarkAllNotificationsRead,
+} from "@/hooks/queries/useNotifications";
 import { canViewComplianceExpiryAlerts } from "@/lib/compliance/compliance-expiry-access";
 import {
   decideInboxAlert,
@@ -102,7 +107,9 @@ export function NotificationBell({
     canUserDo(roleList, "notifications.view") || canUserDo(roleList, "issues.view");
   const pollInbox = !!user && canPollInbox && (shellInboxReady || open);
 
-  const inbox = useActionInbox(user?.id, { enabled: pollInbox });
+  // Shell: cheap badge poll (persisted unread). Full open-work fan-out only when open.
+  const badge = useActionInboxBadge(user?.id, { enabled: pollInbox });
+  const inbox = useActionInbox(user?.id, { enabled: pollInbox && open });
   const escalations = useEscalations({ enabled: pollInbox });
   const complianceAlerts = useComplianceExpiryNotifications(
     { locationId: currentLocationId, limit: 12 },
@@ -123,19 +130,20 @@ export function NotificationBell({
   });
   const markAll = useMarkAllNotificationsRead(user?.id);
 
-  const inboxItems = (inbox.data?.items ?? []).filter((item) => !item.persisted || !item.readAt);
-  const inboxUnread = inbox.data?.unreadCount ?? 0;
+  const inboxPayload = open && inbox.data ? inbox.data : badge.data;
+  const inboxItems = (inboxPayload?.items ?? []).filter((item) => !item.persisted || !item.readAt);
+  const inboxUnread = badge.data?.unreadCount ?? inbox.data?.unreadCount ?? 0;
   const escalationCount = escalations.data?.length ?? 0;
   const complianceCount = complianceSummary.data?.summary.total ?? 0;
   const unread = inboxUnread + escalationCount;
 
   // Sound only for new in-app notification arrivals after baseline (not old unread on load).
   useEffect(() => {
-    if (!inbox.isSuccess || !pollInbox) return;
+    if (!badge.isSuccess || !pollInbox) return;
     const decision = decideInboxAlert(alertState.current, inboxUnread);
     alertState.current = decision.next;
     if (decision.shouldAlert) playInboxNotificationSound();
-  }, [inbox.isSuccess, pollInbox, inboxUnread]);
+  }, [badge.isSuccess, pollInbox, inboxUnread]);
 
   // Reset baseline when the signed-in user changes.
   useEffect(() => {

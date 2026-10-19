@@ -151,27 +151,21 @@ describe("roster register bulk-delete scope", () => {
     expect(rows).toEqual(["only"]);
   });
 
-  it("loads later pages together and drops anything after the short page", async () => {
+  it("loads later pages together (default wave of 2) and drops anything after the short page", async () => {
     const calls: number[] = [];
-    const rows = await collectPagedRowsInWaves(
-      async (from) => {
-        calls.push(from);
-        if (from === 0) return Array.from({ length: ATTENDANCE_DAILY_LIST_PAGE_SIZE }, (_, i) => `p0-${i}`);
-        if (from === ATTENDANCE_DAILY_LIST_PAGE_SIZE) {
-          return Array.from({ length: ATTENDANCE_DAILY_LIST_PAGE_SIZE }, (_, i) => `p1-${i}`);
-        }
-        if (from === ATTENDANCE_DAILY_LIST_PAGE_SIZE * 2) return ["2026-09-15", "2026-09-27"];
-        return [`extra-${from}`];
-      },
-      ATTENDANCE_DAILY_LIST_PAGE_SIZE,
-      4,
-    );
+    const rows = await collectPagedRowsInWaves(async (from) => {
+      calls.push(from);
+      if (from === 0) return Array.from({ length: ATTENDANCE_DAILY_LIST_PAGE_SIZE }, (_, i) => `p0-${i}`);
+      if (from === ATTENDANCE_DAILY_LIST_PAGE_SIZE) {
+        return Array.from({ length: ATTENDANCE_DAILY_LIST_PAGE_SIZE }, (_, i) => `p1-${i}`);
+      }
+      if (from === ATTENDANCE_DAILY_LIST_PAGE_SIZE * 2) return ["2026-09-15", "2026-09-27"];
+      return [`extra-${from}`];
+    }, ATTENDANCE_DAILY_LIST_PAGE_SIZE);
     expect(calls[0]).toBe(0);
-    expect(calls.slice(1, 5).sort((a, b) => a - b)).toEqual([
+    expect(calls.slice(1, 3).sort((a, b) => a - b)).toEqual([
       ATTENDANCE_DAILY_LIST_PAGE_SIZE,
       ATTENDANCE_DAILY_LIST_PAGE_SIZE * 2,
-      ATTENDANCE_DAILY_LIST_PAGE_SIZE * 3,
-      ATTENDANCE_DAILY_LIST_PAGE_SIZE * 4,
     ]);
     expect(rows).toHaveLength(ATTENDANCE_DAILY_LIST_PAGE_SIZE * 2 + 2);
     expect(rows.slice(-2)).toEqual(["2026-09-15", "2026-09-27"]);

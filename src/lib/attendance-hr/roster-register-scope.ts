@@ -458,7 +458,8 @@ export async function collectPagedRows<T>(
 export async function collectPagedRowsInWaves<T>(
   fetchPage: (from: number, to: number) => PromiseLike<T[] | null | undefined>,
   pageSize: number,
-  waveSize = 4,
+  /** Parallel PostgREST pages after the first. 2 keeps latency low without 4-way storms. */
+  waveSize = 2,
 ): Promise<T[]> {
   if (pageSize < 1) throw new Error("pageSize must be >= 1");
   if (waveSize < 1) throw new Error("waveSize must be >= 1");

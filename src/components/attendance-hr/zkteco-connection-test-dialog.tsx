@@ -145,8 +145,9 @@ export function ZktecoConnectionTestDialog({
     queryKey: ["adms-connection-test", testId],
     queryFn: () => getAttendanceDeviceConnectionTest({ testId: testId as string }),
     enabled: open && Boolean(testId),
-    refetchIntervalInBackground: true,
+    refetchIntervalInBackground: false,
     refetchInterval: (query) => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return false;
       const status = query.state.data?.status;
       if (!status || status === "queued" || status === "running") return 2_000;
       return false;

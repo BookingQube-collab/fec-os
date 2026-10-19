@@ -403,6 +403,9 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       queryFn: () => listUploadedRosterAssignments(filters),
       staleTime: STALE.people,
       enabled: Boolean(dateFrom && dateTo),
+      // Month matrix is heavy (paged assignments + leave). Never refetch on tab focus.
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
     });
 
     useEffect(() => {

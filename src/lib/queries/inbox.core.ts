@@ -505,6 +505,19 @@ async function fetchEvaluationItems(
     });
 }
 
+/**
+ * Bell badge / sound only need stored unread notifications. Skip the derived
+ * open-work fan-out (PR, maintenance, leave, …) so shell polls stay cheap.
+ */
+export async function fetchActionInboxBadge(context: AuthContext): Promise<ActionInboxPayload> {
+  const persisted = await settled(fetchPersisted(context), []);
+  return {
+    items: persisted,
+    unreadCount: inboxUnreadCount(persisted),
+    actionCount: 0,
+  };
+}
+
 export async function fetchActionInbox(context: AuthContext): Promise<ActionInboxPayload> {
   const roles = (context.roles ?? []) as AppRole[];
   // Staff id is only needed for event tasks and evaluations. The other inbox

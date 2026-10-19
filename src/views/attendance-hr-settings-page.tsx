@@ -96,7 +96,10 @@ export default function AttendanceHrSettingsPage() {
     queryKey: queryKeys.people.attendanceHr({ view: "bootstrap" }),
     queryFn: () => getAttendanceHrBootstrap(),
     staleTime: STALE.people,
-    refetchInterval: 15_000,
+    // Bootstrap pages every active employee + devices. 15s was a Supabase storm;
+    // device last_sync is fine at 1m, and focus refetch is enough after edits.
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
   });
   const origin = typeof window !== "undefined" ? window.location.origin : "";

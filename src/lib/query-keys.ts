@@ -166,6 +166,9 @@ export const queryKeys = {
     escalations: () => [...queryKeys.notifications.all, "escalations"] as const,
     list: (filters?: object) => [...queryKeys.notifications.all, "list", filters ?? {}] as const,
     inbox: (userId?: string | null) => [...queryKeys.notifications.all, "inbox", userId ?? "anon"] as const,
+    /** Persisted unread only — used by the shell bell poll. */
+    inboxBadge: (userId?: string | null) =>
+      [...queryKeys.notifications.all, "inbox-badge", userId ?? "anon"] as const,
   },
   people: {
     all: ["people"] as const,
