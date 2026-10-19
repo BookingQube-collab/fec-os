@@ -28,6 +28,7 @@ import {
 } from "@/lib/admin-hierarchy.functions";
 import { provisionStaffLogin } from "@/lib/admin.functions";
 import { generateStaffLoginPassword, orgChartCreateLoginRequest, prefillOrgChartLoginEmail } from "@/lib/staff-login";
+import { hasMiaHrPeopleAdminAccess } from "@/lib/hr-people-admin-access";
 import { hierarchyAccessMode, staffProfileOpenIds, type HierarchyAccessMode } from "@/lib/hierarchy-access";
 import {
   groupOrgChart,
@@ -81,17 +82,26 @@ function Forbidden() {
 
 export default function AdminHierarchyPage() {
   const { t } = useTranslation();
-  const { roles, rolesSettled } = useAuth();
+  const { roles, rolesSettled, profile, user } = useAuth();
   const reports = useHasDirectReports();
   const maxLevel = roles.reduce((acc, role) => Math.max(acc, role.role_level), 0);
-  if (!rolesSettled || (maxLevel < 95 && reports.isPending)) {
+  const roleCodes = roles.map((row) => row.role);
+  const companyEditor = hasMiaHrPeopleAdminAccess(roleCodes, {
+    staffId: profile?.staff_id,
+    employeeCode: profile?.employee_code,
+    email: user?.email,
+    displayName: profile?.display_name,
+    jobTitle: profile?.job_title,
+    department: profile?.department,
+  });
+  if (!rolesSettled || (!companyEditor && maxLevel < 95 && reports.isPending)) {
     return (
       <HrShell>
         <p className="text-sm text-muted-foreground">{t("hr.hierarchy.loading")}</p>
       </HrShell>
     );
   }
-  if (maxLevel < 95 && reports.isError) {
+  if (!companyEditor && maxLevel < 95 && reports.isError) {
     return (
       <HrShell>
         <p className="text-sm text-destructive">{t("hr.hierarchy.loadError")}</p>
@@ -101,6 +111,7 @@ export default function AdminHierarchyPage() {
   const mode = hierarchyAccessMode({
     maxRoleLevel: maxLevel,
     directReportCount: reports.data?.directReportStaffIds.length ?? 0,
+    companyEditor,
   });
   if (mode === "none") return <Forbidden />;
   return (

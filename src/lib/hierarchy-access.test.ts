@@ -17,6 +17,10 @@ describe("hierarchyAccessMode", () => {
     expect(hierarchyAccessMode({ maxRoleLevel: 95, directReportCount: 4 })).toBe("edit");
   });
 
+  it("lets a named company editor (Mia) edit without role level 95", () => {
+    expect(hierarchyAccessMode({ maxRoleLevel: 55, directReportCount: 0, companyEditor: true })).toBe("edit");
+  });
+
   it("lets a manager or supervisor with direct reports view their team", () => {
     expect(hierarchyAccessMode({ maxRoleLevel: 20, directReportCount: 3 })).toBe("team");
     expect(hierarchyAccessMode({ maxRoleLevel: 60, directReportCount: 1 })).toBe("team");

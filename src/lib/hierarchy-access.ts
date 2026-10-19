@@ -7,14 +7,17 @@ export type HierarchyAccessMode = "edit" | "team" | "none";
 
 /**
  * CEO and COO edit the company chart.
+ * Mia (HR People admin) also edits when companyEditor is set.
  * A person with direct reports gets a view of their team.
  * Everyone else is turned away.
  */
 export function hierarchyAccessMode(input: {
   maxRoleLevel: number;
   directReportCount: number;
+  /** Mia / other named company editors without role level 95. */
+  companyEditor?: boolean;
 }): HierarchyAccessMode {
-  if (input.maxRoleLevel >= HIERARCHY_EDIT_ROLE_LEVEL) return "edit";
+  if (input.companyEditor || input.maxRoleLevel >= HIERARCHY_EDIT_ROLE_LEVEL) return "edit";
   if (input.directReportCount > 0) return "team";
   return "none";
 }

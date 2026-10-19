@@ -249,12 +249,20 @@ export function MobileBottomNav() {
   const pathname = usePathname();
   const router = useRouter();
   const roles = useUserRoles();
-  const { signOut, profile } = useAuth();
+  const { signOut, profile, user } = useAuth();
   const jobTitle = profile?.job_title ?? null;
   const staffRole = profile?.staff_role ?? null;
   const department = profile?.department ?? null;
   const reportsToHeadOfOperations = profile?.reports_to_head_of_operations ?? false;
-  const navActor = { jobTitle, staffRole, department };
+  const navActor = {
+    jobTitle,
+    staffRole,
+    department,
+    staffId: profile?.staff_id ?? null,
+    employeeCode: profile?.employee_code ?? null,
+    email: user?.email ?? null,
+    displayName: profile?.display_name ?? null,
+  };
   const { t } = useTranslation();
   const [moreOpen, setMoreOpen] = useState(false);
 

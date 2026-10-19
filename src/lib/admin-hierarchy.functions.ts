@@ -26,14 +26,16 @@ import {
   teamScopedOrgChartPeople,
 } from "@/lib/hierarchy-access";
 import { teamOverviewMemberIds } from "@/lib/manager-supervisor-team";
+import { hasMiaHrPeopleAdminAccess } from "@/lib/hr-people-admin-access";
+import { loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
 import { canUserDo } from "@/lib/rbac";
 import { loadDirectReportStaffIds } from "@/lib/reporting-manager-access.server";
 import { createAuthenticatedAction, createAuthenticatedActionNoInput } from "@/lib/server/create-action";
 import { ForbiddenError } from "@/lib/server/authorize";
 import { STAFF_NOT_JOKER_EMPLOYMENT_OR } from "@/lib/staff-status";
 
-/** CEO and COO. Regional operations can see Administration, not this chart. */
-const HIERARCHY_AUTH = { capability: "admin.view" as const, minRoleLevel: 95 };
+/** CEO, COO, and Mia (HR People admin). Not every hr login. */
+const HIERARCHY_AUTH = { capability: "people.org_chart" as const };
 
 type DeptEmbed = {
   id?: string | null;
@@ -315,17 +317,32 @@ export type OrgChartView = OrgChartSnapshot & {
   directReportStaffIds: string[];
 };
 
-const HIERARCHY_DENIED = "Only the CEO or COO can view the operations hierarchy.";
+const HIERARCHY_DENIED = "Only the CEO, COO, or HR People admin can view the operations hierarchy.";
 
 export const getOrgChart = createAuthenticatedActionNoInput(
   async (context): Promise<OrgChartView> => {
     const { data: levelData, error: levelError } = await context.supabase.rpc("current_user_role_level");
     if (levelError) throw new Error(levelError.message);
     const maxRoleLevel = typeof levelData === "number" ? levelData : 0;
-    const teamAccess = maxRoleLevel >= HIERARCHY_EDIT_ROLE_LEVEL ? null : await loadDirectReportStaffIds(context.userId);
+    const roles = context.roles ?? [];
+    const linked = await loadLinkedStaffRecord(context.userId).catch(() => null);
+    const email = typeof context.claims.email === "string" ? context.claims.email : null;
+    const companyEditor = hasMiaHrPeopleAdminAccess(roles, {
+      staffId: linked?.id,
+      employeeCode: linked?.employeeCode,
+      email,
+      fullName: linked?.fullName,
+      jobTitle: linked?.jobTitle,
+      department: linked?.department,
+    });
+    const teamAccess =
+      companyEditor || maxRoleLevel >= HIERARCHY_EDIT_ROLE_LEVEL
+        ? null
+        : await loadDirectReportStaffIds(context.userId);
     const mode = hierarchyAccessMode({
       maxRoleLevel,
       directReportCount: teamAccess?.directReportStaffIds.length ?? 0,
+      companyEditor,
     });
     if (mode === "none" || (mode === "team" && !teamAccess?.staffId)) {
       throw new ForbiddenError(HIERARCHY_DENIED);

@@ -169,6 +169,14 @@ describe("admin sidebar visibility", () => {
     const hr = getVisibleDepartments(["hr"]).find((dept) => dept.id === "people");
     const hrHrefs = hr?.items.map((item) => item.href) ?? [];
     expect(hrHrefs).not.toContain("/people/hr/hierarchy");
+
+    const mia = getVisibleDepartments(["hr"], {
+      staffId: "d2effffa-7fa3-4871-83b9-f6de007b5ff7",
+      employeeCode: "88",
+      email: "mia@fec.qa",
+      jobTitle: "HR Generalist",
+    }).find((dept) => dept.id === "people");
+    expect(mia?.items.some((item) => item.href === "/people/hr/hierarchy")).toBe(true);
   });
 
   it("keeps the People flyout as a flat list", () => {

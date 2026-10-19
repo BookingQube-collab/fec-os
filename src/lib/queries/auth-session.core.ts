@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { loadLinkedStaffIdentity } from "@/lib/linked-staff-job-title.server";
+import { loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
 import type { AuthContext } from "@/lib/server/auth";
 import type { RoleAssignment } from "@/lib/rbac";
 import { loadReportsToHeadOfOperations } from "@/lib/site-ops-access.server";
@@ -17,6 +17,8 @@ export interface AuthSessionPayload {
     job_title: string | null;
     staff_role: string | null;
     department: string | null;
+    /** Linked staff row id (Mia / People-admin identity). */
+    staff_id: string | null;
     /** Direct report of Head of Operations on the ops chart. Used for shift-roster UI. */
     reports_to_head_of_operations: boolean;
   } | null;
@@ -84,25 +86,28 @@ export async function fetchAuthSession(context: AuthContext): Promise<AuthSessio
   const email = typeof context.claims.email === "string" ? context.claims.email : null;
   // Job title does not depend on the profile row. Run it with the role lookup so
   // the shell gate is not stuck behind a second staff round trip.
-  const [{ profile, roles }, identity, reportsToHeadOfOperations] = await Promise.all([
+  const [{ profile, roles }, linked, reportsToHeadOfOperations] = await Promise.all([
     loadProfileAndRoles(context.supabase, context.userId),
-    loadLinkedStaffIdentity(context.userId).catch((error: unknown) => {
+    loadLinkedStaffRecord(context.userId).catch((error: unknown) => {
       console.warn("[auth/session] staff job title lookup failed", error);
-      return { jobTitle: null, staffRole: null, department: null };
+      return null;
     }),
     loadReportsToHeadOfOperations(context.userId).catch((error: unknown) => {
       console.warn("[auth/session] HoO reporting lookup failed", error);
       return false;
     }),
   ]);
+  const employeeCode = linked?.employeeCode ?? profile?.employee_code ?? null;
   return {
     user: { id: context.userId, email },
     profile: profile
       ? {
           ...profile,
-          job_title: identity.jobTitle,
-          staff_role: identity.staffRole,
-          department: identity.department,
+          employee_code: employeeCode,
+          job_title: linked?.jobTitle ?? null,
+          staff_role: linked?.staffRole ?? null,
+          department: linked?.department ?? null,
+          staff_id: linked?.id ?? null,
           reports_to_head_of_operations: reportsToHeadOfOperations,
         }
       : null,

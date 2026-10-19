@@ -116,6 +116,8 @@ export const CAPABILITIES = {
   "people.view_roster": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "hr"],
   "people.edit_roster": ["ceo", "coo", "regional_ops", "branch_gm", "duty_manager", "tech_supervisor", "hr"],
   "people.import_roster": ["ceo", "coo", "regional_ops", "hr", "branch_gm", "duty_manager", "tech_supervisor"],
+  /** Company org chart edit (People → Organization charts). Mia gets this via identity, not all HR. */
+  "people.org_chart": ["ceo", "coo"],
   "people.view_salary": ["ceo", "coo", "cfo", "hr"],
   "people.edit_salary": ["ceo", "coo", "cfo", "hr"],
   "payroll.view": ["ceo", "coo", "cfo", "hr"],

@@ -1258,12 +1258,20 @@ export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const roles = useUserRoles();
-  const { roles: roleRows, profile } = useAuth();
+  const { roles: roleRows, profile, user } = useAuth();
   const jobTitle = profile?.job_title ?? null;
   const staffRole = profile?.staff_role ?? null;
   const department = profile?.department ?? null;
   const reportsToHeadOfOperations = profile?.reports_to_head_of_operations ?? false;
-  const navActor = { jobTitle, staffRole, department };
+  const navActor = {
+    jobTitle,
+    staffRole,
+    department,
+    staffId: profile?.staff_id ?? null,
+    employeeCode: profile?.employee_code ?? null,
+    email: user?.email ?? null,
+    displayName: profile?.display_name ?? null,
+  };
   const canReorder = canReorderSidebarNav(roleRows);
   const { order, itemOrders, save, saveItems } = useSidebarNavOrder();
   const { hasDirectReports } = useHasDirectReports();

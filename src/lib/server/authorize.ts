@@ -6,7 +6,7 @@ import { cookies } from "next/headers";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { canActorPerform } from "@/lib/arcade/access";
-import { loadLinkedStaffIdentity } from "@/lib/linked-staff-job-title.server";
+import { loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
 import type { AppRole, Capability } from "@/lib/rbac";
 import { createTimer } from "@/lib/performance/timer";
 import { updateAuthRolesCache } from "./auth";
@@ -88,15 +88,28 @@ async function ensureUserRoles(context: AuthContext): Promise<AppRole[]> {
 
 async function ensureStaffAccess(context: AuthContext) {
   if (context.access) return context.access;
+  const email = typeof context.claims.email === "string" ? context.claims.email : null;
   try {
-    const identity = await loadLinkedStaffIdentity(context.userId);
+    const linked = await loadLinkedStaffRecord(context.userId);
     context.access = {
-      jobTitle: identity.jobTitle,
-      staffRole: identity.staffRole,
-      department: identity.department,
+      jobTitle: linked?.jobTitle ?? null,
+      staffRole: linked?.staffRole ?? null,
+      department: linked?.department ?? null,
+      staffId: linked?.id ?? null,
+      employeeCode: linked?.employeeCode ?? null,
+      fullName: linked?.fullName ?? null,
+      email,
     };
   } catch {
-    context.access = { jobTitle: null, staffRole: null, department: null };
+    context.access = {
+      jobTitle: null,
+      staffRole: null,
+      department: null,
+      staffId: null,
+      employeeCode: null,
+      fullName: null,
+      email,
+    };
   }
   return context.access;
 }

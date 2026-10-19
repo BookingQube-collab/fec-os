@@ -253,6 +253,12 @@ export type NavAccessActor = {
   jobTitle?: string | null;
   staffRole?: string | null;
   department?: string | null;
+  /** Mia People-admin identity fields (optional). */
+  staffId?: string | null;
+  employeeCode?: string | null;
+  email?: string | null;
+  fullName?: string | null;
+  displayName?: string | null;
 };
 
 export function usesEmployeeFlatRail(
@@ -385,7 +391,7 @@ const PICKER_SIDEBAR_ITEMS: NavItem[] = [
   ]),
   ...withPeopleSection(PEOPLE_SECTION.people, [
     { href: "/people", labelKey: "nav.employeeDatabase", icon: Users, capability: "people.view_roster", departmentId: "people" },
-    { href: "/people/hr/hierarchy", labelKey: "nav.organizationCharts", icon: Users, capability: "admin.view", departmentId: "people" },
+    { href: "/people/hr/hierarchy", labelKey: "nav.organizationCharts", icon: Users, capability: "people.org_chart", departmentId: "people" },
     { href: "/people/recruitment", labelKey: "nav.recruitment", icon: Briefcase, capability: "recruitment.request", departmentId: "people" },
     { href: "/people/hr/onboarding", labelKey: "nav.onboardingOffboarding", icon: ClipboardList, capability: "hr.manage", departmentId: "people" },
     { href: "/people/hr/end-of-service", labelKey: "nav.endOfService", icon: Scale, capability: "hr.manage", departmentId: "people" },

@@ -7,6 +7,10 @@
 
 import { isHeadOfOperationsTitle } from "@/lib/attendance-hr/missed-punch-approval";
 import {
+  miaPeopleAdminGrantsCapability,
+  type HrPeopleAdminIdentity,
+} from "@/lib/hr-people-admin-access";
+import {
   canUserDo,
   resolveRoleCapability,
   ROLE_LEVELS,
@@ -25,6 +29,12 @@ export type ArcadeActor = {
   department?: string | null;
   /** Home branch and extra work sites. Not a company-wide grant. */
   locationIds?: readonly (string | null | undefined)[];
+  /** Mia / People-admin identity (staff id, code, email, name). */
+  staffId?: string | null;
+  employeeCode?: string | null;
+  email?: string | null;
+  fullName?: string | null;
+  displayName?: string | null;
 };
 
 const WORD = (word: string) => new RegExp(`(?:^|[^a-z])${word}(?=$|[^a-z])`, "i");
@@ -105,10 +115,30 @@ function jobMayUseArcade(actor: ArcadeActor): boolean {
  * F&B managers lose arcade.* even when their login role includes it.
  * A Head of Operations title receives every capability any role level >= 80 already has.
  */
+function peopleAdminIdentity(
+  actor?: Pick<
+    ArcadeActor,
+    "jobTitle" | "staffRole" | "department" | "staffId" | "employeeCode" | "email" | "fullName" | "displayName"
+  > | null,
+): HrPeopleAdminIdentity {
+  return {
+    staffId: actor?.staffId,
+    employeeCode: actor?.employeeCode,
+    email: actor?.email,
+    fullName: actor?.fullName,
+    displayName: actor?.displayName,
+    jobTitle: actor?.jobTitle,
+    department: actor?.department,
+  };
+}
+
 export function canActorPerform(
   roles: readonly AppRole[],
   capability: Capability,
-  actor?: Pick<ArcadeActor, "jobTitle" | "staffRole" | "department"> | null,
+  actor?: Pick<
+    ArcadeActor,
+    "jobTitle" | "staffRole" | "department" | "staffId" | "employeeCode" | "email" | "fullName" | "displayName"
+  > | null,
   grants?: CapabilityGrantMap | null,
 ): boolean {
   const jobTitle = actor?.jobTitle;
@@ -118,6 +148,10 @@ export function canActorPerform(
   if (isOperationsSuperAdmin(jobTitle)) {
     const allowed = superAdminRoles().some((role) => resolveRoleCapability(role, capability, grants));
     if (allowed) return true;
+  }
+
+  if (miaPeopleAdminGrantsCapability([...roles], capability, peopleAdminIdentity(actor), grants)) {
+    return true;
   }
 
   if (capability.startsWith("arcade.") && isFnbManager(jobTitle, department) && !hasSuperAdminAccess(roles, null)) {
