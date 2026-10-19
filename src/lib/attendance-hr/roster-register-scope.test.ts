@@ -319,8 +319,8 @@ describe("roster register bulk-delete scope", () => {
     expect(rosterStaffIdsAtLocation(team, car)).toEqual(["wahaj"]);
 
     const rows = [
-      { staffId: "wahaj", workDate: "2026-10-01" },
-      { staffId: "angie", workDate: "2026-10-01" },
+      { staffId: "wahaj", staffName: "wahaj", employeeCode: null, qid: null, workDate: "2026-10-01" },
+      { staffId: "angie", staffName: "angie", employeeCode: null, qid: null, workDate: "2026-10-01" },
     ];
     const atUrban = new Set(rosterStaffIdsAtLocation(team, ua) ?? []);
     expect(rosterRowsForAssignedStaff(rows, atUrban)).toEqual([]);
