@@ -116,6 +116,10 @@ export {
   attendanceHrRowMatchesKpiFilter,
   suppressRoamingFalseAbsentForRosterElsewhere,
 } from "./report";
+export {
+  preferPunchedDailySummaryRows,
+  suppressAbsentWhenPunchedSameDay,
+} from "./punch-over-absent";
 export type { AttendanceHrKpiFilter } from "./report";
 export {
   persistOriginalFile,

@@ -35,6 +35,7 @@ import {
   staffUsesCrossSiteDayMerge,
   type FlexibleCrossSitePunch,
 } from "./flexible-cross-site";
+import { preferPunchedDailySummaryRows } from "./punch-over-absent";
 import { deviceLogUserPairsOrFilter } from "./device-logs";
 import { normalizeShiftHm, scheduledIsoFromHm } from "./late-punch";
 import {
@@ -503,6 +504,18 @@ export async function recalculateAttendanceRange(
   }
 
   const crossSiteStaffIds = [...crossSiteStaffIdSet];
+  // Cross-site punch lookup for flexible/roaming AND every rostered person this period.
+  // Cafe staff (Agnes) are often not flagged flexible — same-day punches must still
+  // beat roster Absent fillers when grouping misses them or they punched elsewhere.
+  const punchLookupStaffIdSet = new Set<string>(crossSiteStaffIds);
+  for (const row of roster ?? []) {
+    const id = String(row.staff_id ?? "").trim();
+    if (id && (!staffScope || staffScope.includes(id))) punchLookupStaffIdSet.add(id);
+  }
+  for (const id of staffScope ?? []) {
+    if (id) punchLookupStaffIdSet.add(id);
+  }
+  const punchLookupStaffIds = [...punchLookupStaffIdSet];
 
   /** staffId|workDate → punches from every location (flexible / multisite merge). */
   const crossPunchesByStaffDay = new Map<string, Array<FlexibleCrossSitePunch & { id?: string; device_id?: string | null; biometric_user_id?: string | null }>>();
@@ -511,29 +524,36 @@ export async function recalculateAttendanceRange(
   /** staffId|workDate → location ids with on-duty (non week-off) roster that day. */
   const crossOnDutyLocationsByStaffDay = new Map<string, Set<string>>();
 
-  if (crossSiteStaffIds.length) {
-    const buildCrossLogsQuery = () =>
-      supabase
-        .from("attendance_logs")
-        .select(
-          "id, location_id, staff_id, biometric_user_id, device_id, punch_at, probable_duplicate, excluded_from_calc, attendance_date",
-        )
-        .in("staff_id", crossSiteStaffIds)
-        .gte("attendance_date", dateFrom)
-        .lte("attendance_date", dateTo)
-        .order("id", { ascending: true });
-    const buildCrossRosterQuery = () =>
-      supabase
-        .from("attendance_roster_assignments")
-        .select("staff_id, work_date, shift_template_id, shift_start, shift_end, is_week_off, location_id")
-        .in("staff_id", crossSiteStaffIds)
-        .gte("work_date", dateFrom)
-        .lte("work_date", dateTo)
-        .order("id", { ascending: true });
-    const [crossLogs, crossRoster] = await Promise.all([
-      fetchAllPaged<Record<string, unknown>>((from, to) => buildCrossLogsQuery().range(from, to)),
-      fetchAllPaged<Record<string, unknown>>((from, to) => buildCrossRosterQuery().range(from, to)),
-    ]);
+  if (punchLookupStaffIds.length) {
+    const crossLogs: Record<string, unknown>[] = [];
+    const crossRoster: Record<string, unknown>[] = [];
+    for (let i = 0; i < punchLookupStaffIds.length; i += 200) {
+      const chunk = punchLookupStaffIds.slice(i, i + 200);
+      const buildCrossLogsQuery = () =>
+        supabase
+          .from("attendance_logs")
+          .select(
+            "id, location_id, staff_id, biometric_user_id, device_id, punch_at, probable_duplicate, excluded_from_calc, attendance_date",
+          )
+          .in("staff_id", chunk)
+          .gte("attendance_date", dateFrom)
+          .lte("attendance_date", dateTo)
+          .order("id", { ascending: true });
+      const buildCrossRosterQuery = () =>
+        supabase
+          .from("attendance_roster_assignments")
+          .select("staff_id, work_date, shift_template_id, shift_start, shift_end, is_week_off, location_id")
+          .in("staff_id", chunk)
+          .gte("work_date", dateFrom)
+          .lte("work_date", dateTo)
+          .order("id", { ascending: true });
+      const [logsPage, rosterPage] = await Promise.all([
+        fetchAllPaged<Record<string, unknown>>((from, to) => buildCrossLogsQuery().range(from, to)),
+        fetchAllPaged<Record<string, unknown>>((from, to) => buildCrossRosterQuery().range(from, to)),
+      ]);
+      crossLogs.push(...logsPage);
+      crossRoster.push(...rosterPage);
+    }
 
     const addCrossPunch = (log: Record<string, unknown>, staffIdOverride?: string) => {
       const staffId = (staffIdOverride || (log.staff_id ? String(log.staff_id) : "")).trim();
@@ -566,8 +586,8 @@ export async function recalculateAttendanceRange(
       deviceName?: string | null;
     }> = [];
     const deviceNames = new Set<string>();
-    for (let i = 0; i < crossSiteStaffIds.length; i += 200) {
-      const chunk = crossSiteStaffIds.slice(i, i + 200);
+    for (let i = 0; i < punchLookupStaffIds.length; i += 200) {
+      const chunk = punchLookupStaffIds.slice(i, i + 200);
       const { data: maps, error: mapErr } = await supabase
         .from("attendance_biometric_users")
         .select("staff_id, location_id, biometric_user_id, device_name")
@@ -681,7 +701,7 @@ export async function recalculateAttendanceRange(
             (log.staff_id ? String(log.staff_id) : "") ||
             (biometricUserId ? staffByLocUser.get(`${locationId}|${biometricUserId}`) ?? "" : "") ||
             (punchName ? staffByDeviceName.get(punchName) ?? "" : "");
-          if (!staffId || !crossSiteStaffIdSet.has(staffId)) continue;
+          if (!staffId || !punchLookupStaffIdSet.has(staffId)) continue;
           addCrossPunch(log, staffId);
         }
       }
@@ -895,7 +915,9 @@ export async function recalculateAttendanceRange(
       rosterRow = preferred;
     }
 
-    if (staffId && workDate && crossSiteStaffIdSet.has(staffId)) {
+    // Any rostered / mapped person with punches that day: merge at anchor, suppress elsewhere.
+    // Not limited to flexible_attendance — F&B cafe staff were left Absent when punches existed.
+    if (staffId && workDate && (crossSiteStaffIdSet.has(staffId) || crossPunches.length > 0 || punchLookupStaffIdSet.has(staffId))) {
       const across =
         crossPunches.length > 0
           ? crossPunches
@@ -923,7 +945,9 @@ export async function recalculateAttendanceRange(
           if (!rosterRow) rosterRow = crossRosterByStaffDay.get(crossKey);
         }
         // Wipe roster ABSENT fillers at other work sites too — not only punch sites.
-        queueFlexibleKeepOnly(staffId, workDate, locationId);
+        if (crossSiteStaffIdSet.has(staffId) || crossPunches.some((p) => p.locationId !== locationId)) {
+          queueFlexibleKeepOnly(staffId, workDate, locationId);
+        }
       }
     }
 
@@ -1127,7 +1151,7 @@ export async function recalculateAttendanceRange(
     const staffId = (punches[0]?.staff_id as string | null) ?? null;
     if (staffId && workDate) covered.add(`${staffId}|${workDate}`);
   }
-  // Flexible / multisite staff who punched at another site: treat as covered here so we do not emit ABSENT.
+  // Anyone with punches that day (any site): treat as covered so we do not emit ABSENT.
   for (const [crossKey, crossPunches] of crossPunchesByStaffDay) {
     if (!flexibleDayHasQualifyingPunches(crossPunches)) continue;
     const action = flexibleDayRecalcAction({ locationId, punchesAcrossSites: crossPunches });
@@ -1271,21 +1295,24 @@ export async function recalculateAttendanceRange(
             }
           : preferredRoster;
       const isWeekOff = weekOffForDay(staffId, workDate, realRoster, hasLeave);
-      if (crossSiteStaffIdSet.has(staffId)) {
-        const cross = crossPunchesByStaffDay.get(`${staffId}|${workDate}`) ?? [];
-        if (flexibleDayHasQualifyingPunches(cross)) {
-          if (
-            crossSiteAnchorNeedsSummaryWrite({
-              locationId,
-              punchesAcrossSites: cross,
-              alreadyWroteSummary: covered.has(`${staffId}|${workDate}`),
-            })
-          ) {
-            writeMergedSummaryFromCross(staffId, workDate, cross);
-          }
-          covered.add(`${staffId}|${workDate}`);
-          continue;
+      const cross = crossPunchesByStaffDay.get(`${staffId}|${workDate}`) ?? [];
+      // Punches anywhere that day → Present at anchor / suppress Absent elsewhere (all staff).
+      if (flexibleDayHasQualifyingPunches(cross)) {
+        if (
+          crossSiteAnchorNeedsSummaryWrite({
+            locationId,
+            punchesAcrossSites: cross,
+            alreadyWroteSummary: covered.has(`${staffId}|${workDate}`),
+          })
+        ) {
+          writeMergedSummaryFromCross(staffId, workDate, cross);
+        } else if (flexibleDayRecalcAction({ locationId, punchesAcrossSites: cross }) === "suppress") {
+          queueSummaryDelete(locationId, staffId, workDate);
         }
+        covered.add(`${staffId}|${workDate}`);
+        continue;
+      }
+      if (crossSiteStaffIdSet.has(staffId)) {
         const homeId = homeLocationByStaffId.get(staffId) || "";
         // After cross-site week-off wins, treat local on-duty siblings as not rostered here.
         // Honor crossOnDutyLocations — local rosterByKey can miss a row that still
@@ -1387,7 +1414,8 @@ export async function recalculateAttendanceRange(
   // Prefer staff unique key for mapped rows. Upserting only on subject_key races with
   // ingest/legacy writers that already have (location_id, staff_id, work_date) but a
   // blank or different subject_key — INSERT then hits attendance_daily_summary_location_id_staff_id_work_date_key.
-  const mapped = summaryRows.filter((row) => row.staff_id);
+  // Punch-bearing rows win over roster Absent fillers in the same batch.
+  const mapped = preferPunchedDailySummaryRows(summaryRows.filter((row) => row.staff_id));
   const unmapped = summaryRows.filter((row) => !row.staff_id);
 
   // Drop stale ABSENT / partial rows at non-anchor sites for flexible / multisite days.

@@ -110,6 +110,7 @@ import {
   type ListingGapPunchDay,
   type ListingGapRosterDay,
 } from "@/lib/attendance-hr/report";
+import { suppressAbsentWhenPunchedSameDay } from "@/lib/attendance-hr/punch-over-absent";
 import {
   expandFlexibleBiometricPairsByDeviceName,
   flexibleDayFirstLastBiometricUserIds,
@@ -3169,7 +3170,25 @@ async function enrichAttendanceHrDailyRows(
         .map((row) => row.staff_id as string),
     ),
   ];
-  if (crossSiteIds.length === 0 || !dateFrom || !dateTo) {
+  // Also refresh punchless Absent / missed rows for non-flexible staff (Agnes S42):
+  // device punches must win over a stale daily_summary Absent without waiting for recalc.
+  const staleAbsentIds = [
+    ...new Set(
+      enriched
+        .filter((row) => {
+          if (!row.staff_id || row.cross_site_day_merge) return false;
+          if (row.actual_in || row.actual_out || Number(row.punch_count ?? 0) > 0) return false;
+          const status = String(row.status ?? "")
+            .trim()
+            .toLowerCase()
+            .replace(/\s+/g, "_");
+          return !status || status === "absent" || status === "missed_punch";
+        })
+        .map((row) => row.staff_id as string),
+    ),
+  ];
+  const punchRefreshIds = [...new Set([...crossSiteIds, ...staleAbsentIds])];
+  if (punchRefreshIds.length === 0 || !dateFrom || !dateTo) {
     return finishRows(enriched);
   }
 
@@ -3217,8 +3236,8 @@ async function enrichAttendanceHrDailyRows(
   }> = [];
   const deviceNames = new Set<string>();
 
-  for (let i = 0; i < crossSiteIds.length; i += 200) {
-    const chunk = crossSiteIds.slice(i, i + 200);
+  for (let i = 0; i < punchRefreshIds.length; i += 200) {
+    const chunk = punchRefreshIds.slice(i, i + 200);
     const { data: maps, error: mapErr } = await context.supabase
       .from("attendance_biometric_users")
       .select("staff_id, location_id, biometric_user_id, device_name")
@@ -3278,7 +3297,7 @@ async function enrichAttendanceHrDailyRows(
       .select(
         "id, staff_id, location_id, biometric_user_id, punch_at, attendance_date, probable_duplicate, excluded_from_calc",
       )
-      .in("staff_id", crossSiteIds)
+      .in("staff_id", punchRefreshIds)
       .gte("attendance_date", dateFrom)
       .lte("attendance_date", dateTo)
       .order("punch_at", { ascending: true })
@@ -3354,7 +3373,7 @@ async function enrichAttendanceHrDailyRows(
     staffByDeviceName.size > 0 &&
     deviceNames.size > 0 &&
     enriched.some((row) => {
-      if (!row.cross_site_day_merge || !row.staff_id) return false;
+      if (!row.staff_id || !punchRefreshIds.includes(row.staff_id)) return false;
       const key = `${row.staff_id}|${String(row.work_date).slice(0, 10)}`;
       return !(punchesByStaffDay.get(key)?.length);
     });
@@ -3392,7 +3411,7 @@ async function enrichAttendanceHrDailyRows(
               ? staffByLocUser.get(`${locationId}|${biometricUserId.trim()}`) ?? ""
               : "") ||
             (punchName ? staffByDeviceName.get(punchName) ?? "" : "");
-          if (!staffId || !crossSiteIds.includes(staffId)) continue;
+          if (!staffId || !punchRefreshIds.includes(staffId)) continue;
           addPunch(
             staffId,
             punchDay(log.attendance_date, log.punch_at),
@@ -3421,9 +3440,17 @@ async function enrichAttendanceHrDailyRows(
   }
 
   const withSites = enriched.map((row) => {
-    if (!row.cross_site_day_merge || !row.staff_id) return row;
+    if (!row.staff_id) return row;
     const key = `${row.staff_id}|${String(row.work_date).slice(0, 10)}`;
     const punches = punchesByStaffDay.get(key) ?? [];
+    const needsCrossSiteFields = Boolean(row.cross_site_day_merge);
+    const needsStaleAbsentRefresh =
+      !needsCrossSiteFields &&
+      !row.actual_in &&
+      !row.actual_out &&
+      Number(row.punch_count ?? 0) <= 0;
+    if (!needsCrossSiteFields && !needsStaleAbsentRefresh) return row;
+    if (!punches.length && !needsCrossSiteFields) return row;
     const { checkInLocationId, checkOutLocationId } = flexibleDayFirstLastLocationIds(punches);
     const { firstPunchAt, lastPunchAt, usableCount } = flexibleDayFirstLastPunchAt(punches);
     const { checkInBiometricUserId, checkOutBiometricUserId } =
@@ -3436,18 +3463,23 @@ async function enrichAttendanceHrDailyRows(
     const outLabel = outLoc
       ? formatLocationLabel(outLoc.code, formatLocationName(outLoc.name, outLoc.region) || outLoc.name)
       : null;
-    const siteFields = {
-      check_in_location_id: checkInLocationId,
-      check_out_location_id: checkOutLocationId,
-      check_in_location_code: inLoc?.code ?? null,
-      check_out_location_code: outLoc?.code ?? null,
-      check_in_location_label: inLabel,
-      check_out_location_label: outLabel,
-      check_in_biometric_user_id: checkInBiometricUserId,
-      check_out_biometric_user_id: checkOutBiometricUserId,
-      biometric_user_id:
-        checkInBiometricUserId ?? checkOutBiometricUserId ?? row.biometric_user_id,
-    };
+    const siteFields = needsCrossSiteFields
+      ? {
+          check_in_location_id: checkInLocationId,
+          check_out_location_id: checkOutLocationId,
+          check_in_location_code: inLoc?.code ?? null,
+          check_out_location_code: outLoc?.code ?? null,
+          check_in_location_label: inLabel,
+          check_out_location_label: outLabel,
+          check_in_biometric_user_id: checkInBiometricUserId,
+          check_out_biometric_user_id: checkOutBiometricUserId,
+          biometric_user_id:
+            checkInBiometricUserId ?? checkOutBiometricUserId ?? row.biometric_user_id,
+        }
+      : {
+          biometric_user_id:
+            checkInBiometricUserId ?? checkOutBiometricUserId ?? row.biometric_user_id,
+        };
     // Device punches for the same attendance_date win over stale daily_summary in/out.
     if (usableCount > 0) {
       const actualIn = firstPunchAt;
@@ -3565,7 +3597,11 @@ async function applyRoamingLocationFilterAdjustments(
       )
       .map((row) => String(row.id)),
   );
-  if (!crossSiteStaffIds.size) return opts.rows;
+  if (!crossSiteStaffIds.size) {
+    // Still drop punch-less Absent when a punched sibling exists the same day
+    // (non-flexible cafe staff such as Ronald KDS Absent + INF Present).
+    return suppressAbsentWhenPunchedSameDay(opts.rows);
+  }
 
   const crossIds = [...crossSiteStaffIds];
   let rows = [...opts.rows];

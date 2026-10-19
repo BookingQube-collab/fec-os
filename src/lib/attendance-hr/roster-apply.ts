@@ -3,6 +3,7 @@ import "server-only";
 import type { AuthContext } from "@/lib/server/auth";
 import { ForbiddenError, assertLocationAccess } from "@/lib/server/authorize";
 import { canUserDo } from "@/lib/rbac";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { recalculateAttendanceRange } from "./process";
 import { enumerateYmd } from "./dashboard";
 import { attendanceRecalcLocationsAfterRosterUpsert } from "./flexible-cross-site";
@@ -214,11 +215,14 @@ export async function replaceAttendanceRosterPeriod(
     staffHomeLocationIds: homeLocationIds,
     staffWorkLocationIds: workLocationIds,
   });
+  // Recalc with service role so punches are never hidden by the uploader's RLS
+  // (roster Absent fillers were overwriting Present for F&B cafe staff).
+  const recalcDb = supabaseAdmin as unknown as AuthContext["supabase"];
   let processed = 0;
   for (const locationId of recalcLocations) {
     for (const ids of chunkIds(staffIds, STAFF_IN_CHUNK)) {
       const recalc = await recalculateAttendanceRange(
-        db,
+        recalcDb,
         locationId,
         input.dateFrom,
         input.dateTo,

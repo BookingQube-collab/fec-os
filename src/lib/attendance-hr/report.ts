@@ -6,6 +6,7 @@ import {
   formatFlexibleCrossSiteLocationLabel,
 } from "@/lib/attendance-hr/flexible-cross-site";
 import { resolveListingLateMinutes } from "@/lib/attendance-hr/late-punch";
+import { suppressAbsentWhenPunchedSameDay } from "@/lib/attendance-hr/punch-over-absent";
 import { isActiveRosterStaff, isJokerStaffStatus } from "@/lib/staff-status";
 
 export type AttendanceHrReportRow = {
@@ -593,7 +594,11 @@ export function suppressRoamingFalseAbsentForRosterElsewhere(input: {
   crossSiteStaffIds: ReadonlySet<string>;
   locationId?: string | null;
 }): Array<Record<string, unknown>> {
-  if (!input.crossSiteStaffIds.size || input.rows.length === 0) return input.rows;
+  if (input.rows.length === 0) return input.rows;
+  // Any staff: punch-less Absent must not sit beside a punched sibling the same day
+  // (Ronald KDS Absent + INF Present; Agnes stale Absent after punches landed).
+  const rows = suppressAbsentWhenPunchedSameDay(input.rows);
+  if (!input.crossSiteStaffIds.size) return rows;
 
   /** staffId|day → location ids with on-duty (non week-off) roster that day. */
   const onDutyLocsByStaffDay = new Map<string, Set<string>>();
@@ -618,13 +623,13 @@ export function suppressRoamingFalseAbsentForRosterElsewhere(input: {
   }
   const filterLoc = input.locationId?.trim() || "";
   if (onDutyLocsByStaffDay.size === 0 && weekOffLocsByStaffDay.size === 0 && !filterLoc) {
-    return input.rows;
+    return rows;
   }
   // Under a location filter we still walk rows to drop other-site Absents even
   // when on-duty / weekOff maps are empty (stale sibling ABSENT only).
 
   const out: Array<Record<string, unknown>> = [];
-  for (const row of input.rows) {
+  for (const row of rows) {
     const staffId = typeof row.staff_id === "string" ? row.staff_id : "";
     if (!staffId || !input.crossSiteStaffIds.has(staffId)) {
       out.push(row);
