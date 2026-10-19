@@ -610,6 +610,8 @@ export default function StaffRosterRegisterPage() {
         kicker={t("people.roster.viewKicker")}
         title={t("people.roster.viewTitle")}
         subtitle={t("people.roster.viewSubtitle")}
+        // Full strip only from lg up (PageHeader hides it under lg). Compact
+        // primary + ⋯ menu cover phone/tablet while bottom nav is still visible.
         actions={desktopActions}
         primaryAction={mobilePrimary}
         overflow={mobileOverflow}

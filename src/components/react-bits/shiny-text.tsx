@@ -124,9 +124,9 @@ const ShinyText: React.FC<ShinyTextProps> = ({
 
   return (
     <motion.span
-      // Block + normal wrapping: inline-block min-content can collapse to ~1ch
-      // beside wide flex siblings and paint titles as vertical letter columns.
-      className={`block max-w-full min-w-0 whitespace-normal [overflow-wrap:normal] [word-break:normal] ${className}`}
+      // Always block + full width: inline-block/min-content collapses to ~1ch
+      // beside wide flex siblings and paints titles as vertical letter columns.
+      className={`block w-full max-w-full min-w-0 whitespace-normal [overflow-wrap:normal] [word-break:normal] ${className}`}
       style={{ ...gradientStyle, backgroundPosition }}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
