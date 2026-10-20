@@ -14,11 +14,14 @@ import {
   isOtEligible,
   isSupervisorOtContract,
   mergeSupervisorOtTeamStaffIds,
+  otApprovalQueueStatuses,
   otPayDaysPerMonth,
+  isSupervisorOtStaffEntryReady,
   partitionSupervisorOtPicks,
   resolveEligibleOtMinutes,
   supervisorOtClaimSlots,
   supervisorOtContractMessage,
+  supervisorOtStaffFieldErrors,
   resolveOtRateMultiplier,
   roundOtMinutes,
 } from "./hr-ot";
@@ -31,7 +34,7 @@ describe("OT claim transitions", () => {
     expect(canTransitionOt("submitted", "hr_approved", "employee")).toBe(false);
   });
 
-  it("walks manager verify → HR approve → payroll_posted", () => {
+  it("walks site supervisor verify → HR approve → payroll_posted", () => {
     expect(canTransitionOt("submitted", "manager_verified", "manager")).toBe(true);
     expect(canTransitionOt("manager_verified", "hr_approved", "hr")).toBe(true);
     expect(canTransitionOt("hr_approved", "payroll_posted", "hr")).toBe(true);
@@ -41,6 +44,11 @@ describe("OT claim transitions", () => {
   it("blocks illegal transitions", () => {
     expect(() => assertOtTransition("payroll_posted", "hr_approved", "hr")).toThrow(/cannot move/);
     expect(() => assertOtTransition("rejected", "submitted", "employee")).toThrow(/cannot move/);
+  });
+
+  it("queues submitted for site supervisors and both steps for HR", () => {
+    expect(otApprovalQueueStatuses(false)).toEqual(["submitted"]);
+    expect(otApprovalQueueStatuses(true)).toEqual(["submitted", "manager_verified"]);
   });
 });
 
@@ -217,13 +225,46 @@ describe("Supervisor OT multi-staff helpers", () => {
     expect(ineligible.map((row) => row.id)).toEqual(["b"]);
   });
 
-  it("builds one claim slot per staff × date", () => {
-    expect(supervisorOtClaimSlots(["b", "a", "a"], ["2026-10-19", "2026-09-30", "2026-10-19"])).toEqual([
+  it("builds one claim slot per staff × their dates", () => {
+    expect(
+      supervisorOtClaimSlots([
+        { staffId: "b", workDates: ["2026-10-19", "2026-09-30", "2026-10-19"] },
+        { staffId: "a", workDates: ["2026-10-20"] },
+        { staffId: "a", workDates: ["2026-10-21"] },
+      ]),
+    ).toEqual([
       { staffId: "b", workDate: "2026-09-30" },
       { staffId: "b", workDate: "2026-10-19" },
-      { staffId: "a", workDate: "2026-09-30" },
-      { staffId: "a", workDate: "2026-10-19" },
+      { staffId: "a", workDate: "2026-10-20" },
     ]);
+  });
+
+  it("skips staff with no dates", () => {
+    expect(
+      supervisorOtClaimSlots([
+        { staffId: "a", workDates: [] },
+        { staffId: "b", workDates: ["2026-10-18"] },
+      ]),
+    ).toEqual([{ staffId: "b", workDate: "2026-10-18" }]);
+  });
+
+  it("requires contract, dates, hours, and purpose per staff", () => {
+    expect(
+      supervisorOtStaffFieldErrors({
+        supervisorContract: false,
+        workDates: [],
+        hours: 0,
+        purpose: "ab",
+      }),
+    ).toEqual(["contract", "dates", "hours", "purpose"]);
+    expect(
+      isSupervisorOtStaffEntryReady({
+        supervisorContract: true,
+        workDates: ["2026-10-18"],
+        hours: 2,
+        purpose: "Event coverage",
+      }),
+    ).toBe(true);
   });
 });
 

@@ -23,6 +23,11 @@ export type HrOtRounding = (typeof HR_OT_ROUNDING)[number];
 
 export type HrOtActor = "employee" | "manager" | "hr" | "payroll";
 
+/**
+ * Approval chain (no new status enum):
+ *   submitted → manager_verified (site supervisor / line manager) → hr_approved → payroll_posted
+ * `manager_verified` is the site-supervisor step ("site supervisor approved").
+ */
 const TRANSITIONS: Record<HrOtStatus, Partial<Record<HrOtActor, HrOtStatus[]>>> = {
   draft: {
     employee: ["submitted", "cancelled"],
@@ -44,6 +49,15 @@ const TRANSITIONS: Record<HrOtStatus, Partial<Record<HrOtActor, HrOtStatus[]>>> 
   rejected: {},
   cancelled: {},
 };
+
+/**
+ * Approval queue statuses.
+ * Site supervisors (verify only) act on `submitted`.
+ * HR (approve) also sees `manager_verified` waiting for HR approve.
+ */
+export function otApprovalQueueStatuses(canApprove: boolean): readonly HrOtStatus[] {
+  return canApprove ? ["submitted", "manager_verified"] : ["submitted"];
+}
 
 export function canTransitionOt(from: HrOtStatus, to: HrOtStatus, actor: HrOtActor): boolean {
   if (from === to) return false;
@@ -144,14 +158,47 @@ export function partitionSupervisorOtPicks<T extends { supervisorContract: boole
   return { eligible, ineligible };
 }
 
-/** One claim slot per staff × work date (deduped, dates sorted). */
+/** One claim slot per staff × that staff's work dates (deduped staff, dates sorted). */
 export function supervisorOtClaimSlots(
-  staffIds: readonly string[],
-  workDates: readonly string[],
+  entries: readonly { staffId: string; workDates: readonly string[] }[],
 ): Array<{ staffId: string; workDate: string }> {
-  const ids = [...new Set(staffIds.filter(Boolean))];
-  const dates = [...new Set(workDates.filter(Boolean))].sort();
-  return ids.flatMap((staffId) => dates.map((workDate) => ({ staffId, workDate })));
+  const slots: Array<{ staffId: string; workDate: string }> = [];
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    if (!entry.staffId || seen.has(entry.staffId)) continue;
+    seen.add(entry.staffId);
+    const dates = [...new Set(entry.workDates.filter(Boolean))].sort();
+    for (const workDate of dates) {
+      slots.push({ staffId: entry.staffId, workDate });
+    }
+  }
+  return slots;
+}
+
+export type SupervisorOtStaffFieldError = "contract" | "dates" | "hours" | "purpose";
+
+/** Per-staff readiness for supervisor OT submit (26/28 + dates + hours + purpose). */
+export function supervisorOtStaffFieldErrors(input: {
+  supervisorContract: boolean;
+  workDates: readonly string[];
+  hours: number;
+  purpose: string;
+}): SupervisorOtStaffFieldError[] {
+  const errors: SupervisorOtStaffFieldError[] = [];
+  if (!input.supervisorContract) errors.push("contract");
+  if (input.workDates.length === 0) errors.push("dates");
+  if (!Number.isFinite(input.hours) || input.hours <= 0) errors.push("hours");
+  if (input.purpose.trim().length < 3) errors.push("purpose");
+  return errors;
+}
+
+export function isSupervisorOtStaffEntryReady(input: {
+  supervisorContract: boolean;
+  workDates: readonly string[];
+  hours: number;
+  purpose: string;
+}): boolean {
+  return supervisorOtStaffFieldErrors(input).length === 0;
 }
 
 /**

@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import type { HrOtRateType } from "@/lib/hr-ot";
 import { cn } from "@/lib/utils";
 
 export type SupervisorOtPrintStaff = {
@@ -20,13 +21,15 @@ export type SupervisorOtPrintStaff = {
   phone: string | null;
   department: string | null;
   jobTitle: string | null;
+  /** OT dates for this employee only. */
+  workDates: string[];
+  requiredHours: number;
+  purpose: string;
+  rateType: HrOtRateType;
 };
 
 export type SupervisorOtPrintPayload = {
   staff: SupervisorOtPrintStaff[];
-  workDates: string[];
-  requiredHours: number;
-  purpose: string;
   /** Form “DATE” field — request day (YYYY-MM-DD). */
   requestDate: string;
 };
@@ -63,18 +66,19 @@ function FormField({
 
 function OtRequestSheet({
   staff,
-  payload,
+  requestDate,
   staffRequired,
 }: {
   staff: SupervisorOtPrintStaff;
-  payload: SupervisorOtPrintPayload;
+  requestDate: string;
   staffRequired: number;
 }) {
   const { t } = useTranslation();
-  const datesLabel = payload.workDates.map(formatDisplayDate).join(" and ");
-  const perDay = formatHoursLabel(payload.requiredHours);
+  const workDates = staff.workDates;
+  const datesLabel = workDates.map(formatDisplayDate).join(" and ");
+  const perDay = formatHoursLabel(staff.requiredHours);
   const totalHours = formatHoursLabel(
-    Math.round(payload.requiredHours * payload.workDates.length * 100) / 100,
+    Math.round(staff.requiredHours * workDates.length * 100) / 100,
   );
 
   return (
@@ -98,7 +102,7 @@ function OtRequestSheet({
         <FormField label={t("hr.ot.print.employeeId")} value={staff.employeeCode ?? "—"} />
         <FormField label={t("hr.ot.print.department")} value={staff.department ?? "—"} />
         <FormField label={t("hr.ot.print.jobTitle")} value={staff.jobTitle ?? "—"} />
-        <FormField label={t("hr.ot.print.formDate")} value={formatDisplayDate(payload.requestDate)} />
+        <FormField label={t("hr.ot.print.formDate")} value={formatDisplayDate(requestDate)} />
         <FormField label={t("hr.ot.print.phone")} value={staff.phone ?? "—"} />
       </div>
 
@@ -107,7 +111,7 @@ function OtRequestSheet({
           {t("hr.ot.print.purpose")}
         </p>
         <div className="mt-1 min-h-[4.5rem] space-y-2 border-b border-neutral-300 pb-1 text-sm leading-relaxed">
-          <p>{payload.purpose}</p>
+          <p>{staff.purpose}</p>
           <div className="border-b border-neutral-300" />
           <div className="border-b border-neutral-300" />
         </div>
@@ -118,6 +122,10 @@ function OtRequestSheet({
         <FormField label={t("hr.ot.print.otDates")} value={datesLabel} />
         <FormField label={t("hr.ot.print.otTime")} value={totalHours} />
         <FormField label={t("hr.ot.print.requiredHours")} value={perDay} />
+        <FormField
+          label={t("hr.ot.print.rateType")}
+          value={t(`hr.ot.rateTypes.${staff.rateType}`)}
+        />
       </div>
 
       <div className="mt-5 flex flex-wrap gap-8 text-sm">
@@ -191,7 +199,7 @@ export function SupervisorOtPrintDialog({
             <OtRequestSheet
               key={person.id}
               staff={person}
-              payload={payload}
+              requestDate={payload.requestDate}
               staffRequired={payload.staff.length}
             />
           ))}

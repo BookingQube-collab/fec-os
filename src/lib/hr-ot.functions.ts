@@ -15,6 +15,7 @@ import {
   HR_OT_STATUSES,
   isOtEligible,
   isSupervisorOtContract,
+  otApprovalQueueStatuses,
   otPayDaysPerMonth,
   resolveEligibleOtMinutes,
   resolveOtRateMultiplier,
@@ -29,7 +30,12 @@ import { policyNumber } from "@/lib/hr-policy";
 import { readPolicySection } from "@/lib/hr-policy-read";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { canActorPerform } from "@/lib/arcade/access";
-import { loadSupervisorOtTeamStaffIds } from "@/lib/reporting-manager-access.server";
+import { isSiteSupervisorTitle } from "@/lib/attendance-hr/missed-punch-approval";
+import { loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
+import {
+  loadOtSiteSupervisorNotifyUserIds,
+  loadSupervisorOtTeamStaffIds,
+} from "@/lib/reporting-manager-access.server";
 import { ForbiddenError } from "@/lib/server/authorize";
 import {
   createAuthenticatedAction,
@@ -52,6 +58,45 @@ function canOtApprove(context: AuthContext): boolean {
 
 function canOtSubmit(context: AuthContext): boolean {
   return canActorPerform(context.roles ?? [], "hr.ot.submit", otAccess(context));
+}
+
+/**
+ * Venue / Site supervisors (title-based `hr.ot.verify`, no HR approve) only see
+ * and act on claims for staff in their org-chart / supervisor OT team.
+ * Role-based verifiers and HR keep company-wide access.
+ */
+async function otSiteSupervisorTeamStaffIds(context: AuthContext): Promise<string[] | null> {
+  if (canOtApprove(context) || !canOtVerify(context)) return null;
+  const linked = await loadLinkedStaffRecord(context.userId);
+  if (!linked || !isSiteSupervisorTitle(linked.jobTitle, linked.staffRole)) return null;
+  const { teamStaffIds } = await loadSupervisorOtTeamStaffIds(context.userId);
+  return teamStaffIds;
+}
+
+async function assertOtClaimInSiteSupervisorTeam(
+  context: AuthContext,
+  claimStaffId: string,
+): Promise<void> {
+  const teamIds = await otSiteSupervisorTeamStaffIds(context);
+  if (!teamIds) return;
+  if (!teamIds.includes(claimStaffId)) {
+    throw new ForbiddenError("OT claim is outside your reporting team.");
+  }
+}
+
+/** Site supervisor on the chart first; fall back to role-based hr.ot.verify. */
+async function otSubmittedNotifyUserIds(input: {
+  staffId: string;
+  locationId: string | null;
+  excludeUserId?: string | null;
+}): Promise<string[]> {
+  const { findUsersWithCapability } = await import("@/lib/notifications/action-notify");
+  const siteIds = await loadOtSiteSupervisorNotifyUserIds(input.staffId, {
+    excludeUserId: input.excludeUserId,
+  });
+  if (siteIds.length > 0) return siteIds;
+  const roleIds = await findUsersWithCapability("hr.ot.verify", input.locationId);
+  return roleIds.filter((id) => id !== input.excludeUserId);
 }
 
 async function myStaff(context: AuthContext) {
@@ -241,7 +286,11 @@ export const listOtClaims = createAuthenticatedAction(
     }
 
     const mine = await myStaff(context);
-    let query = context.supabase
+    const teamScope = await otSiteSupervisorTeamStaffIds(context);
+    // Team-scoped site supervisors bypass RLS that only allows "own" rows for
+    // non-supervisor logins; admin read still filters to their reporting tree.
+    const claimDb = teamScope ? supabaseAdmin : context.supabase;
+    let query = claimDb
       .from("hr_ot_claims")
       .select(CLAIM_SELECT)
       .order("work_date", { ascending: false })
@@ -250,12 +299,20 @@ export const listOtClaims = createAuthenticatedAction(
     if (data.mineOnly || (!canApprove && !canVerify)) {
       if (!mine?.id) return [];
       query = query.eq("staff_id", mine.id);
+    } else if (teamScope) {
+      if (teamScope.length === 0) return [];
+      if (data.staffId) {
+        if (!teamScope.includes(data.staffId)) return [];
+        query = query.eq("staff_id", data.staffId);
+      } else {
+        query = query.in("staff_id", teamScope);
+      }
     } else if (data.staffId) {
       query = query.eq("staff_id", data.staffId);
     }
 
     if (data.status === "queue") {
-      query = query.in("status", ["submitted", "manager_verified"]);
+      query = query.in("status", [...otApprovalQueueStatuses(canApprove)]);
     } else if (data.status && data.status !== "all") {
       query = query.eq("status", data.status);
     }
@@ -291,12 +348,19 @@ export const getOtMonthlySummaries = createAuthenticatedAction(
     const [y, m] = data.month.split("-").map(Number);
     const end = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
 
-    const { data: rows, error } = await context.supabase
+    const teamScope = await otSiteSupervisorTeamStaffIds(context);
+    if (teamScope && teamScope.length === 0) return [];
+
+    const claimDb = teamScope ? supabaseAdmin : context.supabase;
+    let query = claimDb
       .from("hr_ot_claims")
       .select(CLAIM_SELECT)
       .gte("work_date", start)
       .lte("work_date", end)
       .limit(1000);
+    if (teamScope) query = query.in("staff_id", teamScope);
+
+    const { data: rows, error } = await query;
     if (error) {
       if (tableMissing(error.message)) return [];
       throw error;
@@ -533,14 +597,18 @@ export const submitOtClaim = createAuthenticatedAction(
     if (status === "submitted") {
       await appendApproval(context, row.id as string, "submit", "submitted", data.notes);
       try {
-        const { findUsersWithCapability, notifyUsers } = await import("@/lib/notifications/action-notify");
-        const mgrIds = await findUsersWithCapability("hr.ot.verify", staff.location_id ?? null);
+        const { notifyUsers } = await import("@/lib/notifications/action-notify");
+        const mgrIds = await otSubmittedNotifyUserIds({
+          staffId,
+          locationId: staff.location_id ?? null,
+          excludeUserId: context.userId,
+        });
         await notifyUsers({
           userIds: mgrIds,
           locationId: staff.location_id ?? null,
           category: "hr_ot",
           title: "OT claim submitted",
-          body: `An OT claim for ${String(staff.full_name ?? "staff")} on ${data.workDate} needs verification.`,
+          body: `An OT claim for ${String(staff.full_name ?? "staff")} on ${data.workDate} needs site supervisor approval.`,
           severity: "warning",
           actionUrl: "/people/hr/ot",
           sourceType: "hr_ot_claims",
@@ -613,6 +681,7 @@ export const actOnOtClaim = createAuthenticatedAction(
       approvalAction = "submitted";
     } else if (data.action === "verify") {
       if (!canVerify && !canApprove) throw new ForbiddenError("Manager verification required.");
+      await assertOtClaimInSiteSupervisorTeam(context, String(existing.staff_id));
       actor = "manager";
       to = "manager_verified";
       assertOtTransition(from, to, canApprove ? "hr" : actor);
@@ -649,6 +718,9 @@ export const actOnOtClaim = createAuthenticatedAction(
     } else if (data.action === "reject") {
       if (!canVerify && !canApprove) throw new ForbiddenError("Cannot reject OT claim.");
       actor = canApprove && from === "manager_verified" ? "hr" : "manager";
+      if (actor === "manager") {
+        await assertOtClaimInSiteSupervisorTeam(context, String(existing.staff_id));
+      }
       to = "rejected";
       assertOtTransition(from, to, actor);
       patch.status = to;
@@ -727,15 +799,31 @@ export const actOnOtClaim = createAuthenticatedAction(
         const staffName = (staffJoin as { full_name?: string } | null)?.full_name ?? "staff";
         const staffUserId = (staffJoin as { user_id?: string } | null)?.user_id ?? null;
         const locId = (existing.location_id as string | null) ?? null;
-        if (to === "submitted" || to === "manager_verified") {
-          const cap = to === "submitted" ? "hr.ot.verify" : "hr.ot.approve";
-          const ids = await findUsersWithCapability(cap, locId);
+        if (to === "submitted") {
+          const ids = await otSubmittedNotifyUserIds({
+            staffId: String(existing.staff_id),
+            locationId: locId,
+            excludeUserId: context.userId,
+          });
           await notifyUsers({
             userIds: ids,
             locationId: locId,
             category: "hr_ot",
-            title: to === "submitted" ? "OT claim submitted" : "OT claim ready for HR",
-            body: `OT for ${staffName} on ${String(existing.work_date).slice(0, 10)} needs action.`,
+            title: "OT claim submitted",
+            body: `OT for ${staffName} on ${String(existing.work_date).slice(0, 10)} needs site supervisor approval.`,
+            severity: "warning",
+            actionUrl: "/people/hr/ot",
+            sourceType: "hr_ot_claims",
+            sourceId: data.claimId,
+          });
+        } else if (to === "manager_verified") {
+          const ids = await findUsersWithCapability("hr.ot.approve", locId);
+          await notifyUsers({
+            userIds: ids,
+            locationId: locId,
+            category: "hr_ot",
+            title: "OT claim ready for HR",
+            body: `OT for ${staffName} on ${String(existing.work_date).slice(0, 10)} was site supervisor approved and needs HR.`,
             severity: "warning",
             actionUrl: "/people/hr/ot",
             sourceType: "hr_ot_claims",
@@ -1010,14 +1098,25 @@ export const setStaffContractWorkingDays = createAuthenticatedAction(
 
 export const submitSupervisorOtClaim = createAuthenticatedAction(
   z.object({
-    staffIds: z.array(z.string().uuid()).min(1).max(40),
-    workDates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).min(1).max(14),
-    requiredHours: z.number().gt(0).max(24),
-    purpose: z.string().trim().min(3).max(1000),
-    rateType: z.enum(HR_OT_RATE_TYPES).default("weekday"),
+    entries: z
+      .array(
+        z.object({
+          staffId: z.string().uuid(),
+          workDates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).min(1).max(14),
+          hours: z.number().gt(0).max(24),
+          rateType: z.enum(HR_OT_RATE_TYPES).default("weekday"),
+          purpose: z.string().trim().min(3).max(1000),
+        }),
+      )
+      .min(1)
+      .max(40),
   }),
   async (data, context) => {
-    const staffIds = [...new Set(data.staffIds)];
+    const staffIds = [...new Set(data.entries.map((entry) => entry.staffId))];
+    if (staffIds.length !== data.entries.length) {
+      throw new Error("Each selected employee may appear only once.");
+    }
+    const entryByStaff = new Map(data.entries.map((entry) => [entry.staffId, entry]));
     const { teamStaffIds } = await loadSupervisorOtTeamStaffIds(context.userId);
     const teamSet = new Set(teamStaffIds);
     for (const staffId of staffIds) {
@@ -1057,47 +1156,79 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
     }
 
     const ineligibleNames: string[] = [];
-    const eligibleIds: string[] = [];
     for (const staffId of staffIds) {
       const days = contractByStaff.get(staffId) ?? null;
-      if (isSupervisorOtContract(days)) {
-        eligibleIds.push(staffId);
-      } else {
-        const name = String(staffById.get(staffId)?.full_name ?? "Staff");
-        ineligibleNames.push(name);
+      if (!isSupervisorOtContract(days)) {
+        ineligibleNames.push(String(staffById.get(staffId)?.full_name ?? "Staff"));
       }
-    }
-    if (eligibleIds.length === 0) {
-      throw new Error(
-        ineligibleNames.length === 1
-          ? "Set this employee's contract to 26 or 28 working days before a supervisor OT request."
-          : "Set a 26- or 28-day contract for each selected employee before submitting.",
-      );
     }
     if (ineligibleNames.length > 0) {
       throw new Error(
-        `Supervisor OT requests need a 26- or 28-day contract. Remove or fix: ${ineligibleNames.join(", ")}.`,
+        ineligibleNames.length === 1
+          ? "Set this employee's contract to 26 or 28 working days before a supervisor OT request."
+          : `Supervisor OT requests need a 26- or 28-day contract. Remove or fix: ${ineligibleNames.join(", ")}.`,
       );
     }
 
     const policy = await loadOtPolicy(context);
     const minClaimable = policyNumber(policy.min_claimable_minutes, 60);
     const rounding = String(policy.rounding ?? "down") as HrOtRounding;
-    const claimedMinutes = assertMinClaimableMinutes(Math.round(data.requiredHours * 60), minClaimable, rounding);
-    const rateMultiplier = resolveOtRateMultiplier(data.rateType, policy);
-    const dates = [...new Set(data.workDates)].sort();
-    const slots = supervisorOtClaimSlots(eligibleIds, dates);
+
+    type StaffClaimMeta = {
+      claimedMinutes: number;
+      rateType: HrOtRateType;
+      rateMultiplier: number;
+      purpose: string;
+      amountQar: number;
+    };
+    const metaByStaff = new Map<string, StaffClaimMeta>();
+    for (const entry of data.entries) {
+      const contractDays = contractByStaff.get(entry.staffId);
+      if (!isSupervisorOtContract(contractDays)) continue;
+      const claimedMinutes = assertMinClaimableMinutes(
+        Math.round(entry.hours * 60),
+        minClaimable,
+        rounding,
+      );
+      const rateMultiplier = resolveOtRateMultiplier(entry.rateType, policy);
+      const pay = await staffPay(context, entry.staffId);
+      metaByStaff.set(entry.staffId, {
+        claimedMinutes,
+        rateType: entry.rateType,
+        rateMultiplier,
+        purpose: entry.purpose.trim(),
+        amountQar: amountFor(claimedMinutes, rateMultiplier, pay, policy, contractDays),
+      });
+    }
+
+    const slots = supervisorOtClaimSlots(
+      data.entries.map((entry) => ({
+        staffId: entry.staffId,
+        workDates: entry.workDates,
+      })),
+    );
+    if (slots.length === 0) {
+      throw new Error("Add at least one overtime date for each employee.");
+    }
+    const dates = [...new Set(slots.map((slot) => slot.workDate))].sort();
+    const slotKey = new Set(
+      slots.map((slot) => {
+        const rateType = entryByStaff.get(slot.staffId)?.rateType ?? "weekday";
+        return `${slot.staffId}:${slot.workDate}:${rateType}`;
+      }),
+    );
 
     const { data: existing, error: existingErr } = await context.supabase
       .from("hr_ot_claims")
-      .select("staff_id, work_date, status")
-      .in("staff_id", eligibleIds)
-      .eq("rate_type", data.rateType)
+      .select("staff_id, work_date, rate_type, status")
+      .in("staff_id", staffIds)
       .in("work_date", dates);
     if (existingErr) throw existingErr;
-    const blocked = (existing ?? []).filter(
-      (row) => row.status !== "rejected" && row.status !== "cancelled",
-    );
+    const blocked = (existing ?? []).filter((row) => {
+      if (row.status === "rejected" || row.status === "cancelled") return false;
+      const key = `${String(row.staff_id)}:${String(row.work_date).slice(0, 10)}:${String(row.rate_type)}`;
+      return slotKey.has(key);
+    });
     if (blocked.length > 0) {
       const labels = blocked.map((row) => {
         const name = String(staffById.get(String(row.staff_id))?.full_name ?? "Staff");
@@ -1106,38 +1237,39 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
       throw new Error(`An active OT claim already exists for ${labels.join(", ")}.`);
     }
 
-    const amountByStaff = new Map<string, number>();
-    for (const staffId of eligibleIds) {
-      const contractDays = contractByStaff.get(staffId);
-      if (!isSupervisorOtContract(contractDays)) continue;
-      const pay = await staffPay(context, staffId);
-      amountByStaff.set(staffId, amountFor(claimedMinutes, rateMultiplier, pay, policy, contractDays));
-    }
-
     const now = new Date().toISOString();
+    const linked = await loadLinkedStaffRecord(context.userId);
+    // Site supervisor filing for their tree already did the verify step.
+    const siteSupervisorFiling = Boolean(
+      linked && isSiteSupervisorTitle(linked.jobTitle, linked.staffRole),
+    );
+    const initialStatus: HrOtStatus = siteSupervisorFiling ? "manager_verified" : "submitted";
+
     const rows = slots.flatMap((slot) => {
       const staff = staffById.get(slot.staffId);
       const contractDays = contractByStaff.get(slot.staffId);
-      const amountQar = amountByStaff.get(slot.staffId);
-      if (!staff || !isSupervisorOtContract(contractDays) || amountQar == null) return [];
+      const meta = metaByStaff.get(slot.staffId);
+      if (!staff || !isSupervisorOtContract(contractDays) || !meta) return [];
       return [
         {
           staff_id: slot.staffId,
           location_id: staff.location_id ?? null,
           work_date: slot.workDate,
-          eligible_minutes: claimedMinutes,
-          claimed_minutes: claimedMinutes,
-          approved_minutes: null,
-          rate_type: data.rateType,
-          rate_multiplier: rateMultiplier,
-          amount_qar: amountQar,
-          status: "submitted" as const,
-          notes: data.purpose,
-          purpose: data.purpose,
+          eligible_minutes: meta.claimedMinutes,
+          claimed_minutes: meta.claimedMinutes,
+          approved_minutes: siteSupervisorFiling ? meta.claimedMinutes : null,
+          rate_type: meta.rateType,
+          rate_multiplier: meta.rateMultiplier,
+          amount_qar: meta.amountQar,
+          status: initialStatus,
+          notes: meta.purpose,
+          purpose: meta.purpose,
           claim_source: "supervisor" as const,
           contract_working_days: contractDays,
           submitted_by: context.userId,
           submitted_at: now,
+          verified_by: siteSupervisorFiling ? context.userId : null,
+          verified_at: siteSupervisorFiling ? now : null,
           created_by: context.userId,
         },
       ];
@@ -1155,32 +1287,46 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
     }
 
     for (const row of inserted ?? []) {
-      await appendApproval(context, String(row.id), "submit", "submitted", data.purpose);
+      const purpose = metaByStaff.get(String(row.staff_id))?.purpose;
+      await appendApproval(context, String(row.id), "submit", "submitted", purpose);
+      if (siteSupervisorFiling) {
+        await appendApproval(context, String(row.id), "manager", "verified", purpose);
+      }
     }
 
     try {
       const { findUsersWithCapability, notifyUsers } = await import("@/lib/notifications/action-notify");
       const locationIds = [
         ...new Set(
-          eligibleIds
+          staffIds
             .map((id) => staffById.get(id)?.location_id ?? null)
             .filter((id): id is string => Boolean(id)),
         ),
       ];
       const notifyLoc = locationIds.length === 1 ? locationIds[0] : null;
-      const mgrIds = await findUsersWithCapability("hr.ot.verify", notifyLoc);
+      const siteIds = new Set<string>();
+      if (!siteSupervisorFiling) {
+        for (const staffId of staffIds) {
+          const ids = await loadOtSiteSupervisorNotifyUserIds(staffId, {
+            excludeUserId: context.userId,
+          });
+          for (const id of ids) siteIds.add(id);
+        }
+      }
       const hrIds = await findUsersWithCapability("hr.ot.approve", notifyLoc);
-      const userIds = [...new Set([...mgrIds, ...hrIds])];
-      const names = eligibleIds
+      const userIds = [...new Set([...siteIds, ...hrIds])];
+      const names = staffIds
         .map((id) => String(staffById.get(id)?.full_name ?? "Staff"))
         .slice(0, 5);
-      const more = eligibleIds.length > names.length ? ` +${eligibleIds.length - names.length}` : "";
+      const more = staffIds.length > names.length ? ` +${staffIds.length - names.length}` : "";
       await notifyUsers({
         userIds,
         locationId: notifyLoc,
         category: "hr_ot",
-        title: "Supervisor OT request",
-        body: `${names.join(", ")}${more} · ${dates.join(", ")} · ${claimedMinutes} min · ${eligibleIds.length} staff.`,
+        title: siteSupervisorFiling
+          ? "Supervisor OT ready for HR"
+          : "Supervisor OT request",
+        body: `${names.join(", ")}${more} · ${dates.join(", ")} · ${rows.length} claim(s) · ${staffIds.length} staff.`,
         severity: "warning",
         actionUrl: "/people/hr/ot",
         sourceType: "hr_ot_claims",
@@ -1190,10 +1336,11 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
       /* non-blocking */
     }
 
+    const firstClaimed = metaByStaff.get(staffIds[0]!)?.claimedMinutes ?? 0;
     return {
       count: inserted?.length ?? rows.length,
-      staffCount: eligibleIds.length,
-      claimedMinutes,
+      staffCount: staffIds.length,
+      claimedMinutes: firstClaimed,
       ids: (inserted ?? []).map((row) => String(row.id)),
     };
   },

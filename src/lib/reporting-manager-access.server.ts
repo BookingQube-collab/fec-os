@@ -6,6 +6,7 @@ import {
   reportingTreeStaffIds,
 } from "@/lib/attendance-listing-access";
 import { isRosterAssignableStaffStatus } from "@/lib/attendance-hr/roster-register-scope";
+import { isSiteSupervisorTitle } from "@/lib/attendance-hr/missed-punch-approval";
 import { loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
 import { mergeSupervisorOtTeamStaffIds } from "@/lib/hr-ot";
 import {
@@ -343,6 +344,58 @@ export async function loadSupervisorOtTeamStaffIds(userId: string): Promise<{
   }
 
   return { staffId, teamStaffIds: reportingTeamIds };
+}
+
+/**
+ * Nearest site / venue supervisor up the `reporting_manager_staff_id` chain
+ * who has a login. Used so OT submit notifies Ashfaq (Venue Supervisor) when
+ * Ma luz / Marissa / Wahaj (or staff under them) file a claim — role-based
+ * `findUsersWithCapability("hr.ot.verify")` misses title-based supervisors.
+ */
+export async function loadOtSiteSupervisorNotifyUserIds(
+  staffId: string,
+  opts?: { excludeUserId?: string | null },
+): Promise<string[]> {
+  const exclude = opts?.excludeUserId ?? null;
+  let cursor: string | null = staffId;
+  const seen = new Set<string>();
+
+  for (let depth = 0; depth < 25 && cursor; depth += 1) {
+    if (seen.has(cursor)) break;
+    seen.add(cursor);
+
+    const { data: ext, error: extErr } = await supabaseAdmin
+      .from("staff_profile_ext")
+      .select("reporting_manager_staff_id")
+      .eq("staff_id", cursor)
+      .maybeSingle();
+    if (extErr) throw new Error(extErr.message);
+
+    const managerId = ext?.reporting_manager_staff_id
+      ? String(ext.reporting_manager_staff_id)
+      : null;
+    if (!managerId) break;
+
+    const { data: mgr, error: mgrErr } = await supabaseAdmin
+      .from("staff")
+      .select("id, user_id, job_title, staff_role")
+      .eq("id", managerId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (mgrErr) throw new Error(mgrErr.message);
+    if (!mgr) {
+      cursor = managerId;
+      continue;
+    }
+
+    if (isSiteSupervisorTitle(mgr.job_title, mgr.staff_role) && mgr.user_id) {
+      const userId = String(mgr.user_id);
+      if (exclude && userId === exclude) return [];
+      return [userId];
+    }
+    cursor = managerId;
+  }
+  return [];
 }
 
 export async function loadReportingTreeStaffIds(userId: string): Promise<string[]> {
