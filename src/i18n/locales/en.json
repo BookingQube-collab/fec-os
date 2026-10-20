@@ -9037,6 +9037,7 @@
       "staffSearchPlaceholder": "Search your team by name",
       "noStaff": "No matching employees on your team.",
       "noTeamStaff": "No team assigned yet. OT requests need people who report to you, or staff at your managed venues.",
+      "teamLoadFailed": "Could not load your team. Try again, or contact HR if this keeps happening.",
       "changeStaff": "Change",
       "employeeId": "Employee ID",
       "phone": "Phone",

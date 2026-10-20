@@ -154,3 +154,24 @@ export function createAuthenticatedActionNoInput<TResult>(
     }
   };
 }
+
+/** Like createAuthenticatedActionNoInput but returns `{ ok, data | error }` (avoids production RSC digests / React #441). */
+export function createSafeAuthenticatedActionNoInput<TResult>(
+  handler: (context: AuthContext) => Promise<TResult>,
+  options?: { auth?: ActionAuthOptions },
+) {
+  return async (): Promise<SafeActionResult<TResult>> => {
+    const actionTimer = createTimer("server-action", handler.name || "no-input-safe");
+    try {
+      const context = await getAuthenticatedContext();
+      await enforceActionAuth(context, options?.auth);
+      const result = await handler(context);
+      actionTimer.end({ rowCount: Array.isArray(result) ? result.length : undefined });
+      return { ok: true, data: result };
+    } catch (e) {
+      const safe = toSafeActionError(e);
+      actionTimer.end({ error: safe.ok ? undefined : safe.error });
+      return safe;
+    }
+  };
+}

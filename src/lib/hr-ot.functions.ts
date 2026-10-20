@@ -33,6 +33,7 @@ import { ForbiddenError } from "@/lib/server/authorize";
 import {
   createAuthenticatedAction,
   createAuthenticatedActionNoInput,
+  createSafeAuthenticatedActionNoInput,
   type AuthContext,
 } from "@/lib/server/create-action";
 
@@ -868,6 +869,9 @@ type SupervisorOtStaffRow = {
  * Org-chart reporting rollup for the actor (team leads, supervisors under them,
  * and all staff below). Venue dump only when that chart subtree is empty — see
  * loadSupervisorOtTeamStaffIds. Not company-wide.
+ *
+ * Flat selects only (no nested locations()) so a broken embed cannot 500 the
+ * picker. contract_working_days soft-fails when the column is not migrated yet.
  */
 async function loadSupervisorOtTeamStaff(userId: string): Promise<SupervisorOtStaffRow[]> {
   const { teamStaffIds } = await loadSupervisorOtTeamStaffIds(userId);
@@ -881,18 +885,17 @@ async function loadSupervisorOtTeamStaff(userId: string): Promise<SupervisorOtSt
     department: string | null;
     job_title: string | null;
     location_id: string | null;
-    locations: { name?: string } | { name?: string }[] | null;
   }> = [];
   for (let i = 0; i < teamStaffIds.length; i += 100) {
     const chunk = teamStaffIds.slice(i, i + 100);
     const { data, error } = await supabaseAdmin
       .from("staff")
-      .select("id, full_name, employee_code, phone, department, job_title, location_id, locations(name)")
+      .select("id, full_name, employee_code, phone, department, job_title, location_id")
       .in("id", chunk)
       .in("status", ["active", "on_leave", "serving_notice"])
       .is("deleted_at", null)
       .order("full_name");
-    if (error) throw error;
+    if (error) throw new Error(error.message);
     for (const row of data ?? []) {
       rows.push({
         id: String(row.id),
@@ -902,11 +905,27 @@ async function loadSupervisorOtTeamStaff(userId: string): Promise<SupervisorOtSt
         department: (row.department as string | null) ?? null,
         job_title: (row.job_title as string | null) ?? null,
         location_id: (row.location_id as string | null) ?? null,
-        locations: row.locations as { name?: string } | { name?: string }[] | null,
       });
     }
   }
   rows.sort((a, b) => String(a.full_name ?? "").localeCompare(String(b.full_name ?? "")));
+
+  const locationNameById = new Map<string, string>();
+  const locationIds = [...new Set(rows.map((row) => row.location_id).filter(Boolean))] as string[];
+  for (let i = 0; i < locationIds.length; i += 100) {
+    const chunk = locationIds.slice(i, i + 100);
+    const { data: locs, error: locErr } = await supabaseAdmin
+      .from("locations")
+      .select("id, name")
+      .in("id", chunk);
+    if (locErr) {
+      console.warn("[supervisor-ot] location name lookup failed", locErr.message);
+      break;
+    }
+    for (const loc of locs ?? []) {
+      if (loc.id && loc.name) locationNameById.set(String(loc.id), String(loc.name));
+    }
+  }
 
   const ids = rows.map((row) => row.id);
   const daysByStaff = new Map<string, number | null>();
@@ -916,7 +935,13 @@ async function loadSupervisorOtTeamStaff(userId: string): Promise<SupervisorOtSt
       .from("staff_profile_ext")
       .select("staff_id, contract_working_days")
       .in("staff_id", chunk);
-    if (extErr) throw extErr;
+    if (extErr) {
+      if (/contract_working_days|schema cache|does not exist/i.test(extErr.message)) {
+        console.warn("[supervisor-ot] contract_working_days unavailable", extErr.message);
+        break;
+      }
+      throw new Error(extErr.message);
+    }
     for (const row of extRows ?? []) {
       daysByStaff.set(
         String(row.staff_id),
@@ -926,7 +951,6 @@ async function loadSupervisorOtTeamStaff(userId: string): Promise<SupervisorOtSt
   }
 
   return rows.map((row) => {
-    const loc = Array.isArray(row.locations) ? row.locations[0] : row.locations;
     const days = daysByStaff.get(row.id) ?? null;
     return {
       id: row.id,
@@ -936,14 +960,15 @@ async function loadSupervisorOtTeamStaff(userId: string): Promise<SupervisorOtSt
       department: row.department,
       jobTitle: row.job_title,
       locationId: row.location_id,
-      locationName: loc?.name ?? null,
+      locationName: row.location_id ? (locationNameById.get(row.location_id) ?? null) : null,
       contractWorkingDays: days,
       supervisorContract: isSupervisorOtContract(days),
     };
   });
 }
 
-export const listStaffForSupervisorOt = createAuthenticatedActionNoInput(
+/** Safe: production must not surface React #441 digests under the employee picker. */
+export const listStaffForSupervisorOt = createSafeAuthenticatedActionNoInput(
   async (context) => loadSupervisorOtTeamStaff(context.userId),
   SUPERVISOR_OT_AUTH,
 );

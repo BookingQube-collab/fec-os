@@ -31,6 +31,7 @@ import { HR_OT_RATE_TYPES, type HrOtRateType } from "@/lib/hr-ot";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { canUserDo } from "@/lib/rbac";
+import { userFacingActionError } from "@/lib/user-facing-action-error";
 import { cn } from "@/lib/utils";
 
 function fmtMins(m: number | null | undefined) {
@@ -77,7 +78,11 @@ function SupervisorOtRequest({ onSubmitted }: { onSubmitted: () => void }) {
 
   const teamStaff = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "ot-staff-team" }),
-    queryFn: () => listStaffForSupervisorOt(),
+    queryFn: async () => {
+      const result = await listStaffForSupervisorOt();
+      if (!result.ok) throw new Error(result.error);
+      return result.data;
+    },
     enabled: open,
     staleTime: STALE.people,
   });
@@ -179,7 +184,7 @@ function SupervisorOtRequest({ onSubmitted }: { onSubmitted: () => void }) {
               />
               {teamStaff.isError ? (
                 <p className="mt-1 text-xs text-destructive">
-                  {teamStaff.error instanceof Error ? teamStaff.error.message : t("hr.ot.noTeamStaff")}
+                  {userFacingActionError(teamStaff.error, t("hr.ot.teamLoadFailed"))}
                 </p>
               ) : !teamStaff.isLoading && staffOptions.length === 0 ? (
                 <p className="mt-1 text-xs text-muted-foreground">{t("hr.ot.noTeamStaff")}</p>

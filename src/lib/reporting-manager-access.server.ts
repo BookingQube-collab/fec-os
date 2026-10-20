@@ -307,23 +307,39 @@ export async function loadSupervisorOtTeamStaffIds(userId: string): Promise<{
   }
 
   if (venueRoster) {
-    const locationIds = await loadVenueSupervisorManagedLocationIds(userId);
-    const managedVenueStaffIds = await loadStaffIdsAssignedToLocations(locationIds);
-    return {
-      staffId,
-      teamStaffIds: mergeSupervisorOtTeamStaffIds({
-        reportingTeamIds,
-        viewerStaffId: staffId,
-        managedVenueStaffIds,
-        usesVenueLocationRoster: true,
-      }),
-    };
+    try {
+      const locationIds = await loadVenueSupervisorManagedLocationIds(userId);
+      const managedVenueStaffIds = await loadStaffIdsAssignedToLocations(locationIds);
+      return {
+        staffId,
+        teamStaffIds: mergeSupervisorOtTeamStaffIds({
+          reportingTeamIds,
+          viewerStaffId: staffId,
+          managedVenueStaffIds,
+          usesVenueLocationRoster: true,
+        }),
+      };
+    } catch (error) {
+      console.error(
+        "[supervisor-ot] venue staff fallback failed",
+        error instanceof Error ? error.message : error,
+      );
+      return { staffId, teamStaffIds: reportingTeamIds };
+    }
   }
 
   if (linked?.id && viewerRollsUpSupervisorTeam(linked.jobTitle, linked.staffRole)) {
-    const sites = await loadAssignedTeamLocations([linked.id]);
-    const locationStaffIds = await loadStaffIdsAssignedToLocations(sites.map((site) => site.id));
-    return { staffId, teamStaffIds: locationStaffIds };
+    try {
+      const sites = await loadAssignedTeamLocations([linked.id]);
+      const locationStaffIds = await loadStaffIdsAssignedToLocations(sites.map((site) => site.id));
+      return { staffId, teamStaffIds: locationStaffIds };
+    } catch (error) {
+      console.error(
+        "[supervisor-ot] assigned-site staff fallback failed",
+        error instanceof Error ? error.message : error,
+      );
+      return { staffId, teamStaffIds: reportingTeamIds };
+    }
   }
 
   return { staffId, teamStaffIds: reportingTeamIds };
