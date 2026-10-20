@@ -131,6 +131,35 @@ export function supervisorOtContractMessage(days: number): string {
   return `This staff contract is ${days} working days. A supervisor requests the overtime.`;
 }
 
+/**
+ * Who appears in Supervisor OT employee search.
+ *
+ * Primary: org-chart reporting subtree (same `reporting_manager_staff_id` edges
+ * as People / Team overview). When anyone reports to the viewer — directly or
+ * deeper (team lead → supervisor → staff) — return that chart set only.
+ *
+ * Last resort: Venue / Site supervisors may use managed-venue staff only when
+ * the chart subtree is empty. Viewer-only in `reportingTeamIds` counts as empty
+ * (rollup loaders always include self). Do not union venue onto a populated chart.
+ */
+export function mergeSupervisorOtTeamStaffIds(input: {
+  reportingTeamIds: readonly string[];
+  viewerStaffId?: string | null;
+  managedVenueStaffIds?: readonly string[];
+  usesVenueLocationRoster: boolean;
+}): string[] {
+  const chartSubtree = input.reportingTeamIds.filter(
+    (id) => Boolean(id) && id !== input.viewerStaffId,
+  );
+  if (chartSubtree.length > 0) {
+    return [...new Set(input.reportingTeamIds.filter(Boolean))].sort();
+  }
+  if (input.usesVenueLocationRoster) {
+    return [...new Set((input.managedVenueStaffIds ?? []).filter(Boolean))].sort();
+  }
+  return [...new Set(input.reportingTeamIds.filter(Boolean))].sort();
+}
+
 /** Hourly divisor: 26/28-day contracts use the contract; everyone else uses OT policy (default 30). */
 export function otPayDaysPerMonth(input: {
   contractWorkingDays?: number | null;

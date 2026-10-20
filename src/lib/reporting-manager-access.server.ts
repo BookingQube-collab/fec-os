@@ -7,6 +7,7 @@ import {
 } from "@/lib/attendance-listing-access";
 import { isRosterAssignableStaffStatus } from "@/lib/attendance-hr/roster-register-scope";
 import { loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
+import { mergeSupervisorOtTeamStaffIds } from "@/lib/hr-ot";
 import {
   managerSupervisorTeamIds,
   viewerRollsUpSupervisorTeam,
@@ -273,6 +274,59 @@ export async function loadManagerTeamStaffIds(userId: string): Promise<{
       .map((member) => member.staffId)
       .sort(),
   };
+}
+
+/**
+ * Staff a supervisor may pick for OT requests (and the submit gate).
+ *
+ * Primary: `loadManagerTeamStaffIds` org-chart rollup. For a Venue Supervisor
+ * that walks every `reporting_manager_staff_id` edge under them (team leads,
+ * supervisors under those leads, and all staff below) — same as Team overview.
+ *
+ * Last resort only when that subtree is empty (no reports; viewer-alone does
+ * not count): Venue / Site supervisors → managed-venue staff; other rollup
+ * titles → home + dedicated work-site staff. Chart wins whenever anyone reports.
+ */
+export async function loadSupervisorOtTeamStaffIds(userId: string): Promise<{
+  staffId: string | null;
+  teamStaffIds: string[];
+}> {
+  const [managerTeam, linked] = await Promise.all([
+    loadManagerTeamStaffIds(userId),
+    loadLinkedStaffRecord(userId),
+  ]);
+  const staffId = managerTeam.staffId ?? linked?.id ?? null;
+  const reportingTeamIds = managerTeam.teamStaffIds;
+  const venueRoster = Boolean(
+    linked?.id && usesVenueSupervisorLocationRoster(linked.jobTitle, linked.staffRole),
+  );
+  const chartSubtree = reportingTeamIds.filter((id) => id && id !== staffId);
+
+  if (chartSubtree.length > 0) {
+    return { staffId, teamStaffIds: reportingTeamIds };
+  }
+
+  if (venueRoster) {
+    const locationIds = await loadVenueSupervisorManagedLocationIds(userId);
+    const managedVenueStaffIds = await loadStaffIdsAssignedToLocations(locationIds);
+    return {
+      staffId,
+      teamStaffIds: mergeSupervisorOtTeamStaffIds({
+        reportingTeamIds,
+        viewerStaffId: staffId,
+        managedVenueStaffIds,
+        usesVenueLocationRoster: true,
+      }),
+    };
+  }
+
+  if (linked?.id && viewerRollsUpSupervisorTeam(linked.jobTitle, linked.staffRole)) {
+    const sites = await loadAssignedTeamLocations([linked.id]);
+    const locationStaffIds = await loadStaffIdsAssignedToLocations(sites.map((site) => site.id));
+    return { staffId, teamStaffIds: locationStaffIds };
+  }
+
+  return { staffId, teamStaffIds: reportingTeamIds };
 }
 
 export async function loadReportingTreeStaffIds(userId: string): Promise<string[]> {

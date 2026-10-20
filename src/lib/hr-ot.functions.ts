@@ -28,7 +28,7 @@ import { policyNumber } from "@/lib/hr-policy";
 import { readPolicySection } from "@/lib/hr-policy-read";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { canActorPerform } from "@/lib/arcade/access";
-import { loadManagerTeamStaffIds } from "@/lib/reporting-manager-access.server";
+import { loadSupervisorOtTeamStaffIds } from "@/lib/reporting-manager-access.server";
 import { ForbiddenError } from "@/lib/server/authorize";
 import {
   createAuthenticatedAction,
@@ -865,12 +865,12 @@ type SupervisorOtStaffRow = {
 };
 
 /**
- * Venue / Site / Sr. Site supervisors (and other rollup managers) get their
- * reporting subtree via loadManagerTeamStaffIds — the same scope as team
- * attendance and leave review. Not company-wide.
+ * Org-chart reporting rollup for the actor (team leads, supervisors under them,
+ * and all staff below). Venue dump only when that chart subtree is empty — see
+ * loadSupervisorOtTeamStaffIds. Not company-wide.
  */
 async function loadSupervisorOtTeamStaff(userId: string): Promise<SupervisorOtStaffRow[]> {
-  const { teamStaffIds } = await loadManagerTeamStaffIds(userId);
+  const { teamStaffIds } = await loadSupervisorOtTeamStaffIds(userId);
   if (teamStaffIds.length === 0) return [];
 
   const rows: Array<{
@@ -991,7 +991,7 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
     rateType: z.enum(HR_OT_RATE_TYPES).default("weekday"),
   }),
   async (data, context) => {
-    const { teamStaffIds } = await loadManagerTeamStaffIds(context.userId);
+    const { teamStaffIds } = await loadSupervisorOtTeamStaffIds(context.userId);
     if (!teamStaffIds.includes(data.staffId)) {
       throw new ForbiddenError("You can only request OT for people on your team.");
     }

@@ -245,6 +245,55 @@ describe("manager supervisor team", () => {
     ).toEqual(["attendant", "crew-two", "direct", "shift-lead", "venue"]);
   });
 
+  it("lets a Venue Supervisor see team lead → supervisor → staff (Ashfaq org chart)", () => {
+    const ashfaqPeople = [
+      person({
+        staffId: "ashfaq",
+        jobTitle: "Venue Supervisor",
+        staffRole: "venue_supervisor",
+      }),
+      person({
+        staffId: "team-lead",
+        jobTitle: "Team Lead",
+        staffRole: "other",
+        reportingManagerStaffId: "ashfaq",
+      }),
+      person({
+        staffId: "site-sup",
+        jobTitle: "Supervisor",
+        staffRole: "other",
+        reportingManagerStaffId: "team-lead",
+      }),
+      person({
+        staffId: "crew-a",
+        jobTitle: "Attendant",
+        staffRole: "crew",
+        reportingManagerStaffId: "site-sup",
+      }),
+      person({
+        staffId: "crew-b",
+        jobTitle: "Host",
+        staffRole: "cashier",
+        reportingManagerStaffId: "team-lead",
+      }),
+      person({
+        staffId: "other-venue",
+        jobTitle: "Attendant",
+        staffRole: "crew",
+        reportingManagerStaffId: "other-supervisor",
+      }),
+    ];
+
+    expect(
+      managerSupervisorTeamIds({
+        viewerStaffId: "ashfaq",
+        viewerJobTitle: "Venue Supervisor",
+        viewerStaffRole: "venue_supervisor",
+        people: ashfaqPeople,
+      }),
+    ).toEqual(["ashfaq", "crew-a", "crew-b", "site-sup", "team-lead"]);
+  });
+
   it("lets a Sr. Site Supervisor see Shift Lead and that lead's crew", () => {
     const srPeople = [
       person({

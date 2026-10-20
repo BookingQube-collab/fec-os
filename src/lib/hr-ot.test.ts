@@ -13,6 +13,7 @@ import {
   hourlyRateFromPay,
   isOtEligible,
   isSupervisorOtContract,
+  mergeSupervisorOtTeamStaffIds,
   otPayDaysPerMonth,
   resolveEligibleOtMinutes,
   supervisorOtContractMessage,
@@ -200,5 +201,51 @@ describe("monthly OT summaries", () => {
     const byLoc = aggregateOtSummaries(rows, "location");
     expect(byLoc).toHaveLength(1);
     expect(byLoc[0].locationName).toBe("INF");
+  });
+});
+
+describe("Supervisor OT team staff ids", () => {
+  it("keeps reporting-only scope for non-venue titles", () => {
+    expect(
+      mergeSupervisorOtTeamStaffIds({
+        reportingTeamIds: ["ashfaq", "crew-a", "crew-b"],
+        viewerStaffId: "ashfaq",
+        managedVenueStaffIds: ["phil", "other-site"],
+        usesVenueLocationRoster: false,
+      }),
+    ).toEqual(["ashfaq", "crew-a", "crew-b"]);
+  });
+
+  it("prefers org-chart subtree over managed-venue dump for Venue / Site supervisors", () => {
+    expect(
+      mergeSupervisorOtTeamStaffIds({
+        reportingTeamIds: ["ashfaq", "lead", "supervisor", "crew"],
+        viewerStaffId: "ashfaq",
+        managedVenueStaffIds: ["phil", "lead", "host", "other-venue"],
+        usesVenueLocationRoster: true,
+      }),
+    ).toEqual(["ashfaq", "crew", "lead", "supervisor"]);
+  });
+
+  it("uses venue staff only when the org chart subtree is empty", () => {
+    expect(
+      mergeSupervisorOtTeamStaffIds({
+        reportingTeamIds: [],
+        viewerStaffId: "ashfaq",
+        managedVenueStaffIds: ["phil"],
+        usesVenueLocationRoster: true,
+      }),
+    ).toEqual(["phil"]);
+  });
+
+  it("treats viewer-only rollup as empty chart and falls back to venue", () => {
+    expect(
+      mergeSupervisorOtTeamStaffIds({
+        reportingTeamIds: ["ashfaq"],
+        viewerStaffId: "ashfaq",
+        managedVenueStaffIds: ["phil", "host"],
+        usesVenueLocationRoster: true,
+      }),
+    ).toEqual(["host", "phil"]);
   });
 });

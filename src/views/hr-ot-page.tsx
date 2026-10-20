@@ -170,9 +170,18 @@ function SupervisorOtRequest({ onSubmitted }: { onSubmitted: () => void }) {
                 placeholder={t("hr.ot.staffSearchPlaceholder")}
                 emptyOption={{ value: "", label: t("hr.ot.staffSearchPlaceholder") }}
                 options={staffOptions}
+                noMatchesLabel={
+                  !teamStaff.isLoading && staffOptions.length === 0
+                    ? t("hr.ot.noTeamStaff")
+                    : t("hr.ot.noStaff")
+                }
                 disabled={teamStaff.isLoading}
               />
-              {!teamStaff.isLoading && (teamStaff.data ?? []).length === 0 ? (
+              {teamStaff.isError ? (
+                <p className="mt-1 text-xs text-destructive">
+                  {teamStaff.error instanceof Error ? teamStaff.error.message : t("hr.ot.noTeamStaff")}
+                </p>
+              ) : !teamStaff.isLoading && staffOptions.length === 0 ? (
                 <p className="mt-1 text-xs text-muted-foreground">{t("hr.ot.noTeamStaff")}</p>
               ) : null}
             </div>

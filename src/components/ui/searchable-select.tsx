@@ -109,6 +109,11 @@ type SearchableSelectBaseProps = {
   emptyOption?: SearchableSelectEmptyOption;
   placeholder?: string;
   searchPlaceholder?: string;
+  /**
+   * Dropdown row when the filter yields nothing.
+   * Use a distinct copy when `options` is empty (no team) vs no search match.
+   */
+  noMatchesLabel?: ReactNode;
   /** When the menu opens, seed the search box (e.g. device name on mapping). */
   openSearchSeed?: string | null;
   disabled?: boolean;
@@ -156,6 +161,7 @@ export function SearchableSelect(props: SearchableSelectSingleProps | Searchable
     emptyOption,
     placeholder,
     searchPlaceholder,
+    noMatchesLabel,
     openSearchSeed,
     disabled,
     className,
@@ -249,7 +255,7 @@ export function SearchableSelect(props: SearchableSelectSingleProps | Searchable
   }, [emptyOption?.label, exclude, selectedCountLabel, selectedLabels, selectedValues.length, t]);
 
   const searchPh = searchPlaceholder ?? t("common.searchHere");
-  const emptyLabel = t("common.searchNoMatches");
+  const emptyLabel = noMatchesLabel ?? t("common.searchNoMatches");
 
   const setOpenState = useCallback(
     (next: boolean) => {
