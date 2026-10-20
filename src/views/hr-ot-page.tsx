@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Timer } from "lucide-react";
+import { Timer, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -11,6 +11,10 @@ import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { HrPanel } from "@/components/hr/hr-panel";
 import { HrSection } from "@/components/hr/hr-section";
 import { HrShell } from "@/components/hr/hr-shell";
+import {
+  SupervisorOtPrintDialog,
+  type SupervisorOtPrintPayload,
+} from "@/components/hr/supervisor-ot-print-form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,7 +31,7 @@ import {
   setStaffContractWorkingDays,
   submitSupervisorOtClaim,
 } from "@/lib/hr-ot.functions";
-import { HR_OT_RATE_TYPES, type HrOtRateType } from "@/lib/hr-ot";
+import { HR_OT_RATE_TYPES, partitionSupervisorOtPicks, type HrOtRateType } from "@/lib/hr-ot";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { canUserDo } from "@/lib/rbac";
@@ -68,13 +72,15 @@ function SupervisorOtRequest({ onSubmitted }: { onSubmitted: () => void }) {
   const roles = useUserRoles();
   const canSetContract = canUserDo(roles, "hr.profile.edit");
   const [open, setOpen] = useState(false);
-  const [staff, setStaff] = useState<OtStaffPick | null>(null);
-  const [contractDraft, setContractDraft] = useState<"26" | "28">("26");
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [contractDraftByStaff, setContractDraftByStaff] = useState<Record<string, "26" | "28">>({});
   const [dates, setDates] = useState<string[]>([todayIso()]);
   const [dateDraft, setDateDraft] = useState(todayIso());
   const [hours, setHours] = useState("1");
   const [purpose, setPurpose] = useState("");
   const [rateType, setRateType] = useState<HrOtRateType>("weekday");
+  const [printPayload, setPrintPayload] = useState<SupervisorOtPrintPayload | null>(null);
+  const [printOpen, setPrintOpen] = useState(false);
 
   const teamStaff = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "ot-staff-team" }),
@@ -93,32 +99,44 @@ function SupervisorOtRequest({ onSubmitted }: { onSubmitted: () => void }) {
     return map;
   }, [teamStaff.data]);
 
+  const selectedStaff = useMemo(
+    () => selectedIds.map((id) => staffById.get(id)).filter((row): row is OtStaffPick => Boolean(row)),
+    [selectedIds, staffById],
+  );
+
+  const { eligible, ineligible } = useMemo(
+    () => partitionSupervisorOtPicks(selectedStaff),
+    [selectedStaff],
+  );
+
   const staffOptions = useMemo(
     () =>
       (teamStaff.data ?? []).map((row) => ({
         value: row.id,
         label: row.employeeCode ? `${row.fullName} (${row.employeeCode})` : row.fullName,
-        description: [row.jobTitle, row.locationName, row.contractWorkingDays ? `${row.contractWorkingDays}d` : null]
+        description: [
+          row.jobTitle,
+          row.locationName,
+          row.supervisorContract
+            ? `${row.contractWorkingDays}d`
+            : row.contractWorkingDays
+              ? `${row.contractWorkingDays}d`
+              : t("hr.ot.needsContract"),
+        ]
           .filter(Boolean)
           .join(" · "),
         keywords: `${row.fullName} ${row.employeeCode ?? ""} ${row.department ?? ""} ${row.jobTitle ?? ""}`,
       })),
-    [teamStaff.data],
+    [t, teamStaff.data],
   );
+
+  const requiredHoursValue = Number(hours);
+  const hoursValid = Number.isFinite(requiredHoursValue) && requiredHoursValue > 0;
 
   const saveContract = useMutation({
     mutationFn: setStaffContractWorkingDays,
-    onSuccess: (result) => {
+    onSuccess: () => {
       toast.success(t("hr.ot.contractSaved"));
-      setStaff((current) =>
-        current && current.id === result.staffId
-          ? {
-              ...current,
-              contractWorkingDays: result.contractWorkingDays,
-              supervisorContract: result.contractWorkingDays === 26 || result.contractWorkingDays === 28,
-            }
-          : current,
-      );
       void teamStaff.refetch();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -126,30 +144,27 @@ function SupervisorOtRequest({ onSubmitted }: { onSubmitted: () => void }) {
 
   const submit = useMutation({
     mutationFn: submitSupervisorOtClaim,
-    onSuccess: (result) => {
-      toast.success(t("hr.ot.submittedMany", { count: result.count }));
-      setPurpose("");
-      setStaff(null);
-      onSubmitted();
-    },
     onError: (e: Error) => toast.error(e.message),
   });
+
+  const canSubmit =
+    eligible.length > 0 &&
+    dates.length > 0 &&
+    purpose.trim().length >= 3 &&
+    hoursValid &&
+    !submit.isPending;
 
   function addDate() {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dateDraft)) return;
     setDates((current) => (current.includes(dateDraft) ? current : [...current, dateDraft].sort()));
   }
 
-  function pickStaff(staffId: string) {
-    if (!staffId) {
-      setStaff(null);
-      return;
-    }
-    const row = staffById.get(staffId);
-    if (!row) return;
-    setStaff(row);
-    if (row.contractWorkingDays === 28) setContractDraft("28");
-    else setContractDraft("26");
+  function removeStaff(staffId: string) {
+    setSelectedIds((current) => current.filter((id) => id !== staffId));
+  }
+
+  function contractDraftFor(person: OtStaffPick): "26" | "28" {
+    return contractDraftByStaff[person.id] ?? (person.contractWorkingDays === 28 ? "28" : "26");
   }
 
   return (
@@ -170,10 +185,11 @@ function SupervisorOtRequest({ onSubmitted }: { onSubmitted: () => void }) {
               <Label htmlFor="ot-staff-search">{t("hr.ot.staffSearch")}</Label>
               <SearchableSelect
                 id="ot-staff-search"
-                value={staff?.id ?? ""}
-                onValueChange={pickStaff}
+                multiple
+                values={selectedIds}
+                onValuesChange={setSelectedIds}
                 placeholder={t("hr.ot.staffSearchPlaceholder")}
-                emptyOption={{ value: "", label: t("hr.ot.staffSearchPlaceholder") }}
+                selectedCountLabel={(count) => t("hr.ot.staffSelectedCount", { count })}
                 options={staffOptions}
                 noMatchesLabel={
                   !teamStaff.isLoading && staffOptions.length === 0
@@ -182,6 +198,32 @@ function SupervisorOtRequest({ onSubmitted }: { onSubmitted: () => void }) {
                 }
                 disabled={teamStaff.isLoading}
               />
+              {selectedStaff.length > 0 ? (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {selectedStaff.map((person) => (
+                    <Badge
+                      key={person.id}
+                      variant="outline"
+                      className={cn(
+                        "gap-1 pe-1 text-[10px]",
+                        person.supervisorContract
+                          ? "border-emerald-500/40 text-emerald-800 dark:text-emerald-300"
+                          : "border-amber-500/40 text-amber-800 dark:text-amber-300",
+                      )}
+                    >
+                      {person.employeeCode ? `${person.fullName} (${person.employeeCode})` : person.fullName}
+                      <button
+                        type="button"
+                        className="rounded-sm hover:bg-muted"
+                        onClick={() => removeStaff(person.id)}
+                        aria-label={t("hr.ot.removeStaff", { name: person.fullName })}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
+              ) : null}
               {teamStaff.isError ? (
                 <p className="mt-1 text-xs text-destructive">
                   {userFacingActionError(teamStaff.error, t("hr.ot.teamLoadFailed"))}
@@ -191,56 +233,98 @@ function SupervisorOtRequest({ onSubmitted }: { onSubmitted: () => void }) {
               ) : null}
             </div>
 
-            {staff ? (
-              <div className="rounded-md border border-[var(--hr-border)] p-3 text-sm">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <p className="font-medium">{staff.fullName}</p>
-                  <Button type="button" size="sm" variant="secondary" onClick={() => setStaff(null)}>
-                    {t("hr.ot.changeStaff")}
-                  </Button>
-                </div>
+            {selectedStaff.length > 0 ? (
+              <div className="space-y-2">
                 <p className="text-xs text-muted-foreground">
-                  {t("hr.ot.employeeId")}: {staff.employeeCode ?? "—"} · {t("hr.ot.phone")}: {staff.phone ?? "—"}
+                  {t("hr.ot.eligibilitySummary", {
+                    eligible: eligible.length,
+                    ineligible: ineligible.length,
+                  })}
                 </p>
-                <p className="text-xs text-muted-foreground">
-                  {t("hr.ot.department")}: {staff.department ?? "—"} · {t("hr.ot.jobTitle")}: {staff.jobTitle ?? "—"}
-                  {staff.locationName ? ` · ${staff.locationName}` : ""}
-                </p>
-                <p className="mt-1 text-xs">
-                  {t("hr.ot.contractDays")}: {staff.contractWorkingDays ?? "—"}
-                </p>
-                {!staff.supervisorContract && canSetContract ? (
-                  <div className="mt-2 flex flex-wrap items-end gap-2">
-                    <div>
-                      <Label htmlFor="ot-contract-days">{t("hr.ot.contractDays")}</Label>
-                      <select
-                        id="ot-contract-days"
-                        className="flex h-9 rounded-md border border-input bg-transparent px-3 text-sm"
-                        value={contractDraft}
-                        onChange={(e) => setContractDraft(e.target.value as "26" | "28")}
-                      >
-                        <option value="26">26</option>
-                        <option value="28">28</option>
-                      </select>
+                {selectedStaff.map((person) => (
+                  <div
+                    key={person.id}
+                    className={cn(
+                      "rounded-md border p-3 text-sm",
+                      person.supervisorContract
+                        ? "border-[var(--hr-border)]"
+                        : "border-amber-500/35 bg-amber-500/5",
+                    )}
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <p className="font-medium">{person.fullName}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {t("hr.ot.employeeId")}: {person.employeeCode ?? "—"} · {t("hr.ot.phone")}:{" "}
+                          {person.phone ?? "—"}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {t("hr.ot.department")}: {person.department ?? "—"} · {t("hr.ot.jobTitle")}:{" "}
+                          {person.jobTitle ?? "—"}
+                          {person.locationName ? ` · ${person.locationName}` : ""}
+                        </p>
+                        <p className="mt-1 text-xs">
+                          {t("hr.ot.contractDays")}: {person.contractWorkingDays ?? "—"}
+                          {" · "}
+                          {person.supervisorContract ? (
+                            <span className="text-emerald-700 dark:text-emerald-300">{t("hr.ot.eligibleBadge")}</span>
+                          ) : (
+                            <span className="text-amber-800 dark:text-amber-300">{t("hr.ot.needsContract")}</span>
+                          )}
+                        </p>
+                      </div>
+                      <Button type="button" size="sm" variant="secondary" onClick={() => removeStaff(person.id)}>
+                        {t("hr.ot.remove")}
+                      </Button>
                     </div>
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={saveContract.isPending}
-                      onClick={() =>
-                        saveContract.mutate({
-                          staffId: staff.id,
-                          contractWorkingDays: Number(contractDraft) as 26 | 28,
-                        })
-                      }
-                    >
-                      {t("hr.ot.saveContract")}
-                    </Button>
+                    {!person.supervisorContract && canSetContract ? (
+                      <div className="mt-2 flex flex-wrap items-end gap-2">
+                        <div>
+                          <Label htmlFor={`ot-contract-days-${person.id}`}>{t("hr.ot.contractDays")}</Label>
+                          <select
+                            id={`ot-contract-days-${person.id}`}
+                            className="flex h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+                            value={contractDraftFor(person)}
+                            onChange={(e) =>
+                              setContractDraftByStaff((current) => ({
+                                ...current,
+                                [person.id]: e.target.value as "26" | "28",
+                              }))
+                            }
+                          >
+                            <option value="26">26</option>
+                            <option value="28">28</option>
+                          </select>
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={saveContract.isPending}
+                          onClick={() =>
+                            saveContract.mutate({
+                              staffId: person.id,
+                              contractWorkingDays: Number(contractDraftFor(person)) as 26 | 28,
+                            })
+                          }
+                        >
+                          {t("hr.ot.saveContract")}
+                        </Button>
+                      </div>
+                    ) : null}
+                    {!person.supervisorContract ? (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        {person.contractWorkingDays == null
+                          ? t("hr.ot.contractMissing")
+                          : t("hr.ot.contractOther")}
+                      </p>
+                    ) : null}
                   </div>
-                ) : null}
-                {!staff.supervisorContract ? (
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    {staff.contractWorkingDays == null ? t("hr.ot.contractMissing") : t("hr.ot.contractOther")}
+                ))}
+                {eligible.length === 0 ? (
+                  <p className="text-xs text-amber-800 dark:text-amber-300">{t("hr.ot.noneEligible")}</p>
+                ) : ineligible.length > 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    {t("hr.ot.submitEligibleOnly", { count: eligible.length })}
                   </p>
                 ) : null}
               </div>
@@ -310,21 +394,48 @@ function SupervisorOtRequest({ onSubmitted }: { onSubmitted: () => void }) {
 
             <Button
               type="button"
-              disabled={submit.isPending || !staff?.supervisorContract || dates.length === 0 || purpose.trim().length < 3}
+              disabled={!canSubmit}
               onClick={() => {
-                if (!staff) return;
-                const requiredHours = Number(hours);
-                if (!Number.isFinite(requiredHours) || requiredHours <= 0) {
+                if (eligible.length === 0) return;
+                if (!hoursValid) {
                   toast.error(t("hr.ot.hoursInvalid"));
                   return;
                 }
-                submit.mutate({
-                  staffId: staff.id,
-                  workDates: dates,
-                  requiredHours,
-                  purpose: purpose.trim(),
-                  rateType,
-                });
+                const purposeText = purpose.trim();
+                const printStaff = eligible.map((row) => ({
+                  id: row.id,
+                  fullName: row.fullName,
+                  employeeCode: row.employeeCode,
+                  phone: row.phone,
+                  department: row.department,
+                  jobTitle: row.jobTitle,
+                }));
+                const workDates = [...dates];
+                submit.mutate(
+                  {
+                    staffIds: printStaff.map((row) => row.id),
+                    workDates,
+                    requiredHours: requiredHoursValue,
+                    purpose: purposeText,
+                    rateType,
+                  },
+                  {
+                    onSuccess: (result) => {
+                      toast.success(t("hr.ot.submittedMany", { count: result.count }));
+                      setPrintPayload({
+                        staff: printStaff,
+                        workDates,
+                        requiredHours: requiredHoursValue,
+                        purpose: purposeText,
+                        requestDate: todayIso(),
+                      });
+                      setPrintOpen(true);
+                      setPurpose("");
+                      setSelectedIds([]);
+                      onSubmitted();
+                    },
+                  },
+                );
               }}
             >
               {t("hr.ot.submit")}
@@ -332,6 +443,12 @@ function SupervisorOtRequest({ onSubmitted }: { onSubmitted: () => void }) {
           </div>
         ) : null}
       </div>
+
+      <SupervisorOtPrintDialog
+        open={printOpen}
+        onOpenChange={setPrintOpen}
+        payload={printPayload}
+      />
     </HrPanel>
   );
 }

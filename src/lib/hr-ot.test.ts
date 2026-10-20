@@ -15,7 +15,9 @@ import {
   isSupervisorOtContract,
   mergeSupervisorOtTeamStaffIds,
   otPayDaysPerMonth,
+  partitionSupervisorOtPicks,
   resolveEligibleOtMinutes,
+  supervisorOtClaimSlots,
   supervisorOtContractMessage,
   resolveOtRateMultiplier,
   roundOtMinutes,
@@ -201,6 +203,27 @@ describe("monthly OT summaries", () => {
     const byLoc = aggregateOtSummaries(rows, "location");
     expect(byLoc).toHaveLength(1);
     expect(byLoc[0].locationName).toBe("INF");
+  });
+});
+
+describe("Supervisor OT multi-staff helpers", () => {
+  it("partitions eligible 26/28 picks from the rest", () => {
+    const { eligible, ineligible } = partitionSupervisorOtPicks([
+      { id: "a", supervisorContract: true },
+      { id: "b", supervisorContract: false },
+      { id: "c", supervisorContract: true },
+    ]);
+    expect(eligible.map((row) => row.id)).toEqual(["a", "c"]);
+    expect(ineligible.map((row) => row.id)).toEqual(["b"]);
+  });
+
+  it("builds one claim slot per staff × date", () => {
+    expect(supervisorOtClaimSlots(["b", "a", "a"], ["2026-10-19", "2026-09-30", "2026-10-19"])).toEqual([
+      { staffId: "b", workDate: "2026-09-30" },
+      { staffId: "b", workDate: "2026-10-19" },
+      { staffId: "a", workDate: "2026-09-30" },
+      { staffId: "a", workDate: "2026-10-19" },
+    ]);
   });
 });
 

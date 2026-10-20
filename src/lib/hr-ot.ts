@@ -131,6 +131,29 @@ export function supervisorOtContractMessage(days: number): string {
   return `This staff contract is ${days} working days. A supervisor requests the overtime.`;
 }
 
+/** Split Supervisor OT picks into 26/28-day eligible vs everyone else. */
+export function partitionSupervisorOtPicks<T extends { supervisorContract: boolean }>(
+  picks: readonly T[],
+): { eligible: T[]; ineligible: T[] } {
+  const eligible: T[] = [];
+  const ineligible: T[] = [];
+  for (const pick of picks) {
+    if (pick.supervisorContract) eligible.push(pick);
+    else ineligible.push(pick);
+  }
+  return { eligible, ineligible };
+}
+
+/** One claim slot per staff × work date (deduped, dates sorted). */
+export function supervisorOtClaimSlots(
+  staffIds: readonly string[],
+  workDates: readonly string[],
+): Array<{ staffId: string; workDate: string }> {
+  const ids = [...new Set(staffIds.filter(Boolean))];
+  const dates = [...new Set(workDates.filter(Boolean))].sort();
+  return ids.flatMap((staffId) => dates.map((workDate) => ({ staffId, workDate })));
+}
+
 /**
  * Who appears in Supervisor OT employee search.
  *

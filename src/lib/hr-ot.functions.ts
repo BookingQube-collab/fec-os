@@ -18,6 +18,7 @@ import {
   otPayDaysPerMonth,
   resolveEligibleOtMinutes,
   resolveOtRateMultiplier,
+  supervisorOtClaimSlots,
   supervisorOtContractMessage,
   type HrOtActor,
   type HrOtRateType,
@@ -1009,33 +1010,73 @@ export const setStaffContractWorkingDays = createAuthenticatedAction(
 
 export const submitSupervisorOtClaim = createAuthenticatedAction(
   z.object({
-    staffId: z.string().uuid(),
+    staffIds: z.array(z.string().uuid()).min(1).max(40),
     workDates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).min(1).max(14),
     requiredHours: z.number().gt(0).max(24),
     purpose: z.string().trim().min(3).max(1000),
     rateType: z.enum(HR_OT_RATE_TYPES).default("weekday"),
   }),
   async (data, context) => {
+    const staffIds = [...new Set(data.staffIds)];
     const { teamStaffIds } = await loadSupervisorOtTeamStaffIds(context.userId);
-    if (!teamStaffIds.includes(data.staffId)) {
-      throw new ForbiddenError("You can only request OT for people on your team.");
+    const teamSet = new Set(teamStaffIds);
+    for (const staffId of staffIds) {
+      if (!teamSet.has(staffId)) {
+        throw new ForbiddenError("You can only request OT for people on your team.");
+      }
     }
 
-    const { data: staff, error: staffErr } = await supabaseAdmin
-      .from("staff")
-      .select("id, full_name, location_id, employment_type")
-      .eq("id", data.staffId)
-      .is("deleted_at", null)
-      .maybeSingle();
-    if (staffErr) throw staffErr;
-    if (!staff) throw new Error("Staff not found.");
+    const staffById = new Map<
+      string,
+      { id: string; full_name: string | null; location_id: string | null; employment_type: string | null }
+    >();
+    for (let i = 0; i < staffIds.length; i += 100) {
+      const chunk = staffIds.slice(i, i + 100);
+      const { data: rows, error: staffErr } = await supabaseAdmin
+        .from("staff")
+        .select("id, full_name, location_id, employment_type")
+        .in("id", chunk)
+        .is("deleted_at", null);
+      if (staffErr) throw staffErr;
+      for (const row of rows ?? []) {
+        staffById.set(String(row.id), {
+          id: String(row.id),
+          full_name: (row.full_name as string | null) ?? null,
+          location_id: (row.location_id as string | null) ?? null,
+          employment_type: (row.employment_type as string | null) ?? null,
+        });
+      }
+    }
+    for (const staffId of staffIds) {
+      if (!staffById.has(staffId)) throw new Error("Staff not found.");
+    }
 
-    const contractDays = await readContractWorkingDays(context, data.staffId);
-    if (!isSupervisorOtContract(contractDays)) {
+    const contractByStaff = new Map<string, number | null>();
+    for (const staffId of staffIds) {
+      contractByStaff.set(staffId, await readContractWorkingDays(context, staffId));
+    }
+
+    const ineligibleNames: string[] = [];
+    const eligibleIds: string[] = [];
+    for (const staffId of staffIds) {
+      const days = contractByStaff.get(staffId) ?? null;
+      if (isSupervisorOtContract(days)) {
+        eligibleIds.push(staffId);
+      } else {
+        const name = String(staffById.get(staffId)?.full_name ?? "Staff");
+        ineligibleNames.push(name);
+      }
+    }
+    if (eligibleIds.length === 0) {
       throw new Error(
-        contractDays == null
+        ineligibleNames.length === 1
           ? "Set this employee's contract to 26 or 28 working days before a supervisor OT request."
-          : "Supervisor OT requests are for 26- and 28-day contracts. This employee stays on the attendance claim.",
+          : "Set a 26- or 28-day contract for each selected employee before submitting.",
+      );
+    }
+    if (ineligibleNames.length > 0) {
+      throw new Error(
+        `Supervisor OT requests need a 26- or 28-day contract. Remove or fix: ${ineligibleNames.join(", ")}.`,
       );
     }
 
@@ -1044,14 +1085,13 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
     const rounding = String(policy.rounding ?? "down") as HrOtRounding;
     const claimedMinutes = assertMinClaimableMinutes(Math.round(data.requiredHours * 60), minClaimable, rounding);
     const rateMultiplier = resolveOtRateMultiplier(data.rateType, policy);
-    const pay = await staffPay(context, data.staffId);
-    const amountQar = amountFor(claimedMinutes, rateMultiplier, pay, policy, contractDays);
     const dates = [...new Set(data.workDates)].sort();
+    const slots = supervisorOtClaimSlots(eligibleIds, dates);
 
     const { data: existing, error: existingErr } = await context.supabase
       .from("hr_ot_claims")
-      .select("work_date, status")
-      .eq("staff_id", data.staffId)
+      .select("staff_id, work_date, status")
+      .in("staff_id", eligibleIds)
       .eq("rate_type", data.rateType)
       .in("work_date", dates);
     if (existingErr) throw existingErr;
@@ -1059,35 +1099,54 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
       (row) => row.status !== "rejected" && row.status !== "cancelled",
     );
     if (blocked.length > 0) {
-      const when = blocked.map((row) => String(row.work_date).slice(0, 10)).join(", ");
-      throw new Error(`An active OT claim already exists for ${when}.`);
+      const labels = blocked.map((row) => {
+        const name = String(staffById.get(String(row.staff_id))?.full_name ?? "Staff");
+        return `${name} (${String(row.work_date).slice(0, 10)})`;
+      });
+      throw new Error(`An active OT claim already exists for ${labels.join(", ")}.`);
+    }
+
+    const amountByStaff = new Map<string, number>();
+    for (const staffId of eligibleIds) {
+      const contractDays = contractByStaff.get(staffId);
+      if (!isSupervisorOtContract(contractDays)) continue;
+      const pay = await staffPay(context, staffId);
+      amountByStaff.set(staffId, amountFor(claimedMinutes, rateMultiplier, pay, policy, contractDays));
     }
 
     const now = new Date().toISOString();
-    const rows = dates.map((workDate) => ({
-      staff_id: data.staffId,
-      location_id: staff.location_id ?? null,
-      work_date: workDate,
-      eligible_minutes: claimedMinutes,
-      claimed_minutes: claimedMinutes,
-      approved_minutes: null,
-      rate_type: data.rateType,
-      rate_multiplier: rateMultiplier,
-      amount_qar: amountQar,
-      status: "submitted" as const,
-      notes: data.purpose,
-      purpose: data.purpose,
-      claim_source: "supervisor" as const,
-      contract_working_days: contractDays,
-      submitted_by: context.userId,
-      submitted_at: now,
-      created_by: context.userId,
-    }));
+    const rows = slots.flatMap((slot) => {
+      const staff = staffById.get(slot.staffId);
+      const contractDays = contractByStaff.get(slot.staffId);
+      const amountQar = amountByStaff.get(slot.staffId);
+      if (!staff || !isSupervisorOtContract(contractDays) || amountQar == null) return [];
+      return [
+        {
+          staff_id: slot.staffId,
+          location_id: staff.location_id ?? null,
+          work_date: slot.workDate,
+          eligible_minutes: claimedMinutes,
+          claimed_minutes: claimedMinutes,
+          approved_minutes: null,
+          rate_type: data.rateType,
+          rate_multiplier: rateMultiplier,
+          amount_qar: amountQar,
+          status: "submitted" as const,
+          notes: data.purpose,
+          purpose: data.purpose,
+          claim_source: "supervisor" as const,
+          contract_working_days: contractDays,
+          submitted_by: context.userId,
+          submitted_at: now,
+          created_by: context.userId,
+        },
+      ];
+    });
 
     const { data: inserted, error } = await context.supabase
       .from("hr_ot_claims")
       .insert(rows)
-      .select("id, work_date");
+      .select("id, work_date, staff_id");
     if (error) {
       if (/hr_ot_claims_active_uq|duplicate key/i.test(error.message)) {
         throw new Error("An active OT claim already exists for this staff, date, and rate type.");
@@ -1101,15 +1160,27 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
 
     try {
       const { findUsersWithCapability, notifyUsers } = await import("@/lib/notifications/action-notify");
-      const mgrIds = await findUsersWithCapability("hr.ot.verify", staff.location_id ?? null);
-      const hrIds = await findUsersWithCapability("hr.ot.approve", staff.location_id ?? null);
+      const locationIds = [
+        ...new Set(
+          eligibleIds
+            .map((id) => staffById.get(id)?.location_id ?? null)
+            .filter((id): id is string => Boolean(id)),
+        ),
+      ];
+      const notifyLoc = locationIds.length === 1 ? locationIds[0] : null;
+      const mgrIds = await findUsersWithCapability("hr.ot.verify", notifyLoc);
+      const hrIds = await findUsersWithCapability("hr.ot.approve", notifyLoc);
       const userIds = [...new Set([...mgrIds, ...hrIds])];
+      const names = eligibleIds
+        .map((id) => String(staffById.get(id)?.full_name ?? "Staff"))
+        .slice(0, 5);
+      const more = eligibleIds.length > names.length ? ` +${eligibleIds.length - names.length}` : "";
       await notifyUsers({
         userIds,
-        locationId: staff.location_id ?? null,
+        locationId: notifyLoc,
         category: "hr_ot",
         title: "Supervisor OT request",
-        body: `${String(staff.full_name ?? "Staff")} · ${dates.join(", ")} · ${claimedMinutes} min · ${contractDays}-day contract.`,
+        body: `${names.join(", ")}${more} · ${dates.join(", ")} · ${claimedMinutes} min · ${eligibleIds.length} staff.`,
         severity: "warning",
         actionUrl: "/people/hr/ot",
         sourceType: "hr_ot_claims",
@@ -1120,10 +1191,9 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
     }
 
     return {
-      count: inserted?.length ?? dates.length,
+      count: inserted?.length ?? rows.length,
+      staffCount: eligibleIds.length,
       claimedMinutes,
-      contractWorkingDays: contractDays,
-      amountQar,
       ids: (inserted ?? []).map((row) => String(row.id)),
     };
   },
