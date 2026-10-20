@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Textarea } from "@/components/ui/textarea";
 import { useUserRoles } from "@/hooks/use-auth";
 import {
@@ -22,7 +23,7 @@ import {
   getOtMonthlySummaries,
   getOtPolicySnapshot,
   listOtClaims,
-  searchStaffForSupervisorOt,
+  listStaffForSupervisorOt,
   setStaffContractWorkingDays,
   submitSupervisorOtClaim,
 } from "@/lib/hr-ot.functions";
@@ -66,7 +67,6 @@ function SupervisorOtRequest({ onSubmitted }: { onSubmitted: () => void }) {
   const roles = useUserRoles();
   const canSetContract = canUserDo(roles, "hr.profile.edit");
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
   const [staff, setStaff] = useState<OtStaffPick | null>(null);
   const [contractDraft, setContractDraft] = useState<"26" | "28">("26");
   const [dates, setDates] = useState<string[]>([todayIso()]);
@@ -75,12 +75,31 @@ function SupervisorOtRequest({ onSubmitted }: { onSubmitted: () => void }) {
   const [purpose, setPurpose] = useState("");
   const [rateType, setRateType] = useState<HrOtRateType>("weekday");
 
-  const search = useQuery({
-    queryKey: queryKeys.people.attendanceHr({ view: "ot-staff", query }),
-    queryFn: () => searchStaffForSupervisorOt({ query: query.trim() }),
-    enabled: open && query.trim().length >= 2,
+  const teamStaff = useQuery({
+    queryKey: queryKeys.people.attendanceHr({ view: "ot-staff-team" }),
+    queryFn: () => listStaffForSupervisorOt(),
+    enabled: open,
     staleTime: STALE.people,
   });
+
+  const staffById = useMemo(() => {
+    const map = new Map<string, OtStaffPick>();
+    for (const row of teamStaff.data ?? []) map.set(row.id, row);
+    return map;
+  }, [teamStaff.data]);
+
+  const staffOptions = useMemo(
+    () =>
+      (teamStaff.data ?? []).map((row) => ({
+        value: row.id,
+        label: row.employeeCode ? `${row.fullName} (${row.employeeCode})` : row.fullName,
+        description: [row.jobTitle, row.locationName, row.contractWorkingDays ? `${row.contractWorkingDays}d` : null]
+          .filter(Boolean)
+          .join(" · "),
+        keywords: `${row.fullName} ${row.employeeCode ?? ""} ${row.department ?? ""} ${row.jobTitle ?? ""}`,
+      })),
+    [teamStaff.data],
+  );
 
   const saveContract = useMutation({
     mutationFn: setStaffContractWorkingDays,
@@ -95,6 +114,7 @@ function SupervisorOtRequest({ onSubmitted }: { onSubmitted: () => void }) {
             }
           : current,
       );
+      void teamStaff.refetch();
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -105,7 +125,6 @@ function SupervisorOtRequest({ onSubmitted }: { onSubmitted: () => void }) {
       toast.success(t("hr.ot.submittedMany", { count: result.count }));
       setPurpose("");
       setStaff(null);
-      setQuery("");
       onSubmitted();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -114,6 +133,18 @@ function SupervisorOtRequest({ onSubmitted }: { onSubmitted: () => void }) {
   function addDate() {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dateDraft)) return;
     setDates((current) => (current.includes(dateDraft) ? current : [...current, dateDraft].sort()));
+  }
+
+  function pickStaff(staffId: string) {
+    if (!staffId) {
+      setStaff(null);
+      return;
+    }
+    const row = staffById.get(staffId);
+    if (!row) return;
+    setStaff(row);
+    if (row.contractWorkingDays === 28) setContractDraft("28");
+    else setContractDraft("26");
   }
 
   return (
@@ -132,37 +163,17 @@ function SupervisorOtRequest({ onSubmitted }: { onSubmitted: () => void }) {
           <div className="space-y-3">
             <div>
               <Label htmlFor="ot-staff-search">{t("hr.ot.staffSearch")}</Label>
-              <Input
+              <SearchableSelect
                 id="ot-staff-search"
-                value={query}
+                value={staff?.id ?? ""}
+                onValueChange={pickStaff}
                 placeholder={t("hr.ot.staffSearchPlaceholder")}
-                onChange={(e) => setQuery(e.target.value)}
+                emptyOption={{ value: "", label: t("hr.ot.staffSearchPlaceholder") }}
+                options={staffOptions}
+                disabled={teamStaff.isLoading}
               />
-              {(search.data ?? []).length > 0 && !staff ? (
-                <div className="mt-2 space-y-1">
-                  {(search.data ?? []).map((row) => (
-                    <button
-                      key={row.id}
-                      type="button"
-                      className="hr-list-row w-full text-start"
-                      onClick={() => {
-                        setStaff(row);
-                        setQuery("");
-                        if (row.contractWorkingDays === 28) setContractDraft("28");
-                        else setContractDraft("26");
-                      }}
-                    >
-                      <span className="font-medium">{row.fullName}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {row.employeeCode ?? "—"}
-                        {row.contractWorkingDays ? ` · ${row.contractWorkingDays}d` : ""}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-              {query.trim().length >= 2 && (search.data ?? []).length === 0 && !search.isFetching ? (
-                <p className="mt-1 text-xs text-muted-foreground">{t("hr.ot.noStaff")}</p>
+              {!teamStaff.isLoading && (teamStaff.data ?? []).length === 0 ? (
+                <p className="mt-1 text-xs text-muted-foreground">{t("hr.ot.noTeamStaff")}</p>
               ) : null}
             </div>
 

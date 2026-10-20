@@ -28,6 +28,7 @@ import { policyNumber } from "@/lib/hr-policy";
 import { readPolicySection } from "@/lib/hr-policy-read";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { canActorPerform } from "@/lib/arcade/access";
+import { loadManagerTeamStaffIds } from "@/lib/reporting-manager-access.server";
 import { ForbiddenError } from "@/lib/server/authorize";
 import {
   createAuthenticatedAction,
@@ -850,46 +851,100 @@ const SUPERVISOR_OT_AUTH = {
   auth: { anyCapability: ["hr.ot.verify", "hr.ot.approve"] as ["hr.ot.verify", "hr.ot.approve"] },
 };
 
-export const searchStaffForSupervisorOt = createAuthenticatedAction(
-  z.object({
-    query: z.string().trim().min(2).max(80),
-  }),
-  async (data, context) => {
-    const safe = data.query.replace(/[%_,]/g, "").trim();
-    if (safe.length < 2) return [];
-    const { data: rows, error } = await context.supabase
+type SupervisorOtStaffRow = {
+  id: string;
+  fullName: string;
+  employeeCode: string | null;
+  phone: string | null;
+  department: string | null;
+  jobTitle: string | null;
+  locationId: string | null;
+  locationName: string | null;
+  contractWorkingDays: number | null;
+  supervisorContract: boolean;
+};
+
+/**
+ * Venue / Site / Sr. Site supervisors (and other rollup managers) get their
+ * reporting subtree via loadManagerTeamStaffIds — the same scope as team
+ * attendance and leave review. Not company-wide.
+ */
+async function loadSupervisorOtTeamStaff(userId: string): Promise<SupervisorOtStaffRow[]> {
+  const { teamStaffIds } = await loadManagerTeamStaffIds(userId);
+  if (teamStaffIds.length === 0) return [];
+
+  const rows: Array<{
+    id: string;
+    full_name: string | null;
+    employee_code: string | null;
+    phone: string | null;
+    department: string | null;
+    job_title: string | null;
+    location_id: string | null;
+    locations: { name?: string } | { name?: string }[] | null;
+  }> = [];
+  for (let i = 0; i < teamStaffIds.length; i += 100) {
+    const chunk = teamStaffIds.slice(i, i + 100);
+    const { data, error } = await supabaseAdmin
       .from("staff")
       .select("id, full_name, employee_code, phone, department, job_title, location_id, locations(name)")
+      .in("id", chunk)
       .in("status", ["active", "on_leave", "serving_notice"])
       .is("deleted_at", null)
-      .or(`full_name.ilike.%${safe}%,employee_code.ilike.%${safe}%`)
-      .order("full_name")
-      .limit(15);
+      .order("full_name");
     if (error) throw error;
-    const ids = (rows ?? []).map((row) => String(row.id));
-    const daysByStaff = new Map<string, number | null>();
-    await Promise.all(
-      ids.map(async (staffId) => {
-        daysByStaff.set(staffId, await readContractWorkingDays(context, staffId));
-      }),
-    );
-    return (rows ?? []).map((row) => {
-      const loc = Array.isArray(row.locations) ? row.locations[0] : row.locations;
-      const days = daysByStaff.get(String(row.id)) ?? null;
-      return {
+    for (const row of data ?? []) {
+      rows.push({
         id: String(row.id),
-        fullName: String(row.full_name ?? ""),
-        employeeCode: (row.employee_code as string | null) ?? null,
+        full_name: (row.full_name as string | null) ?? null,
+        employee_code: (row.employee_code as string | null) ?? null,
         phone: (row.phone as string | null) ?? null,
         department: (row.department as string | null) ?? null,
-        jobTitle: (row.job_title as string | null) ?? null,
-        locationId: (row.location_id as string | null) ?? null,
-        locationName: (loc as { name?: string } | null)?.name ?? null,
-        contractWorkingDays: days,
-        supervisorContract: isSupervisorOtContract(days),
-      };
-    });
-  },
+        job_title: (row.job_title as string | null) ?? null,
+        location_id: (row.location_id as string | null) ?? null,
+        locations: row.locations as { name?: string } | { name?: string }[] | null,
+      });
+    }
+  }
+  rows.sort((a, b) => String(a.full_name ?? "").localeCompare(String(b.full_name ?? "")));
+
+  const ids = rows.map((row) => row.id);
+  const daysByStaff = new Map<string, number | null>();
+  for (let i = 0; i < ids.length; i += 100) {
+    const chunk = ids.slice(i, i + 100);
+    const { data: extRows, error: extErr } = await supabaseAdmin
+      .from("staff_profile_ext")
+      .select("staff_id, contract_working_days")
+      .in("staff_id", chunk);
+    if (extErr) throw extErr;
+    for (const row of extRows ?? []) {
+      daysByStaff.set(
+        String(row.staff_id),
+        row.contract_working_days == null ? null : Number(row.contract_working_days),
+      );
+    }
+  }
+
+  return rows.map((row) => {
+    const loc = Array.isArray(row.locations) ? row.locations[0] : row.locations;
+    const days = daysByStaff.get(row.id) ?? null;
+    return {
+      id: row.id,
+      fullName: String(row.full_name ?? ""),
+      employeeCode: row.employee_code,
+      phone: row.phone,
+      department: row.department,
+      jobTitle: row.job_title,
+      locationId: row.location_id,
+      locationName: loc?.name ?? null,
+      contractWorkingDays: days,
+      supervisorContract: isSupervisorOtContract(days),
+    };
+  });
+}
+
+export const listStaffForSupervisorOt = createAuthenticatedActionNoInput(
+  async (context) => loadSupervisorOtTeamStaff(context.userId),
   SUPERVISOR_OT_AUTH,
 );
 
@@ -936,7 +991,12 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
     rateType: z.enum(HR_OT_RATE_TYPES).default("weekday"),
   }),
   async (data, context) => {
-    const { data: staff, error: staffErr } = await context.supabase
+    const { teamStaffIds } = await loadManagerTeamStaffIds(context.userId);
+    if (!teamStaffIds.includes(data.staffId)) {
+      throw new ForbiddenError("You can only request OT for people on your team.");
+    }
+
+    const { data: staff, error: staffErr } = await supabaseAdmin
       .from("staff")
       .select("id, full_name, location_id, employment_type")
       .eq("id", data.staffId)
