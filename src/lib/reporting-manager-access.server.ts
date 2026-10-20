@@ -364,14 +364,18 @@ export async function loadOtSiteSupervisorNotifyUserIds(
     if (seen.has(cursor)) break;
     seen.add(cursor);
 
-    const { data: ext, error: extErr } = await supabaseAdmin
+    // Explicit types break TS7022 circular inference: cursor ↔ ext ↔ managerId.
+    const { data: ext, error: extErr }: {
+      data: { reporting_manager_staff_id: string | null } | null;
+      error: { message: string } | null;
+    } = await supabaseAdmin
       .from("staff_profile_ext")
       .select("reporting_manager_staff_id")
       .eq("staff_id", cursor)
       .maybeSingle();
     if (extErr) throw new Error(extErr.message);
 
-    const managerId = ext?.reporting_manager_staff_id
+    const managerId: string | null = ext?.reporting_manager_staff_id
       ? String(ext.reporting_manager_staff_id)
       : null;
     if (!managerId) break;
