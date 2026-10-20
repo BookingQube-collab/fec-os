@@ -5,7 +5,10 @@
  * Keep the SQL helpers in supabase/migrations/20261011190000_arcade_technical_access.sql aligned.
  */
 
-import { isHeadOfOperationsTitle } from "@/lib/attendance-hr/missed-punch-approval";
+import {
+  isHeadOfOperationsTitle,
+  isSiteSupervisorTitle,
+} from "@/lib/attendance-hr/missed-punch-approval";
 import {
   miaPeopleAdminGrantsCapability,
   type HrPeopleAdminIdentity,
@@ -176,6 +179,12 @@ export function canActorPerform(
     (capability === "arcade.assign" || capability === "arcade.reports" || capability === "arcade.purchase") &&
     isOperationsLead(jobTitle, department)
   ) {
+    return true;
+  }
+
+  // Venue / Site / Sr. Site supervisors: OT nav, page, and supervisor claim create.
+  // Does not grant hr.ot.approve (HR / payroll). Login role is often cashier_host.
+  if (capability === "hr.ot.verify" && isSiteSupervisorTitle(jobTitle, staffRole)) {
     return true;
   }
 

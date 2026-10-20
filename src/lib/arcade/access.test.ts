@@ -154,6 +154,16 @@ describe("arcade technical access", () => {
     expect(canActorPerform(["cashier_host"], "arcade.purchase", supervisor)).toBe(false);
     expect(canActorPerform(["cashier_host"], "arcade.manage", supervisor)).toBe(false);
 
+    expect(canActorPerform(["cashier_host"], "hr.ot.verify", { jobTitle: "Venue Supervisor", staffRole: "venue_supervisor" })).toBe(
+      true,
+    );
+    expect(canActorPerform(["cashier_host"], "hr.ot.verify", { jobTitle: "Sr. Site Supervisor" })).toBe(true);
+    expect(canActorPerform(["cashier_host"], "hr.ot.verify", { jobTitle: "Site Supervisor" })).toBe(true);
+    expect(canActorPerform(["cashier_host"], "hr.ot.approve", { jobTitle: "Venue Supervisor", staffRole: "venue_supervisor" })).toBe(
+      false,
+    );
+    expect(canActorPerform(["cashier_host"], "hr.ot.verify", { jobTitle: "Cashier" })).toBe(false);
+
     const operations = { jobTitle: "Operations Manager", department: "Operations" };
     expect(canActorPerform(["cashier_host"], "arcade.assign", operations)).toBe(true);
     expect(canActorPerform(["cashier_host"], "arcade.close", operations)).toBe(true);

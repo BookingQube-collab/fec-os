@@ -27,13 +27,29 @@ import {
 import { policyNumber } from "@/lib/hr-policy";
 import { readPolicySection } from "@/lib/hr-policy-read";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { canUserDo } from "@/lib/rbac";
+import { canActorPerform } from "@/lib/arcade/access";
 import { ForbiddenError } from "@/lib/server/authorize";
 import {
   createAuthenticatedAction,
   createAuthenticatedActionNoInput,
   type AuthContext,
 } from "@/lib/server/create-action";
+
+function otAccess(context: AuthContext) {
+  return context.access ?? null;
+}
+
+function canOtVerify(context: AuthContext): boolean {
+  return canActorPerform(context.roles ?? [], "hr.ot.verify", otAccess(context));
+}
+
+function canOtApprove(context: AuthContext): boolean {
+  return canActorPerform(context.roles ?? [], "hr.ot.approve", otAccess(context));
+}
+
+function canOtSubmit(context: AuthContext): boolean {
+  return canActorPerform(context.roles ?? [], "hr.ot.submit", otAccess(context));
+}
 
 async function myStaff(context: AuthContext) {
   const { data } = await context.supabase
@@ -214,9 +230,9 @@ export const listOtClaims = createAuthenticatedAction(
     staffId: z.string().uuid().optional().nullable(),
   }),
   async (data, context) => {
-    const canApprove = canUserDo(context.roles ?? [], "hr.ot.approve");
-    const canVerify = canUserDo(context.roles ?? [], "hr.ot.verify");
-    const canSubmit = canUserDo(context.roles ?? [], "hr.ot.submit");
+    const canApprove = canOtApprove(context);
+    const canVerify = canOtVerify(context);
+    const canSubmit = canOtSubmit(context);
     if (!canApprove && !canVerify && !canSubmit) {
       throw new ForbiddenError("Missing OT permission.");
     }
@@ -265,9 +281,7 @@ export const getOtMonthlySummaries = createAuthenticatedAction(
     groupBy: z.enum(["employee", "department", "employment_type", "location"]).default("employee"),
   }),
   async (data, context) => {
-    const canSee =
-      canUserDo(context.roles ?? [], "hr.ot.approve") ||
-      canUserDo(context.roles ?? [], "hr.ot.verify");
+    const canSee = canOtApprove(context) || canOtVerify(context);
     if (!canSee) throw new ForbiddenError("OT summaries require verify or approve.");
 
     const start = `${data.month}-01`;
@@ -313,7 +327,7 @@ export const previewOtEligibility = createAuthenticatedAction(
   }),
   async (data, context) => {
     const mine = await myStaff(context);
-    const canApprove = canUserDo(context.roles ?? [], "hr.ot.approve");
+    const canApprove = canOtApprove(context);
     const staffId = data.staffId && canApprove ? data.staffId : mine?.id;
     if (!staffId) throw new ForbiddenError("No staff record linked.");
 
@@ -419,7 +433,7 @@ export const submitOtClaim = createAuthenticatedAction(
   }),
   async (data, context) => {
     const mine = await myStaff(context);
-    const canApprove = canUserDo(context.roles ?? [], "hr.ot.approve");
+    const canApprove = canOtApprove(context);
     const staffId = data.staffId && canApprove ? data.staffId : mine?.id;
     if (!staffId) throw new ForbiddenError("Your login is not linked to a staff record.");
 
@@ -564,8 +578,8 @@ export const actOnOtClaim = createAuthenticatedAction(
 
     const from = String(existing.status) as HrOtStatus;
     const mine = await myStaff(context);
-    const canVerify = canUserDo(context.roles ?? [], "hr.ot.verify");
-    const canApprove = canUserDo(context.roles ?? [], "hr.ot.approve");
+    const canVerify = canOtVerify(context);
+    const canApprove = canOtApprove(context);
     const isOwner = mine?.id === existing.staff_id;
 
     const policy = await loadOtPolicy(context);
