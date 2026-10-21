@@ -76,6 +76,7 @@ export const BIOMETRIC_TEMPLATE_WARNING =
 export const ATTENDANCE_STATUSES = [
   "present",
   "absent",
+  "not_started",
   "weekly_off",
   "public_holiday",
   "annual_leave",

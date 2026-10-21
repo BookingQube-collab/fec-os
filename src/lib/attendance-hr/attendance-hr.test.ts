@@ -7,7 +7,11 @@ import { describe, expect, it } from "vitest";
 import { parseEncryptionKey } from "@/lib/ai/crypto";
 import { matchesSearchQuery } from "@/lib/searchable-select";
 
-import { calculateDailyAttendance, markProbableDuplicates } from "./calculate";
+import {
+  calculateDailyAttendance,
+  markProbableDuplicates,
+  resolvePunchlessRosteredStatus,
+} from "./calculate";
 import {
   ADMS_HEARTBEAT_TOUCH_MS,
   ADMS_ONLINE_WINDOW_MS,
@@ -380,6 +384,54 @@ describe("daily calculation", () => {
   it("marks absent only on a scheduled working day", () => {
     const day = calculateDailyAttendance([], { workDate: "2026-08-01", scheduled: true, shift });
     expect(day.status).toBe("absent");
+  });
+
+  it("does not mark absent before roster start on the work day", () => {
+    // Afternoon shift 14:00 Qatar (= 11:00Z); now is still morning.
+    const afternoon = { ...shift, startTime: "14:00", endTime: "23:00" };
+    const beforeStart = calculateDailyAttendance([], {
+      workDate: "2026-10-21",
+      scheduled: true,
+      shift: afternoon,
+      now: "2026-10-21T08:00:00.000Z", // 11:00 Qatar
+    });
+    expect(beforeStart.status).toBe("not_started");
+
+    const afterStart = calculateDailyAttendance([], {
+      workDate: "2026-10-21",
+      scheduled: true,
+      shift: afternoon,
+      now: "2026-10-21T11:30:00.000Z", // 14:30 Qatar
+    });
+    expect(afterStart.status).toBe("absent");
+  });
+
+  it("keeps past punch-less rostered days as absent", () => {
+    const day = calculateDailyAttendance([], {
+      workDate: "2026-10-20",
+      scheduled: true,
+      shift: { ...shift, startTime: "14:00", endTime: "23:00" },
+      now: "2026-10-21T08:00:00.000Z",
+    });
+    expect(day.status).toBe("absent");
+  });
+
+  it("resolvePunchlessRosteredStatus compares now to roster start only", () => {
+    expect(
+      resolvePunchlessRosteredStatus({
+        scheduledInIso: "2026-10-21T11:00:00.000Z",
+        now: "2026-10-21T10:59:00.000Z",
+      }),
+    ).toBe("not_started");
+    expect(
+      resolvePunchlessRosteredStatus({
+        scheduledInIso: "2026-10-21T11:00:00.000Z",
+        now: "2026-10-21T11:00:00.000Z",
+      }),
+    ).toBe("absent");
+    expect(resolvePunchlessRosteredStatus({ scheduledInIso: null, now: "2026-10-21T08:00:00.000Z" })).toBe(
+      "absent",
+    );
   });
 
   it("flags a single punch as missed punch", () => {

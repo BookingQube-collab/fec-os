@@ -18,7 +18,27 @@ export type DayContext = {
   leaveType?: "annual_leave" | "sick_leave" | "unpaid_leave" | null;
   shift?: ShiftTemplateInput | null;
   rules?: AttendanceRuleInput;
+  /** Injected clock for tests; defaults to Date.now(). */
+  now?: Date | string | number;
 };
+
+/**
+ * Punch-less rostered day: Absent only after roster start has arrived.
+ * Before start → not_started (listing must not show ABSENT for afternoon shifts).
+ * Past days keep Absent because their scheduled_in is already in the past.
+ * Late/grace apply only after a punch exists — they do not delay Absent.
+ */
+export function resolvePunchlessRosteredStatus(input: {
+  scheduledInIso: string | null | undefined;
+  now?: Date | string | number;
+}): "absent" | "not_started" {
+  if (!input.scheduledInIso) return "absent";
+  const startMs = new Date(input.scheduledInIso).getTime();
+  if (!Number.isFinite(startMs)) return "absent";
+  const nowMs = input.now != null ? new Date(input.now).getTime() : Date.now();
+  if (!Number.isFinite(nowMs)) return "absent";
+  return nowMs < startMs ? "not_started" : "absent";
+}
 
 function parseHm(value: string): { h: number; m: number } {
   const [h, m] = value.split(":").map((n) => Number.parseInt(n, 10));
@@ -141,7 +161,23 @@ export function calculateDailyAttendance(punches: CalcPunch[], ctx: DayContext):
       return emptyDay(ctx.workDate, rawPunchTimes, "unscheduled", ["unscheduled"], "No roster or scheduled working day");
     }
     if (ctx.scheduled) {
-      return emptyDay(ctx.workDate, rawPunchTimes, "absent", ["absent"], "No punches on a scheduled working day");
+      const scheduledInIso =
+        shift?.startTime && /^\d{1,2}:\d{2}/.test(String(shift.startTime).trim())
+          ? atDate(ctx.workDate, shift.startTime).toISOString()
+          : null;
+      const status = resolvePunchlessRosteredStatus({
+        scheduledInIso,
+        now: ctx.now,
+      });
+      return emptyDay(
+        ctx.workDate,
+        rawPunchTimes,
+        status,
+        [status],
+        status === "absent"
+          ? "No punches on a scheduled working day"
+          : "Rostered shift has not started yet",
+      );
     }
     return emptyDay(ctx.workDate, rawPunchTimes, "unscheduled", ["unscheduled"], "No scheduled working day");
   }

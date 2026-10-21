@@ -35,6 +35,7 @@ export type AttendanceGridTone =
   | "missed_punch"
   | "weekly_off"
   | "absent"
+  | "not_started"
   | "not_joined"
   | "unscheduled"
   | "leave"
@@ -76,6 +77,7 @@ export function attendanceGridTone(row: AttendanceListingSource): AttendanceGrid
   if (status === "weekly_off") return "weekly_off";
   if (LEAVE_KEYS.has(status)) return "leave";
   if (status === "absent") return "absent";
+  if (status === "not_started") return "not_started";
   if (status === "not_joined") return "not_joined";
   if (status === "unscheduled") return "unscheduled";
   if (hasLatePunch(row.late_minutes) || status === "late") return "late";
@@ -95,6 +97,7 @@ export function attendanceGridCellClass(tone: AttendanceGridTone): string {
     case "leave":
       return "bg-sky-500/20 text-sky-900 dark:text-sky-100";
     case "unscheduled":
+    case "not_started":
       return "bg-zinc-500/10 text-zinc-800 dark:text-zinc-200";
     case "not_joined":
       return "bg-stone-500/10 text-stone-700 dark:text-stone-200";
@@ -118,7 +121,14 @@ export function attendanceGridCellContent(row: AttendanceListingSource): Attenda
   const hours = resolveTotalHoursWorked(row);
   const late = formatLatePunch(row.late_minutes);
 
-  if (tone === "weekly_off" || tone === "leave" || tone === "absent" || tone === "not_joined" || tone === "unscheduled") {
+  if (
+    tone === "weekly_off" ||
+    tone === "leave" ||
+    tone === "absent" ||
+    tone === "not_started" ||
+    tone === "not_joined" ||
+    tone === "unscheduled"
+  ) {
     return { tone, primary: statusLabel, secondary: null, meta: null, statusLabel };
   }
 
@@ -194,6 +204,8 @@ export function attendanceMatrixStatusCode(row: AttendanceListingSource): string
       return "MP";
     case "unscheduled":
       return "US";
+    case "not_started":
+      return "";
     case "not_joined":
       return "NJ";
     case "short_hours": {

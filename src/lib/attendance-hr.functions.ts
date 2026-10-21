@@ -68,7 +68,6 @@ import {
 } from "@/lib/attendance-hr/gap-check";
 import { defaultPayrollPeriod } from "@/lib/attendance-hr/roster-period";
 import {
-  applyPreJoinAttendanceStatus,
   applyRosterDayStatusOverride,
   resolveHoursBasedAttendanceStatus,
 } from "@/lib/attendance-display";
@@ -3157,10 +3156,25 @@ async function enrichAttendanceHrDailyRows(
         bufferMinutes: row.location_buffer_minutes,
         lateFromShiftStart: Boolean(row.flexible_attendance),
       });
-      const status = applyPreJoinAttendanceStatus({
+      // Defer Absent → Not started when roster start is still in the future (afternoon shifts).
+      const status = resolveHoursBasedAttendanceStatus({
         status: row.status,
-        workDate: row.work_date,
-        hireDate: row.hire_date,
+        missed_punch: row.missed_punch,
+        actual_in: row.actual_in,
+        actual_out: row.actual_out,
+        worked_minutes: row.worked_minutes,
+        late_minutes: lateMinutes,
+        expected_minutes: row.expected_minutes,
+        employment_type: row.employment_type,
+        flexible_attendance: row.flexible_attendance,
+        work_date: row.work_date,
+        hire_date: row.hire_date,
+        scheduled_in: row.scheduled_in,
+        sitePolicy: {
+          permanentHours: row.permanent_hours,
+          secondmentHours: row.secondment_hours,
+          jokerHours: row.joker_hours,
+        },
       });
       if (lateMinutes === row.late_minutes && status === row.status) return row;
       return { ...row, late_minutes: lateMinutes, status };

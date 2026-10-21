@@ -1,3 +1,4 @@
+import { resolvePunchlessRosteredStatus } from "@/lib/attendance-hr/calculate";
 import { defaultPayrollPeriod } from "@/lib/attendance-hr/roster-period";
 import { reportingClockIso } from "@/lib/attendance-hr/late-punch";
 import { computeAttendanceOvertimeMinutes } from "@/lib/attendance-hr/overtime";
@@ -312,6 +313,11 @@ const NAMED_STATUS_DISPLAY: Record<string, AttendanceStatusDisplay> = {
     badgeClass: "border-zinc-500/40 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300",
     rowClass: NO_ROW_TINT,
   },
+  not_started: {
+    label: "Not started",
+    badgeClass: "border-zinc-500/40 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300",
+    rowClass: NO_ROW_TINT,
+  },
   not_joined: {
     label: "Not joined",
     badgeClass: NOT_JOINED_BADGE,
@@ -437,6 +443,10 @@ export function resolveHoursBasedAttendanceStatus(
     flexible_attendance?: boolean | null;
     late_minutes?: number | null;
     work_date?: string | null;
+    /** Roster shift start — used to defer Absent until start on the listing. */
+    scheduled_in?: string | null;
+    /** Injected clock for tests; defaults to Date.now(). */
+    asOf?: Date | string | number;
     /** `staff.hire_date`. Strictly earlier days that would be Absent become not_joined. */
     hire_date?: string | null;
   },
@@ -450,7 +460,14 @@ export function resolveHoursBasedAttendanceStatus(
   if (!(hasIn && hasOut)) {
     if (row.missed_punch || hasIn !== hasOut) return "missed_punch";
     if (!hasIn && !hasOut) {
-      const next = statusKey === "absent" ? "absent" : statusKey || "absent";
+      let next = statusKey === "absent" ? "absent" : statusKey || "absent";
+      // Stale daily_summary / gap fillers often store Absent before afternoon shifts start.
+      if (next === "absent" || next === "not_started") {
+        next = resolvePunchlessRosteredStatus({
+          scheduledInIso: row.scheduled_in,
+          now: row.asOf,
+        });
+      }
       const afterPreJoin = applyPreJoinAttendanceStatus({
         status: next,
         workDate: row.work_date,
@@ -520,6 +537,8 @@ export function getAttendanceStatusDisplay(
     flexible_attendance?: boolean | null;
     late_minutes?: number | null;
     work_date?: string | null;
+    scheduled_in?: string | null;
+    asOf?: Date | string | number;
     hire_date?: string | null;
   },
 ): AttendanceStatusDisplay {

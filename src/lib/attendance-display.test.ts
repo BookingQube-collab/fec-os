@@ -489,6 +489,73 @@ function summaryRow(partial: Partial<AttendanceSummaryRow> & Pick<AttendanceSumm
   };
 }
 
+describe("punch-less roster before shift start", () => {
+  it("shows Not started when now is before roster start (afternoon shift)", () => {
+    expect(
+      resolveHoursBasedAttendanceStatus({
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        work_date: "2026-10-21",
+        scheduled_in: "2026-10-21T11:00:00.000Z", // 14:00 Qatar
+        asOf: "2026-10-21T08:00:00.000Z", // 11:00 Qatar
+      }),
+    ).toBe("not_started");
+    expect(
+      getAttendanceStatusDisplay({
+        status: "absent",
+        missed_punch: false,
+        actual_in: null,
+        actual_out: null,
+        work_date: "2026-10-21",
+        scheduled_in: "2026-10-21T11:00:00.000Z",
+        asOf: "2026-10-21T08:00:00.000Z",
+      }).label,
+    ).toBe("Not started");
+  });
+
+  it("shows Absent once roster start has passed with no punch", () => {
+    expect(
+      resolveHoursBasedAttendanceStatus({
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        work_date: "2026-10-21",
+        scheduled_in: "2026-10-21T11:00:00.000Z",
+        asOf: "2026-10-21T11:01:00.000Z",
+      }),
+    ).toBe("absent");
+  });
+
+  it("keeps past punch-less rostered days as Absent", () => {
+    expect(
+      resolveHoursBasedAttendanceStatus({
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        work_date: "2026-10-20",
+        scheduled_in: "2026-10-20T11:00:00.000Z",
+        asOf: "2026-10-21T08:00:00.000Z",
+      }),
+    ).toBe("absent");
+  });
+
+  it("does not count Not started toward the absent KPI label", () => {
+    // computeAttendanceKpis uses display.label === "Absent"; Not started must not match.
+    expect(
+      getAttendanceStatusDisplay({
+        status: "absent",
+        missed_punch: false,
+        actual_in: null,
+        actual_out: null,
+        work_date: "2026-10-21",
+        scheduled_in: "2026-10-21T11:00:00.000Z",
+        asOf: "2026-10-21T08:00:00.000Z",
+      }).label,
+    ).not.toBe("Absent");
+  });
+});
+
 describe("pre-join attendance status", () => {
   const hire = "2026-09-17";
 
