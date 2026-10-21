@@ -596,6 +596,9 @@ function SupervisorOtRequest({ onSubmitted }: { onSubmitted: () => void }) {
                         .map((r) => r.requestNumber)
                         .filter(Boolean)
                         .slice(0, 3);
+                      const numberByStaff = new Map(
+                        (result.requests ?? []).map((r) => [r.staffId, r.requestNumber] as const),
+                      );
                       toast.success(
                         t("hr.ot.submittedRequest", {
                           days: result.count,
@@ -605,9 +608,13 @@ function SupervisorOtRequest({ onSubmitted }: { onSubmitted: () => void }) {
                         }),
                       );
                       setPrintPayload({
-                        staff: printStaff,
+                        staff: printStaff.map((row) => ({
+                          ...row,
+                          requestNumber: numberByStaff.get(row.id) ?? result.requestNumber ?? null,
+                        })),
                         requestDate: todayIso(),
                         status: result.status,
+                        requestNumber: result.requestNumber,
                       });
                       setPrintOpen(true);
                       setShowCardErrors(false);
@@ -686,6 +693,9 @@ function printPayloadFromGroup(group: OtRequestGroup): SupervisorOtPrintPayload 
         existing.days.push({ workDate: claim.workDate, hours });
         existing.days.sort((a, b) => a.workDate.localeCompare(b.workDate));
       }
+      if (!existing.requestNumber && claim.requestNumber) {
+        existing.requestNumber = claim.requestNumber;
+      }
       continue;
     }
     byStaff.set(claim.staffId, {
@@ -698,12 +708,14 @@ function printPayloadFromGroup(group: OtRequestGroup): SupervisorOtPrintPayload 
       days: [{ workDate: claim.workDate, hours }],
       purpose: claim.purpose ?? "",
       rateType: claim.rateType,
+      requestNumber: claim.requestNumber ?? group.requestNumber,
     });
   }
   return {
     staff: [...byStaff.values()],
     requestDate: (group.submittedAt ?? todayIso()).slice(0, 10),
     status: group.status,
+    requestNumber: group.requestNumber,
   };
 }
 

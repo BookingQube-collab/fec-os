@@ -32,6 +32,8 @@ export type SupervisorOtPrintStaff = {
   days: SupervisorOtPrintDay[];
   purpose: string;
   rateType: HrOtRateType;
+  /** OT request number shown on the printable slip (e.g. OT-20261021-0010). */
+  requestNumber?: string | null;
 };
 
 export type SupervisorOtPrintPayload = {
@@ -40,6 +42,11 @@ export type SupervisorOtPrintPayload = {
   requestDate: string;
   /** Optional workflow status for preview checkmarks. */
   status?: HrOtStatus | null;
+  /**
+   * Fallback request number when staff sheets do not carry their own
+   * (e.g. single-request preview from the approval queue).
+   */
+  requestNumber?: string | null;
 };
 
 function formatDisplayDate(iso: string): string {
@@ -77,11 +84,13 @@ function OtRequestSheet({
   requestDate,
   staffRequired,
   status,
+  requestNumber,
 }: {
   staff: SupervisorOtPrintStaff;
   requestDate: string;
   staffRequired: number;
   status?: HrOtStatus | null;
+  requestNumber?: string | null;
 }) {
   const { t } = useTranslation();
   const days = [...staff.days].sort((a, b) => a.workDate.localeCompare(b.workDate));
@@ -90,6 +99,7 @@ function OtRequestSheet({
     .map((day) => `${formatDisplayDate(day.workDate)}: ${formatHoursLabel(day.hours)}`)
     .join("; ");
   const totalHours = formatHoursLabel(sumSupervisorOtDayHours(days));
+  const sheetNumber = (staff.requestNumber ?? requestNumber)?.trim() || null;
   const siteDone =
     status === "manager_verified" ||
     status === "ops_approved" ||
@@ -106,6 +116,17 @@ function OtRequestSheet({
       <h1 className="mt-6 text-center text-lg font-bold uppercase tracking-wide text-[#7b2d8e]">
         {t("hr.ot.print.title")}
       </h1>
+      {sheetNumber ? (
+        <p className="mt-2 text-center text-sm font-semibold tracking-wide text-neutral-900">
+          <span className="text-[10px] font-bold uppercase tracking-wide text-neutral-700">
+            {t("hr.ot.print.requestNumber")}
+          </span>
+          <span className="mx-2 text-neutral-400" aria-hidden>
+            ·
+          </span>
+          <span className="font-mono text-[15px] font-bold tracking-tight">{sheetNumber}</span>
+        </p>
+      ) : null}
 
       <div className="mt-6 grid grid-cols-2 gap-x-8 gap-y-3">
         <FormField label={t("hr.ot.print.employeeName")} value={staff.fullName} />
@@ -200,6 +221,15 @@ export function SupervisorOtPrintDialog({
   const { t } = useTranslation();
   if (!payload || payload.staff.length === 0) return null;
 
+  const dialogNumbers = [
+    ...new Set(
+      [
+        payload.requestNumber,
+        ...payload.staff.map((person) => person.requestNumber),
+      ].filter((value): value is string => Boolean(value?.trim())),
+    ),
+  ];
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="ot-print-dialog max-h-[92vh] max-w-3xl overflow-y-auto print:fixed print:inset-0 print:max-h-none print:max-w-none print:translate-x-0 print:translate-y-0 print:border-0 print:bg-white print:p-0 print:shadow-none">
@@ -207,6 +237,14 @@ export function SupervisorOtPrintDialog({
           <DialogTitle>{t("hr.ot.print.dialogTitle")}</DialogTitle>
           <DialogDescription>
             {t("hr.ot.print.dialogHint", { count: payload.staff.length })}
+            {dialogNumbers.length > 0 ? (
+              <>
+                {" "}
+                <span className="font-mono font-semibold text-foreground">
+                  {dialogNumbers.join(", ")}
+                </span>
+              </>
+            ) : null}
           </DialogDescription>
         </DialogHeader>
 
@@ -218,6 +256,7 @@ export function SupervisorOtPrintDialog({
               requestDate={payload.requestDate}
               staffRequired={payload.staff.length}
               status={payload.status}
+              requestNumber={payload.requestNumber}
             />
           ))}
         </div>
