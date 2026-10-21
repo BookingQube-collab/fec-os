@@ -2283,6 +2283,7 @@ export type Database = {
           basic_qar: number | null
           housing_qar: number | null
           transport_qar: number | null
+          extras: Json
           staff_id: string
           updated_at: string
           updated_by: string | null
@@ -2294,6 +2295,7 @@ export type Database = {
           basic_qar?: number | null
           housing_qar?: number | null
           transport_qar?: number | null
+          extras?: Json
           staff_id: string
           updated_at?: string
           updated_by?: string | null
@@ -2305,6 +2307,7 @@ export type Database = {
           basic_qar?: number | null
           housing_qar?: number | null
           transport_qar?: number | null
+          extras?: Json
           staff_id?: string
           updated_at?: string
           updated_by?: string | null

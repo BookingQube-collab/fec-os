@@ -6,6 +6,7 @@ import { withAuthRouteRequest, searchParams } from "@/lib/server/api-route";
 import { loadLinkedStaffJobTitle } from "@/lib/linked-staff-job-title.server";
 import { peopleDirectoryShowsSalary } from "@/lib/people-directory-access";
 import { canUserDo } from "@/lib/rbac";
+import { parseSalaryExtras } from "@/lib/salary-package";
 import { ForbiddenError } from "@/lib/server/authorize";
 import { fetchWorkLocationsByStaffId } from "@/lib/staff-work-locations";
 
@@ -71,16 +72,46 @@ export async function GET(
         basic_qar: number | null;
         housing_qar: number | null;
         transport_qar: number | null;
+        extras: Array<{ id: string; title: string; amount_qar: number }>;
         currency: string;
       } | null = null;
       if (includeSalary && (loadOverview || legacyFull)) {
         const first = await db
           .from("staff_compensation")
-          .select("monthly_salary_qar, daily_rate_qar, basic_qar, housing_qar, transport_qar, currency")
+          .select("monthly_salary_qar, daily_rate_qar, basic_qar, housing_qar, transport_qar, extras, currency")
           .eq("staff_id", id)
           .maybeSingle();
-        let comp = first.data;
-        if (first.error && /basic_qar|housing_qar|transport_qar/i.test(first.error.message)) {
+        let comp: {
+          monthly_salary_qar: number | null;
+          daily_rate_qar: number | null;
+          basic_qar: number | null;
+          housing_qar: number | null;
+          transport_qar: number | null;
+          extras?: unknown;
+          currency: string;
+        } | null = first.data;
+        if (first.error && /extras/i.test(first.error.message)) {
+          const withoutExtras = await db
+            .from("staff_compensation")
+            .select("monthly_salary_qar, daily_rate_qar, basic_qar, housing_qar, transport_qar, currency")
+            .eq("staff_id", id)
+            .maybeSingle();
+          if (withoutExtras.error && /basic_qar|housing_qar|transport_qar/i.test(withoutExtras.error.message)) {
+            const legacy = await db
+              .from("staff_compensation")
+              .select("monthly_salary_qar, daily_rate_qar, currency")
+              .eq("staff_id", id)
+              .maybeSingle();
+            if (legacy.error) throw legacy.error;
+            comp = legacy.data
+              ? { ...legacy.data, basic_qar: null, housing_qar: null, transport_qar: null, extras: [] }
+              : null;
+          } else if (withoutExtras.error) {
+            throw withoutExtras.error;
+          } else {
+            comp = withoutExtras.data ? { ...withoutExtras.data, extras: [] } : null;
+          }
+        } else if (first.error && /basic_qar|housing_qar|transport_qar/i.test(first.error.message)) {
           const legacy = await db
             .from("staff_compensation")
             .select("monthly_salary_qar, daily_rate_qar, currency")
@@ -88,7 +119,7 @@ export async function GET(
             .maybeSingle();
           if (legacy.error) throw legacy.error;
           comp = legacy.data
-            ? { ...legacy.data, basic_qar: null, housing_qar: null, transport_qar: null }
+            ? { ...legacy.data, basic_qar: null, housing_qar: null, transport_qar: null, extras: [] }
             : null;
         } else if (first.error) {
           throw first.error;
@@ -100,6 +131,11 @@ export async function GET(
               basic_qar: comp.basic_qar == null ? null : Number(comp.basic_qar),
               housing_qar: comp.housing_qar == null ? null : Number(comp.housing_qar),
               transport_qar: comp.transport_qar == null ? null : Number(comp.transport_qar),
+              extras: parseSalaryExtras(comp.extras).map((extra) => ({
+                id: extra.id,
+                title: extra.title,
+                amount_qar: extra.amountQar,
+              })),
               currency: comp.currency,
             }
           : null;

@@ -6,6 +6,11 @@
 import type { Json } from "@/integrations/supabase/types";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { appendEmployeeEvent } from "@/lib/hr-employee-events";
+import {
+  parseSalaryExtras,
+  serializeSalaryExtras,
+  type SalaryExtra,
+} from "@/lib/salary-package";
 import type { AuthContext } from "@/lib/server/create-action";
 
 function qatarToday(): string {
@@ -50,6 +55,8 @@ export async function insertSalaryHistoryAndSync(
     transportQar?: number | null;
     /** When true, null housing/transport clear those columns (profile split save). */
     replaceComponents?: boolean;
+    /** When set, replaces custom extras on the live snapshot + history allowances.extras. */
+    extras?: SalaryExtra[] | null;
     allowances?: Record<string, unknown>;
     effectiveOn?: string;
     reason?: string | null;
@@ -62,14 +69,24 @@ export async function insertSalaryHistoryAndSync(
     basic_qar?: number | null;
     housing_qar?: number | null;
     transport_qar?: number | null;
+    extras?: unknown;
   } | null = null;
   {
     const first = await supabaseAdmin
       .from("staff_compensation")
-      .select("basic_qar, housing_qar, transport_qar")
+      .select("basic_qar, housing_qar, transport_qar, extras")
       .eq("staff_id", input.staffId)
       .maybeSingle();
-    if (!first.error) existingComp = first.data;
+    if (first.error && /extras/i.test(first.error.message)) {
+      const legacy = await supabaseAdmin
+        .from("staff_compensation")
+        .select("basic_qar, housing_qar, transport_qar")
+        .eq("staff_id", input.staffId)
+        .maybeSingle();
+      if (!legacy.error) existingComp = legacy.data ? { ...legacy.data, extras: [] } : null;
+    } else if (!first.error) {
+      existingComp = first.data;
+    }
   }
 
   const housingFromInput =
@@ -100,11 +117,17 @@ export async function insertSalaryHistoryAndSync(
           ? null
           : allowanceNumber(input.monthlyTotalQar));
 
+  const extras =
+    input.extras !== undefined && input.extras !== null
+      ? parseSalaryExtras(input.extras)
+      : parseSalaryExtras(existingComp?.extras);
+
   const allowances: Record<string, unknown> = {
     ...(input.allowances ?? {}),
   };
   if (housing != null) allowances.housing = housing;
   if (transport != null) allowances.transportation = transport;
+  allowances.extras = serializeSalaryExtras(extras);
 
   // Service role after people.edit_salary: salary RLS has blocked every history write (0 rows in prod).
   const { data: hist, error: histErr } = await supabaseAdmin
@@ -126,6 +149,7 @@ export async function insertSalaryHistoryAndSync(
     .single();
   if (histErr) throw histErr;
 
+  const extrasJson = serializeSalaryExtras(extras) as unknown as Json;
   const { error: compErr } = await supabaseAdmin.from("staff_compensation").upsert({
     staff_id: input.staffId,
     monthly_salary_qar: input.monthlyTotalQar,
@@ -133,10 +157,27 @@ export async function insertSalaryHistoryAndSync(
     basic_qar: basic,
     housing_qar: housing,
     transport_qar: transport,
+    extras: extrasJson,
     currency: "QAR",
     updated_by: context.userId,
   });
-  if (compErr) throw compErr;
+  if (compErr) {
+    if (/extras/i.test(compErr.message)) {
+      const { error: legacyCompErr } = await supabaseAdmin.from("staff_compensation").upsert({
+        staff_id: input.staffId,
+        monthly_salary_qar: input.monthlyTotalQar,
+        daily_rate_qar: input.dailyRateQar ?? null,
+        basic_qar: basic,
+        housing_qar: housing,
+        transport_qar: transport,
+        currency: "QAR",
+        updated_by: context.userId,
+      });
+      if (legacyCompErr) throw legacyCompErr;
+    } else {
+      throw compErr;
+    }
+  }
 
   try {
     await audit(
@@ -150,6 +191,7 @@ export async function insertSalaryHistoryAndSync(
         basic_qar: basic,
         housing_qar: housing,
         transport_qar: transport,
+        extras: serializeSalaryExtras(extras),
         daily_rate_qar: input.dailyRateQar ?? null,
         effective_on: effectiveOn,
       },
@@ -168,6 +210,7 @@ export async function insertSalaryHistoryAndSync(
         basic_qar: basic,
         housing_qar: housing,
         transport_qar: transport,
+        extras: serializeSalaryExtras(extras),
         daily_rate_qar: input.dailyRateQar ?? null,
         reason: input.reason ?? null,
       },

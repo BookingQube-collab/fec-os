@@ -16,8 +16,10 @@ import {
   GraduationCap,
   History,
   LayoutDashboard,
+  Plus,
   ShieldAlert,
   StickyNote,
+  Trash2,
   User,
   UserRound,
   Wallet,
@@ -31,8 +33,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useSites } from "@/hooks/queries/useSites";
-import { usePeopleDirectoryShowsSalary } from "@/hooks/use-auth";
+import { useAuth, usePeopleDirectoryShowsSalary, useUserRoles } from "@/hooks/use-auth";
 import { usePermission } from "@/hooks/use-permission";
+import {
+  canManageSalaryCustomExtras,
+  parseSalaryExtras,
+  salaryPackageTotal,
+} from "@/lib/salary-package";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { expiryBand, qatarTodayYmd } from "@/lib/hr-expiry-bands";
 import type { StaffRow } from "@/lib/queries/module-queries.core";
@@ -166,6 +173,7 @@ type ProfileResponse = {
     basic_qar: number | null;
     housing_qar: number | null;
     transport_qar: number | null;
+    extras?: Array<{ id: string; title: string; amount_qar: number }>;
     currency: string;
   } | null;
   transfers: Array<{
@@ -224,11 +232,14 @@ function StaffProfilePageBody() {
   }, [initialTab]);
   const canEdit = usePermission("people.edit_roster");
   const canProvisionLogin = usePermission("admin.provision_users");
+  const { profile: sessionProfile } = useAuth();
+  const roles = useUserRoles();
   const canViewSalaryPerm = usePeopleDirectoryShowsSalary();
   const canEditProfile = usePermission("hr.profile.edit");
   const canEditSalaryCap = usePermission("people.edit_salary");
   // HR / leadership / Head of Operations (title via canActorPerform) may edit package split.
   const canSalary = (canEditSalaryCap || canEditProfile) && canViewSalaryPerm;
+  const canManageExtras = canSalary && canManageSalaryCustomExtras(roles, sessionProfile?.job_title);
   const canViewSensitive = usePermission("hr.profile.view_sensitive") || canViewSalaryPerm;
   const canConfigure = usePermission("attendance.configure");
   const canManageDocs = usePermission("hr.docs.manage");
@@ -250,6 +261,7 @@ function StaffProfilePageBody() {
   const [basicQar, setBasicQar] = useState("");
   const [housingQar, setHousingQar] = useState("");
   const [transportQar, setTransportQar] = useState("");
+  const [salaryExtras, setSalaryExtras] = useState<Array<{ id: string; title: string; amount: string }>>([]);
   const [workLocationIds, setWorkLocationIds] = useState<string[]>([]);
   const [isRoaming, setIsRoaming] = useState(false);
   const [employmentType, setEmploymentType] = useState("");
@@ -378,6 +390,13 @@ function StaffProfilePageBody() {
     setBasicQar(c.basic_qar == null ? "" : String(c.basic_qar));
     setHousingQar(c.housing_qar == null ? "" : String(c.housing_qar));
     setTransportQar(c.transport_qar == null ? "" : String(c.transport_qar));
+    setSalaryExtras(
+      parseSalaryExtras(c.extras).map((extra) => ({
+        id: extra.id,
+        title: extra.title,
+        amount: String(extra.amountQar),
+      })),
+    );
   }, [profile.data?.compensation, profile.data?.staff?.employment_type]);
 
   const transferMut = useMutation({
@@ -412,12 +431,21 @@ function StaffProfilePageBody() {
       if (basic == null && housing == null && transport == null) {
         throw new Error(t("people.staff.salarySplitRequired"));
       }
+      const extrasPayload = canManageExtras
+        ? salaryExtras.map((extra) => {
+            const title = extra.title.trim();
+            if (!title) throw new Error(t("people.staff.salaryExtraTitleRequired"));
+            const amount = parseMoneyField(extra.amount, t("people.staff.salaryExtraAmount")) ?? 0;
+            return { id: extra.id, title, amountQar: amount };
+          })
+        : undefined;
       const result = await updateStaffSalary({
         id,
         basicQar: basic,
         housingQar: housing,
         transportQar: transport,
         dailyRateQar: null,
+        ...(extrasPayload !== undefined ? { extras: extrasPayload } : {}),
       });
       if (!result.ok) throw new Error(result.error);
       return result.data;
@@ -429,13 +457,21 @@ function StaffProfilePageBody() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const packageTotalPreview = (() => {
-    const parts = [basicQar, housingQar, transportQar].map((v) => {
-      const n = Number(v.trim());
-      return Number.isFinite(n) && n >= 0 ? n : 0;
-    });
-    return Math.round((parts[0] + parts[1] + parts[2]) * 100) / 100;
-  })();
+  const packageTotalPreview = salaryPackageTotal({
+    basicQar: Number(basicQar.trim()) || 0,
+    housingQar: Number(housingQar.trim()) || 0,
+    transportQar: Number(transportQar.trim()) || 0,
+    extras: salaryExtras.map((extra) => ({
+      id: extra.id,
+      title: extra.title.trim() || "extra",
+      amountQar: (() => {
+        const n = Number(extra.amount.trim());
+        return Number.isFinite(n) && n >= 0 ? n : 0;
+      })(),
+    })),
+  });
+
+  const compensationExtras = parseSalaryExtras(profile.data?.compensation?.extras);
 
   const faceQ = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "face", staffId: id }),
@@ -1252,6 +1288,9 @@ function StaffProfilePageBody() {
                           ? null
                           : `${profile.data.compensation.transport_qar.toLocaleString()} QAR`,
                       ),
+                      ...compensationExtras.map((extra) =>
+                        fact(extra.title, `${extra.amountQar.toLocaleString()} QAR`),
+                      ),
                       fact(
                         t("people.staff.salaryTotal"),
                         profile.data?.compensation?.monthly_salary_qar == null
@@ -1262,7 +1301,32 @@ function StaffProfilePageBody() {
                   />
                   {canSalary ? (
                     <div className="space-y-3 border-t border-border/60 pt-3">
-                      <p className="text-xs font-medium">{t("people.staff.salaryEdit")}</p>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs font-medium">{t("people.staff.salaryEdit")}</p>
+                        {canManageExtras ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              setSalaryExtras((prev) => [
+                                ...prev,
+                                {
+                                  id:
+                                    typeof crypto !== "undefined" && "randomUUID" in crypto
+                                      ? crypto.randomUUID()
+                                      : `extra-${Date.now()}-${prev.length}`,
+                                  title: "",
+                                  amount: "",
+                                },
+                              ])
+                            }
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                            {t("people.staff.salaryAddExtra")}
+                          </Button>
+                        ) : null}
+                      </div>
                       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                         <div className="space-y-1">
                           <Label htmlFor="salary-basic">{t("people.staff.salaryBasic")}</Label>
@@ -1299,6 +1363,70 @@ function StaffProfilePageBody() {
                           <Input value={`${packageTotalPreview}`} readOnly className="bg-muted/40" />
                         </div>
                       </div>
+                      {salaryExtras.length > 0 ? (
+                        <div className="space-y-2">
+                          {salaryExtras.map((extra) => (
+                            <div
+                              key={extra.id}
+                              className="grid gap-2 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto] sm:items-end"
+                            >
+                              <div className="space-y-1">
+                                <Label htmlFor={`salary-extra-title-${extra.id}`}>
+                                  {t("people.staff.salaryExtraTitle")}
+                                </Label>
+                                <Input
+                                  id={`salary-extra-title-${extra.id}`}
+                                  value={extra.title}
+                                  disabled={!canManageExtras}
+                                  onChange={(e) =>
+                                    setSalaryExtras((prev) =>
+                                      prev.map((row) =>
+                                        row.id === extra.id ? { ...row, title: e.target.value } : row,
+                                      ),
+                                    )
+                                  }
+                                  placeholder={t("people.staff.salaryExtraTitlePlaceholder")}
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label htmlFor={`salary-extra-amount-${extra.id}`}>
+                                  {t("people.staff.salaryExtraAmount")}
+                                </Label>
+                                <Input
+                                  id={`salary-extra-amount-${extra.id}`}
+                                  inputMode="decimal"
+                                  value={extra.amount}
+                                  disabled={!canManageExtras}
+                                  onChange={(e) =>
+                                    setSalaryExtras((prev) =>
+                                      prev.map((row) =>
+                                        row.id === extra.id ? { ...row, amount: e.target.value } : row,
+                                      ),
+                                    )
+                                  }
+                                  placeholder="QAR"
+                                />
+                              </div>
+                              {canManageExtras ? (
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-9 w-9 text-muted-foreground"
+                                  aria-label={t("people.staff.salaryRemoveExtra")}
+                                  onClick={() =>
+                                    setSalaryExtras((prev) => prev.filter((row) => row.id !== extra.id))
+                                  }
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              ) : (
+                                <span className="hidden sm:block" />
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
                       <Button size="sm" onClick={() => salaryMut.mutate()} disabled={salaryMut.isPending}>
                         {salaryMut.isPending ? t("common.saving") : t("common.save")}
                       </Button>
@@ -1575,6 +1703,9 @@ function StaffProfilePageBody() {
                         : `${profile.data.compensation.transport_qar} QAR`
                     }
                   />
+                  {compensationExtras.map((extra) => (
+                    <Row key={extra.id} label={extra.title} value={`${extra.amountQar} QAR`} />
+                  ))}
                   <Row
                     label={t("people.staff.salaryTotal")}
                     value={
@@ -1860,6 +1991,9 @@ function StaffProfilePageBody() {
                     profile.data.compensation?.transport_qar == null
                       ? null
                       : `${profile.data.compensation.transport_qar.toLocaleString()} QAR`,
+                  ),
+                  ...compensationExtras.map((extra) =>
+                    fact(extra.title, `${extra.amountQar.toLocaleString()} QAR`),
                   ),
                   fact(
                     t("people.staff.salaryTotal"),

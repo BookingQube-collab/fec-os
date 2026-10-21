@@ -88,16 +88,21 @@ export function omitPeopleDirectorySalary<
     basic_qar?: number | null;
     housing_qar?: number | null;
     transport_qar?: number | null;
+    extras?: unknown;
   },
 >(
   row: T,
-): Omit<T, "monthly_salary_qar" | "daily_rate_qar" | "basic_qar" | "housing_qar" | "transport_qar"> {
+): Omit<
+  T,
+  "monthly_salary_qar" | "daily_rate_qar" | "basic_qar" | "housing_qar" | "transport_qar" | "extras"
+> {
   const {
     monthly_salary_qar: _monthly,
     daily_rate_qar: _daily,
     basic_qar: _basic,
     housing_qar: _housing,
     transport_qar: _transport,
+    extras: _extras,
     ...rest
   } = row;
   return rest;

@@ -14,7 +14,12 @@ import {
 import { ForbiddenError } from "@/lib/server/authorize";
 import { rollbackRosterBatch } from "@/lib/staff-roster/apply";
 import { insertSalaryHistoryAndSync, insertStatusHistory } from "@/lib/staff-history";
-import { monthlyTotal } from "@/lib/hr-journeys";
+import {
+  canManageSalaryCustomExtras,
+  parseSalaryExtras,
+  salaryPackageTotal,
+  type SalaryExtra,
+} from "@/lib/salary-package";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { employeeCodeAfterHomeLocationChange, employeeCodeHasLocationPrefix } from "@/lib/staff-employee-code";
 import { staffHomeWorkSiteIds } from "@/lib/staff-work-locations";
@@ -331,6 +336,12 @@ export const transferStaffMember = createAuthenticatedAction(
   { auth: { capability: "people.edit_roster" } },
 );
 
+const salaryExtraSchema = z.object({
+  id: z.string().min(1).max(64),
+  title: z.string().trim().min(1).max(80),
+  amountQar: z.number().min(0).max(1_000_000),
+});
+
 export const updateStaffSalary = createSafeAuthenticatedAction(
   z
     .object({
@@ -340,6 +351,8 @@ export const updateStaffSalary = createSafeAuthenticatedAction(
       basicQar: z.number().min(0).max(1_000_000).nullable().optional(),
       housingQar: z.number().min(0).max(1_000_000).nullable().optional(),
       transportQar: z.number().min(0).max(1_000_000).nullable().optional(),
+      /** When set, replaces custom extras (HR / HOO / Admin only). Omitted keeps existing. */
+      extras: z.array(salaryExtraSchema).max(20).optional(),
     })
     .strict(),
   async (data, context) => {
@@ -354,6 +367,10 @@ export const updateStaffSalary = createSafeAuthenticatedAction(
     if (!peopleDirectoryShowsSalary(context.roles ?? [], jobTitle)) {
       throw new ForbiddenError("Forbidden: salary is limited to HR, leadership, and Head of Operations");
     }
+    const mayManageExtras = canManageSalaryCustomExtras(context.roles ?? [], jobTitle);
+    if (data.extras !== undefined && !mayManageExtras) {
+      throw new ForbiddenError("Forbidden: custom salary extras are limited to HR, Head of Operations, and Admin");
+    }
     const existing = await assertStaffLocation(context, data.id);
     const daily = data.dailyRateQar ?? null;
     const isDaily = daily != null && daily > 0;
@@ -361,17 +378,33 @@ export const updateStaffSalary = createSafeAuthenticatedAction(
     const housing = data.housingQar ?? null;
     const transport = data.transportQar ?? null;
     const hasSplit = basic != null || housing != null || transport != null;
+    let extrasForTotal: SalaryExtra[] | undefined;
+    if (data.extras !== undefined) {
+      extrasForTotal = parseSalaryExtras(data.extras);
+    } else if (!isDaily && hasSplit) {
+      const first = await supabaseAdmin
+        .from("staff_compensation")
+        .select("extras")
+        .eq("staff_id", data.id)
+        .maybeSingle();
+      if (!first.error) {
+        extrasForTotal = parseSalaryExtras(first.data?.extras);
+      } else if (!/extras/i.test(first.error.message)) {
+        throw first.error;
+      } else {
+        extrasForTotal = [];
+      }
+    }
     const packageTotal = isDaily
       ? null
       : data.monthlySalaryQar != null
         ? data.monthlySalaryQar
         : hasSplit
-          ? monthlyTotal({
+          ? salaryPackageTotal({
               basicQar: basic ?? 0,
               housingQar: housing ?? 0,
-              transportationQar: transport ?? 0,
-              foodQar: 0,
-              otherQar: 0,
+              transportQar: transport ?? 0,
+              extras: extrasForTotal ?? [],
             })
           : null;
     await insertSalaryHistoryAndSync(context, {
@@ -382,6 +415,7 @@ export const updateStaffSalary = createSafeAuthenticatedAction(
       housingQar: isDaily ? null : hasSplit ? (housing ?? 0) : undefined,
       transportQar: isDaily ? null : hasSplit ? (transport ?? 0) : undefined,
       replaceComponents: isDaily || hasSplit,
+      extras: data.extras !== undefined ? parseSalaryExtras(data.extras) : undefined,
       allowances:
         isDaily || !hasSplit
           ? undefined
