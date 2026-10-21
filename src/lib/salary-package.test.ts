@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   canManageSalaryCustomExtras,
   parseSalaryExtras,
+  resolveSalaryExtras,
+  salaryExtrasFromFoodOther,
   salaryPackageTotal,
   serializeSalaryExtras,
   sumSalaryExtras,
@@ -50,5 +52,30 @@ describe("salary package extras", () => {
     expect(canManageSalaryCustomExtras(["cfo"])).toBe(false);
     expect(canManageSalaryCustomExtras(["branch_gm"])).toBe(false);
     expect(canManageSalaryCustomExtras(["cashier_host"], "F&B Manager")).toBe(false);
+  });
+
+  it("merges legacy food/other allowances into extras for display and edit", () => {
+    expect(
+      resolveSalaryExtras([], {
+        housing: 500,
+        transportation: 400,
+        food: 300,
+        other: 400,
+      }),
+    ).toEqual([
+      { id: "legacy-food", title: "Food", amountQar: 300 },
+      { id: "legacy-other", title: "Other", amountQar: 400 },
+    ]);
+    expect(
+      resolveSalaryExtras([{ id: "x", title: "Phone", amount_qar: 50 }], {
+        food: 200,
+        extras: [{ id: "y", title: "Site", amount_qar: 100 }],
+      }),
+    ).toEqual([
+      { id: "x", title: "Phone", amountQar: 50 },
+      { id: "y", title: "Site", amountQar: 100 },
+      { id: "legacy-food", title: "Food", amountQar: 200 },
+    ]);
+    expect(salaryExtrasFromFoodOther(200, 0)).toEqual([{ id: "legacy-food", title: "Food", amountQar: 200 }]);
   });
 });

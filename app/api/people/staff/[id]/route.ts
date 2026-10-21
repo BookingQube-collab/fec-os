@@ -6,7 +6,7 @@ import { withAuthRouteRequest, searchParams } from "@/lib/server/api-route";
 import { loadLinkedStaffJobTitle } from "@/lib/linked-staff-job-title.server";
 import { peopleDirectoryShowsSalary } from "@/lib/people-directory-access";
 import { canUserDo } from "@/lib/rbac";
-import { parseSalaryExtras } from "@/lib/salary-package";
+import { resolveSalaryExtras } from "@/lib/salary-package";
 import { ForbiddenError } from "@/lib/server/authorize";
 import { fetchWorkLocationsByStaffId } from "@/lib/staff-work-locations";
 
@@ -124,6 +124,18 @@ export async function GET(
         } else if (first.error) {
           throw first.error;
         }
+        let historyAllowances: unknown;
+        if (comp) {
+          const hist = await db
+            .from("staff_salary_history")
+            .select("allowances")
+            .eq("staff_id", id)
+            .order("effective_on", { ascending: false })
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (!hist.error) historyAllowances = hist.data?.allowances;
+        }
         compensation = comp
           ? {
               monthly_salary_qar: comp.monthly_salary_qar == null ? null : Number(comp.monthly_salary_qar),
@@ -131,7 +143,7 @@ export async function GET(
               basic_qar: comp.basic_qar == null ? null : Number(comp.basic_qar),
               housing_qar: comp.housing_qar == null ? null : Number(comp.housing_qar),
               transport_qar: comp.transport_qar == null ? null : Number(comp.transport_qar),
-              extras: parseSalaryExtras(comp.extras).map((extra) => ({
+              extras: resolveSalaryExtras(comp.extras, historyAllowances).map((extra) => ({
                 id: extra.id,
                 title: extra.title,
                 amount_qar: extra.amountQar,

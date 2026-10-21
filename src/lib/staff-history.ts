@@ -7,7 +7,7 @@ import type { Json } from "@/integrations/supabase/types";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { appendEmployeeEvent } from "@/lib/hr-employee-events";
 import {
-  parseSalaryExtras,
+  resolveSalaryExtras,
   serializeSalaryExtras,
   type SalaryExtra,
 } from "@/lib/salary-package";
@@ -117,16 +117,31 @@ export async function insertSalaryHistoryAndSync(
           ? null
           : allowanceNumber(input.monthlyTotalQar));
 
+  let historyAllowances: unknown;
+  if (input.extras === undefined || input.extras === null) {
+    const hist = await supabaseAdmin
+      .from("staff_salary_history")
+      .select("allowances")
+      .eq("staff_id", input.staffId)
+      .order("effective_on", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!hist.error) historyAllowances = hist.data?.allowances;
+  }
   const extras =
     input.extras !== undefined && input.extras !== null
-      ? parseSalaryExtras(input.extras)
-      : parseSalaryExtras(existingComp?.extras);
+      ? resolveSalaryExtras(input.extras)
+      : resolveSalaryExtras(existingComp?.extras, historyAllowances);
 
   const allowances: Record<string, unknown> = {
     ...(input.allowances ?? {}),
   };
   if (housing != null) allowances.housing = housing;
   if (transport != null) allowances.transportation = transport;
+  // Prefer the resolved extras list; drop legacy food/other keys so they are not double-counted.
+  delete allowances.food;
+  delete allowances.other;
   allowances.extras = serializeSalaryExtras(extras);
 
   // Service role after people.edit_salary: salary RLS has blocked every history write (0 rows in prod).
@@ -163,6 +178,11 @@ export async function insertSalaryHistoryAndSync(
   });
   if (compErr) {
     if (/extras/i.test(compErr.message)) {
+      if (extras.length > 0) {
+        throw new Error(
+          "Custom salary extras need the staff_compensation.extras column. Run the latest Supabase migrations (db push), then try again.",
+        );
+      }
       const { error: legacyCompErr } = await supabaseAdmin.from("staff_compensation").upsert({
         staff_id: input.staffId,
         monthly_salary_qar: input.monthlyTotalQar,

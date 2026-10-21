@@ -17,6 +17,7 @@ import { insertSalaryHistoryAndSync, insertStatusHistory } from "@/lib/staff-his
 import {
   canManageSalaryCustomExtras,
   parseSalaryExtras,
+  resolveSalaryExtras,
   salaryPackageTotal,
   type SalaryExtra,
 } from "@/lib/salary-package";
@@ -387,12 +388,21 @@ export const updateStaffSalary = createSafeAuthenticatedAction(
         .select("extras")
         .eq("staff_id", data.id)
         .maybeSingle();
+      const hist = await supabaseAdmin
+        .from("staff_salary_history")
+        .select("allowances")
+        .eq("staff_id", data.id)
+        .order("effective_on", { ascending: false })
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const historyAllowances = hist.error ? undefined : hist.data?.allowances;
       if (!first.error) {
-        extrasForTotal = parseSalaryExtras(first.data?.extras);
+        extrasForTotal = resolveSalaryExtras(first.data?.extras, historyAllowances);
       } else if (!/extras/i.test(first.error.message)) {
         throw first.error;
       } else {
-        extrasForTotal = [];
+        extrasForTotal = resolveSalaryExtras([], historyAllowances);
       }
     }
     const packageTotal = isDaily

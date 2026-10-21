@@ -24,8 +24,10 @@ import {
   type TaskStatus,
   type TrainingStatus,
 } from "@/lib/hr-journeys";
+import type { Json } from "@/integrations/supabase/types";
 import type { AuthContext } from "@/lib/server/auth";
 import { createAuthenticatedAction } from "@/lib/server/create-action";
+import { salaryExtrasFromFoodOther, serializeSalaryExtras } from "@/lib/salary-package";
 import { isJokerStaff } from "@/lib/staff-status";
 
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -775,6 +777,8 @@ export const reviseJourneyPackage = createAuthenticatedAction(
     };
     const total = monthlyTotal(parts);
     if (total <= 0) fail("package_empty");
+    const extras = salaryExtrasFromFoodOther(input.foodQar, input.otherQar);
+    const extrasJson = serializeSalaryExtras(extras) as unknown as Json;
     const { error: historyError } = await context.supabase.from("staff_salary_history").insert({
       staff_id: journey.staff_id,
       effective_on: input.effectiveOn,
@@ -784,6 +788,7 @@ export const reviseJourneyPackage = createAuthenticatedAction(
         transportation: input.transportationQar,
         food: input.foodQar,
         other: input.otherQar,
+        extras: extrasJson,
       },
       monthly_total_qar: total,
       currency: "QAR",
@@ -798,12 +803,29 @@ export const reviseJourneyPackage = createAuthenticatedAction(
         basic_qar: input.basicQar,
         housing_qar: input.housingQar,
         transport_qar: input.transportationQar,
+        extras: extrasJson,
         currency: "QAR",
         updated_by: context.userId,
       },
       { onConflict: "staff_id" },
     );
-    throwDb(compError);
+    if (compError && /extras/i.test(compError.message)) {
+      const { error: legacyCompError } = await context.supabase.from("staff_compensation").upsert(
+        {
+          staff_id: journey.staff_id,
+          monthly_salary_qar: total,
+          basic_qar: input.basicQar,
+          housing_qar: input.housingQar,
+          transport_qar: input.transportationQar,
+          currency: "QAR",
+          updated_by: context.userId,
+        },
+        { onConflict: "staff_id" },
+      );
+      throwDb(legacyCompError);
+    } else {
+      throwDb(compError);
+    }
     await recordEvent(context, input.checklistId, "package_revised", who, `QAR ${total.toFixed(2)} effective ${input.effectiveOn}. ${input.reason}`);
     return { ok: true as const, monthlyTotalQar: total };
   },

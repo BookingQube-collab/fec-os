@@ -75,6 +75,53 @@ export function parseSalaryExtras(raw: unknown): SalaryExtra[] {
   return out;
 }
 
+/**
+ * Live snapshot extras plus legacy journey allowances (food / other / allowances.extras).
+ * Food and Other were stored on salary history before custom extras existed.
+ */
+export function resolveSalaryExtras(extrasRaw: unknown, allowancesRaw?: unknown): SalaryExtra[] {
+  const byTitle = new Map<string, SalaryExtra>();
+  const add = (extra: SalaryExtra) => {
+    const key = extra.title.trim().toLowerCase();
+    if (!key) return;
+    const prev = byTitle.get(key);
+    if (!prev) {
+      byTitle.set(key, extra);
+      return;
+    }
+    if (prev.amountQar <= 0 && extra.amountQar > 0) {
+      byTitle.set(key, { ...extra, id: prev.id || extra.id });
+    }
+  };
+
+  for (const extra of parseSalaryExtras(extrasRaw)) add(extra);
+
+  if (allowancesRaw && typeof allowancesRaw === "object" && !Array.isArray(allowancesRaw)) {
+    const record = allowancesRaw as Record<string, unknown>;
+    for (const extra of parseSalaryExtras(record.extras)) add(extra);
+    const food = asMoney(record.food);
+    if (food != null && food > 0) {
+      add({ id: "legacy-food", title: "Food", amountQar: food });
+    }
+    const other = asMoney(record.other);
+    if (other != null && other > 0) {
+      add({ id: "legacy-other", title: "Other", amountQar: other });
+    }
+  }
+
+  return [...byTitle.values()];
+}
+
+/** Build extras rows from journey food/other fields. */
+export function salaryExtrasFromFoodOther(foodQar: number, otherQar: number): SalaryExtra[] {
+  const out: SalaryExtra[] = [];
+  const food = asMoney(foodQar);
+  if (food != null && food > 0) out.push({ id: "legacy-food", title: "Food", amountQar: food });
+  const other = asMoney(otherQar);
+  if (other != null && other > 0) out.push({ id: "legacy-other", title: "Other", amountQar: other });
+  return out;
+}
+
 export function serializeSalaryExtras(extras: readonly SalaryExtra[]): SalaryExtraRow[] {
   return extras.map((extra) => ({
     id: extra.id,
