@@ -40,6 +40,31 @@ export function resolvePunchlessRosteredStatus(input: {
   return nowMs < startMs ? "not_started" : "absent";
 }
 
+/**
+ * Incomplete punches (in without out, or out without in): Missed punch only after
+ * roster close (scheduled_out / shift end). While the shift day is still open,
+ * treat as Present (in progress) so mid-shift check-ins are not amber-flagged.
+ * When scheduled_out is missing, close at end of the Qatar work calendar day.
+ */
+export function resolveIncompletePunchStatus(input: {
+  scheduledOutIso: string | null | undefined;
+  workDate?: string | null;
+  now?: Date | string | number;
+}): "present" | "missed_punch" {
+  const nowMs = input.now != null ? new Date(input.now).getTime() : Date.now();
+  if (!Number.isFinite(nowMs)) return "missed_punch";
+
+  let closeMs = Number.NaN;
+  if (input.scheduledOutIso) {
+    closeMs = new Date(input.scheduledOutIso).getTime();
+  } else if (input.workDate && /^\d{4}-\d{2}-\d{2}$/.test(input.workDate)) {
+    // 23:59:59 Qatar (UTC+3) on the work date.
+    closeMs = atDate(input.workDate, "23:59").getTime() + 59_000;
+  }
+  if (!Number.isFinite(closeMs)) return "missed_punch";
+  return nowMs < closeMs ? "present" : "missed_punch";
+}
+
 function parseHm(value: string): { h: number; m: number } {
   const [h, m] = value.split(":").map((n) => Number.parseInt(n, 10));
   return { h: h || 0, m: m || 0 };
@@ -186,14 +211,35 @@ export function calculateDailyAttendance(punches: CalcPunch[], ctx: DayContext):
   const actualOutIso = valid.length > 1 ? valid[valid.length - 1].punchAt : null;
   const punchCount = valid.length;
   const flags: AttendanceStatus[] = [];
-  let missedPunch = punchCount === 1;
+  let missedPunch = false;
   let status: AttendanceStatus = "present";
   let exceptionReason: string | null = null;
 
+  const scheduledIn =
+    shift?.startTime && /^\d{1,2}:\d{2}/.test(String(shift.startTime).trim())
+      ? atDate(ctx.workDate, shift.startTime)
+      : null;
+  const scheduledOut =
+    shift?.endTime && /^\d{1,2}:\d{2}/.test(String(shift.endTime).trim())
+      ? atDate(ctx.workDate, shift.endTime, shift.overnight ? 1 : 0)
+      : null;
+
   if (punchCount === 1) {
-    flags.push("missed_punch", "incomplete");
-    status = "missed_punch";
-    exceptionReason = "Only one valid punch";
+    const incompleteStatus = resolveIncompletePunchStatus({
+      scheduledOutIso: scheduledOut?.toISOString() ?? null,
+      workDate: ctx.workDate,
+      now: ctx.now,
+    });
+    if (incompleteStatus === "missed_punch") {
+      missedPunch = true;
+      flags.push("missed_punch", "incomplete");
+      status = "missed_punch";
+      exceptionReason = "Only one valid punch";
+    } else {
+      flags.push("present", "incomplete");
+      status = "present";
+      exceptionReason = "Shift still in progress — waiting for check-out";
+    }
   } else if (punchCount % 2 === 1 && rules.oddPunchesNeedReview) {
     flags.push("review_required", "missed_punch");
     status = "review_required";
@@ -211,15 +257,6 @@ export function calculateDailyAttendance(punches: CalcPunch[], ctx: DayContext):
   let earlyLeaveMinutes = 0;
   let workedMinutes = 0;
   let overtimeMinutes = 0;
-
-  const scheduledIn =
-    shift?.startTime && /^\d{1,2}:\d{2}/.test(String(shift.startTime).trim())
-      ? atDate(ctx.workDate, shift.startTime)
-      : null;
-  const scheduledOut =
-    shift?.endTime && /^\d{1,2}:\d{2}/.test(String(shift.endTime).trim())
-      ? atDate(ctx.workDate, shift.endTime, shift.overnight ? 1 : 0)
-      : null;
   const inDate = new Date(actualIn);
   let outDate = actualOutIso ? new Date(actualOutIso) : null;
   if (outDate && outDate.getTime() < inDate.getTime()) {

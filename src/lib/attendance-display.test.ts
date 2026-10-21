@@ -489,6 +489,105 @@ function summaryRow(partial: Partial<AttendanceSummaryRow> & Pick<AttendanceSumm
   };
 }
 
+describe("incomplete punch before roster close", () => {
+  // Mary-style: in at 10:43 Qatar, shift ends 20:00 Qatar, still mid-day.
+  const scheduledOut = "2026-10-21T17:00:00.000Z"; // 20:00 Qatar
+  const actualIn = "2026-10-21T07:43:20.000Z"; // 10:43 Qatar
+
+  it("punched in before close → Present (not Missed punch)", () => {
+    expect(
+      resolveHoursBasedAttendanceStatus({
+        status: "missed_punch",
+        missed_punch: true,
+        actual_in: actualIn,
+        actual_out: null,
+        work_date: "2026-10-21",
+        scheduled_out: scheduledOut,
+        asOf: "2026-10-21T12:00:00.000Z", // 15:00 Qatar
+      }),
+    ).toBe("present");
+    expect(
+      getAttendanceStatusDisplay({
+        status: "missed_punch",
+        missed_punch: true,
+        actual_in: actualIn,
+        actual_out: null,
+        work_date: "2026-10-21",
+        scheduled_out: scheduledOut,
+        asOf: "2026-10-21T12:00:00.000Z",
+      }).label,
+    ).toBe("Present");
+  });
+
+  it("punched in after close with no out → Missed punch", () => {
+    expect(
+      resolveHoursBasedAttendanceStatus({
+        status: "present",
+        missed_punch: false,
+        actual_in: actualIn,
+        actual_out: null,
+        work_date: "2026-10-21",
+        scheduled_out: scheduledOut,
+        asOf: "2026-10-21T17:30:00.000Z", // 20:30 Qatar
+      }),
+    ).toBe("missed_punch");
+    expect(
+      getAttendanceStatusDisplay({
+        status: "present",
+        missed_punch: false,
+        actual_in: actualIn,
+        actual_out: null,
+        work_date: "2026-10-21",
+        scheduled_out: scheduledOut,
+        asOf: "2026-10-21T17:30:00.000Z",
+      }).label,
+    ).toBe("Missed punch");
+  });
+
+  it("no punch-in after roster start → Absent (not Missed punch)", () => {
+    expect(
+      resolveHoursBasedAttendanceStatus({
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        work_date: "2026-10-21",
+        scheduled_in: "2026-10-21T08:00:00.000Z",
+        scheduled_out: scheduledOut,
+        asOf: "2026-10-21T17:30:00.000Z",
+      }),
+    ).toBe("absent");
+  });
+
+  it("complete in+out → never Missed punch", () => {
+    // Full day clocks (≥ expected) unlock stale Missed punch → Present
+    expect(
+      resolveHoursBasedAttendanceStatus({
+        status: "missed_punch",
+        missed_punch: true,
+        actual_in: actualIn,
+        actual_out: "2026-10-21T16:43:20.000Z", // +9h
+        worked_minutes: 540,
+        expected_minutes: 540,
+        work_date: "2026-10-21",
+        scheduled_out: scheduledOut,
+        asOf: "2026-10-21T17:30:00.000Z",
+      }),
+    ).toBe("present");
+    expect(
+      getAttendanceStatusDisplay({
+        status: "missed_punch",
+        missed_punch: true,
+        actual_in: actualIn,
+        actual_out: "2026-10-21T16:43:20.000Z",
+        worked_minutes: 540,
+        expected_minutes: 540,
+        work_date: "2026-10-21",
+        scheduled_out: scheduledOut,
+      }).label,
+    ).toBe("Present");
+  });
+});
+
 describe("punch-less roster before shift start", () => {
   it("shows Not started when now is before roster start (afternoon shift)", () => {
     expect(

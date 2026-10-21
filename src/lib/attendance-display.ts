@@ -1,4 +1,7 @@
-import { resolvePunchlessRosteredStatus } from "@/lib/attendance-hr/calculate";
+import {
+  resolveIncompletePunchStatus,
+  resolvePunchlessRosteredStatus,
+} from "@/lib/attendance-hr/calculate";
 import { defaultPayrollPeriod } from "@/lib/attendance-hr/roster-period";
 import { reportingClockIso } from "@/lib/attendance-hr/late-punch";
 import { computeAttendanceOvertimeMinutes } from "@/lib/attendance-hr/overtime";
@@ -445,6 +448,8 @@ export function resolveHoursBasedAttendanceStatus(
     work_date?: string | null;
     /** Roster shift start — used to defer Absent until start on the listing. */
     scheduled_in?: string | null;
+    /** Roster shift end — incomplete in/out is Missed punch only after this. */
+    scheduled_out?: string | null;
     /** Injected clock for tests; defaults to Date.now(). */
     asOf?: Date | string | number;
     /** `staff.hire_date`. Strictly earlier days that would be Absent become not_joined. */
@@ -458,7 +463,14 @@ export function resolveHoursBasedAttendanceStatus(
   const hasOut = Boolean(row.actual_out);
   // Both punches → never Missed punch / Absent (ignore stale flags + stored status).
   if (!(hasIn && hasOut)) {
-    if (row.missed_punch || hasIn !== hasOut) return "missed_punch";
+    // Incomplete side (in xor out): Present while roster/shift is still open.
+    if (hasIn !== hasOut) {
+      return resolveIncompletePunchStatus({
+        scheduledOutIso: row.scheduled_out,
+        workDate: row.work_date,
+        now: row.asOf,
+      });
+    }
     if (!hasIn && !hasOut) {
       let next = statusKey === "absent" ? "absent" : statusKey || "absent";
       // Stale daily_summary / gap fillers often store Absent before afternoon shifts start.
@@ -538,6 +550,7 @@ export function getAttendanceStatusDisplay(
     late_minutes?: number | null;
     work_date?: string | null;
     scheduled_in?: string | null;
+    scheduled_out?: string | null;
     asOf?: Date | string | number;
     hire_date?: string | null;
   },
@@ -549,7 +562,15 @@ export function getAttendanceStatusDisplay(
   const hasIn = Boolean(row.actual_in);
   const hasOut = Boolean(row.actual_out);
 
-  if (row.missed_punch || hasIn !== hasOut) {
+  if (hasIn !== hasOut) {
+    const incomplete = resolveIncompletePunchStatus({
+      scheduledOutIso: row.scheduled_out,
+      workDate: row.work_date,
+      now: row.asOf,
+    });
+    return NAMED_STATUS_DISPLAY[incomplete];
+  }
+  if (row.missed_punch) {
     return NAMED_STATUS_DISPLAY.missed_punch;
   }
 

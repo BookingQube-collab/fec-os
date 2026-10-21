@@ -10,6 +10,7 @@ import { matchesSearchQuery } from "@/lib/searchable-select";
 import {
   calculateDailyAttendance,
   markProbableDuplicates,
+  resolveIncompletePunchStatus,
   resolvePunchlessRosteredStatus,
 } from "./calculate";
 import {
@@ -434,14 +435,53 @@ describe("daily calculation", () => {
     );
   });
 
-  it("flags a single punch as missed punch", () => {
+  it("flags a single punch as missed punch after roster close", () => {
     const day = calculateDailyAttendance([{ punchAt: "2026-08-01T05:05:00.000Z" }], {
       workDate: "2026-08-01",
       scheduled: true,
       shift,
+      // After 17:00 Qatar close (14:00Z)
+      now: "2026-08-01T15:00:00.000Z",
     });
     expect(day.missedPunch).toBe(true);
+    expect(day.status).toBe("missed_punch");
     expect(day.statusFlags).toContain("missed_punch");
+  });
+
+  it("does not flag a single punch as missed punch while the shift is still open", () => {
+    const day = calculateDailyAttendance([{ punchAt: "2026-10-21T07:43:20.000Z" }], {
+      workDate: "2026-10-21",
+      scheduled: true,
+      shift: { ...shift, startTime: "11:00", endTime: "20:00" },
+      // Mid-shift (15:00 Qatar); punched in at 10:43, no out yet
+      now: "2026-10-21T12:00:00.000Z",
+    });
+    expect(day.missedPunch).toBe(false);
+    expect(day.status).toBe("present");
+    expect(day.statusFlags).toContain("incomplete");
+    expect(day.statusFlags).not.toContain("missed_punch");
+  });
+
+  it("resolveIncompletePunchStatus compares now to roster close only", () => {
+    expect(
+      resolveIncompletePunchStatus({
+        scheduledOutIso: "2026-10-21T17:00:00.000Z",
+        now: "2026-10-21T16:59:00.000Z",
+      }),
+    ).toBe("present");
+    expect(
+      resolveIncompletePunchStatus({
+        scheduledOutIso: "2026-10-21T17:00:00.000Z",
+        now: "2026-10-21T17:00:00.000Z",
+      }),
+    ).toBe("missed_punch");
+    expect(
+      resolveIncompletePunchStatus({
+        scheduledOutIso: null,
+        workDate: "2026-10-20",
+        now: "2026-10-21T08:00:00.000Z",
+      }),
+    ).toBe("missed_punch");
   });
 
   it("compares clock hours to permanent 9h without deducting break", () => {

@@ -251,8 +251,8 @@ export function collapseFlexibleAttendanceReportRows(
       );
       if (Number.isFinite(mins) && mins >= 0) worked = mins;
     }
-    // Missed punch only when a side is actually missing — never OR stale ABSENT siblings.
-    const missed = Boolean(actualIn) !== Boolean(actualOut);
+    // Incomplete sides → Missed punch only after roster close; open shift stays Present.
+    const incomplete = Boolean(actualIn) !== Boolean(actualOut);
     const late = resolveListingLateMinutes({
       actualIn,
       rosterScheduledIn: scheduledIn,
@@ -261,11 +261,10 @@ export function collapseFlexibleAttendanceReportRows(
       lateFromShiftStart: Boolean(winner.flexible_attendance),
     });
     let status = winner.status;
-    if (missed) status = "missed_punch";
-    else if (actualIn && actualOut) {
+    if (incomplete || (actualIn && actualOut)) {
       status = resolveHoursBasedAttendanceStatus({
         status: winner.status,
-        missed_punch: false,
+        missed_punch: incomplete,
         actual_in: actualIn,
         actual_out: actualOut,
         worked_minutes: worked,
@@ -274,6 +273,8 @@ export function collapseFlexibleAttendanceReportRows(
         employment_type: winner.employment_type,
         flexible_attendance: winner.flexible_attendance,
         work_date: winner.work_date,
+        scheduled_in: scheduledIn,
+        scheduled_out: scheduledOut,
         hire_date: winner.hire_date,
         sitePolicy: {
           permanentHours: winner.permanent_hours,
@@ -282,6 +283,7 @@ export function collapseFlexibleAttendanceReportRows(
         },
       });
     }
+    const missed = status === "missed_punch";
     // In/out site + device user: prefer the row that owns earliest in / latest out.
     const inOwner =
       [...ranked]

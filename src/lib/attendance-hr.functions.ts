@@ -3099,13 +3099,11 @@ async function enrichAttendanceHrDailyRows(
     if (status === "weekly_off") {
       missedPunch = false;
     } else if (isFlexible) {
-      const missed = Boolean(actualIn) !== Boolean(actualOut);
-      missedPunch = missed;
-      if (missed) status = "missed_punch";
-      else if (actualIn && actualOut) {
+      const incomplete = Boolean(actualIn) !== Boolean(actualOut);
+      if (incomplete || (actualIn && actualOut)) {
         status = resolveHoursBasedAttendanceStatus({
           status,
-          missed_punch: false,
+          missed_punch: incomplete,
           actual_in: actualIn,
           actual_out: actualOut,
           worked_minutes: row.worked_minutes == null ? null : Number(row.worked_minutes),
@@ -3114,10 +3112,13 @@ async function enrichAttendanceHrDailyRows(
           employment_type: employmentType,
           flexible_attendance: true,
           work_date: workDate,
+          scheduled_in: scheduledIn,
+          scheduled_out: scheduledOut,
           hire_date: staff?.hire_date ?? null,
           sitePolicy: { permanentHours, secondmentHours, jokerHours },
         });
       }
+      missedPunch = status === "missed_punch";
     }
     const biometricUserId = row.biometric_user_id == null ? null : String(row.biometric_user_id);
     const deviceId = row.device_id == null ? null : String(row.device_id);
@@ -3543,7 +3544,7 @@ async function enrichAttendanceHrDailyRows(
         bufferMinutes: row.location_buffer_minutes,
         lateFromShiftStart: Boolean(row.flexible_attendance),
       });
-      const missed = usableCount === 1 || Boolean(actualIn) !== Boolean(actualOut);
+      const incomplete = usableCount === 1 || Boolean(actualIn) !== Boolean(actualOut);
       let status = row.status;
       // Roster week-off / leave already applied above — do not clobber with punch heuristics.
       if (
@@ -3553,11 +3554,10 @@ async function enrichAttendanceHrDailyRows(
         status !== "unpaid_leave" &&
         status !== "public_holiday"
       ) {
-        if (missed) status = "missed_punch";
-        else if (actualIn && actualOut) {
+        if (incomplete || (actualIn && actualOut)) {
           status = resolveHoursBasedAttendanceStatus({
             status: row.status,
-            missed_punch: false,
+            missed_punch: incomplete,
             actual_in: actualIn,
             actual_out: actualOut,
             worked_minutes: workedMinutes,
@@ -3565,6 +3565,9 @@ async function enrichAttendanceHrDailyRows(
             expected_minutes: row.expected_minutes,
             employment_type: row.employment_type,
             flexible_attendance: row.flexible_attendance,
+            work_date: row.work_date,
+            scheduled_in: row.scheduled_in,
+            scheduled_out: row.scheduled_out,
             sitePolicy: {
               permanentHours: row.permanent_hours,
               secondmentHours: row.secondment_hours,
@@ -3580,7 +3583,7 @@ async function enrichAttendanceHrDailyRows(
         actual_out: actualOut,
         worked_minutes: workedMinutes,
         punch_count: usableCount,
-        missed_punch: status === "weekly_off" ? false : missed,
+        missed_punch: status === "weekly_off" ? false : status === "missed_punch",
         late_minutes: status === "weekly_off" ? 0 : lateMinutes,
         ...siteFields,
       };
