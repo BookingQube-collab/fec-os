@@ -43,6 +43,7 @@ import {
 import { usePermission } from "@/hooks/use-permission";
 import { enableSiteChat } from "@/lib/chat/sync.functions";
 import { parseLocationDeleteFailure } from "@/lib/locations/delete-guard";
+import { LOCATION_KIND_WAREHOUSE, type LocationKind } from "@/lib/locations/kind";
 import {
   deleteLocationMaster,
   listLocationMaster,
@@ -90,6 +91,7 @@ type Draft = {
   launchedOn: string;
   glaSqm: string;
   active: boolean;
+  kind: LocationKind;
 };
 
 type DeleteTarget = {
@@ -124,6 +126,7 @@ function draftFromRow(row: LocationMasterRow): Draft {
     launchedOn: row.launched_on ?? "",
     glaSqm: row.gla_sqm == null ? "" : String(row.gla_sqm),
     active: isOperationalLocationStatus(row.status),
+    kind: row.kind,
   };
 }
 
@@ -201,6 +204,7 @@ function LocationMasterView() {
         launchedOn: input.launchedOn.trim() ? input.launchedOn : null,
         glaSqm,
         active: input.active,
+        kind: input.kind,
       });
     },
     onSuccess: async () => {
@@ -272,6 +276,7 @@ function LocationMasterView() {
               <TableRow>
                 <TableHead>{t("locationMaster.code")}</TableHead>
                 <TableHead>{t("locationMaster.name")}</TableHead>
+                <TableHead>{t("locationMaster.kind")}</TableHead>
                 <TableHead>{t("locationMaster.city")}</TableHead>
                 <TableHead>{t("locationMaster.region")}</TableHead>
                 <TableHead>{t("locationMaster.status")}</TableHead>
@@ -282,7 +287,7 @@ function LocationMasterView() {
             <TableBody>
               {rows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground">
+                  <TableCell colSpan={8} className="text-center text-muted-foreground">
                     {t("locationMaster.empty")}
                   </TableCell>
                 </TableRow>
@@ -293,6 +298,13 @@ function LocationMasterView() {
                     <TableRow key={row.id}>
                       <TableCell className="font-mono text-xs">{row.code}</TableCell>
                       <TableCell className="font-medium">{row.name}</TableCell>
+                      <TableCell>
+                        <Badge variant={row.kind === LOCATION_KIND_WAREHOUSE ? "info" : "muted"}>
+                          {row.kind === LOCATION_KIND_WAREHOUSE
+                            ? t("locationMaster.kindWarehouse")
+                            : t("locationMaster.kindBranch")}
+                        </Badge>
+                      </TableCell>
                       <TableCell>{row.city}</TableCell>
                       <TableCell>{row.region || "—"}</TableCell>
                       <TableCell>
@@ -426,6 +438,21 @@ function LocationMasterView() {
                   value={draft.glaSqm}
                   onChange={(event) => setDraft({ ...draft, glaSqm: event.target.value })}
                 />
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label htmlFor="loc-kind">{t("locationMaster.kind")}</Label>
+                <select
+                  id="loc-kind"
+                  className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+                  value={draft.kind}
+                  onChange={(event) =>
+                    setDraft({ ...draft, kind: event.target.value as LocationKind })
+                  }
+                >
+                  <option value="branch">{t("locationMaster.kindBranch")}</option>
+                  <option value="warehouse">{t("locationMaster.kindWarehouse")}</option>
+                </select>
+                <p className="text-xs text-muted-foreground">{t("locationMaster.kindHint")}</p>
               </div>
               <div className="flex items-center justify-between gap-3 sm:col-span-2">
                 <div>

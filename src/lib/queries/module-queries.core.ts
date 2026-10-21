@@ -36,15 +36,30 @@ export interface SiteRow {
   region: string | null;
   status: string;
   timezone: string;
+  kind?: string;
 }
 
 export async function fetchSites(context: AuthContext): Promise<SiteRow[]> {
+  // Branches only — warehouses are geo punch sites and must stay out of the site switcher.
   const { data, error } = await context.supabase
     .from("locations")
-    .select("id, code, name, city, region, status, timezone")
+    .select("id, code, name, city, region, status, timezone, kind")
     .eq("status", "active")
+    .eq("kind", "branch")
     .order("code");
-  if (error) throw error;
+  if (error) {
+    // Pre-migration DBs may lack `kind`; fall back so the app still loads.
+    if (/kind|schema cache|column/i.test(error.message ?? "")) {
+      const legacy = await context.supabase
+        .from("locations")
+        .select("id, code, name, city, region, status, timezone")
+        .eq("status", "active")
+        .order("code");
+      if (legacy.error) throw legacy.error;
+      return (legacy.data ?? []).map((row) => ({ ...row, kind: "branch" }));
+    }
+    throw error;
+  }
   return data ?? [];
 }
 

@@ -123,9 +123,7 @@ function NoticeFooter({
 export function useHubActivityCounts(userId: string | null | undefined) {
   const inbox = useActionInbox(userId, { enabled: !!userId });
   const escalations = useEscalations({ enabled: !!userId });
-  const items = inbox.data?.items ?? [];
-  const updates =
-    items.filter((item) => item.persisted && !item.readAt).length + (escalations.data?.length ?? 0);
+  const updates = (inbox.data?.unreadCount ?? 0) + (escalations.data?.length ?? 0);
   const inboxCount = inbox.data?.actionCount ?? 0;
   return { updates, inboxCount, loading: inbox.isLoading || escalations.isLoading };
 }

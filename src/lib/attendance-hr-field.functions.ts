@@ -15,6 +15,7 @@ import { DEFAULT_GEOFENCE_RADIUS_METERS, evaluateGeofence, pickNearestFence, SIT
 import { DEFAULT_HR_NOTIFY_TOGGLES } from "@/lib/attendance-hr/hr-notify";
 import { dispatchHrNotify } from "@/lib/attendance-hr/hr-notify-dispatch";
 import { aggregatePayrollRows, type PayrollDayInput } from "@/lib/attendance-hr/payroll";
+import { LOCATION_KIND_WAREHOUSE, normalizeLocationKind } from "@/lib/locations/kind";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { DEFAULT_RULES } from "@/lib/attendance-hr/constants";
 import { resolveSelfStaffId } from "@/lib/attendance-hr/self-staff";
@@ -135,21 +136,54 @@ export const saveHrFieldSettings = createAuthenticatedAction(
   { auth: { capability: "attendance.configure" } },
 );
 
+type GeofenceListRow = {
+  id: string | null;
+  locationId: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  radiusMeters: number;
+  mode: "operate" | "restrict";
+  active: boolean;
+  notes: string | null;
+  locationCode: string | null;
+  locationName: string | null;
+  locationRegion: string | null;
+  locationKind: string;
+};
+
 export const listAttendanceGeofences = createAuthenticatedActionNoInput(
-  async (context) => {
-    const { data, error } = await context.supabase
-      .from("attendance_geofences")
-      .select("id, location_id, name, latitude, longitude, radius_meters, mode, active, notes, locations(id, code, name, region)")
-      .order("name");
-    if (error) {
-      if (tableMissing(error.message)) return [];
-      throw error;
+  async (context): Promise<GeofenceListRow[]> => {
+    let data: Array<Record<string, unknown>> | null = null;
+    {
+      const withKind = await context.supabase
+        .from("attendance_geofences")
+        .select("id, location_id, name, latitude, longitude, radius_meters, mode, active, notes, locations(id, code, name, region, kind)")
+        .order("name");
+      if (withKind.error) {
+        if (tableMissing(withKind.error.message)) return [];
+        if (!/kind|schema cache|column/i.test(withKind.error.message ?? "")) throw withKind.error;
+        const legacy = await context.supabase
+          .from("attendance_geofences")
+          .select("id, location_id, name, latitude, longitude, radius_meters, mode, active, notes, locations(id, code, name, region)")
+          .order("name");
+        if (legacy.error) {
+          if (tableMissing(legacy.error.message)) return [];
+          throw legacy.error;
+        }
+        data = (legacy.data ?? []) as Array<Record<string, unknown>>;
+      } else {
+        data = (withKind.data ?? []) as Array<Record<string, unknown>>;
+      }
     }
-    return (data ?? []).map((row) => {
-      const loc = Array.isArray(row.locations) ? row.locations[0] : row.locations;
-      return {
+    const byLocation = new Map<string, GeofenceListRow>();
+    for (const row of data ?? []) {
+      const locRaw = row.locations;
+      const loc = Array.isArray(locRaw) ? locRaw[0] : locRaw;
+      const locationId = row.location_id as string;
+      byLocation.set(locationId, {
         id: row.id as string,
-        locationId: row.location_id as string,
+        locationId,
         name: row.name as string,
         latitude: Number(row.latitude),
         longitude: Number(row.longitude),
@@ -160,8 +194,43 @@ export const listAttendanceGeofences = createAuthenticatedActionNoInput(
         locationCode: (loc as { code?: string } | null)?.code ?? null,
         locationName: (loc as { name?: string } | null)?.name ?? null,
         locationRegion: (loc as { region?: string } | null)?.region ?? null,
-      };
-    });
+        locationKind: normalizeLocationKind((loc as { kind?: string } | null)?.kind),
+      });
+    }
+
+    // Warehouses must appear in the geo list even before a fence row exists (not as branches).
+    const { data: warehouses, error: whErr } = await context.supabase
+      .from("locations")
+      .select("id, code, name, region, kind")
+      .eq("kind", LOCATION_KIND_WAREHOUSE)
+      .eq("status", "active")
+      .order("code");
+    if (whErr && !/kind|schema cache|column/i.test(whErr.message ?? "")) throw whErr;
+    for (const loc of warehouses ?? []) {
+      const locationId = String(loc.id);
+      if (byLocation.has(locationId)) continue;
+      const code = String(loc.code ?? "");
+      const known = code ? SITE_GEOFENCE_DEFAULTS[code] : null;
+      byLocation.set(locationId, {
+        id: null,
+        locationId,
+        name: String(loc.name ?? code) || "Warehouse",
+        latitude: known?.latitude ?? 0,
+        longitude: known?.longitude ?? 0,
+        radiusMeters: DEFAULT_GEOFENCE_RADIUS_METERS,
+        mode: "operate",
+        active: false,
+        notes: null,
+        locationCode: code || null,
+        locationName: (loc.name as string | null) ?? null,
+        locationRegion: (loc.region as string | null) ?? null,
+        locationKind: LOCATION_KIND_WAREHOUSE,
+      });
+    }
+
+    return [...byLocation.values()].sort((a, b) =>
+      (a.locationCode ?? a.name).localeCompare(b.locationCode ?? b.name),
+    );
   },
   { auth: { capability: "attendance.view" } },
 );
@@ -376,7 +445,9 @@ export const submitFieldCheckIn = createAuthenticatedAction(
       : null;
 
     const locationId = nearest?.fence.locationId ?? data.locationId ?? staff.location_id;
-    if (locationId) await assertSite(context, locationId);
+    // GPS-resolved fences (including warehouse) are punch sites, not branch access grants.
+    // Only enforce site access when the operator explicitly picked a branch location.
+    if (data.locationId && !nearest) await assertSite(context, data.locationId);
 
     let eventType = data.eventType as string;
     if (nearest?.evaluation.violation) {

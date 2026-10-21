@@ -1,3 +1,4 @@
+import { isBranchLocationKind } from "@/lib/locations/kind";
 import type { AuthContext } from "@/lib/server/auth";
 
 export interface BranchScore {
@@ -29,20 +30,28 @@ function computeScore(b: Omit<BranchScore, "score">): number {
 
 export async function fetchBranchLeague(context: AuthContext): Promise<BranchScore[]> {
   const since = since30();
-  const [{ data: locations, error: locErr }, { data: fin, error: finErr }] = await Promise.all([
-    context.supabase
+  let locRes = await context.supabase
+    .from("locations")
+    .select("id, code, name, city, status, kind")
+    .eq("status", "active")
+    .order("code");
+  if (locRes.error && /kind|schema cache|column/i.test(locRes.error.message ?? "")) {
+    locRes = await context.supabase
       .from("locations")
       .select("id, code, name, city, status")
       .eq("status", "active")
-      .order("code"),
-    context.supabase
-      .from("financial_snapshots")
-      .select("location_id, revenue, ebitda")
-      .eq("period_kind", "day")
-      .gte("period_start", since.slice(0, 10)),
-  ]);
-  if (locErr) throw locErr;
+      .order("code");
+  }
+  const { data: fin, error: finErr } = await context.supabase
+    .from("financial_snapshots")
+    .select("location_id, revenue, ebitda")
+    .eq("period_kind", "day")
+    .gte("period_start", since.slice(0, 10));
+  if (locRes.error) throw locRes.error;
   if (finErr) throw finErr;
+  const locations = (locRes.data ?? []).filter((loc) =>
+    isBranchLocationKind((loc as { kind?: string }).kind),
+  );
 
   const revMap = new Map<string, { revenue: number; ebitda: number }>();
   for (const r of fin ?? []) {
@@ -52,7 +61,7 @@ export async function fetchBranchLeague(context: AuthContext): Promise<BranchSco
     revMap.set(r.location_id, cur);
   }
 
-  const locIds = (locations ?? []).map((l) => l.id);
+  const locIds = locations.map((l) => l.id);
   const [tickets, incidents, complaints, bookings] = await Promise.all([
     context.supabase
       .from("tickets")
@@ -77,7 +86,7 @@ export async function fetchBranchLeague(context: AuthContext): Promise<BranchSco
       .gte("created_at", since),
   ]);
 
-  return (locations ?? [])
+  return locations
     .map((loc) => {
       const rev = revMap.get(loc.id) ?? { revenue: 0, ebitda: 0 };
       const locTickets = (tickets.data ?? []).filter((t) => t.location_id === loc.id);

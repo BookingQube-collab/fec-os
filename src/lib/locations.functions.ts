@@ -12,12 +12,13 @@ import {
   locationDeleteVerifyError,
   type LocationDeleteLinkKind,
 } from "@/lib/locations/delete-guard";
+import { LOCATION_KINDS, normalizeLocationKind, type LocationKind } from "@/lib/locations/kind";
 import { locationStatusForActiveFlag } from "@/lib/locations/status";
 import { createAuthenticatedAction, createAuthenticatedActionNoInput } from "@/lib/server/create-action";
 import { invalidateRouteCachePrefix } from "@/lib/server/route-cache";
 
 const LOCATION_COLUMNS =
-  "id, code, name, city, region, country, timezone, status, launched_on, gla_sqm" as const;
+  "id, code, name, city, region, country, timezone, status, launched_on, gla_sqm, kind" as const;
 
 export type LocationMasterRow = {
   id: string;
@@ -30,6 +31,7 @@ export type LocationMasterRow = {
   status: string;
   launched_on: string | null;
   gla_sqm: number | null;
+  kind: LocationKind;
 };
 
 const optionalText = z
@@ -58,6 +60,7 @@ const updateSchema = z.object({
     .optional(),
   glaSqm: z.number().nonnegative().nullable().optional(),
   active: z.boolean(),
+  kind: z.enum(LOCATION_KINDS).default("branch"),
 });
 
 function forgetOperationalSiteLists() {
@@ -70,12 +73,23 @@ function uniqueViolation(error: { code?: string; message?: string }): boolean {
 
 export const listLocationMaster = createAuthenticatedActionNoInput(
   async (context) => {
-    const { data, error } = await context.supabase
-      .from("locations")
-      .select(LOCATION_COLUMNS)
-      .order("code");
-    if (error) throw error;
-    const rows = (data ?? []) as LocationMasterRow[];
+    let data: Array<Record<string, unknown>> | null = null;
+    const withKind = await context.supabase.from("locations").select(LOCATION_COLUMNS).order("code");
+    if (withKind.error) {
+      if (!/kind|schema cache|column/i.test(withKind.error.message ?? "")) throw withKind.error;
+      const legacy = await context.supabase
+        .from("locations")
+        .select("id, code, name, city, region, country, timezone, status, launched_on, gla_sqm")
+        .order("code");
+      if (legacy.error) throw legacy.error;
+      data = (legacy.data ?? []) as Array<Record<string, unknown>>;
+    } else {
+      data = (withKind.data ?? []) as Array<Record<string, unknown>>;
+    }
+    const rows = (data ?? []).map((row) => ({
+      ...(row as Omit<LocationMasterRow, "kind">),
+      kind: normalizeLocationKind((row as { kind?: string }).kind),
+    }));
     return rows.sort((a, b) => {
       const rank = (status: string) => (status === "active" ? 0 : 1);
       return rank(a.status) - rank(b.status) || a.code.localeCompare(b.code);
@@ -100,6 +114,7 @@ export const updateLocationMaster = createAuthenticatedAction(
         launched_on: data.launchedOn ?? null,
         gla_sqm: data.glaSqm ?? null,
         status,
+        kind: data.kind,
       })
       .eq("id", data.id)
       .select(LOCATION_COLUMNS)
@@ -110,7 +125,10 @@ export const updateLocationMaster = createAuthenticatedAction(
     }
     if (!row) throw new Error("Location not found, or you cannot edit locations");
     forgetOperationalSiteLists();
-    return row as LocationMasterRow;
+    return {
+      ...(row as Omit<LocationMasterRow, "kind">),
+      kind: normalizeLocationKind((row as { kind?: string }).kind),
+    };
   },
   { auth: { capability: "branches.edit", minRoleLevel: 80 } },
 );

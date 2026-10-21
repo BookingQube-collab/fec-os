@@ -25,6 +25,8 @@ export const SITE_GEOFENCE_DEFAULTS: Record<string, GeoPoint> = {
   "WM-VM": { latitude: 25.4172, longitude: 51.5308 },
   "CB-DSM": { latitude: 25.2342, longitude: 51.4338 },
   "CAR-AP": { latitude: 25.2632, longitude: 51.4485 },
+  /** Warehouse pin (Google Maps); ops confirm / activate in Field settings. */
+  WHSE: { latitude: 25.0724163, longitude: 51.519989 },
 };
 
 function toRad(deg: number): number {

@@ -1,5 +1,6 @@
 "use server";
 
+import { isBranchLocationKind } from "@/lib/locations/kind";
 import { createAuthenticatedActionNoInput } from "@/lib/server/create-action";
 
 export interface BranchScore {
@@ -32,20 +33,31 @@ function computeScore(b: Omit<BranchScore, "score">): number {
 
 export const getBranchLeague = createAuthenticatedActionNoInput(async (context) => {
   const since = since30();
-  const [{ data: locations, error: locErr }, { data: fin, error: finErr }] = await Promise.all([
-    context.supabase
+  let locRes = await context.supabase
+    .from("locations")
+    .select("id, code, name, city, status, kind")
+    .eq("status", "active")
+    .order("code");
+  if (locRes.error && /kind|schema cache|column/i.test(locRes.error.message ?? "")) {
+    locRes = await context.supabase
       .from("locations")
       .select("id, code, name, city, status")
       .eq("status", "active")
-      .order("code"),
+      .order("code");
+  }
+  const [{ data: fin, error: finErr }] = await Promise.all([
     context.supabase
       .from("financial_snapshots")
       .select("location_id, revenue, ebitda")
       .eq("period_kind", "day")
       .gte("period_start", since.slice(0, 10)),
   ]);
-  if (locErr) throw locErr;
+  if (locRes.error) throw locRes.error;
   if (finErr) throw finErr;
+
+  const locations = (locRes.data ?? []).filter((loc) =>
+    isBranchLocationKind((loc as { kind?: string }).kind),
+  );
 
   const revMap = new Map<string, { revenue: number; ebitda: number }>();
   for (const r of fin ?? []) {
@@ -55,7 +67,7 @@ export const getBranchLeague = createAuthenticatedActionNoInput(async (context) 
     revMap.set(r.location_id, cur);
   }
 
-  const locIds = (locations ?? []).map((l) => l.id);
+  const locIds = locations.map((l) => l.id);
   const [tickets, incidents, complaints, bookings] = await Promise.all([
     context.supabase
       .from("tickets")
@@ -95,7 +107,7 @@ export const getBranchLeague = createAuthenticatedActionNoInput(async (context) 
     }
   }
 
-  const scored: BranchScore[] = (locations ?? []).map((loc) => {
+  const scored: BranchScore[] = locations.map((loc) => {
     const finRow = revMap.get(loc.id) ?? { revenue: 0, ebitda: 0 };
     const revenue_30d = finRow.revenue;
     const ebitda_30d = finRow.ebitda;

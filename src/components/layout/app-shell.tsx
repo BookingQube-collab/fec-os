@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 
 import { GlobalComplianceExpiryBanner } from "@/components/compliance/global-compliance-expiry-banner";
 import { AuroraBackdrop } from "@/components/layout/aurora-backdrop";
+import { NotificationToastHost } from "@/components/layout/notification-toast-host";
 import ClickSpark from "@/components/react-bits/click-spark";
 import { AppSidebar } from "./app-sidebar";
 import { AppTopbar } from "./app-topbar";
@@ -50,6 +51,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <AuroraBackdrop className="fixed inset-x-0 top-0 z-0 h-[42vh]" />
       <SitesPrefetch />
       <HrFieldSync />
+      <NotificationToastHost />
       <AppSidebar />
       <div
         className={cn(

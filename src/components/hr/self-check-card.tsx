@@ -20,9 +20,30 @@ const REASON_KEY: Record<Exclude<SelfCheckRecordResult, { recorded: true }>["rea
   already_out: "hr.me.selfCheckAlreadyOut",
   need_in: "hr.me.selfCheckNeedIn",
   no_location: "hr.me.selfCheckNoLocation",
+  outside_geofence: "hr.me.selfCheckOutsideGeofence",
 };
 
 const actionClass = "min-h-11 w-full whitespace-normal px-4 text-center shadow-none disabled:opacity-100";
+
+async function readGps(): Promise<{ latitude: number; longitude: number; accuracyMeters: number | null } | null> {
+  if (typeof navigator === "undefined" || !navigator.geolocation) return null;
+  try {
+    const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true,
+        timeout: 12_000,
+        maximumAge: 30_000,
+      });
+    });
+    return {
+      latitude: pos.coords.latitude,
+      longitude: pos.coords.longitude,
+      accuracyMeters: Number.isFinite(pos.coords.accuracy) ? pos.coords.accuracy : null,
+    };
+  } catch {
+    return null;
+  }
+}
 
 /** Check in / Check out for the signed-in employee when their profile allows it. */
 export function SelfCheckCard() {
@@ -35,13 +56,29 @@ export function SelfCheckCard() {
   });
 
   const punch = useMutation({
-    mutationFn: (kind: SelfCheckKind) => recordSelfCheck({ kind }),
+    mutationFn: async (kind: SelfCheckKind) => {
+      const gps = await readGps();
+      return recordSelfCheck({
+        kind,
+        ...(gps
+          ? {
+              latitude: gps.latitude,
+              longitude: gps.longitude,
+              accuracyMeters: gps.accuracyMeters,
+            }
+          : {}),
+      });
+    },
     onSuccess: async (result) => {
       if (!result.recorded) {
         toast.error(t(REASON_KEY[result.reason]));
         return;
       }
-      toast.success(result.kind === "in" ? t("hr.me.selfCheckInSaved") : t("hr.me.selfCheckOutSaved"));
+      toast.success(
+        result.kind === "in"
+          ? t("hr.me.selfCheckInSavedAt", { location: result.locationLabel })
+          : t("hr.me.selfCheckOutSavedAt", { location: result.locationLabel }),
+      );
       await Promise.all([
         qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr({ view: "my-self-check" }) }),
         qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr({ view: "my-attendance" }) }),
@@ -74,9 +111,25 @@ export function SelfCheckCard() {
   const checkedIn = state.data.checkedInAt ? formatReportingTime12h(state.data.checkedInAt) : "";
   const checkedOut = state.data.checkedOutAt ? formatReportingTime12h(state.data.checkedOutAt) : "";
   const status = checkedOut
-    ? { text: t("hr.me.checkedOutAt", { time: checkedOut }), tone: "text-info" }
+    ? {
+        text: state.data.checkedOutLocationLabel
+          ? t("hr.me.checkedOutAtLocation", {
+              time: checkedOut,
+              location: state.data.checkedOutLocationLabel,
+            })
+          : t("hr.me.checkedOutAt", { time: checkedOut }),
+        tone: "text-info",
+      }
     : checkedIn
-      ? { text: t("hr.me.checkedInAt", { time: checkedIn }), tone: "text-success" }
+      ? {
+          text: state.data.checkedInLocationLabel
+            ? t("hr.me.checkedInAtLocation", {
+                time: checkedIn,
+                location: state.data.checkedInLocationLabel,
+              })
+            : t("hr.me.checkedInAt", { time: checkedIn }),
+          tone: "text-success",
+        }
       : null;
 
   return (

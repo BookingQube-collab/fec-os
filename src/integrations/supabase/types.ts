@@ -1638,6 +1638,7 @@ export type Database = {
           created_at: string
           gla_sqm: number | null
           id: string
+          kind: string
           launched_on: string | null
           name: string
           region: string | null
@@ -1656,6 +1657,7 @@ export type Database = {
           created_at?: string
           gla_sqm?: number | null
           id?: string
+          kind?: string
           launched_on?: string | null
           name: string
           region?: string | null
@@ -1674,6 +1676,7 @@ export type Database = {
           created_at?: string
           gla_sqm?: number | null
           id?: string
+          kind?: string
           launched_on?: string | null
           name?: string
           region?: string | null
