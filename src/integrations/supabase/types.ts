@@ -6042,6 +6042,10 @@ export type Database = {
         Args: never
         Returns: string
       }
+      generate_ot_request_number: {
+        Args: never
+        Returns: string
+      }
       generate_maintenance_request_number: {
         Args: never
         Returns: string

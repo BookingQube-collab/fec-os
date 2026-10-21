@@ -34,6 +34,20 @@ function tableMissing(message: string | undefined): boolean {
   return Boolean(message && /does not exist|schema cache|relation/i.test(message));
 }
 
+/** Prefer the day row with punches / richer status when the same staff has summaries at more than one site. */
+function preferMyAttendanceRow(
+  a: { status: string; missedPunch: boolean; actualIn: string | null; actualOut: string | null; workedMinutes: number },
+  b: { status: string; missedPunch: boolean; actualIn: string | null; actualOut: string | null; workedMinutes: number },
+): boolean {
+  const rank = (row: typeof a) =>
+    (row.actualIn ? 4 : 0) +
+    (row.actualOut ? 4 : 0) +
+    (row.workedMinutes > 0 ? 2 : 0) +
+    (row.status && row.status !== "absent" ? 1 : 0) +
+    (row.missedPunch ? 1 : 0);
+  return rank(a) >= rank(b);
+}
+
 export const getMyAttendance = createAuthenticatedAction(
   z.object({
     dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -49,40 +63,64 @@ export const getMyAttendance = createAuthenticatedAction(
       return { staffId: null, dateFrom, dateTo, rows: [] };
     }
     const staffId = resolveSelfStaffId({ linkedStaffId: staff.id });
-    const { data: rows, error } = await context.supabase
+    // Admin + staff_id: RLS on attendance_daily_summary is location-scoped
+    // (user_can_access_attendance). After a site transfer, user_roles.location_ids
+    // often only has the new site, so historical Inflata/etc. days would blank out
+    // on My day even though rows still exist for this staff_id.
+    const { data: rows, error } = await supabaseAdmin
       .from("attendance_daily_summary")
       .select("id, work_date, status, late_minutes, overtime_minutes, missed_punch, actual_in, actual_out, worked_minutes, locations(code, name)")
       .eq("staff_id", staffId)
       .gte("work_date", dateFrom)
       .lte("work_date", dateTo)
       .order("work_date", { ascending: false })
-      .limit(62);
+      .limit(200);
     if (error) {
       if (tableMissing(error.message)) return { staffId, dateFrom, dateTo, rows: [] };
       throw error;
+    }
+    const byDate = new Map<
+      string,
+      {
+        id: string;
+        workDate: string;
+        status: string;
+        lateMinutes: number;
+        overtimeMinutes: number;
+        missedPunch: boolean;
+        actualIn: string | null;
+        actualOut: string | null;
+        workedMinutes: number;
+        locationLabel: string;
+      }
+    >();
+    for (const row of rows ?? []) {
+      const loc = Array.isArray(row.locations) ? row.locations[0] : row.locations;
+      const mapped = {
+        id: row.id as string,
+        workDate: String(row.work_date).slice(0, 10),
+        status: String(row.status ?? ""),
+        lateMinutes: Number(row.late_minutes ?? 0),
+        overtimeMinutes: Number(row.overtime_minutes ?? 0),
+        missedPunch: Boolean(row.missed_punch),
+        actualIn: (row.actual_in as string | null) ?? null,
+        actualOut: (row.actual_out as string | null) ?? null,
+        workedMinutes: Number(row.worked_minutes ?? 0),
+        locationLabel: formatLocationLabel(
+          (loc as { code?: string } | null)?.code,
+          (loc as { name?: string } | null)?.name,
+        ),
+      };
+      const existing = byDate.get(mapped.workDate);
+      if (!existing || preferMyAttendanceRow(mapped, existing)) {
+        byDate.set(mapped.workDate, mapped);
+      }
     }
     return {
       staffId,
       dateFrom,
       dateTo,
-      rows: (rows ?? []).map((row) => {
-        const loc = Array.isArray(row.locations) ? row.locations[0] : row.locations;
-        return {
-          id: row.id as string,
-          workDate: String(row.work_date).slice(0, 10),
-          status: String(row.status ?? ""),
-          lateMinutes: Number(row.late_minutes ?? 0),
-          overtimeMinutes: Number(row.overtime_minutes ?? 0),
-          missedPunch: Boolean(row.missed_punch),
-          actualIn: (row.actual_in as string | null) ?? null,
-          actualOut: (row.actual_out as string | null) ?? null,
-          workedMinutes: Number(row.worked_minutes ?? 0),
-          locationLabel: formatLocationLabel(
-            (loc as { code?: string } | null)?.code,
-            (loc as { name?: string } | null)?.name,
-          ),
-        };
-      }),
+      rows: [...byDate.values()].sort((a, b) => b.workDate.localeCompare(a.workDate)),
     };
   },
   { auth: { anyCapability: ["attendance.view", "hr.employee_app"] } },
@@ -103,14 +141,16 @@ export const getMyRoster = createAuthenticatedAction(
       return { staffId: null as string | null, dateFrom, dateTo, rows: [] as MyRosterRow[] };
     }
     const staffId = resolveSelfStaffId({ linkedStaffId: staff.id });
-    const { data: assignments, error } = await context.supabase
+    // Same as getMyAttendance: roster/leave RLS is location-scoped; use admin + staff_id
+    // so pre-transfer site days remain visible on My day after a location move.
+    const { data: assignments, error } = await supabaseAdmin
       .from("attendance_roster_assignments")
       .select("id, location_id, work_date, shift_template_id, shift_start, shift_end, is_week_off")
       .eq("staff_id", staffId)
       .gte("work_date", dateFrom)
       .lte("work_date", dateTo)
       .order("work_date", { ascending: true })
-      .limit(40);
+      .limit(120);
     if (error) {
       if (tableMissing(error.message)) return { staffId, dateFrom, dateTo, rows: [] as MyRosterRow[] };
       throw error;
@@ -128,12 +168,12 @@ export const getMyRoster = createAuthenticatedAction(
 
     const [locRes, shiftRes, leaveRes] = await Promise.all([
       locationIds.length
-        ? context.supabase.from("locations").select("id, code, name").in("id", locationIds)
+        ? supabaseAdmin.from("locations").select("id, code, name").in("id", locationIds)
         : Promise.resolve({ data: [], error: null }),
       shiftIds.length
-        ? context.supabase.from("attendance_shift_templates").select("id, start_time, end_time").in("id", shiftIds)
+        ? supabaseAdmin.from("attendance_shift_templates").select("id, start_time, end_time").in("id", shiftIds)
         : Promise.resolve({ data: [], error: null }),
-      context.supabase
+      supabaseAdmin
         .from("attendance_leave_records")
         .select("leave_date, leave_type")
         .eq("staff_id", staffId)

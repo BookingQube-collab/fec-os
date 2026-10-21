@@ -9,8 +9,10 @@ import {
   assertOtTransition,
   canEditOtBeforeHoo,
   canMarkPayrollPosted,
+  canRequestOtChanges,
   canTransitionOt,
   computeOtAmountQar,
+  filterOtRequestGroups,
   groupOtClaimsIntoRequests,
   hourlyRateFromPay,
   isOtEligible,
@@ -22,6 +24,9 @@ import {
   isSupervisorOtStaffEntryReady,
   partitionSupervisorOtPicks,
   resolveEligibleOtMinutes,
+  resolveStaffOtPayFromCompensation,
+  resolveStaffOtPayFromSalaryHistory,
+  shouldRefreshOtAmountForMissingBasic,
   supervisorOtClaimSlots,
   supervisorOtContractMessage,
   supervisorOtStaffFieldErrors,
@@ -69,8 +74,22 @@ describe("OT claim transitions", () => {
   it("locks edits after Head of Operations approves", () => {
     expect(canEditOtBeforeHoo("submitted")).toBe(true);
     expect(canEditOtBeforeHoo("manager_verified")).toBe(true);
+    expect(canEditOtBeforeHoo("changes_requested")).toBe(true);
     expect(canEditOtBeforeHoo("ops_approved")).toBe(false);
     expect(canEditOtBeforeHoo("hr_approved")).toBe(false);
+  });
+
+  it("lets approvers request changes, then submitter resubmit", () => {
+    expect(canRequestOtChanges("submitted")).toBe(true);
+    expect(canRequestOtChanges("manager_verified")).toBe(true);
+    expect(canRequestOtChanges("ops_approved")).toBe(true);
+    expect(canRequestOtChanges("hr_approved")).toBe(false);
+    expect(canTransitionOt("submitted", "changes_requested", "manager")).toBe(true);
+    expect(canTransitionOt("manager_verified", "changes_requested", "ops")).toBe(true);
+    expect(canTransitionOt("ops_approved", "changes_requested", "hr")).toBe(true);
+    expect(canTransitionOt("changes_requested", "submitted", "employee")).toBe(true);
+    expect(canTransitionOt("changes_requested", "cancelled", "employee")).toBe(true);
+    expect(canTransitionOt("hr_approved", "changes_requested", "hr")).toBe(false);
   });
 });
 
@@ -80,6 +99,7 @@ describe("OT request grouping", () => {
       {
         id: "c1",
         requestBatchId: "b1",
+        requestNumber: "OT-20261017-0001",
         staffId: "s1",
         staffName: "Pabitra Acharya",
         workDate: "2026-10-17",
@@ -97,6 +117,7 @@ describe("OT request grouping", () => {
       {
         id: "c2",
         requestBatchId: "b1",
+        requestNumber: "OT-20261017-0001",
         staffId: "s1",
         staffName: "Pabitra Acharya",
         workDate: "2026-10-05",
@@ -116,12 +137,242 @@ describe("OT request grouping", () => {
     expect(groups[0]!.workDates).toEqual(["2026-10-05", "2026-10-17"]);
     expect(groups[0]!.totalClaimedMinutes).toBe(2160);
     expect(groups[0]!.missingBasicPay).toBe(true);
+    expect(groups[0]!.requestNumber).toBe("OT-20261017-0001");
+  });
+
+  it("merges same-person supervisor day-rows without a batch id", () => {
+    const groups = groupOtClaimsIntoRequests([
+      {
+        id: "c1",
+        staffId: "s1",
+        staffName: "Muhammad Sakib Hossain",
+        workDate: "2023-12-10",
+        eligibleMinutes: 120,
+        claimedMinutes: 120,
+        approvedMinutes: 120,
+        rateType: "weekday",
+        rateMultiplier: 1.25,
+        amountQar: 10,
+        status: "manager_verified",
+        purpose: "Cover",
+        claimSource: "supervisor",
+        submittedBy: "u1",
+        submittedAt: "2023-12-11T08:00:01.123Z",
+      },
+      {
+        id: "c2",
+        staffId: "s1",
+        staffName: "Muhammad Sakib Hossain",
+        workDate: "2023-12-09",
+        eligibleMinutes: 120,
+        claimedMinutes: 120,
+        approvedMinutes: 120,
+        rateType: "weekday",
+        rateMultiplier: 1.25,
+        amountQar: 10,
+        status: "manager_verified",
+        purpose: "Cover",
+        claimSource: "supervisor",
+        submittedBy: "u1",
+        submittedAt: "2023-12-11T08:00:01.999Z",
+      },
+      {
+        id: "c3",
+        staffId: "s2",
+        staffName: "Other Person",
+        workDate: "2023-12-09",
+        eligibleMinutes: 60,
+        claimedMinutes: 60,
+        approvedMinutes: 60,
+        rateType: "weekday",
+        rateMultiplier: 1.25,
+        amountQar: 5,
+        status: "manager_verified",
+        purpose: "Cover",
+        claimSource: "supervisor",
+        submittedBy: "u1",
+        submittedAt: "2023-12-11T08:00:01.500Z",
+      },
+    ]);
+    expect(groups).toHaveLength(2);
+    const sakib = groups.find((g) => g.staffNames.includes("Muhammad Sakib Hossain"));
+    expect(sakib?.workDates).toEqual(["2023-12-09", "2023-12-10"]);
+  });
+
+  it("filters request groups by search, department, and location", () => {
+    const groups = groupOtClaimsIntoRequests([
+      {
+        id: "c1",
+        requestBatchId: "b1",
+        requestNumber: "OT-20261017-0001",
+        staffId: "s1",
+        staffName: "Pabitra Acharya",
+        employeeCode: "E001",
+        department: "Operations",
+        locationId: "loc1",
+        locationName: "Doha Festival City",
+        workDate: "2026-10-17",
+        eligibleMinutes: 60,
+        claimedMinutes: 60,
+        approvedMinutes: 60,
+        rateType: "weekday",
+        rateMultiplier: 1.25,
+        amountQar: 20,
+        status: "manager_verified",
+        purpose: "Kids Driving School",
+        claimSource: "supervisor",
+      },
+      {
+        id: "c2",
+        requestBatchId: "b2",
+        requestNumber: "OT-20261017-0002",
+        staffId: "s2",
+        staffName: "Al Amin",
+        employeeCode: "E002",
+        department: "F&B",
+        locationId: "loc2",
+        locationName: "Warehouse",
+        workDate: "2026-10-05",
+        eligibleMinutes: 120,
+        claimedMinutes: 120,
+        approvedMinutes: 120,
+        rateType: "weekday",
+        rateMultiplier: 1.25,
+        amountQar: 40,
+        status: "ops_approved",
+        purpose: "Event cover",
+        claimSource: "supervisor",
+      },
+    ]);
+    expect(filterOtRequestGroups(groups, { q: "OT-20261017-0001" })).toHaveLength(1);
+    expect(filterOtRequestGroups(groups, { q: "pabitra" })).toHaveLength(1);
+    expect(filterOtRequestGroups(groups, { department: "F&B" })).toHaveLength(1);
+    expect(filterOtRequestGroups(groups, { locationId: "loc1" })).toHaveLength(1);
+    expect(filterOtRequestGroups(groups, { dateFrom: "2026-10-10" })).toHaveLength(1);
   });
 
   it("flags missing basic only when amount is zero without a basic snapshot", () => {
     expect(otMissingBasicPayNote({ amountQar: 0, basicQarSnapshot: null })).toBe(true);
     expect(otMissingBasicPayNote({ amountQar: 50, basicQarSnapshot: null })).toBe(false);
     expect(otMissingBasicPayNote({ amountQar: 0, basicQarSnapshot: 2000 })).toBe(false);
+  });
+
+  it("refreshes pending zero-amount claims once basic may be available", () => {
+    expect(
+      shouldRefreshOtAmountForMissingBasic({
+        amountQar: 0,
+        basicQarSnapshot: null,
+        status: "submitted",
+      }),
+    ).toBe(true);
+    expect(
+      shouldRefreshOtAmountForMissingBasic({
+        amountQar: 0,
+        basicQarSnapshot: null,
+        status: "manager_verified",
+      }),
+    ).toBe(true);
+    expect(
+      shouldRefreshOtAmountForMissingBasic({
+        amountQar: 0,
+        basicQarSnapshot: null,
+        status: "payroll_posted",
+      }),
+    ).toBe(false);
+    expect(
+      shouldRefreshOtAmountForMissingBasic({
+        amountQar: 0,
+        basicQarSnapshot: null,
+        status: "rejected",
+      }),
+    ).toBe(false);
+    expect(
+      shouldRefreshOtAmountForMissingBasic({
+        amountQar: 12.5,
+        basicQarSnapshot: null,
+        status: "submitted",
+      }),
+    ).toBe(false);
+    expect(
+      shouldRefreshOtAmountForMissingBasic({
+        amountQar: 0,
+        basicQarSnapshot: 1000,
+        status: "submitted",
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("OT pay from compensation / history", () => {
+  it("prefers basic_qar over package total when housing/transport exist", () => {
+    expect(
+      resolveStaffOtPayFromCompensation({
+        basic_qar: 1000,
+        housing_qar: 500,
+        transport_qar: 400,
+        monthly_salary_qar: 2600,
+        daily_rate_qar: null,
+      }),
+    ).toEqual({
+      monthlyBasicQar: 1000,
+      housingQar: 500,
+      transportQar: 400,
+      dailyRateQar: null,
+    });
+  });
+
+  it("uses package total as basic only for legacy unsplit rows", () => {
+    expect(
+      resolveStaffOtPayFromCompensation({
+        basic_qar: null,
+        housing_qar: null,
+        transport_qar: null,
+        monthly_salary_qar: 2600,
+        daily_rate_qar: null,
+      })?.monthlyBasicQar,
+    ).toBe(2600);
+    expect(
+      resolveStaffOtPayFromCompensation({
+        basic_qar: null,
+        housing_qar: 500,
+        transport_qar: 400,
+        monthly_salary_qar: 2600,
+        daily_rate_qar: null,
+      })?.monthlyBasicQar,
+    ).toBeNull();
+  });
+
+  it("reads basic from salary history when compensation is absent", () => {
+    expect(
+      resolveStaffOtPayFromSalaryHistory({
+        basic_qar: 1000,
+        monthly_total_qar: 2600,
+        daily_rate_qar: null,
+        allowances: { housing: 500, transportation: 400 },
+      }),
+    ).toEqual({
+      monthlyBasicQar: 1000,
+      housingQar: 500,
+      transportQar: 400,
+      dailyRateQar: null,
+    });
+  });
+
+  it("computes weekday OT from Qatar basic for 26-day supervisor contracts", () => {
+    // basic 1000 / 26 / 8 = 4.8077…; 36h × 1.25 ≈ 216.35
+    const hourly = hourlyRateFromPay({
+      monthlyBasicQar: 1000,
+      hoursPerDay: 8,
+      daysPerMonth: 26,
+    });
+    expect(hourly).toBeCloseTo(1000 / 26 / 8, 5);
+    expect(
+      computeOtAmountQar({
+        approvedMinutes: 36 * 60,
+        rateMultiplier: 1.25,
+        hourlyRateQar: hourly,
+      }),
+    ).toBe(Math.round(36 * hourly * 1.25 * 100) / 100);
   });
 });
 

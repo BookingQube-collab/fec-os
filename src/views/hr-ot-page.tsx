@@ -36,6 +36,8 @@ import {
 } from "@/lib/hr-ot.functions";
 import {
   canEditOtBeforeHoo,
+  canRequestOtChanges,
+  filterOtRequestGroups,
   groupOtClaimsIntoRequests,
   HR_OT_HIERARCHY_STEPS,
   HR_OT_RATE_TYPES,
@@ -545,10 +547,16 @@ function SupervisorOtRequest({ onSubmitted }: { onSubmitted: () => void }) {
                   },
                   {
                     onSuccess: (result) => {
+                      const numbers = (result.requests ?? [])
+                        .map((r) => r.requestNumber)
+                        .filter(Boolean)
+                        .slice(0, 3);
                       toast.success(
                         t("hr.ot.submittedRequest", {
                           days: result.count,
                           staff: result.staffCount,
+                          requests: result.requestCount ?? result.staffCount,
+                          numbers: numbers.join(", ") || result.requestNumber || "—",
                         }),
                       );
                       setPrintPayload({
@@ -585,12 +593,13 @@ function OtHierarchyStepper({ status }: { status: HrOtStatus }) {
   const currentIdx = HR_OT_HIERARCHY_STEPS.indexOf(
     status as (typeof HR_OT_HIERARCHY_STEPS)[number],
   );
-  const rejected = status === "rejected" || status === "cancelled";
+  const terminal =
+    status === "rejected" || status === "cancelled" || status === "changes_requested";
   return (
     <ol className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
       {HR_OT_HIERARCHY_STEPS.map((step, idx) => {
-        const done = !rejected && currentIdx >= idx;
-        const current = !rejected && currentIdx === idx;
+        const done = !terminal && currentIdx >= idx;
+        const current = !terminal && currentIdx === idx;
         return (
           <li
             key={step}
@@ -606,8 +615,15 @@ function OtHierarchyStepper({ status }: { status: HrOtStatus }) {
           </li>
         );
       })}
-      {rejected ? (
-        <li className="rounded-full border border-destructive/40 px-2 py-0.5 text-destructive">
+      {terminal ? (
+        <li
+          className={cn(
+            "rounded-full border px-2 py-0.5",
+            status === "changes_requested"
+              ? "border-amber-500/50 text-amber-800 dark:text-amber-300"
+              : "border-destructive/40 text-destructive",
+          )}
+        >
           {t(`hr.ot.status.${status}`)}
         </li>
       ) : null}
@@ -652,6 +668,11 @@ export default function HrOtPage() {
   const canHrApprove = usePermission("hr.ot.approve");
   const canHooApprove = isHeadOfOperationsTitle(profile?.job_title);
   const [status, setStatus] = useState<"queue" | "hr_approved" | "payroll_posted" | "all">("queue");
+  const [search, setSearch] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [department, setDepartment] = useState("");
+  const [locationId, setLocationId] = useState("");
   const [month, setMonth] = useState(currentMonth);
   const [groupBy, setGroupBy] = useState<"employee" | "department" | "employment_type" | "location">(
     "employee",
@@ -659,16 +680,52 @@ export default function HrOtPage() {
   const [previewPayload, setPreviewPayload] = useState<SupervisorOtPrintPayload | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
 
+  // Server: status + date range (keeps the 500-row window useful). Name/dept/site filter client-side.
+  const listFilters = useMemo(
+    () => ({
+      status,
+      dateFrom: dateFrom || null,
+      dateTo: dateTo || null,
+    }),
+    [status, dateFrom, dateTo],
+  );
+
   const list = useQuery({
-    queryKey: queryKeys.people.attendanceHr({ view: "ot", status }),
-    queryFn: () => listOtClaims({ status }),
+    queryKey: queryKeys.people.attendanceHr({ view: "ot", ...listFilters }),
+    queryFn: () => listOtClaims(listFilters),
     staleTime: STALE.people,
   });
 
-  const requestGroups = useMemo(
+  const allRequestGroups = useMemo(
     () => groupOtClaimsIntoRequests(list.data ?? []),
     [list.data],
   );
+
+  const requestGroups = useMemo(
+    () =>
+      filterOtRequestGroups(allRequestGroups, {
+        q: search,
+        department,
+        locationId,
+      }),
+    [allRequestGroups, search, department, locationId],
+  );
+
+  const filterOptions = useMemo(() => {
+    const departments = [
+      ...new Set(allRequestGroups.map((g) => g.department).filter((d): d is string => Boolean(d))),
+    ].sort((a, b) => a.localeCompare(b));
+    const locations = new Map<string, string>();
+    for (const g of allRequestGroups) {
+      if (g.locationId && g.locationName) locations.set(g.locationId, g.locationName);
+    }
+    return {
+      departments,
+      locations: [...locations.entries()]
+        .map(([id, name]) => ({ id, name }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    };
+  }, [allRequestGroups]);
 
   const summaries = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "ot-summary", month, groupBy }),
@@ -697,12 +754,34 @@ export default function HrOtPage() {
 
   const runBatchAction = (
     group: OtRequestGroup,
-    action: "verify" | "ops_approve" | "approve" | "reject" | "cancel" | "payroll_posted",
+    action:
+      | "verify"
+      | "ops_approve"
+      | "approve"
+      | "request_changes"
+      | "resubmit"
+      | "reject"
+      | "cancel"
+      | "payroll_posted",
   ) => {
-    const batchId = group.requestBatchId ?? group.claims[0]?.id;
-    if (!batchId) return;
-    actBatch.mutate({ requestBatchId: batchId, action });
+    if (group.requestBatchId) {
+      actBatch.mutate({ requestBatchId: group.requestBatchId, action });
+      return;
+    }
+    const claimIds = group.claims.map((c) => c.id);
+    if (!claimIds.length) return;
+    actBatch.mutate({ claimIds, action });
   };
+
+  const clearListFilters = () => {
+    setSearch("");
+    setDateFrom("");
+    setDateTo("");
+    setDepartment("");
+    setLocationId("");
+  };
+
+  const hasExtraFilters = Boolean(search || dateFrom || dateTo || department || locationId);
 
   const filters = useMemo(() => {
     const chips: Array<{ value: "queue" | "hr_approved" | "payroll_posted" | "all"; label: string }> = [
@@ -766,6 +845,75 @@ export default function HrOtPage() {
             ))}
           </div>
 
+          <div className="grid gap-3 rounded-lg border border-[var(--hr-border)] bg-background/60 p-3 sm:grid-cols-2 lg:grid-cols-6 hr-enter">
+            <div className="lg:col-span-2">
+              <Label htmlFor="ot-claim-search">{t("hr.ot.filterSearch")}</Label>
+              <Input
+                id="ot-claim-search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={t("hr.ot.filterSearchPlaceholder")}
+              />
+            </div>
+            <div>
+              <Label htmlFor="ot-date-from">{t("hr.ot.filterDateFrom")}</Label>
+              <Input
+                id="ot-date-from"
+                type="date"
+                value={dateFrom}
+                onChange={(e) => setDateFrom(e.target.value)}
+              />
+            </div>
+            <div>
+              <Label htmlFor="ot-date-to">{t("hr.ot.filterDateTo")}</Label>
+              <Input
+                id="ot-date-to"
+                type="date"
+                value={dateTo}
+                onChange={(e) => setDateTo(e.target.value)}
+              />
+            </div>
+            <div>
+              <Label htmlFor="ot-filter-dept">{t("hr.ot.department")}</Label>
+              <select
+                id="ot-filter-dept"
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                value={department}
+                onChange={(e) => setDepartment(e.target.value)}
+              >
+                <option value="">{t("hr.ot.filterAllDepartments")}</option>
+                {filterOptions.departments.map((dept) => (
+                  <option key={dept} value={dept}>
+                    {dept}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label htmlFor="ot-filter-loc">{t("hr.ot.filterLocation")}</Label>
+              <select
+                id="ot-filter-loc"
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                value={locationId}
+                onChange={(e) => setLocationId(e.target.value)}
+              >
+                <option value="">{t("hr.ot.filterAllLocations")}</option>
+                {filterOptions.locations.map((loc) => (
+                  <option key={loc.id} value={loc.id}>
+                    {loc.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {hasExtraFilters ? (
+              <div className="flex items-end lg:col-span-6">
+                <Button type="button" size="sm" variant="ghost" onClick={clearListFilters}>
+                  {t("hr.ot.clearFilters")}
+                </Button>
+              </div>
+            ) : null}
+          </div>
+
           <HrPanel delay={1}>
             <div className="space-y-2 p-4 sm:p-5">
               {requestGroups.length === 0 ? (
@@ -785,6 +933,11 @@ export default function HrOtPage() {
                     <div key={group.key} className="hr-list-row items-start">
                       <div className="min-w-0 flex-1">
                         <p className="font-medium">
+                          {group.requestNumber ? (
+                            <span className="mr-2 font-mono text-xs text-muted-foreground">
+                              {group.requestNumber}
+                            </span>
+                          ) : null}
                           {group.staffNames.join(", ") || t("hr.ot.requestFallback")}
                           <span className="text-muted-foreground">
                             {" "}
@@ -795,7 +948,8 @@ export default function HrOtPage() {
                           {group.claimSource === "supervisor"
                             ? t("hr.ot.sourceSupervisor")
                             : t("hr.ot.attendancePath")}
-                          {group.claims[0]?.locationName ? ` · ${group.claims[0].locationName}` : ""}
+                          {group.locationName ? ` · ${group.locationName}` : ""}
+                          {group.department ? ` · ${group.department}` : ""}
                           {group.claims[0]?.contractWorkingDays
                             ? ` · ${group.claims[0].contractWorkingDays}d`
                             : ""}
@@ -840,6 +994,16 @@ export default function HrOtPage() {
                             >
                               {t("hr.ot.verify")}
                             </Button>
+                            {canRequestOtChanges(group.status) ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={actBatch.isPending}
+                                onClick={() => runBatchAction(group, "request_changes")}
+                              >
+                                {t("hr.ot.changeRequest")}
+                              </Button>
+                            ) : null}
                             <Button
                               size="sm"
                               variant="secondary"
@@ -859,6 +1023,16 @@ export default function HrOtPage() {
                             >
                               {t("hr.ot.opsApprove")}
                             </Button>
+                            {canRequestOtChanges(group.status) ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={actBatch.isPending}
+                                onClick={() => runBatchAction(group, "request_changes")}
+                              >
+                                {t("hr.ot.changeRequest")}
+                              </Button>
+                            ) : null}
                             <Button
                               size="sm"
                               variant="secondary"
@@ -878,6 +1052,16 @@ export default function HrOtPage() {
                             >
                               {t("hr.ot.approve")}
                             </Button>
+                            {canRequestOtChanges(group.status) ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={actBatch.isPending}
+                                onClick={() => runBatchAction(group, "request_changes")}
+                              >
+                                {t("hr.ot.changeRequest")}
+                              </Button>
+                            ) : null}
                             <Button
                               size="sm"
                               variant="secondary"
@@ -896,6 +1080,15 @@ export default function HrOtPage() {
                             onClick={() => runBatchAction(group, "payroll_posted")}
                           >
                             {t("hr.ot.markPayroll")}
+                          </Button>
+                        ) : null}
+                        {isSubmitter && group.status === "changes_requested" ? (
+                          <Button
+                            size="sm"
+                            disabled={actBatch.isPending}
+                            onClick={() => runBatchAction(group, "resubmit")}
+                          >
+                            {t("hr.ot.resubmit")}
                           </Button>
                         ) : null}
                         {isSubmitter && canEditOtBeforeHoo(group.status) ? (

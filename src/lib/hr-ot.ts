@@ -14,6 +14,7 @@ export const HR_OT_STATUSES = [
   "ops_approved",
   "hr_approved",
   "payroll_posted",
+  "changes_requested",
   "rejected",
   "cancelled",
 ] as const;
@@ -28,6 +29,8 @@ export type HrOtActor = "employee" | "manager" | "ops" | "hr" | "payroll";
  * Approval chain:
  *   submitted → manager_verified (site supervisor) → ops_approved (Head of Operations)
  *   → hr_approved → payroll_posted
+ * Approvers may send back (`changes_requested`); the submitter cancels or resubmits to
+ * restart at site supervisor (`submitted`), matching missed-punch / job-request flows.
  */
 const TRANSITIONS: Record<HrOtStatus, Partial<Record<HrOtActor, HrOtStatus[]>>> = {
   draft: {
@@ -36,22 +39,26 @@ const TRANSITIONS: Record<HrOtStatus, Partial<Record<HrOtActor, HrOtStatus[]>>> 
   },
   submitted: {
     employee: ["cancelled"],
-    manager: ["manager_verified", "rejected"],
-    hr: ["manager_verified", "rejected", "cancelled"],
+    manager: ["manager_verified", "changes_requested", "rejected"],
+    hr: ["manager_verified", "changes_requested", "rejected", "cancelled"],
   },
   manager_verified: {
     employee: ["cancelled"],
-    ops: ["ops_approved", "rejected"],
-    hr: ["ops_approved", "rejected"],
+    ops: ["ops_approved", "changes_requested", "rejected"],
+    hr: ["ops_approved", "changes_requested", "rejected"],
   },
   ops_approved: {
-    hr: ["hr_approved", "rejected"],
+    hr: ["hr_approved", "changes_requested", "rejected"],
   },
   hr_approved: {
     payroll: ["payroll_posted"],
     hr: ["payroll_posted"],
   },
   payroll_posted: {},
+  changes_requested: {
+    employee: ["submitted", "cancelled"],
+    hr: ["submitted", "cancelled"],
+  },
   rejected: {},
   cancelled: {},
 };
@@ -72,9 +79,19 @@ export function otApprovalQueueStatuses(input: {
   return [...new Set(statuses)];
 }
 
-/** Submitter may edit the request only before Head of Operations approves. */
+/** Submitter may edit/cancel/resubmit only before Head of Operations approves (or when sent back). */
 export function canEditOtBeforeHoo(status: HrOtStatus): boolean {
-  return status === "draft" || status === "submitted" || status === "manager_verified";
+  return (
+    status === "draft" ||
+    status === "submitted" ||
+    status === "manager_verified" ||
+    status === "changes_requested"
+  );
+}
+
+/** Approver may request changes at the same steps where reject is allowed. */
+export function canRequestOtChanges(status: HrOtStatus): boolean {
+  return status === "submitted" || status === "manager_verified" || status === "ops_approved";
 }
 
 /** Soft note when amount is 0 because basic salary was missing at claim time. */
@@ -85,6 +102,109 @@ export function otMissingBasicPayNote(input: {
   if (input.amountQar > 0) return false;
   const basic = Number(input.basicQarSnapshot);
   return !Number.isFinite(basic) || basic <= 0;
+}
+
+/**
+ * Pending claims frozen at 0 QAR with no basic snapshot should refresh once
+ * compensation basic is available (list load or later approval steps).
+ * Do not rewrite terminal / posted rows.
+ */
+export function shouldRefreshOtAmountForMissingBasic(input: {
+  amountQar: number;
+  basicQarSnapshot?: number | null;
+  status: HrOtStatus;
+}): boolean {
+  if (
+    input.status === "rejected" ||
+    input.status === "cancelled" ||
+    input.status === "payroll_posted"
+  ) {
+    return false;
+  }
+  return otMissingBasicPayNote({
+    amountQar: input.amountQar,
+    basicQarSnapshot: input.basicQarSnapshot,
+  });
+}
+
+export type StaffOtPayParts = {
+  /** Basic only — never package total (monthly_salary_qar). */
+  monthlyBasicQar: number | null;
+  housingQar: number | null;
+  transportQar: number | null;
+  dailyRateQar: number | null;
+};
+
+function otPayNumOrNull(value: unknown): number | null {
+  if (value == null) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Map staff_compensation (or legacy package-only row) into OT pay parts.
+ * Prefer explicit basic_qar; use monthly_salary_qar as basic only when the row
+ * has no housing/transport split (pre-migration packages).
+ */
+export function resolveStaffOtPayFromCompensation(
+  comp: {
+    basic_qar?: unknown;
+    housing_qar?: unknown;
+    transport_qar?: unknown;
+    monthly_salary_qar?: unknown;
+    daily_rate_qar?: unknown;
+  } | null,
+): StaffOtPayParts | null {
+  if (!comp) return null;
+  const basic = otPayNumOrNull(comp.basic_qar);
+  const housing = otPayNumOrNull(comp.housing_qar);
+  const transport = otPayNumOrNull(comp.transport_qar);
+  const daily = otPayNumOrNull(comp.daily_rate_qar);
+  const legacyPackageAsBasic =
+    basic == null &&
+    (housing == null || housing === 0) &&
+    (transport == null || transport === 0)
+      ? otPayNumOrNull(comp.monthly_salary_qar)
+      : null;
+  return {
+    monthlyBasicQar: basic ?? legacyPackageAsBasic,
+    housingQar: housing,
+    transportQar: transport,
+    dailyRateQar: daily,
+  };
+}
+
+/** Latest salary-history row when compensation has no usable snapshot. */
+export function resolveStaffOtPayFromSalaryHistory(
+  hist: {
+    basic_qar?: unknown;
+    monthly_total_qar?: unknown;
+    daily_rate_qar?: unknown;
+    allowances?: unknown;
+  } | null,
+): StaffOtPayParts {
+  if (!hist) {
+    return {
+      monthlyBasicQar: null,
+      housingQar: null,
+      transportQar: null,
+      dailyRateQar: null,
+    };
+  }
+  const allow =
+    hist.allowances && typeof hist.allowances === "object" && !Array.isArray(hist.allowances)
+      ? (hist.allowances as Record<string, unknown>)
+      : {};
+  return {
+    monthlyBasicQar:
+      hist.basic_qar != null
+        ? otPayNumOrNull(hist.basic_qar)
+        : otPayNumOrNull(hist.monthly_total_qar),
+    housingQar: otPayNumOrNull(allow.housing),
+    transportQar:
+      otPayNumOrNull(allow.transportation) ?? otPayNumOrNull(allow.transport),
+    dailyRateQar: otPayNumOrNull(hist.daily_rate_qar),
+  };
 }
 
 /** Hierarchy steps for status badges / steppers (excludes terminal reject/cancel). */
@@ -100,19 +220,21 @@ export type HrOtHierarchyStep = (typeof HR_OT_HIERARCHY_STEPS)[number];
 
 export function otHierarchyStepIndex(status: HrOtStatus): number {
   if (status === "draft") return -1;
-  if (status === "rejected" || status === "cancelled") return -1;
+  if (status === "rejected" || status === "cancelled" || status === "changes_requested") return -1;
   return HR_OT_HIERARCHY_STEPS.indexOf(status as HrOtHierarchyStep);
 }
 
 export type OtClaimListRow = {
   id: string;
   requestBatchId?: string | null;
+  requestNumber?: string | null;
   staffId: string;
   staffName?: string | null;
   employeeCode?: string | null;
   phone?: string | null;
   jobTitle?: string | null;
   department?: string | null;
+  locationId?: string | null;
   locationName?: string | null;
   workDate: string;
   eligibleMinutes: number;
@@ -132,30 +254,92 @@ export type OtClaimListRow = {
 };
 
 export type OtRequestGroup = {
-  /** Batch id, or claim id when unbatched. */
+  /** Batch id, or synthetic key when unbatched. */
   key: string;
   requestBatchId: string | null;
+  requestNumber: string | null;
   status: HrOtStatus;
   claimSource: string | null;
   purpose: string | null;
   submittedBy: string | null;
   submittedAt: string | null;
   claims: OtClaimListRow[];
+  staffId: string | null;
   staffNames: string[];
   workDates: string[];
   totalClaimedMinutes: number;
   totalApprovedMinutes: number;
   totalAmountQar: number;
   missingBasicPay: boolean;
+  department: string | null;
+  locationId: string | null;
+  locationName: string | null;
 };
 
-/** Group day-rows into one OT request card (batch id, else each claim alone). */
+/**
+ * One request card key: shared batch id, else same-person supervisor submit
+ * (staff + submitter + second), else the claim id alone.
+ */
+export function otRequestGroupKey(row: OtClaimListRow): string {
+  if (row.requestBatchId) return row.requestBatchId;
+  if (row.claimSource === "supervisor" && row.submittedBy && row.submittedAt) {
+    const sec = row.submittedAt.slice(0, 19);
+    return `sup:${row.staffId}:${row.submittedBy}:${sec}`;
+  }
+  return row.id;
+}
+
+export type OtRequestListFilters = {
+  q?: string | null;
+  dateFrom?: string | null;
+  dateTo?: string | null;
+  department?: string | null;
+  locationId?: string | null;
+};
+
+/** Client-side filters on grouped OT requests (name, code, number, dept, site, dates). */
+export function filterOtRequestGroups(
+  groups: readonly OtRequestGroup[],
+  filters: OtRequestListFilters,
+): OtRequestGroup[] {
+  const q = (filters.q ?? "").trim().toLowerCase();
+  const dateFrom = filters.dateFrom?.slice(0, 10) || null;
+  const dateTo = filters.dateTo?.slice(0, 10) || null;
+  const department = (filters.department ?? "").trim().toLowerCase() || null;
+  const locationId = filters.locationId || null;
+
+  return groups.filter((group) => {
+    if (dateFrom && !group.workDates.some((d) => d >= dateFrom)) return false;
+    if (dateTo && !group.workDates.some((d) => d <= dateTo)) return false;
+    if (department) {
+      const dept = (group.department ?? "").toLowerCase();
+      if (dept !== department) return false;
+    }
+    if (locationId && group.locationId !== locationId) return false;
+    if (!q) return true;
+    const haystack = [
+      group.requestNumber,
+      ...group.staffNames,
+      ...group.claims.map((c) => c.employeeCode),
+      group.purpose,
+      group.department,
+      group.locationName,
+      ...group.workDates,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(q);
+  });
+}
+
+/** Group day-rows into one OT request card (batch id, else same-person supervisor submit). */
 export function groupOtClaimsIntoRequests(
   rows: readonly OtClaimListRow[],
 ): OtRequestGroup[] {
   const map = new Map<string, OtClaimListRow[]>();
   for (const row of rows) {
-    const key = row.requestBatchId || row.id;
+    const key = otRequestGroupKey(row);
     const list = map.get(key) ?? [];
     list.push(row);
     map.set(key, list);
@@ -164,6 +348,7 @@ export function groupOtClaimsIntoRequests(
   for (const [key, claims] of map) {
     const sorted = [...claims].sort((a, b) => a.workDate.localeCompare(b.workDate));
     const first = sorted[0]!;
+    const staffIds = [...new Set(sorted.map((c) => c.staffId))];
     const staffNames = [
       ...new Set(sorted.map((c) => c.staffName).filter((n): n is string => Boolean(n))),
     ];
@@ -185,21 +370,28 @@ export function groupOtClaimsIntoRequests(
       if (bi > ai) return c.status;
       return acc;
     }, first.status);
+    const requestNumber =
+      sorted.map((c) => c.requestNumber).find((n): n is string => Boolean(n)) ?? null;
     groups.push({
       key,
       requestBatchId: first.requestBatchId ?? null,
+      requestNumber,
       status,
       claimSource: first.claimSource ?? null,
       purpose: first.purpose ?? null,
       submittedBy: first.submittedBy ?? null,
       submittedAt: first.submittedAt ?? null,
       claims: sorted,
+      staffId: staffIds.length === 1 ? staffIds[0]! : null,
       staffNames,
       workDates,
       totalClaimedMinutes,
       totalApprovedMinutes,
       totalAmountQar,
       missingBasicPay,
+      department: first.department ?? null,
+      locationId: first.locationId ?? null,
+      locationName: first.locationName ?? null,
     });
   }
   return groups.sort((a, b) => {

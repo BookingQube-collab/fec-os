@@ -10,6 +10,7 @@ import {
   assertMinClaimableMinutes,
   assertOtTransition,
   canEditOtBeforeHoo,
+  canRequestOtChanges,
   computeOtAmountQar,
   hourlyRateFromPay,
   HR_OT_RATE_TYPES,
@@ -20,12 +21,16 @@ import {
   otPayDaysPerMonth,
   resolveEligibleOtMinutes,
   resolveOtRateMultiplier,
+  resolveStaffOtPayFromCompensation,
+  resolveStaffOtPayFromSalaryHistory,
+  shouldRefreshOtAmountForMissingBasic,
   supervisorOtClaimSlots,
   supervisorOtContractMessage,
   type HrOtActor,
   type HrOtRateType,
   type HrOtRounding,
   type HrOtStatus,
+  type StaffOtPayParts,
 } from "@/lib/hr-ot";
 import { policyNumber } from "@/lib/hr-policy";
 import { readPolicySection } from "@/lib/hr-policy-read";
@@ -151,6 +156,7 @@ function mapClaimRow(row: Record<string, unknown>) {
   return {
     id: String(row.id),
     requestBatchId: (row.request_batch_id as string | null) ?? null,
+    requestNumber: (row.request_number as string | null) ?? null,
     staffId: String(row.staff_id),
     staffName: (staff as { full_name?: string } | null)?.full_name ?? null,
     employeeCode: (staff as { employee_code?: string } | null)?.employee_code ?? null,
@@ -207,35 +213,28 @@ async function staffEmploymentCategory(
   return cat ?? fallbackEmploymentType ?? null;
 }
 
-type StaffOtPay = {
-  /** Basic only — never package total (monthly_salary_qar). */
-  monthlyBasicQar: number | null;
-  housingQar: number | null;
-  transportQar: number | null;
-  dailyRateQar: number | null;
-};
-
-function numOrNull(value: unknown): number | null {
-  if (value == null) return null;
-  const n = Number(value);
-  return Number.isFinite(n) ? n : null;
-}
+type StaffOtPay = StaffOtPayParts;
 
 function columnMissing(message: string): boolean {
   return /column .* does not exist|Could not find the .* column/i.test(message);
 }
 
-/** Resolve OT pay from compensation basic + allowances; fall back to salary history. */
-async function staffPay(context: AuthContext, staffId: string): Promise<StaffOtPay> {
+/**
+ * Resolve OT pay from compensation basic + allowances; fall back to salary history.
+ * Service role: staff_compensation RLS is salary-view only (HR/C-level). Site
+ * supervisors / HOO submitting or approving OT cannot SELECT pay under their JWT —
+ * same pattern as payroll staffPayBundle. Caller already passed hr.ot.* checks.
+ */
+async function staffPay(staffId: string): Promise<StaffOtPay> {
   let comp: Record<string, unknown> | null = null;
   {
-    const first = await context.supabase
+    const first = await supabaseAdmin
       .from("staff_compensation")
       .select("basic_qar, housing_qar, transport_qar, monthly_salary_qar, daily_rate_qar")
       .eq("staff_id", staffId)
       .maybeSingle();
     if (first.error && columnMissing(first.error.message)) {
-      const legacy = await context.supabase
+      const legacy = await supabaseAdmin
         .from("staff_compensation")
         .select("monthly_salary_qar, daily_rate_qar")
         .eq("staff_id", staffId)
@@ -245,48 +244,91 @@ async function staffPay(context: AuthContext, staffId: string): Promise<StaffOtP
       comp = (first.data ?? null) as Record<string, unknown> | null;
     }
   }
-  if (comp) {
-    const basic = numOrNull(comp.basic_qar);
-    const daily = numOrNull(comp.daily_rate_qar);
-    // Prefer explicit basic. Legacy rows without a split used monthly_salary_qar as basic
-    // only when housing/transport are empty (migration backfill covers most cases).
-    const housing = numOrNull(comp.housing_qar);
-    const transport = numOrNull(comp.transport_qar);
-    const legacyPackageAsBasic =
-      basic == null &&
-      (housing == null || housing === 0) &&
-      (transport == null || transport === 0)
-        ? numOrNull(comp.monthly_salary_qar)
-        : null;
-    return {
-      monthlyBasicQar: basic ?? legacyPackageAsBasic,
-      housingQar: housing,
-      transportQar: transport,
-      dailyRateQar: daily,
-    };
-  }
-  const { data: hist } = await context.supabase
+  const fromComp = resolveStaffOtPayFromCompensation(comp);
+  if (fromComp) return fromComp;
+
+  const { data: hist } = await supabaseAdmin
     .from("staff_salary_history")
     .select("basic_qar, monthly_total_qar, daily_rate_qar, allowances")
     .eq("staff_id", staffId)
     .order("effective_on", { ascending: false })
     .limit(1)
     .maybeSingle();
-  const allow =
-    hist?.allowances && typeof hist.allowances === "object" && !Array.isArray(hist.allowances)
-      ? (hist.allowances as Record<string, unknown>)
-      : {};
-  return {
-    monthlyBasicQar:
-      hist?.basic_qar != null
-        ? Number(hist.basic_qar)
-        : hist?.monthly_total_qar != null
-          ? Number(hist.monthly_total_qar)
-          : null,
-    housingQar: numOrNull(allow.housing),
-    transportQar: numOrNull(allow.transportation) ?? numOrNull(allow.transport),
-    dailyRateQar: hist?.daily_rate_qar == null ? null : Number(hist.daily_rate_qar),
-  };
+  return resolveStaffOtPayFromSalaryHistory(
+    (hist ?? null) as {
+      basic_qar?: unknown;
+      monthly_total_qar?: unknown;
+      daily_rate_qar?: unknown;
+      allowances?: unknown;
+    } | null,
+  );
+}
+
+/**
+ * Persist recalculated amounts for pending claims that were frozen at 0 QAR
+ * because basic was missing (or invisible under salary RLS) when submitted.
+ */
+async function refreshPendingOtAmountsMissingBasic<T extends ReturnType<typeof mapClaimRow>>(
+  claims: T[],
+  policy: Record<string, unknown>,
+): Promise<T[]> {
+  const needs = claims.filter((c) =>
+    shouldRefreshOtAmountForMissingBasic({
+      amountQar: c.amountQar,
+      basicQarSnapshot: c.basicQarSnapshot,
+      status: c.status,
+    }),
+  );
+  if (needs.length === 0) return claims;
+
+  const payByStaff = new Map<string, StaffOtPay>();
+  for (const staffId of new Set(needs.map((c) => c.staffId))) {
+    payByStaff.set(staffId, await staffPay(staffId));
+  }
+
+  const updatedById = new Map<string, T>();
+  for (const claim of needs) {
+    const pay = payByStaff.get(claim.staffId);
+    if (!pay) continue;
+    const hasPay =
+      (pay.monthlyBasicQar != null && pay.monthlyBasicQar > 0) ||
+      (pay.dailyRateQar != null && pay.dailyRateQar > 0);
+    if (!hasPay) continue;
+
+    const minutes = Math.max(0, claim.approvedMinutes ?? claim.claimedMinutes);
+    if (minutes <= 0) continue;
+    const amountQar = amountFor(
+      minutes,
+      claim.rateMultiplier,
+      pay,
+      policy,
+      claim.contractWorkingDays,
+    );
+    if (amountQar <= 0) continue;
+
+    const snap = otPaySnapshot(pay, policy, claim.contractWorkingDays);
+    const { error } = await supabaseAdmin
+      .from("hr_ot_claims")
+      .update({
+        amount_qar: amountQar,
+        ...snap,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", claim.id)
+      .eq("amount_qar", 0);
+    if (error) {
+      console.warn("[ot] refresh amount for missing basic failed", claim.id, error.message);
+      continue;
+    }
+    updatedById.set(claim.id, {
+      ...claim,
+      amountQar,
+      basicQarSnapshot: snap.basic_qar_snapshot,
+    });
+  }
+
+  if (updatedById.size === 0) return claims;
+  return claims.map((c) => updatedById.get(c.id) ?? c);
 }
 
 async function appendApproval(
@@ -357,7 +399,15 @@ function otPaySnapshot(
 }
 
 const CLAIM_SELECT =
-  "id, request_batch_id, staff_id, location_id, work_date, attendance_daily_id, scheduled_in, scheduled_out, actual_in, actual_out, eligible_minutes, claimed_minutes, approved_minutes, rate_type, rate_multiplier, amount_qar, basic_qar_snapshot, status, evidence_path, notes, purpose, claim_source, contract_working_days, submitted_by, submitted_at, created_at, staff(full_name, employee_code, phone, job_title, user_id, location_id, employment_type, department), locations(id, code, name)";
+  "id, request_batch_id, request_number, staff_id, location_id, work_date, attendance_daily_id, scheduled_in, scheduled_out, actual_in, actual_out, eligible_minutes, claimed_minutes, approved_minutes, rate_type, rate_multiplier, amount_qar, basic_qar_snapshot, status, evidence_path, notes, purpose, claim_source, contract_working_days, submitted_by, submitted_at, created_at, staff(full_name, employee_code, phone, job_title, user_id, location_id, employment_type, department), locations(id, code, name)";
+
+async function nextOtRequestNumber(context: AuthContext): Promise<string> {
+  const { data, error } = await context.supabase.rpc("generate_ot_request_number");
+  if (!error && typeof data === "string" && data.trim()) return data.trim();
+  // Fallback when migration / RPC is not applied yet.
+  const day = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  return `OT-${day}-${crypto.randomUUID().replace(/-/g, "").slice(0, 4).toUpperCase()}`;
+}
 
 async function readContractWorkingDays(context: AuthContext, staffId: string): Promise<number | null> {
   const { data, error } = await context.supabase
@@ -394,6 +444,11 @@ export const listOtClaims = createAuthenticatedAction(
     mineOnly: z.boolean().optional(),
     month: z.string().regex(/^\d{4}-\d{2}$/).optional().nullable(),
     staffId: z.string().uuid().optional().nullable(),
+    dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+    dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+    locationId: z.string().uuid().optional().nullable(),
+    department: z.string().trim().max(120).optional().nullable(),
+    q: z.string().trim().max(120).optional().nullable(),
   }),
   async (data, context) => {
     const canApprove = canOtApprove(context);
@@ -408,47 +463,79 @@ export const listOtClaims = createAuthenticatedAction(
     // Team-scoped site supervisors bypass RLS that only allows "own" rows for
     // non-supervisor logins; admin read still filters to their reporting tree.
     const claimDb = teamScope ? supabaseAdmin : context.supabase;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Supabase filter builder chain
+    const applyCommonFilters = (query: any, queueStatusesOverride?: readonly HrOtStatus[]) => {
+      let next = query;
+      if (data.mineOnly || (!canApprove && !canVerify)) {
+        next = next.eq("staff_id", mine!.id);
+      } else if (teamScope) {
+        if (data.staffId) next = next.eq("staff_id", data.staffId);
+        else next = next.in("staff_id", teamScope);
+      } else if (data.staffId) {
+        next = next.eq("staff_id", data.staffId);
+      }
+
+      if (data.status === "queue") {
+        const canOps = canOtOpsApprove(context);
+        const queueStatuses =
+          queueStatusesOverride ??
+          otApprovalQueueStatuses({
+            canSiteVerify: canVerify && !canOps,
+            canOpsApprove: canOps,
+            canHrApprove: canApprove,
+          });
+        next = next.in("status", [...queueStatuses]);
+      } else if (data.status && data.status !== "all") {
+        next = next.eq("status", data.status);
+      }
+
+      if (data.month) {
+        const start = `${data.month}-01`;
+        const [y, m] = data.month.split("-").map(Number);
+        const end = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+        next = next.gte("work_date", start).lte("work_date", end);
+      } else {
+        if (data.dateFrom) next = next.gte("work_date", data.dateFrom);
+        if (data.dateTo) next = next.lte("work_date", data.dateTo);
+      }
+
+      if (data.locationId) next = next.eq("location_id", data.locationId);
+      return next;
+    };
+
+    const applyTextFilters = <T extends ReturnType<typeof mapClaimRow>>(rows: T[]): T[] => {
+      let mapped = rows;
+      if (data.department) {
+        const dept = data.department.trim().toLowerCase();
+        mapped = mapped.filter((r) => (r.department ?? "").toLowerCase() === dept);
+      }
+      if (data.q?.trim()) {
+        const q = data.q.trim().toLowerCase();
+        mapped = mapped.filter((r) => {
+          const hay = [r.staffName, r.employeeCode, r.requestNumber, r.purpose, r.department, r.locationName]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+          return hay.includes(q);
+        });
+      }
+      return mapped;
+    };
+
+    if (data.mineOnly || (!canApprove && !canVerify)) {
+      if (!mine?.id) return [];
+    } else if (teamScope && teamScope.length === 0) {
+      return [];
+    } else if (teamScope && data.staffId && !teamScope.includes(data.staffId)) {
+      return [];
+    }
+
     let query = claimDb
       .from("hr_ot_claims")
       .select(CLAIM_SELECT)
       .order("work_date", { ascending: false })
-      .limit(200);
-
-    if (data.mineOnly || (!canApprove && !canVerify)) {
-      if (!mine?.id) return [];
-      query = query.eq("staff_id", mine.id);
-    } else if (teamScope) {
-      if (teamScope.length === 0) return [];
-      if (data.staffId) {
-        if (!teamScope.includes(data.staffId)) return [];
-        query = query.eq("staff_id", data.staffId);
-      } else {
-        query = query.in("staff_id", teamScope);
-      }
-    } else if (data.staffId) {
-      query = query.eq("staff_id", data.staffId);
-    }
-
-    if (data.status === "queue") {
-      const canOps = canOtOpsApprove(context);
-      // Site (not HOO) → submitted; HOO → manager_verified; HR/HOO → ops_approved.
-      const queueStatuses = otApprovalQueueStatuses({
-        canSiteVerify: canVerify && !canOps,
-        canOpsApprove: canOps,
-        canHrApprove: canApprove,
-      });
-      query = query.in("status", [...queueStatuses]);
-    } else if (data.status && data.status !== "all") {
-      query = query.eq("status", data.status);
-    }
-
-    if (data.month) {
-      const start = `${data.month}-01`;
-      const [y, m] = data.month.split("-").map(Number);
-      const endDate = new Date(Date.UTC(y, m, 0));
-      const end = endDate.toISOString().slice(0, 10);
-      query = query.gte("work_date", start).lte("work_date", end);
-    }
+      .limit(500);
+    query = applyCommonFilters(query);
 
     const { data: rows, error } = await query;
     if (error) {
@@ -461,38 +548,35 @@ export const listOtClaims = createAuthenticatedAction(
           .from("hr_ot_claims")
           .select(legacySelect)
           .order("work_date", { ascending: false })
-          .limit(200);
-        if (data.mineOnly || (!canApprove && !canVerify)) {
-          if (!mine?.id) return [];
-          legacy = legacy.eq("staff_id", mine.id);
-        } else if (teamScope) {
-          if (teamScope.length === 0) return [];
-          legacy = legacy.in("staff_id", data.staffId ? [data.staffId] : teamScope);
-        } else if (data.staffId) {
-          legacy = legacy.eq("staff_id", data.staffId);
-        }
-        if (data.status === "queue") {
-          const canOps = canOtOpsApprove(context);
-          const queueStatuses = otApprovalQueueStatuses({
-            canSiteVerify: canVerify && !canOps,
-            canOpsApprove: canOps,
-            canHrApprove: canApprove,
-          }).filter((s) => s !== "ops_approved");
-          // Without ops_approved column/status, HOO still acts on manager_verified via new UI after migrate.
-          legacy = legacy.in("status", queueStatuses.length ? [...queueStatuses] : ["submitted", "manager_verified"]);
-        } else if (data.status && data.status !== "all") {
-          legacy = legacy.eq("status", data.status);
-        }
+          .limit(500);
+        const canOps = canOtOpsApprove(context);
+        const legacyQueue = otApprovalQueueStatuses({
+          canSiteVerify: canVerify && !canOps,
+          canOpsApprove: canOps,
+          canHrApprove: canApprove,
+        }).filter((s) => s !== "ops_approved");
+        legacy = applyCommonFilters(
+          legacy,
+          legacyQueue.length ? legacyQueue : (["submitted", "manager_verified"] as const),
+        );
         const legacyRes = await legacy;
         if (legacyRes.error) {
           if (tableMissing(legacyRes.error.message)) return [];
           throw legacyRes.error;
         }
-        return (legacyRes.data ?? []).map((r) => mapClaimRow(r as Record<string, unknown>));
+        const legacyMapped = applyTextFilters(
+          (legacyRes.data ?? []).map((r) => mapClaimRow(r as Record<string, unknown>)),
+        );
+        const legacyPolicy = await loadOtPolicy(context);
+        return refreshPendingOtAmountsMissingBasic(legacyMapped, legacyPolicy);
       }
       throw error;
     }
-    return (rows ?? []).map((r) => mapClaimRow(r as Record<string, unknown>));
+    const mapped = applyTextFilters(
+      (rows ?? []).map((r) => mapClaimRow(r as Record<string, unknown>)),
+    );
+    const policy = await loadOtPolicy(context);
+    return refreshPendingOtAmountsMissingBasic(mapped, policy);
   },
   { auth: { anyCapability: ["hr.ot.submit", "hr.ot.verify", "hr.ot.approve"] } },
 );
@@ -528,21 +612,23 @@ export const getOtMonthlySummaries = createAuthenticatedAction(
       throw error;
     }
 
-    const mapped = (rows ?? []).map((r) => {
-      const claim = mapClaimRow(r as Record<string, unknown>);
-      return {
-        staffId: claim.staffId,
-        staffName: claim.staffName,
-        department: claim.department,
-        employmentType: claim.employmentType,
-        locationId: claim.locationId,
-        locationName: claim.locationName,
-        eligibleMinutes: claim.eligibleMinutes,
-        approvedMinutes: claim.approvedMinutes ?? 0,
-        amountQar: claim.amountQar,
-        status: claim.status,
-      };
-    });
+    const policy = await loadOtPolicy(context);
+    const refreshed = await refreshPendingOtAmountsMissingBasic(
+      (rows ?? []).map((r) => mapClaimRow(r as Record<string, unknown>)),
+      policy,
+    );
+    const mapped = refreshed.map((claim) => ({
+      staffId: claim.staffId,
+      staffName: claim.staffName,
+      department: claim.department,
+      employmentType: claim.employmentType,
+      locationId: claim.locationId,
+      locationName: claim.locationName,
+      eligibleMinutes: claim.eligibleMinutes,
+      approvedMinutes: claim.approvedMinutes ?? 0,
+      amountQar: claim.amountQar,
+      status: claim.status,
+    }));
     return aggregateOtSummaries(mapped, data.groupBy);
   },
   { auth: { anyCapability: ["hr.ot.verify", "hr.ot.approve"] } },
@@ -624,7 +710,7 @@ export const previewOtEligibility = createAuthenticatedAction(
     });
 
     const multiplier = resolveOtRateMultiplier(data.rateType, policy);
-    const pay = await staffPay(context, staffId);
+    const pay = await staffPay(staffId);
     const minClaimable = policyNumber(policy.min_claimable_minutes, 60);
     const rounding = String(policy.rounding ?? "down") as HrOtRounding;
 
@@ -716,9 +802,11 @@ export const submitOtClaim = createAuthenticatedAction(
     }
 
     const rateMultiplier = resolveOtRateMultiplier(data.rateType, policy);
-    const pay = await staffPay(context, staffId);
+    const pay = await staffPay(staffId);
     const amountQar = amountFor(claimedMinutes, rateMultiplier, pay, policy);
     const status: HrOtStatus = data.asDraft ? "draft" : "submitted";
+    const requestBatchId = crypto.randomUUID();
+    const requestNumber = await nextOtRequestNumber(context);
 
     const { data: row, error } = await context.supabase
       .from("hr_ot_claims")
@@ -743,6 +831,8 @@ export const submitOtClaim = createAuthenticatedAction(
         notes: data.notes ?? null,
         purpose: data.notes ?? null,
         claim_source: "attendance",
+        request_batch_id: requestBatchId,
+        request_number: requestNumber,
         submitted_by: status === "submitted" ? context.userId : null,
         submitted_at: status === "submitted" ? new Date().toISOString() : null,
         created_by: context.userId,
@@ -794,6 +884,8 @@ async function applyOtClaimAction(input: {
     | "verify"
     | "ops_approve"
     | "approve"
+    | "request_changes"
+    | "resubmit"
     | "reject"
     | "cancel"
     | "payroll_posted";
@@ -825,7 +917,7 @@ async function applyOtClaimAction(input: {
   const policy = await loadOtPolicy(context);
   const minClaimable = policyNumber(policy.min_claimable_minutes, 60);
   const rounding = String(policy.rounding ?? "down") as HrOtRounding;
-  const pay = await staffPay(context, String(existing.staff_id));
+  const pay = await staffPay(String(existing.staff_id));
   const rateMultiplier = Number(existing.rate_multiplier ?? 1);
   const contractDays =
     existing.contract_working_days == null ? null : Number(existing.contract_working_days);
@@ -905,6 +997,54 @@ async function applyOtClaimAction(input: {
     patch.approved_at = new Date().toISOString();
     approvalStep = "hr";
     approvalAction = "approved";
+  } else if (action === "request_changes") {
+    if (!canVerify && !canApprove && !canOps) {
+      throw new ForbiddenError("Cannot request changes on OT claim.");
+    }
+    if (!canRequestOtChanges(from)) {
+      throw new ForbiddenError("Change request is not allowed at this OT status.");
+    }
+    if (from === "ops_approved") {
+      if (!canApprove) throw new ForbiddenError("HR change request required at this step.");
+      actor = "hr";
+    } else if (from === "manager_verified") {
+      if (!canOps && !canApprove) {
+        throw new ForbiddenError("Head of Operations change request required.");
+      }
+      actor = canOps ? "ops" : "hr";
+    } else {
+      actor = canApprove ? "hr" : "manager";
+      if (actor === "manager") {
+        await assertOtClaimInSiteSupervisorTeam(context, String(existing.staff_id));
+      }
+    }
+    to = "changes_requested";
+    assertOtTransition(from, to, actor);
+    patch.status = to;
+    approvalStep = actor === "hr" ? "hr" : actor === "ops" ? "ops" : "manager";
+    approvalAction = "changes_requested";
+  } else if (action === "resubmit") {
+    if (!isOwner && !isSubmitter && !canApprove) {
+      throw new ForbiddenError("Only the submitter can resubmit this OT claim.");
+    }
+    if (from !== "changes_requested" && !canApprove) {
+      throw new ForbiddenError("OT claim can only be resubmitted after a change request.");
+    }
+    actor = isOwner || isSubmitter ? "employee" : "hr";
+    to = "submitted";
+    assertOtTransition(from, to, actor === "employee" ? "employee" : "hr");
+    patch.status = to;
+    patch.submitted_by = existing.submitted_by ?? context.userId;
+    patch.submitted_at = new Date().toISOString();
+    patch.verified_by = null;
+    patch.verified_at = null;
+    patch.ops_approved_by = null;
+    patch.ops_approved_at = null;
+    patch.approved_by = null;
+    patch.approved_at = null;
+    patch.approved_minutes = null;
+    approvalStep = "submit";
+    approvalAction = "resubmitted";
   } else if (action === "reject") {
     if (!canVerify && !canApprove && !canOps) {
       throw new ForbiddenError("Cannot reject OT claim.");
@@ -1005,6 +1145,7 @@ async function applyOtClaimAction(input: {
       to === "manager_verified" ||
       to === "ops_approved" ||
       to === "hr_approved" ||
+      to === "changes_requested" ||
       to === "rejected")
   ) {
     try {
@@ -1023,7 +1164,7 @@ async function applyOtClaimAction(input: {
           userIds: ids,
           locationId: locId,
           category: "hr_ot",
-          title: "OT claim submitted",
+          title: action === "resubmit" ? "OT claim resubmitted" : "OT claim submitted",
           body: `OT for ${staffName} on ${String(existing.work_date).slice(0, 10)} needs site supervisor approval.`,
           severity: "warning",
           actionUrl: "/people/hr/ot",
@@ -1056,6 +1197,27 @@ async function applyOtClaimAction(input: {
           sourceType: "hr_ot_claims",
           sourceId: claimId,
         });
+      } else if (to === "changes_requested") {
+        const notifyIds = [
+          ...new Set(
+            [existing.submitted_by, staffUserId]
+              .filter((id): id is string => Boolean(id) && id !== context.userId)
+              .map(String),
+          ),
+        ];
+        if (notifyIds.length) {
+          await notifyUsers({
+            userIds: notifyIds,
+            locationId: locId,
+            category: "hr_ot",
+            title: "OT change requested",
+            body: `OT for ${staffName} on ${String(existing.work_date).slice(0, 10)} was sent back for changes.${input.note ? ` ${input.note}` : ""}`,
+            severity: "warning",
+            actionUrl: "/people/hr/ot",
+            sourceType: "hr_ot_claims",
+            sourceId: claimId,
+          });
+        }
       } else if (staffUserId) {
         await notifyUsers({
           userIds: [String(staffUserId)],
@@ -1089,6 +1251,8 @@ export const actOnOtClaim = createAuthenticatedAction(
       "verify",
       "ops_approve",
       "approve",
+      "request_changes",
+      "resubmit",
       "reject",
       "cancel",
       "payroll_posted",
@@ -1107,34 +1271,68 @@ export const actOnOtClaim = createAuthenticatedAction(
   { auth: { anyCapability: ["hr.ot.submit", "hr.ot.verify", "hr.ot.approve"] } },
 );
 
-/** Apply one action to every day-row in a supervisor OT request batch. */
+/** Apply one action to every day-row in an OT request (batch id or explicit claim ids). */
 export const actOnOtRequestBatch = createAuthenticatedAction(
-  z.object({
-    requestBatchId: z.string().uuid(),
-    action: z.enum(["verify", "ops_approve", "approve", "reject", "cancel", "payroll_posted"]),
-    note: z.string().max(500).optional().nullable(),
-  }),
+  z
+    .object({
+      requestBatchId: z.string().uuid().optional().nullable(),
+      claimIds: z.array(z.string().uuid()).min(1).max(40).optional(),
+      action: z.enum([
+        "verify",
+        "ops_approve",
+        "approve",
+        "request_changes",
+        "resubmit",
+        "reject",
+        "cancel",
+        "payroll_posted",
+      ]),
+      note: z.string().max(500).optional().nullable(),
+    })
+    .refine((d) => Boolean(d.requestBatchId) || Boolean(d.claimIds?.length), {
+      message: "requestBatchId or claimIds is required",
+    }),
   async (data, context) => {
     const canOps = canOtOpsApprove(context);
     const teamScope = await otSiteSupervisorTeamStaffIds(context);
     const claimDb = teamScope || canOps ? supabaseAdmin : context.supabase;
-    let { data: rows, error } = await claimDb
-      .from("hr_ot_claims")
-      .select("id, status, staff_id, work_date, location_id, request_batch_id")
-      .eq("request_batch_id", data.requestBatchId)
-      .order("work_date", { ascending: true });
-    if (error) throw error;
-    // Unbatched / attendance claims: treat the id as a singleton request.
-    if (!rows?.length) {
-      const single = await claimDb
+    let rows: Array<{
+      id: string;
+      status: string;
+      staff_id: string;
+      work_date: string;
+      location_id: string | null;
+      request_batch_id: string | null;
+    }> = [];
+
+    if (data.claimIds?.length) {
+      const { data: byIds, error } = await claimDb
         .from("hr_ot_claims")
         .select("id, status, staff_id, work_date, location_id, request_batch_id")
-        .eq("id", data.requestBatchId)
-        .maybeSingle();
-      if (single.error) throw single.error;
-      rows = single.data ? [single.data] : [];
+        .in("id", data.claimIds)
+        .order("work_date", { ascending: true });
+      if (error) throw error;
+      rows = (byIds ?? []) as typeof rows;
+    } else if (data.requestBatchId) {
+      const { data: byBatch, error } = await claimDb
+        .from("hr_ot_claims")
+        .select("id, status, staff_id, work_date, location_id, request_batch_id")
+        .eq("request_batch_id", data.requestBatchId)
+        .order("work_date", { ascending: true });
+      if (error) throw error;
+      rows = (byBatch ?? []) as typeof rows;
+      // Unbatched / attendance claims: treat the id as a singleton request.
+      if (!rows.length) {
+        const single = await claimDb
+          .from("hr_ot_claims")
+          .select("id, status, staff_id, work_date, location_id, request_batch_id")
+          .eq("id", data.requestBatchId)
+          .maybeSingle();
+        if (single.error) throw single.error;
+        rows = single.data ? ([single.data] as typeof rows) : [];
+      }
     }
-    if (!rows?.length) throw new Error("OT request not found.");
+    if (!rows.length) throw new Error("OT request not found.");
 
     const statuses = new Set(rows.map((row) => String(row.status)));
     if (statuses.size !== 1) {
@@ -1184,6 +1382,57 @@ export const actOnOtRequestBatch = createAuthenticatedAction(
           sourceType: "hr_ot_claims",
           sourceId: String(rows[0]!.id),
         });
+      } else if (lastStatus === "submitted" && data.action === "resubmit") {
+        const ids = await otSubmittedNotifyUserIds({
+          staffId: String(rows[0]!.staff_id),
+          locationId: locId,
+          excludeUserId: context.userId,
+        });
+        await notifyUsers({
+          userIds: ids,
+          locationId: locId,
+          category: "hr_ot",
+          title: "OT request resubmitted",
+          body: `OT request (${rows.length} day(s): ${dates}) was resubmitted and needs site supervisor approval.`,
+          severity: "warning",
+          actionUrl: "/people/hr/ot",
+          sourceType: "hr_ot_claims",
+          sourceId: String(rows[0]!.id),
+        });
+      } else if (lastStatus === "changes_requested") {
+        const { data: head } = await claimDb
+          .from("hr_ot_claims")
+          .select("submitted_by, staff(user_id)")
+          .eq("id", rows[0]!.id)
+          .maybeSingle();
+        const staffJoin = head
+          ? Array.isArray((head as { staff?: unknown }).staff)
+            ? (head as { staff: Array<{ user_id?: string }> }).staff[0]
+            : (head as { staff?: { user_id?: string } | null }).staff
+          : null;
+        const notifyIds = [
+          ...new Set(
+            [
+              (head as { submitted_by?: string | null } | null)?.submitted_by,
+              staffJoin?.user_id,
+            ]
+              .filter((id): id is string => Boolean(id) && id !== context.userId)
+              .map(String),
+          ),
+        ];
+        if (notifyIds.length) {
+          await notifyUsers({
+            userIds: notifyIds,
+            locationId: locId,
+            category: "hr_ot",
+            title: "OT change requested",
+            body: `OT request (${rows.length} day(s): ${dates}) was sent back for changes.${data.note ? ` ${data.note}` : ""}`,
+            severity: "warning",
+            actionUrl: "/people/hr/ot",
+            sourceType: "hr_ot_claims",
+            sourceId: String(rows[0]!.id),
+          });
+        }
       }
     } catch {
       /* non-blocking */
@@ -1193,7 +1442,7 @@ export const actOnOtRequestBatch = createAuthenticatedAction(
       ok: true as const,
       status: lastStatus,
       count: rows.length,
-      requestBatchId: data.requestBatchId,
+      requestBatchId: (rows[0]!.request_batch_id as string | null) ?? data.requestBatchId ?? null,
     };
   },
   { auth: { anyCapability: ["hr.ot.submit", "hr.ot.verify", "hr.ot.approve"] } },
@@ -1539,7 +1788,7 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
         rounding,
       );
       const rateMultiplier = resolveOtRateMultiplier(entry.rateType, policy);
-      const pay = await staffPay(context, entry.staffId);
+      const pay = await staffPay(entry.staffId);
       metaByStaff.set(entry.staffId, {
         claimedMinutes,
         rateType: entry.rateType,
@@ -1593,13 +1842,22 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
       linked && isSiteSupervisorTitle(linked.jobTitle, linked.staffRole),
     );
     const initialStatus: HrOtStatus = siteSupervisorFiling ? "manager_verified" : "submitted";
-    const requestBatchId = crypto.randomUUID();
+
+    // One OT request (batch + number) per staff — multi-date stays one request.
+    const requestByStaff = new Map<string, { requestBatchId: string; requestNumber: string }>();
+    for (const staffId of staffIds) {
+      requestByStaff.set(staffId, {
+        requestBatchId: crypto.randomUUID(),
+        requestNumber: await nextOtRequestNumber(context),
+      });
+    }
 
     const rows = slots.flatMap((slot) => {
       const staff = staffById.get(slot.staffId);
       const contractDays = contractByStaff.get(slot.staffId);
       const meta = metaByStaff.get(slot.staffId);
-      if (!staff || !isSupervisorOtContract(contractDays) || !meta) return [];
+      const request = requestByStaff.get(slot.staffId);
+      if (!staff || !isSupervisorOtContract(contractDays) || !meta || !request) return [];
       return [
         {
           staff_id: slot.staffId,
@@ -1617,7 +1875,8 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
           purpose: meta.purpose,
           claim_source: "supervisor" as const,
           contract_working_days: contractDays,
-          request_batch_id: requestBatchId,
+          request_batch_id: request.requestBatchId,
+          request_number: request.requestNumber,
           submitted_by: context.userId,
           submitted_at: now,
           verified_by: siteSupervisorFiling ? context.userId : null,
@@ -1630,12 +1889,12 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
     const { data: inserted, error } = await context.supabase
       .from("hr_ot_claims")
       .insert(rows)
-      .select("id, work_date, staff_id");
+      .select("id, work_date, staff_id, request_batch_id, request_number");
     if (error) {
       if (/hr_ot_claims_active_uq|duplicate key/i.test(error.message)) {
         throw new Error("An active OT claim already exists for this staff, date, and rate type.");
       }
-      if (/request_batch_id|ops_approved|schema cache|does not exist/i.test(error.message)) {
+      if (/request_batch_id|request_number|ops_approved|schema cache|does not exist/i.test(error.message)) {
         throw new Error(
           "OT request batching is not available yet. Apply the latest OT migration and retry.",
         );
@@ -1678,6 +1937,10 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
         .map((id) => String(staffById.get(id)?.full_name ?? "Staff"))
         .slice(0, 5);
       const more = staffIds.length > names.length ? ` +${staffIds.length - names.length}` : "";
+      const numbers = staffIds
+        .map((id) => requestByStaff.get(id)?.requestNumber)
+        .filter(Boolean)
+        .slice(0, 5);
       await notifyUsers({
         userIds,
         locationId: notifyLoc,
@@ -1685,7 +1948,7 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
         title: siteSupervisorFiling
           ? "Supervisor OT ready for Head of Operations"
           : "Supervisor OT request",
-        body: `${names.join(", ")}${more} · ${dates.join(", ")} · 1 request (${rows.length} day-row(s)) · ${staffIds.length} staff.`,
+        body: `${names.join(", ")}${more} · ${dates.join(", ")} · ${staffIds.length} request(s) (${rows.length} day-row(s)) · ${numbers.join(", ")}.`,
         severity: "warning",
         actionUrl: "/people/hr/ot",
         sourceType: "hr_ot_claims",
@@ -1696,12 +1959,26 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
     }
 
     const firstClaimed = metaByStaff.get(staffIds[0]!)?.claimedMinutes ?? 0;
+    const requests = staffIds.map((staffId) => {
+      const meta = requestByStaff.get(staffId)!;
+      return {
+        staffId,
+        requestBatchId: meta.requestBatchId,
+        requestNumber: meta.requestNumber,
+        claimIds: (inserted ?? [])
+          .filter((row) => String(row.staff_id) === staffId)
+          .map((row) => String(row.id)),
+      };
+    });
     return {
       count: inserted?.length ?? rows.length,
       staffCount: staffIds.length,
+      requestCount: requests.length,
       claimedMinutes: firstClaimed,
       ids: (inserted ?? []).map((row) => String(row.id)),
-      requestBatchId,
+      requestBatchId: requests[0]?.requestBatchId ?? null,
+      requestNumber: requests[0]?.requestNumber ?? null,
+      requests,
       status: initialStatus,
     };
   },

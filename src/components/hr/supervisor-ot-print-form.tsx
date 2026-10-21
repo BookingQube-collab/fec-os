@@ -96,7 +96,7 @@ function OtRequestSheet({
 
   return (
     <article className="ot-print-sheet mx-auto flex min-h-[260mm] max-w-[210mm] flex-col bg-white px-8 py-7 text-neutral-900 shadow-sm print:min-h-0 print:max-w-none print:shadow-none">
-      <E3DocumentLetterhead />
+      <E3DocumentLetterhead tag={staff.department} />
 
       <h1 className="mt-5 text-center text-lg font-bold uppercase tracking-wide text-[#7b2d8e]">
         {t("hr.ot.print.title")}
@@ -227,6 +227,11 @@ export function SupervisorOtPrintDialog({
         </DialogFooter>
 
         <style>{`
+          .e3-letterhead,
+          .e3-letterhead-mark {
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
           @media print {
             @page { size: A4 portrait; margin: 10mm; }
             body * { visibility: hidden !important; }
@@ -257,6 +262,11 @@ export function SupervisorOtPrintDialog({
             .ot-print-sheet:last-child {
               break-after: auto;
               page-break-after: auto;
+            }
+            .e3-letterhead,
+            .e3-letterhead-mark {
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
             }
           }
         `}</style>
