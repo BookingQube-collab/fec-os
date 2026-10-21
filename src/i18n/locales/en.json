@@ -13,7 +13,11 @@
       "people": "People",
       "attendance": "Attendance",
       "operations": "Operations",
-      "more": "More"
+      "more": "More",
+      "myDay": "My day",
+      "communication": "Comm",
+      "learning": "Learning",
+      "helpdesk": "Helpdesk"
     },
     "openSearch": "Search",
     "mobileNav": "Primary navigation",

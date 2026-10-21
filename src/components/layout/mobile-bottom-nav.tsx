@@ -47,6 +47,26 @@ const TAB_ICONS: Record<Exclude<MobileTabId, "more">, LucideIcon> = {
   operations: LayoutDashboard,
 };
 
+/** Shorter bottom-bar copy for narrow phones; full label stays on aria-label / sidebar. */
+const MOBILE_TAB_SHORT_LABEL: Record<string, string> = {
+  "nav.hrMyDay": "nav.tabs.myDay",
+  "nav.communicationHub": "nav.tabs.communication",
+  "nav.trainingLearning": "nav.tabs.learning",
+  "nav.hrHelpdesk": "nav.tabs.helpdesk",
+};
+
+/** Overrides Button defaults (shrink-0, overflow-visible, whitespace-nowrap) so truncate works. */
+const TAB_BTN_CLASS =
+  "h-auto min-h-12 w-full min-w-0 shrink flex-col gap-0.5 overflow-hidden whitespace-normal rounded-2xl px-0.5 py-1.5 text-[10px] font-semibold leading-tight [&_svg]:size-5";
+
+const TAB_LABEL_CLASS = "block w-full min-w-0 truncate text-center leading-tight";
+
+function mobileTabLabel(t: (key: string) => string, labelKey: string): { short: string; full: string } {
+  const full = t(labelKey);
+  const shortKey = MOBILE_TAB_SHORT_LABEL[labelKey];
+  return { full, short: shortKey ? t(shortKey) : full };
+}
+
 function MobileCollapsibleSection({
   label,
   pathname,
@@ -326,32 +346,32 @@ export function MobileBottomNav() {
         data-mobile-nav
         className="fixed inset-x-0 bottom-0 z-50 border-t border-border/80 bg-background/95 pb-[max(0.35rem,env(safe-area-inset-bottom))] pt-1 backdrop-blur lg:hidden"
       >
-        <ul className="mx-auto flex max-w-lg items-stretch justify-between gap-0.5 px-1">
+        <ul className="mx-auto flex max-w-lg items-stretch justify-between gap-0 px-1">
           {employeeRail.length > 0
             ? employeeTabs.map((item) => {
                 const active = employeeRailActive(item.href, pathname);
                 const Icon = item.icon;
-                const label = t(item.labelKey);
+                const { short, full } = mobileTabLabel(t, item.labelKey);
                 return (
-                  <li key={item.href} className="min-w-0 flex-1">
+                  <li key={item.href} className="min-w-0 flex-1 basis-0">
                     <Button
                       type="button"
                       variant="ghost"
                       asChild
                       className={cn(
-                        "h-auto min-h-12 w-full flex-col gap-0.5 rounded-2xl px-1 py-1.5 text-[11px] font-semibold leading-tight",
+                        TAB_BTN_CLASS,
                         active ? "bg-primary/10 text-foreground" : "text-muted-foreground",
                       )}
                     >
                       <Link
                         href={item.href}
                         prefetch
-                        aria-label={label}
+                        aria-label={full}
                         aria-current={active ? "page" : undefined}
                         onClick={() => setMoreOpen(false)}
                       >
-                        <Icon className={cn("h-5 w-5 stroke-[1.5]", active && "text-primary")} aria-hidden />
-                        <span className="truncate">{label}</span>
+                        <Icon className={cn("h-5 w-5 shrink-0 stroke-[1.5]", active && "text-primary")} aria-hidden />
+                        <span className={TAB_LABEL_CLASS}>{short}</span>
                       </Link>
                     </Button>
                   </li>
@@ -359,7 +379,7 @@ export function MobileBottomNav() {
               })
             : null}
           {employeeRail.length > 0 && employeeOverflow.length > 0 ? (
-            <li className="min-w-0 flex-1">
+            <li className="min-w-0 flex-1 basis-0">
               <Button
                 type="button"
                 variant="ghost"
@@ -368,7 +388,7 @@ export function MobileBottomNav() {
                 aria-expanded={moreOpen}
                 onClick={() => setMoreOpen(true)}
                 className={cn(
-                  "h-auto min-h-12 w-full flex-col gap-0.5 rounded-2xl px-1 py-1.5 text-[11px] font-semibold leading-tight",
+                  TAB_BTN_CLASS,
                   moreOpen || employeeOverflow.some((item) => employeeRailActive(item.href, pathname))
                     ? "bg-primary/10 text-foreground"
                     : "text-muted-foreground",
@@ -376,12 +396,12 @@ export function MobileBottomNav() {
               >
                 <MoreHorizontal
                   className={cn(
-                    "h-5 w-5 stroke-[1.5]",
+                    "h-5 w-5 shrink-0 stroke-[1.5]",
                     (moreOpen || employeeOverflow.some((item) => employeeRailActive(item.href, pathname))) && "text-primary",
                   )}
                   aria-hidden
                 />
-                <span className="truncate">{t("nav.tabs.more")}</span>
+                <span className={TAB_LABEL_CLASS}>{t("nav.tabs.more")}</span>
               </Button>
             </li>
           ) : null}
@@ -390,7 +410,7 @@ export function MobileBottomNav() {
             const active = isMobileTabActive(tab.id, pathname, moreOpen);
             if (tab.id === "more") {
               return (
-                <li key={tab.id} className="min-w-0 flex-1">
+                <li key={tab.id} className="min-w-0 flex-1 basis-0">
                   <Button
                     type="button"
                     variant="ghost"
@@ -399,44 +419,45 @@ export function MobileBottomNav() {
                     aria-expanded={moreOpen}
                     onClick={() => setMoreOpen(true)}
                     className={cn(
-                      "h-auto min-h-12 w-full flex-col gap-0.5 rounded-2xl px-1 py-1.5 text-[11px] font-semibold leading-tight",
+                      TAB_BTN_CLASS,
                       active ? "bg-primary/10 text-foreground" : "text-muted-foreground",
                     )}
                   >
                     <MoreHorizontal
-                      className={cn("h-5 w-5 stroke-[1.5]", active && "text-primary")}
+                      className={cn("h-5 w-5 shrink-0 stroke-[1.5]", active && "text-primary")}
                       aria-hidden
                     />
-                    <span className="truncate">{t(tab.labelKey)}</span>
+                    <span className={TAB_LABEL_CLASS}>{t(tab.labelKey)}</span>
                   </Button>
                 </li>
               );
             }
 
             const Icon = TAB_ICONS[tab.id];
+            const { short, full } = mobileTabLabel(t, tab.labelKey);
             return (
-              <li key={tab.id} className="min-w-0 flex-1">
+              <li key={tab.id} className="min-w-0 flex-1 basis-0">
                 <Button
                   type="button"
                   variant="ghost"
                   asChild
                   className={cn(
-                    "h-auto min-h-12 w-full flex-col gap-0.5 rounded-2xl px-1 py-1.5 text-[11px] font-semibold leading-tight",
+                    TAB_BTN_CLASS,
                     active ? "bg-primary/10 text-foreground" : "text-muted-foreground",
                   )}
                 >
                   <Link
                     href={tab.href!}
                     prefetch
-                    aria-label={t(tab.labelKey)}
+                    aria-label={full}
                     aria-current={active ? "page" : undefined}
                     onClick={() => setMoreOpen(false)}
                   >
                     <Icon
-                      className={cn("h-5 w-5 stroke-[1.5]", active && "text-primary")}
+                      className={cn("h-5 w-5 shrink-0 stroke-[1.5]", active && "text-primary")}
                       aria-hidden
                     />
-                    <span className="truncate">{t(tab.labelKey)}</span>
+                    <span className={TAB_LABEL_CLASS}>{short}</span>
                   </Link>
                 </Button>
               </li>

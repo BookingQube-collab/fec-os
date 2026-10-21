@@ -13,7 +13,11 @@
       "people": "الموظفون",
       "attendance": "الحضور",
       "operations": "العمليات",
-      "more": "المزيد"
+      "more": "المزيد",
+      "myDay": "يومي",
+      "communication": "تواصل",
+      "learning": "تعلّم",
+      "helpdesk": "المساعدة"
     },
     "openSearch": "بحث",
     "mobileNav": "التنقل الرئيسي",
