@@ -21,6 +21,7 @@ import { DEFAULT_RULES } from "@/lib/attendance-hr/constants";
 import { resolveSelfStaffId } from "@/lib/attendance-hr/self-staff";
 import { resolveFaceEnrollmentTarget } from "@/lib/attendance-hr/face-enrollment";
 import { resolveStaffProfileReadAccess } from "@/lib/staff-profile-access.server";
+import { loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
 
 const FACE_BUCKET = "staff-faces";
 
@@ -30,12 +31,15 @@ async function assertSite(context: AuthContext, locationId: string) {
 }
 
 async function myStaff(context: AuthContext) {
-  const { data } = await context.supabase
+  const linked = await loadLinkedStaffRecord(context.userId);
+  if (!linked?.id) return null;
+  const { data, error } = await supabaseAdmin
     .from("staff")
     .select("id, full_name, employee_code, location_id, user_id")
-    .eq("user_id", context.userId)
+    .eq("id", linked.id)
     .is("deleted_at", null)
     .maybeSingle();
+  if (error) throw new Error(error.message);
   return data;
 }
 

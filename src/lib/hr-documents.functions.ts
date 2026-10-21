@@ -7,6 +7,7 @@ import {
   HR_DOC_TYPES,
 } from "@/lib/hr-advanced";
 import { appendEmployeeEvent } from "@/lib/hr-employee-events";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { createAuthenticatedAction, type AuthContext } from "@/lib/server/create-action";
 import { ForbiddenError } from "@/lib/server/authorize";
 import { canUserDo, type AppRole } from "@/lib/rbac";
@@ -15,6 +16,7 @@ import { identityFileContentType } from "@/lib/hr/identity-file";
 import { isIdentityDocType } from "@/lib/hr/identity-document-parse";
 import { syncStaffIdentityProfile } from "@/lib/hr/sync-staff-identity";
 import { validateBase64Size, validateUploadMime } from "@/lib/server/upload-validation";
+import { loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
 
 const DOC_BUCKET = "hr-employee-documents";
 
@@ -22,12 +24,15 @@ const MOFA_STATUS = ["yes", "no", "not_required"] as const;
 const VERIFICATION_STATUS = ["unverified", "verified", "rejected"] as const;
 
 async function myStaff(context: AuthContext) {
-  const { data } = await context.supabase
+  const linked = await loadLinkedStaffRecord(context.userId);
+  if (!linked?.id) return null;
+  const { data, error } = await supabaseAdmin
     .from("staff")
     .select("id, full_name, employee_code, user_id")
-    .eq("user_id", context.userId)
+    .eq("id", linked.id)
     .is("deleted_at", null)
     .maybeSingle();
+  if (error) throw new Error(error.message);
   return data;
 }
 

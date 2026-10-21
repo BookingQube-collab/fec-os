@@ -3,6 +3,11 @@ import "server-only";
 import { cache } from "react";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import {
+  linkedStaffCacheTtlMs,
+  shouldHealStaffUserId,
+  type LinkedStaffMatchKind,
+} from "@/lib/linked-staff-link";
 
 export type LinkedStaffIdentity = {
   jobTitle: string | null;
@@ -27,13 +32,13 @@ type StaffRow = {
   employment_type: string | null;
   employee_code: string | null;
   full_name: string | null;
+  user_id?: string | null;
 };
 
 const STAFF_SELECT =
-  "id, job_title, staff_role, department, status, employment_type, employee_code, full_name";
+  "id, job_title, staff_role, department, status, employment_type, employee_code, full_name, user_id";
 
 /** Warm-instance reuse across server actions (React cache is per-request only). */
-const PROCESS_TTL_MS = 60_000;
 const processCache = new Map<string, { at: number; row: LinkedStaffRecord | null }>();
 const processInflight = new Map<string, Promise<LinkedStaffRecord | null>>();
 
@@ -55,6 +60,29 @@ function mapStaffRow(row: StaffRow): LinkedStaffRecord {
   };
 }
 
+/** Write staff.user_id when a stable fallback found the row — heals My Day RLS paths. */
+function healStaffUserId(staffId: string, userId: string, currentUserId: string | null | undefined) {
+  if (currentUserId === userId) return;
+  void supabaseAdmin
+    .from("staff")
+    .update({ user_id: userId })
+    .eq("id", staffId)
+    .then(({ error }) => {
+      if (error) console.warn("[linked-staff] user_id heal failed", error.message);
+    });
+}
+
+function acceptMatch(
+  row: StaffRow,
+  userId: string,
+  match: LinkedStaffMatchKind,
+): LinkedStaffRecord {
+  if (shouldHealStaffUserId(match)) {
+    healStaffUserId(String(row.id), userId, row.user_id);
+  }
+  return mapStaffRow(row);
+}
+
 async function lookupLinkedStaffRecord(userId: string): Promise<LinkedStaffRecord | null> {
   const byUser = await supabaseAdmin
     .from("staff")
@@ -65,7 +93,7 @@ async function lookupLinkedStaffRecord(userId: string): Promise<LinkedStaffRecor
     .order("id", { ascending: false })
     .limit(1);
   if (byUser.error) throw new Error(byUser.error.message);
-  if (byUser.data?.[0]?.id) return mapStaffRow(byUser.data[0] as StaffRow);
+  if (byUser.data?.[0]?.id) return acceptMatch(byUser.data[0] as StaffRow, userId, "user_id");
 
   const { data: authData, error: authErr } = await supabaseAdmin.auth.admin.getUserById(userId);
   if (authErr) {
@@ -82,7 +110,7 @@ async function lookupLinkedStaffRecord(userId: string): Promise<LinkedStaffRecor
       .order("id", { ascending: false })
       .limit(1);
     if (byEmail.error) throw new Error(byEmail.error.message);
-    if (byEmail.data?.[0]?.id) return mapStaffRow(byEmail.data[0] as StaffRow);
+    if (byEmail.data?.[0]?.id) return acceptMatch(byEmail.data[0] as StaffRow, userId, "email");
   }
 
   const { data: profile, error: profileErr } = await supabaseAdmin
@@ -103,7 +131,9 @@ async function lookupLinkedStaffRecord(userId: string): Promise<LinkedStaffRecor
       .order("id", { ascending: false })
       .limit(1);
     if (byEmployeeCode.error) throw new Error(byEmployeeCode.error.message);
-    if (byEmployeeCode.data?.[0]?.id) return mapStaffRow(byEmployeeCode.data[0] as StaffRow);
+    if (byEmployeeCode.data?.[0]?.id) {
+      return acceptMatch(byEmployeeCode.data[0] as StaffRow, userId, "employee_code");
+    }
 
     const byQid = await supabaseAdmin
       .from("staff")
@@ -114,7 +144,7 @@ async function lookupLinkedStaffRecord(userId: string): Promise<LinkedStaffRecor
       .order("id", { ascending: false })
       .limit(1);
     if (byQid.error) throw new Error(byQid.error.message);
-    if (byQid.data?.[0]?.id) return mapStaffRow(byQid.data[0] as StaffRow);
+    if (byQid.data?.[0]?.id) return acceptMatch(byQid.data[0] as StaffRow, userId, "qid");
   }
 
   const displayName = (profile?.display_name ?? "").trim();
@@ -130,7 +160,7 @@ async function lookupLinkedStaffRecord(userId: string): Promise<LinkedStaffRecor
     if (byName.error) throw new Error(byName.error.message);
     // Only use a unique full-name hit so we never attach the wrong person.
     if ((byName.data?.length ?? 0) === 1 && byName.data?.[0]?.id) {
-      return mapStaffRow(byName.data[0] as StaffRow);
+      return acceptMatch(byName.data[0] as StaffRow, userId, "name");
     }
   }
 
@@ -143,13 +173,16 @@ async function lookupLinkedStaffRecord(userId: string): Promise<LinkedStaffRecor
  * live staff row — e.g. mary.supervisor@fec.test vs srsupervisor@fec.qa),
  * fall back through auth email, profile employee_code/qid, then unique name.
  *
- * Request-scoped via React cache(); process TTL reuses across actions on a
- * warm instance (authorize + session + inbox all called this every request).
+ * Request-scoped via React cache(); process TTL reuses hits across actions on a
+ * warm instance (authorize + session + inbox). Misses are not retained.
  */
 export const loadLinkedStaffRecord = cache(async (userId: string): Promise<LinkedStaffRecord | null> => {
   const hit = processCache.get(userId);
-  if (hit && Date.now() - hit.at < PROCESS_TTL_MS) {
-    return hit.row;
+  if (hit) {
+    const ttl = linkedStaffCacheTtlMs(hit.row != null);
+    if (ttl > 0 && Date.now() - hit.at < ttl) {
+      return hit.row;
+    }
   }
 
   const existing = processInflight.get(userId);
@@ -157,7 +190,11 @@ export const loadLinkedStaffRecord = cache(async (userId: string): Promise<Linke
 
   const task = lookupLinkedStaffRecord(userId)
     .then((row) => {
-      processCache.set(userId, { at: Date.now(), row });
+      if (row) {
+        processCache.set(userId, { at: Date.now(), row });
+      } else {
+        processCache.delete(userId);
+      }
       return row;
     })
     .finally(() => {
@@ -186,4 +223,9 @@ export async function loadLinkedStaffIdentity(userId: string): Promise<LinkedSta
 /** Job title on the newest non-deleted staff row linked to this login. */
 export async function loadLinkedStaffJobTitle(userId: string): Promise<string | null> {
   return (await loadLinkedStaffIdentity(userId)).jobTitle;
+}
+
+/** Linked staff id for self-service My Day paths. Null when unlinked. */
+export async function loadLinkedStaffId(userId: string): Promise<string | null> {
+  return (await loadLinkedStaffRecord(userId))?.id ?? null;
 }

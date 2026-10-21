@@ -9,14 +9,24 @@ import { resolveSelfStaffId } from "@/lib/attendance-hr/self-staff";
 import { normalizeShiftHm } from "@/lib/attendance-hr/late-punch";
 import { defaultPayrollPeriod } from "@/lib/attendance-hr/roster-period";
 import { isRosterLeaveType, type RosterLeaveType } from "@/lib/attendance-hr/roster-register-scope";
+import { loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
 
+/**
+ * Self staff row for My Day. Must use loadLinkedStaffRecord (admin + email/code
+ * fallbacks) — not user-scoped maybeSingle on user_id. staff.user_id is not
+ * unique and Mary-style desyncs (login email ≠ staff.user_id) otherwise show
+ * "Account not linked to staff" while the topbar still shows her job title.
+ */
 async function myStaff(context: AuthContext) {
-  const { data } = await context.supabase
+  const linked = await loadLinkedStaffRecord(context.userId);
+  if (!linked?.id) return null;
+  const { data, error } = await supabaseAdmin
     .from("staff")
     .select("id, full_name, employee_code, location_id, user_id")
-    .eq("user_id", context.userId)
+    .eq("id", linked.id)
     .is("deleted_at", null)
     .maybeSingle();
+  if (error) throw new Error(error.message);
   return data;
 }
 
@@ -317,12 +327,17 @@ async function reportingNames(staffId: string) {
 /** Self-service profile for /hr/me. No salary, QID, or passport fields. */
 export const getMyEmployeeProfile = createAuthenticatedActionNoInput(
   async (context) => {
-    const { data, error } = await context.supabase
+    const linked = await loadLinkedStaffRecord(context.userId);
+    if (!linked?.id) return null;
+
+    // Resolve by linked id (admin). Do not filter user_id here — that path is
+    // what falsely unlinked Sr. Site when staff.user_id drifted from the login.
+    const { data, error } = await supabaseAdmin
       .from("staff")
       .select(
         "id, full_name, employee_code, job_title, department, phone, email, hire_date, employment_type, status, locations!staff_location_id_fkey(code, name), staff_departments(master_departments(name))",
       )
-      .eq("user_id", context.userId)
+      .eq("id", linked.id)
       .is("deleted_at", null)
       .maybeSingle();
     if (error) {

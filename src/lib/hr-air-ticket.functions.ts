@@ -21,11 +21,13 @@ import { appendEmployeeEvent } from "@/lib/hr-employee-events";
 import { readPolicySection } from "@/lib/hr-policy-read";
 import { canUserDo } from "@/lib/rbac";
 import { ForbiddenError } from "@/lib/server/authorize";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import type { Json } from "@/integrations/supabase/types";
 import {
   createAuthenticatedAction,
   type AuthContext,
 } from "@/lib/server/create-action";
+import { loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
 
 function qatarToday(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" });
@@ -36,12 +38,15 @@ function tableMissing(message: string | undefined): boolean {
 }
 
 async function myStaff(context: AuthContext) {
-  const { data } = await context.supabase
+  const linked = await loadLinkedStaffRecord(context.userId);
+  if (!linked?.id) return null;
+  const { data, error } = await supabaseAdmin
     .from("staff")
     .select("id, full_name, employee_code, hire_date, user_id")
-    .eq("user_id", context.userId)
+    .eq("id", linked.id)
     .is("deleted_at", null)
     .maybeSingle();
+  if (error) throw new Error(error.message);
   return data;
 }
 

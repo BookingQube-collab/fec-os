@@ -100,12 +100,15 @@ async function otSubmittedNotifyUserIds(input: {
 }
 
 async function myStaff(context: AuthContext) {
-  const { data } = await context.supabase
+  const linked = await loadLinkedStaffRecord(context.userId);
+  if (!linked?.id) return null;
+  const { data, error } = await supabaseAdmin
     .from("staff")
     .select("id, full_name, employee_code, location_id, user_id, employment_type, department")
-    .eq("user_id", context.userId)
+    .eq("id", linked.id)
     .is("deleted_at", null)
     .maybeSingle();
+  if (error) throw new Error(error.message);
   return data;
 }
 

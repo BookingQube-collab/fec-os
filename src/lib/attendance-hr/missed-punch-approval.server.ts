@@ -725,10 +725,12 @@ export async function submitMissedPunchRequest(args: {
   requestedPunchIn?: string | null;
   requestedPunchOut?: string | null;
 }): Promise<{ id: string; approverCount: number; locationId: string; routedTo: PunchCorrectionRoutedTo }> {
+  const linked = await loadLinkedStaffRecord(args.userId);
+  if (!linked?.id) throw new ForbiddenError("No staff record is linked to this login.");
   const { data: staff, error: staffErr } = await supabaseAdmin
     .from("staff")
     .select("id, full_name, user_id, location_id")
-    .eq("user_id", args.userId)
+    .eq("id", linked.id)
     .is("deleted_at", null)
     .maybeSingle();
   if (staffErr) throw staffErr;
@@ -1418,13 +1420,8 @@ export async function resubmitMissedPunchRequest(args: {
             requesterStaffId,
           })
         : baseRoute;
-  const { data: requester } = await supabaseAdmin
-    .from("staff")
-    .select("full_name")
-    .eq("user_id", args.userId)
-    .is("deleted_at", null)
-    .maybeSingle();
-  const managerName = String(requester?.full_name ?? "").trim() || "The manager";
+  const requesterLinked = await loadLinkedStaffRecord(args.userId);
+  const managerName = String(requesterLinked?.fullName ?? "").trim() || "The manager";
   const requestedPunchIn =
     punchType === "in"
       ? args.punchTime
