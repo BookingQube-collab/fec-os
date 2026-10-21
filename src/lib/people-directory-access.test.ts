@@ -145,6 +145,8 @@ describe("people directory for managers and supervisors", () => {
     expect(peopleDirectoryShowsSalary(["ceo"])).toBe(true);
     expect(peopleDirectoryShowsSalary(["coo"])).toBe(true);
     expect(peopleDirectoryShowsSalary(["hr", "branch_gm"])).toBe(true);
+    expect(peopleDirectoryShowsSalary(["cashier_host"], "Head of Operations")).toBe(true);
+    expect(peopleDirectoryShowsSalary(["cashier_host"], "Head of Operations / FEC-IT")).toBe(true);
 
     const row = omitPeopleDirectorySalary({
       full_name: "Ruben Yaralyan",

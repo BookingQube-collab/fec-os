@@ -258,7 +258,14 @@ export function isOtEligible(input: {
   return cats.includes(cat) || cats.includes("*") || cats.includes("all");
 }
 
-/** Hourly rate from monthly basic (or daily) using policy day/hour divisors. */
+/**
+ * Hourly rate from monthly **basic** (never package total) or daily rate.
+ *
+ * Qatar OT: `basic / daysPerMonth / hoursPerDay * rateMultiplier * otHours`.
+ * - hoursPerDay: OT policy `hours_per_day` (default 8). Not roster expected_hours —
+ *   the policy standard working day is the divisor HR uses for OT.
+ * - daysPerMonth: 30 from policy by default; 26/28-day supervisor contracts use the contract.
+ */
 export function hourlyRateFromPay(input: {
   monthlyBasicQar?: number | null;
   dailyRateQar?: number | null;
@@ -274,6 +281,7 @@ export function hourlyRateFromPay(input: {
   return 0;
 }
 
+/** amount = (approvedMinutes/60) × hourlyBasic × rateMultiplier (weekday 1.25 / off / holiday / Eid). */
 export function computeOtAmountQar(input: {
   approvedMinutes: number;
   rateMultiplier: number;

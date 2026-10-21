@@ -792,7 +792,15 @@ export const reviseJourneyPackage = createAuthenticatedAction(
     });
     throwDb(historyError);
     const { error: compError } = await context.supabase.from("staff_compensation").upsert(
-      { staff_id: journey.staff_id, monthly_salary_qar: total, currency: "QAR", updated_by: context.userId },
+      {
+        staff_id: journey.staff_id,
+        monthly_salary_qar: total,
+        basic_qar: input.basicQar,
+        housing_qar: input.housingQar,
+        transport_qar: input.transportationQar,
+        currency: "QAR",
+        updated_by: context.userId,
+      },
       { onConflict: "staff_id" },
     );
     throwDb(compError);

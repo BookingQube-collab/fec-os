@@ -30,14 +30,26 @@ async function audit(
   });
 }
 
-/** Insert salary history then sync staff_compensation current snapshot. */
+function allowanceNumber(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.round(n * 100) / 100;
+}
+
+/** Insert salary history then sync staff_compensation current snapshot (package + Qatar components). */
 export async function insertSalaryHistoryAndSync(
   context: AuthContext,
   input: {
     staffId: string;
     monthlyTotalQar: number | null;
     dailyRateQar?: number | null;
+    /** When omitted, existing compensation.basic_qar is kept (monthly-only edits). */
     basicQar?: number | null;
+    housingQar?: number | null;
+    transportQar?: number | null;
+    /** When true, null housing/transport clear those columns (profile split save). */
+    replaceComponents?: boolean;
     allowances?: Record<string, unknown>;
     effectiveOn?: string;
     reason?: string | null;
@@ -45,14 +57,63 @@ export async function insertSalaryHistoryAndSync(
   },
 ): Promise<{ historyId: string }> {
   const effectiveOn = input.effectiveOn ?? qatarToday();
+  const replace = Boolean(input.replaceComponents);
+  let existingComp: {
+    basic_qar?: number | null;
+    housing_qar?: number | null;
+    transport_qar?: number | null;
+  } | null = null;
+  {
+    const first = await supabaseAdmin
+      .from("staff_compensation")
+      .select("basic_qar, housing_qar, transport_qar")
+      .eq("staff_id", input.staffId)
+      .maybeSingle();
+    if (!first.error) existingComp = first.data;
+  }
+
+  const housingFromInput =
+    input.housingQar !== undefined
+      ? allowanceNumber(input.housingQar)
+      : allowanceNumber(input.allowances?.housing);
+  const transportFromInput =
+    input.transportQar !== undefined
+      ? allowanceNumber(input.transportQar)
+      : allowanceNumber(input.allowances?.transportation) ??
+        allowanceNumber(input.allowances?.transport);
+  const basicFromInput =
+    input.basicQar !== undefined
+      ? allowanceNumber(input.basicQar)
+      : undefined;
+
+  const housing = replace
+    ? (housingFromInput ?? null)
+    : (housingFromInput ?? allowanceNumber(existingComp?.housing_qar));
+  const transport = replace
+    ? (transportFromInput ?? null)
+    : (transportFromInput ?? allowanceNumber(existingComp?.transport_qar));
+  const basic =
+    basicFromInput !== undefined
+      ? basicFromInput
+      : allowanceNumber(existingComp?.basic_qar) ??
+        (input.dailyRateQar != null && Number(input.dailyRateQar) > 0
+          ? null
+          : allowanceNumber(input.monthlyTotalQar));
+
+  const allowances: Record<string, unknown> = {
+    ...(input.allowances ?? {}),
+  };
+  if (housing != null) allowances.housing = housing;
+  if (transport != null) allowances.transportation = transport;
+
   // Service role after people.edit_salary: salary RLS has blocked every history write (0 rows in prod).
   const { data: hist, error: histErr } = await supabaseAdmin
     .from("staff_salary_history")
     .insert({
       staff_id: input.staffId,
       effective_on: effectiveOn,
-      basic_qar: input.basicQar ?? input.monthlyTotalQar,
-      allowances: (input.allowances ?? {}) as Json,
+      basic_qar: basic,
+      allowances: allowances as Json,
       monthly_total_qar: input.monthlyTotalQar,
       daily_rate_qar: input.dailyRateQar ?? null,
       currency: "QAR",
@@ -69,6 +130,9 @@ export async function insertSalaryHistoryAndSync(
     staff_id: input.staffId,
     monthly_salary_qar: input.monthlyTotalQar,
     daily_rate_qar: input.dailyRateQar ?? null,
+    basic_qar: basic,
+    housing_qar: housing,
+    transport_qar: transport,
     currency: "QAR",
     updated_by: context.userId,
   });
@@ -83,6 +147,9 @@ export async function insertSalaryHistoryAndSync(
       {
         staff_id: input.staffId,
         monthly_total_qar: input.monthlyTotalQar,
+        basic_qar: basic,
+        housing_qar: housing,
+        transport_qar: transport,
         daily_rate_qar: input.dailyRateQar ?? null,
         effective_on: effectiveOn,
       },
@@ -98,6 +165,9 @@ export async function insertSalaryHistoryAndSync(
       effectiveOn,
       payload: {
         monthly_total_qar: input.monthlyTotalQar,
+        basic_qar: basic,
+        housing_qar: housing,
+        transport_qar: transport,
         daily_rate_qar: input.dailyRateQar ?? null,
         reason: input.reason ?? null,
       },

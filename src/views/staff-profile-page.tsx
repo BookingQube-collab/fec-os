@@ -160,7 +160,14 @@ type ProfileResponse = {
     file_name: string | null;
     notes: string | null;
   }>;
-  compensation: { monthly_salary_qar: number | null; daily_rate_qar: number | null; currency: string } | null;
+  compensation: {
+    monthly_salary_qar: number | null;
+    daily_rate_qar: number | null;
+    basic_qar: number | null;
+    housing_qar: number | null;
+    transport_qar: number | null;
+    currency: string;
+  } | null;
   transfers: Array<{
     id: string;
     from_location_id: string | null;
@@ -218,7 +225,10 @@ function StaffProfilePageBody() {
   const canEdit = usePermission("people.edit_roster");
   const canProvisionLogin = usePermission("admin.provision_users");
   const canViewSalaryPerm = usePeopleDirectoryShowsSalary();
-  const canSalary = usePermission("people.edit_salary") && canViewSalaryPerm;
+  const canEditProfile = usePermission("hr.profile.edit");
+  const canEditSalaryCap = usePermission("people.edit_salary");
+  // HR / leadership / Head of Operations (title via canActorPerform) may edit package split.
+  const canSalary = (canEditSalaryCap || canEditProfile) && canViewSalaryPerm;
   const canViewSensitive = usePermission("hr.profile.view_sensitive") || canViewSalaryPerm;
   const canConfigure = usePermission("attendance.configure");
   const canManageDocs = usePermission("hr.docs.manage");
@@ -237,6 +247,9 @@ function StaffProfilePageBody() {
   const [effectiveOn, setEffectiveOn] = useState("");
   const [reason, setReason] = useState("");
   const [salary, setSalary] = useState("");
+  const [basicQar, setBasicQar] = useState("");
+  const [housingQar, setHousingQar] = useState("");
+  const [transportQar, setTransportQar] = useState("");
   const [workLocationIds, setWorkLocationIds] = useState<string[]>([]);
   const [isRoaming, setIsRoaming] = useState(false);
   const [employmentType, setEmploymentType] = useState("");
@@ -349,6 +362,24 @@ function StaffProfilePageBody() {
     setWeeklyOffWeekday(loaded.weekly_off_weekday == null ? "" : String(loaded.weekly_off_weekday));
   }, [profile.data?.staff]);
 
+  useEffect(() => {
+    const c = profile.data?.compensation;
+    if (!c) return;
+    const isJoker = profile.data?.staff?.employment_type === "joker" && c.daily_rate_qar != null;
+    setSalary(
+      isJoker
+        ? c.daily_rate_qar == null
+          ? ""
+          : String(c.daily_rate_qar)
+        : c.monthly_salary_qar == null
+          ? ""
+          : String(c.monthly_salary_qar),
+    );
+    setBasicQar(c.basic_qar == null ? "" : String(c.basic_qar));
+    setHousingQar(c.housing_qar == null ? "" : String(c.housing_qar));
+    setTransportQar(c.transport_qar == null ? "" : String(c.transport_qar));
+  }, [profile.data?.compensation, profile.data?.staff?.employment_type]);
+
   const transferMut = useMutation({
     mutationFn: () => transferStaffMember({ id, toLocationId, effectiveOn, reason }),
     onSuccess: () => {
@@ -358,25 +389,53 @@ function StaffProfilePageBody() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const parseMoneyField = (raw: string, label: string): number | null => {
+    const trimmed = raw.trim();
+    if (trimmed === "") return null;
+    const amount = Number(trimmed);
+    if (Number.isNaN(amount) || amount < 0) throw new Error(label);
+    return amount;
+  };
+
   const salaryMut = useMutation({
     mutationFn: async () => {
-      const amount = salary.trim() === "" ? null : Number(salary);
-      if (amount !== null && Number.isNaN(amount)) throw new Error(t("people.staff.salaryPlaceholder"));
       const isJoker = employmentType === "joker" || profile.data?.staff?.employment_type === "joker";
-      const result = await updateStaffSalary(
-        isJoker
-          ? { id, monthlySalaryQar: null, dailyRateQar: amount }
-          : { id, monthlySalaryQar: amount, dailyRateQar: null },
-      );
+      if (isJoker) {
+        const amount = parseMoneyField(salary, t("people.staff.dayRatePlaceholder"));
+        const result = await updateStaffSalary({ id, monthlySalaryQar: null, dailyRateQar: amount });
+        if (!result.ok) throw new Error(result.error);
+        return result.data;
+      }
+      const basic = parseMoneyField(basicQar, t("people.staff.salaryBasic"));
+      const housing = parseMoneyField(housingQar, t("people.staff.salaryHousing"));
+      const transport = parseMoneyField(transportQar, t("people.staff.salaryTransport"));
+      if (basic == null && housing == null && transport == null) {
+        throw new Error(t("people.staff.salarySplitRequired"));
+      }
+      const result = await updateStaffSalary({
+        id,
+        basicQar: basic,
+        housingQar: housing,
+        transportQar: transport,
+        dailyRateQar: null,
+      });
       if (!result.ok) throw new Error(result.error);
       return result.data;
     },
     onSuccess: () => {
-      toast.success(t("people.staff.salary"));
+      toast.success(t("people.staff.salarySaved"));
       void qc.invalidateQueries({ queryKey: queryKeys.people.staffProfile(id) });
     },
     onError: (e: Error) => toast.error(e.message),
   });
+
+  const packageTotalPreview = (() => {
+    const parts = [basicQar, housingQar, transportQar].map((v) => {
+      const n = Number(v.trim());
+      return Number.isFinite(n) && n >= 0 ? n : 0;
+    });
+    return Math.round((parts[0] + parts[1] + parts[2]) * 100) / 100;
+  })();
 
   const faceQ = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "face", staffId: id }),
@@ -1094,7 +1153,7 @@ function StaffProfilePageBody() {
           </section>
         </TabsContent>
 
-        <TabsContent value="employment" className="mt-3">
+        <TabsContent value="employment" className="mt-3 space-y-3">
           <section className={PANEL}>
             <h2 className={SECTION_LABEL}>Employment</h2>
             <FactGrid
@@ -1133,15 +1192,122 @@ function StaffProfilePageBody() {
                       : String(ext.ticket_amount)
                     : "••••",
                 ),
-                fact(
-                  "Salary",
-                  profile.data?.canViewSalary && profile.data.compensation?.monthly_salary_qar != null
-                    ? `${profile.data.compensation.monthly_salary_qar.toLocaleString()} ${profile.data.compensation.currency ?? "QAR"}`
-                    : null,
-                ),
               ]}
             />
           </section>
+          {(profile.data?.canViewSalary || canViewSalaryPerm || canSalary) && (
+            <section className={`${PANEL} space-y-3`}>
+              <h2 className={SECTION_LABEL}>{t("people.staff.salaryPackage")}</h2>
+              <p className="text-xs text-muted-foreground">{t("people.staff.salaryPackageHint")}</p>
+              {employmentType === "joker" || s.employment_type === "joker" ? (
+                <>
+                  <FactGrid
+                    items={[
+                      fact(
+                        t("people.staff.dayRate"),
+                        profile.data?.compensation?.daily_rate_qar == null
+                          ? null
+                          : `${profile.data.compensation.daily_rate_qar.toLocaleString()} ${profile.data.compensation.currency ?? "QAR"}/day`,
+                      ),
+                    ]}
+                  />
+                  {canSalary ? (
+                    <div className="flex flex-wrap items-end gap-2">
+                      <div className="space-y-1">
+                        <Label>{t("people.staff.dayRate")}</Label>
+                        <Input
+                          value={salary}
+                          onChange={(e) => setSalary(e.target.value)}
+                          placeholder={t("people.staff.dayRatePlaceholder")}
+                        />
+                      </div>
+                      <Button size="sm" onClick={() => salaryMut.mutate()} disabled={salaryMut.isPending}>
+                        {salaryMut.isPending ? t("common.saving") : t("common.save")}
+                      </Button>
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <FactGrid
+                    cols="grid-cols-2 lg:grid-cols-4"
+                    items={[
+                      fact(
+                        t("people.staff.salaryBasic"),
+                        profile.data?.compensation?.basic_qar != null
+                          ? `${profile.data.compensation.basic_qar.toLocaleString()} QAR`
+                          : profile.data?.compensation?.monthly_salary_qar != null
+                            ? `${profile.data.compensation.monthly_salary_qar.toLocaleString()} QAR`
+                            : null,
+                      ),
+                      fact(
+                        t("people.staff.salaryHousing"),
+                        profile.data?.compensation?.housing_qar == null
+                          ? null
+                          : `${profile.data.compensation.housing_qar.toLocaleString()} QAR`,
+                      ),
+                      fact(
+                        t("people.staff.salaryTransport"),
+                        profile.data?.compensation?.transport_qar == null
+                          ? null
+                          : `${profile.data.compensation.transport_qar.toLocaleString()} QAR`,
+                      ),
+                      fact(
+                        t("people.staff.salaryTotal"),
+                        profile.data?.compensation?.monthly_salary_qar == null
+                          ? null
+                          : `${profile.data.compensation.monthly_salary_qar.toLocaleString()} QAR`,
+                      ),
+                    ]}
+                  />
+                  {canSalary ? (
+                    <div className="space-y-3 border-t border-border/60 pt-3">
+                      <p className="text-xs font-medium">{t("people.staff.salaryEdit")}</p>
+                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                        <div className="space-y-1">
+                          <Label htmlFor="salary-basic">{t("people.staff.salaryBasic")}</Label>
+                          <Input
+                            id="salary-basic"
+                            inputMode="decimal"
+                            value={basicQar}
+                            onChange={(e) => setBasicQar(e.target.value)}
+                            placeholder="QAR"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label htmlFor="salary-housing">{t("people.staff.salaryHousing")}</Label>
+                          <Input
+                            id="salary-housing"
+                            inputMode="decimal"
+                            value={housingQar}
+                            onChange={(e) => setHousingQar(e.target.value)}
+                            placeholder="QAR"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label htmlFor="salary-transport">{t("people.staff.salaryTransport")}</Label>
+                          <Input
+                            id="salary-transport"
+                            inputMode="decimal"
+                            value={transportQar}
+                            onChange={(e) => setTransportQar(e.target.value)}
+                            placeholder="QAR"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label>{t("people.staff.salaryTotal")}</Label>
+                          <Input value={`${packageTotalPreview}`} readOnly className="bg-muted/40" />
+                        </div>
+                      </div>
+                      <Button size="sm" onClick={() => salaryMut.mutate()} disabled={salaryMut.isPending}>
+                        {salaryMut.isPending ? t("common.saving") : t("common.save")}
+                      </Button>
+                    </div>
+                  ) : null}
+                </>
+              )}
+            </section>
+          )}
         </TabsContent>
 
         <TabsContent value="personal" className="mt-3">
@@ -1374,46 +1540,55 @@ function StaffProfilePageBody() {
           <Row label={t("people.staff.hireDate")} value={s.hire_date} />
           <Row label={t("people.staff.status")} value={profileStatusLabel(s.status, t)} />
           {profile.data?.canViewSalary ? (
-            <Row
-              label={
-                (employmentType === "joker" || s.employment_type === "joker") &&
-                profile.data.compensation?.daily_rate_qar != null
-                  ? t("people.staff.dayRate")
-                  : t("people.staff.salary")
-              }
-              value={(() => {
-                const c = profile.data.compensation;
-                const cur = c?.currency ?? "QAR";
-                if (c?.daily_rate_qar != null && c.daily_rate_qar > 0) {
-                  return `${c.daily_rate_qar} ${cur}/day`;
-                }
-                if (c?.monthly_salary_qar != null) return `${c.monthly_salary_qar} ${cur}`;
-                return "—";
-              })()}
-            />
+            <>
+              {(employmentType === "joker" || s.employment_type === "joker") &&
+              profile.data.compensation?.daily_rate_qar != null ? (
+                <Row
+                  label={t("people.staff.dayRate")}
+                  value={`${profile.data.compensation.daily_rate_qar} ${profile.data.compensation.currency ?? "QAR"}/day`}
+                />
+              ) : (
+                <>
+                  <Row
+                    label={t("people.staff.salaryBasic")}
+                    value={
+                      profile.data.compensation?.basic_qar != null
+                        ? `${profile.data.compensation.basic_qar} QAR`
+                        : profile.data.compensation?.monthly_salary_qar != null
+                          ? `${profile.data.compensation.monthly_salary_qar} QAR`
+                          : "—"
+                    }
+                  />
+                  <Row
+                    label={t("people.staff.salaryHousing")}
+                    value={
+                      profile.data.compensation?.housing_qar == null
+                        ? "—"
+                        : `${profile.data.compensation.housing_qar} QAR`
+                    }
+                  />
+                  <Row
+                    label={t("people.staff.salaryTransport")}
+                    value={
+                      profile.data.compensation?.transport_qar == null
+                        ? "—"
+                        : `${profile.data.compensation.transport_qar} QAR`
+                    }
+                  />
+                  <Row
+                    label={t("people.staff.salaryTotal")}
+                    value={
+                      profile.data.compensation?.monthly_salary_qar == null
+                        ? "—"
+                        : `${profile.data.compensation.monthly_salary_qar} QAR`
+                    }
+                  />
+                </>
+              )}
+            </>
           ) : null}
           {canSalary ? (
-            <div className="flex items-end gap-2 pt-2">
-              <div className="space-y-1">
-                <Label>
-                  {employmentType === "joker" || s.employment_type === "joker"
-                    ? t("people.staff.dayRate")
-                    : t("people.staff.salary")}
-                </Label>
-                <Input
-                  value={salary}
-                  onChange={(e) => setSalary(e.target.value)}
-                  placeholder={
-                    employmentType === "joker" || s.employment_type === "joker"
-                      ? t("people.staff.dayRatePlaceholder")
-                      : "QAR"
-                  }
-                />
-              </div>
-              <Button size="sm" onClick={() => salaryMut.mutate()} disabled={salaryMut.isPending}>
-                {t("common.save")}
-              </Button>
-            </div>
+            <p className="pt-2 text-xs text-muted-foreground">{t("people.staff.salaryEditOnEmployment")}</p>
           ) : null}
         </section>
         <section className={PANEL}>
@@ -1669,13 +1844,31 @@ function StaffProfilePageBody() {
               <FactGrid
                 items={[
                   fact(
-                    "Monthly",
+                    t("people.staff.salaryBasic"),
+                    profile.data.compensation?.basic_qar == null
+                      ? null
+                      : `${profile.data.compensation.basic_qar.toLocaleString()} QAR`,
+                  ),
+                  fact(
+                    t("people.staff.salaryHousing"),
+                    profile.data.compensation?.housing_qar == null
+                      ? null
+                      : `${profile.data.compensation.housing_qar.toLocaleString()} QAR`,
+                  ),
+                  fact(
+                    t("people.staff.salaryTransport"),
+                    profile.data.compensation?.transport_qar == null
+                      ? null
+                      : `${profile.data.compensation.transport_qar.toLocaleString()} QAR`,
+                  ),
+                  fact(
+                    t("people.staff.salaryTotal"),
                     profile.data.compensation?.monthly_salary_qar == null
                       ? null
                       : `${profile.data.compensation.monthly_salary_qar.toLocaleString()} ${profile.data.compensation.currency ?? "QAR"}`,
                   ),
                   fact(
-                    "Day rate",
+                    t("people.staff.dayRate"),
                     profile.data.compensation?.daily_rate_qar == null
                       ? null
                       : `${profile.data.compensation.daily_rate_qar.toLocaleString()} ${profile.data.compensation.currency ?? "QAR"}`,
@@ -1693,27 +1886,7 @@ function StaffProfilePageBody() {
               <p className="text-sm text-muted-foreground">Salary is permission-gated.</p>
             )}
             {canSalary ? (
-              <div className="flex items-end gap-2">
-                <div className="space-y-1">
-                  <Label>
-                    {employmentType === "joker" || s.employment_type === "joker"
-                      ? t("people.staff.dayRate")
-                      : t("people.staff.salary")}
-                  </Label>
-                  <Input
-                    value={salary}
-                    onChange={(e) => setSalary(e.target.value)}
-                    placeholder={
-                      employmentType === "joker" || s.employment_type === "joker"
-                        ? t("people.staff.dayRatePlaceholder")
-                        : "QAR"
-                    }
-                  />
-                </div>
-                <Button size="sm" onClick={() => salaryMut.mutate()} disabled={salaryMut.isPending}>
-                  {t("common.save")}
-                </Button>
-              </div>
+              <p className="text-xs text-muted-foreground">{t("people.staff.salaryEditOnEmployment")}</p>
             ) : null}
             {canViewPayrollLines ? <StaffPayrollPanel staffId={s.id} /> : null}
           </section>

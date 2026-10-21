@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 
+import { canActorPerform } from "@/lib/arcade/access";
 import { loadLinkedStaffJobTitle } from "@/lib/linked-staff-job-title.server";
 import { peopleDirectoryShowsSalary } from "@/lib/people-directory-access";
 import { canUserDo } from "@/lib/rbac";
@@ -13,6 +14,7 @@ import {
 import { ForbiddenError } from "@/lib/server/authorize";
 import { rollbackRosterBatch } from "@/lib/staff-roster/apply";
 import { insertSalaryHistoryAndSync, insertStatusHistory } from "@/lib/staff-history";
+import { monthlyTotal } from "@/lib/hr-journeys";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { employeeCodeAfterHomeLocationChange, employeeCodeHasLocationPrefix } from "@/lib/staff-employee-code";
 import { staffHomeWorkSiteIds } from "@/lib/staff-work-locations";
@@ -330,30 +332,69 @@ export const transferStaffMember = createAuthenticatedAction(
 );
 
 export const updateStaffSalary = createSafeAuthenticatedAction(
-  z.object({
-    id: z.string().uuid(),
-    monthlySalaryQar: z.number().min(0).max(1_000_000).nullable(),
-    dailyRateQar: z.number().min(0).max(100_000).nullable().optional(),
-  }),
+  z
+    .object({
+      id: z.string().uuid(),
+      monthlySalaryQar: z.number().min(0).max(1_000_000).nullable().optional(),
+      dailyRateQar: z.number().min(0).max(100_000).nullable().optional(),
+      basicQar: z.number().min(0).max(1_000_000).nullable().optional(),
+      housingQar: z.number().min(0).max(1_000_000).nullable().optional(),
+      transportQar: z.number().min(0).max(1_000_000).nullable().optional(),
+    })
+    .strict(),
   async (data, context) => {
-    if (!canUserDo(context.roles ?? [], "people.edit_salary")) {
-      throw new ForbiddenError("Forbidden: missing capability people.edit_salary");
+    const access = context.access;
+    const mayEdit =
+      canActorPerform(context.roles ?? [], "people.edit_salary", access) ||
+      canActorPerform(context.roles ?? [], "hr.profile.edit", access);
+    if (!mayEdit) {
+      throw new ForbiddenError("Forbidden: missing capability people.edit_salary or hr.profile.edit");
     }
-    const jobTitle = await loadLinkedStaffJobTitle(context.userId);
+    const jobTitle = access?.jobTitle ?? (await loadLinkedStaffJobTitle(context.userId));
     if (!peopleDirectoryShowsSalary(context.roles ?? [], jobTitle)) {
-      throw new ForbiddenError("Forbidden: salary is limited to HR and leadership");
+      throw new ForbiddenError("Forbidden: salary is limited to HR, leadership, and Head of Operations");
     }
     const existing = await assertStaffLocation(context, data.id);
+    const daily = data.dailyRateQar ?? null;
+    const isDaily = daily != null && daily > 0;
+    const basic = data.basicQar ?? null;
+    const housing = data.housingQar ?? null;
+    const transport = data.transportQar ?? null;
+    const hasSplit = basic != null || housing != null || transport != null;
+    const packageTotal = isDaily
+      ? null
+      : data.monthlySalaryQar != null
+        ? data.monthlySalaryQar
+        : hasSplit
+          ? monthlyTotal({
+              basicQar: basic ?? 0,
+              housingQar: housing ?? 0,
+              transportationQar: transport ?? 0,
+              foodQar: 0,
+              otherQar: 0,
+            })
+          : null;
     await insertSalaryHistoryAndSync(context, {
       staffId: data.id,
-      monthlyTotalQar: data.monthlySalaryQar,
-      dailyRateQar: data.dailyRateQar ?? null,
+      monthlyTotalQar: packageTotal,
+      dailyRateQar: daily,
+      basicQar: isDaily ? null : hasSplit ? (basic ?? 0) : basic ?? packageTotal,
+      housingQar: isDaily ? null : hasSplit ? (housing ?? 0) : undefined,
+      transportQar: isDaily ? null : hasSplit ? (transport ?? 0) : undefined,
+      replaceComponents: isDaily || hasSplit,
+      allowances:
+        isDaily || !hasSplit
+          ? undefined
+          : {
+              housing: housing ?? 0,
+              transportation: transport ?? 0,
+            },
       locationId: existing.location_id,
       reason: "manual_update",
     });
     return { ok: true as const };
   },
-  { auth: { capability: "people.edit_salary" } },
+  { auth: { anyCapability: ["people.edit_salary", "hr.profile.edit"] } },
 );
 
 export const rollbackStaffRosterImport = createAuthenticatedAction(

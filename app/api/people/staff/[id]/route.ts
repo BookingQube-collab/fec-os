@@ -65,17 +65,41 @@ export async function GET(
         }
       }
 
-      let compensation: { monthly_salary_qar: number | null; daily_rate_qar: number | null; currency: string } | null = null;
+      let compensation: {
+        monthly_salary_qar: number | null;
+        daily_rate_qar: number | null;
+        basic_qar: number | null;
+        housing_qar: number | null;
+        transport_qar: number | null;
+        currency: string;
+      } | null = null;
       if (includeSalary && (loadOverview || legacyFull)) {
-        const { data: comp } = await db
+        const first = await db
           .from("staff_compensation")
-          .select("monthly_salary_qar, daily_rate_qar, currency")
+          .select("monthly_salary_qar, daily_rate_qar, basic_qar, housing_qar, transport_qar, currency")
           .eq("staff_id", id)
           .maybeSingle();
+        let comp = first.data;
+        if (first.error && /basic_qar|housing_qar|transport_qar/i.test(first.error.message)) {
+          const legacy = await db
+            .from("staff_compensation")
+            .select("monthly_salary_qar, daily_rate_qar, currency")
+            .eq("staff_id", id)
+            .maybeSingle();
+          if (legacy.error) throw legacy.error;
+          comp = legacy.data
+            ? { ...legacy.data, basic_qar: null, housing_qar: null, transport_qar: null }
+            : null;
+        } else if (first.error) {
+          throw first.error;
+        }
         compensation = comp
           ? {
               monthly_salary_qar: comp.monthly_salary_qar == null ? null : Number(comp.monthly_salary_qar),
               daily_rate_qar: comp.daily_rate_qar == null ? null : Number(comp.daily_rate_qar),
+              basic_qar: comp.basic_qar == null ? null : Number(comp.basic_qar),
+              housing_qar: comp.housing_qar == null ? null : Number(comp.housing_qar),
+              transport_qar: comp.transport_qar == null ? null : Number(comp.transport_qar),
               currency: comp.currency,
             }
           : null;

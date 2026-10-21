@@ -1,3 +1,4 @@
+import { isHeadOfOperationsTitle } from "@/lib/attendance-hr/missed-punch-approval";
 import {
   countsAsActiveStaff,
   isActiveStaffStatus,
@@ -58,6 +59,7 @@ export function canOpenPeopleDirectory(
 
 /**
  * Salary stays with people.view_salary for HR and leadership.
+ * Head of Operations (title path) sees figures like leadership even on a floor login role.
  * Duty managers, tech supervisors, branch GMs, and job-title managers do not receive figures.
  */
 export function peopleDirectoryShowsSalary(
@@ -67,6 +69,7 @@ export function peopleDirectoryShowsSalary(
   department?: string | null,
   reportsToHeadOfOperations?: boolean,
 ): boolean {
+  if (isHeadOfOperationsTitle(jobTitle)) return true;
   const list = roles as AppRole[];
   if (!canUserDo(list, "people.view_salary")) return false;
   if (list.some((role) => SALARY_LEADERSHIP.includes(role))) return true;
@@ -79,9 +82,24 @@ export function peopleDirectoryShowsSalary(
 
 /** Drop pay fields so a manager payload cannot carry a figure. */
 export function omitPeopleDirectorySalary<
-  T extends { monthly_salary_qar?: number | null; daily_rate_qar?: number | null },
->(row: T): Omit<T, "monthly_salary_qar" | "daily_rate_qar"> {
-  const { monthly_salary_qar: _monthly, daily_rate_qar: _daily, ...rest } = row;
+  T extends {
+    monthly_salary_qar?: number | null;
+    daily_rate_qar?: number | null;
+    basic_qar?: number | null;
+    housing_qar?: number | null;
+    transport_qar?: number | null;
+  },
+>(
+  row: T,
+): Omit<T, "monthly_salary_qar" | "daily_rate_qar" | "basic_qar" | "housing_qar" | "transport_qar"> {
+  const {
+    monthly_salary_qar: _monthly,
+    daily_rate_qar: _daily,
+    basic_qar: _basic,
+    housing_qar: _housing,
+    transport_qar: _transport,
+    ...rest
+  } = row;
   return rest;
 }
 

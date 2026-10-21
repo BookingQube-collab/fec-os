@@ -2280,6 +2280,9 @@ export type Database = {
           currency: string
           daily_rate_qar: number | null
           monthly_salary_qar: number | null
+          basic_qar: number | null
+          housing_qar: number | null
+          transport_qar: number | null
           staff_id: string
           updated_at: string
           updated_by: string | null
@@ -2288,6 +2291,9 @@ export type Database = {
           currency?: string
           daily_rate_qar?: number | null
           monthly_salary_qar?: number | null
+          basic_qar?: number | null
+          housing_qar?: number | null
+          transport_qar?: number | null
           staff_id: string
           updated_at?: string
           updated_by?: string | null
@@ -2296,6 +2302,9 @@ export type Database = {
           currency?: string
           daily_rate_qar?: number | null
           monthly_salary_qar?: number | null
+          basic_qar?: number | null
+          housing_qar?: number | null
+          transport_qar?: number | null
           staff_id?: string
           updated_at?: string
           updated_by?: string | null

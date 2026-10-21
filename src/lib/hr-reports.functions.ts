@@ -210,7 +210,7 @@ async function buildReportRows(
     let q = context.supabase
       .from("staff")
       .select(
-        "id, employee_code, full_name, status, job_title, hire_date, qid, location_id, locations(code, name), staff_profile_ext(employment_category), staff_departments(department_id, master_departments(name)), staff_compensation(basic_salary)",
+        "id, employee_code, full_name, status, job_title, hire_date, qid, location_id, locations(code, name), staff_profile_ext(employment_category), staff_departments(department_id, master_departments(name)), staff_compensation(basic_qar, monthly_salary_qar)",
       )
       .is("deleted_at", null)
       .limit(2000);
@@ -251,7 +251,10 @@ async function buildReportRows(
         category: cat ?? "—",
         hireDate: s.hire_date ? String(s.hire_date).slice(0, 10) : "—",
         qid: (s.qid as string | null) ?? null,
-        basicSalary: (comp as { basic_salary?: number } | null)?.basic_salary ?? null,
+        basicSalary:
+          (comp as { basic_qar?: number | null; monthly_salary_qar?: number | null } | null)?.basic_qar ??
+          (comp as { monthly_salary_qar?: number | null } | null)?.monthly_salary_qar ??
+          null,
       });
     }
     return rows;

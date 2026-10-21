@@ -121,6 +121,33 @@ describe("OT amount", () => {
       computeOtAmountQar({ approvedMinutes: 120, rateMultiplier: 1.25, hourlyRateQar: hourly }),
     ).toBe(50);
   });
+
+  it("uses Qatar basic/30/hoursPerDay × rate × OT hours (weekday 1.25)", () => {
+    // basic 3000 / 30 / 8 = 12.5 hourly; 4 OT hours × 1.25 = 62.5
+    const hourly = hourlyRateFromPay({ monthlyBasicQar: 3000, hoursPerDay: 8, daysPerMonth: 30 });
+    expect(hourly).toBe(12.5);
+    expect(
+      computeOtAmountQar({ approvedMinutes: 240, rateMultiplier: 1.25, hourlyRateQar: hourly }),
+    ).toBe(62.5);
+  });
+
+  it("swaps weekday 1.25 for off/holiday/Eid multipliers", () => {
+    const hourly = hourlyRateFromPay({ monthlyBasicQar: 4800, hoursPerDay: 8, daysPerMonth: 30 });
+    expect(
+      computeOtAmountQar({ approvedMinutes: 60, rateMultiplier: 1.5, hourlyRateQar: hourly }),
+    ).toBe(30);
+    expect(
+      computeOtAmountQar({ approvedMinutes: 60, rateMultiplier: 2.5, hourlyRateQar: hourly }),
+    ).toBe(50);
+  });
+
+  it("does not inflate OT when package total is larger than basic", () => {
+    const fromBasic = hourlyRateFromPay({ monthlyBasicQar: 2000, hoursPerDay: 8, daysPerMonth: 30 });
+    const fromPackage = hourlyRateFromPay({ monthlyBasicQar: 2800, hoursPerDay: 8, daysPerMonth: 30 });
+    expect(fromBasic).toBeCloseTo(8.333, 3);
+    expect(fromPackage).toBeCloseTo(11.667, 3);
+    expect(fromBasic).toBeLessThan(fromPackage);
+  });
 });
 
 describe("26 and 28 day supervisor contracts", () => {

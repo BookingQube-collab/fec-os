@@ -171,25 +171,75 @@ async function staffEmploymentCategory(
   return cat ?? fallbackEmploymentType ?? null;
 }
 
-async function staffPay(context: AuthContext, staffId: string) {
-  const { data: comp } = await context.supabase
-    .from("staff_compensation")
-    .select("monthly_salary_qar, daily_rate_qar")
-    .eq("staff_id", staffId)
-    .maybeSingle();
+type StaffOtPay = {
+  /** Basic only — never package total (monthly_salary_qar). */
+  monthlyBasicQar: number | null;
+  housingQar: number | null;
+  transportQar: number | null;
+  dailyRateQar: number | null;
+};
+
+function numOrNull(value: unknown): number | null {
+  if (value == null) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function columnMissing(message: string): boolean {
+  return /column .* does not exist|Could not find the .* column/i.test(message);
+}
+
+/** Resolve OT pay from compensation basic + allowances; fall back to salary history. */
+async function staffPay(context: AuthContext, staffId: string): Promise<StaffOtPay> {
+  let comp: Record<string, unknown> | null = null;
+  {
+    const first = await context.supabase
+      .from("staff_compensation")
+      .select("basic_qar, housing_qar, transport_qar, monthly_salary_qar, daily_rate_qar")
+      .eq("staff_id", staffId)
+      .maybeSingle();
+    if (first.error && columnMissing(first.error.message)) {
+      const legacy = await context.supabase
+        .from("staff_compensation")
+        .select("monthly_salary_qar, daily_rate_qar")
+        .eq("staff_id", staffId)
+        .maybeSingle();
+      comp = (legacy.data ?? null) as Record<string, unknown> | null;
+    } else if (!first.error) {
+      comp = (first.data ?? null) as Record<string, unknown> | null;
+    }
+  }
   if (comp) {
+    const basic = numOrNull(comp.basic_qar);
+    const daily = numOrNull(comp.daily_rate_qar);
+    // Prefer explicit basic. Legacy rows without a split used monthly_salary_qar as basic
+    // only when housing/transport are empty (migration backfill covers most cases).
+    const housing = numOrNull(comp.housing_qar);
+    const transport = numOrNull(comp.transport_qar);
+    const legacyPackageAsBasic =
+      basic == null &&
+      (housing == null || housing === 0) &&
+      (transport == null || transport === 0)
+        ? numOrNull(comp.monthly_salary_qar)
+        : null;
     return {
-      monthlyBasicQar: comp.monthly_salary_qar == null ? null : Number(comp.monthly_salary_qar),
-      dailyRateQar: comp.daily_rate_qar == null ? null : Number(comp.daily_rate_qar),
+      monthlyBasicQar: basic ?? legacyPackageAsBasic,
+      housingQar: housing,
+      transportQar: transport,
+      dailyRateQar: daily,
     };
   }
   const { data: hist } = await context.supabase
     .from("staff_salary_history")
-    .select("basic_qar, monthly_total_qar, daily_rate_qar")
+    .select("basic_qar, monthly_total_qar, daily_rate_qar, allowances")
     .eq("staff_id", staffId)
     .order("effective_on", { ascending: false })
     .limit(1)
     .maybeSingle();
+  const allow =
+    hist?.allowances && typeof hist.allowances === "object" && !Array.isArray(hist.allowances)
+      ? (hist.allowances as Record<string, unknown>)
+      : {};
   return {
     monthlyBasicQar:
       hist?.basic_qar != null
@@ -197,6 +247,8 @@ async function staffPay(context: AuthContext, staffId: string) {
         : hist?.monthly_total_qar != null
           ? Number(hist.monthly_total_qar)
           : null,
+    housingQar: numOrNull(allow.housing),
+    transportQar: numOrNull(allow.transportation) ?? numOrNull(allow.transport),
     dailyRateQar: hist?.daily_rate_qar == null ? null : Number(hist.daily_rate_qar),
   };
 }
@@ -220,27 +272,52 @@ async function appendApproval(
   if (error && !tableMissing(error.message)) throw error;
 }
 
-function amountFor(
-  minutes: number,
-  rateMultiplier: number,
-  pay: { monthlyBasicQar: number | null; dailyRateQar: number | null },
-  policy: Record<string, unknown>,
-  contractWorkingDays?: number | null,
-) {
-  const hourly = hourlyRateFromPay({
-    monthlyBasicQar: pay.monthlyBasicQar,
-    dailyRateQar: pay.dailyRateQar,
+function otPayDivisors(policy: Record<string, unknown>, contractWorkingDays?: number | null) {
+  return {
+    // Policy standard working day (usually 8). Not staff.expected_hours / roster length.
     hoursPerDay: policyNumber(policy.hours_per_day, 8),
     daysPerMonth: otPayDaysPerMonth({
       contractWorkingDays,
       policyDaysPerMonth: policyNumber(policy.days_per_month, 30),
     }),
+  };
+}
+
+function amountFor(
+  minutes: number,
+  rateMultiplier: number,
+  pay: StaffOtPay,
+  policy: Record<string, unknown>,
+  contractWorkingDays?: number | null,
+) {
+  const { hoursPerDay, daysPerMonth } = otPayDivisors(policy, contractWorkingDays);
+  const hourly = hourlyRateFromPay({
+    monthlyBasicQar: pay.monthlyBasicQar,
+    dailyRateQar: pay.dailyRateQar,
+    hoursPerDay,
+    daysPerMonth,
   });
   return computeOtAmountQar({
     approvedMinutes: minutes,
     rateMultiplier,
     hourlyRateQar: hourly,
   });
+}
+
+/** Audit fields stored on the claim when amount_qar is computed from basic. */
+function otPaySnapshot(
+  pay: StaffOtPay,
+  policy: Record<string, unknown>,
+  contractWorkingDays?: number | null,
+) {
+  const { hoursPerDay, daysPerMonth } = otPayDivisors(policy, contractWorkingDays);
+  return {
+    basic_qar_snapshot: pay.monthlyBasicQar,
+    housing_qar_snapshot: pay.housingQar,
+    transport_qar_snapshot: pay.transportQar,
+    hours_per_day_snapshot: hoursPerDay,
+    days_per_month_snapshot: daysPerMonth,
+  };
 }
 
 const CLAIM_SELECT =
@@ -580,6 +657,7 @@ export const submitOtClaim = createAuthenticatedAction(
         rate_type: data.rateType,
         rate_multiplier: rateMultiplier,
         amount_qar: amountQar,
+        ...otPaySnapshot(pay, policy),
         status,
         evidence_path: data.evidencePath ?? null,
         notes: data.notes ?? null,
@@ -703,6 +781,7 @@ export const actOnOtClaim = createAuthenticatedAction(
       patch.status = to;
       patch.approved_minutes = mins;
       patch.amount_qar = amountFor(mins, rateMultiplier, pay, policy, contractDays);
+      Object.assign(patch, otPaySnapshot(pay, policy, contractDays));
       patch.verified_by = context.userId;
       patch.verified_at = new Date().toISOString();
       approvalStep = "manager";
@@ -721,6 +800,7 @@ export const actOnOtClaim = createAuthenticatedAction(
       patch.status = to;
       patch.approved_minutes = mins;
       patch.amount_qar = amountFor(mins, rateMultiplier, pay, policy, contractDays);
+      Object.assign(patch, otPaySnapshot(pay, policy, contractDays));
       patch.approved_by = context.userId;
       patch.approved_at = new Date().toISOString();
       approvalStep = "hr";
@@ -1192,6 +1272,7 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
       rateMultiplier: number;
       purpose: string;
       amountQar: number;
+      paySnapshot: ReturnType<typeof otPaySnapshot>;
     };
     const metaByStaff = new Map<string, StaffClaimMeta>();
     for (const entry of data.entries) {
@@ -1210,6 +1291,7 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
         rateMultiplier,
         purpose: entry.purpose.trim(),
         amountQar: amountFor(claimedMinutes, rateMultiplier, pay, policy, contractDays),
+        paySnapshot: otPaySnapshot(pay, policy, contractDays),
       });
     }
 
@@ -1273,6 +1355,7 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
           rate_type: meta.rateType,
           rate_multiplier: meta.rateMultiplier,
           amount_qar: meta.amountQar,
+          ...meta.paySnapshot,
           status: initialStatus,
           notes: meta.purpose,
           purpose: meta.purpose,
