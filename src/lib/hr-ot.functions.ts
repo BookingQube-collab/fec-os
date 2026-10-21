@@ -22,6 +22,7 @@ import {
   OT_DEFAULT_HOURS_PER_DAY,
   otApprovalQueueStatuses,
   otPayDaysPerMonth,
+  otPayHoursPerDay,
   resolveEligibleOtMinutes,
   resolveOtRateMultiplier,
   resolveStaffOtPayFromCompensation,
@@ -382,6 +383,7 @@ function columnMissing(message: string): boolean {
 
 /**
  * Resolve OT pay from compensation basic + allowances; fall back to salary history.
+ * Also loads `staff.expected_hours` for the OT hourly divisor (secondment/permanent).
  * Service role: staff_compensation RLS is salary-view only (HR/C-level). Site
  * supervisors / HOO submitting or approving OT cannot SELECT pay under their JWT —
  * same pattern as payroll staffPayBundle. Caller already passed hr.ot.* checks.
@@ -405,24 +407,38 @@ async function staffPay(staffId: string): Promise<StaffOtPay> {
       comp = (first.data ?? null) as Record<string, unknown> | null;
     }
   }
+  let base: StaffOtPay;
   const fromComp = resolveStaffOtPayFromCompensation(comp);
-  if (fromComp) return fromComp;
+  if (fromComp) {
+    base = fromComp;
+  } else {
+    const { data: hist } = await supabaseAdmin
+      .from("staff_salary_history")
+      .select("basic_qar, monthly_total_qar, daily_rate_qar, allowances")
+      .eq("staff_id", staffId)
+      .order("effective_on", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    base = resolveStaffOtPayFromSalaryHistory(
+      (hist ?? null) as {
+        basic_qar?: unknown;
+        monthly_total_qar?: unknown;
+        daily_rate_qar?: unknown;
+        allowances?: unknown;
+      } | null,
+    );
+  }
 
-  const { data: hist } = await supabaseAdmin
-    .from("staff_salary_history")
-    .select("basic_qar, monthly_total_qar, daily_rate_qar, allowances")
-    .eq("staff_id", staffId)
-    .order("effective_on", { ascending: false })
-    .limit(1)
+  const { data: staffRow } = await supabaseAdmin
+    .from("staff")
+    .select("expected_hours")
+    .eq("id", staffId)
     .maybeSingle();
-  return resolveStaffOtPayFromSalaryHistory(
-    (hist ?? null) as {
-      basic_qar?: unknown;
-      monthly_total_qar?: unknown;
-      daily_rate_qar?: unknown;
-      allowances?: unknown;
-    } | null,
-  );
+  const rawHours = Number((staffRow as { expected_hours?: unknown } | null)?.expected_hours);
+  const expectedHoursPerDay =
+    Number.isFinite(rawHours) && rawHours > 0 ? rawHours : null;
+
+  return { ...base, expectedHoursPerDay };
 }
 
 /**
@@ -452,16 +468,10 @@ async function refreshPendingOtAmountsMissingBasic<T extends ReturnType<typeof m
 
     const minutes = Math.max(0, claim.approvedMinutes ?? claim.claimedMinutes);
     if (minutes <= 0) continue;
-    const amountQar = amountFor(
-      minutes,
-      claim.rateMultiplier,
-      pay,
-      policy,
-      claim.contractWorkingDays,
-    );
+    const amountQar = amountFor(minutes, claim.rateMultiplier, pay, policy);
     if (amountQar <= 0) continue;
 
-    const { hoursPerDay, daysPerMonth } = otPayDivisors(policy, claim.contractWorkingDays);
+    const { hoursPerDay, daysPerMonth } = otPayDivisors(policy, pay);
     const missingBasic = shouldRefreshOtAmountForMissingBasic({
       amountQar: claim.amountQar,
       basicQarSnapshot: claim.basicQarSnapshot,
@@ -478,7 +488,7 @@ async function refreshPendingOtAmountsMissingBasic<T extends ReturnType<typeof m
     });
     if (!missingBasic && !stalePay) continue;
 
-    const snap = otPaySnapshot(pay, policy, claim.contractWorkingDays);
+    const snap = otPaySnapshot(pay, policy);
     let query = supabaseAdmin
       .from("hr_ot_claims")
       .update({
@@ -529,12 +539,14 @@ async function appendApproval(
   if (error && !tableMissing(error.message)) throw error;
 }
 
-function otPayDivisors(policy: Record<string, unknown>, contractWorkingDays?: number | null) {
+function otPayDivisors(policy: Record<string, unknown>, pay?: Pick<StaffOtPay, "expectedHoursPerDay"> | null) {
   return {
-    // Policy standard working day (default 9). Not staff.expected_hours / roster length.
-    hoursPerDay: policyNumber(policy.hours_per_day, OT_DEFAULT_HOURS_PER_DAY),
+    // Prefer staff.expected_hours; fall back to OT policy hours_per_day (default 9).
+    hoursPerDay: otPayHoursPerDay({
+      staffExpectedHours: pay?.expectedHoursPerDay,
+      policyHoursPerDay: policyNumber(policy.hours_per_day, OT_DEFAULT_HOURS_PER_DAY),
+    }),
     daysPerMonth: otPayDaysPerMonth({
-      contractWorkingDays,
       policyDaysPerMonth: policyNumber(policy.days_per_month, 30),
     }),
   };
@@ -545,9 +557,10 @@ function amountFor(
   rateMultiplier: number,
   pay: StaffOtPay,
   policy: Record<string, unknown>,
-  contractWorkingDays?: number | null,
+  _contractWorkingDays?: number | null,
 ) {
-  const { hoursPerDay, daysPerMonth } = otPayDivisors(policy, contractWorkingDays);
+  void _contractWorkingDays;
+  const { hoursPerDay, daysPerMonth } = otPayDivisors(policy, pay);
   const hourly = hourlyRateFromPay({
     monthlyBasicQar: pay.monthlyBasicQar,
     dailyRateQar: pay.dailyRateQar,
@@ -565,9 +578,10 @@ function amountFor(
 function otPaySnapshot(
   pay: StaffOtPay,
   policy: Record<string, unknown>,
-  contractWorkingDays?: number | null,
+  _contractWorkingDays?: number | null,
 ) {
-  const { hoursPerDay, daysPerMonth } = otPayDivisors(policy, contractWorkingDays);
+  void _contractWorkingDays;
+  const { hoursPerDay, daysPerMonth } = otPayDivisors(policy, pay);
   return {
     basic_qar_snapshot: pay.monthlyBasicQar,
     housing_qar_snapshot: pay.housingQar,

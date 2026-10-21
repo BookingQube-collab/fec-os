@@ -58,9 +58,9 @@ export const HR_POLICY_DEFAULTS: Record<HrPolicySection, Record<string, unknown>
     rate_weekly_off: 1.5,
     rate_public_holiday: 1.5,
     rate_eid: 2.5,
-    /** Standard working day for OT hourly divisor (matches site permanent hours). */
+    /** Fallback daily hours when staff.expected_hours is unset. */
     hours_per_day: 9,
-    /** Calendar-month divisor for non-26/28 contracts; supervisor contracts use 26/28. */
+    /** Calendar-month day divisor for OT hourly rate (always 30; not staff contract 26/28). */
     days_per_month: 30,
   },
   warning: {

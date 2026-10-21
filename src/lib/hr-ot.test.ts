@@ -21,6 +21,7 @@ import {
   otApprovalQueueStatuses,
   otMissingBasicPayNote,
   otPayDaysPerMonth,
+  otPayHoursPerDay,
   otPrintSignatureDone,
   isSupervisorOtStaffEntryReady,
   normalizeSupervisorOtDays,
@@ -368,6 +369,7 @@ describe("OT pay from compensation / history", () => {
       housingQar: 500,
       transportQar: 400,
       dailyRateQar: null,
+      expectedHoursPerDay: null,
     });
   });
 
@@ -405,24 +407,25 @@ describe("OT pay from compensation / history", () => {
       housingQar: 500,
       transportQar: 400,
       dailyRateQar: null,
+      expectedHoursPerDay: null,
     });
   });
 
-  it("computes weekday OT from Qatar basic for 26-day × 9h supervisor contracts", () => {
-    // basic 1000 / (26 × 9) = 4.2735…; 18h × 1.25 ≈ 96.15
+  it("computes weekday OT from Qatar basic with staff expected hours and 30-day divisor", () => {
+    // basic 1000 / (30 × 9) = 3.7037…; 18h × 1.25 = 83.33
     const hourly = hourlyRateFromPay({
       monthlyBasicQar: 1000,
-      hoursPerDay: 9,
-      daysPerMonth: 26,
+      hoursPerDay: otPayHoursPerDay({ staffExpectedHours: 9 }),
+      daysPerMonth: 30,
     });
-    expect(hourly).toBeCloseTo(1000 / 26 / 9, 5);
+    expect(hourly).toBeCloseTo(1000 / 30 / 9, 5);
     expect(
       computeOtAmountQar({
         approvedMinutes: 18 * 60,
         rateMultiplier: 1.25,
         hourlyRateQar: hourly,
       }),
-    ).toBe(96.15);
+    ).toBe(83.33);
   });
 });
 
@@ -535,36 +538,63 @@ describe("OT amount", () => {
     expect(
       shouldRefreshOtAmountForStalePay({
         status: "submitted",
-        amountQar: 108.17, // old 26×8 result for basic 1000 / 18h × 1.25
-        expectedAmountQar: 96.15, // new 26×9
-        hoursPerDaySnapshot: 8,
+        amountQar: 96.15, // old 26×9 result for basic 1000 / 18h × 1.25
+        expectedAmountQar: 83.33, // new 30×9
+        hoursPerDaySnapshot: 9,
         expectedHoursPerDay: 9,
         daysPerMonthSnapshot: 26,
-        expectedDaysPerMonth: 26,
+        expectedDaysPerMonth: 30,
       }),
     ).toBe(true);
     expect(
       shouldRefreshOtAmountForStalePay({
         status: "payroll_posted",
-        amountQar: 108.17,
-        expectedAmountQar: 96.15,
-        hoursPerDaySnapshot: 8,
+        amountQar: 96.15,
+        expectedAmountQar: 83.33,
+        hoursPerDaySnapshot: 9,
         expectedHoursPerDay: 9,
         daysPerMonthSnapshot: 26,
-        expectedDaysPerMonth: 26,
+        expectedDaysPerMonth: 30,
       }),
     ).toBe(false);
     expect(
       shouldRefreshOtAmountForStalePay({
         status: "submitted",
-        amountQar: 96.15,
-        expectedAmountQar: 96.15,
+        amountQar: 83.33,
+        expectedAmountQar: 83.33,
         hoursPerDaySnapshot: 9,
         expectedHoursPerDay: 9,
-        daysPerMonthSnapshot: 26,
-        expectedDaysPerMonth: 26,
+        daysPerMonthSnapshot: 30,
+        expectedDaysPerMonth: 30,
       }),
     ).toBe(false);
+  });
+
+  it("matches validated formula: basic 1000 / (30×9) × 1.25 × 18h = 83.33", () => {
+    const hoursPerDay = otPayHoursPerDay({ staffExpectedHours: 9, policyHoursPerDay: 8 });
+    expect(hoursPerDay).toBe(9);
+    const daysPerMonth = otPayDaysPerMonth({ contractWorkingDays: 26, policyDaysPerMonth: 30 });
+    expect(daysPerMonth).toBe(30);
+    const hourly = hourlyRateFromPay({
+      monthlyBasicQar: 1000,
+      hoursPerDay,
+      daysPerMonth,
+    });
+    expect(hourly).toBeCloseTo(1000 / (30 * 9), 5);
+    expect(
+      computeOtAmountQar({
+        approvedMinutes: 18 * 60,
+        rateMultiplier: 1.25,
+        hourlyRateQar: hourly,
+      }),
+    ).toBe(83.33);
+  });
+
+  it("prefers staff.expected_hours over policy hours_per_day", () => {
+    expect(otPayHoursPerDay({ staffExpectedHours: 8.5, policyHoursPerDay: 9 })).toBe(8.5);
+    expect(otPayHoursPerDay({ staffExpectedHours: null, policyHoursPerDay: 9 })).toBe(9);
+    expect(otPayHoursPerDay({ staffExpectedHours: 0, policyHoursPerDay: 9 })).toBe(9);
+    expect(otPayHoursPerDay({})).toBe(OT_DEFAULT_HOURS_PER_DAY);
   });
 });
 
@@ -577,13 +607,17 @@ describe("26 and 28 day supervisor contracts", () => {
     expect(supervisorOtContractMessage(26)).toMatch(/supervisor/i);
   });
 
-  it("uses the contract as the monthly pay divisor with 9h day", () => {
-    expect(otPayDaysPerMonth({ contractWorkingDays: 26, policyDaysPerMonth: 30 })).toBe(26);
-    expect(otPayDaysPerMonth({ contractWorkingDays: 28, policyDaysPerMonth: 30 })).toBe(28);
+  it("keeps OT pay on policy 30 days even for 26/28 contracts", () => {
+    expect(otPayDaysPerMonth({ contractWorkingDays: 26, policyDaysPerMonth: 30 })).toBe(30);
+    expect(otPayDaysPerMonth({ contractWorkingDays: 28, policyDaysPerMonth: 30 })).toBe(30);
     expect(otPayDaysPerMonth({ contractWorkingDays: null, policyDaysPerMonth: 30 })).toBe(30);
-    // basic 5265 / 26 / 9 = 22.5
-    const hourly = hourlyRateFromPay({ monthlyBasicQar: 5265, hoursPerDay: 9, daysPerMonth: 26 });
-    expect(hourly).toBe(22.5);
+    // basic 1000 / 30 / 9 with staff expected hours = 9
+    const hourly = hourlyRateFromPay({
+      monthlyBasicQar: 1000,
+      hoursPerDay: otPayHoursPerDay({ staffExpectedHours: 9 }),
+      daysPerMonth: 30,
+    });
+    expect(hourly).toBeCloseTo(1000 / 30 / 9, 5);
   });
 });
 

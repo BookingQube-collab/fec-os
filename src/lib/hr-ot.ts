@@ -199,6 +199,11 @@ export type StaffOtPayParts = {
   housingQar: number | null;
   transportQar: number | null;
   dailyRateQar: number | null;
+  /**
+   * Daily working hours from `staff.expected_hours` (secondment or permanent).
+   * Null/missing → OT policy `hours_per_day` fallback (default 9).
+   */
+  expectedHoursPerDay?: number | null;
 };
 
 function otPayNumOrNull(value: unknown): number | null {
@@ -237,6 +242,7 @@ export function resolveStaffOtPayFromCompensation(
     housingQar: housing,
     transportQar: transport,
     dailyRateQar: daily,
+    expectedHoursPerDay: null,
   };
 }
 
@@ -255,6 +261,7 @@ export function resolveStaffOtPayFromSalaryHistory(
       housingQar: null,
       transportQar: null,
       dailyRateQar: null,
+      expectedHoursPerDay: null,
     };
   }
   const allow =
@@ -270,6 +277,7 @@ export function resolveStaffOtPayFromSalaryHistory(
     transportQar:
       otPayNumOrNull(allow.transportation) ?? otPayNumOrNull(allow.transport),
     dailyRateQar: otPayNumOrNull(hist.daily_rate_qar),
+    expectedHoursPerDay: null,
   };
 }
 
@@ -721,14 +729,36 @@ export function mergeSupervisorOtTeamStaffIds(input: {
   return [...new Set(input.reportingTeamIds.filter(Boolean))].sort();
 }
 
-/** Hourly divisor: 26/28-day contracts use the contract; everyone else uses OT policy (default 30). */
+/** Fallback OT hours/day when staff.expected_hours and policy hours_per_day are unset. */
+export const OT_DEFAULT_HOURS_PER_DAY = 9;
+
+/**
+ * Monthly day divisor for OT hourly rate — always policy `days_per_month` (default 30).
+ * Supervisor 26/28 `contractWorkingDays` only gates the claim path; it does not change pay.
+ */
 export function otPayDaysPerMonth(input: {
+  /** @deprecated Ignored for OT pay — kept for call-site compatibility. */
   contractWorkingDays?: number | null;
   policyDaysPerMonth?: number | null;
 }): number {
-  if (isSupervisorOtContract(input.contractWorkingDays)) return input.contractWorkingDays;
+  void input.contractWorkingDays;
   const policy = Number(input.policyDaysPerMonth);
   return Number.isFinite(policy) && policy > 0 ? policy : 30;
+}
+
+/**
+ * Daily hour divisor for OT hourly rate.
+ * Prefer `staff.expected_hours` (saved for secondment/permanent); else OT policy; else 9.
+ */
+export function otPayHoursPerDay(input: {
+  staffExpectedHours?: number | null;
+  policyHoursPerDay?: number | null;
+}): number {
+  const staff = Number(input.staffExpectedHours);
+  if (Number.isFinite(staff) && staff > 0) return staff;
+  const policy = Number(input.policyHoursPerDay);
+  if (Number.isFinite(policy) && policy > 0) return policy;
+  return OT_DEFAULT_HOURS_PER_DAY;
 }
 
 export function isOtEligible(input: {
@@ -749,16 +779,12 @@ export function isOtEligible(input: {
   return cats.includes(cat) || cats.includes("*") || cats.includes("all");
 }
 
-/** Default OT hours/day divisor — aligns with site permanent 9h, not unpaid-break net 8. */
-export const OT_DEFAULT_HOURS_PER_DAY = 9;
-
 /**
  * Hourly rate from monthly **basic** (never package total) or daily rate.
  *
- * Qatar OT: `basic / daysPerMonth / hoursPerDay * rateMultiplier * otHours`.
- * - hoursPerDay: OT policy `hours_per_day` (default 9). Not roster expected_hours —
- *   the policy standard working day is the divisor HR uses for OT.
- * - daysPerMonth: 30 from policy by default; 26/28-day supervisor contracts use the contract.
+ * Qatar OT: `basic / (daysPerMonth * hoursPerDay) * rateMultiplier * otHours`.
+ * - hoursPerDay: `staff.expected_hours` when set; else OT policy `hours_per_day` (default 9).
+ * - daysPerMonth: OT policy `days_per_month` (default 30). Contract 26/28 days are not used.
  */
 export function hourlyRateFromPay(input: {
   monthlyBasicQar?: number | null;
