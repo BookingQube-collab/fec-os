@@ -21,6 +21,7 @@ import {
   otApprovalQueueStatuses,
   otMissingBasicPayNote,
   otPayDaysPerMonth,
+  otPrintSignatureDone,
   isSupervisorOtStaffEntryReady,
   normalizeSupervisorOtDays,
   partitionSupervisorOtPicks,
@@ -44,12 +45,14 @@ describe("OT claim transitions", () => {
     expect(canTransitionOt("submitted", "hr_approved", "employee")).toBe(false);
   });
 
-  it("walks site supervisor → HOO → HR → payroll_posted", () => {
+  it("walks site supervisor → HOO → GM → HR → payroll_posted", () => {
     expect(canTransitionOt("submitted", "manager_verified", "manager")).toBe(true);
     expect(canTransitionOt("manager_verified", "ops_approved", "ops")).toBe(true);
-    expect(canTransitionOt("ops_approved", "hr_approved", "hr")).toBe(true);
+    expect(canTransitionOt("ops_approved", "gm_approved", "gm")).toBe(true);
+    expect(canTransitionOt("gm_approved", "hr_approved", "hr")).toBe(true);
     expect(canTransitionOt("hr_approved", "payroll_posted", "hr")).toBe(true);
     expect(canTransitionOt("hr_approved", "payroll_posted", "payroll")).toBe(true);
+    expect(canTransitionOt("ops_approved", "hr_approved", "hr")).toBe(false);
     expect(canTransitionOt("manager_verified", "hr_approved", "hr")).toBe(false);
   });
 
@@ -58,19 +61,47 @@ describe("OT claim transitions", () => {
     expect(() => assertOtTransition("rejected", "submitted", "employee")).toThrow(/cannot move/);
   });
 
-  it("queues by site / HOO / HR capability", () => {
+  it("queues by site / HOO / GM / HR capability", () => {
     expect(
-      otApprovalQueueStatuses({ canSiteVerify: true, canOpsApprove: false, canHrApprove: false }),
+      otApprovalQueueStatuses({
+        canSiteVerify: true,
+        canOpsApprove: false,
+        canGmApprove: false,
+        canHrApprove: false,
+      }),
     ).toEqual(["submitted"]);
     expect(
-      otApprovalQueueStatuses({ canSiteVerify: false, canOpsApprove: true, canHrApprove: false }),
+      otApprovalQueueStatuses({
+        canSiteVerify: false,
+        canOpsApprove: true,
+        canGmApprove: false,
+        canHrApprove: false,
+      }),
     ).toEqual(["manager_verified"]);
     expect(
-      otApprovalQueueStatuses({ canSiteVerify: false, canOpsApprove: false, canHrApprove: true }),
+      otApprovalQueueStatuses({
+        canSiteVerify: false,
+        canOpsApprove: false,
+        canGmApprove: true,
+        canHrApprove: false,
+      }),
     ).toEqual(["ops_approved"]);
     expect(
-      otApprovalQueueStatuses({ canSiteVerify: true, canOpsApprove: true, canHrApprove: true }),
-    ).toEqual(["submitted", "manager_verified", "ops_approved"]);
+      otApprovalQueueStatuses({
+        canSiteVerify: false,
+        canOpsApprove: false,
+        canGmApprove: false,
+        canHrApprove: true,
+      }),
+    ).toEqual(["gm_approved"]);
+    expect(
+      otApprovalQueueStatuses({
+        canSiteVerify: true,
+        canOpsApprove: true,
+        canGmApprove: true,
+        canHrApprove: true,
+      }),
+    ).toEqual(["submitted", "manager_verified", "ops_approved", "gm_approved"]);
   });
 
   it("locks edits after Head of Operations approves", () => {
@@ -78,6 +109,7 @@ describe("OT claim transitions", () => {
     expect(canEditOtBeforeHoo("manager_verified")).toBe(true);
     expect(canEditOtBeforeHoo("changes_requested")).toBe(true);
     expect(canEditOtBeforeHoo("ops_approved")).toBe(false);
+    expect(canEditOtBeforeHoo("gm_approved")).toBe(false);
     expect(canEditOtBeforeHoo("hr_approved")).toBe(false);
   });
 
@@ -85,13 +117,27 @@ describe("OT claim transitions", () => {
     expect(canRequestOtChanges("submitted")).toBe(true);
     expect(canRequestOtChanges("manager_verified")).toBe(true);
     expect(canRequestOtChanges("ops_approved")).toBe(true);
+    expect(canRequestOtChanges("gm_approved")).toBe(true);
     expect(canRequestOtChanges("hr_approved")).toBe(false);
     expect(canTransitionOt("submitted", "changes_requested", "manager")).toBe(true);
     expect(canTransitionOt("manager_verified", "changes_requested", "ops")).toBe(true);
-    expect(canTransitionOt("ops_approved", "changes_requested", "hr")).toBe(true);
+    expect(canTransitionOt("ops_approved", "changes_requested", "gm")).toBe(true);
+    expect(canTransitionOt("gm_approved", "changes_requested", "hr")).toBe(true);
     expect(canTransitionOt("changes_requested", "submitted", "employee")).toBe(true);
     expect(canTransitionOt("changes_requested", "cancelled", "employee")).toBe(true);
     expect(canTransitionOt("hr_approved", "changes_requested", "hr")).toBe(false);
+  });
+
+  it("fills print signatures progressively by status", () => {
+    expect(otPrintSignatureDone("submitted", "site")).toBe(false);
+    expect(otPrintSignatureDone("manager_verified", "site")).toBe(true);
+    expect(otPrintSignatureDone("manager_verified", "hoo")).toBe(false);
+    expect(otPrintSignatureDone("ops_approved", "hoo")).toBe(true);
+    expect(otPrintSignatureDone("ops_approved", "gm")).toBe(false);
+    expect(otPrintSignatureDone("gm_approved", "gm")).toBe(true);
+    expect(otPrintSignatureDone("gm_approved", "hr")).toBe(false);
+    expect(otPrintSignatureDone("hr_approved", "hr")).toBe(true);
+    expect(otPrintSignatureDone("payroll_posted", "hr")).toBe(true);
   });
 });
 

@@ -41,6 +41,7 @@ import {
   isHeadOfOperationsTitle,
   isSiteSupervisorTitle,
 } from "@/lib/attendance-hr/missed-punch-approval";
+import { isGeneralManagerTitle } from "@/lib/attendance-hr/roster-punch-fill";
 import { loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
 import {
   loadOtSiteSupervisorNotifyUserIds,
@@ -75,6 +76,105 @@ function canOtOpsApprove(context: AuthContext): boolean {
   return isHeadOfOperationsTitle(otAccess(context)?.jobTitle ?? null);
 }
 
+/** General Manager role or job title (GM step after HOO). */
+function canOtGmApprove(context: AuthContext): boolean {
+  if ((context.roles ?? []).includes("branch_gm")) return true;
+  return isGeneralManagerTitle(otAccess(context)?.jobTitle ?? null);
+}
+
+async function otActorSignerName(context: AuthContext): Promise<string> {
+  const fromAccess = otAccess(context)?.fullName?.trim();
+  if (fromAccess) return fromAccess;
+  try {
+    const linked = await loadLinkedStaffRecord(context.userId);
+    if (linked?.fullName?.trim()) return linked.fullName.trim();
+  } catch {
+    /* fall through */
+  }
+  const { data } = await supabaseAdmin
+    .from("profiles")
+    .select("display_name")
+    .eq("id", context.userId)
+    .maybeSingle();
+  const display = (data as { display_name?: string | null } | null)?.display_name?.trim();
+  return display || "Approved";
+}
+
+function otSignatureStamp(
+  name: string | null | undefined,
+  at: string | null | undefined,
+): { name: string | null; at: string | null } | null {
+  if (!name && !at) return null;
+  return { name: name?.trim() || null, at: at ?? null };
+}
+
+/** Fill blank signer names from profiles / staff for pre-migration OT rows. */
+async function enrichOtSignatureNames<
+  T extends {
+    siteSignature?: { name: string | null; at: string | null } | null;
+    hooSignature?: { name: string | null; at: string | null } | null;
+    gmSignature?: { name: string | null; at: string | null } | null;
+    hrSignature?: { name: string | null; at: string | null } | null;
+    verifiedBy?: string | null;
+    opsApprovedBy?: string | null;
+    gmApprovedBy?: string | null;
+    approvedBy?: string | null;
+  },
+>(claims: T[]): Promise<T[]> {
+  const missing = new Set<string>();
+  for (const claim of claims) {
+    if (claim.verifiedBy && !claim.siteSignature?.name) missing.add(claim.verifiedBy);
+    if (claim.opsApprovedBy && !claim.hooSignature?.name) missing.add(claim.opsApprovedBy);
+    if (claim.gmApprovedBy && !claim.gmSignature?.name) missing.add(claim.gmApprovedBy);
+    if (claim.approvedBy && !claim.hrSignature?.name) missing.add(claim.approvedBy);
+  }
+  if (missing.size === 0) return claims;
+
+  const names = new Map<string, string>();
+  const { data: profiles } = await supabaseAdmin
+    .from("profiles")
+    .select("id, display_name")
+    .in("id", [...missing]);
+  for (const row of profiles ?? []) {
+    const name = (row.display_name as string | null)?.trim();
+    if (name) names.set(String(row.id), name);
+  }
+  const stillMissing = [...missing].filter((id) => !names.has(id));
+  if (stillMissing.length) {
+    const { data: staffRows } = await supabaseAdmin
+      .from("staff")
+      .select("user_id, full_name")
+      .in("user_id", stillMissing)
+      .is("deleted_at", null);
+    for (const row of staffRows ?? []) {
+      const userId = row.user_id as string | null;
+      const name = (row.full_name as string | null)?.trim();
+      if (userId && name && !names.has(userId)) names.set(userId, name);
+    }
+  }
+  if (names.size === 0) return claims;
+
+  return claims.map((claim) => {
+    const fill = (
+      stamp: { name: string | null; at: string | null } | null | undefined,
+      userId: string | null | undefined,
+    ) => {
+      if (!stamp?.at && !userId) return stamp ?? null;
+      if (stamp?.name) return stamp;
+      const name = userId ? names.get(userId) ?? null : null;
+      if (!name && !stamp?.at) return stamp ?? null;
+      return { name, at: stamp?.at ?? null };
+    };
+    return {
+      ...claim,
+      siteSignature: fill(claim.siteSignature, claim.verifiedBy),
+      hooSignature: fill(claim.hooSignature, claim.opsApprovedBy),
+      gmSignature: fill(claim.gmSignature, claim.gmApprovedBy),
+      hrSignature: fill(claim.hrSignature, claim.approvedBy),
+    };
+  });
+}
+
 async function loadOtHooNotifyUserIds(excludeUserId?: string | null): Promise<string[]> {
   const { data, error } = await supabaseAdmin
     .from("staff")
@@ -91,6 +191,39 @@ async function loadOtHooNotifyUserIds(excludeUserId?: string | null): Promise<st
     const userId = row.user_id as string | null;
     if (!userId || userId === excludeUserId) continue;
     if (isHeadOfOperationsTitle(row.job_title as string | null)) ids.add(userId);
+  }
+  return [...ids];
+}
+
+async function loadOtGmNotifyUserIds(excludeUserId?: string | null): Promise<string[]> {
+  const ids = new Set<string>();
+  const { data: staffRows, error: staffErr } = await supabaseAdmin
+    .from("staff")
+    .select("user_id, job_title")
+    .is("deleted_at", null)
+    .not("user_id", "is", null)
+    .ilike("job_title", "%general manager%");
+  if (staffErr) {
+    console.warn("[ot] GM staff notify lookup failed", staffErr.message);
+  } else {
+    for (const row of staffRows ?? []) {
+      const userId = row.user_id as string | null;
+      if (!userId || userId === excludeUserId) continue;
+      if (isGeneralManagerTitle(row.job_title as string | null)) ids.add(userId);
+    }
+  }
+  const { data: roleRows, error: roleErr } = await supabaseAdmin
+    .from("user_roles")
+    .select("user_id")
+    .eq("role", "branch_gm");
+  if (roleErr) {
+    console.warn("[ot] GM role notify lookup failed", roleErr.message);
+  } else {
+    for (const row of roleRows ?? []) {
+      const userId = row.user_id as string | null;
+      if (!userId || userId === excludeUserId) continue;
+      ids.add(userId);
+    }
   }
   return [...ids];
 }
@@ -193,6 +326,26 @@ function mapClaimRow(row: Record<string, unknown>) {
     submittedBy: (row.submitted_by as string | null) ?? null,
     submittedAt: (row.submitted_at as string | null) ?? null,
     createdAt: String(row.created_at),
+    siteSignature: otSignatureStamp(
+      row.verified_signer_name as string | null,
+      row.verified_at as string | null,
+    ),
+    hooSignature: otSignatureStamp(
+      row.ops_approved_signer_name as string | null,
+      row.ops_approved_at as string | null,
+    ),
+    gmSignature: otSignatureStamp(
+      row.gm_approved_signer_name as string | null,
+      row.gm_approved_at as string | null,
+    ),
+    hrSignature: otSignatureStamp(
+      row.approved_signer_name as string | null,
+      row.approved_at as string | null,
+    ),
+    verifiedBy: (row.verified_by as string | null) ?? null,
+    opsApprovedBy: (row.ops_approved_by as string | null) ?? null,
+    gmApprovedBy: (row.gm_approved_by as string | null) ?? null,
+    approvedBy: (row.approved_by as string | null) ?? null,
   };
 }
 
@@ -400,7 +553,7 @@ function otPaySnapshot(
 }
 
 const CLAIM_SELECT =
-  "id, request_batch_id, request_number, staff_id, location_id, work_date, attendance_daily_id, scheduled_in, scheduled_out, actual_in, actual_out, eligible_minutes, claimed_minutes, approved_minutes, rate_type, rate_multiplier, amount_qar, basic_qar_snapshot, status, evidence_path, notes, purpose, claim_source, contract_working_days, submitted_by, submitted_at, created_at, staff(full_name, employee_code, phone, job_title, user_id, location_id, employment_type, department), locations(id, code, name)";
+  "id, request_batch_id, request_number, staff_id, location_id, work_date, attendance_daily_id, scheduled_in, scheduled_out, actual_in, actual_out, eligible_minutes, claimed_minutes, approved_minutes, rate_type, rate_multiplier, amount_qar, basic_qar_snapshot, status, evidence_path, notes, purpose, claim_source, contract_working_days, submitted_by, submitted_at, verified_by, verified_at, verified_signer_name, ops_approved_by, ops_approved_at, ops_approved_signer_name, gm_approved_by, gm_approved_at, gm_approved_signer_name, approved_by, approved_at, approved_signer_name, created_at, staff(full_name, employee_code, phone, job_title, user_id, location_id, employment_type, department), locations(id, code, name)";
 
 async function nextOtRequestNumber(context: AuthContext): Promise<string> {
   const { data, error } = await context.supabase.rpc("generate_ot_request_number");
@@ -478,11 +631,13 @@ export const listOtClaims = createAuthenticatedAction(
 
       if (data.status === "queue") {
         const canOps = canOtOpsApprove(context);
+        const canGm = canOtGmApprove(context);
         const queueStatuses =
           queueStatusesOverride ??
           otApprovalQueueStatuses({
-            canSiteVerify: canVerify && !canOps,
+            canSiteVerify: canVerify && !canOps && !canGm,
             canOpsApprove: canOps,
+            canGmApprove: canGm,
             canHrApprove: canApprove,
           });
         next = next.in("status", [...queueStatuses]);
@@ -551,11 +706,13 @@ export const listOtClaims = createAuthenticatedAction(
           .order("work_date", { ascending: false })
           .limit(500);
         const canOps = canOtOpsApprove(context);
+        const canGm = canOtGmApprove(context);
         const legacyQueue = otApprovalQueueStatuses({
-          canSiteVerify: canVerify && !canOps,
+          canSiteVerify: canVerify && !canOps && !canGm,
           canOpsApprove: canOps,
+          canGmApprove: canGm,
           canHrApprove: canApprove,
-        }).filter((s) => s !== "ops_approved");
+        }).filter((s) => s !== "ops_approved" && s !== "gm_approved");
         legacy = applyCommonFilters(
           legacy,
           legacyQueue.length ? legacyQueue : (["submitted", "manager_verified"] as const),
@@ -577,7 +734,8 @@ export const listOtClaims = createAuthenticatedAction(
       (rows ?? []).map((r) => mapClaimRow(r as Record<string, unknown>)),
     );
     const policy = await loadOtPolicy(context);
-    return refreshPendingOtAmountsMissingBasic(mapped, policy);
+    const refreshed = await refreshPendingOtAmountsMissingBasic(mapped, policy);
+    return enrichOtSignatureNames(refreshed);
   },
   { auth: { anyCapability: ["hr.ot.submit", "hr.ot.verify", "hr.ot.approve"] } },
 );
@@ -884,6 +1042,7 @@ async function applyOtClaimAction(input: {
     | "submit"
     | "verify"
     | "ops_approve"
+    | "gm_approve"
     | "approve"
     | "request_changes"
     | "resubmit"
@@ -898,7 +1057,9 @@ async function applyOtClaimAction(input: {
 }): Promise<{ ok: true; status: HrOtStatus; requestBatchId: string | null }> {
   const { claimId, action, context } = input;
   const teamScope = await otSiteSupervisorTeamStaffIds(context);
-  const claimDb = teamScope || canOtOpsApprove(context) ? supabaseAdmin : context.supabase;
+  const canOpsGate = canOtOpsApprove(context);
+  const canGmGate = canOtGmApprove(context);
+  const claimDb = teamScope || canOpsGate || canGmGate ? supabaseAdmin : context.supabase;
   const { data: existing, error: readErr } = await claimDb
     .from("hr_ot_claims")
     .select(CLAIM_SELECT)
@@ -911,7 +1072,8 @@ async function applyOtClaimAction(input: {
   const mine = await myStaff(context);
   const canVerify = canOtVerify(context);
   const canApprove = canOtApprove(context);
-  const canOps = canOtOpsApprove(context);
+  const canOps = canOpsGate;
+  const canGm = canGmGate;
   const isOwner = mine?.id === existing.staff_id;
   const isSubmitter = existing.submitted_by === context.userId;
 
@@ -952,12 +1114,14 @@ async function applyOtClaimAction(input: {
       minClaimable,
       rounding,
     );
+    const signerName = await otActorSignerName(context);
     patch.status = to;
     patch.approved_minutes = mins;
     patch.amount_qar = amountFor(mins, rateMultiplier, pay, policy, contractDays);
     Object.assign(patch, otPaySnapshot(pay, policy, contractDays));
     patch.verified_by = context.userId;
     patch.verified_at = new Date().toISOString();
+    patch.verified_signer_name = signerName;
     approvalStep = "manager";
     approvalAction = "verified";
   } else if (action === "ops_approve") {
@@ -971,13 +1135,36 @@ async function applyOtClaimAction(input: {
       minClaimable,
       rounding,
     );
+    const signerName = await otActorSignerName(context);
     patch.status = to;
     patch.approved_minutes = mins;
     patch.amount_qar = amountFor(mins, rateMultiplier, pay, policy, contractDays);
     Object.assign(patch, otPaySnapshot(pay, policy, contractDays));
     patch.ops_approved_by = context.userId;
     patch.ops_approved_at = new Date().toISOString();
+    patch.ops_approved_signer_name = signerName;
     approvalStep = "ops";
+    approvalAction = "approved";
+  } else if (action === "gm_approve") {
+    if (!canGm && !canApprove) throw new ForbiddenError("General Manager approval required.");
+    actor = canGm ? "gm" : "hr";
+    to = "gm_approved";
+    assertOtTransition(from, to, actor);
+    const mins = assertMinClaimableMinutes(
+      input.approvedMinutes ??
+        Number(existing.approved_minutes ?? existing.claimed_minutes ?? 0),
+      minClaimable,
+      rounding,
+    );
+    const signerName = await otActorSignerName(context);
+    patch.status = to;
+    patch.approved_minutes = mins;
+    patch.amount_qar = amountFor(mins, rateMultiplier, pay, policy, contractDays);
+    Object.assign(patch, otPaySnapshot(pay, policy, contractDays));
+    patch.gm_approved_by = context.userId;
+    patch.gm_approved_at = new Date().toISOString();
+    patch.gm_approved_signer_name = signerName;
+    approvalStep = "gm";
     approvalAction = "approved";
   } else if (action === "approve") {
     if (!canApprove) throw new ForbiddenError("HR approval required.");
@@ -990,24 +1177,31 @@ async function applyOtClaimAction(input: {
       minClaimable,
       rounding,
     );
+    const signerName = await otActorSignerName(context);
     patch.status = to;
     patch.approved_minutes = mins;
     patch.amount_qar = amountFor(mins, rateMultiplier, pay, policy, contractDays);
     Object.assign(patch, otPaySnapshot(pay, policy, contractDays));
     patch.approved_by = context.userId;
     patch.approved_at = new Date().toISOString();
+    patch.approved_signer_name = signerName;
     approvalStep = "hr";
     approvalAction = "approved";
   } else if (action === "request_changes") {
-    if (!canVerify && !canApprove && !canOps) {
+    if (!canVerify && !canApprove && !canOps && !canGm) {
       throw new ForbiddenError("Cannot request changes on OT claim.");
     }
     if (!canRequestOtChanges(from)) {
       throw new ForbiddenError("Change request is not allowed at this OT status.");
     }
-    if (from === "ops_approved") {
+    if (from === "gm_approved") {
       if (!canApprove) throw new ForbiddenError("HR change request required at this step.");
       actor = "hr";
+    } else if (from === "ops_approved") {
+      if (!canGm && !canApprove) {
+        throw new ForbiddenError("General Manager change request required.");
+      }
+      actor = canGm ? "gm" : "hr";
     } else if (from === "manager_verified") {
       if (!canOps && !canApprove) {
         throw new ForbiddenError("Head of Operations change request required.");
@@ -1022,7 +1216,8 @@ async function applyOtClaimAction(input: {
     to = "changes_requested";
     assertOtTransition(from, to, actor);
     patch.status = to;
-    approvalStep = actor === "hr" ? "hr" : actor === "ops" ? "ops" : "manager";
+    approvalStep =
+      actor === "hr" ? "hr" : actor === "gm" ? "gm" : actor === "ops" ? "ops" : "manager";
     approvalAction = "changes_requested";
   } else if (action === "resubmit") {
     if (!isOwner && !isSubmitter && !canApprove) {
@@ -1039,20 +1234,29 @@ async function applyOtClaimAction(input: {
     patch.submitted_at = new Date().toISOString();
     patch.verified_by = null;
     patch.verified_at = null;
+    patch.verified_signer_name = null;
     patch.ops_approved_by = null;
     patch.ops_approved_at = null;
+    patch.ops_approved_signer_name = null;
+    patch.gm_approved_by = null;
+    patch.gm_approved_at = null;
+    patch.gm_approved_signer_name = null;
     patch.approved_by = null;
     patch.approved_at = null;
+    patch.approved_signer_name = null;
     patch.approved_minutes = null;
     approvalStep = "submit";
     approvalAction = "resubmitted";
   } else if (action === "reject") {
-    if (!canVerify && !canApprove && !canOps) {
+    if (!canVerify && !canApprove && !canOps && !canGm) {
       throw new ForbiddenError("Cannot reject OT claim.");
     }
-    if (from === "ops_approved") {
+    if (from === "gm_approved") {
       if (!canApprove) throw new ForbiddenError("HR rejection required at this step.");
       actor = "hr";
+    } else if (from === "ops_approved") {
+      if (!canGm && !canApprove) throw new ForbiddenError("General Manager rejection required.");
+      actor = canGm ? "gm" : "hr";
     } else if (from === "manager_verified") {
       if (!canOps && !canApprove) throw new ForbiddenError("Head of Operations rejection required.");
       actor = canOps ? "ops" : "hr";
@@ -1065,7 +1269,8 @@ async function applyOtClaimAction(input: {
     to = "rejected";
     assertOtTransition(from, to, actor);
     patch.status = to;
-    approvalStep = actor === "hr" ? "hr" : actor === "ops" ? "ops" : "manager";
+    approvalStep =
+      actor === "hr" ? "hr" : actor === "gm" ? "gm" : actor === "ops" ? "ops" : "manager";
     approvalAction = "rejected";
   } else if (action === "cancel") {
     if (!isOwner && !isSubmitter && !canApprove) {
@@ -1111,7 +1316,7 @@ async function applyOtClaimAction(input: {
   }
 
   await appendApproval(context, claimId, approvalStep, approvalAction, input.note, {
-    useAdmin: Boolean(teamScope) || canOps,
+    useAdmin: Boolean(teamScope) || canOps || canGm,
   });
 
   if (to === "hr_approved") {
@@ -1145,6 +1350,7 @@ async function applyOtClaimAction(input: {
     (to === "submitted" ||
       to === "manager_verified" ||
       to === "ops_approved" ||
+      to === "gm_approved" ||
       to === "hr_approved" ||
       to === "changes_requested" ||
       to === "rejected")
@@ -1186,13 +1392,26 @@ async function applyOtClaimAction(input: {
           sourceId: claimId,
         });
       } else if (to === "ops_approved") {
+        const ids = await loadOtGmNotifyUserIds(context.userId);
+        await notifyUsers({
+          userIds: ids,
+          locationId: locId,
+          category: "hr_ot",
+          title: "OT claim ready for General Manager",
+          body: `OT for ${staffName} on ${String(existing.work_date).slice(0, 10)} was HOO approved and needs General Manager approval.`,
+          severity: "warning",
+          actionUrl: "/people/hr/ot",
+          sourceType: "hr_ot_claims",
+          sourceId: claimId,
+        });
+      } else if (to === "gm_approved") {
         const ids = await findUsersWithCapability("hr.ot.approve", locId);
         await notifyUsers({
           userIds: ids.filter((id) => id !== context.userId),
           locationId: locId,
           category: "hr_ot",
           title: "OT claim ready for HR",
-          body: `OT for ${staffName} on ${String(existing.work_date).slice(0, 10)} was HOO approved and needs HR.`,
+          body: `OT for ${staffName} on ${String(existing.work_date).slice(0, 10)} was General Manager approved and needs HR.`,
           severity: "warning",
           actionUrl: "/people/hr/ot",
           sourceType: "hr_ot_claims",
@@ -1251,6 +1470,7 @@ export const actOnOtClaim = createAuthenticatedAction(
       "submit",
       "verify",
       "ops_approve",
+      "gm_approve",
       "approve",
       "request_changes",
       "resubmit",
@@ -1281,6 +1501,7 @@ export const actOnOtRequestBatch = createAuthenticatedAction(
       action: z.enum([
         "verify",
         "ops_approve",
+        "gm_approve",
         "approve",
         "request_changes",
         "resubmit",
@@ -1295,8 +1516,9 @@ export const actOnOtRequestBatch = createAuthenticatedAction(
     }),
   async (data, context) => {
     const canOps = canOtOpsApprove(context);
+    const canGm = canOtGmApprove(context);
     const teamScope = await otSiteSupervisorTeamStaffIds(context);
-    const claimDb = teamScope || canOps ? supabaseAdmin : context.supabase;
+    const claimDb = teamScope || canOps || canGm ? supabaseAdmin : context.supabase;
     let rows: Array<{
       id: string;
       status: string;
@@ -1371,13 +1593,26 @@ export const actOnOtRequestBatch = createAuthenticatedAction(
           sourceId: String(rows[0]!.id),
         });
       } else if (lastStatus === "ops_approved") {
+        const ids = await loadOtGmNotifyUserIds(context.userId);
+        await notifyUsers({
+          userIds: ids,
+          locationId: locId,
+          category: "hr_ot",
+          title: "OT request ready for General Manager",
+          body: `OT request (${rows.length} day(s): ${dates}) was HOO approved and needs General Manager approval.`,
+          severity: "warning",
+          actionUrl: "/people/hr/ot",
+          sourceType: "hr_ot_claims",
+          sourceId: String(rows[0]!.id),
+        });
+      } else if (lastStatus === "gm_approved") {
         const ids = await findUsersWithCapability("hr.ot.approve", locId);
         await notifyUsers({
           userIds: ids.filter((id) => id !== context.userId),
           locationId: locId,
           category: "hr_ot",
           title: "OT request ready for HR",
-          body: `OT request (${rows.length} day(s): ${dates}) was HOO approved and needs HR.`,
+          body: `OT request (${rows.length} day(s): ${dates}) was General Manager approved and needs HR.`,
           severity: "warning",
           actionUrl: "/people/hr/ot",
           sourceType: "hr_ot_claims",
@@ -1900,6 +2135,7 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
       linked && isSiteSupervisorTitle(linked.jobTitle, linked.staffRole),
     );
     const initialStatus: HrOtStatus = siteSupervisorFiling ? "manager_verified" : "submitted";
+    const siteSignerName = siteSupervisorFiling ? await otActorSignerName(context) : null;
 
     // One OT request (batch + number) per staff — multi-date stays one request.
     const requestByStaff = new Map<string, { requestBatchId: string; requestNumber: string }>();
@@ -1939,6 +2175,7 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
           submitted_at: now,
           verified_by: siteSupervisorFiling ? context.userId : null,
           verified_at: siteSupervisorFiling ? now : null,
+          verified_signer_name: siteSignerName,
           created_by: context.userId,
         },
       ];
@@ -1952,7 +2189,7 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
       if (/hr_ot_claims_active_uq|duplicate key/i.test(error.message)) {
         throw new Error("An active OT claim already exists for this staff, date, and rate type.");
       }
-      if (/request_batch_id|request_number|ops_approved|schema cache|does not exist/i.test(error.message)) {
+      if (/request_batch_id|request_number|ops_approved|gm_approved|schema cache|does not exist/i.test(error.message)) {
         throw new Error(
           "OT request batching is not available yet. Apply the latest OT migration and retry.",
         );
@@ -2250,10 +2487,16 @@ export const reviseSupervisorOtRequest = createAuthenticatedAction(
           patch.submitted_at = now;
           patch.verified_by = null;
           patch.verified_at = null;
+          patch.verified_signer_name = null;
           patch.ops_approved_by = null;
           patch.ops_approved_at = null;
+          patch.ops_approved_signer_name = null;
+          patch.gm_approved_by = null;
+          patch.gm_approved_at = null;
+          patch.gm_approved_signer_name = null;
           patch.approved_by = null;
           patch.approved_at = null;
+          patch.approved_signer_name = null;
         }
         const { error } = await claimDb
           .from("hr_ot_claims")

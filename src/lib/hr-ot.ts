@@ -12,6 +12,7 @@ export const HR_OT_STATUSES = [
   "submitted",
   "manager_verified",
   "ops_approved",
+  "gm_approved",
   "hr_approved",
   "payroll_posted",
   "changes_requested",
@@ -23,12 +24,12 @@ export type HrOtStatus = (typeof HR_OT_STATUSES)[number];
 export const HR_OT_ROUNDING = ["down", "up", "minutes"] as const;
 export type HrOtRounding = (typeof HR_OT_ROUNDING)[number];
 
-export type HrOtActor = "employee" | "manager" | "ops" | "hr" | "payroll";
+export type HrOtActor = "employee" | "manager" | "ops" | "gm" | "hr" | "payroll";
 
 /**
  * Approval chain:
  *   submitted → manager_verified (site supervisor) → ops_approved (Head of Operations)
- *   → hr_approved → payroll_posted
+ *   → gm_approved (General Manager) → hr_approved → payroll_posted
  * Approvers may send back (`changes_requested`); the submitter cancels or resubmits to
  * restart at site supervisor (`submitted`), matching missed-punch / job-request flows.
  */
@@ -48,6 +49,10 @@ const TRANSITIONS: Record<HrOtStatus, Partial<Record<HrOtActor, HrOtStatus[]>>> 
     hr: ["ops_approved", "changes_requested", "rejected"],
   },
   ops_approved: {
+    gm: ["gm_approved", "changes_requested", "rejected"],
+    hr: ["gm_approved", "changes_requested", "rejected"],
+  },
+  gm_approved: {
     hr: ["hr_approved", "changes_requested", "rejected"],
   },
   hr_approved: {
@@ -65,17 +70,20 @@ const TRANSITIONS: Record<HrOtStatus, Partial<Record<HrOtActor, HrOtStatus[]>>> 
 
 /**
  * Approval queue statuses by actor capability.
- * Site supervisors act on `submitted`; HOO on `manager_verified`; HR on `ops_approved`.
+ * Site supervisors act on `submitted`; HOO on `manager_verified`;
+ * GM on `ops_approved`; HR on `gm_approved`.
  */
 export function otApprovalQueueStatuses(input: {
   canSiteVerify: boolean;
   canOpsApprove: boolean;
+  canGmApprove: boolean;
   canHrApprove: boolean;
 }): readonly HrOtStatus[] {
   const statuses: HrOtStatus[] = [];
   if (input.canSiteVerify) statuses.push("submitted");
   if (input.canOpsApprove) statuses.push("manager_verified");
-  if (input.canHrApprove) statuses.push("ops_approved");
+  if (input.canGmApprove) statuses.push("ops_approved");
+  if (input.canHrApprove) statuses.push("gm_approved");
   return [...new Set(statuses)];
 }
 
@@ -91,7 +99,44 @@ export function canEditOtBeforeHoo(status: HrOtStatus): boolean {
 
 /** Approver may request changes at the same steps where reject is allowed. */
 export function canRequestOtChanges(status: HrOtStatus): boolean {
-  return status === "submitted" || status === "manager_verified" || status === "ops_approved";
+  return (
+    status === "submitted" ||
+    status === "manager_verified" ||
+    status === "ops_approved" ||
+    status === "gm_approved"
+  );
+}
+
+/** Digital signature stamp for one OT print-slip column. */
+export type OtPrintSignature = {
+  name: string | null;
+  at: string | null;
+};
+
+export type OtPrintSignatureKey = "site" | "hoo" | "gm" | "hr";
+
+/** Whether a print-slip signature column is filled for the current status. */
+export function otPrintSignatureDone(
+  status: HrOtStatus | null | undefined,
+  key: OtPrintSignatureKey,
+): boolean {
+  if (!status) return false;
+  const order: HrOtStatus[] = [
+    "manager_verified",
+    "ops_approved",
+    "gm_approved",
+    "hr_approved",
+    "payroll_posted",
+  ];
+  const idx = order.indexOf(status);
+  if (idx < 0) return false;
+  const needed: Record<OtPrintSignatureKey, number> = {
+    site: 0,
+    hoo: 1,
+    gm: 2,
+    hr: 3,
+  };
+  return idx >= needed[key];
 }
 
 /** Soft note when amount is 0 because basic salary was missing at claim time. */
@@ -212,6 +257,7 @@ export const HR_OT_HIERARCHY_STEPS = [
   "submitted",
   "manager_verified",
   "ops_approved",
+  "gm_approved",
   "hr_approved",
   "payroll_posted",
 ] as const;
@@ -251,6 +297,19 @@ export type OtClaimListRow = {
   submittedBy?: string | null;
   submittedAt?: string | null;
   createdAt?: string;
+  /** Site supervisor digital signature (name + when). */
+  siteSignature?: OtPrintSignature | null;
+  /** Head of Operations digital signature. */
+  hooSignature?: OtPrintSignature | null;
+  /** General Manager digital signature. */
+  gmSignature?: OtPrintSignature | null;
+  /** HR digital signature. */
+  hrSignature?: OtPrintSignature | null;
+  /** Approver user ids (used to backfill signer names). */
+  verifiedBy?: string | null;
+  opsApprovedBy?: string | null;
+  gmApprovedBy?: string | null;
+  approvedBy?: string | null;
 };
 
 export type OtRequestGroup = {
@@ -274,6 +333,10 @@ export type OtRequestGroup = {
   department: string | null;
   locationId: string | null;
   locationName: string | null;
+  siteSignature?: OtPrintSignature | null;
+  hooSignature?: OtPrintSignature | null;
+  gmSignature?: OtPrintSignature | null;
+  hrSignature?: OtPrintSignature | null;
 };
 
 /**
@@ -372,6 +435,7 @@ export function groupOtClaimsIntoRequests(
     }, first.status);
     const requestNumber =
       sorted.map((c) => c.requestNumber).find((n): n is string => Boolean(n)) ?? null;
+    const withSig = [...sorted].reverse().find((c) => c.siteSignature || c.hooSignature || c.gmSignature || c.hrSignature) ?? first;
     groups.push({
       key,
       requestBatchId: first.requestBatchId ?? null,
@@ -392,6 +456,10 @@ export function groupOtClaimsIntoRequests(
       department: first.department ?? null,
       locationId: first.locationId ?? null,
       locationName: first.locationName ?? null,
+      siteSignature: withSig.siteSignature ?? null,
+      hooSignature: withSig.hooSignature ?? null,
+      gmSignature: withSig.gmSignature ?? null,
+      hrSignature: withSig.hrSignature ?? null,
     });
   }
   return groups.sort((a, b) => {

@@ -33,6 +33,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuth, useUserRoles } from "@/hooks/use-auth";
 import { usePermission } from "@/hooks/use-permission";
 import { isHeadOfOperationsTitle } from "@/lib/attendance-hr/missed-punch-approval";
+import { isGeneralManagerTitle } from "@/lib/attendance-hr/roster-punch-fill";
 import {
   actOnOtRequestBatch,
   getOtMonthlySummaries,
@@ -716,6 +717,10 @@ function printPayloadFromGroup(group: OtRequestGroup): SupervisorOtPrintPayload 
     requestDate: (group.submittedAt ?? todayIso()).slice(0, 10),
     status: group.status,
     requestNumber: group.requestNumber,
+    siteSignature: group.siteSignature ?? null,
+    hooSignature: group.hooSignature ?? null,
+    gmSignature: group.gmSignature ?? null,
+    hrSignature: group.hrSignature ?? null,
   };
 }
 
@@ -738,8 +743,11 @@ export default function HrOtPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const { profile, user } = useAuth();
+  const roles = useUserRoles();
   const canHrApprove = usePermission("hr.ot.approve");
   const canHooApprove = isHeadOfOperationsTitle(profile?.job_title);
+  const canGmApprove =
+    roles.includes("branch_gm") || isGeneralManagerTitle(profile?.job_title);
   const [status, setStatus] = useState<"queue" | "hr_approved" | "payroll_posted" | "all">("queue");
   const [search, setSearch] = useState("");
   const [dateFrom, setDateFrom] = useState("");
@@ -847,6 +855,7 @@ export default function HrOtPage() {
     action:
       | "verify"
       | "ops_approve"
+      | "gm_approve"
       | "approve"
       | "request_changes"
       | "resubmit"
@@ -899,7 +908,7 @@ export default function HrOtPage() {
     const chips: Array<{ value: "queue" | "hr_approved" | "payroll_posted" | "all"; label: string }> = [
       { value: "queue", label: t("hr.ot.queue") },
     ];
-    if (canHrApprove || canHooApprove) {
+    if (canHrApprove || canHooApprove || canGmApprove) {
       chips.push(
         { value: "hr_approved", label: t("hr.ot.status.hr_approved") },
         { value: "payroll_posted", label: t("hr.ot.status.payroll_posted") },
@@ -907,7 +916,7 @@ export default function HrOtPage() {
     }
     chips.push({ value: "all", label: t("hr.ot.status.all") });
     return chips;
-  }, [canHrApprove, canHooApprove, t]);
+  }, [canHrApprove, canHooApprove, canGmApprove, t]);
 
   return (
     <CapabilityGate
@@ -1036,9 +1045,11 @@ export default function HrOtPage() {
                   const isSubmitter = Boolean(user?.id && group.submittedBy === user.id);
                   const canPreview =
                     canHooApprove ||
+                    canGmApprove ||
                     canHrApprove ||
                     isSubmitter ||
                     group.status === "ops_approved" ||
+                    group.status === "gm_approved" ||
                     group.status === "hr_approved" ||
                     group.status === "payroll_posted";
                   return (
@@ -1167,7 +1178,36 @@ export default function HrOtPage() {
                             </Button>
                           </>
                         ) : null}
-                        {group.status === "ops_approved" && canHrApprove ? (
+                        {group.status === "ops_approved" && (canGmApprove || canHrApprove) ? (
+                          <>
+                            <Button
+                              size="sm"
+                              disabled={actBatch.isPending}
+                              onClick={() => runBatchAction(group, "gm_approve")}
+                            >
+                              {t("hr.ot.gmApprove")}
+                            </Button>
+                            {canRequestOtChanges(group.status) ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={actBatch.isPending}
+                                onClick={() => runBatchAction(group, "request_changes")}
+                              >
+                                {t("hr.ot.changeRequest")}
+                              </Button>
+                            ) : null}
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              disabled={actBatch.isPending}
+                              onClick={() => runBatchAction(group, "reject")}
+                            >
+                              {t("hr.ot.reject")}
+                            </Button>
+                          </>
+                        ) : null}
+                        {group.status === "gm_approved" && canHrApprove ? (
                           <>
                             <Button
                               size="sm"

@@ -12,7 +12,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { sumSupervisorOtDayHours, type HrOtRateType, type HrOtStatus } from "@/lib/hr-ot";
+import {
+  otPrintSignatureDone,
+  sumSupervisorOtDayHours,
+  type HrOtRateType,
+  type HrOtStatus,
+  type OtPrintSignature,
+} from "@/lib/hr-ot";
 import { cn } from "@/lib/utils";
 
 export type SupervisorOtPrintDay = {
@@ -40,19 +46,38 @@ export type SupervisorOtPrintPayload = {
   staff: SupervisorOtPrintStaff[];
   /** Form “DATE” field — request day (YYYY-MM-DD). */
   requestDate: string;
-  /** Optional workflow status for preview checkmarks. */
+  /** Optional workflow status for progressive signature boxes. */
   status?: HrOtStatus | null;
   /**
    * Fallback request number when staff sheets do not carry their own
    * (e.g. single-request preview from the approval queue).
    */
   requestNumber?: string | null;
+  siteSignature?: OtPrintSignature | null;
+  hooSignature?: OtPrintSignature | null;
+  gmSignature?: OtPrintSignature | null;
+  hrSignature?: OtPrintSignature | null;
 };
 
 function formatDisplayDate(iso: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
   const [y, m, d] = iso.split("-");
   return `${d}/${m}/${y.slice(2)}`;
+}
+
+function formatSignatureWhen(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const day = iso.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(day)) return formatDisplayDate(day);
+  try {
+    return new Date(iso).toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "2-digit",
+    });
+  } catch {
+    return day;
+  }
 }
 
 function formatHoursLabel(hours: number): string {
@@ -79,18 +104,56 @@ function FormField({
   );
 }
 
+function SignatureStamp({
+  done,
+  signature,
+}: {
+  done: boolean;
+  signature?: OtPrintSignature | null;
+}) {
+  if (!done) return null;
+  const name = signature?.name?.trim() || null;
+  const when = formatSignatureWhen(signature?.at);
+  if (name || when) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-0.5 px-1 py-1">
+        {name ? (
+          <span
+            className="max-w-full truncate text-[15px] italic leading-tight text-neutral-900"
+            style={{ fontFamily: "Georgia, 'Times New Roman', serif" }}
+          >
+            {name}
+          </span>
+        ) : (
+          <span className="text-lg font-bold text-neutral-800">✓</span>
+        )}
+        {when ? <span className="text-[9px] text-neutral-600">{when}</span> : null}
+      </div>
+    );
+  }
+  return <span className="text-lg font-bold text-neutral-800">✓</span>;
+}
+
 function OtRequestSheet({
   staff,
   requestDate,
   staffRequired,
   status,
   requestNumber,
+  siteSignature,
+  hooSignature,
+  gmSignature,
+  hrSignature,
 }: {
   staff: SupervisorOtPrintStaff;
   requestDate: string;
   staffRequired: number;
   status?: HrOtStatus | null;
   requestNumber?: string | null;
+  siteSignature?: OtPrintSignature | null;
+  hooSignature?: OtPrintSignature | null;
+  gmSignature?: OtPrintSignature | null;
+  hrSignature?: OtPrintSignature | null;
 }) {
   const { t } = useTranslation();
   const days = [...staff.days].sort((a, b) => a.workDate.localeCompare(b.workDate));
@@ -100,14 +163,11 @@ function OtRequestSheet({
     .join("; ");
   const totalHours = formatHoursLabel(sumSupervisorOtDayHours(days));
   const sheetNumber = (staff.requestNumber ?? requestNumber)?.trim() || null;
-  const siteDone =
-    status === "manager_verified" ||
-    status === "ops_approved" ||
-    status === "hr_approved" ||
-    status === "payroll_posted";
-  const hooDone =
-    status === "ops_approved" || status === "hr_approved" || status === "payroll_posted";
-  const hrDone = status === "hr_approved" || status === "payroll_posted";
+  const siteDone = otPrintSignatureDone(status, "site");
+  const hooDone = otPrintSignatureDone(status, "hoo");
+  const gmDone = otPrintSignatureDone(status, "gm");
+  const hrDone = otPrintSignatureDone(status, "hr");
+  const authorized = siteDone || hooDone || gmDone || hrDone;
 
   return (
     <article className="ot-print-sheet mx-auto flex min-h-[260mm] max-w-[210mm] flex-col bg-white px-6 pb-6 pt-4 text-neutral-900 shadow-sm print:min-h-0 print:max-w-none print:shadow-none">
@@ -161,8 +221,13 @@ function OtRequestSheet({
 
       <div className="mt-5 flex flex-wrap gap-8 text-sm">
         <label className="inline-flex items-center gap-2">
-          <span className="inline-flex h-4 w-4 items-center justify-center border border-neutral-800 text-[10px] font-bold">
-            ✓
+          <span
+            className={cn(
+              "inline-flex h-4 w-4 items-center justify-center border text-[10px] font-bold",
+              authorized ? "border-neutral-800" : "border-neutral-400 text-transparent",
+            )}
+          >
+            {authorized ? "✓" : ""}
           </span>
           <span className="font-semibold uppercase tracking-wide">{t("hr.ot.print.authorized")}</span>
         </label>
@@ -175,30 +240,36 @@ function OtRequestSheet({
       <p className="mt-4 text-[10px] italic text-neutral-600">{t("hr.ot.print.instruction")}</p>
 
       <div className="mt-auto pt-8">
-        <table className="w-full border-collapse border border-neutral-800 text-center text-[11px]">
+        <table className="w-full border-collapse border border-neutral-800 text-center text-[10px]">
           <thead>
             <tr>
-              <th className="border border-neutral-800 px-2 py-2 font-bold uppercase">
+              <th className="border border-neutral-800 px-1.5 py-2 font-bold uppercase">
                 {t("hr.ot.print.sigSite")}
               </th>
-              <th className="border border-neutral-800 px-2 py-2 font-bold uppercase">
+              <th className="border border-neutral-800 px-1.5 py-2 font-bold uppercase">
                 {t("hr.ot.print.sigHoo")}
               </th>
-              <th className="border border-neutral-800 px-2 py-2 font-bold uppercase">
+              <th className="border border-neutral-800 px-1.5 py-2 font-bold uppercase">
+                {t("hr.ot.print.sigGm")}
+              </th>
+              <th className="border border-neutral-800 px-1.5 py-2 font-bold uppercase">
                 {t("hr.ot.print.sigHr")}
               </th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td className="h-20 border border-neutral-800 align-middle text-lg">
-                {siteDone ? "✓" : ""}
+              <td className="h-24 border border-neutral-800 align-middle">
+                <SignatureStamp done={siteDone} signature={siteSignature} />
               </td>
-              <td className="h-20 border border-neutral-800 align-middle text-lg">
-                {hooDone ? "✓" : ""}
+              <td className="h-24 border border-neutral-800 align-middle">
+                <SignatureStamp done={hooDone} signature={hooSignature} />
               </td>
-              <td className="h-20 border border-neutral-800 align-middle text-lg">
-                {hrDone ? "✓" : ""}
+              <td className="h-24 border border-neutral-800 align-middle">
+                <SignatureStamp done={gmDone} signature={gmSignature} />
+              </td>
+              <td className="h-24 border border-neutral-800 align-middle">
+                <SignatureStamp done={hrDone} signature={hrSignature} />
               </td>
             </tr>
           </tbody>
@@ -257,6 +328,10 @@ export function SupervisorOtPrintDialog({
               staffRequired={payload.staff.length}
               status={payload.status}
               requestNumber={payload.requestNumber}
+              siteSignature={payload.siteSignature}
+              hooSignature={payload.hooSignature}
+              gmSignature={payload.gmSignature}
+              hrSignature={payload.hrSignature}
             />
           ))}
         </div>

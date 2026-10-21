@@ -9077,7 +9077,7 @@
     "ot": {
       "kicker": "HR",
       "title": "OT claims",
-      "subtitle": "Each person is one OT request (multi-date stays together) with a request number. Flow: supervisor submit → site supervisor → Head of Operations (preview) → HR → payroll. Submitters can edit/cancel only before HOO approval. 26- and 28-day contracts use supervisor requests; others use attendance minutes. Minimum is one complete hour.",
+      "subtitle": "Each person is one OT request (multi-date stays together) with a request number. Flow: supervisor submit → site supervisor → Head of Operations → General Manager → HR → payroll. Submitters can edit/cancel only before HOO approval. 26- and 28-day contracts use supervisor requests; others use attendance minutes. Minimum is one complete hour.",
       "queue": "Approval queue",
       "noAccess": "You cannot review OT claims.",
       "empty": "No OT claims in this filter.",
@@ -9085,6 +9085,7 @@
       "updateFailed": "Could not update this OT request. Try again.",
       "verify": "Site supervisor approve",
       "opsApprove": "HOO approve",
+      "gmApprove": "GM approve",
       "approve": "HR approve",
       "preview": "Preview",
       "changeRequest": "Change request",
@@ -9114,6 +9115,7 @@
         "submitted": "Submitted",
         "manager_verified": "Site supervisor",
         "ops_approved": "HOO",
+        "gm_approved": "GM",
         "hr_approved": "HR",
         "payroll_posted": "Payroll"
       },
@@ -9226,6 +9228,7 @@
         "submitted": "Supervisor submitted",
         "manager_verified": "Site supervisor approved",
         "ops_approved": "HOO approved",
+        "gm_approved": "GM approved",
         "hr_approved": "HR approved",
         "payroll_posted": "Payroll posted",
         "changes_requested": "Changes requested",
