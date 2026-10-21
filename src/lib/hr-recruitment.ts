@@ -477,11 +477,13 @@ export function jobRequestSearchText(
     employmentCategory?: string | null;
     jobDescription?: string | null;
     salaryBudgetQar?: number | null;
+    requestNumber?: string | null;
   },
   canViewSalary: boolean,
 ): string {
   return [
     row.jobTitle,
+    row.requestNumber,
     row.locationName,
     row.departmentName,
     row.status,

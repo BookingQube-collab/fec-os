@@ -71,6 +71,7 @@ type CorrectionRow = {
   new_value?: Record<string, unknown> | null;
   original_value?: Record<string, unknown> | null;
   punch_id?: string | null;
+  request_number?: string | null;
 };
 
 export type MissedPunchQueueRow = {
@@ -84,6 +85,9 @@ export type MissedPunchQueueRow = {
   summaryId: string | null;
   staffName: string | null;
   employeeCode: string | null;
+  department: string | null;
+  jobTitle: string | null;
+  requestNumber: string | null;
   currentStepRole: MissedPunchStepRole | null;
   requestedBy: string;
   requestedAt: string;
@@ -99,6 +103,13 @@ export type MissedPunchQueueRow = {
   }>;
   canAct: boolean;
 };
+
+async function nextMissedPunchRequestNumber(): Promise<string> {
+  const { data, error } = await supabaseAdmin.rpc("generate_missed_punch_request_number");
+  if (!error && typeof data === "string" && data.trim()) return data.trim();
+  const day = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  return `MP-${day}-${crypto.randomUUID().replace(/-/g, "").slice(0, 4).toUpperCase()}`;
+}
 
 function punchTypeOf(value: Record<string, unknown> | null | undefined): "in" | "out" | null {
   return punchTypeFromCorrectionValue(value);
@@ -450,7 +461,10 @@ async function nameByUserId(userIds: string[]) {
 function mapQueueRow(
   row: CorrectionRow,
   steps: Array<{ correction_id: string; step_role: string; status: string; acted_by: string | null; acted_at: string | null; step_order: number }>,
-  staffById: Map<string, { full_name: string | null; employee_code: string | null }>,
+  staffById: Map<
+    string,
+    { full_name: string | null; employee_code: string | null; department: string | null; job_title: string | null }
+  >,
   actorNames: Map<string, string>,
   canAct: boolean,
 ): MissedPunchQueueRow {
@@ -466,6 +480,9 @@ function mapQueueRow(
     summaryId: row.summary_id ? String(row.summary_id) : null,
     staffName: staff?.full_name ?? null,
     employeeCode: staff?.employee_code ?? null,
+    department: staff?.department ?? null,
+    jobTitle: staff?.job_title ?? null,
+    requestNumber: row.request_number ? String(row.request_number) : null,
     currentStepRole: asStep(row.current_step_role),
     requestedBy: String(row.requested_by),
     requestedAt: String(row.requested_at),
@@ -499,7 +516,7 @@ export async function listMissedPunchCorrections(args: {
     loadSiteSupervisorCorrectionTeamIds(args.userId),
   ]);
   const columns =
-    "id, location_id, staff_id, work_date, summary_id, kind, reason, status, requested_by, requested_at, current_step_role, review_note, new_value";
+    "id, location_id, staff_id, work_date, summary_id, kind, reason, status, requested_by, requested_at, current_step_role, review_note, new_value, request_number";
   const base = () =>
     supabaseAdmin
       .from("attendance_corrections")
@@ -555,14 +572,30 @@ export async function listMissedPunchCorrections(args: {
   const actorIds = steps.map((step) => step.acted_by).filter((id): id is string => Boolean(id));
   const [{ data: staffRows }, actorNames] = await Promise.all([
     staffIds.length
-      ? supabaseAdmin.from("staff").select("id, full_name, employee_code").in("id", staffIds)
-      : Promise.resolve({ data: [] as Array<{ id: string; full_name: string | null; employee_code: string | null }> }),
+      ? supabaseAdmin
+          .from("staff")
+          .select("id, full_name, employee_code, department, job_title")
+          .in("id", staffIds)
+      : Promise.resolve({
+          data: [] as Array<{
+            id: string;
+            full_name: string | null;
+            employee_code: string | null;
+            department: string | null;
+            job_title: string | null;
+          }>,
+        }),
     nameByUserId(actorIds),
   ]);
   const staffById = new Map(
     (staffRows ?? []).map((row) => [
       row.id as string,
-      { full_name: (row.full_name as string | null) ?? null, employee_code: (row.employee_code as string | null) ?? null },
+      {
+        full_name: (row.full_name as string | null) ?? null,
+        employee_code: (row.employee_code as string | null) ?? null,
+        department: (row.department as string | null) ?? null,
+        job_title: (row.job_title as string | null) ?? null,
+      },
     ]),
   );
   const mapped = visible.map((row) =>
@@ -724,7 +757,13 @@ export async function submitMissedPunchRequest(args: {
   /** Other clocks on this same form, so the HR note can list punch-in and punch-out together. */
   requestedPunchIn?: string | null;
   requestedPunchOut?: string | null;
-}): Promise<{ id: string; approverCount: number; locationId: string; routedTo: PunchCorrectionRoutedTo }> {
+}): Promise<{
+  id: string;
+  requestNumber: string;
+  approverCount: number;
+  locationId: string;
+  routedTo: PunchCorrectionRoutedTo;
+}> {
   const linked = await loadLinkedStaffRecord(args.userId);
   if (!linked?.id) throw new ForbiddenError("No staff record is linked to this login.");
   const { data: staff, error: staffErr } = await supabaseAdmin
@@ -823,6 +862,7 @@ export async function submitMissedPunchRequest(args: {
       ? typedReason
       : "Missed punch request";
   const now = new Date().toISOString();
+  const requestNumber = await nextMissedPunchRequestNumber();
   const { data: created, error: insErr } = await supabaseAdmin
     .from("attendance_corrections")
     .insert({
@@ -853,8 +893,9 @@ export async function submitMissedPunchRequest(args: {
       requested_by: args.userId,
       status: "pending",
       current_step_role: correctionWaitingStep(route),
+      request_number: requestNumber,
     })
-    .select("id")
+    .select("id, request_number")
     .single();
   if (insErr) throw insErr;
 
@@ -914,8 +955,8 @@ export async function submitMissedPunchRequest(args: {
     const hrIds = approverUserIdsForStep(directory, "hr", summary.location_id as string, targetStaffId).filter(
       (id) => id !== args.userId,
     );
-    const hrTitle = "Missed punch waiting for HR";
-    const hrBody = `${managerName} requested and approved a punch correction for ${subjectName} on ${workDate}. It is waiting for HR.`;
+    const hrTitle = `Missed punch waiting for HR · ${requestNumber}`;
+    const hrBody = `${managerName} requested and approved a punch correction for ${subjectName} on ${workDate} (${requestNumber}). It is waiting for HR.`;
     await notifyApprovers({
       userIds: hrIds,
       locationId: summary.location_id as string,
@@ -926,6 +967,7 @@ export async function submitMissedPunchRequest(args: {
     });
     return {
       id: created.id as string,
+      requestNumber,
       approverCount: hrIds.length,
       locationId: summary.location_id as string,
       routedTo: "hr" as const,
@@ -968,8 +1010,8 @@ export async function submitMissedPunchRequest(args: {
       (id) => id !== args.userId,
     );
     const opsLabel = opsStepApproverLabel(correctionOpsLane(directory, targetStaffId));
-    const opsTitle = `Missed punch waiting for ${opsLabel}`;
-    const opsBody = `${managerName} requested and approved a punch correction for ${subjectName} on ${workDate}. It is waiting for ${opsLabel}.`;
+    const opsTitle = `Missed punch waiting for ${opsLabel} · ${requestNumber}`;
+    const opsBody = `${managerName} requested and approved a punch correction for ${subjectName} on ${workDate} (${requestNumber}). It is waiting for ${opsLabel}.`;
     await notifyApprovers({
       userIds: opsIds,
       locationId: summary.location_id as string,
@@ -989,6 +1031,7 @@ export async function submitMissedPunchRequest(args: {
     });
     return {
       id: created.id as string,
+      requestNumber,
       approverCount: opsIds.length,
       locationId: summary.location_id as string,
       routedTo: "ops" as const,
@@ -1002,10 +1045,12 @@ export async function submitMissedPunchRequest(args: {
     );
     const opsLabel = opsStepApproverLabel(correctionOpsLane(directory, targetStaffId));
     const replacing = hasIn && hasOut;
-    const opsTitle = replacing ? "Punch correction request" : "Missed punch request";
+    const opsTitle = replacing
+      ? `Punch correction request · ${requestNumber}`
+      : `Missed punch request · ${requestNumber}`;
     const opsBody = replacing
-      ? `${subjectName} needs a punch corrected for ${workDate}. It is waiting for ${opsLabel}.`
-      : `${subjectName} submitted a missed punch for ${workDate}. It is waiting for ${opsLabel}.`;
+      ? `${subjectName} needs a punch corrected for ${workDate} (${requestNumber}). It is waiting for ${opsLabel}.`
+      : `${subjectName} submitted a missed punch for ${workDate} (${requestNumber}). It is waiting for ${opsLabel}.`;
     await notifyApprovers({
       userIds: opsIds,
       locationId: summary.location_id as string,
@@ -1025,6 +1070,7 @@ export async function submitMissedPunchRequest(args: {
     });
     return {
       id: created.id as string,
+      requestNumber,
       approverCount: opsIds.length,
       locationId: summary.location_id as string,
       routedTo: "ops_first" as const,
@@ -1038,10 +1084,12 @@ export async function submitMissedPunchRequest(args: {
     requesterStaffId: staff.id as string,
   });
   const replacing = hasIn && hasOut;
-  const managerTitle = replacing ? "Punch correction request" : "Missed punch request";
+  const managerTitle = replacing
+    ? `Punch correction request · ${requestNumber}`
+    : `Missed punch request · ${requestNumber}`;
   const managerBody = replacing
-    ? `${subjectName} needs a punch corrected for ${workDate}. It is waiting for their line manager.`
-    : `${subjectName} submitted a missed punch for ${workDate}. It is waiting for their line manager.`;
+    ? `${subjectName} needs a punch corrected for ${workDate} (${requestNumber}). It is waiting for their line manager.`
+    : `${subjectName} submitted a missed punch for ${workDate} (${requestNumber}). It is waiting for their line manager.`;
   await notifyApprovers({
     userIds: managers,
     locationId: summary.location_id as string,
@@ -1060,6 +1108,7 @@ export async function submitMissedPunchRequest(args: {
   });
   return {
     id: created.id as string,
+    requestNumber,
     approverCount: managers.length,
     locationId: summary.location_id as string,
     routedTo: "line_manager" as const,

@@ -534,6 +534,13 @@ export const listQuotaEmployees = createAuthenticatedAction(
 // Job requests
 // ---------------------------------------------------------------------------
 
+async function nextJobRequestNumber(context: AuthContext): Promise<string> {
+  const { data, error } = await context.supabase.rpc("generate_job_request_number");
+  if (!error && typeof data === "string" && data.trim()) return data.trim();
+  const day = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  return `JR-${day}-${crypto.randomUUID().replace(/-/g, "").slice(0, 4).toUpperCase()}`;
+}
+
 function mapJobRequestRow(
   r: Record<string, unknown>,
   canViewSalary: boolean,
@@ -570,6 +577,7 @@ function mapJobRequestRow(
     returnReason: (r.return_reason as string | null) ?? null,
     rejectionReason: (r.rejection_reason as string | null) ?? null,
     requestedBy: (r.requested_by as string | null) ?? null,
+    requestNumber: (r.request_number as string | null) ?? null,
     createdAt: String(r.created_at),
   };
   return maskJobRequestSalary(base, canViewSalary);
@@ -587,7 +595,7 @@ export const listJobRequests = createAuthenticatedAction(
     let q = context.supabase
       .from("hr_job_requests")
       .select(
-        "id, job_title, department_id, location_id, vacancies_count, request_type, replaced_staff_id, employment_category, job_description, skills, experience_years, education, salary_budget_qar, requires_finance, required_joining_date, justification, priority, attachments, status, current_step_role, exceeds_quota, quota_override_status, return_reason, rejection_reason, requested_by, created_at, locations(name), master_departments(name)",
+        "id, job_title, department_id, location_id, vacancies_count, request_type, replaced_staff_id, employment_category, job_description, skills, experience_years, education, salary_budget_qar, requires_finance, required_joining_date, justification, priority, attachments, status, current_step_role, exceeds_quota, quota_override_status, return_reason, rejection_reason, requested_by, request_number, created_at, locations(name), master_departments(name)",
       )
       .order("created_at", { ascending: false })
       .limit(200);
@@ -697,6 +705,7 @@ export const submitJobRequest = createAuthenticatedAction(
     });
 
     const requiresFinance = requiresFinanceForBudget(data.salaryBudgetQar);
+    const requestNumber = await nextJobRequestNumber(context);
     const { data: row, error } = await context.supabase
       .from("hr_job_requests")
       .insert({
@@ -720,8 +729,9 @@ export const submitJobRequest = createAuthenticatedAction(
         exceeds_quota: evalResult.exceeds,
         quota_override_status: evalResult.exceeds ? "pending" : "none",
         requested_by: context.userId,
+        request_number: requestNumber,
       })
-      .select("id")
+      .select("id, request_number")
       .single();
     if (error) throw error;
 
@@ -729,6 +739,7 @@ export const submitJobRequest = createAuthenticatedAction(
 
     return {
       id: String(row.id),
+      requestNumber: ((row.request_number as string | null) ?? requestNumber) as string,
       exceedsQuota: evalResult.exceeds,
       warning: evalResult.warning,
       requiresAck: false as const,

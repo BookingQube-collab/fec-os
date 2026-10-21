@@ -23,6 +23,8 @@ export type HrNotifyEvent = {
   distanceMeters?: number | null;
   locationId?: string | null;
   sourceId?: string | null;
+  /** Human-facing request number (e.g. LV-20261021-0001) when available. */
+  requestNumber?: string | null;
 };
 
 export type HrNotifyPayload = {
@@ -52,6 +54,8 @@ export function mapHrNotifyEvent(event: HrNotifyEvent): HrNotifyPayload {
   const staff = (event.staffName ?? "Staff").trim() || "Staff";
   const site = (event.locationName ?? "site").trim() || "site";
   const date = event.workDate ?? "";
+  const number = event.requestNumber?.trim() || "";
+  const numberSuffix = number ? ` (${number})` : "";
   const actionUrl = event.kind.startsWith("correction")
     ? "/people/attendance/corrections"
     : event.kind.startsWith("leave")
@@ -83,31 +87,32 @@ export function mapHrNotifyEvent(event: HrNotifyEvent): HrNotifyPayload {
       severity = "critical";
       break;
     case "correction_submitted":
-      body = `A correction for ${staff}${date ? ` (${date})` : ""} is waiting for review.`;
+      body = `A correction for ${staff}${date ? ` (${date})` : ""}${numberSuffix} is waiting for review.`;
       break;
     case "correction_approved":
-      body = `Your correction for ${staff}${date ? ` on ${date}` : ""} was approved.`;
+      body = `Your correction for ${staff}${date ? ` on ${date}` : ""}${numberSuffix} was approved.`;
       severity = "info";
       break;
     case "correction_rejected":
-      body = `Your correction for ${staff}${date ? ` on ${date}` : ""} was rejected.`;
+      body = `Your correction for ${staff}${date ? ` on ${date}` : ""}${numberSuffix} was rejected.`;
       break;
     case "leave_submitted":
-      body = `${staff} submitted a leave request${date ? ` from ${date}` : ""}. It is waiting for their line manager.`;
+      body = `${staff} submitted leave request${numberSuffix}${date ? ` from ${date}` : ""}. It is waiting for their line manager.`;
       break;
     case "leave_approved":
-      body = `Leave for ${staff}${date ? ` from ${date}` : ""} was approved.`;
+      body = `Leave for ${staff}${numberSuffix}${date ? ` from ${date}` : ""} was approved.`;
       severity = "info";
       break;
     case "leave_rejected":
-      body = `Leave for ${staff}${date ? ` from ${date}` : ""} was rejected.`;
+      body = `Leave for ${staff}${numberSuffix}${date ? ` from ${date}` : ""} was rejected.`;
       break;
   }
 
   const leaveKind = event.kind.startsWith("leave_");
+  const title = number && leaveKind ? `${TITLES[event.kind]} · ${number}` : TITLES[event.kind];
   return {
     category: leaveKind ? HR_LEAVE_NOTIFY_CATEGORY : HR_NOTIFY_CATEGORY,
-    title: TITLES[event.kind],
+    title,
     body,
     severity,
     actionUrl,

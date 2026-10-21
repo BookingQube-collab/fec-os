@@ -14,6 +14,10 @@ import { HrEmbedFrame } from "@/components/hr/hr-embed-frame";
 import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { HrPanel } from "@/components/hr/hr-panel";
 import { HrShell } from "@/components/hr/hr-shell";
+import {
+  LeaveRequestPrintDialog,
+  type LeaveRequestPrintPayload,
+} from "@/components/hr/leave-request-print-form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -66,8 +70,30 @@ export function HrLeaveWorkspace({
   const [recordTo, setRecordTo] = useState("");
   const [recordReason, setRecordReason] = useState("");
   const [recordAck, setRecordAck] = useState(false);
+  const [printPayload, setPrintPayload] = useState<LeaveRequestPrintPayload | null>(null);
+  const [printOpen, setPrintOpen] = useState(false);
   const effectiveRecordStaffId = lockedStaffId || recordStaffId;
   const effectiveBalanceStaffId = lockedStaffId || balanceStaffId;
+
+  type LeaveListRow = Awaited<ReturnType<typeof listLeaveRequests>>[number];
+  const openLeavePrint = (row: LeaveListRow) => {
+    setPrintPayload({
+      requestNumber: row.requestNumber,
+      requestDate: row.createdAt.slice(0, 10),
+      staffName: row.staffName ?? "—",
+      employeeCode: row.employeeCode,
+      department: row.department,
+      jobTitle: row.jobTitle,
+      phone: row.phone,
+      leaveTypeLabel: t(`hr.leave.types.${row.leaveType}`),
+      dateFrom: row.dateFrom,
+      dateTo: row.dateTo,
+      days: row.days,
+      reason: row.reason,
+      status: row.status,
+    });
+    setPrintOpen(true);
+  };
 
   const list = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "leave", status, staffId: lockedStaffId ?? null }),
@@ -284,6 +310,11 @@ export function HrLeaveWorkspace({
                       <div>
                         <p className="font-medium">
                           {row.staffName} · {t(`hr.leave.types.${row.leaveType}`)}
+                          {row.requestNumber ? (
+                            <span className="ms-2 font-mono text-xs font-semibold text-muted-foreground">
+                              {row.requestNumber}
+                            </span>
+                          ) : null}
                         </p>
                         <p className="text-xs text-muted-foreground">
                           {row.employeeCode ?? "—"} · {row.dateFrom} → {row.dateTo} · {row.days} {t("hr.leave.days")}
@@ -304,6 +335,9 @@ export function HrLeaveWorkspace({
                       <Badge variant={row.status === "approved" ? "success" : row.status === "rejected" ? "destructive" : "muted"}>
                         {t(`hr.leave.status.${row.status}`)}
                       </Badge>
+                      <Button size="sm" variant="outline" onClick={() => openLeavePrint(row)}>
+                        {t("hr.leave.print.preview")}
+                      </Button>
                       {row.status === "pending" ? (
                         <>
                           <Button
@@ -539,6 +573,7 @@ export function HrLeaveWorkspace({
           </HrPanel>
           ) : null}
       </HrEmbedFrame>
+      <LeaveRequestPrintDialog open={printOpen} onOpenChange={setPrintOpen} payload={printPayload} />
     </CapabilityGate>
   );
 }

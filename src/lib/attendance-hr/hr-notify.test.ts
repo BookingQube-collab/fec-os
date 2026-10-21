@@ -51,6 +51,17 @@ describe("mapHrNotifyEvent", () => {
     expect(payload.body).toContain("line manager");
     expect(payload.actionUrl).toBe("/hr/me#me-leave-approvals");
   });
+
+  it("includes leave request numbers in title and body when provided", () => {
+    const payload = mapHrNotifyEvent({
+      kind: "leave_submitted",
+      staffName: "Sara",
+      workDate: "2026-09-01",
+      requestNumber: "LV-20260901-0003",
+    });
+    expect(payload.title).toContain("LV-20260901-0003");
+    expect(payload.body).toContain("LV-20260901-0003");
+  });
 });
 
 describe("shouldSendHrNotify", () => {

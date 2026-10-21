@@ -85,6 +85,13 @@ function tableMissing(message: string | undefined): boolean {
   return Boolean(message && /does not exist|schema cache|relation/i.test(message));
 }
 
+async function nextLeaveRequestNumber(context: AuthContext): Promise<string> {
+  const { data, error } = await context.supabase.rpc("generate_leave_request_number");
+  if (!error && typeof data === "string" && data.trim()) return data.trim();
+  const day = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  return `LV-${day}-${crypto.randomUUID().replace(/-/g, "").slice(0, 4).toUpperCase()}`;
+}
+
 function mapLeaveRow(row: Record<string, unknown>) {
   const staff = Array.isArray(row.staff) ? row.staff[0] : row.staff;
   const jobTitle = (staff as { job_title?: string | null } | null)?.job_title ?? null;
@@ -97,6 +104,7 @@ function mapLeaveRow(row: Record<string, unknown>) {
     employeeCode: (staff as { employee_code?: string } | null)?.employee_code ?? null,
     jobTitle,
     department,
+    phone: (staff as { phone?: string | null } | null)?.phone ?? null,
     opsLane,
     leaveType: String(row.leave_type),
     dateFrom: String(row.date_from).slice(0, 10),
@@ -109,6 +117,7 @@ function mapLeaveRow(row: Record<string, unknown>) {
     payrollImpact: Boolean(row.payroll_impact),
     emergencyTreatment: (row.emergency_treatment as string | null) ?? null,
     compassionateScope: (row.compassionate_scope as string | null) ?? null,
+    requestNumber: (row.request_number as string | null) ?? null,
     createdAt: String(row.created_at),
   };
 }
@@ -251,6 +260,7 @@ async function finalizeLeaveApproval(
     leave_type: string;
     date_from: string;
     date_to: string;
+    request_number?: string | null;
     staff?: unknown;
   },
   reviewNote: string | null,
@@ -300,6 +310,7 @@ async function finalizeLeaveApproval(
     workDate: String(existing.date_from).slice(0, 10),
     locationId: (staffRow as { location_id?: string } | null)?.location_id ?? null,
     sourceId: existing.id as string,
+    requestNumber: existing.request_number ?? null,
   });
 
   return { syncedDays: sync.syncedDays };
@@ -377,7 +388,7 @@ export const listLeaveRequests = createAuthenticatedAction(
     let query = leaveDb
       .from("hr_leave_requests")
       .select(
-        "id, staff_id, leave_type, date_from, date_to, days, reason, status, review_note, current_step_role, payroll_impact, emergency_treatment, compassionate_scope, created_at, staff(full_name, employee_code, job_title, department)",
+        "id, staff_id, leave_type, date_from, date_to, days, reason, status, review_note, current_step_role, payroll_impact, emergency_treatment, compassionate_scope, request_number, created_at, staff(full_name, employee_code, phone, job_title, department)",
       )
       .order("created_at", { ascending: false })
       .limit(200);
@@ -672,6 +683,7 @@ export const submitLeaveRequest = createAuthenticatedAction(
       };
     }
 
+    const requestNumber = await nextLeaveRequestNumber(context);
     const { data: row, error } = await context.supabase
       .from("hr_leave_requests")
       .insert({
@@ -692,8 +704,9 @@ export const submitLeaveRequest = createAuthenticatedAction(
         comp_off_balance_id: data.compOffBalanceId ?? null,
         current_step_role: "manager",
         payroll_impact: false,
+        request_number: requestNumber,
       })
-      .select("id")
+      .select("id, request_number")
       .single();
     if (error) throw error;
 
@@ -722,11 +735,13 @@ export const submitLeaveRequest = createAuthenticatedAction(
         workDate: data.dateFrom,
         locationId: staff.location_id,
         sourceId: row.id,
+        requestNumber: (row.request_number as string | null) ?? requestNumber,
       },
       managerUserIds,
     );
     return {
       id: row.id as string,
+      requestNumber: ((row.request_number as string | null) ?? requestNumber) as string,
       days,
       conflicts,
       requiresAck: false as const,
@@ -753,7 +768,7 @@ export const actOnLeaveApproval = createAuthenticatedAction(
     const { data: existing, error: readErr } = await leaveDb
       .from("hr_leave_requests")
       .select(
-        "id, staff_id, leave_type, status, date_from, date_to, current_step_role, staff(full_name, user_id, location_id)",
+        "id, staff_id, leave_type, status, date_from, date_to, current_step_role, request_number, staff(full_name, user_id, location_id)",
       )
       .eq("id", data.leaveId)
       .maybeSingle();
@@ -864,6 +879,7 @@ export const actOnLeaveApproval = createAuthenticatedAction(
         workDate: String(existing.date_from).slice(0, 10),
         locationId: (staffRow as { location_id?: string } | null)?.location_id ?? null,
         sourceId: existing.id as string,
+        requestNumber: (existing.request_number as string | null) ?? null,
       });
       return { ok: true as const, syncedDays: 0, final: true as const };
     }
@@ -924,7 +940,9 @@ export const reviewLeaveRequest = createAuthenticatedAction(
   async (data, context) => {
     const { data: existing, error: readErr } = await context.supabase
       .from("hr_leave_requests")
-      .select("id, staff_id, leave_type, status, date_from, date_to, staff(full_name, user_id, location_id)")
+      .select(
+        "id, staff_id, leave_type, status, date_from, date_to, request_number, staff(full_name, user_id, location_id)",
+      )
       .eq("id", data.id)
       .maybeSingle();
     if (readErr) throw readErr;
@@ -993,6 +1011,7 @@ export const reviewLeaveRequest = createAuthenticatedAction(
         workDate: String(existing.date_from).slice(0, 10),
         locationId: (staffRow as { location_id?: string } | null)?.location_id ?? null,
         sourceId: existing.id as string,
+        requestNumber: (existing.request_number as string | null) ?? null,
       });
       return { ok: true, syncedDays: 0 };
     }
@@ -1102,6 +1121,7 @@ export const recordLeaveForStaff = createAuthenticatedAction(
       };
     }
 
+    const requestNumber = await nextLeaveRequestNumber(context);
     const { data: row, error } = await context.supabase
       .from("hr_leave_requests")
       .insert({
@@ -1115,8 +1135,9 @@ export const recordLeaveForStaff = createAuthenticatedAction(
         created_by: context.userId,
         current_step_role: "hr",
         payroll_impact: Boolean(data.payrollImpact),
+        request_number: requestNumber,
       })
-      .select("id")
+      .select("id, request_number")
       .single();
     if (error) throw error;
 
@@ -1148,6 +1169,7 @@ export const recordLeaveForStaff = createAuthenticatedAction(
 
     return {
       id: row.id as string,
+      requestNumber: ((row.request_number as string | null) ?? requestNumber) as string,
       days,
       conflicts,
       requiresAck: false as const,

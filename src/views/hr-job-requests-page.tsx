@@ -18,6 +18,10 @@ import { HrEmptyState } from "@/components/hr/hr-empty-state";
 import { HrPanel } from "@/components/hr/hr-panel";
 import { HrSection } from "@/components/hr/hr-section";
 import { HrShell } from "@/components/hr/hr-shell";
+import {
+  JobRequestPrintDialog,
+  type JobRequestPrintPayload,
+} from "@/components/hr/job-request-print-form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -240,7 +244,14 @@ export default function HrJobRequestsPage() {
                         onClick={() => setSelectedId(row.id)}
                       >
                         <div className="min-w-0 flex-1">
-                          <p className="truncate font-medium">{row.jobTitle}</p>
+                          <p className="truncate font-medium">
+                            {row.jobTitle}
+                            {row.requestNumber ? (
+                              <span className="ms-2 font-mono text-[11px] text-muted-foreground">
+                                {row.requestNumber}
+                              </span>
+                            ) : null}
+                          </p>
                           <p className="truncate text-xs text-muted-foreground">
                             {[
                               row.locationName,
@@ -348,6 +359,31 @@ function RequestDetail({
   const [overrideReason, setOverrideReason] = useState("");
   const [recruiterUserId, setRecruiterUserId] = useState("");
   const [vacancyReason, setVacancyReason] = useState("");
+  const [printOpen, setPrintOpen] = useState(false);
+
+  const printPayload: JobRequestPrintPayload = {
+    requestNumber: row.requestNumber,
+    requestDate: row.createdAt.slice(0, 10),
+    jobTitle: row.jobTitle,
+    departmentName: row.departmentName,
+    locationName: row.locationName,
+    vacanciesCount: row.vacanciesCount,
+    requestTypeLabel:
+      row.requestType === "replacement" ? t("hr.jobs.typeReplacement") : t("hr.jobs.typeNew"),
+    employmentCategory: row.employmentCategory,
+    priorityLabel: t(`hr.jobs.priorities.${row.priority as HrJobPriority}`, {
+      defaultValue: row.priority,
+    }),
+    requiredJoiningDate: row.requiredJoiningDate,
+    salaryBudgetLabel:
+      canViewSalary && row.salaryBudgetQar != null ? money(row.salaryBudgetQar) : null,
+    experienceYears: row.experienceYears,
+    education: row.education,
+    justification: row.justification,
+    jobDescription: jobRequestVisibleText(row.jobDescription, canViewSalary),
+    skills: jobRequestVisibleText(row.skills, canViewSalary),
+    status: row.status,
+  };
 
   useEffect(() => {
     setComments("");
@@ -433,7 +469,14 @@ function RequestDetail({
   return (
     <HrPanel className="order-1 min-w-0 space-y-4 p-4 lg:order-2">
       <div className="min-w-0 space-y-1">
-        <p className="break-words text-base font-semibold">{row.jobTitle}</p>
+        <p className="break-words text-base font-semibold">
+          {row.jobTitle}
+          {row.requestNumber ? (
+            <span className="ms-2 font-mono text-xs font-semibold text-muted-foreground">
+              {row.requestNumber}
+            </span>
+          ) : null}
+        </p>
         <p className="break-words text-sm text-muted-foreground">
           {[row.locationName, row.departmentName, row.employmentCategory].filter(Boolean).join(" · ")}
         </p>
@@ -444,8 +487,12 @@ function RequestDetail({
           {stepLabel ? <Badge variant="outline">{stepLabel}</Badge> : null}
           <Badge variant="outline">{t(`hr.jobs.priorities.${row.priority as HrJobPriority}`, { defaultValue: row.priority })}</Badge>
           {row.exceedsQuota ? <Badge variant="warning">{t("hr.jobs.exceedsQuota")}</Badge> : null}
+          <Button type="button" size="sm" variant="outline" onClick={() => setPrintOpen(true)}>
+            {t("hr.jobs.print.preview")}
+          </Button>
         </div>
       </div>
+      <JobRequestPrintDialog open={printOpen} onOpenChange={setPrintOpen} payload={printPayload} />
 
       <div className="hr-notice">
         <div className="min-w-0 space-y-2">

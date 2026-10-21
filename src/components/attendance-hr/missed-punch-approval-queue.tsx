@@ -5,6 +5,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
+import {
+  MissedPunchPrintDialog,
+  type MissedPunchPrintPayload,
+} from "@/components/hr/missed-punch-print-form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +28,39 @@ import {
 } from "@/lib/attendance-hr/missed-punch-approval";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
+
+type CorrectionListRow = Awaited<ReturnType<typeof listAttendanceCorrections>>[number];
+
+function toMissedPunchPrintPayload(
+  row: CorrectionListRow,
+  t: (key: string) => string,
+): MissedPunchPrintPayload {
+  const clocks = correctionCardClocks(row.punchType, row.punchAt);
+  const punchLabel =
+    row.punchType === "in"
+      ? t("hr.me.punchIn")
+      : row.punchType === "out"
+        ? t("hr.me.punchOut")
+        : t("hr.missedPunch.print.punchType");
+  return {
+    requestNumber: row.requestNumber,
+    requestDate: row.requestedAt.slice(0, 10),
+    staffName: row.staffName ?? "—",
+    employeeCode: row.employeeCode,
+    department: row.department,
+    jobTitle: row.jobTitle,
+    workDate: row.workDate,
+    punchTypeLabel: punchLabel,
+    punchAtLabel:
+      row.punchType === "in"
+        ? clockText(clocks.punchIn)
+        : row.punchType === "out"
+          ? clockText(clocks.punchOut)
+          : [clockText(clocks.punchIn), clockText(clocks.punchOut)].join(" / "),
+    reason: row.reason,
+    status: row.status,
+  };
+}
 
 function clockText(iso: string | null): string {
   return formatPunchTime12h(iso) || "—";
@@ -57,6 +94,8 @@ export function MissedPunchApprovalQueue({
     queryFn: () => listAttendanceCorrections({ queue: "waiting", actionableOnly }),
     staleTime: STALE.people,
   });
+  const [printPayload, setPrintPayload] = useState<MissedPunchPrintPayload | null>(null);
+  const [printOpen, setPrintOpen] = useState(false);
   const reviewMut = useMutation({
     mutationFn: (input: { id: string; decision: "approved" | "rejected" | "change_required" }) =>
       reviewAttendanceCorrection(input),
@@ -104,6 +143,11 @@ export function MissedPunchApprovalQueue({
                     <div className="min-w-0">
                       <h4 id={`punch-approval-${row.id}-name`} className="hd-approval__name">
                         {name}
+                        {row.requestNumber ? (
+                          <span className="ms-2 font-mono text-xs font-normal text-muted-foreground">
+                            {row.requestNumber}
+                          </span>
+                        ) : null}
                       </h4>
                       {row.employeeCode ? <p className="hd-approval__code">{row.employeeCode}</p> : null}
                     </div>
@@ -160,8 +204,23 @@ export function MissedPunchApprovalQueue({
                       {showChange ? <p className="hd-approval__status hd-approval__status--change">Change required</p> : null}
                     </div>
                   ) : null}
+                  <div className="hd-approval__actions" role="group" aria-label={t("common.actions")}>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="min-h-11"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setPrintPayload(toMissedPunchPrintPayload(row, t));
+                        setPrintOpen(true);
+                      }}
+                    >
+                      {t("hr.missedPunch.print.preview")}
+                    </Button>
                   {showActions ? (
-                    <div className="hd-approval__actions" role="group" aria-label={t("common.actions")}>
+                    <>
                       <Button
                         type="button"
                         size="sm"
@@ -201,14 +260,16 @@ export function MissedPunchApprovalQueue({
                       >
                         Reject
                       </button>
-                    </div>
+                    </>
                   ) : null}
+                  </div>
                 </article>
               </li>
             );
           })}
         </ul>
       )}
+      <MissedPunchPrintDialog open={printOpen} onOpenChange={setPrintOpen} payload={printPayload} />
     </div>
   );
 }
@@ -220,6 +281,8 @@ export function MyMissedPunchRequests() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [punchTime, setPunchTime] = useState("");
   const [reason, setReason] = useState("");
+  const [printPayload, setPrintPayload] = useState<MissedPunchPrintPayload | null>(null);
+  const [printOpen, setPrintOpen] = useState(false);
   const q = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "missed-punch-mine" }),
     queryFn: () => listAttendanceCorrections({ queue: "mine" }),
@@ -257,6 +320,9 @@ export function MyMissedPunchRequests() {
               <span className="min-w-0">
                 {row.workDate ?? "—"}
                 {row.punchType ? ` · ${row.punchType === "in" ? t("hr.me.punchIn") : t("hr.me.punchOut")}` : ""}
+                {row.requestNumber ? (
+                  <span className="ms-1 font-mono text-[11px] text-muted-foreground">{row.requestNumber}</span>
+                ) : null}
                 <span className="mt-0.5 block text-muted-foreground">
                   {t("hr.me.punchIn")} {clockText(clocks.punchIn)} · {t("hr.me.punchOut")} {clockText(clocks.punchOut)}
                 </span>
@@ -273,6 +339,18 @@ export function MyMissedPunchRequests() {
                       : t("hr.me.punchApproved")}
                   </Badge>
                 )}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="min-h-9"
+                  onClick={() => {
+                    setPrintPayload(toMissedPunchPrintPayload(row, t));
+                    setPrintOpen(true);
+                  }}
+                >
+                  {t("hr.missedPunch.print.preview")}
+                </Button>
                 {editable && !editing ? (
                   <Button
                     type="button"
@@ -342,6 +420,7 @@ export function MyMissedPunchRequests() {
           </div>
         );
       })}
+      <MissedPunchPrintDialog open={printOpen} onOpenChange={setPrintOpen} payload={printPayload} />
     </div>
   );
 }

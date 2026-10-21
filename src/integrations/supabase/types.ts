@@ -6046,6 +6046,18 @@ export type Database = {
         Args: never
         Returns: string
       }
+      generate_leave_request_number: {
+        Args: never
+        Returns: string
+      }
+      generate_job_request_number: {
+        Args: never
+        Returns: string
+      }
+      generate_missed_punch_request_number: {
+        Args: never
+        Returns: string
+      }
       generate_maintenance_request_number: {
         Args: never
         Returns: string

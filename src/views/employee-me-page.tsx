@@ -20,6 +20,10 @@ import { EmployeeIssuesList, EmployeeRosterList } from "@/components/hr/employee
 import { SelfCheckCard } from "@/components/hr/self-check-card";
 import { HrShell } from "@/components/hr/hr-shell";
 import {
+  LeaveRequestPrintDialog,
+  type LeaveRequestPrintPayload,
+} from "@/components/hr/leave-request-print-form";
+import {
   useMyAttendance,
   useMyEmployeeProfile,
   useMyIssues,
@@ -174,6 +178,8 @@ export default function EmployeeMePage() {
   const [leaveReason, setLeaveReason] = useState("");
   const [compassionateScope, setCompassionateScope] = useState<"inside_qatar" | "outside_qatar">("inside_qatar");
   const [leaveConflicts, setLeaveConflicts] = useState<LeaveConflict[]>([]);
+  const [leavePrintPayload, setLeavePrintPayload] = useState<LeaveRequestPrintPayload | null>(null);
+  const [leavePrintOpen, setLeavePrintOpen] = useState(false);
   const [installDismissed, setInstallDismissed] = useState(true);
   const [docType, setDocType] = useState<(typeof EMPLOYEE_DOC_TYPES)[number]>("qid");
   const [docFile, setDocFile] = useState<File | null>(null);
@@ -275,7 +281,31 @@ export default function EmployeeMePage() {
         toast.message(t("hr.leave.conflictWarn"));
         return;
       }
-      toast.success(t("hr.leave.submitted"));
+      const number =
+        "requestNumber" in res && typeof res.requestNumber === "string" ? res.requestNumber : null;
+      toast.success(
+        number
+          ? t("hr.leave.submittedWithNumber", { number, defaultValue: `Leave request submitted · ${number}` })
+          : t("hr.leave.submitted"),
+      );
+      if (number && person) {
+        setLeavePrintPayload({
+          requestNumber: number,
+          requestDate: leaveFrom,
+          staffName: person.fullName,
+          employeeCode: person.employeeCode,
+          department: person.department,
+          jobTitle: person.jobTitle,
+          phone: person.phone ?? null,
+          leaveTypeLabel: t(`hr.leave.types.${leaveType}`),
+          dateFrom: leaveFrom,
+          dateTo: leaveTo || leaveFrom,
+          days: res.days,
+          reason: leaveReason || null,
+          status: "pending",
+        });
+        setLeavePrintOpen(true);
+      }
       setLeaveReason("");
       setLeaveConflicts([]);
       void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
@@ -740,7 +770,14 @@ export default function EmployeeMePage() {
                         <li key={row.id}>
                           <div className="hd-row">
                             <div className="min-w-0">
-                              <p className="hd-row__title">{t(`hr.leave.types.${row.leaveType}`)}</p>
+                              <p className="hd-row__title">
+                                {t(`hr.leave.types.${row.leaveType}`)}
+                                {row.requestNumber ? (
+                                  <span className="ms-2 font-mono text-xs text-muted-foreground">
+                                    {row.requestNumber}
+                                  </span>
+                                ) : null}
+                              </p>
                               <p className="hd-row__meta">
                                 {row.dateFrom} → {row.dateTo} · {row.days}d
                               </p>
@@ -749,6 +786,31 @@ export default function EmployeeMePage() {
                               <Badge variant={row.status === "approved" ? "success" : row.status === "rejected" ? "destructive" : "muted"}>
                                 {t(`hr.leave.status.${row.status}`)}
                               </Badge>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  if (!person) return;
+                                  setLeavePrintPayload({
+                                    requestNumber: row.requestNumber,
+                                    requestDate: row.createdAt.slice(0, 10),
+                                    staffName: person.fullName,
+                                    employeeCode: person.employeeCode,
+                                    department: person.department,
+                                    jobTitle: person.jobTitle,
+                                    phone: person.phone ?? null,
+                                    leaveTypeLabel: t(`hr.leave.types.${row.leaveType}`),
+                                    dateFrom: row.dateFrom,
+                                    dateTo: row.dateTo,
+                                    days: row.days,
+                                    reason: row.reason,
+                                    status: row.status,
+                                  });
+                                  setLeavePrintOpen(true);
+                                }}
+                              >
+                                {t("hr.leave.print.preview")}
+                              </Button>
                               {row.status === "pending" ? (
                                 <Button size="sm" variant="ghost" disabled={cancelLeave.isPending} onClick={() => cancelLeave.mutate(row.id)}>
                                   {t("hr.leave.cancel")}
@@ -970,6 +1032,11 @@ export default function EmployeeMePage() {
           </>
         ) : null}
       </div>
+      <LeaveRequestPrintDialog
+        open={leavePrintOpen}
+        onOpenChange={setLeavePrintOpen}
+        payload={leavePrintPayload}
+      />
     </HrShell>
   );
 }
