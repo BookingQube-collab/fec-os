@@ -2,6 +2,7 @@
 
 import { useTranslation } from "react-i18next";
 
+import { E3DocumentFooter, E3DocumentLetterhead } from "@/components/hr/e3-document-letterhead";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -11,7 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { HrOtRateType } from "@/lib/hr-ot";
+import type { HrOtRateType, HrOtStatus } from "@/lib/hr-ot";
 import { cn } from "@/lib/utils";
 
 export type SupervisorOtPrintStaff = {
@@ -32,6 +33,8 @@ export type SupervisorOtPrintPayload = {
   staff: SupervisorOtPrintStaff[];
   /** Form “DATE” field — request day (YYYY-MM-DD). */
   requestDate: string;
+  /** Optional workflow status for preview checkmarks. */
+  status?: HrOtStatus | null;
 };
 
 function formatDisplayDate(iso: string): string {
@@ -68,10 +71,12 @@ function OtRequestSheet({
   staff,
   requestDate,
   staffRequired,
+  status,
 }: {
   staff: SupervisorOtPrintStaff;
   requestDate: string;
   staffRequired: number;
+  status?: HrOtStatus | null;
 }) {
   const { t } = useTranslation();
   const workDates = staff.workDates;
@@ -80,18 +85,18 @@ function OtRequestSheet({
   const totalHours = formatHoursLabel(
     Math.round(staff.requiredHours * workDates.length * 100) / 100,
   );
+  const siteDone =
+    status === "manager_verified" ||
+    status === "ops_approved" ||
+    status === "hr_approved" ||
+    status === "payroll_posted";
+  const hooDone =
+    status === "ops_approved" || status === "hr_approved" || status === "payroll_posted";
+  const hrDone = status === "hr_approved" || status === "payroll_posted";
 
   return (
     <article className="ot-print-sheet mx-auto flex min-h-[260mm] max-w-[210mm] flex-col bg-white px-8 py-7 text-neutral-900 shadow-sm print:min-h-0 print:max-w-none print:shadow-none">
-      <header className="flex items-start justify-between gap-4 border-b-2 border-[#7b2d8e] pb-3">
-        <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[#7b2d8e]">
-            {t("hr.ot.print.company")}
-          </p>
-          <p className="mt-1 text-[10px] text-neutral-500">{t("hr.ot.print.companyTag")}</p>
-        </div>
-        <div className="h-12 w-16 shrink-0 rounded-sm bg-gradient-to-br from-[#f4a7c2] via-[#c465d8] to-[#7b2d8e]" aria-hidden />
-      </header>
+      <E3DocumentLetterhead />
 
       <h1 className="mt-5 text-center text-lg font-bold uppercase tracking-wide text-[#7b2d8e]">
         {t("hr.ot.print.title")}
@@ -148,25 +153,31 @@ function OtRequestSheet({
           <thead>
             <tr>
               <th className="border border-neutral-800 px-2 py-2 font-bold uppercase">
+                {t("hr.ot.print.sigSite")}
+              </th>
+              <th className="border border-neutral-800 px-2 py-2 font-bold uppercase">
+                {t("hr.ot.print.sigHoo")}
+              </th>
+              <th className="border border-neutral-800 px-2 py-2 font-bold uppercase">
                 {t("hr.ot.print.sigHr")}
-              </th>
-              <th className="border border-neutral-800 px-2 py-2 font-bold uppercase">
-                {t("hr.ot.print.sigLineManager")}
-              </th>
-              <th className="border border-neutral-800 px-2 py-2 font-bold uppercase">
-                {t("hr.ot.print.sigGm")}
               </th>
             </tr>
           </thead>
           <tbody>
             <tr>
-              <td className="h-20 border border-neutral-800" />
-              <td className="h-20 border border-neutral-800" />
-              <td className="h-20 border border-neutral-800" />
+              <td className="h-20 border border-neutral-800 align-middle text-lg">
+                {siteDone ? "✓" : ""}
+              </td>
+              <td className="h-20 border border-neutral-800 align-middle text-lg">
+                {hooDone ? "✓" : ""}
+              </td>
+              <td className="h-20 border border-neutral-800 align-middle text-lg">
+                {hrDone ? "✓" : ""}
+              </td>
             </tr>
           </tbody>
         </table>
-        <p className="mt-4 text-center text-[9px] text-neutral-500">{t("hr.ot.print.footer")}</p>
+        <E3DocumentFooter />
       </div>
     </article>
   );
@@ -201,6 +212,7 @@ export function SupervisorOtPrintDialog({
               staff={person}
               requestDate={payload.requestDate}
               staffRequired={payload.staff.length}
+              status={payload.status}
             />
           ))}
         </div>

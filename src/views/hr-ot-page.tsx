@@ -14,6 +14,7 @@ import { HrShell } from "@/components/hr/hr-shell";
 import {
   SupervisorOtPrintDialog,
   type SupervisorOtPrintPayload,
+  type SupervisorOtPrintStaff,
 } from "@/components/hr/supervisor-ot-print-form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,10 +22,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Textarea } from "@/components/ui/textarea";
-import { useUserRoles } from "@/hooks/use-auth";
+import { useAuth, useUserRoles } from "@/hooks/use-auth";
 import { usePermission } from "@/hooks/use-permission";
+import { isHeadOfOperationsTitle } from "@/lib/attendance-hr/missed-punch-approval";
 import {
-  actOnOtClaim,
+  actOnOtRequestBatch,
   getOtMonthlySummaries,
   getOtPolicySnapshot,
   listOtClaims,
@@ -33,11 +35,16 @@ import {
   submitSupervisorOtClaim,
 } from "@/lib/hr-ot.functions";
 import {
+  canEditOtBeforeHoo,
+  groupOtClaimsIntoRequests,
+  HR_OT_HIERARCHY_STEPS,
   HR_OT_RATE_TYPES,
   isSupervisorOtStaffEntryReady,
   partitionSupervisorOtPicks,
   supervisorOtStaffFieldErrors,
   type HrOtRateType,
+  type HrOtStatus,
+  type OtRequestGroup,
   type SupervisorOtStaffFieldError,
 } from "@/lib/hr-ot";
 import { queryKeys } from "@/lib/query-keys";
@@ -538,10 +545,16 @@ function SupervisorOtRequest({ onSubmitted }: { onSubmitted: () => void }) {
                   },
                   {
                     onSuccess: (result) => {
-                      toast.success(t("hr.ot.submittedMany", { count: result.count }));
+                      toast.success(
+                        t("hr.ot.submittedRequest", {
+                          days: result.count,
+                          staff: result.staffCount,
+                        }),
+                      );
                       setPrintPayload({
                         staff: printStaff,
                         requestDate: todayIso(),
+                        status: result.status,
                       });
                       setPrintOpen(true);
                       setShowCardErrors(false);
@@ -567,21 +580,95 @@ function SupervisorOtRequest({ onSubmitted }: { onSubmitted: () => void }) {
   );
 }
 
+function OtHierarchyStepper({ status }: { status: HrOtStatus }) {
+  const { t } = useTranslation();
+  const currentIdx = HR_OT_HIERARCHY_STEPS.indexOf(
+    status as (typeof HR_OT_HIERARCHY_STEPS)[number],
+  );
+  const rejected = status === "rejected" || status === "cancelled";
+  return (
+    <ol className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
+      {HR_OT_HIERARCHY_STEPS.map((step, idx) => {
+        const done = !rejected && currentIdx >= idx;
+        const current = !rejected && currentIdx === idx;
+        return (
+          <li
+            key={step}
+            className={cn(
+              "rounded-full border px-2 py-0.5",
+              done
+                ? "border-[var(--hr-charcoal)] bg-[var(--hr-charcoal)] text-white"
+                : "border-[var(--hr-border)] text-muted-foreground",
+              current && "ring-1 ring-[var(--hr-charcoal)]",
+            )}
+          >
+            {t(`hr.ot.hierarchy.${step}`)}
+          </li>
+        );
+      })}
+      {rejected ? (
+        <li className="rounded-full border border-destructive/40 px-2 py-0.5 text-destructive">
+          {t(`hr.ot.status.${status}`)}
+        </li>
+      ) : null}
+    </ol>
+  );
+}
+
+function printPayloadFromGroup(group: OtRequestGroup): SupervisorOtPrintPayload {
+  const byStaff = new Map<string, SupervisorOtPrintStaff>();
+  for (const claim of group.claims) {
+    const existing = byStaff.get(claim.staffId);
+    const hours = Math.round((claim.claimedMinutes / 60) * 100) / 100;
+    if (existing) {
+      if (!existing.workDates.includes(claim.workDate)) existing.workDates.push(claim.workDate);
+      existing.workDates.sort();
+      continue;
+    }
+    byStaff.set(claim.staffId, {
+      id: claim.staffId,
+      fullName: claim.staffName ?? "—",
+      employeeCode: claim.employeeCode ?? null,
+      phone: claim.phone ?? null,
+      department: claim.department ?? null,
+      jobTitle: claim.jobTitle ?? null,
+      workDates: [claim.workDate],
+      requiredHours: hours,
+      purpose: claim.purpose ?? "",
+      rateType: claim.rateType,
+    });
+  }
+  return {
+    staff: [...byStaff.values()],
+    requestDate: (group.submittedAt ?? todayIso()).slice(0, 10),
+    status: group.status,
+  };
+}
+
 export default function HrOtPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
+  const { profile, user } = useAuth();
   const canHrApprove = usePermission("hr.ot.approve");
+  const canHooApprove = isHeadOfOperationsTitle(profile?.job_title);
   const [status, setStatus] = useState<"queue" | "hr_approved" | "payroll_posted" | "all">("queue");
   const [month, setMonth] = useState(currentMonth);
   const [groupBy, setGroupBy] = useState<"employee" | "department" | "employment_type" | "location">(
     "employee",
   );
+  const [previewPayload, setPreviewPayload] = useState<SupervisorOtPrintPayload | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const list = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "ot", status }),
     queryFn: () => listOtClaims({ status }),
     staleTime: STALE.people,
   });
+
+  const requestGroups = useMemo(
+    () => groupOtClaimsIntoRequests(list.data ?? []),
+    [list.data],
+  );
 
   const summaries = useQuery({
     queryKey: queryKeys.people.attendanceHr({ view: "ot-summary", month, groupBy }),
@@ -599,20 +686,29 @@ export default function HrOtPage() {
     void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
   };
 
-  const act = useMutation({
-    mutationFn: actOnOtClaim,
+  const actBatch = useMutation({
+    mutationFn: actOnOtRequestBatch,
     onSuccess: () => {
       toast.success(t("hr.ot.updated"));
       invalidate();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(userFacingActionError(e)),
   });
+
+  const runBatchAction = (
+    group: OtRequestGroup,
+    action: "verify" | "ops_approve" | "approve" | "reject" | "cancel" | "payroll_posted",
+  ) => {
+    const batchId = group.requestBatchId ?? group.claims[0]?.id;
+    if (!batchId) return;
+    actBatch.mutate({ requestBatchId: batchId, action });
+  };
 
   const filters = useMemo(() => {
     const chips: Array<{ value: "queue" | "hr_approved" | "payroll_posted" | "all"; label: string }> = [
       { value: "queue", label: t("hr.ot.queue") },
     ];
-    if (canHrApprove) {
+    if (canHrApprove || canHooApprove) {
       chips.push(
         { value: "hr_approved", label: t("hr.ot.status.hr_approved") },
         { value: "payroll_posted", label: t("hr.ot.status.payroll_posted") },
@@ -620,7 +716,7 @@ export default function HrOtPage() {
     }
     chips.push({ value: "all", label: t("hr.ot.status.all") });
     return chips;
-  }, [canHrApprove, t]);
+  }, [canHrApprove, canHooApprove, t]);
 
   return (
     <CapabilityGate
@@ -672,91 +768,155 @@ export default function HrOtPage() {
 
           <HrPanel delay={1}>
             <div className="space-y-2 p-4 sm:p-5">
-              {(list.data ?? []).length === 0 ? (
+              {requestGroups.length === 0 ? (
                 <HrEmptyState message={t("hr.ot.empty")} icon={Timer} />
               ) : (
-                (list.data ?? []).map((row) => (
-                  <div key={row.id} className="hr-list-row">
-                    <div>
-                      <p className="font-medium">
-                        {row.staffName} · {row.workDate} · {t(`hr.ot.rateTypes.${row.rateType}`)}
-                      </p>
-                      {row.claimSource === "supervisor" ? (
-                        <p className="text-xs text-muted-foreground">
-                          {row.locationName ?? "—"} · {t("hr.ot.sourceSupervisor")}
-                          {row.contractWorkingDays ? ` · ${row.contractWorkingDays}d` : ""}
-                          {row.purpose ? ` · ${row.purpose}` : ""}
+                requestGroups.map((group) => {
+                  const rateType = group.claims[0]?.rateType ?? "weekday";
+                  const isSubmitter = Boolean(user?.id && group.submittedBy === user.id);
+                  const canPreview =
+                    canHooApprove ||
+                    canHrApprove ||
+                    isSubmitter ||
+                    group.status === "ops_approved" ||
+                    group.status === "hr_approved" ||
+                    group.status === "payroll_posted";
+                  return (
+                    <div key={group.key} className="hr-list-row items-start">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium">
+                          {group.staffNames.join(", ") || t("hr.ot.requestFallback")}
+                          <span className="text-muted-foreground">
+                            {" "}
+                            · {group.workDates.join(", ")} · {t(`hr.ot.rateTypes.${rateType}`)}
+                          </span>
                         </p>
-                      ) : (
                         <p className="text-xs text-muted-foreground">
-                          {row.locationName ?? "—"} · {t("hr.ot.scheduled")}:{" "}
-                          {row.scheduledIn ? new Date(row.scheduledIn).toLocaleTimeString() : "—"}–
-                          {row.scheduledOut ? new Date(row.scheduledOut).toLocaleTimeString() : "—"} ·{" "}
-                          {t("hr.ot.attendance")}:{" "}
-                          {row.actualIn ? new Date(row.actualIn).toLocaleTimeString() : "—"}–
-                          {row.actualOut ? new Date(row.actualOut).toLocaleTimeString() : "—"}
+                          {group.claimSource === "supervisor"
+                            ? t("hr.ot.sourceSupervisor")
+                            : t("hr.ot.attendancePath")}
+                          {group.claims[0]?.locationName ? ` · ${group.claims[0].locationName}` : ""}
+                          {group.claims[0]?.contractWorkingDays
+                            ? ` · ${group.claims[0].contractWorkingDays}d`
+                            : ""}
+                          {group.purpose ? ` · ${group.purpose}` : ""}
                         </p>
-                      )}
-                      <p className="text-xs text-muted-foreground">
-                        {t("hr.ot.eligible")}: {fmtMins(row.eligibleMinutes)} · {t("hr.ot.claimed")}:{" "}
-                        {fmtMins(row.claimedMinutes)} · {t("hr.ot.approved")}:{" "}
-                        {fmtMins(row.approvedMinutes)} · ×{row.rateMultiplier} · {row.amountQar.toFixed(2)}{" "}
-                        QAR
-                      </p>
+                        <p className="text-xs text-muted-foreground">
+                          {t("hr.ot.oneRequestMeta", {
+                            days: group.workDates.length,
+                            staff: group.staffNames.length || 1,
+                          })}{" "}
+                          · {t("hr.ot.claimed")}: {fmtMins(group.totalClaimedMinutes)} ·{" "}
+                          {t("hr.ot.approved")}: {fmtMins(group.totalApprovedMinutes)} ·{" "}
+                          {group.totalAmountQar.toFixed(2)} QAR
+                        </p>
+                        {group.missingBasicPay ? (
+                          <p className="mt-1 text-xs text-amber-800 dark:text-amber-300">
+                            {t("hr.ot.missingBasicNote")}
+                          </p>
+                        ) : null}
+                        <OtHierarchyStepper status={group.status} />
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="secondary">{t(`hr.ot.status.${group.status}`)}</Badge>
+                        {canPreview ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setPreviewPayload(printPayloadFromGroup(group));
+                              setPreviewOpen(true);
+                            }}
+                          >
+                            {t("hr.ot.preview")}
+                          </Button>
+                        ) : null}
+                        {group.status === "submitted" ? (
+                          <>
+                            <Button
+                              size="sm"
+                              disabled={actBatch.isPending}
+                              onClick={() => runBatchAction(group, "verify")}
+                            >
+                              {t("hr.ot.verify")}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              disabled={actBatch.isPending}
+                              onClick={() => runBatchAction(group, "reject")}
+                            >
+                              {t("hr.ot.reject")}
+                            </Button>
+                          </>
+                        ) : null}
+                        {group.status === "manager_verified" && canHooApprove ? (
+                          <>
+                            <Button
+                              size="sm"
+                              disabled={actBatch.isPending}
+                              onClick={() => runBatchAction(group, "ops_approve")}
+                            >
+                              {t("hr.ot.opsApprove")}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              disabled={actBatch.isPending}
+                              onClick={() => runBatchAction(group, "reject")}
+                            >
+                              {t("hr.ot.reject")}
+                            </Button>
+                          </>
+                        ) : null}
+                        {group.status === "ops_approved" && canHrApprove ? (
+                          <>
+                            <Button
+                              size="sm"
+                              disabled={actBatch.isPending}
+                              onClick={() => runBatchAction(group, "approve")}
+                            >
+                              {t("hr.ot.approve")}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              disabled={actBatch.isPending}
+                              onClick={() => runBatchAction(group, "reject")}
+                            >
+                              {t("hr.ot.reject")}
+                            </Button>
+                          </>
+                        ) : null}
+                        {group.status === "hr_approved" && canHrApprove ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={actBatch.isPending}
+                            onClick={() => runBatchAction(group, "payroll_posted")}
+                          >
+                            {t("hr.ot.markPayroll")}
+                          </Button>
+                        ) : null}
+                        {isSubmitter && canEditOtBeforeHoo(group.status) ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={actBatch.isPending}
+                            onClick={() => runBatchAction(group, "cancel")}
+                          >
+                            {t("hr.ot.cancel")}
+                          </Button>
+                        ) : null}
+                        {isSubmitter && !canEditOtBeforeHoo(group.status) ? (
+                          <span className="text-[10px] text-muted-foreground">
+                            {t("hr.ot.editLocked")}
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant="secondary">{t(`hr.ot.status.${row.status}`)}</Badge>
-                      {row.status === "submitted" ? (
-                        <>
-                          <Button
-                            size="sm"
-                            disabled={act.isPending}
-                            onClick={() => act.mutate({ claimId: row.id, action: "verify" })}
-                          >
-                            {t("hr.ot.verify")}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            disabled={act.isPending}
-                            onClick={() => act.mutate({ claimId: row.id, action: "reject" })}
-                          >
-                            {t("hr.ot.reject")}
-                          </Button>
-                        </>
-                      ) : null}
-                      {row.status === "manager_verified" && canHrApprove ? (
-                        <>
-                          <Button
-                            size="sm"
-                            disabled={act.isPending}
-                            onClick={() => act.mutate({ claimId: row.id, action: "approve" })}
-                          >
-                            {t("hr.ot.approve")}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            disabled={act.isPending}
-                            onClick={() => act.mutate({ claimId: row.id, action: "reject" })}
-                          >
-                            {t("hr.ot.reject")}
-                          </Button>
-                        </>
-                      ) : null}
-                      {row.status === "hr_approved" && canHrApprove ? (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={act.isPending}
-                          onClick={() => act.mutate({ claimId: row.id, action: "payroll_posted" })}
-                        >
-                          {t("hr.ot.markPayroll")}
-                        </Button>
-                      ) : null}
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </HrPanel>
@@ -809,6 +969,12 @@ export default function HrOtPage() {
             </div>
           </HrPanel>
         </HrSection>
+
+        <SupervisorOtPrintDialog
+          open={previewOpen}
+          onOpenChange={setPreviewOpen}
+          payload={previewPayload}
+        />
       </HrShell>
     </CapabilityGate>
   );

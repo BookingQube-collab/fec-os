@@ -7,14 +7,17 @@ import {
   assertCanMarkPayrollPosted,
   assertMinClaimableMinutes,
   assertOtTransition,
+  canEditOtBeforeHoo,
   canMarkPayrollPosted,
   canTransitionOt,
   computeOtAmountQar,
+  groupOtClaimsIntoRequests,
   hourlyRateFromPay,
   isOtEligible,
   isSupervisorOtContract,
   mergeSupervisorOtTeamStaffIds,
   otApprovalQueueStatuses,
+  otMissingBasicPayNote,
   otPayDaysPerMonth,
   isSupervisorOtStaffEntryReady,
   partitionSupervisorOtPicks,
@@ -34,11 +37,13 @@ describe("OT claim transitions", () => {
     expect(canTransitionOt("submitted", "hr_approved", "employee")).toBe(false);
   });
 
-  it("walks site supervisor verify → HR approve → payroll_posted", () => {
+  it("walks site supervisor → HOO → HR → payroll_posted", () => {
     expect(canTransitionOt("submitted", "manager_verified", "manager")).toBe(true);
-    expect(canTransitionOt("manager_verified", "hr_approved", "hr")).toBe(true);
+    expect(canTransitionOt("manager_verified", "ops_approved", "ops")).toBe(true);
+    expect(canTransitionOt("ops_approved", "hr_approved", "hr")).toBe(true);
     expect(canTransitionOt("hr_approved", "payroll_posted", "hr")).toBe(true);
     expect(canTransitionOt("hr_approved", "payroll_posted", "payroll")).toBe(true);
+    expect(canTransitionOt("manager_verified", "hr_approved", "hr")).toBe(false);
   });
 
   it("blocks illegal transitions", () => {
@@ -46,9 +51,77 @@ describe("OT claim transitions", () => {
     expect(() => assertOtTransition("rejected", "submitted", "employee")).toThrow(/cannot move/);
   });
 
-  it("queues submitted for site supervisors and both steps for HR", () => {
-    expect(otApprovalQueueStatuses(false)).toEqual(["submitted"]);
-    expect(otApprovalQueueStatuses(true)).toEqual(["submitted", "manager_verified"]);
+  it("queues by site / HOO / HR capability", () => {
+    expect(
+      otApprovalQueueStatuses({ canSiteVerify: true, canOpsApprove: false, canHrApprove: false }),
+    ).toEqual(["submitted"]);
+    expect(
+      otApprovalQueueStatuses({ canSiteVerify: false, canOpsApprove: true, canHrApprove: false }),
+    ).toEqual(["manager_verified"]);
+    expect(
+      otApprovalQueueStatuses({ canSiteVerify: false, canOpsApprove: false, canHrApprove: true }),
+    ).toEqual(["ops_approved"]);
+    expect(
+      otApprovalQueueStatuses({ canSiteVerify: true, canOpsApprove: true, canHrApprove: true }),
+    ).toEqual(["submitted", "manager_verified", "ops_approved"]);
+  });
+
+  it("locks edits after Head of Operations approves", () => {
+    expect(canEditOtBeforeHoo("submitted")).toBe(true);
+    expect(canEditOtBeforeHoo("manager_verified")).toBe(true);
+    expect(canEditOtBeforeHoo("ops_approved")).toBe(false);
+    expect(canEditOtBeforeHoo("hr_approved")).toBe(false);
+  });
+});
+
+describe("OT request grouping", () => {
+  it("groups multi-date claims under one batch id", () => {
+    const groups = groupOtClaimsIntoRequests([
+      {
+        id: "c1",
+        requestBatchId: "b1",
+        staffId: "s1",
+        staffName: "Pabitra Acharya",
+        workDate: "2026-10-17",
+        eligibleMinutes: 1080,
+        claimedMinutes: 1080,
+        approvedMinutes: 1080,
+        rateType: "weekday",
+        rateMultiplier: 1.25,
+        amountQar: 0,
+        basicQarSnapshot: null,
+        status: "manager_verified",
+        purpose: "Kids Driving School",
+        claimSource: "supervisor",
+      },
+      {
+        id: "c2",
+        requestBatchId: "b1",
+        staffId: "s1",
+        staffName: "Pabitra Acharya",
+        workDate: "2026-10-05",
+        eligibleMinutes: 1080,
+        claimedMinutes: 1080,
+        approvedMinutes: 1080,
+        rateType: "weekday",
+        rateMultiplier: 1.25,
+        amountQar: 0,
+        basicQarSnapshot: null,
+        status: "manager_verified",
+        purpose: "Kids Driving School",
+        claimSource: "supervisor",
+      },
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.workDates).toEqual(["2026-10-05", "2026-10-17"]);
+    expect(groups[0]!.totalClaimedMinutes).toBe(2160);
+    expect(groups[0]!.missingBasicPay).toBe(true);
+  });
+
+  it("flags missing basic only when amount is zero without a basic snapshot", () => {
+    expect(otMissingBasicPayNote({ amountQar: 0, basicQarSnapshot: null })).toBe(true);
+    expect(otMissingBasicPayNote({ amountQar: 50, basicQarSnapshot: null })).toBe(false);
+    expect(otMissingBasicPayNote({ amountQar: 0, basicQarSnapshot: 2000 })).toBe(false);
   });
 });
 

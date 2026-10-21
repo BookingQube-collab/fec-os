@@ -11,6 +11,7 @@ export const HR_OT_STATUSES = [
   "draft",
   "submitted",
   "manager_verified",
+  "ops_approved",
   "hr_approved",
   "payroll_posted",
   "rejected",
@@ -21,12 +22,12 @@ export type HrOtStatus = (typeof HR_OT_STATUSES)[number];
 export const HR_OT_ROUNDING = ["down", "up", "minutes"] as const;
 export type HrOtRounding = (typeof HR_OT_ROUNDING)[number];
 
-export type HrOtActor = "employee" | "manager" | "hr" | "payroll";
+export type HrOtActor = "employee" | "manager" | "ops" | "hr" | "payroll";
 
 /**
- * Approval chain (no new status enum):
- *   submitted → manager_verified (site supervisor / line manager) → hr_approved → payroll_posted
- * `manager_verified` is the site-supervisor step ("site supervisor approved").
+ * Approval chain:
+ *   submitted → manager_verified (site supervisor) → ops_approved (Head of Operations)
+ *   → hr_approved → payroll_posted
  */
 const TRANSITIONS: Record<HrOtStatus, Partial<Record<HrOtActor, HrOtStatus[]>>> = {
   draft: {
@@ -39,6 +40,11 @@ const TRANSITIONS: Record<HrOtStatus, Partial<Record<HrOtActor, HrOtStatus[]>>> 
     hr: ["manager_verified", "rejected", "cancelled"],
   },
   manager_verified: {
+    employee: ["cancelled"],
+    ops: ["ops_approved", "rejected"],
+    hr: ["ops_approved", "rejected"],
+  },
+  ops_approved: {
     hr: ["hr_approved", "rejected"],
   },
   hr_approved: {
@@ -51,12 +57,156 @@ const TRANSITIONS: Record<HrOtStatus, Partial<Record<HrOtActor, HrOtStatus[]>>> 
 };
 
 /**
- * Approval queue statuses.
- * Site supervisors (verify only) act on `submitted`.
- * HR (approve) also sees `manager_verified` waiting for HR approve.
+ * Approval queue statuses by actor capability.
+ * Site supervisors act on `submitted`; HOO on `manager_verified`; HR on `ops_approved`.
  */
-export function otApprovalQueueStatuses(canApprove: boolean): readonly HrOtStatus[] {
-  return canApprove ? ["submitted", "manager_verified"] : ["submitted"];
+export function otApprovalQueueStatuses(input: {
+  canSiteVerify: boolean;
+  canOpsApprove: boolean;
+  canHrApprove: boolean;
+}): readonly HrOtStatus[] {
+  const statuses: HrOtStatus[] = [];
+  if (input.canSiteVerify) statuses.push("submitted");
+  if (input.canOpsApprove) statuses.push("manager_verified");
+  if (input.canHrApprove) statuses.push("ops_approved");
+  return [...new Set(statuses)];
+}
+
+/** Submitter may edit the request only before Head of Operations approves. */
+export function canEditOtBeforeHoo(status: HrOtStatus): boolean {
+  return status === "draft" || status === "submitted" || status === "manager_verified";
+}
+
+/** Soft note when amount is 0 because basic salary was missing at claim time. */
+export function otMissingBasicPayNote(input: {
+  amountQar: number;
+  basicQarSnapshot?: number | null;
+}): boolean {
+  if (input.amountQar > 0) return false;
+  const basic = Number(input.basicQarSnapshot);
+  return !Number.isFinite(basic) || basic <= 0;
+}
+
+/** Hierarchy steps for status badges / steppers (excludes terminal reject/cancel). */
+export const HR_OT_HIERARCHY_STEPS = [
+  "submitted",
+  "manager_verified",
+  "ops_approved",
+  "hr_approved",
+  "payroll_posted",
+] as const;
+
+export type HrOtHierarchyStep = (typeof HR_OT_HIERARCHY_STEPS)[number];
+
+export function otHierarchyStepIndex(status: HrOtStatus): number {
+  if (status === "draft") return -1;
+  if (status === "rejected" || status === "cancelled") return -1;
+  return HR_OT_HIERARCHY_STEPS.indexOf(status as HrOtHierarchyStep);
+}
+
+export type OtClaimListRow = {
+  id: string;
+  requestBatchId?: string | null;
+  staffId: string;
+  staffName?: string | null;
+  employeeCode?: string | null;
+  phone?: string | null;
+  jobTitle?: string | null;
+  department?: string | null;
+  locationName?: string | null;
+  workDate: string;
+  eligibleMinutes: number;
+  claimedMinutes: number;
+  approvedMinutes: number | null;
+  rateType: HrOtRateType;
+  rateMultiplier: number;
+  amountQar: number;
+  basicQarSnapshot?: number | null;
+  status: HrOtStatus;
+  purpose?: string | null;
+  claimSource?: string | null;
+  contractWorkingDays?: number | null;
+  submittedBy?: string | null;
+  submittedAt?: string | null;
+  createdAt?: string;
+};
+
+export type OtRequestGroup = {
+  /** Batch id, or claim id when unbatched. */
+  key: string;
+  requestBatchId: string | null;
+  status: HrOtStatus;
+  claimSource: string | null;
+  purpose: string | null;
+  submittedBy: string | null;
+  submittedAt: string | null;
+  claims: OtClaimListRow[];
+  staffNames: string[];
+  workDates: string[];
+  totalClaimedMinutes: number;
+  totalApprovedMinutes: number;
+  totalAmountQar: number;
+  missingBasicPay: boolean;
+};
+
+/** Group day-rows into one OT request card (batch id, else each claim alone). */
+export function groupOtClaimsIntoRequests(
+  rows: readonly OtClaimListRow[],
+): OtRequestGroup[] {
+  const map = new Map<string, OtClaimListRow[]>();
+  for (const row of rows) {
+    const key = row.requestBatchId || row.id;
+    const list = map.get(key) ?? [];
+    list.push(row);
+    map.set(key, list);
+  }
+  const groups: OtRequestGroup[] = [];
+  for (const [key, claims] of map) {
+    const sorted = [...claims].sort((a, b) => a.workDate.localeCompare(b.workDate));
+    const first = sorted[0]!;
+    const staffNames = [
+      ...new Set(sorted.map((c) => c.staffName).filter((n): n is string => Boolean(n))),
+    ];
+    const workDates = [...new Set(sorted.map((c) => c.workDate))].sort();
+    const totalClaimedMinutes = sorted.reduce((sum, c) => sum + Math.max(0, c.claimedMinutes), 0);
+    const totalApprovedMinutes = sorted.reduce(
+      (sum, c) => sum + Math.max(0, c.approvedMinutes ?? c.claimedMinutes),
+      0,
+    );
+    const totalAmountQar =
+      Math.round(sorted.reduce((sum, c) => sum + Math.max(0, c.amountQar), 0) * 100) / 100;
+    const missingBasicPay = sorted.some((c) =>
+      otMissingBasicPayNote({ amountQar: c.amountQar, basicQarSnapshot: c.basicQarSnapshot }),
+    );
+    // Prefer the furthest-along active status in the batch (all should match).
+    const status = sorted.reduce<HrOtStatus>((acc, c) => {
+      const ai = otHierarchyStepIndex(acc);
+      const bi = otHierarchyStepIndex(c.status);
+      if (bi > ai) return c.status;
+      return acc;
+    }, first.status);
+    groups.push({
+      key,
+      requestBatchId: first.requestBatchId ?? null,
+      status,
+      claimSource: first.claimSource ?? null,
+      purpose: first.purpose ?? null,
+      submittedBy: first.submittedBy ?? null,
+      submittedAt: first.submittedAt ?? null,
+      claims: sorted,
+      staffNames,
+      workDates,
+      totalClaimedMinutes,
+      totalApprovedMinutes,
+      totalAmountQar,
+      missingBasicPay,
+    });
+  }
+  return groups.sort((a, b) => {
+    const aDate = a.submittedAt ?? a.workDates[a.workDates.length - 1] ?? "";
+    const bDate = b.submittedAt ?? b.workDates[b.workDates.length - 1] ?? "";
+    return bDate.localeCompare(aDate);
+  });
 }
 
 export function canTransitionOt(from: HrOtStatus, to: HrOtStatus, actor: HrOtActor): boolean {
