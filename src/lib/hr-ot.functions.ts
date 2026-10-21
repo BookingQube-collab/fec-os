@@ -15,9 +15,11 @@ import {
   hourlyRateFromPay,
   HR_OT_RATE_TYPES,
   HR_OT_STATUSES,
+  isOtAmountRefreshableStatus,
   isOtEligible,
   isSupervisorOtContract,
   normalizeSupervisorOtDays,
+  OT_DEFAULT_HOURS_PER_DAY,
   otApprovalQueueStatuses,
   otPayDaysPerMonth,
   resolveEligibleOtMinutes,
@@ -25,6 +27,7 @@ import {
   resolveStaffOtPayFromCompensation,
   resolveStaffOtPayFromSalaryHistory,
   shouldRefreshOtAmountForMissingBasic,
+  shouldRefreshOtAmountForStalePay,
   supervisorOtClaimSlots,
   supervisorOtContractMessage,
   type HrOtActor,
@@ -316,6 +319,10 @@ function mapClaimRow(row: Record<string, unknown>) {
     amountQar: Number(row.amount_qar ?? 0),
     basicQarSnapshot:
       row.basic_qar_snapshot == null ? null : Number(row.basic_qar_snapshot),
+    hoursPerDaySnapshot:
+      row.hours_per_day_snapshot == null ? null : Number(row.hours_per_day_snapshot),
+    daysPerMonthSnapshot:
+      row.days_per_month_snapshot == null ? null : Number(row.days_per_month_snapshot),
     status: String(row.status) as HrOtStatus,
     evidencePath: (row.evidence_path as string | null) ?? null,
     notes: (row.notes as string | null) ?? null,
@@ -420,28 +427,22 @@ async function staffPay(staffId: string): Promise<StaffOtPay> {
 
 /**
  * Persist recalculated amounts for pending claims that were frozen at 0 QAR
- * because basic was missing (or invisible under salary RLS) when submitted.
+ * (missing basic) or computed with a stale hours/days divisor (e.g. 8 → 9).
  */
 async function refreshPendingOtAmountsMissingBasic<T extends ReturnType<typeof mapClaimRow>>(
   claims: T[],
   policy: Record<string, unknown>,
 ): Promise<T[]> {
-  const needs = claims.filter((c) =>
-    shouldRefreshOtAmountForMissingBasic({
-      amountQar: c.amountQar,
-      basicQarSnapshot: c.basicQarSnapshot,
-      status: c.status,
-    }),
-  );
-  if (needs.length === 0) return claims;
+  const candidates = claims.filter((c) => isOtAmountRefreshableStatus(c.status));
+  if (candidates.length === 0) return claims;
 
   const payByStaff = new Map<string, StaffOtPay>();
-  for (const staffId of new Set(needs.map((c) => c.staffId))) {
+  for (const staffId of new Set(candidates.map((c) => c.staffId))) {
     payByStaff.set(staffId, await staffPay(staffId));
   }
 
   const updatedById = new Map<string, T>();
-  for (const claim of needs) {
+  for (const claim of candidates) {
     const pay = payByStaff.get(claim.staffId);
     if (!pay) continue;
     const hasPay =
@@ -460,24 +461,48 @@ async function refreshPendingOtAmountsMissingBasic<T extends ReturnType<typeof m
     );
     if (amountQar <= 0) continue;
 
+    const { hoursPerDay, daysPerMonth } = otPayDivisors(policy, claim.contractWorkingDays);
+    const missingBasic = shouldRefreshOtAmountForMissingBasic({
+      amountQar: claim.amountQar,
+      basicQarSnapshot: claim.basicQarSnapshot,
+      status: claim.status,
+    });
+    const stalePay = shouldRefreshOtAmountForStalePay({
+      status: claim.status,
+      amountQar: claim.amountQar,
+      expectedAmountQar: amountQar,
+      hoursPerDaySnapshot: claim.hoursPerDaySnapshot,
+      expectedHoursPerDay: hoursPerDay,
+      daysPerMonthSnapshot: claim.daysPerMonthSnapshot,
+      expectedDaysPerMonth: daysPerMonth,
+    });
+    if (!missingBasic && !stalePay) continue;
+
     const snap = otPaySnapshot(pay, policy, claim.contractWorkingDays);
-    const { error } = await supabaseAdmin
+    let query = supabaseAdmin
       .from("hr_ot_claims")
       .update({
         amount_qar: amountQar,
         ...snap,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", claim.id)
-      .eq("amount_qar", 0);
+      .eq("id", claim.id);
+    // Zero-amount rows were locked with `.eq("amount_qar", 0)` so concurrent
+    // refreshes do not clobber a later write; stale non-zero rows match by id.
+    if (missingBasic && claim.amountQar === 0) {
+      query = query.eq("amount_qar", 0);
+    }
+    const { error } = await query;
     if (error) {
-      console.warn("[ot] refresh amount for missing basic failed", claim.id, error.message);
+      console.warn("[ot] refresh pending OT amount failed", claim.id, error.message);
       continue;
     }
     updatedById.set(claim.id, {
       ...claim,
       amountQar,
       basicQarSnapshot: snap.basic_qar_snapshot,
+      hoursPerDaySnapshot: snap.hours_per_day_snapshot,
+      daysPerMonthSnapshot: snap.days_per_month_snapshot,
     });
   }
 
@@ -506,8 +531,8 @@ async function appendApproval(
 
 function otPayDivisors(policy: Record<string, unknown>, contractWorkingDays?: number | null) {
   return {
-    // Policy standard working day (usually 8). Not staff.expected_hours / roster length.
-    hoursPerDay: policyNumber(policy.hours_per_day, 8),
+    // Policy standard working day (default 9). Not staff.expected_hours / roster length.
+    hoursPerDay: policyNumber(policy.hours_per_day, OT_DEFAULT_HOURS_PER_DAY),
     daysPerMonth: otPayDaysPerMonth({
       contractWorkingDays,
       policyDaysPerMonth: policyNumber(policy.days_per_month, 30),
@@ -553,7 +578,7 @@ function otPaySnapshot(
 }
 
 const CLAIM_SELECT =
-  "id, request_batch_id, request_number, staff_id, location_id, work_date, attendance_daily_id, scheduled_in, scheduled_out, actual_in, actual_out, eligible_minutes, claimed_minutes, approved_minutes, rate_type, rate_multiplier, amount_qar, basic_qar_snapshot, status, evidence_path, notes, purpose, claim_source, contract_working_days, submitted_by, submitted_at, verified_by, verified_at, verified_signer_name, ops_approved_by, ops_approved_at, ops_approved_signer_name, gm_approved_by, gm_approved_at, gm_approved_signer_name, approved_by, approved_at, approved_signer_name, created_at, staff(full_name, employee_code, phone, job_title, user_id, location_id, employment_type, department), locations(id, code, name)";
+  "id, request_batch_id, request_number, staff_id, location_id, work_date, attendance_daily_id, scheduled_in, scheduled_out, actual_in, actual_out, eligible_minutes, claimed_minutes, approved_minutes, rate_type, rate_multiplier, amount_qar, basic_qar_snapshot, hours_per_day_snapshot, days_per_month_snapshot, status, evidence_path, notes, purpose, claim_source, contract_working_days, submitted_by, submitted_at, verified_by, verified_at, verified_signer_name, ops_approved_by, ops_approved_at, ops_approved_signer_name, gm_approved_by, gm_approved_at, gm_approved_signer_name, approved_by, approved_at, approved_signer_name, created_at, staff(full_name, employee_code, phone, job_title, user_id, location_id, employment_type, department), locations(id, code, name)";
 
 async function nextOtRequestNumber(context: AuthContext): Promise<string> {
   const { data, error } = await context.supabase.rpc("generate_ot_request_number");

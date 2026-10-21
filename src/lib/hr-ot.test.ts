@@ -29,12 +29,14 @@ import {
   resolveStaffOtPayFromCompensation,
   resolveStaffOtPayFromSalaryHistory,
   shouldRefreshOtAmountForMissingBasic,
+  shouldRefreshOtAmountForStalePay,
   sumSupervisorOtDayHours,
   supervisorOtClaimSlots,
   supervisorOtContractMessage,
   supervisorOtStaffFieldErrors,
   resolveOtRateMultiplier,
   roundOtMinutes,
+  OT_DEFAULT_HOURS_PER_DAY,
 } from "./hr-ot";
 import { HR_POLICY_DEFAULTS } from "./hr-policy";
 
@@ -406,21 +408,21 @@ describe("OT pay from compensation / history", () => {
     });
   });
 
-  it("computes weekday OT from Qatar basic for 26-day supervisor contracts", () => {
-    // basic 1000 / 26 / 8 = 4.8077…; 36h × 1.25 ≈ 216.35
+  it("computes weekday OT from Qatar basic for 26-day × 9h supervisor contracts", () => {
+    // basic 1000 / (26 × 9) = 4.2735…; 18h × 1.25 ≈ 96.15
     const hourly = hourlyRateFromPay({
       monthlyBasicQar: 1000,
-      hoursPerDay: 8,
+      hoursPerDay: 9,
       daysPerMonth: 26,
     });
-    expect(hourly).toBeCloseTo(1000 / 26 / 8, 5);
+    expect(hourly).toBeCloseTo(1000 / 26 / 9, 5);
     expect(
       computeOtAmountQar({
-        approvedMinutes: 36 * 60,
+        approvedMinutes: 18 * 60,
         rateMultiplier: 1.25,
         hourlyRateQar: hourly,
       }),
-    ).toBe(Math.round(36 * hourly * 1.25 * 100) / 100);
+    ).toBe(96.15);
   });
 });
 
@@ -486,25 +488,32 @@ describe("OT rounding and rates", () => {
 });
 
 describe("OT amount", () => {
+  it("defaults hours/day divisor to 9 (site permanent day)", () => {
+    expect(OT_DEFAULT_HOURS_PER_DAY).toBe(9);
+    expect(HR_POLICY_DEFAULTS.ot.hours_per_day).toBe(9);
+    expect(hourlyRateFromPay({ monthlyBasicQar: 2700 })).toBe(10); // 2700/30/9
+  });
+
   it("computes QAR from hourly × hours × multiplier", () => {
-    const hourly = hourlyRateFromPay({ monthlyBasicQar: 4800, hoursPerDay: 8, daysPerMonth: 30 });
-    expect(hourly).toBe(20); // 4800/30/8
+    // 5400 / 30 / 9 = 20 hourly
+    const hourly = hourlyRateFromPay({ monthlyBasicQar: 5400, hoursPerDay: 9, daysPerMonth: 30 });
+    expect(hourly).toBe(20);
     expect(
       computeOtAmountQar({ approvedMinutes: 120, rateMultiplier: 1.25, hourlyRateQar: hourly }),
     ).toBe(50);
   });
 
-  it("uses Qatar basic/30/hoursPerDay × rate × OT hours (weekday 1.25)", () => {
-    // basic 3000 / 30 / 8 = 12.5 hourly; 4 OT hours × 1.25 = 62.5
-    const hourly = hourlyRateFromPay({ monthlyBasicQar: 3000, hoursPerDay: 8, daysPerMonth: 30 });
-    expect(hourly).toBe(12.5);
+  it("uses Qatar basic/30/9 × rate × OT hours (weekday 1.25) for non-contract staff", () => {
+    // basic 3000 / 30 / 9 = 11.111… hourly; 4 OT hours × 1.25 ≈ 55.56
+    const hourly = hourlyRateFromPay({ monthlyBasicQar: 3000, hoursPerDay: 9, daysPerMonth: 30 });
+    expect(hourly).toBeCloseTo(3000 / 30 / 9, 5);
     expect(
       computeOtAmountQar({ approvedMinutes: 240, rateMultiplier: 1.25, hourlyRateQar: hourly }),
-    ).toBe(62.5);
+    ).toBe(55.56);
   });
 
   it("swaps weekday 1.25 for off/holiday/Eid multipliers", () => {
-    const hourly = hourlyRateFromPay({ monthlyBasicQar: 4800, hoursPerDay: 8, daysPerMonth: 30 });
+    const hourly = hourlyRateFromPay({ monthlyBasicQar: 5400, hoursPerDay: 9, daysPerMonth: 30 });
     expect(
       computeOtAmountQar({ approvedMinutes: 60, rateMultiplier: 1.5, hourlyRateQar: hourly }),
     ).toBe(30);
@@ -514,11 +523,47 @@ describe("OT amount", () => {
   });
 
   it("does not inflate OT when package total is larger than basic", () => {
-    const fromBasic = hourlyRateFromPay({ monthlyBasicQar: 2000, hoursPerDay: 8, daysPerMonth: 30 });
-    const fromPackage = hourlyRateFromPay({ monthlyBasicQar: 2800, hoursPerDay: 8, daysPerMonth: 30 });
-    expect(fromBasic).toBeCloseTo(8.333, 3);
-    expect(fromPackage).toBeCloseTo(11.667, 3);
+    const fromBasic = hourlyRateFromPay({ monthlyBasicQar: 2000, hoursPerDay: 9, daysPerMonth: 30 });
+    const fromPackage = hourlyRateFromPay({ monthlyBasicQar: 2800, hoursPerDay: 9, daysPerMonth: 30 });
+    expect(fromBasic).toBeCloseTo(2000 / 30 / 9, 5);
+    expect(fromPackage).toBeCloseTo(2800 / 30 / 9, 5);
     expect(fromBasic).toBeLessThan(fromPackage);
+  });
+
+  it("refreshes pending rows when hours divisor or amount is stale", () => {
+    expect(
+      shouldRefreshOtAmountForStalePay({
+        status: "submitted",
+        amountQar: 108.17, // old 26×8 result for basic 1000 / 18h × 1.25
+        expectedAmountQar: 96.15, // new 26×9
+        hoursPerDaySnapshot: 8,
+        expectedHoursPerDay: 9,
+        daysPerMonthSnapshot: 26,
+        expectedDaysPerMonth: 26,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRefreshOtAmountForStalePay({
+        status: "payroll_posted",
+        amountQar: 108.17,
+        expectedAmountQar: 96.15,
+        hoursPerDaySnapshot: 8,
+        expectedHoursPerDay: 9,
+        daysPerMonthSnapshot: 26,
+        expectedDaysPerMonth: 26,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRefreshOtAmountForStalePay({
+        status: "submitted",
+        amountQar: 96.15,
+        expectedAmountQar: 96.15,
+        hoursPerDaySnapshot: 9,
+        expectedHoursPerDay: 9,
+        daysPerMonthSnapshot: 26,
+        expectedDaysPerMonth: 26,
+      }),
+    ).toBe(false);
   });
 });
 
@@ -531,12 +576,13 @@ describe("26 and 28 day supervisor contracts", () => {
     expect(supervisorOtContractMessage(26)).toMatch(/supervisor/i);
   });
 
-  it("uses the contract as the monthly pay divisor", () => {
+  it("uses the contract as the monthly pay divisor with 9h day", () => {
     expect(otPayDaysPerMonth({ contractWorkingDays: 26, policyDaysPerMonth: 30 })).toBe(26);
     expect(otPayDaysPerMonth({ contractWorkingDays: 28, policyDaysPerMonth: 30 })).toBe(28);
     expect(otPayDaysPerMonth({ contractWorkingDays: null, policyDaysPerMonth: 30 })).toBe(30);
-    const hourly = hourlyRateFromPay({ monthlyBasicQar: 5200, hoursPerDay: 8, daysPerMonth: 26 });
-    expect(hourly).toBe(25);
+    // basic 5265 / 26 / 9 = 22.5
+    const hourly = hourlyRateFromPay({ monthlyBasicQar: 5265, hoursPerDay: 9, daysPerMonth: 26 });
+    expect(hourly).toBe(22.5);
   });
 });
 

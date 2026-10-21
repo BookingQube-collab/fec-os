@@ -149,6 +149,11 @@ export function otMissingBasicPayNote(input: {
   return !Number.isFinite(basic) || basic <= 0;
 }
 
+/** Statuses that may still have amount_qar rewritten (not terminal / posted). */
+export function isOtAmountRefreshableStatus(status: HrOtStatus): boolean {
+  return status !== "rejected" && status !== "cancelled" && status !== "payroll_posted";
+}
+
 /**
  * Pending claims frozen at 0 QAR with no basic snapshot should refresh once
  * compensation basic is available (list load or later approval steps).
@@ -159,17 +164,33 @@ export function shouldRefreshOtAmountForMissingBasic(input: {
   basicQarSnapshot?: number | null;
   status: HrOtStatus;
 }): boolean {
-  if (
-    input.status === "rejected" ||
-    input.status === "cancelled" ||
-    input.status === "payroll_posted"
-  ) {
-    return false;
-  }
+  if (!isOtAmountRefreshableStatus(input.status)) return false;
   return otMissingBasicPayNote({
     amountQar: input.amountQar,
     basicQarSnapshot: input.basicQarSnapshot,
   });
+}
+
+/**
+ * Pending claims whose stored amount/divisor no longer matches recomputed pay
+ * (e.g. hours_per_day policy moved 8 → 9) should refresh on list load.
+ */
+export function shouldRefreshOtAmountForStalePay(input: {
+  status: HrOtStatus;
+  amountQar: number;
+  expectedAmountQar: number;
+  hoursPerDaySnapshot?: number | null;
+  expectedHoursPerDay: number;
+  daysPerMonthSnapshot?: number | null;
+  expectedDaysPerMonth: number;
+}): boolean {
+  if (!isOtAmountRefreshableStatus(input.status)) return false;
+  if (Math.abs(input.amountQar - input.expectedAmountQar) >= 0.01) return true;
+  const snapH = Number(input.hoursPerDaySnapshot);
+  if (Number.isFinite(snapH) && snapH > 0 && snapH !== input.expectedHoursPerDay) return true;
+  const snapD = Number(input.daysPerMonthSnapshot);
+  if (Number.isFinite(snapD) && snapD > 0 && snapD !== input.expectedDaysPerMonth) return true;
+  return false;
 }
 
 export type StaffOtPayParts = {
@@ -290,6 +311,8 @@ export type OtClaimListRow = {
   rateMultiplier: number;
   amountQar: number;
   basicQarSnapshot?: number | null;
+  hoursPerDaySnapshot?: number | null;
+  daysPerMonthSnapshot?: number | null;
   status: HrOtStatus;
   purpose?: string | null;
   claimSource?: string | null;
@@ -726,11 +749,14 @@ export function isOtEligible(input: {
   return cats.includes(cat) || cats.includes("*") || cats.includes("all");
 }
 
+/** Default OT hours/day divisor — aligns with site permanent 9h, not unpaid-break net 8. */
+export const OT_DEFAULT_HOURS_PER_DAY = 9;
+
 /**
  * Hourly rate from monthly **basic** (never package total) or daily rate.
  *
  * Qatar OT: `basic / daysPerMonth / hoursPerDay * rateMultiplier * otHours`.
- * - hoursPerDay: OT policy `hours_per_day` (default 8). Not roster expected_hours —
+ * - hoursPerDay: OT policy `hours_per_day` (default 9). Not roster expected_hours —
  *   the policy standard working day is the divisor HR uses for OT.
  * - daysPerMonth: 30 from policy by default; 26/28-day supervisor contracts use the contract.
  */
@@ -740,7 +766,8 @@ export function hourlyRateFromPay(input: {
   hoursPerDay?: number;
   daysPerMonth?: number;
 }): number {
-  const hours = input.hoursPerDay && input.hoursPerDay > 0 ? input.hoursPerDay : 8;
+  const hours =
+    input.hoursPerDay && input.hoursPerDay > 0 ? input.hoursPerDay : OT_DEFAULT_HOURS_PER_DAY;
   const days = input.daysPerMonth && input.daysPerMonth > 0 ? input.daysPerMonth : 30;
   const monthly = Number(input.monthlyBasicQar);
   if (Number.isFinite(monthly) && monthly > 0) return monthly / days / hours;
