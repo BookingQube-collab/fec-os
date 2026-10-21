@@ -217,26 +217,26 @@ export function EmployeeAttendanceCalendar({
   return (
     <div className="space-y-4">
       <NeumorphicCard className="p-3 sm:p-5">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 sm:mb-4 sm:gap-3">
-          <div className="flex items-center gap-0.5 sm:gap-1">
+        <div className="mb-3 flex items-center gap-2 sm:mb-4 sm:gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-0.5 sm:gap-1">
             <Button
               type="button"
               variant="ghost"
               size="icon"
-              className="h-9 w-9 rounded-full"
+              className="h-9 w-9 shrink-0 rounded-full"
               onClick={() => onYearMonthChange(addMonths(yearMonth, -1))}
               aria-label={t("hr.me.rosterPrevMonth")}
             >
               <ChevronLeft className="h-4 w-4 rtl:rotate-180" />
             </Button>
-            <h3 className="min-w-[9rem] text-center text-base font-semibold text-foreground sm:min-w-[10rem] sm:text-lg">
+            <h3 className="min-w-0 flex-1 truncate text-center text-base font-semibold text-foreground sm:text-lg">
               {monthTitle}
             </h3>
             <Button
               type="button"
               variant="ghost"
               size="icon"
-              className="h-9 w-9 rounded-full"
+              className="h-9 w-9 shrink-0 rounded-full"
               onClick={() => onYearMonthChange(addMonths(yearMonth, 1))}
               aria-label={t("hr.me.rosterNextMonth")}
             >
@@ -247,7 +247,7 @@ export function EmployeeAttendanceCalendar({
             type="button"
             variant="outline"
             size="sm"
-            className="rounded-full"
+            className="shrink-0 rounded-full"
             onClick={() => {
               onYearMonthChange(todayYmd.slice(0, 7));
               onSelectDate(todayYmd);
