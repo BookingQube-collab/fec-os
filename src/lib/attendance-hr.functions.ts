@@ -330,9 +330,14 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
       .select("id, location_id, status, employment_type")
       .is("deleted_at", null);
     staffQuery = teamIds ? staffQuery.in("id", teamIds) : staffQuery.limit(5000);
+    // Bound the "latest punch" probe — unscoped ORDER BY punch_at DESC LIMIT 1
+    // otherwise walks the full logs table under RLS (was a ~700ms outlier).
+    const latestPunchFloor = new Date();
+    latestPunchFloor.setUTCDate(latestPunchFloor.getUTCDate() - 180);
     let latestPunchQ = readDb
       .from("attendance_logs")
       .select("attendance_date, punch_at")
+      .gte("punch_at", latestPunchFloor.toISOString())
       .order("punch_at", { ascending: false })
       .limit(1);
     if (teamIds) latestPunchQ = latestPunchQ.in("staff_id", teamIds);
@@ -989,6 +994,7 @@ export const getAttendanceHrPunches = createAuthenticatedAction(
   }),
   async (data, context) => {
     if (data.locationId) await assertSite(context, data.locationId);
+    // punch_at range + ORDER BY uses idx_attendance_logs_punch_at (was ~700ms seq scan).
     let q = context.supabase
       .from("attendance_logs")
       .select("id, location_id, device_id, staff_id, biometric_user_id, punch_at, punch_type, source, probable_duplicate, excluded_from_calc, attendance_date, device_user_name")

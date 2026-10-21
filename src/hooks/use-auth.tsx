@@ -13,9 +13,14 @@ import {
   type AuthProfile,
 } from "@/lib/auth-session";
 import { listCapabilityGrants } from "@/lib/admin.functions";
-import { setActiveCapabilityGrants, toGrantMap } from "@/lib/rbac-grants";
+import {
+  setActiveCapabilityGrants,
+  toGrantMap,
+  type CapabilityGrantRow,
+} from "@/lib/rbac-grants";
 import { supabase } from "@/integrations/supabase/client";
 import { queryKeys } from "@/lib/query-keys";
+import { STALE } from "@/lib/query-client";
 import { canOpenPeopleDirectory, peopleDirectoryShowsSalary } from "@/lib/people-directory-access";
 import { canAmendShiftRoster, type AppRole, type RoleAssignment } from "@/lib/rbac";
 
@@ -62,16 +67,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   /** Tracks uid across auth events — effect closure must not read stale React state. */
   const userIdRef = useRef<string | null>(null);
 
-  const hydrateCapabilityGrants = async () => {
+  const applyCapabilityGrants = (rows: CapabilityGrantRow[]) => {
+    setActiveCapabilityGrants(toGrantMap(rows));
+    queryClient.setQueryData(queryKeys.admin.capabilityGrants(), rows, {
+      updatedAt: Date.now(),
+    });
+    setGrantsVersion((v) => v + 1);
+  };
+
+  /** Prefer session-bundled / React Query cache; only hit listCapabilityGrants when stale. */
+  const hydrateCapabilityGrants = async (opts?: { force?: boolean; fromSession?: CapabilityGrantRow[] }) => {
+    if (!opts?.force && opts?.fromSession) {
+      applyCapabilityGrants(opts.fromSession);
+      return;
+    }
+    if (!opts?.force) {
+      const state = queryClient.getQueryState<CapabilityGrantRow[]>(queryKeys.admin.capabilityGrants());
+      const cached = state?.data;
+      if (cached && state.dataUpdatedAt && Date.now() - state.dataUpdatedAt < STALE.roles) {
+        setActiveCapabilityGrants(toGrantMap(cached));
+        setGrantsVersion((v) => v + 1);
+        return;
+      }
+    }
     try {
       const rows = await listCapabilityGrants();
-      setActiveCapabilityGrants(toGrantMap(rows));
-      queryClient.setQueryData(queryKeys.admin.capabilityGrants(), rows);
-      setGrantsVersion((v) => v + 1);
+      applyCapabilityGrants(rows);
     } catch (error) {
       console.warn("[auth] Failed to load capability grants", error);
-      setActiveCapabilityGrants(toGrantMap([]));
-      setGrantsVersion((v) => v + 1);
+      applyCapabilityGrants([]);
     }
   };
 
@@ -99,7 +123,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setProfile(data.profile);
           setRoles(data.roles);
           setRolesSettled(true);
-          await hydrateCapabilityGrants();
+          await hydrateCapabilityGrants(
+            data.capabilityGrants ? { fromSession: data.capabilityGrants } : undefined,
+          );
           return;
         } catch (error) {
           lastError = error;
@@ -161,7 +187,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setRolesSettled(false);
         void loadUserData(uid).finally(finishInitialLoad);
       } else if (applyUserData(uid)) {
-        // Same-user SIGNED_IN: keep roles, skip grant churn. INITIAL_SESSION still hydrates grants.
+        // Same-user SIGNED_IN: keep roles. INITIAL_SESSION reuses React Query grants
+        // when fresh (STALE.roles) instead of another role_capability_grants SELECT.
         if (event === "INITIAL_SESSION") {
           void hydrateCapabilityGrants().finally(finishInitialLoad);
         } else {
@@ -245,7 +272,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const refreshCapabilityGrants = async () => {
-    await hydrateCapabilityGrants();
+    await hydrateCapabilityGrants({ force: true });
   };
 
   return (

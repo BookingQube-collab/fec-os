@@ -32,6 +32,11 @@ type StaffRow = {
 const STAFF_SELECT =
   "id, job_title, staff_role, department, status, employment_type, employee_code, full_name";
 
+/** Warm-instance reuse across server actions (React cache is per-request only). */
+const PROCESS_TTL_MS = 60_000;
+const processCache = new Map<string, { at: number; row: LinkedStaffRecord | null }>();
+const processInflight = new Map<string, Promise<LinkedStaffRecord | null>>();
+
 function mapStaffRow(row: StaffRow): LinkedStaffRecord {
   const raw = row.job_title;
   const title = typeof raw === "string" ? raw.trim() : "";
@@ -50,16 +55,7 @@ function mapStaffRow(row: StaffRow): LinkedStaffRecord {
   };
 }
 
-/**
- * Newest non-deleted staff row for this login.
- * Prefer staff.user_id. When that is missing (test login desynced from the
- * live staff row — e.g. mary.supervisor@fec.test vs srsupervisor@fec.qa),
- * fall back through auth email, profile employee_code/qid, then unique name.
- *
- * Request-scoped via React cache(): attendance/roster hot paths call this
- * several times (listing scope, locations, chart) — one lookup per action.
- */
-export const loadLinkedStaffRecord = cache(async (userId: string): Promise<LinkedStaffRecord | null> => {
+async function lookupLinkedStaffRecord(userId: string): Promise<LinkedStaffRecord | null> {
   const byUser = await supabaseAdmin
     .from("staff")
     .select(STAFF_SELECT)
@@ -139,6 +135,36 @@ export const loadLinkedStaffRecord = cache(async (userId: string): Promise<Linke
   }
 
   return null;
+}
+
+/**
+ * Newest non-deleted staff row for this login.
+ * Prefer staff.user_id. When that is missing (test login desynced from the
+ * live staff row — e.g. mary.supervisor@fec.test vs srsupervisor@fec.qa),
+ * fall back through auth email, profile employee_code/qid, then unique name.
+ *
+ * Request-scoped via React cache(); process TTL reuses across actions on a
+ * warm instance (authorize + session + inbox all called this every request).
+ */
+export const loadLinkedStaffRecord = cache(async (userId: string): Promise<LinkedStaffRecord | null> => {
+  const hit = processCache.get(userId);
+  if (hit && Date.now() - hit.at < PROCESS_TTL_MS) {
+    return hit.row;
+  }
+
+  const existing = processInflight.get(userId);
+  if (existing) return existing;
+
+  const task = lookupLinkedStaffRecord(userId)
+    .then((row) => {
+      processCache.set(userId, { at: Date.now(), row });
+      return row;
+    })
+    .finally(() => {
+      processInflight.delete(userId);
+    });
+  processInflight.set(userId, task);
+  return task;
 });
 
 /**

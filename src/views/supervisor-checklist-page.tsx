@@ -102,7 +102,7 @@ function TodayChecklist() {
     queryKey: ["supervisor-checklists-today", { locationId, date: TODAY() }],
     queryFn: () => getTodaysSupervisorChecklists({ locationId: locationId!, date: TODAY() }),
     enabled: !!locationId,
-    refetchInterval: 15_000,
+    refetchInterval: 30_000,
   });
 
   if (!locationId) {

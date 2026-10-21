@@ -31,7 +31,8 @@ function EscalationsPage() {
 
   const rulesQ = useQuery({ queryKey: ["esc-rules"], queryFn: () => listEscalationRules() });
   const locsQ = useSites();
-  const activeQ = useQuery({ queryKey: ["esc-active"], queryFn: () => listActiveEscalations(), refetchInterval: 30000 });
+  // Realtime channel below is the primary refresh; poll is a safety net only.
+  const activeQ = useQuery({ queryKey: ["esc-active"], queryFn: () => listActiveEscalations(), refetchInterval: 60_000 });
 
   useEffect(() => {
     const ch = supabase

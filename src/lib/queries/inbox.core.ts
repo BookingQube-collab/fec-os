@@ -35,13 +35,9 @@ async function settled<T>(promise: Promise<T>, fallback: T): Promise<T> {
 }
 
 async function currentStaffId(context: AuthContext): Promise<string | null> {
-  const { data } = await context.supabase
-    .from("staff")
-    .select("id")
-    .eq("user_id", context.userId)
-    .is("deleted_at", null)
-    .maybeSingle();
-  return data?.id ?? null;
+  const { loadLinkedStaffRecord } = await import("@/lib/linked-staff-job-title.server");
+  const linked = await loadLinkedStaffRecord(context.userId).catch(() => null);
+  return linked?.id ?? null;
 }
 
 async function fetchPersisted(context: AuthContext): Promise<InboxItem[]> {

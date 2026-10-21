@@ -12,7 +12,9 @@ import {
 import {
   ensureServerCapabilityGrants,
   invalidateServerCapabilityGrantsCache,
+  loadCapabilityGrantRows,
 } from "@/lib/server/capability-grants";
+import type { CapabilityGrantRow } from "@/lib/rbac-grants";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { loginReportingTeam } from "@/lib/reporting-chain";
 import { loadDirectReportStaffIds } from "@/lib/reporting-manager-access.server";
@@ -148,12 +150,10 @@ export const revokeRole = createAuthenticatedAction(
 const CapabilityKey = z.string().min(1).max(120);
 
 export const listCapabilityGrants = createAuthenticatedActionNoInput(
-  async () => {
-    const { data, error } = await supabaseAdmin
-      .from("role_capability_grants")
-      .select("role, capability, allowed");
-    if (error) throw error;
-    return (data ?? []) as Array<{ role: AppRole; capability: string; allowed: boolean }>;
+  async (): Promise<CapabilityGrantRow[]> => {
+    // Shares process TTL with requireCapability — avoids a second PostgREST
+    // round-trip on every AuthProvider hydrate / Roles page remount.
+    return loadCapabilityGrantRows();
   },
   { auth: { requireRole: true } },
 );

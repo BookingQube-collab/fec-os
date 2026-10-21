@@ -19,6 +19,7 @@ import { usePermission } from "@/hooks/use-permission";
 import { useAuth } from "@/hooks/use-auth";
 import { listCapabilityGrants, setRoleCapabilityGrant } from "@/lib/admin.functions";
 import { listCatalogNavPages } from "@/lib/nav-config";
+import { STALE } from "@/lib/query-client";
 import { queryKeys } from "@/lib/query-keys";
 import {
   CAPABILITIES,
@@ -120,6 +121,7 @@ function AdminRolesView() {
   const grantsQuery = useQuery({
     queryKey: queryKeys.admin.capabilityGrants(),
     queryFn: () => listCapabilityGrants(),
+    staleTime: STALE.roles,
   });
 
   const grants: CapabilityGrantMap = useMemo(

@@ -35,7 +35,7 @@ function InstancePage() {
   const { data, isLoading } = useQuery({
     queryKey: ["task-instance", id],
     queryFn: () => getTaskInstance({ id }),
-    refetchInterval: 10_000,
+    refetchInterval: 30_000,
   });
   const submitMut = useMutation({
     mutationFn: () => submitTaskInstance({ id }),

@@ -2,7 +2,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
+import type { CapabilityGrantRow } from "@/lib/rbac-grants";
 import type { AuthContext } from "@/lib/server/auth";
+import { loadCapabilityGrantRows } from "@/lib/server/capability-grants";
 import type { RoleAssignment } from "@/lib/rbac";
 import { loadReportsToHeadOfOperations } from "@/lib/site-ops-access.server";
 
@@ -23,6 +25,8 @@ export interface AuthSessionPayload {
     reports_to_head_of_operations: boolean;
   } | null;
   roles: RoleAssignment[];
+  /** DB capability overrides — bundled so AuthProvider skips a second grants fetch. */
+  capabilityGrants: CapabilityGrantRow[];
 }
 
 type ProfileRow = AuthSessionPayload["profile"];
@@ -85,8 +89,9 @@ async function loadProfileAndRoles(
 export async function fetchAuthSession(context: AuthContext): Promise<AuthSessionPayload> {
   const email = typeof context.claims.email === "string" ? context.claims.email : null;
   // Job title does not depend on the profile row. Run it with the role lookup so
-  // the shell gate is not stuck behind a second staff round trip.
-  const [{ profile, roles }, linked, reportsToHeadOfOperations] = await Promise.all([
+  // the shell gate is not stuck behind a second staff round trip. Grants share
+  // the process cache used by requireCapability.
+  const [{ profile, roles }, linked, reportsToHeadOfOperations, capabilityGrants] = await Promise.all([
     loadProfileAndRoles(context.supabase, context.userId),
     loadLinkedStaffRecord(context.userId).catch((error: unknown) => {
       console.warn("[auth/session] staff job title lookup failed", error);
@@ -95,6 +100,10 @@ export async function fetchAuthSession(context: AuthContext): Promise<AuthSessio
     loadReportsToHeadOfOperations(context.userId).catch((error: unknown) => {
       console.warn("[auth/session] HoO reporting lookup failed", error);
       return false;
+    }),
+    loadCapabilityGrantRows().catch((error: unknown) => {
+      console.warn("[auth/session] capability grants lookup failed", error);
+      return [] as CapabilityGrantRow[];
     }),
   ]);
   const employeeCode = linked?.employeeCode ?? profile?.employee_code ?? null;
@@ -112,5 +121,6 @@ export async function fetchAuthSession(context: AuthContext): Promise<AuthSessio
         }
       : null,
     roles,
+    capabilityGrants,
   };
 }

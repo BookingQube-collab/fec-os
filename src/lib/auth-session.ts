@@ -1,6 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 
 import type { RoleAssignment } from "@/lib/rbac";
+import type { CapabilityGrantRow } from "@/lib/rbac-grants";
 import { queryKeys } from "@/lib/query-keys";
 
 export interface AuthProfile {
@@ -25,6 +26,8 @@ export interface AuthSessionPayload {
   user: { id: string; email?: string | null } | null;
   profile: AuthProfile | null;
   roles: RoleAssignment[];
+  /** Present on fresh /api/auth/session responses; older caches may omit. */
+  capabilityGrants?: CapabilityGrantRow[];
 }
 
 const AUTH_STALE_MS = 10 * 60_000;
