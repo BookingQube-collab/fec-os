@@ -24,6 +24,12 @@ export type CorrectionApprovalView = {
 export type ApprovalDirectory = {
   /** Set only when the reporting manager has a login. Empty means derive from the site. */
   reportingManagerUserIdByStaffId: ReadonlyMap<string, string>;
+  /**
+   * Nearest Venue / Site / Sr. Site supervisor up the reporting chain who has a login.
+   * Manager-step first approval prefers this over a Team Lead / non-site direct manager
+   * so Ashfaq (Venue Supervisor) sees Ma luz / Marissa / Wahaj crew requests first.
+   */
+  siteSupervisorManagerUserIdByStaffId: ReadonlyMap<string, string>;
   branchGmUserIdsByLocationId: ReadonlyMap<string, readonly string[]>;
   siteSupervisorUserIdsByLocationId: ReadonlyMap<string, readonly string[]>;
   headOfOperationsUserIds: readonly string[];
@@ -318,8 +324,37 @@ export function lineManagerUserIds(
 }
 
 /**
- * First approver is the requester's direct reporting manager.
- * When that person has no login, other site supervisors can take the step.
+ * Walk `reportingManagerStaffIdByStaffId` from `staffId` and return the nearest
+ * Venue / Site / Sr. Site supervisor login. Team leads and other non-site titles are skipped.
+ */
+export function nearestSiteSupervisorUserId(input: {
+  staffId: string;
+  reportingManagerStaffIdByStaffId: ReadonlyMap<string, string | null | undefined>;
+  managerByStaffId: ReadonlyMap<
+    string,
+    { userId: string | null; jobTitle: string | null; staffRole: string | null }
+  >;
+}): string | null {
+  let cursor: string | null = input.staffId;
+  const seen = new Set<string>();
+  for (let depth = 0; depth < 25 && cursor; depth += 1) {
+    if (seen.has(cursor)) break;
+    seen.add(cursor);
+    const managerId = input.reportingManagerStaffIdByStaffId.get(cursor) ?? null;
+    if (!managerId) break;
+    const manager = input.managerByStaffId.get(managerId);
+    if (manager && isSiteSupervisorTitle(manager.jobTitle, manager.staffRole) && manager.userId) {
+      return manager.userId;
+    }
+    cursor = managerId;
+  }
+  return null;
+}
+
+/**
+ * First approver is the nearest site / venue supervisor up the requester's reporting
+ * chain (Ashfaq for crew under Ma luz / Marissa / Wahaj). Falls back to the named
+ * direct manager, then other site supervisors at the location.
  * The requester is never the approver, and this step does not fall through to the CEO.
  */
 export function requesterLineManagerUserIds(
@@ -333,10 +368,31 @@ export function requesterLineManagerUserIds(
 ): string[] {
   const lookupId = args.requesterStaffId ?? args.staffId;
   if (lookupId) {
+    const siteSupervisor = directory.siteSupervisorManagerUserIdByStaffId.get(lookupId);
+    if (siteSupervisor && siteSupervisor !== args.requestedBy) return [siteSupervisor];
     const named = directory.reportingManagerUserIdByStaffId.get(lookupId);
     if (named && named !== args.requestedBy) return [named];
   }
   return lineManagerUserIds(directory, args.locationId, lookupId).filter((id) => id !== args.requestedBy);
+}
+
+/**
+ * Venue / Site supervisors may first-approve manager-step corrections for anyone in
+ * their supervisor OT team (org chart, or managed-venue fallback when the chart is empty)
+ * even when the named direct manager is a Team Lead without a walk to them.
+ */
+export function canSiteSupervisorActOnTeamCorrection(input: {
+  userId: string;
+  teamStaffIds: readonly string[];
+  row: CorrectionApprovalView;
+}): boolean {
+  if (input.row.status !== "pending" || input.row.currentStepRole !== "manager") return false;
+  if (input.userId === input.row.requestedBy) return false;
+  if (!input.teamStaffIds.length) return false;
+  const team = new Set(input.teamStaffIds);
+  if (input.row.staffId && team.has(input.row.staffId)) return true;
+  if (input.row.requesterStaffId && team.has(input.row.requesterStaffId)) return true;
+  return false;
 }
 
 export function approverUserIdsForStep(
@@ -413,6 +469,17 @@ export function canUserActOnCorrection(
   }).includes(userId);
 }
 
+export function canUserActOnCorrectionWithTeam(
+  directory: ApprovalDirectory,
+  userId: string,
+  row: CorrectionApprovalView,
+  teamStaffIds?: readonly string[] | null,
+): boolean {
+  if (canUserActOnCorrection(directory, userId, row)) return true;
+  if (!teamStaffIds?.length) return false;
+  return canSiteSupervisorActOnTeamCorrection({ userId, teamStaffIds, row });
+}
+
 export function correctionVisibleToUser(args: {
   queue: MissedPunchQueue;
   userId: string;
@@ -423,9 +490,11 @@ export function correctionVisibleToUser(args: {
   row: CorrectionApprovalView;
   /** CEO may open supervisor and operations steps without becoming the approver. */
   observeExecutiveSteps?: boolean;
+  /** Org-chart / venue team for site supervisors (same loader as supervisor OT). */
+  teamStaffIds?: readonly string[] | null;
 }): boolean {
   if (args.queue === "mine") return args.row.requestedBy === args.userId;
-  if (canUserActOnCorrection(args.directory, args.userId, args.row)) return true;
+  if (canUserActOnCorrectionWithTeam(args.directory, args.userId, args.row, args.teamStaffIds)) return true;
   if (
     args.observeExecutiveSteps &&
     args.row.status === "pending" &&

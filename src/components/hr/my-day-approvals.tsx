@@ -15,7 +15,13 @@ import { canApproveLeaveOnMyDay, mayReviewStaffCorrectionsOnMyDay, mayReviewStaf
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 
-export function MyDayCorrectionApprovals({ jobTitle }: { jobTitle?: string | null }) {
+export function MyDayCorrectionApprovals({
+  jobTitle,
+  staffRole,
+}: {
+  jobTitle?: string | null;
+  staffRole?: string | null;
+}) {
   const { t } = useTranslation();
   const roles = useUserRoles();
   const reports = useMyDirectReports();
@@ -23,6 +29,7 @@ export function MyDayCorrectionApprovals({ jobTitle }: { jobTitle?: string | nul
     roles,
     hasDirectReports: (reports.data?.directReportStaffIds.length ?? 0) > 0,
     jobTitle,
+    staffRole,
   });
   if (reports.isPending || !show) return null;
   return (

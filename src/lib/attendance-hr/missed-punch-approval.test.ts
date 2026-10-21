@@ -28,9 +28,11 @@ import {
   punchCorrectionRoute,
   missedPunchApprovalSteps,
   missedPunchRequestSide,
+  nearestSiteSupervisorUserId,
   nextMissedPunchStep,
   punchCorrectionRequestSide,
   requesterLineManagerUserIds,
+  canSiteSupervisorActOnTeamCorrection,
   shouldHealOwnCorrectionToOpsFirst,
   type ApprovalDirectory,
   type CorrectionApprovalView,
@@ -52,6 +54,7 @@ const BARISTA = "barista-staff";
 function directory(partial?: Partial<ApprovalDirectory>): ApprovalDirectory {
   return {
     reportingManagerUserIdByStaffId: new Map(),
+    siteSupervisorManagerUserIdByStaffId: new Map(),
     branchGmUserIdsByLocationId: new Map([
       [INF, [MARY, MARY_TEST]],
       [KDS, ["ashfaq-test-login"]],
@@ -602,6 +605,7 @@ describe("missed punch approval chain", () => {
   it("keeps crew under a site supervisor on the manager → HoO → HR ladder", () => {
     const dir = directory({
       reportingManagerUserIdByStaffId: new Map([[STAFF, MARY]]),
+      siteSupervisorManagerUserIdByStaffId: new Map([[STAFF, MARY]]),
       headOfOperationsUserIds: [RAJAN],
     });
     expect(
@@ -620,6 +624,86 @@ describe("missed punch approval chain", () => {
     });
     expect(canUserActOnCorrection(dir, MARY, request)).toBe(true);
     expect(canUserActOnCorrection(dir, RAJAN, request)).toBe(false);
+  });
+
+  it("routes crew under a Team Lead to Ashfaq (Venue Supervisor) before HoO", () => {
+    const crew = "crew-under-maluz";
+    const maluzUser = "maluz-user";
+    const dir = directory({
+      reportingManagerUserIdByStaffId: new Map([[crew, maluzUser]]),
+      siteSupervisorManagerUserIdByStaffId: new Map([[crew, ASHFAQ]]),
+      headOfOperationsUserIds: [RAJAN],
+    });
+    expect(
+      requesterLineManagerUserIds(dir, {
+        locationId: KDS,
+        staffId: crew,
+        requestedBy: "crew-user",
+        requesterStaffId: crew,
+      }),
+    ).toEqual([ASHFAQ]);
+    const request = row({
+      staffId: crew,
+      requestedBy: "crew-user",
+      requesterStaffId: crew,
+      locationId: KDS,
+      currentStepRole: "manager",
+    });
+    expect(canUserActOnCorrection(dir, ASHFAQ, request)).toBe(true);
+    expect(canUserActOnCorrection(dir, maluzUser, request)).toBe(false);
+    expect(canUserActOnCorrection(dir, RAJAN, request)).toBe(false);
+  });
+
+  it("walks past Team Lead titles to the nearest Venue / Site supervisor", () => {
+    expect(
+      nearestSiteSupervisorUserId({
+        staffId: "crew",
+        reportingManagerStaffIdByStaffId: new Map([
+          ["crew", "maluz"],
+          ["maluz", "ashfaq"],
+          ["ashfaq", "rajan"],
+        ]),
+        managerByStaffId: new Map([
+          [
+            "maluz",
+            { userId: "maluz-user", jobTitle: "Team Leader", staffRole: "shift_lead" },
+          ],
+          [
+            "ashfaq",
+            { userId: ASHFAQ, jobTitle: "Venue Supervisor", staffRole: "venue_supervisor" },
+          ],
+          [
+            "rajan",
+            { userId: RAJAN, jobTitle: "Head of Operations", staffRole: "other" },
+          ],
+        ]),
+      }),
+    ).toBe(ASHFAQ);
+  });
+
+  it("lets a Venue Supervisor act on manager-step corrections for their OT team when chart walk is empty", () => {
+    const crew = "venue-crew";
+    const request = row({
+      staffId: crew,
+      requestedBy: "crew-user",
+      requesterStaffId: crew,
+      locationId: KDS,
+      currentStepRole: "manager",
+    });
+    expect(
+      canSiteSupervisorActOnTeamCorrection({
+        userId: ASHFAQ,
+        teamStaffIds: [crew, "other"],
+        row: request,
+      }),
+    ).toBe(true);
+    expect(
+      canSiteSupervisorActOnTeamCorrection({
+        userId: ASHFAQ,
+        teamStaffIds: ["someone-else"],
+        row: request,
+      }),
+    ).toBe(false);
   });
 
   it("sends an F&B peer who reports to the F&B Manager straight to the F&B ops seat", () => {

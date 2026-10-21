@@ -1,6 +1,7 @@
 import {
   canUserActOnCorrection,
   isHeadOfOperationsTitle,
+  isSiteSupervisorTitle,
   type ApprovalDirectory,
   type CorrectionApprovalView,
 } from "@/lib/attendance-hr/missed-punch-approval";
@@ -81,8 +82,10 @@ export function mayReviewStaffCorrectionsOnMyDay(input: {
   roles: readonly string[];
   hasDirectReports: boolean;
   jobTitle?: string | null;
+  staffRole?: string | null;
 }): boolean {
   if (input.hasDirectReports) return true;
+  if (isSiteSupervisorTitle(input.jobTitle, input.staffRole)) return true;
   if (isHeadOfOperationsTitle(input.jobTitle)) return true;
   if (isFnbManager(input.jobTitle, null)) return true;
   return input.roles.some((role) => (CORRECTION_REVIEW_ROLES as readonly string[]).includes(role));

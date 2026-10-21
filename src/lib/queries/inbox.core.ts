@@ -414,11 +414,21 @@ async function fetchLeaveApprovalItems(context: AuthContext, roles: AppRole[]): 
   const manage = canUserDo(roles, "hr.leave.manage");
   const managerCap = canUserDo(roles, "hr.leave.approve_manager");
   try {
-    const { loadManagerTeamStaffIds } = await import("@/lib/reporting-manager-access.server");
-    const { teamStaffIds } = await loadManagerTeamStaffIds(context.userId);
+    const { loadManagerTeamStaffIds, loadSupervisorOtTeamStaffIds } = await import(
+      "@/lib/reporting-manager-access.server"
+    );
+    const { loadLinkedStaffRecord } = await import("@/lib/linked-staff-job-title.server");
+    const { isSiteSupervisorTitle } = await import("@/lib/attendance-hr/missed-punch-approval");
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const linked = await loadLinkedStaffRecord(context.userId);
+    const teamStaffIds =
+      linked?.id && isSiteSupervisorTitle(linked.jobTitle, linked.staffRole)
+        ? (await loadSupervisorOtTeamStaffIds(context.userId)).teamStaffIds
+        : (await loadManagerTeamStaffIds(context.userId)).teamStaffIds;
     if (!manage && !managerCap && teamStaffIds.length === 0) return [];
 
-    let query = context.supabase
+    const leaveDb = !manage && !managerCap ? supabaseAdmin : context.supabase;
+    let query = leaveDb
       .from("hr_leave_requests")
       .select("id, staff_id, leave_type, date_from, current_step_role, created_at, updated_at")
       .eq("status", "pending")

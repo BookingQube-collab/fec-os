@@ -204,8 +204,10 @@ async function appendApproval(
   step: string,
   action: string,
   note?: string | null,
+  opts?: { useAdmin?: boolean },
 ) {
-  const { error } = await context.supabase.from("hr_ot_claim_approvals").insert({
+  const db = opts?.useAdmin ? supabaseAdmin : context.supabase;
+  const { error } = await db.from("hr_ot_claim_approvals").insert({
     claim_id: claimId,
     step,
     action,
@@ -639,7 +641,12 @@ export const actOnOtClaim = createAuthenticatedAction(
     note: z.string().max(500).optional().nullable(),
   }),
   async (data, context) => {
-    const { data: existing, error: readErr } = await context.supabase
+    const teamScope = await otSiteSupervisorTeamStaffIds(context);
+    // Team-scoped site supervisors use admin read (same as listOtClaims) so RLS
+    // that keys only on staff.user_id does not hide claims when the login links
+    // via employee_code / name fallback.
+    const claimDb = teamScope ? supabaseAdmin : context.supabase;
+    const { data: existing, error: readErr } = await claimDb
       .from("hr_ot_claims")
       .select(CLAIM_SELECT)
       .eq("id", data.claimId)
@@ -749,7 +756,7 @@ export const actOnOtClaim = createAuthenticatedAction(
       throw new Error("Unknown action.");
     }
 
-    const { data: updated, error } = await context.supabase
+    const { data: updated, error } = await claimDb
       .from("hr_ot_claims")
       .update(patch)
       .eq("id", data.claimId)
@@ -764,7 +771,9 @@ export const actOnOtClaim = createAuthenticatedAction(
       throw new Error("OT claim status changed; refresh and retry.");
     }
 
-    await appendApproval(context, data.claimId, approvalStep, approvalAction, data.note);
+    await appendApproval(context, data.claimId, approvalStep, approvalAction, data.note, {
+      useAdmin: Boolean(teamScope),
+    });
 
     if (to === "hr_approved") {
       await appendEmployeeEvent(context, {

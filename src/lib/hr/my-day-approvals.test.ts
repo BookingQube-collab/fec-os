@@ -24,6 +24,7 @@ const HR = "hr-user";
 function directory(partial?: Partial<ApprovalDirectory>): ApprovalDirectory {
   return {
     reportingManagerUserIdByStaffId: new Map([[STAFF, LINE]]),
+    siteSupervisorManagerUserIdByStaffId: new Map(),
     branchGmUserIdsByLocationId: new Map([[SITE, [GM]]]),
     siteSupervisorUserIdsByLocationId: new Map(),
     headOfOperationsUserIds: [HOO],

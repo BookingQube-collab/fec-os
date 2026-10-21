@@ -15,7 +15,7 @@ import {
   canCorrectStaffPunch,
   canRequestAttendanceCorrection,
   canRequesterEditMissedPunch,
-  canUserActOnCorrection,
+  canUserActOnCorrectionWithTeam,
   correctionIdsForReview,
   correctionOpsLane,
   correctionStepSeed,
@@ -24,6 +24,7 @@ import {
   correctionVisibleToUser,
   isHeadOfOperationsTitle,
   isSiteSupervisorTitle,
+  nearestSiteSupervisorUserId,
   siteApproverLocationMap,
   missedPunchCopiesExecutives,
   managerTeamCorrectionNote,
@@ -43,12 +44,14 @@ import {
   type MissedPunchStepRole,
   type PunchCorrectionRoutedTo,
 } from "@/lib/attendance-hr/missed-punch-approval";
+import { loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
 import { notifyUsers } from "@/lib/notifications/action-notify";
 import { canUserDo, type AppRole } from "@/lib/rbac";
 import {
   loadDirectReportStaffIds,
   loadManagerTeamStaffIds,
   loadReportingTreeStaffIds,
+  loadSupervisorOtTeamStaffIds,
 } from "@/lib/reporting-manager-access.server";
 import { ForbiddenError } from "@/lib/server/authorize";
 
@@ -302,8 +305,11 @@ export async function loadMissedPunchDirectory(staffIds: string[]): Promise<Appr
     opsManagerUserIdsByLocationId.set(locationId, list);
   }
 
+  const siteSupervisorManagerUserIdByStaffId = await loadSiteSupervisorManagerUserIds(uniqueStaff);
+
   return {
     reportingManagerUserIdByStaffId,
+    siteSupervisorManagerUserIdByStaffId,
     branchGmUserIdsByLocationId,
     siteSupervisorUserIdsByLocationId,
     headOfOperationsUserIds: [...head],
@@ -312,6 +318,81 @@ export async function loadMissedPunchDirectory(staffIds: string[]): Promise<Appr
     opsManagerUserIdsByLocationId,
     hrUserIds: [...hr],
   };
+}
+
+/**
+ * Nearest Venue / Site / Sr. Site supervisor login for each staff id (same walk as OT notify).
+ */
+async function loadSiteSupervisorManagerUserIds(staffIds: string[]): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  const unique = [...new Set(staffIds.filter(Boolean))];
+  if (!unique.length) return result;
+
+  const managerOf = new Map<string, string>();
+  let frontier = unique;
+  const seen = new Set<string>();
+  for (let depth = 0; depth < 25 && frontier.length > 0; depth += 1) {
+    const need = frontier.filter((id) => !seen.has(id));
+    for (const id of need) seen.add(id);
+    if (!need.length) break;
+    const next: string[] = [];
+    for (let index = 0; index < need.length; index += 80) {
+      const chunk = need.slice(index, index + 80);
+      const { data, error } = await supabaseAdmin
+        .from("staff_profile_ext")
+        .select("staff_id, reporting_manager_staff_id")
+        .in("staff_id", chunk);
+      if (error && !/does not exist|schema cache/i.test(error.message)) throw error;
+      for (const row of data ?? []) {
+        const staffId = String(row.staff_id);
+        const managerId = row.reporting_manager_staff_id ? String(row.reporting_manager_staff_id) : "";
+        if (!managerId) continue;
+        managerOf.set(staffId, managerId);
+        next.push(managerId);
+      }
+    }
+    frontier = next;
+  }
+
+  const managerIds = [...new Set(managerOf.values())];
+  const managerByStaffId = new Map<
+    string,
+    { userId: string | null; jobTitle: string | null; staffRole: string | null }
+  >();
+  for (let index = 0; index < managerIds.length; index += 100) {
+    const chunk = managerIds.slice(index, index + 100);
+    const { data, error } = await supabaseAdmin
+      .from("staff")
+      .select("id, user_id, job_title, staff_role")
+      .in("id", chunk)
+      .is("deleted_at", null);
+    if (error) throw error;
+    for (const row of data ?? []) {
+      managerByStaffId.set(String(row.id), {
+        userId: row.user_id ? String(row.user_id) : null,
+        jobTitle: (row.job_title as string | null) ?? null,
+        staffRole: (row.staff_role as string | null) ?? null,
+      });
+    }
+  }
+
+  for (const staffId of unique) {
+    const userId = nearestSiteSupervisorUserId({
+      staffId,
+      reportingManagerStaffIdByStaffId: managerOf,
+      managerByStaffId,
+    });
+    if (userId) result.set(staffId, userId);
+  }
+  return result;
+}
+
+/** Org-chart team (venue fallback when empty) for site supervisors acting on corrections. */
+async function loadSiteSupervisorCorrectionTeamIds(userId: string): Promise<string[] | null> {
+  const linked = await loadLinkedStaffRecord(userId);
+  if (!linked?.id || !isSiteSupervisorTitle(linked.jobTitle, linked.staffRole)) return null;
+  const { teamStaffIds } = await loadSupervisorOtTeamStaffIds(userId);
+  return teamStaffIds;
 }
 
 async function loadCallerAccess(userId: string) {
@@ -413,7 +494,10 @@ export async function listMissedPunchCorrections(args: {
   actionableOnly?: boolean;
 }): Promise<MissedPunchQueueRow[]> {
   const queue = args.queue ?? "waiting";
-  const access = await loadCallerAccess(args.userId);
+  const [access, teamStaffIds] = await Promise.all([
+    loadCallerAccess(args.userId),
+    loadSiteSupervisorCorrectionTeamIds(args.userId),
+  ]);
   const columns =
     "id, location_id, staff_id, work_date, summary_id, kind, reason, status, requested_by, requested_at, current_step_role, review_note, new_value";
   const base = () =>
@@ -463,6 +547,7 @@ export async function listMissedPunchCorrections(args: {
       directory,
       row: viewOf(row),
       observeExecutiveSteps: access.observeExecutiveSteps,
+      teamStaffIds,
     }),
   );
   const steps = await loadSteps(visible.map((row) => row.id));
@@ -481,7 +566,13 @@ export async function listMissedPunchCorrections(args: {
     ]),
   );
   const mapped = visible.map((row) =>
-    mapQueueRow(row, steps, staffById, actorNames, canUserActOnCorrection(directory, args.userId, viewOf(row))),
+    mapQueueRow(
+      row,
+      steps,
+      staffById,
+      actorNames,
+      canUserActOnCorrectionWithTeam(directory, args.userId, viewOf(row), teamStaffIds),
+    ),
   );
   return args.actionableOnly ? employeeHomeCorrectionRows(mapped) : mapped;
 }
@@ -1116,11 +1207,14 @@ export async function reviewMissedPunchChain(args: {
 
   const requesterStaff = await staffIdByUserId([String(row.requested_by)]);
   const requesterStaffId = requesterStaff.get(String(row.requested_by)) ?? null;
-  const directory = await loadMissedPunchDirectory(
-    [row.staff_id, requesterStaffId].filter((id): id is string => Boolean(id)),
-  );
+  const [directory, teamStaffIds] = await Promise.all([
+    loadMissedPunchDirectory(
+      [row.staff_id, requesterStaffId].filter((id): id is string => Boolean(id)),
+    ),
+    loadSiteSupervisorCorrectionTeamIds(args.userId),
+  ]);
   const view = toView(row, requesterStaffId);
-  if (!canUserActOnCorrection(directory, args.userId, view)) {
+  if (!canUserActOnCorrectionWithTeam(directory, args.userId, view, teamStaffIds)) {
     throw new ForbiddenError("This request is not waiting for you.");
   }
 

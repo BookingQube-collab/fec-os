@@ -5,7 +5,11 @@ import { z } from "zod";
 import { createAuthenticatedAction, createAuthenticatedActionNoInput, type AuthContext } from "@/lib/server/create-action";
 import { ForbiddenError } from "@/lib/server/authorize";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
-import { loadManagerTeamStaffIds } from "@/lib/reporting-manager-access.server";
+import {
+  loadManagerTeamStaffIds,
+  loadSupervisorOtTeamStaffIds,
+} from "@/lib/reporting-manager-access.server";
+import { loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
 import { canUserDo } from "@/lib/rbac";
 import { isFnbManager } from "@/lib/arcade/access";
 import {
@@ -16,6 +20,7 @@ import {
 import { dispatchHrNotify } from "@/lib/attendance-hr/hr-notify-dispatch";
 import {
   isHeadOfOperationsTitle,
+  isSiteSupervisorTitle,
   requesterLineManagerUserIds,
 } from "@/lib/attendance-hr/missed-punch-approval";
 import { loadMissedPunchDirectory } from "@/lib/attendance-hr/missed-punch-approval.server";
@@ -56,6 +61,21 @@ async function myStaff(context: AuthContext) {
     .is("deleted_at", null)
     .maybeSingle();
   return data;
+}
+
+/**
+ * Team for manager-step leave. Venue / Site supervisors use the same org-chart
+ * ∪ managed-venue fallback as supervisor OT so Ashfaq sees crew under Team Leads.
+ */
+async function loadLeaveManagerTeamStaffIds(userId: string): Promise<{
+  staffId: string | null;
+  teamStaffIds: string[];
+}> {
+  const linked = await loadLinkedStaffRecord(userId);
+  if (linked?.id && isSiteSupervisorTitle(linked.jobTitle, linked.staffRole)) {
+    return loadSupervisorOtTeamStaffIds(userId);
+  }
+  return loadManagerTeamStaffIds(userId);
 }
 
 function tableMissing(message: string | undefined): boolean {
@@ -345,7 +365,7 @@ export const listLeaveRequests = createAuthenticatedAction(
     const teamIds =
       canReviewCompany || data.mineOnly
         ? []
-        : (await loadManagerTeamStaffIds(context.userId)).teamStaffIds;
+        : (await loadLeaveManagerTeamStaffIds(context.userId)).teamStaffIds;
     const scopedToTeam = !canReviewCompany && !data.mineOnly && teamIds.length > 0;
     const scopedToSelf = Boolean(data.mineOnly) || (!canReviewCompany && !scopedToTeam);
     if (scopedToSelf && !staff?.id) return [];
@@ -725,7 +745,7 @@ export const actOnLeaveApproval = createAuthenticatedAction(
     const managerCap = canUserDo(context.roles ?? [], "hr.leave.approve_manager");
     const mine = await myStaff(context);
     const companyReview = manage || managerCap;
-    const teamAccess = companyReview ? null : await loadManagerTeamStaffIds(context.userId);
+    const teamAccess = companyReview ? null : await loadLeaveManagerTeamStaffIds(context.userId);
     const leaveDb = teamAccess ? supabaseAdmin : context.supabase;
     const { data: existing, error: readErr } = await leaveDb
       .from("hr_leave_requests")
