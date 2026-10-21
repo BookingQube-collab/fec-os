@@ -1219,14 +1219,14 @@ async function applyOtClaimAction(input: {
     if (!canRequestOtChanges(from)) {
       throw new ForbiddenError("Change request is not allowed at this OT status.");
     }
-    if (from === "gm_approved") {
-      if (!canApprove) throw new ForbiddenError("HR change request required at this step.");
-      actor = "hr";
-    } else if (from === "ops_approved") {
+    if (from === "hr_approved") {
       if (!canGm && !canApprove) {
         throw new ForbiddenError("General Manager change request required.");
       }
       actor = canGm ? "gm" : "hr";
+    } else if (from === "ops_approved") {
+      if (!canApprove) throw new ForbiddenError("HR change request required at this step.");
+      actor = "hr";
     } else if (from === "manager_verified") {
       if (!canOps && !canApprove) {
         throw new ForbiddenError("Head of Operations change request required.");
@@ -1276,12 +1276,12 @@ async function applyOtClaimAction(input: {
     if (!canVerify && !canApprove && !canOps && !canGm) {
       throw new ForbiddenError("Cannot reject OT claim.");
     }
-    if (from === "gm_approved") {
-      if (!canApprove) throw new ForbiddenError("HR rejection required at this step.");
-      actor = "hr";
-    } else if (from === "ops_approved") {
+    if (from === "hr_approved") {
       if (!canGm && !canApprove) throw new ForbiddenError("General Manager rejection required.");
       actor = canGm ? "gm" : "hr";
+    } else if (from === "ops_approved") {
+      if (!canApprove) throw new ForbiddenError("HR rejection required at this step.");
+      actor = "hr";
     } else if (from === "manager_verified") {
       if (!canOps && !canApprove) throw new ForbiddenError("Head of Operations rejection required.");
       actor = canOps ? "ops" : "hr";
@@ -1344,7 +1344,7 @@ async function applyOtClaimAction(input: {
     useAdmin: Boolean(teamScope) || canOps || canGm,
   });
 
-  if (to === "hr_approved") {
+  if (to === "gm_approved") {
     await appendEmployeeEvent(context, {
       staffId: String(existing.staff_id),
       eventType: "ot_approved",
@@ -1417,26 +1417,26 @@ async function applyOtClaimAction(input: {
           sourceId: claimId,
         });
       } else if (to === "ops_approved") {
-        const ids = await loadOtGmNotifyUserIds(context.userId);
-        await notifyUsers({
-          userIds: ids,
-          locationId: locId,
-          category: "hr_ot",
-          title: "OT claim ready for General Manager",
-          body: `OT for ${staffName} on ${String(existing.work_date).slice(0, 10)} was HOO approved and needs General Manager approval.`,
-          severity: "warning",
-          actionUrl: "/people/hr/ot",
-          sourceType: "hr_ot_claims",
-          sourceId: claimId,
-        });
-      } else if (to === "gm_approved") {
         const ids = await findUsersWithCapability("hr.ot.approve", locId);
         await notifyUsers({
           userIds: ids.filter((id) => id !== context.userId),
           locationId: locId,
           category: "hr_ot",
           title: "OT claim ready for HR",
-          body: `OT for ${staffName} on ${String(existing.work_date).slice(0, 10)} was General Manager approved and needs HR.`,
+          body: `OT for ${staffName} on ${String(existing.work_date).slice(0, 10)} was HOO approved and needs HR.`,
+          severity: "warning",
+          actionUrl: "/people/hr/ot",
+          sourceType: "hr_ot_claims",
+          sourceId: claimId,
+        });
+      } else if (to === "hr_approved") {
+        const ids = await loadOtGmNotifyUserIds(context.userId);
+        await notifyUsers({
+          userIds: ids,
+          locationId: locId,
+          category: "hr_ot",
+          title: "OT claim ready for General Manager",
+          body: `OT for ${staffName} on ${String(existing.work_date).slice(0, 10)} was HR approved and needs General Manager approval.`,
           severity: "warning",
           actionUrl: "/people/hr/ot",
           sourceType: "hr_ot_claims",
@@ -1468,9 +1468,9 @@ async function applyOtClaimAction(input: {
           userIds: [String(staffUserId)],
           locationId: locId,
           category: "hr_ot",
-          title: to === "hr_approved" ? "OT claim approved" : "OT claim rejected",
-          body: `Your OT claim for ${String(existing.work_date).slice(0, 10)} was ${to === "hr_approved" ? "approved" : "rejected"}.`,
-          severity: to === "hr_approved" ? "info" : "warning",
+          title: to === "gm_approved" ? "OT claim approved" : "OT claim rejected",
+          body: `Your OT claim for ${String(existing.work_date).slice(0, 10)} was ${to === "gm_approved" ? "approved" : "rejected"}.`,
+          severity: to === "gm_approved" ? "info" : "warning",
           actionUrl: "/hr/me",
           sourceType: "hr_ot_claims",
           sourceId: claimId,
@@ -1618,26 +1618,26 @@ export const actOnOtRequestBatch = createAuthenticatedAction(
           sourceId: String(rows[0]!.id),
         });
       } else if (lastStatus === "ops_approved") {
-        const ids = await loadOtGmNotifyUserIds(context.userId);
-        await notifyUsers({
-          userIds: ids,
-          locationId: locId,
-          category: "hr_ot",
-          title: "OT request ready for General Manager",
-          body: `OT request (${rows.length} day(s): ${dates}) was HOO approved and needs General Manager approval.`,
-          severity: "warning",
-          actionUrl: "/people/hr/ot",
-          sourceType: "hr_ot_claims",
-          sourceId: String(rows[0]!.id),
-        });
-      } else if (lastStatus === "gm_approved") {
         const ids = await findUsersWithCapability("hr.ot.approve", locId);
         await notifyUsers({
           userIds: ids.filter((id) => id !== context.userId),
           locationId: locId,
           category: "hr_ot",
           title: "OT request ready for HR",
-          body: `OT request (${rows.length} day(s): ${dates}) was General Manager approved and needs HR.`,
+          body: `OT request (${rows.length} day(s): ${dates}) was HOO approved and needs HR.`,
+          severity: "warning",
+          actionUrl: "/people/hr/ot",
+          sourceType: "hr_ot_claims",
+          sourceId: String(rows[0]!.id),
+        });
+      } else if (lastStatus === "hr_approved") {
+        const ids = await loadOtGmNotifyUserIds(context.userId);
+        await notifyUsers({
+          userIds: ids,
+          locationId: locId,
+          category: "hr_ot",
+          title: "OT request ready for General Manager",
+          body: `OT request (${rows.length} day(s): ${dates}) was HR approved and needs General Manager approval.`,
           severity: "warning",
           actionUrl: "/people/hr/ot",
           sourceType: "hr_ot_claims",

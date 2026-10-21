@@ -92,9 +92,9 @@ describe("HR acceptance AT#1–20 (Phase 12)", () => {
   });
 
   describe("AT#4 Eligible approved OT enters payroll only once", () => {
-    it("consumes only hr_approved and blocks re-post", () => {
-      expect(canMarkPayrollPosted("hr_approved")).toBe(true);
-      expect(filterConsumableOtClaims([{ status: "hr_approved" }, { status: "payroll_posted" }])).toHaveLength(
+    it("consumes only gm_approved and blocks re-post", () => {
+      expect(canMarkPayrollPosted("gm_approved")).toBe(true);
+      expect(filterConsumableOtClaims([{ status: "gm_approved" }, { status: "payroll_posted" }])).toHaveLength(
         1,
       );
       expect(() => assertCanMarkPayrollPosted("payroll_posted")).toThrow(/already payroll_posted/);

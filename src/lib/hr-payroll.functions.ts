@@ -396,7 +396,7 @@ export const generatePayrollLines = createAuthenticatedAction(
     await context.supabase
       .from("hr_ot_claims")
       .update({
-        status: "hr_approved",
+        status: "gm_approved",
         payroll_posted_by: null,
         payroll_posted_at: null,
         payroll_period_id: null,
@@ -408,7 +408,7 @@ export const generatePayrollLines = createAuthenticatedAction(
       .from("hr_ot_claims")
       .select("id, staff_id, amount_qar, status, work_date")
       .in("staff_id", staffIds)
-      .eq("status", "hr_approved")
+      .eq("status", "gm_approved")
       .gte("work_date", dateFrom)
       .lte("work_date", dateTo);
 
@@ -743,7 +743,7 @@ export const generatePayrollLines = createAuthenticatedAction(
         .maybeSingle();
       if (!claim) continue;
       try {
-        assertCanMarkPayrollPosted(String(claim.status) as "hr_approved");
+        assertCanMarkPayrollPosted(String(claim.status) as "gm_approved");
       } catch {
         continue;
       }
@@ -756,7 +756,7 @@ export const generatePayrollLines = createAuthenticatedAction(
           payroll_period_id: data.periodId,
         })
         .eq("id", claimId)
-        .eq("status", "hr_approved");
+        .eq("status", "gm_approved");
       await context.supabase.from("hr_ot_claim_approvals").insert({
         claim_id: claimId,
         step: "payroll",
@@ -815,7 +815,7 @@ export const deletePayrollPeriod = createAuthenticatedAction(
     await context.supabase
       .from("hr_ot_claims")
       .update({
-        status: "hr_approved",
+        status: "gm_approved",
         payroll_posted_by: null,
         payroll_posted_at: null,
         payroll_period_id: null,
@@ -945,7 +945,7 @@ async function releasePostedOtClaims(): Promise<number> {
     const { error: upErr } = await supabaseAdmin
       .from("hr_ot_claims")
       .update({
-        status: "hr_approved",
+        status: "gm_approved",
         payroll_posted_by: null,
         payroll_posted_at: null,
         payroll_period_id: null,

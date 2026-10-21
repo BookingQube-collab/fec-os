@@ -12,8 +12,8 @@ export const HR_OT_STATUSES = [
   "submitted",
   "manager_verified",
   "ops_approved",
-  "gm_approved",
   "hr_approved",
+  "gm_approved",
   "payroll_posted",
   "changes_requested",
   "rejected",
@@ -29,7 +29,7 @@ export type HrOtActor = "employee" | "manager" | "ops" | "gm" | "hr" | "payroll"
 /**
  * Approval chain:
  *   submitted → manager_verified (site supervisor) → ops_approved (Head of Operations)
- *   → gm_approved (General Manager) → hr_approved → payroll_posted
+ *   → hr_approved → gm_approved (General Manager) → payroll_posted
  * Approvers may send back (`changes_requested`); the submitter cancels or resubmits to
  * restart at site supervisor (`submitted`), matching missed-punch / job-request flows.
  */
@@ -49,13 +49,13 @@ const TRANSITIONS: Record<HrOtStatus, Partial<Record<HrOtActor, HrOtStatus[]>>> 
     hr: ["ops_approved", "changes_requested", "rejected"],
   },
   ops_approved: {
+    hr: ["hr_approved", "changes_requested", "rejected"],
+  },
+  hr_approved: {
     gm: ["gm_approved", "changes_requested", "rejected"],
     hr: ["gm_approved", "changes_requested", "rejected"],
   },
   gm_approved: {
-    hr: ["hr_approved", "changes_requested", "rejected"],
-  },
-  hr_approved: {
     payroll: ["payroll_posted"],
     hr: ["payroll_posted"],
   },
@@ -71,7 +71,7 @@ const TRANSITIONS: Record<HrOtStatus, Partial<Record<HrOtActor, HrOtStatus[]>>> 
 /**
  * Approval queue statuses by actor capability.
  * Site supervisors act on `submitted`; HOO on `manager_verified`;
- * GM on `ops_approved`; HR on `gm_approved`.
+ * HR on `ops_approved`; GM on `hr_approved`.
  */
 export function otApprovalQueueStatuses(input: {
   canSiteVerify: boolean;
@@ -82,8 +82,8 @@ export function otApprovalQueueStatuses(input: {
   const statuses: HrOtStatus[] = [];
   if (input.canSiteVerify) statuses.push("submitted");
   if (input.canOpsApprove) statuses.push("manager_verified");
-  if (input.canGmApprove) statuses.push("ops_approved");
-  if (input.canHrApprove) statuses.push("gm_approved");
+  if (input.canHrApprove) statuses.push("ops_approved");
+  if (input.canGmApprove) statuses.push("hr_approved");
   return [...new Set(statuses)];
 }
 
@@ -103,7 +103,7 @@ export function canRequestOtChanges(status: HrOtStatus): boolean {
     status === "submitted" ||
     status === "manager_verified" ||
     status === "ops_approved" ||
-    status === "gm_approved"
+    status === "hr_approved"
   );
 }
 
@@ -113,7 +113,7 @@ export type OtPrintSignature = {
   at: string | null;
 };
 
-export type OtPrintSignatureKey = "site" | "hoo" | "gm" | "hr";
+export type OtPrintSignatureKey = "site" | "hoo" | "hr" | "gm";
 
 /** Whether a print-slip signature column is filled for the current status. */
 export function otPrintSignatureDone(
@@ -124,8 +124,8 @@ export function otPrintSignatureDone(
   const order: HrOtStatus[] = [
     "manager_verified",
     "ops_approved",
-    "gm_approved",
     "hr_approved",
+    "gm_approved",
     "payroll_posted",
   ];
   const idx = order.indexOf(status);
@@ -133,8 +133,8 @@ export function otPrintSignatureDone(
   const needed: Record<OtPrintSignatureKey, number> = {
     site: 0,
     hoo: 1,
-    gm: 2,
-    hr: 3,
+    hr: 2,
+    gm: 3,
   };
   return idx >= needed[key];
 }
@@ -278,8 +278,8 @@ export const HR_OT_HIERARCHY_STEPS = [
   "submitted",
   "manager_verified",
   "ops_approved",
-  "gm_approved",
   "hr_approved",
+  "gm_approved",
   "payroll_posted",
 ] as const;
 
@@ -503,9 +503,9 @@ export function assertOtTransition(from: HrOtStatus, to: HrOtStatus, actor: HrOt
   }
 }
 
-/** AT#4: payroll_posted only once, only from hr_approved. */
+/** AT#4: payroll_posted only once, only from gm_approved (final approver before payroll). */
 export function canMarkPayrollPosted(status: HrOtStatus): boolean {
-  return status === "hr_approved";
+  return status === "gm_approved";
 }
 
 export function assertCanMarkPayrollPosted(status: HrOtStatus): void {
@@ -513,7 +513,7 @@ export function assertCanMarkPayrollPosted(status: HrOtStatus): void {
     throw new Error(
       status === "payroll_posted"
         ? "OT claim is already payroll_posted."
-        : "OT claim must be hr_approved before payroll_posted.",
+        : "OT claim must be gm_approved before payroll_posted.",
     );
   }
 }

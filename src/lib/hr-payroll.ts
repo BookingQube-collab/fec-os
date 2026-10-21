@@ -396,11 +396,11 @@ export function lockedLineResistsPolicyChange(
   return { grossQar: locked.grossQar, netQar: locked.netQar };
 }
 
-/** Consume OT only when claim is hr_approved (AT#4). */
+/** Consume OT only when claim is gm_approved (AT#4; final step before payroll). */
 export function filterConsumableOtClaims<T extends { status: string; amountQar?: number; amount_qar?: number }>(
   claims: T[],
 ): T[] {
-  return claims.filter((c) => canMarkPayrollPosted(c.status as "hr_approved"));
+  return claims.filter((c) => canMarkPayrollPosted(c.status as "gm_approved"));
 }
 
 export function sumOtAmounts(

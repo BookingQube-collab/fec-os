@@ -149,7 +149,7 @@ const ABSENCE_LEAVE_STATUSES = new Set([
   "weekly_off",
   "public_holiday",
 ]);
-const APPROVED_OT_STATUSES = new Set(["hr_approved", "payroll_posted"]);
+const APPROVED_OT_STATUSES = new Set(["gm_approved", "payroll_posted"]);
 
 function blank(v: string | null | undefined): string {
   return v?.trim() || "";

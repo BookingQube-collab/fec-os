@@ -250,10 +250,10 @@ function OtRequestSheet({
                 {t("hr.ot.print.sigHoo")}
               </th>
               <th className="border border-neutral-800 px-1.5 py-2 font-bold uppercase">
-                {t("hr.ot.print.sigGm")}
+                {t("hr.ot.print.sigHr")}
               </th>
               <th className="border border-neutral-800 px-1.5 py-2 font-bold uppercase">
-                {t("hr.ot.print.sigHr")}
+                {t("hr.ot.print.sigGm")}
               </th>
             </tr>
           </thead>
@@ -266,10 +266,10 @@ function OtRequestSheet({
                 <SignatureStamp done={hooDone} signature={hooSignature} />
               </td>
               <td className="h-24 border border-neutral-800 align-middle">
-                <SignatureStamp done={gmDone} signature={gmSignature} />
+                <SignatureStamp done={hrDone} signature={hrSignature} />
               </td>
               <td className="h-24 border border-neutral-800 align-middle">
-                <SignatureStamp done={hrDone} signature={hrSignature} />
+                <SignatureStamp done={gmDone} signature={gmSignature} />
               </td>
             </tr>
           </tbody>

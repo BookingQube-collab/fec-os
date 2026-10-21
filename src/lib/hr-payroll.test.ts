@@ -244,9 +244,9 @@ describe("AT#12 unpaid leave / absence affects net", () => {
 });
 
 describe("AT#4 regression — OT enters payroll only once", () => {
-  it("consumes only hr_approved claims", () => {
+  it("consumes only gm_approved claims", () => {
     const claims = [
-      { status: "hr_approved", amountQar: 150 },
+      { status: "gm_approved", amountQar: 150 },
       { status: "payroll_posted", amountQar: 200 },
       { status: "submitted", amountQar: 50 },
     ];
