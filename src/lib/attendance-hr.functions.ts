@@ -3782,17 +3782,32 @@ async function loadListingGapRosterAndPunchDays(
   };
 
   const loadPunchDays = async (): Promise<ListingGapPunchDay[]> => {
+    // Order must match idx_attendance_logs_staff_attendance_date /
+    // idx_attendance_logs_location_attendance_date (…, attendance_date, id).
+    // ORDER BY id alone forced Sort / PK walks (~100–650ms in Query Performance).
     const pages = await collectPagedRowsInWaves(async (from, to) => {
       let q = context.supabase
         .from("attendance_logs")
         .select("staff_id, location_id, attendance_date")
         .not("staff_id", "is", null)
         .gte("attendance_date", dateFrom)
-        .lte("attendance_date", dateTo)
-        .order("id", { ascending: true })
-        .range(from, to);
-      if (staffIds?.length) q = q.in("staff_id", staffIds);
-      else if (locationId) q = q.eq("location_id", locationId);
+        .lte("attendance_date", dateTo);
+      if (staffIds?.length) {
+        q = q
+          .in("staff_id", staffIds)
+          .order("staff_id", { ascending: true })
+          .order("attendance_date", { ascending: true })
+          .order("id", { ascending: true });
+      } else if (locationId) {
+        q = q
+          .eq("location_id", locationId)
+          .order("location_id", { ascending: true })
+          .order("attendance_date", { ascending: true })
+          .order("id", { ascending: true });
+      } else {
+        q = q.order("id", { ascending: true });
+      }
+      q = q.range(from, to);
       const { data: page, error } = await q;
       if (error) throw error;
       return page ?? [];
