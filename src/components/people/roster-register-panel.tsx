@@ -368,10 +368,11 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       () => (sites.data ?? []).find((site) => site.id === deferredLocationId)?.code ?? null,
       [sites.data, deferredLocationId],
     );
+    // Omit staffId from the fetch: server staff scoping shrinks rows/teamStaff to the
+    // selected person, which starves the Staff dropdown. Grid still filters client-side.
     const filters = useMemo(
       () => ({
         locationId: locationId || null,
-        staffId: staffId || null,
         excludedDepartmentIds: excludedDepartmentIds.length ? excludedDepartmentIds : undefined,
         showOnlyDepartmentIds: showOnlyDepartmentIds.length ? showOnlyDepartmentIds : undefined,
         // Always send focus keys so Operations still applies when master-department
@@ -387,7 +388,6 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       }),
       [
         locationId,
-        staffId,
         excludedDepartmentIds,
         showOnlyDepartmentIds,
         showOnlyOrgDepartments,
