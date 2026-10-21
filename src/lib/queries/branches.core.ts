@@ -30,28 +30,40 @@ function computeScore(b: Omit<BranchScore, "score">): number {
 
 export async function fetchBranchLeague(context: AuthContext): Promise<BranchScore[]> {
   const since = since30();
-  let locRes = await context.supabase
+  const locRes = await context.supabase
     .from("locations")
     .select("id, code, name, city, status, kind")
     .eq("status", "active")
     .order("code");
+  let locationRows: Array<{
+    id: string;
+    code: string;
+    name: string;
+    city: string;
+    status: string;
+    kind?: string;
+  }>;
   if (locRes.error && /kind|schema cache|column/i.test(locRes.error.message ?? "")) {
-    locRes = await context.supabase
+    // Pre-migration DBs may lack `kind`; fall back so the app still loads.
+    const legacy = await context.supabase
       .from("locations")
       .select("id, code, name, city, status")
       .eq("status", "active")
       .order("code");
+    if (legacy.error) throw legacy.error;
+    locationRows = (legacy.data ?? []).map((row) => ({ ...row, kind: "branch" }));
+  } else if (locRes.error) {
+    throw locRes.error;
+  } else {
+    locationRows = locRes.data ?? [];
   }
   const { data: fin, error: finErr } = await context.supabase
     .from("financial_snapshots")
     .select("location_id, revenue, ebitda")
     .eq("period_kind", "day")
     .gte("period_start", since.slice(0, 10));
-  if (locRes.error) throw locRes.error;
   if (finErr) throw finErr;
-  const locations = (locRes.data ?? []).filter((loc) =>
-    isBranchLocationKind((loc as { kind?: string }).kind),
-  );
+  const locations = locationRows.filter((loc) => isBranchLocationKind(loc.kind));
 
   const revMap = new Map<string, { revenue: number; ebitda: number }>();
   for (const r of fin ?? []) {

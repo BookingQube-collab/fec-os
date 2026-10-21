@@ -340,7 +340,8 @@ export function nearestSiteSupervisorUserId(input: {
   for (let depth = 0; depth < 25 && cursor; depth += 1) {
     if (seen.has(cursor)) break;
     seen.add(cursor);
-    const managerId = input.reportingManagerStaffIdByStaffId.get(cursor) ?? null;
+    // Explicit type breaks TS7022 circular inference: cursor ↔ managerId.
+    let managerId: string | null = input.reportingManagerStaffIdByStaffId.get(cursor) ?? null;
     if (!managerId) break;
     const manager = input.managerByStaffId.get(managerId);
     if (manager && isSiteSupervisorTitle(manager.jobTitle, manager.staffRole) && manager.userId) {
