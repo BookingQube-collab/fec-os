@@ -111,6 +111,11 @@ export function canRequestOtChanges(status: HrOtStatus): boolean {
 export type OtPrintSignature = {
   name: string | null;
   at: string | null;
+  /**
+   * Signed URL for the opt-in digital signature image.
+   * When missing, the print box stays blank for wet-ink signing.
+   */
+  imageUrl?: string | null;
 };
 
 export type OtPrintSignatureKey = "site" | "hoo" | "hr" | "gm";

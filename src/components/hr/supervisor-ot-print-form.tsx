@@ -112,26 +112,25 @@ function SignatureStamp({
   signature?: OtPrintSignature | null;
 }) {
   if (!done) return null;
+  // Opt-in digital image only — without it the box stays blank for wet-ink.
+  const imageUrl = signature?.imageUrl?.trim() || null;
+  if (!imageUrl) return null;
   const name = signature?.name?.trim() || null;
   const when = formatSignatureWhen(signature?.at);
-  if (name || when) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-0.5 px-1 py-1">
-        {name ? (
-          <span
-            className="max-w-full truncate text-[15px] italic leading-tight text-neutral-900"
-            style={{ fontFamily: "Georgia, 'Times New Roman', serif" }}
-          >
-            {name}
-          </span>
-        ) : (
-          <span className="text-lg font-bold text-neutral-800">✓</span>
-        )}
-        {when ? <span className="text-[9px] text-neutral-600">{when}</span> : null}
-      </div>
-    );
-  }
-  return <span className="text-lg font-bold text-neutral-800">✓</span>;
+  return (
+    <div className="flex flex-col items-center justify-center gap-0.5 px-1 py-1">
+      {/* eslint-disable-next-line @next/next/no-img-element -- signed storage URL for print */}
+      <img
+        src={imageUrl}
+        alt={name ? `${name} signature` : "Signature"}
+        className="mx-auto max-h-14 max-w-[92%] object-contain"
+      />
+      {name ? (
+        <span className="max-w-full truncate text-[10px] leading-tight text-neutral-800">{name}</span>
+      ) : null}
+      {when ? <span className="text-[9px] text-neutral-600">{when}</span> : null}
+    </div>
+  );
 }
 
 function OtRequestSheet({

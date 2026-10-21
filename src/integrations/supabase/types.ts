@@ -1863,6 +1863,8 @@ export type Database = {
           phone: string | null
           pin_hash: string | null
           preferred_language: string
+          signature_auto_apply: boolean
+          signature_url: string | null
           updated_at: string
         }
         Insert: {
@@ -1874,6 +1876,8 @@ export type Database = {
           phone?: string | null
           pin_hash?: string | null
           preferred_language?: string
+          signature_auto_apply?: boolean
+          signature_url?: string | null
           updated_at?: string
         }
         Update: {
@@ -1885,6 +1889,8 @@ export type Database = {
           phone?: string | null
           pin_hash?: string | null
           preferred_language?: string
+          signature_auto_apply?: boolean
+          signature_url?: string | null
           updated_at?: string
         }
         Relationships: []

@@ -46,6 +46,7 @@ import {
   isSiteSupervisorTitle,
 } from "@/lib/attendance-hr/missed-punch-approval";
 import { isGeneralManagerTitle } from "@/lib/attendance-hr/roster-punch-fill";
+import { STAFF_SIGNATURES_BUCKET } from "@/lib/digital-signature";
 import { loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
 import {
   loadOtSiteSupervisorNotifyUserIds,
@@ -104,21 +105,42 @@ async function otActorSignerName(context: AuthContext): Promise<string> {
   return display || "Approved";
 }
 
+/**
+ * Signer display name plus optional signature storage path when the actor
+ * opted in to auto-apply on approval forms.
+ */
+async function otActorSignatureSnapshot(
+  context: AuthContext,
+): Promise<{ name: string; signatureUrl: string | null }> {
+  const name = await otActorSignerName(context);
+  const { data } = await supabaseAdmin
+    .from("profiles")
+    .select("signature_url, signature_auto_apply")
+    .eq("id", context.userId)
+    .maybeSingle();
+  const row = data as { signature_url?: string | null; signature_auto_apply?: boolean | null } | null;
+  const path = row?.signature_auto_apply && row.signature_url?.trim() ? row.signature_url.trim() : null;
+  return { name, signatureUrl: path };
+}
+
 function otSignatureStamp(
   name: string | null | undefined,
   at: string | null | undefined,
-): { name: string | null; at: string | null } | null {
-  if (!name && !at) return null;
-  return { name: name?.trim() || null, at: at ?? null };
+  imagePath?: string | null,
+): { name: string | null; at: string | null; imageUrl: string | null } | null {
+  const path = imagePath?.trim() || null;
+  if (!name && !at && !path) return null;
+  // imageUrl holds the storage path until enrichOtSignatureImages signs it.
+  return { name: name?.trim() || null, at: at ?? null, imageUrl: path };
 }
 
 /** Fill blank signer names from profiles / staff for pre-migration OT rows. */
 async function enrichOtSignatureNames<
   T extends {
-    siteSignature?: { name: string | null; at: string | null } | null;
-    hooSignature?: { name: string | null; at: string | null } | null;
-    gmSignature?: { name: string | null; at: string | null } | null;
-    hrSignature?: { name: string | null; at: string | null } | null;
+    siteSignature?: { name: string | null; at: string | null; imageUrl?: string | null } | null;
+    hooSignature?: { name: string | null; at: string | null; imageUrl?: string | null } | null;
+    gmSignature?: { name: string | null; at: string | null; imageUrl?: string | null } | null;
+    hrSignature?: { name: string | null; at: string | null; imageUrl?: string | null } | null;
     verifiedBy?: string | null;
     opsApprovedBy?: string | null;
     gmApprovedBy?: string | null;
@@ -160,14 +182,14 @@ async function enrichOtSignatureNames<
 
   return claims.map((claim) => {
     const fill = (
-      stamp: { name: string | null; at: string | null } | null | undefined,
+      stamp: { name: string | null; at: string | null; imageUrl?: string | null } | null | undefined,
       userId: string | null | undefined,
     ) => {
-      if (!stamp?.at && !userId) return stamp ?? null;
+      if (!stamp?.at && !stamp?.imageUrl && !userId) return stamp ?? null;
       if (stamp?.name) return stamp;
       const name = userId ? names.get(userId) ?? null : null;
-      if (!name && !stamp?.at) return stamp ?? null;
-      return { name, at: stamp?.at ?? null };
+      if (!name && !stamp?.at && !stamp?.imageUrl) return stamp ?? null;
+      return { name, at: stamp?.at ?? null, imageUrl: stamp?.imageUrl ?? null };
     };
     return {
       ...claim,
@@ -177,6 +199,62 @@ async function enrichOtSignatureNames<
       hrSignature: fill(claim.hrSignature, claim.approvedBy),
     };
   });
+}
+
+/** Turn snapshotted storage paths into short-lived signed URLs for print slips. */
+async function enrichOtSignatureImages<
+  T extends {
+    siteSignature?: { name: string | null; at: string | null; imageUrl?: string | null } | null;
+    hooSignature?: { name: string | null; at: string | null; imageUrl?: string | null } | null;
+    gmSignature?: { name: string | null; at: string | null; imageUrl?: string | null } | null;
+    hrSignature?: { name: string | null; at: string | null; imageUrl?: string | null } | null;
+  },
+>(claims: T[]): Promise<T[]> {
+  const paths = new Set<string>();
+  for (const claim of claims) {
+    for (const stamp of [
+      claim.siteSignature,
+      claim.hooSignature,
+      claim.gmSignature,
+      claim.hrSignature,
+    ]) {
+      const path = stamp?.imageUrl?.trim();
+      // Storage paths look like "{uuid}/signature.ext", not https URLs.
+      if (path && !/^https?:\/\//i.test(path)) paths.add(path);
+    }
+  }
+  if (paths.size === 0) return claims;
+
+  const signed = new Map<string, string>();
+  const pathList = [...paths];
+  const { data, error } = await supabaseAdmin.storage
+    .from(STAFF_SIGNATURES_BUCKET)
+    .createSignedUrls(pathList, 3600);
+  if (!error && data) {
+    for (let i = 0; i < pathList.length; i += 1) {
+      const row = data[i];
+      const url = row?.signedUrl?.trim();
+      if (url) signed.set(pathList[i]!, url);
+    }
+  }
+
+  const resolve = (
+    stamp: { name: string | null; at: string | null; imageUrl?: string | null } | null | undefined,
+  ) => {
+    if (!stamp) return null;
+    const path = stamp.imageUrl?.trim() || null;
+    if (!path) return { ...stamp, imageUrl: null };
+    if (/^https?:\/\//i.test(path)) return stamp;
+    return { ...stamp, imageUrl: signed.get(path) ?? null };
+  };
+
+  return claims.map((claim) => ({
+    ...claim,
+    siteSignature: resolve(claim.siteSignature),
+    hooSignature: resolve(claim.hooSignature),
+    gmSignature: resolve(claim.gmSignature),
+    hrSignature: resolve(claim.hrSignature),
+  }));
 }
 
 async function loadOtHooNotifyUserIds(excludeUserId?: string | null): Promise<string[]> {
@@ -337,18 +415,22 @@ function mapClaimRow(row: Record<string, unknown>) {
     siteSignature: otSignatureStamp(
       row.verified_signer_name as string | null,
       row.verified_at as string | null,
+      row.verified_signer_signature_url as string | null,
     ),
     hooSignature: otSignatureStamp(
       row.ops_approved_signer_name as string | null,
       row.ops_approved_at as string | null,
+      row.ops_approved_signer_signature_url as string | null,
     ),
     gmSignature: otSignatureStamp(
       row.gm_approved_signer_name as string | null,
       row.gm_approved_at as string | null,
+      row.gm_approved_signer_signature_url as string | null,
     ),
     hrSignature: otSignatureStamp(
       row.approved_signer_name as string | null,
       row.approved_at as string | null,
+      row.approved_signer_signature_url as string | null,
     ),
     verifiedBy: (row.verified_by as string | null) ?? null,
     opsApprovedBy: (row.ops_approved_by as string | null) ?? null,
@@ -592,7 +674,7 @@ function otPaySnapshot(
 }
 
 const CLAIM_SELECT =
-  "id, request_batch_id, request_number, staff_id, location_id, work_date, attendance_daily_id, scheduled_in, scheduled_out, actual_in, actual_out, eligible_minutes, claimed_minutes, approved_minutes, rate_type, rate_multiplier, amount_qar, basic_qar_snapshot, hours_per_day_snapshot, days_per_month_snapshot, status, evidence_path, notes, purpose, claim_source, contract_working_days, submitted_by, submitted_at, verified_by, verified_at, verified_signer_name, ops_approved_by, ops_approved_at, ops_approved_signer_name, gm_approved_by, gm_approved_at, gm_approved_signer_name, approved_by, approved_at, approved_signer_name, created_at, staff(full_name, employee_code, phone, job_title, user_id, location_id, employment_type, department), locations(id, code, name)";
+  "id, request_batch_id, request_number, staff_id, location_id, work_date, attendance_daily_id, scheduled_in, scheduled_out, actual_in, actual_out, eligible_minutes, claimed_minutes, approved_minutes, rate_type, rate_multiplier, amount_qar, basic_qar_snapshot, hours_per_day_snapshot, days_per_month_snapshot, status, evidence_path, notes, purpose, claim_source, contract_working_days, submitted_by, submitted_at, verified_by, verified_at, verified_signer_name, verified_signer_signature_url, ops_approved_by, ops_approved_at, ops_approved_signer_name, ops_approved_signer_signature_url, gm_approved_by, gm_approved_at, gm_approved_signer_name, gm_approved_signer_signature_url, approved_by, approved_at, approved_signer_name, approved_signer_signature_url, created_at, staff(full_name, employee_code, phone, job_title, user_id, location_id, employment_type, department), locations(id, code, name)";
 
 async function nextOtRequestNumber(context: AuthContext): Promise<string> {
   const { data, error } = await context.supabase.rpc("generate_ot_request_number");
@@ -774,7 +856,7 @@ export const listOtClaims = createAuthenticatedAction(
     );
     const policy = await loadOtPolicy(context);
     const refreshed = await refreshPendingOtAmountsMissingBasic(mapped, policy);
-    return enrichOtSignatureNames(refreshed);
+    return enrichOtSignatureImages(await enrichOtSignatureNames(refreshed));
   },
   { auth: { anyCapability: ["hr.ot.submit", "hr.ot.verify", "hr.ot.approve"] } },
 );
@@ -1153,14 +1235,15 @@ async function applyOtClaimAction(input: {
       minClaimable,
       rounding,
     );
-    const signerName = await otActorSignerName(context);
+    const siteSig = await otActorSignatureSnapshot(context);
     patch.status = to;
     patch.approved_minutes = mins;
     patch.amount_qar = amountFor(mins, rateMultiplier, pay, policy, contractDays);
     Object.assign(patch, otPaySnapshot(pay, policy, contractDays));
     patch.verified_by = context.userId;
     patch.verified_at = new Date().toISOString();
-    patch.verified_signer_name = signerName;
+    patch.verified_signer_name = siteSig.name;
+    patch.verified_signer_signature_url = siteSig.signatureUrl;
     approvalStep = "manager";
     approvalAction = "verified";
   } else if (action === "ops_approve") {
@@ -1174,14 +1257,15 @@ async function applyOtClaimAction(input: {
       minClaimable,
       rounding,
     );
-    const signerName = await otActorSignerName(context);
+    const opsSig = await otActorSignatureSnapshot(context);
     patch.status = to;
     patch.approved_minutes = mins;
     patch.amount_qar = amountFor(mins, rateMultiplier, pay, policy, contractDays);
     Object.assign(patch, otPaySnapshot(pay, policy, contractDays));
     patch.ops_approved_by = context.userId;
     patch.ops_approved_at = new Date().toISOString();
-    patch.ops_approved_signer_name = signerName;
+    patch.ops_approved_signer_name = opsSig.name;
+    patch.ops_approved_signer_signature_url = opsSig.signatureUrl;
     approvalStep = "ops";
     approvalAction = "approved";
   } else if (action === "gm_approve") {
@@ -1195,14 +1279,15 @@ async function applyOtClaimAction(input: {
       minClaimable,
       rounding,
     );
-    const signerName = await otActorSignerName(context);
+    const gmSig = await otActorSignatureSnapshot(context);
     patch.status = to;
     patch.approved_minutes = mins;
     patch.amount_qar = amountFor(mins, rateMultiplier, pay, policy, contractDays);
     Object.assign(patch, otPaySnapshot(pay, policy, contractDays));
     patch.gm_approved_by = context.userId;
     patch.gm_approved_at = new Date().toISOString();
-    patch.gm_approved_signer_name = signerName;
+    patch.gm_approved_signer_name = gmSig.name;
+    patch.gm_approved_signer_signature_url = gmSig.signatureUrl;
     approvalStep = "gm";
     approvalAction = "approved";
   } else if (action === "approve") {
@@ -1216,14 +1301,15 @@ async function applyOtClaimAction(input: {
       minClaimable,
       rounding,
     );
-    const signerName = await otActorSignerName(context);
+    const hrSig = await otActorSignatureSnapshot(context);
     patch.status = to;
     patch.approved_minutes = mins;
     patch.amount_qar = amountFor(mins, rateMultiplier, pay, policy, contractDays);
     Object.assign(patch, otPaySnapshot(pay, policy, contractDays));
     patch.approved_by = context.userId;
     patch.approved_at = new Date().toISOString();
-    patch.approved_signer_name = signerName;
+    patch.approved_signer_name = hrSig.name;
+    patch.approved_signer_signature_url = hrSig.signatureUrl;
     approvalStep = "hr";
     approvalAction = "approved";
   } else if (action === "request_changes") {
@@ -1274,15 +1360,19 @@ async function applyOtClaimAction(input: {
     patch.verified_by = null;
     patch.verified_at = null;
     patch.verified_signer_name = null;
+    patch.verified_signer_signature_url = null;
     patch.ops_approved_by = null;
     patch.ops_approved_at = null;
     patch.ops_approved_signer_name = null;
+    patch.ops_approved_signer_signature_url = null;
     patch.gm_approved_by = null;
     patch.gm_approved_at = null;
     patch.gm_approved_signer_name = null;
+    patch.gm_approved_signer_signature_url = null;
     patch.approved_by = null;
     patch.approved_at = null;
     patch.approved_signer_name = null;
+    patch.approved_signer_signature_url = null;
     patch.approved_minutes = null;
     approvalStep = "submit";
     approvalAction = "resubmitted";
@@ -2174,7 +2264,7 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
       linked && isSiteSupervisorTitle(linked.jobTitle, linked.staffRole),
     );
     const initialStatus: HrOtStatus = siteSupervisorFiling ? "manager_verified" : "submitted";
-    const siteSignerName = siteSupervisorFiling ? await otActorSignerName(context) : null;
+    const siteSig = siteSupervisorFiling ? await otActorSignatureSnapshot(context) : null;
 
     // One OT request (batch + number) per staff — multi-date stays one request.
     const requestByStaff = new Map<string, { requestBatchId: string; requestNumber: string }>();
@@ -2214,7 +2304,8 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
           submitted_at: now,
           verified_by: siteSupervisorFiling ? context.userId : null,
           verified_at: siteSupervisorFiling ? now : null,
-          verified_signer_name: siteSignerName,
+          verified_signer_name: siteSig?.name ?? null,
+          verified_signer_signature_url: siteSig?.signatureUrl ?? null,
           created_by: context.userId,
         },
       ];
@@ -2527,15 +2618,19 @@ export const reviseSupervisorOtRequest = createAuthenticatedAction(
           patch.verified_by = null;
           patch.verified_at = null;
           patch.verified_signer_name = null;
+          patch.verified_signer_signature_url = null;
           patch.ops_approved_by = null;
           patch.ops_approved_at = null;
           patch.ops_approved_signer_name = null;
+          patch.ops_approved_signer_signature_url = null;
           patch.gm_approved_by = null;
           patch.gm_approved_at = null;
           patch.gm_approved_signer_name = null;
+          patch.gm_approved_signer_signature_url = null;
           patch.approved_by = null;
           patch.approved_at = null;
           patch.approved_signer_name = null;
+          patch.approved_signer_signature_url = null;
         }
         const { error } = await claimDb
           .from("hr_ot_claims")

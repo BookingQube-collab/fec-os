@@ -28,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/hooks/use-auth";
 import { usePwaInstall } from "@/hooks/use-pwa-install";
 import { translateRole } from "@/i18n";
@@ -37,7 +38,15 @@ import {
   loadChatPushClientConfig,
   saveOwnPushSubscription,
 } from "@/lib/chat/push-settings.functions";
-import { getMyAccountSnapshot, updateMyProfile } from "@/lib/profile.functions";
+import { SIGNATURE_MAX_BYTES, isSignatureMime } from "@/lib/digital-signature";
+import {
+  deleteMyDigitalSignature,
+  getMyAccountSnapshot,
+  getMyDigitalSignature,
+  setMySignatureAutoApply,
+  updateMyProfile,
+  uploadMyDigitalSignature,
+} from "@/lib/profile.functions";
 import { queryKeys } from "@/lib/query-keys";
 import { compressStaffPhotoFile } from "@/lib/staff-photo-client";
 import { cn } from "@/lib/utils";
@@ -165,12 +174,14 @@ export default function ProfilePage() {
   const { user, profile, roles, loading, refreshProfile, signOut, session } = useAuth();
   const pwa = usePwaInstall();
   const photoRef = useRef<HTMLInputElement>(null);
+  const signatureRef = useRef<HTMLInputElement>(null);
   const tabListId = useId();
   const [tab, setTab] = useState<AccountTab>("profile");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [saving, setSaving] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(false);
+  const [signatureBusy, setSignatureBusy] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -186,6 +197,12 @@ export default function ProfilePage() {
   const snapshot = useQuery({
     queryKey: queryKeys.account.snapshot(),
     queryFn: () => getMyAccountSnapshot(),
+    enabled: Boolean(user),
+  });
+
+  const digitalSignature = useQuery({
+    queryKey: queryKeys.account.digitalSignature(),
+    queryFn: () => getMyDigitalSignature(),
     enabled: Boolean(user),
   });
 
@@ -307,6 +324,68 @@ export default function ProfilePage() {
     } finally {
       setPhotoBusy(false);
       if (photoRef.current) photoRef.current.value = "";
+    }
+  };
+
+  const readFileAsDataUrl = (file: File) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") resolve(reader.result);
+        else reject(new Error("Could not read signature file."));
+      };
+      reader.onerror = () => reject(new Error("Could not read signature file."));
+      reader.readAsDataURL(file);
+    });
+
+  const onSignature = async (file: File | undefined) => {
+    if (!file || signatureBusy) return;
+    if (!isSignatureMime(file.type) || file.size > SIGNATURE_MAX_BYTES) {
+      toast.error(t("account.profile.signatureInvalid"));
+      if (signatureRef.current) signatureRef.current.value = "";
+      return;
+    }
+    setSignatureBusy(true);
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      await uploadMyDigitalSignature({ dataUrl });
+      await digitalSignature.refetch();
+      toast.success(t("account.profile.signatureSaved"));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("account.profile.signatureFailed"));
+    } finally {
+      setSignatureBusy(false);
+      if (signatureRef.current) signatureRef.current.value = "";
+    }
+  };
+
+  const removeSignature = async () => {
+    if (signatureBusy) return;
+    setSignatureBusy(true);
+    try {
+      await deleteMyDigitalSignature();
+      await digitalSignature.refetch();
+      toast.success(t("account.profile.signatureRemoved"));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("account.profile.signatureFailed"));
+    } finally {
+      setSignatureBusy(false);
+    }
+  };
+
+  const toggleSignatureAutoApply = async (next: boolean) => {
+    if (signatureBusy) return;
+    setSignatureBusy(true);
+    try {
+      await setMySignatureAutoApply({ autoApply: next });
+      await digitalSignature.refetch();
+      toast.success(
+        next ? t("account.profile.signatureAutoApplyOn") : t("account.profile.signatureAutoApplyOff"),
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("account.profile.signatureFailed"));
+    } finally {
+      setSignatureBusy(false);
     }
   };
 
@@ -576,6 +655,78 @@ export default function ProfilePage() {
                     </div>
                     <p className="account-hint">{t("account.profile.photoHint")}</p>
                   </div>
+
+                  {digitalSignature.data?.canManage ? (
+                    <div className="account-nested">
+                      <h3 className="account-nested__title">{t("account.profile.signatureTitle")}</h3>
+                      <p className="account-card__body">{t("account.profile.signatureBody")}</p>
+                      <div className="mt-4 flex flex-wrap items-center gap-4">
+                        <div className="flex h-16 w-40 items-center justify-center rounded-md border border-dashed border-border bg-muted/30 px-2">
+                          {digitalSignature.data.previewUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element -- signed storage preview
+                            <img
+                              src={digitalSignature.data.previewUrl}
+                              alt={t("account.profile.signaturePreviewAlt")}
+                              className="max-h-14 max-w-full object-contain"
+                            />
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <input
+                            ref={signatureRef}
+                            type="file"
+                            accept="image/png,image/jpeg,image/jpg,image/webp,image/svg+xml"
+                            className="sr-only"
+                            onChange={(event) => void onSignature(event.target.files?.[0])}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={signatureBusy}
+                            onClick={() => signatureRef.current?.click()}
+                          >
+                            <ImagePlus />
+                            {signatureBusy
+                              ? t("common.saving")
+                              : digitalSignature.data.previewUrl
+                                ? t("account.profile.signatureReplace")
+                                : t("account.profile.signatureUpload")}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={signatureBusy || !digitalSignature.data.signatureUrl}
+                            onClick={() => void removeSignature()}
+                          >
+                            <Trash2 />
+                            {t("account.profile.signatureRemove")}
+                          </Button>
+                        </div>
+                      </div>
+                      <p className="account-hint">{t("account.profile.signatureHint")}</p>
+                      <div className="mt-4 flex items-start justify-between gap-4 rounded-md border border-border/60 px-3 py-3">
+                        <div className="min-w-0 space-y-1">
+                          <Label htmlFor="account-signature-auto" className="text-sm font-medium">
+                            {t("account.profile.signatureAutoApply")}
+                          </Label>
+                          <p className="text-xs text-muted-foreground">
+                            {t("account.profile.signatureAutoApplyHint")}
+                          </p>
+                        </div>
+                        <Switch
+                          id="account-signature-auto"
+                          checked={digitalSignature.data.autoApply}
+                          disabled={signatureBusy || !digitalSignature.data.signatureUrl}
+                          onCheckedChange={(checked) => void toggleSignatureAutoApply(checked)}
+                          aria-label={t("account.profile.signatureAutoApply")}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
 
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">

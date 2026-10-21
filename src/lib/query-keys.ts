@@ -9,6 +9,7 @@ export const queryKeys = {
   account: {
     all: ["account"] as const,
     snapshot: () => [...queryKeys.account.all, "snapshot"] as const,
+    digitalSignature: () => [...queryKeys.account.all, "digital-signature"] as const,
   },
   sites: {
     all: ["sites"] as const,

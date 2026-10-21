@@ -7157,7 +7157,22 @@
       "managedNote": "An administrator manages your username, email, role and account access. Use HR Helpdesk if these details need changing.",
       "save": "Save profile",
       "reset": "Reset",
-      "nameRequired": "Enter a first or last name."
+      "nameRequired": "Enter a first or last name.",
+      "signatureTitle": "Digital signature",
+      "signatureBody": "Upload a signature for OT and other approval print slips. It is only stamped automatically when you opt in below.",
+      "signatureHint": "PNG, SVG, JPG or WebP · up to 2 MB",
+      "signatureInvalid": "Use a PNG, SVG, JPG, or WebP image up to 2 MB.",
+      "signatureUpload": "Upload signature",
+      "signatureReplace": "Replace signature",
+      "signatureRemove": "Delete signature",
+      "signatureSaved": "Signature saved",
+      "signatureRemoved": "Signature removed",
+      "signatureFailed": "Could not update the signature",
+      "signatureAutoApply": "Allow automatic signature on approval forms",
+      "signatureAutoApplyHint": "When on, your signature image is stamped on print slips after you approve. When off, the signature box stays blank so you can print and sign by hand.",
+      "signatureAutoApplyOn": "Automatic signature enabled",
+      "signatureAutoApplyOff": "Automatic signature disabled",
+      "signaturePreviewAlt": "Your digital signature"
     },
     "access": {
       "title": "Your access",

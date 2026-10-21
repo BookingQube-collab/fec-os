@@ -3,10 +3,23 @@
 import { headers } from "next/headers";
 import { z } from "zod";
 
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import {
+  canUploadDigitalSignature,
+  extensionForSignatureMime,
+  isSignatureMime,
+  SIGNATURE_MAX_BYTES,
+  signatureStoragePath,
+  STAFF_SIGNATURES_BUCKET,
+} from "@/lib/digital-signature";
+import { loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
+import { ForbiddenError } from "@/lib/server/authorize";
 import { createAuthenticatedAction, createAuthenticatedActionNoInput } from "@/lib/server/create-action";
 
 const AVATAR_MAX_CHARS = 350_000;
 const AVATAR_DATA_URL = /^data:image\/(?:jpeg|png|webp);base64,[a-z0-9+/=\s]+$/i;
+const SIGNATURE_DATA_URL =
+  /^data:(image\/(?:jpeg|jpg|png|webp|svg\+xml));base64,[a-z0-9+/=\s]+$/i;
 
 const updateSchema = z.object({
   display_name: z.string().trim().min(1).max(120),
@@ -34,6 +47,50 @@ function readClientIp(headerList: Headers): string | null {
 type DeptLink = {
   master_departments?: { name?: string | null } | { name?: string | null }[] | null;
 };
+
+async function assertCanManageSignature(context: {
+  userId: string;
+  roles?: readonly string[] | null;
+}) {
+  const linked = await loadLinkedStaffRecord(context.userId).catch(() => null);
+  const allowed = canUploadDigitalSignature({
+    roles: context.roles ?? [],
+    jobTitle: linked?.jobTitle ?? null,
+    staffRole: linked?.staffRole ?? null,
+    department: linked?.department ?? null,
+  });
+  if (!allowed) {
+    throw new ForbiddenError("Digital signatures are available for senior positions only.");
+  }
+  return linked;
+}
+
+function decodeSignatureDataUrl(raw: string): { bytes: Buffer; contentType: string } {
+  const compact = raw.replace(/\s/g, "");
+  const match = compact.match(SIGNATURE_DATA_URL);
+  if (!match) {
+    throw new Error("Signature must be a PNG, JPEG, WebP, or SVG image.");
+  }
+  const contentType = match[1]!.toLowerCase() === "image/jpg" ? "image/jpeg" : match[1]!.toLowerCase();
+  if (!isSignatureMime(contentType)) {
+    throw new Error("Signature must be a PNG, JPEG, WebP, or SVG image.");
+  }
+  const bytes = Buffer.from(match[2]!, "base64");
+  if (bytes.length < 32) throw new Error("Signature image is empty.");
+  if (bytes.length > SIGNATURE_MAX_BYTES) {
+    throw new Error("Signature image must be 2 MB or smaller.");
+  }
+  return { bytes, contentType };
+}
+
+async function signedPreviewUrl(path: string | null | undefined): Promise<string | null> {
+  if (!path?.trim()) return null;
+  const { data, error } = await supabaseAdmin.storage
+    .from(STAFF_SIGNATURES_BUCKET)
+    .createSignedUrl(path.trim(), 3600);
+  if (error || !data?.signedUrl) return null;
+  return data.signedUrl;
+}
 
 /** Self-service update of the signed-in user's `profiles` row. */
 export const updateMyProfile = createAuthenticatedAction(
@@ -75,3 +132,137 @@ export const getMyAccountSnapshot = createAuthenticatedActionNoInput(async (cont
   }
   return { department, ip };
 });
+
+/** Whether the signed-in user may manage a digital signature, plus current settings. */
+export const getMyDigitalSignature = createAuthenticatedActionNoInput(async (context) => {
+  const linked = await loadLinkedStaffRecord(context.userId).catch(() => null);
+  const canManage = canUploadDigitalSignature({
+    roles: context.roles ?? [],
+    jobTitle: linked?.jobTitle ?? null,
+    staffRole: linked?.staffRole ?? null,
+    department: linked?.department ?? null,
+  });
+  if (!canManage) {
+    return {
+      canManage: false as const,
+      signatureUrl: null,
+      previewUrl: null,
+      autoApply: false,
+    };
+  }
+  const { data, error } = await context.supabase
+    .from("profiles")
+    .select("signature_url, signature_auto_apply")
+    .eq("id", context.userId)
+    .maybeSingle();
+  if (error) throw error;
+  const signatureUrl = (data as { signature_url?: string | null } | null)?.signature_url ?? null;
+  const autoApply = Boolean(
+    (data as { signature_auto_apply?: boolean | null } | null)?.signature_auto_apply,
+  );
+  const previewUrl = await signedPreviewUrl(signatureUrl);
+  return {
+    canManage: true as const,
+    signatureUrl,
+    previewUrl,
+    autoApply,
+  };
+});
+
+/** Upload or replace the signed-in user's digital signature image. */
+export const uploadMyDigitalSignature = createAuthenticatedAction(
+  z.object({
+    dataUrl: z.string().min(80).max(3_000_000),
+  }),
+  async (data, context) => {
+    await assertCanManageSignature(context);
+    const { bytes, contentType } = decodeSignatureDataUrl(data.dataUrl);
+    const ext = extensionForSignatureMime(contentType);
+    const path = signatureStoragePath(context.userId, ext);
+
+    const { data: existing } = await context.supabase
+      .from("profiles")
+      .select("signature_url")
+      .eq("id", context.userId)
+      .maybeSingle();
+    const previous =
+      (existing as { signature_url?: string | null } | null)?.signature_url?.trim() || null;
+
+    const { error: uploadError } = await supabaseAdmin.storage
+      .from(STAFF_SIGNATURES_BUCKET)
+      .upload(path, bytes, { contentType, upsert: true });
+    if (uploadError) {
+      const msg = uploadError.message || "Storage upload failed";
+      if (/bucket|not found|does not exist/i.test(msg)) {
+        throw new Error("Signature storage is not ready. Apply the digital signatures migration.");
+      }
+      throw new Error(msg);
+    }
+
+    const { error: updateError } = await context.supabase
+      .from("profiles")
+      .update({ signature_url: path, updated_at: new Date().toISOString() })
+      .eq("id", context.userId);
+    if (updateError) throw updateError;
+
+    if (previous && previous !== path) {
+      await supabaseAdmin.storage.from(STAFF_SIGNATURES_BUCKET).remove([previous]).catch(() => undefined);
+    }
+
+    const previewUrl = await signedPreviewUrl(path);
+    return { signatureUrl: path, previewUrl };
+  },
+);
+
+/** Remove the signed-in user's digital signature image (opt-in stays until they change it). */
+export const deleteMyDigitalSignature = createAuthenticatedActionNoInput(async (context) => {
+  await assertCanManageSignature(context);
+  const { data, error } = await context.supabase
+    .from("profiles")
+    .select("signature_url")
+    .eq("id", context.userId)
+    .maybeSingle();
+  if (error) throw error;
+  const path = (data as { signature_url?: string | null } | null)?.signature_url?.trim() || null;
+
+  const { error: updateError } = await context.supabase
+    .from("profiles")
+    .update({ signature_url: null, updated_at: new Date().toISOString() })
+    .eq("id", context.userId);
+  if (updateError) throw updateError;
+
+  if (path) {
+    await supabaseAdmin.storage.from(STAFF_SIGNATURES_BUCKET).remove([path]).catch(() => undefined);
+  }
+  return { ok: true as const };
+});
+
+/** Toggle whether approvals auto-stamp this signature on print slips. Default remains off. */
+export const setMySignatureAutoApply = createAuthenticatedAction(
+  z.object({
+    autoApply: z.boolean(),
+  }),
+  async (data, context) => {
+    await assertCanManageSignature(context);
+    if (data.autoApply) {
+      const { data: row, error } = await context.supabase
+        .from("profiles")
+        .select("signature_url")
+        .eq("id", context.userId)
+        .maybeSingle();
+      if (error) throw error;
+      if (!(row as { signature_url?: string | null } | null)?.signature_url?.trim()) {
+        throw new Error("Upload a signature image before enabling automatic stamping.");
+      }
+    }
+    const { error: updateError } = await context.supabase
+      .from("profiles")
+      .update({
+        signature_auto_apply: data.autoApply,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", context.userId);
+    if (updateError) throw updateError;
+    return { autoApply: data.autoApply };
+  },
+);
