@@ -1406,16 +1406,13 @@ export const actOnOtRequestBatch = createAuthenticatedAction(
           .eq("id", rows[0]!.id)
           .maybeSingle();
         const staffJoin = head
-          ? Array.isArray((head as { staff?: unknown }).staff)
-            ? (head as { staff: Array<{ user_id?: string }> }).staff[0]
-            : (head as { staff?: { user_id?: string } | null }).staff
+          ? Array.isArray(head.staff)
+            ? head.staff[0]
+            : head.staff
           : null;
         const notifyIds = [
           ...new Set(
-            [
-              (head as { submitted_by?: string | null } | null)?.submitted_by,
-              staffJoin?.user_id,
-            ]
+            [head?.submitted_by, staffJoin?.user_id]
               .filter((id): id is string => Boolean(id) && id !== context.userId)
               .map(String),
           ),
