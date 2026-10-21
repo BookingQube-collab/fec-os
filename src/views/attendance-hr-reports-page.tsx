@@ -55,6 +55,7 @@ import {
 } from "@/lib/exclude-org-departments";
 import { useMasterDepartments } from "@/hooks/queries/useDepartments";
 import { useAuth, useUserRoles } from "@/hooks/use-auth";
+import { usePermission } from "@/hooks/use-permission";
 import {
   attendanceListingIsCompanyWide,
   canSeeAttendanceListing,
@@ -108,11 +109,20 @@ export default function AttendanceHrReportsPage() {
     profile?.department,
     profile?.staff_role,
   );
-  const canList = canSeeAttendanceListing(roles, hasDirectReports);
+  const canList = canSeeAttendanceListing(
+    roles,
+    hasDirectReports,
+    profile?.job_title,
+    profile?.department,
+    profile?.staff_role,
+  );
   const listingEnabled = companyWide || (!reportsPending && canList);
   const canMapUsers = canUserDo(roles, "attendance.map_users");
   const canImport = canUserDo(roles, "attendance.import");
-  const showHrExport = canUserDo(roles, "attendance.view") || canUserDo(roles, "attendance.export");
+  // Job-title aware (Head of Operations) — matches export API authorize path.
+  const canExportAttendance = usePermission("attendance.export");
+  const canViewAttendance = usePermission("attendance.view");
+  const showHrExport = canViewAttendance || canExportAttendance;
   const [{ month, dateFrom: from, dateTo: to }, setPeriod] = useState(() =>
     defaultPayrollPeriod(new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" })),
   );
@@ -333,11 +343,24 @@ export default function AttendanceHrReportsPage() {
     if (staffQDebounced.trim()) p.set("staffQ", staffQDebounced.trim());
     if (departmentIds.length) p.set("departmentIds", departmentIds.join(","));
     if (showOrgDepartments.length) p.set("showOrgDepartments", showOrgDepartments.join(","));
+    if (kpiFilter && kpiFilter !== "total" && kpiFilter !== "staff") p.set("kpiFilter", kpiFilter);
     p.set("locationLabel", locationLabel);
     p.set("departmentLabel", departmentLabel);
     if (status) p.set("statusLabel", statusLabel);
     return `/api/people/attendance-hr/export?${p.toString()}`;
-  }, [from, to, locationId, status, staffQDebounced, departmentIds, showOrgDepartments, locationLabel, departmentLabel, statusLabel]);
+  }, [
+    from,
+    to,
+    locationId,
+    status,
+    staffQDebounced,
+    departmentIds,
+    showOrgDepartments,
+    kpiFilter,
+    locationLabel,
+    departmentLabel,
+    statusLabel,
+  ]);
 
   const payrollHref = useMemo(() => {
     const p = new URLSearchParams({ from, to, month });

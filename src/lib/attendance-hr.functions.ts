@@ -112,6 +112,7 @@ import {
 import {
   suppressAbsentWhenPunchedSameDay,
   suppressAbsentWithoutOnDutyRoster,
+  suppressUnmappedWhenMappedSameDay,
 } from "@/lib/attendance-hr/punch-over-absent";
 import {
   expandFlexibleBiometricPairsByDeviceName,
@@ -2718,6 +2719,7 @@ type StaffLookup = {
   department?: string | null;
   job_title?: string | null;
   status?: string | null;
+  deleted_at?: string | null;
   is_roaming?: boolean | null;
   flexible_attendance?: boolean | null;
   reporting_time_minutes?: number | null;
@@ -2800,7 +2802,7 @@ async function enrichAttendanceHrDailyRows(
     loadByIds<StaffLookup>(
       context,
       "staff",
-      "id, full_name, employee_code, qid, employment_type, department, job_title, status, is_roaming, flexible_attendance, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday, hire_date",
+      "id, full_name, employee_code, qid, employment_type, department, job_title, status, deleted_at, is_roaming, flexible_attendance, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday, hire_date",
       staffIds,
     ),
     loadByIds<LocationLookup>(context, "locations", "id, code, name, region", locationIds),
@@ -2885,10 +2887,28 @@ async function enrichAttendanceHrDailyRows(
   ]);
 
   const staffById = new Map(staffRows.map((row) => [row.id, row]));
-  // Hide left staff from listing + KPIs/export (same gate as dashboard roster).
-  const listingRows = rows.filter((row) => {
+  // Roster keys for exited-staff evidence (built before listing filter).
+  const rosterStaffDateKeys = new Set<string>();
+  for (const row of rosterRes.data ?? []) {
+    const sid = String(row.staff_id ?? "");
+    const workDate = String(row.work_date ?? "").slice(0, 10);
+    if (sid && workDate) rosterStaffDateKeys.add(`${sid}|${workDate}`);
+  }
+  // Map → recalc leaves bio: orphan summaries beside staff: keepers (Fahadah / Fahadha).
+  const dedupedRows = suppressUnmappedWhenMappedSameDay(rows);
+  // Keep punched / rostered history for exited staff; hide soft-deleted merge archives.
+  const listingRows = dedupedRows.filter((row) => {
     const id = typeof row.staff_id === "string" ? row.staff_id : null;
-    return attendanceHrIncludesStaffInListing(id, id ? staffById.get(id)?.status : null);
+    const staff = id ? staffById.get(id) : undefined;
+    const workDate = String(row.work_date ?? "").slice(0, 10);
+    const hasPunches =
+      Number(row.punch_count ?? 0) > 0 || Boolean(row.actual_in) || Boolean(row.actual_out);
+    const hasRoster = Boolean(id && workDate && rosterStaffDateKeys.has(`${id}|${workDate}`));
+    return attendanceHrIncludesStaffInListing(id, staff?.status, {
+      hasPunches,
+      hasRoster,
+      deletedAt: staff?.deleted_at ?? null,
+    });
   });
   const locationById = new Map(locationRows.map((row) => [row.id, row]));
   type BioLookup = {

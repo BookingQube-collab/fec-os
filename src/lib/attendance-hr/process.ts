@@ -1536,6 +1536,37 @@ export async function recalculateAttendanceRange(
     if (upsertError) throw upsertError;
   }
 
+  // Drop stale unmapped bio: rows once a mapped staff: summary exists for the same
+  // location + day + biometric user (Fahadah orphan beside Fahadha mohamed nur).
+  const orphanBioDeletes = new Map<string, { location_id: string; work_date: string; biometric_user_id: string }>();
+  for (const row of mapped) {
+    const bio = row.biometric_user_id == null ? "" : String(row.biometric_user_id).trim();
+    const loc = String(row.location_id ?? "").trim();
+    const day = String(row.work_date ?? "").slice(0, 10);
+    if (!bio || !loc || !day) continue;
+    orphanBioDeletes.set(`${loc}|${day}|${bio}`, {
+      location_id: loc,
+      work_date: day,
+      biometric_user_id: bio,
+    });
+  }
+  const orphanList = [...orphanBioDeletes.values()];
+  for (let i = 0; i < orphanList.length; i += 40) {
+    const chunk = orphanList.slice(i, i + 40);
+    await Promise.all(
+      chunk.map(async (row) => {
+        const { error: delError } = await supabase
+          .from("attendance_daily_summary")
+          .delete()
+          .eq("location_id", row.location_id)
+          .eq("work_date", row.work_date)
+          .eq("biometric_user_id", row.biometric_user_id)
+          .is("staff_id", null);
+        if (delError) throw delError;
+      }),
+    );
+  }
+
   return { processed };
 }
 

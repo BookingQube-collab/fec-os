@@ -4,6 +4,7 @@ import {
   preferPunchedDailySummaryRows,
   suppressAbsentWhenPunchedSameDay,
   suppressAbsentWithoutOnDutyRoster,
+  suppressUnmappedWhenMappedSameDay,
 } from "./punch-over-absent";
 
 describe("preferPunchedDailySummaryRows", () => {
@@ -97,6 +98,73 @@ describe("suppressAbsentWhenPunchedSameDay", () => {
       },
     ];
     expect(suppressAbsentWhenPunchedSameDay(rows)).toEqual(rows);
+  });
+});
+
+describe("suppressUnmappedWhenMappedSameDay", () => {
+  it("drops Fahadah-style unmapped orphan when mapped staff has the same bio + day", () => {
+    const filtered = suppressUnmappedWhenMappedSameDay([
+      {
+        id: "orphan-bio",
+        staff_id: null,
+        location_id: "ua-dm",
+        work_date: "2026-09-28",
+        biometric_user_id: "22",
+        actual_in: "2026-09-28T08:14:00.000Z",
+        actual_out: "2026-09-28T16:56:00.000Z",
+        punch_count: 2,
+      },
+      {
+        id: "mapped-staff",
+        staff_id: "fahadha",
+        location_id: "ua-dm",
+        work_date: "2026-09-28",
+        biometric_user_id: "22",
+        actual_in: "2026-09-28T08:14:00.000Z",
+        actual_out: "2026-09-28T16:56:00.000Z",
+        punch_count: 2,
+      },
+    ]);
+    expect(filtered.map((r) => r.id)).toEqual(["mapped-staff"]);
+  });
+
+  it("drops unmapped orphan matched only by identical punch span when mapped bio is blank", () => {
+    const filtered = suppressUnmappedWhenMappedSameDay([
+      {
+        id: "orphan",
+        staff_id: null,
+        location_id: "ua-dm",
+        work_date: "2026-09-29",
+        biometric_user_id: "22",
+        actual_in: "2026-09-29T08:36:00.000Z",
+        actual_out: "2026-09-29T18:04:00.000Z",
+      },
+      {
+        id: "keeper",
+        staff_id: "fahadha",
+        location_id: "ua-dm",
+        work_date: "2026-09-29",
+        biometric_user_id: null,
+        actual_in: "2026-09-29T08:36:00.000Z",
+        actual_out: "2026-09-29T18:04:00.000Z",
+      },
+    ]);
+    expect(filtered.map((r) => r.id)).toEqual(["keeper"]);
+  });
+
+  it("keeps truly unmapped rows with no mapped sibling", () => {
+    const rows = [
+      {
+        id: "only-unmapped",
+        staff_id: null,
+        location_id: "ua-dm",
+        work_date: "2026-09-28",
+        biometric_user_id: "99",
+        actual_in: "2026-09-28T09:00:00.000Z",
+        actual_out: null,
+      },
+    ];
+    expect(suppressUnmappedWhenMappedSameDay(rows)).toEqual(rows);
   });
 });
 

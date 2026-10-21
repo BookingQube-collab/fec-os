@@ -812,14 +812,27 @@ describe("HR report row helpers", () => {
     expect(attendanceHrStaffMatches({ staff_name: "Ahmed Ali" }, "Unmapped")).toBe(false);
   });
 
-  it("hides terminated/inactive staff from the default attendance listing", () => {
+  it("keeps exited staff on the listing when they punched or were rostered", () => {
     expect(attendanceHrIncludesStaffInListing(null, "terminated")).toBe(true);
     expect(attendanceHrIncludesStaffInListing("s1", "active")).toBe(true);
     expect(attendanceHrIncludesStaffInListing("s1", "on_leave")).toBe(true);
     expect(attendanceHrIncludesStaffInListing("s1", "serving_notice")).toBe(true);
+    expect(attendanceHrIncludesStaffInListing("s1", "joker")).toBe(true);
+    // No punches / roster → hide blank exited fillers
     expect(attendanceHrIncludesStaffInListing("s1", "terminated")).toBe(false);
     expect(attendanceHrIncludesStaffInListing("s1", "inactive")).toBe(false);
-    expect(attendanceHrIncludesStaffInListing("s1", "joker")).toBe(true);
+    expect(attendanceHrIncludesStaffInListing("s1", "resigned")).toBe(false);
+    // Punched or rostered history stays visible
+    expect(attendanceHrIncludesStaffInListing("s1", "terminated", { hasPunches: true })).toBe(true);
+    expect(attendanceHrIncludesStaffInListing("s1", "inactive", { hasRoster: true })).toBe(true);
+    expect(attendanceHrIncludesStaffInListing("s1", "contract_finished", { hasPunches: true })).toBe(true);
+    // Soft-deleted merge archives never appear (keeper already owns the person-day)
+    expect(
+      attendanceHrIncludesStaffInListing("s1", "terminated", {
+        hasPunches: true,
+        deletedAt: "2026-09-01T00:00:00.000Z",
+      }),
+    ).toBe(false);
   });
 
   it("matches search against name-on-device for unmapped rows", () => {

@@ -22,6 +22,18 @@ describe("attendance listing access", () => {
     }
   });
 
+  it("treats Head of Operations as company-wide even on a floor role", () => {
+    expect(attendanceListingIsCompanyWide(["cashier_host"], "Head of Operations")).toBe(true);
+    expect(attendanceListingIsCompanyWide(["cashier_host"], "Head of Operations / FEC-IT")).toBe(true);
+    expect(canSeeAttendanceListing(["cashier_host"], false, "Head of Operations")).toBe(true);
+    expect(visibleAttendanceNavHrefs(["cashier_host"], false, "Head of Operations")).toContain(
+      "/people/attendance/reports",
+    );
+    expect(visibleAttendanceNavHrefs(["cashier_host"], false, "Head of Operations")).toContain(
+      "/people/attendance/import",
+    );
+  });
+
   it("shows the listing to managers, supervisors, and reporting team leaders", () => {
     expect(canSeeAttendanceListing(["duty_manager"], false)).toBe(true);
     expect(canSeeAttendanceListing(["tech_supervisor"], false)).toBe(true);

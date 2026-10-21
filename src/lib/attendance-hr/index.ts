@@ -112,6 +112,7 @@ export {
   computeAttendanceHrReportKpis,
   isMappedAttendanceHrRow,
   attendanceHrReportsUseListView,
+  attendanceHrIncludesStaffInListing,
   attendanceHrRowMatchesLocation,
   attendanceHrRowMatchesKpiFilter,
   suppressRoamingFalseAbsentForRosterElsewhere,
@@ -120,6 +121,7 @@ export {
   preferPunchedDailySummaryRows,
   suppressAbsentWhenPunchedSameDay,
   suppressAbsentWithoutOnDutyRoster,
+  suppressUnmappedWhenMappedSameDay,
 } from "./punch-over-absent";
 export type { AttendanceHrKpiFilter } from "./report";
 export {

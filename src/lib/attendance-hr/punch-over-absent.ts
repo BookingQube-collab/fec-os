@@ -98,6 +98,57 @@ export function suppressAbsentWhenPunchedSameDay(
   });
 }
 
+function punchSpanKey(row: {
+  actual_in?: unknown;
+  actual_out?: unknown;
+}): string | null {
+  const inn = row.actual_in == null ? "" : String(row.actual_in);
+  const out = row.actual_out == null ? "" : String(row.actual_out);
+  if (!inn && !out) return null;
+  return `${inn}|${out}`;
+}
+
+/**
+ * After biometric map → recalc, process upserts a `staff:{id}` daily row but often
+ * leaves the prior unmapped `bio:device:user` row. Listing/export then show both
+ * (e.g. device name "Fahadah" with empty code beside "Fahadha mohamed nur" UA-DM-STF22
+ * with identical punches). Drop the orphan unmapped row when a mapped sibling
+ * covers the same location + day for the same biometric user, or the same punch span.
+ */
+export function suppressUnmappedWhenMappedSameDay(
+  rows: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  if (rows.length < 2) return rows;
+
+  const mappedBioKeys = new Set<string>();
+  const mappedPunchKeys = new Set<string>();
+  for (const row of rows) {
+    const staffId = typeof row.staff_id === "string" ? row.staff_id : "";
+    if (!staffId) continue;
+    const loc = String(row.location_id ?? "").trim();
+    const day = String(row.work_date ?? "").slice(0, 10);
+    if (!loc || !day) continue;
+    const bio = String(row.biometric_user_id ?? "").trim();
+    if (bio) mappedBioKeys.add(`${loc}|${day}|${bio}`);
+    const punch = punchSpanKey(row);
+    if (punch) mappedPunchKeys.add(`${loc}|${day}|${punch}`);
+  }
+  if (!mappedBioKeys.size && !mappedPunchKeys.size) return rows;
+
+  return rows.filter((row) => {
+    const staffId = typeof row.staff_id === "string" ? row.staff_id : "";
+    if (staffId) return true;
+    const loc = String(row.location_id ?? "").trim();
+    const day = String(row.work_date ?? "").slice(0, 10);
+    if (!loc || !day) return true;
+    const bio = String(row.biometric_user_id ?? "").trim();
+    if (bio && mappedBioKeys.has(`${loc}|${day}|${bio}`)) return false;
+    const punch = punchSpanKey(row);
+    if (punch && mappedPunchKeys.has(`${loc}|${day}|${punch}`)) return false;
+    return true;
+  });
+}
+
 export type RosterDutyDay = {
   staff_id: string;
   work_date: string;

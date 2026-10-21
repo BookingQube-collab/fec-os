@@ -1,3 +1,4 @@
+import { isHeadOfOperationsTitle } from "@/lib/attendance-hr/missed-punch-approval";
 import { reportingDescendants } from "@/lib/reporting-chain";
 import { viewerRollsUpSupervisorTeam } from "@/lib/manager-supervisor-team";
 import { orgTitleForcesTeamLocationScope } from "@/lib/reporting-manager-locations";
@@ -27,7 +28,8 @@ const ATTENDANCE_NAV_HREFS = [
 const MANAGER_SUPERVISOR_ROLES = ["duty_manager", "tech_supervisor"] as const satisfies readonly AppRole[];
 
 /**
- * Admin, GM, CEO, COO, and other roles that open every attendance page.
+ * Admin, GM, CEO, COO, HR, and other roles that open every attendance page.
+ * Head of Operations title is company-wide (same as locationAccessIsCompanyWide).
  * Sr. Site / Venue / Site / F&B Manager titles stay team-scoped even on
  * `branch_gm` (which includes `attendance.view`) so chips use the org chart
  * instead of RLS-limited `user_roles.location_ids`.
@@ -39,6 +41,7 @@ export function attendanceListingIsCompanyWide(
   staffRole?: string | null,
 ): boolean {
   if (orgTitleForcesTeamLocationScope(jobTitle, department, staffRole)) return false;
+  if (isHeadOfOperationsTitle(jobTitle)) return true;
   const list = roles as AppRole[];
   return (
     canUserDo(list, "attendance.view") ||
@@ -50,9 +53,17 @@ export function attendanceListingIsCompanyWide(
 /**
  * Listing tab for company attendance, for manager/supervisor roles, and for any
  * login that already has direct reports (including cashier_host team leaders).
+ * Head of Operations always sees the full People & HR attendance listing.
  */
-export function canSeeAttendanceListing(roles: readonly AppRole[], hasDirectReports: boolean): boolean {
-  if (attendanceListingIsCompanyWide(roles)) return true;
+export function canSeeAttendanceListing(
+  roles: readonly AppRole[],
+  hasDirectReports: boolean,
+  jobTitle?: string | null,
+  department?: string | null,
+  staffRole?: string | null,
+): boolean {
+  if (attendanceListingIsCompanyWide(roles, jobTitle, department, staffRole)) return true;
+  if (isHeadOfOperationsTitle(jobTitle)) return true;
   if (hasDirectReports) return true;
   return roles.some((role) => (MANAGER_SUPERVISOR_ROLES as readonly AppRole[]).includes(role));
 }
@@ -64,9 +75,15 @@ export function attendanceMappingIsCompanyWide(roles: readonly AppRole[]): boole
 }
 
 /** Same people who see Attendance listing, including anyone who already had company-wide mapping. */
-export function canSeeAttendanceMapping(roles: readonly AppRole[], hasDirectReports: boolean): boolean {
+export function canSeeAttendanceMapping(
+  roles: readonly AppRole[],
+  hasDirectReports: boolean,
+  jobTitle?: string | null,
+  department?: string | null,
+  staffRole?: string | null,
+): boolean {
   if (attendanceMappingIsCompanyWide(roles)) return true;
-  return canSeeAttendanceListing(roles, hasDirectReports);
+  return canSeeAttendanceListing(roles, hasDirectReports, jobTitle, department, staffRole);
 }
 
 /**
@@ -85,11 +102,26 @@ export function canMergeAttendanceMappings(
 }
 
 /** Dashboard and Corrections stay. Listing and Mapping open for team leaders. Import and devices stay on company access. */
-export function visibleAttendanceNavHrefs(roles: readonly AppRole[], hasDirectReports: boolean): string[] {
-  if (canUserDo(roles as AppRole[], "attendance.view")) return [...ATTENDANCE_NAV_HREFS];
+export function visibleAttendanceNavHrefs(
+  roles: readonly AppRole[],
+  hasDirectReports: boolean,
+  jobTitle?: string | null,
+  department?: string | null,
+  staffRole?: string | null,
+): string[] {
+  if (
+    canUserDo(roles as AppRole[], "attendance.view") ||
+    isHeadOfOperationsTitle(jobTitle)
+  ) {
+    return [...ATTENDANCE_NAV_HREFS];
+  }
   const team = new Set<string>(["/people/attendance", "/people/attendance/corrections"]);
-  if (canSeeAttendanceListing(roles, hasDirectReports)) team.add(ATTENDANCE_LISTING_HREF);
-  if (canSeeAttendanceMapping(roles, hasDirectReports)) team.add(ATTENDANCE_MAPPING_HREF);
+  if (canSeeAttendanceListing(roles, hasDirectReports, jobTitle, department, staffRole)) {
+    team.add(ATTENDANCE_LISTING_HREF);
+  }
+  if (canSeeAttendanceMapping(roles, hasDirectReports, jobTitle, department, staffRole)) {
+    team.add(ATTENDANCE_MAPPING_HREF);
+  }
   return ATTENDANCE_NAV_HREFS.filter((href) => team.has(href));
 }
 

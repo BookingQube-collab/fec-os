@@ -18,7 +18,7 @@ import {
 
 import { PillTabScroller, pillTabItemClass } from "@/components/react-bits/pill-tab-scroller";
 import { useHasDirectReports } from "@/hooks/use-my-direct-reports";
-import { useUserRoles } from "@/hooks/use-auth";
+import { useAuth, useUserRoles } from "@/hooks/use-auth";
 import { visibleAttendanceNavHrefs } from "@/lib/attendance-listing-access";
 
 const NAV_ICONS: Record<string, LucideIcon> = {
@@ -46,8 +46,17 @@ export function AttendanceHrNav() {
   const pathname = usePathname();
   const { t } = useTranslation();
   const roles = useUserRoles();
+  const { profile } = useAuth();
   const { hasDirectReports } = useHasDirectReports();
-  const visible = new Set(visibleAttendanceNavHrefs(roles, hasDirectReports));
+  const visible = new Set(
+    visibleAttendanceNavHrefs(
+      roles,
+      hasDirectReports,
+      profile?.job_title,
+      profile?.department,
+      profile?.staff_role,
+    ),
+  );
   const tabs = TABS.filter((tab) => visible.has(tab.href));
   return (
     <PillTabScroller label={t("attendanceHr.title")}>

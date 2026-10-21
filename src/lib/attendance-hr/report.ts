@@ -490,18 +490,36 @@ export function attendanceHrReportsUseListView(
   return listingRowCount > 0;
 }
 
+/** Evidence that an exited person still belongs on the attendance listing for that day. */
+export type AttendanceHrListingEvidence = {
+  /** Device punches or timed in/out on the daily row. */
+  hasPunches?: boolean;
+  /** Shift roster assignment (or week-off) on that staff + date. */
+  hasRoster?: boolean;
+  /**
+   * Soft-deleted merge archives (`staff.deleted_at`) stay out — keepers already hold
+   * the canonical person-day. Real exits keep `deleted_at` null.
+   */
+  deletedAt?: string | null;
+};
+
 /**
- * Default attendance listing hides staff who left (`terminated` / `inactive`).
- * Unmapped punches (no staff_id) stay visible. Matches dashboard roster via isActiveRosterStaff
- * (active, on_leave, serving_notice still show).
+ * Attendance listing keeps active / on_leave / serving_notice / joker staff.
+ * Unmapped punches (no staff_id) stay visible (orphans collapsed separately when mapped).
+ * Exited staff (`terminated` / `inactive` / resigned / contract finished / …) stay visible
+ * when they punched or still have a roster row in range — do not hide punched history.
+ * Soft-deleted merge duplicates never appear.
  */
 export function attendanceHrIncludesStaffInListing(
   staffId: string | null | undefined,
   staffStatus: string | null | undefined,
+  evidence?: AttendanceHrListingEvidence,
 ): boolean {
   if (!staffId) return true;
+  if (evidence?.deletedAt) return false;
   if (isJokerStaffStatus(staffStatus)) return true;
-  return isActiveRosterStaff(staffStatus);
+  if (isActiveRosterStaff(staffStatus)) return true;
+  return Boolean(evidence?.hasPunches || evidence?.hasRoster);
 }
 
 /**

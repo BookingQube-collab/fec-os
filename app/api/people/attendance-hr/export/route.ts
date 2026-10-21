@@ -18,7 +18,9 @@ import {
   formatPunchTime12h,
 } from "@/lib/attendance-display";
 import {
+  attendanceHrRowMatchesKpiFilter,
   attendanceHrToListingSource,
+  type AttendanceHrKpiFilter,
   type AttendanceHrReportRow,
 } from "@/lib/attendance-hr/report";
 import {
@@ -239,9 +241,27 @@ export async function GET(request: Request) {
 
       const showOrgDepartments =
         departmentIds.length === 0 ? parseShowOrgDepartmentsParam(params.get("showOrgDepartments")) : [];
-      const daily = showOrgDepartments.length
+      const kpiFilterRaw = params.get("kpiFilter")?.trim() || null;
+      const kpiFilter = (
+        [
+          "total",
+          "staff",
+          "present",
+          "absent",
+          "late",
+          "missed_punch",
+          "unscheduled",
+        ] as const
+      ).includes(kpiFilterRaw as AttendanceHrKpiFilter)
+        ? (kpiFilterRaw as AttendanceHrKpiFilter)
+        : null;
+      // Same row set as the on-screen listing (org-dept chips + KPI strip filter).
+      let daily = showOrgDepartments.length
         ? dailyRows.filter((row) => displayDepartmentShown(row.department, showOrgDepartments))
         : dailyRows;
+      if (kpiFilter) {
+        daily = daily.filter((row) => attendanceHrRowMatchesKpiFilter(row, kpiFilter));
+      }
       const listing = listingSources(daily);
 
       if (format === "csv") {
@@ -276,7 +296,7 @@ export async function GET(request: Request) {
         autoTable(doc, {
           startY: filters.locationLabel || filters.departmentLabel ? 56 : 48,
           head: [[...ATTENDANCE_LISTING_COLUMNS]],
-          body: listing.slice(0, 200).map((r) => {
+          body: listing.map((r) => {
             const cells = attendanceListingCells(r);
             return [
               cells.location,
