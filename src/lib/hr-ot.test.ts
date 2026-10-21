@@ -22,11 +22,13 @@ import {
   otMissingBasicPayNote,
   otPayDaysPerMonth,
   isSupervisorOtStaffEntryReady,
+  normalizeSupervisorOtDays,
   partitionSupervisorOtPicks,
   resolveEligibleOtMinutes,
   resolveStaffOtPayFromCompensation,
   resolveStaffOtPayFromSalaryHistory,
   shouldRefreshOtAmountForMissingBasic,
+  sumSupervisorOtDayHours,
   supervisorOtClaimSlots,
   supervisorOtContractMessage,
   supervisorOtStaffFieldErrors,
@@ -607,12 +609,53 @@ describe("Supervisor OT multi-staff helpers", () => {
         hours: 0,
         purpose: "ab",
       }),
-    ).toEqual(["contract", "dates", "hours", "purpose"]);
+    ).toEqual(["contract", "dates", "purpose"]);
     expect(
       isSupervisorOtStaffEntryReady({
         supervisorContract: true,
         workDates: ["2026-10-18"],
         hours: 2,
+        purpose: "Event coverage",
+      }),
+    ).toBe(true);
+  });
+
+  it("validates per-day hours separately (not one combined total)", () => {
+    expect(
+      normalizeSupervisorOtDays([
+        { workDate: "2026-10-19", hours: 2 },
+        { workDate: "2026-10-18", hours: 3.5 },
+        { workDate: "2026-10-19", hours: 4 },
+        { workDate: "bad", hours: 1 },
+        { workDate: "2026-10-20", hours: 0 },
+      ]),
+    ).toEqual([
+      { workDate: "2026-10-18", hours: 3.5 },
+      { workDate: "2026-10-19", hours: 4 },
+    ]);
+    expect(
+      sumSupervisorOtDayHours([
+        { hours: 2 },
+        { hours: 3.5 },
+      ]),
+    ).toBe(5.5);
+    expect(
+      supervisorOtStaffFieldErrors({
+        supervisorContract: true,
+        days: [
+          { workDate: "2026-10-18", hours: 2 },
+          { workDate: "2026-10-19", hours: 0 },
+        ],
+        purpose: "Event coverage",
+      }),
+    ).toEqual(["hours"]);
+    expect(
+      isSupervisorOtStaffEntryReady({
+        supervisorContract: true,
+        days: [
+          { workDate: "2026-10-18", hours: 2 },
+          { workDate: "2026-10-19", hours: 3 },
+        ],
         purpose: "Event coverage",
       }),
     ).toBe(true);

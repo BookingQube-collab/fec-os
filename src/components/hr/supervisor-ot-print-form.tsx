@@ -12,8 +12,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { HrOtRateType, HrOtStatus } from "@/lib/hr-ot";
+import { sumSupervisorOtDayHours, type HrOtRateType, type HrOtStatus } from "@/lib/hr-ot";
 import { cn } from "@/lib/utils";
+
+export type SupervisorOtPrintDay = {
+  workDate: string;
+  /** Extra OT hours for this date only. */
+  hours: number;
+};
 
 export type SupervisorOtPrintStaff = {
   id: string;
@@ -22,9 +28,8 @@ export type SupervisorOtPrintStaff = {
   phone: string | null;
   department: string | null;
   jobTitle: string | null;
-  /** OT dates for this employee only. */
-  workDates: string[];
-  requiredHours: number;
+  /** Per-date OT hours (never a single combined total). */
+  days: SupervisorOtPrintDay[];
   purpose: string;
   rateType: HrOtRateType;
 };
@@ -79,12 +84,12 @@ function OtRequestSheet({
   status?: HrOtStatus | null;
 }) {
   const { t } = useTranslation();
-  const workDates = staff.workDates;
-  const datesLabel = workDates.map(formatDisplayDate).join(" and ");
-  const perDay = formatHoursLabel(staff.requiredHours);
-  const totalHours = formatHoursLabel(
-    Math.round(staff.requiredHours * workDates.length * 100) / 100,
-  );
+  const days = [...staff.days].sort((a, b) => a.workDate.localeCompare(b.workDate));
+  const datesLabel = days.map((day) => formatDisplayDate(day.workDate)).join(" and ");
+  const perDayLabel = days
+    .map((day) => `${formatDisplayDate(day.workDate)}: ${formatHoursLabel(day.hours)}`)
+    .join("; ");
+  const totalHours = formatHoursLabel(sumSupervisorOtDayHours(days));
   const siteDone =
     status === "manager_verified" ||
     status === "ops_approved" ||
@@ -126,7 +131,7 @@ function OtRequestSheet({
         <FormField label={t("hr.ot.print.staffRequired")} value={String(staffRequired)} />
         <FormField label={t("hr.ot.print.otDates")} value={datesLabel} />
         <FormField label={t("hr.ot.print.otTime")} value={totalHours} />
-        <FormField label={t("hr.ot.print.requiredHours")} value={perDay} />
+        <FormField label={t("hr.ot.print.requiredHours")} value={perDayLabel} />
         <FormField
           label={t("hr.ot.print.rateType")}
           value={t(`hr.ot.rateTypes.${staff.rateType}`)}

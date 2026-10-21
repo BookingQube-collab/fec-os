@@ -18,6 +18,14 @@ import {
 } from "@/components/hr/supervisor-ot-print-form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
@@ -31,6 +39,7 @@ import {
   getOtPolicySnapshot,
   listOtClaims,
   listStaffForSupervisorOt,
+  reviseSupervisorOtRequest,
   setStaffContractWorkingDays,
   submitSupervisorOtClaim,
 } from "@/lib/hr-ot.functions";
@@ -42,7 +51,9 @@ import {
   HR_OT_HIERARCHY_STEPS,
   HR_OT_RATE_TYPES,
   isSupervisorOtStaffEntryReady,
+  normalizeSupervisorOtDays,
   partitionSupervisorOtPicks,
+  sumSupervisorOtDayHours,
   supervisorOtStaffFieldErrors,
   type HrOtRateType,
   type HrOtStatus,
@@ -85,21 +96,33 @@ type OtStaffPick = {
 };
 
 type StaffOtDraft = {
-  workDates: string[];
+  /** Per-date extra hours (string for controlled inputs). */
+  hoursByDate: Record<string, string>;
   dateDraft: string;
-  hours: string;
   rateType: HrOtRateType;
   purpose: string;
 };
 
 function emptyStaffOtDraft(today = todayIso()): StaffOtDraft {
   return {
-    workDates: [today],
+    hoursByDate: { [today]: "1" },
     dateDraft: today,
-    hours: "1",
     rateType: "weekday",
     purpose: "",
   };
+}
+
+function draftWorkDates(draft: StaffOtDraft): string[] {
+  return Object.keys(draft.hoursByDate).sort();
+}
+
+function draftDayEntries(draft: StaffOtDraft) {
+  return normalizeSupervisorOtDays(
+    draftWorkDates(draft).map((workDate) => ({
+      workDate,
+      hours: Number(draft.hoursByDate[workDate]),
+    })),
+  );
 }
 
 function SupervisorOtRequest({ onSubmitted }: { onSubmitted: () => void }) {
@@ -185,8 +208,7 @@ function SupervisorOtRequest({ onSubmitted }: { onSubmitted: () => void }) {
         person.id,
         supervisorOtStaffFieldErrors({
           supervisorContract: person.supervisorContract,
-          workDates: draft.workDates,
-          hours: Number(draft.hours),
+          days: draftDayEntries(draft),
           purpose: draft.purpose,
         }),
       );
@@ -200,8 +222,7 @@ function SupervisorOtRequest({ onSubmitted }: { onSubmitted: () => void }) {
       const draft = draftByStaff[person.id] ?? emptyStaffOtDraft();
       return isSupervisorOtStaffEntryReady({
         supervisorContract: person.supervisorContract,
-        workDates: draft.workDates,
-        hours: Number(draft.hours),
+        days: draftDayEntries(draft),
         purpose: draft.purpose,
       });
     });
@@ -246,13 +267,24 @@ function SupervisorOtRequest({ onSubmitted }: { onSubmitted: () => void }) {
   function addDateFor(staffId: string) {
     const draft = draftFor(staffId);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.dateDraft)) return;
-    if (draft.workDates.includes(draft.dateDraft)) return;
-    patchDraft(staffId, { workDates: [...draft.workDates, draft.dateDraft].sort() });
+    if (draft.hoursByDate[draft.dateDraft] != null) return;
+    patchDraft(staffId, {
+      hoursByDate: { ...draft.hoursByDate, [draft.dateDraft]: "1" },
+    });
   }
 
   function removeDateFor(staffId: string, date: string) {
     const draft = draftFor(staffId);
-    patchDraft(staffId, { workDates: draft.workDates.filter((item) => item !== date) });
+    const next = { ...draft.hoursByDate };
+    delete next[date];
+    patchDraft(staffId, { hoursByDate: next });
+  }
+
+  function setHoursFor(staffId: string, date: string, hours: string) {
+    const draft = draftFor(staffId);
+    patchDraft(staffId, {
+      hoursByDate: { ...draft.hoursByDate, [date]: hours },
+    });
   }
 
   function removeStaff(staffId: string) {
@@ -438,49 +470,64 @@ function SupervisorOtRequest({ onSubmitted }: { onSubmitted: () => void }) {
                             >
                               {t("hr.ot.addDate")}
                             </Button>
-                            <div className="flex flex-wrap gap-1">
-                              {draft.workDates.map((date) => (
-                                <button
-                                  key={date}
-                                  type="button"
-                                  className="hr-chip"
-                                  onClick={() => removeDateFor(person.id, date)}
-                                >
-                                  {date} ×
-                                </button>
-                              ))}
-                            </div>
                           </div>
-                          <div className="grid gap-3 sm:grid-cols-2">
-                            <div>
-                              <Label htmlFor={`ot-hours-${person.id}`}>{t("hr.ot.requiredHours")}</Label>
-                              <Input
-                                id={`ot-hours-${person.id}`}
-                                type="number"
-                                min={1}
-                                max={24}
-                                step={0.5}
-                                value={draft.hours}
-                                onChange={(e) => patchDraft(person.id, { hours: e.target.value })}
-                              />
-                            </div>
-                            <div>
-                              <Label htmlFor={`ot-rate-${person.id}`}>{t("hr.ot.rateType")}</Label>
-                              <select
-                                id={`ot-rate-${person.id}`}
-                                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-                                value={draft.rateType}
-                                onChange={(e) =>
-                                  patchDraft(person.id, { rateType: e.target.value as HrOtRateType })
-                                }
-                              >
-                                {HR_OT_RATE_TYPES.map((rate) => (
-                                  <option key={rate} value={rate}>
-                                    {t(`hr.ot.rateTypes.${rate}`)}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
+                          <div className="space-y-2">
+                            <Label>{t("hr.ot.requiredHoursPerDay")}</Label>
+                            {draftWorkDates(draft).length === 0 ? (
+                              <p className="text-xs text-muted-foreground">{t("hr.ot.staffDatesMissingOne")}</p>
+                            ) : (
+                              draftWorkDates(draft).map((date) => (
+                                <div
+                                  key={date}
+                                  className="flex flex-wrap items-end gap-2 rounded-md border border-[var(--hr-border)]/70 p-2"
+                                >
+                                  <div className="min-w-[9rem]">
+                                    <Label htmlFor={`ot-day-${person.id}-${date}`}>{date}</Label>
+                                    <Input
+                                      id={`ot-day-${person.id}-${date}`}
+                                      type="number"
+                                      min={1}
+                                      max={24}
+                                      step={0.5}
+                                      value={draft.hoursByDate[date] ?? ""}
+                                      onChange={(e) => setHoursFor(person.id, date, e.target.value)}
+                                    />
+                                  </div>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => removeDateFor(person.id, date)}
+                                  >
+                                    {date} ×
+                                  </Button>
+                                </div>
+                              ))
+                            )}
+                            {draftWorkDates(draft).length > 1 ? (
+                              <p className="text-xs text-muted-foreground">
+                                {t("hr.ot.hoursTotal", {
+                                  hours: sumSupervisorOtDayHours(draftDayEntries(draft)),
+                                })}
+                              </p>
+                            ) : null}
+                          </div>
+                          <div>
+                            <Label htmlFor={`ot-rate-${person.id}`}>{t("hr.ot.rateType")}</Label>
+                            <select
+                              id={`ot-rate-${person.id}`}
+                              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                              value={draft.rateType}
+                              onChange={(e) =>
+                                patchDraft(person.id, { rateType: e.target.value as HrOtRateType })
+                              }
+                            >
+                              {HR_OT_RATE_TYPES.map((rate) => (
+                                <option key={rate} value={rate}>
+                                  {t(`hr.ot.rateTypes.${rate}`)}
+                                </option>
+                              ))}
+                            </select>
                           </div>
                           <div>
                             <Label htmlFor={`ot-purpose-${person.id}`}>{t("hr.ot.purpose")}</Label>
@@ -520,7 +567,7 @@ function SupervisorOtRequest({ onSubmitted }: { onSubmitted: () => void }) {
                   toast.error(t("hr.ot.completeAllSelected"));
                   return;
                 }
-                const printStaff = selectedStaff.map((row) => {
+                const printStaff: SupervisorOtPrintStaff[] = selectedStaff.map((row) => {
                   const draft = draftFor(row.id);
                   return {
                     id: row.id,
@@ -529,8 +576,7 @@ function SupervisorOtRequest({ onSubmitted }: { onSubmitted: () => void }) {
                     phone: row.phone,
                     department: row.department,
                     jobTitle: row.jobTitle,
-                    workDates: [...draft.workDates],
-                    requiredHours: Number(draft.hours),
+                    days: draftDayEntries(draft),
                     purpose: draft.purpose.trim(),
                     rateType: draft.rateType,
                   };
@@ -539,8 +585,7 @@ function SupervisorOtRequest({ onSubmitted }: { onSubmitted: () => void }) {
                   {
                     entries: printStaff.map((row) => ({
                       staffId: row.id,
-                      workDates: row.workDates,
-                      hours: row.requiredHours,
+                      days: row.days,
                       rateType: row.rateType,
                       purpose: row.purpose,
                     })),
@@ -634,11 +679,13 @@ function OtHierarchyStepper({ status }: { status: HrOtStatus }) {
 function printPayloadFromGroup(group: OtRequestGroup): SupervisorOtPrintPayload {
   const byStaff = new Map<string, SupervisorOtPrintStaff>();
   for (const claim of group.claims) {
-    const existing = byStaff.get(claim.staffId);
     const hours = Math.round((claim.claimedMinutes / 60) * 100) / 100;
+    const existing = byStaff.get(claim.staffId);
     if (existing) {
-      if (!existing.workDates.includes(claim.workDate)) existing.workDates.push(claim.workDate);
-      existing.workDates.sort();
+      if (!existing.days.some((day) => day.workDate === claim.workDate)) {
+        existing.days.push({ workDate: claim.workDate, hours });
+        existing.days.sort((a, b) => a.workDate.localeCompare(b.workDate));
+      }
       continue;
     }
     byStaff.set(claim.staffId, {
@@ -648,8 +695,7 @@ function printPayloadFromGroup(group: OtRequestGroup): SupervisorOtPrintPayload 
       phone: claim.phone ?? null,
       department: claim.department ?? null,
       jobTitle: claim.jobTitle ?? null,
-      workDates: [claim.workDate],
-      requiredHours: hours,
+      days: [{ workDate: claim.workDate, hours }],
       purpose: claim.purpose ?? "",
       rateType: claim.rateType,
     });
@@ -658,6 +704,21 @@ function printPayloadFromGroup(group: OtRequestGroup): SupervisorOtPrintPayload 
     staff: [...byStaff.values()],
     requestDate: (group.submittedAt ?? todayIso()).slice(0, 10),
     status: group.status,
+  };
+}
+
+function draftFromOtGroup(group: OtRequestGroup): StaffOtDraft {
+  const hoursByDate: Record<string, string> = {};
+  for (const claim of group.claims) {
+    const hours = Math.round((claim.claimedMinutes / 60) * 100) / 100;
+    hoursByDate[claim.workDate] = String(hours);
+  }
+  const dates = Object.keys(hoursByDate).sort();
+  return {
+    hoursByDate,
+    dateDraft: dates[dates.length - 1] ?? todayIso(),
+    rateType: group.claims[0]?.rateType ?? "weekday",
+    purpose: group.purpose ?? "",
   };
 }
 
@@ -679,6 +740,9 @@ export default function HrOtPage() {
   );
   const [previewPayload, setPreviewPayload] = useState<SupervisorOtPrintPayload | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [editGroup, setEditGroup] = useState<OtRequestGroup | null>(null);
+  const [editDraft, setEditDraft] = useState<StaffOtDraft | null>(null);
+  const [editShowErrors, setEditShowErrors] = useState(false);
 
   // Server: status + date range (keeps the 500-row window useful). Name/dept/site filter client-side.
   const listFilters = useMemo(
@@ -752,6 +816,20 @@ export default function HrOtPage() {
     onError: (e: Error) => toast.error(userFacingActionError(e, t("hr.ot.updateFailed"))),
   });
 
+  const revise = useMutation({
+    mutationFn: reviseSupervisorOtRequest,
+    onSuccess: (result) => {
+      toast.success(
+        result.resubmitted ? t("hr.ot.resubmitted") : t("hr.ot.updated"),
+      );
+      setEditGroup(null);
+      setEditDraft(null);
+      setEditShowErrors(false);
+      invalidate();
+    },
+    onError: (e: Error) => toast.error(userFacingActionError(e, t("hr.ot.updateFailed"))),
+  });
+
   const runBatchAction = (
     group: OtRequestGroup,
     action:
@@ -772,6 +850,28 @@ export default function HrOtPage() {
     if (!claimIds.length) return;
     actBatch.mutate({ claimIds, action });
   };
+
+  function openEditRequest(group: OtRequestGroup) {
+    setEditGroup(group);
+    setEditDraft(draftFromOtGroup(group));
+    setEditShowErrors(false);
+  }
+
+  function patchEditDraft(patch: Partial<StaffOtDraft>) {
+    setEditDraft((current) => {
+      if (!current) return current;
+      return { ...current, ...patch };
+    });
+  }
+
+  const editFieldErrors = useMemo(() => {
+    if (!editDraft || !editGroup) return [] as SupervisorOtStaffFieldError[];
+    return supervisorOtStaffFieldErrors({
+      supervisorContract: true,
+      days: draftDayEntries(editDraft),
+      purpose: editDraft.purpose,
+    });
+  }, [editDraft, editGroup]);
 
   const clearListFilters = () => {
     setSearch("");
@@ -964,6 +1064,18 @@ export default function HrOtPage() {
                           {t("hr.ot.approved")}: {fmtMins(group.totalApprovedMinutes)} ·{" "}
                           {group.totalAmountQar.toFixed(2)} QAR
                         </p>
+                        {group.claims.length > 0 ? (
+                          <p className="text-xs text-muted-foreground">
+                            {t("hr.ot.perDayHours")}:{" "}
+                            {group.claims
+                              .map((claim) => {
+                                const hours =
+                                  Math.round((claim.claimedMinutes / 60) * 100) / 100;
+                                return `${claim.workDate} (${hours}h)`;
+                              })
+                              .join(" · ")}
+                          </p>
+                        ) : null}
                         {group.missingBasicPay ? (
                           <p className="mt-1 text-xs text-amber-800 dark:text-amber-300">
                             {t("hr.ot.missingBasicNote")}
@@ -1082,13 +1194,16 @@ export default function HrOtPage() {
                             {t("hr.ot.markPayroll")}
                           </Button>
                         ) : null}
-                        {isSubmitter && group.status === "changes_requested" ? (
+                        {isSubmitter && canEditOtBeforeHoo(group.status) ? (
                           <Button
                             size="sm"
-                            disabled={actBatch.isPending}
-                            onClick={() => runBatchAction(group, "resubmit")}
+                            variant="outline"
+                            disabled={actBatch.isPending || revise.isPending}
+                            onClick={() => openEditRequest(group)}
                           >
-                            {t("hr.ot.resubmit")}
+                            {group.status === "changes_requested"
+                              ? t("hr.ot.editAndResubmit")
+                              : t("hr.ot.editRequest")}
                           </Button>
                         ) : null}
                         {isSubmitter && canEditOtBeforeHoo(group.status) ? (
@@ -1168,6 +1283,198 @@ export default function HrOtPage() {
           onOpenChange={setPreviewOpen}
           payload={previewPayload}
         />
+
+        <Dialog
+          open={Boolean(editGroup && editDraft)}
+          onOpenChange={(open) => {
+            if (!open) {
+              setEditGroup(null);
+              setEditDraft(null);
+              setEditShowErrors(false);
+            }
+          }}
+        >
+          <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>
+                {editGroup?.status === "changes_requested"
+                  ? t("hr.ot.editAndResubmit")
+                  : t("hr.ot.editRequest")}
+              </DialogTitle>
+              <DialogDescription>
+                {editGroup?.requestNumber
+                  ? t("hr.ot.editRequestHint", { number: editGroup.requestNumber })
+                  : t("hr.ot.editRequestHintGeneric")}
+              </DialogDescription>
+            </DialogHeader>
+            {editDraft && editGroup ? (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-end gap-2">
+                  <div>
+                    <Label htmlFor="ot-edit-date">{t("hr.ot.dates")}</Label>
+                    <Input
+                      id="ot-edit-date"
+                      type="date"
+                      value={editDraft.dateDraft}
+                      onChange={(e) => patchEditDraft({ dateDraft: e.target.value })}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => {
+                      if (!/^\d{4}-\d{2}-\d{2}$/.test(editDraft.dateDraft)) return;
+                      if (editDraft.hoursByDate[editDraft.dateDraft] != null) return;
+                      patchEditDraft({
+                        hoursByDate: {
+                          ...editDraft.hoursByDate,
+                          [editDraft.dateDraft]: "1",
+                        },
+                      });
+                    }}
+                  >
+                    {t("hr.ot.addDate")}
+                  </Button>
+                </div>
+                <div className="space-y-2">
+                  <Label>{t("hr.ot.requiredHoursPerDay")}</Label>
+                  {draftWorkDates(editDraft).map((date) => (
+                    <div
+                      key={date}
+                      className="flex flex-wrap items-end gap-2 rounded-md border border-[var(--hr-border)]/70 p-2"
+                    >
+                      <div className="min-w-[9rem]">
+                        <Label htmlFor={`ot-edit-hours-${date}`}>{date}</Label>
+                        <Input
+                          id={`ot-edit-hours-${date}`}
+                          type="number"
+                          min={1}
+                          max={24}
+                          step={0.5}
+                          value={editDraft.hoursByDate[date] ?? ""}
+                          onChange={(e) =>
+                            patchEditDraft({
+                              hoursByDate: {
+                                ...editDraft.hoursByDate,
+                                [date]: e.target.value,
+                              },
+                            })
+                          }
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          const next = { ...editDraft.hoursByDate };
+                          delete next[date];
+                          patchEditDraft({ hoursByDate: next });
+                        }}
+                      >
+                        {date} ×
+                      </Button>
+                    </div>
+                  ))}
+                  {draftWorkDates(editDraft).length > 1 ? (
+                    <p className="text-xs text-muted-foreground">
+                      {t("hr.ot.hoursTotal", {
+                        hours: sumSupervisorOtDayHours(draftDayEntries(editDraft)),
+                      })}
+                    </p>
+                  ) : null}
+                </div>
+                <div>
+                  <Label htmlFor="ot-edit-rate">{t("hr.ot.rateType")}</Label>
+                  <select
+                    id="ot-edit-rate"
+                    className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                    value={editDraft.rateType}
+                    onChange={(e) =>
+                      patchEditDraft({ rateType: e.target.value as HrOtRateType })
+                    }
+                  >
+                    {HR_OT_RATE_TYPES.map((rate) => (
+                      <option key={rate} value={rate}>
+                        {t(`hr.ot.rateTypes.${rate}`)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <Label htmlFor="ot-edit-purpose">{t("hr.ot.purpose")}</Label>
+                  <Textarea
+                    id="ot-edit-purpose"
+                    value={editDraft.purpose}
+                    maxLength={1000}
+                    onChange={(e) => patchEditDraft({ purpose: e.target.value })}
+                  />
+                </div>
+                {editShowErrors && editFieldErrors.length > 0 ? (
+                  <ul className="space-y-0.5 text-xs text-destructive">
+                    {editFieldErrors.map((code) => (
+                      <li key={code}>
+                        {code === "dates"
+                          ? t("hr.ot.staffDatesMissingOne")
+                          : code === "hours"
+                            ? t("hr.ot.hoursInvalid")
+                            : code === "purpose"
+                              ? t("hr.ot.purposeMissing")
+                              : code}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            ) : null}
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  setEditGroup(null);
+                  setEditDraft(null);
+                  setEditShowErrors(false);
+                }}
+              >
+                {t("hr.ot.cancel")}
+              </Button>
+              <Button
+                type="button"
+                disabled={revise.isPending || !editDraft || !editGroup}
+                onClick={() => {
+                  if (!editDraft || !editGroup) return;
+                  const days = draftDayEntries(editDraft);
+                  const errors = supervisorOtStaffFieldErrors({
+                    supervisorContract: true,
+                    days,
+                    purpose: editDraft.purpose,
+                  });
+                  if (errors.length > 0) {
+                    setEditShowErrors(true);
+                    toast.error(t("hr.ot.completeAllSelected"));
+                    return;
+                  }
+                  revise.mutate({
+                    requestBatchId: editGroup.requestBatchId,
+                    claimIds: editGroup.requestBatchId
+                      ? undefined
+                      : editGroup.claims.map((c) => c.id),
+                    days,
+                    rateType: editDraft.rateType,
+                    purpose: editDraft.purpose.trim(),
+                    resubmit: editGroup.status === "changes_requested",
+                  });
+                }}
+              >
+                {editGroup?.status === "changes_requested"
+                  ? t("hr.ot.resubmit")
+                  : t("hr.ot.saveChanges")}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </HrShell>
     </CapabilityGate>
   );

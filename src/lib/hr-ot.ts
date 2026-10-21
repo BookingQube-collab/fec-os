@@ -517,27 +517,85 @@ export function supervisorOtClaimSlots(
   return slots;
 }
 
+/**
+ * Per-date OT hours for a staff entry. Each work date must have its own hours —
+ * never a single combined total across dates.
+ */
+export type SupervisorOtDayEntry = {
+  workDate: string;
+  hours: number;
+};
+
+/** Normalize day rows: unique dates (sorted), drop empty dates, keep per-day hours. */
+export function normalizeSupervisorOtDays(
+  days: readonly { workDate: string; hours: number }[],
+): SupervisorOtDayEntry[] {
+  const byDate = new Map<string, number>();
+  for (const day of days) {
+    const workDate = String(day.workDate ?? "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(workDate)) continue;
+    const hours = Number(day.hours);
+    if (!Number.isFinite(hours) || hours <= 0) continue;
+    byDate.set(workDate, hours);
+  }
+  return [...byDate.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([workDate, hours]) => ({ workDate, hours }));
+}
+
+/** Sum of per-day hours (request total); each day stays independent in storage. */
+export function sumSupervisorOtDayHours(days: readonly { hours: number }[]): number {
+  const total = days.reduce((sum, day) => sum + Math.max(0, Number(day.hours) || 0), 0);
+  return Math.round(total * 100) / 100;
+}
+
 export type SupervisorOtStaffFieldError = "contract" | "dates" | "hours" | "purpose";
 
-/** Per-staff readiness for supervisor OT submit (26/28 + dates + hours + purpose). */
+/** Per-staff readiness for supervisor OT submit (26/28 + per-day hours + purpose). */
 export function supervisorOtStaffFieldErrors(input: {
   supervisorContract: boolean;
-  workDates: readonly string[];
-  hours: number;
+  workDates?: readonly string[];
+  /** @deprecated Prefer `days` — single hours applied to every date. */
+  hours?: number;
+  days?: readonly { workDate: string; hours: number }[];
   purpose: string;
 }): SupervisorOtStaffFieldError[] {
   const errors: SupervisorOtStaffFieldError[] = [];
   if (!input.supervisorContract) errors.push("contract");
-  if (input.workDates.length === 0) errors.push("dates");
-  if (!Number.isFinite(input.hours) || input.hours <= 0) errors.push("hours");
+
+  const rawDays =
+    input.days != null
+      ? input.days
+      : (input.workDates ?? []).map((workDate) => ({
+          workDate,
+          hours: Number(input.hours),
+        }));
+  const uniqueDates = [
+    ...new Set(
+      rawDays
+        .map((day) => String(day.workDate ?? "").slice(0, 10))
+        .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)),
+    ),
+  ];
+  const normalizedDays = normalizeSupervisorOtDays(rawDays);
+
+  if (uniqueDates.length === 0) {
+    errors.push("dates");
+  } else if (normalizedDays.length !== uniqueDates.length) {
+    // Some dates missing/invalid hours — do not silently drop them into a combined total.
+    errors.push("hours");
+  }
+
   if (input.purpose.trim().length < 3) errors.push("purpose");
   return errors;
 }
 
 export function isSupervisorOtStaffEntryReady(input: {
   supervisorContract: boolean;
-  workDates: readonly string[];
-  hours: number;
+  workDates?: readonly string[];
+  /** @deprecated Prefer `days`. */
+  hours?: number;
+  days?: readonly { workDate: string; hours: number }[];
   purpose: string;
 }): boolean {
   return supervisorOtStaffFieldErrors(input).length === 0;

@@ -17,6 +17,7 @@ import {
   HR_OT_STATUSES,
   isOtEligible,
   isSupervisorOtContract,
+  normalizeSupervisorOtDays,
   otApprovalQueueStatuses,
   otPayDaysPerMonth,
   resolveEligibleOtMinutes,
@@ -1689,17 +1690,46 @@ export const setStaffContractWorkingDays = createAuthenticatedAction(
   { auth: { capability: "hr.profile.edit" } },
 );
 
+const supervisorOtDaySchema = z.object({
+  workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  /** Extra OT hours for this date only (not a multi-day combined total). */
+  hours: z.number().gt(0).max(24),
+});
+
 export const submitSupervisorOtClaim = createAuthenticatedAction(
   z.object({
     entries: z
       .array(
-        z.object({
-          staffId: z.string().uuid(),
-          workDates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).min(1).max(14),
-          hours: z.number().gt(0).max(24),
-          rateType: z.enum(HR_OT_RATE_TYPES).default("weekday"),
-          purpose: z.string().trim().min(3).max(1000),
-        }),
+        z
+          .object({
+            staffId: z.string().uuid(),
+            /** Preferred: one hours value per OT date. */
+            days: z.array(supervisorOtDaySchema).min(1).max(14).optional(),
+            /** @deprecated Prefer `days` — same hours applied to every date. */
+            workDates: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).min(1).max(14).optional(),
+            /** @deprecated Prefer `days`. */
+            hours: z.number().gt(0).max(24).optional(),
+            rateType: z.enum(HR_OT_RATE_TYPES).default("weekday"),
+            purpose: z.string().trim().min(3).max(1000),
+          })
+          .superRefine((entry, ctx) => {
+            const days =
+              entry.days != null
+                ? normalizeSupervisorOtDays(entry.days)
+                : normalizeSupervisorOtDays(
+                    (entry.workDates ?? []).map((workDate) => ({
+                      workDate,
+                      hours: Number(entry.hours),
+                    })),
+                  );
+            if (days.length === 0) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "Add at least one overtime date with hours for each employee.",
+                path: ["days"],
+              });
+            }
+          }),
       )
       .min(1)
       .max(40),
@@ -1710,6 +1740,20 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
       throw new Error("Each selected employee may appear only once.");
     }
     const entryByStaff = new Map(data.entries.map((entry) => [entry.staffId, entry]));
+    const daysByStaff = new Map(
+      data.entries.map((entry) => {
+        const days =
+          entry.days != null
+            ? normalizeSupervisorOtDays(entry.days)
+            : normalizeSupervisorOtDays(
+                (entry.workDates ?? []).map((workDate) => ({
+                  workDate,
+                  hours: Number(entry.hours),
+                })),
+              );
+        return [entry.staffId, days] as const;
+      }),
+    );
     const { teamStaffIds } = await loadSupervisorOtTeamStaffIds(context.userId);
     const teamSet = new Set(teamStaffIds);
     for (const staffId of staffIds) {
@@ -1767,39 +1811,56 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
     const minClaimable = policyNumber(policy.min_claimable_minutes, 60);
     const rounding = String(policy.rounding ?? "down") as HrOtRounding;
 
-    type StaffClaimMeta = {
+    type DayClaimMeta = {
       claimedMinutes: number;
+      amountQar: number;
+    };
+    type StaffClaimMeta = {
       rateType: HrOtRateType;
       rateMultiplier: number;
       purpose: string;
-      amountQar: number;
       paySnapshot: ReturnType<typeof otPaySnapshot>;
+      pay: StaffOtPay;
+      contractDays: number;
+      byDate: Map<string, DayClaimMeta>;
     };
     const metaByStaff = new Map<string, StaffClaimMeta>();
     for (const entry of data.entries) {
       const contractDays = contractByStaff.get(entry.staffId);
       if (!isSupervisorOtContract(contractDays)) continue;
-      const claimedMinutes = assertMinClaimableMinutes(
-        Math.round(entry.hours * 60),
-        minClaimable,
-        rounding,
-      );
+      const days = daysByStaff.get(entry.staffId) ?? [];
+      if (days.length === 0) {
+        throw new Error("Add at least one overtime date with hours for each employee.");
+      }
       const rateMultiplier = resolveOtRateMultiplier(entry.rateType, policy);
       const pay = await staffPay(entry.staffId);
+      const byDate = new Map<string, DayClaimMeta>();
+      for (const day of days) {
+        const claimedMinutes = assertMinClaimableMinutes(
+          Math.round(day.hours * 60),
+          minClaimable,
+          rounding,
+        );
+        byDate.set(day.workDate, {
+          claimedMinutes,
+          amountQar: amountFor(claimedMinutes, rateMultiplier, pay, policy, contractDays),
+        });
+      }
       metaByStaff.set(entry.staffId, {
-        claimedMinutes,
         rateType: entry.rateType,
         rateMultiplier,
         purpose: entry.purpose.trim(),
-        amountQar: amountFor(claimedMinutes, rateMultiplier, pay, policy, contractDays),
         paySnapshot: otPaySnapshot(pay, policy, contractDays),
+        pay,
+        contractDays,
+        byDate,
       });
     }
 
     const slots = supervisorOtClaimSlots(
-      data.entries.map((entry) => ({
-        staffId: entry.staffId,
-        workDates: entry.workDates,
+      staffIds.map((staffId) => ({
+        staffId,
+        workDates: (daysByStaff.get(staffId) ?? []).map((day) => day.workDate),
       })),
     );
     if (slots.length === 0) {
@@ -1851,27 +1912,27 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
 
     const rows = slots.flatMap((slot) => {
       const staff = staffById.get(slot.staffId);
-      const contractDays = contractByStaff.get(slot.staffId);
       const meta = metaByStaff.get(slot.staffId);
+      const dayMeta = meta?.byDate.get(slot.workDate);
       const request = requestByStaff.get(slot.staffId);
-      if (!staff || !isSupervisorOtContract(contractDays) || !meta || !request) return [];
+      if (!staff || !meta || !dayMeta || !request) return [];
       return [
         {
           staff_id: slot.staffId,
           location_id: staff.location_id ?? null,
           work_date: slot.workDate,
-          eligible_minutes: meta.claimedMinutes,
-          claimed_minutes: meta.claimedMinutes,
-          approved_minutes: siteSupervisorFiling ? meta.claimedMinutes : null,
+          eligible_minutes: dayMeta.claimedMinutes,
+          claimed_minutes: dayMeta.claimedMinutes,
+          approved_minutes: siteSupervisorFiling ? dayMeta.claimedMinutes : null,
           rate_type: meta.rateType,
           rate_multiplier: meta.rateMultiplier,
-          amount_qar: meta.amountQar,
+          amount_qar: dayMeta.amountQar,
           ...meta.paySnapshot,
           status: initialStatus,
           notes: meta.purpose,
           purpose: meta.purpose,
           claim_source: "supervisor" as const,
-          contract_working_days: contractDays,
+          contract_working_days: meta.contractDays,
           request_batch_id: request.requestBatchId,
           request_number: request.requestNumber,
           submitted_by: context.userId,
@@ -1955,7 +2016,10 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
       /* non-blocking */
     }
 
-    const firstClaimed = metaByStaff.get(staffIds[0]!)?.claimedMinutes ?? 0;
+    const firstStaffDays = daysByStaff.get(staffIds[0]!) ?? [];
+    const firstClaimed = firstStaffDays[0]
+      ? Math.round(firstStaffDays[0].hours * 60)
+      : 0;
     const requests = staffIds.map((staffId) => {
       const meta = requestByStaff.get(staffId)!;
       return {
@@ -1980,4 +2044,311 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
     };
   },
   SUPERVISOR_OT_AUTH,
+);
+
+/**
+ * Edit an existing supervisor OT request (per-day hours/dates/purpose/rate).
+ * Allowed while `canEditOtBeforeHoo`; when status is `changes_requested`, also
+ * resubmits to restart at site supervisor (`submitted`).
+ */
+export const reviseSupervisorOtRequest = createAuthenticatedAction(
+  z
+    .object({
+      requestBatchId: z.string().uuid().optional().nullable(),
+      claimIds: z.array(z.string().uuid()).min(1).max(40).optional(),
+      days: z.array(supervisorOtDaySchema).min(1).max(14),
+      rateType: z.enum(HR_OT_RATE_TYPES).default("weekday"),
+      purpose: z.string().trim().min(3).max(1000),
+      /** When true (default) and status is changes_requested, resubmit after edit. */
+      resubmit: z.boolean().optional().default(true),
+    })
+    .refine((d) => Boolean(d.requestBatchId) || Boolean(d.claimIds?.length), {
+      message: "requestBatchId or claimIds is required",
+    }),
+  async (data, context) => {
+    const canApprove = canOtApprove(context);
+    const canOps = canOtOpsApprove(context);
+    const teamScope = await otSiteSupervisorTeamStaffIds(context);
+    const claimDb = teamScope || canOps ? supabaseAdmin : context.supabase;
+
+    let existingRows: Array<{
+      id: string;
+      status: string;
+      staff_id: string;
+      work_date: string;
+      location_id: string | null;
+      request_batch_id: string | null;
+      request_number: string | null;
+      submitted_by: string | null;
+      claim_source: string | null;
+      rate_type: string;
+      contract_working_days: number | null;
+    }> = [];
+
+    if (data.claimIds?.length) {
+      const { data: byIds, error } = await claimDb
+        .from("hr_ot_claims")
+        .select(
+          "id, status, staff_id, work_date, location_id, request_batch_id, request_number, submitted_by, claim_source, rate_type, contract_working_days",
+        )
+        .in("id", data.claimIds)
+        .order("work_date", { ascending: true });
+      if (error) throw error;
+      existingRows = (byIds ?? []) as typeof existingRows;
+    } else if (data.requestBatchId) {
+      const { data: byBatch, error } = await claimDb
+        .from("hr_ot_claims")
+        .select(
+          "id, status, staff_id, work_date, location_id, request_batch_id, request_number, submitted_by, claim_source, rate_type, contract_working_days",
+        )
+        .eq("request_batch_id", data.requestBatchId)
+        .order("work_date", { ascending: true });
+      if (error) throw error;
+      existingRows = (byBatch ?? []) as typeof existingRows;
+      if (!existingRows.length) {
+        const single = await claimDb
+          .from("hr_ot_claims")
+          .select(
+            "id, status, staff_id, work_date, location_id, request_batch_id, request_number, submitted_by, claim_source, rate_type, contract_working_days",
+          )
+          .eq("id", data.requestBatchId)
+          .maybeSingle();
+        if (single.error) throw single.error;
+        existingRows = single.data ? ([single.data] as typeof existingRows) : [];
+      }
+    }
+    if (!existingRows.length) throw new Error("OT request not found.");
+
+    const statuses = new Set(existingRows.map((row) => String(row.status)));
+    if (statuses.size !== 1) {
+      throw new Error("OT request rows have mixed statuses; refresh and retry.");
+    }
+    const from = String(existingRows[0]!.status) as HrOtStatus;
+    if (!canEditOtBeforeHoo(from) && !canApprove) {
+      throw new ForbiddenError("OT request is locked after Head of Operations approval.");
+    }
+
+    const staffIds = [...new Set(existingRows.map((row) => String(row.staff_id)))];
+    if (staffIds.length !== 1) {
+      throw new Error("Revise supports one staff member per OT request.");
+    }
+    const staffId = staffIds[0]!;
+    const isSubmitter = existingRows.some((row) => row.submitted_by === context.userId);
+    if (!isSubmitter && !canApprove) {
+      throw new ForbiddenError("Only the submitter can edit this OT request.");
+    }
+
+    const days = normalizeSupervisorOtDays(data.days);
+    if (days.length === 0) {
+      throw new Error("Add at least one overtime date with hours.");
+    }
+
+    const policy = await loadOtPolicy(context);
+    const minClaimable = policyNumber(policy.min_claimable_minutes, 60);
+    const rounding = String(policy.rounding ?? "down") as HrOtRounding;
+    const contractDays =
+      existingRows[0]!.contract_working_days == null
+        ? await readContractWorkingDays(context, staffId)
+        : Number(existingRows[0]!.contract_working_days);
+    if (!isSupervisorOtContract(contractDays) && existingRows[0]!.claim_source === "supervisor") {
+      throw new Error("Supervisor OT requests need a 26- or 28-day contract.");
+    }
+
+    const rateType = data.rateType;
+    const rateMultiplier = resolveOtRateMultiplier(rateType, policy);
+    const pay = await staffPay(staffId);
+    const purpose = data.purpose.trim();
+    const paySnapshot = otPaySnapshot(pay, policy, contractDays);
+    const dayMeta = new Map<
+      string,
+      { claimedMinutes: number; amountQar: number }
+    >();
+    for (const day of days) {
+      const claimedMinutes = assertMinClaimableMinutes(
+        Math.round(day.hours * 60),
+        minClaimable,
+        rounding,
+      );
+      dayMeta.set(day.workDate, {
+        claimedMinutes,
+        amountQar: amountFor(claimedMinutes, rateMultiplier, pay, policy, contractDays),
+      });
+    }
+
+    const requestBatchId =
+      (existingRows[0]!.request_batch_id as string | null) ?? data.requestBatchId ?? null;
+    const requestNumber = (existingRows[0]!.request_number as string | null) ?? null;
+    const locationId = (existingRows[0]!.location_id as string | null) ?? null;
+    const existingByDate = new Map(
+      existingRows.map((row) => [String(row.work_date).slice(0, 10), row] as const),
+    );
+    const nextDates = new Set(days.map((day) => day.workDate));
+    const shouldResubmit = Boolean(data.resubmit) && from === "changes_requested";
+    const nextStatus: HrOtStatus = shouldResubmit ? "submitted" : from;
+    const now = new Date().toISOString();
+
+    // Cancel day-rows removed from the request.
+    for (const row of existingRows) {
+      const workDate = String(row.work_date).slice(0, 10);
+      if (nextDates.has(workDate)) continue;
+      const { error } = await claimDb
+        .from("hr_ot_claims")
+        .update({
+          status: "cancelled",
+          updated_at: now,
+        })
+        .eq("id", row.id)
+        .eq("status", from);
+      if (error) throw error;
+      await appendApproval(context, String(row.id), "submit", "cancelled", purpose, {
+        useAdmin: Boolean(teamScope) || canOps,
+      });
+    }
+
+    // Block collisions for newly added dates (other active claims).
+    const newDates = days.map((d) => d.workDate).filter((d) => !existingByDate.has(d));
+    if (newDates.length > 0) {
+      const { data: collisions, error: collisionErr } = await claimDb
+        .from("hr_ot_claims")
+        .select("work_date, status, rate_type")
+        .eq("staff_id", staffId)
+        .in("work_date", newDates)
+        .eq("rate_type", rateType);
+      if (collisionErr) throw collisionErr;
+      const blocked = (collisions ?? []).filter(
+        (row) => row.status !== "rejected" && row.status !== "cancelled",
+      );
+      if (blocked.length > 0) {
+        throw new Error(
+          `An active OT claim already exists for ${blocked
+            .map((row) => String(row.work_date).slice(0, 10))
+            .join(", ")}.`,
+        );
+      }
+    }
+
+    const keptIds: string[] = [];
+    for (const day of days) {
+      const meta = dayMeta.get(day.workDate)!;
+      const prior = existingByDate.get(day.workDate);
+      if (prior) {
+        const patch: Record<string, unknown> = {
+          claimed_minutes: meta.claimedMinutes,
+          eligible_minutes: meta.claimedMinutes,
+          amount_qar: meta.amountQar,
+          rate_type: rateType,
+          rate_multiplier: rateMultiplier,
+          purpose,
+          notes: purpose,
+          ...paySnapshot,
+          status: nextStatus,
+          approved_minutes: null,
+          updated_at: now,
+        };
+        if (shouldResubmit) {
+          patch.submitted_by = prior.submitted_by ?? context.userId;
+          patch.submitted_at = now;
+          patch.verified_by = null;
+          patch.verified_at = null;
+          patch.ops_approved_by = null;
+          patch.ops_approved_at = null;
+          patch.approved_by = null;
+          patch.approved_at = null;
+        }
+        const { error } = await claimDb
+          .from("hr_ot_claims")
+          .update(patch)
+          .eq("id", prior.id)
+          .eq("status", from);
+        if (error) throw error;
+        await appendApproval(
+          context,
+          String(prior.id),
+          "submit",
+          shouldResubmit ? "resubmitted" : "revised",
+          purpose,
+          { useAdmin: Boolean(teamScope) || canOps },
+        );
+        keptIds.push(String(prior.id));
+      } else {
+        const { data: inserted, error } = await claimDb
+          .from("hr_ot_claims")
+          .insert({
+            staff_id: staffId,
+            location_id: locationId,
+            work_date: day.workDate,
+            eligible_minutes: meta.claimedMinutes,
+            claimed_minutes: meta.claimedMinutes,
+            approved_minutes: null,
+            rate_type: rateType,
+            rate_multiplier: rateMultiplier,
+            amount_qar: meta.amountQar,
+            ...paySnapshot,
+            status: nextStatus,
+            notes: purpose,
+            purpose,
+            claim_source: existingRows[0]!.claim_source ?? "supervisor",
+            contract_working_days: contractDays,
+            request_batch_id: requestBatchId,
+            request_number: requestNumber,
+            submitted_by: existingRows[0]!.submitted_by ?? context.userId,
+            submitted_at: now,
+            created_by: context.userId,
+          })
+          .select("id")
+          .single();
+        if (error) {
+          if (/hr_ot_claims_active_uq|duplicate key/i.test(error.message)) {
+            throw new Error("An active OT claim already exists for this staff, date, and rate type.");
+          }
+          throw error;
+        }
+        await appendApproval(
+          context,
+          String(inserted.id),
+          "submit",
+          shouldResubmit ? "resubmitted" : "revised",
+          purpose,
+          { useAdmin: Boolean(teamScope) || canOps },
+        );
+        keptIds.push(String(inserted.id));
+      }
+    }
+
+    if (shouldResubmit) {
+      try {
+        const { notifyUsers } = await import("@/lib/notifications/action-notify");
+        const ids = await otSubmittedNotifyUserIds({
+          staffId,
+          locationId,
+          excludeUserId: context.userId,
+        });
+        const datesLabel = days.map((d) => d.workDate).join(", ");
+        await notifyUsers({
+          userIds: ids,
+          locationId,
+          category: "hr_ot",
+          title: "OT request resubmitted",
+          body: `OT request (${days.length} day(s): ${datesLabel}) was edited and resubmitted and needs site supervisor approval.`,
+          severity: "warning",
+          actionUrl: "/people/hr/ot",
+          sourceType: "hr_ot_claims",
+          sourceId: keptIds[0] ?? null,
+        });
+      } catch {
+        /* non-blocking */
+      }
+    }
+
+    return {
+      ok: true as const,
+      status: nextStatus,
+      count: keptIds.length,
+      claimIds: keptIds,
+      requestBatchId,
+      requestNumber,
+      resubmitted: shouldResubmit,
+    };
+  },
+  { auth: { anyCapability: ["hr.ot.submit", "hr.ot.verify", "hr.ot.approve"] } },
 );
