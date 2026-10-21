@@ -95,10 +95,10 @@ function OtRequestSheet({
   const hrDone = status === "hr_approved" || status === "payroll_posted";
 
   return (
-    <article className="ot-print-sheet mx-auto flex min-h-[260mm] max-w-[210mm] flex-col bg-white px-8 py-7 text-neutral-900 shadow-sm print:min-h-0 print:max-w-none print:shadow-none">
+    <article className="ot-print-sheet mx-auto flex min-h-[260mm] max-w-[210mm] flex-col bg-white px-6 pb-6 pt-4 text-neutral-900 shadow-sm print:min-h-0 print:max-w-none print:shadow-none">
       <E3DocumentLetterhead tag={staff.department} />
 
-      <h1 className="mt-5 text-center text-lg font-bold uppercase tracking-wide text-[#7b2d8e]">
+      <h1 className="mt-6 text-center text-lg font-bold uppercase tracking-wide text-[#7b2d8e]">
         {t("hr.ot.print.title")}
       </h1>
 
@@ -228,7 +228,9 @@ export function SupervisorOtPrintDialog({
 
         <style>{`
           .e3-letterhead,
-          .e3-letterhead-mark {
+          .e3-letterhead-header,
+          .e3-letterhead-footer,
+          .e3-letterhead-footer img {
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
           }
@@ -264,7 +266,9 @@ export function SupervisorOtPrintDialog({
               page-break-after: auto;
             }
             .e3-letterhead,
-            .e3-letterhead-mark {
+            .e3-letterhead-header,
+            .e3-letterhead-footer,
+            .e3-letterhead-footer img {
               -webkit-print-color-adjust: exact !important;
               print-color-adjust: exact !important;
             }

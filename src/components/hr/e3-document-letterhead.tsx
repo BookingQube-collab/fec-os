@@ -4,49 +4,42 @@ import { useTranslation } from "react-i18next";
 
 import { cn } from "@/lib/utils";
 
-/** Official E3 monogram — print-safe (no white wordmark). */
+/** Official E3 letterhead header raster (from corporate Word template). */
+export const E3_LETTERHEAD_HEADER_SRC = "/brand/e3-letterhead-header.jpg";
+
+/** Official E3 letterhead footer raster (contact strip from corporate Word template). */
+export const E3_LETTERHEAD_FOOTER_SRC = "/brand/e3-letterhead-footer.jpg";
+
+/** @deprecated Prefer full letterhead header; kept for any residual mark-only use. */
 export const E3_BRAND_MARK_SRC = "/brand/e3-mark.svg";
 
 /**
  * Official E3 letterhead for OT print/preview and other HR docs that share it.
- * Company name + department on the left; real E3 mark on the right.
+ * Renders the exact corporate header artwork from the letterhead source document.
+ *
+ * `tag` / `tagKey` are retained for call-site compatibility; department text is not
+ * drawn on the official header (the form body carries department fields).
  */
 export function E3DocumentLetterhead({
-  tagKey = "hr.ot.print.companyTag",
-  tag,
   className,
 }: {
-  /** i18n key under the company name (default: Operations). Ignored when `tag` is set. */
+  /** i18n key under the company name (default: Operations). Ignored with official header art. */
   tagKey?: string;
-  /** Optional plain department/label under the company name (e.g. staff department). */
+  /** Optional department/label. Ignored with official header art. */
   tag?: string | null;
   className?: string;
 }) {
   const { t } = useTranslation();
-  const subtitle = (tag?.trim() || t(tagKey)).trim();
 
   return (
-    <header
-      className={cn(
-        "e3-letterhead flex items-start justify-between gap-4 border-b-[3px] border-[#7b2d8e] pb-3",
-        className,
-      )}
-    >
-      <div className="min-w-0">
-        <p className="font-serif text-[13px] font-bold uppercase leading-snug tracking-[0.06em] text-[#7b2d8e]">
-          {t("hr.ot.print.company")}
-        </p>
-        {subtitle ? (
-          <p className="mt-1 text-[11px] font-medium text-[#7b2d8e]/80">{subtitle}</p>
-        ) : null}
-      </div>
+    <header className={cn("e3-letterhead w-full", className)}>
       {/* eslint-disable-next-line @next/next/no-img-element -- static brand asset; img prints more reliably than next/image */}
       <img
-        src={E3_BRAND_MARK_SRC}
+        src={E3_LETTERHEAD_HEADER_SRC}
         alt={t("hr.ot.print.company")}
-        width={64}
-        height={76}
-        className="e3-letterhead-mark h-14 w-auto shrink-0 object-contain object-right"
+        width={1595}
+        height={268}
+        className="e3-letterhead-header h-auto w-full object-contain object-left"
       />
     </header>
   );
@@ -55,8 +48,15 @@ export function E3DocumentLetterhead({
 export function E3DocumentFooter({ className }: { className?: string }) {
   const { t } = useTranslation();
   return (
-    <p className={cn("mt-4 text-center text-[9px] text-neutral-500", className)}>
-      {t("hr.ot.print.footer")}
-    </p>
+    <footer className={cn("e3-letterhead-footer mt-6 w-full", className)}>
+      {/* eslint-disable-next-line @next/next/no-img-element -- static brand asset; img prints more reliably than next/image */}
+      <img
+        src={E3_LETTERHEAD_FOOTER_SRC}
+        alt={t("hr.ot.print.footer")}
+        width={1600}
+        height={174}
+        className="h-auto w-full object-contain object-left"
+      />
+    </footer>
   );
 }
