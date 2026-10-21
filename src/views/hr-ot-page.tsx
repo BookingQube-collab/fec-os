@@ -692,7 +692,7 @@ export default function HrOtPage() {
       toast.success(t("hr.ot.updated"));
       invalidate();
     },
-    onError: (e: Error) => toast.error(userFacingActionError(e)),
+    onError: (e: Error) => toast.error(userFacingActionError(e, t("hr.ot.updateFailed"))),
   });
 
   const runBatchAction = (
