@@ -1339,7 +1339,7 @@ async function openLegacyReviewCorrectionIds(correctionId: string): Promise<stri
     .maybeSingle();
   if (error) throw error;
   if (!data) return [correctionId];
-  const clocks = punchesOf(data.new_value);
+  const clocks = punchesOf(data.new_value as Record<string, unknown> | null | undefined);
   if (clocks.punchType !== "in" && clocks.punchType !== "out") return [correctionId];
   if (String(data.status) !== "pending" || !data.staff_id || !data.work_date || !data.current_step_role) {
     return [correctionId];
@@ -1354,7 +1354,9 @@ async function openLegacyReviewCorrectionIds(correctionId: string): Promise<stri
     .eq("current_step_role", data.current_step_role)
     .neq("id", correctionId);
   if (sibErr) throw sibErr;
-  const sibling = (siblings ?? []).find((row) => punchesOf(row.new_value).punchType === want);
+  const sibling = (siblings ?? []).find(
+    (row) => punchesOf(row.new_value as Record<string, unknown> | null | undefined).punchType === want,
+  );
   if (!sibling?.id) return [correctionId];
   return correctionIdsForReview(
     [
