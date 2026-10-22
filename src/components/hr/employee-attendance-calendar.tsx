@@ -47,6 +47,8 @@ export type EmployeeAttendanceRosterHint = {
   shiftEnd: string | null;
   locationLabel?: string;
   isWeekOff?: boolean;
+  /** Roster leave (e.g. comp_off) — excluded from period hour totals. */
+  leaveType?: string | null;
 };
 
 export function attendanceBadgeVariant(
@@ -77,6 +79,8 @@ function statusCueClass(status: string, missedPunch: boolean): string {
   }
   if (
     status === "weekly_off" ||
+    status === "week_off" ||
+    status === "comp_off" ||
     status === "public_holiday" ||
     status === "annual_leave" ||
     status === "sick_leave" ||
@@ -102,6 +106,8 @@ function statusDotClass(status: string, missedPunch: boolean): string {
   if (status === "present" || status === "overtime") return "bg-[#22C55E]";
   if (
     status === "weekly_off" ||
+    status === "week_off" ||
+    status === "comp_off" ||
     status === "public_holiday" ||
     status === "annual_leave" ||
     status === "sick_leave" ||
@@ -144,6 +150,8 @@ function statusShortCode(
     absent: "A",
     late: "L",
     weekly_off: "WO",
+    week_off: "WO",
+    comp_off: "CO",
     public_holiday: "PH",
     annual_leave: "AL",
     sick_leave: "SL",
@@ -178,13 +186,39 @@ function minutesFromHmPair(workDate: string, startHm: string | null | undefined,
   return Math.round((end.getTime() - start.getTime()) / 60_000);
 }
 
+/** Weekly off / compensatory off (and roster week-off) do not count toward worked or required totals. */
+const HOURS_EXCLUDED_STATUSES = new Set(["weekly_off", "week_off", "comp_off"]);
+
+function normalizeHoursStatusKey(raw: string | null | undefined): string {
+  return String(raw ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_");
+}
+
+function isExcludedFromHoursTotals(
+  status: string | null | undefined,
+  roster: EmployeeAttendanceRosterHint | null | undefined,
+): boolean {
+  if (roster?.isWeekOff) return true;
+  if (HOURS_EXCLUDED_STATUSES.has(normalizeHoursStatusKey(status))) return true;
+  if (HOURS_EXCLUDED_STATUSES.has(normalizeHoursStatusKey(roster?.leaveType))) return true;
+  return false;
+}
+
 function resolveExpectedMinutes(
-  row: EmployeeAttendanceCalendarRow,
+  row: EmployeeAttendanceCalendarRow | null | undefined,
   roster: EmployeeAttendanceRosterHint | null | undefined,
 ): number | null {
-  const fromSchedule = minutesFromIsoPair(row.scheduledIn, row.scheduledOut);
-  if (fromSchedule != null && fromSchedule > 0) return fromSchedule;
-  const fromRoster = minutesFromHmPair(row.workDate, roster?.shiftStart, roster?.shiftEnd);
+  if (row && isExcludedFromHoursTotals(row.status, roster)) return null;
+  if (!row && roster && isExcludedFromHoursTotals(null, roster)) return null;
+  if (row) {
+    const fromSchedule = minutesFromIsoPair(row.scheduledIn, row.scheduledOut);
+    if (fromSchedule != null && fromSchedule > 0) return fromSchedule;
+  }
+  const workDate = row?.workDate ?? roster?.workDate;
+  if (!workDate) return null;
+  const fromRoster = minutesFromHmPair(workDate, roster?.shiftStart, roster?.shiftEnd);
   if (fromRoster != null && fromRoster > 0) return fromRoster;
   return null;
 }
@@ -192,7 +226,11 @@ function resolveExpectedMinutes(
 function resolveWorkedHoursDisplay(
   row: EmployeeAttendanceCalendarRow,
   todayYmd: string,
+  roster?: EmployeeAttendanceRosterHint | null,
 ): { hours: number | null; tillNow: boolean } {
+  if (isExcludedFromHoursTotals(row.status, roster)) {
+    return { hours: null, tillNow: false };
+  }
   if (row.actualIn && row.actualOut) {
     return { hours: computeHoursWorked(row.actualIn, row.actualOut), tillNow: false };
   }
@@ -211,13 +249,56 @@ function resolveShortfallHours(
   row: EmployeeAttendanceCalendarRow,
   expectedMinutes: number | null,
   workedHours: number | null,
+  roster?: EmployeeAttendanceRosterHint | null,
 ): number | null {
+  if (isExcludedFromHoursTotals(row.status, roster)) return null;
   const early = Number(row.earlyLeaveMinutes ?? 0);
   if (early > 0) return Math.round((early / 60) * 100) / 100;
   if (expectedMinutes == null || workedHours == null) return null;
   const shortfall = expectedMinutes / 60 - workedHours;
   if (shortfall <= 0.01) return null;
   return Math.round(shortfall * 100) / 100;
+}
+
+function sumPeriodHours(
+  byDate: Map<string, EmployeeAttendanceCalendarRow>,
+  rosterByDate: Map<string, EmployeeAttendanceRosterHint>,
+  yearMonth: string,
+  todayYmd: string,
+): { workedHours: number; requiredHours: number; shortfallHours: number } {
+  const dates = new Set<string>();
+  for (const d of byDate.keys()) {
+    if (d.startsWith(yearMonth)) dates.add(d);
+  }
+  for (const d of rosterByDate.keys()) {
+    if (d.startsWith(yearMonth)) dates.add(d);
+  }
+
+  let workedMinutes = 0;
+  let requiredMinutes = 0;
+
+  for (const date of dates) {
+    const row = byDate.get(date) ?? null;
+    const roster = rosterByDate.get(date);
+    if (isExcludedFromHoursTotals(row?.status, roster)) continue;
+
+    const expected = resolveExpectedMinutes(row ?? undefined, roster);
+    if (expected != null && expected > 0) requiredMinutes += expected;
+
+    if (row) {
+      const { hours } = resolveWorkedHoursDisplay(row, todayYmd, roster);
+      if (hours != null && hours > 0) workedMinutes += Math.round(hours * 60);
+    }
+  }
+
+  const workedHours = Math.round((workedMinutes / 60) * 100) / 100;
+  const requiredHours = Math.round((requiredMinutes / 60) * 100) / 100;
+  const shortfallHours =
+    requiredHours > workedHours
+      ? Math.round((requiredHours - workedHours) * 100) / 100
+      : 0;
+
+  return { workedHours, requiredHours, shortfallHours };
 }
 
 function DetailFact({ label, value, emphasize }: { label: string; value: string; emphasize?: boolean }) {
@@ -258,10 +339,12 @@ function AttendanceDayDetail({
     row.status === "missed_punch" ||
     Boolean(row.actualIn) !== Boolean(row.actualOut);
   const statusLabel = labelOrRaw(t, `attendanceHr.reports.statuses.${row.status}`, row.status);
+  const excluded = isExcludedFromHoursTotals(row.status, roster);
   const expectedMinutes = resolveExpectedMinutes(row, roster);
-  const { hours: workedHours, tillNow } = resolveWorkedHoursDisplay(row, todayYmd);
-  const shortfall = resolveShortfallHours(row, expectedMinutes, workedHours);
+  const { hours: workedHours, tillNow } = resolveWorkedHoursDisplay(row, todayYmd, roster);
+  const shortfall = resolveShortfallHours(row, expectedMinutes, workedHours, roster);
   const showUnder =
+    !excluded &&
     shortfall != null &&
     shortfall > 0 &&
     (row.status === "short_hours" ||
@@ -272,8 +355,10 @@ function AttendanceDayDetail({
       Number(row.earlyLeaveMinutes ?? 0) > 0);
 
   const shiftLabel =
-    roster?.isWeekOff
-      ? t("people.roster.dutyOff")
+    roster?.isWeekOff || row.status === "comp_off" || row.status === "weekly_off" || row.status === "week_off"
+      ? row.status === "comp_off"
+        ? labelOrRaw(t, "attendanceHr.reports.statuses.comp_off", "comp_off")
+        : t("people.roster.dutyOff")
       : roster?.shiftStart && roster?.shiftEnd
         ? `${roster.shiftStart}–${roster.shiftEnd}`
         : roster?.shiftStart
@@ -300,11 +385,17 @@ function AttendanceDayDetail({
             <p className="hd-row__title">{formatWorkDateDdMmYyyy(row.workDate)}</p>
             <p className="hd-row__meta">
               {row.locationLabel || "—"} · {formatPunchTime12h(row.actualIn) || "—"} –{" "}
-              {formatPunchTime12h(row.actualOut) || "—"} · {formatHoursValue(workedHours)}h
-              {tillNow ? ` (${t("hr.me.attendanceHoursTillNow")})` : ""}
-              {showUnder && shortfall != null
-                ? ` · ${t("hr.me.attendanceUnderHoursShort", { hours: formatHoursValue(shortfall) })}`
-                : ""}
+              {formatPunchTime12h(row.actualOut) || "—"}
+              {!excluded ? (
+                <>
+                  {" "}
+                  · {formatHoursValue(workedHours)}h
+                  {tillNow ? ` (${t("hr.me.attendanceHoursTillNow")})` : ""}
+                  {showUnder && shortfall != null
+                    ? ` · ${t("hr.me.attendanceUnderHoursShort", { hours: formatHoursValue(shortfall) })}`
+                    : ""}
+                </>
+              ) : null}
             </p>
           </button>
           <MissedPunchRequestButton
@@ -343,13 +434,15 @@ function AttendanceDayDetail({
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <DetailFact label={t("hr.me.attendancePunchIn")} value={formatPunchTime12h(row.actualIn) || "—"} />
         <DetailFact label={t("hr.me.attendancePunchOut")} value={formatPunchTime12h(row.actualOut) || "—"} />
-        <DetailFact
-          label={
-            tillNow ? t("hr.me.attendanceHoursWorkedTillNow") : t("hr.me.attendanceHoursWorked")
-          }
-          value={`${formatHoursValue(workedHours)}h`}
-        />
-        {expectedMinutes != null ? (
+        {!excluded ? (
+          <DetailFact
+            label={
+              tillNow ? t("hr.me.attendanceHoursWorkedTillNow") : t("hr.me.attendanceHoursWorked")
+            }
+            value={`${formatHoursValue(workedHours)}h`}
+          />
+        ) : null}
+        {!excluded && expectedMinutes != null ? (
           <DetailFact
             label={t("hr.me.attendanceExpectedHours")}
             value={`${formatHoursValue(Math.round((expectedMinutes / 60) * 100) / 100)}h`}
@@ -445,6 +538,11 @@ export function EmployeeAttendanceCalendar({
   const selectedRow = selectedDate ? (byDate.get(selectedDate) ?? null) : null;
   const selectedRoster = selectedDate ? (rosterByDate.get(selectedDate) ?? null) : null;
 
+  const periodHours = useMemo(
+    () => sumPeriodHours(byDate, rosterByDate, yearMonth, todayYmd),
+    [byDate, rosterByDate, yearMonth, todayYmd],
+  );
+
   useEffect(() => {
     if (selectedDate) return;
     if (todayYmd.startsWith(yearMonth)) {
@@ -498,6 +596,50 @@ export function EmployeeAttendanceCalendar({
           </Button>
         </div>
 
+        <div
+          className="mb-3 grid grid-cols-2 gap-2 rounded-xl border border-border/60 bg-muted/30 p-2.5 sm:mb-4 sm:grid-cols-3 sm:gap-3 sm:p-3"
+          aria-label={t("hr.me.attendancePeriodSummary")}
+        >
+          <div className="min-w-0">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:text-[11px]">
+              {t("hr.me.attendancePeriodWorked")}
+            </p>
+            <p className="mt-0.5 text-base font-semibold tabular-nums text-foreground sm:text-lg">
+              {formatHoursValue(periodHours.workedHours)}h
+            </p>
+          </div>
+          <div className="min-w-0">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:text-[11px]">
+              {t("hr.me.attendancePeriodRequired")}
+            </p>
+            <p className="mt-0.5 text-base font-semibold tabular-nums text-foreground sm:text-lg">
+              {formatHoursValue(periodHours.requiredHours)}h
+            </p>
+          </div>
+          {periodHours.shortfallHours > 0 ? (
+            <div className="min-w-0 col-span-2 sm:col-span-1">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:text-[11px]">
+                {t("hr.me.attendancePeriodShortfall")}
+              </p>
+              <p className="mt-0.5 text-base font-semibold tabular-nums text-amber-700 dark:text-amber-400 sm:text-lg">
+                {formatHoursValue(periodHours.shortfallHours)}h
+              </p>
+            </div>
+          ) : (
+            <div className="hidden min-w-0 sm:block">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:text-[11px]">
+                {t("hr.me.attendancePeriodShortfall")}
+              </p>
+              <p className="mt-0.5 text-base font-semibold tabular-nums text-muted-foreground sm:text-lg">
+                —
+              </p>
+            </div>
+          )}
+          <p className="col-span-2 text-[10px] text-muted-foreground sm:col-span-3 sm:text-[11px]">
+            {t("hr.me.attendancePeriodExcludeNote")}
+          </p>
+        </div>
+
         <div className="overflow-x-auto">
           <div className="min-w-[17.5rem]">
             <div className="mb-2 grid grid-cols-7 gap-1">
@@ -530,12 +672,21 @@ export function EmployeeAttendanceCalendar({
                     >
                       {week.map((cell) => {
                         const row = byDate.get(cell.date);
+                        const roster = rosterByDate.get(cell.date);
                         const selected = selectedDate === cell.date;
                         const cue = row ? statusCueClass(row.status, row.missedPunch) : "";
                         const statusLabel = row
                           ? labelOrRaw(t, `attendanceHr.reports.statuses.${row.status}`, row.status)
                           : "";
                         const code = row ? statusShortCode(t, row.status, row.missedPunch) : "";
+                        const cellHours =
+                          row && !isExcludedFromHoursTotals(row.status, roster)
+                            ? resolveWorkedHoursDisplay(row, todayYmd, roster).hours
+                            : null;
+                        const cellExpected =
+                          row || roster
+                            ? resolveExpectedMinutes(row, roster)
+                            : null;
 
                         return (
                           <button
@@ -549,7 +700,7 @@ export function EmployeeAttendanceCalendar({
                             }
                             title={statusLabel || undefined}
                             className={cn(
-                              "flex min-h-[2.75rem] min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg border border-transparent px-0.5 py-1 transition-colors sm:min-h-[4.25rem] sm:gap-1 sm:p-1.5",
+                              "flex min-h-[2.75rem] min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg border border-transparent px-0.5 py-1 transition-colors sm:min-h-[4.75rem] sm:gap-0.5 sm:p-1.5",
                               "hover:border-border hover:bg-card/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                               !cell.inMonth && "opacity-45",
                               cell.isToday && !selected && "border-ring bg-card shadow-sm",
@@ -579,6 +730,14 @@ export function EmployeeAttendanceCalendar({
                                 <span className="max-w-full truncate text-[9px] font-semibold uppercase leading-none tracking-wide text-muted-foreground sm:text-[10px]">
                                   {code}
                                 </span>
+                                {cellHours != null || cellExpected != null ? (
+                                  <span className="hidden max-w-full truncate text-[9px] tabular-nums leading-none text-muted-foreground sm:block">
+                                    {cellHours != null ? `${formatHoursValue(cellHours)}h` : "—"}
+                                    {cellExpected != null
+                                      ? ` / ${formatHoursValue(Math.round((cellExpected / 60) * 100) / 100)}h`
+                                      : ""}
+                                  </span>
+                                ) : null}
                               </>
                             ) : null}
                           </button>
