@@ -8257,6 +8257,7 @@
       "kpiUnscheduled": "غير مجدول",
       "statuses": {
         "present": "حاضر",
+        "working": "يعمل اليوم",
         "absent": "غائب",
         "weekly_off": "إجازة أسبوعية",
         "comp_off": "تعويض",

@@ -9,6 +9,7 @@ import {
   formatWorkDateDdMmYyyy,
   getAttendanceStatusDisplay,
   resolveHoursBasedAttendanceStatus,
+  resolveTotalHoursWorked,
   type AttendanceSummaryRow,
 } from "./attendance-display";
 import { attendanceHrToListingSource, type AttendanceHrReportRow } from "./attendance-hr/report";
@@ -494,7 +495,7 @@ describe("incomplete punch before roster close", () => {
   const scheduledOut = "2026-10-21T17:00:00.000Z"; // 20:00 Qatar
   const actualIn = "2026-10-21T07:43:20.000Z"; // 10:43 Qatar
 
-  it("punched in before close → Present (not Missed punch)", () => {
+  it("punched in before close → Working today (not Missed punch)", () => {
     expect(
       resolveHoursBasedAttendanceStatus({
         status: "missed_punch",
@@ -505,7 +506,7 @@ describe("incomplete punch before roster close", () => {
         scheduled_out: scheduledOut,
         asOf: "2026-10-21T12:00:00.000Z", // 15:00 Qatar
       }),
-    ).toBe("present");
+    ).toBe("working");
     expect(
       getAttendanceStatusDisplay({
         status: "missed_punch",
@@ -516,7 +517,45 @@ describe("incomplete punch before roster close", () => {
         scheduled_out: scheduledOut,
         asOf: "2026-10-21T12:00:00.000Z",
       }).label,
-    ).toBe("Present");
+    ).toBe("Working today");
+  });
+
+  it("flexible: Working today past roster end until Qatar day close (Russell)", () => {
+    const russellIn = "2026-10-22T06:53:20.000Z"; // 09:53 Qatar
+    const rosterEnd = "2026-10-22T15:00:00.000Z"; // 18:00 Qatar
+    expect(
+      resolveHoursBasedAttendanceStatus({
+        status: "missed_punch",
+        missed_punch: true,
+        actual_in: russellIn,
+        actual_out: null,
+        work_date: "2026-10-22",
+        scheduled_out: rosterEnd,
+        flexible_attendance: true,
+        asOf: "2026-10-22T16:54:00.000Z", // 19:54 Qatar — past roster end
+      }),
+    ).toBe("working");
+    expect(
+      getAttendanceStatusDisplay({
+        status: "missed_punch",
+        missed_punch: true,
+        actual_in: russellIn,
+        actual_out: null,
+        work_date: "2026-10-22",
+        scheduled_out: rosterEnd,
+        flexible_attendance: true,
+        asOf: "2026-10-22T16:54:00.000Z",
+      }).label,
+    ).toBe("Working today");
+    // Elapsed hours from 09:53 to 19:54 ≈ 10.02
+    expect(
+      resolveTotalHoursWorked({
+        actual_in: russellIn,
+        actual_out: null,
+        work_date: "2026-10-22",
+        asOf: "2026-10-22T16:54:00.000Z",
+      }),
+    ).toBeCloseTo(10.02, 1);
   });
 
   it("punched in after close with no out → Missed punch", () => {

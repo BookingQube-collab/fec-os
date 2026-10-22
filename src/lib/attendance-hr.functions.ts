@@ -3285,7 +3285,8 @@ async function enrichAttendanceHrDailyRows(
         lateFromShiftStart: Boolean(row.flexible_attendance),
       });
       // Defer Absent → Not started when roster start is still in the future (afternoon shifts).
-      // Pass scheduled_out so incomplete in/out stays Present until roster close (~22:00 F&B).
+      // Flexible: incomplete in/out stays Working today until Qatar day end (not roster close).
+      // Non-flexible: Working today until roster scheduled_out.
       const status = resolveHoursBasedAttendanceStatus({
         status: row.status,
         missed_punch: row.missed_punch,
@@ -3306,8 +3307,15 @@ async function enrichAttendanceHrDailyRows(
           jokerHours: row.joker_hours,
         },
       });
-      if (lateMinutes === row.late_minutes && status === row.status) return row;
-      return { ...row, late_minutes: lateMinutes, status };
+      const missedPunch = status === "missed_punch";
+      if (
+        lateMinutes === row.late_minutes &&
+        status === row.status &&
+        missedPunch === row.missed_punch
+      ) {
+        return row;
+      }
+      return { ...row, late_minutes: lateMinutes, status, missed_punch: missedPunch };
     });
 
   const crossSiteIds = [
@@ -3654,7 +3662,8 @@ async function enrichAttendanceHrDailyRows(
         );
         workedMinutes = Number.isFinite(mins) && mins >= 0 ? mins : null;
       } else {
-        workedMinutes = 0;
+        // Leave null so listing can compute live elapsed hours for Working today.
+        workedMinutes = null;
       }
       const lateMinutes = resolveListingLateMinutes({
         actualIn,

@@ -304,6 +304,7 @@ export function resolveHrAttendanceStatus(row: AttendanceHrReportRow): string {
   }
 
   if (resolved === "late") return "Late";
+  if (resolved === "working") return "Present";
   if (resolved === "early_departure" || resolved === "early_leave") return "Present";
   if (resolved === "short_hours") return "Present";
   if (resolved === "overtime") return "Present";

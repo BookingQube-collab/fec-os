@@ -459,9 +459,23 @@ describe("daily calculation", () => {
       now: "2026-10-21T12:00:00.000Z",
     });
     expect(day.missedPunch).toBe(false);
-    expect(day.status).toBe("present");
+    expect(day.status).toBe("working");
     expect(day.statusFlags).toContain("incomplete");
     expect(day.statusFlags).not.toContain("missed_punch");
+    expect(day.workedMinutes).toBeGreaterThan(0);
+  });
+
+  it("flexible: keeps Working today past roster end until Qatar day close", () => {
+    const day = calculateDailyAttendance([{ punchAt: "2026-10-22T06:53:20.000Z" }], {
+      workDate: "2026-10-22",
+      scheduled: true,
+      flexibleAttendance: true,
+      shift: { ...shift, startTime: "10:00", endTime: "18:00" },
+      // 19:54 Qatar — past 18:00 roster end, still same calendar day
+      now: "2026-10-22T16:54:00.000Z",
+    });
+    expect(day.missedPunch).toBe(false);
+    expect(day.status).toBe("working");
   });
 
   it("resolveIncompletePunchStatus compares now to roster close only", () => {
@@ -470,7 +484,7 @@ describe("daily calculation", () => {
         scheduledOutIso: "2026-10-21T17:00:00.000Z",
         now: "2026-10-21T16:59:00.000Z",
       }),
-    ).toBe("present");
+    ).toBe("working");
     expect(
       resolveIncompletePunchStatus({
         scheduledOutIso: "2026-10-21T17:00:00.000Z",
@@ -482,6 +496,23 @@ describe("daily calculation", () => {
         scheduledOutIso: null,
         workDate: "2026-10-20",
         now: "2026-10-21T08:00:00.000Z",
+      }),
+    ).toBe("missed_punch");
+    // Flexible ignores early roster end until Qatar day end
+    expect(
+      resolveIncompletePunchStatus({
+        scheduledOutIso: "2026-10-22T15:00:00.000Z",
+        workDate: "2026-10-22",
+        now: "2026-10-22T16:54:00.000Z",
+        calendarDayClose: true,
+      }),
+    ).toBe("working");
+    expect(
+      resolveIncompletePunchStatus({
+        scheduledOutIso: "2026-10-22T15:00:00.000Z",
+        workDate: "2026-10-22",
+        now: "2026-10-22T21:00:00.000Z", // past 23:59 Qatar
+        calendarDayClose: true,
       }),
     ).toBe("missed_punch");
   });

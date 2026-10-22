@@ -251,7 +251,7 @@ export function collapseFlexibleAttendanceReportRows(
       );
       if (Number.isFinite(mins) && mins >= 0) worked = mins;
     }
-    // Incomplete sides → Missed punch only after roster close; open shift stays Present.
+    // Incomplete sides → Missed punch only after close; open shift stays Working today.
     const incomplete = Boolean(actualIn) !== Boolean(actualOut);
     const late = resolveListingLateMinutes({
       actualIn,
@@ -455,7 +455,14 @@ export function computeAttendanceHrReportKpis(rows: AttendanceHrReportRow[]): At
     if (row.staff_id) mappedStaff.add(String(row.staff_id));
     const listing = attendanceHrToListingSource(row);
     const resolved = resolveHoursBasedAttendanceStatus(listing);
-    if (resolved === "present" || resolved === "overtime" || resolved === "short_hours") present += 1;
+    if (
+      resolved === "present" ||
+      resolved === "working" ||
+      resolved === "overtime" ||
+      resolved === "short_hours"
+    ) {
+      present += 1;
+    }
     if (resolved === "absent") absent += 1;
     if (resolved === "late" || Number(row.late_minutes) > 0) late += 1;
     if (resolved === "missed_punch") missedPunch += 1;
@@ -565,7 +572,12 @@ export function attendanceHrRowMatchesKpiFilter(
   const resolved = resolveHoursBasedAttendanceStatus(listing);
   switch (filter) {
     case "present":
-      return resolved === "present" || resolved === "overtime" || resolved === "short_hours";
+      return (
+        resolved === "present" ||
+        resolved === "working" ||
+        resolved === "overtime" ||
+        resolved === "short_hours"
+      );
     case "absent":
       return resolved === "absent";
     case "late":

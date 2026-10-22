@@ -8400,6 +8400,7 @@
       "kpiUnscheduled": "Unscheduled",
       "statuses": {
         "present": "Present",
+        "working": "Working today",
         "absent": "Absent",
         "weekly_off": "Weekly off",
         "comp_off": "Comp off",

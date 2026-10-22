@@ -1130,6 +1130,7 @@ export async function recalculateAttendanceRange(
       leaveType: (leaveRow?.leave_type as "annual_leave" | "sick_leave" | "unpaid_leave" | null) ?? null,
       shift: shiftForCalc,
       rules,
+      flexibleAttendance: Boolean(flex?.flexibleAttendance),
     });
     const deviceSample = punchSource.find((p) => p.device_id) ?? punchSource[0];
     summaryRows.push({
@@ -1213,6 +1214,7 @@ export async function recalculateAttendanceRange(
       leaveType: (leaveRow?.leave_type as "annual_leave" | "sick_leave" | "unpaid_leave" | null) ?? null,
       shift: shiftForCalc,
       rules,
+      flexibleAttendance: Boolean(timing.flex?.flexibleAttendance),
     });
     const deviceSample = punchSource.find((p) => p.device_id) ?? punchSource[0];
     summaryRows.push({
@@ -1523,6 +1525,7 @@ export async function recalculateAttendanceRange(
         leaveType,
         shift: shiftForCalc,
         rules,
+        flexibleAttendance: Boolean(timing.flex?.flexibleAttendance),
       });
       // Jokers with no punches are not Absent — keep leave / week-off / holiday.
       const suppressJokerAbsent = shouldSuppressPunchlessJokerAbsent({

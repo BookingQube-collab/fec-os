@@ -81,7 +81,7 @@ export function attendanceGridTone(row: AttendanceListingSource): AttendanceGrid
   if (status === "not_joined") return "not_joined";
   if (status === "unscheduled") return "unscheduled";
   if (hasLatePunch(row.late_minutes) || status === "late") return "late";
-  if (status === "present" || status === "overtime") return "present";
+  if (status === "present" || status === "working" || status === "overtime") return "present";
   return "other";
 }
 
@@ -178,6 +178,7 @@ export function attendanceMatrixStaffLocation(
 /** HR matrix status codes (legend on Excel sheet). */
 export const ATTENDANCE_MATRIX_STATUS_CODES = [
   ["P", "Present"],
+  ["W", "Working today"],
   ["A", "Absent"],
   ["WO", "Weekly Off"],
   ["AL", "Annual Leave"],
@@ -213,6 +214,8 @@ export function attendanceMatrixStatusCode(row: AttendanceListingSource): string
       return "";
     case "not_joined":
       return "NJ";
+    case "working":
+      return "W";
     case "short_hours": {
       const worked = resolveTotalHoursWorked(row);
       const expected = row.expected_minutes != null ? Number(row.expected_minutes) / 60 : null;

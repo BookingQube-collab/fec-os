@@ -117,21 +117,44 @@ export function computeHoursWorked(actualIn: string | null, actualOut: string | 
   return Math.round((ms / 3_600_000) * 100) / 100;
 }
 
+/** Qatar calendar day end (23:59:59 +03) as UTC ms for a YYYY-MM-DD work date. */
+function qatarWorkDateEndMs(workDate: string): number {
+  const [y, mo, d] = workDate.split("-").map(Number);
+  // 23:59:59 Qatar = 20:59:59 UTC
+  return Date.UTC(y, mo - 1, d, 20, 59, 59);
+}
+
 /**
  * Total hours worked for the listing: last check-out − first check-in.
  * Prefer punch timestamps so a stale net (break-deducted) worked_minutes cannot hide clock time.
+ * In without out: elapsed hours until now (capped at Qatar day end) so open shifts are not 0.00.
  */
 export function resolveTotalHoursWorked(row: {
   actual_in: string | null;
   actual_out: string | null;
   worked_minutes?: number | null;
   break_minutes?: number | null;
+  work_date?: string | null;
+  asOf?: Date | string | number;
 }): number | null {
   const clock = computeHoursWorked(row.actual_in, row.actual_out);
   if (clock != null) return clock;
+  if (row.actual_in && !row.actual_out) {
+    const inMs = new Date(row.actual_in).getTime();
+    const nowMs = row.asOf != null ? new Date(row.asOf).getTime() : Date.now();
+    if (Number.isFinite(inMs) && Number.isFinite(nowMs)) {
+      const workDate = row.work_date ? String(row.work_date).slice(0, 10) : "";
+      const dayEndMs = /^\d{4}-\d{2}-\d{2}$/.test(workDate) ? qatarWorkDateEndMs(workDate) : nowMs;
+      const untilMs = Math.min(nowMs, dayEndMs);
+      if (untilMs >= inMs) {
+        return Math.round(((untilMs - inMs) / 3_600_000) * 100) / 100;
+      }
+    }
+  }
   if (row.worked_minutes != null && Number.isFinite(Number(row.worked_minutes))) {
     const mins = Number(row.worked_minutes);
-    if (mins >= 0) return Math.round((mins / 60) * 100) / 100;
+    // Skip stale 0 from incomplete enrichment when we could not compute a live span.
+    if (mins > 0) return Math.round((mins / 60) * 100) / 100;
   }
   return null;
 }
@@ -163,6 +186,8 @@ export function resolveOvertimeMinutes(row: {
 }): number {
   const statusKey = normalizeAttendanceStatusKey(row.status ?? "");
   if (NO_OVERTIME_STATUS_KEYS.has(statusKey)) return 0;
+  // Open / incomplete shifts must not invent OT from elapsed-until-now hours.
+  if (!row.actual_out) return 0;
 
   const workedHours = resolveTotalHoursWorked({
     actual_in: row.actual_in ?? null,
@@ -331,6 +356,11 @@ const NAMED_STATUS_DISPLAY: Record<string, AttendanceStatusDisplay> = {
     badgeClass: LATE_BADGE,
     rowClass: NO_ROW_TINT,
   },
+  working: {
+    label: "Working today",
+    badgeClass: "border-sky-500/40 bg-sky-500/10 text-sky-800 dark:text-sky-200",
+    rowClass: NO_ROW_TINT,
+  },
   present: {
     label: "Present",
     badgeClass: COMPLETE_BADGE,
@@ -463,12 +493,13 @@ export function resolveHoursBasedAttendanceStatus(
   const hasOut = Boolean(row.actual_out);
   // Both punches → never Missed punch / Absent (ignore stale flags + stored status).
   if (!(hasIn && hasOut)) {
-    // Incomplete side (in xor out): Present while roster/shift is still open.
+    // Incomplete side (in xor out): Working today while day/shift is still open.
     if (hasIn !== hasOut) {
       return resolveIncompletePunchStatus({
         scheduledOutIso: row.scheduled_out,
         workDate: row.work_date,
         now: row.asOf,
+        calendarDayClose: Boolean(row.flexible_attendance),
       });
     }
     if (!hasIn && !hasOut) {
@@ -567,6 +598,7 @@ export function getAttendanceStatusDisplay(
       scheduledOutIso: row.scheduled_out,
       workDate: row.work_date,
       now: row.asOf,
+      calendarDayClose: Boolean(row.flexible_attendance),
     });
     return NAMED_STATUS_DISPLAY[incomplete];
   }
@@ -653,8 +685,14 @@ export function computeAttendanceKpis(rows: AttendanceSummaryRow[]): AttendanceK
     if (row.staff_id) staffIds.add(row.staff_id);
 
     const display = getAttendanceStatusDisplay(row);
-    if (display.label === "Present" || display.label === "Complete" || display.label === "Undertime") complete++;
-    else if (display.label === "Incomplete" || display.label === "Missed punch") {
+    if (
+      display.label === "Present" ||
+      display.label === "Working today" ||
+      display.label === "Complete" ||
+      display.label === "Undertime"
+    ) {
+      complete++;
+    } else if (display.label === "Incomplete" || display.label === "Missed punch") {
       incomplete++;
     } else if (display.label === "Missing Punch" || display.label === "Absent") missingPunch++;
     else if (display.label === "Late" || display.label === "Early Leave") late++;
