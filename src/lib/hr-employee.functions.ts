@@ -69,7 +69,9 @@ export const getMyAttendance = createAuthenticatedAction(
     // on My day even though rows still exist for this staff_id.
     const { data: rows, error } = await supabaseAdmin
       .from("attendance_daily_summary")
-      .select("id, work_date, status, late_minutes, overtime_minutes, missed_punch, actual_in, actual_out, worked_minutes, locations(code, name)")
+      .select(
+        "id, work_date, status, late_minutes, early_leave_minutes, overtime_minutes, missed_punch, actual_in, actual_out, scheduled_in, scheduled_out, worked_minutes, locations(code, name)",
+      )
       .eq("staff_id", staffId)
       .gte("work_date", dateFrom)
       .lte("work_date", dateTo)
@@ -86,10 +88,13 @@ export const getMyAttendance = createAuthenticatedAction(
         workDate: string;
         status: string;
         lateMinutes: number;
+        earlyLeaveMinutes: number;
         overtimeMinutes: number;
         missedPunch: boolean;
         actualIn: string | null;
         actualOut: string | null;
+        scheduledIn: string | null;
+        scheduledOut: string | null;
         workedMinutes: number;
         locationLabel: string;
       }
@@ -101,10 +106,13 @@ export const getMyAttendance = createAuthenticatedAction(
         workDate: String(row.work_date).slice(0, 10),
         status: String(row.status ?? ""),
         lateMinutes: Number(row.late_minutes ?? 0),
+        earlyLeaveMinutes: Number(row.early_leave_minutes ?? 0),
         overtimeMinutes: Number(row.overtime_minutes ?? 0),
         missedPunch: Boolean(row.missed_punch),
         actualIn: (row.actual_in as string | null) ?? null,
         actualOut: (row.actual_out as string | null) ?? null,
+        scheduledIn: (row.scheduled_in as string | null) ?? null,
+        scheduledOut: (row.scheduled_out as string | null) ?? null,
         workedMinutes: Number(row.worked_minutes ?? 0),
         locationLabel: formatLocationLabel(
           (loc as { code?: string } | null)?.code,

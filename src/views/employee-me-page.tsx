@@ -213,11 +213,11 @@ export default function EmployeeMePage() {
     const { from, to } = monthDateRange(attendanceMonth);
     return { dateFrom: from, dateTo: to };
   }, [attendanceMonth]);
-  const showRoster = tab === "home" || tab === "roster";
+  const showRoster = tab === "home" || tab === "roster" || tab === "attendance";
   const showLeave = tab === "home" || tab === "leave";
   const homeAttendance = useMyAttendance(tab === "home");
   const attendance = useMyAttendance(tab === "attendance", attendanceMonthRange);
-  const roster = useMyRoster(showRoster);
+  const roster = useMyRoster(showRoster, tab === "attendance" ? attendanceMonthRange : null);
   const leave = useMyLeaveRequests(tab === "leave");
   const balances = useMyLeaveBalances(showLeave);
   const announcements = useQuery({
@@ -653,6 +653,7 @@ export default function EmployeeMePage() {
                         setAttendanceSelectedDate(null);
                       }}
                       rows={attendanceRows}
+                      rosterRows={roster.data?.rows}
                       isLoading={attendance.isLoading}
                       selectedDate={attendanceSelectedDate}
                       onSelectDate={setAttendanceSelectedDate}

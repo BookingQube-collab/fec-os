@@ -37,11 +37,18 @@ export function useMyAttendance(
   });
 }
 
-/** Own roster assignments for the current FEC month (same period as attendance). */
-export function useMyRoster(enabled = true) {
+/** Own roster assignments for a date range (defaults to the current FEC month). */
+export function useMyRoster(
+  enabled = true,
+  range?: { dateFrom: string; dateTo: string } | null,
+) {
   return useQuery({
-    queryKey: queryKeys.people.attendanceHr({ view: "my-roster" }),
-    queryFn: () => getMyRoster({}),
+    queryKey: queryKeys.people.attendanceHr({
+      view: "my-roster",
+      dateFrom: range?.dateFrom ?? null,
+      dateTo: range?.dateTo ?? null,
+    }),
+    queryFn: () => getMyRoster(range ? { dateFrom: range.dateFrom, dateTo: range.dateTo } : {}),
     staleTime: STALE.people,
     enabled,
   });

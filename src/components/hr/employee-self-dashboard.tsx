@@ -178,6 +178,7 @@ function AttendancePanel() {
     return { dateFrom: from, dateTo: to };
   }, [yearMonth]);
   const attendance = useMyAttendance(true, range);
+  const roster = useMyRoster(true, range);
   const rows = attendance.data?.rows ?? [];
 
   return (
@@ -198,6 +199,7 @@ function AttendancePanel() {
               setSelectedDate(null);
             }}
             rows={rows}
+            rosterRows={roster.data?.rows}
             isLoading={attendance.isLoading}
             selectedDate={selectedDate}
             onSelectDate={setSelectedDate}
