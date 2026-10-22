@@ -3901,13 +3901,22 @@ async function loadListingGapRosterAndPunchDays(
     return punchDays;
   };
 
-  const loadLeaveDays = async (rosterStaffIds: string[]): Promise<ListingGapLeaveDay[]> => {
+  const loadLeaveDays = async (
+    rosterRows: ListingGapRosterDay[],
+  ): Promise<ListingGapLeaveDay[]> => {
     // Prefer staff scope (search / roster at site) so leave still appears when
     // attendance_leave_records.location_id is home and the chip is the work site.
     const scopeIds = staffIds?.length
       ? staffIds
-      : [...new Set(rosterStaffIds.filter(Boolean))];
+      : [...new Set(rosterRows.map((r) => r.staff_id).filter(Boolean))];
     if (!scopeIds.length && !locationId) return [];
+
+    const rosterLocByStaff = new Map<string, string>();
+    for (const r of rosterRows) {
+      if (!rosterLocByStaff.has(r.staff_id) && r.location_id) {
+        rosterLocByStaff.set(r.staff_id, r.location_id);
+      }
+    }
 
     const pages = await collectPagedRowsInWaves(async (from, to) => {
       let q = context.supabase
@@ -3927,12 +3936,14 @@ async function loadListingGapRosterAndPunchDays(
     const leaveDays: ListingGapLeaveDay[] = [];
     for (const row of pages) {
       const staffId = String(row.staff_id ?? "");
-      let loc = String(row.location_id ?? "");
+      let loc = String(row.location_id ?? "").trim();
       const day = String(row.leave_date ?? "").slice(0, 10);
       const leaveType = String(row.leave_type ?? "").trim();
       if (!staffId || !day || !leaveType) continue;
       // Site chip: pin gap shells to the filtered site when leave was stored under home.
       if (locationId && loc !== locationId) loc = locationId;
+      // Null leave.location_id (legacy / HR sync gaps) — fall back to roster site or chip.
+      if (!loc) loc = rosterLocByStaff.get(staffId) || locationId || "";
       if (!loc) continue;
       leaveDays.push({
         staff_id: staffId,
@@ -3945,7 +3956,7 @@ async function loadListingGapRosterAndPunchDays(
   };
 
   const [roster, punchDays] = await Promise.all([loadRoster(), loadPunchDays()]);
-  const leaveDays = await loadLeaveDays(roster.map((r) => r.staff_id));
+  const leaveDays = await loadLeaveDays(roster);
   return { roster, punchDays, leaveDays };
 }
 

@@ -116,6 +116,19 @@ describe("attendance matrix", () => {
       ),
     ).toBe("missed_punch");
 
+    const punchlessMissed = attendanceGridCellContent(
+      listing({
+        work_date: "2026-08-02",
+        status: "missed_punch",
+        missed_punch: true,
+        actual_in: null,
+        actual_out: null,
+      }),
+    );
+    expect(punchlessMissed.tone).toBe("missed_punch");
+    expect(punchlessMissed.secondary).toBeNull();
+    expect(punchlessMissed.primary.toLowerCase()).toContain("missed");
+
     // Stale missed_punch flag with both punches must not tint Missed (flexible unlock)
     expect(
       attendanceGridTone(

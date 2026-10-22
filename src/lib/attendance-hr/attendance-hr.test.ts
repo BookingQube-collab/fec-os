@@ -69,6 +69,7 @@ import {
   buildAttendanceMatrix,
   rosterMatrixCellKey,
 } from "./attendance-matrix";
+import { suppressAbsentWithoutOnDutyRoster } from "./punch-over-absent";
 import {
   attendanceHrIncludesStaffInListing,
   attendanceHrDisplayStaffName,
@@ -1400,6 +1401,36 @@ describe("HR report row helpers", () => {
     expect(leaveDay?.missed_punch).toBe(false);
     const rosterDay = filled.find((r) => r.work_date === "2026-10-05");
     expect(rosterDay?.status).toBe("absent");
+  });
+
+  it("marks punch-gap shells so suppressAbsentWithoutOnDutyRoster keeps them", () => {
+    const filled = appendMissingRosterAndPunchSummaryRows({
+      rows: [],
+      roster: [],
+      punchDays: [{ staff_id: "lester", location_id: "inf", work_date: "2026-10-11" }],
+      leaveDays: [],
+      locationId: null,
+    });
+    const day = filled.find((r) => r.work_date === "2026-10-11");
+    expect(day?.status).toBe("absent");
+    expect(Number(day?.punch_count)).toBe(1);
+    const kept = suppressAbsentWithoutOnDutyRoster({
+      rows: filled,
+      roster: [],
+    });
+    expect(kept).toHaveLength(1);
+    expect(kept[0]?.work_date).toBe("2026-10-11");
+  });
+
+  it("tags roster Absent shells with punch evidence for the same person-day", () => {
+    const filled = appendMissingRosterAndPunchSummaryRows({
+      rows: [],
+      roster: [{ staff_id: "lester", location_id: "inf", work_date: "2026-10-18", is_week_off: false }],
+      punchDays: [{ staff_id: "lester", location_id: "inf", work_date: "2026-10-18" }],
+      leaveDays: [],
+      locationId: "inf",
+    });
+    expect(Number(filled[0]?.punch_count)).toBe(1);
   });
 
   it("collapses flexible multi-site same-day rows into one person-day", () => {

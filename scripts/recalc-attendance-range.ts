@@ -80,9 +80,9 @@ async function main() {
       .ilike("department", `%${deptNeedle.replace(/%/g, "")}%`)
       .limit(500);
     if (error) throw error;
-    const deptIds = (staffRows ?? [])
-      .filter((row) => !row.location_id || String(row.location_id) === locationId)
-      .map((row) => String(row.id));
+    // Include every department match — F&B Cafe staff often home at UA/KDS while
+    // rostered/punching at INF-CC. Process still scopes logs/roster to this site.
+    const deptIds = (staffRows ?? []).map((row) => String(row.id));
     // Also include staff linked via staff_departments whose name matches.
     const { data: masterDepts } = await supabase
       .from("departments")

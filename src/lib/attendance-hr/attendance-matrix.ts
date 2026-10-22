@@ -132,6 +132,11 @@ export function attendanceGridCellContent(row: AttendanceListingSource): Attenda
     return { tone, primary: statusLabel, secondary: null, meta: null, statusLabel };
   }
 
+  // Punchless Missed punch (rostered, no in/out yet or after close) — show status, not —/—.
+  if (tone === "missed_punch" && !row.actual_in && !row.actual_out) {
+    return { tone, primary: statusLabel, secondary: null, meta: null, statusLabel };
+  }
+
   const inn = formatAttendanceGridPunch(row.actual_in) || "—";
   const out = formatAttendanceGridPunch(row.actual_out) || "—";
   const metaParts: string[] = [];
