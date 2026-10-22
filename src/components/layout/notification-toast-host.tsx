@@ -20,6 +20,29 @@ import { canUserDo, type AppRole } from "@/lib/rbac";
 
 const MAX_VISIBLE_TOASTS = 4;
 
+function sessionSeenKey(userId: string) {
+  return `fec.inbox.toastSeen:${userId}`;
+}
+
+function readSessionSeen(userId: string): string[] {
+  try {
+    const raw = sessionStorage.getItem(sessionSeenKey(userId));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeSessionSeen(userId: string, ids: string[]) {
+  try {
+    sessionStorage.setItem(sessionSeenKey(userId), JSON.stringify(ids.slice(-200)));
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
 /**
  * Match the bell's shell defer so route queries win the first paint;
  * React Query still shares the badge cache with NotificationBell.
@@ -77,15 +100,36 @@ export function NotificationToastHost() {
   const markReadMutate = markRead.mutate;
 
   useEffect(() => {
-    stateRef.current = { primed: false, seenIds: [] };
+    if (!user?.id) {
+      stateRef.current = { primed: false, seenIds: [] };
+      return;
+    }
+    // Keep tab-session memory so a refresh does not re-spam the same toast.
+    stateRef.current = { primed: false, seenIds: readSessionSeen(user.id) };
   }, [user?.id]);
 
+  // Badge poll is 60s and skips background tabs — refetch when the user returns.
   useEffect(() => {
-    if (!badge.isSuccess || !pollInbox || !badge.data?.items) return;
+    if (!pollInbox || !user?.id) return;
+    const refresh = () => {
+      if (document.visibilityState !== "visible") return;
+      void qc.invalidateQueries({ queryKey: queryKeys.notifications.inboxBadge(user.id) });
+    };
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      document.removeEventListener("visibilitychange", refresh);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [pollInbox, qc, user?.id]);
+
+  useEffect(() => {
+    if (!badge.isSuccess || !pollInbox || !badge.data?.items || !user?.id) return;
 
     const items = badge.data.items;
     const decision = decideInboxToasts(stateRef.current, items);
     stateRef.current = decision.next;
+    writeSessionSeen(user.id, decision.next.seenIds);
     if (decision.toastIds.length === 0) return;
 
     const byId = new Map(items.map((item) => [item.id, item]));
@@ -121,7 +165,7 @@ export function NotificationToastHost() {
         },
       );
     }
-  }, [badge.isSuccess, badge.data, pollInbox, t, markReadMutate]);
+  }, [badge.isSuccess, badge.data, pollInbox, t, markReadMutate, user?.id]);
 
   return null;
 }
