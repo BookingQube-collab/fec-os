@@ -217,3 +217,11 @@ journalctl -u iclock-forward.service -f
 On the Pi, each poll is one line, for example `GET /iclock/getrequest?SN=AF4C214460188 200` or `POST /iclock/cdata?SN=AF4C214460188 200`.
 
 On FEC attendance settings, open **Devices** and find serial **AF4C214460188**. It stays **Never connected** until that clock polls. After a poll the server accepted, the badge is **Online** when the server heard from it within the last 5 minutes.
+
+## Punch In / Punch Out status (Carousel)
+
+ZKTeco ADMS status codes: **0** = check-in, **1** = check-out (plus break/OT variants).
+
+If the terminal is left in **Check-In only** mode, every punch arrives as status `0`. Device logs then show Punch In filled and Punch Out as **—** unless the day has two or more punches at least **2 hours** apart — FEC pairs those as first → last for display (same first/last rule daily attendance already uses for hours). Sites that send real check-outs are unchanged.
+
+Fix on the clock when possible: Attendance / Punch state → allow Check Out (or Auto Out), and have staff select **Out** when leaving. Also map each device User ID on **Attendance → Mapping** so punches attach to the roster person (unmapped bios stay Absent even when punches exist).

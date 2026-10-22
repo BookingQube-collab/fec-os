@@ -21,7 +21,10 @@ import { encryptFileBuffer, hasAttendanceFileKey } from "./file-crypto";
 import { subjectKey } from "./keys";
 import {
   BIOMETRIC_USER_CONFLICT,
+  suggestStaffIdForDeviceName,
+  suggestStaffIdFromMappedAliases,
   type MergedBiometricUser,
+  type SuggestableStaff,
 } from "./mapping-merge";
 import { previewAttendanceFile } from "./preview";
 import {
@@ -319,14 +322,14 @@ export async function recalculateAttendanceRange(
         ? supabase
             .from("staff")
             .select(
-              "id, location_id, status, employment_type, is_roaming, flexible_attendance, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday",
+              "id, full_name, location_id, status, employment_type, is_roaming, flexible_attendance, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday",
             )
             .in("id", staffScope)
             .is("deleted_at", null)
         : supabase
             .from("staff")
             .select(
-              "id, location_id, status, employment_type, is_roaming, flexible_attendance, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday",
+              "id, full_name, location_id, status, employment_type, is_roaming, flexible_attendance, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday",
             )
             .is("deleted_at", null)
             .limit(5000),
@@ -833,6 +836,126 @@ export async function recalculateAttendanceRange(
           const sid = row.staff_id ? String(row.staff_id) : "";
           if (!uid || !sid) continue;
           if (!localStaffByLocUser.has(uid)) localStaffByLocUser.set(uid, sid);
+        }
+      }
+
+      // Unique name / cross-site alias auto-link for unmapped device users (Carousel
+      // after Pi bring-up: flora Mae Remolino, wahaj, maniaRaj Paiyar, …).
+      const unmappedBioIds = bioIds.filter((id) => !localStaffByLocUser.has(id));
+      if (unmappedBioIds.length) {
+        const rosterStaffIds = new Set(
+          (roster ?? []).map((r) => String(r.staff_id ?? "").trim()).filter(Boolean),
+        );
+        const workLocByStaff = new Map<string, string[]>();
+        {
+          const ids = (staffRows ?? []).map((row) => String(row.id)).filter(Boolean);
+          for (let i = 0; i < ids.length; i += 200) {
+            const chunk = ids.slice(i, i + 200);
+            const { data: links, error: linkErr } = await supabase
+              .from("staff_work_locations")
+              .select("staff_id, location_id")
+              .in("staff_id", chunk);
+            if (linkErr) throw linkErr;
+            for (const link of links ?? []) {
+              const sid = String(link.staff_id ?? "");
+              const lid = String(link.location_id ?? "");
+              if (!sid || !lid) continue;
+              const list = workLocByStaff.get(sid) ?? [];
+              list.push(lid);
+              workLocByStaff.set(sid, list);
+            }
+          }
+        }
+        const suggestable: SuggestableStaff[] = (staffRows ?? []).map((row) => {
+          const id = String(row.id);
+          const work = [...(workLocByStaff.get(id) ?? [])];
+          if (rosterStaffIds.has(id) && !work.includes(locationId)) work.push(locationId);
+          return {
+            id,
+            full_name: String((row as { full_name?: string | null }).full_name ?? ""),
+            location_id: (row as { location_id?: string | null }).location_id
+              ? String((row as { location_id?: string | null }).location_id)
+              : null,
+            is_roaming: Boolean((row as { is_roaming?: boolean | null }).is_roaming),
+            work_location_ids: work,
+          };
+        });
+
+        const { data: unmappedRows, error: unmappedErr } = await supabase
+          .from("attendance_biometric_users")
+          .select("id, device_id, biometric_user_id, device_name, full_name, company_id")
+          .eq("location_id", locationId)
+          .in("biometric_user_id", unmappedBioIds)
+          .is("staff_id", null)
+          .limit(5000);
+        if (unmappedErr) throw unmappedErr;
+
+        const aliasStaffIds = [
+          ...new Set(
+            suggestable
+              .filter((s) => s.location_id === locationId || s.is_roaming || s.work_location_ids?.includes(locationId))
+              .map((s) => s.id),
+          ),
+        ];
+        const mappedAliases: Array<{ staffId: string; deviceName: string | null }> = [];
+        for (let i = 0; i < aliasStaffIds.length; i += 200) {
+          const chunk = aliasStaffIds.slice(i, i + 200);
+          if (!chunk.length) continue;
+          const { data: aliasRows, error: aliasErr } = await supabase
+            .from("attendance_biometric_users")
+            .select("staff_id, device_name")
+            .in("staff_id", chunk)
+            .not("device_name", "is", null)
+            .limit(5000);
+          if (aliasErr) throw aliasErr;
+          for (const row of aliasRows ?? []) {
+            const staffId = row.staff_id ? String(row.staff_id) : "";
+            if (!staffId) continue;
+            mappedAliases.push({
+              staffId,
+              deviceName: row.device_name == null ? null : String(row.device_name),
+            });
+          }
+        }
+
+        for (const row of unmappedRows ?? []) {
+          const uid = String(row.biometric_user_id ?? "").trim();
+          if (!uid || localStaffByLocUser.has(uid)) continue;
+          const deviceName =
+            (row.device_name == null ? "" : String(row.device_name)).trim() ||
+            (row.full_name == null ? "" : String(row.full_name)).trim() ||
+            null;
+          const suggested =
+            suggestStaffIdForDeviceName(deviceName, locationId, suggestable) ||
+            suggestStaffIdFromMappedAliases(deviceName, locationId, suggestable, mappedAliases);
+          if (!suggested) continue;
+          localStaffByLocUser.set(uid, suggested);
+
+          const staffMeta = (staffRows ?? []).find((s) => String(s.id) === suggested) as
+            | { full_name?: string | null; status?: string | null }
+            | undefined;
+          const { error: mapUpdateErr } = await supabase
+            .from("attendance_biometric_users")
+            .update({
+              staff_id: suggested,
+              full_name: staffMeta?.full_name ?? null,
+              employment_status: staffMeta?.status ?? null,
+              mapped_at: new Date().toISOString(),
+            })
+            .eq("id", String(row.id));
+          if (mapUpdateErr) throw mapUpdateErr;
+
+          const deviceId = row.device_id ? String(row.device_id) : "";
+          if (deviceId) {
+            const { error: logUpdateErr } = await supabase
+              .from("attendance_logs")
+              .update({ staff_id: suggested })
+              .eq("location_id", locationId)
+              .eq("device_id", deviceId)
+              .eq("biometric_user_id", uid)
+              .is("staff_id", null);
+            if (logUpdateErr) throw logUpdateErr;
+          }
         }
       }
     }

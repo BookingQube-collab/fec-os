@@ -63,6 +63,7 @@ import {
   staffEligibleForBiometricMap,
   stubBiometricUsersForIds,
   suggestStaffIdForDeviceName,
+  suggestStaffIdFromMappedAliases,
 } from "./mapping-merge";
 import {
   attendanceGridTone,
@@ -1805,6 +1806,53 @@ describe("suggestStaffIdForDeviceName", () => {
 
   it("falls back to a unique company-wide exact name", () => {
     expect(suggestStaffIdForDeviceName("Salam Khan", "ua", staff)).toBe("c");
+  });
+
+  it("matches collapsed device names and longer device surnames (Carousel)", () => {
+    const car = [
+      { id: "flora", full_name: "Flora Mae", location_id: "car", work_location_ids: [] as string[] },
+      { id: "zaryab", full_name: "Zaryab Javaid", location_id: "car", work_location_ids: [] as string[] },
+      { id: "wahaj", full_name: "Wahaj Asghar", location_id: "car", work_location_ids: [] as string[] },
+    ];
+    expect(suggestStaffIdForDeviceName("ZaryabJavaid", "car", car)).toBe("zaryab");
+    expect(suggestStaffIdForDeviceName("flora Mae Remolino", "car", car)).toBe("flora");
+    expect(suggestStaffIdForDeviceName("wahaj", "car", car)).toBe("wahaj");
+  });
+
+  it("does not let a short first name steal a longer similar name", () => {
+    const people = [
+      { id: "maria", full_name: "Maria", location_id: "inf", work_location_ids: [] as string[] },
+      { id: "mariam", full_name: "Mariam", location_id: "inf", work_location_ids: [] as string[] },
+    ];
+    expect(suggestStaffIdForDeviceName("Mariam", "inf", people)).toBe("mariam");
+    expect(suggestStaffIdForDeviceName("Maria", "inf", people)).toBe("maria");
+  });
+});
+
+describe("suggestStaffIdFromMappedAliases", () => {
+  it("links Carousel device names to INF mapped aliases for rostered roamers", () => {
+    const staff = [
+      {
+        id: "mani",
+        full_name: "Mani raj pariyar",
+        location_id: "inf",
+        is_roaming: true,
+        work_location_ids: ["car"] as string[],
+      },
+      {
+        id: "analiza",
+        full_name: "Maanaliza Quijote",
+        location_id: "inf",
+        is_roaming: true,
+        work_location_ids: ["car"] as string[],
+      },
+    ];
+    const aliases = [
+      { staffId: "mani", deviceName: "Maniraj" },
+      { staffId: "analiza", deviceName: "Analiza" },
+    ];
+    expect(suggestStaffIdFromMappedAliases("maniaRaj Paiyar", "car", staff, aliases)).toBe("mani");
+    expect(suggestStaffIdFromMappedAliases("AnalizaGutierrez", "car", staff, aliases)).toBe("analiza");
   });
 });
 

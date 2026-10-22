@@ -47,8 +47,8 @@ export function staffEligibleForBiometricMap(
 
 /**
  * Seed the mapping employee search only when the device name uniquely identifies
- * one eligible employee (exact normalized name). Substring hits like "Maria" →
- * "Mariam" must not pre-filter the list and hide "Ma luz Jesus Romeo".
+ * one eligible employee (exact or collapsed name). Substring / first-token hits
+ * like "Maria" → "Mariam" or "Sara" → "Sara Khan" must not pre-filter the list.
  */
 export function mappingOpenSearchSeed(
   deviceName: string | null | undefined,
@@ -65,12 +65,91 @@ export function mappingOpenSearchSeed(
   const eligible = staff.filter((s) =>
     staffEligibleForBiometricMap(s, deviceLocationId, headOfficeLocationId, options),
   );
-  return suggestStaffIdForDeviceName(seed, deviceLocationId, eligible) ? seed : null;
+  const name = normalizeName(seed);
+  const collapsed = collapsePersonName(seed);
+  if (!name) return null;
+  const exact = eligible.filter(
+    (s) => normalizeName(s.full_name) === name || collapsePersonName(s.full_name) === collapsed,
+  );
+  return uniqueStaffId(exact) ? seed : null;
+}
+
+/** Lowercase letters/digits only — "ZaryabJavaid" ↔ "Zaryab Javaid". */
+export function collapsePersonName(value: string | null | undefined): string {
+  return normalizeName(value).replace(/\s+/g, "");
+}
+
+function uniqueStaffId(matches: SuggestableStaff[]): string | null {
+  if (matches.length !== 1) return null;
+  return matches[0]!.id;
+}
+
+/** Small Levenshtein for name tokens (cap length 24). */
+function tokenEditDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  if (a.length > 24 || b.length > 24) return 99;
+  const prev = new Array<number>(b.length + 1);
+  const cur = new Array<number>(b.length + 1);
+  for (let j = 0; j <= b.length; j += 1) prev[j] = j;
+  for (let i = 1; i <= a.length; i += 1) {
+    cur[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      cur[j] = Math.min(prev[j]! + 1, cur[j - 1]! + 1, prev[j - 1]! + cost);
+    }
+    for (let j = 0; j <= b.length; j += 1) prev[j] = cur[j]!;
+  }
+  return prev[b.length]!;
+}
+
+/** Collapsed equal/prefix, or multi-token names within edit distance 1 per aligned token. */
+export function personNamesLooselyMatch(
+  left: string | null | undefined,
+  right: string | null | undefined,
+): boolean {
+  const a = collapsePersonName(left);
+  const b = collapsePersonName(right);
+  if (!a || !b || a.length < 4 || b.length < 4) return false;
+  if (a === b || a.startsWith(b) || b.startsWith(a)) return true;
+
+  const aTokens = normalizeName(left).split(/\s+/).filter(Boolean);
+  const bTokens = normalizeName(right).split(/\s+/).filter(Boolean);
+  if (aTokens.length >= 2 && bTokens.length >= 2) {
+    const n = Math.min(aTokens.length, bTokens.length);
+    let ok = 0;
+    for (let i = 0; i < n; i += 1) {
+      if (tokenEditDistance(aTokens[i]!, bTokens[i]!) <= 1) ok += 1;
+    }
+    return ok >= 2 && ok >= Math.ceil(n * 0.6);
+  }
+  // Single-token alias ("Maniraj") vs camel/spaced device ("maniaRaj Paiyar").
+  // Compare alias to first token and to first+second joined (edit ≤2 covers mania/mani).
+  if (aTokens.length === 1 && bTokens.length >= 2) {
+    const joined = bTokens.slice(0, 2).join("");
+    return (
+      tokenEditDistance(aTokens[0]!, joined) <= 2 ||
+      joined.startsWith(aTokens[0]!) ||
+      tokenEditDistance(aTokens[0]!, bTokens[0]!) <= 2
+    );
+  }
+  if (bTokens.length === 1 && aTokens.length >= 2) {
+    const joined = aTokens.slice(0, 2).join("");
+    return (
+      tokenEditDistance(bTokens[0]!, joined) <= 2 ||
+      joined.startsWith(bTokens[0]!) ||
+      tokenEditDistance(bTokens[0]!, aTokens[0]!) <= 2
+    );
+  }
+  return tokenEditDistance(a, b) <= 2 && Math.min(a.length, b.length) >= 6;
 }
 
 /**
- * Unique exact device-name → staff match for mapping drafts.
- * Ambiguous names (same name at the site, or multiple company-wide) return null.
+ * Unique device-name → staff match for mapping drafts and recalc auto-link.
+ * Order: exact normalized → collapsed → staff name prefix of device → unique first token
+ * (only when the device name is a single token, e.g. "wahaj") → loose multi-token.
+ * Ambiguous names return null (never guess when two people share a match).
  */
 export function suggestStaffIdForDeviceName(
   deviceName: string | null | undefined,
@@ -79,15 +158,95 @@ export function suggestStaffIdForDeviceName(
 ): string | null {
   const name = normalizeName(deviceName);
   if (!name) return null;
+  const collapsed = collapsePersonName(deviceName);
   const loc = locationId ?? null;
-  const local = staff.filter(
-    (s) => staffAvailableAtLocation(s, loc) && normalizeName(s.full_name) === name,
-  );
-  if (local.length === 1) return local[0]!.id;
-  if (local.length > 1) return null;
+  const eligible = staff.filter((s) => staffAvailableAtLocation(s, loc));
+  const pool = eligible.length ? eligible : staff;
+
+  const exact = pool.filter((s) => normalizeName(s.full_name) === name);
+  const exactId = uniqueStaffId(exact);
+  if (exactId) return exactId;
+  if (exact.length > 1) return null;
+
+  const byCollapse = pool.filter((s) => collapsePersonName(s.full_name) === collapsed);
+  const collapseId = uniqueStaffId(byCollapse);
+  if (collapseId) return collapseId;
+  if (byCollapse.length > 1) return null;
+
+  // "flora Mae Remolino" → Flora Mae; device may carry a middle/maiden surname.
+  // Require 2+ staff tokens (or spaced prefix) so "Maria" never steals "Mariam".
+  const byPrefix = pool.filter((s) => {
+    const staffName = normalizeName(s.full_name);
+    if (!staffName || staffName.length < 4) return false;
+    if (name === staffName || name.startsWith(`${staffName} `)) return true;
+    const staffCollapsed = collapsePersonName(s.full_name);
+    const tokenCount = staffName.split(/\s+/).filter(Boolean).length;
+    return (
+      tokenCount >= 2 &&
+      staffCollapsed.length >= 6 &&
+      collapsed.startsWith(staffCollapsed)
+    );
+  });
+  const prefixId = uniqueStaffId(byPrefix);
+  if (prefixId) return prefixId;
+  if (byPrefix.length > 1) return null;
+
+  // "wahaj" → Wahaj Asghar only when the device string is a single token.
+  // Do not seed mapping search from a short first name ("Sara" ≠ "Sara Khan").
+  const deviceTokens = name.split(/\s+/).filter(Boolean);
+  if (deviceTokens.length === 1) {
+    const deviceFirst = deviceTokens[0]!;
+    if (deviceFirst.length >= 3) {
+      const byFirst = pool.filter((s) => (normalizeName(s.full_name).split(/\s+/)[0] ?? "") === deviceFirst);
+      const firstId = uniqueStaffId(byFirst);
+      if (firstId) return firstId;
+    }
+  }
+
+  const byLoose = pool.filter((s) => personNamesLooselyMatch(deviceName, s.full_name));
+  const looseId = uniqueStaffId(byLoose);
+  if (looseId) return looseId;
+  if (byLoose.length > 1) return null;
+
   if (!loc) return null;
   const global = staff.filter((s) => normalizeName(s.full_name) === name);
-  return global.length === 1 ? global[0]!.id : null;
+  return uniqueStaffId(global);
+}
+
+/**
+ * Reuse a staff_id already mapped under a similar device_name at another site
+ * (Carousel "maniaRaj Paiyar" ↔ INF "Maniraj"; "AnalizaGutierrez" ↔ "Analiza").
+ * Only when the staff is eligible at this site and the alias match is unique.
+ */
+export function suggestStaffIdFromMappedAliases(
+  deviceName: string | null | undefined,
+  locationId: string | null | undefined,
+  staff: SuggestableStaff[],
+  mappedAliases: ReadonlyArray<{ staffId: string; deviceName: string | null | undefined }>,
+): string | null {
+  const collapsed = collapsePersonName(deviceName);
+  if (!collapsed || collapsed.length < 4) return null;
+  const loc = locationId ?? null;
+  const eligibleIds = new Set(
+    staff.filter((s) => staffAvailableAtLocation(s, loc) || !loc).map((s) => s.id),
+  );
+  if (loc) {
+    for (const s of staff) {
+      if (s.location_id === loc || s.is_roaming || s.work_location_ids?.includes(loc) || s.temporary_location_ids?.includes(loc)) {
+        eligibleIds.add(s.id);
+      }
+    }
+  }
+
+  const hits = new Set<string>();
+  for (const alias of mappedAliases) {
+    const staffId = String(alias.staffId ?? "").trim();
+    if (!staffId || !eligibleIds.has(staffId)) continue;
+    if (!personNamesLooselyMatch(deviceName, alias.deviceName)) continue;
+    hits.add(staffId);
+    if (hits.size > 1) return null;
+  }
+  return hits.size === 1 ? [...hits][0]! : null;
 }
 
 /** One recalc per site, limited to the people just mapped or unmapped. */

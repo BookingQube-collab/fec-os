@@ -137,6 +137,7 @@ describe("device log listing", () => {
   });
 
   it("handles only-ins, only-outs, and unknown-status days", () => {
+    // Rapid double check-in (< 2h) must not invent a punch-out.
     const onlyIns = rollupDeviceLogDays([
       punch({ id: "a", punchAt: "2026-09-21T05:00:00.000Z", inOutStatus: 0 }),
       punch({ id: "b", punchAt: "2026-09-21T06:00:00.000Z", inOutStatus: 0 }),
@@ -144,6 +145,15 @@ describe("device log listing", () => {
     expect(onlyIns).toHaveLength(1);
     expect(onlyIns[0]?.punchInAt).toBe("2026-09-21T05:00:00.000Z");
     expect(onlyIns[0]?.punchOutAt).toBeNull();
+
+    // Check-in-only terminal (Carousel): first/last when span ≥ 2h.
+    const checkInOnly = rollupDeviceLogDays([
+      punch({ id: "a2", punchAt: "2026-10-14T12:37:26.000Z", inOutStatus: 0, biometricUserId: "3" }),
+      punch({ id: "b2", punchAt: "2026-10-14T19:58:19.000Z", inOutStatus: 0, biometricUserId: "3" }),
+    ]);
+    expect(checkInOnly).toHaveLength(1);
+    expect(checkInOnly[0]?.punchInAt).toBe("2026-10-14T12:37:26.000Z");
+    expect(checkInOnly[0]?.punchOutAt).toBe("2026-10-14T19:58:19.000Z");
 
     const onlyOuts = rollupDeviceLogDays([
       punch({ id: "c", punchAt: "2026-09-22T13:00:00.000Z", inOutStatus: 1, biometricUserId: "1002" }),

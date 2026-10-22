@@ -157,11 +157,21 @@ export function deviceLogPunchSide(status: number | null | undefined): "in" | "o
 }
 
 /**
+ * Min gap before an all-check-in day (status=0 only) may show first/last as in/out.
+ * Clocks stuck in Check-In mode (e.g. Carousel iFace990 AF4C214460188) never send
+ * status=1; pairing here matches daily calc (first/last) without inventing an out
+ * from rapid double-taps mid-shift. Sites that send real outs are unchanged.
+ */
+export const DEVICE_LOG_CHECK_IN_ONLY_PAIR_MS = 2 * 60 * 60 * 1000;
+
+/**
  * Roll raw punches into one row per (location + device + biometric user + Qatar day).
  *
  * Punch in = earliest typed check-in (in / breakIn / otIn).
  * Punch out = latest typed check-out (out / breakOut / otOut).
- * Only-ins → out blank; only-outs → in blank.
+ * Only-ins with a single punch → out blank; only-outs → in blank.
+ * Only-ins with 2+ punches spanning ≥ {@link DEVICE_LOG_CHECK_IN_ONLY_PAIR_MS}
+ * → first/last (check-in-only terminal fallback).
  * Unknown status only: earliest → in; latest → out when it differs from earliest.
  * Same user on two devices the same day → two rows (device is in the key).
  */
@@ -200,6 +210,15 @@ export function rollupDeviceLogDays(rows: AttendanceDeviceLogRow[]): AttendanceD
     if (ins.length || outs.length) {
       punchInAt = ins[0] ?? null;
       punchOutAt = outs.length ? outs[outs.length - 1]! : null;
+      // All typed check-ins, no outs (Carousel / Check-In-only mode): pair first→last
+      // when the span is wide enough that a mid-shift re-verify is unlikely.
+      if (!punchOutAt && ins.length >= 2) {
+        const lastIn = ins[ins.length - 1]!;
+        const spanMs = new Date(lastIn).getTime() - new Date(ins[0]!).getTime();
+        if (Number.isFinite(spanMs) && spanMs >= DEVICE_LOG_CHECK_IN_ONLY_PAIR_MS && lastIn !== punchInAt) {
+          punchOutAt = lastIn;
+        }
+      }
     } else {
       // All unknown/null status: earliest = in; latest = out only when distinct.
       punchInAt = sorted[0]?.punchAt ?? null;
