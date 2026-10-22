@@ -12,6 +12,7 @@ import {
   STAFF_SIGNATURES_BUCKET,
 } from "@/lib/digital-signature";
 import { loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
+import { profileAvatarApiUrl } from "@/lib/profile-avatar";
 import { ForbiddenError } from "@/lib/server/authorize";
 import {
   createAuthenticatedAction,
@@ -86,9 +87,20 @@ export const updateMyProfile = createAuthenticatedAction(
     if (data.avatar_url !== undefined) {
       patch.avatar_url = data.avatar_url === null ? null : assertAvatar(data.avatar_url);
     }
-    const { error } = await context.supabase.from("profiles").update(patch).eq("id", context.userId);
+    const { data: row, error } = await context.supabase
+      .from("profiles")
+      .update(patch)
+      .eq("id", context.userId)
+      .select("id, updated_at, avatar_url")
+      .maybeSingle();
     if (error) throw error;
-    return { display_name: data.display_name, avatar_url: patch.avatar_url };
+    if (!row) throw new Error("Profile not found.");
+    // Session / topbar use a short same-origin URL — never echo the data URL back.
+    const stored = typeof row.avatar_url === "string" ? row.avatar_url.trim() : "";
+    const avatarUrl = stored
+      ? profileAvatarApiUrl(typeof row.updated_at === "string" ? row.updated_at : null)
+      : null;
+    return { display_name: data.display_name, avatar_url: avatarUrl };
   },
 );
 

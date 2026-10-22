@@ -56,6 +56,11 @@ export function AppTopbar() {
   const router = useRouter();
   const [helpOpen, setHelpOpen] = useState(false);
   const [sitesRequested, setSitesRequested] = useState(false);
+  const [avatarBroken, setAvatarBroken] = useState(false);
+
+  useEffect(() => {
+    setAvatarBroken(false);
+  }, [profile?.avatar_url]);
 
   useEffect(() => {
     if (!user) {
@@ -257,13 +262,14 @@ export function AppTopbar() {
                 className="overflow-hidden p-0 text-xs font-bold"
                 aria-label={displayName}
               >
-                {profile?.avatar_url ? (
-                  // Profile avatars are data URLs from profiles.avatar_url — not remote CDN paths.
+                {profile?.avatar_url && !avatarBroken ? (
+                  // Session returns `/api/auth/avatar` (or staff photo URL) — not a data URL.
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={profile.avatar_url}
                     alt=""
                     className="h-full w-full object-cover"
+                    onError={() => setAvatarBroken(true)}
                   />
                 ) : (
                   initials || <User className="h-4 w-4" />
