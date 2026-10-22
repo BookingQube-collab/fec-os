@@ -22,6 +22,7 @@ import {
 } from "@/lib/attendance-hr.functions";
 import {
   correctionCardClocks,
+  groupOpenLegacyPunchPairs,
   isEditableMissedPunchStatus,
   missedPunchRequestSide,
   punchTimeInputValue,
@@ -125,8 +126,12 @@ export function MissedPunchApprovalQueue({
   const [printPayload, setPrintPayload] = useState<MissedPunchPrintPayload | null>(null);
   const [printOpen, setPrintOpen] = useState(false);
   const reviewMut = useMutation({
-    mutationFn: (input: { id: string; decision: "approved" | "rejected" | "change_required" }) =>
-      reviewAttendanceCorrection(input),
+    mutationFn: (input: {
+      id: string;
+      decision: "approved" | "rejected" | "change_required";
+      /** Display-only; server expands open legacy same-day siblings from this id. */
+      reviewIds?: string[];
+    }) => reviewAttendanceCorrection({ id: input.id, decision: input.decision }),
     onSuccess: () => {
       toast.success(t("hr.leave.updated"));
       void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
@@ -134,12 +139,13 @@ export function MissedPunchApprovalQueue({
     onError: (e: Error) => toast.error(e.message),
   });
   const rows = q.data ?? [];
-  if (hideWhenEmpty && rows.length === 0) return null;
+  const cards = groupOpenLegacyPunchPairs(rows);
+  if (hideWhenEmpty && cards.length === 0) return null;
 
   return (
     <div className="space-y-3">
-      {title && rows.length > 0 ? <h3 className="text-sm font-semibold">{title}</h3> : null}
-      {rows.length === 0 ? (
+      {title && cards.length > 0 ? <h3 className="text-sm font-semibold">{title}</h3> : null}
+      {cards.length === 0 ? (
         <div className="space-y-2 text-sm">
           <p className="font-medium">No missed punch requests are waiting on you.</p>
           <p className="text-muted-foreground">
@@ -151,35 +157,52 @@ export function MissedPunchApprovalQueue({
         </div>
       ) : (
         <ul className="hd-approval-list">
-          {rows.map((row) => {
-            const clocks = rowClocks(row);
-            const busy = reviewMut.isPending && reviewMut.variables?.id === row.id;
+          {cards.map((card) => {
+            const row = card.primary;
+            const clocks = correctionCardClocks(card.punchType, row.punchAt, {
+              punchInAt: card.punchInAt,
+              punchOutAt: card.punchOutAt,
+              previousPunchIn: row.previousPunchIn,
+              previousPunchOut: row.previousPunchOut,
+            });
+            const busy =
+              reviewMut.isPending &&
+              Boolean(
+                reviewMut.variables?.id === row.id ||
+                  (reviewMut.variables?.reviewIds ?? []).some((id) => card.reviewIds.includes(id)),
+              );
             const showActions = row.status === "pending" && row.canAct;
             const showApproved =
               row.status === "approved" ||
               (row.status === "pending" && !row.canAct && row.steps.some((step) => step.status === "approved"));
             const showReject = row.status === "rejected";
             const showChange = row.status === "change_required";
-            const punchLabel = row.punchType ? punchTypeLabel(row, t) : null;
+            const displayType = card.punchType ?? row.punchType;
+            const punchLabel = displayType
+              ? punchTypeLabel({ ...row, punchType: displayType }, t)
+              : null;
             const priorSteps = row.steps.filter((step) => step.status === "approved" || step.status === "skipped");
             const name = row.staffName ?? "Staff";
+            const numberLabel = card.requestNumbers.length
+              ? card.requestNumbers.join(" · ")
+              : row.requestNumber;
             return (
-              <li key={row.id}>
+              <li key={card.reviewIds.join("-")}>
                 <article className="hd-approval" aria-busy={busy || undefined} aria-labelledby={`punch-approval-${row.id}-name`}>
                   <header className="hd-approval__top">
                     <div className="min-w-0">
                       <h4 id={`punch-approval-${row.id}-name`} className="hd-approval__name">
                         {name}
-                        {row.requestNumber ? (
+                        {numberLabel ? (
                           <span className="ms-2 font-mono text-xs font-normal text-muted-foreground">
-                            {row.requestNumber}
+                            {numberLabel}
                           </span>
                         ) : null}
                       </h4>
                       {row.employeeCode ? <p className="hd-approval__code">{row.employeeCode}</p> : null}
                     </div>
                     {punchLabel ? (
-                      <span className={punchTypeKindClass(row.punchType)}>{punchLabel}</span>
+                      <span className={punchTypeKindClass(displayType)}>{punchLabel}</span>
                     ) : null}
                   </header>
                   <dl className="hd-approval__facts">
@@ -242,7 +265,18 @@ export function MissedPunchApprovalQueue({
                       onClick={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
-                        setPrintPayload(toMissedPunchPrintPayload(row, t));
+                        setPrintPayload(
+                          toMissedPunchPrintPayload(
+                            {
+                              ...row,
+                              punchType: displayType,
+                              punchInAt: card.punchInAt,
+                              punchOutAt: card.punchOutAt,
+                              requestNumber: numberLabel,
+                            },
+                            t,
+                          ),
+                        );
                         setPrintOpen(true);
                       }}
                     >
@@ -258,7 +292,11 @@ export function MissedPunchApprovalQueue({
                         onClick={(event) => {
                           event.preventDefault();
                           event.stopPropagation();
-                          reviewMut.mutate({ id: row.id, decision: "approved" });
+                          reviewMut.mutate({
+                            id: row.id,
+                            decision: "approved",
+                            reviewIds: card.reviewIds,
+                          });
                         }}
                       >
                         Approve
@@ -272,7 +310,11 @@ export function MissedPunchApprovalQueue({
                         onClick={(event) => {
                           event.preventDefault();
                           event.stopPropagation();
-                          reviewMut.mutate({ id: row.id, decision: "change_required" });
+                          reviewMut.mutate({
+                            id: row.id,
+                            decision: "change_required",
+                            reviewIds: card.reviewIds,
+                          });
                         }}
                       >
                         Change required
@@ -284,7 +326,11 @@ export function MissedPunchApprovalQueue({
                         onClick={(event) => {
                           event.preventDefault();
                           event.stopPropagation();
-                          reviewMut.mutate({ id: row.id, decision: "rejected" });
+                          reviewMut.mutate({
+                            id: row.id,
+                            decision: "rejected",
+                            reviewIds: card.reviewIds,
+                          });
                         }}
                       >
                         Reject
@@ -337,30 +383,34 @@ export function MyMissedPunchRequests() {
       row.status === "approved" ||
       row.status === "change_required",
   );
-  if (!rows.length) return null;
+  const cards = groupOpenLegacyPunchPairs(rows).slice(0, 8);
+  if (!cards.length) return null;
   return (
     <div className="mt-4 space-y-2">
       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t("hr.me.yourPunchRequests")}</p>
-      {rows.slice(0, 8).map((row) => {
-        const clocks = rowClocks(row);
-        const editable = isEditableMissedPunchStatus(row.status);
+      {cards.map((card) => {
+        const row = card.primary;
+        const clocks = correctionCardClocks(card.punchType, row.punchAt, {
+          punchInAt: card.punchInAt,
+          punchOutAt: card.punchOutAt,
+          previousPunchIn: row.previousPunchIn,
+          previousPunchOut: row.previousPunchOut,
+        });
+        const editable = isEditableMissedPunchStatus(row.status) && !card.paired;
         const editing = editingId === row.id;
-        const typeLabel =
-          row.punchType === "both"
-            ? punchTypeLabel(row, t)
-            : row.punchType === "in"
-              ? t("hr.me.punchIn")
-              : row.punchType === "out"
-                ? t("hr.me.punchOut")
-                : null;
+        const displayType = card.punchType ?? row.punchType;
+        const typeLabel = displayType ? punchTypeLabel({ ...row, punchType: displayType }, t) : null;
+        const numberLabel = card.requestNumbers.length
+          ? card.requestNumbers.join(" · ")
+          : row.requestNumber;
         return (
-          <div key={row.id} className="space-y-2 rounded-xl border border-border/60 px-3 py-2 text-xs">
+          <div key={card.reviewIds.join("-")} className="space-y-2 rounded-xl border border-border/60 px-3 py-2 text-xs">
             <div className="flex items-center justify-between gap-2">
               <span className="min-w-0">
                 {row.workDate ?? "—"}
                 {typeLabel ? ` · ${typeLabel}` : ""}
-                {row.requestNumber ? (
-                  <span className="ms-1 font-mono text-[11px] text-muted-foreground">{row.requestNumber}</span>
+                {numberLabel ? (
+                  <span className="ms-1 font-mono text-[11px] text-muted-foreground">{numberLabel}</span>
                 ) : null}
                 <span className="mt-0.5 block text-muted-foreground">
                   {t("hr.me.punchIn")} {clockText(clocks.punchIn)} · {t("hr.me.punchOut")} {clockText(clocks.punchOut)}
@@ -384,7 +434,18 @@ export function MyMissedPunchRequests() {
                   variant="outline"
                   className="min-h-9"
                   onClick={() => {
-                    setPrintPayload(toMissedPunchPrintPayload(row, t));
+                    setPrintPayload(
+                      toMissedPunchPrintPayload(
+                        {
+                          ...row,
+                          punchType: displayType,
+                          punchInAt: card.punchInAt,
+                          punchOutAt: card.punchOutAt,
+                          requestNumber: numberLabel,
+                        },
+                        t,
+                      ),
+                    );
                     setPrintOpen(true);
                   }}
                 >
@@ -398,9 +459,9 @@ export function MyMissedPunchRequests() {
                     className="min-h-9"
                     onClick={() => {
                       setEditingId(row.id);
-                      setPunchInTime(punchTimeInputValue(row.punchInAt ?? (row.punchType === "in" ? row.punchAt : null)));
+                      setPunchInTime(punchTimeInputValue(card.punchInAt ?? (row.punchType === "in" ? row.punchAt : null)));
                       setPunchOutTime(
-                        punchTimeInputValue(row.punchOutAt ?? (row.punchType === "out" ? row.punchAt : null)),
+                        punchTimeInputValue(card.punchOutAt ?? (row.punchType === "out" ? row.punchAt : null)),
                       );
                       setReason(row.reason ?? "");
                     }}

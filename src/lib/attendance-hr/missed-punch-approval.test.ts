@@ -8,8 +8,10 @@ import {
   correctionCardClocks,
   correctionIdsForReview,
   correctionPunchAccepted,
+  groupOpenLegacyPunchPairs,
   previousPunchesFromOriginalValue,
   punchesFromCorrectionValue,
+  shouldApplyCorrectionPunchOnApprove,
   correctionVisibleToUser,
   employeeHomeCorrectionRows,
   isHeadOfOperationsTitle,
@@ -230,17 +232,70 @@ describe("missed punch approval chain", () => {
     expect(canUserActOnCorrection(dir, MARY, row({ requestedBy: MARY }))).toBe(false);
   });
 
-  it("approves only the clicked correction id (legacy dual same-day MPs stay separate)", () => {
+  it("decides open legacy same-day in/out pairs together", () => {
     const lines = [
-      { id: "punch-in", staffId: ASHFAQ, workDate: "2026-09-24", punchType: "in" as const },
-      { id: "punch-out", staffId: ASHFAQ, workDate: "2026-09-24", punchType: "out" as const },
+      {
+        id: "punch-in",
+        staffId: ASHFAQ,
+        workDate: "2026-09-24",
+        status: "pending",
+        currentStepRole: "ops" as const,
+        punchType: "in" as const,
+      },
+      {
+        id: "punch-out",
+        staffId: ASHFAQ,
+        workDate: "2026-09-24",
+        status: "pending",
+        currentStepRole: "ops" as const,
+        punchType: "out" as const,
+      },
     ];
-    expect(correctionIdsForReview(lines, "punch-out")).toEqual(["punch-out"]);
-    expect(correctionIdsForReview(lines, "punch-in")).toEqual(["punch-in"]);
+    expect(correctionIdsForReview(lines, "punch-out")).toEqual(["punch-out", "punch-in"]);
+    expect(correctionIdsForReview(lines, "punch-in")).toEqual(["punch-in", "punch-out"]);
     expect(correctionIdsForReview(lines, "missing")).toEqual([]);
   });
 
-  it("applies both clocks from one combined request once ops has accepted it", () => {
+  it("groups Noah-like open dual MPs into one approve card", () => {
+    const cards = groupOpenLegacyPunchPairs([
+      {
+        id: "mp-0006",
+        staffId: ASHFAQ,
+        workDate: "2026-09-29",
+        status: "pending",
+        currentStepRole: "ops" as const,
+        punchType: "in" as const,
+        punchAt: "2026-09-29T12:12:00+03:00",
+        requestNumber: "MP-20261022-0006",
+        requestedAt: "2026-10-22T10:00:00Z",
+      },
+      {
+        id: "mp-0007",
+        staffId: ASHFAQ,
+        workDate: "2026-09-29",
+        status: "pending",
+        currentStepRole: "ops" as const,
+        punchType: "out" as const,
+        punchAt: "2026-09-29T22:00:00+03:00",
+        requestNumber: "MP-20261022-0007",
+        requestedAt: "2026-10-22T10:00:01Z",
+      },
+    ]);
+    expect(cards).toHaveLength(1);
+    expect(cards[0]?.punchType).toBe("both");
+    expect(cards[0]?.punchInAt).toBe("2026-09-29T12:12:00+03:00");
+    expect(cards[0]?.punchOutAt).toBe("2026-09-29T22:00:00+03:00");
+    expect(cards[0]?.reviewIds).toEqual(["mp-0006", "mp-0007"]);
+    expect(cards[0]?.requestNumbers).toEqual(["MP-20261022-0006", "MP-20261022-0007"]);
+  });
+
+  it("applies punches only when ops accepts or the chain ends", () => {
+    expect(shouldApplyCorrectionPunchOnApprove({ currentStep: "manager", nextStep: "ops" })).toBe(false);
+    expect(shouldApplyCorrectionPunchOnApprove({ currentStep: "ops", nextStep: "hr" })).toBe(true);
+    expect(shouldApplyCorrectionPunchOnApprove({ currentStep: "hr", nextStep: null })).toBe(true);
+  });
+
+  it("applies both clocks from one combined request once ops has accepted it (waiting on HR)", () => {
     const day = {
       staff_id: ASHFAQ,
       work_date: "2026-09-24",
@@ -255,7 +310,7 @@ describe("missed punch approval chain", () => {
           staffId: ASHFAQ,
           workDate: "2026-09-24",
           status: "pending",
-          currentStepRole: "ops",
+          currentStepRole: "hr",
           punchType: "both",
           punchAt: "2026-09-24T12:00:00+03:00",
           punchInAt: "2026-09-24T12:00:00+03:00",
@@ -268,7 +323,7 @@ describe("missed punch approval chain", () => {
     expect(next?.actual_out).toBe("2026-09-24T09:00:00+03:00");
   });
 
-  it("puts an accepted punch on that side of the day and leaves the pending sibling off", () => {
+  it("does not overlay punches while still waiting for Head of Operations", () => {
     const day = {
       staff_id: ASHFAQ,
       work_date: "2026-09-24",
@@ -301,10 +356,24 @@ describe("missed punch approval chain", () => {
       ],
     );
     expect(next?.actual_in).toBe("2026-09-24T22:59:31+03:00");
-    expect(next?.actual_out).toBe("2026-09-24T23:40:00+03:00");
+    expect(next?.actual_out).toBeNull();
     expect(correctionPunchAccepted({ status: "pending", currentStepRole: "manager" })).toBe(false);
+    expect(correctionPunchAccepted({ status: "pending", currentStepRole: "ops" })).toBe(false);
+    expect(correctionPunchAccepted({ status: "pending", currentStepRole: "hr" })).toBe(true);
     expect(correctionPunchAccepted({ status: "change_required", currentStepRole: null })).toBe(false);
     expect(correctionPunchAccepted({ status: "rejected", currentStepRole: null })).toBe(false);
+  });
+
+  it("stores punch-in and punch-out on one create payload", () => {
+    const value = buildMissedPunchNewValue({
+      workDate: "2026-09-29",
+      punchInTime: "12:12",
+      punchOutTime: "22:00",
+    });
+    expect(value.punch_type).toBe("both");
+    expect(value.punch_in_at).toBe("2026-09-29T12:12:00+03:00");
+    expect(value.punch_out_at).toBe("2026-09-29T22:00:00+03:00");
+    expect(punchesFromCorrectionValue(value).punchType).toBe("both");
   });
 
   it("shows both clocks on a combined correction card and one side on legacy cards", () => {

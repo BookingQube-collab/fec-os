@@ -37,6 +37,7 @@ import {
   ownCorrectionRouteAfterLineManagerCheck,
   punchCorrectionRoute,
   requesterLineManagerUserIds,
+  shouldApplyCorrectionPunchOnApprove,
   shouldHealOwnCorrectionToOpsFirst,
   teamCorrectionRouteAfterOpsCheck,
   type ApprovalDirectory,
@@ -1062,31 +1063,7 @@ export async function submitMissedPunchRequest(args: {
     };
   }
   if (route === "ops") {
-    // Supervisor already approved — apply the punch the same way a manager step does.
-    try {
-      await writeCorrectionPunch({
-        id: created.id as string,
-        location_id: summary.location_id as string,
-        staff_id: targetStaffId,
-        work_date: workDate,
-        summary_id: summary.id as string,
-        kind: "add_punch",
-        reason,
-        status: "pending",
-        requested_by: args.userId,
-        requested_at: now,
-        current_step_role: "ops",
-        review_note: approvalNote,
-        new_value: newValue,
-        original_value: {
-          actual_in: summary.actual_in,
-          actual_out: summary.actual_out,
-          missed_punch: Boolean(summary.missed_punch),
-        },
-      });
-    } catch (applyError) {
-      console.warn("[missed-punch] apply team punch failed", applyError instanceof Error ? applyError.message : applyError);
-    }
+    // Site supervisor already approved on submit — wait for HoO / F&B before writing punches.
     const opsIds = approverUserIdsForStep(directory, "ops", summary.location_id as string, targetStaffId).filter(
       (id) => id !== args.userId,
     );
@@ -1353,7 +1330,72 @@ async function closeThisStep(
   if (error) throw error;
 }
 
+/** Open legacy same-day in/out siblings decided with the clicked request. */
+async function openLegacyReviewCorrectionIds(correctionId: string): Promise<string[]> {
+  const { data, error } = await supabaseAdmin
+    .from("attendance_corrections")
+    .select("id, staff_id, work_date, status, current_step_role, new_value")
+    .eq("id", correctionId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return [correctionId];
+  const clocks = punchesOf(data.new_value);
+  if (clocks.punchType !== "in" && clocks.punchType !== "out") return [correctionId];
+  if (String(data.status) !== "pending" || !data.staff_id || !data.work_date || !data.current_step_role) {
+    return [correctionId];
+  }
+  const want = clocks.punchType === "in" ? "out" : "in";
+  const { data: siblings, error: sibErr } = await supabaseAdmin
+    .from("attendance_corrections")
+    .select("id, new_value, status, current_step_role")
+    .eq("staff_id", data.staff_id)
+    .eq("work_date", String(data.work_date).slice(0, 10))
+    .eq("status", "pending")
+    .eq("current_step_role", data.current_step_role)
+    .neq("id", correctionId);
+  if (sibErr) throw sibErr;
+  const sibling = (siblings ?? []).find((row) => punchesOf(row.new_value).punchType === want);
+  if (!sibling?.id) return [correctionId];
+  return correctionIdsForReview(
+    [
+      {
+        id: String(data.id),
+        staffId: String(data.staff_id),
+        workDate: String(data.work_date).slice(0, 10),
+        status: String(data.status),
+        currentStepRole: asStep(data.current_step_role),
+        punchType: clocks.punchType,
+      },
+      {
+        id: String(sibling.id),
+        staffId: String(data.staff_id),
+        workDate: String(data.work_date).slice(0, 10),
+        status: String(sibling.status),
+        currentStepRole: asStep(sibling.current_step_role),
+        punchType: want,
+      },
+    ],
+    correctionId,
+  );
+}
+
 export async function reviewMissedPunchChain(args: {
+  userId: string;
+  correctionId: string;
+  decision: "approved" | "rejected" | "change_required";
+  reviewNote?: string | null;
+  applyFinal: (row: CorrectionRow) => Promise<void>;
+}): Promise<{ ok: true; final: boolean; nextStep: MissedPunchStepRole | null; locationId: string }> {
+  const ids = await openLegacyReviewCorrectionIds(args.correctionId);
+  let last: { ok: true; final: boolean; nextStep: MissedPunchStepRole | null; locationId: string } | null = null;
+  for (const id of ids) {
+    last = await reviewOneMissedPunchChain({ ...args, correctionId: id });
+  }
+  if (!last) throw new Error("Correction not found.");
+  return last;
+}
+
+async function reviewOneMissedPunchChain(args: {
   userId: string;
   correctionId: string;
   decision: "approved" | "rejected" | "change_required";
@@ -1477,7 +1519,8 @@ export async function reviewMissedPunchChain(args: {
       comments: args.reviewNote ?? null,
     });
   }
-  if (String(row.kind) === "add_punch") {
+  // Site supervisor → ops: workflow only. Ops → HR (or final): write punches.
+  if (String(row.kind) === "add_punch" && shouldApplyCorrectionPunchOnApprove({ currentStep: step, nextStep: next })) {
     try {
       await writeCorrectionPunch(row);
     } catch (applyError) {
@@ -1698,8 +1741,8 @@ export async function resubmitMissedPunchRequest(args: {
   const waitingStep = wasChangeRequired
     ? correctionWaitingStep(route)
     : asStep(row.current_step_role);
-  // Supervisor / ops / HR already accepted the clocks — keep attendance logs in sync after edit.
-  if (waitingStep === "ops" || waitingStep === "hr" || route === "ops" || route === "hr") {
+  // Re-apply only after ops has accepted (waiting on HR) or the submitter already held the ops seat.
+  if (waitingStep === "hr" || route === "hr") {
     try {
       await writeCorrectionPunch({
         ...row,

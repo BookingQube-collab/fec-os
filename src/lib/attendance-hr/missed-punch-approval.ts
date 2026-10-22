@@ -550,22 +550,133 @@ function managerStepApprovers(directory: ApprovalDirectory, row: CorrectionAppro
   });
 }
 
+export type CorrectionPunchSide = "in" | "out" | "both";
+
 export type CorrectionReviewLine = {
   id: string;
+  staffId?: string | null;
+  workDate?: string | null;
+  status?: string;
+  currentStepRole?: MissedPunchStepRole | null;
+  punchType?: CorrectionPunchSide | null;
 };
 
 /**
- * One click reviews one correction id.
- * Legacy dual same-day MPs (separate in/out rows) stay separate until each is decided;
- * new creates store punch-in and punch-out on a single request id.
+ * Review ids for one Approve / Reject click.
+ * Combined requests (punch_type both) stay one id.
+ * Open legacy same-day in+out pairs (pre-combine creates) decide together so HOO
+ * is not left with a half-approved day.
  */
 export function correctionIdsForReview(rows: readonly CorrectionReviewLine[], correctionId: string): string[] {
   const target = correctionId.trim();
   if (!target) return [];
-  return rows.filter((row) => row.id === target).map((row) => row.id);
+  const clicked = rows.find((row) => row.id === target);
+  if (!clicked) return [];
+  const sibling = findOpenLegacySameDaySibling(rows, clicked);
+  if (!sibling) return [clicked.id];
+  return [clicked.id, sibling.id];
 }
 
-export type CorrectionPunchSide = "in" | "out" | "both";
+/** Complementary open in/out row for the same staff + work date + approval step. */
+export function findOpenLegacySameDaySibling<T extends CorrectionReviewLine>(
+  rows: readonly T[],
+  row: T,
+): T | null {
+  if (row.status !== "pending") return null;
+  if (row.punchType !== "in" && row.punchType !== "out") return null;
+  if (!row.staffId || !row.workDate || !row.currentStepRole) return null;
+  const want: CorrectionPunchSide = row.punchType === "in" ? "out" : "in";
+  const workDate = String(row.workDate).slice(0, 10);
+  return (
+    rows.find(
+      (other) =>
+        other.id !== row.id &&
+        other.status === "pending" &&
+        other.punchType === want &&
+        other.staffId === row.staffId &&
+        String(other.workDate ?? "").slice(0, 10) === workDate &&
+        other.currentStepRole === row.currentStepRole,
+    ) ?? null
+  );
+}
+
+export type OpenPunchCorrectionCard<T> = {
+  /** Row shown on the card (earlier request when paired). */
+  primary: T;
+  /** Legacy complementary in/out sibling, when present. */
+  paired: T | null;
+  /** Ids to approve / reject together. */
+  reviewIds: string[];
+  punchType: CorrectionPunchSide | null;
+  punchInAt: string | null;
+  punchOutAt: string | null;
+  requestNumbers: string[];
+};
+
+/**
+ * Collapse open legacy dual same-day MPs into one approve card.
+ * Combined (`both`) and unpaired one-sided rows pass through unchanged.
+ */
+export function groupOpenLegacyPunchPairs<
+  T extends CorrectionReviewLine & {
+    punchAt?: string | null;
+    punchInAt?: string | null;
+    punchOutAt?: string | null;
+    requestNumber?: string | null;
+    requestedAt?: string | null;
+  },
+>(rows: readonly T[]): Array<OpenPunchCorrectionCard<T>> {
+  const used = new Set<string>();
+  const cards: Array<OpenPunchCorrectionCard<T>> = [];
+  const ordered = rows.slice().sort((a, b) => String(a.requestedAt ?? "").localeCompare(String(b.requestedAt ?? "")));
+  for (const row of ordered) {
+    if (used.has(row.id)) continue;
+    const sibling = findOpenLegacySameDaySibling(ordered, row);
+    if (sibling && !used.has(sibling.id)) {
+      used.add(row.id);
+      used.add(sibling.id);
+      const inRow = row.punchType === "in" ? row : sibling;
+      const outRow = row.punchType === "out" ? row : sibling;
+      const primary = String(row.requestedAt ?? "") <= String(sibling.requestedAt ?? "") ? row : sibling;
+      cards.push({
+        primary,
+        paired: primary.id === row.id ? sibling : row,
+        reviewIds: [row.id, sibling.id],
+        punchType: "both",
+        punchInAt:
+          inRow.punchInAt ?? (inRow.punchType === "in" || inRow.punchType === "both" ? (inRow.punchAt ?? null) : null),
+        punchOutAt:
+          outRow.punchOutAt ?? (outRow.punchType === "out" ? (outRow.punchAt ?? null) : null),
+        requestNumbers: [row.requestNumber, sibling.requestNumber].filter((n): n is string => Boolean(n)),
+      });
+      continue;
+    }
+    used.add(row.id);
+    cards.push({
+      primary: row,
+      paired: null,
+      reviewIds: [row.id],
+      punchType: row.punchType ?? null,
+      punchInAt: row.punchInAt ?? (row.punchType === "in" || row.punchType === "both" ? (row.punchAt ?? null) : null),
+      punchOutAt: row.punchOutAt ?? (row.punchType === "out" ? (row.punchAt ?? null) : null),
+      requestNumbers: row.requestNumber ? [row.requestNumber] : [],
+    });
+  }
+  return cards;
+}
+
+/**
+ * Write attendance_logs / recalc only after ops (HoO / F&B Manager) accepts.
+ * Site-supervisor (manager) approve advances the workflow only.
+ * Final HR approve re-applies idempotently when there is no next step.
+ */
+export function shouldApplyCorrectionPunchOnApprove(args: {
+  currentStep: MissedPunchStepRole;
+  nextStep: MissedPunchStepRole | null;
+}): boolean {
+  if (!args.nextStep) return true;
+  return args.currentStep === "ops";
+}
 
 const HH_MM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -720,8 +831,10 @@ export type AcceptedCorrectionPunch = {
 };
 
 /**
- * The punch counts once the current step has accepted it.
- * Still waiting on the site supervisor does not. Rejected and change-required do not.
+ * The punch counts once ops (HoO / F&B Manager) has accepted it.
+ * Waiting on the site supervisor (`manager` step → currentStepRole ops) does not.
+ * After ops, the request waits on HR (`currentStepRole === "hr"`) and listing may show the clocks.
+ * Rejected and change-required do not.
  */
 export function correctionPunchAccepted(row: {
   status: string;
@@ -729,7 +842,7 @@ export function correctionPunchAccepted(row: {
 }): boolean {
   if (row.status === "approved") return true;
   if (row.status !== "pending") return false;
-  return row.currentStepRole === "ops" || row.currentStepRole === "hr";
+  return row.currentStepRole === "hr";
 }
 
 export function applyAcceptedCorrectionTimes<
