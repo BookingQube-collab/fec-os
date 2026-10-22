@@ -22,6 +22,7 @@
     "seed:all": "node --env-file=.env.local scripts/seed-all.mjs",
     "import:staff": "node --env-file=.env.local scripts/import-staff-roster.mjs",
     "generate:demo": "node scripts/generate-demo-data.mjs",
+    "recalc:attendance": "npx --yes tsx --require ./scripts/stub-server-only.cjs --env-file=.env.local scripts/recalc-attendance-range.ts",
     "db:push": "node --env-file=.env.local scripts/push-migrations.mjs",
     "db:baseline": "node --env-file=.env.local scripts/seed-migration-baseline.mjs",
     "db:bundle": "node scripts/bundle-pending-migrations.mjs",

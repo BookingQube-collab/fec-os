@@ -293,10 +293,12 @@ export async function recalculateAttendanceRange(
     return q;
   };
   const buildLeaveQuery = () => {
+    // Match by staff + date only. Leave rows are unique on (staff_id, leave_date);
+    // location_id can be home while roster/punches are at the work site (F&B Cafe),
+    // so filtering leave by recalc location dropped approved annual leave.
     let q = supabase
       .from("attendance_leave_records")
-      .select("staff_id, leave_date, leave_type")
-      .eq("location_id", locationId)
+      .select("staff_id, leave_date, leave_type, location_id")
       .gte("leave_date", dateFrom)
       .lte("leave_date", dateTo)
       .order("leave_date", { ascending: true })
@@ -1213,6 +1215,8 @@ export async function recalculateAttendanceRange(
       );
     }
     // Leave days must still produce summaries when roster coverage omitted the person (common for annual leave).
+    // Leave is keyed by staff+date (not leave.location_id) so home/work site mismatches still apply;
+    // only emit a leave shell here when this site is the leave row, home, or has a roster that day.
     const expectedIds = new Set(expected.map((row) => row.staff_id));
     for (const leaveKey of leaveByKey.keys()) {
       const sep = leaveKey.lastIndexOf("|");
@@ -1220,6 +1224,17 @@ export async function recalculateAttendanceRange(
       const leaveDate = sep >= 0 ? leaveKey.slice(sep + 1) : "";
       if (leaveDate !== workDate || !leaveStaffId || expectedIds.has(leaveStaffId)) continue;
       if (staffScope && !staffScope.includes(leaveStaffId)) continue;
+      const leaveRow = leaveByKey.get(leaveKey);
+      const leaveLoc = leaveRow?.location_id ? String(leaveRow.location_id) : "";
+      const homeId = homeLocationByStaffId.get(leaveStaffId) || "";
+      const hasLocalRoster = dayRoster.some((r) => String(r.staff_id) === leaveStaffId);
+      if (
+        leaveLoc !== locationId &&
+        homeId !== locationId &&
+        !hasLocalRoster
+      ) {
+        continue;
+      }
       expected.push({
         staff_id: leaveStaffId,
         work_date: workDate,

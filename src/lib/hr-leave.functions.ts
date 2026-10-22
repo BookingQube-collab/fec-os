@@ -133,12 +133,32 @@ async function syncApprovedLeaveToAttendance(
     dateTo: string;
   },
 ): Promise<{ syncedDays: number; skipped: boolean }> {
-  if (!leave.locationId) return { syncedDays: 0, skipped: true };
+  let locationId = leave.locationId;
+  if (!locationId) {
+    const { data: staffRow } = await context.supabase
+      .from("staff")
+      .select("location_id")
+      .eq("id", leave.staffId)
+      .maybeSingle();
+    locationId = (staffRow as { location_id?: string | null } | null)?.location_id ?? null;
+  }
+  if (!locationId) {
+    const { data: rosterRow } = await context.supabase
+      .from("attendance_roster_assignments")
+      .select("location_id")
+      .eq("staff_id", leave.staffId)
+      .gte("work_date", leave.dateFrom.slice(0, 10))
+      .lte("work_date", leave.dateTo.slice(0, 10))
+      .limit(1)
+      .maybeSingle();
+    locationId = (rosterRow as { location_id?: string | null } | null)?.location_id ?? null;
+  }
+  if (!locationId) return { syncedDays: 0, skipped: true };
   const dates = enumerateLeaveDates(leave.dateFrom, leave.dateTo);
   if (dates.length === 0) return { syncedDays: 0, skipped: true };
   const attendanceType = mapHrLeaveTypeToAttendance(leave.leaveType);
   const rows = dates.map((leave_date) => ({
-    location_id: leave.locationId as string,
+    location_id: locationId as string,
     staff_id: leave.staffId,
     leave_date,
     leave_type: attendanceType,
@@ -164,7 +184,7 @@ async function syncApprovedLeaveToAttendance(
   try {
     await recalculateAttendanceRange(
       context.supabase,
-      leave.locationId,
+      locationId,
       leave.dateFrom.slice(0, 10),
       leave.dateTo.slice(0, 10),
       { staffIds: [leave.staffId] },

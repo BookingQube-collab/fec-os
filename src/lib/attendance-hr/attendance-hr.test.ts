@@ -1380,6 +1380,28 @@ describe("HR report row helpers", () => {
     ]);
   });
 
+  it("gap-fills approved leave days that have no daily_summary row", () => {
+    const filled = appendMissingRosterAndPunchSummaryRows({
+      rows: [],
+      roster: [{ staff_id: "lester", location_id: "inf", work_date: "2026-10-05", is_week_off: false }],
+      punchDays: [],
+      leaveDays: [
+        {
+          staff_id: "lester",
+          location_id: "inf",
+          work_date: "2026-10-06",
+          leave_type: "annual_leave",
+        },
+      ],
+      locationId: "inf",
+    });
+    const leaveDay = filled.find((r) => r.work_date === "2026-10-06");
+    expect(leaveDay?.status).toBe("annual_leave");
+    expect(leaveDay?.missed_punch).toBe(false);
+    const rosterDay = filled.find((r) => r.work_date === "2026-10-05");
+    expect(rosterDay?.status).toBe("absent");
+  });
+
   it("collapses flexible multi-site same-day rows into one person-day", () => {
     const base = {
       staff_id: "rus",

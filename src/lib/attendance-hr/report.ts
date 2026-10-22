@@ -719,15 +719,31 @@ export type ListingGapPunchDay = {
   work_date: string;
 };
 
+export type ListingGapLeaveDay = {
+  staff_id: string;
+  location_id: string;
+  work_date: string;
+  leave_type: string;
+};
+
+const LISTING_GAP_LEAVE_STATUSES = new Set([
+  "annual_leave",
+  "sick_leave",
+  "unpaid_leave",
+  "comp_off",
+]);
+
 /**
  * Listing reads attendance_daily_summary only. Process can skip a person-day
  * (flexible cross-site "covered" without a mapped write) so roster / raw-punch
- * days vanish. Append synthetic shells; enrich attaches shift times + punches.
+ * / leave days vanish. Append synthetic shells; enrich attaches shift times,
+ * leave, and punches.
  */
 export function appendMissingRosterAndPunchSummaryRows(input: {
   rows: Array<Record<string, unknown>>;
   roster: ListingGapRosterDay[];
   punchDays: ListingGapPunchDay[];
+  leaveDays?: ListingGapLeaveDay[];
   locationId?: string | null;
 }): Array<Record<string, unknown>> {
   const seen = new Set<string>();
@@ -738,7 +754,16 @@ export function appendMissingRosterAndPunchSummaryRows(input: {
   }
 
   const locationId = input.locationId ?? null;
-  const pending = new Map<string, { location_id: string; is_week_off: boolean }>();
+  const pending = new Map<
+    string,
+    {
+      location_id: string;
+      is_week_off: boolean;
+      leave_type: string | null;
+      /** Raw punches exist — keep through suppressAbsentWithoutOnDutyRoster until enrich attaches times. */
+      from_punch: boolean;
+    }
+  >();
 
   for (const r of input.roster) {
     const staffId = String(r.staff_id ?? "").trim();
@@ -750,10 +775,41 @@ export function appendMissingRosterAndPunchSummaryRows(input: {
     if (seen.has(key)) continue;
     const prev = pending.get(key);
     if (!prev) {
-      pending.set(key, { location_id: loc, is_week_off: Boolean(r.is_week_off) });
-    } else if (r.is_week_off && !prev.is_week_off) {
-      pending.set(key, { location_id: loc, is_week_off: true });
+      pending.set(key, {
+        location_id: loc,
+        is_week_off: Boolean(r.is_week_off),
+        leave_type: null,
+        from_punch: false,
+      });
+    } else if (r.is_week_off && !prev.is_week_off && !prev.leave_type) {
+      pending.set(key, {
+        location_id: loc,
+        is_week_off: true,
+        leave_type: null,
+        from_punch: prev.from_punch,
+      });
     }
+  }
+
+  for (const leave of input.leaveDays ?? []) {
+    const staffId = String(leave.staff_id ?? "").trim();
+    const day = String(leave.work_date ?? "").slice(0, 10);
+    const loc = String(leave.location_id ?? "").trim();
+    const leaveType = String(leave.leave_type ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
+    if (!staffId || !day || !loc || !LISTING_GAP_LEAVE_STATUSES.has(leaveType)) continue;
+    if (locationId && loc !== locationId) continue;
+    const key = `${staffId}|${day}`;
+    if (seen.has(key)) continue;
+    // Leave wins over roster week-off / absent shells for the same person-day.
+    pending.set(key, {
+      location_id: loc,
+      is_week_off: false,
+      leave_type: leaveType,
+      from_punch: false,
+    });
   }
 
   for (const p of input.punchDays) {
@@ -763,8 +819,21 @@ export function appendMissingRosterAndPunchSummaryRows(input: {
     if (!staffId || !day || !loc) continue;
     if (locationId && loc !== locationId) continue;
     const key = `${staffId}|${day}`;
-    if (seen.has(key) || pending.has(key)) continue;
-    pending.set(key, { location_id: loc, is_week_off: false });
+    if (seen.has(key)) continue;
+    const prev = pending.get(key);
+    if (!prev) {
+      pending.set(key, {
+        location_id: loc,
+        is_week_off: false,
+        leave_type: null,
+        from_punch: true,
+      });
+      continue;
+    }
+    // Punch evidence on a roster Absent shell — do not drop before enrich hydrates times.
+    if (!prev.leave_type) {
+      pending.set(key, { ...prev, from_punch: true, location_id: prev.location_id || loc });
+    }
   }
 
   if (pending.size === 0) return input.rows;
@@ -774,20 +843,26 @@ export function appendMissingRosterAndPunchSummaryRows(input: {
     const sep = key.lastIndexOf("|");
     const staffId = key.slice(0, sep);
     const workDate = key.slice(sep + 1);
+    const status = meta.leave_type
+      ? meta.leave_type
+      : meta.is_week_off
+        ? "weekly_off"
+        : "absent";
     extras.push({
       id: `gap:${staffId}:${workDate}:${meta.location_id}`,
       location_id: meta.location_id,
       staff_id: staffId,
       work_date: workDate,
-      status: meta.is_week_off ? "weekly_off" : "absent",
+      status,
       actual_in: null,
       actual_out: null,
       late_minutes: 0,
       early_leave_minutes: 0,
       overtime_minutes: 0,
       missed_punch: false,
-      punch_count: 0,
-      worked_minutes: meta.is_week_off ? 0 : null,
+      // Hint for suppressAbsentWithoutOnDutyRoster (rowHasUsablePunch) until enrich fills times.
+      punch_count: meta.from_punch ? 1 : 0,
+      worked_minutes: meta.is_week_off || meta.leave_type ? 0 : null,
       biometric_user_id: null,
       device_id: null,
       subject_key: `staff:${staffId}`,

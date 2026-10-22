@@ -106,6 +106,7 @@ import {
   isAttendanceHrUnmappedSearch,
   suppressRoamingFalseAbsentForRosterElsewhere,
   type AttendanceHrReportRow,
+  type ListingGapLeaveDay,
   type ListingGapPunchDay,
   type ListingGapRosterDay,
 } from "@/lib/attendance-hr/report";
@@ -950,6 +951,7 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
         rows,
         roster: gapSources.roster,
         punchDays: gapSources.punchDays,
+        leaveDays: gapSources.leaveDays,
         locationId: data.locationId ?? null,
       });
     }
@@ -2611,10 +2613,22 @@ export const listAttendanceRosterUploads = createAuthenticatedAction(
 );
 
 export const recalcAttendanceRange = createAuthenticatedAction(
-  z.object({ locationId: z.string().uuid(), dateFrom: z.string(), dateTo: z.string() }),
+  z.object({
+    locationId: z.string().uuid(),
+    dateFrom: z.string(),
+    dateTo: z.string(),
+    /** Optional staff scope (e.g. one person or an F&B Cafe cohort). */
+    staffIds: z.array(z.string().uuid()).optional(),
+  }),
   async (data, context) => {
     await assertSite(context, data.locationId);
-    return recalculateAttendanceRange(context.supabase, data.locationId, data.dateFrom, data.dateTo);
+    return recalculateAttendanceRange(
+      context.supabase,
+      data.locationId,
+      data.dateFrom,
+      data.dateTo,
+      data.staffIds?.length ? { staffIds: data.staffIds } : undefined,
+    );
   },
   { auth: { capability: "attendance.import" } },
 );
@@ -2804,7 +2818,8 @@ async function enrichAttendanceHrDailyRows(
     ),
   ];
 
-  const [staffRows, locationRows, siteSettings, rosterRes, shiftRes, bioRes, workByStaffId] = await Promise.all([
+  const [staffRows, locationRows, siteSettings, rosterRes, shiftRes, bioRes, workByStaffId, leaveRes] =
+    await Promise.all([
     loadByIds<StaffLookup>(
       context,
       "staff",
@@ -2890,6 +2905,21 @@ async function enrichAttendanceHrDailyRows(
         })()
       : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
     fetchWorkLocationsByStaffId(context.supabase, staffIds),
+    staffIds.length && dateFrom && dateTo
+      ? collectPagedRowsInWaves(async (from, to) => {
+          const { data: page, error } = await context.supabase
+            .from("attendance_leave_records")
+            .select("staff_id, leave_date, leave_type")
+            .in("staff_id", staffIds)
+            .gte("leave_date", dateFrom)
+            .lte("leave_date", dateTo)
+            .order("leave_date", { ascending: true })
+            .order("staff_id", { ascending: true })
+            .range(from, to);
+          if (error) throw error;
+          return (page ?? []) as Array<Record<string, unknown>>;
+        }, ATTENDANCE_DAILY_LIST_PAGE_SIZE).then((leaveRows) => ({ data: leaveRows }))
+      : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
   ]);
 
   const staffById = new Map(staffRows.map((row) => [row.id, row]));
@@ -2969,6 +2999,18 @@ async function enrichAttendanceHrDailyRows(
   /** Latest working-day row with usable times per staff (duty-only days fall back to this). */
   const fallbackByStaffId = new Map<string, RosterShiftLookup>();
   const fallbackWorkDateByStaffId = new Map<string, string>();
+  /** Approved / roster leave by staff|date — listing must show Leave even when daily_summary is stale. */
+  const leaveTypeByStaffDate = new Map<string, string>();
+  for (const row of leaveRes.data ?? []) {
+    const staffId = String(row.staff_id ?? "").trim();
+    const day = String(row.leave_date ?? "").slice(0, 10);
+    const leaveType = String(row.leave_type ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
+    if (!staffId || !day || !leaveType) continue;
+    leaveTypeByStaffDate.set(`${staffId}|${day}`, leaveType);
+  }
   for (const row of rosterRes.data ?? []) {
     const staffId = String(row.staff_id ?? "");
     const locationId = String(row.location_id ?? "");
@@ -3090,13 +3132,21 @@ async function enrichAttendanceHrDailyRows(
       lateFromShiftStart: isFlexible,
     });
     const actualOut = row.actual_out == null ? null : String(row.actual_out);
+    const leaveType =
+      staffId && workDate ? (leaveTypeByStaffDate.get(`${staffId}|${workDate}`) ?? null) : null;
     let status = applyRosterDayStatusOverride({
       status: String(row.status ?? ""),
       isWeekOff: rosterWeekOff,
-      leaveType: null,
+      leaveType,
     });
     let missedPunch = Boolean(row.missed_punch);
-    if (status === "weekly_off") {
+    if (
+      status === "weekly_off" ||
+      status === "annual_leave" ||
+      status === "sick_leave" ||
+      status === "unpaid_leave" ||
+      status === "comp_off"
+    ) {
       missedPunch = false;
     } else if (isFlexible) {
       const incomplete = Boolean(actualIn) !== Boolean(actualOut);
@@ -3184,6 +3234,7 @@ async function enrichAttendanceHrDailyRows(
         lateFromShiftStart: Boolean(row.flexible_attendance),
       });
       // Defer Absent → Not started when roster start is still in the future (afternoon shifts).
+      // Pass scheduled_out so incomplete in/out stays Present until roster close (~22:00 F&B).
       const status = resolveHoursBasedAttendanceStatus({
         status: row.status,
         missed_punch: row.missed_punch,
@@ -3197,6 +3248,7 @@ async function enrichAttendanceHrDailyRows(
         work_date: row.work_date,
         hire_date: row.hire_date,
         scheduled_in: row.scheduled_in,
+        scheduled_out: row.scheduled_out,
         sitePolicy: {
           permanentHours: row.permanent_hours,
           secondmentHours: row.secondment_hours,
@@ -3214,19 +3266,36 @@ async function enrichAttendanceHrDailyRows(
         .map((row) => row.staff_id as string),
     ),
   ];
-  // Also refresh punchless Absent / missed rows for non-flexible staff (Agnes S42):
-  // device punches must win over a stale daily_summary Absent without waiting for recalc.
+  // Refresh punchless Absent / missed AND incomplete missed_punch (in xor out) for
+  // non-flexible staff: device logs often have the missing side while daily_summary
+  // still stores a single punch from an earlier partial sync (Lester F&B Cafe).
   const staleAbsentIds = [
     ...new Set(
       enriched
         .filter((row) => {
           if (!row.staff_id || row.cross_site_day_merge) return false;
-          if (row.actual_in || row.actual_out || Number(row.punch_count ?? 0) > 0) return false;
           const status = String(row.status ?? "")
             .trim()
             .toLowerCase()
             .replace(/\s+/g, "_");
-          return !status || status === "absent" || status === "missed_punch";
+          if (
+            status === "annual_leave" ||
+            status === "sick_leave" ||
+            status === "unpaid_leave" ||
+            status === "comp_off" ||
+            status === "weekly_off" ||
+            status === "public_holiday"
+          ) {
+            return false;
+          }
+          const incomplete = Boolean(row.actual_in) !== Boolean(row.actual_out);
+          // Gap punch shells set punch_count=1 with null times so suppress keeps them;
+          // still hydrate from attendance_logs (Lester F&B Cafe / mapped bio punches).
+          const needsTimeHydration = !row.actual_in && !row.actual_out;
+          if (!needsTimeHydration && !incomplete) return false;
+          return needsTimeHydration
+            ? !status || status === "absent" || status === "missed_punch"
+            : true;
         })
         .map((row) => row.staff_id as string),
     ),
@@ -3488,11 +3557,10 @@ async function enrichAttendanceHrDailyRows(
     const key = `${row.staff_id}|${String(row.work_date).slice(0, 10)}`;
     const punches = punchesByStaffDay.get(key) ?? [];
     const needsCrossSiteFields = Boolean(row.cross_site_day_merge);
+    const incompleteSides = Boolean(row.actual_in) !== Boolean(row.actual_out);
     const needsStaleAbsentRefresh =
       !needsCrossSiteFields &&
-      !row.actual_in &&
-      !row.actual_out &&
-      Number(row.punch_count ?? 0) <= 0;
+      ((!row.actual_in && !row.actual_out) || incompleteSides);
     if (!needsCrossSiteFields && !needsStaleAbsentRefresh) return row;
     if (!punches.length && !needsCrossSiteFields) return row;
     const { checkInLocationId, checkOutLocationId } = flexibleDayFirstLastLocationIds(punches);
@@ -3547,13 +3615,14 @@ async function enrichAttendanceHrDailyRows(
       const incomplete = usableCount === 1 || Boolean(actualIn) !== Boolean(actualOut);
       let status = row.status;
       // Roster week-off / leave already applied above — do not clobber with punch heuristics.
-      if (
-        status !== "weekly_off" &&
-        status !== "annual_leave" &&
-        status !== "sick_leave" &&
-        status !== "unpaid_leave" &&
-        status !== "public_holiday"
-      ) {
+      const leaveOrOff =
+        status === "weekly_off" ||
+        status === "annual_leave" ||
+        status === "sick_leave" ||
+        status === "unpaid_leave" ||
+        status === "comp_off" ||
+        status === "public_holiday";
+      if (!leaveOrOff) {
         if (incomplete || (actualIn && actualOut)) {
           status = resolveHoursBasedAttendanceStatus({
             status: row.status,
@@ -3579,12 +3648,13 @@ async function enrichAttendanceHrDailyRows(
       return {
         ...row,
         status,
-        actual_in: actualIn,
-        actual_out: actualOut,
-        worked_minutes: workedMinutes,
-        punch_count: usableCount,
-        missed_punch: status === "weekly_off" ? false : status === "missed_punch",
-        late_minutes: status === "weekly_off" ? 0 : lateMinutes,
+        // Leave/off cells stay punchless on the listing even when device logs exist that day.
+        actual_in: leaveOrOff ? null : actualIn,
+        actual_out: leaveOrOff ? null : actualOut,
+        worked_minutes: leaveOrOff ? 0 : workedMinutes,
+        punch_count: leaveOrOff ? 0 : usableCount,
+        missed_punch: leaveOrOff ? false : status === "missed_punch",
+        late_minutes: leaveOrOff ? 0 : lateMinutes,
         ...siteFields,
       };
     }
@@ -3743,11 +3813,15 @@ async function loadListingGapRosterAndPunchDays(
     dateFrom: string;
     dateTo: string;
   },
-): Promise<{ roster: ListingGapRosterDay[]; punchDays: ListingGapPunchDay[] }> {
+): Promise<{
+  roster: ListingGapRosterDay[];
+  punchDays: ListingGapPunchDay[];
+  leaveDays: ListingGapLeaveDay[];
+}> {
   const { staffIds, locationId, dateFrom, dateTo } = opts;
   // Need a staff scope or a site — never scan every roster/punch globally.
   if ((!staffIds || staffIds.length === 0) && !locationId) {
-    return { roster: [], punchDays: [] };
+    return { roster: [], punchDays: [], leaveDays: [] };
   }
 
   const loadRoster = async (): Promise<ListingGapRosterDay[]> => {
@@ -3827,8 +3901,52 @@ async function loadListingGapRosterAndPunchDays(
     return punchDays;
   };
 
+  const loadLeaveDays = async (rosterStaffIds: string[]): Promise<ListingGapLeaveDay[]> => {
+    // Prefer staff scope (search / roster at site) so leave still appears when
+    // attendance_leave_records.location_id is home and the chip is the work site.
+    const scopeIds = staffIds?.length
+      ? staffIds
+      : [...new Set(rosterStaffIds.filter(Boolean))];
+    if (!scopeIds.length && !locationId) return [];
+
+    const pages = await collectPagedRowsInWaves(async (from, to) => {
+      let q = context.supabase
+        .from("attendance_leave_records")
+        .select("staff_id, location_id, leave_date, leave_type")
+        .gte("leave_date", dateFrom)
+        .lte("leave_date", dateTo)
+        .order("leave_date", { ascending: true })
+        .order("staff_id", { ascending: true })
+        .range(from, to);
+      if (scopeIds.length) q = q.in("staff_id", scopeIds);
+      else if (locationId) q = q.eq("location_id", locationId);
+      const { data: page, error } = await q;
+      if (error) throw error;
+      return page ?? [];
+    }, ATTENDANCE_DAILY_LIST_PAGE_SIZE);
+    const leaveDays: ListingGapLeaveDay[] = [];
+    for (const row of pages) {
+      const staffId = String(row.staff_id ?? "");
+      let loc = String(row.location_id ?? "");
+      const day = String(row.leave_date ?? "").slice(0, 10);
+      const leaveType = String(row.leave_type ?? "").trim();
+      if (!staffId || !day || !leaveType) continue;
+      // Site chip: pin gap shells to the filtered site when leave was stored under home.
+      if (locationId && loc !== locationId) loc = locationId;
+      if (!loc) continue;
+      leaveDays.push({
+        staff_id: staffId,
+        location_id: loc,
+        work_date: day,
+        leave_type: leaveType,
+      });
+    }
+    return leaveDays;
+  };
+
   const [roster, punchDays] = await Promise.all([loadRoster(), loadPunchDays()]);
-  return { roster, punchDays };
+  const leaveDays = await loadLeaveDays(roster.map((r) => r.staff_id));
+  return { roster, punchDays, leaveDays };
 }
 
 /** Flexible / multisite staff who punched at `locationId` in range → staffId → attendance dates. */
