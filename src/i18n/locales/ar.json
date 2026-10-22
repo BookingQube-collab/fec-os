@@ -10340,6 +10340,8 @@
       "eligibleOn": "الاستحقاق {{date}}",
       "requestPunchIn": "طلب تسجيل دخول",
       "requestPunchOut": "طلب تسجيل خروج",
+      "requestPunchCorrection": "طلب تصحيح بصمة",
+      "punchCorrection": "تصحيح بصمة",
       "punchIn": "دخول",
       "punchOut": "خروج",
       "punchTime": "الوقت",

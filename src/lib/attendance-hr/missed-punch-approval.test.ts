@@ -4,9 +4,11 @@ import {
   approverUserIdsForStep,
   canUserActOnCorrection,
   applyAcceptedCorrectionTimes,
+  buildMissedPunchNewValue,
   correctionCardClocks,
   correctionIdsForReview,
   correctionPunchAccepted,
+  punchesFromCorrectionValue,
   correctionVisibleToUser,
   employeeHomeCorrectionRows,
   isHeadOfOperationsTitle,
@@ -227,7 +229,7 @@ describe("missed punch approval chain", () => {
     expect(canUserActOnCorrection(dir, MARY, row({ requestedBy: MARY }))).toBe(false);
   });
 
-  it("approves only the clicked correction when punch in and punch out share an employee day", () => {
+  it("approves only the clicked correction id (legacy dual same-day MPs stay separate)", () => {
     const lines = [
       { id: "punch-in", staffId: ASHFAQ, workDate: "2026-09-24", punchType: "in" as const },
       { id: "punch-out", staffId: ASHFAQ, workDate: "2026-09-24", punchType: "out" as const },
@@ -235,6 +237,34 @@ describe("missed punch approval chain", () => {
     expect(correctionIdsForReview(lines, "punch-out")).toEqual(["punch-out"]);
     expect(correctionIdsForReview(lines, "punch-in")).toEqual(["punch-in"]);
     expect(correctionIdsForReview(lines, "missing")).toEqual([]);
+  });
+
+  it("applies both clocks from one combined request once ops has accepted it", () => {
+    const day = {
+      staff_id: ASHFAQ,
+      work_date: "2026-09-24",
+      actual_in: null as string | null,
+      actual_out: null as string | null,
+    };
+    const [next] = applyAcceptedCorrectionTimes(
+      [day],
+      [
+        {
+          id: "combined",
+          staffId: ASHFAQ,
+          workDate: "2026-09-24",
+          status: "pending",
+          currentStepRole: "ops",
+          punchType: "both",
+          punchAt: "2026-09-24T12:00:00+03:00",
+          punchInAt: "2026-09-24T12:00:00+03:00",
+          punchOutAt: "2026-09-24T09:00:00+03:00",
+          requestedAt: "2026-09-24T18:00:00Z",
+        },
+      ],
+    );
+    expect(next?.actual_in).toBe("2026-09-24T12:00:00+03:00");
+    expect(next?.actual_out).toBe("2026-09-24T09:00:00+03:00");
   });
 
   it("puts an accepted punch on that side of the day and leaves the pending sibling off", () => {
@@ -276,7 +306,7 @@ describe("missed punch approval chain", () => {
     expect(correctionPunchAccepted({ status: "rejected", currentStepRole: null })).toBe(false);
   });
 
-  it("shows only this request's clock on the correction card", () => {
+  it("shows both clocks on a combined correction card and one side on legacy cards", () => {
     expect(correctionCardClocks("in", "2026-09-24T22:59:31+03:00")).toEqual({
       punchIn: "2026-09-24T22:59:31+03:00",
       punchOut: null,
@@ -285,9 +315,44 @@ describe("missed punch approval chain", () => {
       punchIn: null,
       punchOut: "2026-09-24T23:40:00+03:00",
     });
+    expect(
+      correctionCardClocks("both", "2026-09-24T12:00:00+03:00", {
+        punchInAt: "2026-09-24T12:00:00+03:00",
+        punchOutAt: "2026-09-24T09:00:00+03:00",
+      }),
+    ).toEqual({
+      punchIn: "2026-09-24T12:00:00+03:00",
+      punchOut: "2026-09-24T09:00:00+03:00",
+    });
     expect(punchAtFromCorrectionValue({ punch_at: "2026-09-24T22:59:31+03:00", punch_type: "in" })).toBe(
       "2026-09-24T22:59:31+03:00",
     );
+    expect(
+      punchesFromCorrectionValue({
+        punch_in_at: "2026-09-28T12:00:00+03:00",
+        punch_out_at: "2026-09-28T09:00:00+03:00",
+        punch_type: "both",
+      }),
+    ).toEqual({
+      punchInAt: "2026-09-28T12:00:00+03:00",
+      punchOutAt: "2026-09-28T09:00:00+03:00",
+      punchType: "both",
+      punchAt: "2026-09-28T12:00:00+03:00",
+    });
+    expect(
+      buildMissedPunchNewValue({
+        workDate: "2026-09-28",
+        punchInTime: "12:00",
+        punchOutTime: "09:00",
+      }),
+    ).toMatchObject({
+      punch_type: "both",
+      punch_in_at: "2026-09-28T12:00:00+03:00",
+      punch_out_at: "2026-09-28T09:00:00+03:00",
+      requested_punch_in: "12:00",
+      requested_punch_out: "09:00",
+      missed_punch_request: true,
+    });
     expect(punchAtFromCorrectionValue({})).toBeNull();
     expect(punchTimeInputValue("2026-09-24T22:59:00+03:00")).toBe("22:59");
   });

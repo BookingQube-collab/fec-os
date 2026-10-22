@@ -10575,6 +10575,8 @@
       "eligibleOn": "Eligible {{date}}",
       "requestPunchIn": "Request punch in",
       "requestPunchOut": "Request punch out",
+      "requestPunchCorrection": "Request punch correction",
+      "punchCorrection": "Punch correction",
       "punchIn": "Punch in",
       "punchOut": "Punch out",
       "punchTime": "Time",

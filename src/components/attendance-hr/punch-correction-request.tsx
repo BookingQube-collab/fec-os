@@ -84,26 +84,14 @@ export function PunchCorrectionRequest({
     mutationFn: async () => {
       const summaryId = day.data?.summaryId;
       if (!summaryId) throw new Error("This date has no attendance to correct.");
-      const sides = [
-        punchIn ? (["in", punchIn] as const) : null,
-        punchOut ? (["out", punchOut] as const) : null,
-      ].filter((side): side is readonly ["in" | "out", string] => side !== null);
-      if (!sides.length) throw new Error("Enter the corrected punch-in, punch-out, or both.");
-      let approverCount = 0;
-      let routedTo: "line_manager" | "ops" | "ops_first" | "hr" = "line_manager";
-      for (const [punchType, punchTime] of sides) {
-        const result = await submitMissedPunchRequest({
-          summaryId,
-          punchType,
-          punchTime,
-          reason: reason.trim() || undefined,
-          ...(punchIn ? { requestedPunchIn: punchIn } : {}),
-          ...(punchOut ? { requestedPunchOut: punchOut } : {}),
-        });
-        approverCount = result.approverCount;
-        routedTo = result.routedTo;
-      }
-      return { approverCount, routedTo };
+      if (!punchIn && !punchOut) throw new Error("Enter the corrected punch-in, punch-out, or both.");
+      // One form → one MP request with punch-in and/or punch-out on the same row.
+      return submitMissedPunchRequest({
+        summaryId,
+        punchInTime: punchIn || null,
+        punchOutTime: punchOut || null,
+        reason: reason.trim() || undefined,
+      });
     },
     onSuccess: (result) => {
       if (result.routedTo === "hr") {

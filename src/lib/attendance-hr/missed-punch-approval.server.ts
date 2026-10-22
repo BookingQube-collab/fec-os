@@ -30,16 +30,17 @@ import {
   managerTeamCorrectionNote,
   missedPunchRequestSide,
   nextMissedPunchStep,
-  punchAtFromCorrectionValue,
+  buildMissedPunchNewValue,
+  punchesFromCorrectionValue,
   punchCorrectionRequestSide,
   ownCorrectionRouteAfterLineManagerCheck,
   punchCorrectionRoute,
-  punchTypeFromCorrectionValue,
   requesterLineManagerUserIds,
   shouldHealOwnCorrectionToOpsFirst,
   teamCorrectionRouteAfterOpsCheck,
   type ApprovalDirectory,
   type CorrectionApprovalView,
+  type CorrectionPunchSide,
   type MissedPunchQueue,
   type MissedPunchStepRole,
   type PunchCorrectionRoutedTo,
@@ -91,9 +92,11 @@ export type MissedPunchQueueRow = {
   currentStepRole: MissedPunchStepRole | null;
   requestedBy: string;
   requestedAt: string;
-  punchType: "in" | "out" | null;
-  /** Clock time the employee asked to record. Null when the request has no stored time. */
+  punchType: CorrectionPunchSide | null;
+  /** Primary clock (punch-in when both, else the only side). Null when the request has no stored time. */
   punchAt: string | null;
+  punchInAt: string | null;
+  punchOutAt: string | null;
   reviewNote: string | null;
   steps: Array<{
     stepRole: string;
@@ -111,8 +114,8 @@ async function nextMissedPunchRequestNumber(): Promise<string> {
   return `MP-${day}-${crypto.randomUUID().replace(/-/g, "").slice(0, 4).toUpperCase()}`;
 }
 
-function punchTypeOf(value: Record<string, unknown> | null | undefined): "in" | "out" | null {
-  return punchTypeFromCorrectionValue(value);
+function punchesOf(value: Record<string, unknown> | null | undefined) {
+  return punchesFromCorrectionValue(value);
 }
 
 function asStep(value: string | null | undefined): MissedPunchStepRole | null {
@@ -469,6 +472,7 @@ function mapQueueRow(
   canAct: boolean,
 ): MissedPunchQueueRow {
   const staff = row.staff_id ? staffById.get(row.staff_id) : undefined;
+  const clocks = punchesOf(row.new_value);
   return {
     id: row.id,
     kind: String(row.kind),
@@ -486,8 +490,10 @@ function mapQueueRow(
     currentStepRole: asStep(row.current_step_role),
     requestedBy: String(row.requested_by),
     requestedAt: String(row.requested_at),
-    punchType: punchTypeOf(row.new_value),
-    punchAt: punchAtFromCorrectionValue(row.new_value),
+    punchType: clocks.punchType,
+    punchAt: clocks.punchAt,
+    punchInAt: clocks.punchInAt,
+    punchOutAt: clocks.punchOutAt,
     reviewNote: row.review_note ? String(row.review_note) : null,
     steps: steps
       .filter((step) => step.correction_id === row.id)
@@ -751,11 +757,20 @@ async function notifyExecutiveObservers(args: {
 export async function submitMissedPunchRequest(args: {
   userId: string;
   summaryId: string;
-  punchType: "in" | "out";
-  punchTime: string;
   reason: string;
-  /** Other clocks on this same form, so the HR note can list punch-in and punch-out together. */
+  /** Corrected punch-in HH:mm (optional when punch-out is set). */
+  punchInTime?: string | null;
+  /** Corrected punch-out HH:mm (optional when punch-in is set). */
+  punchOutTime?: string | null;
+  /**
+   * Legacy single-side submit. Prefer punchInTime / punchOutTime so one form creates one MP.
+   * Kept so older callers that only send punchType + punchTime still work.
+   */
+  punchType?: "in" | "out";
+  punchTime?: string;
+  /** @deprecated Prefer punchInTime / punchOutTime — still accepted for older clients. */
   requestedPunchIn?: string | null;
+  /** @deprecated Prefer punchInTime / punchOutTime — still accepted for older clients. */
   requestedPunchOut?: string | null;
 }): Promise<{
   id: string;
@@ -819,38 +834,42 @@ export async function submitMissedPunchRequest(args: {
     throw new Error(access.canRequest ? "This day has no punch to correct." : "This day is not a missed punch.");
   }
 
+  const punchInTime =
+    args.punchInTime ??
+    args.requestedPunchIn ??
+    (args.punchType === "in" && args.punchTime ? args.punchTime : null) ??
+    null;
+  const punchOutTime =
+    args.punchOutTime ??
+    args.requestedPunchOut ??
+    (args.punchType === "out" && args.punchTime ? args.punchTime : null) ??
+    null;
+  if (!punchInTime && !punchOutTime) {
+    throw new Error("Enter the corrected punch-in, punch-out, or both.");
+  }
+
   const { data: existing, error: existingErr } = await supabaseAdmin
     .from("attendance_corrections")
     .select("id, status, new_value")
     .eq("summary_id", summary.id)
     .in("status", ["pending", "change_required"]);
   if (existingErr) throw existingErr;
-  const sameSideOpen = (existing ?? []).find((row) => {
-    const pendingType = punchTypeOf(row.new_value as Record<string, unknown> | null);
-    return pendingType === args.punchType || pendingType == null;
-  });
-  if (sameSideOpen?.status === "change_required") {
+  const openSameDay = (existing ?? [])[0] ?? null;
+  if (openSameDay?.status === "change_required") {
     throw new Error("This punch was sent back for changes. Update that request and send it again.");
   }
-  if (sameSideOpen) {
-    throw new Error(
-      args.punchType === "in"
-        ? "A punch-in request for this day is already waiting for approval."
-        : "A punch-out request for this day is already waiting for approval.",
-    );
+  if (openSameDay) {
+    throw new Error("A punch correction for this day is already waiting for approval.");
   }
 
   const workDate = String(summary.work_date).slice(0, 10);
-  const punchAt = `${workDate}T${args.punchTime}:00+03:00`;
   const managerName = String(staff.full_name ?? "").trim() || "The manager";
-  const requestedPunchIn = args.requestedPunchIn ?? (args.punchType === "in" ? args.punchTime : null);
-  const requestedPunchOut = args.requestedPunchOut ?? (args.punchType === "out" ? args.punchTime : null);
   const approvalNote =
     route === "ops" || route === "hr"
       ? managerTeamCorrectionNote({
           managerName,
-          requestedPunchIn,
-          requestedPunchOut,
+          requestedPunchIn: punchInTime,
+          requestedPunchOut: punchOutTime,
           previousPunchIn: summary.actual_in ? String(summary.actual_in) : null,
           previousPunchOut: summary.actual_out ? String(summary.actual_out) : null,
         })
@@ -863,6 +882,12 @@ export async function submitMissedPunchRequest(args: {
       : "Missed punch request";
   const now = new Date().toISOString();
   const requestNumber = await nextMissedPunchRequestNumber();
+  const newValue = buildMissedPunchNewValue({
+    workDate,
+    punchInTime,
+    punchOutTime,
+    extras: approvalNote ? { manager_requested_and_approved: true } : {},
+  });
   const { data: created, error: insErr } = await supabaseAdmin
     .from("attendance_corrections")
     .insert({
@@ -876,18 +901,7 @@ export async function submitMissedPunchRequest(args: {
         actual_out: summary.actual_out,
         missed_punch: Boolean(summary.missed_punch),
       },
-      new_value: {
-        punch_at: punchAt,
-        punch_type: args.punchType,
-        missed_punch_request: true,
-        ...(approvalNote
-          ? {
-              manager_requested_and_approved: true,
-              requested_punch_in: requestedPunchIn,
-              requested_punch_out: requestedPunchOut,
-            }
-          : {}),
-      },
+      new_value: newValue,
       reason,
       review_note: approvalNote,
       requested_by: args.userId,
@@ -935,14 +949,7 @@ export async function submitMissedPunchRequest(args: {
         requested_at: now,
         current_step_role: "hr",
         review_note: approvalNote,
-        new_value: {
-          punch_at: punchAt,
-          punch_type: args.punchType,
-          missed_punch_request: true,
-          manager_requested_and_approved: true,
-          requested_punch_in: requestedPunchIn,
-          requested_punch_out: requestedPunchOut,
-        },
+        new_value: newValue,
         original_value: {
           actual_in: summary.actual_in,
           actual_out: summary.actual_out,
@@ -989,14 +996,7 @@ export async function submitMissedPunchRequest(args: {
         requested_at: now,
         current_step_role: "ops",
         review_note: approvalNote,
-        new_value: {
-          punch_at: punchAt,
-          punch_type: args.punchType,
-          missed_punch_request: true,
-          manager_requested_and_approved: true,
-          requested_punch_in: requestedPunchIn,
-          requested_punch_out: requestedPunchOut,
-        },
+        new_value: newValue,
         original_value: {
           actual_in: summary.actual_in,
           actual_out: summary.actual_out,
@@ -1127,49 +1127,85 @@ async function recalculateCorrectionDay(row: CorrectionRow) {
   );
 }
 
-/** Write this request's stored punch once. A later step must not insert it again. */
+/** Write this request's stored punch(es) once. A later step must not insert them again. */
 async function writeCorrectionPunch(row: CorrectionRow) {
   if (String(row.kind) !== "add_punch") return;
-  const punchAt = punchAtFromCorrectionValue(row.new_value);
-  if (!punchAt) return;
+  const clocks = punchesOf(row.new_value);
+  const sides: Array<{ side: "in" | "out"; punchAt: string }> = [];
+  if (clocks.punchInAt) sides.push({ side: "in", punchAt: clocks.punchInAt });
+  if (clocks.punchOutAt) sides.push({ side: "out", punchAt: clocks.punchOutAt });
+  if (!sides.length && clocks.punchAt) {
+    sides.push({ side: clocks.punchType === "out" ? "out" : "in", punchAt: clocks.punchAt });
+  }
+  if (!sides.length) return;
   const correctionId = String(row.id);
   const { data: existing, error: findErr } = await supabaseAdmin
     .from("attendance_logs")
-    .select("id")
+    .select("id, punch_type, raw_payload")
     .eq("source", "correction")
-    .filter("raw_payload->>correction_id", "eq", correctionId)
-    .limit(1);
+    .filter("raw_payload->>correction_id", "eq", correctionId);
   if (findErr) throw findErr;
-  let keepLogId: string | null = existing?.[0]?.id ? String(existing[0].id) : null;
-  if (!existing?.length) {
+  const keepLogIds: string[] = [];
+  for (const side of sides) {
+    const match = (existing ?? []).find((log) => {
+      const payload = (log.raw_payload ?? {}) as Record<string, unknown>;
+      const payloadSide = payload.punch_side ?? payload.punchSide ?? log.punch_type;
+      return payloadSide === side.side || (sides.length === 1 && !payload.punch_side && !payload.punchSide);
+    });
+    if (match?.id) {
+      const { error: updateErr } = await supabaseAdmin
+        .from("attendance_logs")
+        .update({
+          punch_at: side.punchAt,
+          punch_type: side.side,
+          attendance_date: row.work_date ? String(row.work_date).slice(0, 10) : side.punchAt.slice(0, 10),
+          raw_payload: { correction_id: correctionId, punch_side: side.side, reason: row.reason },
+          excluded_from_calc: false,
+        })
+        .eq("id", match.id);
+      if (updateErr) throw updateErr;
+      keepLogIds.push(String(match.id));
+      continue;
+    }
     const { data: inserted, error } = await supabaseAdmin
       .from("attendance_logs")
       .insert({
         location_id: row.location_id,
         staff_id: row.staff_id ?? null,
-        punch_at: punchAt,
-        punch_type: punchTypeOf(row.new_value) ?? "in",
+        punch_at: side.punchAt,
+        punch_type: side.side,
         source: "correction",
-        attendance_date: row.work_date ? String(row.work_date).slice(0, 10) : punchAt.slice(0, 10),
-        raw_payload: { correction_id: correctionId, reason: row.reason },
+        attendance_date: row.work_date ? String(row.work_date).slice(0, 10) : side.punchAt.slice(0, 10),
+        raw_payload: { correction_id: correctionId, punch_side: side.side, reason: row.reason },
       })
       .select("id")
       .single();
     if (error) throw error;
-    keepLogId = inserted?.id ? String(inserted.id) : null;
+    if (inserted?.id) keepLogIds.push(String(inserted.id));
   }
-  await excludeReplacedPunch(row, keepLogId);
+  await excludeReplacedPunches(row, keepLogIds, sides.map((s) => s.side));
   await recalculateCorrectionDay(row);
 }
 
-/** Drop the clock this request replaces so a wrong punch does not stay as check-in or check-out. */
-async function excludeReplacedPunch(row: CorrectionRow, keepLogId: string | null) {
-  const punchType = punchTypeOf(row.new_value);
+/** Drop the clock(s) this request replaces so wrong punches do not stay as check-in or check-out. */
+async function excludeReplacedPunches(
+  row: CorrectionRow,
+  keepLogIds: readonly string[],
+  sides: readonly ("in" | "out")[],
+) {
   const original = (row.original_value ?? {}) as Record<string, unknown>;
-  const previous = punchType === "in" ? original.actual_in : punchType === "out" ? original.actual_out : null;
-  if (typeof previous !== "string" || !previous.trim() || !row.staff_id || !row.work_date) return;
-  const previousMs = Date.parse(previous);
-  if (Number.isNaN(previousMs)) return;
+  if (!row.staff_id || !row.work_date || !sides.length) return;
+  const previousTimes: string[] = [];
+  if (sides.includes("in") && typeof original.actual_in === "string" && original.actual_in.trim()) {
+    previousTimes.push(original.actual_in);
+  }
+  if (sides.includes("out") && typeof original.actual_out === "string" && original.actual_out.trim()) {
+    previousTimes.push(original.actual_out);
+  }
+  if (!previousTimes.length) return;
+  const previousMs = previousTimes.map((t) => Date.parse(t)).filter((ms) => Number.isFinite(ms));
+  if (!previousMs.length) return;
+  const keep = new Set(keepLogIds);
   const { data: logs, error } = await supabaseAdmin
     .from("attendance_logs")
     .select("id, punch_at")
@@ -1179,9 +1215,9 @@ async function excludeReplacedPunch(row: CorrectionRow, keepLogId: string | null
   if (error) throw error;
   const ids = (logs ?? [])
     .filter((log) => {
-      if (keepLogId && String(log.id) === keepLogId) return false;
+      if (keep.has(String(log.id))) return false;
       const ms = Date.parse(String(log.punch_at));
-      return Number.isFinite(ms) && Math.abs(ms - previousMs) < 1500;
+      return Number.isFinite(ms) && previousMs.some((prev) => Math.abs(ms - prev) < 1500);
     })
     .map((log) => String(log.id));
   if (!ids.length) return;
@@ -1411,10 +1447,14 @@ export async function reviewMissedPunchChain(args: {
 export async function resubmitMissedPunchRequest(args: {
   userId: string;
   correctionId: string;
-  punchTime: string;
   reason: string;
+  /** Corrected punch-in HH:mm. Optional when punchOutTime is set (or legacy punchTime for a single side). */
+  punchInTime?: string | null;
+  /** Corrected punch-out HH:mm. Optional when punchInTime is set. */
+  punchOutTime?: string | null;
+  /** Legacy single-side time — applied to the request's existing punch side when in/out are omitted. */
+  punchTime?: string;
 }): Promise<{ id: string; approverCount: number; locationId: string; routedTo: PunchCorrectionRoutedTo }> {
-  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(args.punchTime)) throw new Error("Enter a punch time.");
   const { data, error } = await supabaseAdmin
     .from("attendance_corrections")
     .select("*")
@@ -1440,10 +1480,35 @@ export async function resubmitMissedPunchRequest(args: {
 
   const workDate = row.work_date ? String(row.work_date).slice(0, 10) : "";
   if (!workDate) throw new Error("This request has no work date.");
-  const punchType = punchTypeOf(row.new_value) ?? "in";
-  const punchAt = `${workDate}T${args.punchTime}:00+03:00`;
+  const previousClocks = punchesOf(row.new_value);
   const previous = (row.new_value ?? {}) as Record<string, unknown>;
   const original = (row.original_value ?? {}) as Record<string, unknown>;
+  const hhmm = (iso: string | null) => {
+    if (!iso) return null;
+    const match = iso.match(/T(\d{2}):(\d{2})/);
+    return match ? `${match[1]}:${match[2]}` : null;
+  };
+  let punchInTime =
+    args.punchInTime !== undefined
+      ? args.punchInTime
+      : hhmm(previousClocks.punchInAt) ??
+        (typeof previous.requested_punch_in === "string" ? previous.requested_punch_in : null);
+  let punchOutTime =
+    args.punchOutTime !== undefined
+      ? args.punchOutTime
+      : hhmm(previousClocks.punchOutAt) ??
+        (typeof previous.requested_punch_out === "string" ? previous.requested_punch_out : null);
+  if (args.punchTime && /^([01]\d|2[0-3]):[0-5]\d$/.test(args.punchTime)) {
+    // Legacy single-field edit: update the side that already exists, or punch-in by default.
+    if (previousClocks.punchType === "out" && args.punchInTime === undefined && args.punchOutTime === undefined) {
+      punchOutTime = args.punchTime;
+    } else if (args.punchInTime === undefined && args.punchOutTime === undefined) {
+      if (previousClocks.punchType === "both" || previousClocks.punchInAt) punchInTime = args.punchTime;
+      else if (previousClocks.punchOutAt) punchOutTime = args.punchTime;
+      else punchInTime = args.punchTime;
+    }
+  }
+  if (!punchInTime && !punchOutTime) throw new Error("Enter a punch time.");
   const requesterStaff = await staffIdByUserId([args.userId]);
   const requesterStaffId = requesterStaff.get(args.userId) ?? null;
   const access = await callerCorrectionAccess(args.userId);
@@ -1471,24 +1536,12 @@ export async function resubmitMissedPunchRequest(args: {
         : baseRoute;
   const requesterLinked = await loadLinkedStaffRecord(args.userId);
   const managerName = String(requesterLinked?.fullName ?? "").trim() || "The manager";
-  const requestedPunchIn =
-    punchType === "in"
-      ? args.punchTime
-      : typeof previous.requested_punch_in === "string"
-        ? previous.requested_punch_in
-        : null;
-  const requestedPunchOut =
-    punchType === "out"
-      ? args.punchTime
-      : typeof previous.requested_punch_out === "string"
-        ? previous.requested_punch_out
-        : null;
   const approvalNote =
     route === "ops" || route === "hr"
       ? managerTeamCorrectionNote({
           managerName,
-          requestedPunchIn,
-          requestedPunchOut,
+          requestedPunchIn: punchInTime,
+          requestedPunchOut: punchOutTime,
           previousPunchIn: typeof original.actual_in === "string" ? original.actual_in : null,
           previousPunchOut: typeof original.actual_out === "string" ? original.actual_out : null,
         })
@@ -1501,19 +1554,17 @@ export async function resubmitMissedPunchRequest(args: {
       : "Missed punch request";
   const now = new Date().toISOString();
   const wasChangeRequired = row.status === "change_required";
-  const newValue = {
-    ...previous,
-    punch_at: punchAt,
-    punch_type: punchType,
-    missed_punch_request: true,
-    ...(approvalNote
-      ? {
-          manager_requested_and_approved: true,
-          requested_punch_in: requestedPunchIn,
-          requested_punch_out: requestedPunchOut,
-        }
-      : { manager_requested_and_approved: false }),
-  };
+  const newValue = buildMissedPunchNewValue({
+    workDate,
+    punchInTime,
+    punchOutTime,
+    extras: {
+      ...previous,
+      ...(approvalNote
+        ? { manager_requested_and_approved: true }
+        : { manager_requested_and_approved: false }),
+    },
+  });
 
   if (wasChangeRequired) {
     const { data: updated, error: updateErr } = await supabaseAdmin
@@ -1561,6 +1612,28 @@ export async function resubmitMissedPunchRequest(args: {
       .select("id");
     if (updateErr) throw updateErr;
     if (!updated || updated.length !== 1) throw new Error("This request can no longer be edited.");
+  }
+
+  const waitingStep = wasChangeRequired
+    ? correctionWaitingStep(route)
+    : asStep(row.current_step_role);
+  // Supervisor / ops / HR already accepted the clocks — keep attendance logs in sync after edit.
+  if (waitingStep === "ops" || waitingStep === "hr" || route === "ops" || route === "hr") {
+    try {
+      await writeCorrectionPunch({
+        ...row,
+        reason,
+        new_value: newValue,
+        review_note: approvalNote,
+        status: "pending",
+        current_step_role: waitingStep,
+      });
+    } catch (applyError) {
+      console.warn(
+        "[missed-punch] re-apply punch after edit failed",
+        applyError instanceof Error ? applyError.message : applyError,
+      );
+    }
   }
 
   const { data: staff } = row.staff_id

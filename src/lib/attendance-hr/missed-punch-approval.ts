@@ -556,7 +556,8 @@ export type CorrectionReviewLine = {
 
 /**
  * One click reviews one correction id.
- * A second punch-in or punch-out for the same employee and day is a different id and stays untouched.
+ * Legacy dual same-day MPs (separate in/out rows) stay separate until each is decided;
+ * new creates store punch-in and punch-out on a single request id.
  */
 export function correctionIdsForReview(rows: readonly CorrectionReviewLine[], correctionId: string): string[] {
   const target = correctionId.trim();
@@ -564,33 +565,119 @@ export function correctionIdsForReview(rows: readonly CorrectionReviewLine[], co
   return rows.filter((row) => row.id === target).map((row) => row.id);
 }
 
-export function punchTypeFromCorrectionValue(
-  value: Record<string, unknown> | null | undefined,
-): "in" | "out" | null {
-  const raw = value && typeof value === "object" ? value.punch_type ?? value.punchType : null;
-  if (raw === "in" || raw === "out") return raw;
-  return null;
+export type CorrectionPunchSide = "in" | "out" | "both";
+
+const HH_MM = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/** Qatar local ISO timestamp for a work date + HH:mm. */
+export function qatarPunchAt(workDate: string, hhmm: string): string {
+  return `${workDate}T${hhmm}:00+03:00`;
 }
 
-/** Clock time the employee submitted. Missing stored time stays empty — never invent one. */
-export function punchAtFromCorrectionValue(value: Record<string, unknown> | null | undefined): string | null {
-  if (!value || typeof value !== "object") return null;
-  const raw = value.punch_at ?? value.punchAt ?? value.time ?? value.punch_time;
+function isoFromValue(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
   const trimmed = raw.trim();
   return trimmed.length ? trimmed : null;
 }
 
 /**
+ * Punch clocks stored on one correction row.
+ * Prefer punch_in_at / punch_out_at (combined request). Fall back to legacy punch_at + punch_type.
+ */
+export function punchesFromCorrectionValue(value: Record<string, unknown> | null | undefined): {
+  punchInAt: string | null;
+  punchOutAt: string | null;
+  punchType: CorrectionPunchSide | null;
+  punchAt: string | null;
+} {
+  if (!value || typeof value !== "object") {
+    return { punchInAt: null, punchOutAt: null, punchType: null, punchAt: null };
+  }
+  let punchInAt = isoFromValue(value.punch_in_at ?? value.punchInAt);
+  let punchOutAt = isoFromValue(value.punch_out_at ?? value.punchOutAt);
+  const legacyAt = isoFromValue(value.punch_at ?? value.punchAt ?? value.time ?? value.punch_time);
+  const rawType = value.punch_type ?? value.punchType;
+  if (!punchInAt && !punchOutAt && legacyAt) {
+    if (rawType === "out") punchOutAt = legacyAt;
+    else if (rawType === "both") {
+      // Combined row that only kept legacy punch_at — treat as punch-in primary.
+      punchInAt = legacyAt;
+    } else punchInAt = legacyAt;
+  } else if (!punchInAt && legacyAt && (rawType === "in" || rawType === "both")) {
+    punchInAt = legacyAt;
+  } else if (!punchOutAt && legacyAt && rawType === "out") {
+    punchOutAt = legacyAt;
+  }
+  const punchType: CorrectionPunchSide | null =
+    punchInAt && punchOutAt
+      ? "both"
+      : punchInAt
+        ? "in"
+        : punchOutAt
+          ? "out"
+          : rawType === "in" || rawType === "out" || rawType === "both"
+            ? rawType
+            : null;
+  const punchAt = punchInAt ?? punchOutAt ?? legacyAt;
+  return { punchInAt, punchOutAt, punchType, punchAt };
+}
+
+export function punchTypeFromCorrectionValue(
+  value: Record<string, unknown> | null | undefined,
+): CorrectionPunchSide | null {
+  return punchesFromCorrectionValue(value).punchType;
+}
+
+/** Clock time the employee submitted. Missing stored time stays empty — never invent one. */
+export function punchAtFromCorrectionValue(value: Record<string, unknown> | null | undefined): string | null {
+  return punchesFromCorrectionValue(value).punchAt;
+}
+
+/**
+ * Build new_value for one missed-punch / punch-correction request that may carry in, out, or both.
+ */
+export function buildMissedPunchNewValue(args: {
+  workDate: string;
+  punchInTime: string | null;
+  punchOutTime: string | null;
+  extras?: Record<string, unknown>;
+}): Record<string, unknown> {
+  const punchInTime = args.punchInTime && HH_MM.test(args.punchInTime) ? args.punchInTime : null;
+  const punchOutTime = args.punchOutTime && HH_MM.test(args.punchOutTime) ? args.punchOutTime : null;
+  const punchInAt = punchInTime ? qatarPunchAt(args.workDate, punchInTime) : null;
+  const punchOutAt = punchOutTime ? qatarPunchAt(args.workDate, punchOutTime) : null;
+  const punchType: CorrectionPunchSide | null =
+    punchInAt && punchOutAt ? "both" : punchInAt ? "in" : punchOutAt ? "out" : null;
+  const punchAt = punchInAt ?? punchOutAt;
+  return {
+    ...(args.extras ?? {}),
+    punch_at: punchAt,
+    punch_type: punchType,
+    punch_in_at: punchInAt,
+    punch_out_at: punchOutAt,
+    requested_punch_in: punchInTime,
+    requested_punch_out: punchOutTime,
+    missed_punch_request: true,
+  };
+}
+
+/**
  * Times to print on one correction card.
- * The other side stays empty so a sibling request's clock is not copied onto this card.
+ * Combined requests show both clocks; legacy single-side rows leave the other side empty.
  */
 export function correctionCardClocks(
-  punchType: "in" | "out" | null,
+  punchType: CorrectionPunchSide | null,
   punchAt: string | null,
+  extras?: { punchInAt?: string | null; punchOutAt?: string | null },
 ): { punchIn: string | null; punchOut: string | null } {
+  if (extras && (extras.punchInAt != null || extras.punchOutAt != null || punchType === "both")) {
+    return {
+      punchIn: extras.punchInAt ?? (punchType === "in" || punchType === "both" ? punchAt : null),
+      punchOut: extras.punchOutAt ?? (punchType === "out" ? punchAt : null),
+    };
+  }
   return {
-    punchIn: punchType === "in" ? punchAt : null,
+    punchIn: punchType === "in" || punchType === "both" ? punchAt : null,
     punchOut: punchType === "out" ? punchAt : null,
   };
 }
@@ -601,8 +688,10 @@ export type AcceptedCorrectionPunch = {
   workDate: string | null;
   status: string;
   currentStepRole: MissedPunchStepRole | null;
-  punchType: "in" | "out" | null;
+  punchType: CorrectionPunchSide | null;
   punchAt: string | null;
+  punchInAt?: string | null;
+  punchOutAt?: string | null;
   requestedAt?: string | null;
 };
 
@@ -628,7 +717,13 @@ export function applyAcceptedCorrectionTimes<
   },
 >(rows: readonly T[], corrections: readonly AcceptedCorrectionPunch[]): T[] {
   const accepted = corrections
-    .filter((row) => correctionPunchAccepted(row) && row.punchAt && row.staffId && row.workDate)
+    .filter(
+      (row) =>
+        correctionPunchAccepted(row) &&
+        row.staffId &&
+        row.workDate &&
+        (row.punchInAt || row.punchOutAt || row.punchAt),
+    )
     .slice()
     .sort((a, b) => String(a.requestedAt ?? "").localeCompare(String(b.requestedAt ?? "")));
   return rows.map((row) => {
@@ -640,12 +735,17 @@ export function applyAcceptedCorrectionTimes<
     for (const correction of accepted) {
       if (correction.staffId !== staffId) continue;
       if (String(correction.workDate).slice(0, 10) !== workDate) continue;
-      const punchAt = correction.punchAt;
-      if (!punchAt) continue;
-      if (correction.punchType === "in") actualIn = punchAt;
-      else if (correction.punchType === "out") actualOut = punchAt;
-      else if (!actualIn) actualIn = punchAt;
-      else if (!actualOut) actualOut = punchAt;
+      const inAt =
+        correction.punchInAt ??
+        (correction.punchType === "in" || correction.punchType === "both" ? correction.punchAt : null);
+      const outAt =
+        correction.punchOutAt ?? (correction.punchType === "out" ? correction.punchAt : null);
+      if (inAt) actualIn = inAt;
+      if (outAt) actualOut = outAt;
+      if (!inAt && !outAt && correction.punchAt) {
+        if (!actualIn) actualIn = correction.punchAt;
+        else if (!actualOut) actualOut = correction.punchAt;
+      }
     }
     if (actualIn === row.actual_in && actualOut === row.actual_out) return row;
     return { ...row, actual_in: actualIn, actual_out: actualOut };

@@ -161,8 +161,7 @@ import {
 import { dispatchHrNotify } from "@/lib/attendance-hr/hr-notify-dispatch";
 import {
   applyAcceptedCorrectionTimes,
-  punchAtFromCorrectionValue,
-  punchTypeFromCorrectionValue,
+  punchesFromCorrectionValue,
   type AcceptedCorrectionPunch,
   type MissedPunchStepRole,
 } from "@/lib/attendance-hr/missed-punch-approval";
@@ -2353,19 +2352,33 @@ export const submitAttendanceCorrection = createAuthenticatedAction(
 );
 
 /** Punch correction. Own requests wait on the line manager. A manager's team correction is approved and waits on HR. */
+const punchHhMm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
+
 export const submitMissedPunchRequest = createAuthenticatedAction(
-  z.object({
-    summaryId: z.string().uuid(),
-    punchType: z.enum(["in", "out"]),
-    punchTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
-    reason: z.string().max(1000).optional(),
-    requestedPunchIn: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
-    requestedPunchOut: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
-  }),
+  z
+    .object({
+      summaryId: z.string().uuid(),
+      reason: z.string().max(1000).optional(),
+      punchInTime: punchHhMm.optional().nullable(),
+      punchOutTime: punchHhMm.optional().nullable(),
+      /** Legacy single-side fields — still accepted; prefer punchInTime / punchOutTime. */
+      punchType: z.enum(["in", "out"]).optional(),
+      punchTime: punchHhMm.optional(),
+      requestedPunchIn: punchHhMm.optional(),
+      requestedPunchOut: punchHhMm.optional(),
+    })
+    .refine(
+      (data) =>
+        Boolean(data.punchInTime || data.punchOutTime || data.requestedPunchIn || data.requestedPunchOut) ||
+        Boolean(data.punchType && data.punchTime),
+      { message: "Enter the corrected punch-in, punch-out, or both." },
+    ),
   async (data, context) => {
     const created = await insertMissedPunchRequest({
       userId: context.userId,
       summaryId: data.summaryId,
+      punchInTime: data.punchInTime,
+      punchOutTime: data.punchOutTime,
       punchType: data.punchType,
       punchTime: data.punchTime,
       reason: data.reason?.trim() ?? "",
@@ -2462,17 +2475,26 @@ export const reviewAttendanceCorrection = createAuthenticatedAction(
   { auth: { anyCapability: ["attendance.approve", "attendance.view", "hr.employee_app"] } },
 );
 
-/** Edit own pending correction, or resubmit after change_required. */
+/** Edit own pending correction, or resubmit after change_required — same request id, both clocks. */
 export const resubmitMissedPunchRequest = createAuthenticatedAction(
-  z.object({
-    correctionId: z.string().uuid(),
-    punchTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
-    reason: z.string().max(1000).optional(),
-  }),
+  z
+    .object({
+      correctionId: z.string().uuid(),
+      reason: z.string().max(1000).optional(),
+      punchInTime: punchHhMm.optional().nullable(),
+      punchOutTime: punchHhMm.optional().nullable(),
+      /** Legacy single-side time when the UI only edits one clock. */
+      punchTime: punchHhMm.optional(),
+    })
+    .refine((data) => Boolean(data.punchInTime || data.punchOutTime || data.punchTime), {
+      message: "Enter a punch time.",
+    }),
   async (data, context) => {
     const updated = await updateMissedPunchRequest({
       userId: context.userId,
       correctionId: data.correctionId,
+      punchInTime: data.punchInTime,
+      punchOutTime: data.punchOutTime,
       punchTime: data.punchTime,
       reason: data.reason?.trim() ?? "",
     });
@@ -2495,25 +2517,51 @@ async function applyCorrection(context: AuthContext, row: Record<string, unknown
       .update({ excluded_from_calc: true, probable_duplicate: true })
       .eq("id", String(row.punch_id));
   }
-  if (kind === "add_punch" && next.punch_at && row.id) {
+  if (kind === "add_punch" && row.id) {
     const correctionId = String(row.id);
-    const { data: existingLogs } = await context.supabase
-      .from("attendance_logs")
-      .select("id")
-      .eq("source", "correction")
-      .filter("raw_payload->>correction_id", "eq", correctionId)
-      .limit(1);
-    if (!existingLogs?.length) {
-      await context.supabase.from("attendance_logs").insert({
-        location_id: row.location_id,
-        staff_id: row.staff_id ?? null,
-        biometric_user_id: next.biometric_user_id ?? null,
-        punch_at: next.punch_at,
-        punch_type: next.punch_type ?? "in",
-        source: "correction",
-        attendance_date: row.work_date ?? String(next.punch_at).slice(0, 10),
-        raw_payload: { correction_id: row.id, reason: row.reason },
-      });
+    const clocks = punchesFromCorrectionValue(next);
+    const sides: Array<{ side: "in" | "out"; punchAt: string }> = [];
+    if (clocks.punchInAt) sides.push({ side: "in", punchAt: clocks.punchInAt });
+    if (clocks.punchOutAt) sides.push({ side: "out", punchAt: clocks.punchOutAt });
+    if (!sides.length && clocks.punchAt) {
+      sides.push({ side: clocks.punchType === "out" ? "out" : "in", punchAt: clocks.punchAt });
+    }
+    if (sides.length) {
+      const { data: existingLogs } = await context.supabase
+        .from("attendance_logs")
+        .select("id, punch_type, raw_payload")
+        .eq("source", "correction")
+        .filter("raw_payload->>correction_id", "eq", correctionId);
+      for (const side of sides) {
+        const match = (existingLogs ?? []).find((log) => {
+          const payload = (log.raw_payload ?? {}) as Record<string, unknown>;
+          const payloadSide = payload.punch_side ?? payload.punchSide ?? log.punch_type;
+          return payloadSide === side.side || (sides.length === 1 && !payload.punch_side && !payload.punchSide);
+        });
+        if (match?.id) {
+          await context.supabase
+            .from("attendance_logs")
+            .update({
+              punch_at: side.punchAt,
+              punch_type: side.side,
+              attendance_date: row.work_date ?? side.punchAt.slice(0, 10),
+              raw_payload: { correction_id: row.id, punch_side: side.side, reason: row.reason },
+              excluded_from_calc: false,
+            })
+            .eq("id", match.id);
+          continue;
+        }
+        await context.supabase.from("attendance_logs").insert({
+          location_id: row.location_id,
+          staff_id: row.staff_id ?? null,
+          biometric_user_id: next.biometric_user_id ?? null,
+          punch_at: side.punchAt,
+          punch_type: side.side,
+          source: "correction",
+          attendance_date: row.work_date ?? side.punchAt.slice(0, 10),
+          raw_payload: { correction_id: row.id, punch_side: side.side, reason: row.reason },
+        });
+      }
     }
   }
   if (kind === "mark_leave" && row.staff_id && row.work_date) {
@@ -2781,14 +2829,17 @@ async function loadAcceptedCorrectionPunches(
   }
   return (data ?? []).map((row) => {
     const value = (row.new_value ?? null) as Record<string, unknown> | null;
+    const clocks = punchesFromCorrectionValue(value);
     return {
       id: String(row.id),
       staffId: row.staff_id ? String(row.staff_id) : null,
       workDate: row.work_date ? String(row.work_date).slice(0, 10) : null,
       status: String(row.status ?? ""),
       currentStepRole: asStepRole(row.current_step_role),
-      punchType: punchTypeFromCorrectionValue(value),
-      punchAt: punchAtFromCorrectionValue(value),
+      punchType: clocks.punchType,
+      punchAt: clocks.punchAt,
+      punchInAt: clocks.punchInAt,
+      punchOutAt: clocks.punchOutAt,
       requestedAt: row.requested_at ? String(row.requested_at) : null,
     };
   });
