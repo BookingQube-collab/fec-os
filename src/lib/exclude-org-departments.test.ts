@@ -32,6 +32,7 @@ const people: { id: string; department_names: string[]; department?: string | nu
   { id: "fb-sup", department_names: ["F&B Supervisor"] },
   { id: "gm", department_names: ["General Manager"] },
   { id: "fec-ops", department_names: ["FEC Operations"] },
+  { id: "site-ops", department_names: ["Site Operations"] },
   { id: "blank", department_names: [], department: null },
   { id: "both", department_names: ["Crew / Attendant", "Operations"], department: "Crew / Attendant" },
 ];
@@ -69,12 +70,13 @@ describe("org focus department names", () => {
     expect(orgFocusDepartmentOfName("Head Chef")).toBe("fb_cafe");
     expect(orgFocusDepartmentOfName("FB_MANAGER")).toBe("fb_cafe");
     expect(orgFocusDepartmentOfName("FB_SUPERVISOR")).toBe("fb_cafe");
+    expect(orgFocusDepartmentOfName("FEC Operations")).toBe("operations");
+    expect(orgFocusDepartmentOfName("FEC_OPS")).toBe("operations");
   });
 
   it("does not treat lookalikes as F&B Cafe, Operations, or Maintenance", () => {
     expect(orgFocusDepartmentOfName("Crew / Attendant")).toBeNull();
     expect(orgFocusDepartmentOfName("Food")).toBeNull();
-    expect(orgFocusDepartmentOfName("FEC Operations")).toBeNull();
     expect(orgFocusDepartmentOfName("Site Operations")).toBeNull();
     expect(orgFocusDepartmentOfName("Maintenance Assistant / Electrician")).toBeNull();
     expect(orgFocusDepartmentOfName("Cashier")).toBeNull();
@@ -109,9 +111,12 @@ describe("show only when a department is unchecked", () => {
       "site-sup",
       "senior-site",
       "venue-sup",
+      "fec-ops",
       "both",
     ]);
     expect(displayDepartmentShown("Operations", ["operations"])).toBe(true);
+    expect(displayDepartmentShown("FEC Operations", ["operations"])).toBe(true);
+    expect(displayDepartmentShown("Site Operations", ["operations"])).toBe(false);
     expect(displayDepartmentShown("F&B Cafe", ["operations"])).toBe(false);
     expect(displayDepartmentShown("F&B Manager", ["operations"])).toBe(false);
     expect(staffMatchesOrgShowOnly({ department: null, department_names: [] }, ["operations"])).toBe(false);
@@ -134,6 +139,7 @@ describe("show only when a department is unchecked", () => {
       "site-sup",
       "senior-site",
       "venue-sup",
+      "fec-ops",
       "both",
     ]);
     expect(displayDepartmentShown("F&B Cafe + Maintenance", ["operations", "maintenance"])).toBe(true);
@@ -179,10 +185,11 @@ describe("show only when a department is unchecked", () => {
       { id: "gm", name: "General Manager", code: "GM" },
     ];
     expect(orgDepartmentIdsFor(departments, [])).toEqual([]);
-    expect(orgDepartmentIdsFor(departments, ["operations"])).toEqual(["ops", "sr-site", "site-sup"]);
+    expect(orgDepartmentIdsFor(departments, ["operations"])).toEqual(["ops", "fec-ops", "sr-site", "site-sup"]);
     expect(orgDepartmentIdsFor(departments, ["operations", "maintenance"])).toEqual([
       "ops",
       "maint",
+      "fec-ops",
       "sr-site",
       "site-sup",
     ]);

@@ -248,6 +248,51 @@ describe("staff directory KPIs follow filters", () => {
     expect(filtered.map((s) => s.id)).toEqual(["legacy", "compound"]);
   });
 
+  it("matches Operations and FEC Operations as the same department filter", () => {
+    const withOpsAliases: StaffRow[] = [
+      row({
+        id: "ho",
+        full_name: "HO Ops",
+        employee_code: "H1",
+        employment_type: "permanent",
+        department_ids: ["ops"],
+        department_names: ["Operations"],
+      }),
+      row({
+        id: "fec",
+        full_name: "FEC Ops",
+        employee_code: "F1",
+        employment_type: "permanent",
+        department_ids: ["fec-ops"],
+        department_names: ["FEC Operations"],
+      }),
+      row({
+        id: "maint",
+        full_name: "Maint",
+        employee_code: "M1",
+        employment_type: "permanent",
+        department_ids: ["maint"],
+        department_names: ["Maintenance"],
+      }),
+    ];
+    expect(
+      filterStaffDirectory(withOpsAliases, {
+        ...base,
+        status: "",
+        department: "ops",
+        departmentName: "Operations",
+      }).map((s) => s.id).sort(),
+    ).toEqual(["fec", "ho"]);
+    expect(
+      filterStaffDirectory(withOpsAliases, {
+        ...base,
+        status: "",
+        department: "fec-ops",
+        departmentName: "FEC Operations",
+      }).map((s) => s.id).sort(),
+    ).toEqual(["fec", "ho"]);
+  });
+
   it("zeros other type cards when type filter is on (same as table)", () => {
     const filtered = filterStaffDirectory(staff, { ...base, type: "joker" });
     expect(filtered.map((s) => s.id)).toEqual(["2"]);

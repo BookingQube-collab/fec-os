@@ -2,10 +2,8 @@ import type { StaffRow } from "@/lib/queries/module-queries.core";
 import { formatLocationLabel } from "@/lib/locations/normalize";
 import { expiryBand, isExpiringSoon, qatarTodayYmd } from "@/lib/hr-expiry-bands";
 import { activeTemporaryLocationCodes } from "@/lib/staff-temporary-moves";
-import {
-  normalizeDepartmentName,
-  splitDepartmentTokens,
-} from "@/lib/staff-departments";
+import { departmentMatchKeys, normalizeDepartmentMatchKey } from "@/lib/department-aliases";
+import { splitDepartmentTokens } from "@/lib/staff-departments";
 import {
   staffMatchesOrgShowOnly,
   type OrgFocusDepartment,
@@ -71,10 +69,10 @@ export function staffMatchesDepartment(
 ): boolean {
   if (!departmentId) return true;
   if ((s.department_ids ?? []).includes(departmentId)) return true;
-  const needle = normalizeDepartmentName(departmentName ?? "");
-  if (!needle) return false;
-  if ((s.department_names ?? []).some((n) => normalizeDepartmentName(n) === needle)) return true;
-  return splitDepartmentTokens(s.department).some((t) => normalizeDepartmentName(t) === needle);
+  const needles = departmentMatchKeys(departmentName);
+  if (needles.size === 0) return false;
+  if ((s.department_names ?? []).some((n) => needles.has(normalizeDepartmentMatchKey(n)))) return true;
+  return splitDepartmentTokens(s.department).some((t) => needles.has(normalizeDepartmentMatchKey(t)));
 }
 
 export type StaffDirectoryKpis = {

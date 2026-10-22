@@ -36,6 +36,7 @@ import { ACTIVE_ROSTER_STAFF_STATUS_OR, isAttendanceMappingStaff } from "@/lib/s
 import { fetchActiveTemporaryMovesByStaffId } from "@/lib/staff-temporary-moves-query";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { resolveDepartmentFilterIds } from "@/lib/department-alias-resolve.server";
 import {
   ATTENDANCE_DAILY_LIST_COLUMNS,
   ATTENDANCE_DAILY_LIST_PAGE_SIZE,
@@ -737,11 +738,10 @@ export const getAttendanceHrDaily = createAuthenticatedAction(
       ? { ...context, supabase: supabaseAdmin as AuthContext["supabase"] }
       : context;
 
-    const departmentIds = [
-      ...new Set(
-        [...(data.departmentIds ?? []), ...(data.departmentId ? [data.departmentId] : [])].filter(Boolean),
-      ),
-    ];
+    const departmentIds = await resolveDepartmentFilterIds([
+      ...(data.departmentIds ?? []),
+      ...(data.departmentId ? [data.departmentId] : []),
+    ]);
     const needle = data.staffQ?.trim() || "";
     const needStaffSearch = Boolean(!data.staffId && needle && !isAttendanceHrUnmappedSearch(needle));
     const [matchedStaffIds, loadedDeptStaffIds] = await Promise.all([

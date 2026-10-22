@@ -12,11 +12,11 @@ import { splitDepartmentTokens } from "@/lib/staff-departments";
  *
  * Exact match after trim, case-fold, and whitespace collapse. "&" and "fnb"
  * are read as "f and b". A name matches only when the whole label is one of
- * the keys below — longer names are left alone (FEC Operations, Site Operations,
+ * the keys below — longer lookalikes stay out (Site Operations,
  * Maintenance Assistant / Electrician, Food, General Manager, Cashier).
  *
  * Stored master departments this covers:
- * - Operations (OPS), plus the close label Operation
+ * - Operations (OPS) and FEC Operations (FEC_OPS), plus the close label Operation
  * - Site supervision on the operations side: Supervisor, Site Supervisor,
  *   Sr. Site Supervisor, Senior Site Supervisor, and Venue Supervisor
  *   (SR_SITE_SUP, SITE_SUP).
@@ -38,7 +38,7 @@ export const ALL_ORG_DEPARTMENTS_CHECKED: OrgDepartmentChecks = {
   fb_cafe: true,
 };
 
-const OPERATIONS_KEYS = new Set(["operations", "operation"]);
+const OPERATIONS_KEYS = new Set(["operations", "operation", "fec operations"]);
 /** Site supervision titles already used on staff. Exact label only. F&B Supervisor is F&B, not Operations. */
 const OPERATIONS_SUPERVISOR_KEYS = new Set([
   "supervisor",
@@ -64,6 +64,7 @@ const FB_CAFE_KEYS = new Set([
 
 const CODE_TO_FOCUS: Record<string, OrgFocusDepartment> = {
   OPS: "operations",
+  FEC_OPS: "operations",
   MAINT: "maintenance",
   FB: "fb_cafe",
   FB_CAFE: "fb_cafe",

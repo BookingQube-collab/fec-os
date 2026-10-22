@@ -14,6 +14,7 @@ import {
   loadViewerScopedTeamLocations,
 } from "@/lib/reporting-manager-access.server";
 import { usesVenueSupervisorLocationRoster } from "@/lib/reporting-manager-locations";
+import { resolveDepartmentFilterIds } from "@/lib/department-alias-resolve.server";
 import {
   ORG_FOCUS_DEPARTMENTS,
   orgDepartmentIdsFor,
@@ -452,10 +453,11 @@ async function staffIdsForDepartment(
   supabase: AuthContext["supabase"],
   departmentId: string,
 ): Promise<string[]> {
+  const departmentIds = await resolveDepartmentFilterIds([departmentId]);
   const { data: links, error } = await supabase
     .from("staff_departments")
     .select("staff_id")
-    .eq("department_id", departmentId);
+    .in("department_id", departmentIds);
   if (error) throw error;
   return [...new Set((links ?? []).map((row) => row.staff_id).filter((id): id is string => Boolean(id)))];
 }
@@ -531,7 +533,7 @@ async function resolveShowOnlyDepartmentIds(input: {
   showOnlyOrgDepartments?: readonly OrgFocusDepartment[] | null;
 }): Promise<string[]> {
   if (input.showOnlyDepartmentIds?.length) {
-    return [...new Set(input.showOnlyDepartmentIds.filter(Boolean))];
+    return resolveDepartmentFilterIds(input.showOnlyDepartmentIds);
   }
   const focus = [...new Set((input.showOnlyOrgDepartments ?? []).filter(Boolean))];
   if (focus.length === 0) return [];
