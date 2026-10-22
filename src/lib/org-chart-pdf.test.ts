@@ -218,6 +218,74 @@ describe("organization chart PDF", () => {
     }
   });
 
+  it("paginates a wide top-down chart without slicing cards across page edges", async () => {
+    const people = new Map<string, OrgChartPdfPerson>([
+      ["adil", person("adil", "Adil Bashir Ahmed", "Managing Director")],
+      ["mohamad", person("mohamad", "Mohamad Ali Hassan Awada", "General Manager")],
+      ["rajan", person("rajan", "Rajan Pathak", "Head of Operations")],
+    ]);
+    const childIdsOf = new Map<string, string[]>([
+      ["adil", ["mohamad"]],
+      ["mohamad", ["rajan"]],
+    ]);
+    const supervisors: string[] = [];
+    for (let site = 0; site < 6; site += 1) {
+      const supervisorId = `sup-${site}`;
+      supervisors.push(supervisorId);
+      people.set(supervisorId, person(supervisorId, `Site Supervisor ${site + 1}`, "Sr. Site Supervisor"));
+      const reports: string[] = [];
+      for (let report = 0; report < 8; report += 1) {
+        const staffId = `staff-${site}-${report}`;
+        reports.push(staffId);
+        people.set(staffId, person(staffId, `Crew Member ${site + 1}-${report + 1}`, "Crew"));
+      }
+      childIdsOf.set(supervisorId, reports);
+    }
+    childIdsOf.set("rajan", supervisors);
+
+    const input = {
+      rootIds: ["adil"],
+      childIdsOf,
+      people,
+      title: "Company hierarchy",
+      generatedAt,
+      layout: "levels" as const,
+      maxPage: 2000,
+    };
+    const plan = prepareOrgChartPdf(input);
+    expect(plan.chartWidth).toBeGreaterThan(plan.chartHeight);
+    expect(plan.tiles.length).toBeGreaterThan(1);
+    for (const card of plan.cards) {
+      const homes = plan.tiles.filter((tile) => orgChartPdfCardOnTile(card, tile));
+      expect(homes).toHaveLength(1);
+      const tile = homes[0];
+      if (!tile) continue;
+      const frame = orgChartPdfCardFrame(card, tile);
+      expect(frame.left).toBeGreaterThanOrEqual(ORG_PDF_MARGIN - 0.5);
+      expect(frame.top).toBeGreaterThanOrEqual(ORG_PDF_HEADER - 0.5);
+      expect(frame.right).toBeLessThanOrEqual(tile.pageWidth - ORG_PDF_MARGIN + 0.5);
+      expect(frame.bottom).toBeLessThanOrEqual(tile.pageHeight - ORG_PDF_FOOTER + 0.5);
+    }
+
+    const doc = await buildOrgChartPdf(input);
+    expect(doc.getNumberOfPages()).toBe(plan.tiles.length);
+    const raw = Buffer.from(doc.output("arraybuffer")).toString("latin1");
+    const boxes = [...raw.matchAll(/\/MediaBox \[([^\]]+)\]/g)].map((match) => {
+      const parts = match[1]?.trim().split(/\s+/).map(Number) ?? [];
+      return { width: parts[2] ?? 0, height: parts[3] ?? 0 };
+    });
+    expect(boxes).toHaveLength(plan.tiles.length);
+    plan.tiles.forEach((tile, index) => {
+      expect(boxes[index]?.width).toBeCloseTo(tile.pageWidth, 0);
+      expect(boxes[index]?.height).toBeCloseTo(tile.pageHeight, 0);
+    });
+    expect(raw).toContain("Adil Bashir");
+    // Wrapped name lines are separate PDF text objects.
+    expect(raw).toContain("Supervisor 6");
+    expect(raw).toContain("Crew Member");
+    expect(raw).toContain("6-8");
+  });
+
   it("builds a PDF blob that contains the sample names, titles, and reporting curves", async () => {
     const people = new Map<string, OrgChartPdfPerson>([
       ["adil", person("adil", "Adil Bashir Ahmed", "Managing Director")],

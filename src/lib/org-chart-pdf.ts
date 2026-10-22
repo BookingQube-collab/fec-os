@@ -19,6 +19,11 @@ export const ORG_PDF_CARD_PAD = 8;
 export const ORG_PDF_TITLE_BLOCK = 12;
 /** PDF user-space limit used by common viewers (200 inches). */
 export const ORG_PDF_MAX_PAGE = 14400;
+/**
+ * Preferred tile budget so wide top-down charts split into readable pages
+ * instead of one oversized landscape sheet that looks cropped when opened.
+ */
+export const ORG_PDF_TILE_PAGE = 2880;
 const ORG_PDF_MIN_PAGE_WIDTH = 720;
 const ORG_PDF_MIN_PAGE_HEIGHT = 480;
 const CHART_PAD = 16;
@@ -39,7 +44,7 @@ export type OrgChartPdfRequest = {
   rtl?: boolean;
   title: string;
   generatedAt?: Date;
-  /** Test hook. Production uses the PDF page-size limit. */
+  /** Test hook. Production uses ORG_PDF_TILE_PAGE (capped at ORG_PDF_MAX_PAGE). */
   maxPage?: number;
   /** On-screen layout to mirror. The export always includes every report. */
   layout?: OrgChartViewMode;
@@ -142,10 +147,25 @@ function axisSlices(total: number, limit: number, spans: readonly Span[]): Array
     guard += 1;
     let end = Math.min(origin + cap, size);
     if (end < size - 0.5) {
-      const crossing = spans.filter((span) => span.start > origin + 0.5 && span.start < end && span.end > end + 0.5);
-      if (crossing.length) {
-        const snap = Math.min(...crossing.map((span) => span.start));
-        if (snap > origin + 1) end = snap;
+      // Keep pulling the cut back until it does not fall through any card.
+      // One snap can still bisect another card that fit inside the original
+      // window — common across a wide top-down rank of siblings.
+      let pullGuard = 0;
+      while (pullGuard < 200) {
+        pullGuard += 1;
+        const cut = spans.filter((span) => span.start < end - 0.5 && span.end > end + 0.5);
+        if (!cut.length) break;
+        const snappable = cut.filter((span) => span.start > origin + 0.5);
+        if (snappable.length) {
+          const snap = Math.min(...snappable.map((span) => span.start));
+          if (snap <= origin + 1) break;
+          end = snap;
+          continue;
+        }
+        // A card that began on this slice is wider than the remaining window —
+        // extend just far enough to keep the name on one page.
+        end = Math.min(size, Math.max(end, ...cut.map((span) => span.end)));
+        break;
       }
     }
     if (end <= origin + 0.5) end = Math.min(size, origin + cap);
@@ -159,9 +179,9 @@ export function tileOrgChartPdf(
   chartWidth: number,
   chartHeight: number,
   cards: readonly Pick<OrgChartPdfCard, "x" | "y" | "width" | "height">[],
-  maxPage = ORG_PDF_MAX_PAGE,
+  maxPage = ORG_PDF_TILE_PAGE,
 ): OrgChartPdfTile[] {
-  const limit = Math.max(ORG_PDF_MIN_PAGE_WIDTH, maxPage);
+  const limit = Math.min(ORG_PDF_MAX_PAGE, Math.max(ORG_PDF_MIN_PAGE_WIDTH, maxPage));
   const maxContentW = Math.max(1, limit - ORG_PDF_MARGIN * 2);
   const maxContentH = Math.max(1, limit - ORG_PDF_HEADER - ORG_PDF_FOOTER);
   const xSpans = cards.map((card) => ({ start: card.x, end: card.x + card.width }));
