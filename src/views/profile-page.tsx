@@ -202,7 +202,11 @@ export default function ProfilePage() {
 
   const digitalSignature = useQuery({
     queryKey: queryKeys.account.digitalSignature(),
-    queryFn: () => getMyDigitalSignature(),
+    queryFn: async () => {
+      const result = await getMyDigitalSignature();
+      if (!result.ok) throw new Error(result.error);
+      return result.data;
+    },
     enabled: Boolean(user),
   });
 
@@ -348,7 +352,8 @@ export default function ProfilePage() {
     setSignatureBusy(true);
     try {
       const dataUrl = await readFileAsDataUrl(file);
-      await uploadMyDigitalSignature({ dataUrl });
+      const result = await uploadMyDigitalSignature({ dataUrl });
+      if (!result.ok) throw new Error(result.error);
       await digitalSignature.refetch();
       toast.success(t("account.profile.signatureSaved"));
     } catch (err) {
@@ -363,7 +368,8 @@ export default function ProfilePage() {
     if (signatureBusy) return;
     setSignatureBusy(true);
     try {
-      await deleteMyDigitalSignature();
+      const result = await deleteMyDigitalSignature();
+      if (!result.ok) throw new Error(result.error);
       await digitalSignature.refetch();
       toast.success(t("account.profile.signatureRemoved"));
     } catch (err) {
@@ -377,7 +383,8 @@ export default function ProfilePage() {
     if (signatureBusy) return;
     setSignatureBusy(true);
     try {
-      await setMySignatureAutoApply({ autoApply: next });
+      const result = await setMySignatureAutoApply({ autoApply: next });
+      if (!result.ok) throw new Error(result.error);
       await digitalSignature.refetch();
       toast.success(
         next ? t("account.profile.signatureAutoApplyOn") : t("account.profile.signatureAutoApplyOff"),

@@ -42,6 +42,29 @@ export function isSignatureMime(value: string | null | undefined): value is Sign
   return (SIGNATURE_MIME_TYPES as readonly string[]).includes(mime);
 }
 
+/** data:image/...;base64,... — group 1 = mime, group 2 = payload (must be captured). */
+const SIGNATURE_DATA_URL =
+  /^data:(image\/(?:jpeg|jpg|png|webp|svg\+xml));base64,([a-z0-9+/=\s]+)$/i;
+
+/** Decode a browser FileReader data URL into bytes for storage upload. */
+export function decodeSignatureDataUrl(raw: string): { bytes: Buffer; contentType: SignatureMime } {
+  const compact = raw.replace(/\s/g, "");
+  const match = compact.match(SIGNATURE_DATA_URL);
+  if (!match?.[1] || !match[2]) {
+    throw new Error("Signature must be a PNG, JPEG, WebP, or SVG image.");
+  }
+  const contentType = (match[1].toLowerCase() === "image/jpg" ? "image/jpeg" : match[1].toLowerCase()) as SignatureMime;
+  if (!isSignatureMime(contentType)) {
+    throw new Error("Signature must be a PNG, JPEG, WebP, or SVG image.");
+  }
+  const bytes = Buffer.from(match[2], "base64");
+  if (bytes.length < 32) throw new Error("Signature image is empty.");
+  if (bytes.length > SIGNATURE_MAX_BYTES) {
+    throw new Error("Signature image must be 2 MB or smaller.");
+  }
+  return { bytes, contentType };
+}
+
 /**
  * Senior positions: exec / GM / HR roles, plus HOO, GM, site supervisor,
  * F&B manager, and other supervisor titles.

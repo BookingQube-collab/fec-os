@@ -6,20 +6,22 @@ import { z } from "zod";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import {
   canUploadDigitalSignature,
+  decodeSignatureDataUrl,
   extensionForSignatureMime,
-  isSignatureMime,
-  SIGNATURE_MAX_BYTES,
   signatureStoragePath,
   STAFF_SIGNATURES_BUCKET,
 } from "@/lib/digital-signature";
 import { loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
 import { ForbiddenError } from "@/lib/server/authorize";
-import { createAuthenticatedAction, createAuthenticatedActionNoInput } from "@/lib/server/create-action";
+import {
+  createAuthenticatedAction,
+  createAuthenticatedActionNoInput,
+  createSafeAuthenticatedAction,
+  createSafeAuthenticatedActionNoInput,
+} from "@/lib/server/create-action";
 
 const AVATAR_MAX_CHARS = 350_000;
 const AVATAR_DATA_URL = /^data:image\/(?:jpeg|png|webp);base64,[a-z0-9+/=\s]+$/i;
-const SIGNATURE_DATA_URL =
-  /^data:(image\/(?:jpeg|jpg|png|webp|svg\+xml));base64,[a-z0-9+/=\s]+$/i;
 
 const updateSchema = z.object({
   display_name: z.string().trim().min(1).max(120),
@@ -63,24 +65,6 @@ async function assertCanManageSignature(context: {
     throw new ForbiddenError("Digital signatures are available for senior positions only.");
   }
   return linked;
-}
-
-function decodeSignatureDataUrl(raw: string): { bytes: Buffer; contentType: string } {
-  const compact = raw.replace(/\s/g, "");
-  const match = compact.match(SIGNATURE_DATA_URL);
-  if (!match) {
-    throw new Error("Signature must be a PNG, JPEG, WebP, or SVG image.");
-  }
-  const contentType = match[1]!.toLowerCase() === "image/jpg" ? "image/jpeg" : match[1]!.toLowerCase();
-  if (!isSignatureMime(contentType)) {
-    throw new Error("Signature must be a PNG, JPEG, WebP, or SVG image.");
-  }
-  const bytes = Buffer.from(match[2]!, "base64");
-  if (bytes.length < 32) throw new Error("Signature image is empty.");
-  if (bytes.length > SIGNATURE_MAX_BYTES) {
-    throw new Error("Signature image must be 2 MB or smaller.");
-  }
-  return { bytes, contentType };
 }
 
 async function signedPreviewUrl(path: string | null | undefined): Promise<string | null> {
@@ -134,7 +118,7 @@ export const getMyAccountSnapshot = createAuthenticatedActionNoInput(async (cont
 });
 
 /** Whether the signed-in user may manage a digital signature, plus current settings. */
-export const getMyDigitalSignature = createAuthenticatedActionNoInput(async (context) => {
+export const getMyDigitalSignature = createSafeAuthenticatedActionNoInput(async (context) => {
   const linked = await loadLinkedStaffRecord(context.userId).catch(() => null);
   const canManage = canUploadDigitalSignature({
     roles: context.roles ?? [],
@@ -170,7 +154,7 @@ export const getMyDigitalSignature = createAuthenticatedActionNoInput(async (con
 });
 
 /** Upload or replace the signed-in user's digital signature image. */
-export const uploadMyDigitalSignature = createAuthenticatedAction(
+export const uploadMyDigitalSignature = createSafeAuthenticatedAction(
   z.object({
     dataUrl: z.string().min(80).max(3_000_000),
   }),
@@ -215,7 +199,7 @@ export const uploadMyDigitalSignature = createAuthenticatedAction(
 );
 
 /** Remove the signed-in user's digital signature image (opt-in stays until they change it). */
-export const deleteMyDigitalSignature = createAuthenticatedActionNoInput(async (context) => {
+export const deleteMyDigitalSignature = createSafeAuthenticatedActionNoInput(async (context) => {
   await assertCanManageSignature(context);
   const { data, error } = await context.supabase
     .from("profiles")
@@ -234,11 +218,11 @@ export const deleteMyDigitalSignature = createAuthenticatedActionNoInput(async (
   if (path) {
     await supabaseAdmin.storage.from(STAFF_SIGNATURES_BUCKET).remove([path]).catch(() => undefined);
   }
-  return { ok: true as const };
+  return { removed: true as const };
 });
 
 /** Toggle whether approvals auto-stamp this signature on print slips. Default remains off. */
-export const setMySignatureAutoApply = createAuthenticatedAction(
+export const setMySignatureAutoApply = createSafeAuthenticatedAction(
   z.object({
     autoApply: z.boolean(),
   }),

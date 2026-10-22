@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   canUploadDigitalSignature,
+  decodeSignatureDataUrl,
   extensionForSignatureMime,
   isSignatureMime,
   signatureStoragePath,
@@ -71,5 +72,17 @@ describe("signature helpers", () => {
     expect(extensionForSignatureMime("image/jpeg")).toBe("jpg");
     expect(extensionForSignatureMime("image/svg+xml")).toBe("svg");
     expect(signatureStoragePath("u1", "png")).toBe("u1/signature.png");
+  });
+
+  it("decodes data URLs including the base64 payload (React #441 root cause)", () => {
+    // 1×1 PNG
+    const png =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    const decoded = decodeSignatureDataUrl(png);
+    expect(decoded.contentType).toBe("image/png");
+    expect(decoded.bytes.length).toBeGreaterThan(32);
+    expect(decoded.bytes[0]).toBe(0x89);
+
+    expect(() => decodeSignatureDataUrl("data:image/gif;base64,AAAA")).toThrow(/PNG, JPEG, WebP, or SVG/);
   });
 });
