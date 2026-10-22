@@ -31,6 +31,7 @@ import {
   missedPunchRequestSide,
   nextMissedPunchStep,
   buildMissedPunchNewValue,
+  previousPunchesFromOriginalValue,
   punchesFromCorrectionValue,
   punchCorrectionRequestSide,
   ownCorrectionRouteAfterLineManagerCheck,
@@ -97,6 +98,10 @@ export type MissedPunchQueueRow = {
   punchAt: string | null;
   punchInAt: string | null;
   punchOutAt: string | null;
+  /** Existing device / summary punch-in when the request did not ask to change it. */
+  previousPunchIn: string | null;
+  /** Existing device / summary punch-out when the request did not ask to change it. */
+  previousPunchOut: string | null;
   reviewNote: string | null;
   steps: Array<{
     stepRole: string;
@@ -470,9 +475,11 @@ function mapQueueRow(
   >,
   actorNames: Map<string, string>,
   canAct: boolean,
+  previousOverride?: { previousPunchIn: string | null; previousPunchOut: string | null } | null,
 ): MissedPunchQueueRow {
   const staff = row.staff_id ? staffById.get(row.staff_id) : undefined;
   const clocks = punchesOf(row.new_value);
+  const fromOriginal = previousPunchesFromOriginalValue(row.original_value);
   return {
     id: row.id,
     kind: String(row.kind),
@@ -494,6 +501,8 @@ function mapQueueRow(
     punchAt: clocks.punchAt,
     punchInAt: clocks.punchInAt,
     punchOutAt: clocks.punchOutAt,
+    previousPunchIn: fromOriginal.previousPunchIn ?? previousOverride?.previousPunchIn ?? null,
+    previousPunchOut: fromOriginal.previousPunchOut ?? previousOverride?.previousPunchOut ?? null,
     reviewNote: row.review_note ? String(row.review_note) : null,
     steps: steps
       .filter((step) => step.correction_id === row.id)
@@ -506,6 +515,76 @@ function mapQueueRow(
       })),
     canAct,
   };
+}
+
+/** Load existing in/out from daily summary when original_value did not store them. */
+async function previousPunchesFromSummaries(
+  rows: readonly CorrectionRow[],
+): Promise<Map<string, { previousPunchIn: string | null; previousPunchOut: string | null }>> {
+  const map = new Map<string, { previousPunchIn: string | null; previousPunchOut: string | null }>();
+  const needsHydration = rows.filter((row) => {
+    const fromOriginal = previousPunchesFromOriginalValue(row.original_value);
+    return !fromOriginal.previousPunchIn || !fromOriginal.previousPunchOut;
+  });
+  if (!needsHydration.length) return map;
+
+  const summaryIds = [
+    ...new Set(needsHydration.map((row) => row.summary_id).filter((id): id is string => Boolean(id))),
+  ];
+  const bySummary = new Map<string, { actual_in: string | null; actual_out: string | null }>();
+  if (summaryIds.length) {
+    const { data, error } = await supabaseAdmin
+      .from("attendance_daily_summary")
+      .select("id, actual_in, actual_out")
+      .in("id", summaryIds);
+    if (error) throw error;
+    for (const row of data ?? []) {
+      bySummary.set(String(row.id), {
+        actual_in: row.actual_in ? String(row.actual_in) : null,
+        actual_out: row.actual_out ? String(row.actual_out) : null,
+      });
+    }
+  }
+
+  const staffDateKeys = needsHydration
+    .filter((row) => row.staff_id && row.work_date && !row.summary_id)
+    .map((row) => ({
+      staffId: String(row.staff_id),
+      workDate: String(row.work_date).slice(0, 10),
+    }));
+  const byStaffDate = new Map<string, { actual_in: string | null; actual_out: string | null }>();
+  if (staffDateKeys.length) {
+    const staffIds = [...new Set(staffDateKeys.map((k) => k.staffId))];
+    const dates = [...new Set(staffDateKeys.map((k) => k.workDate))];
+    const { data, error } = await supabaseAdmin
+      .from("attendance_daily_summary")
+      .select("staff_id, work_date, actual_in, actual_out")
+      .in("staff_id", staffIds)
+      .in("work_date", dates);
+    if (error) throw error;
+    for (const row of data ?? []) {
+      const key = `${row.staff_id}|${String(row.work_date).slice(0, 10)}`;
+      byStaffDate.set(key, {
+        actual_in: row.actual_in ? String(row.actual_in) : null,
+        actual_out: row.actual_out ? String(row.actual_out) : null,
+      });
+    }
+  }
+
+  for (const row of needsHydration) {
+    const fromOriginal = previousPunchesFromOriginalValue(row.original_value);
+    const fromSummary =
+      (row.summary_id ? bySummary.get(String(row.summary_id)) : null) ??
+      (row.staff_id && row.work_date
+        ? byStaffDate.get(`${row.staff_id}|${String(row.work_date).slice(0, 10)}`)
+        : null);
+    if (!fromSummary) continue;
+    map.set(row.id, {
+      previousPunchIn: fromOriginal.previousPunchIn ?? fromSummary.actual_in,
+      previousPunchOut: fromOriginal.previousPunchOut ?? fromSummary.actual_out,
+    });
+  }
+  return map;
 }
 
 export async function listMissedPunchCorrections(args: {
@@ -522,7 +601,7 @@ export async function listMissedPunchCorrections(args: {
     loadSiteSupervisorCorrectionTeamIds(args.userId),
   ]);
   const columns =
-    "id, location_id, staff_id, work_date, summary_id, kind, reason, status, requested_by, requested_at, current_step_role, review_note, new_value, request_number";
+    "id, location_id, staff_id, work_date, summary_id, kind, reason, status, requested_by, requested_at, current_step_role, review_note, new_value, original_value, request_number";
   const base = () =>
     supabaseAdmin
       .from("attendance_corrections")
@@ -604,6 +683,7 @@ export async function listMissedPunchCorrections(args: {
       },
     ]),
   );
+  const previousById = await previousPunchesFromSummaries(visible);
   const mapped = visible.map((row) =>
     mapQueueRow(
       row,
@@ -611,6 +691,7 @@ export async function listMissedPunchCorrections(args: {
       staffById,
       actorNames,
       canUserActOnCorrectionWithTeam(directory, args.userId, viewOf(row), teamStaffIds),
+      previousById.get(row.id) ?? null,
     ),
   );
   return args.actionableOnly ? employeeHomeCorrectionRows(mapped) : mapped;

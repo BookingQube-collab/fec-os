@@ -663,22 +663,46 @@ export function buildMissedPunchNewValue(args: {
 
 /**
  * Times to print on one correction card.
- * Combined requests show both clocks; legacy single-side rows leave the other side empty.
+ * Requested clocks win; when the request is only punch-in or only punch-out, the other
+ * side falls back to the existing device / attendance punch (original_value or summary).
  */
 export function correctionCardClocks(
   punchType: CorrectionPunchSide | null,
   punchAt: string | null,
-  extras?: { punchInAt?: string | null; punchOutAt?: string | null },
+  extras?: {
+    punchInAt?: string | null;
+    punchOutAt?: string | null;
+    previousPunchIn?: string | null;
+    previousPunchOut?: string | null;
+  },
 ): { punchIn: string | null; punchOut: string | null } {
+  const previousIn = extras?.previousPunchIn?.trim() || null;
+  const previousOut = extras?.previousPunchOut?.trim() || null;
   if (extras && (extras.punchInAt != null || extras.punchOutAt != null || punchType === "both")) {
     return {
-      punchIn: extras.punchInAt ?? (punchType === "in" || punchType === "both" ? punchAt : null),
-      punchOut: extras.punchOutAt ?? (punchType === "out" ? punchAt : null),
+      punchIn:
+        extras.punchInAt ??
+        (punchType === "in" || punchType === "both" ? punchAt : null) ??
+        previousIn,
+      punchOut: extras.punchOutAt ?? (punchType === "out" ? punchAt : null) ?? previousOut,
     };
   }
   return {
-    punchIn: punchType === "in" || punchType === "both" ? punchAt : null,
-    punchOut: punchType === "out" ? punchAt : null,
+    punchIn: (punchType === "in" || punchType === "both" ? punchAt : null) ?? previousIn,
+    punchOut: (punchType === "out" ? punchAt : null) ?? previousOut,
+  };
+}
+
+/** Existing punches captured when the correction was filed (original_value). */
+export function previousPunchesFromOriginalValue(
+  value: Record<string, unknown> | null | undefined,
+): { previousPunchIn: string | null; previousPunchOut: string | null } {
+  if (!value || typeof value !== "object") {
+    return { previousPunchIn: null, previousPunchOut: null };
+  }
+  return {
+    previousPunchIn: isoFromValue(value.actual_in ?? value.actualIn ?? value.previous_punch_in),
+    previousPunchOut: isoFromValue(value.actual_out ?? value.actualOut ?? value.previous_punch_out),
   };
 }
 

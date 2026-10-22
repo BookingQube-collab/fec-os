@@ -3566,6 +3566,36 @@
   overflow-wrap: anywhere;
 }
 
+.hd-approval__kind--in {
+  background: color-mix(in oklab, #16a34a 18%, white);
+  color: #166534;
+}
+
+.hd-approval__kind--out {
+  background: color-mix(in oklab, #ea580c 18%, white);
+  color: #9a3412;
+}
+
+.hd-approval__kind--both {
+  background: color-mix(in oklab, #7c3aed 18%, white);
+  color: #5b21b6;
+}
+
+.dark .hd-approval__kind--in {
+  background: color-mix(in oklab, #22c55e 28%, transparent);
+  color: #86efac;
+}
+
+.dark .hd-approval__kind--out {
+  background: color-mix(in oklab, #f97316 28%, transparent);
+  color: #fdba74;
+}
+
+.dark .hd-approval__kind--both {
+  background: color-mix(in oklab, #a78bfa 28%, transparent);
+  color: #ddd6fe;
+}
+
 .hd-approval__facts {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

@@ -8,6 +8,7 @@ import {
   correctionCardClocks,
   correctionIdsForReview,
   correctionPunchAccepted,
+  previousPunchesFromOriginalValue,
   punchesFromCorrectionValue,
   correctionVisibleToUser,
   employeeHomeCorrectionRows,
@@ -323,6 +324,33 @@ describe("missed punch approval chain", () => {
     ).toEqual({
       punchIn: "2026-09-24T12:00:00+03:00",
       punchOut: "2026-09-24T09:00:00+03:00",
+    });
+    expect(
+      correctionCardClocks("out", "2026-10-07T20:00:00+03:00", {
+        punchOutAt: "2026-10-07T20:00:00+03:00",
+        previousPunchIn: "2026-10-07T09:05:00+03:00",
+      }),
+    ).toEqual({
+      punchIn: "2026-10-07T09:05:00+03:00",
+      punchOut: "2026-10-07T20:00:00+03:00",
+    });
+    expect(
+      correctionCardClocks("in", "2026-10-07T09:15:00+03:00", {
+        punchInAt: "2026-10-07T09:15:00+03:00",
+        previousPunchOut: "2026-10-07T18:00:00+03:00",
+      }),
+    ).toEqual({
+      punchIn: "2026-10-07T09:15:00+03:00",
+      punchOut: "2026-10-07T18:00:00+03:00",
+    });
+    expect(
+      previousPunchesFromOriginalValue({
+        actual_in: "2026-10-07T09:05:00+03:00",
+        actual_out: null,
+      }),
+    ).toEqual({
+      previousPunchIn: "2026-10-07T09:05:00+03:00",
+      previousPunchOut: null,
     });
     expect(punchAtFromCorrectionValue({ punch_at: "2026-09-24T22:59:31+03:00", punch_type: "in" })).toBe(
       "2026-09-24T22:59:31+03:00",

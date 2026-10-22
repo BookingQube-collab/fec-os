@@ -31,10 +31,21 @@ import { STALE } from "@/lib/query-client";
 
 type CorrectionListRow = Awaited<ReturnType<typeof listAttendanceCorrections>>[number];
 
+/** Matches resubmitMissedPunchRequest / updateMissedPunchRequest server args. */
+type ResubmitMissedPunchInput = {
+  correctionId: string;
+  reason?: string;
+  punchInTime?: string | null;
+  punchOutTime?: string | null;
+  punchTime?: string;
+};
+
 function rowClocks(row: CorrectionListRow) {
   return correctionCardClocks(row.punchType, row.punchAt, {
     punchInAt: row.punchInAt,
     punchOutAt: row.punchOutAt,
+    previousPunchIn: row.previousPunchIn,
+    previousPunchOut: row.previousPunchOut,
   });
 }
 
@@ -43,6 +54,13 @@ function punchTypeLabel(row: CorrectionListRow, t: (key: string) => string): str
   if (row.punchType === "in") return t("hr.me.punchIn");
   if (row.punchType === "out") return t("hr.me.punchOut");
   return t("hr.me.punchCorrection");
+}
+
+function punchTypeKindClass(punchType: CorrectionListRow["punchType"]): string {
+  if (punchType === "in") return "hd-approval__kind hd-approval__kind--in";
+  if (punchType === "out") return "hd-approval__kind hd-approval__kind--out";
+  if (punchType === "both") return "hd-approval__kind hd-approval__kind--both";
+  return "hd-approval__kind";
 }
 
 function toMissedPunchPrintPayload(
@@ -160,7 +178,9 @@ export function MissedPunchApprovalQueue({
                       </h4>
                       {row.employeeCode ? <p className="hd-approval__code">{row.employeeCode}</p> : null}
                     </div>
-                    {punchLabel ? <span className="hd-approval__kind">{punchLabel}</span> : null}
+                    {punchLabel ? (
+                      <span className={punchTypeKindClass(row.punchType)}>{punchLabel}</span>
+                    ) : null}
                   </header>
                   <dl className="hd-approval__facts">
                     <div className="hd-approval__fact">
@@ -299,7 +319,7 @@ export function MyMissedPunchRequests() {
     staleTime: STALE.people,
   });
   const saveEdit = useMutation({
-    mutationFn: resubmitMissedPunchRequest,
+    mutationFn: (input: ResubmitMissedPunchInput) => resubmitMissedPunchRequest(input),
     onSuccess: () => {
       toast.success(t("hr.me.punchEditSaved"));
       setEditingId(null);
@@ -514,8 +534,8 @@ export function MissedPunchRequestButton({
     onError: (e: Error) => toast.error(e.message),
   });
   const resubmit = useMutation({
-    mutationFn: resubmitMissedPunchRequest,
-    onSuccess: (_result, variables: { correctionId: string }) => {
+    mutationFn: (input: ResubmitMissedPunchInput) => resubmitMissedPunchRequest(input),
+    onSuccess: (_result, variables) => {
       const edited = (mine.data ?? []).find((row) => row.id === variables.correctionId);
       if (edited?.status === "pending") toast.success(t("hr.me.punchEditSaved"));
       else if (_result.approverCount === 0) toast.message(t("hr.me.savedNoSupervisor"));
