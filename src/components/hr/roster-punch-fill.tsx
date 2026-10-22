@@ -15,7 +15,14 @@ import { mayFillRosterDevicePunches } from "@/lib/attendance-hr/roster-punch-fil
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 
-export function RosterPunchFill({ jobTitle }: { jobTitle?: string | null }) {
+export function RosterPunchFill({
+  jobTitle,
+  embedded = false,
+}: {
+  jobTitle?: string | null;
+  /** Hide title/hint when the parent already labels the job (e.g. Correction tabs). */
+  embedded?: boolean;
+}) {
   const { t } = useTranslation();
   const roles = useUserRoles();
   const allowed = mayFillRosterDevicePunches({ roles, jobTitle });
@@ -63,10 +70,12 @@ export function RosterPunchFill({ jobTitle }: { jobTitle?: string | null }) {
         approve.mutate();
       }}
     >
-      <div>
-        <h3 className="text-sm font-semibold">{t("hr.me.rosterFillTitle")}</h3>
-        <p className="mt-1 text-xs text-muted-foreground">{t("hr.me.rosterFillHint")}</p>
-      </div>
+      {!embedded ? (
+        <div>
+          <h3 className="text-sm font-semibold">{t("hr.me.rosterFillTitle")}</h3>
+          <p className="mt-1 text-xs text-muted-foreground">{t("hr.me.rosterFillHint")}</p>
+        </div>
+      ) : null}
       <div>
         <Label className="text-xs">{t("hr.me.rosterFillStaff")}</Label>
         <SearchableSelect

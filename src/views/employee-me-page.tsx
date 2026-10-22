@@ -11,10 +11,9 @@ import {
   MissedPunchApprovalQueue,
   MyMissedPunchRequests,
 } from "@/components/attendance-hr/missed-punch-approval-queue";
-import { PunchCorrectionRequest } from "@/components/attendance-hr/punch-correction-request";
-import { MyDayCorrectionApprovals, MyDayLeaveApprovals } from "@/components/hr/my-day-approvals";
+import { MyDayLeaveApprovals } from "@/components/hr/my-day-approvals";
 import { IncompletePunchRosterSelf } from "@/components/hr/incomplete-punch-roster-self";
-import { RosterPunchFill } from "@/components/hr/roster-punch-fill";
+import { MeCorrectionPanel } from "@/components/hr/me-correction-panel";
 import { EmployeeAttendanceCalendar } from "@/components/hr/employee-attendance-calendar";
 import { EmployeeIssuesList, EmployeeRosterList } from "@/components/hr/employee-self-dashboard";
 import { SelfCheckCard } from "@/components/hr/self-check-card";
@@ -629,9 +628,7 @@ export default function EmployeeMePage() {
 
               {active === "correction" && person ? (
                 <EssPanel id="me-correction" title={t("hr.me.correction")} hint={t("hr.me.correctionHint")}>
-                  <MyDayCorrectionApprovals jobTitle={person.jobTitle} />
-                  <RosterPunchFill jobTitle={person.jobTitle} />
-                  <PunchCorrectionRequest
+                  <MeCorrectionPanel
                     jobTitle={person.jobTitle}
                     department={person.department}
                     selfStaff={{
@@ -640,7 +637,6 @@ export default function EmployeeMePage() {
                       employeeCode: person.employeeCode,
                     }}
                   />
-                  <MyMissedPunchRequests />
                 </EssPanel>
               ) : null}
 

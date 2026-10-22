@@ -18,9 +18,12 @@ import { STALE } from "@/lib/query-client";
 export function MyDayCorrectionApprovals({
   jobTitle,
   staffRole,
+  showTitle = true,
 }: {
   jobTitle?: string | null;
   staffRole?: string | null;
+  /** When false, omit the queue heading (parent already labels the job). */
+  showTitle?: boolean;
 }) {
   const { t } = useTranslation();
   const roles = useUserRoles();
@@ -34,7 +37,10 @@ export function MyDayCorrectionApprovals({
   if (reports.isPending || !show) return null;
   return (
     <div id="me-punch-approvals" className="hd-stack">
-      <MissedPunchApprovalQueue actionableOnly title={t("hr.me.approvalsTitle")} />
+      <MissedPunchApprovalQueue
+        actionableOnly
+        title={showTitle ? t("hr.me.approvalsTitle") : undefined}
+      />
     </div>
   );
 }

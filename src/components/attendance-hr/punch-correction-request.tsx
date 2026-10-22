@@ -32,10 +32,13 @@ export function PunchCorrectionRequest({
   jobTitle = null,
   department = null,
   selfStaff = null,
+  embedded = false,
 }: {
   jobTitle?: string | null;
   department?: string | null;
   selfStaff?: { staffId: string; fullName: string; employeeCode: string | null } | null;
+  /** Hide title/hint when the parent already labels the job (e.g. Correction tabs). */
+  embedded?: boolean;
 }) {
   const { t } = useTranslation();
   const roles = useUserRoles();
@@ -132,14 +135,16 @@ export function PunchCorrectionRequest({
         submit.mutate();
       }}
     >
-      <div>
-        <h3 className="text-sm font-semibold">Request a punch correction</h3>
-        <p className="mt-1 text-xs text-muted-foreground">
-          {forTeam
-            ? `This person reports to you. You request and approve as their supervisor; ${opsLabel} gives the final operations approval, then HR.`
-            : `Correct a wrong punch-in or punch-out for yourself. Your line manager / supervisor approves first, then ${opsLabel}, then HR.`}
-        </p>
-      </div>
+      {!embedded ? (
+        <div>
+          <h3 className="text-sm font-semibold">{t("hr.me.correctionRequestTitle")}</h3>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {forTeam
+              ? t("hr.me.correctionRequestHintTeam", { ops: opsLabel })
+              : t("hr.me.correctionRequestHintSelf", { ops: opsLabel })}
+          </p>
+        </div>
+      ) : null}
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
           <Label className="text-xs">Person</Label>
