@@ -254,9 +254,20 @@ export function AppTopbar() {
                 type="button"
                 variant="default"
                 size="icon"
-                className="overflow-hidden text-xs font-bold"
+                className="overflow-hidden p-0 text-xs font-bold"
+                aria-label={displayName}
               >
-                {initials || <User className="h-4 w-4" />}
+                {profile?.avatar_url ? (
+                  // Profile avatars are data URLs from profiles.avatar_url — not remote CDN paths.
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={profile.avatar_url}
+                    alt=""
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  initials || <User className="h-4 w-4" />
+                )}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-[14rem]">
