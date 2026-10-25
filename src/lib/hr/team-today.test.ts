@@ -6,6 +6,7 @@ import {
   classifyTeamTodayStatus,
   countTeamTodayPeople,
   filterTeamTodayByLocation,
+  normalizeTeamTodayLeaveType,
   showsSupervisorTeamToday,
   summarizeTeamTodayByLocation,
   teamTodayCompanyWide,
@@ -167,6 +168,8 @@ describe("team today status", () => {
   });
 
   it("classifies present, annual leave, sick leave, and not present", () => {
+    expect(normalizeTeamTodayLeaveType("annual_leave")).toBe("annual");
+    expect(normalizeTeamTodayLeaveType("sick")).toBe("sick");
     expect(
       classifyTeamTodayStatus({ punched: true, leaves: [], today: TODAY }),
     ).toBe("present");
@@ -174,6 +177,14 @@ describe("team today status", () => {
       classifyTeamTodayStatus({
         punched: true,
         leaves: [{ leaveType: "annual", status: "approved", dateFrom: TODAY, dateTo: TODAY }],
+        today: TODAY,
+      }),
+    ).toBe("annual_leave");
+    expect(
+      classifyTeamTodayStatus({
+        punched: false,
+        // Roster / attendance_leave_records spelling
+        leaves: [{ leaveType: "annual_leave", status: "approved", dateFrom: TODAY, dateTo: TODAY }],
         today: TODAY,
       }),
     ).toBe("annual_leave");

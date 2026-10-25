@@ -6,6 +6,7 @@ import { qatarTodayYmd } from "@/lib/attendance-hr/dashboard";
 import {
   attendanceRowCountsAsPresent,
   buildTeamToday,
+  normalizeTeamTodayLeaveType,
   teamTodayCompanyWide,
   type TeamTodayAnnualBalance,
   type TeamTodayLeave,
@@ -173,6 +174,16 @@ async function loadPunchedStaffIds(staffIds: readonly string[], today: string): 
 
 async function loadLeaves(staffIds: readonly string[], today: string): Promise<Array<TeamTodayLeave & { staffId: string }>> {
   const leaves: Array<TeamTodayLeave & { staffId: string }> = [];
+  const seen = new Set<string>();
+  const pushLeave = (row: TeamTodayLeave & { staffId: string }) => {
+    const leaveType = normalizeTeamTodayLeaveType(row.leaveType);
+    if (!leaveType || !row.staffId) return;
+    const key = `${row.staffId}:${leaveType}:${row.status}:${row.dateFrom}:${row.dateTo}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    leaves.push({ ...row, leaveType });
+  };
+
   for (const chunk of chunks(staffIds, 80)) {
     const { data, error } = await supabaseAdmin
       .from("hr_leave_requests")
@@ -185,12 +196,34 @@ async function loadLeaves(staffIds: readonly string[], today: string): Promise<A
     for (const row of data ?? []) {
       const staffId = row.staff_id ? String(row.staff_id) : "";
       if (!staffId) continue;
-      leaves.push({
+      pushLeave({
         staffId,
         leaveType: String(row.leave_type ?? ""),
         status: String(row.status ?? ""),
         dateFrom: String(row.date_from ?? ""),
         dateTo: String(row.date_to ?? ""),
+      });
+    }
+
+    // Roster annual/sick (and HR leave already synced) live here — without this,
+    // Team Today only counted hr_leave_requests and missed roster-only leave.
+    const { data: dayLeaves, error: dayLeaveError } = await supabaseAdmin
+      .from("attendance_leave_records")
+      .select("staff_id, leave_type, leave_date")
+      .eq("leave_date", today)
+      .in("staff_id", [...chunk])
+      .in("leave_type", ["annual_leave", "sick_leave", "annual", "sick"]);
+    if (dayLeaveError) throw new Error(dayLeaveError.message);
+    for (const row of dayLeaves ?? []) {
+      const staffId = row.staff_id ? String(row.staff_id) : "";
+      if (!staffId) continue;
+      const leaveDate = String(row.leave_date ?? today).slice(0, 10);
+      pushLeave({
+        staffId,
+        leaveType: String(row.leave_type ?? ""),
+        status: "approved",
+        dateFrom: leaveDate,
+        dateTo: leaveDate,
       });
     }
   }

@@ -84,6 +84,19 @@ export function attendanceRowCountsAsPresent(row: TeamTodayPunchRow): boolean {
   return PRESENT_DAY_STATUSES.has(String(row.status ?? ""));
 }
 
+/**
+ * HR leave requests use `annual` / `sick`. Roster + attendance_leave_records use
+ * `annual_leave` / `sick_leave`. Team Today treats both as the same statuses.
+ */
+export function normalizeTeamTodayLeaveType(raw: string | null | undefined): "annual" | "sick" | null {
+  const value = String(raw ?? "")
+    .trim()
+    .toLowerCase();
+  if (value === "annual" || value === "annual_leave") return "annual";
+  if (value === "sick" || value === "sick_leave") return "sick";
+  return null;
+}
+
 function coversToday(leave: TeamTodayLeave, today: string): boolean {
   if (leave.status !== "approved") return false;
   const from = leave.dateFrom.slice(0, 10);
@@ -93,16 +106,20 @@ function coversToday(leave: TeamTodayLeave, today: string): boolean {
 
 /**
  * Approved sick leave covering today, then approved annual leave, then a punch.
- * Pending leave stays off this list. Any other approved type does not become annual or sick.
+ * Sources: approved HR leave requests and roster-synced attendance leave rows
+ * (both normalized to annual / sick). Pending leave stays off this list.
  */
 export function classifyTeamTodayStatus(input: {
   punched: boolean;
   leaves: readonly TeamTodayLeave[];
   today: string;
 }): TeamTodayStatus {
-  const covering = input.leaves.filter((leave) => coversToday(leave, input.today));
-  if (covering.some((leave) => leave.leaveType === "sick")) return "sick_leave";
-  if (covering.some((leave) => leave.leaveType === "annual")) return "annual_leave";
+  const covering = input.leaves
+    .filter((leave) => coversToday(leave, input.today))
+    .map((leave) => normalizeTeamTodayLeaveType(leave.leaveType))
+    .filter((leaveType): leaveType is "annual" | "sick" => leaveType != null);
+  if (covering.includes("sick")) return "sick_leave";
+  if (covering.includes("annual")) return "annual_leave";
   if (input.punched) return "present";
   return "not_present";
 }
