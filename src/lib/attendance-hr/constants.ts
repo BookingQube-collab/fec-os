@@ -10,10 +10,11 @@ export const DEFAULT_TIMEZONE = "Asia/Qatar";
 export const ADMS_ONLINE_WINDOW_MS = 300_000;
 /**
  * Skip last_adms_at writes on idle polls. Must stay under ADMS_ONLINE_WINDOW_MS.
- * 180s + Delay=120 keeps Online (300s) with margin across Fluid instances when
+ * 240s + Delay=120 keeps Online (300s) with margin across Fluid instances when
  * seeded from attendance_devices.last_adms_at (in-memory alone resets on cold start).
+ * DB-side conditional UPDATE also uses this window (multi-instance races).
  */
-export const ADMS_HEARTBEAT_TOUCH_MS = 180_000;
+export const ADMS_HEARTBEAT_TOUCH_MS = 240_000;
 
 export function shouldTouchAdmsHeartbeat(
   lastTouchMs: number,

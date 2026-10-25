@@ -2335,7 +2335,7 @@ describe("isAdmsDeviceOnline", () => {
 
   it("throttles idle heartbeat writes inside the online window", () => {
     expect(ADMS_HEARTBEAT_TOUCH_MS).toBeLessThan(ADMS_ONLINE_WINDOW_MS);
-    expect(ADMS_HEARTBEAT_TOUCH_MS).toBeGreaterThanOrEqual(120_000);
+    expect(ADMS_HEARTBEAT_TOUCH_MS).toBeGreaterThanOrEqual(180_000);
     expect(shouldTouchAdmsHeartbeat(0, ADMS_HEARTBEAT_TOUCH_MS)).toBe(true);
     expect(shouldTouchAdmsHeartbeat(1_000, 1_000 + ADMS_HEARTBEAT_TOUCH_MS - 1)).toBe(false);
     const dbAt = new Date(now.getTime() - 30_000).toISOString();

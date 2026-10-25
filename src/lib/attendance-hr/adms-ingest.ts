@@ -4,7 +4,7 @@ import type { Database } from "@/integrations/supabase/types";
 import { insertAttendancePunchRows } from "./adms-punch-batch";
 import { noteAdmsIngestCounts, noteAdmsRecalc, timeAdmsDb } from "./adms-perf";
 import { planAdmsRecalc } from "./adms-recalc-plan";
-import { DEFAULT_RULES, DEFAULT_SHIFT } from "./constants";
+import { ADMS_HEARTBEAT_TOUCH_MS, DEFAULT_RULES, DEFAULT_SHIFT } from "./constants";
 import {
   buildPunchRows,
   deviceNameByBiometricFromMappings,
@@ -447,6 +447,11 @@ export async function touchAdmsDevice(
     endpoint?: string | null;
     sourceIp?: string | null;
     pushver?: string | null;
+    /**
+     * Idle getrequest/cdata heartbeat. Skip the row write when another Fluid
+     * instance already refreshed last_adms_at inside ADMS_HEARTBEAT_TOUCH_MS.
+     */
+    idleThrottle?: boolean;
   },
 ) {
   const update: Record<string, unknown> = {
@@ -461,12 +466,25 @@ export async function touchAdmsDevice(
   if (patch.endpoint) update.last_adms_endpoint = patch.endpoint;
   if (patch.sourceIp) update.last_adms_source_ip = patch.sourceIp;
   if (patch.pushver) update.last_adms_pushver = patch.pushver;
-  const { error } = await sb.from("attendance_devices").update(update).eq("id", deviceId);
+
+  const apply = async (payload: Record<string, unknown>) => {
+    let q = sb.from("attendance_devices").update(payload).eq("id", deviceId);
+    if (patch.idleThrottle) {
+      const cutoff = new Date(Date.now() - ADMS_HEARTBEAT_TOUCH_MS).toISOString();
+      // Concurrent instances may all pass the in-memory/DB-seeded app throttle;
+      // only one row write should win until the window elapses again.
+      // Quote the ISO stamp — PostgREST treats bare `:` as syntax.
+      q = q.or(`last_adms_at.is.null,last_adms_at.lt."${cutoff}"`);
+    }
+    return q;
+  };
+
+  const { error } = await apply(update);
   if (error && /last_adms_endpoint|last_adms_source_ip|last_adms_pushver/i.test(error.message)) {
     delete update.last_adms_endpoint;
     delete update.last_adms_source_ip;
     delete update.last_adms_pushver;
-    const retry = await sb.from("attendance_devices").update(update).eq("id", deviceId);
+    const retry = await apply(update);
     if (retry.error && /adms_|connection_mode/i.test(retry.error.message)) {
       await sb.from("attendance_devices").update({ last_sync_at: new Date().toISOString() }).eq("id", deviceId);
     }

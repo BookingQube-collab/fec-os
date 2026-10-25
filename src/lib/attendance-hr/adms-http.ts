@@ -67,6 +67,7 @@ async function touchHeartbeat(
       endpoint: meta?.endpoint,
       sourceIp: meta?.sourceIp,
       pushver: meta?.pushver,
+      idleThrottle: true,
     }));
     device.last_adms_at = new Date(now).toISOString();
     return true;
@@ -86,14 +87,17 @@ async function observeDevice(
   endpoint: string,
   pushver: string | null,
   sn: string,
+  options?: { skipHeartbeat?: boolean },
 ) {
   const meta = requestMeta(request, endpoint, pushver);
   let touched = false;
-  try {
-    touched = await touchHeartbeat(device, meta);
-    if (touched) rememberDevice(sn, device);
-  } catch (e) {
-    console.error("adms heartbeat touch failed:", e);
+  if (!options?.skipHeartbeat) {
+    try {
+      touched = await touchHeartbeat(device, meta);
+      if (touched) rememberDevice(sn, device);
+    } catch (e) {
+      console.error("adms heartbeat touch failed:", e);
+    }
   }
   // Diagnostic probe only when we wrote a heartbeat (or first sighting) — cuts
   // attendance_adms_connection_tests SELECTs on every idle getrequest.
@@ -265,9 +269,9 @@ async function handleAdmsPostInner(request: Request, slug?: string[]) {
 
   const auth = await authorize(request, q.sn, q.pushcommkey, endpoint);
   if (auth.error) return auth.error;
-  await observeDevice(auth.device, request, endpoint, q.pushver, q.sn);
 
   if (endpoint === "devicecmd") {
+    await observeDevice(auth.device, request, endpoint, q.pushver, q.sn);
     const body = await readBodyText(request);
     const ack = parseAdmsDeviceCmdAck(body);
     if (ack) {
@@ -290,7 +294,15 @@ async function handleAdmsPostInner(request: Request, slug?: string[]) {
   const table = q.table === "unknown" && body ? "ATTLOG" : q.table;
   if (table === "ATTLOG") setAdmsPerfCategory("attlog");
   else if (table === "OPERLOG" || table === "USERINFO" || table === "USER") setAdmsPerfCategory("user_sync");
-  else if (endpoint !== "devicecmd") setAdmsPerfCategory("idle_poll");
+  else setAdmsPerfCategory("idle_poll");
+
+  // ATTLOG/USER ingest always touchAdmsDevice at the end — skip the idle heartbeat
+  // write here so each punch is one device UPDATE, not two.
+  const ingestTouchesDevice =
+    table === "ATTLOG" || table === "OPERLOG" || table === "USERINFO" || table === "USER";
+  await observeDevice(auth.device, request, endpoint, q.pushver, q.sn, {
+    skipHeartbeat: ingestTouchesDevice,
+  });
 
   try {
     const result = await ingestAdmsPayload(supabaseAdmin, {
@@ -306,6 +318,12 @@ async function handleAdmsPostInner(request: Request, slug?: string[]) {
       rememberDevice(q.sn, { ...auth.device, adms_attlog_stamp: q.stamp });
     } else if (q.stamp && (table === "OPERLOG" || table === "USERINFO" || table === "USER")) {
       rememberDevice(q.sn, { ...auth.device, adms_operlog_stamp: q.stamp });
+    }
+    if (ingestTouchesDevice) {
+      const nowIso = new Date().toISOString();
+      auth.device.last_adms_at = nowIso;
+      lastHeartbeatTouch.set(auth.device.id, Date.now());
+      rememberDevice(q.sn, { ...auth.device, last_adms_at: nowIso });
     }
     return admsText(admsOk(result.users + result.punches + result.duplicates));
   } catch (e) {

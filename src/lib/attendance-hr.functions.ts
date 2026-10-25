@@ -4096,7 +4096,10 @@ async function loadListingGapRosterAndPunchDays(
           .order("attendance_date", { ascending: true })
           .order("id", { ascending: true });
       } else {
-        q = q.order("id", { ascending: true });
+        // Match idx_attendance_logs_mapped_attendance_date (attendance_date, id).
+        q = q
+          .order("attendance_date", { ascending: true })
+          .order("id", { ascending: true });
       }
       q = q.range(from, to);
       const { data: page, error } = await q;
