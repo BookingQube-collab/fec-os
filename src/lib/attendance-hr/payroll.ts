@@ -3,7 +3,8 @@ import { isAttendanceListingWorkedDay } from "@/lib/attendance-hr/export-workboo
 import type { AttendanceHrReportRow } from "@/lib/attendance-hr/report";
 
 /** Undertime (short_hours) is not blocking — Generate pays roster/attendance days as worked;
- *  short-hour pay cuts are a manual payslip Other deduction if HR chooses. */
+ *  short-hour pay cuts are a manual payslip Other deduction if HR chooses.
+ *  Complete In/Out pairs never block (ignore stale missed_punch / review_required stamps). */
 export const PAYROLL_BLOCKING_STATUSES = new Set(["missed_punch", "incomplete", "review_required"]);
 
 export const PAYROLL_BLOCK_REASON_LABELS: Record<string, string> = {
@@ -67,9 +68,17 @@ export type PayrollStaffRow = {
   locationLabel?: string;
 };
 
-export function isPayrollBlockingDay(row: Pick<PayrollDayInput, "status" | "missed_punch">): boolean {
-  if (row.missed_punch) return true;
-  return PAYROLL_BLOCKING_STATUSES.has(String(row.status ?? ""));
+/** True when the day has both clock-in and clock-out (listing treats as a worked day). */
+export function hasPayrollCompletePunches(
+  day: Pick<PayrollDayInput, "actual_in" | "actual_out">,
+): boolean {
+  return Boolean(day.actual_in) && Boolean(day.actual_out);
+}
+
+export function isPayrollBlockingDay(
+  row: Pick<PayrollDayInput, "status" | "missed_punch" | "actual_in" | "actual_out">,
+): boolean {
+  return payrollBlockReasonCode(row) != null;
 }
 
 /** Same Present/Late day the attendance listing counts as a worked day. */
@@ -105,7 +114,9 @@ export function payrollDayToListingRow(day: PayrollDayInput): AttendanceHrReport
 }
 
 export function isPayrollPresentDay(row: PayrollDayInput): boolean {
-  return isAttendanceListingWorkedDay(payrollDayToListingRow(row));
+  if (isAttendanceListingWorkedDay(payrollDayToListingRow(row))) return true;
+  // Listing keeps a protected "Review required" badge, but both punches are still a worked day.
+  return hasPayrollCompletePunches(row) && String(row.status ?? "") === "review_required";
 }
 
 /** Worked days inside an optional hire/exit window. One row per staff+date after listing collapse. */
@@ -171,13 +182,25 @@ export function collapsePayrollDayInputs(days: PayrollDayInput[]): PayrollDayInp
   return [...byKey.values(), ...undated];
 }
 
-/** Canonical block code for a day — shared by aggregate + Fix UI. */
+/** Canonical block code for a day — shared by aggregate + Fix UI.
+ *  Aligns with attendance listing: both punches ⇒ not a missed punch / not Ready-blocking.
+ *  Labels: xor or flagged incomplete punches → missed_punch; status-only gaps → incomplete /
+ *  review_required (never relabel complete-punch review days as Missed punch). */
 export function payrollBlockReasonCode(
-  day: Pick<PayrollDayInput, "status" | "missed_punch">,
+  day: Pick<PayrollDayInput, "status" | "missed_punch" | "actual_in" | "actual_out">,
 ): string | null {
-  if (day.missed_punch || String(day.status ?? "") === "missed_punch") return "missed_punch";
+  // Listing already shows Present/OT/Review with both times — Generate must Ready the same days.
+  if (hasPayrollCompletePunches(day)) return null;
+
   const status = String(day.status ?? "");
-  if (PAYROLL_BLOCKING_STATUSES.has(status)) return status;
+  const hasIn = Boolean(day.actual_in);
+  const hasOut = Boolean(day.actual_out);
+  const incompletePair = hasIn !== hasOut;
+
+  // True missed punch: one-sided punches, or explicit missed stamp when the pair is incomplete.
+  if (day.missed_punch || status === "missed_punch" || incompletePair) return "missed_punch";
+  if (status === "incomplete") return "incomplete";
+  if (status === "review_required") return "review_required";
   return null;
 }
 
@@ -238,8 +261,8 @@ export function aggregatePayrollRows(days: PayrollDayInput[]): PayrollStaffRow[]
     if (absenceStatus === "absent") current.daysAbsent += 1;
     if (status === "unpaid_leave") current.daysUnpaidLeave += 1;
     if (status === "late" || Number(day.late_minutes ?? 0) > 0) current.daysLate += 1;
-    if (day.missed_punch || status === "missed_punch") current.missedPunches += 1;
     const blockCode = payrollBlockReasonCode(day);
+    if (blockCode === "missed_punch") current.missedPunches += 1;
     if (blockCode) {
       current.blockingDays += 1;
       const workDate = String(day.work_date ?? "").slice(0, 10);

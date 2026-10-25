@@ -12,12 +12,37 @@ import {
 } from "./payroll";
 
 describe("payroll readiness", () => {
-  it("blocks missed punch and review days", () => {
+  it("blocks incomplete punches and status-only review gaps; ignores stale flags when In/Out exist", () => {
     expect(isPayrollBlockingDay({ status: "present", missed_punch: false })).toBe(false);
     expect(isPayrollBlockingDay({ status: "present", missed_punch: true })).toBe(true);
     expect(isPayrollBlockingDay({ status: "review_required" })).toBe(true);
     expect(payrollBlockReasonCode({ status: "present", missed_punch: true })).toBe("missed_punch");
     expect(payrollBlockReasonCode({ status: "review_required" })).toBe("review_required");
+    // Stale missed_punch / review_required with a complete pair must not block Ready.
+    expect(
+      isPayrollBlockingDay({
+        status: "review_required",
+        missed_punch: true,
+        actual_in: "2026-09-30T07:25:13.000Z",
+        actual_out: "2026-09-30T17:41:21.000Z",
+      }),
+    ).toBe(false);
+    expect(
+      payrollBlockReasonCode({
+        status: "missed_punch",
+        missed_punch: true,
+        actual_in: "2026-09-30T07:25:13.000Z",
+        actual_out: "2026-09-30T17:41:21.000Z",
+      }),
+    ).toBe(null);
+    expect(
+      payrollBlockReasonCode({
+        status: "present",
+        missed_punch: false,
+        actual_in: "2026-09-30T07:25:13.000Z",
+        actual_out: null,
+      }),
+    ).toBe("missed_punch");
   });
 
   it("aggregates a mapped employee for payroll export", () => {
@@ -139,6 +164,48 @@ describe("payroll readiness", () => {
       "Missed punch",
       "Review required",
     ]);
+  });
+
+  it("marks complete punches with review_required Ready (Abigial-style listing day)", () => {
+    const [row] = aggregatePayrollRows([
+      {
+        staff_id: "abigial",
+        staff_name: "Abigial Danso kumi",
+        employee_code: "KDS-CC-STF01",
+        work_date: "2026-09-30",
+        status: "review_required",
+        missed_punch: true,
+        actual_in: "2026-09-30T07:25:13.000Z",
+        actual_out: "2026-09-30T17:41:21.000Z",
+        worked_minutes: 616,
+        overtime_minutes: 41,
+        punch_count: 2,
+      },
+    ]);
+    expect(row.daysPresent).toBe(1);
+    expect(row.payrollReady).toBe(true);
+    expect(row.blockingDays).toBe(0);
+    expect(row.missedPunches).toBe(0);
+    expect(row.blockReasons).toEqual([]);
+    expect(row.blockDays).toEqual([]);
+  });
+
+  it("still blocks true one-sided punches as Missed punch, not Review required", () => {
+    const [row] = aggregatePayrollRows([
+      {
+        staff_id: "e",
+        staff_name: "Eve",
+        work_date: "2026-09-30",
+        status: "review_required",
+        missed_punch: true,
+        actual_in: "2026-09-30T07:25:13.000Z",
+        actual_out: null,
+        punch_count: 1,
+      },
+    ]);
+    expect(row.payrollReady).toBe(false);
+    expect(row.blockReasons).toEqual([{ code: "missed_punch", count: 1 }]);
+    expect(formatPayrollBlockReasons(row.blockReasons)).toEqual(["Missed punch"]);
   });
 
   it("collapses multisite ABSENT fillers so Present matches listing", () => {
