@@ -11,7 +11,11 @@ import {
   setAdmsPerfCategory,
   timeAdmsDb,
 } from "./adms-perf";
-import { chunkPunchRows, punchInsertFailureMessage } from "./adms-punch-batch";
+import {
+  chunkPunchRows,
+  partitionFreshPunchRows,
+  punchInsertFailureMessage,
+} from "./adms-punch-batch";
 import { planAdmsRecalc } from "./adms-recalc-plan";
 import { DEFAULT_SHIFT } from "./constants";
 import { assignAttendanceDate } from "./calculate";
@@ -159,7 +163,7 @@ describe("proposed ADMS recalc scope", () => {
   });
 });
 
-describe("proposed punch batch errors", () => {
+describe("punch batch helpers", () => {
   it("chunks without dropping or reordering rows", () => {
     expect(chunkPunchRows([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]]);
   });
@@ -171,5 +175,19 @@ describe("proposed punch batch errors", () => {
     );
     expect(punchInsertFailureMessage({ code: "42501", message: "permission denied" })).toBe("permission denied");
     expect(punchInsertFailureMessage(null)).toBeNull();
+  });
+
+  it("drops known punch hashes before insert", () => {
+    const { fresh, duplicates } = partitionFreshPunchRows(
+      [
+        { punch_hash: "a", id: 1 },
+        { punch_hash: "b", id: 2 },
+        { punch_hash: "a", id: 3 },
+        { punch_hash: null, id: 4 },
+      ],
+      ["a"],
+    );
+    expect(duplicates).toBe(2);
+    expect(fresh.map((row) => row.id)).toEqual([2, 4]);
   });
 });

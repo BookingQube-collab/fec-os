@@ -1,7 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { Database } from "@/integrations/supabase/types";
+import { insertAttendancePunchRows } from "./adms-punch-batch";
 import { noteAdmsIngestCounts, noteAdmsRecalc, timeAdmsDb } from "./adms-perf";
+import { planAdmsRecalc } from "./adms-recalc-plan";
 import { DEFAULT_RULES, DEFAULT_SHIFT } from "./constants";
 import {
   buildPunchRows,
@@ -18,7 +20,6 @@ import {
   buildAdmsAttlogQueryCommand,
   buildAdmsUserInfoQueryCommand,
   formatAdmsGetRequestCommand,
-  isIgnorablePunchInsertError,
   parseAdmsAttlog,
   parseAdmsUsers,
   type AdmsTable,
@@ -35,6 +36,8 @@ export type AdmsDeviceRow = {
   device_name: string;
   active: boolean;
   timezone: string | null;
+  /** Used to seed idle heartbeat throttle across Fluid cold starts. */
+  last_adms_at: string | null;
   adms_attlog_stamp: string | null;
   adms_operlog_stamp: string | null;
   adms_pending_cmd: string | null;
@@ -155,6 +158,7 @@ function mapAdmsDevice(row: Record<string, unknown>): AdmsDeviceRow {
     device_name: String(row.device_name),
     active: Boolean(row.active),
     timezone: row.timezone ? String(row.timezone) : null,
+    last_adms_at: row.last_adms_at ? String(row.last_adms_at) : null,
     adms_attlog_stamp: row.adms_attlog_stamp ? String(row.adms_attlog_stamp) : null,
     adms_operlog_stamp: row.adms_operlog_stamp ? String(row.adms_operlog_stamp) : null,
     adms_pending_cmd: typeof row.adms_pending_cmd === "string" ? row.adms_pending_cmd : null,
@@ -166,39 +170,74 @@ export async function findAdmsDeviceBySerial(sb: AdminClient, sn: string): Promi
   const serial = sn.trim();
   if (!serial) return null;
   const columnsWithCmd =
-    "id, location_id, company_id, serial_number, device_code, device_name, active, timezone, adms_attlog_stamp, adms_operlog_stamp, adms_pending_cmd, adms_cmd_id";
+    "id, location_id, company_id, serial_number, device_code, device_name, active, timezone, last_adms_at, adms_attlog_stamp, adms_operlog_stamp, adms_pending_cmd, adms_cmd_id";
   const columns =
-    "id, location_id, company_id, serial_number, device_code, device_name, active, timezone, adms_attlog_stamp, adms_operlog_stamp";
+    "id, location_id, company_id, serial_number, device_code, device_name, active, timezone, last_adms_at, adms_attlog_stamp, adms_operlog_stamp";
   const pattern = escapeIlike(serial);
 
+  // Exact match first (uses unique serial index); ilike only if the device
+  // sends odd casing/spacing that still matches the registered serial.
   let { data, error } = await sb
     .from("attendance_devices")
     .select(columnsWithCmd)
     .eq("active", true)
-    .ilike("serial_number", pattern)
+    .eq("serial_number", serial)
     .limit(1)
     .maybeSingle();
+  if (!data && !error) {
+    const fuzzy = await sb
+      .from("attendance_devices")
+      .select(columnsWithCmd)
+      .eq("active", true)
+      .ilike("serial_number", pattern)
+      .limit(1)
+      .maybeSingle();
+    data = fuzzy.data as typeof data;
+    error = fuzzy.error;
+  }
   if (error && /adms_pending_cmd|adms_cmd_id/i.test(error.message)) {
     const retry = await sb
       .from("attendance_devices")
       .select(columns)
       .eq("active", true)
-      .ilike("serial_number", pattern)
+      .eq("serial_number", serial)
       .limit(1)
       .maybeSingle();
     data = retry.data as typeof data;
     error = retry.error;
+    if (!data && !error) {
+      const fuzzy = await sb
+        .from("attendance_devices")
+        .select(columns)
+        .eq("active", true)
+        .ilike("serial_number", pattern)
+        .limit(1)
+        .maybeSingle();
+      data = fuzzy.data as typeof data;
+      error = fuzzy.error;
+    }
   }
   if (error && /adms_/i.test(error.message)) {
     const fallback = await sb
       .from("attendance_devices")
-      .select("id, location_id, company_id, serial_number, device_code, device_name, active, timezone")
+      .select("id, location_id, company_id, serial_number, device_code, device_name, active, timezone, last_adms_at")
       .eq("active", true)
-      .ilike("serial_number", pattern)
+      .eq("serial_number", serial)
       .limit(1)
       .maybeSingle();
     data = fallback.data as typeof data;
     error = fallback.error;
+    if (!data && !error) {
+      const fuzzy = await sb
+        .from("attendance_devices")
+        .select("id, location_id, company_id, serial_number, device_code, device_name, active, timezone, last_adms_at")
+        .eq("active", true)
+        .ilike("serial_number", pattern)
+        .limit(1)
+        .maybeSingle();
+      data = fuzzy.data as typeof data;
+      error = fuzzy.error;
+    }
   }
   if (error) throw error;
   if (data) return mapAdmsDevice(data as Record<string, unknown>);
@@ -207,7 +246,7 @@ export async function findAdmsDeviceBySerial(sb: AdminClient, sn: string): Promi
   if (scan.error && /adms_/i.test(scan.error.message)) {
     const fallback = await sb
       .from("attendance_devices")
-      .select("id, location_id, company_id, serial_number, device_code, device_name, active, timezone")
+      .select("id, location_id, company_id, serial_number, device_code, device_name, active, timezone, last_adms_at")
       .eq("active", true);
     const match = (fallback.data ?? []).find(
       (row) => String(row.serial_number ?? "").trim().toLowerCase() === serial.toLowerCase(),
@@ -524,17 +563,14 @@ export async function ingestAdmsPayload(
       staffByBiometric,
       deviceNameByBiometric,
     });
-    const insertFailures: string[] = [];
     const insertedStaff = new Set<string>();
     let unmappedInserts = 0;
-    for (const row of rows) {
-      const { error } = await timeAdmsDb(() => sb.from("attendance_logs").insert(row));
-      if (error) {
-        if (isIgnorablePunchInsertError(error)) duplicates += 1;
-        else insertFailures.push(error.message);
-        continue;
-      }
-      punchCount += 1;
+    const { inserted, duplicates: insertDupes } = await timeAdmsDb(() =>
+      insertAttendancePunchRows(sb, rows),
+    );
+    duplicates += insertDupes;
+    punchCount = inserted.length;
+    for (const row of inserted) {
       const staffId = row.staff_id ? String(row.staff_id) : "";
       if (staffId) insertedStaff.add(staffId);
       else unmappedInserts += 1;
@@ -548,13 +584,23 @@ export async function ingestAdmsPayload(
       insertedStaffCount: insertedStaff.size,
       unmappedInserts,
     });
-    if (insertFailures.length) {
-      throw new Error(insertFailures[0] ?? "Punch insert failed.");
-    }
-    if (minDate && maxDate) {
+    const plan = planAdmsRecalc(
+      inserted.map((row) => ({
+        staff_id: row.staff_id ? String(row.staff_id) : null,
+        attendance_date: row.attendance_date ? String(row.attendance_date) : null,
+      })),
+    );
+    if (plan.mode !== "skip") {
       const recalcStarted = performance.now();
       try {
-        await recalculateAttendanceRange(sb, input.device.location_id, minDate, maxDate);
+        if (plan.mode === "staff") {
+          await recalculateAttendanceRange(sb, input.device.location_id, plan.dateFrom, plan.dateTo, {
+            staffIds: plan.staffIds,
+            includeUnmappedPunches: plan.includeUnmappedPunches,
+          });
+        } else {
+          await recalculateAttendanceRange(sb, input.device.location_id, plan.dateFrom, plan.dateTo);
+        }
       } finally {
         noteAdmsRecalc(performance.now() - recalcStarted);
       }

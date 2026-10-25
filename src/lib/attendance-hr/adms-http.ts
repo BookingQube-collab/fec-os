@@ -25,15 +25,19 @@ import {
   parseAdmsQuery,
 } from "@/lib/attendance-hr/parse-adms";
 import { decodeAttendanceText } from "@/lib/attendance-hr/parse-attlog";
-import { shouldTouchAdmsHeartbeat } from "@/lib/attendance-hr/constants";
+import {
+  admsHeartbeatAnchorMs,
+  shouldTouchAdmsHeartbeat,
+} from "@/lib/attendance-hr/constants";
 import { runWithAdmsPerf, setAdmsPerfCategory, timeAdmsDb } from "@/lib/attendance-hr/adms-perf";
 import { admsAuthFailureMessage, validateAdmsCommKey, validateAdmsIp } from "@/lib/server/adms-auth";
 
 /** Identity cache for idle polls. Pending commands wait at most this long on a warm instance. */
-const DEVICE_CACHE_MS = 60_000;
+const DEVICE_CACHE_MS = 120_000;
 const deviceCache = new Map<string, { at: number; device: AdmsDeviceRow | null }>();
 const lastHeartbeatTouch = new Map<string, number>();
 const lastAuthRejectionNote = new Map<string, number>();
+const lastDiagnosticNote = new Map<string, number>();
 
 function serialKey(sn: string) {
   return sn.trim().toLowerCase();
@@ -50,22 +54,24 @@ function rememberDevice(sn: string, device: AdmsDeviceRow | null) {
 }
 
 async function touchHeartbeat(
-  deviceId: string,
+  device: AdmsDeviceRow,
   meta?: { endpoint?: string | null; sourceIp?: string | null; pushver?: string | null },
-) {
+): Promise<boolean> {
   const now = Date.now();
-  const prev = lastHeartbeatTouch.get(deviceId) ?? 0;
-  if (!shouldTouchAdmsHeartbeat(prev, now)) return;
-  lastHeartbeatTouch.set(deviceId, now);
+  const prev = admsHeartbeatAnchorMs(lastHeartbeatTouch.get(device.id) ?? 0, device.last_adms_at);
+  if (!shouldTouchAdmsHeartbeat(prev, now)) return false;
+  lastHeartbeatTouch.set(device.id, now);
   try {
-    await timeAdmsDb(() => touchAdmsDevice(supabaseAdmin, deviceId, {
+    await timeAdmsDb(() => touchAdmsDevice(supabaseAdmin, device.id, {
       error: null,
       endpoint: meta?.endpoint,
       sourceIp: meta?.sourceIp,
       pushver: meta?.pushver,
     }));
+    device.last_adms_at = new Date(now).toISOString();
+    return true;
   } catch (e) {
-    lastHeartbeatTouch.delete(deviceId);
+    lastHeartbeatTouch.delete(device.id);
     throw e;
   }
 }
@@ -79,21 +85,31 @@ async function observeDevice(
   request: Request,
   endpoint: string,
   pushver: string | null,
+  sn: string,
 ) {
   const meta = requestMeta(request, endpoint, pushver);
+  let touched = false;
   try {
-    await touchHeartbeat(device.id, meta);
+    touched = await touchHeartbeat(device, meta);
+    if (touched) rememberDevice(sn, device);
   } catch (e) {
     console.error("adms heartbeat touch failed:", e);
   }
-  await timeAdmsDb(() => noteAdmsDeviceRequest(supabaseAdmin, {
-    deviceId: device.id,
-    serialNumber: device.serial_number,
-    locationId: device.location_id,
-    endpoint,
-    sourceIp: meta.sourceIp,
-    pushver,
-  }));
+  // Diagnostic probe only when we wrote a heartbeat (or first sighting) — cuts
+  // attendance_adms_connection_tests SELECTs on every idle getrequest.
+  const now = Date.now();
+  const prevDiag = lastDiagnosticNote.get(device.id) ?? 0;
+  if (touched || shouldTouchAdmsHeartbeat(prevDiag, now)) {
+    lastDiagnosticNote.set(device.id, now);
+    await timeAdmsDb(() => noteAdmsDeviceRequest(supabaseAdmin, {
+      deviceId: device.id,
+      serialNumber: device.serial_number,
+      locationId: device.location_id,
+      endpoint,
+      sourceIp: meta.sourceIp,
+      pushver,
+    }));
+  }
 }
 
 function admsText(body: string, status = 200) {
@@ -184,7 +200,7 @@ async function authorize(request: Request, sn: string, queryKey: string | null, 
 async function handleGetRequest(request: Request, sn: string, queryKey: string | null, pushver: string | null) {
   const auth = await authorize(request, sn, queryKey, "getrequest");
   if (auth.error) return auth.error;
-  await observeDevice(auth.device, request, "getrequest", pushver);
+  await observeDevice(auth.device, request, "getrequest", pushver, sn);
   // Connection tests do not queue a command. Only a real punch/user fetch may occupy this poll.
   const command = pendingAdmsCommandLine(auth.device);
   if (!command) return admsText("OK");
@@ -213,7 +229,7 @@ async function handleAdmsGetInner(request: Request, slug?: string[]) {
   if (endpoint === "cdata" || endpoint === "registry" || endpoint === "root") {
     const auth = await authorize(request, q.sn, q.pushcommkey, endpoint);
     if (auth.error) return auth.error;
-    await observeDevice(auth.device, request, endpoint, q.pushver);
+    await observeDevice(auth.device, request, endpoint, q.pushver, q.sn);
     return admsText(
       buildAdmsHandshake({
         sn: q.sn,
@@ -225,7 +241,7 @@ async function handleAdmsGetInner(request: Request, slug?: string[]) {
 
   const auth = await authorize(request, q.sn, q.pushcommkey, endpoint);
   if (auth.error) return auth.error;
-  await observeDevice(auth.device, request, endpoint, q.pushver);
+  await observeDevice(auth.device, request, endpoint, q.pushver, q.sn);
   return admsText("OK");
 }
 
@@ -249,7 +265,7 @@ async function handleAdmsPostInner(request: Request, slug?: string[]) {
 
   const auth = await authorize(request, q.sn, q.pushcommkey, endpoint);
   if (auth.error) return auth.error;
-  await observeDevice(auth.device, request, endpoint, q.pushver);
+  await observeDevice(auth.device, request, endpoint, q.pushver, q.sn);
 
   if (endpoint === "devicecmd") {
     const body = await readBodyText(request);

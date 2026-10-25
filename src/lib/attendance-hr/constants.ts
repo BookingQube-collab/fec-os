@@ -8,8 +8,12 @@ export const DEFAULT_TIMEZONE = "Asia/Qatar";
  * Realtime=1 pushes attendance punches immediately and is independent of Delay.
  */
 export const ADMS_ONLINE_WINDOW_MS = 300_000;
-/** Skip last_adms_at writes on idle polls. Must stay under ADMS_ONLINE_WINDOW_MS. */
-export const ADMS_HEARTBEAT_TOUCH_MS = 60_000;
+/**
+ * Skip last_adms_at writes on idle polls. Must stay under ADMS_ONLINE_WINDOW_MS.
+ * 180s + Delay=120 keeps Online (300s) with margin across Fluid instances when
+ * seeded from attendance_devices.last_adms_at (in-memory alone resets on cold start).
+ */
+export const ADMS_HEARTBEAT_TOUCH_MS = 180_000;
 
 export function shouldTouchAdmsHeartbeat(
   lastTouchMs: number,
@@ -17,6 +21,19 @@ export function shouldTouchAdmsHeartbeat(
   minIntervalMs = ADMS_HEARTBEAT_TOUCH_MS,
 ): boolean {
   return now - lastTouchMs >= minIntervalMs;
+}
+
+/** Prefer the freshest of in-memory throttle and DB last_adms_at. */
+export function admsHeartbeatAnchorMs(
+  memoryTouchMs: number,
+  lastAdmsAt: string | Date | null | undefined,
+): number {
+  const fromMem = Number.isFinite(memoryTouchMs) ? memoryTouchMs : 0;
+  if (lastAdmsAt == null || lastAdmsAt === "") return fromMem;
+  const fromDb =
+    lastAdmsAt instanceof Date ? lastAdmsAt.getTime() : new Date(lastAdmsAt).getTime();
+  if (!Number.isFinite(fromDb)) return fromMem;
+  return Math.max(fromMem, fromDb);
 }
 
 /** True when the terminal actually contacted ADMS (cdata or getrequest) recently. */

@@ -1,4 +1,5 @@
 import { withAuthRouteRequest } from "@/lib/server/api-route";
+import { insertAttendancePunchRows } from "@/lib/attendance-hr/adms-punch-batch";
 import { DEFAULT_RULES, DEFAULT_SHIFT } from "@/lib/attendance-hr/constants";
 import { guardAttendanceUpload } from "@/lib/attendance-hr/file-guard";
 import { fileSha256 } from "@/lib/attendance-hr/hash";
@@ -320,18 +321,21 @@ async function processBatch(
 
       let fileImported = 0;
       let fileDup = 0;
-      for (const row of rows) {
-        const { error } = await context.supabase.from("attendance_logs").insert(row);
-        if (error) {
-          if (error.code === "23505" || /duplicate/i.test(error.message)) fileDup += 1;
-          else rejected += 1;
-        } else {
-          fileImported += 1;
+      try {
+        const { inserted, duplicates: insertDupes } = await insertAttendancePunchRows(
+          context.supabase,
+          rows,
+        );
+        fileDup = insertDupes;
+        fileImported = inserted.length;
+        for (const row of inserted) {
           if (!row.staff_id) unmatched += 1;
           const day = row.attendance_date;
           if (day && (!minDate || day < minDate)) minDate = day;
           if (day && (!maxDate || day > maxDate)) maxDate = day;
         }
+      } catch {
+        rejected += rows.length;
       }
       imported += fileImported;
       duplicates += fileDup;
