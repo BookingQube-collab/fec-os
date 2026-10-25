@@ -317,18 +317,32 @@ function mapPunchInboxRow(
   },
   actionUrl: string,
 ): InboxItem {
-  const ops = row.current_step_role === "ops";
+  const step = row.current_step_role;
   const who = (row.staffName ?? "").trim() || "Staff";
   const date = row.work_date ? String(row.work_date).slice(0, 10) : "";
+  const waitingFor =
+    step === "ops"
+      ? "operations approval"
+      : step === "hr"
+        ? "HR"
+        : step === "gm"
+          ? "General Manager"
+          : "their site supervisor";
+  const title =
+    step === "ops"
+      ? "Missed punch waiting for operations approval"
+      : step === "hr"
+        ? "Missed punch waiting for HR"
+        : step === "gm"
+          ? "Missed punch waiting for General Manager"
+          : "Missed punch request";
   return item({
     id: `punch:${row.id}`,
     kind: "notification",
     category: "people",
-    title: ops ? "Missed punch waiting for operations approval" : "Missed punch request",
+    title,
     titleKey: null,
-    body: ops
-      ? `${who} submitted a missed punch${date ? ` for ${date}` : ""}. It is waiting for operations approval.`
-      : `${who} submitted a missed punch${date ? ` for ${date}` : ""}. It is waiting for their line manager.`,
+    body: `${who} submitted a missed punch${date ? ` for ${date}` : ""}. It is waiting for ${waitingFor}.`,
     severity: "warning",
     actionUrl,
     readAt: null,
@@ -388,7 +402,10 @@ async function fetchMissedPunchItems(context: AuthContext, roles: AppRole[]): Pr
       .filter((row) => row.status === "pending")
       .slice(0, 12)
       .map((row) => {
-        const ops = row.currentStepRole === "ops" || row.currentStepRole === "hr";
+        const laterSeat =
+          row.currentStepRole === "ops" ||
+          row.currentStepRole === "hr" ||
+          row.currentStepRole === "gm";
         return mapPunchInboxRow(
           {
             id: row.id,
@@ -398,7 +415,7 @@ async function fetchMissedPunchItems(context: AuthContext, roles: AppRole[]): Pr
             requested_at: row.requestedAt,
             staffName: row.staffName,
           },
-          ops ? "/people/attendance/corrections" : "/hr/me#me-punch-approvals",
+          laterSeat ? "/people/attendance/corrections" : "/hr/me#me-punch-approvals",
         );
       });
   } catch {

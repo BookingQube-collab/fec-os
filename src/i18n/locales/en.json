@@ -9091,9 +9091,13 @@
         "punchTime": "Requested punch time",
         "reason": "Reason",
         "instruction": "Instruction: Attendance is updated only after the approval chain is complete.",
-        "sigManager": "Line manager signature",
-        "sigOps": "Operations signature",
-        "sigHr": "HR signature"
+        "sigSupervisor": "Supervisor signature",
+        "sigSite": "Sr. Site Supervisor signature",
+        "sigHoo": "Head of Operations signature",
+        "sigHr": "HR signature",
+        "sigGm": "General Manager signature",
+        "sigManager": "Sr. Site Supervisor signature",
+        "sigOps": "Head of Operations signature"
       }
     },
     "ot": {
@@ -10509,8 +10513,8 @@
       "correctionTabFillHint": "Copy roster shift times onto days with no device punch.",
       "correctionTabRequestHint": "Ask to fix a wrong punch-in or punch-out for yourself or your team.",
       "correctionRequestTitle": "Request a punch correction",
-      "correctionRequestHintSelf": "Correct a wrong punch-in or punch-out for yourself. Your line manager / supervisor approves first, then {{ops}}, then HR.",
-      "correctionRequestHintTeam": "This person reports to you. You request and approve as their supervisor; {{ops}} gives the final operations approval, then HR.",
+      "correctionRequestHintSelf": "Correct a wrong punch-in or punch-out for yourself. Your site supervisor (Sr. Site Supervisor) approves first, then {{ops}}, then HR, then General Manager.",
+      "correctionRequestHintTeam": "This person reports to you. You request and approve as their supervisor; {{ops}} gives the operations approval, then HR, then General Manager.",
       "rosterFillTitle": "Fill missed device punches",
       "rosterFillHint": "Choose one person and the dates they never punched on the device. Approve writes punch-in and punch-out from their roster shift. Days off, days with no shift, and days that already have a device punch are skipped.",
       "rosterFillStaff": "Staff",
@@ -10664,10 +10668,11 @@
       "savedNoSupervisor": "Request saved. No site supervisor login is linked for this location yet.",
       "sentToSupervisor": "Missed punch request sent to your site supervisor",
       "step": {
-        "manager": "site supervisor",
+        "manager": "Sr. Site Supervisor",
         "ops": "Head of Operations",
         "opsFnb": "F&B Manager",
-        "hr": "HR"
+        "hr": "HR",
+        "gm": "General Manager"
       },
       "staffStatus": {
         "active": "Active",

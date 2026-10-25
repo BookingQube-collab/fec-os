@@ -116,7 +116,7 @@ export function PunchCorrectionRequest({
             : `Sent to ${opsLabel}.`,
         );
       } else if (result.approverCount === 0) toast.message(t("hr.me.savedNoSupervisor"));
-      else toast.success("Sent to your line manager.");
+      else toast.success(t("hr.me.sentToSupervisor"));
       setPunchIn("");
       setPunchOut("");
       setReason("");
@@ -240,7 +240,7 @@ export function PunchCorrectionRequest({
           (!punchIn && !punchOut)
         }
       >
-        {forTeam ? `Approve and send to ${opsLabel}` : "Send to line manager"}
+        {forTeam ? `Approve and send to ${opsLabel}` : t("hr.me.sendToSupervisor")}
       </Button>
     </form>
   );

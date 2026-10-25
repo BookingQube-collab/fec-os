@@ -38,6 +38,8 @@ import {
   punchCorrectionRequestSide,
   requesterLineManagerUserIds,
   canSiteSupervisorActOnTeamCorrection,
+  isMissedPunchTeamSubmittedNote,
+  missedPunchPrintSignatureDone,
   shouldHealOwnCorrectionToOpsFirst,
   type ApprovalDirectory,
   type CorrectionApprovalView,
@@ -73,6 +75,7 @@ function directory(partial?: Partial<ApprovalDirectory>): ApprovalDirectory {
     fnbStaffIds: new Set(),
     opsManagerUserIdsByLocationId: new Map(),
     hrUserIds: [HR],
+    generalManagerUserIds: ["gm-login"],
     ...partial,
   };
 }
@@ -89,11 +92,17 @@ function row(partial?: Partial<CorrectionApprovalView>): CorrectionApprovalView 
 }
 
 describe("missed punch approval chain", () => {
-  it("uses the leave ladder manager → ops → hr", () => {
-    expect(missedPunchApprovalSteps().map((step) => step.stepRole)).toEqual(["manager", "ops", "hr"]);
+  it("uses supervisor → ops → hr → gm (OT-aligned ladder)", () => {
+    expect(missedPunchApprovalSteps().map((step) => step.stepRole)).toEqual([
+      "manager",
+      "ops",
+      "hr",
+      "gm",
+    ]);
     expect(nextMissedPunchStep("manager")).toBe("ops");
     expect(nextMissedPunchStep("ops")).toBe("hr");
-    expect(nextMissedPunchStep("hr")).toBeNull();
+    expect(nextMissedPunchStep("hr")).toBe("gm");
+    expect(nextMissedPunchStep("gm")).toBeNull();
   });
 
   it("offers both punch in and punch out on a correctable day, including when one punch exists", () => {
@@ -360,6 +369,7 @@ describe("missed punch approval chain", () => {
     expect(correctionPunchAccepted({ status: "pending", currentStepRole: "manager" })).toBe(false);
     expect(correctionPunchAccepted({ status: "pending", currentStepRole: "ops" })).toBe(false);
     expect(correctionPunchAccepted({ status: "pending", currentStepRole: "hr" })).toBe(true);
+    expect(correctionPunchAccepted({ status: "pending", currentStepRole: "gm" })).toBe(true);
     expect(correctionPunchAccepted({ status: "change_required", currentStepRole: null })).toBe(false);
     expect(correctionPunchAccepted({ status: "rejected", currentStepRole: null })).toBe(false);
   });
@@ -650,7 +660,12 @@ describe("missed punch approval chain", () => {
     });
     expect(route).toBe("line_manager");
     expect(correctionWaitingStep("line_manager")).toBe("manager");
-    expect(correctionStepSeed("line_manager").map((step) => step.status)).toEqual(["pending", "pending", "pending"]);
+    expect(correctionStepSeed("line_manager").map((step) => step.status)).toEqual([
+      "pending",
+      "pending",
+      "pending",
+      "pending",
+    ]);
     const ownRequest = row({
       staffId: managerStaff,
       requestedBy: managerUser,
@@ -730,6 +745,7 @@ describe("missed punch approval chain", () => {
       { stepOrder: 1, stepRole: "manager", status: "skipped" },
       { stepOrder: 2, stepRole: "ops", status: "pending" },
       { stepOrder: 3, stepRole: "hr", status: "pending" },
+      { stepOrder: 4, stepRole: "gm", status: "pending" },
     ]);
     const request = row({
       staffId: maryStaff,
@@ -907,6 +923,7 @@ describe("missed punch approval chain", () => {
       { stepOrder: 1, stepRole: "manager", status: "approved" },
       { stepOrder: 2, stepRole: "ops", status: "approved" },
       { stepOrder: 3, stepRole: "hr", status: "pending" },
+      { stepOrder: 4, stepRole: "gm", status: "pending" },
     ]);
     expect(correctionWaitingStep("hr")).toBe("hr");
   });
@@ -952,6 +969,7 @@ describe("missed punch approval chain", () => {
       { stepOrder: 1, stepRole: "manager", status: "approved" },
       { stepOrder: 2, stepRole: "ops", status: "pending" },
       { stepOrder: 3, stepRole: "hr", status: "pending" },
+      { stepOrder: 4, stepRole: "gm", status: "pending" },
     ]);
     const note = managerTeamCorrectionNote({
       managerName: "Ruben Yaralyan",
@@ -990,6 +1008,38 @@ describe("missed punch approval chain", () => {
     });
     expect(canUserActOnCorrection(dir, HR, waitingOnHr)).toBe(true);
     expect(canUserActOnCorrection(dir, RAJAN, waitingOnHr)).toBe(false);
+  });
+});
+
+describe("missed punch print signatures", () => {
+  it("fills print columns progressively and stamps supervisor only for team submit", () => {
+    const steps = [
+      { stepRole: "manager", status: "approved" },
+      { stepRole: "ops", status: "approved" },
+      { stepRole: "hr", status: "pending" },
+      { stepRole: "gm", status: "pending" },
+    ];
+    expect(missedPunchPrintSignatureDone("pending", steps, "supervisor", { teamSubmitted: true })).toBe(true);
+    expect(missedPunchPrintSignatureDone("pending", steps, "supervisor", { teamSubmitted: false })).toBe(false);
+    expect(missedPunchPrintSignatureDone("pending", steps, "site")).toBe(true);
+    expect(missedPunchPrintSignatureDone("pending", steps, "hoo")).toBe(true);
+    expect(missedPunchPrintSignatureDone("pending", steps, "hr")).toBe(false);
+    expect(missedPunchPrintSignatureDone("pending", steps, "gm")).toBe(false);
+    expect(isMissedPunchTeamSubmittedNote("Mary requested and approved this correction.")).toBe(true);
+  });
+
+  it("treats legacy approved rows without a gm step as fully signed", () => {
+    expect(
+      missedPunchPrintSignatureDone(
+        "approved",
+        [
+          { stepRole: "manager", status: "approved" },
+          { stepRole: "ops", status: "approved" },
+          { stepRole: "hr", status: "approved" },
+        ],
+        "gm",
+      ),
+    ).toBe(true);
   });
 });
 

@@ -32,6 +32,7 @@ function directory(partial?: Partial<ApprovalDirectory>): ApprovalDirectory {
     fnbStaffIds: new Set(),
     opsManagerUserIdsByLocationId: new Map(),
     hrUserIds: [HR],
+    generalManagerUserIds: [GM],
     ...partial,
   };
 }

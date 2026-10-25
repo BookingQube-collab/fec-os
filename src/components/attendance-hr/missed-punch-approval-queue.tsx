@@ -24,6 +24,7 @@ import {
   correctionCardClocks,
   groupOpenLegacyPunchPairs,
   isEditableMissedPunchStatus,
+  isMissedPunchTeamSubmittedNote,
   missedPunchRequestSide,
   punchTimeInputValue,
 } from "@/lib/attendance-hr/missed-punch-approval";
@@ -71,6 +72,12 @@ function toMissedPunchPrintPayload(
   const clocks = rowClocks(row);
   const inLabel = clockText(clocks.punchIn);
   const outLabel = clockText(clocks.punchOut);
+  const teamSubmitted =
+    isMissedPunchTeamSubmittedNote(row.reviewNote) || isMissedPunchTeamSubmittedNote(row.reason);
+  const managerStep = row.steps.find((step) => step.stepRole === "manager");
+  const opsStep = row.steps.find((step) => step.stepRole === "ops");
+  const hrStep = row.steps.find((step) => step.stepRole === "hr");
+  const gmStep = row.steps.find((step) => step.stepRole === "gm");
   return {
     requestNumber: row.requestNumber,
     requestDate: row.requestedAt.slice(0, 10),
@@ -88,6 +95,20 @@ function toMissedPunchPrintPayload(
           : outLabel,
     reason: row.reason,
     status: row.status,
+    teamSubmitted,
+    steps: row.steps.map((step) => ({
+      stepRole: step.stepRole,
+      status: step.status,
+      actedByName: step.actedByName,
+      actedAt: step.actedAt,
+    })),
+    supervisorSignature: teamSubmitted
+      ? { name: managerStep?.actedByName ?? null, at: managerStep?.actedAt ?? null }
+      : null,
+    siteSignature: { name: managerStep?.actedByName ?? null, at: managerStep?.actedAt ?? null },
+    hooSignature: { name: opsStep?.actedByName ?? null, at: opsStep?.actedAt ?? null },
+    hrSignature: { name: hrStep?.actedByName ?? null, at: hrStep?.actedAt ?? null },
+    gmSignature: { name: gmStep?.actedByName ?? null, at: gmStep?.actedAt ?? null },
   };
 }
 
@@ -98,7 +119,9 @@ function clockText(iso: string | null): string {
 function useStepLabel() {
   const { t } = useTranslation();
   return (step: string | null | undefined) => {
-    if (step === "manager" || step === "ops" || step === "hr") return t(`hr.me.step.${step}`);
+    if (step === "manager" || step === "ops" || step === "hr" || step === "gm") {
+      return t(`hr.me.step.${step}`);
+    }
     return t("hr.me.step.manager");
   };
 }
@@ -149,10 +172,11 @@ export function MissedPunchApprovalQueue({
         <div className="space-y-2 text-sm">
           <p className="font-medium">No missed punch requests are waiting on you.</p>
           <p className="text-muted-foreground">
-            A correction for yourself goes to your line manager, then Head of Operations (or F&B
-            Manager for F&B staff), then HR. When your reporting manager is already that ops seat,
-            the request waits there first. A team correction a manager files is approved and sent to
-            that same ops step, then HR.
+            A correction for yourself goes to your site supervisor (Sr. Site Supervisor), then Head
+            of Operations (or F&B Manager for F&B staff), then HR, then General Manager. When your
+            reporting manager is already that ops seat, the request waits there first. A team
+            correction a supervisor files is approved and sent to that same ops step, then HR, then
+            General Manager.
           </p>
         </div>
       ) : (

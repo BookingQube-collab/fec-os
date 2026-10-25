@@ -2963,7 +2963,7 @@ type LocationLookup = {
 };
 
 function asStepRole(value: unknown): MissedPunchStepRole | null {
-  if (value === "manager" || value === "ops" || value === "hr") return value;
+  if (value === "manager" || value === "ops" || value === "hr" || value === "gm") return value;
   return null;
 }
 

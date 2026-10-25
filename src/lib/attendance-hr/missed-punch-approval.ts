@@ -3,10 +3,14 @@ import {
   opsStepApproverUserIds,
   type OpsApprovalLane,
 } from "@/lib/approval-ops-routing";
-import { defaultLeaveApprovalSteps, type HrLeaveApprovalRole } from "@/lib/hr-leave";
 
-/** Same ladder as leave: line manager → ops (HoO or F&B Manager) → HR. */
-export type MissedPunchStepRole = HrLeaveApprovalRole;
+/**
+ * Punch-correction ladder (aligned with OT narrative):
+ * Sr. Site Supervisor → Head of Operations (or F&B Manager) → HR → General Manager.
+ * Supervisor submit is a print stamp when a team supervisor files and auto-approves the first seat.
+ */
+export const MISSED_PUNCH_STEP_ROLES = ["manager", "ops", "hr", "gm"] as const;
+export type MissedPunchStepRole = (typeof MISSED_PUNCH_STEP_ROLES)[number];
 export type { OpsApprovalLane };
 
 export type MissedPunchQueue = "waiting" | "mine";
@@ -43,10 +47,52 @@ export type ApprovalDirectory = {
    */
   opsManagerUserIdsByLocationId: ReadonlyMap<string, readonly string[]>;
   hrUserIds: readonly string[];
+  /** General Manager / branch_gm logins (final step after HR). */
+  generalManagerUserIds: readonly string[];
 };
 
 export function missedPunchApprovalSteps(): Array<{ stepOrder: number; stepRole: MissedPunchStepRole }> {
-  return defaultLeaveApprovalSteps();
+  return [
+    { stepOrder: 1, stepRole: "manager" },
+    { stepOrder: 2, stepRole: "ops" },
+    { stepOrder: 3, stepRole: "hr" },
+    { stepOrder: 4, stepRole: "gm" },
+  ];
+}
+
+/** Print-slip signature columns (supervisor submit + the four approval seats). */
+export type MissedPunchPrintSigKey = "supervisor" | "site" | "hoo" | "hr" | "gm";
+
+/**
+ * Progressive print stamps: fill a column once that seat has approved (or was skipped).
+ * Supervisor is only stamped when a team supervisor filed and auto-approved the manager seat.
+ */
+export function missedPunchPrintSignatureDone(
+  status: string | null | undefined,
+  steps: ReadonlyArray<{ stepRole: string; status: string }> | null | undefined,
+  key: MissedPunchPrintSigKey,
+  opts?: { teamSubmitted?: boolean },
+): boolean {
+  const byRole = new Map((steps ?? []).map((step) => [step.stepRole, step.status]));
+  const seatDone = (role: MissedPunchStepRole) => {
+    const seat = byRole.get(role);
+    if (seat === "approved" || seat === "skipped") return true;
+    // Legacy rows approved before the GM step existed.
+    if (status === "approved" && role === "gm" && !byRole.has("gm")) return true;
+    if (status === "approved" && !seat && (role === "manager" || role === "ops" || role === "hr")) {
+      return true;
+    }
+    return false;
+  };
+  if (key === "supervisor") return Boolean(opts?.teamSubmitted) && seatDone("manager");
+  if (key === "site") return seatDone("manager");
+  if (key === "hoo") return seatDone("ops");
+  if (key === "hr") return seatDone("hr");
+  return seatDone("gm");
+}
+
+export function isMissedPunchTeamSubmittedNote(note: string | null | undefined): boolean {
+  return /requested and approved/i.test(note ?? "");
 }
 
 export function nextMissedPunchStep(current: MissedPunchStepRole): MissedPunchStepRole | null {
@@ -259,10 +305,10 @@ export function correctionStepSeed(route: PunchCorrectionRoutedTo): Array<{
       return { stepOrder: step.stepOrder, stepRole: step.stepRole, status: "pending" };
     }
     if (route === "hr") {
-      if (step.stepRole === "hr") {
-        return { stepOrder: step.stepOrder, stepRole: step.stepRole, status: "pending" };
+      if (step.stepRole === "manager" || step.stepRole === "ops") {
+        return { stepOrder: step.stepOrder, stepRole: step.stepRole, status: "approved" };
       }
-      return { stepOrder: step.stepOrder, stepRole: step.stepRole, status: "approved" };
+      return { stepOrder: step.stepOrder, stepRole: step.stepRole, status: "pending" };
     }
     if (step.stepRole === "manager") {
       return { stepOrder: step.stepOrder, stepRole: step.stepRole, status: "approved" };
@@ -418,6 +464,9 @@ export function approverUserIdsForStep(
     // Operations staff → Head of Operations. F&B staff → F&B Manager. Never both.
     return opsStepApproverUserIds(directory, staffId);
   }
+  if (step === "gm") {
+    return [...directory.generalManagerUserIds];
+  }
   return [...directory.hrUserIds];
 }
 
@@ -524,6 +573,13 @@ export function correctionVisibleToUser(args: {
       approverUserIdsForStep(args.directory, "ops", args.row.locationId, args.row.staffId).includes(args.userId)
     );
   }
+  if (args.row.status === "pending" && args.row.currentStepRole === "gm") {
+    return (
+      managerStepApprovers(args.directory, args.row).includes(args.userId) ||
+      approverUserIdsForStep(args.directory, "ops", args.row.locationId, args.row.staffId).includes(args.userId) ||
+      approverUserIdsForStep(args.directory, "hr", args.row.locationId, args.row.staffId).includes(args.userId)
+    );
+  }
   return false;
 }
 
@@ -537,7 +593,8 @@ function userFollowsCorrection(
   return (
     managerStepApprovers(directory, row).includes(userId) ||
     approverUserIdsForStep(directory, "ops", row.locationId, row.staffId).includes(userId) ||
-    approverUserIdsForStep(directory, "hr", row.locationId, row.staffId).includes(userId)
+    approverUserIdsForStep(directory, "hr", row.locationId, row.staffId).includes(userId) ||
+    approverUserIdsForStep(directory, "gm", row.locationId, row.staffId).includes(userId)
   );
 }
 
@@ -833,7 +890,7 @@ export type AcceptedCorrectionPunch = {
 /**
  * The punch counts once ops (HoO / F&B Manager) has accepted it.
  * Waiting on the site supervisor (`manager` step → currentStepRole ops) does not.
- * After ops, the request waits on HR (`currentStepRole === "hr"`) and listing may show the clocks.
+ * After ops, the request waits on HR then GM; listing may show the clocks on those seats.
  * Rejected and change-required do not.
  */
 export function correctionPunchAccepted(row: {
@@ -842,7 +899,7 @@ export function correctionPunchAccepted(row: {
 }): boolean {
   if (row.status === "approved") return true;
   if (row.status !== "pending") return false;
-  return row.currentStepRole === "hr";
+  return row.currentStepRole === "hr" || row.currentStepRole === "gm";
 }
 
 export function applyAcceptedCorrectionTimes<
