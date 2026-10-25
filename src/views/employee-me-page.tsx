@@ -16,6 +16,7 @@ import { IncompletePunchRosterSelf } from "@/components/hr/incomplete-punch-rost
 import { MeCorrectionPanel } from "@/components/hr/me-correction-panel";
 import { EmployeeAttendanceCalendar } from "@/components/hr/employee-attendance-calendar";
 import { EmployeeIssuesList, EmployeeRosterList } from "@/components/hr/employee-self-dashboard";
+import { MySuggestionsPanel } from "@/components/hr/my-suggestions-panel";
 import { SelfCheckCard } from "@/components/hr/self-check-card";
 import { HrShell } from "@/components/hr/hr-shell";
 import {
@@ -90,6 +91,7 @@ type MeTab =
   | "roster"
   | "leave"
   | "issues"
+  | "suggestions"
   | "documents"
   | "announcements"
   | "tickets"
@@ -104,6 +106,7 @@ const TAB_HASH: Record<MeTab, string> = {
   roster: "#me-roster",
   leave: "#me-leave",
   issues: "#me-issues",
+  suggestions: "#me-suggestions",
   documents: "#me-documents",
   announcements: "#me-announcements",
   tickets: "#me-tickets",
@@ -454,6 +457,7 @@ export default function EmployeeMePage() {
     ...(person
       ? [
           ...(canIssues ? [{ id: "issues" as const, label: t("hr.me.myIssues") }] : []),
+          { id: "suggestions" as const, label: t("hr.me.suggestions") },
           { id: "documents" as const, label: t("hr.me.myDocuments") },
           { id: "announcements" as const, label: t("hr.me.announcements") },
           { id: "tickets" as const, label: t("hr.me.myAirTickets") },
@@ -834,6 +838,12 @@ export default function EmployeeMePage() {
               {active === "issues" && person && canIssues ? (
                 <EssPanel id="me-issues" title={t("hr.me.myIssues")} hint={t("hr.me.issuesHint")}>
                   <EmployeeIssuesList compact />
+                </EssPanel>
+              ) : null}
+
+              {active === "suggestions" && person ? (
+                <EssPanel id="me-suggestions" title={t("hr.me.suggestions")} hint={t("hr.me.suggestionsHint")}>
+                  <MySuggestionsPanel />
                 </EssPanel>
               ) : null}
 

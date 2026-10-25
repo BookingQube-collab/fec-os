@@ -166,6 +166,7 @@
     "hrDocuments": "ملفات الموظفين",
     "hrOnboarding": "التهيئة",
     "hrAnnouncements": "الإعلانات",
+    "hrSuggestions": "الاقتراحات",
     "hrEngagement": "التفاعل",
     "hrShiftPolicy": "ساعات العمل حسب الموقع",
     "hrSettings": "إعدادات سياسات الموارد البشرية",
@@ -3567,6 +3568,7 @@
       "hr_disciplinary": "الإجراءات التأديبية",
       "hr_payroll": "الرواتب",
       "hr_recruitment": "التوظيف",
+      "hr_suggestions": "اقتراحات الموظفين",
       "chat": "الدردشة"
     }
   },
@@ -10109,6 +10111,32 @@
       "teamLeaderNoSupervisor": "تعذر العثور على مشرف موقع أول لهذا الموقع. لم تتغير خطوط التقارير.",
       "teamLeaderAmbiguous": "أكثر من مشرف موقع أول يطابق هذا الموقع. لم تتغير خطوط التقارير."
     },
+    "suggestions": {
+      "kicker": "الموظفون",
+      "title": "الاقتراحات",
+      "subtitle": "أفكار الموظفين للإدارة ورئيس العمليات فقط.",
+      "noAccess": "صندوق الاقتراحات مقصور على الإدارة ورئيس العمليات.",
+      "empty": "لا اقتراحات بعد.",
+      "filterStatus": "الحالة",
+      "filterAll": "الكل",
+      "note": "ملاحظة / رد",
+      "notePlaceholder": "ملاحظة اختيارية للموظف",
+      "markSeen": "وضع كمقروء",
+      "close": "إغلاق",
+      "saveNote": "حفظ الملاحظة",
+      "updated": "تم تحديث الاقتراح",
+      "status": {
+        "new": "جديد",
+        "seen": "مقروء",
+        "closed": "مغلق"
+      },
+      "category": {
+        "operations": "العمليات",
+        "hr": "الموارد البشرية",
+        "safety": "السلامة",
+        "other": "أخرى"
+      }
+    },
     "announcements": {
       "kicker": "الموارد البشرية",
       "title": "الإعلانات",
@@ -10375,6 +10403,18 @@
       "issuesEmpty": "لا بلاغات أبلغت عنها أو مُسندة إليك.",
       "issuesUnavailable": "تعذر تحميل البلاغات.",
       "issuesHint": "البلاغات التي أبلغتها أو المُسندة إليك.",
+      "suggestions": "الاقتراحات",
+      "suggestionsHint": "شارك فكرة مع الإدارة ورئيس العمليات. هم فقط يرون الصندوق.",
+      "suggestionTitle": "العنوان",
+      "suggestionTitlePlaceholder": "ملخص قصير",
+      "suggestionBody": "الاقتراح",
+      "suggestionBodyPlaceholder": "ما الذي يجب تحسينه؟",
+      "suggestionCategory": "الفئة (اختياري)",
+      "suggestionCategoryNone": "بدون فئة",
+      "suggestionSubmit": "إرسال الاقتراح",
+      "suggestionSubmitted": "تم إرسال الاقتراح",
+      "suggestionsEmpty": "لم ترسل أي اقتراحات بعد.",
+      "suggestionNote": "الرد",
       "selfSubtitle": "ملفك وحضورك وجدولك وإجازتك وبلاغاتك.",
       "issueStatus": {
         "open": "مفتوح",

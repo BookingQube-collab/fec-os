@@ -214,6 +214,7 @@ export const queryKeys = {
     hrDocPreview: (id: string) => [...queryKeys.people.all, "hr-doc-preview", id] as const,
     hrChecklists: (filters?: object) => [...queryKeys.people.all, "hr-checklists", filters ?? {}] as const,
     hrAnnouncements: (filters?: object) => [...queryKeys.people.all, "hr-announcements", filters ?? {}] as const,
+    hrSuggestions: (filters?: object) => [...queryKeys.people.all, "hr-suggestions", filters ?? {}] as const,
     hrOtPolicy: () => [...queryKeys.people.all, "hr-ot-policy"] as const,
     hrPolicySettings: () => [...queryKeys.people.all, "hr-policy-settings"] as const,
     hrSiteShiftPolicy: () => [...queryKeys.people.all, "hr-site-shift-policy"] as const,

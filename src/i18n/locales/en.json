@@ -214,6 +214,7 @@
     "hrDocuments": "Employee files",
     "hrOnboarding": "Onboarding",
     "hrAnnouncements": "Announcements",
+    "hrSuggestions": "Suggestions",
     "hrEngagement": "Engagement",
     "hrShiftPolicy": "Site working hours",
     "hrSettings": "HR Policy Settings",
@@ -3338,6 +3339,7 @@
       "hr_disciplinary": "HR disciplinary",
       "hr_payroll": "HR payroll",
       "hr_recruitment": "HR recruitment",
+      "hr_suggestions": "Staff suggestions",
       "chat": "Chat"
     }
   },
@@ -10347,6 +10349,32 @@
       "teamLeaderNoSupervisor": "No Sr. Site Supervisor could be found for this location. Reporting lines were not changed.",
       "teamLeaderAmbiguous": "More than one Sr. Site Supervisor matches this location. Reporting lines were not changed."
     },
+    "suggestions": {
+      "kicker": "People",
+      "title": "Suggestions",
+      "subtitle": "Staff ideas for Admin and Head of Operations only.",
+      "noAccess": "Only Admin and Head of Operations can open this inbox.",
+      "empty": "No suggestions yet.",
+      "filterStatus": "Status",
+      "filterAll": "All",
+      "note": "Note / reply",
+      "notePlaceholder": "Optional note for the staff member",
+      "markSeen": "Mark seen",
+      "close": "Close",
+      "saveNote": "Save note",
+      "updated": "Suggestion updated",
+      "status": {
+        "new": "New",
+        "seen": "Seen",
+        "closed": "Closed"
+      },
+      "category": {
+        "operations": "Operations",
+        "hr": "HR",
+        "safety": "Safety",
+        "other": "Other"
+      }
+    },
     "announcements": {
       "kicker": "HR",
       "title": "Announcements",
@@ -10613,6 +10641,18 @@
       "issuesEmpty": "No issues reported by you or assigned to you.",
       "issuesUnavailable": "Could not load issues.",
       "issuesHint": "Tickets you reported or that are assigned to you.",
+      "suggestions": "Suggestions",
+      "suggestionsHint": "Share an idea with Admin and Head of Operations. Only they see the inbox.",
+      "suggestionTitle": "Title",
+      "suggestionTitlePlaceholder": "Short summary",
+      "suggestionBody": "Suggestion",
+      "suggestionBodyPlaceholder": "What should we improve?",
+      "suggestionCategory": "Category (optional)",
+      "suggestionCategoryNone": "No category",
+      "suggestionSubmit": "Submit suggestion",
+      "suggestionSubmitted": "Suggestion submitted",
+      "suggestionsEmpty": "You have not submitted any suggestions yet.",
+      "suggestionNote": "Reply",
       "selfSubtitle": "Your profile, attendance, roster, leave, and issues.",
       "issueStatus": {
         "open": "Open",

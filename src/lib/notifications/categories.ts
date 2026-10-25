@@ -18,6 +18,7 @@ export const NOTIFICATION_CATEGORIES = [
   "hr_disciplinary",
   "hr_payroll",
   "hr_recruitment",
+  "hr_suggestions",
   "chat",
   "training",
 ] as const;

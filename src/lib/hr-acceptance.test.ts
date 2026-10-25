@@ -449,6 +449,7 @@ describe("Phase 12 email provider (HR categories)", () => {
         "hr_disciplinary",
         "hr_payroll",
         "hr_recruitment",
+        "hr_suggestions",
       ]),
     );
     expect(isHrNotificationCategory("hr_payroll")).toBe(true);

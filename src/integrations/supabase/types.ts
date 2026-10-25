@@ -4801,6 +4801,36 @@ export type Database = {
       hr_journey_events: { Row: Record<string, unknown> & { id: string; checklist_id: string; event_type: string; actor_user_id: string | null; actor_name: string | null; reason: string | null; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       hr_approval_rules: { Row: Record<string, unknown> & { id: string; kind: string; title: string; approver_role: string; required: boolean; active: boolean; sort_order: number; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       hr_announcements: { Row: Record<string, unknown> & { id: string; title: string; body: string; active: boolean; published_at: string; expires_at: string | null; created_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
+      hr_suggestions: {
+        Row: Record<string, unknown> & {
+          id: string
+          staff_id: string
+          user_id: string
+          title: string
+          body: string
+          category: string | null
+          status: string
+          admin_note: string | null
+          seen_at: string | null
+          seen_by: string | null
+          closed_at: string | null
+          closed_by: string | null
+          created_at: string
+          updated_at: string
+          staff?: { full_name?: string | null; employee_code?: string | null; job_title?: string | null } | null
+        }
+        Insert: Record<string, unknown>
+        Update: Record<string, unknown>
+        Relationships: [
+          {
+            foreignKeyName: "hr_suggestions_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hr_helpdesk_articles: { Row: Record<string, unknown> & { id: string; title: string; body: string; category: string; visibility: string; published: boolean; created_by: string | null; created_at: string; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       hr_helpdesk_settings: { Row: Record<string, unknown> & { id: string; name: string | null; description: string | null; categories: Json; first_response_hours: number; resolution_hours: number; default_assignee_staff_id: string | null; assignment_notes: string | null; updated_by: string | null; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
       hr_helpdesk_rules: { Row: Record<string, unknown> & { id: string; kind: string; category: string; condition: string; assignee_staff_id: string | null; active: boolean; created_by: string | null; created_at: string; updated_at: string }; Insert: Record<string, unknown>; Update: Record<string, unknown>; Relationships: [] }
