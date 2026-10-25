@@ -1665,7 +1665,13 @@ export async function resubmitMissedPunchRequest(args: {
   punchOutTime?: string | null;
   /** Legacy single-side time — applied to the request's existing punch side when in/out are omitted. */
   punchTime?: string;
-}): Promise<{ id: string; approverCount: number; locationId: string; routedTo: PunchCorrectionRoutedTo }> {
+}): Promise<{
+  id: string;
+  requestNumber: string;
+  approverCount: number;
+  locationId: string;
+  routedTo: PunchCorrectionRoutedTo;
+}> {
   const { data, error } = await supabaseAdmin
     .from("attendance_corrections")
     .select("*")
@@ -1674,6 +1680,7 @@ export async function resubmitMissedPunchRequest(args: {
   if (error) throw error;
   const row = data as CorrectionRow | null;
   if (!row) throw new Error("Correction not found.");
+  const requestNumber = row.request_number ? String(row.request_number) : "";
   if (
     !canRequesterEditMissedPunch({
       userId: args.userId,
@@ -1908,6 +1915,7 @@ export async function resubmitMissedPunchRequest(args: {
     });
     return {
       id: args.correctionId,
+      requestNumber,
       approverCount: gmIds.length,
       locationId: String(row.location_id),
       routedTo: "hr",
@@ -1928,7 +1936,13 @@ export async function resubmitMissedPunchRequest(args: {
       sourceId: args.correctionId,
       actionUrl: ME_PUNCH_APPROVALS_HREF,
     });
-    return { id: args.correctionId, approverCount: hrIds.length, locationId: String(row.location_id), routedTo: "hr" };
+    return {
+      id: args.correctionId,
+      requestNumber,
+      approverCount: hrIds.length,
+      locationId: String(row.location_id),
+      routedTo: "hr",
+    };
   }
   if (notifyRoute === "ops" || notifyRoute === "ops_first") {
     const targetId = row.staff_id ? String(row.staff_id) : null;
@@ -1963,6 +1977,7 @@ export async function resubmitMissedPunchRequest(args: {
     });
     return {
       id: args.correctionId,
+      requestNumber,
       approverCount: opsIds.length,
       locationId: String(row.location_id),
       routedTo: notifyRoute === "ops_first" ? "ops_first" : "ops",
@@ -1995,6 +2010,7 @@ export async function resubmitMissedPunchRequest(args: {
   });
   return {
     id: args.correctionId,
+    requestNumber,
     approverCount: managers.length,
     locationId: String(row.location_id),
     routedTo: "line_manager",
@@ -2087,7 +2103,15 @@ export async function findPunchCorrectionDay(args: {
     .eq("staff_id", args.staffId)
     .eq("work_date", args.workDate);
   if (error) throw new Error(error.message);
-  const data = pickBestPunchCorrectionSummary(rows ?? []);
+  const candidates = (rows ?? []).map((row) => ({
+    id: String(row.id),
+    work_date: String(row.work_date),
+    status: row.status == null ? null : String(row.status),
+    missed_punch: row.missed_punch == null ? null : Boolean(row.missed_punch),
+    actual_in: row.actual_in == null ? null : String(row.actual_in),
+    actual_out: row.actual_out == null ? null : String(row.actual_out),
+  }));
+  const data = pickBestPunchCorrectionSummary(candidates);
   if (!data) {
     return {
       summaryId: null,
