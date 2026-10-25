@@ -25,6 +25,10 @@ import { HrKpiTile } from "@/components/hr/hr-kpi-tile";
 import { HrPanel } from "@/components/hr/hr-panel";
 import { HrSection } from "@/components/hr/hr-section";
 import { HrShell } from "@/components/hr/hr-shell";
+import {
+  PayslipPrintDialog,
+  type PayslipPrintPayload,
+} from "@/components/hr/payslip-print-form";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,6 +41,7 @@ import {
   deletePayrollPeriod,
   generatePayrollLines,
   generatePayslips,
+  getPayslipPrintPayload,
   getPayrollExportMatrix,
   lockPayrollPeriod,
   reopenPayrollPeriod,
@@ -357,6 +362,9 @@ export default function HrPayrollPeriodPage() {
   const [adjustDed, setAdjustDed] = useState("");
   const [adjustNotes, setAdjustNotes] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [payslipPrintPayload, setPayslipPrintPayload] = useState<PayslipPrintPayload | null>(null);
+  const [payslipPrintOpen, setPayslipPrintOpen] = useState(false);
+  const [payslipLoadingId, setPayslipLoadingId] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const canGenerate = usePermission("payroll.generate");
   const canFinance = usePermission("payroll.finance");
@@ -1128,9 +1136,21 @@ export default function HrPayrollPeriodPage() {
                                       className="mt-2"
                                       size="sm"
                                       variant="outline"
-                                      onClick={() => window.print()}
+                                      disabled={payslipLoadingId === line.id}
+                                      onClick={() => {
+                                        setPayslipLoadingId(line.id);
+                                        void getPayslipPrintPayload({ lineId: line.id })
+                                          .then((payload) => {
+                                            setPayslipPrintPayload(payload);
+                                            setPayslipPrintOpen(true);
+                                          })
+                                          .catch((e: Error) =>
+                                            toast.error(e.message || t("hr.payrollRuns.error")),
+                                          )
+                                          .finally(() => setPayslipLoadingId(null));
+                                      }}
                                     >
-                                      Print
+                                      {t("hr.payrollRuns.print.preview")}
                                     </Button>
                                   </div>
                                 </div>
@@ -1263,6 +1283,12 @@ export default function HrPayrollPeriodPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <PayslipPrintDialog
+        open={payslipPrintOpen}
+        onOpenChange={setPayslipPrintOpen}
+        payload={payslipPrintPayload}
+      />
     </CapabilityGate>
   );
 }

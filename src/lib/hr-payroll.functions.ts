@@ -1482,10 +1482,92 @@ export const listMyPayslips = createAuthenticatedAction(
         payslipId: slip?.id ?? null,
         filePath: slip?.file_path ?? null,
         generatedAt: slip?.generated_at ?? null,
+        /** Line exists → employee can open E3 letterhead print/download. */
+        canDownload: true as const,
       };
     });
   },
   { auth: { capability: "hr.employee_app" } },
+);
+
+function moneyLinesForPrint(raw: unknown): { label: string; amountQar: number }[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((row) => {
+      const r = row as { label?: unknown; amountQar?: unknown; code?: unknown };
+      const amountQar = Number(r.amountQar) || 0;
+      const label =
+        typeof r.label === "string" && r.label.trim()
+          ? r.label.trim()
+          : typeof r.code === "string" && r.code.trim()
+            ? r.code.trim()
+            : "Item";
+      return { label, amountQar };
+    })
+    .filter((row) => row.amountQar !== 0);
+}
+
+/** Own slip (employee) or any slip (payroll.view / HR). Same E3 letterhead print payload. */
+export const getPayslipPrintPayload = createAuthenticatedAction(
+  z.object({ lineId: z.string().uuid() }),
+  async (data, context) => {
+    const canHr = canUserDo(context.roles ?? [], "payroll.view");
+    const { data: line, error } = await context.supabase
+      .from("hr_payroll_lines")
+      .select(
+        "id, staff_id, payment_method, earnings, deductions, gross_qar, net_qar, working_days, staff(full_name, employee_code, department, job_title, user_id), hr_payroll_periods(month, date_from, date_to, currency)",
+      )
+      .eq("id", data.lineId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!line) throw new Error("Payslip line not found.");
+
+    const staff = line.staff as
+      | {
+          full_name?: string;
+          employee_code?: string | null;
+          department?: string | null;
+          job_title?: string | null;
+          user_id?: string | null;
+        }
+      | {
+          full_name?: string;
+          employee_code?: string | null;
+          department?: string | null;
+          job_title?: string | null;
+          user_id?: string | null;
+        }[]
+      | null;
+    const s = Array.isArray(staff) ? staff[0] : staff;
+    const isOwner = Boolean(s?.user_id && s.user_id === context.userId);
+    if (!isOwner && !canHr) {
+      throw new ForbiddenError("You can only open your own payslip.");
+    }
+
+    const period = line.hr_payroll_periods as
+      | { month?: string; date_from?: string; date_to?: string; currency?: string }
+      | { month?: string; date_from?: string; date_to?: string; currency?: string }[]
+      | null;
+    const p = Array.isArray(period) ? period[0] : period;
+
+    return {
+      staffName: s?.full_name ?? "Staff",
+      employeeCode: s?.employee_code ?? null,
+      department: s?.department ?? null,
+      jobTitle: s?.job_title ?? null,
+      month: p?.month ?? "",
+      dateFrom: String(p?.date_from ?? "").slice(0, 10),
+      dateTo: String(p?.date_to ?? "").slice(0, 10),
+      paymentMethod: String(line.payment_method ?? ""),
+      earnings: moneyLinesForPrint(line.earnings),
+      deductions: moneyLinesForPrint(line.deductions),
+      grossQar: Number(line.gross_qar) || 0,
+      netQar: Number(line.net_qar) || 0,
+      workingDays: line.working_days == null ? null : Number(line.working_days),
+      currency: String(p?.currency ?? "QAR"),
+    };
+  },
+  { auth: { anyCapability: ["hr.employee_app", "payroll.view"] } },
 );
 
 export const listStaffPayrollLines = createAuthenticatedAction(

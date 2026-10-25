@@ -23,6 +23,10 @@ import {
   type LeaveRequestPrintPayload,
 } from "@/components/hr/leave-request-print-form";
 import {
+  PayslipPrintDialog,
+  type PayslipPrintPayload,
+} from "@/components/hr/payslip-print-form";
+import {
   useMyAttendance,
   useMyEmployeeProfile,
   useMyIssues,
@@ -47,7 +51,7 @@ import { applyDocumentEditorExtraction, isIdentityDocType } from "@/lib/hr/ident
 import { reviewLeaveRequest, submitLeaveRequest } from "@/lib/hr-leave.functions";
 import { listAnnouncements } from "@/lib/hr-announcements.functions";
 import { listAirTicketEntitlements } from "@/lib/hr-air-ticket.functions";
-import { listMyPayslips } from "@/lib/hr-payroll.functions";
+import { getPayslipPrintPayload, listMyPayslips } from "@/lib/hr-payroll.functions";
 import { MyKraScorecards } from "@/components/people/my-kra-scorecard";
 import { formatWorkDateDdMmYyyy } from "@/lib/attendance-display";
 import { queryKeys } from "@/lib/query-keys";
@@ -179,6 +183,9 @@ export default function EmployeeMePage() {
   const [leaveConflicts, setLeaveConflicts] = useState<LeaveConflict[]>([]);
   const [leavePrintPayload, setLeavePrintPayload] = useState<LeaveRequestPrintPayload | null>(null);
   const [leavePrintOpen, setLeavePrintOpen] = useState(false);
+  const [payslipPrintPayload, setPayslipPrintPayload] = useState<PayslipPrintPayload | null>(null);
+  const [payslipPrintOpen, setPayslipPrintOpen] = useState(false);
+  const [payslipLoadingId, setPayslipLoadingId] = useState<string | null>(null);
   const [installDismissed, setInstallDismissed] = useState(true);
   const [docType, setDocType] = useState<(typeof EMPLOYEE_DOC_TYPES)[number]>("qid");
   const [docFile, setDocFile] = useState<File | null>(null);
@@ -1012,7 +1019,31 @@ export default function EmployeeMePage() {
                                 </p>
                               ) : null}
                             </div>
-                            <p className="text-sm font-semibold">{t("hr.me.netQar", { amount: row.netQar.toLocaleString() })}</p>
+                            <div className="flex shrink-0 items-center gap-2">
+                              <p className="text-sm font-semibold">
+                                {t("hr.me.netQar", { amount: row.netQar.toLocaleString() })}
+                              </p>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={payslipLoadingId === row.lineId}
+                                onClick={() => {
+                                  setPayslipLoadingId(row.lineId);
+                                  void getPayslipPrintPayload({ lineId: row.lineId })
+                                    .then((payload) => {
+                                      setPayslipPrintPayload(payload);
+                                      setPayslipPrintOpen(true);
+                                    })
+                                    .catch((e: Error) =>
+                                      toast.error(e.message || t("hr.me.payslipLoadFailed")),
+                                    )
+                                    .finally(() => setPayslipLoadingId(null));
+                                }}
+                              >
+                                {t("hr.me.downloadPayslip")}
+                              </Button>
+                            </div>
                           </div>
                         </li>
                       ))}
@@ -1035,6 +1066,11 @@ export default function EmployeeMePage() {
         open={leavePrintOpen}
         onOpenChange={setLeavePrintOpen}
         payload={leavePrintPayload}
+      />
+      <PayslipPrintDialog
+        open={payslipPrintOpen}
+        onOpenChange={setPayslipPrintOpen}
+        payload={payslipPrintPayload}
       />
     </HrShell>
   );
