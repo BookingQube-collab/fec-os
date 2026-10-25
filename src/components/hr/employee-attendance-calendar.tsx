@@ -16,8 +16,14 @@ import {
   formatWorkDateDdMmYyyy,
 } from "@/lib/attendance-display";
 import {
-  addMonths,
-  buildMonthWeeks,
+  formatPayrollRange,
+  monthBounds,
+  nextPayrollMonth,
+  payrollMonthOf,
+  previousPayrollMonth,
+} from "@/lib/attendance-hr/roster-period";
+import {
+  buildPeriodWeeks,
   formatMonthTitle,
   isCurrentWeek,
   rosterWeekStartsOn,
@@ -260,18 +266,24 @@ function resolveShortfallHours(
   return Math.round(shortfall * 100) / 100;
 }
 
+function dateInInclusiveRange(date: string, dateFrom: string, dateTo: string): boolean {
+  const d = date.slice(0, 10);
+  return d >= dateFrom.slice(0, 10) && d <= dateTo.slice(0, 10);
+}
+
 function sumPeriodHours(
   byDate: Map<string, EmployeeAttendanceCalendarRow>,
   rosterByDate: Map<string, EmployeeAttendanceRosterHint>,
-  yearMonth: string,
+  dateFrom: string,
+  dateTo: string,
   todayYmd: string,
 ): { workedHours: number; requiredHours: number; shortfallHours: number } {
   const dates = new Set<string>();
   for (const d of byDate.keys()) {
-    if (d.startsWith(yearMonth)) dates.add(d);
+    if (dateInInclusiveRange(d, dateFrom, dateTo)) dates.add(d);
   }
   for (const d of rosterByDate.keys()) {
-    if (d.startsWith(yearMonth)) dates.add(d);
+    if (dateInInclusiveRange(d, dateFrom, dateTo)) dates.add(d);
   }
 
   let workedMinutes = 0;
@@ -303,12 +315,12 @@ function sumPeriodHours(
 
 function DetailFact({ label, value, emphasize }: { label: string; value: string; emphasize?: boolean }) {
   return (
-    <div className="min-w-0">
-      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:text-[11px]">{label}</p>
+    <div className="min-w-0 rounded-lg border border-[#1a1a1a]/10 bg-[#F8F6F1] px-2.5 py-2">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-[#3F3A36] sm:text-xs">{label}</p>
       <p
         className={cn(
-          "mt-0.5 break-words text-sm font-medium text-foreground",
-          emphasize && "text-amber-700 dark:text-amber-400",
+          "mt-0.5 break-words text-base font-bold tabular-nums text-[#1a1a1a]",
+          emphasize && "text-[#C2410C]",
         )}
       >
         {value}
@@ -514,9 +526,14 @@ export function EmployeeAttendanceCalendar({
   const language: SupportedLanguage = i18n.language?.startsWith("ar") ? "ar" : "en";
   const weekStartsOn = rosterWeekStartsOn(language);
 
-  const weeks = useMemo(() => buildMonthWeeks(yearMonth, weekStartsOn), [yearMonth, weekStartsOn]);
+  const period = useMemo(() => monthBounds(yearMonth), [yearMonth]);
+  const weeks = useMemo(
+    () => buildPeriodWeeks(period.dateFrom, period.dateTo, weekStartsOn, todayYmd),
+    [period.dateFrom, period.dateTo, weekStartsOn, todayYmd],
+  );
   const weekdays = useMemo(() => weekdayLabels(language, weekStartsOn), [language, weekStartsOn]);
   const monthTitle = formatMonthTitle(yearMonth, language);
+  const periodRangeLabel = formatPayrollRange(period.dateFrom, period.dateTo, language);
 
   const byDate = useMemo(() => {
     const map = new Map<string, EmployeeAttendanceCalendarRow>();
@@ -539,23 +556,86 @@ export function EmployeeAttendanceCalendar({
   const selectedRoster = selectedDate ? (rosterByDate.get(selectedDate) ?? null) : null;
 
   const periodHours = useMemo(
-    () => sumPeriodHours(byDate, rosterByDate, yearMonth, todayYmd),
-    [byDate, rosterByDate, yearMonth, todayYmd],
+    () => sumPeriodHours(byDate, rosterByDate, period.dateFrom, period.dateTo, todayYmd),
+    [byDate, rosterByDate, period.dateFrom, period.dateTo, todayYmd],
   );
+
+  const periodHasTillNow = useMemo(() => {
+    for (const row of rows) {
+      if (!dateInInclusiveRange(row.workDate, period.dateFrom, period.dateTo)) continue;
+      const roster = rosterByDate.get(row.workDate.slice(0, 10));
+      if (resolveWorkedHoursDisplay(row, todayYmd, roster).tillNow) return true;
+    }
+    return false;
+  }, [rows, rosterByDate, period.dateFrom, period.dateTo, todayYmd]);
 
   useEffect(() => {
     if (selectedDate) return;
-    if (todayYmd.startsWith(yearMonth)) {
+    if (dateInInclusiveRange(todayYmd, period.dateFrom, period.dateTo)) {
       onSelectDate(todayYmd);
       return;
     }
-    const firstInMonth = sortedRows.find((row) => row.workDate.startsWith(yearMonth));
-    if (firstInMonth) onSelectDate(firstInMonth.workDate);
-  }, [selectedDate, todayYmd, yearMonth, sortedRows, onSelectDate]);
+    const firstInPeriod = sortedRows.find((row) =>
+      dateInInclusiveRange(row.workDate, period.dateFrom, period.dateTo),
+    );
+    if (firstInPeriod) onSelectDate(firstInPeriod.workDate);
+  }, [selectedDate, todayYmd, period.dateFrom, period.dateTo, sortedRows, onSelectDate]);
 
   return (
     <div className="space-y-4">
-      <NeumorphicCard className="p-3 sm:p-5">
+      {/* Outside NeumorphicCard so overflow-hidden never clips the totals strip. */}
+      <div
+        className="rounded-2xl border-2 border-[#1a1a1a]/18 bg-white p-3 shadow-sm sm:p-4"
+        style={{ color: "#1a1a1a" }}
+        role="region"
+        aria-label={t("hr.me.attendancePeriodSummary")}
+      >
+        <p className="text-xs font-bold uppercase tracking-[0.08em] text-[#1a1a1a] sm:text-sm">
+          {t("hr.me.attendancePeriodSummary")}
+        </p>
+        <div className="mt-2.5 grid grid-cols-1 gap-2.5 sm:grid-cols-3 sm:gap-3">
+          <div className="min-w-0 rounded-xl border border-[#1a1a1a]/12 bg-[#F8F6F1] px-3 py-2.5">
+            <p className="text-xs font-semibold text-[#3F3A36] sm:text-sm">
+              {periodHasTillNow
+                ? t("hr.me.attendanceHoursWorkedTillNow")
+                : t("hr.me.attendancePeriodWorked")}
+            </p>
+            <p className="mt-1 text-xl font-bold tabular-nums leading-none text-[#1a1a1a] sm:text-2xl">
+              {formatHoursValue(periodHours.workedHours)}h
+            </p>
+          </div>
+          <div className="min-w-0 rounded-xl border border-[#1a1a1a]/12 bg-[#F8F6F1] px-3 py-2.5">
+            <p className="text-xs font-semibold text-[#3F3A36] sm:text-sm">
+              {t("hr.me.attendancePeriodRequired")}
+            </p>
+            <p className="mt-1 text-xl font-bold tabular-nums leading-none text-[#1a1a1a] sm:text-2xl">
+              {formatHoursValue(periodHours.requiredHours)}h
+            </p>
+          </div>
+          <div className="min-w-0 rounded-xl border border-[#1a1a1a]/12 bg-[#FFF7ED] px-3 py-2.5">
+            <p className="text-xs font-semibold text-[#9A3412] sm:text-sm">
+              {periodHasTillNow
+                ? t("hr.me.attendanceUnderHoursTillNow")
+                : t("hr.me.attendancePeriodShortfall")}
+            </p>
+            <p
+              className={cn(
+                "mt-1 text-xl font-bold tabular-nums leading-none sm:text-2xl",
+                periodHours.shortfallHours > 0 ? "text-[#C2410C]" : "text-[#1a1a1a]",
+              )}
+            >
+              {periodHours.shortfallHours > 0
+                ? `${formatHoursValue(periodHours.shortfallHours)}h`
+                : "—"}
+            </p>
+          </div>
+        </div>
+        <p className="mt-2 text-xs leading-snug text-[#3F3A36] sm:text-sm">
+          {t("hr.me.attendancePeriodExcludeNote")}
+        </p>
+      </div>
+
+      <NeumorphicCard className="overflow-visible p-3 sm:p-5">
         <div className="mb-3 flex items-center gap-2 sm:mb-4 sm:gap-3">
           <div className="flex min-w-0 flex-1 items-center gap-0.5 sm:gap-1">
             <Button
@@ -563,20 +643,25 @@ export function EmployeeAttendanceCalendar({
               variant="ghost"
               size="icon"
               className="h-9 w-9 shrink-0 rounded-full"
-              onClick={() => onYearMonthChange(addMonths(yearMonth, -1))}
+              onClick={() => onYearMonthChange(previousPayrollMonth(yearMonth))}
               aria-label={t("hr.me.rosterPrevMonth")}
             >
               <ChevronLeft className="h-4 w-4 rtl:rotate-180" />
             </Button>
-            <h3 className="min-w-0 flex-1 truncate text-center text-base font-semibold text-foreground sm:text-lg">
-              {monthTitle}
-            </h3>
+            <div className="min-w-0 flex-1 text-center">
+              <h3 className="truncate text-base font-semibold text-foreground sm:text-lg">
+                {monthTitle}
+              </h3>
+              <p className="truncate text-[11px] font-medium text-[#3F3A36] sm:text-xs">
+                {periodRangeLabel}
+              </p>
+            </div>
             <Button
               type="button"
               variant="ghost"
               size="icon"
               className="h-9 w-9 shrink-0 rounded-full"
-              onClick={() => onYearMonthChange(addMonths(yearMonth, 1))}
+              onClick={() => onYearMonthChange(nextPayrollMonth(yearMonth))}
               aria-label={t("hr.me.rosterNextMonth")}
             >
               <ChevronRight className="h-4 w-4 rtl:rotate-180" />
@@ -588,56 +673,12 @@ export function EmployeeAttendanceCalendar({
             size="sm"
             className="shrink-0 rounded-full"
             onClick={() => {
-              onYearMonthChange(todayYmd.slice(0, 7));
+              onYearMonthChange(payrollMonthOf(todayYmd));
               onSelectDate(todayYmd);
             }}
           >
             {t("hr.me.attendanceToday")}
           </Button>
-        </div>
-
-        <div
-          className="mb-3 grid grid-cols-2 gap-2 rounded-xl border border-border/60 bg-muted/30 p-2.5 sm:mb-4 sm:grid-cols-3 sm:gap-3 sm:p-3"
-          aria-label={t("hr.me.attendancePeriodSummary")}
-        >
-          <div className="min-w-0">
-            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:text-[11px]">
-              {t("hr.me.attendancePeriodWorked")}
-            </p>
-            <p className="mt-0.5 text-base font-semibold tabular-nums text-foreground sm:text-lg">
-              {formatHoursValue(periodHours.workedHours)}h
-            </p>
-          </div>
-          <div className="min-w-0">
-            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:text-[11px]">
-              {t("hr.me.attendancePeriodRequired")}
-            </p>
-            <p className="mt-0.5 text-base font-semibold tabular-nums text-foreground sm:text-lg">
-              {formatHoursValue(periodHours.requiredHours)}h
-            </p>
-          </div>
-          {periodHours.shortfallHours > 0 ? (
-            <div className="min-w-0 col-span-2 sm:col-span-1">
-              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:text-[11px]">
-                {t("hr.me.attendancePeriodShortfall")}
-              </p>
-              <p className="mt-0.5 text-base font-semibold tabular-nums text-amber-700 dark:text-amber-400 sm:text-lg">
-                {formatHoursValue(periodHours.shortfallHours)}h
-              </p>
-            </div>
-          ) : (
-            <div className="hidden min-w-0 sm:block">
-              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground sm:text-[11px]">
-                {t("hr.me.attendancePeriodShortfall")}
-              </p>
-              <p className="mt-0.5 text-base font-semibold tabular-nums text-muted-foreground sm:text-lg">
-                —
-              </p>
-            </div>
-          )}
-          <p className="col-span-2 text-[10px] text-muted-foreground sm:col-span-3 sm:text-[11px]">
-            {t("hr.me.attendancePeriodExcludeNote")}
-          </p>
         </div>
 
         <div className="overflow-x-auto">
@@ -731,7 +772,7 @@ export function EmployeeAttendanceCalendar({
                                   {code}
                                 </span>
                                 {cellHours != null || cellExpected != null ? (
-                                  <span className="hidden max-w-full truncate text-[9px] tabular-nums leading-none text-muted-foreground sm:block">
+                                  <span className="max-w-full truncate text-[9px] font-semibold tabular-nums leading-none text-[#1a1a1a] sm:text-[10px]">
                                     {cellHours != null ? `${formatHoursValue(cellHours)}h` : "—"}
                                     {cellExpected != null
                                       ? ` / ${formatHoursValue(Math.round((cellExpected / 60) * 100) / 100)}h`

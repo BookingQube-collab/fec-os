@@ -30,7 +30,7 @@ import {
   useMyLeaveRequests,
   useMyRoster,
 } from "@/hooks/queries/use-employee-self";
-import { monthDateRange } from "@/lib/daily-ops/roster-calendar-utils";
+import { defaultPayrollPeriod, monthBounds } from "@/lib/attendance-hr/roster-period";
 import { useAuth } from "@/hooks/use-auth";
 import { usePermission } from "@/hooks/use-permission";
 import { showsSupervisorTeamToday } from "@/lib/hr/team-today";
@@ -207,11 +207,13 @@ export default function EmployeeMePage() {
     () => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" }),
     [],
   );
-  const [attendanceMonth, setAttendanceMonth] = useState(() => todayQatarYmd.slice(0, 7));
+  const [attendanceMonth, setAttendanceMonth] = useState(
+    () => defaultPayrollPeriod(todayQatarYmd).month,
+  );
   const [attendanceSelectedDate, setAttendanceSelectedDate] = useState<string | null>(null);
   const attendanceMonthRange = useMemo(() => {
-    const { from, to } = monthDateRange(attendanceMonth);
-    return { dateFrom: from, dateTo: to };
+    const bounds = monthBounds(attendanceMonth);
+    return { dateFrom: bounds.dateFrom, dateTo: bounds.dateTo };
   }, [attendanceMonth]);
   const showRoster = tab === "home" || tab === "roster" || tab === "attendance";
   const showLeave = tab === "home" || tab === "leave";

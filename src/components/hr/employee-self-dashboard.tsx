@@ -25,7 +25,10 @@ import {
 } from "@/hooks/queries/use-employee-self";
 import { usePermission } from "@/hooks/use-permission";
 import { formatWorkDateDdMmYyyy } from "@/lib/attendance-display";
-import { monthDateRange } from "@/lib/daily-ops/roster-calendar-utils";
+import {
+  defaultPayrollPeriod,
+  monthBounds,
+} from "@/lib/attendance-hr/roster-period";
 import { cn } from "@/lib/utils";
 
 function labelOrRaw(t: (key: string) => string, key: string, raw: string) {
@@ -171,11 +174,11 @@ function AttendancePanel() {
     () => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Qatar" }),
     [],
   );
-  const [yearMonth, setYearMonth] = useState(() => todayYmd.slice(0, 7));
+  const [yearMonth, setYearMonth] = useState(() => defaultPayrollPeriod(todayYmd).month);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const range = useMemo(() => {
-    const { from, to } = monthDateRange(yearMonth);
-    return { dateFrom: from, dateTo: to };
+    const bounds = monthBounds(yearMonth);
+    return { dateFrom: bounds.dateFrom, dateTo: bounds.dateTo };
   }, [yearMonth]);
   const attendance = useMyAttendance(true, range);
   const roster = useMyRoster(true, range);

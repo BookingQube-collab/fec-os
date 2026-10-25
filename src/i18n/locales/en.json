@@ -8398,6 +8398,11 @@
       "kpiLate": "Late",
       "kpiMissedPunch": "Missed punch",
       "kpiUnscheduled": "Unscheduled",
+      "hoursSummary": "Hours for this filter",
+      "hoursWorked": "Hours worked",
+      "hoursRequired": "Hours required",
+      "hoursShortfall": "Shortfall",
+      "hoursExcludeNote": "Weekly off and compensatory off are excluded from these totals.",
       "statuses": {
         "present": "Present",
         "working": "Working today",

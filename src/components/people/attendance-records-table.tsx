@@ -40,14 +40,62 @@ const COL_COUNT = 13;
 /** Columns before TOTAL HOURS WORKED (location → last check-out). */
 const HOURS_COL_INDEX = 8;
 
-/** Sum of listing TOTAL HOURS WORKED values (same as column cells). */
+const HOURS_EXCLUDED_STATUSES = new Set(["weekly_off", "week_off", "comp_off"]);
+
+function normalizeListingStatusKey(raw: string | null | undefined): string {
+  return String(raw ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+}
+
+function isExcludedFromListingHours(status: string | null | undefined): boolean {
+  return HOURS_EXCLUDED_STATUSES.has(normalizeListingStatusKey(status));
+}
+
+function expectedHoursForListingRow(row: AttendanceListingSource): number | null {
+  if (row.expected_minutes != null && Number.isFinite(Number(row.expected_minutes))) {
+    const mins = Number(row.expected_minutes);
+    if (mins > 0) return Math.round((mins / 60) * 100) / 100;
+  }
+  if (row.scheduled_in && row.scheduled_out) {
+    const ms = new Date(row.scheduled_out).getTime() - new Date(row.scheduled_in).getTime();
+    if (Number.isFinite(ms) && ms > 0) return Math.round((ms / 3_600_000) * 100) / 100;
+  }
+  return null;
+}
+
+/** Sum of listing TOTAL HOURS WORKED values (same as column cells). Excludes weekly off / comp off. */
 export function sumListingTotalHours(rows: AttendanceListingSource[]): number {
   let total = 0;
   for (const row of rows) {
+    if (isExcludedFromListingHours(row.status)) continue;
     const hours = resolveTotalHoursWorked(row);
     if (hours != null) total += hours;
   }
   return Math.round(total * 100) / 100;
+}
+
+/** Worked / required / shortfall for the filtered listing (excludes weekly off / comp off). */
+export function sumListingHoursSummary(rows: AttendanceListingSource[]): {
+  workedHours: number;
+  requiredHours: number;
+  shortfallHours: number;
+} {
+  let worked = 0;
+  let required = 0;
+  for (const row of rows) {
+    if (isExcludedFromListingHours(row.status)) continue;
+    const hours = resolveTotalHoursWorked(row);
+    if (hours != null && hours > 0) worked += hours;
+    const expected = expectedHoursForListingRow(row);
+    if (expected != null && expected > 0) required += expected;
+  }
+  const workedHours = Math.round(worked * 100) / 100;
+  const requiredHours = Math.round(required * 100) / 100;
+  const shortfallHours =
+    requiredHours > workedHours ? Math.round((requiredHours - workedHours) * 100) / 100 : 0;
+  return { workedHours, requiredHours, shortfallHours };
 }
 
 export type AttendanceMapStaffOption = {
@@ -65,6 +113,60 @@ function staffAtLocation(s: AttendanceMapStaffOption, locationId: string | null 
   if (s.location_id === locationId) return true;
   if (s.is_roaming) return true;
   return Boolean(s.work_location_ids?.includes(locationId));
+}
+
+export function AttendanceHoursSummaryStrip({ rows }: { rows: AttendanceListingSource[] }) {
+  const { t } = useTranslation();
+  const hoursSummary = sumListingHoursSummary(rows);
+  if (rows.length === 0) return null;
+  return (
+    <div
+      className="rounded-2xl border-2 border-[#1a1a1a]/18 bg-white p-3 shadow-sm sm:p-4"
+      style={{ color: "#1a1a1a" }}
+      role="region"
+      aria-label={t("attendanceHr.reports.hoursSummary")}
+    >
+      <p className="text-xs font-bold uppercase tracking-[0.08em] text-[#1a1a1a] sm:text-sm">
+        {t("attendanceHr.reports.hoursSummary")}
+      </p>
+      <div className="mt-2.5 grid grid-cols-1 gap-2.5 sm:grid-cols-3 sm:gap-3">
+        <div className="min-w-0 rounded-xl border border-[#1a1a1a]/12 bg-[#F8F6F1] px-3 py-2.5">
+          <p className="text-xs font-semibold text-[#3F3A36] sm:text-sm">
+            {t("attendanceHr.reports.hoursWorked")}
+          </p>
+          <p className="mt-1 text-xl font-bold tabular-nums leading-none text-[#1a1a1a] sm:text-2xl">
+            {formatHoursValue(hoursSummary.workedHours)}h
+          </p>
+        </div>
+        <div className="min-w-0 rounded-xl border border-[#1a1a1a]/12 bg-[#F8F6F1] px-3 py-2.5">
+          <p className="text-xs font-semibold text-[#3F3A36] sm:text-sm">
+            {t("attendanceHr.reports.hoursRequired")}
+          </p>
+          <p className="mt-1 text-xl font-bold tabular-nums leading-none text-[#1a1a1a] sm:text-2xl">
+            {formatHoursValue(hoursSummary.requiredHours)}h
+          </p>
+        </div>
+        <div className="min-w-0 rounded-xl border border-[#1a1a1a]/12 bg-[#FFF7ED] px-3 py-2.5">
+          <p className="text-xs font-semibold text-[#9A3412] sm:text-sm">
+            {t("attendanceHr.reports.hoursShortfall")}
+          </p>
+          <p
+            className={cn(
+              "mt-1 text-xl font-bold tabular-nums leading-none sm:text-2xl",
+              hoursSummary.shortfallHours > 0 ? "text-[#C2410C]" : "text-[#1a1a1a]",
+            )}
+          >
+            {hoursSummary.shortfallHours > 0
+              ? `${formatHoursValue(hoursSummary.shortfallHours)}h`
+              : "—"}
+          </p>
+        </div>
+      </div>
+      <p className="mt-2 text-xs leading-snug text-[#3F3A36] sm:text-sm">
+        {t("attendanceHr.reports.hoursExcludeNote")}
+      </p>
+    </div>
+  );
 }
 
 export function AttendanceRecordsTable({
@@ -87,7 +189,10 @@ export function AttendanceRecordsTable({
   const totalHoursSum = sumListingTotalHours(rows);
 
   return (
-    <div className="overflow-hidden rounded-lg border border-border">
+    <div className="space-y-3">
+      <AttendanceHoursSummaryStrip rows={rows} />
+
+      <div className="overflow-hidden rounded-lg border border-border">
       <Table>
         <TableHeader>
           <TableRow className="bg-surface/60 hover:bg-surface/60">
@@ -241,22 +346,23 @@ export function AttendanceRecordsTable({
           )}
         </TableBody>
         {rows.length > 0 ? (
-          <TableFooter className="sticky bottom-0 z-[1] bg-muted/95 backdrop-blur-sm">
+          <TableFooter className="sticky bottom-0 z-[1] border-t-2 border-[#1a1a1a]/15 bg-white">
             <TableRow className="hover:bg-transparent">
               <TableCell
                 colSpan={HOURS_COL_INDEX}
-                className="px-4 text-right text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                className="px-4 text-right text-xs font-bold uppercase tracking-wider text-[#1a1a1a]"
               >
                 {t("people.attendance.widgets.totalHours")}
               </TableCell>
-              <TableCell className="tabular-nums text-xs font-semibold">
-                {formatHoursValue(totalHoursSum)}
+              <TableCell className="tabular-nums text-sm font-bold text-[#1a1a1a]">
+                {formatHoursValue(totalHoursSum)}h
               </TableCell>
               <TableCell colSpan={COL_COUNT - HOURS_COL_INDEX - 1} />
             </TableRow>
           </TableFooter>
         ) : null}
       </Table>
+      </div>
     </div>
   );
 }

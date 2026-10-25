@@ -38,6 +38,7 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AttendanceRecordsGrid } from "@/components/people/attendance-records-grid";
 import {
+  AttendanceHoursSummaryStrip,
   AttendanceRecordsTable,
   type AttendanceMapStaffOption,
 } from "@/components/people/attendance-records-table";
@@ -861,7 +862,10 @@ export default function AttendanceHrReportsPage() {
           ) : showListView ? (
             <AttendanceRecordsTable rows={listingRows} {...listMapProps} />
           ) : (
-            <AttendanceRecordsGrid rows={gridListingRows} dateFrom={from} dateTo={to} />
+            <div className="space-y-3">
+              <AttendanceHoursSummaryStrip rows={listingRows} />
+              <AttendanceRecordsGrid rows={gridListingRows} dateFrom={from} dateTo={to} />
+            </div>
           )}
         </div>
       </div>

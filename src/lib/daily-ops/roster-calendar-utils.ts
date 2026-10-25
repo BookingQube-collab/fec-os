@@ -105,6 +105,50 @@ export function buildMonthWeeks(ym: string, weekStartsOn: 0 | 6): CalendarDayCel
   return weeks;
 }
 
+/**
+ * Weeks covering an inclusive YMD range (e.g. FEC payroll 28→27).
+ * `inMonth` is true for dates inside [dateFrom, dateTo]; leading/trailing pad days are false.
+ */
+export function buildPeriodWeeks(
+  dateFrom: string,
+  dateTo: string,
+  weekStartsOn: 0 | 6,
+  todayYmd?: string,
+): CalendarDayCell[][] {
+  const from = dateFrom.slice(0, 10);
+  const to = dateTo.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) {
+    return [];
+  }
+  const today = todayYmd ?? toDateStr(new Date());
+  const start = new Date(`${from}T12:00:00`);
+  const end = new Date(`${to}T12:00:00`);
+  const startDow = start.getDay();
+  const leading = (startDow - weekStartsOn + 7) % 7;
+  const cursor = new Date(start);
+  cursor.setDate(cursor.getDate() - leading);
+
+  const weeks: CalendarDayCell[][] = [];
+  while (cursor.getTime() <= end.getTime() || weeks.length === 0) {
+    const week: CalendarDayCell[] = [];
+    for (let i = 0; i < 7; i++) {
+      const ds = toDateStr(cursor);
+      week.push({
+        date: ds,
+        dayOfMonth: cursor.getDate(),
+        inMonth: ds >= from && ds <= to,
+        isToday: ds === today,
+      });
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    weeks.push(week);
+    if (week[6] && week[6].date >= to) break;
+    // Safety: avoid runaway if dates are invalid
+    if (weeks.length > 8) break;
+  }
+  return weeks;
+}
+
 export function weekdayLabels(language: SupportedLanguage, weekStartsOn: 0 | 6): string[] {
   const locale = language === "ar" ? "ar" : "en-US";
   const refSunday = new Date(2024, 0, 7);

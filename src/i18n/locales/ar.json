@@ -8255,6 +8255,11 @@
       "kpiLate": "تأخير",
       "kpiMissedPunch": "بصمة ناقصة",
       "kpiUnscheduled": "غير مجدول",
+      "hoursSummary": "ساعات هذا التصفية",
+      "hoursWorked": "ساعات العمل",
+      "hoursRequired": "الساعات المطلوبة",
+      "hoursShortfall": "النقص",
+      "hoursExcludeNote": "يُستثنى من هذه المجاميع يوم الراحة الأسبوعي ويوم التعويض.",
       "statuses": {
         "present": "حاضر",
         "working": "يعمل اليوم",
