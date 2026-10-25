@@ -8402,7 +8402,7 @@
       "hoursWorked": "Hours worked",
       "hoursRequired": "Hours required",
       "hoursShortfall": "Shortfall",
-      "hoursExcludeNote": "Weekly off and compensatory off are excluded from these totals.",
+      "hoursExcludeNote": "Weekly off, compensatory off, and annual leave are excluded from these totals.",
       "statuses": {
         "present": "Present",
         "working": "Working today",
