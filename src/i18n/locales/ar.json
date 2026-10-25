@@ -10117,8 +10117,37 @@
       "subtitle": "أفكار الموظفين للإدارة ورئيس العمليات فقط.",
       "noAccess": "صندوق الاقتراحات مقصور على الإدارة ورئيس العمليات.",
       "empty": "لا اقتراحات بعد.",
+      "emptyFiltered": "لا اقتراحات تطابق هذه الفلاتر.",
+      "loadError": "تعذر تحميل الاقتراحات.",
       "filterStatus": "الحالة",
+      "filterCategory": "الفئة",
+      "filterSearch": "بحث",
+      "filterSearchPlaceholder": "العنوان أو النص أو اسم الموظف…",
+      "filterDateFrom": "من",
+      "filterDateTo": "إلى",
       "filterAll": "الكل",
+      "clearFilters": "مسح الفلاتر",
+      "showDetails": "إظهار التفاصيل",
+      "hideDetails": "إخفاء التفاصيل",
+      "col": {
+        "title": "الاقتراح",
+        "staff": "الموظف",
+        "date": "التاريخ"
+      },
+      "kpi": {
+        "total": "الإجمالي"
+      },
+      "charts": {
+        "empty": "لا بيانات لهذه الفلاتر.",
+        "volumeTitle": "الحجم · آخر 30 يوماً",
+        "volumeHint": "الاقتراحات المُرسلة يومياً ضمن النتائج المصفّاة.",
+        "submitted": "مُرسل",
+        "byStatus": "حسب الحالة",
+        "byStatusHint": "توزيع الاقتراحات المصفّاة.",
+        "byCategory": "حسب الفئة",
+        "byCategoryHint": "مزيج الفئات ضمن النتائج المصفّاة.",
+        "count": "العدد"
+      },
       "note": "ملاحظة / رد",
       "notePlaceholder": "ملاحظة اختيارية للموظف",
       "markSeen": "وضع كمقروء",
@@ -10134,7 +10163,8 @@
         "operations": "العمليات",
         "hr": "الموارد البشرية",
         "safety": "السلامة",
-        "other": "أخرى"
+        "other": "أخرى",
+        "uncategorized": "غير مصنّف"
       }
     },
     "announcements": {
@@ -10404,7 +10434,9 @@
       "issuesUnavailable": "تعذر تحميل البلاغات.",
       "issuesHint": "البلاغات التي أبلغتها أو المُسندة إليك.",
       "suggestions": "الاقتراحات",
-      "suggestionsHint": "شارك فكرة مع الإدارة ورئيس العمليات. هم فقط يرون الصندوق.",
+      "suggestionsHint": "شارك فكرة مع الإدارة ورئيس العمليات. هم فقط يرون الصندوق — وتصل إليك إشعارات عند القراءة أو الرد أو الإغلاق.",
+      "suggestionComposeTitle": "اقتراح جديد",
+      "suggestionComposeHint": "اجعله قصيراً وواضحاً. ستراجعه العمليات في صندوقها.",
       "suggestionTitle": "العنوان",
       "suggestionTitlePlaceholder": "ملخص قصير",
       "suggestionBody": "الاقتراح",
@@ -10413,8 +10445,12 @@
       "suggestionCategoryNone": "بدون فئة",
       "suggestionSubmit": "إرسال الاقتراح",
       "suggestionSubmitted": "تم إرسال الاقتراح",
+      "mySuggestionsTitle": "اقتراحاتي",
+      "mySuggestionsCount": "{{count}} مُرسل",
       "suggestionsEmpty": "لم ترسل أي اقتراحات بعد.",
-      "suggestionNote": "الرد",
+      "suggestionsUnavailable": "تعذر تحميل اقتراحاتك.",
+      "suggestionNote": "رد الإدارة / رئيس العمليات",
+      "suggestionAwaiting": "بانتظار مراجعة الإدارة أو رئيس العمليات.",
       "selfSubtitle": "ملفك وحضورك وجدولك وإجازتك وبلاغاتك.",
       "issueStatus": {
         "open": "مفتوح",

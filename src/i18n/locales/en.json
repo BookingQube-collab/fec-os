@@ -10355,8 +10355,37 @@
       "subtitle": "Staff ideas for Admin and Head of Operations only.",
       "noAccess": "Only Admin and Head of Operations can open this inbox.",
       "empty": "No suggestions yet.",
+      "emptyFiltered": "No suggestions match these filters.",
+      "loadError": "Could not load suggestions.",
       "filterStatus": "Status",
+      "filterCategory": "Category",
+      "filterSearch": "Search",
+      "filterSearchPlaceholder": "Title, body, or staff name…",
+      "filterDateFrom": "From",
+      "filterDateTo": "To",
       "filterAll": "All",
+      "clearFilters": "Clear filters",
+      "showDetails": "Show details",
+      "hideDetails": "Hide details",
+      "col": {
+        "title": "Suggestion",
+        "staff": "Staff",
+        "date": "Date"
+      },
+      "kpi": {
+        "total": "Total"
+      },
+      "charts": {
+        "empty": "No data for this filter set.",
+        "volumeTitle": "Volume · last 30 days",
+        "volumeHint": "Suggestions submitted per day in the filtered set.",
+        "submitted": "Submitted",
+        "byStatus": "By status",
+        "byStatusHint": "Distribution of filtered suggestions.",
+        "byCategory": "By category",
+        "byCategoryHint": "Category mix in the filtered set.",
+        "count": "Count"
+      },
       "note": "Note / reply",
       "notePlaceholder": "Optional note for the staff member",
       "markSeen": "Mark seen",
@@ -10372,7 +10401,8 @@
         "operations": "Operations",
         "hr": "HR",
         "safety": "Safety",
-        "other": "Other"
+        "other": "Other",
+        "uncategorized": "Uncategorized"
       }
     },
     "announcements": {
@@ -10642,7 +10672,9 @@
       "issuesUnavailable": "Could not load issues.",
       "issuesHint": "Tickets you reported or that are assigned to you.",
       "suggestions": "Suggestions",
-      "suggestionsHint": "Share an idea with Admin and Head of Operations. Only they see the inbox.",
+      "suggestionsHint": "Share an idea with Admin and Head of Operations. Only they see the inbox — you get a notification when they see it, reply, or close it.",
+      "suggestionComposeTitle": "New suggestion",
+      "suggestionComposeHint": "Keep it short and clear. Ops will review it in their inbox.",
       "suggestionTitle": "Title",
       "suggestionTitlePlaceholder": "Short summary",
       "suggestionBody": "Suggestion",
@@ -10651,8 +10683,12 @@
       "suggestionCategoryNone": "No category",
       "suggestionSubmit": "Submit suggestion",
       "suggestionSubmitted": "Suggestion submitted",
+      "mySuggestionsTitle": "My suggestions",
+      "mySuggestionsCount": "{{count}} submitted",
       "suggestionsEmpty": "You have not submitted any suggestions yet.",
-      "suggestionNote": "Reply",
+      "suggestionsUnavailable": "Could not load your suggestions.",
+      "suggestionNote": "Admin / Head of Operations reply",
+      "suggestionAwaiting": "Waiting for Admin or Head of Operations to review.",
       "selfSubtitle": "Your profile, attendance, roster, leave, and issues.",
       "issueStatus": {
         "open": "Open",
