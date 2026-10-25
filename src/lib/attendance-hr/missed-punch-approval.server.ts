@@ -37,6 +37,7 @@ import {
   previousPunchesFromOriginalValue,
   punchesFromCorrectionValue,
   punchCorrectionRequestSide,
+  pickBestPunchCorrectionSummary,
   ownCorrectionRouteAfterLineManagerCheck,
   punchCorrectionRoute,
   requesterLineManagerUserIds,
@@ -232,12 +233,17 @@ export async function loadMissedPunchDirectory(staffIds: string[]): Promise<Appr
       .not("user_id", "is", null)
       .ilike("job_title", "%general manager%"),
   ]);
-  if (rolesRes.error) throw rolesRes.error;
-  if (supervisorsRes.error) throw supervisorsRes.error;
-  if (reportingRes.error && !/does not exist|schema cache/i.test(reportingRes.error.message)) throw reportingRes.error;
-  if (subjectRes.error) throw subjectRes.error;
-  if (fnbManagerRes.error) throw fnbManagerRes.error;
-  if (gmTitleRes.error) throw gmTitleRes.error;
+  if (rolesRes.error) throw new Error(rolesRes.error.message);
+  if (supervisorsRes.error) throw new Error(supervisorsRes.error.message);
+  if (reportingRes.error && !/does not exist|schema cache/i.test(reportingRes.error.message)) {
+    throw new Error(reportingRes.error.message);
+  }
+  if (subjectRes.error) throw new Error(subjectRes.error.message);
+  if (fnbManagerRes.error) throw new Error(fnbManagerRes.error.message);
+  // Title scan is additive; branch_gm role already covers GM logins.
+  if (gmTitleRes.error) {
+    console.warn("[missed-punch] GM title lookup failed", gmTitleRes.error.message);
+  }
 
   const branchGmUserIdsByLocationId = siteApproverLocationMap(
     (rolesRes.data ?? []).map((role) => ({
@@ -254,7 +260,7 @@ export async function loadMissedPunchDirectory(staffIds: string[]): Promise<Appr
     if (role.role === "hr") hr.add(role.user_id as string);
     if (role.role === "branch_gm") generalManagers.add(role.user_id as string);
   }
-  for (const staff of gmTitleRes.data ?? []) {
+  for (const staff of gmTitleRes.error ? [] : (gmTitleRes.data ?? [])) {
     const userId = staff.user_id as string | null;
     if (userId && isGeneralManagerTitle(staff.job_title as string | null)) {
       generalManagers.add(userId);
@@ -952,16 +958,58 @@ export async function submitMissedPunchRequest(args: {
 
   const { data: existing, error: existingErr } = await supabaseAdmin
     .from("attendance_corrections")
-    .select("id, status, new_value")
+    .select("id, status, new_value, requested_by, requested_at, request_number")
     .eq("summary_id", summary.id)
-    .in("status", ["pending", "change_required"]);
-  if (existingErr) throw existingErr;
-  const openSameDay = (existing ?? [])[0] ?? null;
+    .in("status", ["pending", "change_required"])
+    .order("requested_at", { ascending: false });
+  if (existingErr) throw new Error(existingErr.message);
+  const openRows = existing ?? [];
+  const pendingSameDay = openRows.find((row) => row.status === "pending") ?? null;
+  const changeRequiredOwned = openRows.filter(
+    (row) =>
+      row.status === "change_required" &&
+      canRequesterEditMissedPunch({
+        userId: args.userId,
+        requestedBy: String(row.requested_by),
+        status: String(row.status),
+      }),
+  );
+  // Supervisor (or original requester) re-files from Corrections: update the open
+  // change_required row instead of throwing — production used to surface that as React #441.
+  if (changeRequiredOwned.length > 0 && !pendingSameDay) {
+    const [primary, ...superseded] = changeRequiredOwned;
+    const nowIso = new Date().toISOString();
+    for (const old of superseded) {
+      await supabaseAdmin
+        .from("attendance_corrections")
+        .update({
+          status: "rejected",
+          current_step_role: null,
+          review_note: "Superseded by an updated punch correction on the same day.",
+          reviewed_by: args.userId,
+          reviewed_at: nowIso,
+        })
+        .eq("id", old.id)
+        .eq("status", "change_required");
+    }
+    return resubmitMissedPunchRequest({
+      userId: args.userId,
+      correctionId: String(primary!.id),
+      punchInTime,
+      punchOutTime,
+      reason: args.reason,
+    });
+  }
+  const openSameDay = pendingSameDay ?? openRows[0] ?? null;
   if (openSameDay?.status === "change_required") {
-    throw new Error("This punch was sent back for changes. Update that request and send it again.");
+    const number = openSameDay.request_number ? ` (${openSameDay.request_number})` : "";
+    throw new Error(
+      `This punch was sent back for changes${number}. Open that request, update the times, and send it again.`,
+    );
   }
   if (openSameDay) {
-    throw new Error("A punch correction for this day is already waiting for approval.");
+    const number = openSameDay.request_number ? ` (${openSameDay.request_number})` : "";
+    throw new Error(`A punch correction for this day is already waiting for approval${number}.`);
   }
 
   const workDate = String(summary.work_date).slice(0, 10);
@@ -1013,7 +1061,7 @@ export async function submitMissedPunchRequest(args: {
     })
     .select("id, request_number")
     .single();
-  if (insErr) throw insErr;
+  if (insErr) throw new Error(insErr.message || "Could not save the punch correction.");
 
   const { data: stepRows, error: stepErr } = await supabaseAdmin
     .from("attendance_correction_approvals")
@@ -1029,7 +1077,17 @@ export async function submitMissedPunchRequest(args: {
       })),
     )
     .select("id, step_role");
-  if (stepErr) throw stepErr;
+  if (stepErr) {
+    // Don't leave an orphan correction that blocks retry ("already waiting").
+    await supabaseAdmin.from("attendance_corrections").delete().eq("id", created.id);
+    const msg = stepErr.message || "Could not save approval steps.";
+    if (/attendance_correction_approvals_role_chk|step_role|violates check/i.test(msg)) {
+      throw new Error(
+        "Punch correction needs the General Manager approval step. Ask an admin to apply the latest database migration, then try again.",
+      );
+    }
+    throw new Error(msg);
+  }
 
   let subjectName = managerName;
   if (!isSelf) {
@@ -1739,17 +1797,48 @@ export async function resubmitMissedPunchRequest(args: {
     if (!updated || updated.length !== 1) throw new Error("This request was already sent again.");
 
     for (const step of correctionStepSeed(route)) {
-      const { error: stepErr } = await supabaseAdmin
+      const { data: existingStep, error: existingStepErr } = await supabaseAdmin
         .from("attendance_correction_approvals")
-        .update({
+        .select("id")
+        .eq("correction_id", args.correctionId)
+        .eq("step_role", step.stepRole)
+        .maybeSingle();
+      if (existingStepErr && !/does not exist|schema cache|relation/i.test(existingStepErr.message)) {
+        throw new Error(existingStepErr.message);
+      }
+      if (existingStep?.id) {
+        const { error: stepErr } = await supabaseAdmin
+          .from("attendance_correction_approvals")
+          .update({
+            status: step.status,
+            acted_by: step.status === "approved" ? args.userId : null,
+            acted_at: step.status === "pending" ? null : now,
+            comments: step.status === "pending" ? null : approvalNote,
+          })
+          .eq("id", existingStep.id);
+        if (stepErr && !/does not exist|schema cache|relation/i.test(stepErr.message)) {
+          throw new Error(stepErr.message);
+        }
+      } else {
+        const { error: stepInsErr } = await supabaseAdmin.from("attendance_correction_approvals").insert({
+          correction_id: args.correctionId,
+          step_order: step.stepOrder,
+          step_role: step.stepRole,
           status: step.status,
           acted_by: step.status === "approved" ? args.userId : null,
           acted_at: step.status === "pending" ? null : now,
           comments: step.status === "pending" ? null : approvalNote,
-        })
-        .eq("correction_id", args.correctionId)
-        .eq("step_role", step.stepRole);
-      if (stepErr && !/does not exist|schema cache|relation/i.test(stepErr.message)) throw stepErr;
+        });
+        if (stepInsErr) {
+          const msg = stepInsErr.message || "Could not save approval steps.";
+          if (/attendance_correction_approvals_role_chk|step_role|violates check/i.test(msg)) {
+            throw new Error(
+              "Punch correction needs the General Manager approval step. Ask an admin to apply the latest database migration, then try again.",
+            );
+          }
+          throw new Error(msg);
+        }
+      }
     }
   } else {
     const { data: updated, error: updateErr } = await supabaseAdmin
@@ -1990,14 +2079,15 @@ export async function findPunchCorrectionDay(args: {
   ) {
     throw new ForbiddenError("You can only correct your own punches or punches for people who report to you.");
   }
-  const { data, error } = await supabaseAdmin
+  // Secondment / multi-site staff can have several summary rows for one civil day —
+  // pick the best correctable row instead of limit(1) which is arbitrary.
+  const { data: rows, error } = await supabaseAdmin
     .from("attendance_daily_summary")
     .select("id, work_date, status, missed_punch, actual_in, actual_out")
     .eq("staff_id", args.staffId)
-    .eq("work_date", args.workDate)
-    .limit(1)
-    .maybeSingle();
-  if (error) throw error;
+    .eq("work_date", args.workDate);
+  if (error) throw new Error(error.message);
+  const data = pickBestPunchCorrectionSummary(rows ?? []);
   if (!data) {
     return {
       summaryId: null,
@@ -2027,3 +2117,4 @@ export async function findPunchCorrectionDay(args: {
       }) !== null,
   };
 }
+

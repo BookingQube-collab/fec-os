@@ -36,6 +36,7 @@ import {
   nearestSiteSupervisorUserId,
   nextMissedPunchStep,
   punchCorrectionRequestSide,
+  pickBestPunchCorrectionSummary,
   requesterLineManagerUserIds,
   canSiteSupervisorActOnTeamCorrection,
   isMissedPunchTeamSubmittedNote,
@@ -144,6 +145,28 @@ describe("missed punch approval chain", () => {
     expect(missedPunchRequestSide({ missedPunch: false, status: "weekly_off", hasIn: false, hasOut: false })).toBeNull();
     expect(missedPunchRequestSide({ missedPunch: false, status: "annual_leave", hasIn: false, hasOut: false })).toBeNull();
     expect(missedPunchRequestSide({ missedPunch: false, status: "present", hasIn: true, hasOut: true })).toBeNull();
+  });
+
+  it("picks the missed-punch site when a seconded staff has several summary rows that day", () => {
+    const presentOtherSite = {
+      id: "present-row",
+      work_date: "2026-10-20",
+      status: "present",
+      missed_punch: false,
+      actual_in: "2026-10-20T09:00:00+03:00",
+      actual_out: "2026-10-20T18:00:00+03:00",
+    };
+    const missedHome = {
+      id: "missed-row",
+      work_date: "2026-10-20",
+      status: "missed_punch",
+      missed_punch: true,
+      actual_in: null,
+      actual_out: null,
+    };
+    expect(pickBestPunchCorrectionSummary([presentOtherSite, missedHome])?.id).toBe("missed-row");
+    expect(pickBestPunchCorrectionSummary([missedHome, presentOtherSite])?.id).toBe("missed-row");
+    expect(pickBestPunchCorrectionSummary([])).toBeNull();
   });
 
   it("treats Mary’s title as the site in-charge and ignores other supervisor titles", () => {

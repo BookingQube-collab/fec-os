@@ -23,6 +23,7 @@ import { canRequestAttendanceCorrection } from "@/lib/attendance-hr/missed-punch
 import { opsApprovalLaneForStaff, opsStepApproverLabel } from "@/lib/approval-ops-routing";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
+import { userFacingActionError } from "@/lib/user-facing-action-error";
 
 function clockText(iso: string | null): string {
   return formatPunchTime12h(iso) || "—";
@@ -89,12 +90,14 @@ export function PunchCorrectionRequest({
       if (!summaryId) throw new Error("This date has no attendance to correct.");
       if (!punchIn && !punchOut) throw new Error("Enter the corrected punch-in, punch-out, or both.");
       // One form → one MP request with punch-in and/or punch-out on the same row.
-      return submitMissedPunchRequest({
+      const result = await submitMissedPunchRequest({
         summaryId,
         punchInTime: punchIn || null,
         punchOutTime: punchOut || null,
         reason: reason.trim() || undefined,
       });
+      if (!result.ok) throw new Error(result.error);
+      return result.data;
     },
     onSuccess: (result) => {
       if (result.routedTo === "hr") {
@@ -122,7 +125,8 @@ export function PunchCorrectionRequest({
       setReason("");
       void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
     },
-    onError: (error: Error) => toast.error(error.message),
+    onError: (error: Error) =>
+      toast.error(userFacingActionError(error, "Could not submit the punch correction. Try again.")),
   });
 
   if (reportsPending || !canRequest) return null;

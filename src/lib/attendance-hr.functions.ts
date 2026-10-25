@@ -2511,7 +2511,8 @@ export const submitAttendanceCorrection = createAuthenticatedAction(
 /** Punch correction. Own requests wait on the line manager. A manager's team correction is approved and waits on HR. */
 const punchHhMm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 
-export const submitMissedPunchRequest = createAuthenticatedAction(
+/** Safe: production must not surface React #441 digests when submit fails (e.g. GM step not migrated). */
+export const submitMissedPunchRequest = createSafeAuthenticatedAction(
   z
     .object({
       summaryId: z.string().uuid(),
@@ -2633,7 +2634,7 @@ export const reviewAttendanceCorrection = createAuthenticatedAction(
 );
 
 /** Edit own pending correction, or resubmit after change_required — same request id, both clocks. */
-export const resubmitMissedPunchRequest = createAuthenticatedAction(
+export const resubmitMissedPunchRequest = createSafeAuthenticatedAction(
   z
     .object({
       correctionId: z.string().uuid(),

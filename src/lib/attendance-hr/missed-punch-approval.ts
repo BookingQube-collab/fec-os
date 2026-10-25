@@ -175,6 +175,46 @@ export function punchCorrectionRequestSide(summary: {
   return missedPunchRequestSide(summary);
 }
 
+export type PunchCorrectionSummaryCandidate = {
+  id: string;
+  work_date: string;
+  status: string | null;
+  missed_punch: boolean | null;
+  actual_in: string | null;
+  actual_out: string | null;
+};
+
+/**
+ * Secondment / multi-site staff can have several daily-summary rows for one civil day.
+ * Prefer a correctable / missed-punch site over an arbitrary first row.
+ */
+export function pickBestPunchCorrectionSummary(
+  rows: readonly PunchCorrectionSummaryCandidate[],
+): PunchCorrectionSummaryCandidate | null {
+  if (!rows.length) return null;
+  const scored = rows.map((row) => {
+    const hasIn = Boolean(row.actual_in);
+    const hasOut = Boolean(row.actual_out);
+    const missed = Boolean(row.missed_punch);
+    const status = String(row.status ?? "");
+    const correctable =
+      punchCorrectionRequestSide({
+        missedPunch: missed,
+        status,
+        hasIn,
+        hasOut,
+      }) !== null;
+    let score = 0;
+    if (correctable) score += 100;
+    if (missed || status === "missed_punch" || status === "incomplete") score += 40;
+    if (hasIn !== hasOut) score += 20;
+    if (hasIn || hasOut) score += 10;
+    return { row, score };
+  });
+  scored.sort((a, b) => b.score - a.score);
+  return scored[0]?.row ?? null;
+}
+
 /** Branch, duty, and technical supervisors. A cashier is not a manager by role alone. */
 const ATTENDANCE_CORRECTION_REQUEST_ROLES = ["branch_gm", "duty_manager", "tech_supervisor"] as const;
 
@@ -492,7 +532,7 @@ export function approverUserIdsForStep(
     return opsStepApproverUserIds(directory, staffId);
   }
   if (step === "gm") {
-    return [...directory.generalManagerUserIds];
+    return [...(directory.generalManagerUserIds ?? [])];
   }
   return [...directory.hrUserIds];
 }

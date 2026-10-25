@@ -30,6 +30,7 @@ import {
 } from "@/lib/attendance-hr/missed-punch-approval";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
+import { userFacingActionError } from "@/lib/user-facing-action-error";
 
 type CorrectionListRow = Awaited<ReturnType<typeof listAttendanceCorrections>>[number];
 
@@ -389,7 +390,11 @@ export function MyMissedPunchRequests() {
     staleTime: STALE.people,
   });
   const saveEdit = useMutation({
-    mutationFn: (input: ResubmitMissedPunchInput) => resubmitMissedPunchRequest(input),
+    mutationFn: async (input: ResubmitMissedPunchInput) => {
+      const result = await resubmitMissedPunchRequest(input);
+      if (!result.ok) throw new Error(result.error);
+      return result.data;
+    },
     onSuccess: () => {
       toast.success(t("hr.me.punchEditSaved"));
       setEditingId(null);
@@ -398,7 +403,8 @@ export function MyMissedPunchRequests() {
       setReason("");
       void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) =>
+      toast.error(userFacingActionError(e, "Could not update the punch correction. Try again.")),
   });
   const rows = (q.data ?? []).filter(
     (row) =>
@@ -609,17 +615,31 @@ export function MissedPunchRequestButton({
     setReason("");
   };
   const submit = useMutation({
-    mutationFn: submitMissedPunchRequest,
+    mutationFn: async (input: {
+      summaryId: string;
+      punchInTime?: string | null;
+      punchOutTime?: string | null;
+      reason?: string;
+    }) => {
+      const result = await submitMissedPunchRequest(input);
+      if (!result.ok) throw new Error(result.error);
+      return result.data;
+    },
     onSuccess: (result) => {
       if (result.approverCount === 0) toast.message(t("hr.me.savedNoSupervisor"));
       else toast.success(t("hr.me.sentToSupervisor"));
       resetForm();
       void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) =>
+      toast.error(userFacingActionError(e, "Could not submit the punch correction. Try again.")),
   });
   const resubmit = useMutation({
-    mutationFn: (input: ResubmitMissedPunchInput) => resubmitMissedPunchRequest(input),
+    mutationFn: async (input: ResubmitMissedPunchInput) => {
+      const result = await resubmitMissedPunchRequest(input);
+      if (!result.ok) throw new Error(result.error);
+      return result.data;
+    },
     onSuccess: (_result, variables) => {
       const edited = (mine.data ?? []).find((row) => row.id === variables.correctionId);
       if (edited?.status === "pending") toast.success(t("hr.me.punchEditSaved"));
@@ -628,7 +648,8 @@ export function MissedPunchRequestButton({
       resetForm();
       void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) =>
+      toast.error(userFacingActionError(e, "Could not update the punch correction. Try again.")),
   });
 
   const editableRows = [...pendingRows, ...changeRows];
