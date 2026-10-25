@@ -5,6 +5,7 @@ export const HOURS_EXCLUDED_ATTENDANCE_STATUSES = new Set([
   "weekly_off",
   "week_off",
   "comp_off",
+  "annual_leave",
 ]);
 
 /** Roster / leave statuses that clear missed-punch and beat stale Absent in UI. */
@@ -62,8 +63,6 @@ export function isExcludedFromEmployeeHoursTotals(input: {
   if (input.isWeekOff) return true;
   if (isHoursExcludedAttendanceStatus(input.status)) return true;
   if (isHoursExcludedAttendanceStatus(input.leaveType)) return true;
-  // Roster leave types that are not hours-excluded (annual/sick) still block required hours
-  // only when status was overridden — callers pass the resolved display status for that.
   return false;
 }
 

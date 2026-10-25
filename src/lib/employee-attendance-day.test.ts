@@ -225,4 +225,36 @@ describe("sumEmployeePeriodHours", () => {
       sumEmployeePeriodHours(byDate, rosterByDate, "2026-10-10", "2026-10-10", "2026-10-25"),
     ).toEqual({ workedHours: 0, requiredHours: 0, shortfallHours: 0 });
   });
+
+  it("excludes annual leave from worked and required hours", () => {
+    const byDate = new Map([
+      [
+        "2026-10-12",
+        {
+          workDate: "2026-10-12",
+          status: "absent",
+          actualIn: null,
+          actualOut: null,
+          scheduledIn: "2026-10-12T06:00:00.000Z",
+          scheduledOut: "2026-10-12T15:00:00.000Z",
+        },
+      ],
+    ]);
+    const rosterByDate = new Map([
+      [
+        "2026-10-12",
+        {
+          workDate: "2026-10-12",
+          shiftStart: "09:00",
+          shiftEnd: "18:00",
+          isWeekOff: false,
+          leaveType: "annual_leave",
+        },
+      ],
+    ]);
+
+    expect(
+      sumEmployeePeriodHours(byDate, rosterByDate, "2026-10-12", "2026-10-12", "2026-10-25"),
+    ).toEqual({ workedHours: 0, requiredHours: 0, shortfallHours: 0 });
+  });
 });

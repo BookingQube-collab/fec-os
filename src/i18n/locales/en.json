@@ -10550,7 +10550,7 @@
       "attendancePeriodWorked": "Hours worked",
       "attendancePeriodRequired": "Hours required",
       "attendancePeriodShortfall": "Shortfall",
-      "attendancePeriodExcludeNote": "Weekly off and compensatory off are excluded from these totals.",
+      "attendancePeriodExcludeNote": "Weekly off, compensatory off, and annual leave are excluded from these totals.",
       "attendanceRosterShift": "Roster shift",
       "attendanceLateMinutes": "Late",
       "attendanceOtMinutes": "Overtime",

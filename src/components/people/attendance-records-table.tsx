@@ -40,7 +40,7 @@ const COL_COUNT = 13;
 /** Columns before TOTAL HOURS WORKED (location → last check-out). */
 const HOURS_COL_INDEX = 8;
 
-const HOURS_EXCLUDED_STATUSES = new Set(["weekly_off", "week_off", "comp_off"]);
+const HOURS_EXCLUDED_STATUSES = new Set(["weekly_off", "week_off", "comp_off", "annual_leave"]);
 
 function normalizeListingStatusKey(raw: string | null | undefined): string {
   return String(raw ?? "")

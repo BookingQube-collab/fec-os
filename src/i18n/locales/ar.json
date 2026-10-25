@@ -10316,7 +10316,7 @@
       "attendancePeriodWorked": "ساعات العمل",
       "attendancePeriodRequired": "الساعات المطلوبة",
       "attendancePeriodShortfall": "النقص",
-      "attendancePeriodExcludeNote": "يُستثنى من هذه المجاميع يوم الراحة الأسبوعي ويوم التعويض.",
+      "attendancePeriodExcludeNote": "يُستثنى من هذه المجاميع يوم الراحة الأسبوعي ويوم التعويض والإجازة السنوية.",
       "attendanceRosterShift": "مناوبة الجدول",
       "attendanceLateMinutes": "تأخير",
       "attendanceOtMinutes": "وقت إضافي",
