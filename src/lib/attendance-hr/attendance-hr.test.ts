@@ -59,6 +59,7 @@ import {
   mappingOpenSearchSeed,
   mergeBiometricUsersById,
   missingPunchBiometricIds,
+  personNamesLooselyMatch,
   staffByBiometricFromMappings,
   groupMappedStaffByLocation,
   staffEligibleForBiometricMap,
@@ -1859,6 +1860,30 @@ describe("suggestStaffIdForDeviceName", () => {
     expect(suggestStaffIdForDeviceName("Mariam", "inf", people)).toBe("mariam");
     expect(suggestStaffIdForDeviceName("Maria", "inf", people)).toBe("maria");
   });
+
+  it("does not merge Mary with MaryMoraa (distinct device people)", () => {
+    const people = [
+      { id: "mary", full_name: "Mary", location_id: "inf", work_location_ids: [] as string[] },
+      { id: "mary-moraa", full_name: "Mary Moraa", location_id: "inf", work_location_ids: [] as string[] },
+    ];
+    expect(suggestStaffIdForDeviceName("Mary", "inf", people)).toBe("mary");
+    expect(suggestStaffIdForDeviceName("MaryMoraa", "inf", people)).toBe("mary-moraa");
+    expect(suggestStaffIdForDeviceName("Mary", "inf", people.filter((p) => p.id === "mary-moraa"))).toBeNull();
+    expect(suggestStaffIdForDeviceName("MaryMoraa", "inf", people.filter((p) => p.id === "mary"))).toBeNull();
+  });
+});
+
+describe("personNamesLooselyMatch", () => {
+  it("keeps short given names from swallowing longer collapsed names", () => {
+    expect(personNamesLooselyMatch("Mary", "MaryMoraa")).toBe(false);
+    expect(personNamesLooselyMatch("Mary", "Mary Moraa")).toBe(false);
+    expect(personNamesLooselyMatch("MaryMoraa", "Mary")).toBe(false);
+  });
+
+  it("still links long Carousel aliases that share a distinctive stem", () => {
+    expect(personNamesLooselyMatch("Analiza", "AnalizaGutierrez")).toBe(true);
+    expect(personNamesLooselyMatch("Maniraj", "maniaRaj Paiyar")).toBe(true);
+  });
 });
 
 describe("suggestStaffIdFromMappedAliases", () => {
@@ -1885,6 +1910,35 @@ describe("suggestStaffIdFromMappedAliases", () => {
     ];
     expect(suggestStaffIdFromMappedAliases("maniaRaj Paiyar", "car", staff, aliases)).toBe("mani");
     expect(suggestStaffIdFromMappedAliases("AnalizaGutierrez", "car", staff, aliases)).toBe("analiza");
+  });
+
+  it("does not reuse a Mary mapping for MaryMoraa at another site", () => {
+    const staff = [
+      {
+        id: "mary",
+        full_name: "Mary",
+        location_id: "inf",
+        is_roaming: true,
+        work_location_ids: ["ua"] as string[],
+      },
+      {
+        id: "mary-moraa",
+        full_name: "Mary Moraa",
+        location_id: "ua",
+        is_roaming: true,
+        work_location_ids: ["inf"] as string[],
+      },
+    ];
+    expect(
+      suggestStaffIdFromMappedAliases("MaryMoraa", "ua", staff, [
+        { staffId: "mary", deviceName: "Mary" },
+      ]),
+    ).toBeNull();
+    expect(
+      suggestStaffIdFromMappedAliases("Mary", "inf", staff, [
+        { staffId: "mary-moraa", deviceName: "MaryMoraa" },
+      ]),
+    ).toBeNull();
   });
 });
 

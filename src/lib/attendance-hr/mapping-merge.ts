@@ -104,6 +104,13 @@ function tokenEditDistance(a: string, b: string): number {
   return prev[b.length]!;
 }
 
+/**
+ * Distinctive length before collapsed prefix / short-alias rules apply.
+ * Keeps Carousel aliases ("Analiza" ↔ "AnalizaGutierrez") while blocking
+ * short given-name collisions ("Mary" ≠ "MaryMoraa").
+ */
+const LOOSE_NAME_PREFIX_MIN = 6;
+
 /** Collapsed equal/prefix, or multi-token names within edit distance 1 per aligned token. */
 export function personNamesLooselyMatch(
   left: string | null | undefined,
@@ -112,7 +119,10 @@ export function personNamesLooselyMatch(
   const a = collapsePersonName(left);
   const b = collapsePersonName(right);
   if (!a || !b || a.length < 4 || b.length < 4) return false;
-  if (a === b || a.startsWith(b) || b.startsWith(a)) return true;
+  if (a === b) return true;
+  // Prefix only for long-enough stems — "mary" must not swallow "marymoraa".
+  const shorter = Math.min(a.length, b.length);
+  if (shorter >= LOOSE_NAME_PREFIX_MIN && (a.startsWith(b) || b.startsWith(a))) return true;
 
   const aTokens = normalizeName(left).split(/\s+/).filter(Boolean);
   const bTokens = normalizeName(right).split(/\s+/).filter(Boolean);
@@ -125,30 +135,31 @@ export function personNamesLooselyMatch(
     return ok >= 2 && ok >= Math.ceil(n * 0.6);
   }
   // Single-token alias ("Maniraj") vs camel/spaced device ("maniaRaj Paiyar").
-  // Compare alias to first token and to first+second joined (edit ≤2 covers mania/mani).
+  // Require a long stem so "Mary" never equals "Mary Moraa" via first-token alone.
   if (aTokens.length === 1 && bTokens.length >= 2) {
-    const joined = bTokens.slice(0, 2).join("");
-    return (
-      tokenEditDistance(aTokens[0]!, joined) <= 2 ||
-      joined.startsWith(aTokens[0]!) ||
-      tokenEditDistance(aTokens[0]!, bTokens[0]!) <= 2
-    );
+    return singleTokenLooselyMatchesMulti(aTokens[0]!, bTokens);
   }
   if (bTokens.length === 1 && aTokens.length >= 2) {
-    const joined = aTokens.slice(0, 2).join("");
-    return (
-      tokenEditDistance(bTokens[0]!, joined) <= 2 ||
-      joined.startsWith(bTokens[0]!) ||
-      tokenEditDistance(bTokens[0]!, aTokens[0]!) <= 2
-    );
+    return singleTokenLooselyMatchesMulti(bTokens[0]!, aTokens);
   }
   return tokenEditDistance(a, b) <= 2 && Math.min(a.length, b.length) >= 6;
+}
+
+function singleTokenLooselyMatchesMulti(alias: string, multiTokens: string[]): boolean {
+  if (alias.length < LOOSE_NAME_PREFIX_MIN) return false;
+  const joined = multiTokens.slice(0, 2).join("");
+  return (
+    tokenEditDistance(alias, joined) <= 2 ||
+    (joined.startsWith(alias) && alias.length >= LOOSE_NAME_PREFIX_MIN) ||
+    tokenEditDistance(alias, multiTokens[0]!) <= 2
+  );
 }
 
 /**
  * Unique device-name → staff match for mapping drafts and recalc auto-link.
  * Order: exact normalized → collapsed → staff name prefix of device → unique first token
- * (only when the device name is a single token, e.g. "wahaj") → loose multi-token.
+ * (single device token, length ≥5, e.g. "wahaj") → loose multi-token.
+ * Short stems ("Mary", "Sara") never first-token or prefix-merge onto longer names.
  * Ambiguous names return null (never guess when two people share a match).
  */
 export function suggestStaffIdForDeviceName(
@@ -175,15 +186,17 @@ export function suggestStaffIdForDeviceName(
 
   // "flora Mae Remolino" → Flora Mae; device may carry a middle/maiden surname.
   // Require 2+ staff tokens (or spaced prefix) so "Maria" never steals "Mariam".
+  // Spaced prefix needs staff name length ≥6 so "Mary " never claims "Mary Moraa".
   const byPrefix = pool.filter((s) => {
     const staffName = normalizeName(s.full_name);
     if (!staffName || staffName.length < 4) return false;
-    if (name === staffName || name.startsWith(`${staffName} `)) return true;
+    if (name === staffName) return true;
+    if (staffName.length >= LOOSE_NAME_PREFIX_MIN && name.startsWith(`${staffName} `)) return true;
     const staffCollapsed = collapsePersonName(s.full_name);
     const tokenCount = staffName.split(/\s+/).filter(Boolean).length;
     return (
       tokenCount >= 2 &&
-      staffCollapsed.length >= 6 &&
+      staffCollapsed.length >= LOOSE_NAME_PREFIX_MIN &&
       collapsed.startsWith(staffCollapsed)
     );
   });
@@ -191,12 +204,12 @@ export function suggestStaffIdForDeviceName(
   if (prefixId) return prefixId;
   if (byPrefix.length > 1) return null;
 
-  // "wahaj" → Wahaj Asghar only when the device string is a single token.
-  // Do not seed mapping search from a short first name ("Sara" ≠ "Sara Khan").
+  // "wahaj" → Wahaj Asghar only when the device string is a single distinctive token.
+  // Short stems ("Mary", "Sara") must not map onto "Mary Moraa" / "Sara Khan".
   const deviceTokens = name.split(/\s+/).filter(Boolean);
   if (deviceTokens.length === 1) {
     const deviceFirst = deviceTokens[0]!;
-    if (deviceFirst.length >= 3) {
+    if (deviceFirst.length >= 5) {
       const byFirst = pool.filter((s) => (normalizeName(s.full_name).split(/\s+/)[0] ?? "") === deviceFirst);
       const firstId = uniqueStaffId(byFirst);
       if (firstId) return firstId;
