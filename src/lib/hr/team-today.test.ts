@@ -118,7 +118,8 @@ describe("team today location filter", () => {
     expect(countTeamTodayPeople(filtered.groups).present).toBe(2);
 
     const summaries = summarizeTeamTodayByLocation(view.groups);
-    expect(summaries.map((row) => row.locationId)).toEqual(["car", "inf", "kds", "ua"]);
+    // Home sites only — ashfaq's extra sites (car/ua) do not get a row.
+    expect(summaries.map((row) => row.locationId)).toEqual(["inf", "kds"]);
     expect(summaries.find((row) => row.locationId === "kds")).toMatchObject({
       present: 2,
       total: 4,
@@ -140,7 +141,7 @@ describe("team today locations", () => {
     expect(view.groups[0]?.people.map((row) => row.staffId).sort()).toEqual(["kds-crew", "ma-luz"]);
   });
 
-  it("splits a multi-site team by assigned site and skips empty branches", () => {
+  it("splits a multi-site team by home site once and skips empty branches", () => {
     const view = buildTeamToday({
       viewerStaffId: "ashfaq",
       companyWide: false,
@@ -149,13 +150,52 @@ describe("team today locations", () => {
       locations: LOCATIONS,
     });
     expect(view.singleLocation).toBe(false);
-    expect(view.groups.map((group) => group.locationId)).toEqual(["car", "inf", "kds", "ua"]);
+    expect(view.groups.map((group) => group.locationId)).toEqual(["inf", "kds"]);
     const at = (id: string) => view.groups.find((group) => group.locationId === id)?.people.map((row) => row.staffId) ?? [];
+    // Ashfaq home is kds; extraLocationIds must not clone him into car/inf/ua.
     expect(at("kds")).toEqual(["ashfaq", "flora", "kds-crew", "ma-luz"]);
-    expect(at("inf")).toEqual(["ashfaq", "inflata-crew", "marissa"]);
-    expect(at("car")).toEqual(["ashfaq"]);
-    expect(at("ua")).toEqual(["ashfaq"]);
-    expect(view.groups.some((group) => group.label === "Urban Arena" && group.people.length === 0)).toBe(false);
+    expect(at("inf")).toEqual(["inflata-crew", "marissa"]);
+    expect(at("car")).toEqual([]);
+    expect(at("ua")).toEqual([]);
+  });
+
+  it("keeps badge totals equal to the sum of site IN / LEAVE / OUT rows", () => {
+    const view = buildTeamToday({
+      viewerStaffId: "ashfaq",
+      companyWide: false,
+      today: TODAY,
+      people: chart,
+      punchedStaffIds: ["flora", "kds-crew", "marissa"],
+      leaves: [
+        { staffId: "ashfaq", leaveType: "annual_leave", status: "approved", dateFrom: TODAY, dateTo: TODAY },
+        // Same person also in HR requests — must not double-count leave.
+        { staffId: "ashfaq", leaveType: "annual", status: "approved", dateFrom: TODAY, dateTo: TODAY },
+        { staffId: "inflata-crew", leaveType: "sick", status: "approved", dateFrom: TODAY, dateTo: TODAY },
+      ],
+      locations: LOCATIONS,
+    });
+    const badges = countTeamTodayPeople(view.groups);
+    const sites = summarizeTeamTodayByLocation(view.groups);
+    expect(sites.reduce((sum, row) => sum + row.present, 0)).toBe(badges.present);
+    expect(sites.reduce((sum, row) => sum + row.annualLeave, 0)).toBe(badges.annual_leave);
+    expect(sites.reduce((sum, row) => sum + row.sickLeave, 0)).toBe(badges.sick_leave);
+    expect(sites.reduce((sum, row) => sum + row.notPresent, 0)).toBe(badges.not_present);
+    expect(sites.reduce((sum, row) => sum + row.total, 0)).toBe(
+      badges.present + badges.annual_leave + badges.sick_leave + badges.not_present,
+    );
+    expect(badges).toMatchObject({ present: 3, annual_leave: 1, sick_leave: 1, not_present: 1 });
+    // Multi-site person (ashfaq) is annual once under home kds, never under extras.
+    expect(sites.find((row) => row.locationId === "kds")).toMatchObject({
+      present: 2,
+      annualLeave: 1,
+      notPresent: 1,
+      total: 4,
+    });
+    expect(sites.find((row) => row.locationId === "inf")).toMatchObject({
+      present: 1,
+      sickLeave: 1,
+      total: 2,
+    });
   });
 });
 

@@ -112,26 +112,6 @@ async function loadReportingManagers(staffIds: readonly string[]): Promise<Map<s
   return managers;
 }
 
-async function loadExtraLocations(staffIds: readonly string[]): Promise<Map<string, string[]>> {
-  const extras = new Map<string, string[]>();
-  for (const chunk of chunks(staffIds, 80)) {
-    const { data, error } = await supabaseAdmin
-      .from("staff_work_locations")
-      .select("staff_id, location_id")
-      .in("staff_id", [...chunk]);
-    if (error) throw new Error(error.message);
-    for (const row of data ?? []) {
-      const staffId = row.staff_id ? String(row.staff_id) : "";
-      const locationId = row.location_id ? String(row.location_id) : "";
-      if (!staffId || !locationId) continue;
-      const list = extras.get(staffId) ?? [];
-      if (!list.includes(locationId)) list.push(locationId);
-      extras.set(staffId, list);
-    }
-  }
-  return extras;
-}
-
 async function loadPunchedStaffIds(staffIds: readonly string[], today: string): Promise<string[]> {
   const punched = new Set<string>();
   for (const chunk of chunks(staffIds, 80)) {
@@ -178,7 +158,8 @@ async function loadLeaves(staffIds: readonly string[], today: string): Promise<A
   const pushLeave = (row: TeamTodayLeave & { staffId: string }) => {
     const leaveType = normalizeTeamTodayLeaveType(row.leaveType);
     if (!leaveType || !row.staffId) return;
-    const key = `${row.staffId}:${leaveType}:${row.status}:${row.dateFrom}:${row.dateTo}`;
+    // One annual/sick covering today per person — HR range + roster day-row must not double-push.
+    const key = `${row.staffId}:${leaveType}:${row.status}`;
     if (seen.has(key)) return;
     seen.add(key);
     leaves.push({ ...row, leaveType });
@@ -322,14 +303,9 @@ export const getTeamToday = createAuthenticatedAction(
 
     const staffRows = companyWide ? await loadCompanyStaffRows() : await loadStaffRows(staffIds ?? []);
     const loadedIds = staffRows.map((row) => row.id);
-    const [managers, extras] = await Promise.all([
-      loadReportingManagers(loadedIds),
-      loadExtraLocations(loadedIds),
-    ]);
-    const people = staffRows.map((row) => ({
-      ...memberFromRow(row, managers.get(row.id) ?? null),
-      extraLocationIds: extras.get(row.id) ?? [],
-    }));
+    const managers = await loadReportingManagers(loadedIds);
+    // Home site only — extra work locations would duplicate site-row IN/LEAVE/OUT.
+    const people = staffRows.map((row) => memberFromRow(row, managers.get(row.id) ?? null));
     const visibleIds = companyWide
       ? people.filter((person) => person.assignable !== false).map((person) => person.staffId)
       : (staffIds ?? []);
@@ -344,9 +320,6 @@ export const getTeamToday = createAuthenticatedAction(
     for (const person of people) {
       if (!visible.has(person.staffId)) continue;
       if (person.homeLocationId) locationIds.add(person.homeLocationId);
-      for (const id of person.extraLocationIds ?? []) {
-        if (id) locationIds.add(id);
-      }
     }
     const locations = await loadLocationLabels([...locationIds]);
     return buildTeamToday({

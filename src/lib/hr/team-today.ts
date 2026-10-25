@@ -27,7 +27,12 @@ export type TeamTodayMember = {
   staffId: string;
   name: string;
   jobTitle: string | null;
+  /** Home site (`staff.location_id`) — Team Today attributes the person here only. */
   homeLocationId?: string | null;
+  /**
+   * Extra dedicated sites (`staff_work_locations`). Kept for callers/roster parity;
+   * Team Today does not list the person under these (avoids double-counting IN/LEAVE/OUT).
+   */
   extraLocationIds?: readonly (string | null | undefined)[] | null;
   reportingManagerStaffId?: string | null;
   /** False omits the person. The reporting walk still continues through them. */
@@ -204,7 +209,11 @@ export function filterTeamTodayByLocation(
   };
 }
 
-/** Compact location chips when no site is selected. */
+/**
+ * Per-site IN / LEAVE / OUT / TOTAL for the summary table.
+ * With home-site-only grouping, each person is in one group, so the sum of each
+ * column matches {@link countTeamTodayPeople} (badge totals).
+ */
 export function summarizeTeamTodayByLocation(
   groups: readonly TeamTodayGroup[],
 ): TeamTodayLocationSummary[] {
@@ -222,13 +231,13 @@ export function summarizeTeamTodayByLocation(
   });
 }
 
-function assignedLocationIds(person: TeamTodayMember): string[] {
-  const ids = new Set<string>();
-  if (person.homeLocationId) ids.add(person.homeLocationId);
-  for (const id of person.extraLocationIds ?? []) {
-    if (id) ids.add(id);
-  }
-  return [...ids];
+/**
+ * Site attribution rule for Team Today: home location only.
+ * Punch site and extra work locations are not used — a multi-site / roaming
+ * person still counts once under `staff.location_id`.
+ */
+export function teamTodayHomeLocationId(person: TeamTodayMember): string | null {
+  return person.homeLocationId || null;
 }
 
 function memberIds(input: {
@@ -246,9 +255,9 @@ function memberIds(input: {
 }
 
 /**
- * Team for today, grouped by home site and extra dedicated sites.
+ * Team for today, grouped by home site only (`staff.location_id`).
  * One site stays a single list. Empty branches are omitted.
- * A person assigned to more than one of those sites is listed under each of them.
+ * Each person appears under exactly one site so badge totals match site-row sums.
  */
 export function buildTeamToday(input: {
   viewerStaffId: string | null;
@@ -300,21 +309,18 @@ export function buildTeamToday(input: {
       }),
       annualRemaining: annualRemainingDays(balanceByStaff.get(staffId)),
     };
-    const locationIds = assignedLocationIds(person);
-    const keys = locationIds.length > 0 ? locationIds : [""];
-    for (const locationId of keys) {
-      const key = locationId || "";
-      let group = groups.get(key);
-      if (!group) {
-        group = {
-          locationId: locationId || null,
-          label: locationId ? (labelById.get(locationId) ?? locationId) : "",
-          people: [],
-        };
-        groups.set(key, group);
-      }
-      if (!group.people.some((existing) => existing.staffId === staffId)) group.people.push(row);
+    const locationId = teamTodayHomeLocationId(person);
+    const key = locationId || "";
+    let group = groups.get(key);
+    if (!group) {
+      group = {
+        locationId: locationId || null,
+        label: locationId ? (labelById.get(locationId) ?? locationId) : "",
+        people: [],
+      };
+      groups.set(key, group);
     }
+    if (!group.people.some((existing) => existing.staffId === staffId)) group.people.push(row);
   }
 
   const ordered = [...groups.values()]
