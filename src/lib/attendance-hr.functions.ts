@@ -2508,7 +2508,7 @@ export const submitAttendanceCorrection = createAuthenticatedAction(
   { auth: { capability: "attendance.correct" } },
 );
 
-/** Punch correction. Own requests wait on the line manager. A manager's team correction is approved and waits on HR. */
+/** Punch correction. Own requests wait on the line manager. Team submit waits on Sr. Site Supervisor unless the submitter's title is Venue / Site / Sr. Site (then ops) or already holds ops (then HR). */
 const punchHhMm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 
 /** Safe: production must not surface React #441 digests when submit fails (e.g. GM step not migrated). */

@@ -33,8 +33,10 @@ export type MissedPunchPrintPayload = {
   punchAtLabel: string;
   reason: string;
   status?: string | null;
-  /** Team supervisor filed and auto-approved the first seat. */
+  /** Team supervisor filed (submit stamp and/or site auto-approve). */
   teamSubmitted?: boolean;
+  /** Regular supervisor filed; site seat still needs Sr. Site Supervisor. */
+  supervisorSubmitOnly?: boolean;
   steps?: Array<{
     stepRole: string;
     status: string;
@@ -98,8 +100,12 @@ function MissedPunchSheet({ payload }: { payload: MissedPunchPrintPayload }) {
   const sheetNumber = payload.requestNumber?.trim() || null;
   const steps = payload.steps ?? [];
   const teamSubmitted = Boolean(payload.teamSubmitted);
+  const supervisorSubmitOnly = Boolean(payload.supervisorSubmitOnly);
   const done = (key: MissedPunchPrintSigKey) =>
-    missedPunchPrintSignatureDone(payload.status, steps, key, { teamSubmitted });
+    missedPunchPrintSignatureDone(payload.status, steps, key, {
+      teamSubmitted,
+      supervisorSubmitOnly: payload.supervisorSubmitOnly != null ? supervisorSubmitOnly : undefined,
+    });
 
   return (
     <article className="hr-letterhead-print-sheet mx-auto flex min-h-[260mm] max-w-[210mm] flex-col bg-white px-6 pb-6 pt-4 text-neutral-900 shadow-sm print:min-h-0 print:max-w-none print:shadow-none">

@@ -24,8 +24,10 @@ import {
   correctionCardClocks,
   groupOpenLegacyPunchPairs,
   isEditableMissedPunchStatus,
+  isMissedPunchSupervisorSubmitOnlyNote,
   isMissedPunchTeamSubmittedNote,
   missedPunchRequestSide,
+  missedPunchTeamSubmitterName,
   punchTimeInputValue,
 } from "@/lib/attendance-hr/missed-punch-approval";
 import { queryKeys } from "@/lib/query-keys";
@@ -73,12 +75,15 @@ function toMissedPunchPrintPayload(
   const clocks = rowClocks(row);
   const inLabel = clockText(clocks.punchIn);
   const outLabel = clockText(clocks.punchOut);
-  const teamSubmitted =
-    isMissedPunchTeamSubmittedNote(row.reviewNote) || isMissedPunchTeamSubmittedNote(row.reason);
+  const teamNote = row.reviewNote || row.reason;
+  const teamSubmitted = isMissedPunchTeamSubmittedNote(teamNote);
+  const supervisorSubmitOnly = isMissedPunchSupervisorSubmitOnlyNote(teamNote);
+  const submitterName = missedPunchTeamSubmitterName(teamNote);
   const managerStep = row.steps.find((step) => step.stepRole === "manager");
   const opsStep = row.steps.find((step) => step.stepRole === "ops");
   const hrStep = row.steps.find((step) => step.stepRole === "hr");
   const gmStep = row.steps.find((step) => step.stepRole === "gm");
+  const managerSeatDone = managerStep?.status === "approved" || managerStep?.status === "skipped";
   return {
     requestNumber: row.requestNumber,
     requestDate: row.requestedAt.slice(0, 10),
@@ -97,16 +102,19 @@ function toMissedPunchPrintPayload(
     reason: row.reason,
     status: row.status,
     teamSubmitted,
+    supervisorSubmitOnly,
     steps: row.steps.map((step) => ({
       stepRole: step.stepRole,
       status: step.status,
       actedByName: step.actedByName,
       actedAt: step.actedAt,
     })),
-    supervisorSignature: teamSubmitted
-      ? { name: managerStep?.actedByName ?? null, at: managerStep?.actedAt ?? null }
+    supervisorSignature: supervisorSubmitOnly
+      ? { name: submitterName, at: row.requestedAt }
       : null,
-    siteSignature: { name: managerStep?.actedByName ?? null, at: managerStep?.actedAt ?? null },
+    siteSignature: managerSeatDone
+      ? { name: managerStep?.actedByName ?? null, at: managerStep?.actedAt ?? null }
+      : { name: null, at: null },
     hooSignature: { name: opsStep?.actedByName ?? null, at: opsStep?.actedAt ?? null },
     hrSignature: { name: hrStep?.actedByName ?? null, at: hrStep?.actedAt ?? null },
     gmSignature: { name: gmStep?.actedByName ?? null, at: gmStep?.actedAt ?? null },
@@ -175,9 +183,10 @@ export function MissedPunchApprovalQueue({
           <p className="text-muted-foreground">
             A correction for yourself goes to your site supervisor (Sr. Site Supervisor), then Head
             of Operations (or F&B Manager for F&B staff), then HR, then General Manager. When your
-            reporting manager is already that ops seat, the request waits there first. A team
-            correction a supervisor files is approved and sent to that same ops step, then HR, then
-            General Manager.
+            reporting manager is already that ops seat, the request waits there first. A regular
+            supervisor team correction waits on the Sr. Site Supervisor first; only a Venue / Site /
+            Sr. Site supervisor title may approve that seat on submit, then ops, HR, and General
+            Manager.
           </p>
         </div>
       ) : (
@@ -206,7 +215,17 @@ export function MissedPunchApprovalQueue({
             const punchLabel = displayType
               ? punchTypeLabel({ ...row, punchType: displayType }, t)
               : null;
-            const priorSteps = row.steps.filter((step) => step.status === "approved" || step.status === "skipped");
+            const teamNote = row.reviewNote || row.reason;
+            const supervisorSubmitOnly = isMissedPunchSupervisorSubmitOnlyNote(teamNote);
+            const submitterName = missedPunchTeamSubmitterName(teamNote);
+            const managerStep = row.steps.find((step) => step.stepRole === "manager");
+            const managerSeatOpen =
+              !managerStep || managerStep.status === "pending";
+            const priorSteps = row.steps.filter(
+              (step) => step.status === "approved" || step.status === "skipped",
+            );
+            const showSupervisorSubmitted =
+              supervisorSubmitOnly && managerSeatOpen && Boolean(submitterName);
             const name = row.staffName ?? "Staff";
             const numberLabel = card.requestNumbers.length
               ? card.requestNumbers.join(" · ")
@@ -253,10 +272,16 @@ export function MissedPunchApprovalQueue({
                   {row.reviewNote && !row.reason?.includes(row.reviewNote) ? (
                     <p className="hd-approval__note">{row.reviewNote}</p>
                   ) : null}
-                  {priorSteps.length > 0 ? (
+                  {showSupervisorSubmitted || priorSteps.length > 0 ? (
                     <div className="hd-approval__block">
                       <p className="hd-approval__label">{t("hr.me.priorApprovals")}</p>
                       <ul className="hd-approval__trail">
+                        {showSupervisorSubmitted ? (
+                          <li key="supervisor-submitted">
+                            {t("hr.me.supervisorSubmitted")}
+                            {submitterName ? ` · ${submitterName}` : ""}
+                          </li>
+                        ) : null}
                         {priorSteps.map((step) => (
                           <li key={step.stepRole}>
                             {step.status === "skipped"

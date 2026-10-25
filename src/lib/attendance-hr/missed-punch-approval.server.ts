@@ -41,9 +41,12 @@ import {
   ownCorrectionRouteAfterLineManagerCheck,
   punchCorrectionRoute,
   requesterLineManagerUserIds,
+  rewriteAutoApproveNoteToSupervisorSubmitted,
   shouldApplyCorrectionPunchOnApprove,
   shouldHealOwnCorrectionToOpsFirst,
-  teamCorrectionRouteAfterOpsCheck,
+  shouldHealTeamCorrectionToManagerSeat,
+  supervisorTeamSubmittedNote,
+  teamCorrectionRoute,
   type ApprovalDirectory,
   type CorrectionApprovalView,
   type CorrectionPunchSide,
@@ -666,6 +669,7 @@ export async function listMissedPunchCorrections(args: {
   ]);
   const viewOf = (row: CorrectionRow) => toView(row, requesterStaff.get(String(row.requested_by)) ?? null);
   rows = await healOwnCorrectionsWaitingOnOpsManager(rows, directory, viewOf);
+  rows = await healMisroutedTeamCorrectionsToManager(rows, directory, viewOf, requesterStaff);
   const visible = rows.filter((row) =>
     correctionVisibleToUser({
       queue,
@@ -773,6 +777,165 @@ async function healOwnCorrectionsWaitingOnOpsManager(
       console.warn("[missed-punch] heal manager step failed", stepErr.message);
     }
     healed.push({ ...row, current_step_role: "ops" });
+  }
+  return healed;
+}
+
+/**
+ * Team corrections where a regular supervisor's submit was stamped as Sr. Site Supervisor
+ * approved and skipped Mary: reopen the manager seat and rewrite the note.
+ */
+async function healMisroutedTeamCorrectionsToManager(
+  rows: CorrectionRow[],
+  directory: ApprovalDirectory,
+  viewOf: (row: CorrectionRow) => CorrectionApprovalView,
+  requesterStaff: Map<string, string>,
+): Promise<CorrectionRow[]> {
+  const candidates = rows.filter((row) => {
+    const view = viewOf(row);
+    return view.status === "pending" && view.currentStepRole === "ops" && view.requesterStaffId && view.staffId && view.requesterStaffId !== view.staffId;
+  });
+  if (!candidates.length) return rows;
+
+  const steps = await loadSteps(candidates.map((row) => row.id));
+  const managerStepByCorrection = new Map<
+    string,
+    { status: string; actedBy: string | null; id?: string }
+  >();
+  for (const step of steps) {
+    if (String(step.step_role) !== "manager") continue;
+    managerStepByCorrection.set(String(step.correction_id), {
+      status: String(step.status),
+      actedBy: step.acted_by ? String(step.acted_by) : null,
+      id: step.id ? String(step.id) : undefined,
+    });
+  }
+
+  const requesterStaffIds = [
+    ...new Set(
+      candidates
+        .map((row) => requesterStaff.get(String(row.requested_by)))
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  const titleByStaffId = new Map<string, { jobTitle: string | null; staffRole: string | null }>();
+  if (requesterStaffIds.length) {
+    const { data, error } = await supabaseAdmin
+      .from("staff")
+      .select("id, job_title, staff_role")
+      .in("id", requesterStaffIds)
+      .is("deleted_at", null);
+    if (error) {
+      console.warn("[missed-punch] heal team title lookup failed", error.message);
+    } else {
+      for (const staff of data ?? []) {
+        titleByStaffId.set(String(staff.id), {
+          jobTitle: (staff.job_title as string | null) ?? null,
+          staffRole: (staff.staff_role as string | null) ?? null,
+        });
+      }
+    }
+  }
+
+  const healed: CorrectionRow[] = [];
+  for (const row of rows) {
+    const view = viewOf(row);
+    const requesterId = requesterStaff.get(String(row.requested_by));
+    const titles = requesterId ? titleByStaffId.get(requesterId) : undefined;
+    const managerStep = managerStepByCorrection.get(row.id);
+    if (
+      !shouldHealTeamCorrectionToManagerSeat({
+        row: view,
+        managerStep: managerStep
+          ? { status: managerStep.status, actedBy: managerStep.actedBy }
+          : null,
+        requesterJobTitle: titles?.jobTitle,
+        requesterStaffRole: titles?.staffRole,
+        directory,
+      })
+    ) {
+      healed.push(row);
+      continue;
+    }
+
+    const rewrittenReason = rewriteAutoApproveNoteToSupervisorSubmitted(row.reason) ?? row.reason;
+    const rewrittenReview = rewriteAutoApproveNoteToSupervisorSubmitted(row.review_note ?? null);
+    const newValue = {
+      ...((row.new_value ?? {}) as Record<string, unknown>),
+      manager_requested_and_approved: false,
+    };
+    const { error: corrErr } = await supabaseAdmin
+      .from("attendance_corrections")
+      .update({
+        current_step_role: "manager",
+        reason: rewrittenReason,
+        review_note: rewrittenReview,
+        new_value: newValue,
+      })
+      .eq("id", row.id)
+      .eq("status", "pending")
+      .eq("current_step_role", "ops");
+    if (corrErr) {
+      console.warn("[missed-punch] heal team to manager failed", corrErr.message);
+      healed.push(row);
+      continue;
+    }
+    const { error: stepErr } = await supabaseAdmin
+      .from("attendance_correction_approvals")
+      .update({
+        status: "pending",
+        acted_by: null,
+        acted_at: null,
+        comments: rewrittenReview,
+      })
+      .eq("correction_id", row.id)
+      .eq("step_role", "manager")
+      .eq("status", "approved");
+    if (stepErr && !/does not exist|schema cache|relation/i.test(stepErr.message)) {
+      console.warn("[missed-punch] heal team manager step failed", stepErr.message);
+    }
+
+    // Re-notify Sr. Site Supervisor; dismiss stale HoO notice for this id.
+    try {
+      await dismissExecutiveMissedPunchNotices(row.id);
+      const managers = requesterLineManagerUserIds(directory, {
+        locationId: String(row.location_id),
+        staffId: row.staff_id ? String(row.staff_id) : null,
+        requestedBy: String(row.requested_by),
+        requesterStaffId: requesterId ?? null,
+      }).filter((id) => id !== String(row.requested_by));
+      const when = row.work_date ? String(row.work_date).slice(0, 10) : "";
+      const number = row.request_number ? ` (${row.request_number})` : "";
+      await notifyApprovers({
+        userIds: managers,
+        locationId: String(row.location_id),
+        title: `Missed punch waiting for Sr. Site Supervisor${row.request_number ? ` · ${row.request_number}` : ""}`,
+        body: `A team punch correction${when ? ` for ${when}` : ""}${number} was re-routed to the Sr. Site Supervisor.`,
+        sourceId: row.id,
+      });
+      await notifyExecutiveObservers({
+        step: "manager",
+        approverIds: managers,
+        locationId: String(row.location_id),
+        title: `Missed punch waiting for Sr. Site Supervisor${row.request_number ? ` · ${row.request_number}` : ""}`,
+        body: `A team punch correction${when ? ` for ${when}` : ""}${number} was re-routed to the Sr. Site Supervisor.`,
+        correctionId: row.id,
+        excludeUserId: String(row.requested_by),
+      });
+    } catch (notifyError) {
+      console.warn(
+        "[missed-punch] heal team re-notify failed",
+        notifyError instanceof Error ? notifyError.message : notifyError,
+      );
+    }
+
+    healed.push({
+      ...row,
+      current_step_role: "manager",
+      reason: rewrittenReason,
+      review_note: rewrittenReview,
+      new_value: newValue,
+    });
   }
   return healed;
 }
@@ -919,7 +1082,10 @@ export async function submitMissedPunchRequest(args: {
   const directory = await loadMissedPunchDirectory([staff.id as string, targetStaffId]);
   const route: PunchCorrectionRoutedTo =
     baseRoute === "ops"
-      ? teamCorrectionRouteAfterOpsCheck(directory, targetStaffId, args.userId)
+      ? teamCorrectionRoute(directory, targetStaffId, args.userId, {
+          jobTitle: linked.jobTitle,
+          staffRole: linked.staffRole,
+        })
       : isSelf
         ? ownCorrectionRouteAfterLineManagerCheck(directory, {
             locationId: summary.location_id as string,
@@ -1014,16 +1180,19 @@ export async function submitMissedPunchRequest(args: {
 
   const workDate = String(summary.work_date).slice(0, 10);
   const managerName = String(staff.full_name ?? "").trim() || "The manager";
+  const punchTrail = {
+    requestedPunchIn: punchInTime,
+    requestedPunchOut: punchOutTime,
+    previousPunchIn: summary.actual_in ? String(summary.actual_in) : null,
+    previousPunchOut: summary.actual_out ? String(summary.actual_out) : null,
+  };
   const approvalNote =
     route === "ops" || route === "hr"
-      ? managerTeamCorrectionNote({
-          managerName,
-          requestedPunchIn: punchInTime,
-          requestedPunchOut: punchOutTime,
-          previousPunchIn: summary.actual_in ? String(summary.actual_in) : null,
-          previousPunchOut: summary.actual_out ? String(summary.actual_out) : null,
-        })
-      : null;
+      ? managerTeamCorrectionNote({ managerName, ...punchTrail })
+      : route === "line_manager" && !isSelf
+        ? supervisorTeamSubmittedNote({ supervisorName: managerName, ...punchTrail })
+        : null;
+  const siteSupervisorAutoApproved = route === "ops" || route === "hr";
   const typedReason = args.reason.trim();
   const reason = approvalNote
     ? [typedReason.length >= 3 ? typedReason : null, approvalNote].filter(Boolean).join(" ")
@@ -1036,7 +1205,11 @@ export async function submitMissedPunchRequest(args: {
     workDate,
     punchInTime,
     punchOutTime,
-    extras: approvalNote ? { manager_requested_and_approved: true } : {},
+    extras: siteSupervisorAutoApproved
+      ? { manager_requested_and_approved: true }
+      : approvalNote
+        ? { manager_requested_and_approved: false, supervisor_submitted: true }
+        : {},
   });
   const { data: created, error: insErr } = await supabaseAdmin
     .from("attendance_corrections")
@@ -1141,7 +1314,7 @@ export async function submitMissedPunchRequest(args: {
     };
   }
   if (route === "ops") {
-    // Site supervisor already approved on submit — wait for HoO / F&B before writing punches.
+    // Venue / Site / Sr. Site supervisor already approved on submit — wait for HoO / F&B.
     const opsIds = approverUserIdsForStep(directory, "ops", summary.location_id as string, targetStaffId).filter(
       (id) => id !== args.userId,
     );
@@ -1223,9 +1396,11 @@ export async function submitMissedPunchRequest(args: {
   const managerTitle = replacing
     ? `Punch correction request · ${requestNumber}`
     : `Missed punch request · ${requestNumber}`;
-  const managerBody = replacing
-    ? `${subjectName} needs a punch corrected for ${workDate} (${requestNumber}). It is waiting for their site supervisor.`
-    : `${subjectName} submitted a missed punch for ${workDate} (${requestNumber}). It is waiting for their site supervisor.`;
+  const managerBody = !isSelf
+    ? `${managerName} submitted a punch correction for ${subjectName} on ${workDate} (${requestNumber}). It is waiting for the Sr. Site Supervisor.`
+    : replacing
+      ? `${subjectName} needs a punch corrected for ${workDate} (${requestNumber}). It is waiting for their site supervisor.`
+      : `${subjectName} submitted a missed punch for ${workDate} (${requestNumber}). It is waiting for their site supervisor.`;
   await notifyApprovers({
     userIds: managers,
     locationId: summary.location_id as string,
@@ -1488,11 +1663,9 @@ async function reviewOneMissedPunchChain(args: {
     .eq("id", args.correctionId)
     .maybeSingle();
   if (error) throw error;
-  const row = data as CorrectionRow | null;
+  let row = data as CorrectionRow | null;
   if (!row) throw new Error("Correction not found.");
   if (String(row.id) !== args.correctionId) throw new Error("Correction not found.");
-  const step = asStep(row.current_step_role);
-  if (!step || row.status !== "pending") throw new Error("This request is not waiting for approval.");
   if (row.requested_by === args.userId) throw new ForbiddenError("You cannot approve your own correction.");
 
   const requesterStaff = await staffIdByUserId([String(row.requested_by)]);
@@ -1503,6 +1676,16 @@ async function reviewOneMissedPunchChain(args: {
     ),
     loadSiteSupervisorCorrectionTeamIds(args.userId),
   ]);
+  // Heal misrouted team submits (regular supervisor stamped as Sr. Site) before authz.
+  const healedRows = await healMisroutedTeamCorrectionsToManager(
+    [row],
+    directory,
+    (r) => toView(r, requesterStaffId),
+    requesterStaff,
+  );
+  row = healedRows[0] ?? row;
+  const step = asStep(row.current_step_role);
+  if (!step || row.status !== "pending") throw new Error("This request is not waiting for approval.");
   const view = toView(row, requesterStaffId);
   if (!canUserActOnCorrectionWithTeam(directory, args.userId, view, teamStaffIds)) {
     throw new ForbiddenError("This request is not waiting for you.");
@@ -1734,6 +1917,7 @@ export async function resubmitMissedPunchRequest(args: {
   const directoryEarly = await loadMissedPunchDirectory(
     [row.staff_id, requesterStaffId].filter((id): id is string => Boolean(id)),
   );
+  const requesterLinked = await loadLinkedStaffRecord(args.userId);
   const baseRoute =
     punchCorrectionRoute({
       requesterStaffId,
@@ -1743,7 +1927,10 @@ export async function resubmitMissedPunchRequest(args: {
   const isSelf = Boolean(requesterStaffId && targetStaffId && requesterStaffId === targetStaffId);
   const route: PunchCorrectionRoutedTo =
     baseRoute === "ops"
-      ? teamCorrectionRouteAfterOpsCheck(directoryEarly, targetStaffId || null, args.userId)
+      ? teamCorrectionRoute(directoryEarly, targetStaffId || null, args.userId, {
+          jobTitle: requesterLinked?.jobTitle,
+          staffRole: requesterLinked?.staffRole,
+        })
       : isSelf
         ? ownCorrectionRouteAfterLineManagerCheck(directoryEarly, {
             locationId: String(row.location_id ?? ""),
@@ -1752,18 +1939,20 @@ export async function resubmitMissedPunchRequest(args: {
             requesterStaffId,
           })
         : baseRoute;
-  const requesterLinked = await loadLinkedStaffRecord(args.userId);
   const managerName = String(requesterLinked?.fullName ?? "").trim() || "The manager";
+  const punchTrail = {
+    requestedPunchIn: punchInTime,
+    requestedPunchOut: punchOutTime,
+    previousPunchIn: typeof original.actual_in === "string" ? original.actual_in : null,
+    previousPunchOut: typeof original.actual_out === "string" ? original.actual_out : null,
+  };
   const approvalNote =
     route === "ops" || route === "hr"
-      ? managerTeamCorrectionNote({
-          managerName,
-          requestedPunchIn: punchInTime,
-          requestedPunchOut: punchOutTime,
-          previousPunchIn: typeof original.actual_in === "string" ? original.actual_in : null,
-          previousPunchOut: typeof original.actual_out === "string" ? original.actual_out : null,
-        })
-      : null;
+      ? managerTeamCorrectionNote({ managerName, ...punchTrail })
+      : route === "line_manager" && !isSelf
+        ? supervisorTeamSubmittedNote({ supervisorName: managerName, ...punchTrail })
+        : null;
+  const siteSupervisorAutoApproved = route === "ops" || route === "hr";
   const typedReason = args.reason.trim();
   const reason = approvalNote
     ? [typedReason.length >= 3 ? typedReason : null, approvalNote].filter(Boolean).join(" ")
@@ -1778,9 +1967,11 @@ export async function resubmitMissedPunchRequest(args: {
     punchOutTime,
     extras: {
       ...previous,
-      ...(approvalNote
-        ? { manager_requested_and_approved: true }
-        : { manager_requested_and_approved: false }),
+      ...(siteSupervisorAutoApproved
+        ? { manager_requested_and_approved: true, supervisor_submitted: false }
+        : approvalNote
+          ? { manager_requested_and_approved: false, supervisor_submitted: true }
+          : { manager_requested_and_approved: false }),
     },
   });
 
@@ -1991,7 +2182,10 @@ export async function resubmitMissedPunchRequest(args: {
     requesterStaffId,
   });
   const managerTitle = wasChangeRequired ? "Missed punch request" : "Missed punch updated";
-  const managerBody = `${who} ${updatedVerb} a missed punch for ${workDate}. It is waiting for their site supervisor.`;
+  const managerBody =
+    !isSelf && wasChangeRequired
+      ? `${managerName} submitted a punch correction for ${who} on ${workDate}. It is waiting for the Sr. Site Supervisor.`
+      : `${who} ${updatedVerb} a missed punch for ${workDate}. It is waiting for their site supervisor.`;
   await notifyApprovers({
     userIds: managers,
     locationId: String(row.location_id),

@@ -18,7 +18,7 @@ export default function AttendanceHrCorrectionsPage() {
         icon={ClipboardCheck}
         kicker="Time & Attendance"
         title="Corrections"
-        subtitle="Your own correction goes to your Venue / Site supervisor first (even when a Team Lead is in between), then Head of Operations (or F&B Manager for F&B staff), then HR. When you report to that ops seat already, it waits there first. A team correction filed by a site supervisor is approved by them and sent to that same ops step, then HR."
+        subtitle="Your own correction goes to your Venue / Site supervisor first (even when a Team Lead is in between), then Head of Operations (or F&B Manager for F&B staff), then HR. When you report to that ops seat already, it waits there first. A regular supervisor team correction waits on the Sr. Site Supervisor; only a Venue / Site / Sr. Site supervisor title may complete that seat on submit, then ops, then HR."
       />
       <AttendanceHrNav />
       <NeumorphicCard className="space-y-3 p-5">

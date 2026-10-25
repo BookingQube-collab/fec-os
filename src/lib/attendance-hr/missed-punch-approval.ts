@@ -6,8 +6,9 @@ import {
 
 /**
  * Punch-correction ladder (aligned with OT narrative):
- * Sr. Site Supervisor → Head of Operations (or F&B Manager) → HR → General Manager.
- * Supervisor submit is a print stamp when a team supervisor files and auto-approves the first seat.
+ * supervisor submit → Sr. Site Supervisor → Head of Operations (or F&B Manager) → HR → General Manager.
+ * Only a Venue / Site / Sr. Site supervisor title may auto-complete the manager seat on team submit.
+ * A regular supervisor team-submit waits on that seat (e.g. Mary) and does not skip to HoO.
  */
 export const MISSED_PUNCH_STEP_ROLES = ["manager", "ops", "hr", "gm"] as const;
 export type MissedPunchStepRole = (typeof MISSED_PUNCH_STEP_ROLES)[number];
@@ -92,13 +93,14 @@ export type MissedPunchPrintSigKey = "supervisor" | "site" | "hoo" | "hr" | "gm"
 
 /**
  * Progressive print stamps: fill a column once that seat has approved (or was skipped).
- * Supervisor is only stamped when a team supervisor filed and auto-approved the manager seat.
+ * Supervisor column: regular team supervisor filed (submitted, not auto-approved manager seat).
+ * Site column: Sr. Site / Venue supervisor seat done (approve or title-matched auto-approve).
  */
 export function missedPunchPrintSignatureDone(
   status: string | null | undefined,
   steps: ReadonlyArray<{ stepRole: string; status: string }> | null | undefined,
   key: MissedPunchPrintSigKey,
-  opts?: { teamSubmitted?: boolean },
+  opts?: { teamSubmitted?: boolean; supervisorSubmitOnly?: boolean },
 ): boolean {
   const byRole = new Map((steps ?? []).map((step) => [step.stepRole, step.status]));
   const seatDone = (role: MissedPunchStepRole) => {
@@ -111,15 +113,37 @@ export function missedPunchPrintSignatureDone(
     }
     return false;
   };
-  if (key === "supervisor") return Boolean(opts?.teamSubmitted) && seatDone("manager");
+  if (key === "supervisor") {
+    // Prefer explicit submit-only flag; legacy team-submit that also completed manager still stamps.
+    if (opts?.supervisorSubmitOnly != null) return Boolean(opts.supervisorSubmitOnly);
+    return Boolean(opts?.teamSubmitted) && seatDone("manager");
+  }
   if (key === "site") return seatDone("manager");
   if (key === "hoo") return seatDone("ops");
   if (key === "hr") return seatDone("hr");
   return seatDone("gm");
 }
 
+/** Team file note: regular supervisor submitted, or site supervisor requested-and-approved. */
 export function isMissedPunchTeamSubmittedNote(note: string | null | undefined): boolean {
-  return /requested and approved/i.test(note ?? "");
+  return /(?:requested and approved|submitted) this correction/i.test(note ?? "");
+}
+
+/** Site / Sr. Site supervisor auto-completed the manager seat on team submit. */
+export function isMissedPunchTeamAutoApprovedNote(note: string | null | undefined): boolean {
+  return /requested and approved this correction/i.test(note ?? "");
+}
+
+/** Regular supervisor filed for their team; manager seat still needs Sr. Site Supervisor. */
+export function isMissedPunchSupervisorSubmitOnlyNote(note: string | null | undefined): boolean {
+  return isMissedPunchTeamSubmittedNote(note) && !isMissedPunchTeamAutoApprovedNote(note);
+}
+
+/** Name from a team-submit / auto-approve review note. */
+export function missedPunchTeamSubmitterName(note: string | null | undefined): string | null {
+  const match = (note ?? "").match(/^(.+?) (?:requested and approved|submitted) this correction/i);
+  const name = match?.[1]?.trim();
+  return name || null;
 }
 
 export function nextMissedPunchStep(current: MissedPunchStepRole): MissedPunchStepRole | null {
@@ -289,8 +313,10 @@ export type PunchCorrectionRoutedTo = "line_manager" | "ops" | "ops_first" | "hr
 
 /**
  * Own requests wait for the requester's line manager, then ops (HoO or F&B Manager), then HR.
- * A correction for someone on the requester's team is already approved by that supervisor
- * and waits on the ops step, then HR. Null means the target is outside the team.
+ * A team correction returns `"ops"` as a base signal — callers refine with
+ * {@link teamCorrectionRoute} so only Venue / Site / Sr. Site titles auto-approve the
+ * manager seat; regular supervisors wait on that seat instead.
+ * Null means the target is outside the team.
  * Callers upgrade own `line_manager` to `ops_first` when the line manager already holds ops.
  */
 export function punchCorrectionRoute(input: {
@@ -342,6 +368,29 @@ export function shouldHealOwnCorrectionToOpsFirst(
   );
 }
 
+/**
+ * True when a team correction wrongly treated a regular supervisor submit as the
+ * Sr. Site Supervisor (manager) seat and is already waiting on ops.
+ */
+export function shouldHealTeamCorrectionToManagerSeat(input: {
+  row: CorrectionApprovalView;
+  managerStep: { status: string; actedBy: string | null } | null | undefined;
+  requesterJobTitle?: string | null;
+  requesterStaffRole?: string | null;
+  directory: ApprovalDirectory;
+}): boolean {
+  const { row, managerStep, directory } = input;
+  if (row.status !== "pending" || row.currentStepRole !== "ops") return false;
+  if (!row.requesterStaffId || !row.staffId || row.requesterStaffId === row.staffId) return false;
+  if (!managerStep || managerStep.status !== "approved") return false;
+  if (!managerStep.actedBy || managerStep.actedBy !== row.requestedBy) return false;
+  if (isSiteSupervisorTitle(input.requesterJobTitle, input.requesterStaffRole)) return false;
+  if (approverUserIdsForStep(directory, "ops", row.locationId, row.staffId).includes(row.requestedBy)) {
+    return false;
+  }
+  return true;
+}
+
 /** The step the request is waiting on after it is saved. */
 export function correctionWaitingStep(route: PunchCorrectionRoutedTo): MissedPunchStepRole {
   if (route === "hr") return "hr";
@@ -350,11 +399,11 @@ export function correctionWaitingStep(route: PunchCorrectionRoutedTo): MissedPun
 }
 
 /**
- * Team corrections record the manager step as approved; ops and HR stay pending.
- * When the submitter is already the ops approver (e.g. F&B Manager), manager and ops
- * are approved and the request waits on HR.
- * Own requests leave every step pending (line manager → ops → HR), unless the line
- * manager is already the ops seat — then manager is skipped and ops is first.
+ * Team corrections by a Venue / Site / Sr. Site supervisor record the manager step as
+ * approved and wait on ops (or HR when the submitter already holds ops).
+ * Regular supervisor team-submit uses `line_manager` (manager seat still pending).
+ * Own requests leave every step pending, unless the line manager is already the ops
+ * seat — then manager is skipped and ops is first.
  */
 export function correctionStepSeed(route: PunchCorrectionRoutedTo): Array<{
   stepOrder: number;
@@ -391,7 +440,23 @@ function correctionClockLabel(value: string | null | undefined, empty: string): 
   return punchTimeInputValue(trimmed) || empty;
 }
 
-/** Saved on a team correction so HR can see who approved it and which punches changed. */
+function teamCorrectionPunchTrail(input: {
+  requestedPunchIn: string | null;
+  requestedPunchOut: string | null;
+  previousPunchIn: string | null;
+  previousPunchOut: string | null;
+}): string {
+  const requestedIn = correctionClockLabel(input.requestedPunchIn, "not on this request");
+  const requestedOut = correctionClockLabel(input.requestedPunchOut, "not on this request");
+  const previousIn = correctionClockLabel(input.previousPunchIn, "none");
+  const previousOut = correctionClockLabel(input.previousPunchOut, "none");
+  return `Requested punch-in ${requestedIn}, punch-out ${requestedOut}. Previous punch-in ${previousIn}, previous punch-out ${previousOut}.`;
+}
+
+/**
+ * Saved when a Venue / Site / Sr. Site supervisor files for their team and auto-completes
+ * the manager seat. HoO / HR can see who approved and which punches changed.
+ */
 export function managerTeamCorrectionNote(input: {
   managerName: string;
   requestedPunchIn: string | null;
@@ -400,11 +465,29 @@ export function managerTeamCorrectionNote(input: {
   previousPunchOut: string | null;
 }): string {
   const name = input.managerName.trim() || "The manager";
-  const requestedIn = correctionClockLabel(input.requestedPunchIn, "not on this request");
-  const requestedOut = correctionClockLabel(input.requestedPunchOut, "not on this request");
-  const previousIn = correctionClockLabel(input.previousPunchIn, "none");
-  const previousOut = correctionClockLabel(input.previousPunchOut, "none");
-  return `${name} requested and approved this correction. Requested punch-in ${requestedIn}, punch-out ${requestedOut}. Previous punch-in ${previousIn}, previous punch-out ${previousOut}.`;
+  return `${name} requested and approved this correction. ${teamCorrectionPunchTrail(input)}`;
+}
+
+/**
+ * Saved when a regular supervisor files for their team. Does not complete the
+ * Sr. Site Supervisor seat — that seat stays pending for Mary (or equivalent).
+ */
+export function supervisorTeamSubmittedNote(input: {
+  supervisorName: string;
+  requestedPunchIn: string | null;
+  requestedPunchOut: string | null;
+  previousPunchIn: string | null;
+  previousPunchOut: string | null;
+}): string {
+  const name = input.supervisorName.trim() || "The supervisor";
+  return `${name} submitted this correction. ${teamCorrectionPunchTrail(input)}`;
+}
+
+/** Rewrite a legacy auto-approve note into a supervisor-submitted note (heal path). */
+export function rewriteAutoApproveNoteToSupervisorSubmitted(note: string | null | undefined): string | null {
+  if (!note?.trim()) return null;
+  if (!isMissedPunchTeamAutoApprovedNote(note)) return note;
+  return note.replace(/requested and approved this correction/i, "submitted this correction");
 }
 
 /** Site in-charge: venue supervisor role, or a site/venue supervisor title. Not every "supervisor" job. */
@@ -545,16 +628,35 @@ export function correctionOpsLane(
   return opsApprovalLaneForStaffId(directory, staffId);
 }
 
-/** Team submitter who already holds the ops seat advances straight to HR. */
+/**
+ * Refine a team-submit base route (`punchCorrectionRoute` → `"ops"`):
+ * - Submitter already holds the ops seat (HoO / F&B Manager) → `"hr"`
+ * - Submitter title is Venue / Site / Sr. Site supervisor → `"ops"` (manager seat auto-approved)
+ * - Otherwise (regular supervisor) → `"line_manager"` (wait on Sr. Site Supervisor)
+ */
+export function teamCorrectionRoute(
+  directory: ApprovalDirectory,
+  staffId: string | null,
+  requesterUserId: string,
+  requester?: { jobTitle?: string | null; staffRole?: string | null },
+): "line_manager" | "ops" | "hr" {
+  if (approverUserIdsForStep(directory, "ops", "", staffId).includes(requesterUserId)) {
+    return "hr";
+  }
+  if (isSiteSupervisorTitle(requester?.jobTitle, requester?.staffRole)) {
+    return "ops";
+  }
+  return "line_manager";
+}
+
+/** @deprecated Prefer {@link teamCorrectionRoute} — kept for older call sites / tests. */
 export function teamCorrectionRouteAfterOpsCheck(
   directory: ApprovalDirectory,
   staffId: string | null,
   requesterUserId: string,
-): "ops" | "hr" {
-  if (approverUserIdsForStep(directory, "ops", "", staffId).includes(requesterUserId)) {
-    return "hr";
-  }
-  return "ops";
+  requester?: { jobTitle?: string | null; staffRole?: string | null },
+): "line_manager" | "ops" | "hr" {
+  return teamCorrectionRoute(directory, staffId, requesterUserId, requester);
 }
 
 /**
