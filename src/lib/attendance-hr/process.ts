@@ -972,19 +972,23 @@ export async function recalculateAttendanceRange(
       if (p.id && p.locationId === locationId) crossStaffByLogId.set(p.id, staffId);
     }
   }
+  // Prefer attendance_biometric_users over a stale log.staff_id (remap used to
+  // update the registry but leave old stamps — listing then cross-merged wrong).
+  const restampStaffByLogId = new Map<string, string>();
   for (const log of logs ?? []) {
     const day = String(log.attendance_date ?? "").slice(0, 10);
     if (!day) continue;
     const biometricUserId = String(log.biometric_user_id ?? "").trim();
     const logId = log.id ? String(log.id) : "";
-    const resolvedStaff =
-      (log.staff_id ? String(log.staff_id) : "") ||
-      (biometricUserId ? localStaffByLocUser.get(biometricUserId) ?? "" : "") ||
-      (logId ? crossStaffByLogId.get(logId) ?? "" : "");
+    const stampedStaff = log.staff_id ? String(log.staff_id) : "";
+    const mappedStaff = biometricUserId ? localStaffByLocUser.get(biometricUserId) ?? "" : "";
+    const crossStaff = logId ? crossStaffByLogId.get(logId) ?? "" : "";
+    const resolvedStaff = mappedStaff || stampedStaff || crossStaff;
     if (staffScope && resolvedStaff && !staffScope.includes(resolvedStaff)) continue;
     if (staffScope && !resolvedStaff) continue;
-    if (resolvedStaff && !log.staff_id) {
+    if (resolvedStaff && resolvedStaff !== stampedStaff) {
       (log as { staff_id?: string | null }).staff_id = resolvedStaff;
+      if (logId) restampStaffByLogId.set(logId, resolvedStaff);
     }
     const subject = subjectKey(
       (log.staff_id as string | null) ?? null,
@@ -994,6 +998,24 @@ export async function recalculateAttendanceRange(
     const list = groups.get(`${subject}|${day}`) ?? [];
     list.push(log);
     groups.set(`${subject}|${day}`, list);
+  }
+  if (restampStaffByLogId.size) {
+    const byStaff = new Map<string, string[]>();
+    for (const [logId, staffId] of restampStaffByLogId) {
+      const list = byStaff.get(staffId) ?? [];
+      list.push(logId);
+      byStaff.set(staffId, list);
+    }
+    for (const [staffId, logIds] of byStaff) {
+      for (let i = 0; i < logIds.length; i += 200) {
+        const chunk = logIds.slice(i, i + 200);
+        const { error: restampErr } = await supabase
+          .from("attendance_logs")
+          .update({ staff_id: staffId })
+          .in("id", chunk);
+        if (restampErr) throw restampErr;
+      }
+    }
   }
 
   const summaryRows: Array<Record<string, unknown>> = [];

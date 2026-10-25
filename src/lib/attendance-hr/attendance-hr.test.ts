@@ -62,6 +62,7 @@ import {
   personNamesLooselyMatch,
   staffByBiometricFromMappings,
   groupMappedStaffByLocation,
+  staffIdsAffectedByBiometricRemap,
   staffEligibleForBiometricMap,
   stubBiometricUsersForIds,
   suggestStaffIdForDeviceName,
@@ -1814,6 +1815,28 @@ describe("groupMappedStaffByLocation", () => {
       { locationId: "inf", staffIds: ["a", "d"] },
       { locationId: "kds", staffIds: ["b"] },
     ]);
+  });
+});
+
+describe("staffIdsAffectedByBiometricRemap", () => {
+  it("includes the new staff and every previous owner of the punches", () => {
+    expect(
+      staffIdsAffectedByBiometricRemap({
+        newStaffId: "moraa",
+        previousMappingStaffId: "wangare",
+        previousLogStaffIds: ["wangare", "other", null, "moraa"],
+      }).sort(),
+    ).toEqual(["moraa", "other", "wangare"]);
+  });
+
+  it("handles first-time map with no prior stamps", () => {
+    expect(
+      staffIdsAffectedByBiometricRemap({
+        newStaffId: "mary",
+        previousMappingStaffId: null,
+        previousLogStaffIds: [],
+      }),
+    ).toEqual(["mary"]);
   });
 });
 

@@ -88,7 +88,11 @@ import {
   type AttendanceDashboardPunch,
 } from "@/lib/attendance-hr/dashboard";
 import { expectedOnDutyStaffIds, expectedRowsForDay, isWorkDateCovered } from "@/lib/attendance-hr/roster-expected";
-import { BIOMETRIC_USER_CONFLICT, groupMappedStaffByLocation } from "@/lib/attendance-hr/mapping-merge";
+import {
+  BIOMETRIC_USER_CONFLICT,
+  groupMappedStaffByLocation,
+  staffIdsAffectedByBiometricRemap,
+} from "@/lib/attendance-hr/mapping-merge";
 import { collectPagedRows, collectPagedRowsInWaves } from "@/lib/attendance-hr/roster-register-scope";
 import { ATTENDANCE_TALLY_UPLOAD_NOTE } from "@/lib/attendance-hr/roster-upload";
 import { recalculateAttendanceRange } from "@/lib/attendance-hr/process";
@@ -1238,7 +1242,35 @@ type BiometricMapRow = {
   biometric_user_id: string;
 };
 
-async function applyStaffToBiometricUser(context: AuthContext, mapping: BiometricMapRow, staff: StaffMapFields) {
+/**
+ * Map a device user → staff and restamp ALL matching attendance_logs for that
+ * bio (not only null staff_id). Remap previously left wrong stamps in place, so
+ * listing/cross-site merge kept collapsing two people onto one row.
+ * Returns prior staff_ids found on those logs so callers can recalc both sides.
+ */
+async function applyStaffToBiometricUser(
+  context: AuthContext,
+  mapping: BiometricMapRow,
+  staff: StaffMapFields,
+): Promise<{ previousLogStaffIds: string[] }> {
+  const previousLogStaffIds = new Set<string>();
+  {
+    let prior = context.supabase
+      .from("attendance_logs")
+      .select("staff_id")
+      .eq("device_id", mapping.device_id)
+      .eq("biometric_user_id", mapping.biometric_user_id)
+      .not("staff_id", "is", null);
+    if (mapping.location_id) prior = prior.eq("location_id", mapping.location_id);
+    else prior = prior.is("location_id", null);
+    const { data: priorRows, error: priorErr } = await prior.limit(5000);
+    if (priorErr) throw priorErr;
+    for (const row of priorRows ?? []) {
+      const id = row.staff_id == null ? "" : String(row.staff_id);
+      if (id && id !== staff.id) previousLogStaffIds.add(id);
+    }
+  }
+
   const { error: uErr } = await context.supabase
     .from("attendance_biometric_users")
     .update({
@@ -1254,19 +1286,23 @@ async function applyStaffToBiometricUser(context: AuthContext, mapping: Biometri
     .eq("id", mapping.id);
   if (uErr) throw uErr;
 
+  // Always overwrite staff_id for this bio — remap must move punches off the
+  // previous person, not only fill nulls from first-time map.
   let logs = context.supabase
     .from("attendance_logs")
     .update({ staff_id: staff.id })
     .eq("device_id", mapping.device_id)
-    .eq("biometric_user_id", mapping.biometric_user_id)
-    .is("staff_id", null);
+    .eq("biometric_user_id", mapping.biometric_user_id);
   if (mapping.location_id) logs = logs.eq("location_id", mapping.location_id);
   else logs = logs.is("location_id", null);
-  await logs;
+  const { error: logErr } = await logs;
+  if (logErr) throw logErr;
 
   await audit(context, "attendance.map_user", "attendance_biometric_users", mapping.id, mapping.location_id, {
     staff_id: staff.id,
+    previous_log_staff_ids: [...previousLogStaffIds],
   });
+  return { previousLogStaffIds: [...previousLogStaffIds] };
 }
 
 export const mapAttendanceBiometricUser = createAuthenticatedAction(
@@ -1286,7 +1322,9 @@ export const mapAttendanceBiometricUser = createAuthenticatedAction(
       .single();
     if (sErr) throw sErr;
 
-    await applyStaffToBiometricUser(
+    const previousMappingStaffId =
+      loaded.mapping.staff_id == null ? null : String(loaded.mapping.staff_id);
+    const { previousLogStaffIds } = await applyStaffToBiometricUser(
       loaded.writer,
       {
         id: loaded.mapping.id as string,
@@ -1297,7 +1335,15 @@ export const mapAttendanceBiometricUser = createAuthenticatedAction(
       staff,
     );
     if (loaded.mapping.location_id) {
-      await recalcRecentAttendance(loaded.writer, loaded.mapping.location_id as string, [staff.id]);
+      await recalcRecentAttendanceForStaff(
+        loaded.writer,
+        loaded.mapping.location_id as string,
+        staffIdsAffectedByBiometricRemap({
+          newStaffId: staff.id,
+          previousMappingStaffId,
+          previousLogStaffIds,
+        }),
+      );
     }
     return { ok: true };
   },
@@ -1368,7 +1414,8 @@ export const mapAttendanceBiometricUsers = createAuthenticatedAction(
         }
         const staff = staffById.get(item.staffId);
         if (!staff) throw new Error("Employee not found");
-        await applyStaffToBiometricUser(
+        const previousMappingStaffId = mapping.staff_id == null ? null : String(mapping.staff_id);
+        const { previousLogStaffIds } = await applyStaffToBiometricUser(
           writer,
           {
             id: mapping.id as string,
@@ -1379,17 +1426,21 @@ export const mapAttendanceBiometricUsers = createAuthenticatedAction(
           staff,
         );
         saved += 1;
-        recalcPairs.push({
-          locationId: (mapping.location_id as string | null) ?? null,
-          staffId: staff.id,
-        });
+        const locationId = (mapping.location_id as string | null) ?? null;
+        for (const staffId of staffIdsAffectedByBiometricRemap({
+          newStaffId: staff.id as string,
+          previousMappingStaffId,
+          previousLogStaffIds,
+        })) {
+          recalcPairs.push({ locationId, staffId });
+        }
       } catch (e) {
         failed.push({ mappingId: item.mappingId, error: e instanceof Error ? e.message : "Failed" });
       }
     }
 
     for (const group of groupMappedStaffByLocation(recalcPairs)) {
-      await recalcRecentAttendance(writer, group.locationId, group.staffIds);
+      await recalcRecentAttendanceForStaff(writer, group.locationId, group.staffIds);
     }
 
     return { saved, failed };
@@ -1585,19 +1636,41 @@ async function loadBiometricMapping(context: AuthContext, mappingId: string) {
 async function clearMappedLogs(
   context: AuthContext,
   mapping: { location_id: unknown; device_id: unknown; biometric_user_id: unknown; staff_id: unknown },
-) {
-  const staffId = mapping.staff_id == null ? "" : String(mapping.staff_id);
-  if (!staffId) return;
+): Promise<string[]> {
+  // Clear every log for this bio at the site — not only rows matching the
+  // mapping's current staff_id (stale stamps from an earlier wrong map).
+  let prior = context.supabase
+    .from("attendance_logs")
+    .select("staff_id")
+    .eq("device_id", String(mapping.device_id))
+    .eq("biometric_user_id", String(mapping.biometric_user_id))
+    .not("staff_id", "is", null);
+  if (mapping.location_id) prior = prior.eq("location_id", String(mapping.location_id));
+  else prior = prior.is("location_id", null);
+  const { data: priorRows, error: priorErr } = await prior.limit(5000);
+  throwPg(priorErr);
+  const clearedStaffIds = [
+    ...new Set(
+      (priorRows ?? [])
+        .map((row) => (row.staff_id == null ? "" : String(row.staff_id)))
+        .filter(Boolean),
+    ),
+  ];
+  if (!clearedStaffIds.length) {
+    const mapped = mapping.staff_id == null ? "" : String(mapping.staff_id);
+    return mapped ? [mapped] : [];
+  }
+
   let logs = context.supabase
     .from("attendance_logs")
     .update({ staff_id: null })
     .eq("device_id", String(mapping.device_id))
-    .eq("biometric_user_id", String(mapping.biometric_user_id))
-    .eq("staff_id", staffId);
+    .eq("biometric_user_id", String(mapping.biometric_user_id));
   if (mapping.location_id) logs = logs.eq("location_id", String(mapping.location_id));
   else logs = logs.is("location_id", null);
   const { error } = await logs;
   throwPg(error);
+  return clearedStaffIds;
 }
 
 async function recalcRecentAttendance(context: AuthContext, locationId: string, staffIds?: string[]) {
@@ -1607,6 +1680,73 @@ async function recalcRecentAttendance(context: AuthContext, locationId: string, 
   await recalculateAttendanceRange(context.supabase, locationId, from, to, scope?.length
     ? { staffIds: scope, includeUnmappedPunches: false }
     : undefined);
+}
+
+/**
+ * After map/unmap, rebuild daily_summary at the device site and at every other
+ * site those people punch/roster (roaming cross-site merge lives on the anchor).
+ */
+async function recalcRecentAttendanceForStaff(
+  context: AuthContext,
+  primaryLocationId: string,
+  staffIds: string[],
+) {
+  const scope = [...new Set(staffIds.filter(Boolean))];
+  if (!scope.length) {
+    await recalcRecentAttendance(context, primaryLocationId);
+    return;
+  }
+
+  const to = new Date().toISOString().slice(0, 10);
+  const from = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10);
+  const locationIds = new Set<string>([primaryLocationId]);
+
+  const [{ data: staffRows }, { data: workRows }, { data: logLocs }, { data: summaryLocs }] =
+    await Promise.all([
+      context.supabase.from("staff").select("id, location_id").in("id", scope).is("deleted_at", null),
+      context.supabase.from("staff_work_locations").select("staff_id, location_id").in("staff_id", scope),
+      context.supabase
+        .from("attendance_logs")
+        .select("location_id")
+        .in("staff_id", scope)
+        .gte("attendance_date", from)
+        .lte("attendance_date", to)
+        .not("location_id", "is", null)
+        .limit(5000),
+      context.supabase
+        .from("attendance_daily_summary")
+        .select("location_id")
+        .in("staff_id", scope)
+        .gte("work_date", from)
+        .lte("work_date", to)
+        .not("location_id", "is", null)
+        .limit(5000),
+    ]);
+
+  for (const row of staffRows ?? []) {
+    if (row.location_id) locationIds.add(String(row.location_id));
+  }
+  for (const row of workRows ?? []) {
+    if (row.location_id) locationIds.add(String(row.location_id));
+  }
+  for (const row of logLocs ?? []) {
+    if (row.location_id) locationIds.add(String(row.location_id));
+  }
+  for (const row of summaryLocs ?? []) {
+    if (row.location_id) locationIds.add(String(row.location_id));
+  }
+
+  // Primary site first so local stamps settle before cross-site anchors rewrite.
+  const ordered = [
+    primaryLocationId,
+    ...[...locationIds].filter((id) => id !== primaryLocationId),
+  ];
+  for (const locationId of ordered) {
+    await recalculateAttendanceRange(context.supabase, locationId, from, to, {
+      staffIds: scope,
+      includeUnmappedPunches: false,
+    });
+  }
 }
 
 export const unmapAttendanceBiometricUser = createAuthenticatedAction(
@@ -1630,15 +1770,24 @@ export const unmapAttendanceBiometricUser = createAuthenticatedAction(
       .eq("id", data.mappingId);
     throwPg(uErr);
 
-    await clearMappedLogs(loaded.writer, mapping);
+    const clearedStaffIds = await clearMappedLogs(loaded.writer, mapping);
     await audit(loaded.writer, "attendance.unmap_user", "attendance_biometric_users", data.mappingId, mapping.location_id as string | null, {
       previous_staff_id: mapping.staff_id,
+      cleared_log_staff_ids: clearedStaffIds,
     });
     if (mapping.location_id) {
-      await recalcRecentAttendance(
+      const affected = [
+        ...new Set(
+          [
+            mapping.staff_id == null ? null : String(mapping.staff_id),
+            ...clearedStaffIds,
+          ].filter((id): id is string => Boolean(id)),
+        ),
+      ];
+      await recalcRecentAttendanceForStaff(
         loaded.writer,
         mapping.location_id as string,
-        mapping.staff_id ? [String(mapping.staff_id)] : undefined,
+        affected,
       );
     }
     return { ok: true };
@@ -1652,7 +1801,7 @@ export const removeAttendanceBiometricUser = createSafeAuthenticatedAction(
     const loaded = await loadBiometricMappingForWriter(context, data.mappingId);
     const mapping = loaded.mapping;
 
-    await clearMappedLogs(loaded.writer, mapping);
+    const clearedStaffIds = await clearMappedLogs(loaded.writer, mapping);
 
     const { error: dErr, count } = await loaded.writer.supabase
       .from("attendance_biometric_users")
@@ -1666,15 +1815,23 @@ export const removeAttendanceBiometricUser = createSafeAuthenticatedAction(
         biometric_user_id: mapping.biometric_user_id,
         device_name: mapping.device_name,
         previous_staff_id: mapping.staff_id,
+        cleared_log_staff_ids: clearedStaffIds,
       });
     } catch (e) {
       console.warn("[attendance-hr] audit after remove failed", e instanceof Error ? e.message : e);
     }
     void (mapping.location_id
-      ? recalcRecentAttendance(
+      ? recalcRecentAttendanceForStaff(
           loaded.writer,
           mapping.location_id as string,
-          mapping.staff_id ? [String(mapping.staff_id)] : undefined,
+          [
+            ...new Set(
+              [
+                mapping.staff_id == null ? null : String(mapping.staff_id),
+                ...clearedStaffIds,
+              ].filter((id): id is string => Boolean(id)),
+            ),
+          ],
         ).catch((e) => {
           console.warn("[attendance-hr] recalc after remove failed", e instanceof Error ? e.message : e);
         })

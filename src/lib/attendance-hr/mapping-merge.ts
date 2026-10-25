@@ -276,6 +276,21 @@ export function groupMappedStaffByLocation(
   return [...map.entries()].map(([locationId, staffIds]) => ({ locationId, staffIds }));
 }
 
+/** Staff ids that must be recalculated after a bio remap (new + previous owners). */
+export function staffIdsAffectedByBiometricRemap(opts: {
+  newStaffId: string;
+  previousMappingStaffId?: string | null;
+  previousLogStaffIds?: ReadonlyArray<string | null | undefined>;
+}): string[] {
+  return [
+    ...new Set(
+      [opts.newStaffId, opts.previousMappingStaffId, ...(opts.previousLogStaffIds ?? [])]
+        .map((id) => (id == null ? "" : String(id).trim()))
+        .filter(Boolean),
+    ),
+  ];
+}
+
 export type ExistingBiometricUser = {
   biometricUserId: string;
   deviceName: string | null;
