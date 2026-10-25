@@ -20,9 +20,17 @@ import { STALE } from "@/lib/query-client";
 
 type CorrectionJob = "approve" | "fill" | "request";
 
-function hashPrefersApprove(): boolean {
+/** Toast / inbox deep link that must open Approve (not just the Correction tab). */
+function hashIsApproveDeepLink(): boolean {
   if (typeof window === "undefined") return false;
   return window.location.hash.replace(/^#/, "") === "me-punch-approvals";
+}
+
+/** First paint: Approve deep link or Correction tab hash prefers Approve when available. */
+function hashPrefersApprove(): boolean {
+  if (typeof window === "undefined") return false;
+  const hash = window.location.hash.replace(/^#/, "");
+  return hash === "me-punch-approvals" || hash === "me-correction";
 }
 
 export function MeCorrectionPanel({
@@ -71,11 +79,19 @@ export function MeCorrectionPanel({
   const pickedDefault = useRef(false);
 
   useEffect(() => {
-    if (pickedDefault.current || jobs.length === 0) return;
+    if (jobs.length === 0) return;
     if (showApprove && !reports.isPending && pendingQ.isPending) return;
     if (showRequest && reportsPending) return;
 
     const preferApprove = hashPrefersApprove() || pendingCount > 0;
+    // Only the Approve deep link re-selects after the first pick (not #me-correction).
+    if (pickedDefault.current) {
+      if (hashIsApproveDeepLink() && jobs.includes("approve") && job !== "approve") {
+        setJob("approve");
+      }
+      return;
+    }
+
     const fallback: CorrectionJob =
       preferApprove && jobs.includes("approve")
         ? "approve"
@@ -85,6 +101,7 @@ export function MeCorrectionPanel({
     setJob(fallback);
     pickedDefault.current = true;
   }, [
+    job,
     jobs,
     pendingCount,
     pendingQ.isPending,
@@ -93,6 +110,15 @@ export function MeCorrectionPanel({
     showApprove,
     showRequest,
   ]);
+
+  useEffect(() => {
+    const onHash = () => {
+      if (!hashIsApproveDeepLink() || !jobs.includes("approve")) return;
+      setJob("approve");
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, [jobs]);
 
   const permissionsReady = !reports.isPending && !reportsPending;
   if (permissionsReady && jobs.length === 0) return null;

@@ -1,3 +1,8 @@
+import {
+  ME_PUNCH_APPROVALS_HREF,
+  PEOPLE_CORRECTIONS_HREF,
+} from "@/lib/attendance-hr/missed-punch-approval";
+
 export const HR_NOTIFY_CATEGORY = "people" as const;
 /** Leave request lifecycle uses dedicated preference category (Phase 11). */
 export const HR_LEAVE_NOTIFY_CATEGORY = "hr_leave" as const;
@@ -56,15 +61,18 @@ export function mapHrNotifyEvent(event: HrNotifyEvent): HrNotifyPayload {
   const date = event.workDate ?? "";
   const number = event.requestNumber?.trim() || "";
   const numberSuffix = number ? ` (${number})` : "";
-  const actionUrl = event.kind.startsWith("correction")
-    ? "/people/attendance/corrections"
-    : event.kind.startsWith("leave")
-      ? event.kind === "leave_submitted"
-        ? "/hr/me#me-leave-approvals"
-        : "/hr/me"
-      : event.kind === "geofence_exit" || event.kind === "restricted"
-      ? "/people/field"
-      : "/people/attendance/reports";
+  const actionUrl =
+    event.kind === "correction_submitted"
+      ? ME_PUNCH_APPROVALS_HREF
+      : event.kind === "correction_approved" || event.kind === "correction_rejected"
+        ? PEOPLE_CORRECTIONS_HREF
+        : event.kind.startsWith("leave")
+          ? event.kind === "leave_submitted"
+            ? "/hr/me#me-leave-approvals"
+            : "/hr/me"
+          : event.kind === "geofence_exit" || event.kind === "restricted"
+            ? "/people/field"
+            : "/people/attendance/reports";
 
   let body: string;
   let severity: HrNotifyPayload["severity"] = "warning";

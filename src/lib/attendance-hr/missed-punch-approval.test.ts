@@ -40,6 +40,9 @@ import {
   canSiteSupervisorActOnTeamCorrection,
   isMissedPunchTeamSubmittedNote,
   missedPunchPrintSignatureDone,
+  ME_PUNCH_APPROVALS_HREF,
+  PEOPLE_CORRECTIONS_HREF,
+  punchApprovalInboxActionUrl,
   shouldHealOwnCorrectionToOpsFirst,
   type ApprovalDirectory,
   type CorrectionApprovalView,
@@ -90,6 +93,30 @@ function row(partial?: Partial<CorrectionApprovalView>): CorrectionApprovalView 
     ...partial,
   };
 }
+
+describe("punchApprovalInboxActionUrl", () => {
+  it("sends approvers to My Day Approve and keeps CEO on the estate desk", () => {
+    expect(punchApprovalInboxActionUrl({ roles: ["regional_ops"] })).toBe(ME_PUNCH_APPROVALS_HREF);
+    expect(punchApprovalInboxActionUrl({ roles: ["ceo"] })).toBe(PEOPLE_CORRECTIONS_HREF);
+  });
+
+  it("rewrites older People-desk notifies for non-CEO approvers", () => {
+    expect(
+      punchApprovalInboxActionUrl({
+        roles: ["regional_ops"],
+        storedUrl: PEOPLE_CORRECTIONS_HREF,
+        sourceType: "attendance_corrections",
+      }),
+    ).toBe(ME_PUNCH_APPROVALS_HREF);
+    expect(
+      punchApprovalInboxActionUrl({
+        roles: ["ceo"],
+        storedUrl: PEOPLE_CORRECTIONS_HREF,
+        sourceType: "attendance_corrections",
+      }),
+    ).toBe(PEOPLE_CORRECTIONS_HREF);
+  });
+});
 
 describe("missed punch approval chain", () => {
   it("uses supervisor → ops → hr → gm (OT-aligned ladder)", () => {

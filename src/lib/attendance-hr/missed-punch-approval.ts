@@ -13,6 +13,33 @@ export const MISSED_PUNCH_STEP_ROLES = ["manager", "ops", "hr", "gm"] as const;
 export type MissedPunchStepRole = (typeof MISSED_PUNCH_STEP_ROLES)[number];
 export type { OpsApprovalLane };
 
+/** My Day Correction → Approve (toast / inbox click for approvers). */
+export const ME_PUNCH_APPROVALS_HREF = "/hr/me#me-punch-approvals";
+/** Estate corrections desk (CEO observers / People HR listing). */
+export const PEOPLE_CORRECTIONS_HREF = "/people/attendance/corrections";
+
+/**
+ * Approvers open My Day Approve. CEO observers keep the estate corrections desk.
+ * Also rewrites older persisted notifies that still point at the People desk.
+ */
+export function punchApprovalInboxActionUrl(input: {
+  roles: readonly string[];
+  storedUrl?: string | null;
+  sourceType?: string | null;
+}): string {
+  const isCeo = input.roles.includes("ceo");
+  const stored = input.storedUrl?.trim() || null;
+  if (
+    input.sourceType === "attendance_corrections" &&
+    stored === PEOPLE_CORRECTIONS_HREF &&
+    !isCeo
+  ) {
+    return ME_PUNCH_APPROVALS_HREF;
+  }
+  if (stored) return stored;
+  return isCeo ? PEOPLE_CORRECTIONS_HREF : ME_PUNCH_APPROVALS_HREF;
+}
+
 export type MissedPunchQueue = "waiting" | "mine";
 
 export type CorrectionApprovalView = {

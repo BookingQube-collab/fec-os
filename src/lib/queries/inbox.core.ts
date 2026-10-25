@@ -1,3 +1,7 @@
+import {
+  PEOPLE_CORRECTIONS_HREF,
+  punchApprovalInboxActionUrl,
+} from "@/lib/attendance-hr/missed-punch-approval";
 import { CLOSED_TASK_STATUSES } from "@/lib/events/constants";
 import {
   inboxUnreadCount,
@@ -41,6 +45,7 @@ async function currentStaffId(context: AuthContext): Promise<string | null> {
 }
 
 async function fetchPersisted(context: AuthContext): Promise<InboxItem[]> {
+  const roles = (context.roles ?? []) as AppRole[];
   const { data, error } = await context.supabase
     .from("notifications")
     .select("id, category, title, body, severity, action_url, read_at, created_at, source_type, source_id")
@@ -58,7 +63,11 @@ async function fetchPersisted(context: AuthContext): Promise<InboxItem[]> {
       titleKey: null,
       body: row.body,
       severity: (row.severity as InboxSeverity) || "info",
-      actionUrl: row.action_url || "/notifications",
+      actionUrl: punchApprovalInboxActionUrl({
+        roles,
+        storedUrl: row.action_url || "/notifications",
+        sourceType: (row.source_type as string | null) ?? null,
+      }),
       readAt: row.read_at,
       createdAt: row.created_at,
       sourceType: (row.source_type as string | null) ?? null,
@@ -383,7 +392,7 @@ async function fetchMissedPunchItems(context: AuthContext, roles: AppRole[]): Pr
           requested_at: row.requested_at ?? null,
           staffName: (row.staff_id && names.get(row.staff_id)) || "Staff",
         },
-        "/people/attendance/corrections",
+        PEOPLE_CORRECTIONS_HREF,
       ),
     );
   }
@@ -398,15 +407,12 @@ async function fetchMissedPunchItems(context: AuthContext, roles: AppRole[]): Pr
       queue: "waiting",
       actionableOnly: true,
     });
+    const actionUrl = punchApprovalInboxActionUrl({ roles });
     return rows
       .filter((row) => row.status === "pending")
       .slice(0, 12)
-      .map((row) => {
-        const laterSeat =
-          row.currentStepRole === "ops" ||
-          row.currentStepRole === "hr" ||
-          row.currentStepRole === "gm";
-        return mapPunchInboxRow(
+      .map((row) =>
+        mapPunchInboxRow(
           {
             id: row.id,
             staff_id: row.staffId,
@@ -415,9 +421,9 @@ async function fetchMissedPunchItems(context: AuthContext, roles: AppRole[]): Pr
             requested_at: row.requestedAt,
             staffName: row.staffName,
           },
-          laterSeat ? "/people/attendance/corrections" : "/hr/me#me-punch-approvals",
-        );
-      });
+          actionUrl,
+        ),
+      );
   } catch {
     return [];
   }
