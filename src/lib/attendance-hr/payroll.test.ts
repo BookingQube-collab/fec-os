@@ -75,7 +75,9 @@ describe("payroll readiness", () => {
     expect(formatPayrollBlockReasons(row.blockReasons)).toEqual(["Missed punch"]);
   });
 
-  it("counts short_hours as present while still blocking payroll", () => {
+  it("counts short_hours as present and does not block payroll (manual payslip fix only)", () => {
+    expect(isPayrollBlockingDay({ status: "short_hours" })).toBe(false);
+    expect(payrollBlockReasonCode({ status: "short_hours" })).toBe(null);
     const [row] = aggregatePayrollRows([
       {
         staff_id: "c",
@@ -96,10 +98,9 @@ describe("payroll readiness", () => {
     ]);
     expect(row.daysPresent).toBe(2);
     expect(row.overtimeMinutes).toBe(30);
-    expect(row.payrollReady).toBe(false);
-    expect(row.blockingDays).toBe(1);
-    expect(row.blockReasons).toEqual([{ code: "short_hours", count: 1 }]);
-    expect(formatPayrollBlockReasons(row.blockReasons)).toEqual(["Undertime (short hours)"]);
+    expect(row.payrollReady).toBe(true);
+    expect(row.blockingDays).toBe(0);
+    expect(row.blockReasons).toEqual([]);
   });
 
   it("tallies mixed block reasons without dropping codes", () => {

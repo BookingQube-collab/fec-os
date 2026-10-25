@@ -2,7 +2,9 @@ import { applyPreJoinAttendanceStatus } from "@/lib/attendance-display";
 import { isAttendanceListingWorkedDay } from "@/lib/attendance-hr/export-workbook";
 import type { AttendanceHrReportRow } from "@/lib/attendance-hr/report";
 
-export const PAYROLL_BLOCKING_STATUSES = new Set(["missed_punch", "incomplete", "short_hours", "review_required"]);
+/** Undertime (short_hours) is not blocking — Generate pays roster/attendance days as worked;
+ *  short-hour pay cuts are a manual payslip Other deduction if HR chooses. */
+export const PAYROLL_BLOCKING_STATUSES = new Set(["missed_punch", "incomplete", "review_required"]);
 
 export const PAYROLL_BLOCK_REASON_LABELS: Record<string, string> = {
   missed_punch: "Missed punch",
