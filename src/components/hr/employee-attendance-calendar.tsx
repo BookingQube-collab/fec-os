@@ -29,6 +29,11 @@ import {
   rosterWeekStartsOn,
   weekdayLabels,
 } from "@/lib/daily-ops/roster-calendar-utils";
+import {
+  isExcludedFromEmployeeHoursTotals,
+  resolveEmployeeDayAttendanceDisplay,
+  sumEmployeePeriodHours,
+} from "@/lib/employee-attendance-day";
 import { cn } from "@/lib/utils";
 
 export type EmployeeAttendanceCalendarRow = {
@@ -192,32 +197,39 @@ function minutesFromHmPair(workDate: string, startHm: string | null | undefined,
   return Math.round((end.getTime() - start.getTime()) / 60_000);
 }
 
-/** Weekly off / compensatory off (and roster week-off) do not count toward worked or required totals. */
-const HOURS_EXCLUDED_STATUSES = new Set(["weekly_off", "week_off", "comp_off"]);
-
-function normalizeHoursStatusKey(raw: string | null | undefined): string {
-  return String(raw ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "_");
+function displayForRow(
+  row: Pick<EmployeeAttendanceCalendarRow, "status" | "missedPunch">,
+  roster?: EmployeeAttendanceRosterHint | null,
+): { status: string; missedPunch: boolean } {
+  return resolveEmployeeDayAttendanceDisplay({
+    status: row.status,
+    missedPunch: row.missedPunch,
+    isWeekOff: roster?.isWeekOff,
+    leaveType: roster?.leaveType,
+  });
 }
 
 function isExcludedFromHoursTotals(
   status: string | null | undefined,
   roster: EmployeeAttendanceRosterHint | null | undefined,
 ): boolean {
-  if (roster?.isWeekOff) return true;
-  if (HOURS_EXCLUDED_STATUSES.has(normalizeHoursStatusKey(status))) return true;
-  if (HOURS_EXCLUDED_STATUSES.has(normalizeHoursStatusKey(roster?.leaveType))) return true;
-  return false;
+  const display = resolveEmployeeDayAttendanceDisplay({
+    status: status ?? "",
+    isWeekOff: roster?.isWeekOff,
+    leaveType: roster?.leaveType,
+  });
+  return isExcludedFromEmployeeHoursTotals({
+    status: display.status,
+    isWeekOff: roster?.isWeekOff,
+    leaveType: roster?.leaveType,
+  });
 }
 
 function resolveExpectedMinutes(
   row: EmployeeAttendanceCalendarRow | null | undefined,
   roster: EmployeeAttendanceRosterHint | null | undefined,
 ): number | null {
-  if (row && isExcludedFromHoursTotals(row.status, roster)) return null;
-  if (!row && roster && isExcludedFromHoursTotals(null, roster)) return null;
+  if (isExcludedFromHoursTotals(row?.status, roster)) return null;
   if (row) {
     const fromSchedule = minutesFromIsoPair(row.scheduledIn, row.scheduledOut);
     if (fromSchedule != null && fromSchedule > 0) return fromSchedule;
@@ -271,48 +283,6 @@ function dateInInclusiveRange(date: string, dateFrom: string, dateTo: string): b
   return d >= dateFrom.slice(0, 10) && d <= dateTo.slice(0, 10);
 }
 
-function sumPeriodHours(
-  byDate: Map<string, EmployeeAttendanceCalendarRow>,
-  rosterByDate: Map<string, EmployeeAttendanceRosterHint>,
-  dateFrom: string,
-  dateTo: string,
-  todayYmd: string,
-): { workedHours: number; requiredHours: number; shortfallHours: number } {
-  const dates = new Set<string>();
-  for (const d of byDate.keys()) {
-    if (dateInInclusiveRange(d, dateFrom, dateTo)) dates.add(d);
-  }
-  for (const d of rosterByDate.keys()) {
-    if (dateInInclusiveRange(d, dateFrom, dateTo)) dates.add(d);
-  }
-
-  let workedMinutes = 0;
-  let requiredMinutes = 0;
-
-  for (const date of dates) {
-    const row = byDate.get(date) ?? null;
-    const roster = rosterByDate.get(date);
-    if (isExcludedFromHoursTotals(row?.status, roster)) continue;
-
-    const expected = resolveExpectedMinutes(row ?? undefined, roster);
-    if (expected != null && expected > 0) requiredMinutes += expected;
-
-    if (row) {
-      const { hours } = resolveWorkedHoursDisplay(row, todayYmd, roster);
-      if (hours != null && hours > 0) workedMinutes += Math.round(hours * 60);
-    }
-  }
-
-  const workedHours = Math.round((workedMinutes / 60) * 100) / 100;
-  const requiredHours = Math.round((requiredMinutes / 60) * 100) / 100;
-  const shortfallHours =
-    requiredHours > workedHours
-      ? Math.round((requiredHours - workedHours) * 100) / 100
-      : 0;
-
-  return { workedHours, requiredHours, shortfallHours };
-}
-
 function DetailFact({ label, value, emphasize }: { label: string; value: string; emphasize?: boolean }) {
   return (
     <div className="min-w-0 rounded-lg border border-[#1a1a1a]/10 bg-[#F8F6F1] px-2.5 py-2">
@@ -346,12 +316,14 @@ function AttendanceDayDetail({
   compact?: boolean;
 }) {
   const { t } = useTranslation();
+  const display = displayForRow(row, roster);
   const needsPunch =
-    row.missedPunch ||
-    row.status === "missed_punch" ||
-    Boolean(row.actualIn) !== Boolean(row.actualOut);
-  const statusLabel = labelOrRaw(t, `attendanceHr.reports.statuses.${row.status}`, row.status);
-  const excluded = isExcludedFromHoursTotals(row.status, roster);
+    !isExcludedFromHoursTotals(display.status, roster) &&
+    (display.missedPunch ||
+      display.status === "missed_punch" ||
+      Boolean(row.actualIn) !== Boolean(row.actualOut));
+  const statusLabel = labelOrRaw(t, `attendanceHr.reports.statuses.${display.status}`, display.status);
+  const excluded = isExcludedFromHoursTotals(display.status, roster);
   const expectedMinutes = resolveExpectedMinutes(row, roster);
   const { hours: workedHours, tillNow } = resolveWorkedHoursDisplay(row, todayYmd, roster);
   const shortfall = resolveShortfallHours(row, expectedMinutes, workedHours, roster);
@@ -359,16 +331,19 @@ function AttendanceDayDetail({
     !excluded &&
     shortfall != null &&
     shortfall > 0 &&
-    (row.status === "short_hours" ||
-      row.status === "early_leave" ||
-      row.status === "early_departure" ||
-      row.status === "incomplete" ||
+    (display.status === "short_hours" ||
+      display.status === "early_leave" ||
+      display.status === "early_departure" ||
+      display.status === "incomplete" ||
       tillNow ||
       Number(row.earlyLeaveMinutes ?? 0) > 0);
 
   const shiftLabel =
-    roster?.isWeekOff || row.status === "comp_off" || row.status === "weekly_off" || row.status === "week_off"
-      ? row.status === "comp_off"
+    roster?.isWeekOff ||
+    display.status === "comp_off" ||
+    display.status === "weekly_off" ||
+    display.status === "week_off"
+      ? display.status === "comp_off"
         ? labelOrRaw(t, "attendanceHr.reports.statuses.comp_off", "comp_off")
         : t("people.roster.dutyOff")
       : roster?.shiftStart && roster?.shiftEnd
@@ -412,13 +387,13 @@ function AttendanceDayDetail({
           </button>
           <MissedPunchRequestButton
             summaryId={row.id}
-            missedPunch={row.missedPunch}
-            status={row.status}
+            missedPunch={display.missedPunch}
+            status={display.status}
             actualIn={row.actualIn}
             actualOut={row.actualOut}
           />
         </div>
-        <Badge variant={attendanceBadgeVariant(row.status, row.missedPunch)}>{statusLabel}</Badge>
+        <Badge variant={attendanceBadgeVariant(display.status, display.missedPunch)}>{statusLabel}</Badge>
       </div>
     );
   }
@@ -440,7 +415,7 @@ function AttendanceDayDetail({
             </p>
           ) : null}
         </div>
-        <Badge variant={attendanceBadgeVariant(row.status, row.missedPunch)}>{statusLabel}</Badge>
+        <Badge variant={attendanceBadgeVariant(display.status, display.missedPunch)}>{statusLabel}</Badge>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -491,8 +466,8 @@ function AttendanceDayDetail({
       <div className="mt-3">
         <MissedPunchRequestButton
           summaryId={row.id}
-          missedPunch={row.missedPunch}
-          status={row.status}
+          missedPunch={display.missedPunch}
+          status={display.status}
           actualIn={row.actualIn}
           actualOut={row.actualOut}
         />
@@ -556,7 +531,7 @@ export function EmployeeAttendanceCalendar({
   const selectedRoster = selectedDate ? (rosterByDate.get(selectedDate) ?? null) : null;
 
   const periodHours = useMemo(
-    () => sumPeriodHours(byDate, rosterByDate, period.dateFrom, period.dateTo, todayYmd),
+    () => sumEmployeePeriodHours(byDate, rosterByDate, period.dateFrom, period.dateTo, todayYmd),
     [byDate, rosterByDate, period.dateFrom, period.dateTo, todayYmd],
   );
 
@@ -714,14 +689,25 @@ export function EmployeeAttendanceCalendar({
                       {week.map((cell) => {
                         const row = byDate.get(cell.date);
                         const roster = rosterByDate.get(cell.date);
+                        const display = row
+                          ? displayForRow(row, roster)
+                          : roster?.isWeekOff || roster?.leaveType
+                            ? resolveEmployeeDayAttendanceDisplay({
+                                status: "",
+                                isWeekOff: roster.isWeekOff,
+                                leaveType: roster.leaveType,
+                              })
+                            : null;
                         const selected = selectedDate === cell.date;
-                        const cue = row ? statusCueClass(row.status, row.missedPunch) : "";
-                        const statusLabel = row
-                          ? labelOrRaw(t, `attendanceHr.reports.statuses.${row.status}`, row.status)
+                        const cue = display ? statusCueClass(display.status, display.missedPunch) : "";
+                        const statusLabel = display
+                          ? labelOrRaw(t, `attendanceHr.reports.statuses.${display.status}`, display.status)
                           : "";
-                        const code = row ? statusShortCode(t, row.status, row.missedPunch) : "";
+                        const code = display
+                          ? statusShortCode(t, display.status, display.missedPunch)
+                          : "";
                         const cellHours =
-                          row && !isExcludedFromHoursTotals(row.status, roster)
+                          row && !isExcludedFromHoursTotals(display?.status, roster)
                             ? resolveWorkedHoursDisplay(row, todayYmd, roster).hours
                             : null;
                         const cellExpected =
@@ -735,7 +721,7 @@ export function EmployeeAttendanceCalendar({
                             type="button"
                             onClick={() => onSelectDate(cell.date)}
                             aria-label={
-                              row
+                              display
                                 ? `${cell.dayOfMonth}, ${statusLabel}`
                                 : String(cell.dayOfMonth)
                             }
@@ -746,7 +732,7 @@ export function EmployeeAttendanceCalendar({
                               !cell.inMonth && "opacity-45",
                               cell.isToday && !selected && "border-ring bg-card shadow-sm",
                               selected && "border-[#6366F1] bg-card shadow-sm ring-1 ring-[#6366F1]/50",
-                              row && cell.inMonth && !selected && cue,
+                              display && cell.inMonth && !selected && cue,
                             )}
                           >
                             <span
@@ -759,12 +745,12 @@ export function EmployeeAttendanceCalendar({
                             >
                               {cell.dayOfMonth}
                             </span>
-                            {row ? (
+                            {display ? (
                               <>
                                 <span
                                   className={cn(
                                     "h-1.5 w-1.5 shrink-0 rounded-full",
-                                    statusDotClass(row.status, row.missedPunch),
+                                    statusDotClass(display.status, display.missedPunch),
                                   )}
                                   aria-hidden
                                 />

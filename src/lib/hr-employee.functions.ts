@@ -10,6 +10,10 @@ import { normalizeShiftHm } from "@/lib/attendance-hr/late-punch";
 import { defaultPayrollPeriod } from "@/lib/attendance-hr/roster-period";
 import { isRosterLeaveType, type RosterLeaveType } from "@/lib/attendance-hr/roster-register-scope";
 import { loadLinkedStaffRecord } from "@/lib/linked-staff-job-title.server";
+import {
+  preferMyAttendanceSummaryRow,
+  preferMyRosterDayRow,
+} from "@/lib/employee-attendance-day";
 
 /**
  * Self staff row for My Day. Must use loadLinkedStaffRecord (admin + email/code
@@ -32,20 +36,6 @@ async function myStaff(context: AuthContext) {
 
 function tableMissing(message: string | undefined): boolean {
   return Boolean(message && /does not exist|schema cache|relation/i.test(message));
-}
-
-/** Prefer the day row with punches / richer status when the same staff has summaries at more than one site. */
-function preferMyAttendanceRow(
-  a: { status: string; missedPunch: boolean; actualIn: string | null; actualOut: string | null; workedMinutes: number },
-  b: { status: string; missedPunch: boolean; actualIn: string | null; actualOut: string | null; workedMinutes: number },
-): boolean {
-  const rank = (row: typeof a) =>
-    (row.actualIn ? 4 : 0) +
-    (row.actualOut ? 4 : 0) +
-    (row.workedMinutes > 0 ? 2 : 0) +
-    (row.status && row.status !== "absent" ? 1 : 0) +
-    (row.missedPunch ? 1 : 0);
-  return rank(a) >= rank(b);
 }
 
 export const getMyAttendance = createAuthenticatedAction(
@@ -120,7 +110,7 @@ export const getMyAttendance = createAuthenticatedAction(
         ),
       };
       const existing = byDate.get(mapped.workDate);
-      if (!existing || preferMyAttendanceRow(mapped, existing)) {
+      if (!existing || preferMyAttendanceSummaryRow(mapped, existing)) {
         byDate.set(mapped.workDate, mapped);
       }
     }
@@ -204,7 +194,8 @@ export const getMyRoster = createAuthenticatedAction(
       }
     }
 
-    const rows: MyRosterRow[] = assignmentRows.map((row) => {
+    const byDate = new Map<string, MyRosterRow>();
+    for (const row of assignmentRows) {
       const loc = locById.get(String(row.location_id));
       const template = row.shift_template_id ? shiftById.get(String(row.shift_template_id)) : undefined;
       const workDate = String(row.work_date).slice(0, 10);
@@ -214,7 +205,7 @@ export const getMyRoster = createAuthenticatedAction(
       const shiftEnd =
         normalizeShiftHm((row as { shift_end?: string | null }).shift_end) ??
         normalizeShiftHm(template?.end_time == null ? null : String(template.end_time));
-      return {
+      const mapped: MyRosterRow = {
         id: String(row.id),
         workDate,
         locationLabel: formatLocationLabel(loc?.code, loc?.name),
@@ -223,7 +214,14 @@ export const getMyRoster = createAuthenticatedAction(
         isWeekOff: Boolean(row.is_week_off),
         leaveType: leaveByDate.get(workDate) ?? null,
       };
-    });
+      const existing = byDate.get(workDate);
+      // Multi-site: week-off (then leave) wins so My attendance never treats rest as on-duty.
+      if (!existing || preferMyRosterDayRow(mapped, existing)) {
+        byDate.set(workDate, mapped);
+      }
+    }
+
+    const rows = [...byDate.values()].sort((a, b) => a.workDate.localeCompare(b.workDate));
 
     return { staffId, dateFrom, dateTo, rows };
   },
