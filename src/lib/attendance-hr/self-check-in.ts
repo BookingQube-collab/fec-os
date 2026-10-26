@@ -12,6 +12,18 @@ function punchCount(value: number): number {
 }
 
 /**
+ * Portal check-in / device-punch people (e.g. maintenance under FEC).
+ * When `staff.can_self_check_in` is on, attendance comes from punches — no monthly
+ * roster is required. Days with no punches stay not-on-site (not roster Absent).
+ * Incomplete days use the same missed-punch request path as other staff.
+ */
+export function staffUsesPunchDrivenAttendance(input: {
+  canSelfCheckIn?: boolean | null;
+}): boolean {
+  return Boolean(input.canSelfCheckIn);
+}
+
+/**
  * The signed-in person may record a punch only when their profile allows it.
  * Daily attendance uses the first punch as check-in and the last as check-out,
  * so a second check-in, or a check-out before check-in, is refused.

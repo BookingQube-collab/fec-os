@@ -97,6 +97,21 @@ describe("E3 HR export workbook", () => {
     expect(resolveHrAttendanceStatus(row)).toBe("Present");
   });
 
+  it("treats punched unscheduled (no roster / portal check-in) days as Present", () => {
+    const punched = day({
+      work_date: "2026-10-20",
+      status: "unscheduled",
+      actual_in: "2026-10-20T05:00:00.000Z",
+      actual_out: "2026-10-20T14:00:00.000Z",
+      worked_minutes: 540,
+      punch_count: 2,
+    });
+    expect(resolveHrAttendanceStatus(punched)).toBe("Present");
+    expect(resolveHrAttendanceStatus(day({ work_date: "2026-10-20", status: "unscheduled" }))).toBe(
+      "Unscheduled",
+    );
+  });
+
   it("puts Attendance Status and Punch Status on Daily Attendance rows", () => {
     const sheets = buildE3AttendanceHrWorkbookSheets({
       daily: [

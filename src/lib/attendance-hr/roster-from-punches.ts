@@ -12,9 +12,13 @@ export const ROSTER_FROM_PUNCH_SOURCE = "device_punch";
 export const ROSTER_FROM_PUNCH_MAX_DAYS = 62;
 
 /**
- * Who may self-enter a roster day for an incomplete punch-out.
+ * Legacy: who may self-enter a roster day for an incomplete punch-out.
  * Not every `is_roaming` person — only Russell and Louie (first-name match on staff.full_name).
- * Prefer replacing with a `can_self_upload_roster` staff flag when product wants an admin toggle.
+ *
+ * Preferred path for maintenance / punch-only people: turn on
+ * `staff.can_self_check_in` (People → Allow check in/out from login). Attendance
+ * then comes from device or My Day punches with no monthly roster; incomplete
+ * days use the normal missed-punch request — this self-roster upload is optional.
  */
 export const SELF_PUNCH_ROSTER_NAME_KEYS = ["russell", "louie"] as const;
 

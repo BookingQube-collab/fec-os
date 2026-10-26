@@ -290,7 +290,14 @@ export function resolveHrAttendanceStatus(row: AttendanceHrReportRow): string {
   if (resolved === "annual_leave") return "Annual Leave";
   if (resolved === "sick_leave") return "Sick Leave";
   if (resolved === "unpaid_leave") return "Unpaid Leave";
-  if (resolved === "unscheduled") return "Unscheduled";
+  // Punch-driven / no-roster days: any clock evidence is Present (or Late), not Unscheduled.
+  if (resolved === "unscheduled") {
+    if (hasIn || hasOut) {
+      if (Number(row.late_minutes) > 0) return "Late";
+      return "Present";
+    }
+    return "Unscheduled";
+  }
   if (resolved === "review_required") return "Pending Review";
   if (resolved === "not_joined") return "Not joined";
   if (resolved === "absent") return "Absent";

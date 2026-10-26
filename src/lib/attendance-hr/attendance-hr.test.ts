@@ -387,6 +387,21 @@ describe("daily calculation", () => {
     expect(day.status).toBe("unscheduled");
   });
 
+  it("counts complete punches without a roster as present (punch-driven / maintenance)", () => {
+    const day = calculateDailyAttendance(
+      [
+        { punchAt: "2026-10-20T05:05:00.000Z" },
+        { punchAt: "2026-10-20T14:10:00.000Z" },
+      ],
+      { workDate: "2026-10-20", scheduled: false, shift: { ...shift, startTime: "", endTime: "" } },
+    );
+    expect(day.status).toBe("present");
+    expect(day.statusFlags).toContain("unscheduled");
+    expect(day.missedPunch).toBe(false);
+    expect(day.actualIn).toBeTruthy();
+    expect(day.actualOut).toBeTruthy();
+  });
+
   it("marks absent only on a scheduled working day", () => {
     const day = calculateDailyAttendance([], { workDate: "2026-08-01", scheduled: true, shift });
     expect(day.status).toBe("absent");

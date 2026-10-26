@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { decideSelfCheck, selfCheckButtons } from "./self-check-in";
+import { decideSelfCheck, selfCheckButtons, staffUsesPunchDrivenAttendance } from "./self-check-in";
+
+describe("punch-driven attendance (portal check-in / no roster)", () => {
+  it("follows the admin can_self_check_in flag, not names or department", () => {
+    expect(staffUsesPunchDrivenAttendance({ canSelfCheckIn: true })).toBe(true);
+    expect(staffUsesPunchDrivenAttendance({ canSelfCheckIn: false })).toBe(false);
+    expect(staffUsesPunchDrivenAttendance({ canSelfCheckIn: null })).toBe(false);
+    expect(staffUsesPunchDrivenAttendance({})).toBe(false);
+  });
+});
 
 describe("self check-in allow/deny", () => {
   it("hides the action when the login is not linked to staff", () => {

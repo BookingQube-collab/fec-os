@@ -370,7 +370,9 @@ const NAMED_STATUS_DISPLAY: Record<string, AttendanceStatusDisplay> = {
 
 /** Roster/leave statuses that must not be overwritten by punch/hours heuristics.
  * Absent / missed_punch are NOT protected — stale daily_summary values lose to
- * live punches (flexible enrichment often keeps both punches + an old status). */
+ * live punches (flexible enrichment often keeps both punches + an old status).
+ * Unscheduled is also not protected: punch-driven staff (no roster) can have
+ * punches with an unscheduled flag/status and must still count as Present. */
 const PROTECTED_STATUS_KEYS = new Set([
   "weekly_off",
   "public_holiday",
@@ -378,7 +380,6 @@ const PROTECTED_STATUS_KEYS = new Set([
   "sick_leave",
   "unpaid_leave",
   "comp_off",
-  "unscheduled",
   "review_required",
 ]);
 
@@ -554,7 +555,8 @@ export function resolveHoursBasedAttendanceStatus(
   }
 
   if (statusKey === "incomplete" && hasIn && hasOut) return "short_hours";
-  if (statusKey === "absent" || statusKey === "missed_punch") {
+  if (statusKey === "absent" || statusKey === "missed_punch" || statusKey === "unscheduled") {
+    // Punch evidence (including punch-driven / no-roster days) beats a stored Unscheduled.
     return "present";
   }
   if (

@@ -811,6 +811,26 @@ describe("pre-join attendance status", () => {
     ).toBe("Unscheduled");
   });
 
+  it("counts punch-driven (no roster) days with punches as present, not unscheduled", () => {
+    expect(
+      resolveHoursBasedAttendanceStatus({
+        status: "unscheduled",
+        actual_in: "2026-10-20T05:00:00.000Z",
+        actual_out: "2026-10-20T14:00:00.000Z",
+        worked_minutes: 540,
+        work_date: "2026-10-20",
+      }),
+    ).toBe("present");
+    expect(
+      resolveHoursBasedAttendanceStatus({
+        status: "unscheduled",
+        actual_in: null,
+        actual_out: null,
+        work_date: "2026-10-20",
+      }),
+    ).toBe("unscheduled");
+  });
+
   it("does not count not-joined days in the absent total", () => {
     const kpis = computeAttendanceKpis([
       summaryRow({ work_date: "2026-09-01", status: "absent", hire_date: hire }),

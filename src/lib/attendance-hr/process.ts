@@ -322,14 +322,14 @@ export async function recalculateAttendanceRange(
         ? supabase
             .from("staff")
             .select(
-              "id, full_name, location_id, status, employment_type, is_roaming, flexible_attendance, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday",
+              "id, full_name, location_id, status, employment_type, is_roaming, flexible_attendance, can_self_check_in, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday",
             )
             .in("id", staffScope)
             .is("deleted_at", null)
         : supabase
             .from("staff")
             .select(
-              "id, full_name, location_id, status, employment_type, is_roaming, flexible_attendance, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday",
+              "id, full_name, location_id, status, employment_type, is_roaming, flexible_attendance, can_self_check_in, reporting_time_minutes, buffer_minutes, expected_hours, break_minutes, weekly_off_weekday",
             )
             .is("deleted_at", null)
             .limit(5000),
@@ -388,13 +388,17 @@ export async function recalculateAttendanceRange(
     (staffRows ?? []).map((row) => {
       const r = row as {
         flexible_attendance?: boolean | null;
+        can_self_check_in?: boolean | null;
         reporting_time_minutes?: number | null;
         buffer_minutes?: number | null;
       };
+      // Portal check-in / punch-driven staff: incomplete day closes at Qatar day end
+      // (same as flexible), so My Day Check in without a roster does not miss-punch mid-shift.
+      const punchDriven = Boolean(r.can_self_check_in);
       return [
         String(row.id),
         {
-          flexibleAttendance: Boolean(r.flexible_attendance),
+          flexibleAttendance: Boolean(r.flexible_attendance) || punchDriven,
           reportingTimeMinutes: r.reporting_time_minutes ?? null,
           bufferMinutes: r.buffer_minutes ?? null,
         } satisfies StaffFlexibleTiming,
