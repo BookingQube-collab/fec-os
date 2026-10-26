@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
+import { MissedPunchApprovedHistoryCharts } from "@/components/attendance-hr/missed-punch-approved-history-charts";
+import { MissedPunchApprovedHistoryFilters } from "@/components/attendance-hr/missed-punch-approved-history-filters";
 import {
   MissedPunchPrintDialog,
   type MissedPunchPrintPayload,
@@ -13,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useSites } from "@/hooks/queries/useSites";
 import { formatPunchTime12h, formatWorkDateDdMmYyyy } from "@/lib/attendance-display";
 import {
   listAttendanceCorrections,
@@ -20,6 +23,13 @@ import {
   reviewAttendanceCorrection,
   submitMissedPunchRequest,
 } from "@/lib/attendance-hr.functions";
+import {
+  EMPTY_APPROVED_HISTORY_FILTERS,
+  filterApprovedHistoryRows,
+  uniqueApprovedHistoryDepartments,
+  uniqueApprovedHistoryLocationIds,
+  type ApprovedHistoryFilters,
+} from "@/lib/attendance-hr/missed-punch-approved-history";
 import {
   correctionCardClocks,
   groupOpenLegacyPunchPairs,
@@ -31,6 +41,7 @@ import {
   missedPunchTeamSubmitterName,
   punchTimeInputValue,
 } from "@/lib/attendance-hr/missed-punch-approval";
+import { formatLocationLabel, rosterSheetLabel } from "@/lib/locations/normalize";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 import { userFacingActionError } from "@/lib/user-facing-action-error";
@@ -162,6 +173,10 @@ export function MissedPunchApprovalQueue({
   const stepLabel = useStepLabel();
   const qc = useQueryClient();
   const historyOnly = queue === "approved";
+  const { data: sites } = useSites({ enabled: historyOnly });
+  const [historyFilters, setHistoryFilters] = useState<ApprovedHistoryFilters>(
+    EMPTY_APPROVED_HISTORY_FILTERS,
+  );
   const q = useQuery({
     queryKey: queryKeys.people.attendanceHr({
       view: historyOnly
@@ -194,16 +209,55 @@ export function MissedPunchApprovalQueue({
       toast.error(userFacingActionError(e, "Could not update the punch correction. Try again.")),
   });
   const rows = q.data ?? [];
-  const cards = groupOpenLegacyPunchPairs(rows);
-  if (hideWhenEmpty && cards.length === 0) return null;
+  const filteredRows = useMemo(
+    () => (historyOnly ? filterApprovedHistoryRows(rows, historyFilters) : rows),
+    [historyOnly, rows, historyFilters],
+  );
+  const cards = groupOpenLegacyPunchPairs(filteredRows);
+  const siteById = useMemo(() => new Map((sites ?? []).map((site) => [site.id, site])), [sites]);
+  const locationLabel = useMemo(() => {
+    return (locationId: string) => {
+      const site = siteById.get(locationId);
+      if (!site) return locationId.slice(0, 8);
+      return formatLocationLabel(site.code, rosterSheetLabel(site.code, site.name));
+    };
+  }, [siteById]);
+  const historyDepartments = useMemo(
+    () => (historyOnly ? uniqueApprovedHistoryDepartments(rows) : []),
+    [historyOnly, rows],
+  );
+  const historyLocations = useMemo(() => {
+    if (!historyOnly) return [];
+    return uniqueApprovedHistoryLocationIds(rows).map((id) => ({
+      id,
+      label: locationLabel(id),
+    }));
+  }, [historyOnly, rows, locationLabel]);
+  if (hideWhenEmpty && cards.length === 0 && !historyOnly) return null;
 
   return (
     <div className="space-y-3">
       {title && cards.length > 0 ? <h3 className="text-sm font-semibold">{title}</h3> : null}
+      {historyOnly ? (
+        <MissedPunchApprovedHistoryFilters
+          filters={historyFilters}
+          onChange={setHistoryFilters}
+          departments={historyDepartments}
+          locations={historyLocations}
+          resultCount={cards.length}
+        />
+      ) : null}
+      {historyOnly && filteredRows.length > 0 ? (
+        <MissedPunchApprovedHistoryCharts rows={filteredRows} locationLabel={locationLabel} />
+      ) : null}
       {cards.length === 0 ? (
         <div className="space-y-2 text-sm">
           {historyOnly ? (
-            <p className="font-medium">{t("hr.me.correctionApprovedEmpty")}</p>
+            <p className="font-medium">
+              {rows.length === 0
+                ? t("hr.me.correctionApprovedEmpty")
+                : t("hr.me.approvedHistory.noFilterMatches")}
+            </p>
           ) : (
             <>
               <p className="font-medium">No missed punch requests are waiting on you.</p>
