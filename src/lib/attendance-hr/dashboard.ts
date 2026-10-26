@@ -5,6 +5,8 @@ import { assignAttendanceDate, calculateDailyAttendance } from "./calculate";
 import { DEFAULT_SHIFT } from "./constants";
 import { subjectKey } from "./keys";
 import { enumerateYmd, monthBounds, payrollMonthMatchingBounds, payrollMonthOf } from "./roster-period";
+import type { AttendanceHrReportRow } from "./report";
+import { attendanceHrToListingSource } from "./report";
 import {
   attendanceSharedKpiFlags,
   computeSharedAttendanceKpis,
@@ -35,6 +37,32 @@ export type AttendanceDashboardDayRow = {
   /** staff.department for org focus filter parity with listing. */
   department?: string | null;
 };
+
+/** Map an enriched listing person-day onto the dashboard day-row shape (shared KPI fields). */
+export function attendanceReportRowToDashboardDay(row: AttendanceHrReportRow): AttendanceDashboardDayRow {
+  const listing = attendanceHrToListingSource(row);
+  return {
+    location_id: row.location_id,
+    staff_id: row.staff_id,
+    biometric_user_id: row.biometric_user_id,
+    work_date: row.work_date,
+    actual_in: listing.actual_in,
+    actual_out: listing.actual_out,
+    status: listing.status,
+    late_minutes: Number(listing.late_minutes ?? 0),
+    missed_punch: Boolean(listing.missed_punch),
+    punch_count: Number(row.punch_count ?? 0),
+    worked_minutes: listing.worked_minutes,
+    break_minutes: listing.break_minutes,
+    expected_minutes: listing.expected_minutes,
+    employment_type: listing.employment_type,
+    flexible_attendance: listing.flexible_attendance,
+    scheduled_in: listing.scheduled_in,
+    scheduled_out: listing.scheduled_out,
+    hire_date: listing.hire_date,
+    department: row.department ?? null,
+  };
+}
 
 function dashboardRowToSharedKpiInput(row: AttendanceDashboardDayRow): AttendanceSharedKpiInput {
   return {

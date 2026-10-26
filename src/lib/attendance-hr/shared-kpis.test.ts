@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { aggregateDashboardPeriod } from "./dashboard";
+import { aggregateDashboardPeriod, attendanceReportRowToDashboardDay } from "./dashboard";
+import { computeAttendanceHrReportKpis, type AttendanceHrReportRow } from "./report";
+import { suppressAbsentWithoutOnDutyRoster } from "./punch-over-absent";
 import { attendanceSharedKpiFlags, computeSharedAttendanceKpis } from "./shared-kpis";
 
 describe("attendanceSharedKpiFlags / computeSharedAttendanceKpis", () => {
@@ -148,5 +150,110 @@ describe("attendanceSharedKpiFlags / computeSharedAttendanceKpis", () => {
     expect(agg.uniqueStaff).toBe(shared.uniqueStaff);
     expect(agg.bySite[0].in).toBe(shared.present);
     expect(agg.bySite[0].late).toBe(shared.late);
+  });
+
+  it("matches listing KPIs after week-off / unrostered Absent cleanup (dashboard row set)", () => {
+    const loc = "11111111-1111-4111-8111-111111111111";
+    const raw = [
+      {
+        id: "1",
+        location_id: loc,
+        staff_id: "off-staff",
+        biometric_user_id: null,
+        work_date: "2026-10-05",
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        late_minutes: 0,
+        early_leave_minutes: 0,
+        overtime_minutes: 0,
+        missed_punch: false,
+        punch_count: 0,
+        worked_minutes: null,
+        employment_type: "permanent",
+        staff_name: "Week Off",
+        employee_code: "W1",
+        qid: null,
+        location_code: "INF-CC",
+        location_name: "InflataPark",
+        location_region: null,
+      },
+      {
+        id: "2",
+        location_id: loc,
+        staff_id: "ghost",
+        biometric_user_id: null,
+        work_date: "2026-10-05",
+        status: "absent",
+        actual_in: null,
+        actual_out: null,
+        late_minutes: 0,
+        early_leave_minutes: 0,
+        overtime_minutes: 0,
+        missed_punch: false,
+        punch_count: 0,
+        worked_minutes: null,
+        employment_type: "permanent",
+        staff_name: "No Roster",
+        employee_code: "G1",
+        qid: null,
+        location_code: "INF-CC",
+        location_name: "InflataPark",
+        location_region: null,
+      },
+      {
+        id: "3",
+        location_id: loc,
+        staff_id: "on-duty",
+        biometric_user_id: null,
+        work_date: "2026-10-06",
+        status: "present",
+        actual_in: "2026-10-06T05:00:00.000Z",
+        actual_out: "2026-10-06T14:00:00.000Z",
+        late_minutes: 0,
+        early_leave_minutes: 0,
+        overtime_minutes: 0,
+        missed_punch: false,
+        punch_count: 2,
+        worked_minutes: 540,
+        expected_minutes: 540,
+        employment_type: "permanent",
+        staff_name: "Present",
+        employee_code: "P1",
+        qid: null,
+        location_code: "INF-CC",
+        location_name: "InflataPark",
+        location_region: null,
+      },
+    ] satisfies AttendanceHrReportRow[];
+
+    // Raw summary Absents would inflate Dashboard before listing cleanup.
+    expect(computeAttendanceHrReportKpis(raw).absent).toBe(2);
+
+    const cleaned = suppressAbsentWithoutOnDutyRoster({
+      rows: raw as unknown as Array<Record<string, unknown>>,
+      roster: [
+        { staff_id: "off-staff", work_date: "2026-10-05", is_week_off: true },
+        { staff_id: "on-duty", work_date: "2026-10-06", is_week_off: false },
+      ],
+    }) as unknown as AttendanceHrReportRow[];
+
+    const listingKpis = computeAttendanceHrReportKpis(cleaned);
+    const dayRows = cleaned.map(attendanceReportRowToDashboardDay);
+    const dashAgg = aggregateDashboardPeriod(
+      dayRows,
+      [{ id: loc, code: "INF-CC", name: "InflataPark" }],
+      loc,
+    );
+
+    expect(listingKpis.absent).toBe(0);
+    expect(listingKpis.present).toBe(1);
+    expect(listingKpis.uniqueStaff).toBe(2); // week-off staff + present staff remain
+    expect(dashAgg.absent).toBe(listingKpis.absent);
+    expect(dashAgg.present).toBe(listingKpis.present);
+    expect(dashAgg.late).toBe(listingKpis.late);
+    expect(dashAgg.missedPunches).toBe(listingKpis.missedPunch);
+    expect(dashAgg.uniqueStaff).toBe(listingKpis.uniqueStaff);
+    expect(dashAgg.bySite[0].in).toBe(listingKpis.present);
   });
 });

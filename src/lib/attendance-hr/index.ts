@@ -89,6 +89,7 @@ export type { AttendanceGapReport, AttendanceGapRow } from "./gap-check";
 
 export {
   aggregateDashboardPeriod,
+  attendanceReportRowToDashboardDay,
   countRosterEmployees,
   dayRowsFromPunches,
   pickDashboardPeriod,
