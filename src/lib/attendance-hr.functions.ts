@@ -477,7 +477,7 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
     let histQ = readDb
       .from("attendance_daily_summary")
       .select(
-        "staff_id, status, late_minutes, missed_punch, actual_in, actual_out, worked_minutes, work_date, scheduled_in, scheduled_out",
+        "location_id, staff_id, status, late_minutes, missed_punch, actual_in, actual_out, worked_minutes, work_date, scheduled_in, scheduled_out",
       )
       .gte("work_date", hist.dateFrom)
       .lte("work_date", hist.dateTo)
@@ -635,11 +635,13 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
     let trends = emptyAvailabilityTrends();
     if (trendRows) {
       const [histRes, upcomingRes, histVisits, curVisits] = trendRows;
-      const historyRows = (histRes.data ?? []).filter((row) => {
-        if (showOrgDepartments.length === 0) return true;
-        const staffId = (row as { staff_id?: string | null }).staff_id;
-        return staffMatchesOrgFocus(staffId);
-      });
+      const historyRows = (histRes.data ?? [])
+        .filter((row) => {
+          if (showOrgDepartments.length === 0) return true;
+          const staffId = (row as { staff_id?: string | null }).staff_id;
+          return staffMatchesOrgFocus(staffId);
+        })
+        .map((row) => enrichDayRow(row as Parameters<typeof summaryToDayRow>[0]));
       trends = buildAvailabilityTrends({
         historyRows,
         currentRows: dayRows,
