@@ -583,6 +583,8 @@ async function healMisroutedOtSiteSelfApproves(): Promise<number> {
   const notifiedBatches = new Set<string>();
 
   for (const row of toHeal) {
+    if (!row.verified_by) continue;
+    const verifiedBy = String(row.verified_by);
     const { error: updErr } = await supabaseAdmin
       .from("hr_ot_claims")
       .update({
@@ -596,7 +598,7 @@ async function healMisroutedOtSiteSelfApproves(): Promise<number> {
       })
       .eq("id", row.id)
       .eq("status", "manager_verified")
-      .eq("verified_by", row.verified_by);
+      .eq("verified_by", verifiedBy);
     if (updErr) {
       console.warn("[ot] heal site self-approve update failed", updErr.message);
       continue;
