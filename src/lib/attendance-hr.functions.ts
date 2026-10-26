@@ -3443,8 +3443,8 @@ async function enrichAttendanceHrDailyRows(
         lateFromShiftStart: Boolean(row.flexible_attendance),
       });
       // Defer Absent → Not started when roster start is still in the future (afternoon shifts).
-      // Flexible: incomplete in/out stays Working today until Qatar day end (not roster close).
-      // Non-flexible: Working today until roster scheduled_out.
+      // Incomplete in/out stays Working today until Qatar day end (and overnight roster end
+      // when later) — never Missed punch mid-evening just because scheduled_out passed.
       const status = resolveHoursBasedAttendanceStatus({
         status: row.status,
         missed_punch: row.missed_punch,

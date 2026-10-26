@@ -251,7 +251,7 @@ export function collapseFlexibleAttendanceReportRows(
       );
       if (Number.isFinite(mins) && mins >= 0) worked = mins;
     }
-    // Incomplete sides → Missed punch only after close; open shift stays Working today.
+    // Incomplete sides → Missed punch only after Qatar day close (open day stays Working).
     const incomplete = Boolean(actualIn) !== Boolean(actualOut);
     const late = resolveListingLateMinutes({
       actualIn,

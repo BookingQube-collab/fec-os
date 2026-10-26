@@ -490,7 +490,7 @@ function summaryRow(partial: Partial<AttendanceSummaryRow> & Pick<AttendanceSumm
   };
 }
 
-describe("incomplete punch before roster close", () => {
+describe("incomplete punch before Qatar day close", () => {
   // Mary-style: in at 10:43 Qatar, shift ends 20:00 Qatar, still mid-day.
   const scheduledOut = "2026-10-21T17:00:00.000Z"; // 20:00 Qatar
   const actualIn = "2026-10-21T07:43:20.000Z"; // 10:43 Qatar
@@ -558,7 +558,8 @@ describe("incomplete punch before roster close", () => {
     ).toBeCloseTo(10.02, 1);
   });
 
-  it("punched in after close with no out → Missed punch", () => {
+  it("punched in after roster end but before Qatar day close → Working today", () => {
+    // 20:30 Qatar is past 20:00 roster end; calendar day still open → not Missed punch.
     expect(
       resolveHoursBasedAttendanceStatus({
         status: "present",
@@ -569,7 +570,7 @@ describe("incomplete punch before roster close", () => {
         scheduled_out: scheduledOut,
         asOf: "2026-10-21T17:30:00.000Z", // 20:30 Qatar
       }),
-    ).toBe("missed_punch");
+    ).toBe("working");
     expect(
       getAttendanceStatusDisplay({
         status: "present",
@@ -579,6 +580,31 @@ describe("incomplete punch before roster close", () => {
         work_date: "2026-10-21",
         scheduled_out: scheduledOut,
         asOf: "2026-10-21T17:30:00.000Z",
+      }).label,
+    ).toBe("Working today");
+  });
+
+  it("punched in with no out after Qatar day close → Missed punch", () => {
+    expect(
+      resolveHoursBasedAttendanceStatus({
+        status: "present",
+        missed_punch: false,
+        actual_in: actualIn,
+        actual_out: null,
+        work_date: "2026-10-21",
+        scheduled_out: scheduledOut,
+        asOf: "2026-10-21T21:00:00.000Z", // past 23:59 Qatar
+      }),
+    ).toBe("missed_punch");
+    expect(
+      getAttendanceStatusDisplay({
+        status: "present",
+        missed_punch: false,
+        actual_in: actualIn,
+        actual_out: null,
+        work_date: "2026-10-21",
+        scheduled_out: scheduledOut,
+        asOf: "2026-10-21T21:00:00.000Z",
       }).label,
     ).toBe("Missed punch");
   });

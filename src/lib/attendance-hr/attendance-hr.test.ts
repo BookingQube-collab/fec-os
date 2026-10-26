@@ -505,17 +505,31 @@ describe("daily calculation", () => {
     );
   });
 
-  it("flags a single punch as missed punch after roster close", () => {
+  it("flags a single punch as missed punch after Qatar day close", () => {
     const day = calculateDailyAttendance([{ punchAt: "2026-08-01T05:05:00.000Z" }], {
       workDate: "2026-08-01",
       scheduled: true,
       shift,
-      // After 17:00 Qatar close (14:00Z)
-      now: "2026-08-01T15:00:00.000Z",
+      // Past 23:59 Qatar (20:59Z) — day finished, still no punch-out
+      now: "2026-08-01T21:00:00.000Z",
     });
     expect(day.missedPunch).toBe(true);
     expect(day.status).toBe("missed_punch");
     expect(day.statusFlags).toContain("missed_punch");
+  });
+
+  it("keeps a single punch as Working today after roster end while Qatar day is open", () => {
+    const day = calculateDailyAttendance([{ punchAt: "2026-10-26T07:41:00.000Z" }], {
+      workDate: "2026-10-26",
+      scheduled: true,
+      shift: { ...shift, startTime: "11:00", endTime: "20:00" },
+      // 20:07 Qatar — past 20:00 roster end, calendar day still open (Mary-style)
+      now: "2026-10-26T17:07:00.000Z",
+    });
+    expect(day.missedPunch).toBe(false);
+    expect(day.status).toBe("working");
+    expect(day.statusFlags).toContain("incomplete");
+    expect(day.statusFlags).not.toContain("missed_punch");
   });
 
   it("does not flag a single punch as missed punch while the shift is still open", () => {
@@ -546,7 +560,8 @@ describe("daily calculation", () => {
     expect(day.status).toBe("working");
   });
 
-  it("resolveIncompletePunchStatus compares now to roster close only", () => {
+  it("resolveIncompletePunchStatus defers Missed punch until Qatar day close", () => {
+    // Roster-only (no workDate): close at scheduled_out
     expect(
       resolveIncompletePunchStatus({
         scheduledOutIso: "2026-10-21T17:00:00.000Z",
@@ -559,6 +574,7 @@ describe("daily calculation", () => {
         now: "2026-10-21T17:00:00.000Z",
       }),
     ).toBe("missed_punch");
+    // Past calendar day with no roster → Missed punch
     expect(
       resolveIncompletePunchStatus({
         scheduledOutIso: null,
@@ -566,6 +582,29 @@ describe("daily calculation", () => {
         now: "2026-10-21T08:00:00.000Z",
       }),
     ).toBe("missed_punch");
+    // Rostered + workDate: past 20:00 roster end, still Working until day end
+    expect(
+      resolveIncompletePunchStatus({
+        scheduledOutIso: "2026-10-26T17:00:00.000Z", // 20:00 Qatar
+        workDate: "2026-10-26",
+        now: "2026-10-26T17:07:00.000Z", // 20:07 Qatar
+      }),
+    ).toBe("working");
+    expect(
+      resolveIncompletePunchStatus({
+        scheduledOutIso: "2026-10-26T17:00:00.000Z",
+        workDate: "2026-10-26",
+        now: "2026-10-26T21:00:00.000Z", // past 23:59 Qatar
+      }),
+    ).toBe("missed_punch");
+    // Overnight roster end after midnight wins over day end
+    expect(
+      resolveIncompletePunchStatus({
+        scheduledOutIso: "2026-10-27T02:00:00.000Z", // 05:00 Qatar next day
+        workDate: "2026-10-26",
+        now: "2026-10-26T21:30:00.000Z", // past midnight Qatar, before overnight end
+      }),
+    ).toBe("working");
     // Flexible ignores early roster end until Qatar day end
     expect(
       resolveIncompletePunchStatus({
@@ -1831,6 +1870,70 @@ describe("HR report row helpers", () => {
     ]);
     expect(kpis.present).toBe(1);
     expect(kpis.late).toBe(1);
+  });
+
+  it("does not count open-day punch-in-only rows as Missed punch KPI", () => {
+    // Future work_date keeps Qatar day open relative to Date.now(); stale missed_punch
+    // after roster end must still count Present/Working, not Missed punch (Mon 26 case).
+    const openDay = computeAttendanceHrReportKpis([
+      {
+        id: "open",
+        location_id: "loc-1",
+        staff_id: "mary",
+        biometric_user_id: "1",
+        work_date: "2099-06-15",
+        status: "missed_punch",
+        actual_in: "2099-06-15T07:41:00.000Z",
+        actual_out: null,
+        scheduled_out: "2099-06-15T17:00:00.000Z",
+        late_minutes: 0,
+        early_leave_minutes: 0,
+        overtime_minutes: 0,
+        missed_punch: true,
+        punch_count: 1,
+        worked_minutes: 540,
+        employment_type: "permanent",
+        staff_name: "Mary Wangare Muiruri",
+        employee_code: "E3-001",
+        qid: null,
+        location_code: "OFF-CC",
+        location_name: "Office",
+        location_region: null,
+        expected_minutes: 540,
+      },
+    ]);
+    expect(openDay.missedPunch).toBe(0);
+    expect(openDay.present).toBe(1);
+
+    const closedDay = computeAttendanceHrReportKpis([
+      {
+        id: "closed",
+        location_id: "loc-1",
+        staff_id: "mary",
+        biometric_user_id: "1",
+        work_date: "2024-06-15",
+        status: "missed_punch",
+        actual_in: "2024-06-15T07:41:00.000Z",
+        actual_out: null,
+        scheduled_out: "2024-06-15T17:00:00.000Z",
+        late_minutes: 0,
+        early_leave_minutes: 0,
+        overtime_minutes: 0,
+        missed_punch: true,
+        punch_count: 1,
+        worked_minutes: null,
+        employment_type: "permanent",
+        staff_name: "Mary Wangare Muiruri",
+        employee_code: "E3-001",
+        qid: null,
+        location_code: "OFF-CC",
+        location_name: "Office",
+        location_region: null,
+        expected_minutes: 540,
+      },
+    ]);
+    expect(closedDay.missedPunch).toBe(1);
+    expect(closedDay.present).toBe(0);
   });
 
   it("counts stale late rows as present when clock hours meet site expected", () => {

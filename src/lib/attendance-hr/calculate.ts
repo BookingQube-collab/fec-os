@@ -47,9 +47,13 @@ export function resolvePunchlessRosteredStatus(input: {
  * close. While still open → Working today (in progress), not Missed punch.
  *
  * Close rules:
- * - Flexible / calendarDayClose: end of the Qatar work calendar day (staff often
- *   stay past roster end — Russell / Louie style).
- * - Otherwise: roster scheduled_out when known, else Qatar day end.
+ * - Never flag Missed punch while the Qatar work calendar day is still open —
+ *   punch-in without punch-out mid-evening (Mary / Pabitra / Waqar) is Present /
+ *   Working today, not a missed punch, even when roster scheduled_out has passed.
+ * - Flexible / calendarDayClose: Qatar calendar day end only.
+ * - Otherwise: later of roster scheduled_out and Qatar day end (overnight shifts
+ *   that end after midnight keep the later roster close). Fallback: whichever
+ *   bound is known.
  */
 export function resolveIncompletePunchStatus(input: {
   scheduledOutIso: string | null | undefined;
@@ -66,12 +70,17 @@ export function resolveIncompletePunchStatus(input: {
       ? // 23:59:59 Qatar (UTC+3) on the work date.
         atDate(input.workDate, "23:59").getTime() + 59_000
       : Number.NaN;
+  const rosterMs = input.scheduledOutIso ? new Date(input.scheduledOutIso).getTime() : Number.NaN;
 
   let closeMs = Number.NaN;
   if (input.calendarDayClose) {
     closeMs = dayEndMs;
-  } else if (input.scheduledOutIso) {
-    closeMs = new Date(input.scheduledOutIso).getTime();
+  } else if (Number.isFinite(rosterMs) && Number.isFinite(dayEndMs)) {
+    // Keep Working today past an early roster end until the calendar day closes;
+    // overnight roster end after midnight still wins via Math.max.
+    closeMs = Math.max(rosterMs, dayEndMs);
+  } else if (Number.isFinite(rosterMs)) {
+    closeMs = rosterMs;
   } else {
     closeMs = dayEndMs;
   }

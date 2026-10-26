@@ -479,7 +479,7 @@ export function resolveHoursBasedAttendanceStatus(
     work_date?: string | null;
     /** Roster shift start — used to defer Absent until start on the listing. */
     scheduled_in?: string | null;
-    /** Roster shift end — incomplete in/out is Missed punch only after this. */
+    /** Roster shift end — incomplete in/out closes at later of this and Qatar day end. */
     scheduled_out?: string | null;
     /** Injected clock for tests; defaults to Date.now(). */
     asOf?: Date | string | number;
