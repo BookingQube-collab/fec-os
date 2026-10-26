@@ -18,7 +18,10 @@ import {
   isOtEligible,
   isSupervisorOtContract,
   mergeSupervisorOtTeamStaffIds,
+  canActAsOtGeneralManager,
+  otApprovalQueueHref,
   otApprovalQueueStatuses,
+  resolveOtApprovalQueueFlags,
   otMissingBasicPayNote,
   otPayDaysPerMonth,
   otPayHoursPerDay,
@@ -170,6 +173,66 @@ describe("OT claim transitions", () => {
         canHrApprove: true,
       }),
     ).toEqual(["submitted", "manager_verified", "ops_approved", "hr_approved"]);
+  });
+
+  it("does not treat Sr. Site / Venue branch_gm as the OT GM seat (Mary)", () => {
+    expect(
+      canActAsOtGeneralManager({
+        roles: ["branch_gm"],
+        jobTitle: "Sr. Site Supervisor",
+      }),
+    ).toBe(false);
+    expect(
+      canActAsOtGeneralManager({
+        roles: ["branch_gm", "cashier_host"],
+        jobTitle: "Venue Supervisor",
+        staffRole: "venue_supervisor",
+      }),
+    ).toBe(false);
+    expect(
+      canActAsOtGeneralManager({
+        roles: ["branch_gm"],
+        jobTitle: "General Manager",
+      }),
+    ).toBe(true);
+    expect(
+      canActAsOtGeneralManager({
+        roles: ["cashier_host"],
+        jobTitle: "General Manager",
+      }),
+    ).toBe(true);
+  });
+
+  it("puts Mary on submitted and Rajan (HoO) on manager_verified for Approval queue", () => {
+    expect(
+      otApprovalQueueStatuses(
+        resolveOtApprovalQueueFlags({
+          canVerify: true,
+          canHrApprove: false,
+          isHeadOfOperations: false,
+          roles: ["branch_gm", "cashier_host"],
+          jobTitle: "Sr. Site Supervisor",
+        }),
+      ),
+    ).toEqual(["submitted"]);
+    expect(
+      otApprovalQueueStatuses(
+        resolveOtApprovalQueueFlags({
+          canVerify: true,
+          canHrApprove: false,
+          isHeadOfOperations: true,
+          roles: ["regional_ops"],
+          jobTitle: "Head of Operations",
+        }),
+      ),
+    ).toEqual(["manager_verified"]);
+  });
+
+  it("builds Approval queue deep-links with optional request number", () => {
+    expect(otApprovalQueueHref()).toBe("/people/hr/ot");
+    expect(otApprovalQueueHref("OT-20261027-0003")).toBe(
+      "/people/hr/ot?q=OT-20261027-0003",
+    );
   });
 
   it("locks edits after Head of Operations approves", () => {

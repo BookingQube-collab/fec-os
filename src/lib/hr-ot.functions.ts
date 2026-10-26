@@ -20,10 +20,13 @@ import {
   isSupervisorOtContract,
   normalizeSupervisorOtDays,
   OT_DEFAULT_HOURS_PER_DAY,
+  canActAsOtGeneralManager,
+  otApprovalQueueHref,
   otApprovalQueueStatuses,
   otPayDaysPerMonth,
   otPayHoursPerDay,
   otSubmitterAutoCompletesSiteSeat,
+  resolveOtApprovalQueueFlags,
   resolveEligibleOtMinutes,
   resolveOtRateMultiplier,
   resolveStaffOtPayFromCompensation,
@@ -83,10 +86,28 @@ function canOtOpsApprove(context: AuthContext): boolean {
   return isHeadOfOperationsTitle(otAccess(context)?.jobTitle ?? null);
 }
 
-/** General Manager role or job title (GM step after HOO). */
+/** General Manager role or job title (GM step after HOO). Not site seats with branch_gm (Mary). */
 function canOtGmApprove(context: AuthContext): boolean {
-  if ((context.roles ?? []).includes("branch_gm")) return true;
-  return isGeneralManagerTitle(otAccess(context)?.jobTitle ?? null);
+  const access = otAccess(context);
+  return canActAsOtGeneralManager({
+    roles: context.roles ?? [],
+    jobTitle: access?.jobTitle ?? null,
+    staffRole: access?.staffRole ?? null,
+  });
+}
+
+/** Actionable Approval-queue status set for this login. */
+function otQueueStatusesForActor(context: AuthContext, canVerify: boolean, canApprove: boolean) {
+  return otApprovalQueueStatuses(
+    resolveOtApprovalQueueFlags({
+      canVerify,
+      canHrApprove: canApprove,
+      isHeadOfOperations: canOtOpsApprove(context),
+      roles: context.roles ?? [],
+      jobTitle: otAccess(context)?.jobTitle ?? null,
+      staffRole: otAccess(context)?.staffRole ?? null,
+    }),
+  );
 }
 
 async function otActorSignerName(context: AuthContext): Promise<string> {
@@ -632,7 +653,7 @@ async function healMisroutedOtSiteSelfApproves(): Promise<number> {
         title: `Supervisor OT waiting for Sr. Site Supervisor${number}`,
         body: `A supervisor OT request${when ? ` for ${when}` : ""}${number} was re-routed to the Sr. Site Supervisor.`,
         severity: "warning",
-        actionUrl: "/people/hr/ot",
+        actionUrl: otApprovalQueueHref(row.request_number as string | null),
         sourceType: "hr_ot_claims",
         sourceId: String(row.id),
       });
@@ -886,16 +907,8 @@ export const listOtClaims = createAuthenticatedAction(
       }
 
       if (data.status === "queue") {
-        const canOps = canOtOpsApprove(context);
-        const canGm = canOtGmApprove(context);
         const queueStatuses =
-          queueStatusesOverride ??
-          otApprovalQueueStatuses({
-            canSiteVerify: canVerify && !canOps && !canGm,
-            canOpsApprove: canOps,
-            canGmApprove: canGm,
-            canHrApprove: canApprove,
-          });
+          queueStatusesOverride ?? otQueueStatusesForActor(context, canVerify, canApprove);
         next = next.in("status", [...queueStatuses]);
       } else if (data.status && data.status !== "all") {
         next = next.eq("status", data.status);
@@ -961,14 +974,9 @@ export const listOtClaims = createAuthenticatedAction(
           .select(legacySelect)
           .order("work_date", { ascending: false })
           .limit(500);
-        const canOps = canOtOpsApprove(context);
-        const canGm = canOtGmApprove(context);
-        const legacyQueue = otApprovalQueueStatuses({
-          canSiteVerify: canVerify && !canOps && !canGm,
-          canOpsApprove: canOps,
-          canGmApprove: canGm,
-          canHrApprove: canApprove,
-        }).filter((s) => s !== "ops_approved" && s !== "gm_approved");
+        const legacyQueue = otQueueStatusesForActor(context, canVerify, canApprove).filter(
+          (s) => s !== "ops_approved" && s !== "hr_approved",
+        );
         legacy = applyCommonFilters(
           legacy,
           legacyQueue.length ? legacyQueue : (["submitted", "manager_verified"] as const),
@@ -1278,7 +1286,7 @@ export const submitOtClaim = createAuthenticatedAction(
           title: "OT claim submitted",
           body: `An OT claim for ${String(staff.full_name ?? "staff")} on ${data.workDate} needs Sr. Site Supervisor approval.`,
           severity: "warning",
-          actionUrl: "/people/hr/ot",
+          actionUrl: otApprovalQueueHref(requestNumber),
           sourceType: "hr_ot_claims",
           sourceId: String(row.id),
         });
@@ -1646,6 +1654,9 @@ async function applyOtClaimAction(input: {
       const staffName = (staffJoin as { full_name?: string } | null)?.full_name ?? "staff";
       const staffUserId = (staffJoin as { user_id?: string } | null)?.user_id ?? null;
       const locId = (existing.location_id as string | null) ?? null;
+      const reviewHref = otApprovalQueueHref(
+        (existing.request_number as string | null | undefined) ?? null,
+      );
       if (to === "submitted") {
         const ids = await otSubmittedNotifyUserIds({
           staffId: String(existing.staff_id),
@@ -1659,7 +1670,7 @@ async function applyOtClaimAction(input: {
           title: action === "resubmit" ? "OT claim resubmitted" : "OT claim submitted",
           body: `OT for ${staffName} on ${String(existing.work_date).slice(0, 10)} needs Sr. Site Supervisor approval.`,
           severity: "warning",
-          actionUrl: "/people/hr/ot",
+          actionUrl: reviewHref,
           sourceType: "hr_ot_claims",
           sourceId: claimId,
         });
@@ -1672,7 +1683,7 @@ async function applyOtClaimAction(input: {
           title: "OT claim ready for Head of Operations",
           body: `OT for ${staffName} on ${String(existing.work_date).slice(0, 10)} was Sr. Site Supervisor approved and needs HOO preview/approve.`,
           severity: "warning",
-          actionUrl: "/people/hr/ot",
+          actionUrl: reviewHref,
           sourceType: "hr_ot_claims",
           sourceId: claimId,
         });
@@ -1685,7 +1696,7 @@ async function applyOtClaimAction(input: {
           title: "OT claim ready for HR",
           body: `OT for ${staffName} on ${String(existing.work_date).slice(0, 10)} was HOO approved and needs HR.`,
           severity: "warning",
-          actionUrl: "/people/hr/ot",
+          actionUrl: reviewHref,
           sourceType: "hr_ot_claims",
           sourceId: claimId,
         });
@@ -1698,7 +1709,7 @@ async function applyOtClaimAction(input: {
           title: "OT claim ready for General Manager",
           body: `OT for ${staffName} on ${String(existing.work_date).slice(0, 10)} was HR approved and needs General Manager approval.`,
           severity: "warning",
-          actionUrl: "/people/hr/ot",
+          actionUrl: reviewHref,
           sourceType: "hr_ot_claims",
           sourceId: claimId,
         });
@@ -1718,7 +1729,7 @@ async function applyOtClaimAction(input: {
             title: "OT change requested",
             body: `OT for ${staffName} on ${String(existing.work_date).slice(0, 10)} was sent back for changes.${input.note ? ` ${input.note}` : ""}`,
             severity: "warning",
-            actionUrl: "/people/hr/ot",
+            actionUrl: reviewHref,
             sourceType: "hr_ot_claims",
             sourceId: claimId,
           });
@@ -1864,6 +1875,9 @@ export const actOnOtRequestBatch = createAuthenticatedAction(
       const { findUsersWithCapability, notifyUsers } = await import("@/lib/notifications/action-notify");
       const locId = (rows[0]!.location_id as string | null) ?? null;
       const dates = rows.map((row) => String(row.work_date).slice(0, 10)).join(", ");
+      const reviewHref = otApprovalQueueHref(
+        (rows[0]!.request_number as string | null | undefined) ?? null,
+      );
       if (lastStatus === "manager_verified") {
         const ids = await loadOtHooNotifyUserIds(context.userId);
         await notifyUsers({
@@ -1873,7 +1887,7 @@ export const actOnOtRequestBatch = createAuthenticatedAction(
           title: "OT request ready for Head of Operations",
           body: `Supervisor OT (${rows.length} day(s): ${dates}) needs HOO preview/approve.`,
           severity: "warning",
-          actionUrl: "/people/hr/ot",
+          actionUrl: reviewHref,
           sourceType: "hr_ot_claims",
           sourceId: String(rows[0]!.id),
         });
@@ -1886,7 +1900,7 @@ export const actOnOtRequestBatch = createAuthenticatedAction(
           title: "OT request ready for HR",
           body: `OT request (${rows.length} day(s): ${dates}) was HOO approved and needs HR.`,
           severity: "warning",
-          actionUrl: "/people/hr/ot",
+          actionUrl: reviewHref,
           sourceType: "hr_ot_claims",
           sourceId: String(rows[0]!.id),
         });
@@ -1899,7 +1913,7 @@ export const actOnOtRequestBatch = createAuthenticatedAction(
           title: "OT request ready for General Manager",
           body: `OT request (${rows.length} day(s): ${dates}) was HR approved and needs General Manager approval.`,
           severity: "warning",
-          actionUrl: "/people/hr/ot",
+          actionUrl: reviewHref,
           sourceType: "hr_ot_claims",
           sourceId: String(rows[0]!.id),
         });
@@ -1916,7 +1930,7 @@ export const actOnOtRequestBatch = createAuthenticatedAction(
           title: "OT request resubmitted",
           body: `OT request (${rows.length} day(s): ${dates}) was resubmitted and needs Sr. Site Supervisor approval.`,
           severity: "warning",
-          actionUrl: "/people/hr/ot",
+          actionUrl: reviewHref,
           sourceType: "hr_ot_claims",
           sourceId: String(rows[0]!.id),
         });
@@ -1946,7 +1960,7 @@ export const actOnOtRequestBatch = createAuthenticatedAction(
             title: "OT change requested",
             body: `OT request (${rows.length} day(s): ${dates}) was sent back for changes.${data.note ? ` ${data.note}` : ""}`,
             severity: "warning",
-            actionUrl: "/people/hr/ot",
+            actionUrl: reviewHref,
             sourceType: "hr_ot_claims",
             sourceId: String(rows[0]!.id),
           });
@@ -2532,7 +2546,7 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
           : "Supervisor OT request",
         body: `${names.join(", ")}${more} · ${dates.join(", ")} · ${staffIds.length} request(s) (${rows.length} day-row(s)) · ${numbers.join(", ")}.`,
         severity: "warning",
-        actionUrl: "/people/hr/ot",
+        actionUrl: otApprovalQueueHref(numbers[0] ?? null),
         sourceType: "hr_ot_claims",
         sourceId: inserted?.[0] ? String(inserted[0].id) : null,
       });
@@ -2865,7 +2879,7 @@ export const reviseSupervisorOtRequest = createAuthenticatedAction(
           title: "OT request resubmitted",
           body: `OT request (${days.length} day(s): ${datesLabel}) was edited and resubmitted and needs Sr. Site Supervisor approval.`,
           severity: "warning",
-          actionUrl: "/people/hr/ot",
+          actionUrl: otApprovalQueueHref(requestNumber),
           sourceType: "hr_ot_claims",
           sourceId: keptIds[0] ?? null,
         });

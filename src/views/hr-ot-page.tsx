@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Timer, X } from "lucide-react";
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -34,7 +35,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuth, useUserRoles } from "@/hooks/use-auth";
 import { usePermission } from "@/hooks/use-permission";
 import { isHeadOfOperationsTitle } from "@/lib/attendance-hr/missed-punch-approval";
-import { isGeneralManagerTitle } from "@/lib/attendance-hr/roster-punch-fill";
 import {
   actOnOtRequestBatch,
   getOtMonthlySummaries,
@@ -46,6 +46,7 @@ import {
   submitSupervisorOtClaim,
 } from "@/lib/hr-ot.functions";
 import {
+  canActAsOtGeneralManager,
   canEditOtBeforeHoo,
   canRequestOtChanges,
   filterOtRequestGroups,
@@ -878,14 +879,18 @@ function OtRequestActions({
 export default function HrOtPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
+  const searchParams = useSearchParams();
   const { profile, user } = useAuth();
   const roles = useUserRoles();
   const canHrApprove = usePermission("hr.ot.approve");
   const canHooApprove = isHeadOfOperationsTitle(profile?.job_title);
-  const canGmApprove =
-    roles.includes("branch_gm") || isGeneralManagerTitle(profile?.job_title);
+  const canGmApprove = canActAsOtGeneralManager({
+    roles,
+    jobTitle: profile?.job_title,
+  });
+  const deepLinkQ = (searchParams.get("q") ?? "").trim();
   const [status, setStatus] = useState<"queue" | "gm_approved" | "payroll_posted" | "all">("queue");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(deepLinkQ);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [department, setDepartment] = useState("");
@@ -968,6 +973,14 @@ export default function HrOtPage() {
   useEffect(() => {
     if (listPage > listPageCount - 1) setListPage(Math.max(0, listPageCount - 1));
   }, [listPage, listPageCount]);
+
+  // Review toast / notification deep-link: keep Approval queue and seed search.
+  useEffect(() => {
+    const q = (searchParams.get("q") ?? "").trim();
+    if (!q) return;
+    setStatus("queue");
+    setSearch(q);
+  }, [searchParams]);
 
   const filterOptions = useMemo(() => {
     const departments = [

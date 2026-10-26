@@ -104,6 +104,56 @@ const TRANSITIONS: Record<HrOtStatus, Partial<Record<HrOtActor, HrOtStatus[]>>> 
 };
 
 /**
+ * True GM seat for OT — not Sr. Site / Venue supervisors who hold `branch_gm`
+ * for other scopes (Mary). Mirrors roster-fill: title/role scope ≠ OT GM step.
+ */
+export function canActAsOtGeneralManager(input: {
+  roles: readonly string[];
+  jobTitle?: string | null;
+  staffRole?: string | null;
+}): boolean {
+  const title = (input.jobTitle ?? "").trim();
+  if (isSrSiteSupervisorTitle(title)) return false;
+  // Venue / Site supervisors also keep branch_gm sometimes; they act on `submitted`.
+  if (/(?:^|[\s/])site supervisor\b/i.test(title) || /\bvenue supervisor\b/i.test(title)) {
+    return false;
+  }
+  if (input.staffRole === "venue_supervisor") return false;
+  if (/head of operations/i.test(title)) return false;
+  if (input.roles.includes("branch_gm")) return true;
+  return /\bgeneral manager\b/i.test(title);
+}
+
+/**
+ * Actionable Approval-queue seats for the current login (missed-punch-style).
+ * Site seat → `submitted`; HoO → `manager_verified`; HR → `ops_approved`; GM → `hr_approved`.
+ */
+export function resolveOtApprovalQueueFlags(input: {
+  canVerify: boolean;
+  canHrApprove: boolean;
+  isHeadOfOperations: boolean;
+  roles: readonly string[];
+  jobTitle?: string | null;
+  staffRole?: string | null;
+}): {
+  canSiteVerify: boolean;
+  canOpsApprove: boolean;
+  canGmApprove: boolean;
+  canHrApprove: boolean;
+} {
+  const canOpsApprove = input.isHeadOfOperations;
+  const canGmApprove = canActAsOtGeneralManager(input);
+  // HoO / true GM do not use the site seat queue; Mary (verify + branch_gm) does.
+  const canSiteVerify = input.canVerify && !canOpsApprove && !canGmApprove;
+  return {
+    canSiteVerify,
+    canOpsApprove,
+    canGmApprove,
+    canHrApprove: input.canHrApprove,
+  };
+}
+
+/**
  * Approval queue statuses by actor capability.
  * Site supervisors act on `submitted`; HOO on `manager_verified`;
  * HR on `ops_approved`; GM on `hr_approved`.
@@ -120,6 +170,14 @@ export function otApprovalQueueStatuses(input: {
   if (input.canHrApprove) statuses.push("ops_approved");
   if (input.canGmApprove) statuses.push("hr_approved");
   return [...new Set(statuses)];
+}
+
+/** Deep-link into OT Approval queue, optionally pre-filling search with a request number. */
+export function otApprovalQueueHref(requestNumber?: string | null): string {
+  const base = "/people/hr/ot";
+  const q = (requestNumber ?? "").trim();
+  if (!q) return base;
+  return `${base}?q=${encodeURIComponent(q)}`;
 }
 
 /** Submitter may edit/cancel/resubmit only before Head of Operations approves (or when sent back). */
