@@ -138,21 +138,33 @@ function useStepLabel() {
 export function MissedPunchApprovalQueue({
   hideWhenEmpty = false,
   actionableOnly = false,
+  /** Waiting queue (default) or this approver's Approved history. */
+  queue = "waiting",
   title,
 }: {
   hideWhenEmpty?: boolean;
   /** Employee home: do not list other people's decided corrections. */
   actionableOnly?: boolean;
+  queue?: "waiting" | "approved";
   title?: string;
 }) {
   const { t } = useTranslation();
   const stepLabel = useStepLabel();
   const qc = useQueryClient();
+  const historyOnly = queue === "approved";
   const q = useQuery({
     queryKey: queryKeys.people.attendanceHr({
-      view: actionableOnly ? "missed-punch-actionable" : "missed-punch-waiting",
+      view: historyOnly
+        ? "missed-punch-approved"
+        : actionableOnly
+          ? "missed-punch-actionable"
+          : "missed-punch-waiting",
     }),
-    queryFn: () => listAttendanceCorrections({ queue: "waiting", actionableOnly }),
+    queryFn: () =>
+      listAttendanceCorrections({
+        queue: historyOnly ? "approved" : "waiting",
+        actionableOnly: historyOnly ? false : actionableOnly,
+      }),
     staleTime: STALE.people,
   });
   const [printPayload, setPrintPayload] = useState<MissedPunchPrintPayload | null>(null);
@@ -168,7 +180,7 @@ export function MissedPunchApprovalQueue({
       toast.success(t("hr.leave.updated"));
       void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(userFacingActionError(e)),
   });
   const rows = q.data ?? [];
   const cards = groupOpenLegacyPunchPairs(rows);
@@ -179,15 +191,21 @@ export function MissedPunchApprovalQueue({
       {title && cards.length > 0 ? <h3 className="text-sm font-semibold">{title}</h3> : null}
       {cards.length === 0 ? (
         <div className="space-y-2 text-sm">
-          <p className="font-medium">No missed punch requests are waiting on you.</p>
-          <p className="text-muted-foreground">
-            A correction for yourself goes to your site supervisor (Sr. Site Supervisor), then Head
-            of Operations (or F&B Manager for F&B staff), then HR, then General Manager. When your
-            reporting manager is already that ops seat, the request waits there first. A regular
-            supervisor team correction waits on the Sr. Site Supervisor first; only a Venue / Site /
-            Sr. Site supervisor title may approve that seat on submit, then ops, HR, and General
-            Manager.
-          </p>
+          {historyOnly ? (
+            <p className="font-medium">{t("hr.me.correctionApprovedEmpty")}</p>
+          ) : (
+            <>
+              <p className="font-medium">No missed punch requests are waiting on you.</p>
+              <p className="text-muted-foreground">
+                A correction for yourself goes to your site supervisor (Sr. Site Supervisor), then Head
+                of Operations (or F&B Manager for F&B staff), then HR, then General Manager. When your
+                reporting manager is already that ops seat, the request waits there first. A regular
+                supervisor team correction waits on the Sr. Site Supervisor first; only a Venue / Site /
+                Sr. Site supervisor title may approve that seat on submit, then ops, HR, and General
+                Manager.
+              </p>
+            </>
+          )}
         </div>
       ) : (
         <ul className="hd-approval-list">
@@ -205,12 +223,13 @@ export function MissedPunchApprovalQueue({
                 reviewMut.variables?.id === row.id ||
                   (reviewMut.variables?.reviewIds ?? []).some((id) => card.reviewIds.includes(id)),
               );
-            const showActions = row.status === "pending" && row.canAct;
+            const showActions = !historyOnly && row.status === "pending" && row.canAct;
             const showApproved =
+              historyOnly ||
               row.status === "approved" ||
               (row.status === "pending" && !row.canAct && row.steps.some((step) => step.status === "approved"));
-            const showReject = row.status === "rejected";
-            const showChange = row.status === "change_required";
+            const showReject = !historyOnly && row.status === "rejected";
+            const showChange = !historyOnly && row.status === "change_required";
             const displayType = card.punchType ?? row.punchType;
             const punchLabel = displayType
               ? punchTypeLabel({ ...row, punchType: displayType }, t)
@@ -295,13 +314,20 @@ export function MissedPunchApprovalQueue({
                   ) : null}
                   {showActions || showApproved || showReject || showChange ? (
                     <div className="hd-approval__step">
-                      {showActions ? (
+                      {showActions || (historyOnly && row.status === "pending" && row.currentStepRole) ? (
                         <p className="hd-approval__waiting">
                           {t("hr.me.waitingFor", { who: stepLabel(row.currentStepRole) })}
                         </p>
                       ) : null}
-                      {showActions ? <Badge variant="warning">{stepLabel(row.currentStepRole)}</Badge> : null}
-                      {showApproved ? <p className="hd-approval__status hd-approval__status--ok">{t("hr.me.punchApproved")}</p> : null}
+                      {showActions || (historyOnly && row.status === "pending" && row.currentStepRole) ? (
+                        <Badge variant="warning">{stepLabel(row.currentStepRole)}</Badge>
+                      ) : null}
+                      {showApproved && !(historyOnly && row.status === "pending") ? (
+                        <p className="hd-approval__status hd-approval__status--ok">{t("hr.me.punchApproved")}</p>
+                      ) : null}
+                      {historyOnly && row.status === "pending" ? (
+                        <p className="hd-approval__status hd-approval__status--ok">{t("hr.me.punchApproved")}</p>
+                      ) : null}
                       {showReject ? <p className="hd-approval__status hd-approval__status--no">Reject</p> : null}
                       {showChange ? <p className="hd-approval__status hd-approval__status--change">Change required</p> : null}
                     </div>

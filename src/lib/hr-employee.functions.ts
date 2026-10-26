@@ -5,6 +5,13 @@ import { z } from "zod";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { createAuthenticatedAction, createAuthenticatedActionNoInput, type AuthContext } from "@/lib/server/create-action";
 import { formatLocationLabel } from "@/lib/locations/normalize";
+import {
+  applyAcceptedCorrectionTimes,
+  correctionPunchAccepted,
+  punchesFromCorrectionValue,
+  type AcceptedCorrectionPunch,
+  type MissedPunchStepRole,
+} from "@/lib/attendance-hr/missed-punch-approval";
 import { resolveSelfStaffId } from "@/lib/attendance-hr/self-staff";
 import { normalizeShiftHm } from "@/lib/attendance-hr/late-punch";
 import { defaultPayrollPeriod } from "@/lib/attendance-hr/roster-period";
@@ -14,6 +21,47 @@ import {
   preferMyAttendanceSummaryRow,
   preferMyRosterDayRow,
 } from "@/lib/employee-attendance-day";
+
+function asMissedPunchStep(value: unknown): MissedPunchStepRole | null {
+  if (value === "manager" || value === "ops" || value === "hr" || value === "gm") return value;
+  return null;
+}
+
+/** Ops-accepted (and fully approved) correction clocks for My Attendance overlay. */
+async function loadMyAcceptedCorrectionPunches(
+  staffId: string,
+  dateFrom: string,
+  dateTo: string,
+): Promise<AcceptedCorrectionPunch[]> {
+  const { data, error } = await supabaseAdmin
+    .from("attendance_corrections")
+    .select("id, staff_id, work_date, status, current_step_role, new_value, requested_at")
+    .eq("staff_id", staffId)
+    .gte("work_date", dateFrom)
+    .lte("work_date", dateTo)
+    .in("status", ["pending", "approved"]);
+  if (error) {
+    if (/does not exist|schema cache|column/i.test(error.message)) return [];
+    throw error;
+  }
+  return (data ?? [])
+    .map((row) => {
+      const clocks = punchesFromCorrectionValue((row.new_value ?? null) as Record<string, unknown> | null);
+      return {
+        id: String(row.id),
+        staffId: row.staff_id ? String(row.staff_id) : null,
+        workDate: row.work_date ? String(row.work_date).slice(0, 10) : null,
+        status: String(row.status ?? ""),
+        currentStepRole: asMissedPunchStep(row.current_step_role),
+        punchType: clocks.punchType,
+        punchAt: clocks.punchAt,
+        punchInAt: clocks.punchInAt,
+        punchOutAt: clocks.punchOutAt,
+        requestedAt: row.requested_at ? String(row.requested_at) : null,
+      };
+    })
+    .filter((row) => correctionPunchAccepted(row));
+}
 
 /**
  * Self staff row for My Day. Must use loadLinkedStaffRecord (admin + email/code
@@ -114,11 +162,37 @@ export const getMyAttendance = createAuthenticatedAction(
         byDate.set(mapped.workDate, mapped);
       }
     }
+    // Same ops-accepted overlay as the People attendance listing so My Attendance
+    // reflects HoO-approved corrections even before summary recalc catches up.
+    const summaryRows = [...byDate.values()];
+    const accepted = await loadMyAcceptedCorrectionPunches(staffId, dateFrom, dateTo);
+    const overlaidTimes = applyAcceptedCorrectionTimes(
+      summaryRows.map((row) => ({
+        staff_id: staffId,
+        work_date: row.workDate,
+        actual_in: row.actualIn,
+        actual_out: row.actualOut,
+      })),
+      accepted,
+    );
+    const overlaid = summaryRows.map((row, index) => {
+      const next = overlaidTimes[index];
+      if (!next) return row;
+      if (next.actual_in === row.actualIn && next.actual_out === row.actualOut) return row;
+      const hasBoth = Boolean(next.actual_in && next.actual_out);
+      return {
+        ...row,
+        actualIn: next.actual_in,
+        actualOut: next.actual_out,
+        missedPunch: hasBoth ? false : row.missedPunch,
+        status: hasBoth && (row.status === "missed_punch" || row.missedPunch) ? "present" : row.status,
+      };
+    });
     return {
       staffId,
       dateFrom,
       dateTo,
-      rows: [...byDate.values()].sort((a, b) => b.workDate.localeCompare(a.workDate)),
+      rows: overlaid.sort((a, b) => b.workDate.localeCompare(a.workDate)),
     };
   },
   { auth: { anyCapability: ["attendance.view", "hr.employee_app"] } },

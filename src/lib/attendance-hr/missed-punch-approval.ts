@@ -53,7 +53,7 @@ export function punchApprovalInboxActionUrl(input: {
   return stored;
 }
 
-export type MissedPunchQueue = "waiting" | "mine";
+export type MissedPunchQueue = "waiting" | "mine" | "approved";
 
 export type CorrectionApprovalView = {
   status: string;
@@ -725,6 +725,8 @@ export function correctionVisibleToUser(args: {
   teamStaffIds?: readonly string[] | null;
 }): boolean {
   if (args.queue === "mine") return args.row.requestedBy === args.userId;
+  // Approved history uses the same visibility rules as the waiting queue, then
+  // filters to seats this user already approved (see approverHistoryCorrectionRows).
   if (canUserActOnCorrectionWithTeam(args.directory, args.userId, args.row, args.teamStaffIds)) return true;
   if (
     args.observeExecutiveSteps &&
@@ -906,14 +908,27 @@ export function groupOpenLegacyPunchPairs<
 /**
  * Write attendance_logs / recalc only after ops (HoO / F&B Manager) accepts.
  * Site-supervisor (manager) approve advances the workflow only.
- * Final HR approve re-applies idempotently when there is no next step.
+ * HR and GM re-apply idempotently (heals a failed ops write; GM is the final seat).
  */
 export function shouldApplyCorrectionPunchOnApprove(args: {
   currentStep: MissedPunchStepRole;
   nextStep: MissedPunchStepRole | null;
 }): boolean {
-  if (!args.nextStep) return true;
-  return args.currentStep === "ops";
+  void args.nextStep;
+  return args.currentStep !== "manager";
+}
+
+/**
+ * Approver history: requests where this login already approved a seat
+ * (ops-approved queue history for HoO, and the same for manager / HR / GM).
+ */
+export function approverHistoryCorrectionRows<
+  T extends { steps: ReadonlyArray<{ status: string; actedBy?: string | null }> },
+>(rows: readonly T[], userId: string): T[] {
+  if (!userId) return [];
+  return rows.filter((row) =>
+    row.steps.some((step) => step.status === "approved" && step.actedBy === userId),
+  );
 }
 
 const HH_MM = /^([01]\d|2[0-3]):[0-5]\d$/;

@@ -11,6 +11,7 @@ import {
   groupOpenLegacyPunchPairs,
   previousPunchesFromOriginalValue,
   punchesFromCorrectionValue,
+  approverHistoryCorrectionRows,
   shouldApplyCorrectionPunchOnApprove,
   correctionVisibleToUser,
   employeeHomeCorrectionRows,
@@ -387,10 +388,46 @@ describe("missed punch approval chain", () => {
     expect(cards[0]?.requestNumbers).toEqual(["MP-20261022-0006", "MP-20261022-0007"]);
   });
 
-  it("applies punches only when ops accepts or the chain ends", () => {
+  it("applies punches only when ops accepts or a later seat re-applies", () => {
     expect(shouldApplyCorrectionPunchOnApprove({ currentStep: "manager", nextStep: "ops" })).toBe(false);
     expect(shouldApplyCorrectionPunchOnApprove({ currentStep: "ops", nextStep: "hr" })).toBe(true);
-    expect(shouldApplyCorrectionPunchOnApprove({ currentStep: "hr", nextStep: null })).toBe(true);
+    expect(shouldApplyCorrectionPunchOnApprove({ currentStep: "hr", nextStep: "gm" })).toBe(true);
+    expect(shouldApplyCorrectionPunchOnApprove({ currentStep: "gm", nextStep: null })).toBe(true);
+  });
+
+  it("lists corrections this approver already approved for the Approved history tab", () => {
+    const hoo = "hoo-user";
+    const rows = [
+      {
+        id: "waiting-on-me",
+        steps: [{ status: "pending" as const, actedBy: null }],
+      },
+      {
+        id: "ops-done-waiting-hr",
+        steps: [
+          { status: "approved" as const, actedBy: "manager-1" },
+          { status: "approved" as const, actedBy: hoo },
+          { status: "pending" as const, actedBy: null },
+        ],
+      },
+      {
+        id: "fully-approved",
+        steps: [
+          { status: "approved" as const, actedBy: "manager-1" },
+          { status: "approved" as const, actedBy: hoo },
+          { status: "approved" as const, actedBy: "hr-1" },
+          { status: "approved" as const, actedBy: "gm-1" },
+        ],
+      },
+      {
+        id: "other-approver",
+        steps: [{ status: "approved" as const, actedBy: "someone-else" }],
+      },
+    ];
+    expect(approverHistoryCorrectionRows(rows, hoo).map((row) => row.id)).toEqual([
+      "ops-done-waiting-hr",
+      "fully-approved",
+    ]);
   });
 
   it("applies both clocks from one combined request once ops has accepted it (waiting on HR)", () => {

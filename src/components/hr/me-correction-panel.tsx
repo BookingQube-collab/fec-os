@@ -4,7 +4,10 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
-import { MyMissedPunchRequests } from "@/components/attendance-hr/missed-punch-approval-queue";
+import {
+  MissedPunchApprovalQueue,
+  MyMissedPunchRequests,
+} from "@/components/attendance-hr/missed-punch-approval-queue";
 import { PunchCorrectionRequest } from "@/components/attendance-hr/punch-correction-request";
 import { MyDayCorrectionApprovals } from "@/components/hr/my-day-approvals";
 import { RosterPunchFill } from "@/components/hr/roster-punch-fill";
@@ -18,7 +21,7 @@ import { mayReviewStaffCorrectionsOnMyDay } from "@/lib/hr/my-day-approvals";
 import { queryKeys } from "@/lib/query-keys";
 import { STALE } from "@/lib/query-client";
 
-type CorrectionJob = "approve" | "fill" | "request";
+type CorrectionJob = "approve" | "approved" | "fill" | "request";
 
 /** Toast / inbox deep link that must open Approve (not just the Correction tab). */
 function hashIsApproveDeepLink(): boolean {
@@ -61,7 +64,10 @@ export function MeCorrectionPanel({
 
   const jobs = useMemo(() => {
     const next: CorrectionJob[] = [];
-    if (showApprove && !reports.isPending) next.push("approve");
+    if (showApprove && !reports.isPending) {
+      next.push("approve");
+      next.push("approved");
+    }
     if (showFill) next.push("fill");
     if (showRequest && !reportsPending) next.push("request");
     return next;
@@ -136,6 +142,11 @@ export function MeCorrectionPanel({
       label: t("hr.me.correctionTabApprove"),
       hint: t("hr.me.correctionTabApproveHint"),
       panel: <MyDayCorrectionApprovals jobTitle={jobTitle} staffRole={staffRole} showTitle={false} />,
+    },
+    approved: {
+      label: t("hr.me.correctionTabApproved"),
+      hint: t("hr.me.correctionTabApprovedHint"),
+      panel: <MissedPunchApprovalQueue queue="approved" />,
     },
     fill: {
       label: t("hr.me.correctionTabFill"),

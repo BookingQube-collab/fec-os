@@ -2768,7 +2768,7 @@ export const listAttendanceCorrections = createAuthenticatedAction(
   z.object({
     locationId: z.string().uuid().nullable().optional(),
     status: z.string().optional(),
-    queue: z.enum(["waiting", "mine"]).optional(),
+    queue: z.enum(["waiting", "mine", "approved"]).optional(),
     actionableOnly: z.boolean().optional(),
   }),
   async (data, context) => {

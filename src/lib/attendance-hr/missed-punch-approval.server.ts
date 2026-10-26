@@ -21,6 +21,7 @@ import {
   correctionOpsLane,
   correctionStepSeed,
   correctionWaitingStep,
+  approverHistoryCorrectionRows,
   employeeHomeCorrectionRows,
   correctionVisibleToUser,
   isHeadOfOperationsTitle,
@@ -113,6 +114,7 @@ export type MissedPunchQueueRow = {
   steps: Array<{
     stepRole: string;
     status: string;
+    actedBy: string | null;
     actedByName: string | null;
     actedAt: string | null;
   }>;
@@ -539,6 +541,7 @@ function mapQueueRow(
       .map((step) => ({
         stepRole: step.step_role,
         status: step.status,
+        actedBy: step.acted_by ? String(step.acted_by) : null,
         actedByName: step.acted_by ? actorNames.get(step.acted_by) ?? null : null,
         actedAt: step.acted_at,
       })),
@@ -637,9 +640,14 @@ export async function listMissedPunchCorrections(args: {
       .select(columns)
       .order("requested_at", { ascending: false });
   let rows: CorrectionRow[] = [];
-  if (queue === "waiting" && !args.status) {
-    let pendingQuery = base().eq("status", "pending").limit(200);
-    let decidedQuery = base().in("status", ["approved", "rejected", "change_required"]).limit(80);
+  if ((queue === "waiting" || queue === "approved") && !args.status) {
+    // Waiting: pending + recent decided. Approved history: pending (still on HR/GM after
+    // this user approved) + fully approved — then filter to seats this user approved.
+    let pendingQuery = base().eq("status", "pending").limit(queue === "approved" ? 120 : 200);
+    let decidedQuery =
+      queue === "approved"
+        ? base().eq("status", "approved").limit(120)
+        : base().in("status", ["approved", "rejected", "change_required"]).limit(80);
     if (args.locationId) {
       pendingQuery = pendingQuery.eq("location_id", args.locationId);
       decidedQuery = decidedQuery.eq("location_id", args.locationId);
@@ -724,6 +732,7 @@ export async function listMissedPunchCorrections(args: {
       previousById.get(row.id) ?? null,
     ),
   );
+  if (queue === "approved") return approverHistoryCorrectionRows(mapped, args.userId);
   return args.actionableOnly ? employeeHomeCorrectionRows(mapped) : mapped;
 }
 
@@ -1742,6 +1751,15 @@ async function reviewOneMissedPunchChain(args: {
   }
 
   const next = nextMissedPunchStep(step);
+  // Write punches before advancing the seat so a failed apply does not leave the
+  // request mid-chain without attendance_logs / daily summary updates.
+  const shouldWritePunch =
+    String(row.kind) === "add_punch" &&
+    shouldApplyCorrectionPunchOnApprove({ currentStep: step, nextStep: next });
+  if (shouldWritePunch) {
+    await writeCorrectionPunch(row);
+  }
+
   if (!next) {
     await updateThisCorrectionOnly(args.correctionId, step, {
       status: "approved",
@@ -1758,8 +1776,8 @@ async function reviewOneMissedPunchChain(args: {
         comments: args.reviewNote ?? null,
       });
     }
-    if (String(row.kind) === "add_punch") await writeCorrectionPunch(row);
-    else await args.applyFinal(row);
+    if (String(row.kind) !== "add_punch") await args.applyFinal(row);
+    else if (!shouldWritePunch) await writeCorrectionPunch(row);
     await dismissExecutiveMissedPunchNotices(row.id);
     await notifyApprovers({
       userIds: [String(row.requested_by)],
@@ -1780,14 +1798,6 @@ async function reviewOneMissedPunchChain(args: {
       acted_at: now,
       comments: args.reviewNote ?? null,
     });
-  }
-  // Site supervisor → ops: workflow only. Ops → HR (or final): write punches.
-  if (String(row.kind) === "add_punch" && shouldApplyCorrectionPunchOnApprove({ currentStep: step, nextStep: next })) {
-    try {
-      await writeCorrectionPunch(row);
-    } catch (applyError) {
-      console.warn("[missed-punch] apply punch failed", applyError instanceof Error ? applyError.message : applyError);
-    }
   }
 
   const nextIds = approverUserIdsForStep(directory, next, String(row.location_id), row.staff_id, {

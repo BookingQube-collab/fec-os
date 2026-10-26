@@ -10,6 +10,8 @@ import { matchesSearchQuery } from "@/lib/searchable-select";
 import {
   calculateDailyAttendance,
   markProbableDuplicates,
+  punchFlagsAfterDuplicatePass,
+  punchForDuplicateRecompute,
   resolveIncompletePunchStatus,
   resolvePunchlessRosteredStatus,
 } from "./calculate";
@@ -349,6 +351,54 @@ describe("punch hash and duplicates", () => {
       60,
     );
     expect(marked.every((p) => !p.probableDuplicate)).toBe(true);
+  });
+
+  it("keeps correction-replaced exclusions when recomputing duplicate flags", () => {
+    const feed = punchForDuplicateRecompute({
+      id: "old-out",
+      punch_at: "2026-09-24T22:00:00+03:00",
+      probable_duplicate: false,
+      excluded_from_calc: true,
+    });
+    expect(feed.excludedFromCalc).toBe(true);
+    expect(
+      punchFlagsAfterDuplicatePass({
+        probableDuplicate: false,
+        previouslyExcluded: true,
+        previouslyDuplicate: false,
+      }),
+    ).toEqual({ probable_duplicate: false, excluded_from_calc: true });
+  });
+
+  it("clears stale duplicate exclusions but keeps true duplicates", () => {
+    expect(
+      punchFlagsAfterDuplicatePass({
+        probableDuplicate: false,
+        previouslyExcluded: true,
+        previouslyDuplicate: true,
+      }),
+    ).toEqual({ probable_duplicate: false, excluded_from_calc: false });
+    expect(
+      punchFlagsAfterDuplicatePass({
+        probableDuplicate: true,
+        previouslyExcluded: false,
+        previouslyDuplicate: false,
+      }),
+    ).toEqual({ probable_duplicate: true, excluded_from_calc: true });
+  });
+
+  it("ignores replaced punches so the correction clock becomes actual out", () => {
+    const day = calculateDailyAttendance(
+      [
+        { punchAt: "2026-09-24T05:00:00.000Z" },
+        { punchAt: "2026-09-24T14:00:00.000Z", excludedFromCalc: true },
+        { punchAt: "2026-09-24T19:00:00.000Z" },
+      ],
+      { workDate: "2026-09-24", scheduled: false },
+    );
+    expect(day.actualIn).toBe("2026-09-24T05:00:00.000Z");
+    expect(day.actualOut).toBe("2026-09-24T19:00:00.000Z");
+    expect(day.missedPunch).toBe(false);
   });
 });
 

@@ -4,7 +4,12 @@ import { canUserDo, type AppRole } from "@/lib/rbac";
 import { isActiveRosterStaff, isJokerStaff } from "@/lib/staff-status";
 import { shouldSuppressPunchlessJokerAbsent } from "@/lib/attendance-hr/joker-attendance";
 
-import { calculateDailyAttendance, markProbableDuplicates } from "./calculate";
+import {
+  calculateDailyAttendance,
+  markProbableDuplicates,
+  punchFlagsAfterDuplicatePass,
+  punchForDuplicateRecompute,
+} from "./calculate";
 import {
   ATTENDANCE_DAILY_LIST_PAGE_SIZE,
   ATTENDANCE_FILE_BUCKET,
@@ -1112,25 +1117,25 @@ export async function recalculateAttendanceRange(
       ? { ...shift, startTime: rosterShift.startTime, endTime: rosterShift.endTime, overnight: rosterShift.overnight }
       : { ...shift, startTime: "", endTime: "" };
     const dayWeekOff = weekOffForDay(staffId, workDate, rosterRow ?? null, Boolean(leaveRow?.leave_type));
-    // Recompute duplicate flags from scratch (ignore stale DB flags from cross-user ingest bugs).
+    // Recompute duplicate flags from scratch (ignore stale DB duplicate flags).
+    // Keep intentional exclusions (e.g. device punches replaced by a correction).
     const marked = markProbableDuplicates(
-      punchSource.map((p) => ({
-        id: p.id,
-        punchAt: p.punch_at,
-        probableDuplicate: false,
-        excludedFromCalc: false,
-      })),
+      punchSource.map((p) => punchForDuplicateRecompute(p)),
       rules.duplicateWindowSeconds,
     );
     const flagUpdates = marked
       .filter((m) => m.id)
       .map((m) => {
         const original = punchSource.find((p) => p.id === m.id);
-        const nextDup = Boolean(m.probableDuplicate);
+        const next = punchFlagsAfterDuplicatePass({
+          probableDuplicate: Boolean(m.probableDuplicate),
+          previouslyExcluded: Boolean(original?.excluded_from_calc),
+          previouslyDuplicate: Boolean(original?.probable_duplicate),
+        });
         const prevDup = Boolean(original?.probable_duplicate);
         const prevExcl = Boolean(original?.excluded_from_calc);
-        if (prevDup === nextDup && prevExcl === nextDup) return null;
-        return { id: m.id as string, probable_duplicate: nextDup, excluded_from_calc: nextDup };
+        if (prevDup === next.probable_duplicate && prevExcl === next.excluded_from_calc) return null;
+        return { id: m.id as string, ...next };
       })
       .filter((row): row is { id: string; probable_duplicate: boolean; excluded_from_calc: boolean } => Boolean(row));
     for (let i = 0; i < flagUpdates.length; i += 40) {
@@ -1224,12 +1229,7 @@ export async function recalculateAttendanceRange(
       : { ...shift, startTime: "", endTime: "" };
     const dayWeekOff = weekOffForDay(staffId, workDate, rosterRow ?? null, Boolean(leaveRow?.leave_type));
     const marked = markProbableDuplicates(
-      punchSource.map((p) => ({
-        id: p.id,
-        punchAt: p.punch_at,
-        probableDuplicate: false,
-        excludedFromCalc: false,
-      })),
+      punchSource.map((p) => punchForDuplicateRecompute(p)),
       rules.duplicateWindowSeconds,
     );
     const calc = calculateDailyAttendance(marked, {

@@ -114,6 +114,37 @@ export function assignAttendanceDate(punchIso: string, shift: ShiftTemplateInput
  * Pass `groupKey` when the batch mixes multiple people (e.g. full ATTLOG ingest);
  * without it, the whole list is treated as one person (safe for per-subject recalc).
  */
+/**
+ * After recomputing probable-duplicate flags, keep intentional exclusions
+ * (e.g. a device punch replaced by an approved correction). Stale duplicate
+ * exclusions are cleared when `previouslyDuplicate` was true.
+ */
+export function punchFlagsAfterDuplicatePass(args: {
+  probableDuplicate: boolean;
+  previouslyExcluded: boolean;
+  previouslyDuplicate: boolean;
+}): { probable_duplicate: boolean; excluded_from_calc: boolean } {
+  const manualExclude = args.previouslyExcluded && !args.previouslyDuplicate;
+  return {
+    probable_duplicate: args.probableDuplicate,
+    excluded_from_calc: args.probableDuplicate || manualExclude,
+  };
+}
+
+/** Feed recalc: preserve manual exclusions, clear stale duplicate flags for recompute. */
+export function punchForDuplicateRecompute<T extends { punch_at: string; probable_duplicate?: boolean | null; excluded_from_calc?: boolean | null; id?: string }>(
+  punch: T,
+): { id?: string; punchAt: string; probableDuplicate: boolean; excludedFromCalc: boolean } {
+  const previouslyDuplicate = Boolean(punch.probable_duplicate);
+  const previouslyExcluded = Boolean(punch.excluded_from_calc);
+  return {
+    id: punch.id,
+    punchAt: punch.punch_at,
+    probableDuplicate: false,
+    excludedFromCalc: previouslyExcluded && !previouslyDuplicate,
+  };
+}
+
 export function markProbableDuplicates<T extends CalcPunch>(
   punches: T[],
   windowSeconds: number,
