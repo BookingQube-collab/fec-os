@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Timer, X } from "lucide-react";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -60,6 +60,7 @@ import {
   supervisorOtStaffFieldErrors,
   type HrOtRateType,
   type HrOtStatus,
+  type OtClaimListRow,
   type OtRequestGroup,
   type SupervisorOtStaffFieldError,
 } from "@/lib/hr-ot";
@@ -70,6 +71,73 @@ import { userFacingActionError } from "@/lib/user-facing-action-error";
 import { cn } from "@/lib/utils";
 
 const OT_LIST_PAGE_SIZE = 25;
+
+type OtBatchAction =
+  | "verify"
+  | "ops_approve"
+  | "gm_approve"
+  | "approve"
+  | "request_changes"
+  | "resubmit"
+  | "reject"
+  | "cancel"
+  | "payroll_posted";
+
+/** Stable key so only the acting request row is disabled (not the whole queue). */
+function otBatchPendingKey(vars: {
+  requestBatchId?: string | null;
+  claimIds?: string[];
+}): string {
+  if (vars.requestBatchId) return `batch:${vars.requestBatchId}`;
+  const ids = [...(vars.claimIds ?? [])].sort();
+  return `claims:${ids.join(",")}`;
+}
+
+function otGroupPendingKey(group: OtRequestGroup): string {
+  if (group.requestBatchId) return `batch:${group.requestBatchId}`;
+  return `claims:${[...group.claims.map((c) => c.id)].sort().join(",")}`;
+}
+
+function otStatusAfterAction(action: OtBatchAction): HrOtStatus {
+  switch (action) {
+    case "verify":
+      return "manager_verified";
+    case "ops_approve":
+      return "ops_approved";
+    case "gm_approve":
+      return "gm_approved";
+    case "approve":
+      return "hr_approved";
+    case "request_changes":
+      return "changes_requested";
+    case "resubmit":
+      return "submitted";
+    case "reject":
+      return "rejected";
+    case "cancel":
+      return "cancelled";
+    case "payroll_posted":
+      return "payroll_posted";
+  }
+}
+
+function claimMatchesOtBatchVars(
+  row: OtClaimListRow,
+  vars: { requestBatchId?: string | null; claimIds?: string[] },
+): boolean {
+  if (vars.requestBatchId) {
+    return row.requestBatchId === vars.requestBatchId || row.id === vars.requestBatchId;
+  }
+  if (vars.claimIds?.length) return vars.claimIds.includes(row.id);
+  return false;
+}
+
+/** Refresh OT list + monthly summary only — skip policy/staff-team refetch on every approve. */
+function isOtListOrSummaryQuery(queryKey: readonly unknown[]): boolean {
+  if (queryKey[0] !== "people" || queryKey[1] !== "attendance-hr") return false;
+  const filters = queryKey[2] as { view?: string } | undefined;
+  return filters?.view === "ot" || filters?.view === "ot-summary";
+}
 
 function fmtMins(m: number | null | undefined) {
   if (m == null) return "—";
@@ -906,6 +974,24 @@ export default function HrOtPage() {
   const [editShowErrors, setEditShowErrors] = useState(false);
   const [listPage, setListPage] = useState(0);
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => new Set());
+  /**
+   * In-flight actions by request/batch id. Overlay on list data (not cache rollback)
+   * so parallel approves cannot restore each other’s rows.
+   */
+  const [pendingActions, setPendingActions] = useState<
+    Array<{
+      key: string;
+      action: OtBatchAction;
+      requestBatchId?: string | null;
+      claimIds?: string[];
+    }>
+  >([]);
+  const pendingActionKeys = useMemo(
+    () => new Set(pendingActions.map((p) => p.key)),
+    [pendingActions],
+  );
+  const pendingActionsRef = useRef(pendingActions);
+  pendingActionsRef.current = pendingActions;
 
   // Server: status + date range (keeps the 500-row window useful). Name/dept/site filter client-side.
   const listFilters = useMemo(
@@ -917,15 +1003,30 @@ export default function HrOtPage() {
     [status, dateFrom, dateTo],
   );
 
+  const listQueryKey = queryKeys.people.attendanceHr({ view: "ot", ...listFilters });
+
   const list = useQuery({
-    queryKey: queryKeys.people.attendanceHr({ view: "ot", ...listFilters }),
+    queryKey: listQueryKey,
     queryFn: () => listOtClaims(listFilters),
     staleTime: STALE.people,
   });
 
+  /** Optimistic Approval-queue remove / status patch while a batch action is in flight. */
+  const listRowsForUi = useMemo(() => {
+    const rows = list.data ?? [];
+    if (!pendingActions.length) return rows;
+    const dropFromQueue = listFilters.status === "queue";
+    return rows.flatMap((row) => {
+      const pending = pendingActions.find((p) => claimMatchesOtBatchVars(row, p));
+      if (!pending) return [row];
+      if (dropFromQueue) return [];
+      return [{ ...row, status: otStatusAfterAction(pending.action) }];
+    });
+  }, [list.data, pendingActions, listFilters.status]);
+
   const allRequestGroups = useMemo(
-    () => groupOtClaimsIntoRequests(list.data ?? []),
-    [list.data],
+    () => groupOtClaimsIntoRequests(listRowsForUi),
+    [listRowsForUi],
   );
 
   const requestGroups = useMemo(
@@ -1010,17 +1111,56 @@ export default function HrOtPage() {
     staleTime: STALE.people,
   });
 
-  const invalidate = () => {
-    void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
+  const invalidateOtLists = () => {
+    void qc.invalidateQueries({
+      predicate: (query) => isOtListOrSummaryQuery(query.queryKey),
+    });
+  };
+
+  const invalidateOtSummaryOnly = () => {
+    void qc.invalidateQueries({
+      predicate: (query) => {
+        if (query.queryKey[0] !== "people" || query.queryKey[1] !== "attendance-hr") return false;
+        const filters = query.queryKey[2] as { view?: string } | undefined;
+        return filters?.view === "ot-summary";
+      },
+    });
   };
 
   const actBatch = useMutation({
     mutationFn: actOnOtRequestBatch,
+    onMutate: async (vars) => {
+      const pendingKey = otBatchPendingKey(vars);
+      const entry = {
+        key: pendingKey,
+        action: vars.action as OtBatchAction,
+        requestBatchId: vars.requestBatchId,
+        claimIds: vars.claimIds,
+      };
+      const next = [...pendingActionsRef.current.filter((p) => p.key !== pendingKey), entry];
+      pendingActionsRef.current = next;
+      setPendingActions(next);
+      // Stop in-flight list refetch from flashing the acted row back mid-click.
+      await qc.cancelQueries({ queryKey: listQueryKey });
+      return { pendingKey };
+    },
     onSuccess: () => {
       toast.success(t("hr.ot.updated"));
-      invalidate();
     },
-    onError: (e: Error) => toast.error(userFacingActionError(e, t("hr.ot.updateFailed"))),
+    onError: (e: Error) => {
+      toast.error(userFacingActionError(e, t("hr.ot.updateFailed")));
+    },
+    onSettled: (_data, _error, _vars, ctx) => {
+      const key = ctx?.pendingKey;
+      const next = key
+        ? pendingActionsRef.current.filter((p) => p.key !== key)
+        : pendingActionsRef.current;
+      pendingActionsRef.current = next;
+      setPendingActions(next);
+      // Reconcile list only when no other approve is in flight (avoids restoring siblings).
+      if (next.length === 0) invalidateOtLists();
+      else invalidateOtSummaryOnly();
+    },
   });
 
   const revise = useMutation({
@@ -1032,24 +1172,15 @@ export default function HrOtPage() {
       setEditGroup(null);
       setEditDraft(null);
       setEditShowErrors(false);
-      invalidate();
+      invalidateOtLists();
     },
     onError: (e: Error) => toast.error(userFacingActionError(e, t("hr.ot.updateFailed"))),
   });
 
-  const runBatchAction = (
-    group: OtRequestGroup,
-    action:
-      | "verify"
-      | "ops_approve"
-      | "gm_approve"
-      | "approve"
-      | "request_changes"
-      | "resubmit"
-      | "reject"
-      | "cancel"
-      | "payroll_posted",
-  ) => {
+  const runBatchAction = (group: OtRequestGroup, action: OtBatchAction) => {
+    const pendingKey = otGroupPendingKey(group);
+    // Same request already in flight — ignore double-clicks; server also rejects illegal transitions.
+    if (pendingActionKeys.has(pendingKey)) return;
     if (group.requestBatchId) {
       actBatch.mutate({ requestBatchId: group.requestBatchId, action });
       return;
@@ -1135,7 +1266,7 @@ export default function HrOtPage() {
             </p>
           ) : null}
 
-          <SupervisorOtRequest onSubmitted={invalidate} />
+          <SupervisorOtRequest onSubmitted={invalidateOtLists} />
 
           <div className="sticky top-0 z-20 -mx-1 space-y-3 bg-background/95 px-1 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/80 hr-enter">
             <div className="hr-filter-bar">
@@ -1327,7 +1458,7 @@ export default function HrOtPage() {
                               <td className="align-middle">
                                 <OtRequestActions
                                   group={group}
-                                  busy={actBatch.isPending || revise.isPending}
+                                  busy={pendingActionKeys.has(otGroupPendingKey(group))}
                                   isSubmitter={isSubmitter}
                                   canPreview={canPreview}
                                   canHooApprove={canHooApprove}
