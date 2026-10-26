@@ -1,5 +1,5 @@
 import {
-  NOTIFICATIONS_INBOX_HREF,
+  PEOPLE_CORRECTIONS_HREF,
   punchApprovalInboxActionUrl,
 } from "@/lib/attendance-hr/missed-punch-approval";
 import { CLOSED_TASK_STATUSES } from "@/lib/events/constants";
@@ -392,7 +392,7 @@ async function fetchMissedPunchItems(context: AuthContext, roles: AppRole[]): Pr
           requested_at: row.requested_at ?? null,
           staffName: (row.staff_id && names.get(row.staff_id)) || "Staff",
         },
-        NOTIFICATIONS_INBOX_HREF,
+        PEOPLE_CORRECTIONS_HREF,
       ),
     );
   }

@@ -104,40 +104,40 @@ function row(partial?: Partial<CorrectionApprovalView>): CorrectionApprovalView 
 }
 
 describe("punchApprovalInboxActionUrl", () => {
-  it("sends approvers (and CEO) to All notifications", () => {
-    expect(punchApprovalInboxActionUrl({ roles: ["regional_ops"] })).toBe(NOTIFICATIONS_INBOX_HREF);
-    expect(punchApprovalInboxActionUrl({ roles: ["ceo"] })).toBe(NOTIFICATIONS_INBOX_HREF);
+  it("sends approvers to My Day Approve and keeps CEO on the estate desk", () => {
+    expect(punchApprovalInboxActionUrl({ roles: ["regional_ops"] })).toBe(ME_PUNCH_APPROVALS_HREF);
+    expect(punchApprovalInboxActionUrl({ roles: ["ceo"] })).toBe(PEOPLE_CORRECTIONS_HREF);
   });
 
-  it("rewrites older My Day / People-desk approver notifies on read", () => {
+  it("rewrites All-notifications / Correction-tab / People-desk notifies for non-CEO approvers", () => {
     expect(
       punchApprovalInboxActionUrl({
         roles: ["regional_ops"],
-        storedUrl: ME_PUNCH_APPROVALS_HREF,
+        storedUrl: NOTIFICATIONS_INBOX_HREF,
         sourceType: "attendance_corrections",
       }),
-    ).toBe(NOTIFICATIONS_INBOX_HREF);
+    ).toBe(ME_PUNCH_APPROVALS_HREF);
     expect(
       punchApprovalInboxActionUrl({
         roles: ["regional_ops"],
         storedUrl: ME_CORRECTION_HREF,
         sourceType: "attendance_corrections",
       }),
-    ).toBe(NOTIFICATIONS_INBOX_HREF);
+    ).toBe(ME_PUNCH_APPROVALS_HREF);
     expect(
       punchApprovalInboxActionUrl({
         roles: ["regional_ops"],
         storedUrl: PEOPLE_CORRECTIONS_HREF,
         sourceType: "attendance_corrections",
       }),
-    ).toBe(NOTIFICATIONS_INBOX_HREF);
+    ).toBe(ME_PUNCH_APPROVALS_HREF);
     expect(
       punchApprovalInboxActionUrl({
         roles: ["ceo"],
         storedUrl: PEOPLE_CORRECTIONS_HREF,
         sourceType: "attendance_corrections",
       }),
-    ).toBe(NOTIFICATIONS_INBOX_HREF);
+    ).toBe(PEOPLE_CORRECTIONS_HREF);
   });
 
   it("keeps requester outcome People-desk href for attendance_hr", () => {

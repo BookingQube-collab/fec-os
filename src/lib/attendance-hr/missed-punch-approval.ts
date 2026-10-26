@@ -14,45 +14,47 @@ export const MISSED_PUNCH_STEP_ROLES = ["manager", "ops", "hr", "gm"] as const;
 export type MissedPunchStepRole = (typeof MISSED_PUNCH_STEP_ROLES)[number];
 export type { OpsApprovalLane };
 
-/** Bell “View all” / full notifications inbox — approver waiting notifies land here. */
+/** Full notifications inbox (bell “View all”). Stale approver target — rewritten on read. */
 export const NOTIFICATIONS_INBOX_HREF = "/notifications";
-/** My Day Correction → Approve panel hash (page deep link only; not for inbox clicks). */
+/** My Day Correction → Approve (toast / inbox click for approvers). */
 export const ME_PUNCH_APPROVALS_HREF = "/hr/me#me-punch-approvals";
-/** My Day Correction tab (legacy inbox target — rewritten on read). */
+/** My Day Correction tab (also opens Approve when that job is available). */
 export const ME_CORRECTION_HREF = "/hr/me#me-correction";
-/** Estate corrections desk / personal request form (legacy approver target). */
+/** Estate corrections desk (CEO observers / People HR listing). */
 export const PEOPLE_CORRECTIONS_HREF = "/people/attendance/corrections";
 
 const STALE_APPROVER_PUNCH_INBOX_HREFS = new Set([
-  ME_PUNCH_APPROVALS_HREF,
+  NOTIFICATIONS_INBOX_HREF,
   ME_CORRECTION_HREF,
-  "#me-punch-approvals",
   "#me-correction",
+  "#me-punch-approvals",
 ]);
 
 /**
- * Approver waiting notifies open All notifications (same as bell “View all”).
- * Rewrites older persisted URLs that still pointed at My Day Correction or the People
- * corrections form for `attendance_corrections` rows. Requester outcome notifies
- * (`/hr/me`, or People desk via `attendance_hr`) pass through unchanged.
+ * Approvers open My Day Approve. CEO observers keep the estate corrections desk.
+ * Rewrites older persisted notifies that still point at All notifications, the Correction
+ * tab hash, or the People desk (non-CEO). Requester outcome notifies (`/hr/me`, or People
+ * desk via `attendance_hr`) pass through unchanged.
  */
 export function punchApprovalInboxActionUrl(input: {
   roles: readonly string[];
   storedUrl?: string | null;
   sourceType?: string | null;
 }): string {
+  const isCeo = input.roles.includes("ceo");
   const stored = input.storedUrl?.trim() || null;
   if (stored && STALE_APPROVER_PUNCH_INBOX_HREFS.has(stored)) {
-    return NOTIFICATIONS_INBOX_HREF;
+    return isCeo ? PEOPLE_CORRECTIONS_HREF : ME_PUNCH_APPROVALS_HREF;
   }
   if (
+    input.sourceType === "attendance_corrections" &&
     stored === PEOPLE_CORRECTIONS_HREF &&
-    (input.sourceType === "attendance_corrections" || input.sourceType == null)
+    !isCeo
   ) {
-    return NOTIFICATIONS_INBOX_HREF;
+    return ME_PUNCH_APPROVALS_HREF;
   }
   if (stored) return stored;
-  return NOTIFICATIONS_INBOX_HREF;
+  return isCeo ? PEOPLE_CORRECTIONS_HREF : ME_PUNCH_APPROVALS_HREF;
 }
 
 export type MissedPunchQueue = "waiting" | "mine";
