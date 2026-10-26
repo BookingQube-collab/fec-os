@@ -229,7 +229,9 @@ export function attendanceListingTeamStaffIds(input: {
 
 /**
  * Venue / Site / Sr. Site supervisors see jokers by home/work site, not org chart.
- * HoO / HR stay company-wide. Cashiers and other titles stay on the reporting tree.
+ * Admin / HR / GM / HoO never use this path: `attendanceListingIsCompanyWide` skips
+ * team staff ids entirely, so every joker stays visible company-wide as before.
+ * Cashiers and other titles stay on the reporting tree only.
  */
 export function attendanceListingIncludesScopedJokers(
   jobTitle?: string | null,

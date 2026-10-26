@@ -176,6 +176,38 @@ describe("attendance listing access", () => {
     expect(attendanceListingIncludesScopedJokers("F&B Manager", null)).toBe(false);
   });
 
+  it("keeps Admin/HR/GM/HOO company-wide so joker attendance stays unrestricted", () => {
+    // Listing skips loadAttendanceListingStaffIds when companyWide — no venue joker filter.
+    for (const role of ["hr", "branch_gm", "ceo", "coo", "regional_ops"] as const) {
+      expect(attendanceListingIsCompanyWide([role])).toBe(true);
+      expect(
+        resolveAttendanceListingStaffConstraint({
+          companyWide: true,
+          teamStaffIds: ["crew-only"],
+          narrowToStaffIds: ["joker-1", "crew-only", "other-site-joker"],
+          unmappedOnly: false,
+        }),
+      ).toEqual({ mode: "company" });
+    }
+
+    expect(attendanceListingIsCompanyWide(["cashier_host"], "Head of Operations")).toBe(true);
+    expect(attendanceListingIncludesScopedJokers("Head of Operations", null)).toBe(false);
+    expect(attendanceListingIncludesScopedJokers("Managing Director / Chief Executive Officer", null)).toBe(
+      false,
+    );
+    expect(attendanceListingIncludesScopedJokers("General Manager", null)).toBe(false);
+    expect(attendanceListingIncludesScopedJokers("HR Manager", null)).toBe(false);
+
+    // Even if a company login had a tiny reporting tree, venue joker merge stays off.
+    expect(
+      mergeAttendanceListingScopedJokerIds({
+        reportingTeamStaffIds: ["crew-a"],
+        scopedJokerStaffIds: ["joker-1"],
+        includesScopedJokers: attendanceListingIncludesScopedJokers("Head of Operations"),
+      }),
+    ).toEqual(["crew-a"]);
+  });
+
   it("treats roster-visible employment and status jokers as scoped listing jokers", () => {
     expect(
       isAttendanceListingScopedJoker({ status: "active", employment_type: "joker" }),
