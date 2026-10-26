@@ -544,7 +544,6 @@ describe("admin sidebar visibility", () => {
       "/people/hr/team",
       "/people/leave",
       "/people/attendance",
-      "/people/attendance/corrections",
       "/people/attendance/mapping",
       "/people/roster",
       "/people/hr/hierarchy",
@@ -560,16 +559,14 @@ describe("admin sidebar visibility", () => {
         "/people/hr/team",
         "/people/leave",
         "/people/attendance",
-        "/people/attendance/corrections",
         "/people/attendance/mapping",
         "/people/roster",
         "/people/hr/hierarchy",
       ]),
     );
+    expect(hrefs).not.toContain("/people/attendance/corrections");
     expect(hrefs).not.toContain("/people/attendance/import");
     expect(hrefs).not.toContain("/people/payroll");
-    const attendanceAt = hrefs.indexOf("/people/attendance");
-    expect(hrefs[attendanceAt + 1]).toBe("/people/attendance/corrections");
     expect(people?.items.find((item) => item.href === "/people/leave")?.labelKey).toBe("nav.hrLeave");
     expect(people?.items.find((item) => item.href === "/people/attendance")?.labelKey).toBe("nav.attendance");
     expect(people?.items.find((item) => item.href === "/people/roster")?.labelKey).toBe("nav.monthlyRoster");
@@ -581,7 +578,6 @@ describe("admin sidebar visibility", () => {
       "/people/hr/team",
       "/people/leave",
       "/people/attendance",
-      "/people/attendance/corrections",
       "/people/attendance/mapping",
       "/people/roster",
       "/people/hr/hierarchy",
@@ -595,7 +591,7 @@ describe("admin sidebar visibility", () => {
     expect(people?.items.some((item) => item.href === "/people/hr/team")).toBe(true);
     expect(people?.items.some((item) => item.href === "/people/attendance")).toBe(true);
     const dutyHrefs = people?.items.map((item) => item.href) ?? [];
-    expect(dutyHrefs[dutyHrefs.indexOf("/people/attendance") + 1]).toBe("/people/attendance/corrections");
+    expect(dutyHrefs).not.toContain("/people/attendance/corrections");
     expect(people?.items.some((item) => item.href === "/people/roster")).toBe(true);
     expect(people?.items.some((item) => item.href === "/people/leave")).toBe(false);
 

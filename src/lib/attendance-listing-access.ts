@@ -17,7 +17,6 @@ const ATTENDANCE_NAV_HREFS = [
   "/people/attendance/reports",
   "/people/attendance/mapping",
   "/people/attendance/device-logs",
-  "/people/attendance/corrections",
   "/people/attendance/settings",
 ] as const;
 
@@ -101,7 +100,7 @@ export function canMergeAttendanceMappings(
   return canEditAttendanceMapping(identity);
 }
 
-/** Dashboard and Corrections stay. Listing and Mapping open for team leaders. Import and devices stay on company access. */
+/** Dashboard stays. Listing and Mapping open for team leaders. Import and devices stay on company access. Punch corrections live on My Day. */
 export function visibleAttendanceNavHrefs(
   roles: readonly AppRole[],
   hasDirectReports: boolean,
@@ -115,7 +114,7 @@ export function visibleAttendanceNavHrefs(
   ) {
     return [...ATTENDANCE_NAV_HREFS];
   }
-  const team = new Set<string>(["/people/attendance", "/people/attendance/corrections"]);
+  const team = new Set<string>(["/people/attendance"]);
   if (canSeeAttendanceListing(roles, hasDirectReports, jobTitle, department, staffRole)) {
     team.add(ATTENDANCE_LISTING_HREF);
   }

@@ -26,7 +26,6 @@ import {
   isHeadOfOperationsTitle,
   isSiteSupervisorTitle,
   ME_PUNCH_APPROVALS_HREF,
-  PEOPLE_CORRECTIONS_HREF,
   nearestSiteSupervisorUserId,
   siteApproverLocationMap,
   missedPunchCopiesExecutives,
@@ -1016,7 +1015,7 @@ async function notifyExecutiveObservers(args: {
       title: args.title,
       body: args.body,
       severity: "warning",
-      actionUrl: PEOPLE_CORRECTIONS_HREF,
+      actionUrl: ME_PUNCH_APPROVALS_HREF,
       sourceType: EXECUTIVE_NOTICE_SOURCE,
       sourceId: args.correctionId,
     });

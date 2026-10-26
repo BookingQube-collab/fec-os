@@ -59,7 +59,7 @@ describe("attendance review flags", () => {
     expect(text.why).toContain("flag for review");
     expect(text.why.toLowerCase()).not.toContain("misconduct");
     expect(text.why.toLowerCase()).not.toContain("fraud");
-    expect(item!.href).toBe("/people/attendance/corrections");
+    expect(item!.href).toBe("/hr/me#me-punch-approvals");
     expect(text.action).toContain("does not change punches");
   });
 

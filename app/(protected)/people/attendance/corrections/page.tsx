@@ -1,3 +1,15 @@
-import { lazyView } from "@/lib/lazy-view";
+"use client";
 
-export default lazyView(() => import("@/views/attendance-hr-corrections-page"), "table");
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+
+import { ME_PUNCH_APPROVALS_HREF } from "@/lib/attendance-hr/missed-punch-approval";
+
+/** Legacy Time & Attendance Corrections desk → My Day Correction / Approve. */
+export default function AttendanceCorrectionsRedirectPage() {
+  const router = useRouter();
+  useEffect(() => {
+    router.replace(ME_PUNCH_APPROVALS_HREF);
+  }, [router]);
+  return null;
+}

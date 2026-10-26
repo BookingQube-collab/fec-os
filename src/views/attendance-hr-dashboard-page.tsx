@@ -331,7 +331,7 @@ function AttendanceHrDashboardBody() {
             value={kpis?.pendingCorrections ?? 0}
             icon={ClipboardCheck}
             tint="sky"
-            href="/people/attendance/corrections"
+            href="/hr/me#me-punch-approvals"
           />
         </div>
       )}

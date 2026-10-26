@@ -37,7 +37,7 @@ export function AttendanceReviewPanel({
       queryState={query.isLoading ? "loading" : query.isError ? "error" : "ready"}
       result={query.data}
       emptyLabel={t("hrAssist.emptyAttendance")}
-      footerHref="/people/attendance/corrections"
+      footerHref="/hr/me#me-punch-approvals"
       footerLabel={t("hrAssist.corrections")}
     />
   );

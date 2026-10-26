@@ -84,7 +84,7 @@ function attendanceItem(
     evidenceKey,
     actionKey: "hrAssist.attendance.action",
     values,
-    href: "/people/attendance/corrections",
+    href: "/hr/me#me-punch-approvals",
   };
 }
 

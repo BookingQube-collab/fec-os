@@ -768,7 +768,7 @@ export default function HrTeamOverviewPage() {
                       }
                     />
                     <KpiCard
-                      href="/people/attendance/corrections"
+                      href="/hr/me#me-punch-approvals"
                       icon={<Clock />}
                       label={t("hrWorkspace.team.kpi.time")}
                       value={canTime ? (corrections.isLoading ? "…" : String(ops.timeRows.length)) : "0"}
@@ -901,7 +901,7 @@ export default function HrTeamOverviewPage() {
                         <ul className="mt-2 divide-y divide-border">
                           {ops.timeRows.map((row) => (
                             <li key={row.id}>
-                              <Link href="/people/attendance/corrections" className="block rounded-xl px-1 py-2.5 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                              <Link href="/hr/me#me-punch-approvals" className="block rounded-xl px-1 py-2.5 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                                 <span className="block text-sm font-medium">{row.staffName ?? row.employeeCode ?? row.kind}</span>
                                 <span className="block text-xs text-muted-foreground">
                                   {row.workDate?.slice(0, 10) ?? row.status} · {row.reason}

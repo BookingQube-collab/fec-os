@@ -331,7 +331,7 @@ export default function HrPayrollPage() {
                   </Link>
                 </Button>
                 <Button variant="secondary" asChild>
-                  <Link href="/people/attendance/corrections">
+                  <Link href="/hr/me#me-punch-approvals">
                     <ClipboardCheck className="mr-1 h-4 w-4" />
                     {t("hr.payroll.corrections")}
                   </Link>
@@ -526,7 +526,7 @@ export default function HrPayrollPage() {
                   <Link href="/people/attendance/reports">{t("hr.payroll.fixOpenListing")}</Link>
                 </Button>
                 <Button variant="secondary" asChild>
-                  <Link href="/people/attendance/corrections">{t("hr.payroll.fixOpenCorrections")}</Link>
+                  <Link href="/hr/me#me-punch-approvals">{t("hr.payroll.fixOpenCorrections")}</Link>
                 </Button>
               </div>
               <Button type="button" onClick={() => setFixRow(null)}>

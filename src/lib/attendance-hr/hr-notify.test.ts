@@ -31,13 +31,14 @@ describe("mapHrNotifyEvent", () => {
     expect(payload.body).toContain("840 m");
   });
 
-  it("maps correction submitted to My Day Approve and decisions to the corrections queue", () => {
+  it("maps correction submitted to My Day Approve and decisions to My Day Correction", () => {
     const submitted = mapHrNotifyEvent({ kind: "correction_submitted", staffName: "Noor", workDate: "2026-08-21" });
     expect(submitted.actionUrl).toBe("/hr/me#me-punch-approvals");
     const approved = mapHrNotifyEvent({ kind: "correction_approved", staffName: "Noor", workDate: "2026-08-21" });
-    expect(approved.actionUrl).toBe("/people/attendance/corrections");
+    expect(approved.actionUrl).toBe("/hr/me#me-correction");
     expect(approved.severity).toBe("info");
     const rejected = mapHrNotifyEvent({ kind: "correction_rejected", staffName: "Noor" });
+    expect(rejected.actionUrl).toBe("/hr/me#me-correction");
     expect(rejected.severity).toBe("warning");
     expect(rejected.title).toBe("Attendance correction rejected");
   });

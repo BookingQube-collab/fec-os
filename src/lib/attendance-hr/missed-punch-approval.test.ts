@@ -104,12 +104,12 @@ function row(partial?: Partial<CorrectionApprovalView>): CorrectionApprovalView 
 }
 
 describe("punchApprovalInboxActionUrl", () => {
-  it("sends approvers to My Day Approve and keeps CEO on the estate desk", () => {
+  it("sends every role to My Day Approve", () => {
     expect(punchApprovalInboxActionUrl({ roles: ["regional_ops"] })).toBe(ME_PUNCH_APPROVALS_HREF);
-    expect(punchApprovalInboxActionUrl({ roles: ["ceo"] })).toBe(PEOPLE_CORRECTIONS_HREF);
+    expect(punchApprovalInboxActionUrl({ roles: ["ceo"] })).toBe(ME_PUNCH_APPROVALS_HREF);
   });
 
-  it("rewrites All-notifications / Correction-tab / People-desk notifies for non-CEO approvers", () => {
+  it("rewrites All-notifications / Correction-tab / People-desk notifies to My Day Approve", () => {
     expect(
       punchApprovalInboxActionUrl({
         roles: ["regional_ops"],
@@ -137,17 +137,17 @@ describe("punchApprovalInboxActionUrl", () => {
         storedUrl: PEOPLE_CORRECTIONS_HREF,
         sourceType: "attendance_corrections",
       }),
-    ).toBe(PEOPLE_CORRECTIONS_HREF);
+    ).toBe(ME_PUNCH_APPROVALS_HREF);
   });
 
-  it("keeps requester outcome People-desk href for attendance_hr", () => {
+  it("rewrites legacy People-desk outcome hrefs and keeps other My Day targets", () => {
     expect(
       punchApprovalInboxActionUrl({
         roles: ["cashier_host"],
         storedUrl: PEOPLE_CORRECTIONS_HREF,
         sourceType: "attendance_hr",
       }),
-    ).toBe(PEOPLE_CORRECTIONS_HREF);
+    ).toBe(ME_PUNCH_APPROVALS_HREF);
     expect(
       punchApprovalInboxActionUrl({
         roles: ["cashier_host"],

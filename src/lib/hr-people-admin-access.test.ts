@@ -78,7 +78,7 @@ describe("Mia People & HR nav vs other HR", () => {
     expect(mia.has("/people")).toBe(true);
     expect(mia.has("/people/roster")).toBe(true);
     expect(mia.has("/people/attendance")).toBe(true);
-    expect(mia.has("/people/attendance/corrections")).toBe(true);
+    expect(mia.has("/people/attendance/corrections")).toBe(false);
     expect(mia.has("/people/attendance/mapping")).toBe(true);
     expect(mia.has("/people/payroll")).toBe(true);
     expect(mia.has("/people/leave")).toBe(true);

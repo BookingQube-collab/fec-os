@@ -12,7 +12,6 @@ import {
   MapPinned,
   Settings,
   Upload,
-  Wrench,
   type LucideIcon,
 } from "lucide-react";
 
@@ -27,7 +26,6 @@ const NAV_ICONS: Record<string, LucideIcon> = {
   "/people/attendance/reports": List,
   "/people/attendance/mapping": MapPinned,
   "/people/attendance/device-logs": FingerprintPattern,
-  "/people/attendance/corrections": Wrench,
   "/people/attendance/settings": Settings,
 };
 
@@ -38,7 +36,6 @@ const TABS = [
   { href: "/people/attendance/reports", labelKey: "nav.attendanceListing" },
   { href: "/people/attendance/mapping", labelKey: "nav.attendanceMapping" },
   { href: "/people/attendance/device-logs", labelKey: "nav.attendanceDeviceLogs" },
-  { href: "/people/attendance/corrections", labelKey: "nav.attendanceCorrections" },
   { href: "/people/attendance/settings", labelKey: "nav.attendanceDevices" },
 ] as const;
 

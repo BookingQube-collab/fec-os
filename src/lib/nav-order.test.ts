@@ -147,12 +147,11 @@ describe("sidebar department order", () => {
     expect(orders.people).not.toContain(removedAts);
     expect(orders.people).not.toContain(removedOnboarding);
     for (const key of removedDuplicates) expect(orders.people).not.toContain(key);
-    const attendanceKey = navItemOrderKey({ labelKey: "nav.attendance", href: "/people/attendance" });
     const correctionsKey = navItemOrderKey({
       labelKey: "nav.attendanceCorrections",
       href: "/people/attendance/corrections",
     });
-    expect(orders.people.indexOf(correctionsKey)).toBe(orders.people.indexOf(attendanceKey) + 1);
+    expect(orders.people).not.toContain(correctionsKey);
     const removedExit = [
       "nav.hrProbation|/people/hr/probation",
       "nav.hrResignations|/people/hr/resignations",

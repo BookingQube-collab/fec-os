@@ -1,6 +1,6 @@
 import {
+  ME_CORRECTION_HREF,
   ME_PUNCH_APPROVALS_HREF,
-  PEOPLE_CORRECTIONS_HREF,
 } from "@/lib/attendance-hr/missed-punch-approval";
 
 export const HR_NOTIFY_CATEGORY = "people" as const;
@@ -65,7 +65,7 @@ export function mapHrNotifyEvent(event: HrNotifyEvent): HrNotifyPayload {
     event.kind === "correction_submitted"
       ? ME_PUNCH_APPROVALS_HREF
       : event.kind === "correction_approved" || event.kind === "correction_rejected"
-        ? PEOPLE_CORRECTIONS_HREF
+        ? ME_CORRECTION_HREF
         : event.kind.startsWith("leave")
           ? event.kind === "leave_submitted"
             ? "/hr/me#me-leave-approvals"

@@ -54,22 +54,18 @@ describe("attendance listing access", () => {
       "/people/attendance",
       "/people/attendance/reports",
       "/people/attendance/mapping",
-      "/people/attendance/corrections",
     ]);
     expect(visibleAttendanceNavHrefs(["cashier_host"], true)).not.toContain("/people/attendance/import");
     expect(visibleAttendanceNavHrefs(["cashier_host"], true)).not.toContain("/people/attendance/device-logs");
     expect(visibleAttendanceNavHrefs(["cashier_host"], true)).not.toContain("/people/attendance/settings");
-    expect(visibleAttendanceNavHrefs(["cashier_host"], false)).toEqual([
-      "/people/attendance",
-      "/people/attendance/corrections",
-    ]);
+    expect(visibleAttendanceNavHrefs(["cashier_host"], true)).not.toContain("/people/attendance/corrections");
+    expect(visibleAttendanceNavHrefs(["cashier_host"], false)).toEqual(["/people/attendance"]);
     expect(visibleAttendanceNavHrefs(["hr"], false)).toEqual([
       "/people/attendance",
       "/people/attendance/import",
       "/people/attendance/reports",
       "/people/attendance/mapping",
       "/people/attendance/device-logs",
-      "/people/attendance/corrections",
       "/people/attendance/settings",
     ]);
     expect(visibleAttendanceNavHrefs(["branch_gm"], false)).toContain("/people/attendance/import");

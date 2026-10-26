@@ -20,41 +20,37 @@ export const NOTIFICATIONS_INBOX_HREF = "/notifications";
 export const ME_PUNCH_APPROVALS_HREF = "/hr/me#me-punch-approvals";
 /** My Day Correction tab (also opens Approve when that job is available). */
 export const ME_CORRECTION_HREF = "/hr/me#me-correction";
-/** Estate corrections desk (CEO observers / People HR listing). */
+/**
+ * Retired Time & Attendance Corrections desk.
+ * Kept so stale notification URLs rewrite to My Day; the route redirects there too.
+ */
 export const PEOPLE_CORRECTIONS_HREF = "/people/attendance/corrections";
 
 const STALE_APPROVER_PUNCH_INBOX_HREFS = new Set([
   NOTIFICATIONS_INBOX_HREF,
   ME_CORRECTION_HREF,
+  PEOPLE_CORRECTIONS_HREF,
   "#me-correction",
   "#me-punch-approvals",
 ]);
 
 /**
- * Approvers open My Day Approve. CEO observers keep the estate corrections desk.
+ * Everyone opens My Day Approve for punch-correction inbox actions.
  * Rewrites older persisted notifies that still point at All notifications, the Correction
- * tab hash, or the People desk (non-CEO). Requester outcome notifies (`/hr/me`, or People
- * desk via `attendance_hr`) pass through unchanged.
+ * tab hash, or the retired People corrections desk.
  */
 export function punchApprovalInboxActionUrl(input: {
   roles: readonly string[];
   storedUrl?: string | null;
   sourceType?: string | null;
 }): string {
-  const isCeo = input.roles.includes("ceo");
+  void input.roles;
+  void input.sourceType;
   const stored = input.storedUrl?.trim() || null;
-  if (stored && STALE_APPROVER_PUNCH_INBOX_HREFS.has(stored)) {
-    return isCeo ? PEOPLE_CORRECTIONS_HREF : ME_PUNCH_APPROVALS_HREF;
-  }
-  if (
-    input.sourceType === "attendance_corrections" &&
-    stored === PEOPLE_CORRECTIONS_HREF &&
-    !isCeo
-  ) {
+  if (!stored || STALE_APPROVER_PUNCH_INBOX_HREFS.has(stored)) {
     return ME_PUNCH_APPROVALS_HREF;
   }
-  if (stored) return stored;
-  return isCeo ? PEOPLE_CORRECTIONS_HREF : ME_PUNCH_APPROVALS_HREF;
+  return stored;
 }
 
 export type MissedPunchQueue = "waiting" | "mine";
