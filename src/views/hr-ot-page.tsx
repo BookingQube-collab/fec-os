@@ -83,6 +83,14 @@ type OtBatchAction =
   | "cancel"
   | "payroll_posted";
 
+/** Input for actOnOtRequestBatch — typed here because createAuthenticatedAction takes `unknown`. */
+type OtBatchVars = {
+  requestBatchId?: string | null;
+  claimIds?: string[];
+  action: OtBatchAction;
+  note?: string | null;
+};
+
 /** Stable key so only the acting request row is disabled (not the whole queue). */
 function otBatchPendingKey(vars: {
   requestBatchId?: string | null;
@@ -1128,12 +1136,12 @@ export default function HrOtPage() {
   };
 
   const actBatch = useMutation({
-    mutationFn: actOnOtRequestBatch,
+    mutationFn: (vars: OtBatchVars) => actOnOtRequestBatch(vars),
     onMutate: async (vars) => {
       const pendingKey = otBatchPendingKey(vars);
       const entry = {
         key: pendingKey,
-        action: vars.action as OtBatchAction,
+        action: vars.action,
         requestBatchId: vars.requestBatchId,
         claimIds: vars.claimIds,
       };
