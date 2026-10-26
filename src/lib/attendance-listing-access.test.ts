@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  attendanceListingIncludesScopedJokers,
   attendanceListingIsCompanyWide,
   attendanceListingTeamStaffIds,
   attendanceMappingIsCompanyWide,
@@ -9,6 +10,8 @@ import {
   canMergeAttendanceMappings,
   canSeeAttendanceListing,
   canSeeAttendanceMapping,
+  isAttendanceListingScopedJoker,
+  mergeAttendanceListingScopedJokerIds,
   reportingTreeStaffIds,
   resolveAttendanceListingStaffConstraint,
   visibleAttendanceNavHrefs,
@@ -162,6 +165,58 @@ describe("attendance listing access", () => {
         reportingTreeStaffIds: ["helper"],
       }),
     ).toEqual(["helper"]);
+  });
+
+  it("lets Venue / Site / Sr. Site supervisors include location-scoped jokers", () => {
+    expect(attendanceListingIncludesScopedJokers("Venue Supervisor", "venue_supervisor")).toBe(true);
+    expect(attendanceListingIncludesScopedJokers("Site Supervisor", null)).toBe(true);
+    expect(attendanceListingIncludesScopedJokers("Sr. Site Supervisor", null)).toBe(true);
+    expect(attendanceListingIncludesScopedJokers("Head of Operations", null)).toBe(false);
+    expect(attendanceListingIncludesScopedJokers("Cashier", "cashier")).toBe(false);
+    expect(attendanceListingIncludesScopedJokers("F&B Manager", null)).toBe(false);
+  });
+
+  it("treats roster-visible employment and status jokers as scoped listing jokers", () => {
+    expect(
+      isAttendanceListingScopedJoker({ status: "active", employment_type: "joker" }),
+    ).toBe(true);
+    expect(
+      isAttendanceListingScopedJoker({ status: "joker", employment_type: "joker" }),
+    ).toBe(true);
+    expect(
+      isAttendanceListingScopedJoker({ status: "serving_notice", employmentType: "joker" }),
+    ).toBe(true);
+    expect(
+      isAttendanceListingScopedJoker({ status: "active", employment_type: "permanent" }),
+    ).toBe(false);
+    expect(
+      isAttendanceListingScopedJoker({ status: "terminated", employment_type: "joker" }),
+    ).toBe(false);
+    expect(
+      isAttendanceListingScopedJoker({
+        status: "active",
+        employment_type: "joker",
+        deleted_at: "2026-01-01T00:00:00.000Z",
+      }),
+    ).toBe(false);
+  });
+
+  it("unions site jokers onto the reporting-tree attendance set without dropping chart people", () => {
+    expect(
+      mergeAttendanceListingScopedJokerIds({
+        reportingTeamStaffIds: ["crew-a", "waqar"],
+        scopedJokerStaffIds: ["joker-1", "crew-a"],
+        includesScopedJokers: true,
+      }),
+    ).toEqual(["crew-a", "joker-1", "waqar"]);
+
+    expect(
+      mergeAttendanceListingScopedJokerIds({
+        reportingTeamStaffIds: ["crew-a"],
+        scopedJokerStaffIds: ["joker-1"],
+        includesScopedJokers: false,
+      }),
+    ).toEqual(["crew-a"]);
   });
 });
 

@@ -1,9 +1,11 @@
-import { isHeadOfOperationsTitle } from "@/lib/attendance-hr/missed-punch-approval";
+import { isHeadOfOperationsTitle, isSiteSupervisorTitle } from "@/lib/attendance-hr/missed-punch-approval";
+import { isRosterAssignableStaffStatus } from "@/lib/attendance-hr/roster-register-scope";
 import { reportingDescendants } from "@/lib/reporting-chain";
 import { viewerRollsUpSupervisorTeam } from "@/lib/manager-supervisor-team";
 import { orgTitleForcesTeamLocationScope } from "@/lib/reporting-manager-locations";
 import { canUserDo, type AppRole } from "@/lib/rbac";
 import { canEditAttendanceMapping, type SiteOpsIdentity } from "@/lib/site-ops-access";
+import { isJokerStaff } from "@/lib/staff-status";
 
 /** Person-by-person attendance listing. Same route the Attendance listing tab already uses. */
 export const ATTENDANCE_LISTING_HREF = "/people/attendance/reports";
@@ -221,6 +223,54 @@ export function attendanceListingTeamStaffIds(input: {
     viewerRollsUpSupervisorTeam(input.viewerJobTitle, input.viewerStaffRole)
   ) {
     ids.add(input.viewerStaffId);
+  }
+  return [...ids].sort();
+}
+
+/**
+ * Venue / Site / Sr. Site supervisors see jokers by home/work site, not org chart.
+ * HoO / HR stay company-wide. Cashiers and other titles stay on the reporting tree.
+ */
+export function attendanceListingIncludesScopedJokers(
+  jobTitle?: string | null,
+  staffRole?: string | null,
+): boolean {
+  return isSiteSupervisorTitle(jobTitle, staffRole);
+}
+
+/**
+ * Roster-visible joker at a supervised site (employment_type and/or status=joker).
+ * Exited staff stay out — same assignability bar as the monthly location roster.
+ */
+export function isAttendanceListingScopedJoker(staff: {
+  status?: string | null;
+  employment_type?: string | null;
+  employmentType?: string | null;
+  deletedAt?: string | null;
+  deleted_at?: string | null;
+}): boolean {
+  if (staff.deletedAt || staff.deleted_at) return false;
+  if (!isRosterAssignableStaffStatus(staff.status)) return false;
+  return isJokerStaff({
+    status: staff.status,
+    employment_type: staff.employment_type ?? staff.employmentType,
+  });
+}
+
+/**
+ * Union location-scoped jokers onto the reporting-tree attendance set.
+ * Jokers stay off the company hierarchy PDF/tree; this only widens listing ids.
+ */
+export function mergeAttendanceListingScopedJokerIds(input: {
+  reportingTeamStaffIds: readonly string[];
+  scopedJokerStaffIds: readonly string[];
+  includesScopedJokers: boolean;
+}): string[] {
+  const ids = new Set(input.reportingTeamStaffIds.filter(Boolean));
+  if (input.includesScopedJokers) {
+    for (const id of input.scopedJokerStaffIds) {
+      if (id) ids.add(id);
+    }
   }
   return [...ids].sort();
 }

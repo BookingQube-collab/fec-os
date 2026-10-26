@@ -2,7 +2,10 @@ import "server-only";
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import {
+  attendanceListingIncludesScopedJokers,
   attendanceListingTeamStaffIds,
+  isAttendanceListingScopedJoker,
+  mergeAttendanceListingScopedJokerIds,
   reportingTreeStaffIds,
 } from "@/lib/attendance-listing-access";
 import { isRosterAssignableStaffStatus } from "@/lib/attendance-hr/roster-register-scope";
@@ -444,9 +447,48 @@ export async function loadReportingTreeStaffIds(userId: string): Promise<string[
 }
 
 /**
+ * Active / roster-visible jokers whose home or dedicated work site is in scope.
+ * Used so Venue / Site / Sr. Site supervisors see joker attendance without
+ * putting those people on the company org chart.
+ */
+export async function loadActiveJokerStaffIdsAtLocations(
+  locationIds: readonly string[],
+): Promise<string[]> {
+  const assigned = await loadStaffIdsAssignedToLocations(locationIds);
+  if (assigned.length === 0) return [];
+
+  const found = new Set<string>();
+  for (let index = 0; index < assigned.length; index += 100) {
+    const chunk = assigned.slice(index, index + 100);
+    const { data, error } = await supabaseAdmin
+      .from("staff")
+      .select("id, status, employment_type, deleted_at")
+      .in("id", chunk)
+      .is("deleted_at", null);
+    if (error) throw new Error(error.message);
+    for (const row of data ?? []) {
+      if (
+        !row.id ||
+        !isAttendanceListingScopedJoker({
+          status: row.status,
+          employment_type: row.employment_type,
+          deleted_at: row.deleted_at,
+        })
+      ) {
+        continue;
+      }
+      found.add(String(row.id));
+    }
+  }
+  return [...found].sort();
+}
+
+/**
  * Attendance listing staff scope for team-scoped supervisors and managers.
  * Reporting tree plus the viewer's own staff_id when they roll up a team
  * (Venue / Site / Sr. Site / Operations / F&B supervisor or manager).
+ * Venue / Site / Sr. Site supervisors also get roster-visible jokers at their
+ * scoped venues (home + work sites) — jokers stay off the org chart.
  * Cashiers with reports keep the tree only (no self). Mapping still uses
  * {@link loadReportingTreeStaffIds} without the viewer.
  */
@@ -465,13 +507,39 @@ export async function loadAttendanceListingStaffIds(userId: string): Promise<{
     (DIRECT_REPORT_STATUSES as readonly string[]).includes((staff.status ?? "").trim().toLowerCase()) &&
     !isJokerStaffStatus(staff.status);
 
-  const teamStaffIds = attendanceListingTeamStaffIds({
+  const reportingTeamIds = attendanceListingTeamStaffIds({
     viewerStaffId: viewerActive ? staff.id : null,
     viewerJobTitle: staff.jobTitle,
     viewerStaffRole: staff.staffRole,
     reportingTreeStaffIds: treeIds,
   });
-  return { staffId: staff.id, teamStaffIds };
+
+  const includesScopedJokers = attendanceListingIncludesScopedJokers(
+    staff.jobTitle,
+    staff.staffRole,
+  );
+  if (!includesScopedJokers) {
+    return { staffId: staff.id, teamStaffIds: reportingTeamIds };
+  }
+
+  try {
+    const sites = await loadViewerScopedTeamLocations(userId, reportingTeamIds);
+    const jokerIds = await loadActiveJokerStaffIdsAtLocations(sites.map((site) => site.id));
+    return {
+      staffId: staff.id,
+      teamStaffIds: mergeAttendanceListingScopedJokerIds({
+        reportingTeamStaffIds: reportingTeamIds,
+        scopedJokerStaffIds: jokerIds,
+        includesScopedJokers: true,
+      }),
+    };
+  } catch (error) {
+    console.error(
+      "[attendance-listing] scoped joker union failed",
+      error instanceof Error ? error.message : error,
+    );
+    return { staffId: staff.id, teamStaffIds: reportingTeamIds };
+  }
 }
 
 export type TeamCoverageLocation = {
