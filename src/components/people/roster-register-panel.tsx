@@ -346,6 +346,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
     const [createStaffId, setCreateStaffId] = useState("");
     const [draft, setDraft] = useState<Draft | null>(null);
     const [deleteAllOpen, setDeleteAllOpen] = useState(false);
+    const [deleteRowId, setDeleteRowId] = useState<string | null>(null);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
     const [matrixScrollTop, setMatrixScrollTop] = useState(0);
 
@@ -632,6 +633,12 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       onError: (e: Error) => toast.error(e.message),
     });
 
+    const invalidateRosterRegister = useCallback(() => {
+      // Prefer roster-register scope over people.all so delete clicks do not
+      // synchronously wake every People query subscriber on the page.
+      void qc.invalidateQueries({ queryKey: [...queryKeys.people.all, "roster-register"] });
+    }, [qc]);
+
     const deleteMut = useMutation({
       mutationFn: async (id: string) => {
         const result = await deleteRosterAssignment({ id });
@@ -640,6 +647,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       },
       onSuccess: (_result, id) => {
         toast.success(t("people.roster.registerDeleted"));
+        setDeleteRowId(null);
         setEditingId(null);
         setDraft(null);
         setSelectedIds((prev) => {
@@ -648,7 +656,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
           next.delete(id);
           return next;
         });
-        void qc.invalidateQueries({ queryKey: queryKeys.people.all });
+        invalidateRosterRegister();
       },
       onError: (e: Error) => toast.error(e.message),
     });
@@ -672,7 +680,7 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
         setEditingId(null);
         setDraft(null);
         setSelectedIds(new Set());
-        void qc.invalidateQueries({ queryKey: queryKeys.people.all });
+        invalidateRosterRegister();
       },
       onError: (e: Error) => toast.error(e.message),
     });
@@ -732,14 +740,15 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
       setDraft(null);
     };
 
-    const confirmDelete = useCallback(
-      (id: string) => {
-        if (window.confirm(t("people.roster.registerDeleteConfirm"))) {
-          deleteMut.mutate(id);
-        }
-      },
-      [deleteMut, t],
-    );
+    const confirmDelete = useCallback((id: string) => {
+      // Non-blocking confirm — window.confirm stalls the click handler and tanks INP.
+      // Close the edit dialog first so we do not stack two modal trees.
+      setEditingId(null);
+      setCreateWorkDate(null);
+      setCreateStaffId("");
+      setDraft(null);
+      setDeleteRowId(id);
+    }, []);
 
     const onLocationFilter = useCallback((value: string) => {
       startTransition(() => setLocationId(value));
@@ -1486,6 +1495,41 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
           </DialogContent>
         </Dialog>
 
+        <AlertDialog
+          open={deleteRowId != null}
+          onOpenChange={(open) => !open && !deleteMut.isPending && setDeleteRowId(null)}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t("common.delete")}</AlertDialogTitle>
+              <AlertDialogDescription>{t("people.roster.registerDeleteConfirm")}</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deleteMut.isPending}>{t("common.cancel")}</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={deleteMut.isPending || !deleteRowId}
+                onClick={(e) => {
+                  e.preventDefault();
+                  const id = deleteRowId;
+                  if (!id) return;
+                  // Close first (urgent paint), then mutate in a transition so the
+                  // month matrix pending re-render does not block INP.
+                  setDeleteRowId(null);
+                  setEditingId(null);
+                  setDraft(null);
+                  startTransition(() => {
+                    deleteMut.mutate(id);
+                  });
+                }}
+              >
+                {deleteMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {t("common.delete")}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
         <AlertDialog open={deleteAllOpen} onOpenChange={(open) => !open && !deleteAllMut.isPending && setDeleteAllOpen(false)}>
           <AlertDialogContent>
             <AlertDialogHeader>
@@ -1509,7 +1553,11 @@ export const RosterRegisterPanel = forwardRef<RosterRegisterPanelHandle, RosterR
                 disabled={deleteAllMut.isPending || filtered.length === 0}
                 onClick={(e) => {
                   e.preventDefault();
-                  deleteAllMut.mutate(selectedCount > 0 ? selectedVisibleIds : null);
+                  const ids = selectedCount > 0 ? selectedVisibleIds : null;
+                  setDeleteAllOpen(false);
+                  startTransition(() => {
+                    deleteAllMut.mutate(ids);
+                  });
                 }}
               >
                 {deleteAllMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
