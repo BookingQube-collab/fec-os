@@ -37,9 +37,74 @@ import {
   supervisorOtStaffFieldErrors,
   resolveOtRateMultiplier,
   roundOtMinutes,
+  otSubmitterAutoCompletesSiteSeat,
+  shouldHealOtSiteSelfApprove,
   OT_DEFAULT_HOURS_PER_DAY,
 } from "./hr-ot";
 import { HR_POLICY_DEFAULTS } from "./hr-policy";
+
+describe("OT site-seat routing", () => {
+  it("keeps Venue / Site / regular supervisor submits on Sr. Site Supervisor", () => {
+    expect(otSubmitterAutoCompletesSiteSeat("Venue Supervisor", "venue_supervisor")).toBe(false);
+    expect(otSubmitterAutoCompletesSiteSeat("Site Supervisor", "venue_supervisor")).toBe(false);
+    expect(otSubmitterAutoCompletesSiteSeat("Supervisor", "other")).toBe(false);
+    expect(otSubmitterAutoCompletesSiteSeat("Production Supervisor", null)).toBe(false);
+    expect(otSubmitterAutoCompletesSiteSeat(null, "venue_supervisor")).toBe(false);
+  });
+
+  it("lets only Sr. Site Supervisor team submit auto-complete the site seat", () => {
+    expect(otSubmitterAutoCompletesSiteSeat("Sr. Site Supervisor", "venue_supervisor")).toBe(true);
+    expect(otSubmitterAutoCompletesSiteSeat("Senior Site Supervisor", null)).toBe(true);
+  });
+
+  it("heals Venue self-stamped claims waiting on HoO back to submitted", () => {
+    expect(
+      shouldHealOtSiteSelfApprove({
+        status: "manager_verified",
+        claimSource: "supervisor",
+        submittedBy: "ashfaq-user",
+        verifiedBy: "ashfaq-user",
+        submitterJobTitle: "Venue Supervisor",
+      }),
+    ).toBe(true);
+    expect(
+      shouldHealOtSiteSelfApprove({
+        status: "manager_verified",
+        claimSource: "supervisor",
+        submittedBy: "waqar-user",
+        verifiedBy: "waqar-user",
+        submitterJobTitle: "Supervisor",
+      }),
+    ).toBe(true);
+    expect(
+      shouldHealOtSiteSelfApprove({
+        status: "manager_verified",
+        claimSource: "supervisor",
+        submittedBy: "mary-user",
+        verifiedBy: "mary-user",
+        submitterJobTitle: "Sr. Site Supervisor",
+      }),
+    ).toBe(false);
+    expect(
+      shouldHealOtSiteSelfApprove({
+        status: "manager_verified",
+        claimSource: "supervisor",
+        submittedBy: "ashfaq-user",
+        verifiedBy: "mary-user",
+        submitterJobTitle: "Venue Supervisor",
+      }),
+    ).toBe(false);
+    expect(
+      shouldHealOtSiteSelfApprove({
+        status: "ops_approved",
+        claimSource: "supervisor",
+        submittedBy: "ashfaq-user",
+        verifiedBy: "ashfaq-user",
+        submitterJobTitle: "Venue Supervisor",
+      }),
+    ).toBe(false);
+  });
+});
 
 describe("OT claim transitions", () => {
   it("lets employee submit draft and cancel submitted", () => {
@@ -48,7 +113,7 @@ describe("OT claim transitions", () => {
     expect(canTransitionOt("submitted", "hr_approved", "employee")).toBe(false);
   });
 
-  it("walks site supervisor → HOO → HR → GM → payroll_posted", () => {
+  it("walks Sr. Site Supervisor → HOO → HR → GM → payroll_posted", () => {
     expect(canTransitionOt("submitted", "manager_verified", "manager")).toBe(true);
     expect(canTransitionOt("manager_verified", "ops_approved", "ops")).toBe(true);
     expect(canTransitionOt("ops_approved", "hr_approved", "hr")).toBe(true);

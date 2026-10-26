@@ -4,6 +4,8 @@
  * this module only rounds, gates the 1-hour minimum, rates, amounts, and workflow.
  */
 
+import { isSrSiteSupervisorTitle } from "@/lib/org-hierarchy";
+
 export const HR_OT_RATE_TYPES = ["weekday", "weekly_off", "public_holiday", "eid"] as const;
 export type HrOtRateType = (typeof HR_OT_RATE_TYPES)[number];
 
@@ -28,11 +30,44 @@ export type HrOtActor = "employee" | "manager" | "ops" | "gm" | "hr" | "payroll"
 
 /**
  * Approval chain:
- *   submitted → manager_verified (site supervisor) → ops_approved (Head of Operations)
- *   → hr_approved → gm_approved (General Manager) → payroll_posted
- * Approvers may send back (`changes_requested`); the submitter cancels or resubmits to
- * restart at site supervisor (`submitted`), matching missed-punch / job-request flows.
+ *   supervisor submit → submitted → manager_verified (Sr. Site Supervisor)
+ *   → ops_approved (Head of Operations) → hr_approved → gm_approved → payroll_posted
+ * Venue / Site supervisors who file for their team wait on Sr. Site Supervisor (Mary);
+ * only a Sr. Site Supervisor title may auto-complete that seat on submit (same product
+ * idea as missed-punch: submitter ≠ seat unless they hold it). Approvers may send back
+ * (`changes_requested`); the submitter cancels or resubmits to restart at `submitted`.
  */
+
+/**
+ * Supervisor OT team submit may auto-stamp `manager_verified` only when the submitter
+ * holds the Sr. Site Supervisor seat (Mary). Venue / Site / other supervisors leave the
+ * claim on `submitted` for that seat — they must not self-approve past Mary to HoO.
+ */
+export function otSubmitterAutoCompletesSiteSeat(
+  jobTitle: string | null | undefined,
+  _staffRole?: string | null | undefined,
+): boolean {
+  return isSrSiteSupervisorTitle(jobTitle);
+}
+
+/**
+ * Open supervisor OT that self-stamped the site seat without a Sr. Site Supervisor title
+ * (e.g. Venue Supervisor Ashfaq → HoO). Heal back to `submitted` for Mary.
+ */
+export function shouldHealOtSiteSelfApprove(input: {
+  status: string;
+  claimSource?: string | null;
+  submittedBy: string | null | undefined;
+  verifiedBy: string | null | undefined;
+  submitterJobTitle?: string | null;
+}): boolean {
+  if (input.status !== "manager_verified") return false;
+  if (input.claimSource && input.claimSource !== "supervisor") return false;
+  if (!input.submittedBy || !input.verifiedBy) return false;
+  if (input.submittedBy !== input.verifiedBy) return false;
+  if (otSubmitterAutoCompletesSiteSeat(input.submitterJobTitle)) return false;
+  return true;
+}
 const TRANSITIONS: Record<HrOtStatus, Partial<Record<HrOtActor, HrOtStatus[]>>> = {
   draft: {
     employee: ["submitted", "cancelled"],

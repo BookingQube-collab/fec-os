@@ -394,7 +394,11 @@ export async function loadOtSiteSupervisorNotifyUserIds(
 
     if (isSiteSupervisorTitle(mgr.job_title, mgr.staff_role) && mgr.user_id) {
       const userId = String(mgr.user_id);
-      if (exclude && userId === exclude) return [];
+      // Venue / Site submitter is excluded — keep walking to Sr. Site (Mary).
+      if (exclude && userId === exclude) {
+        cursor = managerId;
+        continue;
+      }
       return [userId];
     }
     cursor = managerId;

@@ -23,10 +23,12 @@ import {
   otApprovalQueueStatuses,
   otPayDaysPerMonth,
   otPayHoursPerDay,
+  otSubmitterAutoCompletesSiteSeat,
   resolveEligibleOtMinutes,
   resolveOtRateMultiplier,
   resolveStaffOtPayFromCompensation,
   resolveStaffOtPayFromSalaryHistory,
+  shouldHealOtSiteSelfApprove,
   shouldRefreshOtAmountForMissingBasic,
   shouldRefreshOtAmountForStalePay,
   supervisorOtClaimSlots,
@@ -524,6 +526,125 @@ async function staffPay(staffId: string): Promise<StaffOtPay> {
 }
 
 /**
+ * Venue / Site (or other non–Sr. Site) supervisor OT that self-stamped
+ * `manager_verified` and is waiting on HoO: reopen the site seat and notify Mary.
+ * Mirrors missed-punch team-submit heal. Returns how many claim rows were healed.
+ */
+async function healMisroutedOtSiteSelfApproves(): Promise<number> {
+  const { data: rows, error } = await supabaseAdmin
+    .from("hr_ot_claims")
+    .select("id, status, claim_source, submitted_by, verified_by, staff_id, location_id, work_date, request_number")
+    .eq("status", "manager_verified")
+    .eq("claim_source", "supervisor")
+    .limit(500);
+  if (error) {
+    if (tableMissing(error.message) || columnMissing(error.message)) return 0;
+    console.warn("[ot] heal site self-approve lookup failed", error.message);
+    return 0;
+  }
+  const candidates = (rows ?? []).filter(
+    (row) =>
+      row.submitted_by &&
+      row.verified_by &&
+      String(row.submitted_by) === String(row.verified_by),
+  );
+  if (!candidates.length) return 0;
+
+  const submitterIds = [...new Set(candidates.map((row) => String(row.submitted_by)))];
+  const { data: staffRows, error: staffErr } = await supabaseAdmin
+    .from("staff")
+    .select("user_id, job_title, staff_role")
+    .in("user_id", submitterIds)
+    .is("deleted_at", null);
+  if (staffErr) {
+    console.warn("[ot] heal site title lookup failed", staffErr.message);
+    return 0;
+  }
+  const titleByUser = new Map<string, string | null>();
+  for (const staff of staffRows ?? []) {
+    if (staff.user_id) {
+      titleByUser.set(String(staff.user_id), (staff.job_title as string | null) ?? null);
+    }
+  }
+
+  const toHeal = candidates.filter((row) =>
+    shouldHealOtSiteSelfApprove({
+      status: String(row.status),
+      claimSource: (row.claim_source as string | null) ?? null,
+      submittedBy: row.submitted_by ? String(row.submitted_by) : null,
+      verifiedBy: row.verified_by ? String(row.verified_by) : null,
+      submitterJobTitle: titleByUser.get(String(row.submitted_by)) ?? null,
+    }),
+  );
+  if (!toHeal.length) return 0;
+
+  const now = new Date().toISOString();
+  let healed = 0;
+  const notifiedBatches = new Set<string>();
+
+  for (const row of toHeal) {
+    const { error: updErr } = await supabaseAdmin
+      .from("hr_ot_claims")
+      .update({
+        status: "submitted",
+        approved_minutes: null,
+        verified_by: null,
+        verified_at: null,
+        verified_signer_name: null,
+        verified_signer_signature_url: null,
+        updated_at: now,
+      })
+      .eq("id", row.id)
+      .eq("status", "manager_verified")
+      .eq("verified_by", row.verified_by);
+    if (updErr) {
+      console.warn("[ot] heal site self-approve update failed", updErr.message);
+      continue;
+    }
+    healed += 1;
+
+    const batchKey = `${String(row.submitted_by)}:${String(row.staff_id)}:${String(row.request_number ?? row.id)}`;
+    if (notifiedBatches.has(batchKey)) continue;
+    notifiedBatches.add(batchKey);
+
+    try {
+      const { notifyUsers } = await import("@/lib/notifications/action-notify");
+      // Dismiss stale HoO notices for this claim id.
+      await supabaseAdmin
+        .from("notifications")
+        .update({ dismissed_at: now })
+        .eq("source_type", "hr_ot_claims")
+        .eq("source_id", String(row.id))
+        .is("dismissed_at", null)
+        .ilike("title", "%Head of Operations%");
+
+      const siteIds = await loadOtSiteSupervisorNotifyUserIds(String(row.staff_id), {
+        excludeUserId: row.submitted_by ? String(row.submitted_by) : null,
+      });
+      const when = row.work_date ? String(row.work_date).slice(0, 10) : "";
+      const number = row.request_number ? ` · ${row.request_number}` : "";
+      await notifyUsers({
+        userIds: siteIds,
+        locationId: (row.location_id as string | null) ?? null,
+        category: "hr_ot",
+        title: `Supervisor OT waiting for Sr. Site Supervisor${number}`,
+        body: `A supervisor OT request${when ? ` for ${when}` : ""}${number} was re-routed to the Sr. Site Supervisor.`,
+        severity: "warning",
+        actionUrl: "/people/hr/ot",
+        sourceType: "hr_ot_claims",
+        sourceId: String(row.id),
+      });
+    } catch (notifyError) {
+      console.warn(
+        "[ot] heal site re-notify failed",
+        notifyError instanceof Error ? notifyError.message : notifyError,
+      );
+    }
+  }
+  return healed;
+}
+
+/**
  * Persist recalculated amounts for pending claims that were frozen at 0 QAR
  * (missing basic) or computed with a stale hours/days divisor (e.g. 8 → 9).
  */
@@ -731,6 +852,18 @@ export const listOtClaims = createAuthenticatedAction(
     const canSubmit = canOtSubmit(context);
     if (!canApprove && !canVerify && !canSubmit) {
       throw new ForbiddenError("Missing OT permission.");
+    }
+
+    // Re-open Venue/Site self-approved site seats before building the queue.
+    if (canApprove || canVerify) {
+      try {
+        await healMisroutedOtSiteSelfApproves();
+      } catch (healError) {
+        console.warn(
+          "[ot] heal site self-approve failed",
+          healError instanceof Error ? healError.message : healError,
+        );
+      }
     }
 
     const mine = await myStaff(context);
@@ -1141,7 +1274,7 @@ export const submitOtClaim = createAuthenticatedAction(
           locationId: staff.location_id ?? null,
           category: "hr_ot",
           title: "OT claim submitted",
-          body: `An OT claim for ${String(staff.full_name ?? "staff")} on ${data.workDate} needs site supervisor approval.`,
+          body: `An OT claim for ${String(staff.full_name ?? "staff")} on ${data.workDate} needs Sr. Site Supervisor approval.`,
           severity: "warning",
           actionUrl: "/people/hr/ot",
           sourceType: "hr_ot_claims",
@@ -1226,6 +1359,11 @@ async function applyOtClaimAction(input: {
     approvalAction = "submitted";
   } else if (action === "verify") {
     if (!canVerify && !canApprove) throw new ForbiddenError("Manager verification required.");
+    if (isSubmitter) {
+      throw new ForbiddenError(
+        "The submitter cannot complete the Sr. Site Supervisor seat on their own request.",
+      );
+    }
     await assertOtClaimInSiteSupervisorTeam(context, String(existing.staff_id));
     actor = "manager";
     to = "manager_verified";
@@ -1248,6 +1386,22 @@ async function applyOtClaimAction(input: {
     approvalAction = "verified";
   } else if (action === "ops_approve") {
     if (!canOps) throw new ForbiddenError("Head of Operations approval required.");
+    // Heal this row first so HoO cannot approve a Venue self-stamp that skipped Mary.
+    try {
+      await healMisroutedOtSiteSelfApproves();
+    } catch {
+      /* non-blocking; transition still validates current status */
+    }
+    const { data: fresh } = await claimDb
+      .from("hr_ot_claims")
+      .select("status")
+      .eq("id", claimId)
+      .maybeSingle();
+    if (fresh && String(fresh.status) === "submitted") {
+      throw new Error(
+        "This OT request was re-routed to the Sr. Site Supervisor and is no longer waiting on Head of Operations.",
+      );
+    }
     actor = "ops";
     to = "ops_approved";
     assertOtTransition(from, to, actor);
@@ -1501,7 +1655,7 @@ async function applyOtClaimAction(input: {
           locationId: locId,
           category: "hr_ot",
           title: action === "resubmit" ? "OT claim resubmitted" : "OT claim submitted",
-          body: `OT for ${staffName} on ${String(existing.work_date).slice(0, 10)} needs site supervisor approval.`,
+          body: `OT for ${staffName} on ${String(existing.work_date).slice(0, 10)} needs Sr. Site Supervisor approval.`,
           severity: "warning",
           actionUrl: "/people/hr/ot",
           sourceType: "hr_ot_claims",
@@ -1514,7 +1668,7 @@ async function applyOtClaimAction(input: {
           locationId: locId,
           category: "hr_ot",
           title: "OT claim ready for Head of Operations",
-          body: `OT for ${staffName} on ${String(existing.work_date).slice(0, 10)} was site supervisor approved and needs HOO preview/approve.`,
+          body: `OT for ${staffName} on ${String(existing.work_date).slice(0, 10)} was Sr. Site Supervisor approved and needs HOO preview/approve.`,
           severity: "warning",
           actionUrl: "/people/hr/ot",
           sourceType: "hr_ot_claims",
@@ -1758,7 +1912,7 @@ export const actOnOtRequestBatch = createAuthenticatedAction(
           locationId: locId,
           category: "hr_ot",
           title: "OT request resubmitted",
-          body: `OT request (${rows.length} day(s): ${dates}) was resubmitted and needs site supervisor approval.`,
+          body: `OT request (${rows.length} day(s): ${dates}) was resubmitted and needs Sr. Site Supervisor approval.`,
           severity: "warning",
           actionUrl: "/people/hr/ot",
           sourceType: "hr_ot_claims",
@@ -2259,9 +2413,10 @@ export const submitSupervisorOtClaim = createAuthenticatedAction(
 
     const now = new Date().toISOString();
     const linked = await loadLinkedStaffRecord(context.userId);
-    // Site supervisor filing for their tree already did the verify step.
+    // Only Sr. Site Supervisor (Mary) auto-completes the site seat. Venue / Site
+    // supervisors submit and wait on that seat — same idea as missed-punch routing.
     const siteSupervisorFiling = Boolean(
-      linked && isSiteSupervisorTitle(linked.jobTitle, linked.staffRole),
+      linked && otSubmitterAutoCompletesSiteSeat(linked.jobTitle, linked.staffRole),
     );
     const initialStatus: HrOtStatus = siteSupervisorFiling ? "manager_verified" : "submitted";
     const siteSig = siteSupervisorFiling ? await otActorSignatureSnapshot(context) : null;
@@ -2706,7 +2861,7 @@ export const reviseSupervisorOtRequest = createAuthenticatedAction(
           locationId,
           category: "hr_ot",
           title: "OT request resubmitted",
-          body: `OT request (${days.length} day(s): ${datesLabel}) was edited and resubmitted and needs site supervisor approval.`,
+          body: `OT request (${days.length} day(s): ${datesLabel}) was edited and resubmitted and needs Sr. Site Supervisor approval.`,
           severity: "warning",
           actionUrl: "/people/hr/ot",
           sourceType: "hr_ot_claims",
