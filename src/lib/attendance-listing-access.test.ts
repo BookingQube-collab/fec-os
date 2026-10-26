@@ -11,6 +11,7 @@ import {
   canSeeAttendanceListing,
   canSeeAttendanceMapping,
   isAttendanceListingScopedJoker,
+  isAttendanceListingTreeStaffStatus,
   mergeAttendanceListingScopedJokerIds,
   reportingTreeStaffIds,
   resolveAttendanceListingStaffConstraint,
@@ -165,6 +166,31 @@ describe("attendance listing access", () => {
         reportingTreeStaffIds: ["helper"],
       }),
     ).toEqual(["helper"]);
+  });
+
+  it("keeps terminated and resigned people on the attendance listing tree for supervisors", () => {
+    for (const status of [null, "", "active", "probation", "secondment", "remote", "on_leave", "serving_notice"]) {
+      expect(isAttendanceListingTreeStaffStatus(status)).toBe(true);
+    }
+    for (const status of ["terminated", "resigned", "contract_finished", "released", "inactive"]) {
+      expect(isAttendanceListingTreeStaffStatus(status)).toBe(true);
+    }
+    expect(isAttendanceListingTreeStaffStatus("joker")).toBe(false);
+  });
+
+  it("still walks reporting descendants when an intermediate supervisor is terminated", () => {
+    // Mary → Waqar (terminated) → crew. Active-only trees drop Waqar and lose crew;
+    // listing keeps both so HOO parity holds for months they worked.
+    expect(
+      reportingTreeStaffIds(
+        "mary",
+        ["waqar"],
+        [
+          { staffId: "waqar", reportingManagerStaffId: "mary" },
+          { staffId: "crew", reportingManagerStaffId: "waqar" },
+        ],
+      ),
+    ).toEqual(["crew", "waqar"]);
   });
 
   it("lets Venue / Site / Sr. Site supervisors include location-scoped jokers", () => {

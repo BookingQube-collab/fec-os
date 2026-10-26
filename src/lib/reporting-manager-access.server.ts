@@ -5,6 +5,7 @@ import {
   attendanceListingIncludesScopedJokers,
   attendanceListingTeamStaffIds,
   isAttendanceListingScopedJoker,
+  isAttendanceListingTreeStaffStatus,
   mergeAttendanceListingScopedJokerIds,
   reportingTreeStaffIds,
 } from "@/lib/attendance-listing-access";
@@ -447,6 +448,57 @@ export async function loadReportingTreeStaffIds(userId: string): Promise<string[
 }
 
 /**
+ * Reporting subtree for Attendance listing (team-scoped Supervisor / Sr. Site / …).
+ * Walks through exited leads so crew under a terminated supervisor still resolve,
+ * and keeps exited people themselves so months they worked still list.
+ * Day rows without punches/roster are dropped later by listing enrichment.
+ * OT, Team overview, and corrections keep {@link loadReportingTreeStaffIds} (active only).
+ */
+export async function loadAttendanceListingReportingTreeStaffIds(userId: string): Promise<string[]> {
+  const staff = await loadLinkedStaffRecord(userId);
+  if (!staff?.id) return [];
+
+  const edges: { staffId: string; reportingManagerStaffId: string | null }[] = [];
+  const seen = new Set<string>([staff.id]);
+  let frontier = [staff.id];
+  const directReportStaffIds: string[] = [];
+  for (let depth = 0; depth < 25 && frontier.length > 0; depth += 1) {
+    const children = await reportingChildren(frontier);
+    const next: string[] = [];
+    for (const edge of children) {
+      edges.push({
+        staffId: edge.staffId,
+        reportingManagerStaffId: edge.reportingManagerStaffId,
+      });
+      if (seen.has(edge.staffId)) continue;
+      seen.add(edge.staffId);
+      next.push(edge.staffId);
+      if (depth === 0) directReportStaffIds.push(edge.staffId);
+    }
+    frontier = next;
+  }
+
+  const treeIds = reportingTreeStaffIds(staff.id, directReportStaffIds, edges);
+  if (treeIds.length === 0) return [];
+
+  const kept = new Set<string>();
+  for (let index = 0; index < treeIds.length; index += 100) {
+    const chunk = treeIds.slice(index, index + 100);
+    const { data: rows, error: staffErr } = await supabaseAdmin
+      .from("staff")
+      .select("id, status")
+      .in("id", chunk)
+      .is("deleted_at", null);
+    if (staffErr) throw new Error(staffErr.message);
+    for (const row of rows ?? []) {
+      if (!row.id || !isAttendanceListingTreeStaffStatus(row.status as string | null)) continue;
+      kept.add(String(row.id));
+    }
+  }
+  return [...kept].sort();
+}
+
+/**
  * Active / roster-visible jokers whose home or dedicated work site is in scope.
  * Used so Venue / Site / Sr. Site supervisors see joker attendance without
  * putting those people on the company org chart.
@@ -485,12 +537,13 @@ export async function loadActiveJokerStaffIdsAtLocations(
 
 /**
  * Attendance listing staff scope for team-scoped supervisors and managers.
- * Reporting tree plus the viewer's own staff_id when they roll up a team
+ * Reporting tree (including terminated / resigned who still report through the
+ * chart) plus the viewer's own staff_id when they roll up a team
  * (Venue / Site / Sr. Site / Operations / F&B supervisor or manager).
  * Venue / Site / Sr. Site supervisors also get roster-visible jokers at their
  * scoped venues (home + work sites) — jokers stay off the org chart.
  * Cashiers with reports keep the tree only (no self). Mapping still uses
- * {@link loadReportingTreeStaffIds} without the viewer.
+ * {@link loadReportingTreeStaffIds} without the viewer / without exited staff.
  */
 export async function loadAttendanceListingStaffIds(userId: string): Promise<{
   staffId: string | null;
@@ -499,10 +552,11 @@ export async function loadAttendanceListingStaffIds(userId: string): Promise<{
   // Tree walk reuses the cached linked-staff lookup; start both together.
   const [staff, treeIds] = await Promise.all([
     loadLinkedStaffRecord(userId),
-    loadReportingTreeStaffIds(userId),
+    loadAttendanceListingReportingTreeStaffIds(userId),
   ]);
   if (!staff?.id) return { staffId: null, teamStaffIds: treeIds };
 
+  // Own punches only while the viewer is still on the live roster (not exited).
   const viewerActive =
     (DIRECT_REPORT_STATUSES as readonly string[]).includes((staff.status ?? "").trim().toLowerCase()) &&
     !isJokerStaffStatus(staff.status);

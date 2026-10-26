@@ -5,7 +5,14 @@ import { viewerRollsUpSupervisorTeam } from "@/lib/manager-supervisor-team";
 import { orgTitleForcesTeamLocationScope } from "@/lib/reporting-manager-locations";
 import { canUserDo, type AppRole } from "@/lib/rbac";
 import { canEditAttendanceMapping, type SiteOpsIdentity } from "@/lib/site-ops-access";
-import { isJokerStaff } from "@/lib/staff-status";
+import {
+  isActiveRosterStaff,
+  isContractFinishedStaffStatus,
+  isJokerStaff,
+  isJokerStaffStatus,
+  isResignedStaffStatus,
+  isTerminatedStaffStatus,
+} from "@/lib/staff-status";
 
 /** Person-by-person attendance listing. Same route the Attendance listing tab already uses. */
 export const ATTENDANCE_LISTING_HREF = "/people/attendance/reports";
@@ -202,6 +209,24 @@ export function reportingTreeStaffIds(
   }
   ids.delete(viewerStaffId);
   return [...ids].sort();
+}
+
+/**
+ * Who stays on a Supervisor / Sr. Site attendance reporting tree.
+ * Active, leave, and serving notice match day-to-day team views.
+ * Terminated / resigned / contract finished stay too so months they worked
+ * still appear for team-scoped viewers (HOO already sees them company-wide).
+ * Listing enrichment still hides exited people with no punches or roster in range.
+ * Status=joker uses the location-scoped joker path instead.
+ */
+export function isAttendanceListingTreeStaffStatus(status: string | null | undefined): boolean {
+  if (isJokerStaffStatus(status)) return false;
+  if (isActiveRosterStaff(status)) return true;
+  return (
+    isTerminatedStaffStatus(status) ||
+    isResignedStaffStatus(status) ||
+    isContractFinishedStaffStatus(status)
+  );
 }
 
 /**
