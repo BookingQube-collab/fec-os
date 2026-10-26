@@ -180,7 +180,8 @@ export function MissedPunchApprovalQueue({
       toast.success(t("hr.leave.updated"));
       void qc.invalidateQueries({ queryKey: queryKeys.people.attendanceHr() });
     },
-    onError: (e: Error) => toast.error(userFacingActionError(e)),
+    onError: (e: Error) =>
+      toast.error(userFacingActionError(e, "Could not update the punch correction. Try again.")),
   });
   const rows = q.data ?? [];
   const cards = groupOpenLegacyPunchPairs(rows);
