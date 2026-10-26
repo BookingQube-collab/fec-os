@@ -94,6 +94,11 @@ export {
   pickDashboardPeriod,
   qatarTodayYmd,
 } from "./dashboard";
+export {
+  attendanceSharedKpiFlags,
+  computeSharedAttendanceKpis,
+} from "./shared-kpis";
+export type { AttendanceSharedKpis, AttendanceSharedKpiInput } from "./shared-kpis";
 export { punchHash, fileSha256 } from "./hash";
 export { mappingKey, subjectKey } from "./keys";
 export { encryptFileBuffer, decryptFileBuffer, hasAttendanceFileKey } from "./file-crypto";

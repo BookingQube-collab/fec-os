@@ -37,6 +37,7 @@ import { fetchActiveTemporaryMovesByStaffId } from "@/lib/staff-temporary-moves-
 
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import { resolveDepartmentFilterIds } from "@/lib/department-alias-resolve.server";
+import { displayDepartmentShown } from "@/lib/exclude-org-departments";
 import {
   ATTENDANCE_DAILY_LIST_COLUMNS,
   ATTENDANCE_DAILY_LIST_PAGE_SIZE,
@@ -75,7 +76,6 @@ import {
 import {
   aggregateDashboardPeriod,
   buildAbsentRowsForPeriod,
-  countRosterEmployees,
   dayRowsFromPunchesInRange,
   enumerateYmd,
   expectedStaffIds,
@@ -315,6 +315,8 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
     dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     month: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+    /** Same show-only org focus keys as Attendance listing (`operations` / `maintenance` / `fb_cafe`). */
+    showOrgDepartments: z.array(z.enum(["operations", "maintenance", "fb_cafe"])).optional(),
   }),
   async (data, context) => {
     const fullAttendance = canUserDo(context.roles ?? [], "attendance.view");
@@ -332,7 +334,7 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
     const readDb = teamIds ? supabaseAdmin : context.supabase;
     let staffQuery = readDb
       .from("staff")
-      .select("id, location_id, status, employment_type")
+      .select("id, location_id, status, employment_type, department, flexible_attendance, hire_date")
       .is("deleted_at", null);
     staffQuery = teamIds ? staffQuery.in("id", teamIds) : staffQuery.limit(5000);
     // Bound the "latest punch" probe — unscoped ORDER BY punch_at DESC LIMIT 1
@@ -416,10 +418,26 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
         workStaffIds = [];
       }
     }
-    const employees = countRosterEmployees(staffRes.data ?? [], {
-      locationId: data.locationId ?? null,
-      workStaffIds,
-    });
+    const showOrgDepartments = data.showOrgDepartments ?? [];
+    const staffById = new Map(
+      (staffRes.data ?? []).map((row) => [
+        row.id,
+        {
+          employment_type: row.employment_type as string | null,
+          department: (row as { department?: string | null }).department ?? null,
+          flexible_attendance: Boolean((row as { flexible_attendance?: boolean | null }).flexible_attendance),
+          hire_date: (row as { hire_date?: string | null }).hire_date
+            ? String((row as { hire_date?: string | null }).hire_date).slice(0, 10)
+            : null,
+        },
+      ]),
+    );
+    const staffMatchesOrgFocus = (staffId: string | null | undefined, department?: string | null) => {
+      if (showOrgDepartments.length === 0) return true;
+      if (!staffId) return false;
+      const dept = department ?? staffById.get(staffId)?.department ?? null;
+      return displayDepartmentShown(dept, showOrgDepartments);
+    };
 
     let pendingQ = context.supabase.from("attendance_corrections").select("id", { count: "exact", head: true }).eq("status", "pending");
     if (data.locationId) pendingQ = pendingQ.eq("location_id", data.locationId);
@@ -430,7 +448,9 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
 
     let summaryQ = readDb
       .from("attendance_daily_summary")
-      .select("location_id, staff_id, biometric_user_id, work_date, actual_in, actual_out, status, late_minutes, missed_punch, punch_count")
+      .select(
+        "location_id, staff_id, biometric_user_id, work_date, actual_in, actual_out, status, late_minutes, missed_punch, punch_count, worked_minutes, scheduled_in, scheduled_out",
+      )
       .gte("work_date", dateFrom)
       .lte("work_date", dateTo)
       .limit(20000);
@@ -456,7 +476,9 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
     const next = upcomingPeriod(dateTo, 7);
     let histQ = readDb
       .from("attendance_daily_summary")
-      .select("status, late_minutes, missed_punch")
+      .select(
+        "staff_id, status, late_minutes, missed_punch, actual_in, actual_out, worked_minutes, work_date, scheduled_in, scheduled_out",
+      )
       .gte("work_date", hist.dateFrom)
       .lte("work_date", hist.dateTo)
       .limit(20000);
@@ -527,10 +549,22 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
       uploadRows = (uploadRes.data ?? []) as typeof uploadRows;
     }
 
+    const enrichDayRow = (row: Parameters<typeof summaryToDayRow>[0]) => {
+      const staff = row.staff_id ? staffById.get(String(row.staff_id)) : undefined;
+      return summaryToDayRow({
+        ...row,
+        employment_type: staff?.employment_type ?? null,
+        flexible_attendance: staff?.flexible_attendance ?? null,
+        hire_date: staff?.hire_date ?? null,
+        department: staff?.department ?? null,
+      });
+    };
     const fromSummaries = (summaryRes.data ?? []).map((row) =>
-      summaryToDayRow(row as Parameters<typeof summaryToDayRow>[0]),
+      enrichDayRow(row as Parameters<typeof summaryToDayRow>[0]),
     );
-    const fromPunches = dayRowsFromPunchesInRange(punchRows, dateFrom, dateTo);
+    const fromPunches = dayRowsFromPunchesInRange(punchRows, dateFrom, dateTo).map((row) =>
+      enrichDayRow(row),
+    );
     let dayRows = fromSummaries.length > 0 ? fromSummaries : fromPunches;
     if (fromSummaries.length === 0) {
       const staff = staffRes.data ?? [];
@@ -578,8 +612,13 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
       const allow = new Set(teamIds);
       dayRows = dayRows.filter((row) => row.staff_id != null && allow.has(row.staff_id));
     }
+    if (showOrgDepartments.length) {
+      dayRows = dayRows.filter((row) => staffMatchesOrgFocus(row.staff_id, row.department));
+    }
 
     const agg = aggregateDashboardPeriod(dayRows, sites, data.locationId ?? null);
+    // Employees = mapped staff in the filtered person-days (same as listing Staff KPI).
+    const employees = agg.uniqueStaff;
     const frequentLate = frequentExceptionLeaders(dayRows, "late");
     const frequentMissed = frequentExceptionLeaders(dayRows, "missed");
     const watchIds = [...frequentLate, ...frequentMissed].map((row) => row.id);
@@ -596,8 +635,13 @@ export const getAttendanceHrDashboard = createAuthenticatedAction(
     let trends = emptyAvailabilityTrends();
     if (trendRows) {
       const [histRes, upcomingRes, histVisits, curVisits] = trendRows;
+      const historyRows = (histRes.data ?? []).filter((row) => {
+        if (showOrgDepartments.length === 0) return true;
+        const staffId = (row as { staff_id?: string | null }).staff_id;
+        return staffMatchesOrgFocus(staffId);
+      });
       trends = buildAvailabilityTrends({
-        historyRows: histRes.data ?? [],
+        historyRows,
         currentRows: dayRows,
         historyVisits: teamIds || histVisits.error ? 0 : histVisits.count ?? 0,
         currentVisits: teamIds || curVisits.error ? 0 : curVisits.count ?? 0,

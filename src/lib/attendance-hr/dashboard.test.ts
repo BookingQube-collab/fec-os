@@ -106,7 +106,7 @@ describe("countRosterEmployees", () => {
 });
 
 describe("dayRowsFromPunches", () => {
-  it("does not count unmatched punches as Present; site in/out still show activity", () => {
+  it("counts Present with listing hours rules; site In matches Present person-days", () => {
     const rows = dayRowsFromPunches(
       [
         {
@@ -159,9 +159,11 @@ describe("dayRowsFromPunches", () => {
       INF,
     );
 
-    expect(agg.present).toBe(1);
-    expect(agg.missedPunches).toBe(1);
-    expect(agg.bySite[0]).toMatchObject({ code: "INF-CC", in: 3, out: 2 });
+    // Unmapped complete day + mapped complete day = Present; open in-only is not Missed until day close.
+    expect(agg.present).toBe(2);
+    expect(agg.uniqueStaff).toBe(2);
+    expect(agg.bySite[0].in).toBe(agg.present);
+    expect(agg.bySite[0]).toMatchObject({ code: "INF-CC", out: 2 });
   });
 });
 
@@ -245,12 +247,37 @@ describe("mergeAttendanceSites", () => {
 });
 
 describe("frequentExceptionLeaders", () => {
+  const lateRow = (partial: Partial<Parameters<typeof frequentExceptionLeaders>[0][number]> & { staff_id: string | null; location_id: string }) => ({
+    biometric_user_id: null,
+    work_date: "2024-06-15",
+    actual_in: "2024-06-15T07:00:00.000Z",
+    actual_out: "2024-06-15T16:00:00.000Z",
+    status: "late",
+    late_minutes: 10,
+    missed_punch: false,
+    punch_count: 2,
+    ...partial,
+  });
+
+  const missedRow = (partial: Partial<Parameters<typeof frequentExceptionLeaders>[0][number]> & { staff_id: string | null; location_id: string }) => ({
+    biometric_user_id: null,
+    work_date: "2024-06-15",
+    actual_in: "2024-06-15T07:00:00.000Z",
+    actual_out: null,
+    scheduled_out: "2024-06-15T17:00:00.000Z",
+    status: "missed_punch",
+    late_minutes: 0,
+    missed_punch: true,
+    punch_count: 1,
+    ...partial,
+  });
+
   it("watchlist is mapped staff only", () => {
     const leaders = frequentExceptionLeaders(
       [
-        { staff_id: null, biometric_user_id: "9", late_minutes: 12, location_id: INF },
-        { staff_id: "abc", late_minutes: 4, location_id: INF },
-        { staff_id: "abc", late_minutes: 8, location_id: INF },
+        lateRow({ staff_id: null, biometric_user_id: "9", late_minutes: 12, location_id: INF }),
+        lateRow({ staff_id: "abc", late_minutes: 4, location_id: INF }),
+        lateRow({ staff_id: "abc", late_minutes: 8, location_id: INF }),
       ],
       "late",
     );
@@ -260,9 +287,9 @@ describe("frequentExceptionLeaders", () => {
   it("uses the site where most exceptions occurred", () => {
     const leaders = frequentExceptionLeaders(
       [
-        { staff_id: "abc", missed_punch: true, location_id: INF },
-        { staff_id: "abc", missed_punch: true, location_id: KDS },
-        { staff_id: "abc", missed_punch: true, location_id: KDS },
+        missedRow({ staff_id: "abc", location_id: INF }),
+        missedRow({ staff_id: "abc", location_id: KDS }),
+        missedRow({ staff_id: "abc", location_id: KDS }),
       ],
       "missed",
     );

@@ -1,4 +1,5 @@
 import { enumerateYmd } from "./roster-period";
+import { computeSharedAttendanceKpis, type AttendanceSharedKpiInput } from "./shared-kpis";
 
 export type AvailabilityBucket = {
   present: number;
@@ -48,23 +49,18 @@ export function upcomingPeriod(dateTo: string, days = 7): { dateFrom: string; da
   return { dateFrom: from, dateTo: addUtcDays(from, days - 1) };
 }
 
-export type DayStatusRow = {
+export type DayStatusRow = AttendanceSharedKpiInput & {
   status?: string | null;
-  late_minutes?: number | null;
-  missed_punch?: boolean | null;
 };
 
 export function tallyAvailability(rows: DayStatusRow[], visits = 0): AvailabilityBucket {
-  let present = 0;
-  let absent = 0;
-  let late = 0;
-  for (const row of rows) {
-    const status = String(row.status ?? "");
-    if (status === "present" || status === "late" || status === "overtime" || status === "early_departure" || status === "short_hours") present += 1;
-    if (status === "absent") absent += 1;
-    if (status === "late" || Number(row.late_minutes ?? 0) > 0) late += 1;
-  }
-  return { present, absent, late, visits };
+  const kpis = computeSharedAttendanceKpis(
+    rows.map((row) => ({
+      ...row,
+      status: String(row.status ?? ""),
+    })),
+  );
+  return { present: kpis.present, absent: kpis.absent, late: kpis.late, visits };
 }
 
 export function tallyUpcomingRoster(rows: Array<{ is_week_off?: boolean | null }>): { rostered: number; weekOff: number } {

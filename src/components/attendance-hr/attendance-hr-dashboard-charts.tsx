@@ -29,7 +29,9 @@ export function AttendanceHrDashboardChart({
   return (
     <ChartCard
       title={t("attendanceHr.dashboard.chartTitle", { defaultValue: "In / out by site" })}
-      subtitle={t("attendanceHr.dashboard.chartSubtitle", { defaultValue: "Mapped and unmatched punches for the selected period." })}
+      subtitle={t("attendanceHr.dashboard.chartSubtitle", {
+        defaultValue: "Present person-days (In), check-outs (Out), and Late days by site — In matches the Present KPI.",
+      })}
     >
       {!hasData ? (
         <ChartEmpty label={t("attendanceHr.dashboard.chartEmpty", { defaultValue: "No punches for this period." })} />

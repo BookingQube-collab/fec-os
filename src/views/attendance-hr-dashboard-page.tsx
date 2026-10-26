@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useState, Suspense, type ReactNode } from "react";
+import { useMemo, useState, Suspense, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { AlertTriangle, Building2, ClipboardCheck, Clock, MapPin, Upload, UserX, Users, CalendarRange, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -17,6 +17,7 @@ import {
   FecSkeleton,
   FecStatCard,
 } from "@/components/fec";
+import { OrgDepartmentsFilter } from "@/components/people/exclude-org-departments-filter";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,6 +30,11 @@ import {
   payrollMonthMatchingBounds,
   payrollMonthOf,
 } from "@/lib/attendance-hr/roster-period";
+import {
+  ALL_ORG_DEPARTMENTS_CHECKED,
+  activeShowOnlyOrgDepartments,
+  type OrgDepartmentChecks,
+} from "@/lib/exclude-org-departments";
 import { formatLocationLabel, formatLocationName, formatLocationRecord } from "@/lib/locations/normalize";
 import { retryImport } from "@/lib/retry-import";
 import { STALE } from "@/lib/query-client";
@@ -168,6 +174,11 @@ function AttendanceHrDashboardBody() {
     }
     return defaultPayrollPeriod(todayYmd());
   });
+  const [orgChecks, setOrgChecks] = useState<OrgDepartmentChecks>(ALL_ORG_DEPARTMENTS_CHECKED);
+  const showOrgDepartments = useMemo(
+    () => activeShowOnlyOrgDepartments(orgChecks, []),
+    [orgChecks],
+  );
 
   const applyMonth = (ym: string) => {
     if (!/^\d{4}-\d{2}$/.test(ym)) return;
@@ -181,6 +192,7 @@ function AttendanceHrDashboardBody() {
       dateFrom,
       dateTo,
       month,
+      showOrgDepartments,
     }),
     queryFn: () =>
       getAttendanceHrDashboard({
@@ -188,6 +200,7 @@ function AttendanceHrDashboardBody() {
         dateFrom,
         dateTo,
         month,
+        showOrgDepartments: showOrgDepartments.length ? showOrgDepartments : undefined,
       }),
     staleTime: STALE.people,
   });
@@ -254,6 +267,10 @@ function AttendanceHrDashboardBody() {
                 }
               />
             </div>
+            <div className="min-w-0 w-full max-w-full basis-full sm:w-auto sm:max-w-xs sm:basis-auto space-y-1.5">
+              <Label>{t("common.orgDepartmentsMenu", { defaultValue: "Operations, Maintenance & F&B" })}</Label>
+              <OrgDepartmentsFilter checks={orgChecks} onChange={setOrgChecks} />
+            </div>
             {fullAttendance ? (
             <Button asChild>
               <Link href="/people/attendance/import">
@@ -286,35 +303,45 @@ function AttendanceHrDashboardBody() {
           <FecStatCard
             title={t("attendanceHr.dashboard.employees", { defaultValue: "Employees" })}
             value={kpis?.employees ?? 0}
-            hint={t("attendanceHr.dashboard.employeesHint", { defaultValue: "Active roster at this location" })}
+            hint={t("attendanceHr.dashboard.employeesHint", {
+              defaultValue: "Distinct mapped staff in this period (same as listing Staff)",
+            })}
             icon={Users}
             tint="sky"
           />
           <FecStatCard
             title={t("attendanceHr.dashboard.present", { defaultValue: "Present" })}
             value={kpis?.present ?? 0}
-            hint={t("attendanceHr.dashboard.presentHint", { defaultValue: "Mapped staff with in and out" })}
+            hint={t("attendanceHr.dashboard.presentHint", {
+              defaultValue: "Present days for the selected period",
+            })}
             icon={Clock}
             tint="green"
           />
           <FecStatCard
             title={t("attendanceHr.dashboard.absent", { defaultValue: "Absent" })}
             value={kpis?.absent ?? 0}
-            hint={t("attendanceHr.dashboard.absentHint", { defaultValue: "Expected staff with no punch" })}
+            hint={t("attendanceHr.dashboard.absentHint", {
+              defaultValue: "Absent days for the selected period",
+            })}
             icon={UserX}
             tint="red"
           />
           <FecStatCard
             title={t("attendanceHr.dashboard.late", { defaultValue: "Late" })}
             value={kpis?.late ?? 0}
-            hint={t("attendanceHr.dashboard.lateHint", { defaultValue: "Mapped in after shift start" })}
+            hint={t("attendanceHr.dashboard.lateHint", {
+              defaultValue: "Late days for the selected period",
+            })}
             icon={AlertTriangle}
             tint="amber"
           />
           <FecStatCard
             title={t("attendanceHr.dashboard.missedPunches", { defaultValue: "Missed punches" })}
             value={kpis?.missedPunches ?? 0}
-            hint={t("attendanceHr.dashboard.missedHint", { defaultValue: "Mapped in without out, or out without in" })}
+            hint={t("attendanceHr.dashboard.missedHint", {
+              defaultValue: "Missed punch after day/shift close (same as listing)",
+            })}
             icon={ClipboardCheck}
             tint="orange"
           />

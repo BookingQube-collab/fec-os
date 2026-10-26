@@ -5,6 +5,11 @@ import { assignAttendanceDate, calculateDailyAttendance } from "./calculate";
 import { DEFAULT_SHIFT } from "./constants";
 import { subjectKey } from "./keys";
 import { enumerateYmd, monthBounds, payrollMonthMatchingBounds, payrollMonthOf } from "./roster-period";
+import {
+  attendanceSharedKpiFlags,
+  computeSharedAttendanceKpis,
+  type AttendanceSharedKpiInput,
+} from "./shared-kpis";
 
 export { enumerateYmd, monthBounds, payrollMonthMatchingBounds, payrollMonthOf };
 
@@ -19,7 +24,37 @@ export type AttendanceDashboardDayRow = {
   late_minutes: number;
   missed_punch: boolean;
   punch_count: number;
+  worked_minutes?: number | null;
+  break_minutes?: number | null;
+  expected_minutes?: number | null;
+  employment_type?: string | null;
+  flexible_attendance?: boolean | null;
+  scheduled_in?: string | null;
+  scheduled_out?: string | null;
+  hire_date?: string | null;
+  /** staff.department for org focus filter parity with listing. */
+  department?: string | null;
 };
+
+function dashboardRowToSharedKpiInput(row: AttendanceDashboardDayRow): AttendanceSharedKpiInput {
+  return {
+    staff_id: row.staff_id,
+    status: row.status,
+    missed_punch: row.missed_punch,
+    actual_in: row.actual_in,
+    actual_out: row.actual_out,
+    late_minutes: row.late_minutes,
+    worked_minutes: row.worked_minutes,
+    break_minutes: row.break_minutes,
+    expected_minutes: row.expected_minutes,
+    employment_type: row.employment_type,
+    flexible_attendance: row.flexible_attendance,
+    work_date: row.work_date,
+    scheduled_in: row.scheduled_in,
+    scheduled_out: row.scheduled_out,
+    hire_date: row.hire_date,
+  };
+}
 
 export type AttendanceDashboardSite = {
   locationId: string;
@@ -112,21 +147,21 @@ export function isCheckedOut(row: Pick<AttendanceDashboardDayRow, "actual_out">)
   return Boolean(row.actual_out);
 }
 
-/** Mapped staff with in and out (complete). Unmapped never count as Present. */
+/** Person-day Present using the same hours-based rules as the Attendance listing. */
 export function isMappedPresent(row: AttendanceDashboardDayRow): boolean {
-  return Boolean(row.staff_id) && isCheckedIn(row) && !row.missed_punch && row.status !== "absent" && row.status !== "late";
+  return attendanceSharedKpiFlags(dashboardRowToSharedKpiInput(row)).present;
 }
 
 export function isMappedMissed(row: AttendanceDashboardDayRow): boolean {
-  return Boolean(row.staff_id) && Boolean(row.missed_punch);
+  return attendanceSharedKpiFlags(dashboardRowToSharedKpiInput(row)).missedPunch;
 }
 
 export function isMappedLate(row: AttendanceDashboardDayRow): boolean {
-  return Boolean(row.staff_id) && Number(row.late_minutes) > 0;
+  return attendanceSharedKpiFlags(dashboardRowToSharedKpiInput(row)).late;
 }
 
 export function isMappedAbsent(row: AttendanceDashboardDayRow): boolean {
-  return Boolean(row.staff_id) && row.status === "absent";
+  return attendanceSharedKpiFlags(dashboardRowToSharedKpiInput(row)).absent;
 }
 
 /** Active / on_leave / blank roster, not terminated. Scope to home site or attached work sites. */
@@ -201,6 +236,15 @@ export function summaryToDayRow(row: {
   late_minutes?: number | null;
   missed_punch?: boolean | null;
   punch_count?: number | null;
+  worked_minutes?: number | null;
+  break_minutes?: number | null;
+  expected_minutes?: number | null;
+  scheduled_in?: string | null;
+  scheduled_out?: string | null;
+  employment_type?: string | null;
+  flexible_attendance?: boolean | null;
+  hire_date?: string | null;
+  department?: string | null;
 }): AttendanceDashboardDayRow {
   return {
     location_id: row.location_id,
@@ -213,6 +257,15 @@ export function summaryToDayRow(row: {
     late_minutes: Number(row.late_minutes ?? 0),
     missed_punch: Boolean(row.missed_punch),
     punch_count: Number(row.punch_count ?? 0),
+    worked_minutes: row.worked_minutes == null ? null : Number(row.worked_minutes),
+    break_minutes: row.break_minutes == null ? null : Number(row.break_minutes),
+    expected_minutes: row.expected_minutes == null ? null : Number(row.expected_minutes),
+    scheduled_in: row.scheduled_in ?? null,
+    scheduled_out: row.scheduled_out ?? null,
+    employment_type: row.employment_type ?? null,
+    flexible_attendance: row.flexible_attendance ?? null,
+    hire_date: row.hire_date ?? null,
+    department: row.department ?? null,
   };
 }
 
@@ -312,24 +365,29 @@ export function aggregateDashboardPeriod(
   absent: number;
   late: number;
   missedPunches: number;
+  uniqueStaff: number;
   bySite: AttendanceDashboardSite[];
 } {
   const kpiRows = kpiLocationId ? rows.filter((row) => row.location_id === kpiLocationId) : rows;
+  const kpis = computeSharedAttendanceKpis(kpiRows.map(dashboardRowToSharedKpiInput));
   return {
-    present: kpiRows.filter(isMappedPresent).length,
-    absent: kpiRows.filter(isMappedAbsent).length,
-    late: kpiRows.filter(isMappedLate).length,
-    missedPunches: kpiRows.filter(isMappedMissed).length,
+    present: kpis.present,
+    absent: kpis.absent,
+    late: kpis.late,
+    missedPunches: kpis.missedPunch,
+    uniqueStaff: kpis.uniqueStaff,
     bySite: sites.map((site) => {
       const siteRows = rows.filter((row) => row.location_id === site.id);
+      const siteKpis = computeSharedAttendanceKpis(siteRows.map(dashboardRowToSharedKpiInput));
       return {
         locationId: site.id,
         code: site.code,
         name: site.name,
         region: site.region ?? null,
-        in: siteRows.filter(isCheckedIn).length,
+        // Person-day Present (same definition as the Present KPI) — not raw punch events.
+        in: siteKpis.present,
         out: siteRows.filter(isCheckedOut).length,
-        late: siteRows.filter(isMappedLate).length,
+        late: siteKpis.late,
       };
     }),
   };
@@ -354,13 +412,7 @@ export type AttendanceWatchlistEntry = {
 };
 
 export function frequentExceptionLeaders(
-  rows: Array<{
-    staff_id: string | null;
-    location_id?: string | null;
-    biometric_user_id?: string | null;
-    late_minutes?: number | null;
-    missed_punch?: boolean | null;
-  }>,
+  rows: AttendanceDashboardDayRow[],
   kind: "late" | "missed",
   limit = 8,
 ): AttendanceWatchlistLeader[] {
@@ -368,7 +420,8 @@ export function frequentExceptionLeaders(
   const locCounts = new Map<string, Map<string, number>>();
   for (const row of rows) {
     if (!row.staff_id) continue;
-    const hit = kind === "late" ? Number(row.late_minutes) > 0 : Boolean(row.missed_punch);
+    const flags = attendanceSharedKpiFlags(dashboardRowToSharedKpiInput(row));
+    const hit = kind === "late" ? flags.late : flags.missedPunch;
     if (!hit) continue;
     counts.set(row.staff_id, (counts.get(row.staff_id) ?? 0) + 1);
     const locationId = row.location_id?.trim();

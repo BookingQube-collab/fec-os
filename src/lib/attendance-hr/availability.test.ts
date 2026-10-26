@@ -13,14 +13,37 @@ describe("previousPeriod / upcomingPeriod", () => {
 });
 
 describe("tallyAvailability", () => {
-  it("counts present, absent, late, and visits", () => {
+  it("counts present, absent, late, and visits with listing status rules", () => {
     expect(
       tallyAvailability(
         [
-          { status: "present" },
-          { status: "late", late_minutes: 12 },
-          { status: "absent" },
-          { status: "present", late_minutes: 5 },
+          {
+            status: "present",
+            actual_in: "2024-05-01T05:00:00.000Z",
+            actual_out: "2024-05-01T14:00:00.000Z",
+            worked_minutes: 480,
+            expected_minutes: 480,
+            work_date: "2024-05-01",
+          },
+          {
+            status: "late",
+            late_minutes: 12,
+            actual_in: "2024-05-01T07:00:00.000Z",
+            actual_out: "2024-05-01T16:00:00.000Z",
+            worked_minutes: 480,
+            expected_minutes: 480,
+            work_date: "2024-05-01",
+          },
+          { status: "absent", actual_in: null, actual_out: null, work_date: "2024-05-01" },
+          {
+            status: "present",
+            late_minutes: 5,
+            actual_in: "2024-05-01T05:10:00.000Z",
+            actual_out: "2024-05-01T14:10:00.000Z",
+            worked_minutes: 480,
+            expected_minutes: 480,
+            work_date: "2024-05-01",
+          },
         ],
         3,
       ),
@@ -31,8 +54,28 @@ describe("tallyAvailability", () => {
 describe("buildAvailabilityTrends", () => {
   it("separates history, current, and upcoming roster", () => {
     const trends = buildAvailabilityTrends({
-      historyRows: [{ status: "present" }, { status: "absent" }],
-      currentRows: [{ status: "late", late_minutes: 8 }],
+      historyRows: [
+        {
+          status: "present",
+          actual_in: "2024-05-01T05:00:00.000Z",
+          actual_out: "2024-05-01T14:00:00.000Z",
+          worked_minutes: 480,
+          expected_minutes: 480,
+          work_date: "2024-05-01",
+        },
+        { status: "absent", actual_in: null, actual_out: null, work_date: "2024-05-01" },
+      ],
+      currentRows: [
+        {
+          status: "late",
+          late_minutes: 8,
+          actual_in: "2024-05-02T07:00:00.000Z",
+          actual_out: "2024-05-02T16:00:00.000Z",
+          worked_minutes: 480,
+          expected_minutes: 480,
+          work_date: "2024-05-02",
+        },
+      ],
       historyVisits: 4,
       currentVisits: 2,
       upcomingRows: [{ is_week_off: false }, { is_week_off: false }, { is_week_off: true }],

@@ -7,6 +7,11 @@ import {
 } from "@/lib/attendance-hr/flexible-cross-site";
 import { resolveListingLateMinutes } from "@/lib/attendance-hr/late-punch";
 import { suppressAbsentWhenPunchedSameDay } from "@/lib/attendance-hr/punch-over-absent";
+import {
+  attendanceSharedKpiFlags,
+  computeSharedAttendanceKpis,
+  type AttendanceSharedKpis,
+} from "@/lib/attendance-hr/shared-kpis";
 import { isActiveRosterStaff, isJokerStaffStatus } from "@/lib/staff-status";
 
 export type AttendanceHrReportRow = {
@@ -422,15 +427,7 @@ export function attendanceHrToListingSource(
   };
 }
 
-export type AttendanceHrReportKpis = {
-  total: number;
-  uniqueStaff: number;
-  present: number;
-  absent: number;
-  late: number;
-  missedPunch: number;
-  unscheduled: number;
-};
+export type AttendanceHrReportKpis = AttendanceSharedKpis;
 
 /** Stable staff identity for KPI unique-staff and attendance grid rows. */
 export function attendanceHrIdentityKey(row: AttendanceHrReportRow): string {
@@ -442,42 +439,31 @@ export function attendanceHrIdentityKey(row: AttendanceHrReportRow): string {
 /**
  * Counts for the HR reports KPI strip. Uses the same filtered rows as the table.
  * Staff = distinct mapped employees only — unmapped biometric identities must not inflate this tile.
+ * Definitions live in {@link computeSharedAttendanceKpis} (shared with Dashboard).
  */
 export function computeAttendanceHrReportKpis(rows: AttendanceHrReportRow[]): AttendanceHrReportKpis {
-  const mappedStaff = new Set<string>();
-  let present = 0;
-  let absent = 0;
-  let late = 0;
-  let missedPunch = 0;
-  let unscheduled = 0;
-
-  for (const row of rows) {
-    if (row.staff_id) mappedStaff.add(String(row.staff_id));
-    const listing = attendanceHrToListingSource(row);
-    const resolved = resolveHoursBasedAttendanceStatus(listing);
-    if (
-      resolved === "present" ||
-      resolved === "working" ||
-      resolved === "overtime" ||
-      resolved === "short_hours"
-    ) {
-      present += 1;
-    }
-    if (resolved === "absent") absent += 1;
-    if (resolved === "late" || Number(row.late_minutes) > 0) late += 1;
-    if (resolved === "missed_punch") missedPunch += 1;
-    if (resolved === "unscheduled") unscheduled += 1;
-  }
-
-  return {
-    total: rows.length,
-    uniqueStaff: mappedStaff.size,
-    present,
-    absent,
-    late,
-    missedPunch,
-    unscheduled,
-  };
+  return computeSharedAttendanceKpis(
+    rows.map((row) => {
+      const listing = attendanceHrToListingSource(row);
+      return {
+        staff_id: row.staff_id,
+        status: listing.status,
+        missed_punch: listing.missed_punch,
+        actual_in: listing.actual_in,
+        actual_out: listing.actual_out,
+        late_minutes: listing.late_minutes,
+        worked_minutes: listing.worked_minutes,
+        break_minutes: listing.break_minutes,
+        expected_minutes: listing.expected_minutes,
+        employment_type: listing.employment_type,
+        flexible_attendance: listing.flexible_attendance,
+        work_date: listing.work_date,
+        scheduled_in: listing.scheduled_in,
+        scheduled_out: listing.scheduled_out,
+        hire_date: listing.hire_date,
+      };
+    }),
+  );
 }
 
 /** True when the daily row is linked to a real staff record (not a bare device user). */
@@ -569,23 +555,34 @@ export function attendanceHrRowMatchesKpiFilter(
 ): boolean {
   if (!filter || filter === "total" || filter === "staff") return true;
   const listing = attendanceHrToListingSource(row);
-  const resolved = resolveHoursBasedAttendanceStatus(listing);
+  const flags = attendanceSharedKpiFlags({
+    staff_id: row.staff_id,
+    status: listing.status,
+    missed_punch: listing.missed_punch,
+    actual_in: listing.actual_in,
+    actual_out: listing.actual_out,
+    late_minutes: listing.late_minutes,
+    worked_minutes: listing.worked_minutes,
+    break_minutes: listing.break_minutes,
+    expected_minutes: listing.expected_minutes,
+    employment_type: listing.employment_type,
+    flexible_attendance: listing.flexible_attendance,
+    work_date: listing.work_date,
+    scheduled_in: listing.scheduled_in,
+    scheduled_out: listing.scheduled_out,
+    hire_date: listing.hire_date,
+  });
   switch (filter) {
     case "present":
-      return (
-        resolved === "present" ||
-        resolved === "working" ||
-        resolved === "overtime" ||
-        resolved === "short_hours"
-      );
+      return flags.present;
     case "absent":
-      return resolved === "absent";
+      return flags.absent;
     case "late":
-      return resolved === "late" || Number(row.late_minutes) > 0;
+      return flags.late;
     case "missed_punch":
-      return resolved === "missed_punch";
+      return flags.missedPunch;
     case "unscheduled":
-      return resolved === "unscheduled";
+      return flags.unscheduled;
     default:
       return true;
   }
