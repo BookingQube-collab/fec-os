@@ -5,6 +5,7 @@ import {
   decodeSignatureDataUrl,
   extensionForSignatureMime,
   isSignatureMime,
+  knockOutSignatureWhiteBackground,
   signatureStoragePath,
 } from "@/lib/digital-signature";
 
@@ -84,5 +85,20 @@ describe("signature helpers", () => {
     expect(decoded.bytes[0]).toBe(0x89);
 
     expect(() => decodeSignatureDataUrl("data:image/gif;base64,AAAA")).toThrow(/PNG, JPEG, WebP, or SVG/);
+  });
+
+  it("knocks out near-white pixels while keeping ink strokes", () => {
+    // RGBA: white, blue ink, light grey
+    const data = new Uint8ClampedArray([
+      255, 255, 255, 255, // white → transparent
+      30, 80, 200, 255, // blue ink stays
+      248, 248, 248, 200, // near-white → transparent
+      40, 40, 40, 255, // dark ink stays
+    ]);
+    knockOutSignatureWhiteBackground(data);
+    expect(data[3]).toBe(0);
+    expect(data[7]).toBe(255);
+    expect(data[11]).toBe(0);
+    expect(data[15]).toBe(255);
   });
 });

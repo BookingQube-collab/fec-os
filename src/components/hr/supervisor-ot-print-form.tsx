@@ -2,6 +2,10 @@
 
 import { useTranslation } from "react-i18next";
 
+import {
+  DIGITAL_SIGNATURE_PRINT_CSS,
+  DigitalSignatureImage,
+} from "@/components/hr/digital-signature-image";
 import { E3DocumentFooter, E3DocumentLetterhead } from "@/components/hr/e3-document-letterhead";
 import { Button } from "@/components/ui/button";
 import {
@@ -118,12 +122,11 @@ function SignatureStamp({
   const name = signature?.name?.trim() || null;
   const when = formatSignatureWhen(signature?.at);
   return (
-    <div className="flex flex-col items-center justify-center gap-0.5 px-1 py-1">
-      {/* eslint-disable-next-line @next/next/no-img-element -- signed storage URL for print */}
-      <img
+    <div className="flex flex-col items-center justify-center gap-0.5 bg-transparent px-1 py-1">
+      <DigitalSignatureImage
         src={imageUrl}
         alt={name ? `${name} signature` : "Signature"}
-        className="mx-auto max-h-14 max-w-[92%] object-contain"
+        className="max-h-14 max-w-[92%]"
       />
       {name ? (
         <span className="max-w-full truncate text-[10px] leading-tight text-neutral-800">{name}</span>
@@ -345,6 +348,7 @@ export function SupervisorOtPrintDialog({
         </DialogFooter>
 
         <style>{`
+          ${DIGITAL_SIGNATURE_PRINT_CSS}
           .e3-letterhead,
           .e3-letterhead-header,
           .e3-letterhead-footer,

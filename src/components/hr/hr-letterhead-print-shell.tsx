@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
+import { DIGITAL_SIGNATURE_PRINT_CSS } from "@/components/hr/digital-signature-image";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -60,6 +61,7 @@ export function LetterheadRequestNumber({
 }
 
 const PRINT_STYLE = `
+  ${DIGITAL_SIGNATURE_PRINT_CSS}
   .e3-letterhead,
   .e3-letterhead-header,
   .e3-letterhead-footer,

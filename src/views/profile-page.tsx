@@ -38,7 +38,9 @@ import {
   loadChatPushClientConfig,
   saveOwnPushSubscription,
 } from "@/lib/chat/push-settings.functions";
+import { DigitalSignatureImage } from "@/components/hr/digital-signature-image";
 import { SIGNATURE_MAX_BYTES, isSignatureMime } from "@/lib/digital-signature";
+import { prepareSignatureUploadDataUrl } from "@/lib/signature-client";
 import {
   deleteMyDigitalSignature,
   getMyAccountSnapshot,
@@ -331,17 +333,6 @@ export default function ProfilePage() {
     }
   };
 
-  const readFileAsDataUrl = (file: File) =>
-    new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === "string") resolve(reader.result);
-        else reject(new Error("Could not read signature file."));
-      };
-      reader.onerror = () => reject(new Error("Could not read signature file."));
-      reader.readAsDataURL(file);
-    });
-
   const onSignature = async (file: File | undefined) => {
     if (!file || signatureBusy) return;
     if (!isSignatureMime(file.type) || file.size > SIGNATURE_MAX_BYTES) {
@@ -351,7 +342,8 @@ export default function ProfilePage() {
     }
     setSignatureBusy(true);
     try {
-      const dataUrl = await readFileAsDataUrl(file);
+      // Raster uploads become transparent PNG (white flats knocked out); SVG passes through.
+      const dataUrl = await prepareSignatureUploadDataUrl(file);
       const result = await uploadMyDigitalSignature({ dataUrl });
       if (!result.ok) throw new Error(result.error);
       await digitalSignature.refetch();
@@ -670,11 +662,10 @@ export default function ProfilePage() {
                       <div className="mt-4 flex flex-wrap items-center gap-4">
                         <div className="flex h-16 w-40 items-center justify-center rounded-md border border-dashed border-border bg-muted/30 px-2">
                           {digitalSignature.data.previewUrl ? (
-                            // eslint-disable-next-line @next/next/no-img-element -- signed storage preview
-                            <img
+                            <DigitalSignatureImage
                               src={digitalSignature.data.previewUrl}
                               alt={t("account.profile.signaturePreviewAlt")}
-                              className="max-h-14 max-w-full object-contain"
+                              className="max-h-14 max-w-full"
                             />
                           ) : (
                             <span className="text-xs text-muted-foreground">—</span>

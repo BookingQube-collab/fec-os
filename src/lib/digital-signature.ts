@@ -100,3 +100,27 @@ export function extensionForSignatureMime(mime: string): string {
   if (normalized === "image/svg+xml") return "svg";
   return "png";
 }
+
+/** Near-white RGB cutoff used when normalizing scanned / flattened signature images. */
+export const SIGNATURE_WHITE_KNOCKOUT_THRESHOLD = 248;
+
+/** Longest edge after client-side signature normalize (keeps storage small). */
+export const SIGNATURE_MAX_EDGE = 900;
+
+/**
+ * Zero alpha on near-white pixels in an RGBA buffer (in place).
+ * Preserves colored ink strokes; removes opaque white flats from JPEG / non-alpha PNG exports.
+ */
+export function knockOutSignatureWhiteBackground(
+  data: Uint8ClampedArray | Uint8Array,
+  threshold = SIGNATURE_WHITE_KNOCKOUT_THRESHOLD,
+): void {
+  for (let i = 0; i + 3 < data.length; i += 4) {
+    const r = data[i]!;
+    const g = data[i + 1]!;
+    const b = data[i + 2]!;
+    if (r >= threshold && g >= threshold && b >= threshold) {
+      data[i + 3] = 0;
+    }
+  }
+}

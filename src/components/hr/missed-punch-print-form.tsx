@@ -2,6 +2,7 @@
 
 import { useTranslation } from "react-i18next";
 
+import { DigitalSignatureImage } from "@/components/hr/digital-signature-image";
 import { E3DocumentFooter, E3DocumentLetterhead } from "@/components/hr/e3-document-letterhead";
 import {
   formatLetterheadDisplayDate,
@@ -78,13 +79,12 @@ function SignatureStamp({
   const when = formatSignatureWhen(signature?.at);
   if (!imageUrl && !name && !when) return null;
   return (
-    <div className="flex flex-col items-center justify-center gap-0.5 px-1 py-1">
+    <div className="flex flex-col items-center justify-center gap-0.5 bg-transparent px-1 py-1">
       {imageUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element -- signed storage URL for print
-        <img
+        <DigitalSignatureImage
           src={imageUrl}
           alt={name ? `${name} signature` : "Signature"}
-          className="mx-auto max-h-12 max-w-[92%] object-contain"
+          className="max-h-12 max-w-[92%]"
         />
       ) : null}
       {name ? (
