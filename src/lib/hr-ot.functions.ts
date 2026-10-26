@@ -1822,12 +1822,13 @@ export const actOnOtRequestBatch = createAuthenticatedAction(
       work_date: string;
       location_id: string | null;
       request_batch_id: string | null;
+      request_number: string | null;
     }> = [];
 
     if (data.claimIds?.length) {
       const { data: byIds, error } = await claimDb
         .from("hr_ot_claims")
-        .select("id, status, staff_id, work_date, location_id, request_batch_id")
+        .select("id, status, staff_id, work_date, location_id, request_batch_id, request_number")
         .in("id", data.claimIds)
         .order("work_date", { ascending: true });
       if (error) throw error;
@@ -1835,7 +1836,7 @@ export const actOnOtRequestBatch = createAuthenticatedAction(
     } else if (data.requestBatchId) {
       const { data: byBatch, error } = await claimDb
         .from("hr_ot_claims")
-        .select("id, status, staff_id, work_date, location_id, request_batch_id")
+        .select("id, status, staff_id, work_date, location_id, request_batch_id, request_number")
         .eq("request_batch_id", data.requestBatchId)
         .order("work_date", { ascending: true });
       if (error) throw error;
@@ -1844,7 +1845,7 @@ export const actOnOtRequestBatch = createAuthenticatedAction(
       if (!rows.length) {
         const single = await claimDb
           .from("hr_ot_claims")
-          .select("id, status, staff_id, work_date, location_id, request_batch_id")
+          .select("id, status, staff_id, work_date, location_id, request_batch_id, request_number")
           .eq("id", data.requestBatchId)
           .maybeSingle();
         if (single.error) throw single.error;
