@@ -1323,35 +1323,40 @@ export default function HrOtPage() {
               </div>
               <div>
                 <Label htmlFor="ot-filter-dept">{t("hr.ot.department")}</Label>
-                <select
+                <SearchableSelect
                   id="ot-filter-dept"
-                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
                   value={department}
-                  onChange={(e) => setDepartment(e.target.value)}
-                >
-                  <option value="">{t("hr.ot.filterAllDepartments")}</option>
-                  {filterOptions.departments.map((dept) => (
-                    <option key={dept} value={dept}>
-                      {dept}
-                    </option>
-                  ))}
-                </select>
+                  onValueChange={setDepartment}
+                  aria-label={t("hr.ot.department")}
+                  placeholder={t("hr.ot.filterAllDepartments")}
+                  emptyOption={{
+                    value: "",
+                    label: t("hr.ot.filterAllDepartments"),
+                  }}
+                  options={filterOptions.departments.map((dept) => ({
+                    value: dept,
+                    label: dept,
+                  }))}
+                />
               </div>
               <div>
                 <Label htmlFor="ot-filter-loc">{t("hr.ot.filterLocation")}</Label>
-                <select
+                <SearchableSelect
                   id="ot-filter-loc"
-                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
                   value={locationId}
-                  onChange={(e) => setLocationId(e.target.value)}
-                >
-                  <option value="">{t("hr.ot.filterAllLocations")}</option>
-                  {filterOptions.locations.map((loc) => (
-                    <option key={loc.id} value={loc.id}>
-                      {loc.name}
-                    </option>
-                  ))}
-                </select>
+                  onValueChange={setLocationId}
+                  aria-label={t("hr.ot.filterLocation")}
+                  placeholder={t("hr.ot.filterAllLocations")}
+                  emptyOption={{
+                    value: "",
+                    label: t("hr.ot.filterAllLocations"),
+                  }}
+                  options={filterOptions.locations.map((loc) => ({
+                    value: loc.id,
+                    label: loc.name,
+                    keywords: loc.name,
+                  }))}
+                />
               </div>
               {hasExtraFilters ? (
                 <div className="flex items-end lg:col-span-6">
