@@ -1,5 +1,5 @@
 import {
-  ME_PUNCH_APPROVALS_HREF,
+  NOTIFICATIONS_INBOX_HREF,
   PEOPLE_CORRECTIONS_HREF,
 } from "@/lib/attendance-hr/missed-punch-approval";
 
@@ -63,7 +63,7 @@ export function mapHrNotifyEvent(event: HrNotifyEvent): HrNotifyPayload {
   const numberSuffix = number ? ` (${number})` : "";
   const actionUrl =
     event.kind === "correction_submitted"
-      ? ME_PUNCH_APPROVALS_HREF
+      ? NOTIFICATIONS_INBOX_HREF
       : event.kind === "correction_approved" || event.kind === "correction_rejected"
         ? PEOPLE_CORRECTIONS_HREF
         : event.kind.startsWith("leave")

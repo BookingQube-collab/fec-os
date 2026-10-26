@@ -25,8 +25,7 @@ import {
   correctionVisibleToUser,
   isHeadOfOperationsTitle,
   isSiteSupervisorTitle,
-  ME_PUNCH_APPROVALS_HREF,
-  PEOPLE_CORRECTIONS_HREF,
+  NOTIFICATIONS_INBOX_HREF,
   nearestSiteSupervisorUserId,
   siteApproverLocationMap,
   missedPunchCopiesExecutives,
@@ -980,7 +979,7 @@ async function notifyApprovers(args: {
       title: args.title,
       body: args.body,
       severity: "warning",
-      actionUrl: args.actionUrl ?? ME_PUNCH_APPROVALS_HREF,
+      actionUrl: args.actionUrl ?? NOTIFICATIONS_INBOX_HREF,
       sourceType: "attendance_corrections",
       sourceId: args.sourceId,
     });
@@ -1016,7 +1015,7 @@ async function notifyExecutiveObservers(args: {
       title: args.title,
       body: args.body,
       severity: "warning",
-      actionUrl: PEOPLE_CORRECTIONS_HREF,
+      actionUrl: NOTIFICATIONS_INBOX_HREF,
       sourceType: EXECUTIVE_NOTICE_SOURCE,
       sourceId: args.correctionId,
     });
@@ -1303,7 +1302,7 @@ export async function submitMissedPunchRequest(args: {
       title: hrTitle,
       body: hrBody,
       sourceId: created.id as string,
-      actionUrl: ME_PUNCH_APPROVALS_HREF,
+      actionUrl: NOTIFICATIONS_INBOX_HREF,
     });
     return {
       id: created.id as string,
@@ -1327,7 +1326,7 @@ export async function submitMissedPunchRequest(args: {
       title: opsTitle,
       body: opsBody,
       sourceId: created.id as string,
-      actionUrl: ME_PUNCH_APPROVALS_HREF,
+      actionUrl: NOTIFICATIONS_INBOX_HREF,
     });
     await notifyExecutiveObservers({
       step: "ops",
@@ -1366,7 +1365,7 @@ export async function submitMissedPunchRequest(args: {
       title: opsTitle,
       body: opsBody,
       sourceId: created.id as string,
-      actionUrl: ME_PUNCH_APPROVALS_HREF,
+      actionUrl: NOTIFICATIONS_INBOX_HREF,
     });
     await notifyExecutiveObservers({
       step: "ops",
@@ -1819,7 +1818,7 @@ async function reviewOneMissedPunchChain(args: {
     title: nextTitle,
     body: nextBody,
     sourceId: row.id,
-    actionUrl: ME_PUNCH_APPROVALS_HREF,
+    actionUrl: NOTIFICATIONS_INBOX_HREF,
   });
   await notifyExecutiveObservers({
     step: next,
@@ -2102,7 +2101,7 @@ export async function resubmitMissedPunchRequest(args: {
       title: "Missed punch updated — General Manager",
       body: `${who} ${updatedVerb} a punch correction for ${workDate}. It is still waiting for General Manager.`,
       sourceId: args.correctionId,
-      actionUrl: ME_PUNCH_APPROVALS_HREF,
+      actionUrl: NOTIFICATIONS_INBOX_HREF,
     });
     return {
       id: args.correctionId,
@@ -2125,7 +2124,7 @@ export async function resubmitMissedPunchRequest(args: {
         ? `${managerName} requested and approved a punch correction for ${who} on ${workDate}. It is waiting for HR.`
         : `${who} ${updatedVerb} a punch correction for ${workDate}. It is still waiting for HR.`,
       sourceId: args.correctionId,
-      actionUrl: ME_PUNCH_APPROVALS_HREF,
+      actionUrl: NOTIFICATIONS_INBOX_HREF,
     });
     return {
       id: args.correctionId,
@@ -2155,7 +2154,7 @@ export async function resubmitMissedPunchRequest(args: {
       title: opsTitle,
       body: opsBody,
       sourceId: args.correctionId,
-      actionUrl: ME_PUNCH_APPROVALS_HREF,
+      actionUrl: NOTIFICATIONS_INBOX_HREF,
     });
     await notifyExecutiveObservers({
       step: "ops",

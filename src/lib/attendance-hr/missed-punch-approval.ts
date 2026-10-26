@@ -14,31 +14,45 @@ export const MISSED_PUNCH_STEP_ROLES = ["manager", "ops", "hr", "gm"] as const;
 export type MissedPunchStepRole = (typeof MISSED_PUNCH_STEP_ROLES)[number];
 export type { OpsApprovalLane };
 
-/** My Day Correction → Approve (toast / inbox click for approvers). */
+/** Bell “View all” / full notifications inbox — approver waiting notifies land here. */
+export const NOTIFICATIONS_INBOX_HREF = "/notifications";
+/** My Day Correction → Approve panel hash (page deep link only; not for inbox clicks). */
 export const ME_PUNCH_APPROVALS_HREF = "/hr/me#me-punch-approvals";
-/** Estate corrections desk (CEO observers / People HR listing). */
+/** My Day Correction tab (legacy inbox target — rewritten on read). */
+export const ME_CORRECTION_HREF = "/hr/me#me-correction";
+/** Estate corrections desk / personal request form (legacy approver target). */
 export const PEOPLE_CORRECTIONS_HREF = "/people/attendance/corrections";
 
+const STALE_APPROVER_PUNCH_INBOX_HREFS = new Set([
+  ME_PUNCH_APPROVALS_HREF,
+  ME_CORRECTION_HREF,
+  "#me-punch-approvals",
+  "#me-correction",
+]);
+
 /**
- * Approvers open My Day Approve. CEO observers keep the estate corrections desk.
- * Also rewrites older persisted notifies that still point at the People desk.
+ * Approver waiting notifies open All notifications (same as bell “View all”).
+ * Rewrites older persisted URLs that still pointed at My Day Correction or the People
+ * corrections form for `attendance_corrections` rows. Requester outcome notifies
+ * (`/hr/me`, or People desk via `attendance_hr`) pass through unchanged.
  */
 export function punchApprovalInboxActionUrl(input: {
   roles: readonly string[];
   storedUrl?: string | null;
   sourceType?: string | null;
 }): string {
-  const isCeo = input.roles.includes("ceo");
   const stored = input.storedUrl?.trim() || null;
+  if (stored && STALE_APPROVER_PUNCH_INBOX_HREFS.has(stored)) {
+    return NOTIFICATIONS_INBOX_HREF;
+  }
   if (
-    input.sourceType === "attendance_corrections" &&
     stored === PEOPLE_CORRECTIONS_HREF &&
-    !isCeo
+    (input.sourceType === "attendance_corrections" || input.sourceType == null)
   ) {
-    return ME_PUNCH_APPROVALS_HREF;
+    return NOTIFICATIONS_INBOX_HREF;
   }
   if (stored) return stored;
-  return isCeo ? PEOPLE_CORRECTIONS_HREF : ME_PUNCH_APPROVALS_HREF;
+  return NOTIFICATIONS_INBOX_HREF;
 }
 
 export type MissedPunchQueue = "waiting" | "mine";
