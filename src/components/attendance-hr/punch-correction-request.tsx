@@ -100,12 +100,8 @@ export function PunchCorrectionRequest({
       return result.data;
     },
     onSuccess: (result) => {
-      if (result.routedTo === "hr") {
-        toast.success(
-          result.approverCount === 0
-            ? "Approved and waiting for HR. No HR login is linked yet."
-            : "Approved and sent to HR.",
-        );
+      if (result.routedTo === "final") {
+        toast.success("Approved. Attendance is updated.");
       } else if (result.routedTo === "ops") {
         toast.success(
           result.approverCount === 0

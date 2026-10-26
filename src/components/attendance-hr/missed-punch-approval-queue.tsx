@@ -26,6 +26,7 @@ import {
   isEditableMissedPunchStatus,
   isMissedPunchSupervisorSubmitOnlyNote,
   isMissedPunchTeamSubmittedNote,
+  missedPunchPrintSignatureActors,
   missedPunchRequestSide,
   missedPunchTeamSubmitterName,
   punchTimeInputValue,
@@ -79,11 +80,14 @@ function toMissedPunchPrintPayload(
   const teamSubmitted = isMissedPunchTeamSubmittedNote(teamNote);
   const supervisorSubmitOnly = isMissedPunchSupervisorSubmitOnlyNote(teamNote);
   const submitterName = missedPunchTeamSubmitterName(teamNote);
-  const managerStep = row.steps.find((step) => step.stepRole === "manager");
-  const opsStep = row.steps.find((step) => step.stepRole === "ops");
-  const hrStep = row.steps.find((step) => step.stepRole === "hr");
-  const gmStep = row.steps.find((step) => step.stepRole === "gm");
-  const managerSeatDone = managerStep?.status === "approved" || managerStep?.status === "skipped";
+  const seats = missedPunchPrintSignatureActors({
+    steps: row.steps,
+    supervisorSubmitOnly,
+    submitterName,
+    submitterUserId: supervisorSubmitOnly ? row.requestedBy : null,
+    submitterSignatureUrl: row.requesterSignatureUrl,
+    requestedAt: row.requestedAt,
+  });
   return {
     requestNumber: row.requestNumber,
     requestDate: row.requestedAt.slice(0, 10),
@@ -109,15 +113,21 @@ function toMissedPunchPrintPayload(
       actedByName: step.actedByName,
       actedAt: step.actedAt,
     })),
-    supervisorSignature: supervisorSubmitOnly
-      ? { name: submitterName, at: row.requestedAt }
-      : null,
-    siteSignature: managerSeatDone
-      ? { name: managerStep?.actedByName ?? null, at: managerStep?.actedAt ?? null }
-      : { name: null, at: null },
-    hooSignature: { name: opsStep?.actedByName ?? null, at: opsStep?.actedAt ?? null },
-    hrSignature: { name: hrStep?.actedByName ?? null, at: hrStep?.actedAt ?? null },
-    gmSignature: { name: gmStep?.actedByName ?? null, at: gmStep?.actedAt ?? null },
+    supervisorSignature: {
+      name: seats.supervisor.name,
+      at: seats.supervisor.at,
+      imageUrl: seats.supervisor.imageUrl,
+    },
+    siteSignature: {
+      name: seats.site.name,
+      at: seats.site.at,
+      imageUrl: seats.site.imageUrl,
+    },
+    hooSignature: {
+      name: seats.hoo.name,
+      at: seats.hoo.at,
+      imageUrl: seats.hoo.imageUrl,
+    },
   };
 }
 
@@ -199,11 +209,11 @@ export function MissedPunchApprovalQueue({
               <p className="font-medium">No missed punch requests are waiting on you.</p>
               <p className="text-muted-foreground">
                 A correction for yourself goes to your site supervisor (Sr. Site Supervisor), then Head
-                of Operations (or F&B Manager for F&B staff), then HR, then General Manager. When your
-                reporting manager is already that ops seat, the request waits there first. A regular
-                supervisor team correction waits on the Sr. Site Supervisor first; only a Venue / Site /
-                Sr. Site supervisor title may approve that seat on submit, then ops, HR, and General
-                Manager.
+                of Operations (or F&B Manager for F&B staff). Once that ops seat approves, attendance
+                updates immediately — HR and General Manager only keep history. When your reporting
+                manager is already that ops seat, the request waits there first. A regular supervisor
+                team correction waits on the Sr. Site Supervisor first; only a Venue / Site / Sr. Site
+                supervisor title may approve that seat on submit, then ops.
               </p>
             </>
           )}

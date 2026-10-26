@@ -8,6 +8,7 @@ import {
   opsStepApproverLabel,
 } from "@/lib/approval-ops-routing";
 import { isGeneralManagerTitle } from "@/lib/attendance-hr/roster-punch-fill";
+import { STAFF_SIGNATURES_BUCKET } from "@/lib/digital-signature";
 import { loadLinkedStaffIdentity } from "@/lib/linked-staff-job-title.server";
 import { loadCanCorrectTeamAttendance } from "@/lib/site-ops-access.server";
 import { recalculateAttendanceRange } from "@/lib/attendance-hr/process";
@@ -21,11 +22,13 @@ import {
   correctionOpsLane,
   correctionStepSeed,
   correctionWaitingStep,
-  approverHistoryCorrectionRows,
+  punchCorrectionApprovedHistoryRows,
   employeeHomeCorrectionRows,
   correctionVisibleToUser,
   isHeadOfOperationsTitle,
+  isPunchCorrectionHistoryViewer,
   isSiteSupervisorTitle,
+  ME_CORRECTION_HREF,
   ME_PUNCH_APPROVALS_HREF,
   nearestSiteSupervisorUserId,
   siteApproverLocationMap,
@@ -43,6 +46,7 @@ import {
   requesterLineManagerUserIds,
   rewriteAutoApproveNoteToSupervisorSubmitted,
   shouldApplyCorrectionPunchOnApprove,
+  shouldFinalizeLegacyHrGmCorrection,
   shouldHealOwnCorrectionToOpsFirst,
   shouldHealTeamCorrectionToManagerSeat,
   supervisorTeamSubmittedNote,
@@ -117,7 +121,11 @@ export type MissedPunchQueueRow = {
     actedBy: string | null;
     actedByName: string | null;
     actedAt: string | null;
+    /** Signed URL for the actor's opt-in digital signature when available. */
+    actedBySignatureUrl: string | null;
   }>;
+  /** Signed URL for the requester's opt-in digital signature (supervisor submit stamp). */
+  requesterSignatureUrl: string | null;
   canAct: boolean;
 };
 
@@ -497,6 +505,45 @@ async function nameByUserId(userIds: string[]) {
   return names;
 }
 
+/** Opt-in auto-apply signature storage paths by profile id. */
+async function signaturePathByUserId(userIds: string[]): Promise<Map<string, string>> {
+  const ids = [...new Set(userIds.filter(Boolean))];
+  const map = new Map<string, string>();
+  if (!ids.length) return map;
+  const { data, error } = await supabaseAdmin
+    .from("profiles")
+    .select("id, signature_url, signature_auto_apply")
+    .in("id", ids);
+  if (error) {
+    console.warn("[missed-punch] signature lookup failed", error.message);
+    return map;
+  }
+  for (const row of data ?? []) {
+    const auto = Boolean((row as { signature_auto_apply?: boolean | null }).signature_auto_apply);
+    const path = (row as { signature_url?: string | null }).signature_url?.trim() || null;
+    if (auto && path) map.set(String(row.id), path);
+  }
+  return map;
+}
+
+async function signedSignatureUrls(paths: readonly string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(paths.filter(Boolean))];
+  const signed = new Map<string, string>();
+  if (!unique.length) return signed;
+  const { data, error } = await supabaseAdmin.storage
+    .from(STAFF_SIGNATURES_BUCKET)
+    .createSignedUrls(unique, 3600);
+  if (error) {
+    console.warn("[missed-punch] signature sign failed", error.message);
+    return signed;
+  }
+  for (let i = 0; i < unique.length; i += 1) {
+    const url = data?.[i]?.signedUrl?.trim();
+    if (url) signed.set(unique[i]!, url);
+  }
+  return signed;
+}
+
 function mapQueueRow(
   row: CorrectionRow,
   steps: Array<{ correction_id: string; step_role: string; status: string; acted_by: string | null; acted_at: string | null; step_order: number }>,
@@ -505,12 +552,15 @@ function mapQueueRow(
     { full_name: string | null; employee_code: string | null; department: string | null; job_title: string | null }
   >,
   actorNames: Map<string, string>,
+  signaturePaths: Map<string, string>,
+  signedUrls: Map<string, string>,
   canAct: boolean,
   previousOverride?: { previousPunchIn: string | null; previousPunchOut: string | null } | null,
 ): MissedPunchQueueRow {
   const staff = row.staff_id ? staffById.get(row.staff_id) : undefined;
   const clocks = punchesOf(row.new_value);
   const fromOriginal = previousPunchesFromOriginalValue(row.original_value);
+  const requesterPath = signaturePaths.get(String(row.requested_by)) ?? null;
   return {
     id: row.id,
     kind: String(row.kind),
@@ -538,13 +588,19 @@ function mapQueueRow(
     steps: steps
       .filter((step) => step.correction_id === row.id)
       .sort((a, b) => a.step_order - b.step_order)
-      .map((step) => ({
-        stepRole: step.step_role,
-        status: step.status,
-        actedBy: step.acted_by ? String(step.acted_by) : null,
-        actedByName: step.acted_by ? actorNames.get(step.acted_by) ?? null : null,
-        actedAt: step.acted_at,
-      })),
+      .map((step) => {
+        const actedBy = step.acted_by ? String(step.acted_by) : null;
+        const path = actedBy ? signaturePaths.get(actedBy) ?? null : null;
+        return {
+          stepRole: step.step_role,
+          status: step.status,
+          actedBy,
+          actedByName: actedBy ? actorNames.get(actedBy) ?? null : null,
+          actedAt: step.acted_at,
+          actedBySignatureUrl: path ? signedUrls.get(path) ?? null : null,
+        };
+      }),
+    requesterSignatureUrl: requesterPath ? signedUrls.get(requesterPath) ?? null : null,
     canAct,
   };
 }
@@ -641,8 +697,8 @@ export async function listMissedPunchCorrections(args: {
       .order("requested_at", { ascending: false });
   let rows: CorrectionRow[] = [];
   if ((queue === "waiting" || queue === "approved") && !args.status) {
-    // Waiting: pending + recent decided. Approved history: pending (still on HR/GM after
-    // this user approved) + fully approved — then filter to seats this user approved.
+    // Waiting: pending + recent decided. Approved history: fully approved (and any
+    // legacy pending still mid-chain that this user already approved) — then filter.
     let pendingQuery = base().eq("status", "pending").limit(queue === "approved" ? 120 : 200);
     let decidedQuery =
       queue === "approved"
@@ -677,6 +733,9 @@ export async function listMissedPunchCorrections(args: {
   const viewOf = (row: CorrectionRow) => toView(row, requesterStaff.get(String(row.requested_by)) ?? null);
   rows = await healOwnCorrectionsWaitingOnOpsManager(rows, directory, viewOf);
   rows = await healMisroutedTeamCorrectionsToManager(rows, directory, viewOf, requesterStaff);
+  rows = await healLegacyHrGmAfterOps(rows, viewOf);
+  const callerRoles = await loadCallerRoles(args.userId);
+  const historyViewer = isPunchCorrectionHistoryViewer(callerRoles);
   const visible = rows.filter((row) =>
     correctionVisibleToUser({
       queue,
@@ -692,8 +751,11 @@ export async function listMissedPunchCorrections(args: {
   );
   const steps = await loadSteps(visible.map((row) => row.id));
   const staffIds = visible.map((row) => row.staff_id).filter((id): id is string => Boolean(id));
-  const actorIds = steps.map((step) => step.acted_by).filter((id): id is string => Boolean(id));
-  const [{ data: staffRows }, actorNames] = await Promise.all([
+  const actorIds = [
+    ...steps.map((step) => step.acted_by).filter((id): id is string => Boolean(id)),
+    ...visible.map((row) => String(row.requested_by)),
+  ];
+  const [{ data: staffRows }, actorNames, signaturePaths] = await Promise.all([
     staffIds.length
       ? supabaseAdmin
           .from("staff")
@@ -709,7 +771,9 @@ export async function listMissedPunchCorrections(args: {
           }>,
         }),
     nameByUserId(actorIds),
+    signaturePathByUserId(actorIds),
   ]);
+  const signedUrls = await signedSignatureUrls([...signaturePaths.values()]);
   const staffById = new Map(
     (staffRows ?? []).map((row) => [
       row.id as string,
@@ -728,12 +792,62 @@ export async function listMissedPunchCorrections(args: {
       steps,
       staffById,
       actorNames,
+      signaturePaths,
+      signedUrls,
       canUserActOnCorrectionWithTeam(directory, args.userId, viewOf(row), teamStaffIds),
       previousById.get(row.id) ?? null,
     ),
   );
-  if (queue === "approved") return approverHistoryCorrectionRows(mapped, args.userId);
+  if (queue === "approved") {
+    return punchCorrectionApprovedHistoryRows(mapped, args.userId, { historyViewer });
+  }
   return args.actionableOnly ? employeeHomeCorrectionRows(mapped) : mapped;
+}
+
+/**
+ * Older chains left ops-accepted punches waiting on HR/GM. Close them as fully approved
+ * so attendance stays applied and HR/GM are not asked to act.
+ */
+async function healLegacyHrGmAfterOps(
+  rows: CorrectionRow[],
+  viewOf: (row: CorrectionRow) => CorrectionApprovalView,
+): Promise<CorrectionRow[]> {
+  const now = new Date().toISOString();
+  const healed: CorrectionRow[] = [];
+  for (const row of rows) {
+    const view = viewOf(row);
+    if (!shouldFinalizeLegacyHrGmCorrection(view)) {
+      healed.push(row);
+      continue;
+    }
+    const { error: corrErr } = await supabaseAdmin
+      .from("attendance_corrections")
+      .update({
+        status: "approved",
+        current_step_role: null,
+        reviewed_at: now,
+      })
+      .eq("id", row.id)
+      .eq("status", "pending")
+      .in("current_step_role", ["hr", "gm"]);
+    if (corrErr) {
+      console.warn("[missed-punch] heal legacy hr/gm failed", corrErr.message);
+      healed.push(row);
+      continue;
+    }
+    const { error: stepErr } = await supabaseAdmin
+      .from("attendance_correction_approvals")
+      .update({ status: "skipped", acted_at: now })
+      .eq("correction_id", row.id)
+      .in("step_role", ["hr", "gm"])
+      .eq("status", "pending");
+    if (stepErr && !/does not exist|schema cache|relation/i.test(stepErr.message)) {
+      console.warn("[missed-punch] heal legacy hr/gm steps failed", stepErr.message);
+    }
+    await dismissExecutiveMissedPunchNotices(row.id);
+    healed.push({ ...row, status: "approved", current_step_role: null });
+  }
+  return healed;
 }
 
 export async function countVisiblePendingCorrections(userId: string, locationId?: string | null): Promise<number> {
@@ -979,6 +1093,7 @@ async function notifyApprovers(args: {
   sourceId: string;
   /** Manager / My Day queue vs ops/HR corrections desk. */
   actionUrl?: string;
+  severity?: "info" | "warning" | "critical";
 }) {
   try {
     await notifyUsers({
@@ -987,7 +1102,7 @@ async function notifyApprovers(args: {
       category: "people",
       title: args.title,
       body: args.body,
-      severity: "warning",
+      severity: args.severity ?? "warning",
       actionUrl: args.actionUrl ?? ME_PUNCH_APPROVALS_HREF,
       sourceType: "attendance_corrections",
       sourceId: args.sourceId,
@@ -995,6 +1110,31 @@ async function notifyApprovers(args: {
   } catch (error) {
     console.warn("[missed-punch] notify failed", error instanceof Error ? error.message : error);
   }
+}
+
+/** HR / GM history watchers — info only, opens Correction (not Approve action queue). */
+async function notifyHistoryWatchers(args: {
+  directory: ApprovalDirectory;
+  locationId: string;
+  staffId: string | null;
+  excludeUserId?: string | null;
+  sourceId: string;
+  title: string;
+  body: string;
+}) {
+  const hrIds = approverUserIdsForStep(args.directory, "hr", args.locationId, args.staffId);
+  const gmIds = approverUserIdsForStep(args.directory, "gm", args.locationId, args.staffId);
+  const userIds = [...new Set([...hrIds, ...gmIds])].filter((id) => id !== args.excludeUserId);
+  if (!userIds.length) return;
+  await notifyApprovers({
+    userIds,
+    locationId: args.locationId,
+    title: args.title,
+    body: args.body,
+    sourceId: args.sourceId,
+    actionUrl: ME_CORRECTION_HREF,
+    severity: "info",
+  });
 }
 
 /** Same panel item for Admin/CEO. The HR step does not copy. */
@@ -1195,12 +1335,12 @@ export async function submitMissedPunchRequest(args: {
     previousPunchOut: summary.actual_out ? String(summary.actual_out) : null,
   };
   const approvalNote =
-    route === "ops" || route === "hr"
+    route === "ops" || route === "final"
       ? managerTeamCorrectionNote({ managerName, ...punchTrail })
       : route === "line_manager" && !isSelf
         ? supervisorTeamSubmittedNote({ supervisorName: managerName, ...punchTrail })
         : null;
-  const siteSupervisorAutoApproved = route === "ops" || route === "hr";
+  const siteSupervisorAutoApproved = route === "ops" || route === "final";
   const typedReason = args.reason.trim();
   const reason = approvalNote
     ? [typedReason.length >= 3 ? typedReason : null, approvalNote].filter(Boolean).join(" ")
@@ -1219,6 +1359,7 @@ export async function submitMissedPunchRequest(args: {
         ? { manager_requested_and_approved: false, supervisor_submitted: true }
         : {},
   });
+  const waitingStep = correctionWaitingStep(route);
   const { data: created, error: insErr } = await supabaseAdmin
     .from("attendance_corrections")
     .insert({
@@ -1236,8 +1377,10 @@ export async function submitMissedPunchRequest(args: {
       reason,
       review_note: approvalNote,
       requested_by: args.userId,
-      status: "pending",
-      current_step_role: correctionWaitingStep(route),
+      status: route === "final" ? "approved" : "pending",
+      current_step_role: waitingStep,
+      reviewed_by: route === "final" ? args.userId : null,
+      reviewed_at: route === "final" ? now : null,
       request_number: requestNumber,
     })
     .select("id, request_number")
@@ -1264,18 +1407,19 @@ export async function submitMissedPunchRequest(args: {
     const msg = stepErr.message || "Could not save approval steps.";
     if (/attendance_correction_approvals_role_chk|step_role|violates check/i.test(msg)) {
       throw new Error(
-        "Punch correction needs the General Manager approval step. Ask an admin to apply the latest database migration, then try again.",
+        "Punch correction approval steps could not be saved. Ask an admin to apply the latest database migration, then try again.",
       );
     }
     throw new Error(msg);
   }
+  void stepRows;
 
   let subjectName = managerName;
   if (!isSelf) {
     const { data: subject } = await supabaseAdmin.from("staff").select("full_name").eq("id", targetStaffId).maybeSingle();
     if (subject?.full_name) subjectName = String(subject.full_name);
   }
-  if (route === "hr") {
+  if (route === "final") {
     try {
       await writeCorrectionPunch({
         id: created.id as string,
@@ -1285,10 +1429,10 @@ export async function submitMissedPunchRequest(args: {
         summary_id: summary.id as string,
         kind: "add_punch",
         reason,
-        status: "pending",
+        status: "approved",
         requested_by: args.userId,
         requested_at: now,
-        current_step_role: "hr",
+        current_step_role: null,
         review_note: approvalNote,
         new_value: newValue,
         original_value: {
@@ -1300,25 +1444,21 @@ export async function submitMissedPunchRequest(args: {
     } catch (applyError) {
       console.warn("[missed-punch] apply team punch failed", applyError instanceof Error ? applyError.message : applyError);
     }
-    const hrIds = approverUserIdsForStep(directory, "hr", summary.location_id as string, targetStaffId).filter(
-      (id) => id !== args.userId,
-    );
-    const hrTitle = `Missed punch waiting for HR · ${requestNumber}`;
-    const hrBody = `${managerName} requested and approved a punch correction for ${subjectName} on ${workDate} (${requestNumber}). It is waiting for HR.`;
-    await notifyApprovers({
-      userIds: hrIds,
+    await notifyHistoryWatchers({
+      directory,
       locationId: summary.location_id as string,
-      title: hrTitle,
-      body: hrBody,
+      staffId: targetStaffId,
+      excludeUserId: args.userId,
       sourceId: created.id as string,
-      actionUrl: ME_PUNCH_APPROVALS_HREF,
+      title: `Punch correction approved · ${requestNumber}`,
+      body: `${managerName} approved a punch correction for ${subjectName} on ${workDate} (${requestNumber}). Attendance is updated.`,
     });
     return {
       id: created.id as string,
       requestNumber,
-      approverCount: hrIds.length,
+      approverCount: 0,
       locationId: summary.location_id as string,
-      routedTo: "hr" as const,
+      routedTo: "final" as const,
     };
   }
   if (route === "ops") {
@@ -1776,6 +1916,16 @@ async function reviewOneMissedPunchChain(args: {
         comments: args.reviewNote ?? null,
       });
     }
+    // Skip any leftover legacy HR/GM pending seats when ops (or a heal) closes the chain.
+    const { error: skipLegacyErr } = await supabaseAdmin
+      .from("attendance_correction_approvals")
+      .update({ status: "skipped", acted_at: now })
+      .eq("correction_id", args.correctionId)
+      .in("step_role", ["hr", "gm"])
+      .eq("status", "pending");
+    if (skipLegacyErr && !/does not exist|schema cache|relation/i.test(skipLegacyErr.message)) {
+      console.warn("[missed-punch] skip legacy hr/gm failed", skipLegacyErr.message);
+    }
     if (String(row.kind) !== "add_punch") await args.applyFinal(row);
     else if (!shouldWritePunch) await writeCorrectionPunch(row);
     await dismissExecutiveMissedPunchNotices(row.id);
@@ -1786,6 +1936,21 @@ async function reviewOneMissedPunchChain(args: {
       body: `Your missed punch request${row.work_date ? ` for ${String(row.work_date).slice(0, 10)}` : ""} was approved.`,
       sourceId: row.id,
       actionUrl: "/hr/me",
+    });
+    const { data: person } = row.staff_id
+      ? await supabaseAdmin.from("staff").select("full_name").eq("id", row.staff_id).maybeSingle()
+      : { data: null };
+    const who = (person?.full_name as string | null) ?? "Staff";
+    const when = row.work_date ? String(row.work_date).slice(0, 10) : "";
+    const number = row.request_number ? ` · ${row.request_number}` : "";
+    await notifyHistoryWatchers({
+      directory,
+      locationId: String(row.location_id),
+      staffId: row.staff_id ? String(row.staff_id) : null,
+      excludeUserId: args.userId,
+      sourceId: row.id,
+      title: `Punch correction approved${number}`,
+      body: `${who}'s punch correction${when ? ` for ${when}` : ""} was approved. Attendance is updated.`,
     });
     return { ok: true, final: true, nextStep: null, locationId: String(row.location_id) };
   }
@@ -1810,18 +1975,9 @@ async function reviewOneMissedPunchChain(args: {
   const who = (person?.full_name as string | null) ?? "Staff";
   const when = row.work_date ? ` on ${String(row.work_date).slice(0, 10)}` : "";
   const opsLabel = opsStepApproverLabel(correctionOpsLane(directory, row.staff_id ? String(row.staff_id) : null));
-  const nextTitle =
-    next === "ops"
-      ? `Missed punch waiting for ${opsLabel}`
-      : next === "gm"
-        ? "Missed punch waiting for General Manager"
-        : "Missed punch waiting for HR";
-  const nextBody =
-    next === "ops"
-      ? `${who}'s missed punch${when} was approved by their site supervisor.`
-      : next === "gm"
-        ? `${who}'s missed punch${when} was approved by HR.`
-        : `${who}'s missed punch${when} was approved by ${opsLabel}.`;
+  // Only manager → ops remains on the active ladder (HR/GM no longer receive action notifies).
+  const nextTitle = `Missed punch waiting for ${opsLabel}`;
+  const nextBody = `${who}'s missed punch${when} was approved by their site supervisor.`;
   await notifyApprovers({
     userIds: nextIds,
     locationId: String(row.location_id),
@@ -1956,12 +2112,12 @@ export async function resubmitMissedPunchRequest(args: {
     previousPunchOut: typeof original.actual_out === "string" ? original.actual_out : null,
   };
   const approvalNote =
-    route === "ops" || route === "hr"
+    route === "ops" || route === "final"
       ? managerTeamCorrectionNote({ managerName, ...punchTrail })
       : route === "line_manager" && !isSelf
         ? supervisorTeamSubmittedNote({ supervisorName: managerName, ...punchTrail })
         : null;
-  const siteSupervisorAutoApproved = route === "ops" || route === "hr";
+  const siteSupervisorAutoApproved = route === "ops" || route === "final";
   const typedReason = args.reason.trim();
   const reason = approvalNote
     ? [typedReason.length >= 3 ? typedReason : null, approvalNote].filter(Boolean).join(" ")
@@ -1985,16 +2141,17 @@ export async function resubmitMissedPunchRequest(args: {
   });
 
   if (wasChangeRequired) {
+    const waitingOnResubmit = correctionWaitingStep(route);
     const { data: updated, error: updateErr } = await supabaseAdmin
       .from("attendance_corrections")
       .update({
-        status: "pending",
-        current_step_role: correctionWaitingStep(route),
+        status: route === "final" ? "approved" : "pending",
+        current_step_role: waitingOnResubmit,
         reason,
         new_value: newValue,
         review_note: approvalNote,
-        reviewed_by: null,
-        reviewed_at: null,
+        reviewed_by: route === "final" ? args.userId : null,
+        reviewed_at: route === "final" ? now : null,
       })
       .eq("id", args.correctionId)
       .eq("status", "change_required")
@@ -2040,12 +2197,21 @@ export async function resubmitMissedPunchRequest(args: {
           const msg = stepInsErr.message || "Could not save approval steps.";
           if (/attendance_correction_approvals_role_chk|step_role|violates check/i.test(msg)) {
             throw new Error(
-              "Punch correction needs the General Manager approval step. Ask an admin to apply the latest database migration, then try again.",
+              "Punch correction approval steps could not be saved. Ask an admin to apply the latest database migration, then try again.",
             );
           }
           throw new Error(msg);
         }
       }
+    }
+    // Drop legacy HR/GM seats if this resubmit finishes at ops.
+    if (route === "final") {
+      await supabaseAdmin
+        .from("attendance_correction_approvals")
+        .update({ status: "skipped", acted_at: now })
+        .eq("correction_id", args.correctionId)
+        .in("step_role", ["hr", "gm"])
+        .eq("status", "pending");
     }
   } else {
     const { data: updated, error: updateErr } = await supabaseAdmin
@@ -2066,15 +2232,15 @@ export async function resubmitMissedPunchRequest(args: {
   const waitingStep = wasChangeRequired
     ? correctionWaitingStep(route)
     : asStep(row.current_step_role);
-  // Re-apply only after ops has accepted (waiting on HR/GM) or the submitter already held the ops seat.
-  if (waitingStep === "hr" || waitingStep === "gm" || route === "hr") {
+  // Re-apply when ops already accepted (legacy mid-chain) or this resubmit is final at ops.
+  if (waitingStep === "hr" || waitingStep === "gm" || route === "final") {
     try {
       await writeCorrectionPunch({
         ...row,
         reason,
         new_value: newValue,
         review_note: approvalNote,
-        status: "pending",
+        status: route === "final" ? "approved" : "pending",
         current_step_role: waitingStep,
       });
     } catch (applyError) {
@@ -2092,56 +2258,33 @@ export async function resubmitMissedPunchRequest(args: {
   const who = (staff?.full_name as string | null) ?? "Staff";
   const notifyRoute: PunchCorrectionRoutedTo = wasChangeRequired
     ? route
-    : row.current_step_role === "hr"
-      ? "hr"
-      : row.current_step_role === "ops"
-        ? route === "ops_first"
-          ? "ops_first"
-          : "ops"
-        : "line_manager";
+    : row.current_step_role === "ops"
+      ? route === "ops_first"
+        ? "ops_first"
+        : "ops"
+      : "line_manager";
   const updatedVerb = wasChangeRequired ? "updated" : "edited";
 
-  if (!wasChangeRequired && row.current_step_role === "gm") {
-    const gmIds = approverUserIdsForStep(directory, "gm", String(row.location_id), targetStaffId || null).filter(
-      (id) => id !== args.userId,
-    );
-    await notifyApprovers({
-      userIds: gmIds,
+  if (notifyRoute === "final") {
+    await notifyHistoryWatchers({
+      directory,
       locationId: String(row.location_id),
-      title: "Missed punch updated — General Manager",
-      body: `${who} ${updatedVerb} a punch correction for ${workDate}. It is still waiting for General Manager.`,
+      staffId: targetStaffId || null,
+      excludeUserId: args.userId,
       sourceId: args.correctionId,
-      actionUrl: ME_PUNCH_APPROVALS_HREF,
-    });
-    return {
-      id: args.correctionId,
-      requestNumber,
-      approverCount: gmIds.length,
-      locationId: String(row.location_id),
-      routedTo: "hr",
-    };
-  }
-
-  if (notifyRoute === "hr") {
-    const hrIds = approverUserIdsForStep(directory, "hr", String(row.location_id), targetStaffId || null).filter(
-      (id) => id !== args.userId,
-    );
-    await notifyApprovers({
-      userIds: hrIds,
-      locationId: String(row.location_id),
-      title: wasChangeRequired ? "Missed punch waiting for HR" : "Missed punch updated — HR",
+      title: wasChangeRequired
+        ? `Punch correction approved · ${requestNumber || args.correctionId.slice(0, 8)}`
+        : "Punch correction updated",
       body: wasChangeRequired
-        ? `${managerName} requested and approved a punch correction for ${who} on ${workDate}. It is waiting for HR.`
-        : `${who} ${updatedVerb} a punch correction for ${workDate}. It is still waiting for HR.`,
-      sourceId: args.correctionId,
-      actionUrl: ME_PUNCH_APPROVALS_HREF,
+        ? `${managerName} approved a punch correction for ${who} on ${workDate}. Attendance is updated.`
+        : `${who} ${updatedVerb} a punch correction for ${workDate}. It remains approved.`,
     });
     return {
       id: args.correctionId,
       requestNumber,
-      approverCount: hrIds.length,
+      approverCount: 0,
       locationId: String(row.location_id),
-      routedTo: "hr",
+      routedTo: "final",
     };
   }
   if (notifyRoute === "ops" || notifyRoute === "ops_first") {

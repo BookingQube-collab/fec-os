@@ -5,10 +5,13 @@ import {
 } from "@/lib/approval-ops-routing";
 
 /**
- * Punch-correction ladder (aligned with OT narrative):
- * supervisor submit → Sr. Site Supervisor → Head of Operations (or F&B Manager) → HR → General Manager.
+ * Punch-correction ladder (ops-final):
+ * supervisor submit → Sr. Site Supervisor → Head of Operations (or F&B Manager).
+ * HoO / F&B Manager approval is terminal — attendance applies immediately.
+ * HR and GM keep history/print access only (no approve seat).
  * Only a Venue / Site / Sr. Site supervisor title may auto-complete the manager seat on team submit.
  * A regular supervisor team-submit waits on that seat (e.g. Mary) and does not skip to HoO.
+ * Legacy rows may still carry `hr` / `gm` step roles from older chains.
  */
 export const MISSED_PUNCH_STEP_ROLES = ["manager", "ops", "hr", "gm"] as const;
 export type MissedPunchStepRole = (typeof MISSED_PUNCH_STEP_ROLES)[number];
@@ -91,22 +94,22 @@ export type ApprovalDirectory = {
   generalManagerUserIds: readonly string[];
 };
 
+/** Active approval seats for new punch corrections (HoO / F&B is terminal). */
 export function missedPunchApprovalSteps(): Array<{ stepOrder: number; stepRole: MissedPunchStepRole }> {
   return [
     { stepOrder: 1, stepRole: "manager" },
     { stepOrder: 2, stepRole: "ops" },
-    { stepOrder: 3, stepRole: "hr" },
-    { stepOrder: 4, stepRole: "gm" },
   ];
 }
 
-/** Print-slip signature columns (supervisor submit + the four approval seats). */
+/** Print-slip signature columns (supervisor submit + site + HoO). Legacy hr/gm keys stay for older slips. */
 export type MissedPunchPrintSigKey = "supervisor" | "site" | "hoo" | "hr" | "gm";
 
 /**
  * Progressive print stamps: fill a column once that seat has approved (or was skipped).
  * Supervisor column: regular team supervisor filed (submitted, not auto-approved manager seat).
  * Site column: Sr. Site / Venue supervisor seat done (approve or title-matched auto-approve).
+ * HoO column: ops seat done. HR/GM columns are unused on the ops-final print slip.
  */
 export function missedPunchPrintSignatureDone(
   status: string | null | undefined,
@@ -118,10 +121,13 @@ export function missedPunchPrintSignatureDone(
   const seatDone = (role: MissedPunchStepRole) => {
     const seat = byRole.get(role);
     if (seat === "approved" || seat === "skipped") return true;
-    // Legacy rows approved before the GM step existed.
-    if (status === "approved" && role === "gm" && !byRole.has("gm")) return true;
-    if (status === "approved" && !seat && (role === "manager" || role === "ops" || role === "hr")) {
+    // Legacy fully-approved rows without a stored seat still stamp earlier columns.
+    if (status === "approved" && !seat && (role === "manager" || role === "ops")) {
       return true;
+    }
+    // Legacy HR/GM seats only stamp when that seat actually approved (history slips).
+    if (role === "hr" || role === "gm") {
+      return seat === "approved" || seat === "skipped";
     }
     return false;
   };
@@ -134,6 +140,61 @@ export function missedPunchPrintSignatureDone(
   if (key === "hoo") return seatDone("ops");
   if (key === "hr") return seatDone("hr");
   return seatDone("gm");
+}
+
+/**
+ * Map print seats to the people who actually acted (or filed).
+ * Supervisor = regular team submitter; site = manager seat actor; hoo = ops seat actor.
+ */
+export function missedPunchPrintSignatureActors(args: {
+  steps: ReadonlyArray<{
+    stepRole: string;
+    status: string;
+    actedBy?: string | null;
+    actedByName?: string | null;
+    actedAt?: string | null;
+    actedBySignatureUrl?: string | null;
+  }>;
+  supervisorSubmitOnly?: boolean;
+  submitterName?: string | null;
+  submitterUserId?: string | null;
+  submitterSignatureUrl?: string | null;
+  requestedAt?: string | null;
+}): {
+  supervisor: { userId: string | null; name: string | null; at: string | null; imageUrl: string | null };
+  site: { userId: string | null; name: string | null; at: string | null; imageUrl: string | null };
+  hoo: { userId: string | null; name: string | null; at: string | null; imageUrl: string | null };
+} {
+  const manager = args.steps.find((step) => step.stepRole === "manager");
+  const ops = args.steps.find((step) => step.stepRole === "ops");
+  const managerDone = manager?.status === "approved" || manager?.status === "skipped";
+  const opsDone = ops?.status === "approved" || ops?.status === "skipped";
+  return {
+    supervisor: args.supervisorSubmitOnly
+      ? {
+          userId: args.submitterUserId ?? null,
+          name: args.submitterName?.trim() || null,
+          at: args.requestedAt ?? null,
+          imageUrl: args.submitterSignatureUrl?.trim() || null,
+        }
+      : { userId: null, name: null, at: null, imageUrl: null },
+    site: managerDone
+      ? {
+          userId: manager?.actedBy ?? null,
+          name: manager?.actedByName ?? null,
+          at: manager?.actedAt ?? null,
+          imageUrl: manager?.actedBySignatureUrl?.trim() || null,
+        }
+      : { userId: null, name: null, at: null, imageUrl: null },
+    hoo: opsDone
+      ? {
+          userId: ops?.actedBy ?? null,
+          name: ops?.actedByName ?? null,
+          at: ops?.actedAt ?? null,
+          imageUrl: ops?.actedBySignatureUrl?.trim() || null,
+        }
+      : { userId: null, name: null, at: null, imageUrl: null },
+  };
 }
 
 /** Team file note: regular supervisor submitted, or site supervisor requested-and-approved. */
@@ -320,11 +381,14 @@ export function canCorrectStaffPunch(input: {
   return input.directReportStaffIds.includes(input.targetStaffId);
 }
 
-/** Where a saved correction waits: line manager, ops after team approve, ops as first seat, or HR. */
-export type PunchCorrectionRoutedTo = "line_manager" | "ops" | "ops_first" | "hr";
+/**
+ * Where a saved correction waits:
+ * line manager, ops after team approve, ops as first seat, or final (ops seat already done on submit).
+ */
+export type PunchCorrectionRoutedTo = "line_manager" | "ops" | "ops_first" | "final";
 
 /**
- * Own requests wait for the requester's line manager, then ops (HoO or F&B Manager), then HR.
+ * Own requests wait for the requester's line manager, then ops (HoO or F&B Manager).
  * A team correction returns `"ops"` as a base signal — callers refine with
  * {@link teamCorrectionRoute} so only Venue / Site / Sr. Site titles auto-approve the
  * manager seat; regular supervisors wait on that seat instead.
@@ -403,16 +467,16 @@ export function shouldHealTeamCorrectionToManagerSeat(input: {
   return true;
 }
 
-/** The step the request is waiting on after it is saved. */
-export function correctionWaitingStep(route: PunchCorrectionRoutedTo): MissedPunchStepRole {
-  if (route === "hr") return "hr";
+/** The step the request is waiting on after it is saved. Null when already final. */
+export function correctionWaitingStep(route: PunchCorrectionRoutedTo): MissedPunchStepRole | null {
+  if (route === "final") return null;
   if (route === "ops" || route === "ops_first") return "ops";
   return "manager";
 }
 
 /**
  * Team corrections by a Venue / Site / Sr. Site supervisor record the manager step as
- * approved and wait on ops (or HR when the submitter already holds ops).
+ * approved and wait on ops (or mark fully approved when the submitter already holds ops).
  * Regular supervisor team-submit uses `line_manager` (manager seat still pending).
  * Own requests leave every step pending, unless the line manager is already the ops
  * seat — then manager is skipped and ops is first.
@@ -432,11 +496,8 @@ export function correctionStepSeed(route: PunchCorrectionRoutedTo): Array<{
       }
       return { stepOrder: step.stepOrder, stepRole: step.stepRole, status: "pending" };
     }
-    if (route === "hr") {
-      if (step.stepRole === "manager" || step.stepRole === "ops") {
-        return { stepOrder: step.stepOrder, stepRole: step.stepRole, status: "approved" };
-      }
-      return { stepOrder: step.stepOrder, stepRole: step.stepRole, status: "pending" };
+    if (route === "final") {
+      return { stepOrder: step.stepOrder, stepRole: step.stepRole, status: "approved" };
     }
     if (step.stepRole === "manager") {
       return { stepOrder: step.stepOrder, stepRole: step.stepRole, status: "approved" };
@@ -642,7 +703,7 @@ export function correctionOpsLane(
 
 /**
  * Refine a team-submit base route (`punchCorrectionRoute` → `"ops"`):
- * - Submitter already holds the ops seat (HoO / F&B Manager) → `"hr"`
+ * - Submitter already holds the ops seat (HoO / F&B Manager) → `"final"` (ops is terminal)
  * - Submitter title is Venue / Site / Sr. Site supervisor → `"ops"` (manager seat auto-approved)
  * - Otherwise (regular supervisor) → `"line_manager"` (wait on Sr. Site Supervisor)
  */
@@ -651,9 +712,9 @@ export function teamCorrectionRoute(
   staffId: string | null,
   requesterUserId: string,
   requester?: { jobTitle?: string | null; staffRole?: string | null },
-): "line_manager" | "ops" | "hr" {
+): "line_manager" | "ops" | "final" {
   if (approverUserIdsForStep(directory, "ops", "", staffId).includes(requesterUserId)) {
-    return "hr";
+    return "final";
   }
   if (isSiteSupervisorTitle(requester?.jobTitle, requester?.staffRole)) {
     return "ops";
@@ -667,7 +728,7 @@ export function teamCorrectionRouteAfterOpsCheck(
   staffId: string | null,
   requesterUserId: string,
   requester?: { jobTitle?: string | null; staffRole?: string | null },
-): "line_manager" | "ops" | "hr" {
+): "line_manager" | "ops" | "final" {
   return teamCorrectionRoute(directory, staffId, requesterUserId, requester);
 }
 
@@ -693,6 +754,8 @@ export function canUserActOnCorrection(
   row: CorrectionApprovalView,
 ): boolean {
   if (row.status !== "pending" || !row.currentStepRole) return false;
+  // Ops is terminal — HR/GM never approve (legacy mid-chain rows are healed to approved).
+  if (row.currentStepRole === "hr" || row.currentStepRole === "gm") return false;
   if (userId === row.requestedBy) return false;
   return approverUserIdsForStep(directory, row.currentStepRole, row.locationId, row.staffId, {
     requestedBy: row.requestedBy,
@@ -750,17 +813,11 @@ export function correctionVisibleToUser(args: {
   if (args.row.status === "pending" && args.row.currentStepRole === "ops") {
     return managerStepApprovers(args.directory, args.row).includes(args.userId);
   }
-  if (args.row.status === "pending" && args.row.currentStepRole === "hr") {
+  // Legacy rows still waiting on retired HR/GM seats: earlier actors keep read-only history.
+  if (args.row.status === "pending" && (args.row.currentStepRole === "hr" || args.row.currentStepRole === "gm")) {
     return (
       managerStepApprovers(args.directory, args.row).includes(args.userId) ||
       approverUserIdsForStep(args.directory, "ops", args.row.locationId, args.row.staffId).includes(args.userId)
-    );
-  }
-  if (args.row.status === "pending" && args.row.currentStepRole === "gm") {
-    return (
-      managerStepApprovers(args.directory, args.row).includes(args.userId) ||
-      approverUserIdsForStep(args.directory, "ops", args.row.locationId, args.row.staffId).includes(args.userId) ||
-      approverUserIdsForStep(args.directory, "hr", args.row.locationId, args.row.staffId).includes(args.userId)
     );
   }
   return false;
@@ -906,21 +963,29 @@ export function groupOpenLegacyPunchPairs<
 }
 
 /**
- * Write attendance_logs / recalc only after ops (HoO / F&B Manager) accepts.
+ * Write attendance_logs / recalc when ops (HoO / F&B Manager) accepts — the terminal seat.
  * Site-supervisor (manager) approve advances the workflow only.
- * HR and GM re-apply idempotently (heals a failed ops write; GM is the final seat).
+ * Legacy HR/GM re-apply idempotently when healing older mid-chain rows.
  */
 export function shouldApplyCorrectionPunchOnApprove(args: {
   currentStep: MissedPunchStepRole;
   nextStep: MissedPunchStepRole | null;
 }): boolean {
+  if (args.currentStep === "ops") return true;
+  // Legacy mid-chain heal: HR/GM seats that still exist after ops already accepted.
+  if (args.currentStep === "hr" || args.currentStep === "gm") return true;
   void args.nextStep;
-  return args.currentStep !== "manager";
+  return false;
+}
+
+/** True when HoO / F&B approval closes the chain (no further approve seats). */
+export function isMissedPunchOpsTerminalStep(step: MissedPunchStepRole | null | undefined): boolean {
+  return step === "ops";
 }
 
 /**
  * Approver history: requests where this login already approved a seat
- * (ops-approved queue history for HoO, and the same for manager / HR / GM).
+ * (ops-approved queue history for HoO / site supervisors).
  */
 export function approverHistoryCorrectionRows<
   T extends { steps: ReadonlyArray<{ status: string; actedBy?: string | null }> },
@@ -929,6 +994,34 @@ export function approverHistoryCorrectionRows<
   return rows.filter((row) =>
     row.steps.some((step) => step.status === "approved" && step.actedBy === userId),
   );
+}
+
+/**
+ * HR / GM (and similar) see completed punch corrections as history only — no approve action.
+ */
+export function isPunchCorrectionHistoryViewer(roles: readonly string[]): boolean {
+  return roles.some((role) => role === "hr" || role === "branch_gm");
+}
+
+/**
+ * Approved-tab rows: personal approve history for chain actors, or all fully approved
+ * rows for HR/GM history viewers.
+ */
+export function punchCorrectionApprovedHistoryRows<
+  T extends { status: string; steps: ReadonlyArray<{ status: string; actedBy?: string | null }> },
+>(rows: readonly T[], userId: string, opts?: { historyViewer?: boolean }): T[] {
+  if (opts?.historyViewer) {
+    return rows.filter((row) => row.status === "approved");
+  }
+  return approverHistoryCorrectionRows(rows, userId);
+}
+
+/** Legacy pending rows still sitting on retired HR/GM seats after ops already accepted. */
+export function shouldFinalizeLegacyHrGmCorrection(row: {
+  status: string;
+  currentStepRole: MissedPunchStepRole | null;
+}): boolean {
+  return row.status === "pending" && (row.currentStepRole === "hr" || row.currentStepRole === "gm");
 }
 
 const HH_MM = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -1084,9 +1177,9 @@ export type AcceptedCorrectionPunch = {
 };
 
 /**
- * The punch counts once ops (HoO / F&B Manager) has accepted it.
+ * The punch counts once ops (HoO / F&B Manager) has accepted it (status approved),
+ * or on legacy rows still pending on retired HR/GM seats after ops.
  * Waiting on the site supervisor (`manager` step → currentStepRole ops) does not.
- * After ops, the request waits on HR then GM; listing may show the clocks on those seats.
  * Rejected and change-required do not.
  */
 export function correctionPunchAccepted(row: {
@@ -1095,6 +1188,7 @@ export function correctionPunchAccepted(row: {
 }): boolean {
   if (row.status === "approved") return true;
   if (row.status !== "pending") return false;
+  // Legacy: ops already applied; row was still waiting on HR/GM.
   return row.currentStepRole === "hr" || row.currentStepRole === "gm";
 }
 

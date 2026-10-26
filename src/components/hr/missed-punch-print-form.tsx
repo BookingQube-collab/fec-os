@@ -47,8 +47,6 @@ export type MissedPunchPrintPayload = {
   supervisorSignature?: MissedPunchPrintSignature | null;
   siteSignature?: MissedPunchPrintSignature | null;
   hooSignature?: MissedPunchPrintSignature | null;
-  hrSignature?: MissedPunchPrintSignature | null;
-  gmSignature?: MissedPunchPrintSignature | null;
 };
 
 function formatSignatureWhen(iso: string | null | undefined): string {
@@ -170,12 +168,6 @@ function MissedPunchSheet({ payload }: { payload: MissedPunchPrintPayload }) {
               <th className="border border-neutral-800 px-1 py-2 font-bold uppercase">
                 {t("hr.missedPunch.print.sigHoo")}
               </th>
-              <th className="border border-neutral-800 px-1 py-2 font-bold uppercase">
-                {t("hr.missedPunch.print.sigHr")}
-              </th>
-              <th className="border border-neutral-800 px-1 py-2 font-bold uppercase">
-                {t("hr.missedPunch.print.sigGm")}
-              </th>
             </tr>
           </thead>
           <tbody>
@@ -188,12 +180,6 @@ function MissedPunchSheet({ payload }: { payload: MissedPunchPrintPayload }) {
               </td>
               <td className="h-24 border border-neutral-800 align-middle">
                 <SignatureStamp done={done("hoo")} signature={payload.hooSignature} />
-              </td>
-              <td className="h-24 border border-neutral-800 align-middle">
-                <SignatureStamp done={done("hr")} signature={payload.hrSignature} />
-              </td>
-              <td className="h-24 border border-neutral-800 align-middle">
-                <SignatureStamp done={done("gm")} signature={payload.gmSignature} />
               </td>
             </tr>
           </tbody>
