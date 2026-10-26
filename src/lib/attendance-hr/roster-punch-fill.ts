@@ -18,30 +18,25 @@ export const ROSTER_FILL_MAX_DAYS = 366;
 const DEVICE_PUNCH_SOURCES = new Set(["device", "adms_push", "file_import", "api_ingest"]);
 
 /**
- * CEO is the existing ceo role (Adil).
- * General Manager is the branch_gm role, or a General Manager job title.
- * Head of Operations is regional_ops, or the Head of Operations title used on My Day.
- * A cashier, a site supervisor, and a duty manager are not included.
+ * Head of Operations only (regional_ops role, or Head of Operations job title).
+ * Sr. Site Supervisor must not fill even when they hold branch_gm for other scopes
+ * (Mary). CEO / GM / cashiers / duty managers are not included.
  */
 export function mayFillRosterDevicePunches(input: {
   roles: readonly string[];
   jobTitle?: string | null;
 }): boolean {
-  if (input.roles.includes("ceo")) return true;
-  if (input.roles.includes("branch_gm")) return true;
-  if (isGeneralManagerTitle(input.jobTitle)) return true;
   if (input.roles.includes("regional_ops")) return true;
   if (isHeadOfOperationsTitle(input.jobTitle)) return true;
   return false;
 }
 
-/** Company staff for the CEO. Everyone else who may fill uses their reporting team. */
+/** Who the filler may write punches for — reporting team under Head of Operations. */
 export function rosterFillAudience(input: {
   roles: readonly string[];
   jobTitle?: string | null;
 }): "company" | "team" | null {
   if (!mayFillRosterDevicePunches(input)) return null;
-  if (input.roles.includes("ceo")) return "company";
   return "team";
 }
 

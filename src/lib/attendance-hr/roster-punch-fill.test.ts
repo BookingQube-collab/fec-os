@@ -12,14 +12,7 @@ import {
 const LOCATION = "11111111-1111-1111-1111-111111111111";
 
 describe("who may fill missed device punches from the roster", () => {
-  it("allows the CEO, a GM, and Head of Operations, and refuses a cashier or a plain supervisor", () => {
-    expect(mayFillRosterDevicePunches({ roles: ["ceo"] })).toBe(true);
-    expect(rosterFillAudience({ roles: ["ceo"] })).toBe("company");
-
-    expect(mayFillRosterDevicePunches({ roles: ["branch_gm"] })).toBe(true);
-    expect(mayFillRosterDevicePunches({ roles: ["cashier_host"], jobTitle: "General Manager" })).toBe(true);
-    expect(rosterFillAudience({ roles: ["branch_gm"] })).toBe("team");
-
+  it("allows Head of Operations only, and refuses Sr. Site Supervisor even with branch_gm", () => {
     expect(mayFillRosterDevicePunches({ roles: ["regional_ops"] })).toBe(true);
     expect(
       mayFillRosterDevicePunches({
@@ -28,12 +21,25 @@ describe("who may fill missed device punches from the roster", () => {
       }),
     ).toBe(true);
     expect(rosterFillAudience({ roles: ["regional_ops"], jobTitle: "Head of Operations" })).toBe("team");
+    expect(rosterFillAudience({ roles: [], jobTitle: "Head of Operations" })).toBe("team");
 
+    // Mary: Sr. Site Supervisor keeps branch_gm for other scopes — must not unlock Fill.
+    expect(
+      mayFillRosterDevicePunches({
+        roles: ["branch_gm"],
+        jobTitle: "Sr. Site Supervisor",
+      }),
+    ).toBe(false);
+    expect(rosterFillAudience({ roles: ["branch_gm"], jobTitle: "Sr. Site Supervisor" })).toBeNull();
+
+    expect(mayFillRosterDevicePunches({ roles: ["ceo"] })).toBe(false);
+    expect(mayFillRosterDevicePunches({ roles: ["branch_gm"] })).toBe(false);
+    expect(mayFillRosterDevicePunches({ roles: ["cashier_host"], jobTitle: "General Manager" })).toBe(false);
     expect(mayFillRosterDevicePunches({ roles: ["cashier_host"] })).toBe(false);
     expect(mayFillRosterDevicePunches({ roles: ["tech_supervisor"], jobTitle: "Site Supervisor" })).toBe(false);
     expect(mayFillRosterDevicePunches({ roles: ["duty_manager"], jobTitle: "Duty Manager" })).toBe(false);
     expect(rosterFillAudience({ roles: ["cashier_host"] })).toBeNull();
-    expect(rosterFillAudience({ roles: ["tech_supervisor"] })).toBeNull();
+    expect(rosterFillAudience({ roles: ["ceo"] })).toBeNull();
   });
 });
 
