@@ -21,6 +21,7 @@
     "seed:event-dummy": "node --env-file=.env.local scripts/seed-event-dummy.mjs",
     "seed:all": "node --env-file=.env.local scripts/seed-all.mjs",
     "import:staff": "node --env-file=.env.local scripts/import-staff-roster.mjs",
+    "sync:staff-login-emails": "node --env-file=.env.local scripts/sync-staff-login-emails.mjs",
     "generate:demo": "node scripts/generate-demo-data.mjs",
     "recalc:attendance": "npx --yes tsx --require ./scripts/stub-server-only.cjs --env-file=.env.local scripts/recalc-attendance-range.ts",
     "db:push": "node --env-file=.env.local scripts/push-migrations.mjs",

@@ -8,6 +8,7 @@ import {
   createAuthenticatedAction,
   createAuthenticatedActionNoInput,
   createSafeAuthenticatedAction,
+  createSafeAuthenticatedActionNoInput,
 } from "@/lib/server/create-action";
 import {
   ensureServerCapabilityGrants,
@@ -30,6 +31,10 @@ import {
   STAFF_LOGIN_PASSWORD_MIN,
   STAFF_LOGIN_ROLE,
 } from "@/lib/staff-login";
+import {
+  planStaffLoginEmailSync,
+  STAFF_LOGIN_EMAIL_SYNC_CONFIRMATION,
+} from "@/lib/staff-login-email-sync";
 
 const RoleEnum = z.enum([
   "ceo",
@@ -750,3 +755,142 @@ export const updateStaffLogin = createSafeAuthenticatedAction(
   },
   { auth: { requireRole: true } },
 );
+
+/**
+ * Preview / apply one-time sync: staff.email → auth.users.email for linked staff.
+ * Idempotent. Does not invent emails — roster contact must already hold the revised address.
+ */
+export const previewStaffLoginEmailSync = createSafeAuthenticatedActionNoInput(
+  async (context) => {
+    await requireExec(context.supabase, 95);
+    return runStaffLoginEmailSync({ apply: false, actorUserId: context.userId });
+  },
+  { auth: { requireRole: true } },
+);
+
+export const applyStaffLoginEmailSync = createSafeAuthenticatedAction(
+  z.object({
+    confirmation: z.string().trim(),
+  }),
+  async (data, context) => {
+    await requireExec(context.supabase, 95);
+    if (data.confirmation !== STAFF_LOGIN_EMAIL_SYNC_CONFIRMATION) {
+      throw new Error(`Type ${STAFF_LOGIN_EMAIL_SYNC_CONFIRMATION} to confirm.`);
+    }
+    const result = await runStaffLoginEmailSync({ apply: true, actorUserId: context.userId });
+    const { error: auditErr } = await context.supabase.rpc("log_audit", {
+      _action: "admin.staff_login_email_sync",
+      _table_name: "staff",
+      _row_id: context.userId,
+      _after: result.counts,
+      _metadata: { updated: result.updated.slice(0, 200), failures: result.failures.slice(0, 50) },
+    });
+    if (auditErr) console.error("[applyStaffLoginEmailSync] audit log failed");
+    return result;
+  },
+  { auth: { requireRole: true } },
+);
+
+async function runStaffLoginEmailSync(opts: { apply: boolean; actorUserId: string }) {
+  const authByEmail = new Map<string, string>();
+  const authEmailById = new Map<string, string>();
+  for (let page = 1; page <= 20; page += 1) {
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage: 200 });
+    if (error) throw error;
+    for (const user of data.users) {
+      const email = (user.email ?? "").trim().toLowerCase();
+      authEmailById.set(user.id, email);
+      if (email && !authByEmail.has(email)) authByEmail.set(email, user.id);
+    }
+    if (data.users.length < 200) break;
+  }
+
+  const { data: staffRows, error } = await supabaseAdmin
+    .from("staff")
+    .select("id, employee_code, full_name, email, user_id")
+    .is("deleted_at", null)
+    .order("employee_code");
+  if (error) throw error;
+
+  const counts = {
+    skip_no_login: 0,
+    skip_no_email: 0,
+    skip_invalid_email: 0,
+    skip_already_matched: 0,
+    update_auth: 0,
+    conflict_taken: 0,
+    failed: 0,
+  };
+  const updated: { staffId: string; employeeCode: string | null; from: string | null; to: string }[] = [];
+  const failures: { staffId: string; employeeCode: string | null; reason: string }[] = [];
+  const conflicts: { staffId: string; employeeCode: string | null; email: string }[] = [];
+
+  for (const row of staffRows ?? []) {
+    const decision = planStaffLoginEmailSync(
+      {
+        staffId: row.id,
+        userId: row.user_id,
+        staffEmail: row.email,
+        authEmail: row.user_id ? authEmailById.get(row.user_id) || null : null,
+      },
+      authByEmail,
+    );
+
+    if (decision.action === "skip_no_login") counts.skip_no_login += 1;
+    else if (decision.action === "skip_no_email") counts.skip_no_email += 1;
+    else if (decision.action === "skip_invalid_email") counts.skip_invalid_email += 1;
+    else if (decision.action === "skip_already_matched") counts.skip_already_matched += 1;
+    else if (decision.action === "conflict_taken") {
+      counts.conflict_taken += 1;
+      conflicts.push({
+        staffId: row.id,
+        employeeCode: row.employee_code,
+        email: decision.email,
+      });
+    } else if (decision.action === "update_auth") {
+      if (!opts.apply) {
+        counts.update_auth += 1;
+        updated.push({
+          staffId: row.id,
+          employeeCode: row.employee_code,
+          from: decision.previousEmail,
+          to: decision.email,
+        });
+        continue;
+      }
+      const { error: updErr } = await supabaseAdmin.auth.admin.updateUserById(row.user_id!, {
+        email: decision.email,
+        email_confirm: true,
+      });
+      if (updErr) {
+        counts.failed += 1;
+        failures.push({
+          staffId: row.id,
+          employeeCode: row.employee_code,
+          reason: updErr.message,
+        });
+        continue;
+      }
+      counts.update_auth += 1;
+      updated.push({
+        staffId: row.id,
+        employeeCode: row.employee_code,
+        from: decision.previousEmail,
+        to: decision.email,
+      });
+      if (decision.previousEmail) authByEmail.delete(decision.previousEmail);
+      authByEmail.set(decision.email, row.user_id!);
+      authEmailById.set(row.user_id!, decision.email);
+    }
+  }
+
+  return {
+    apply: opts.apply,
+    actorUserId: opts.actorUserId,
+    counts,
+    updated: updated.slice(0, 500),
+    failures: failures.slice(0, 100),
+    conflicts: conflicts.slice(0, 100),
+  };
+}
+

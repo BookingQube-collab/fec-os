@@ -8,6 +8,8 @@ export interface DispatchPayload {
   title: string;
   body?: string | null;
   actionUrl?: string | null;
+  /** Explicit delivery address (usually staff.email). Preferred over looking up by userId. */
+  to?: string | null;
 }
 
 export interface DispatchResult {
@@ -60,6 +62,8 @@ export const emailProvider: NotificationProvider = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           toUserId: payload.userId,
+          /** Canonical staff.email when provided — use after login-email sync. */
+          to: payload.to?.trim() || undefined,
           notificationId: payload.notificationId,
           subject: payload.title,
           title: payload.title,

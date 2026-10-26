@@ -7090,6 +7090,21 @@
       "other": "other linked records"
     }
   },
+  "adminLoginEmailSync": {
+    "title": "Sync login emails from roster",
+    "cardBody": "One-time push of staff.email into sign-in emails so employees can open payslips with the revised address. Safe to run again — already-matched logins are skipped.",
+    "open": "Preview sync",
+    "dialogTitle": "Sync login emails?",
+    "explain": "Each linked staff member whose roster email differs from their auth login will have the auth email updated (confirmed). Passwords are not changed.",
+    "previewCount": "{{count}} login email(s) would be updated.",
+    "prerequisite": "Put the new addresses on each employee’s staff.email in People first (or run the CSV script). Profile self-serve cannot change sign-in email.",
+    "typeLabel": "Type {{phrase}} to confirm",
+    "confirm": "Apply sync",
+    "failed": "Could not sync login emails",
+    "conflicts": "{{count}} email(s) are already used by another login — those rows were skipped.",
+    "partialFailures": "{{count}} auth update(s) failed — check the server response details.",
+    "success": "Updated {{updated}} login email(s). {{matched}} already matched. {{conflicts}} conflict(s). {{failed}} failure(s)."
+  },
   "adminPayrollReset": {
     "title": "Remove all payroll",
     "cardBody": "Delete every payroll run so you can test payroll again from scratch. Employees, attendance, and other HR records stay.",

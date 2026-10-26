@@ -7,6 +7,23 @@ import {
 } from "@/lib/notifications/providers";
 import { CAPABILITIES, type AppRole, type Capability } from "@/lib/rbac";
 import { STEP_CAPABILITY, type ApprovalStepRole } from "@/lib/procurement/routing";
+import { resolveStaffPayslipEmail } from "@/lib/staff-login-email-sync";
+
+async function staffEmailsByUserId(userIds: string[]): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  if (!userIds.length) return map;
+  const { data } = await supabaseAdmin
+    .from("staff")
+    .select("user_id, email")
+    .in("user_id", userIds)
+    .is("deleted_at", null);
+  for (const row of data ?? []) {
+    if (!row.user_id) continue;
+    const email = resolveStaffPayslipEmail(row.email);
+    if (email) map.set(row.user_id, email);
+  }
+  return map;
+}
 
 type NotifyInsert = {
   userIds: string[];
@@ -48,12 +65,15 @@ export async function notifyUsers(opts: NotifyInsert): Promise<number> {
   }
 
   // Phase 12: HR categories also POST to NOTIFICATION_EMAIL_WEBHOOK when set.
+  // Include staff.email as `to` so delivery uses the roster address after login-email sync.
   if (isHrNotificationCategory(opts.category)) {
+    const emails = await staffEmailsByUserId(ids);
     for (const userId of ids) {
       try {
         await dispatchHrEmailIfConfigured({
           notificationId: `hr-notify-${opts.sourceType ?? opts.category}-${userId}`,
           userId,
+          to: emails.get(userId) ?? null,
           title: opts.title,
           body: opts.body ?? null,
           actionUrl: opts.actionUrl ?? null,

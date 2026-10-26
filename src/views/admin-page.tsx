@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { RemoveAllPayrollCard } from "@/components/admin/remove-all-payroll-card";
+import { SyncStaffLoginEmailsCard } from "@/components/admin/sync-staff-login-emails-card";
 import { InstallAppAdminCard } from "@/components/pwa/install-app-control";
 
 const ROLES = Object.keys(ROLE_LEVELS) as AppRole[];
@@ -150,6 +151,7 @@ function AdminPage() {
         </Link>
       ) : null}
       <InstallAppAdminCard />
+      {canManage ? <SyncStaffLoginEmailsCard /> : null}
       {canResetPayroll ? <RemoveAllPayrollCard /> : null}
       {maxLevel < 80 ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
