@@ -87,8 +87,8 @@ const TRANSITIONS: Record<HrOtStatus, Partial<Record<HrOtActor, HrOtStatus[]>>> 
     hr: ["hr_approved", "changes_requested", "rejected"],
   },
   hr_approved: {
+    // GM seat only — HR (and CEO/COO with hr.ot.approve) must not advance this step.
     gm: ["gm_approved", "changes_requested", "rejected"],
-    hr: ["gm_approved", "changes_requested", "rejected"],
   },
   gm_approved: {
     payroll: ["payroll_posted"],
@@ -145,11 +145,13 @@ export function resolveOtApprovalQueueFlags(input: {
   const canGmApprove = canActAsOtGeneralManager(input);
   // HoO / true GM do not use the site seat queue; Mary (verify + branch_gm) does.
   const canSiteVerify = input.canVerify && !canOpsApprove && !canGmApprove;
+  // Head of Operations often holds ceo → hr.ot.approve, but must not act as HR/GM on OT.
+  const canHrApprove = input.canHrApprove && !canOpsApprove && !canGmApprove;
   return {
     canSiteVerify,
     canOpsApprove,
     canGmApprove,
-    canHrApprove: input.canHrApprove,
+    canHrApprove,
   };
 }
 

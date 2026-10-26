@@ -46,7 +46,6 @@ import {
   submitSupervisorOtClaim,
 } from "@/lib/hr-ot.functions";
 import {
-  canActAsOtGeneralManager,
   canEditOtBeforeHoo,
   canRequestOtChanges,
   filterOtRequestGroups,
@@ -56,6 +55,7 @@ import {
   isSupervisorOtStaffEntryReady,
   normalizeSupervisorOtDays,
   partitionSupervisorOtPicks,
+  resolveOtApprovalQueueFlags,
   sumSupervisorOtDayHours,
   supervisorOtStaffFieldErrors,
   type HrOtRateType,
@@ -915,7 +915,7 @@ function OtRequestActions({
           </Button>
         </>
       ) : null}
-      {group.status === "hr_approved" && (canGmApprove || canHrApprove) ? (
+      {group.status === "hr_approved" && canGmApprove ? (
         <>
           <Button size="sm" disabled={busy} onClick={() => onAction("gm_approve")}>
             {t("hr.ot.gmApprove")}
@@ -958,12 +958,16 @@ export default function HrOtPage() {
   const searchParams = useSearchParams();
   const { profile, user } = useAuth();
   const roles = useUserRoles();
-  const canHrApprove = usePermission("hr.ot.approve");
-  const canHooApprove = isHeadOfOperationsTitle(profile?.job_title);
-  const canGmApprove = canActAsOtGeneralManager({
+  const otQueueFlags = resolveOtApprovalQueueFlags({
+    canVerify: usePermission("hr.ot.verify"),
+    canHrApprove: usePermission("hr.ot.approve"),
+    isHeadOfOperations: isHeadOfOperationsTitle(profile?.job_title),
     roles,
     jobTitle: profile?.job_title,
   });
+  const canHrApprove = otQueueFlags.canHrApprove;
+  const canHooApprove = otQueueFlags.canOpsApprove;
+  const canGmApprove = otQueueFlags.canGmApprove;
   const deepLinkQ = (searchParams.get("q") ?? "").trim();
   const [status, setStatus] = useState<"queue" | "gm_approved" | "payroll_posted" | "all">("queue");
   const [search, setSearch] = useState(deepLinkQ);

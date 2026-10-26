@@ -228,6 +228,50 @@ describe("OT claim transitions", () => {
     ).toEqual(["manager_verified"]);
   });
 
+  it("strips HR/GM seats from Head of Operations even when ceo grants hr.ot.approve", () => {
+    const flags = resolveOtApprovalQueueFlags({
+      canVerify: true,
+      canHrApprove: true,
+      isHeadOfOperations: true,
+      roles: ["ceo", "regional_ops"],
+      jobTitle: "Head of Operations",
+    });
+    expect(flags).toEqual({
+      canSiteVerify: false,
+      canOpsApprove: true,
+      canGmApprove: false,
+      canHrApprove: false,
+    });
+    expect(otApprovalQueueStatuses(flags)).toEqual(["manager_verified"]);
+  });
+
+  it("keeps HR seat for hr role and GM seat only for true GM", () => {
+    expect(
+      resolveOtApprovalQueueFlags({
+        canVerify: true,
+        canHrApprove: true,
+        isHeadOfOperations: false,
+        roles: ["hr"],
+        jobTitle: "HR Manager",
+      }).canHrApprove,
+    ).toBe(true);
+    expect(
+      resolveOtApprovalQueueFlags({
+        canVerify: false,
+        canHrApprove: true,
+        isHeadOfOperations: false,
+        roles: ["branch_gm"],
+        jobTitle: "General Manager",
+      }),
+    ).toEqual({
+      canSiteVerify: false,
+      canOpsApprove: false,
+      canGmApprove: true,
+      canHrApprove: false,
+    });
+    expect(canTransitionOt("hr_approved", "gm_approved", "hr")).toBe(false);
+  });
+
   it("builds Approval queue deep-links with optional request number", () => {
     expect(otApprovalQueueHref()).toBe("/people/hr/ot");
     expect(otApprovalQueueHref("OT-20261027-0003")).toBe(

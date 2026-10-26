@@ -96,6 +96,21 @@ function canOtGmApprove(context: AuthContext): boolean {
   });
 }
 
+/**
+ * HR step + payroll on OT. Capability alone is not enough: Head of Operations
+ * (often ceo → hr.ot.approve) and the GM seat must not act as Mia here.
+ */
+function canOtHrStep(context: AuthContext): boolean {
+  return resolveOtApprovalQueueFlags({
+    canVerify: false,
+    canHrApprove: canOtApprove(context),
+    isHeadOfOperations: canOtOpsApprove(context),
+    roles: context.roles ?? [],
+    jobTitle: otAccess(context)?.jobTitle ?? null,
+    staffRole: otAccess(context)?.staffRole ?? null,
+  }).canHrApprove;
+}
+
 /** Actionable Approval-queue status set for this login. */
 function otQueueStatusesForActor(context: AuthContext, canVerify: boolean, canApprove: boolean) {
   return otApprovalQueueStatuses(
@@ -1433,8 +1448,8 @@ async function applyOtClaimAction(input: {
     approvalStep = "ops";
     approvalAction = "approved";
   } else if (action === "gm_approve") {
-    if (!canGm && !canApprove) throw new ForbiddenError("General Manager approval required.");
-    actor = canGm ? "gm" : "hr";
+    if (!canGm) throw new ForbiddenError("General Manager approval required.");
+    actor = "gm";
     to = "gm_approved";
     assertOtTransition(from, to, actor);
     const mins = assertMinClaimableMinutes(
@@ -1455,7 +1470,7 @@ async function applyOtClaimAction(input: {
     approvalStep = "gm";
     approvalAction = "approved";
   } else if (action === "approve") {
-    if (!canApprove) throw new ForbiddenError("HR approval required.");
+    if (!canOtHrStep(context)) throw new ForbiddenError("HR approval required.");
     actor = "hr";
     to = "hr_approved";
     assertOtTransition(from, to, actor);
@@ -1477,27 +1492,28 @@ async function applyOtClaimAction(input: {
     approvalStep = "hr";
     approvalAction = "approved";
   } else if (action === "request_changes") {
-    if (!canVerify && !canApprove && !canOps && !canGm) {
+    const canHrStep = canOtHrStep(context);
+    if (!canVerify && !canHrStep && !canOps && !canGm) {
       throw new ForbiddenError("Cannot request changes on OT claim.");
     }
     if (!canRequestOtChanges(from)) {
       throw new ForbiddenError("Change request is not allowed at this OT status.");
     }
     if (from === "hr_approved") {
-      if (!canGm && !canApprove) {
+      if (!canGm) {
         throw new ForbiddenError("General Manager change request required.");
       }
-      actor = canGm ? "gm" : "hr";
+      actor = "gm";
     } else if (from === "ops_approved") {
-      if (!canApprove) throw new ForbiddenError("HR change request required at this step.");
+      if (!canHrStep) throw new ForbiddenError("HR change request required at this step.");
       actor = "hr";
     } else if (from === "manager_verified") {
-      if (!canOps && !canApprove) {
+      if (!canOps && !canHrStep) {
         throw new ForbiddenError("Head of Operations change request required.");
       }
       actor = canOps ? "ops" : "hr";
     } else {
-      actor = canApprove ? "hr" : "manager";
+      actor = canHrStep ? "hr" : "manager";
       if (actor === "manager") {
         await assertOtClaimInSiteSupervisorTeam(context, String(existing.staff_id));
       }
@@ -1541,20 +1557,21 @@ async function applyOtClaimAction(input: {
     approvalStep = "submit";
     approvalAction = "resubmitted";
   } else if (action === "reject") {
-    if (!canVerify && !canApprove && !canOps && !canGm) {
+    const canHrStep = canOtHrStep(context);
+    if (!canVerify && !canHrStep && !canOps && !canGm) {
       throw new ForbiddenError("Cannot reject OT claim.");
     }
     if (from === "hr_approved") {
-      if (!canGm && !canApprove) throw new ForbiddenError("General Manager rejection required.");
-      actor = canGm ? "gm" : "hr";
+      if (!canGm) throw new ForbiddenError("General Manager rejection required.");
+      actor = "gm";
     } else if (from === "ops_approved") {
-      if (!canApprove) throw new ForbiddenError("HR rejection required at this step.");
+      if (!canHrStep) throw new ForbiddenError("HR rejection required at this step.");
       actor = "hr";
     } else if (from === "manager_verified") {
-      if (!canOps && !canApprove) throw new ForbiddenError("Head of Operations rejection required.");
+      if (!canOps && !canHrStep) throw new ForbiddenError("Head of Operations rejection required.");
       actor = canOps ? "ops" : "hr";
     } else {
-      actor = canApprove ? "hr" : "manager";
+      actor = canHrStep ? "hr" : "manager";
       if (actor === "manager") {
         await assertOtClaimInSiteSupervisorTeam(context, String(existing.staff_id));
       }
@@ -1579,7 +1596,9 @@ async function applyOtClaimAction(input: {
     approvalStep = "submit";
     approvalAction = "cancelled";
   } else if (action === "payroll_posted") {
-    if (!canApprove) throw new ForbiddenError("Marking payroll_posted requires hr.ot.approve.");
+    if (!canOtHrStep(context)) {
+      throw new ForbiddenError("Marking payroll_posted requires HR OT approval access.");
+    }
     assertCanMarkPayrollPosted(from);
     actor = "hr";
     to = "payroll_posted";
